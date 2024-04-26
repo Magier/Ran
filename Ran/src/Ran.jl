@@ -1,17 +1,22 @@
 module Ran
 
+include("domain.jl")
+include("messageBus.jl")
+include("armory.jl")
+include("campaign.jl")
 include("api.jl")
-using .Api
+
 
 function main() 
-    # create message bus
-    # create campaign
     # create c2 adapter
-    # start the API server
-    Api.serve()
+    msgBus = MessageBus()
+
+    startApi(msgBus)
+    startCampaign(msgBus)
+
+    handleEvents(msgBus)
 end
 
+export main
 
 end
-
-Ran.main()
