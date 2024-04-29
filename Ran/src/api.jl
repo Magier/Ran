@@ -18,25 +18,34 @@ function handleSendMessages(ws::HTTP.WebSocket, channel)
     # while true
         # ev = take!(channel)
     for ev in channel
-        HTTP.send(ws, JSON3.write(ev.data))
+        try
+            HTTP.send(ws, JSON3.write(ev.data))
+        catch e 
+            @error "Error from sending msg: $e"
+        end
     end
 end
 
-function handleSocket(ws::HTTP.WebSocket, bus::MessageBus) 
+function handleSocket(ws::HTTP.WebSocket, bus::MessageBus)
     publish!(bus, ClientConnected())
-    @info "handle socket $(Threads.threadid())"
 
-    for msgStr in ws
-        msg = JSON3.read(msgStr)
-        eventType = get(msg, "event_type", Nothing)
-        data = get(msg, "data", Nothing)
+    try
+        for msgStr in ws
+            msg = JSON3.read(msgStr)
+            eventType = get(msg, "event_type", Nothing)
+            data = get(msg, "data", Nothing)
 
-        if eventType == "terminal" 
-            HTTP.send(ws, JSON3.write(Dict("type" => "terminal", "result" => data)))
-        elseif eventType == "quit"
-            HTTP.send(ws, JSON3.write(Dict("type"=> "terminal", "result" => "bye ~~")))
-            break
+            if eventType == "terminal" 
+                HTTP.send(ws, JSON3.write(Dict("type" => "terminal", "result" => data)))
+                # TODO translate the message to a command and publish the event
+                publish!(bus, Command)
+            elseif eventType == "quit"
+                HTTP.send(ws, JSON3.write(Dict("type"=> "terminal", "result" => "bye ~~")))
+                break
+            end
         end
+    catch e
+        @error "Error websocket: $e"
     end
     println("~~~ post socket")
 end
@@ -48,13 +57,13 @@ end
     channel = get!(ws.request.context, :SEND_CHANNEL, nothing)
 
     if isnothing(channel)
-        println("SEND channel was not set for websocket")
+        @error "SEND channel was not set for websocket"
     elseif isnothing(bus)
-        println("bus was not set properly for request")
+        @error "bus was not set properly for request"
     else
         @sync begin
-            @async handleSendMessages(ws, channel)
-            @async handleSocket(ws, bus)
+            @async handleSendMessages($ws, $channel)
+            @async handleSocket($ws, $bus)
         end
     end
     println("post socket")
@@ -67,9 +76,7 @@ function handleUiEvent(channels, event::Any)
 end
 
 function startApi(bus::MessageBus)
-    channels = []
-    # unsubConnManager = register!(bus, ClientConnected, onNewClient)
-    # unsubConnManager = register!(bus, ClientConnected, (ws) -> append!(connHandler, ws))
+    channels = Channel[]
 
     unsub = register!(bus, UiEvent, (ev) -> handleUiEvent(channels, ev))
     unsub = register!(bus, SendToUi, (ev) -> handleUiEvent(channels, ev))
