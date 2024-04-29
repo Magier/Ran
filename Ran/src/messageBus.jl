@@ -9,17 +9,17 @@ mutable struct MessageBus
     handlers::Dict{Type{<:Message}, Vector{Function}}
 end
 function MessageBus()
-    return MessageBus(Channel(), Dict{Type{<:Message}, Vector{Function}}())
+    return MessageBus(Channel(100), Dict{Type{<:Message}, Vector{Function}}())
 end
 
 function handleEvents(bus::MessageBus)
     while true
         msg = take!(bus.channel)
-        println("💻 RX $msg\n")
+        @debug "💻 RX $msg"
 
         handlers = get(bus.handlers, typeof(msg), [])
         if length(handlers) == 0
-            println("$msg has no handlers")
+            @warn "$msg has no handlers"
         end
 
         for handler in handlers
@@ -44,9 +44,9 @@ function register!(bus::MessageBus, msg::Type{<:Message}, fn::Function)
 end
 
 
-function publish!(bus::MessageBus, msg::Type{<:Message}, data::Union{Any, Nothing}=nothing)
-    put!(bus.channel, Envelope(msg, data))
-end
+# function publish!(bus::MessageBus, msg::Type{<:Message}, data::Union{Any, Nothing}=nothing)
+#     put!(bus.channel, Envelope(msg, data))
+# end
 
 function publish!(bus::MessageBus, msg::T) where {T<:Message}
     put!(bus.channel, msg)
