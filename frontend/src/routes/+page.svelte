@@ -7,11 +7,15 @@
 	import DeployPodModal from '$lib/modals/DeployPodModal.svelte';
 
 	import { Modal, getModalStore } from '@skeletonlabs/skeleton';
-	import type { ModalSettings, ModalComponent, ModalStore } from '@skeletonlabs/skeleton';
+	import type { ModalSettings, ModalComponent, ModalStore, DrawerSettings } from '@skeletonlabs/skeleton';
+
+	import { getDrawerStore } from "@skeletonlabs/skeleton";
 
 	import type { TTP } from './model.js';
 	import store from '$lib/stores/store';
+
 	const modalStore = getModalStore();
+	const drawerStore = getDrawerStore();
 
 	let selected_node_id: string | null = null;
 	let selectedNode: Object | null = null;
@@ -32,7 +36,7 @@
 					if (params) {
 						store.sendMessage('execute_ttp', {
 							target: selected_node_id,
-							ttp_id: ttp.id,
+							ttp_id: ttp.id || ttp.technique,
 							technique: ttp.technique,
 							action: ttp.action,
 							cmd_args: params,
@@ -89,6 +93,18 @@
 			}
 		} else if (event.key === '`' || (event.ctrlkey && (event.key === '.' || event.key === '/'))) {
 			console.log(` Graph KeyDown: '${event.key}'`);
+			event.preventDefault();
+			const drawerSettings: DrawerSettings = {
+				id: 'console-drawer',
+				// Provide your property overrides:
+				bgDrawer: 'bg-surface-900 text-white',
+				bgBackdrop: 'variant-glass-primary',
+				// width: 'w-[280px] md:w-[480px]',
+				padding: 'p-4',
+				position: 'top',
+				rounded: 'rounded-xl',
+			};
+			drawerStore.open(drawerSettings);
 		}
 	}
 </script>
@@ -105,8 +121,9 @@
 			<h2 class="h2 text-center">Ran</h2>
 		</div>
 	{:then sessions}
-		<Graph bind:selected_node_id bind:selectedNode />
-		<Armory on:action={sendAction} globalConditions={activeGlobalConditions} {selectedNode} />
+		<div class="basis-3/4"></div>
+		<!-- <Graph bind:selected_node_id bind:selectedNode /> -->
+		<Armory class="basis-1/4" on:action={sendAction} globalConditions={activeGlobalConditions} {selectedNode} />
 	{:catch someError}
 		<div class="justify-center">
 			<figure>
