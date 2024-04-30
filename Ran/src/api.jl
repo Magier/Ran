@@ -98,8 +98,8 @@ end
     println("post socket")
 end
 
-function handleUiEvent(channels:: Dict{String, Channel}, event::Any)
-    @info "sending $(typeof(event)) event to $(length(channels)) channels"
+function handleUiEvent(channels:: Dict{String, Channel}, event::SendToUi)
+    @info "sending $(event.type) event to $(length(channels)) UIs"
     for ch in values(channels)
         put!(ch, event)
     end

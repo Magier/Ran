@@ -18,3 +18,12 @@ end
 struct ClientDisconnected <: UiEvent 
     id::String
 end
+
+
+
+abstract type Entity end
+
+struct System <: Entity 
+    id:: String
+    name::String
+end
