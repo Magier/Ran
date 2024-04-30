@@ -8,7 +8,7 @@ end
 function onClientConnected(ev::ClientConnected)
     armory = getArmory()
     topology = Dict(
-        "entities" => [],
+        "entities" => [System("1", "test-system")],
         "relations" => []
     )
 
