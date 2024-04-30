@@ -6,15 +6,13 @@ end
 
 
 function onClientConnected(ev::ClientConnected)
-    # send armory
-    # send current topology
     armory = getArmory()
     topology = Dict(
         "entities" => [],
         "relations" => []
     )
 
-    return SendToUi(Dict("type" => "armory", "data" => armory)), SendToUi(Dict("type" => "topology", "data" => topology))
+    return SendToUi("armory", armory), SendToUi("topology", topology)
 end
 
 function startCampaign(bus::MessageBus)

@@ -109,7 +109,7 @@ function parseArmory(armory: ArmoryType) {
 const sendMessage = (msgType: string, command: Command) => {
 	if (browser) {
 		if (socket && socket.readyState == 1) {
-			command.event_type = msgType;
+			command.msg_type = msgType;
 			socket.send(JSON.stringify(command));
 		}
 	}
