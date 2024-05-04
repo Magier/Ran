@@ -44,10 +44,12 @@ function register!(bus::MessageBus, msg::Type{<:Message}, fn::Function)
 end
 
 
-# function publish!(bus::MessageBus, msg::Type{<:Message}, data::Union{Any, Nothing}=nothing)
-#     put!(bus.channel, Envelope(msg, data))
-# end
+function publish!(bus::MessageBus, msg::Type{<:Message}, data::Union{Any, Nothing}=nothing)
+    println("publish instance $msg")
+    put!(bus.channel, Envelope(msg, data))
+end
 
 function publish!(bus::MessageBus, msg::T) where {T<:Message}
+    println("publish type $msg")
     put!(bus.channel, msg)
 end
