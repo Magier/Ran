@@ -38,6 +38,11 @@ function handleSendMessages(ws::HTTP.WebSocket, channel::Channel)
 end
 
 function parseCommand(data::Any) :: Union{Command, Nothing}
+    data = strip(data)
+
+    if startswith(data, "listen")
+        return StartListener()
+    end
     return nothing
 end
 
@@ -51,13 +56,13 @@ function handleSocket(ws::HTTP.WebSocket, bus::MessageBus, clientId::String, cha
             data = get(msg, "data", Nothing)
 
             if eventType == "terminal" 
-                # TODO translate the message to a command and publish the event
                 cmd = parseCommand(data)
+                @info "got cmd: $cmd"
 
                 if isnothing(cmd)
                     send(ws, "terminal", Dict("status" => "false", "message" => "Invalid command"))
                 else
-                    publish!(bus, data)
+                    publish!(bus, cmd)
                 end
             elseif eventType == "quit"
                 send(ws, "terminal", "bye ~~")
