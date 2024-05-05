@@ -1,22 +1,54 @@
 
 mutable struct Campaign
-    entities::Vector{}
+    entities::Vector{Entity}
+    relations::Vector{AbstractRelation}
 end
 
 
+function structToDict(s::Any) :: Dict{AbstractString, Any}
+    return Dict(string(key)=>getfield(s, key) for key ∈ fieldnames(typeof(s)))
+end
 
-function onClientConnected(ev::ClientConnected)
+
+function onClientConnected(ev::ClientConnected, campaign:: Campaign)
     armory = getArmory()
-    topology = Dict(
-        "entities" => [System("1", "test-system")],
-        "relations" => []
-    )
-
+    topology = structToDict(campaign)
     return SendToUi("armory", armory), SendToUi("topology", topology)
 end
 
-function startCampaign(bus::MessageBus)
-    campaign = Campaign([])
 
-    register!(bus, ClientConnected, onClientConnected)
+function onListenerReady(ev::ListenerReady, campaign:: Campaign)
+    @info("  [T $(Threads.threadid())][Campaign] listener ready")
+
+    push!(campaign.entities, System(id=ev.id, name="Listener $(ev.port)"))
+
+    topology = structToDict(campaign)
+    return SendToUi("topology", topology)
+end
+
+
+function onSessionStarted(ev::SessionStarted, campaign:: Campaign)
+    @debug("  [T $(Threads.threadid())][Campaign] session started")
+
+    println("session event: $ev")
+    push!(campaign.entities, System(id=ev.id, name=ev.hostname, os=ev.os))
+    push!(campaign.relations, Relation(name="simple listener", source=ev.id, destination=ev.listenerId))
+
+    topology = structToDict(campaign)
+    return SendToUi("topology", topology)
+end
+
+function onSessionEnded(ev::SessionEnded, campaign:: Campaign)
+    @debug("  [T $(Threads.threadid())][Campaign] session ended")
+    # TODO remove system from campaign
+    return []
+end
+
+
+function startCampaign(bus::MessageBus)
+    campaign = Campaign([], [])
+    register!(bus, ClientConnected, (ev) -> onClientConnected(ev, campaign))
+    register!(bus, ListenerReady, (ev) -> onListenerReady(ev, campaign))
+    register!(bus, SessionStarted, (ev) -> onSessionStarted(ev, campaign))
+    register!(bus, SessionEnded, (ev) -> onSessionEnded(ev, campaign))
 end
