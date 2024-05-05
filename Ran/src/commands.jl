@@ -6,6 +6,7 @@ struct SendToUi <: Command
     data:: Any
 end
 
+# TODO: maybe support different types (e.g. mTLS, HTTP, DNS, etc.)
 @Base.kwdef struct StartListener <: Command
     port:: Int = 1337
 end
