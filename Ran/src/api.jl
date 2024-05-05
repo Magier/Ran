@@ -79,7 +79,6 @@ end
 
 
 @websocket "/ws" function(ws::HTTP.WebSocket)
-    @info ">> websocket Handler: Thread $(Threads.threadid())"
     bus = get!(ws.request.context, :BUS, nothing)
     clientId = get!(ws.request.context, :CLIENT_ID, nothing)
     channel = get!(ws.request.context, :SEND_CHANNEL, nothing)
@@ -92,11 +91,11 @@ end
         @error "BUS was not set properly for request"
     else
         @sync begin
-            taskRx = @async handleSendMessages($ws, $channel)
-            taskTx = @async handleSocket($ws, $bus, $clientId, $channel)
+            errormonitor(@async handleSendMessages($ws, $channel))
+            errormonitor(@async handleSocket($ws, $bus, $clientId, $channel))
             # bind(channel, taskTx) # bind lifetime of both tasks via the channel, if one closes, the other will too
-            errormonitor(taskRx)
-            errormonitor(taskTx)
+            # errormonitor(taskRx)
+            # errormonitor(taskTx)
         end
     end
     # TODO: lifetime of tasks is still not okay, the following message is never reached:
