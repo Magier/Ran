@@ -1,43 +1,5 @@
 using StructTypes
 
-@enum Tactic begin
-    InitialAccess = 1
-    Execution = 2
-    Persistence = 3
-    PrivilegeEscalation = 4
-    DefenseEvasion = 5
-    CredentialAccess = 6
-    Discovery = 7
-    LateralMovement = 8
-    Impact = 9
-end
-
-@enum Technique begin
-    FileAndDirectoryDiscovery = 1083
-    ExploitPublicFacingApp = 1190
-    GatherVictimHostInformation = 1592
-    ContainerAndResourceDiscovery = 1613
-    ExploitationForPrivilegeEscalation = 1068
-    ContainerServiceAccount = 9016  # MS-TA9016
-
-    SystemNetworkConfigurationDiscovery = 1016
-    StealApplicationAccessToken = 1528
-    PermissionGroupsDiscovery = 1069
-    PermissionGroupsDiscovery_CloudGroups = 1069003 # T1069.003"
-
-    DeployContainer = 1610
-end
-
-@enum AccessLevel begin
-    Nil = 0
-    UserRead = 1
-    UserWrite = 2
-    UserExecute = 3
-    RooWriteRead = 4
-    RooWriteWrite = 5
-    RooWriteExecute = 6
-end
-
 
 Base.@kwdef struct ExploitParams 
     endpoint:: String
@@ -65,7 +27,7 @@ Base.@kwdef struct DeployPodParams
 end
 
 Base.@kwdef struct TTP 
-    id:: Union{String, Nothing} = nothing
+    id:: Union{String, Nothing} = string(uuid4())
     technique :: String
     name :: String
     action :: Union{String, Nothing} = nothing
@@ -202,7 +164,7 @@ function getArmory() :: Vector{TTP}
                 technique=string(ContainerServiceAccount),  # MITRE would be StealApplicationAccessToken
                 tactics=[string(CredentialAccess)],
                 action="get_file",
-                requires=Dict("access_level"=> UserRead),
+                requires=Dict("accessLevel"=> UserRead),
                 # consequence=["pod_name", "serviceaccount_name", "namespace name"],
                 execute=read_service_account_token,
             ),
@@ -226,21 +188,21 @@ function getArmory() :: Vector{TTP}
                 technique=string(GatherVictimHostInformation),
                 action="env",
                 execute=read_environment_variables,
-                requires=Dict("os"=> "linux", "access_level"=> UserExecute),
+                requires=Dict("os"=> ["linux", "macOS"], "accessLevel"=> UserExecute),
             ),
             TTP(
                 name="List binaries",
                 tactics=[string(Discovery)],
                 technique=string(GatherVictimHostInformation),
                 execute=list_available_binaries,
-                requires=Dict("os"=> "linux", "access_level"=> UserExecute),
+                requires=Dict("os"=> "linux", "accessLevel"=> UserExecute),
             ),
             TTP(
                 name="System Network Configuration Discovery",
                 tactics=[string(Discovery)],
                 technique=string(SystemNetworkConfigurationDiscovery),
                 action="ifconfig",
-                requires=Dict("kind" => "Pod", "access_level" => UserExecute),
+                requires=Dict("kind" => "Pod", "accessLevel" => UserExecute),
             ),
             TTP(
                 name="Deploy Container",

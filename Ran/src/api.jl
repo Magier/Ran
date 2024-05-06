@@ -4,6 +4,15 @@ using UUIDs
 using Oxygen
 using HTTP
 using JSON3
+using StructTypes
+
+
+Base.@kwdef struct UiMessage
+    msgType::AbstractString
+    data::Any = nothing
+end
+StructTypes.StructType(::Type{UiMessage}) = StructTypes.Struct()
+# StructTypes.names(::Type{UiMessage}) = ((:msgType, :msg_type)) # does not work :(
 
 
 dynamicfiles("./static", "static")
@@ -18,9 +27,9 @@ end
 Provide a single interface for wrapping and sending messages via the websocket
     Return true if the message was sent successfully, false otherwise
 """
-function send(ws::HTTP.WebSocket, msg_type::String, data::Union{Dict, String, Vector}) :: Bool
+function send(ws::HTTP.WebSocket, msgType::String, data::Union{Dict, String, Vector}) :: Bool
     try
-        msg = Dict("type" => msg_type, "data" => data)
+        msg = Dict("type" => msgType, "data" => data)
         HTTP.send(ws, JSON3.write(msg))
     catch e
         @error "Error while sending msg: $e"
@@ -37,37 +46,52 @@ function handleSendMessages(ws::HTTP.WebSocket, channel::Channel)
     @debug " . ...... done checking events on the channel $channel (Thead $(Threads.threadid())"
 end
 
-function parseCommand(data::Any) :: Union{Command, Nothing}
-    data = strip(data)
+function parseCommand(msg:: Dict{String, Any}) :: Union{Command, Nothing}
+    eventType = get(msg, "msg_type", nothing)
 
-    if startswith(data, "listen")
-        return StartListener()
+    if eventType == "execute_ttp"
+        ttpId = get(msg, "ttp_id", nothing)
+        params = get(msg, "params", Dict())
+        technique = get(msg, "technique", nothing)
+        targetId = get(msg, "target", nothing)
+        action = get(msg, "target", nothing)
+
+        return ExecuteTTP(
+            ttp=ttpId,
+            technique=technique,
+            target=targetId,
+            action=action,
+            params=params
+        )
+    elseif eventType == "terminal" 
+        data = strip(msg.gdata)
+
+        if startswith(data, "listen")
+            return StartListener()
+        end
     end
     return nothing
 end
+
+
 
 function handleSocket(ws::HTTP.WebSocket, bus::MessageBus, clientId::String, channel::Channel)
     publish!(bus, ClientConnected(clientId, "UI client"))
 
     try
         for msgStr in ws
-            msg = JSON3.read(msgStr)
-            eventType = get(msg, "msg_type", Nothing)
-            data = get(msg, "data", Nothing)
+            @info " 💻 got UI message: '$msgStr'"
+            msg = JSON3.read(msgStr, Dict)
+            # msg = JSON3.read(msgStr, UiMessage)
+            cmd = parseCommand(msg)
 
-            if eventType == "terminal" 
-                cmd = parseCommand(data)
-                @info "got cmd: $cmd"
-
-                if isnothing(cmd)
-                    send(ws, "terminal", Dict("status" => "false", "message" => "Invalid command"))
-                else
-                    publish!(bus, cmd)
-                end
-            elseif eventType == "quit"
-                send(ws, "terminal", "bye ~~")
-                close(channel) 
-                break
+            if isnothing(cmd)
+            # println(" >>> nopppeee")
+                # send(ws, "terminal", Dict("status" => "false", "message" => "Invalid command"))
+            else 
+                if cmd <: Quit close(channel) end
+                println(" >>> forwarding command")
+                publish!(bus, cmd)
             end
         end
     catch e
