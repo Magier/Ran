@@ -30,7 +30,6 @@ end
 function onSessionStarted(ev::SessionStarted, campaign:: Campaign)
     @debug("  [🧵$(Threads.threadid())][Campaign] session started")
 
-    println("session event: $ev")
     push!(campaign.entities, System(id=ev.id, name=ev.hostname, os=ev.os, accessLevel=UserExecute ))
     # add direction of command (listener commands the target system)
     push!(campaign.relations, Relation(name="simple listener", source=ev.listenerId, destination=ev.id))
@@ -46,10 +45,18 @@ function onSessionEnded(ev::SessionEnded, campaign:: Campaign)
 end
 
 
+function onPrepareTTP(ev::PrepareTTP, campaign:: Campaign)
+    @info " [🧵$(Threads.threadid())][Campaign] execute TTP"
+    # TODO do enrich command if necessary
+    println("prep ttp: .. target: $(ev.target) ... action: $(ev.action)")
+    ExecuteActionOnTarget(target=ev.target, action=ev.action)
+end
+
 function startCampaign(bus::MessageBus)
     campaign = Campaign([], [])
     register!(bus, ClientConnected, (ev) -> onClientConnected(ev, campaign))
     register!(bus, ListenerReady, (ev) -> onListenerReady(ev, campaign))
     register!(bus, SessionStarted, (ev) -> onSessionStarted(ev, campaign))
     register!(bus, SessionEnded, (ev) -> onSessionEnded(ev, campaign))
+    register!(bus, PrepareTTP, (ev) -> onPrepareTTP(ev, campaign))
 end
