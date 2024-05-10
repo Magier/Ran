@@ -54,9 +54,8 @@ function parseCommand(msg:: Dict{String, Any}) :: Union{Command, Nothing}
         params = get(msg, "params", Dict())
         technique = get(msg, "technique", nothing)
         targetId = get(msg, "target", nothing)
-        action = get(msg, "target", nothing)
-
-        return ExecuteTTP(
+        action = get(msg, "action", nothing)
+        return PrepareTTP(
             ttp=ttpId,
             technique=technique,
             target=targetId,
@@ -89,13 +88,15 @@ function handleSocket(ws::HTTP.WebSocket, bus::MessageBus, clientId::String, cha
             # println(" >>> nopppeee")
                 # send(ws, "terminal", Dict("status" => "false", "message" => "Invalid command"))
             else 
-                if cmd <: Quit close(channel) end
-                println(" >>> forwarding command")
+                if typeof(cmd) <: Quit close(channel) end
+
+                println("publishing cmd on bus!")
                 publish!(bus, cmd)
             end
         end
     catch e
-        @error "Error websocket: $e"
+        
+        @error e
     end
 
     publish!(bus, ClientDisconnected(clientId))

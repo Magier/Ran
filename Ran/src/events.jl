@@ -29,3 +29,9 @@ end
 
 struct SessionEnded <: Event
 end
+
+struct ActionExecuted <: Event
+    sessionId::AbstractString
+    command::AbstractString
+    output::AbstractString
+end
