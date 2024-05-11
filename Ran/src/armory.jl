@@ -100,8 +100,19 @@ function get_sa_token_permission()
     return nothing
 end
 
-function read_environment_variables()
-    @error "Read environment vars not yet implemented"
+function readEnvironmentVariables(ev::ActionExecuted) 
+    envVars = Dict()
+    if isnothing(ev.output)
+        @error "readEnvVar expected to have output, which can be parsed"
+        return nothing
+    end
+    for line in split(ev.output, "\n")
+        if strip(line) != ""
+            k, v = split(line, "=", limit=2)
+            envVars[k] = v
+        end
+    end
+    return EnviornmentVariablesExtracted(ev.action.target, envVars)
 end
 
 function list_available_binaries( kwargs...) :: Union{Event, Nothing}
@@ -187,7 +198,7 @@ function getArmory() :: Vector{TTP}
                 tactics=[string(Discovery)],
                 technique=string(GatherVictimHostInformation),
                 action="env",
-                execute=read_environment_variables,
+                execute=readEnvironmentVariables,
                 requires=Dict("os"=> ["linux", "macOS"], "accessLevel"=> UserExecute),
             ),
             TTP(
