@@ -2,6 +2,7 @@
 mutable struct Campaign
     entities::Vector{Entity}
     relations::Vector{AbstractRelation}
+    armory::Dict{AbstractString, TTP}
 end
 
 
@@ -11,9 +12,8 @@ end
 
 
 function onClientConnected(ev::ClientConnected, campaign:: Campaign)
-    armory = getArmory()
     topology = structToDict(campaign)
-    return SendToUi("armory", armory), SendToUi("topology", topology)
+    return SendToUi("armory", campaign.armory), SendToUi("topology", topology)
 end
 
 
@@ -32,7 +32,7 @@ function onSessionStarted(ev::SessionStarted, campaign:: Campaign)
 
     push!(campaign.entities, System(id=ev.id, name=ev.hostname, os=ev.os, accessLevel=UserExecute ))
     # add direction of command (listener commands the target system)
-    push!(campaign.relations, Relation(name="simple listener", source=ev.listenerId, destination=ev.id))
+    push!(campaign.relations, Relation(name="simple shell", source=ev.listenerId, destination=ev.id))
 
     topology = structToDict(campaign)
     return SendToUi("topology", topology)
@@ -46,17 +46,36 @@ end
 
 
 function onPrepareTTP(ev::PrepareTTP, campaign:: Campaign)
-    @info " [🧵$(Threads.threadid())][Campaign] execute TTP"
-    # TODO do enrich command if necessary
-    println("prep ttp: .. target: $(ev.target) ... action: $(ev.action)")
-    ExecuteActionOnTarget(target=ev.target, action=ev.action)
+    ExecuteActionOnTarget(ttp=ev.ttp, target=ev.target, action=ev.action)
+end
+
+function onActionExecuted(ev::ActionExecuted, campaign::Campaign)
+    ttp = get(campaign.armory, ev.action.ttp, nothing)
+    if isnothing(ttp)
+        @error("Could not find TTP with id $(ev.action.ttp)")
+        return
+    end
+
+    if !isnothing(ttp.execute)
+        ev = ttp.execute(ev)
+        if !isnothing(ev)
+            publish!(bus, ev)
+        end
+    else
+        println("action was executed: $(ev.action)  ... but no execute function")
+    end
 end
 
 function startCampaign(bus::MessageBus)
-    campaign = Campaign([], [])
+    ttps = getArmory()
+    armory = Dict(ttp.id => ttp for ttp in ttps)
+
+    campaign = Campaign([], [], armory)
     register!(bus, ClientConnected, (ev) -> onClientConnected(ev, campaign))
     register!(bus, ListenerReady, (ev) -> onListenerReady(ev, campaign))
     register!(bus, SessionStarted, (ev) -> onSessionStarted(ev, campaign))
     register!(bus, SessionEnded, (ev) -> onSessionEnded(ev, campaign))
     register!(bus, PrepareTTP, (ev) -> onPrepareTTP(ev, campaign))
+
+    register!(bus, ActionExecuted, (ev) -> onActionExecuted(ev, campaign))
 end
