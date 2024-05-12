@@ -7,6 +7,9 @@
 	import { initializeStores } from '@skeletonlabs/skeleton';
 	import { Toast, getToastStore } from '@skeletonlabs/skeleton';
 	import type { ToastSettings, ToastStore } from '@skeletonlabs/skeleton';
+	import { Drawer, getDrawerStore } from '@skeletonlabs/skeleton';
+
+	import  Console  from './components/console.svelte';
 
 	// find icons via https://icon-sets.iconify.design
 
@@ -35,6 +38,8 @@
 </script>
 
 <Toast />
+<Drawer><Console/></Drawer>
+
 <!-- App Shell -->
 <AppShell>
 	<Modal />
