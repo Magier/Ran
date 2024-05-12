@@ -1,5 +1,5 @@
 <script lang="ts">
-	import IconCetusLogo from '~icons/game-icons/monster-grasp';
+	import IconRanLogo from '~icons/game-icons/monster-grasp';
 
 	import Graph from './components/graph.svelte';
 	import Armory from './components/armory.svelte';
@@ -100,9 +100,9 @@
 		<div class="justify-center">
 			<figure>
 				<section class="img-bg" />
-				<IconCetusLogo class="fill-token -scale-x-[100%] w-64 h-64" />
+				<IconRanLogo class="fill-token -scale-x-[100%] w-64 h-64" />
 			</figure>
-			<h2 class="h2 text-center">Cetus</h2>
+			<h2 class="h2 text-center">Ran</h2>
 		</div>
 	{:then sessions}
 		<Graph bind:selected_node_id bind:selectedNode />
@@ -111,9 +111,9 @@
 		<div class="justify-center">
 			<figure>
 				<section class="img-bg" />
-				<IconCetusLogo class="fill-token -scale-x-[100%] w-64 h-64" />
+				<IconRanLogo class="fill-token -scale-x-[100%] w-64 h-64" />
 			</figure>
-			<h2 class="h2 text-center">Cetus</h2>
+			<h2 class="h2 text-center">Ran</h2>
 			{someError}
 		</div>
 	{/await}
