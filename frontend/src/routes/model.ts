@@ -6,7 +6,7 @@ export type TTP = {
     cmd_args?: object;
     tactics?: string[];
     ms_id?: string;
-    requires: Object,
+    requires?: Object,
     params?: Object
 };
 

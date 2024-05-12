@@ -64,7 +64,7 @@ function handleDisconnect(event: CloseEvent) {
 let isReady = new Promise(async (resolve, reject) => {
 // websocket is only available client side
 	if (browser) {
-		socket = new WebSocket('ws://0.0.0.0:8000/ws');
+		socket = new WebSocket('ws://0.0.0.0:8080/ws');
 		socket.addEventListener('open', function (event) {
 			retries = 0;
 			resolve(socket);
