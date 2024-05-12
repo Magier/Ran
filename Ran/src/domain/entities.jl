@@ -9,6 +9,15 @@ Base.@kwdef struct System <: AbstractSystem
     accessLevel :: Union{AccessLevel,Nothing} = nothing
 end
 
+Base.@kwdef struct Listener <: AbstractSystem
+    id:: AbstractString = string(uuid4())
+    name::AbstractString
+    port :: Int
+    protocol :: Union{AbstractString, Nothing} = nothing
+    # os::Union{AbstractString,Nothing} = nothing
+    # accessLevel :: Union{AccessLevel,Nothing} = nothing
+end
+
 Base.@kwdef struct Namespace <: Entity
     id :: AbstractString = string(uuid4())
     kind:: String = "Namespace"

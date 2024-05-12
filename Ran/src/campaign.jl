@@ -2,6 +2,7 @@
 mutable struct Campaign
     entities::Vector{Entity}
     relations::Vector{AbstractRelation}
+    assets::Vector{Asset}
     armory::Dict{AbstractString, TTP}
 end
 
@@ -18,7 +19,7 @@ end
 
 
 function onListenerReady(ev::ListenerReady, campaign:: Campaign)
-    push!(campaign.entities, System(id=ev.id, name="Listener $(ev.port)"))
+    push!(campaign.entities, Listener(id=ev.id, name="Listener $(ev.port)", port=ev.port, protocol="tcp"))
 
     topology = structToDict(campaign)
     return SendToUi("topology", topology)
@@ -63,17 +64,27 @@ function onActionExecuted(ev::ActionExecuted, campaign::Campaign)
         println("action was executed: $(ev.action)  ... but no execute function")
     end
 end
+function resetCampaign(ev::ResetCampaign, campaign::Campaign)
+    # keep only the running listeners
+    filter!(e -> e isa Listener, campaign.entities)
+    campaign.relations = []
+    campaign.assets = []
+
+    topology = structToDict(campaign)
+    return SendToUi("topology", topology)
+end
 
 function startCampaign(bus::MessageBus)
     ttps = getArmory()
     armory = Dict(ttp.id => ttp for ttp in ttps)
 
-    campaign = Campaign([], [], armory)
+    campaign = Campaign([], [], [], armory)
     register!(bus, ClientConnected, (ev) -> onClientConnected(ev, campaign))
     register!(bus, ListenerReady, (ev) -> onListenerReady(ev, campaign))
     register!(bus, SessionStarted, (ev) -> onSessionStarted(ev, campaign))
     register!(bus, SessionEnded, (ev) -> onSessionEnded(ev, campaign))
     register!(bus, PrepareTTP, (ev) -> onPrepareTTP(ev, campaign))
+    register!(bus, ResetCampaign, (ev) -> resetCampaign(ev, campaign))
 
     register!(bus, ActionExecuted, (ev) -> onActionExecuted(ev, campaign))
     register!(bus, EnvironmentVariablesExtracted, analyzeEnvironmentVariables)
