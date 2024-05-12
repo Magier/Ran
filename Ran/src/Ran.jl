@@ -5,6 +5,7 @@ include("messageBus.jl")
 include("armory.jl")
 include("campaign.jl")
 include("api.jl")
+include("c2.jl")
 
 
 function main() 
@@ -13,6 +14,7 @@ function main()
 
     startApi(msgBus)
     startCampaign(msgBus)
+    startC2(msgBus)
 
     handleEvents(msgBus)
 end
