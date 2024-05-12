@@ -29,6 +29,7 @@ end
 
 Base.@kwdef struct ExecuteActionOnTarget <: Command
     id :: AbstractString = string(uuid4())
+    ttp :: AbstractString
     target :: AbstractString
     action:: AbstractString = "execute"
 end

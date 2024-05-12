@@ -32,6 +32,6 @@ end
 
 struct ActionExecuted <: Event
     sessionId::AbstractString
-    command::AbstractString
+    action::ExecuteActionOnTarget
     output::AbstractString
 end
