@@ -112,7 +112,7 @@ function readEnvironmentVariables(ev::ActionExecuted)
             envVars[k] = v
         end
     end
-    return EnviornmentVariablesExtracted(ev.action.target, envVars)
+    return EnvironmentVariablesExtracted(ev.action.target, envVars)
 end
 
 function list_available_binaries( kwargs...) :: Union{Event, Nothing}

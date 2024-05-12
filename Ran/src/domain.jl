@@ -1,7 +1,7 @@
 abstract type Message end
 
-abstract type Entity end
 
+abstract type Asset end
 
 @enum Tactic begin
     InitialAccess = 1
@@ -44,6 +44,9 @@ end
 end
 
 
+include("./domain/entities.jl")
+
+
 abstract type AbstractRelation end
 Base.@kwdef struct  Relation <: AbstractRelation
     name::AbstractString
@@ -52,12 +55,6 @@ Base.@kwdef struct  Relation <: AbstractRelation
     data::Union{AbstractString, Nothing} = nothing
 end
 
-Base.@kwdef struct System <: Entity 
-    id:: AbstractString
-    name::AbstractString
-    os::Union{AbstractString,Nothing} = nothing
-    accessLevel :: Union{AccessLevel,Nothing} = nothing
-end
 
 # abstract type SessionType end
 # struct SimpleSession <: SessionType end
