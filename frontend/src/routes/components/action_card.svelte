@@ -26,12 +26,17 @@
 						}
 					}
 					if (!has_capability) return false;
+				} else if (Array.isArray(value)) {
+					let givenValue = conditions[attr].toLowerCase();
+					let sat = value.filter((v) => v.toLowerCase() == givenValue)
+					if (!sat) {
+						return false
+					}
 				} else if (conditions[attr] !== value) {
 					return false;
 				}
 			}
 		}
-
 		return true;
 	}
 
