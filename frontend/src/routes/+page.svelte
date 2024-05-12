@@ -121,7 +121,6 @@
 			<h2 class="h2 text-center">Ran</h2>
 		</div>
 	{:then sessions}
-		<div class="basis-3/4"></div>
 		<Graph bind:selected_node_id bind:selectedNode />
 		<Armory class="basis-1/4" on:action={sendAction} globalConditions={activeGlobalConditions} {selectedNode} />
 	{:catch someError}
