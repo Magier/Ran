@@ -68,7 +68,7 @@ function startListener(ev::StartListener, bus:: MessageBus, c2::C2)
 
     # HTTP.serve!(handleNewImplant, "0.0.0.0",ev.port; async=true)
     listenerTask = errormonitor(@async begin
-        server = Sockets.listen(ev.port)
+        server = Sockets.listen(ip"0.0.0.0", ev.port)
         while true # TODO maybe create Event to stop  here and return the event as result event from this fn, so the event can be set somewhere else
             sock = Sockets.accept(server)
             errormonitor(@async handleNewImplant(sock, bus, listenerId, c2))

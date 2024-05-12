@@ -18,8 +18,6 @@ end
 
 
 function onListenerReady(ev::ListenerReady, campaign:: Campaign)
-    @info("  [🧵$(Threads.threadid())][Campaign] listener ready")
-
     push!(campaign.entities, System(id=ev.id, name="Listener $(ev.port)"))
 
     topology = structToDict(campaign)
@@ -59,7 +57,7 @@ function onActionExecuted(ev::ActionExecuted, campaign::Campaign)
     if !isnothing(ttp.execute)
         ev = ttp.execute(ev)
         if !isnothing(ev)
-            publish!(bus, ev)
+            return ev
         end
     else
         println("action was executed: $(ev.action)  ... but no execute function")
@@ -78,4 +76,5 @@ function startCampaign(bus::MessageBus)
     register!(bus, PrepareTTP, (ev) -> onPrepareTTP(ev, campaign))
 
     register!(bus, ActionExecuted, (ev) -> onActionExecuted(ev, campaign))
+    register!(bus, EnvironmentVariablesExtracted, analyzeEnvironmentVariables)
 end
