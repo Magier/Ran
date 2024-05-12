@@ -7,6 +7,20 @@ struct SendToUi <: Command
 end
 
 # TODO: maybe support different types (e.g. mTLS, HTTP, DNS, etc.)
-@Base.kwdef struct StartListener <: Command
+Base.@kwdef struct StartListener <: Command
     port:: Int = 1337
+end
+
+Base.@kwdef struct StopListener <: Command
+    listenerId:: AbstractString
+end
+
+struct Quit <: Command end
+
+Base.@kwdef struct ExecuteTTP <: Command
+    ttp:: AbstractString
+    target:: Union{Entity, AbstractString, Nothing} = nothing  # depending on the TTP the target may be inferred
+    technique:: Union{AbstractString, Nothing} = nothing
+    params:: Union{Dict, Nothing} = nothing
+    action:: Union{AbstractString, Nothing} = nothing
 end
