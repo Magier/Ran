@@ -9,6 +9,7 @@ using StructTypes
     CredentialAccess = 6
     Discovery = 7
     LateralMovement = 8
+    Impact = 9
 end
 
 @enum Technique begin
@@ -69,7 +70,7 @@ Base.@kwdef struct TTP
     name :: String
     action :: Union{String, Nothing} = nothing
     cmd_args :: Union{String, Nothing} = nothing
-    tactic :: Vector{String}
+    tactics :: Vector{String}
     ms_id :: String = ""
     execute :: Union{Function, Nothing} = nothing
     requires :: Union{Dict,Nothing} = Dict()
@@ -171,7 +172,7 @@ function getArmory() :: Vector{TTP}
     return [
             TTP(
                 name="Exploit Envoy Proxy CMD injection",
-                tactic=[string(InitialAccess)],
+                tactics=[string(InitialAccess)],
                 technique=string(ExploitPublicFacingApp),
                 params=ExploitParams(
                     endpoint="http://unguard.kube/healthz",
@@ -181,7 +182,7 @@ function getArmory() :: Vector{TTP}
             ),
             TTP(
                 name="Exploit Proxy Service CMD injection",
-                tactic=[string(LateralMovement)],
+                tactics=[string(LateralMovement)],
                 technique=string(ExploitationForPrivilegeEscalation),
                 execute=exploit_cmd_injection,
                 params=ExploitParams(
@@ -192,14 +193,14 @@ function getArmory() :: Vector{TTP}
             ),
             # TTP(
             #     name="Exploit Public-Facing Application",
-            #     tactic=Tactic.InitialAccess,
+            #     tactics=Tactic.InitialAccess,
             #     technique=Technique.ExploitPublicFacingApp,
             # ),
             TTP(
                 name="Read Service Account Token",
                 ms_id="MS-TA9016",
                 technique=string(ContainerServiceAccount),  # MITRE would be StealApplicationAccessToken
-                tactic=[string(CredentialAccess)],
+                tactics=[string(CredentialAccess)],
                 action="get_file",
                 requires=Dict("access_level"=> UserRead),
                 # consequence=["pod_name", "serviceaccount_name", "namespace name"],
@@ -207,21 +208,21 @@ function getArmory() :: Vector{TTP}
             ),
             TTP(
                 name="Check ServiceAccount permissions",
-                tactic=[string(Discovery)],
+                tactics=[string(Discovery)],
                 technique=string(PermissionGroupsDiscovery_CloudGroups),  # TODO: not sure about this mapping
                 requires=Dict("kind" => "ServiceAccount"),
                 execute=get_sa_token_permission,
             ),
             # TTP(
             #     name="Container and Resource Discovery",
-            #     tactic=Tactic.Discovery,
+            #     tactics=Tactic.Discovery,
             #     technique=Technique.ContainerAndResourceDiscovery,
             # ),
-            # TTP(name="Get working directory", tactic=Tactic.Discovery, technique="", action="pwd"),
-            # TTP(name="List files", tactic=Tactic.Discovery, technique=Technique.FileAndDirectoryDiscovery, action="ls"),
+            # TTP(name="Get working directory", tactics=Tactic.Discovery, technique="", action="pwd"),
+            # TTP(name="List files", tactics=Tactic.Discovery, technique=Technique.FileAndDirectoryDiscovery, action="ls"),
             TTP(
                 name="List environment variables",
-                tactic=[string(Discovery)],
+                tactics=[string(Discovery)],
                 technique=string(GatherVictimHostInformation),
                 action="env",
                 execute=read_environment_variables,
@@ -229,21 +230,21 @@ function getArmory() :: Vector{TTP}
             ),
             TTP(
                 name="List binaries",
-                tactic=[string(Discovery)],
+                tactics=[string(Discovery)],
                 technique=string(GatherVictimHostInformation),
                 execute=list_available_binaries,
                 requires=Dict("os"=> "linux", "access_level"=> UserExecute),
             ),
             TTP(
                 name="System Network Configuration Discovery",
-                tactic=[string(Discovery)],
+                tactics=[string(Discovery)],
                 technique=string(SystemNetworkConfigurationDiscovery),
                 action="ifconfig",
                 requires=Dict("kind" => "Pod", "access_level" => UserExecute),
             ),
             TTP(
                 name="Deploy Container",
-                tactic=[string(Execution)],
+                tactics=[string(Execution)],
                 technique=string(DeployContainer),
                 # requires={"can": "create pods"},
                 execute=deploy_pod,
@@ -260,7 +261,7 @@ function getArmory() :: Vector{TTP}
             # TTP(  # video for implementation KubeCon NA'23: https://www.youtube.com/watch?v=mqnm0AXoNgc
             #     # TODO implement
             #     name="Sidecar Injection",
-            #     tactic=Tactic.Execution,
+            #     tactics=Tactic.Execution,
             #     technique=Technique.Deploycontainer,
             #     ms_id="MS-TA9011",
             #     requires=["role:can-patch-deployment"],

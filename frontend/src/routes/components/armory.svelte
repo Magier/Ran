@@ -18,11 +18,15 @@
 	import ActionCard from './action_card.svelte';
 
 	const iconMap = {
-		initial_access: IconInitialAccess,
-		credential_access: IconCredentialAccess,
-		discovery: IconDiscovery,
-		privilege_escalation: IconPrivilegeEscalation,
-		execution: IconExecution,
+		InitialAccess: IconInitialAccess,
+		Execution: IconExecution,
+		Persistence: IconExecution,
+		PrivilegeEscalation: IconPrivilegeEscalation,
+		DefenseEvasion: IconPrivilegeEscalation,
+		CredentialAccess: IconCredentialAccess,
+		Discovery: IconDiscovery,
+		LateralMovement: IconDiscovery,
+		Impact: IconDiscovery,
 	};
 
 	// ==============================================================
@@ -33,6 +37,9 @@
 	// ==============================================================
 
 	const dispatch = createEventDispatcher();
+
+	let className = "";
+    export { className as class };
 
 	export let selectedNode: Object | null = null;
 	export let globalConditions: Object = {};
@@ -55,13 +62,18 @@
 		store.armory((new_armory: Map<string, TTP[]>) => {
 			armory = new_armory;
 		});
+		store.sendMessage("armory", {});
 	});
 
 	onDestroy(() => {
 		// unsubscribe();
 	});
 
-	let filteredTtps = [];
+
+	console.log("±±± test")
+	console.log(iconMap["InitialAccess"])
+
+	let filteredTtps: TTP[] = [];
 	// For Search Input
 	let searchTerm: string = '';
 	// resets language menu if search input is used
@@ -81,13 +93,13 @@
 	}
 </script>
 
-<div class="h-full w-80 inset-y-0 right-0 bg-surface-100-800-token">
-	<div class="mx-4">
+<div class="h-full w-80 inset-y-0 right-0 bg-surface-100-800-token {className}">
+	<div class="mx-4 mb-2">
 		<h1>Search/Filter</h1>
 		<input
 			type="search"
 			placeholder="Search..."
-			class="input"
+			class="input rounded-container-token"
 			bind:value={searchTerm}
 			on:keydown|stopPropagation={handleClearWithEscape}
 			on:input={searchAbilities}
@@ -101,8 +113,8 @@
 				<!-- {#each ttps as ttp} -->
 				<ActionCard
 					{ttp}
+					icon={iconMap[ttp.tactics[0]]}
 					onClick={sendAction}
-					icon={iconMap[ttp.tactic]}
 					on:click={() => sendAction(ttp)}
 				/>
 			{/each}
@@ -111,10 +123,11 @@
 				<ActionCard
 					{ttp}
 					onClick={sendAction}
-					icon={iconMap[ttp.tactic]}
+					icon={iconMap[ttp.tactics[0]]}
 					conditions={selectedConditions}
 					on:click={() => sendAction(ttp)}
 				/>
+
 				<!-- {/each} -->
 				<!-- <TreeViewItem disabled={ttps.length === 0}>
 					<svelte:fragment slot="lead">

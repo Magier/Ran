@@ -4,7 +4,7 @@ export type TTP = {
     name: string;
     action: string;
     cmd_args?: object;
-    tactics?: string[];
+    tactics: string[];
     ms_id?: string;
     requires?: Object,
     params?: Object
