@@ -35,3 +35,8 @@ struct ActionExecuted <: Event
     action::ExecuteActionOnTarget
     output::AbstractString
 end
+
+struct EnviornmentVariablesExtracted <: Event
+    sourceSystemId::AbstractString
+    variables::Dict{String, String}
+end
