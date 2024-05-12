@@ -11,7 +11,7 @@
 
 	function checkConditions(ttp: TTP, conditions: Object) {
 		// no requirements mean the action is always possible
-		if (Object.keys(ttp.requires).length == 0) return true;
+		if (Object.keys(ttp.requires || {}).length == 0) return true;
 		if (conditions) {
 			for (let [attr, value] of Object.entries(ttp.requires)) {
 				if (!conditions.hasOwnProperty(attr)) return false;
