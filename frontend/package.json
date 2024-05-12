@@ -47,6 +47,7 @@
   "type": "module",
   "dependencies": {
     "@floating-ui/dom": "^1.5.3",
+    "cytoscape": "^3.29.2",
     "cytoscape-fcose": "^2.2.0",
     "cytoscape-popper": "^4.0.0",
     "sliver-script": "^1.2.5"

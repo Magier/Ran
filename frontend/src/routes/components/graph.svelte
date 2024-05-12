@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import cytoscape from 'cytoscape';
 	import fcose from 'cytoscape-fcose';
-	import cytoscapePopper from 'cytoscape-popper';
+	// import cytoscapePopper from 'cytoscape-popper';
 	import { computePosition, arrow, autoPlacement, shift, limitShift, offset} from '@floating-ui/dom';
 
 	import { getGraphStyle, layout } from './graph_style';
@@ -10,6 +10,9 @@
 
 	export let nodes = [];
 	export let edges = [];
+
+	// let cytoscape = { // dummy definition to not uncomment rest
+	// };
 
 	let graphContainer;
 	let cy;
@@ -75,7 +78,7 @@
 	}
 	
 	cytoscape.use(fcose);
-	cytoscape.use( cytoscapePopper(popperFactory) );
+	// cytoscape.use( cytoscapePopper(popperFactory) );
 
 	function updatePopup() {
 		if (currPopper) {

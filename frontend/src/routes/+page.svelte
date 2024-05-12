@@ -122,7 +122,7 @@
 		</div>
 	{:then sessions}
 		<div class="basis-3/4"></div>
-		<!-- <Graph bind:selected_node_id bind:selectedNode /> -->
+		<Graph bind:selected_node_id bind:selectedNode />
 		<Armory class="basis-1/4" on:action={sendAction} globalConditions={activeGlobalConditions} {selectedNode} />
 	{:catch someError}
 		<div class="justify-center">
