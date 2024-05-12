@@ -41,3 +41,10 @@ struct EnvironmentVariablesExtracted <: Event
     sourceSystemId::AbstractString
     variables::Dict{String, String}
 end
+
+Base.@kwdef struct NewFacts <: Event
+    # data:: Vector{Union{Entity, Relation, Asset}} = []
+    entities:: Vector{Entity} = []
+    relations:: Vector{Relation} = []
+    assets:: Vector{Asset} = []
+end

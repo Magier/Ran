@@ -64,11 +64,23 @@ function onActionExecuted(ev::ActionExecuted, campaign::Campaign)
         println("action was executed: $(ev.action)  ... but no execute function")
     end
 end
+
+function onNewFacts(ev::NewFacts, campaign::Campaign)
+    # merge with existing entities
+    append!(campaign.entities, ev.entities)
+    append!(campaign.relations, ev.relations)
+    append!(campaign.entities, ev.assets)
+
+    topology = structToDict(campaign)
+    return SendToUi("topology", topology)
+end 
+
 function resetCampaign(ev::ResetCampaign, campaign::Campaign)
     # keep only the running listeners
     filter!(e -> e isa Listener, campaign.entities)
     campaign.relations = []
     campaign.assets = []
+    # TODO: send commands to kill running sessions
 
     topology = structToDict(campaign)
     return SendToUi("topology", topology)
@@ -87,5 +99,8 @@ function startCampaign(bus::MessageBus)
     register!(bus, ResetCampaign, (ev) -> resetCampaign(ev, campaign))
 
     register!(bus, ActionExecuted, (ev) -> onActionExecuted(ev, campaign))
+    register!(bus, NewFacts, (ev) -> onNewFacts(ev, campaign))
+
+    # analyzers
     register!(bus, EnvironmentVariablesExtracted, analyzeEnvironmentVariables)
 end
