@@ -3,15 +3,18 @@ abstract type Message end
 abstract type Command <: Message end 
 
 struct SendToUi <: Command
-    data:: Dict{AbstractString, Any}
+    type:: AbstractString
+    data:: Any
 end
 
 abstract type Event <: Message end
 
 abstract type UiEvent <: Event end
 struct ClientConnected <: UiEvent 
+    id::String
+    name:: String
 end
 
-struct ClientDisConnected <: UiEvent 
+struct ClientDisconnected <: UiEvent 
+    id::String
 end
-
