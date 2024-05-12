@@ -15,7 +15,7 @@ end
 function handleEvents(bus::MessageBus)
     while true
         msg = take!(bus.channel)
-        @info "🚌 RX $msg"
+        @info "🚌 RX $(nameof(typeof(msg)))"
 
         handlers = get(bus.handlers, typeof(msg), [])
         if length(handlers) == 0

