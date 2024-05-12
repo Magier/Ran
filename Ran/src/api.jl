@@ -128,7 +128,6 @@ end
 end
 
 function handleUiEvent(channels:: Dict{String, Channel}, event::SendToUi)
-    @info "sending $(event.type) event to $(length(channels)) UIs"
     for ch in values(channels)
         put!(ch, event)
     end
@@ -166,7 +165,7 @@ function startApi(bus::MessageBus)
         end
     end
 
-    serveparallel(host="0.0.0.0", port=8080, async=true, middleware=[middle])
+    serveparallel(host="0.0.0.0", port=8080, async=true, middleware=[middle], access_log=nothing)
 end
 
 # end
