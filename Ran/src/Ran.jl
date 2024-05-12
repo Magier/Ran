@@ -1,9 +1,17 @@
-using Oxygen
-using HTTP
+module Ran
 
-@get "/greet" function(req::HTTP.Request)
-    return "hello world!"
+include("api.jl")
+using .Api
+
+function main() 
+    # create message bus
+    # create campaign
+    # create c2 adapter
+    # start the API server
+    Api.serve()
 end
 
-# start the web server
-serve()
+
+end
+
+Ran.main()
