@@ -69,10 +69,6 @@
 		// unsubscribe();
 	});
 
-
-	console.log("±±± test")
-	console.log(iconMap["InitialAccess"])
-
 	let filteredTtps: TTP[] = [];
 	// For Search Input
 	let searchTerm: string = '';

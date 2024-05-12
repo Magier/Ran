@@ -26,12 +26,12 @@ function onMessage(event){
 	console.group("Msg from WS")
 	console.log(event.data);
 	const msg = JSON.parse(event.data);
-	const { type: msg_type, data: data } = msg;
-	console.log(`Type: ${msg_type}`);
+	const { type: msgType, data: data } = msg;
+	console.log(`Type: ${msgType}`);
 	console.log(data);
 	console.groupEnd();
 
-	switch (msg_type) {
+	switch (msgType) {
 		case 'armory':
 			armory.set(parseArmory(data));
 			break;
@@ -48,7 +48,7 @@ function onMessage(event){
 		case 'error':
 			alerts.set(data)
 		default:
-			console.log(`Received invalid message type ${msg_type}: ${data}`);
+			console.log(`Received invalid message type ${msgType}: ${data}`);
 			break;
 	}
 }
