@@ -33,3 +33,8 @@ Base.@kwdef struct ExecuteActionOnTarget <: Command
     target :: AbstractString
     action:: AbstractString = "execute"
 end
+
+
+Base.@kwdef struct ResetCampaign <: Command
+    name:: String = "reset"
+end

@@ -68,6 +68,8 @@ function parseCommand(msg:: Dict{String, Any}) :: Union{Command, Nothing}
         if startswith(data, "listen")
             return StartListener()
         end
+    elseif eventType == "reset_campaign"
+        return ResetCampaign()
     end
     return nothing
 end
@@ -79,7 +81,7 @@ function handleSocket(ws::HTTP.WebSocket, bus::MessageBus, clientId::String, cha
 
     try
         for msgStr in ws
-            @info " 💻 got UI message: '$msgStr'"
+            @info "  >> 📩 message from UI: '$msgStr'"
             msg = JSON3.read(msgStr, Dict)
             # msg = JSON3.read(msgStr, UiMessage)
             cmd = parseCommand(msg)
