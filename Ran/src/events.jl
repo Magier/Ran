@@ -11,3 +11,21 @@ struct ClientDisconnected <: UiEvent
     id::String
 end
 
+
+struct ListenerReady <: Event 
+    id::AbstractString
+    port::Int
+    task::Task
+end
+
+Base.@kwdef struct SessionStarted <: Event
+    id::AbstractString
+    listenerId::AbstractString
+    type::SessionType = SimpleSession
+    hostname::AbstractString = ""
+    user::AbstractString = ""
+    os:: AbstractString = ""
+end
+
+struct SessionEnded <: Event
+end

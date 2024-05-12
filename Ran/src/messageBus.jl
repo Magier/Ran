@@ -15,7 +15,7 @@ end
 function handleEvents(bus::MessageBus)
     while true
         msg = take!(bus.channel)
-        @debug "💻 RX $msg"
+        @info "💻 RX $msg"
 
         handlers = get(bus.handlers, typeof(msg), [])
         if length(handlers) == 0
@@ -24,10 +24,14 @@ function handleEvents(bus::MessageBus)
 
         for handler in handlers
             res = handler(msg)
+
+            if isnothing(res)
+                continue
+            end
             if typeof(res) <: Message
-                @async put!(bus.channel, res)
-            else
-                @async [put!(bus.channel, r) for r in res]
+                errormonitor(@async put!(bus.channel, res))
+            else !isnothing(res)
+                errormonitor(@async [put!(bus.channel, r) for r in res])
             end
         end
     end
@@ -45,11 +49,11 @@ end
 
 
 function publish!(bus::MessageBus, msg::Type{<:Message}, data::Union{Any, Nothing}=nothing)
-    println("publish instance $msg")
+    @debug "publish instance $msg"
     put!(bus.channel, Envelope(msg, data))
 end
 
 function publish!(bus::MessageBus, msg::T) where {T<:Message}
-    println("publish type $msg")
+    @debug "publish type $msg"
     put!(bus.channel, msg)
 end
