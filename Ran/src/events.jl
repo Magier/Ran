@@ -15,6 +15,7 @@ end
 struct ListenerReady <: Event 
     id::AbstractString
     port::Int
+    protocol::AbstractString
     task::Task
 end
 

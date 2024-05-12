@@ -77,7 +77,7 @@ function startListener(ev::StartListener, bus:: MessageBus, c2::C2)
     end)
 
     c2.listeners[listenerId] = listenerTask
-    return ListenerReady(listenerId, ev.port, listenerTask)
+    return ListenerReady(listenerId, ev.port, "tcp", listenerTask)
 end
 
 function onStopListener(ev::StopListener, channel:: Channel, c2::C2)
