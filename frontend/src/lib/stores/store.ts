@@ -84,7 +84,11 @@ function parse_topology(data: any): [Node[], Edge[]] {
 	for (let node of data.entities) {
 		// define namespace as the nodes parent, if present
 		if (node.ns !== undefined) {
-			node.parent = node.ns;
+			if (typeof node.ns === 'object') {
+				node.parent = node.ns.id;
+			} else if (typeof node.ns === 'string') {
+				node.parent = node.ns;
+			}
 		}
 		if (node.id === undefined) {
 			node.id = node.name;
