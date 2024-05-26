@@ -71,7 +71,7 @@ Base.@kwdef struct ApiServer <: AbstractSystem
     id :: AbstractString = string(uuid4())
     kind:: String = "KubeApiServer"
     name:: String = "API Server"
-    ns:: String = "kube-system"
+    ns:: Union{AbstractString, Namespace} = "kube-system"
     ip:: Union{AbstractString, Nothing} = nothing
     ports:: Dict{AbstractString, Union{Int, AbstractString}} = Dict()
 end

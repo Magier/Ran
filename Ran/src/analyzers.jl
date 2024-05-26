@@ -22,8 +22,9 @@
     relations = []
     for (svc, data) in (services)
         if svc == "KUBERNETES"
-            push!(entities, Namespace(name="kube-system"))
-            sys = ApiServer(name=svc, ip=data["host"], ports=data["ports"])
+            kubeSystemNs = Namespace(name="kube-system")
+            push!(entities, kubeSystemNs)
+            sys = ApiServer(name=svc, ns=kubeSystemNs, ip=data["host"], ports=data["ports"])
         else
             # services are either from same namespace as the pod, or 'kube-system'; assume same namespace as pod for now
             # TODO check if there are other services from the kube-system NS, which are added as env_var
