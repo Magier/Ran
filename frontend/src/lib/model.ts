@@ -1,3 +1,13 @@
+export enum AccessLevel {
+    UserRead = 1,
+    UserWrite = 2,
+    UserExecute = 3,
+    RootWriteRead = 4,
+    RootWriteWrite = 5,
+    RootWriteExecute = 6
+}
+
+
 export type TTP = {
     id: string;
     technique?: string;
