@@ -38,9 +38,9 @@ end
     UserRead = 1
     UserWrite = 2
     UserExecute = 3
-    RooWriteRead = 4
-    RooWriteWrite = 5
-    RooWriteExecute = 6
+    RootWriteRead = 4
+    RootWriteWrite = 5
+    RootWriteExecute = 6
 end
 
 

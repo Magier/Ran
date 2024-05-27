@@ -1,6 +1,6 @@
 import { get, writable } from 'svelte/store';
 import { browser } from '$app/environment';
-import type { TTP, ArmoryType, Node, Edge } from '../../routes/model';
+import type { TTP, ArmoryType, Node, Edge } from '$lib/model';
 
 interface Command {
 	[key: string]: any

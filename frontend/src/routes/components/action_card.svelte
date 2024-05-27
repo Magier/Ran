@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { TTP } from '../model';
+	import type { TTP } from '$lib/model';
+	import { AccessLevel}  from '$lib/model';
 
 	export let ttp: TTP;
 	export let icon;
@@ -9,14 +10,17 @@
 		? 'card-hover bg-surface-200-700-token'
 		: 'card-disabled bg-surface-50-900-token';
 
+
 	function checkConditions(ttp: TTP, conditions: Object) {
-		// no requirements mean the action is always possible
+		// no requirements means the action is always possible
 		if (Object.keys(ttp.requires || {}).length == 0) return true;
 		if (conditions) {
 			for (let [attr, value] of Object.entries(ttp.requires)) {
-				if (!conditions.hasOwnProperty(attr)) return false;
-				if (attr === 'access_level') {
-					if (conditions[attr] < value) return false;
+				if (!conditions.hasOwnProperty(attr)) { return false; }
+				if (attr === 'accessLevel') {
+					var requiredLevel = AccessLevel[value];
+					var currentLevel = AccessLevel[conditions['accessLevel']];
+					if (currentLevel < requiredLevel) { return false; }
 				} else if (attr === 'can') {
 					let has_capability = false;
 					for (let cap of conditions['can']) {
