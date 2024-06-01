@@ -56,6 +56,9 @@ Base.@kwdef struct  Relation <: AbstractRelation
 end
 
 
+
+abstract type AbstractSession end
+
 # abstract type SessionType end
 # struct SimpleSession <: SessionType end
 # struct ImplantSession <: SessionType end
@@ -65,5 +68,4 @@ end
 end
 
 
-include("./commands.jl")
 include("./events.jl")

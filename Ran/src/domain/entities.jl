@@ -2,8 +2,10 @@ abstract type Entity end
 
 abstract type AbstractSystem <: Entity end
 
+SystemId = AbstractString
+
 Base.@kwdef struct System <: AbstractSystem
-    id:: AbstractString = string(uuid4())
+    id:: SystemId = string(uuid4())
     name::AbstractString
     os::Union{AbstractString,Nothing} = nothing
     accessLevel :: Union{AccessLevel,Nothing} = nothing
@@ -26,6 +28,8 @@ end
 
 abstract type AbstractToken <: Asset end
 
+
+# JWT RFC: https://datatracker.ietf.org/doc/html/rfc7519#section-4
 Base.@kwdef struct JWTToken <: AbstractToken
     subject:: Union{AbstractString, Nothing} = nothing
     audience:: Vector{AbstractString} = []
@@ -38,6 +42,7 @@ end
 
 
 Base.@kwdef struct ServiceAccountToken <: AbstractToken
+    jwtToken:: JWTToken # ServiceAccountToken is just a JWT token 
     # TODO verify if issuer is indicater of K8s api server?
     namespace:: Union{AbstractString, Nothing} = nothing
     podName:: Union{AbstractString, Nothing} = nothing
@@ -51,7 +56,7 @@ end
 Base.@kwdef struct ServiceAccount <: Entity
     id :: AbstractString = string(uuid4())
     kind:: String = "ServiceAccount"
-    ns:: AbstractString
+    ns:: Union{AbstractString, Namespace, Nothing} = nothing
     name:: AbstractString
     token:: Union{AbstractString, ServiceAccountToken, Nothing} = nothing
     expiresAt:: Union{Int, Nothing} = nothing

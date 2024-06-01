@@ -45,23 +45,22 @@ end
 
 
 function onPrepareTTP(ev::PrepareTTP, campaign:: Campaign)
-    ExecuteActionOnTarget(ttp=ev.ttp, target=ev.target, action=ev.action)
+    ttp = get(campaign.armory, ev.ttp, nothing)
+    return ExecuteActionOnTarget(ttp=ttp, target=ev.target)
 end
 
 function onActionExecuted(ev::ActionExecuted, campaign::Campaign)
-    ttp = get(campaign.armory, ev.action.ttp, nothing)
+    ttp = get(campaign.armory, ev.actionId, nothing)
     if isnothing(ttp)
-        @error("Could not find TTP with id $(ev.action.ttp)")
+        @error("Could not find TTP with id $(ev.actionId)")
         return
     end
 
-    if !isnothing(ttp.execute)
-        ev = ttp.execute(ev)
+    if !isnothing(ttp.postProcess)
+        ev = ttp.postProcess(ev)
         if !isnothing(ev)
             return ev
         end
-    else
-        println("action was executed: $(ev.action)  ... but no execute function")
     end
 end
 
@@ -69,7 +68,7 @@ function onNewFacts(ev::NewFacts, campaign::Campaign)
     # merge with existing entities
     append!(campaign.entities, ev.entities)
     append!(campaign.relations, ev.relations)
-    append!(campaign.entities, ev.assets)
+    append!(campaign.assets, ev.assets)
 
     topology = structToDict(campaign)
     return SendToUi("topology", topology)
@@ -101,6 +100,7 @@ function startCampaign(bus::MessageBus)
     register!(bus, ActionExecuted, (ev) -> onActionExecuted(ev, campaign))
     register!(bus, NewFacts, (ev) -> onNewFacts(ev, campaign))
 
-    # analyzers
+    # analyzers (may yield new facts)
     register!(bus, EnvironmentVariablesExtracted, analyzeEnvironmentVariables)
+    register!(bus, ServiceAccountTokenExtracted, analyzeExtractedServiceAccountToken)
 end

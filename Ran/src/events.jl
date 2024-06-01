@@ -31,15 +31,22 @@ end
 struct SessionEnded <: Event
 end
 
-struct ActionExecuted <: Event
+Base.@kwdef struct ActionExecuted <: Event
     sessionId::AbstractString
-    action::ExecuteActionOnTarget
-    output::AbstractString
+    actionId::AbstractString
+    target::Union{AbstractString, Nothing} = nothing
+    # action::TTP
+    output::Union{AbstractString, Nothing} = nothing
 end
 
 struct EnvironmentVariablesExtracted <: Event
     sourceSystemId::AbstractString
     variables::Dict{String, String}
+end
+
+struct ServiceAccountTokenExtracted <: Event
+    rawToken::AbstractString
+    sourceSystemId::SystemId
 end
 
 Base.@kwdef struct NewFacts <: Event

@@ -21,17 +21,17 @@ struct Quit <: Command end
 
 Base.@kwdef struct PrepareTTP <: Command
     ttp:: AbstractString
-    target:: Union{Entity, AbstractString, Nothing} = nothing  # depending on the TTP the target may be inferred
+    target:: Union{Entity, SystemId, Nothing} = nothing  # depending on the TTP the target may be inferred
     technique:: Union{AbstractString, Nothing} = nothing
     params:: Union{Dict, Nothing} = nothing
     action:: Union{AbstractString, Nothing} = nothing
 end
 
 Base.@kwdef struct ExecuteActionOnTarget <: Command
-    id :: AbstractString = string(uuid4())
-    ttp :: AbstractString
-    target :: AbstractString
-    action:: AbstractString = "execute"
+    # id :: AbstractString = string(uuid4())
+    ttp :: TTP
+    target :: SystemId
+    # action:: AbstractString = "execute"
 end
 
 

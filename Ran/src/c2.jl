@@ -2,7 +2,7 @@ using UUIDs
 using Sockets
 
 
-Base.@kwdef struct Session 
+Base.@kwdef struct Session <: AbstractSession 
     id::AbstractString = string(uuid4())
     commands::Channel = Channel{String}(32)
     results::Channel = Channel{Tuple{String, String}}(32)
@@ -36,8 +36,8 @@ function handleNewImplant(conn, bus :: MessageBus, listenerId::String,  c2::C2)
 
     publish!(bus, SessionStarted(id=session.id, listenerId=listenerId, hostname=hostname, user=user, os=os))
     # active lifetime of the implant
-    # TODO: handle external session disconnct
-        # maybe send cycling pings to session, if it's a simple shell?
+    # TODO: handle external session disconnect
+        # maybe send periodic pings to session, if it's a simple shell?
     for cmd in session.commands
         # println(" >>>> 🫡 Command: $cmd")
         res = sendCommand(conn, cmd)
@@ -98,16 +98,35 @@ function onSessionEnded(ev::SessionEnded, c2::C2)
 end
 
 
-function executeActionOnTarget(ev::ExecuteActionOnTarget,  c2::C2)
+function executeActionOnTarget(ev::ExecuteActionOnTarget, c2::C2)
     session = get(c2.sessions, ev.target, nothing)
     if isnothing(session)
         @error "Could not find target with id $(ev.target)"
         return
     end
-    put!(session.commands, ev.action)
-    executedAction, result = take!(session.results)
-    # println("Action '$executedAction' result: $result")
-    return ActionExecuted(session.id, ev, result)
+    # TODO implement error handling if command is not possible
+    # TODO get the TTP from the armory
+    # TODO attempt dependency injection for the various TTPs depending on their signature
+
+    if typeof(ev.ttp.action) <: Function
+        println("Signature of function: ")
+        println(methods(ev.ttp.action))
+        result = ev.ttp.action(session, ev.target)
+    elseif typeof(ev.ttp.action) <: AbsrtactString
+        put!(session.commands, ev.action)
+        executedAction, result = take!(session.results)
+    else
+        @error "Action type not supported"
+    end
+
+
+    if isa(result, Event)
+        # return result as a dedicated event to be sent to the bus, instead of the wrapper Event
+        return ActionExecuted(sessionId=session.id, actionId=ev.ttp.id), result
+    else
+        return ActionExecuted(sessionId=session.id, actionId=ev.ttp.id, output=result)
+    end 
+
 end
 
 
