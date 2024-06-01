@@ -2,7 +2,8 @@
 	import '../app.postcss';
 	import { AppShell, AppBar, Modal } from '@skeletonlabs/skeleton';
 	import { LightSwitch } from '@skeletonlabs/skeleton';
-	import IconRanLogo from '~icons/game-icons/monster-grasp';
+	// import IconRanLogo from '~icons/game-icons/monster-grasp';
+	import IconRanLogo from '~icons/game-icons/fishing-net';
 	import IconReset from '~icons/fluent/arrow-reset-20-filled';
 	import { initializeStores } from '@skeletonlabs/skeleton';
 	import { Toast, getToastStore } from '@skeletonlabs/skeleton';
@@ -48,7 +49,7 @@
 		<AppBar>
 			<svelte:fragment slot="lead">
 				<IconRanLogo />
-				<strong class="text-xl uppercase">Ran</strong>
+				<strong class="ml-3 text-xl uppercase">Ran</strong>
 			</svelte:fragment>
 
 			<svelte:fragment slot="trail">
