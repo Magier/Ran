@@ -1,5 +1,6 @@
 <script lang="ts">
-	import IconRanLogo from '~icons/game-icons/monster-grasp';
+	// import IconRanLogo from '~icons/game-icons/monster-grasp';
+	import IconRanLogo from '~icons/game-icons/fishing-net';
 
 	import Graph from './components/graph.svelte';
 	import Armory from './components/armory.svelte';
