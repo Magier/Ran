@@ -1,3 +1,6 @@
+ import JSON3
+ using Base64
+
  function analyzeEnvironmentVariables( event:: EnvironmentVariablesExtracted) :: Union{Event,Nothing}
     """Extract interesting facts from the environment variables.
     Kubernetes provides useful information as environment variables by default, such as:
@@ -84,4 +87,69 @@ function getServicesFromEnvVars(variables:: Dict{String, String}) :: Dict
     end
 
     return svcGroups
+end
+
+
+
+function analyzeExtractedServiceAccountToken(event:: ServiceAccountTokenExtracted) :: Union{NewFacts, Nothing}
+    header, encData, signature = split(event.rawToken, ".")
+    # add max of padding before decoding in case padding is missing (
+    # extra padding will be ignored by Python's b64decode function anyways
+
+    # payload_data = base64.b64decode(enc_payload + "==").decode("utf-8")
+
+    # TODO: maybe pad to next multiple of 4 (if necessary)
+    # rpad(data, MULTPILE?, "=")
+    data = String(base64decode(encData))
+
+    payload = JSON3.read(data)
+    # payload = json.loads(data)
+    k8sInfo = payload["kubernetes.io"]
+    podInfo = k8sInfo["pod"]
+    saInfo = k8sInfo["serviceaccount"]
+
+    jwt = JWTToken(
+        subject=payload["sub"],
+        audience=payload["aud"],
+        issuer=payload["iss"],
+        expiresAt=payload["exp"],
+        issuedAt=payload["iat"],
+        notValidBefore=payload["nbf"],
+        raw=event.rawToken
+    )
+
+    token = ServiceAccountToken(
+        jwtToken = jwt,
+        namespace=k8sInfo["namespace"],
+        podName=k8sInfo["pod"]["name"],
+        podUid=k8sInfo["pod"]["uid"],
+        serviceAccountName=k8sInfo["serviceaccount"]["name"],
+        serviceAccountUid=k8sInfo["serviceaccount"]["uid"],
+        warnAfter=k8sInfo["warnafter"],
+    )
+
+    ns = Namespace(name=k8sInfo["namespace"])
+    sa = ServiceAccount(name=saInfo["name"], ns=ns, token=token, expiresAt=payload["exp"])
+    # TODO check: if SA tokens can target other pods then the system where it was mounted on?
+    pod = Pod(id=event.sourceSystemId, name=podInfo["name"], ns=ns, serviceAccount=sa)
+    # pod.service_account = sa
+
+    sa_usage = Relation(name="uses", source=pod.id, destination=sa.id)
+    # TODO: add token to loot (with ref to the system)
+    # - extract the namespace, SA name and pod name (if necessary?)
+    # - update topology and add parent node being the namespace (if not yet set)
+    # - set `kind` of the system
+    # - send updated topology to the UI
+    #   - add the SA token as a small entity
+    #   - everything is in NS compound node
+
+    return NewFacts(
+        entities=[
+            ns,
+            sa,
+            pod,
+        ],
+        assets=[token],
+        relations=[sa_usage],
+    )
 end
