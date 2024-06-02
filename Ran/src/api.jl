@@ -87,7 +87,6 @@ function handleSocket(ws::HTTP.WebSocket, bus::MessageBus, clientId::String, cha
             cmd = parseCommand(msg)
 
             if isnothing(cmd)
-            # println(" >>> nopppeee")
                 # send(ws, "terminal", Dict("status" => "false", "message" => "Invalid command"))
             else 
                 if typeof(cmd) <: Quit close(channel) end
@@ -97,7 +96,6 @@ function handleSocket(ws::HTTP.WebSocket, bus::MessageBus, clientId::String, cha
             end
         end
     catch e
-        
         @error e
     end
 
