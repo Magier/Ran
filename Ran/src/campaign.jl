@@ -7,13 +7,21 @@ mutable struct Campaign
 end
 
 
+function getTopology(campaign::Campaign)
+    return Dict(
+        "entities" => campaign.entities,
+        "relations" => campaign.relations,
+        "assets" => campaign.assets
+    )
+end
+
 function structToDict(s::Any) :: Dict{AbstractString, Any}
     return Dict(string(key)=>getfield(s, key) for key ∈ fieldnames(typeof(s)))
 end
 
 
 function onClientConnected(ev::ClientConnected, campaign:: Campaign)
-    topology = structToDict(campaign)
+    topology = getTopology(campaign)
     return SendToUi("armory", campaign.armory), SendToUi("topology", topology)
 end
 
@@ -21,7 +29,7 @@ end
 function onListenerReady(ev::ListenerReady, campaign:: Campaign)
     push!(campaign.entities, Listener(id=ev.id, name="Listener $(ev.port)", port=ev.port, protocol="tcp"))
 
-    topology = structToDict(campaign)
+    topology = getTopology(campaign)
     return SendToUi("topology", topology)
 end
 
@@ -33,7 +41,7 @@ function onSessionStarted(ev::SessionStarted, campaign:: Campaign)
     # add direction of command (listener commands the target system)
     push!(campaign.relations, Relation(name="simple shell", source=ev.listenerId, destination=ev.id))
 
-    topology = structToDict(campaign)
+    topology = getTopology(campaign)
     return SendToUi("topology", topology)
 end
 
@@ -70,7 +78,7 @@ function onNewFacts(ev::NewFacts, campaign::Campaign)
     append!(campaign.relations, ev.relations)
     append!(campaign.assets, ev.assets)
 
-    topology = structToDict(campaign)
+    topology = getTopology(campaign)
     return SendToUi("topology", topology)
 end 
 
@@ -81,7 +89,7 @@ function resetCampaign(ev::ResetCampaign, campaign::Campaign)
     campaign.assets = []
     # TODO: send commands to kill running sessions
 
-    topology = structToDict(campaign)
+    topology = getTopology(campaign)
     return SendToUi("topology", topology)
 end
 

@@ -11,7 +11,7 @@ include("api.jl")
 include("c2.jl")
 
 
-function main() 
+function main()
     # create c2 adapter
     msgBus = MessageBus()
 
@@ -20,6 +20,11 @@ function main()
     startC2(msgBus)
 
     handleEvents(msgBus)
+end
+
+function julia_main()::Cint
+    main()
+    return 0 # if things finished successfully
 end
 
 export main

