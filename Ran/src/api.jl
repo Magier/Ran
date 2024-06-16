@@ -18,7 +18,7 @@ StructTypes.StructType(::Type{UiMessage}) = StructTypes.Struct()
 dynamicfiles("./static", "static")
 
 
-@get "/sessions" function(req::HTTP.Request)
+@get "/sessions" function (req::HTTP.Request)
     return "getting sessions not implemented"
 end
 
@@ -27,7 +27,7 @@ end
 Provide a single interface for wrapping and sending messages via the websocket
     Return true if the message was sent successfully, false otherwise
 """
-function send(ws::HTTP.WebSocket, msgType::String, data::Union{Dict, String, Vector}) :: Bool
+function send(ws::HTTP.WebSocket, msgType::String, data::Union{Dict,String,Vector})::Bool
     try
         msg = Dict("type" => msgType, "data" => data)
         HTTP.send(ws, JSON3.write(msg))
@@ -46,7 +46,7 @@ function handleSendMessages(ws::HTTP.WebSocket, channel::Channel)
     @debug " . ...... done checking events on the channel $channel (Thead $(Threads.threadid())"
 end
 
-function parseCommand(msg:: Dict{String, Any}) :: Union{Command, Nothing}
+function parseCommand(msg::Dict{String,Any})::Union{Command,Nothing}
     eventType = get(msg, "msg_type", nothing)
 
     if eventType == "execute_ttp"
@@ -62,7 +62,7 @@ function parseCommand(msg:: Dict{String, Any}) :: Union{Command, Nothing}
             action=action,
             params=params
         )
-    elseif eventType == "terminal" 
+    elseif eventType == "terminal"
         data = strip(msg.gdata)
 
         if startswith(data, "listen")
@@ -88,8 +88,10 @@ function handleSocket(ws::HTTP.WebSocket, bus::MessageBus, clientId::String, cha
 
             if isnothing(cmd)
                 # send(ws, "terminal", Dict("status" => "false", "message" => "Invalid command"))
-            else 
-                if typeof(cmd) <: Quit close(channel) end
+            else
+                if typeof(cmd) <: Quit
+                    close(channel)
+                end
 
                 println("publishing cmd on bus!")
                 publish!(bus, cmd)
@@ -103,7 +105,7 @@ function handleSocket(ws::HTTP.WebSocket, bus::MessageBus, clientId::String, cha
 end
 
 
-@websocket "/ws" function(ws::HTTP.WebSocket)
+@websocket "/ws" function (ws::HTTP.WebSocket)
     bus = get!(ws.request.context, :BUS, nothing)
     clientId = get!(ws.request.context, :CLIENT_ID, nothing)
     channel = get!(ws.request.context, :SEND_CHANNEL, nothing)
@@ -116,25 +118,24 @@ end
         @error "BUS was not set properly for request"
     else
         @sync begin
-            errormonitor(@async handleSendMessages($ws, $channel))
-            errormonitor(@async handleSocket($ws, $bus, $clientId, $channel))
+            errormonitor(Threads.@spawn handleSendMessages($ws, $channel))
+            errormonitor(Threads.@spawn handleSocket($ws, $bus, $clientId, $channel))
             # bind(channel, taskTx) # bind lifetime of both tasks via the channel, if one closes, the other will too
             # errormonitor(taskRx)
             # errormonitor(taskTx)
         end
     end
-    # TODO: lifetime of tasks is still not okay, the following message is never reached:
     println("post socket")
 end
 
-function handleUiEvent(channels:: Dict{String, Channel}, event::SendToUi)
+function handleUiEvent(channels::Dict{String,Channel}, event::SendToUi)
     for ch in values(channels)
         put!(ch, event)
     end
 end
 
 function startApi(bus::MessageBus)
-    channels = Dict{String, Channel}()
+    channels = Dict{String,Channel}()
 
     unsub = register!(bus, UiEvent, (ev) -> handleUiEvent(channels, ev))
     unsub = register!(bus, SendToUi, (ev) -> handleUiEvent(channels, ev))
@@ -148,7 +149,7 @@ function startApi(bus::MessageBus)
     end)
 
     function middle(handler)
-        return function (req:: HTTP.Request)
+        return function (req::HTTP.Request)
             req.context[:BUS] = bus # provide access to the messagebus to the individual requests
             # req.context[:REGISTER] = registerConnection
             ch = Channel(100)
