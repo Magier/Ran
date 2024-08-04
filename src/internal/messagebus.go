@@ -1,9 +1,10 @@
 package bus
 
 import (
+	"context"
 	"fmt"
 
-	domain "github.com/Magier/Ran/internal/domain"
+	domain "github.com/Magier/Ran/domain"
 )
 
 type MessageBus interface {
@@ -18,11 +19,14 @@ type MessageBusProvider struct {
 }
 
 func (h *MessageBusProvider) Publish(events ...domain.Event) error {
+	ctx := context.Background()
 	// func (h *MessageBusProvider) Publish(ctx context.Context, events ...domain.Event) error {
 	for _, event := range events {
-		fmt.Print("Publishing message ", event.EventName(), "\n")
+		if len(h.subscribers[event.EventName()]) == 0 {
+			fmt.Printf("📢 %s without subs\n", event.EventName())
+		}
 		for _, handler := range h.subscribers[event.EventName()] {
-			err := handler(event)
+			err := handler(ctx, event)
 			if err != nil {
 				return err
 			}
@@ -38,7 +42,6 @@ func (b *MessageBusProvider) Subscribe(event domain.Event, handler domain.EventH
 		b.subscribers[event.EventName()],
 		handler,
 	)
-	fmt.Print("Publishing message to topic: ", event.EventName(), "\n")
 }
 
 func CreateMessageBus() *MessageBusProvider {
