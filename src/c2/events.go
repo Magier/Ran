@@ -6,6 +6,6 @@ type ListenerReady struct {
 	// protocol string
 }
 
-func (c ListenerReady) EventName() string {
+func (c ListenerReady) MessageName() string {
 	return "ListenerReady"
 }

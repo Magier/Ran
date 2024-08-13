@@ -1,14 +1,14 @@
 package domain
 
 type Command interface {
-	CommandName() string
+	MessageName() string
 }
 
 type StartListener struct {
 	Port int
 }
 
-func (c StartListener) CommandName() string {
+func (c StartListener) MessageName() string {
 	return "StartListener"
 }
 
@@ -16,6 +16,6 @@ type StartC2Redirector struct {
 	DstPort int
 }
 
-func (c StartC2Redirector) CommandName() string {
+func (c StartC2Redirector) MessageName() string {
 	return "StartC2Redirector"
 }
