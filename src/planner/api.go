@@ -1,8 +1,6 @@
 package planner
 
 import (
-	"fmt"
-
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal"
 )
@@ -10,7 +8,7 @@ import (
 type APIStarted struct {
 }
 
-func (c APIStarted) EventName() string {
+func (c APIStarted) MessageName() string {
 	return "PlannerStarted"
 }
 
@@ -28,6 +26,6 @@ func StartApi(mb bus.MessageBus) {
 		panic(err)
 	}
 
-	plan := simplePlan()
-	fmt.Print(plan)
+	_ = simplePlan()
+	// fmt.Print(plan)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/Magier/Ran/campaign"
 	bus "github.com/Magier/Ran/internal"
 	"github.com/Magier/Ran/planner"
+	tui "github.com/Magier/Ran/tui"
 )
 
 func main() {
@@ -18,8 +19,12 @@ func main() {
 	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
 	defer cancel()
 	mb := bus.CreateMessageBus()
+	go mb.HandleEvents(ctx)
+	c := campaign.StartCampaign(mb)
 	c2.StartC2(ctx, mb)
 	planner.StartApi(mb)
-	campaign.StartCampaign(mb)
-	// time.Sleep(60 * time.Second)
+
+	// TODO maybe switch between TUI and web-UI (start frontend as well?)
+	tui.SimpleTUI(mb, c)
+
 }
