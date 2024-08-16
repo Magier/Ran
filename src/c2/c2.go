@@ -20,6 +20,9 @@ type C2Started struct {
 func (c C2Started) MessageName() string {
 	return "c2 started"
 }
+func (c C2Started) String() string {
+	return "c2 started"
+}
 
 type Session struct {
 	Id       string
@@ -33,27 +36,30 @@ type SessionStarted struct {
 }
 
 func (c SessionStarted) MessageName() string {
-	s := c.Session
-	return fmt.Sprintf("session started: %s@%s [%s]", s.Hostname, s.User, s.Os)
+	return "session started"
+}
+
+func (c SessionStarted) String() string {
+	return "Session started: " + c.Session.Id
 }
 
 func StartC2(ctx context.Context, mb bus.MessageBus) {
 	// listeners := make(map[string]net.Listener)
 
 	var wg sync.WaitGroup
-	mb.Subscribe(domain.StartListener{}, func(ctx context.Context, event domain.Event) error {
+	mb.Subscribe(domain.StartListener{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
 		cmd := event.(domain.StartListener)
 		wg.Add(1)
 		go func() {
-			_ = startListener(ctx, mb, cmd.Port)
+			err := startListener(ctx, mb, cmd.Port)
+			if err != nil {
+				mb.Publish(domain.ErrorMsg{Level: domain.LevelError, Msg: err.Error()})
+			}
 			// TODO handle disconnecting listener
 			wg.Done()
 		}()
 		// return startListener(ctx, mb, cmd.Port)
-		return nil
-	})
-
-	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, event domain.Event) error {
+		return nil, nil
 	})
 
 	err := mb.Publish(C2Started{})
@@ -67,8 +73,7 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 func startListener(ctx context.Context, bus bus.MessageBus, port int) error {
 	listener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 	if err != nil {
-		fmt.Println("Unable to bin to port:", err)
-		return err
+		return fmt.Errorf("Unable to bind to port: %s", err)
 	}
 	defer listener.Close()
 
