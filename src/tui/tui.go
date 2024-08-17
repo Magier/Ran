@@ -11,6 +11,7 @@ import (
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal"
+	"github.com/Magier/Ran/tui/explorer"
 	logwindow "github.com/Magier/Ran/tui/log_window"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
@@ -88,7 +89,7 @@ type model struct {
 	bus bus.MessageBus
 	// choices  []string // items on the to-do list
 	actions       list.Model // Armory
-	systemsList   SystemsListModel
+	explorer      explorer.Model
 	cmdInput      textinput.Model
 	statusBar     StatusBarModel
 	actionSuccess bool
@@ -97,6 +98,8 @@ type model struct {
 	keymap        keymap
 	help          help.Model
 	logWindow     logwindow.Model
+	height        int
+	width         int
 	// cursor   int              // which to-do list item our cursor is pointing at
 	// selected map[int]struct{}, // which to-do items are selected
 }
@@ -130,15 +133,20 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	statusBar.FirstColumn = "Ran"
 	statusBar.SecondColumn = "Waiting ..."
 
+	e := explorer.NewModel()
+
 	return model{
 		bus:       bus,
 		actions:   armoryModel,
 		campaign:  c,
 		cmdInput:  ti,
 		logWindow: logWindow,
+		explorer:  e,
 		statusBar: statusBar,
 		help:      help.New(),
 		keymap:    setupKeymap(),
+		height:    40,
+		width:     120,
 	}
 }
 func (m model) Init() tea.Cmd {
@@ -148,12 +156,16 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	newModel, cmd := m.systemsList.Update(msg)
-	m.systemsList = newModel
+	newExplorerModel, cmd := m.explorer.Update(msg)
+	m.explorer = newExplorerModel
 	cmds = append(cmds, cmd)
 
 	newStatusModel, cmd := m.statusBar.Update(msg)
 	m.statusBar = newStatusModel
+	cmds = append(cmds, cmd)
+
+	newLogModel, cmd := m.logWindow.Update(msg)
+	m.logWindow = newLogModel
 	cmds = append(cmds, cmd)
 
 	switch msg := msg.(type) {
@@ -166,19 +178,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.actionSuccess = msg.success
 		m.failureReason = msg.reason
 		m.cmdInput.SetValue("")
-	case c2.ListenerReady:
-		newLogModel, logCmd := m.logWindow.Update(msg)
-		m.logWindow = newLogModel
+	// case c2.ListenerReady:
+	// newLogModel, logCmd := m.logWindow.Update(msg)
+	// m.logWindow = newLogModel
 
-		newSystemModel, sysCmd := m.systemsList.Update(msg)
-		m.systemsList = newSystemModel
+	// newSystemModel, sysCmd := m.systemsList.Update(msg)
+	// m.systemsList = newSystemModel
 
-		cmds = append(cmds, logCmd, sysCmd)
+	// cmds = append(cmds, logCmd, sysCmd)
+	case tea.WindowSizeMsg:
+		m.height = msg.Height
+		m.width = msg.Width
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		}
+
+		// 'a' -> focus armory (it's filter function)
+		// 'e' -> focus explorer
+		// 'l' -> focus log
+		// tab -> focus next
+		// shift+tab -> focus previous
+		// 'h' -> show help of focus component
 
 		// check what is focues - is it the cmdInput?
 		if m.cmdInput.Focused() {
@@ -252,15 +274,22 @@ type actionResponseMsg struct {
 func (m model) View() string {
 	var s string
 
-	s += m.systemsList.View()
+	s += m.explorer.View()
 
 	s += m.logWindow.View()
+
 	s += m.cmdInput.View()
 	if !m.actionSuccess {
-		s += fmt.Sprintf(" %s \n\n", m.failureReason+"\n\n")
+		s += fmt.Sprintf(" %s ", m.failureReason+"\n")
 	}
 
-	s += "\n"
+	filledLines := 5 // len of explorer + logWindow + cmdInput
+
+	// fill screen to align rest at the bototm
+	for i := 0; i < m.height-filledLines; i++ {
+		s += "\n"
+	}
+
 	s += m.statusBar.View()
 
 	// s += m.actions.View()
