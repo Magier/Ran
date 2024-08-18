@@ -1,8 +1,8 @@
-package explorer
+package armory
 
 import (
-	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/tui/theme"
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -22,21 +22,25 @@ var style = lipgloss.NewStyle().
 	BorderRight(true).
 	BorderBottom(true)
 
-type Model struct {
-	Entries []string
-	Width   int
+type Action struct {
+	title, desc string
 }
 
-func NewExplorer() Model {
-	entries := []string{
-		"localhost",
-		"pod 1",
-		"kube-api",
-		"db",
+func (a Action) Title() string       { return a.title }
+func (a Action) Description() string { return a.desc }
+func (a Action) FilterValue() string { return a.title }
+
+type Model struct {
+	actions list.Model
+}
+
+func NewAmory() Model {
+	actions := []list.Item{
+		Action{title: "Get Environment Variables", desc: "EnvVars can have secrets or interesting configurations"},
+		Action{title: "Nutella", desc: "It's good on toast"},
 	}
 	return Model{
-		// Entries: make([]string, 0),
-		Entries: entries,
+		actions: list.New(actions, list.NewDefaultDelegate(), 0, 0),
 	}
 }
 
@@ -45,19 +49,9 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case c2.SessionStarted:
-		m.Entries = append(m.Entries, msg.Session.Hostname)
-	}
 	return m, nil
 }
 
 func (m Model) View() string {
-	var s string
-
-	for _, e := range m.Entries {
-		s += " - " + e + "\n"
-	}
-
-	return style.Render(s)
+	return style.Render("Armory")
 }

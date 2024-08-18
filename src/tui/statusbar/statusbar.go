@@ -1,9 +1,38 @@
-package tui
+package statusbar
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
+)
+
+var (
+	statusNugget = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFDF5")).
+			Padding(0, 1)
+
+	statusBarStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#343433", Dark: "#C1C6B2"}).
+			Background(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#353533"})
+
+	statusStyle = lipgloss.NewStyle().
+			Inherit(statusBarStyle).
+			Foreground(lipgloss.Color("#FFFDF5")).
+			Background(lipgloss.Color("#FF5F87")).
+			Padding(0, 1).
+			MarginRight(1)
+
+	encodingStyle = statusNugget.
+			Background(lipgloss.Color("#A550DF")).
+			Align(lipgloss.Right)
+
+	statusText = lipgloss.NewStyle().Inherit(statusBarStyle)
+
+	fishCakeStyle = statusNugget.Background(lipgloss.Color("#6124DF"))
+
+	// Page.
+
+	docStyle = lipgloss.NewStyle().Padding(1, 2, 1, 2)
 )
 
 // Height represents the height of the statusbar.
@@ -15,8 +44,8 @@ type ColorConfig struct {
 	Background lipgloss.AdaptiveColor
 }
 
-// StatusBarModel represents the properties of the statusbar.
-type StatusBarModel struct {
+// Model represents the properties of the statusbar.
+type Model struct {
 	Width              int
 	Height             int
 	FirstColumn        string
@@ -29,23 +58,33 @@ type StatusBarModel struct {
 	FourthColumnColors ColorConfig
 }
 
-// New creates a new instance of the statusbar.
-func NewStatusBar(firstColumnColors, secondColumnColors, thirdColumnColors, fourthColumnColors ColorConfig) StatusBarModel {
-	return StatusBarModel{
-		FirstColumnColors:  firstColumnColors,
-		SecondColumnColors: secondColumnColors,
-		ThirdColumnColors:  thirdColumnColors,
-		FourthColumnColors: fourthColumnColors,
+// NewStatusBar creates a new instance of the statusbar.
+func NewStatusBar() Model {
+	subtle := lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#383838"}
+	highlight := lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
+	// special := lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"}
+	color := ColorConfig{
+		Foreground: highlight,
+		Background: subtle,
+	}
+
+	return Model{
+		FirstColumnColors:  color,
+		SecondColumnColors: color,
+		ThirdColumnColors:  color,
+		FourthColumnColors: color,
+		FirstColumn:        "Ran",
+		SecondColumn:       "Waiting ...",
 	}
 }
 
 // SetSize sets the width of the statusbar.
-func (m *StatusBarModel) SetSize(width int) {
+func (m *Model) SetSize(width int) {
 	m.Width = width
 }
 
 // Update updates the size of the statusbar.
-func (m StatusBarModel) Update(msg tea.Msg) (StatusBarModel, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width)
@@ -55,7 +94,7 @@ func (m StatusBarModel) Update(msg tea.Msg) (StatusBarModel, tea.Cmd) {
 }
 
 // SetContent sets the content of the statusbar.
-func (m *StatusBarModel) SetContent(firstColumn, secondColumn, thirdColumn, fourthColumn string) {
+func (m *Model) SetContent(firstColumn, secondColumn, thirdColumn, fourthColumn string) {
 	m.FirstColumn = firstColumn
 	m.SecondColumn = secondColumn
 	m.ThirdColumn = thirdColumn
@@ -63,7 +102,7 @@ func (m *StatusBarModel) SetContent(firstColumn, secondColumn, thirdColumn, four
 }
 
 // SetColors sets the colors of the 4 columns.
-func (m *StatusBarModel) SetColors(firstColumnColors, secondColumnColors, thirdColumnColors, fourthColumnColors ColorConfig) {
+func (m *Model) SetColors(firstColumnColors, secondColumnColors, thirdColumnColors, fourthColumnColors ColorConfig) {
 	m.FirstColumnColors = firstColumnColors
 	m.SecondColumnColors = secondColumnColors
 	m.ThirdColumnColors = thirdColumnColors
@@ -71,7 +110,7 @@ func (m *StatusBarModel) SetColors(firstColumnColors, secondColumnColors, thirdC
 }
 
 // View returns a string representation of a statusbar.
-func (m StatusBarModel) View() string {
+func (m Model) View() string {
 
 	// w := lipgloss.Width
 

@@ -4,57 +4,28 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal"
+	"github.com/Magier/Ran/tui/armory"
+	"github.com/Magier/Ran/tui/commandprompt"
 	"github.com/Magier/Ran/tui/explorer"
-	logwindow "github.com/Magier/Ran/tui/log_window"
+	logwindow "github.com/Magier/Ran/tui/logwindow"
+	"github.com/Magier/Ran/tui/mainwindow"
+	"github.com/Magier/Ran/tui/statusbar"
 	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	statusNugget = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Padding(0, 1)
-
-	statusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#343433", Dark: "#C1C6B2"}).
-			Background(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#353533"})
-
-	statusStyle = lipgloss.NewStyle().
-			Inherit(statusBarStyle).
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Background(lipgloss.Color("#FF5F87")).
-			Padding(0, 1).
-			MarginRight(1)
-
-	encodingStyle = statusNugget.
-			Background(lipgloss.Color("#A550DF")).
-			Align(lipgloss.Right)
-
-	statusText = lipgloss.NewStyle().Inherit(statusBarStyle)
-
-	fishCakeStyle = statusNugget.Background(lipgloss.Color("#6124DF"))
-
-	// Page.
-
-	docStyle = lipgloss.NewStyle().Padding(1, 2, 1, 2)
-)
-
-type statusMsg struct {
+type StatusMsg struct {
 	level   string // info, warning, error
 	message string
 }
 
-func (m statusMsg) String() string {
+func (m StatusMsg) String() string {
 	return m.message
 }
 
@@ -71,7 +42,7 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign) *tea.Program {
 
 	bus.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
 		msg := event.(domain.ErrorMsg)
-		p.Send(statusMsg{level: string(msg.Level), message: msg.Msg})
+		p.Send(StatusMsg{level: string(msg.Level), message: msg.Msg})
 		return nil, nil
 	})
 
@@ -88,18 +59,17 @@ func RunTUI(p *tea.Program) {
 type model struct {
 	bus bus.MessageBus
 	// choices  []string // items on the to-do list
-	actions       list.Model // Armory
-	explorer      explorer.Model
-	cmdInput      textinput.Model
-	statusBar     StatusBarModel
-	actionSuccess bool
-	failureReason string
-	campaign      *campaign.Campaign
-	keymap        keymap
-	help          help.Model
-	logWindow     logwindow.Model
-	height        int
-	width         int
+	armory     armory.Model // Armory
+	explorer   explorer.Model
+	mainWindow mainwindow.Model
+	cmdPrompt  commandprompt.Model
+	statusBar  statusbar.Model
+	campaign   *campaign.Campaign
+	keymap     keymap
+	help       help.Model
+	logWindow  logwindow.Model
+	height     int
+	width      int
 	// cursor   int              // which to-do list item our cursor is pointing at
 	// selected map[int]struct{}, // which to-do items are selected
 }
@@ -107,46 +77,27 @@ type model struct {
 func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	const numLogLines = 7
 
-	actions := []list.Item{
-		action{title: "Get Environment Variables", desc: "EnvVars can have secrets or interesting configurations"},
-		action{title: "Nutella", desc: "It's good on toast"},
-	}
-
-	armoryModel := list.New(actions, list.NewDefaultDelegate(), 0, 0)
-	armoryModel.Title = "Armory"
-
-	ti := textinput.New()
-	ti.Placeholder = "Type a command..."
-	ti.Focus()
-
-	logWindow := logwindow.New(numLogLines)
-
-	subtle := lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#383838"}
-	highlight := lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
-	// special := lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"}
-	color := ColorConfig{
-		Foreground: highlight,
-		Background: subtle,
-	}
-
-	statusBar := NewStatusBar(color, color, color, color)
-	statusBar.FirstColumn = "Ran"
-	statusBar.SecondColumn = "Waiting ..."
-
-	e := explorer.NewModel()
+	e := explorer.NewExplorer()
+	mainWnd := mainwindow.NewMainWindow()
+	armory := armory.NewAmory()
+	cmdPrompt := commandprompt.NewCommandPrompt()
+	logWindow := logwindow.NewLogWindow(numLogLines)
+	statusBar := statusbar.NewStatusBar()
 
 	return model{
-		bus:       bus,
-		actions:   armoryModel,
-		campaign:  c,
-		cmdInput:  ti,
-		logWindow: logWindow,
-		explorer:  e,
-		statusBar: statusBar,
-		help:      help.New(),
-		keymap:    setupKeymap(),
-		height:    40,
-		width:     120,
+		bus: bus,
+		// actions:   armory,
+		armory:     armory,
+		campaign:   c,
+		mainWindow: mainWnd,
+		cmdPrompt:  cmdPrompt,
+		logWindow:  logWindow,
+		explorer:   e,
+		statusBar:  statusBar,
+		help:       help.New(),
+		keymap:     setupKeymap(),
+		height:     40,
+		width:      120,
 	}
 }
 func (m model) Init() tea.Cmd {
@@ -155,29 +106,29 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	var cmd tea.Cmd
 
-	newExplorerModel, cmd := m.explorer.Update(msg)
-	m.explorer = newExplorerModel
+	m.explorer, cmd = m.explorer.Update(msg)
 	cmds = append(cmds, cmd)
 
-	newStatusModel, cmd := m.statusBar.Update(msg)
-	m.statusBar = newStatusModel
+	m.statusBar, cmd = m.statusBar.Update(msg)
 	cmds = append(cmds, cmd)
 
-	newLogModel, cmd := m.logWindow.Update(msg)
-	m.logWindow = newLogModel
+	m.logWindow, cmd = m.logWindow.Update(msg)
+	cmds = append(cmds, cmd)
+
+	m.armory, cmd = m.armory.Update(msg)
+	cmds = append(cmds, cmd)
+
+	m.cmdPrompt, cmd = m.cmdPrompt.Update(msg)
 	cmds = append(cmds, cmd)
 
 	switch msg := msg.(type) {
-	case statusMsg:
+	case StatusMsg:
 		newLogModel, cmd := m.logWindow.Update(msg)
 		m.logWindow = newLogModel
 		cmds = append(cmds, cmd)
 		// m.logWindow.AddLine(msg.message)
-	case actionResponseMsg:
-		m.actionSuccess = msg.success
-		m.failureReason = msg.reason
-		m.cmdInput.SetValue("")
 	// case c2.ListenerReady:
 	// newLogModel, logCmd := m.logWindow.Update(msg)
 	// m.logWindow = newLogModel
@@ -189,6 +140,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.height = msg.Height
 		m.width = msg.Width
+
+	case commandprompt.SendCommand:
+		err := m.bus.Publish(msg.Action)
+		if err != nil { // TODO: properly handle errors in UI
+			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
+		}
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
@@ -198,110 +155,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 'a' -> focus armory (it's filter function)
 		// 'e' -> focus explorer
 		// 'l' -> focus log
+		// ':' -> show commandPrompt
 		// tab -> focus next
 		// shift+tab -> focus previous
 		// 'h' -> show help of focus component
 
 		// check what is focues - is it the cmdInput?
-		if m.cmdInput.Focused() {
-			m.actionSuccess = true
-			m.failureReason = ""
-			switch msg.Type {
-			// case tea.KeyEsc:
-			case tea.KeyEnter:
-				inputCmd := m.cmdInput.Value()
-				cmd := handleUserAction(m, inputCmd)
-				cmds = append(cmds, cmd)
-			default:
-				newCmdInput, cmd := m.cmdInput.Update(msg)
-				m.cmdInput = newCmdInput
-				cmds = append(cmds, cmd)
-			}
-		} else {
-			return handleKeyMsg(m, msg)
-		}
+		// if m.cmdInput.Focused() {
+		// } else {
+		return handleKeyMsg(m, msg)
+		// }
 	}
 	return m, tea.Batch(cmds...)
-}
-
-func handleUserAction(model model, input string) tea.Cmd {
-	return func() tea.Msg {
-		action, args := parseCommand(input)
-		// msgLevel := "info"
-		message := ""
-		success := true
-		switch action {
-		case "listen":
-			port := 1337
-			if len(args) > 0 {
-				var err error
-				port, err = strconv.Atoi(args[0])
-				if err != nil {
-					// msgLevel = "warn"
-					port = 1337
-					message = fmt.Sprintf("Invalid port: '%s' using default port %d", args[0], port)
-				}
-			}
-			err := model.bus.Publish(domain.StartListener{Port: port})
-			if err != nil {
-				// msgLevel = "error"
-				message = "Failed to start listener"
-			}
-		// 		case "sessions":
-		// 			// TODO: listen sessions from c2
-		// 			sessions := camp.GetSessions()
-
-		// 			if len(sessions) == 0 {
-		// 				fmt.Println("No sessions active")
-		// 			} else {
-		// 				for _, s := range sessions {
-		// 					fmt.Printf("Session: %s\n", s.Id)
-		// 				}
-		default:
-			success = false
-			message = fmt.Sprintf("Unknown command: '%s'", action)
-		}
-		return actionResponseMsg{success: success, reason: message}
-		// return statusMsg{level: msgLevel, message: message}
-	}
-}
-
-type actionResponseMsg struct {
-	success bool
-	reason  string
 }
 
 func (m model) View() string {
 	var s string
 
-	s += m.explorer.View()
-
-	s += m.logWindow.View()
-
-	s += m.cmdInput.View()
-	if !m.actionSuccess {
-		s += fmt.Sprintf(" %s ", m.failureReason+"\n")
-	}
-
-	filledLines := 5 // len of explorer + logWindow + cmdInput
-
-	// fill screen to align rest at the bototm
-	for i := 0; i < m.height-filledLines; i++ {
-		s += "\n"
-	}
-
-	s += m.statusBar.View()
-
-	// s += m.actions.View()
-	// s += docStyle.Render(m.actions.View())
+	s += lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.JoinHorizontal(lipgloss.Top,
+			m.explorer.View(),
+			lipgloss.JoinVertical(lipgloss.Left,
+				m.mainWindow.View(),
+				m.logWindow.View(),
+				m.cmdPrompt.View(),
+			),
+			m.armory.View()),
+		m.statusBar.View(),
+	)
 	return s
-}
-
-func parseCommand(text string) (string, []string) {
-	text = strings.Trim(text, "\n ")
-	parts := strings.Split(text, " ")
-	cmd := parts[0]
-	args := parts[1:]
-
-	return strings.ToLower(cmd), args
 }

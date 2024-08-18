@@ -1,8 +1,7 @@
 package armory
 
-type TTP interface {}
+type TTP interface{}
 
-
-func getArmory() {
-	return {}
+func getArmory() error {
+	return nil
 }
