@@ -64,6 +64,7 @@ type model struct {
 	mainWindow mainwindow.Model
 	cmdPrompt  commandprompt.Model
 	statusBar  statusbar.Model
+	Focused    string
 	campaign   *campaign.Campaign
 	keymap     keymap
 	help       help.Model
