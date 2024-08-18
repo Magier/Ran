@@ -29,7 +29,7 @@ func NewCommandPrompt() Model {
 
 	ti := textinput.New()
 	ti.Placeholder = "Type a command..."
-	ti.Focus()
+	ti.Blur()
 	return Model{
 		cmdInput:      ti,
 		actionSuccess: true,

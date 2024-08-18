@@ -14,7 +14,7 @@ var style = lipgloss.NewStyle().
 	PaddingTop(1).
 	PaddingLeft(1).
 	Height(35).
-	Width(22).
+	Width(40).
 	BorderStyle(lipgloss.RoundedBorder()).
 	BorderForeground(theme.PrimaryColor).
 	BorderTop(true).
@@ -36,11 +36,15 @@ type Model struct {
 
 func NewAmory() Model {
 	actions := []list.Item{
+		Action{title: "Create Listener", desc: "Catch incoming shells"},
+		Action{title: "Create Redirector", desc: "Create a proxy routing traffic to the C2"},
 		Action{title: "Get Environment Variables", desc: "EnvVars can have secrets or interesting configurations"},
-		Action{title: "Nutella", desc: "It's good on toast"},
 	}
+	armoryList := list.New(actions, list.NewDefaultDelegate(), 40, 30)
+	armoryList.Title = "Armory"
+	armoryList.SetShowStatusBar(false)
 	return Model{
-		actions: list.New(actions, list.NewDefaultDelegate(), 0, 0),
+		actions: armoryList,
 	}
 }
 
@@ -49,9 +53,12 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	return m, nil
+	var cmd tea.Cmd
+	m.actions, cmd = m.actions.Update(msg)
+	return m, cmd
 }
 
 func (m Model) View() string {
-	return style.Render("Armory")
+	s := m.actions.View()
+	return style.Render(s)
 }
