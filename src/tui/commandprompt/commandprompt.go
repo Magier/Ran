@@ -124,3 +124,10 @@ func parseCommand(text string) (string, []string) {
 
 	return strings.ToLower(cmd), args
 }
+
+func (m Model) Focus() {
+	fmt.Println("Focus cmd")
+}
+func (m Model) Blur() {
+	fmt.Println("Blur cmd")
+}

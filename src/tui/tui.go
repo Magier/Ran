@@ -29,6 +29,21 @@ func (m StatusMsg) String() string {
 	return m.message
 }
 
+type Wnd uint
+
+const (
+	Nothing Wnd = iota
+	ExplorerWnd
+	MainWnd
+	ArmoryWnd
+	CmdPrompt
+)
+
+type FocusableWnd interface {
+	Focus()
+	Blur()
+}
+
 func SetupTUI(bus bus.MessageBus, c *campaign.Campaign) *tea.Program {
 	p := tea.NewProgram(initialModel(bus, c), tea.WithAltScreen())
 
@@ -64,7 +79,8 @@ type model struct {
 	mainWindow mainwindow.Model
 	cmdPrompt  commandprompt.Model
 	statusBar  statusbar.Model
-	Focused    string
+	focusedWnd Wnd
+	windows    map[Wnd]FocusableWnd
 	campaign   *campaign.Campaign
 	keymap     keymap
 	help       help.Model
@@ -84,6 +100,14 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	cmdPrompt := commandprompt.NewCommandPrompt()
 	logWindow := logwindow.NewLogWindow(numLogLines)
 	statusBar := statusbar.NewStatusBar()
+	focusedWnd := ArmoryWnd
+
+	wnds := map[Wnd]FocusableWnd{
+		ExplorerWnd: e,
+		MainWnd:     mainWnd,
+		ArmoryWnd:   armory,
+		CmdPrompt:   cmdPrompt,
+	}
 
 	return model{
 		bus: bus,
@@ -94,6 +118,8 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 		cmdPrompt:  cmdPrompt,
 		logWindow:  logWindow,
 		explorer:   e,
+		windows:    wnds,
+		focusedWnd: focusedWnd,
 		statusBar:  statusBar,
 		help:       help.New(),
 		keymap:     setupKeymap(),
@@ -151,6 +177,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
+		case tea.KeyTab:
+			m.FocusNextWnd()
+		case tea.KeyShiftTab:
+			m.FocusPreviousWnd()
+		case tea.KeyEscape:
+			m.focusedWnd = Nothing
+		default:
+			return handleKeyMsg(m, msg)
 		}
 
 		// 'a' -> focus armory (it's filter function)
@@ -164,7 +198,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// check what is focues - is it the cmdInput?
 		// if m.cmdInput.Focused() {
 		// } else {
-		return handleKeyMsg(m, msg)
 		// }
 	}
 	return m, tea.Batch(cmds...)
@@ -185,4 +218,32 @@ func (m model) View() string {
 		m.statusBar.View(),
 	)
 	return s
+}
+
+func (m *model) FocusNextWnd() {
+	oldWnd, ok := m.windows[m.focusedWnd]
+	if ok {
+		oldWnd.Blur()
+	}
+
+	m.focusedWnd += 1
+	if m.focusedWnd > CmdPrompt {
+		m.focusedWnd = ExplorerWnd
+	}
+
+	newWnd := m.windows[m.focusedWnd]
+	newWnd.Focus()
+}
+func (m *model) FocusPreviousWnd() {
+	oldWnd, ok := m.windows[m.focusedWnd]
+	if ok {
+		oldWnd.Blur()
+	}
+	if m.focusedWnd == ExplorerWnd {
+		m.focusedWnd = CmdPrompt
+	} else {
+		m.focusedWnd -= 1
+	}
+	newWnd := m.windows[m.focusedWnd]
+	newWnd.Focus()
 }

@@ -1,6 +1,8 @@
 package explorer
 
 import (
+	"fmt"
+
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
@@ -60,4 +62,11 @@ func (m Model) View() string {
 	}
 
 	return style.Render(s)
+}
+
+func (m Model) Focus() {
+	fmt.Println("Focus Explorer")
+}
+func (m Model) Blur() {
+	fmt.Println("Blur Explorer")
 }
