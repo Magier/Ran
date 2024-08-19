@@ -1,6 +1,8 @@
 package armory
 
 import (
+	"fmt"
+
 	"github.com/Magier/Ran/tui/theme"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -61,4 +63,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 func (m Model) View() string {
 	s := m.actions.View()
 	return style.Render(s)
+}
+
+func (m Model) Focus() {
+	fmt.Println("Focus Armory")
+}
+func (m Model) Blur() {
+	fmt.Println("Blur Armory")
 }
