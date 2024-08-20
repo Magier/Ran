@@ -1,8 +1,6 @@
 package mainwindow
 
 import (
-	"fmt"
-
 	"github.com/Magier/Ran/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,17 +15,18 @@ var style = lipgloss.NewStyle().
 	Height(26).
 	Width(80).
 	BorderStyle(lipgloss.RoundedBorder()).
-	BorderForeground(theme.PrimaryColor).
+	BorderForeground(theme.InactiveColor).
 	BorderTop(true).
 	BorderLeft(true).
 	BorderRight(true)
 	// BorderBottom(true)
 
 type Model struct {
+	focused bool
 }
 
 func NewMainWindow() Model {
-	return Model{}
+	return Model{focused: false}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -39,12 +38,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	return style.Render("MainWindow")
+	s := "MainWindow"
+	if m.focused {
+		activeStyle := style.BorderForeground(theme.PrimaryColor)
+		return activeStyle.Render(s)
+	} else {
+		return style.Render(s)
+	}
 }
 
-func (m Model) Focus() {
-	fmt.Println("Focus main")
+func (m *Model) Focus() {
+	m.focused = true
 }
-func (m Model) Blur() {
-	fmt.Println("Blur main")
+func (m *Model) Blur() {
+	m.focused = false
 }

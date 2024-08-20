@@ -16,7 +16,7 @@ var style = lipgloss.NewStyle().
 	Height(6).
 	Width(80).
 	BorderStyle(lipgloss.RoundedBorder()).
-	BorderForeground(theme.PrimaryColor).
+	BorderForeground(theme.InactiveColor).
 	BorderTop(true).
 	BorderLeft(true).
 	BorderRight(true).

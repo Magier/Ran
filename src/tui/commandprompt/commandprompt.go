@@ -26,7 +26,6 @@ type SendCommand struct {
 }
 
 func NewCommandPrompt() Model {
-
 	ti := textinput.New()
 	ti.Placeholder = "Type a command..."
 	ti.Blur()
@@ -74,6 +73,7 @@ func (m Model) View() string {
 	if !m.actionSuccess {
 		s += fmt.Sprintf(" %s ", m.failureReason+"\n")
 	}
+
 	return s
 }
 
@@ -125,9 +125,9 @@ func parseCommand(text string) (string, []string) {
 	return strings.ToLower(cmd), args
 }
 
-func (m Model) Focus() {
-	fmt.Println("Focus cmd")
+func (m *Model) Focus() {
+	m.cmdInput.Focus()
 }
-func (m Model) Blur() {
-	fmt.Println("Blur cmd")
+func (m *Model) Blur() {
+	m.cmdInput.Blur()
 }
