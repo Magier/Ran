@@ -1,6 +1,7 @@
 package armory
 
 import (
+	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/tui/theme"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,6 +25,9 @@ var style = lipgloss.NewStyle().
 
 type Action struct {
 	title, desc string
+}
+type ActionSelected struct {
+	Action domain.Message
 }
 
 func (a Action) Title() string       { return a.title }
@@ -56,13 +60,25 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	var cmds []tea.Cmd
 	var cmd tea.Cmd
 
 	if m.focused {
 		m.actions, cmd = m.actions.Update(msg)
+		cmds = append(cmds, cmd)
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.Type {
+			case tea.KeyEnter:
+				cmd = func() tea.Msg {
+					return ActionSelected{Action: domain.StartListener{Port: 1337}}
+				}
+				cmds = append(cmds, cmd)
+			}
+		}
 	}
 
-	return m, cmd
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) View() string {
