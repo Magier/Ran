@@ -1,8 +1,6 @@
 package explorer
 
 import (
-	"fmt"
-
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,7 +16,7 @@ var style = lipgloss.NewStyle().
 	Height(35).
 	Width(22).
 	BorderStyle(lipgloss.RoundedBorder()).
-	BorderForeground(theme.PrimaryColor).
+	BorderForeground(theme.InactiveColor).
 	BorderTop(true).
 	BorderLeft(true).
 	BorderRight(true).
@@ -27,6 +25,7 @@ var style = lipgloss.NewStyle().
 type Model struct {
 	Entries []string
 	Width   int
+	focused bool
 }
 
 func NewExplorer() Model {
@@ -39,6 +38,7 @@ func NewExplorer() Model {
 	return Model{
 		// Entries: make([]string, 0),
 		Entries: entries,
+		focused: false,
 	}
 }
 
@@ -61,12 +61,17 @@ func (m Model) View() string {
 		s += " - " + e + "\n"
 	}
 
-	return style.Render(s)
+	if m.focused {
+		activeStyle := style.BorderForeground(theme.PrimaryColor)
+		return activeStyle.Render(s)
+	} else {
+		return style.Render(s)
+	}
 }
 
-func (m Model) Focus() {
-	fmt.Println("Focus Explorer")
+func (m *Model) Focus() {
+	m.focused = true
 }
-func (m Model) Blur() {
-	fmt.Println("Blur Explorer")
+func (m *Model) Blur() {
+	m.focused = false
 }

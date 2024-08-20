@@ -1,8 +1,6 @@
 package armory
 
 import (
-	"fmt"
-
 	"github.com/Magier/Ran/tui/theme"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,7 +16,7 @@ var style = lipgloss.NewStyle().
 	Height(35).
 	Width(40).
 	BorderStyle(lipgloss.RoundedBorder()).
-	BorderForeground(theme.PrimaryColor).
+	BorderForeground(theme.InactiveColor).
 	BorderTop(true).
 	BorderLeft(true).
 	BorderRight(true).
@@ -34,6 +32,7 @@ func (a Action) FilterValue() string { return a.title }
 
 type Model struct {
 	actions list.Model
+	focused bool
 }
 
 func NewAmory() Model {
@@ -45,8 +44,10 @@ func NewAmory() Model {
 	armoryList := list.New(actions, list.NewDefaultDelegate(), 40, 30)
 	armoryList.Title = "Armory"
 	armoryList.SetShowStatusBar(false)
+
 	return Model{
 		actions: armoryList,
+		focused: false,
 	}
 }
 
@@ -56,18 +57,30 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
-	m.actions, cmd = m.actions.Update(msg)
+
+	if m.focused {
+		m.actions, cmd = m.actions.Update(msg)
+	}
+
 	return m, cmd
 }
 
 func (m Model) View() string {
 	s := m.actions.View()
-	return style.Render(s)
+
+	if m.focused {
+		activeStyle := style.BorderForeground(theme.PrimaryColor)
+		return activeStyle.Render(s)
+	} else {
+		return style.Render(s)
+	}
 }
 
-func (m Model) Focus() {
-	fmt.Println("Focus Armory")
+func (m *Model) Focus() {
+	m.focused = true
+	m.actions.SetShowHelp(true)
 }
-func (m Model) Blur() {
-	fmt.Println("Blur Armory")
+func (m *Model) Blur() {
+	m.focused = false
+	m.actions.SetShowHelp(true)
 }

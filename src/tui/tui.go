@@ -103,11 +103,13 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	focusedWnd := ArmoryWnd
 
 	wnds := map[Wnd]FocusableWnd{
-		ExplorerWnd: e,
-		MainWnd:     mainWnd,
-		ArmoryWnd:   armory,
-		CmdPrompt:   cmdPrompt,
+		ExplorerWnd: &e,
+		MainWnd:     &mainWnd,
+		ArmoryWnd:   &armory,
+		CmdPrompt:   &cmdPrompt,
 	}
+
+	armory.Focus()
 
 	return model{
 		bus: bus,
@@ -136,6 +138,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	m.explorer, cmd = m.explorer.Update(msg)
+	m.windows[ExplorerWnd] = &m.explorer
+	cmds = append(cmds, cmd)
+
+	m.mainWindow, cmd = m.mainWindow.Update(msg)
+	m.windows[MainWnd] = &m.mainWindow
 	cmds = append(cmds, cmd)
 
 	m.statusBar, cmd = m.statusBar.Update(msg)
@@ -145,9 +152,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 
 	m.armory, cmd = m.armory.Update(msg)
+	m.windows[ArmoryWnd] = &m.armory
 	cmds = append(cmds, cmd)
 
 	m.cmdPrompt, cmd = m.cmdPrompt.Update(msg)
+	m.windows[CmdPrompt] = &m.cmdPrompt
 	cmds = append(cmds, cmd)
 
 	switch msg := msg.(type) {
@@ -179,6 +188,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case tea.KeyTab:
 			m.FocusNextWnd()
+			cmds = append(cmds, nil)
 		case tea.KeyShiftTab:
 			m.FocusPreviousWnd()
 		case tea.KeyEscape:
@@ -206,16 +216,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	var s string
 
+	explorerView := m.explorer.View()
+	mainView := m.mainWindow.View()
+	logView := m.logWindow.View()
+	cmdPromptView := m.cmdPrompt.View()
+	armoryView := m.armory.View()
+	statusBar := m.statusBar.View()
+
 	s += lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.JoinHorizontal(lipgloss.Top,
-			m.explorer.View(),
+			explorerView,
 			lipgloss.JoinVertical(lipgloss.Left,
-				m.mainWindow.View(),
-				m.logWindow.View(),
-				m.cmdPrompt.View(),
+				mainView,
+				logView,
+				cmdPromptView,
 			),
-			m.armory.View()),
-		m.statusBar.View(),
+			armoryView),
+		statusBar,
 	)
 	return s
 }
@@ -225,7 +242,6 @@ func (m *model) FocusNextWnd() {
 	if ok {
 		oldWnd.Blur()
 	}
-
 	m.focusedWnd += 1
 	if m.focusedWnd > CmdPrompt {
 		m.focusedWnd = ExplorerWnd
