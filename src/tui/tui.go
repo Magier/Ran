@@ -182,6 +182,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil { // TODO: properly handle errors in UI
 			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
 		}
+	case armory.ActionSelected:
+		err := m.bus.Publish(msg.Action)
+		if err != nil { // TODO: properly handle errors in UI
+			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
+		}
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
@@ -193,8 +198,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.FocusPreviousWnd()
 		case tea.KeyEscape:
 			m.focusedWnd = Nothing
-		default:
-			return handleKeyMsg(m, msg)
+			// default:
+			// 	return handleKeyMsg(m, msg)
 		}
 
 		// 'a' -> focus armory (it's filter function)

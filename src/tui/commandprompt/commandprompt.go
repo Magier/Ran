@@ -52,7 +52,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.actionSuccess = true
 			m.failureReason = ""
 			switch msg.Type {
-			// case tea.KeyEsc:
 			case tea.KeyEnter:
 				inputCmd := m.cmdInput.Value()
 				cmd := handleUserAction(m, inputCmd)
