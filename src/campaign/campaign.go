@@ -5,7 +5,7 @@ import (
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
-	bus "github.com/Magier/Ran/internal"
+	bus "github.com/Magier/Ran/internal/bus"
 )
 
 type CampaignStarted struct {

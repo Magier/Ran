@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/Magier/Ran/domain"
-	bus "github.com/Magier/Ran/internal"
+	bus "github.com/Magier/Ran/internal/bus"
 )
 
 type C2Started struct {
