@@ -2,7 +2,7 @@ package planner
 
 import (
 	"github.com/Magier/Ran/domain"
-	bus "github.com/Magier/Ran/internal"
+	bus "github.com/Magier/Ran/internal/bus"
 )
 
 type APIStarted struct {
