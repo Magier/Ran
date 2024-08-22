@@ -8,21 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var style = lipgloss.NewStyle().
-	Bold(true).
-	// Foreground(lipgloss.Color("#7D56F4")).
-	// Background(lipgloss.Color("#FAFAFA")).
-	PaddingTop(1).
-	PaddingLeft(1).
-	Height(35).
-	Width(40).
-	BorderStyle(lipgloss.RoundedBorder()).
-	BorderForeground(theme.InactiveColor).
-	BorderTop(true).
-	BorderLeft(true).
-	BorderRight(true).
-	BorderBottom(true)
-
 type Action struct {
 	title, desc string
 }
@@ -37,9 +22,11 @@ func (a Action) FilterValue() string { return a.title }
 type Model struct {
 	actions list.Model
 	focused bool
+	style   lipgloss.Style
+	width   float32
 }
 
-func NewAmory() Model {
+func NewAmory(width float32) Model {
 	actions := []list.Item{
 		Action{title: "Create Listener", desc: "Catch incoming shells"},
 		Action{title: "Create Redirector", desc: "Create a proxy routing traffic to the C2"},
@@ -48,10 +35,26 @@ func NewAmory() Model {
 	armoryList := list.New(actions, list.NewDefaultDelegate(), 40, 30)
 	armoryList.Title = "Armory"
 	armoryList.SetShowStatusBar(false)
+	var style = lipgloss.NewStyle().
+		Bold(true).
+		// Foreground(lipgloss.Color("#7D56F4")).
+		// Background(lipgloss.Color("#FAFAFA")).
+		PaddingTop(1).
+		PaddingLeft(1).
+		Height(35).
+		Width(40).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(theme.InactiveColor).
+		BorderTop(true).
+		BorderLeft(true).
+		BorderRight(true).
+		BorderBottom(true)
 
 	return Model{
 		actions: armoryList,
 		focused: false,
+		style:   style,
+		width:   width,
 	}
 }
 
@@ -75,6 +78,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				}
 				cmds = append(cmds, cmd)
 			}
+		case tea.WindowSizeMsg:
+			m.style = m.style.Width(int(m.width * float32(msg.Width)))
+			m.style = m.style.Height(msg.Height - 2) // -1 for the statusbar
 		}
 	}
 
@@ -85,10 +91,10 @@ func (m Model) View() string {
 	s := m.actions.View()
 
 	if m.focused {
-		activeStyle := style.BorderForeground(theme.PrimaryColor)
+		activeStyle := m.style.BorderForeground(theme.PrimaryColor)
 		return activeStyle.Render(s)
 	} else {
-		return style.Render(s)
+		return m.style.Render(s)
 	}
 }
 

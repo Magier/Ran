@@ -8,7 +8,7 @@ import (
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
-	bus "github.com/Magier/Ran/internal"
+	bus "github.com/Magier/Ran/internal/bus"
 	"github.com/Magier/Ran/tui/armory"
 	"github.com/Magier/Ran/tui/commandprompt"
 	"github.com/Magier/Ran/tui/explorer"
@@ -94,11 +94,11 @@ type model struct {
 func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	const numLogLines = 7
 
-	e := explorer.NewExplorer()
-	mainWnd := mainwindow.NewMainWindow()
-	armory := armory.NewAmory()
-	cmdPrompt := commandprompt.NewCommandPrompt()
-	logWindow := logwindow.NewLogWindow(numLogLines)
+	e := explorer.NewExplorer(.2)
+	mainWnd := mainwindow.NewMainWindow(.55, 0.8)
+	armory := armory.NewAmory(.25)
+	cmdPrompt := commandprompt.NewCommandPrompt(.55)
+	logWindow := logwindow.NewLogWindow(numLogLines, .55, 0.2)
 	statusBar := statusbar.NewStatusBar()
 	focusedWnd := ArmoryWnd
 

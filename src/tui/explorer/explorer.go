@@ -7,38 +7,42 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var style = lipgloss.NewStyle().
-	Bold(true).
-	// Foreground(lipgloss.Color("#7D56F4")).
-	// Background(lipgloss.Color("#FAFAFA")).
-	PaddingTop(1).
-	PaddingLeft(1).
-	Height(35).
-	Width(22).
-	BorderStyle(lipgloss.RoundedBorder()).
-	BorderForeground(theme.InactiveColor).
-	BorderTop(true).
-	BorderLeft(true).
-	BorderRight(true).
-	BorderBottom(true)
-
 type Model struct {
 	Entries []string
-	Width   int
 	focused bool
+	width   float32
+	style   lipgloss.Style
 }
 
-func NewExplorer() Model {
+func NewExplorer(width float32) Model {
 	entries := []string{
 		"localhost",
 		"pod 1",
 		"kube-api",
 		"db",
 	}
+
+	var style = lipgloss.NewStyle().
+		Bold(true).
+		// Foreground(lipgloss.Color("#7D56F4")).
+		// Background(lipgloss.Color("#FAFAFA")).
+		PaddingTop(1).
+		PaddingLeft(1).
+		Height(35).
+		Width(22).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(theme.InactiveColor).
+		BorderTop(true).
+		BorderLeft(true).
+		BorderRight(true).
+		BorderBottom(true)
+
 	return Model{
 		// Entries: make([]string, 0),
 		Entries: entries,
 		focused: false,
+		width:   width,
+		style:   style,
 	}
 }
 
@@ -50,6 +54,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case c2.SessionStarted:
 		m.Entries = append(m.Entries, msg.Session.Hostname)
+	case tea.WindowSizeMsg:
+		m.style = m.style.Width(int(m.width * float32(msg.Width)))
+		m.style = m.style.Height(msg.Height - 2) // -1 for the statusbar and top border
 	}
 	return m, nil
 }
@@ -62,10 +69,10 @@ func (m Model) View() string {
 	}
 
 	if m.focused {
-		activeStyle := style.BorderForeground(theme.PrimaryColor)
+		activeStyle := m.style.BorderForeground(theme.PrimaryColor)
 		return activeStyle.Render(s)
 	} else {
-		return style.Render(s)
+		return m.style.Render(s)
 	}
 }
 
