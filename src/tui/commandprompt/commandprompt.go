@@ -8,12 +8,15 @@ import (
 	"github.com/Magier/Ran/domain"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type Model struct {
 	cmdInput      textinput.Model
 	actionSuccess bool
 	failureReason string
+	style         lipgloss.Style
+	width         float32
 }
 
 type actionResponseMsg struct {
@@ -25,13 +28,14 @@ type SendCommand struct {
 	Action domain.Message
 }
 
-func NewCommandPrompt() Model {
+func NewCommandPrompt(width float32) Model {
 	ti := textinput.New()
 	ti.Placeholder = "Type a command..."
 	ti.Blur()
 	return Model{
 		cmdInput:      ti,
 		actionSuccess: true,
+		width:         width,
 	}
 }
 
@@ -62,6 +66,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
+	case tea.WindowSizeMsg:
+		m.style = m.style.Width(int(m.width * float32(msg.Width)))
 	}
 	return m, tea.Batch(cmds...)
 }
