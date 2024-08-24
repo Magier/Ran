@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type EventHandler func(ctx context.Context, event Event) (Message, error)
 type CommandHandler func(ctx context.Context, command Command) (Message, error)
@@ -12,6 +15,17 @@ type Event interface {
 
 type UiEvent interface {
 	UiMessage() string
+}
+
+type NewEntity struct {
+	Pod Pod
+}
+
+func (n NewEntity) MessageName() string {
+	return "NewEntity"
+}
+func (n NewEntity) String() string {
+	return fmt.Sprintf("New entity: %s", n.Pod.Name)
 }
 
 type ErrorLevel string

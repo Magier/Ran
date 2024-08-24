@@ -51,10 +51,9 @@ func setupKeymap() keymap {
 }
 
 func handleKeyMsg(m tea.Model, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Cool, what was the actual key pressed?
 	switch msg.String() {
 	// These keys should exit the program.
-	case "ctrl+c", "q":
+	case "ctrl+c":
 		return m, tea.Quit
 	// The "up" and "k" keys move the cursor up
 	case "up", "k":

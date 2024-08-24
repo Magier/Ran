@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"github.com/Magier/Ran/c2"
+	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -15,12 +16,7 @@ type Model struct {
 }
 
 func NewExplorer(width float32) Model {
-	entries := []string{
-		"localhost",
-		"pod 1",
-		"kube-api",
-		"db",
-	}
+	entries := []string{}
 
 	var style = lipgloss.NewStyle().
 		Bold(true).
@@ -54,6 +50,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case c2.SessionStarted:
 		m.Entries = append(m.Entries, msg.Session.Hostname)
+	case domain.NewEntity:
+		m.Entries = append(m.Entries, msg.Pod.Name)
 	case tea.WindowSizeMsg:
 		m.style = m.style.Width(int(m.width * float32(msg.Width)))
 		m.style = m.style.Height(msg.Height - 2) // -1 for the statusbar and top border

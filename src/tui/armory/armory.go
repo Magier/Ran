@@ -80,7 +80,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		case tea.WindowSizeMsg:
 			m.style = m.style.Width(int(m.width * float32(msg.Width)))
-			m.style = m.style.Height(msg.Height - 2) // -1 for the statusbar
+			h := msg.Height - 2 // -1 for the statusbar
+			m.style = m.style.Height(h)
+			m.actions.SetHeight(h)
 		}
 	}
 
