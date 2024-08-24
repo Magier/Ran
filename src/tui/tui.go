@@ -54,6 +54,7 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign) *tea.Program {
 
 	bus.Subscribe(c2.ListenerReady{}, forwardEvent)
 	bus.Subscribe(c2.SessionStarted{}, forwardEvent)
+	bus.Subscribe(domain.NewEntity{}, forwardEvent)
 
 	bus.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
 		msg := event.(domain.ErrorMsg)
@@ -94,16 +95,16 @@ type model struct {
 func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	const numLogLines = 7
 
-	e := explorer.NewExplorer(.2)
-	mainWnd := mainwindow.NewMainWindow(.55, 0.8)
+	explorer := explorer.NewExplorer(.3)
+	mainWnd := mainwindow.NewMainWindow(.45, 0.8)
 	armory := armory.NewAmory(.25)
-	cmdPrompt := commandprompt.NewCommandPrompt(.55)
-	logWindow := logwindow.NewLogWindow(numLogLines, .55, 0.2)
+	cmdPrompt := commandprompt.NewCommandPrompt(.45)
+	logWindow := logwindow.NewLogWindow(numLogLines, .45, 0.2)
 	statusBar := statusbar.NewStatusBar()
 	focusedWnd := ArmoryWnd
 
 	wnds := map[Wnd]FocusableWnd{
-		ExplorerWnd: &e,
+		ExplorerWnd: &explorer,
 		MainWnd:     &mainWnd,
 		ArmoryWnd:   &armory,
 		CmdPrompt:   &cmdPrompt,
@@ -119,7 +120,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 		mainWindow: mainWnd,
 		cmdPrompt:  cmdPrompt,
 		logWindow:  logWindow,
-		explorer:   e,
+		explorer:   explorer,
 		windows:    wnds,
 		focusedWnd: focusedWnd,
 		statusBar:  statusBar,
