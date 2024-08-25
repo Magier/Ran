@@ -39,7 +39,13 @@ func GetPods(ctx context.Context, clientset *kubernetes.Clientset) ([]domain.Pod
 	pods := make([]domain.Pod, 0)
 	for _, pod := range k8sPods.Items {
 		meta := pod.GetObjectMeta()
-		pods = append(pods, domain.Pod{Name: meta.GetName(), Namespace: meta.GetNamespace(), Spec: pod.Spec})
+		pods = append(pods, domain.Pod{
+			Name:        meta.GetName(),
+			Namespace:   meta.GetNamespace(),
+			Labels:      meta.GetLabels(),
+			Annotations: meta.GetAnnotations(),
+			Spec:        pod.Spec,
+		})
 	}
 	return pods, nil
 }
