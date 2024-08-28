@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/Magier/Ran/c2"
@@ -47,6 +48,9 @@ type FocusableWnd interface {
 func SetupTUI(bus bus.MessageBus, c *campaign.Campaign) *tea.Program {
 	p := tea.NewProgram(initialModel(bus, c), tea.WithAltScreen())
 
+	logger := slog.New(logwindow.NewLogHandler(p))
+	slog.SetDefault(logger)
+
 	forwardEvent := func(ctx context.Context, event domain.Event) (domain.Message, error) {
 		p.Send(event)
 		return nil, nil
@@ -54,7 +58,7 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign) *tea.Program {
 
 	bus.Subscribe(c2.ListenerReady{}, forwardEvent)
 	bus.Subscribe(c2.SessionStarted{}, forwardEvent)
-	bus.Subscribe(domain.NewEntity{}, forwardEvent)
+	bus.Subscribe(domain.NewEntities{}, forwardEvent)
 
 	bus.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
 		msg := event.(domain.ErrorMsg)
@@ -96,7 +100,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	const numLogLines = 7
 
 	explorer := explorer.NewExplorer(.3)
-	mainWnd := mainwindow.NewMainWindow(.45, 0.8)
+	mainWnd := mainwindow.NewMainWindow(.45, 0.7)
 	armory := armory.NewAmory(.25)
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)
 	logWindow := logwindow.NewLogWindow(numLogLines, .45, 0.2)

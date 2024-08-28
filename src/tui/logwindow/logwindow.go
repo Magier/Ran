@@ -4,6 +4,7 @@ import (
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -50,6 +51,8 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case LogMessage:
+		m.lines = append(m.lines, msg.String())
 	case c2.ListenerReady:
 		m.lines = append(m.lines, msg.String())
 	case c2.SessionStarted:

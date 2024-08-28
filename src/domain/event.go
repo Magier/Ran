@@ -17,15 +17,15 @@ type UiEvent interface {
 	UiMessage() string
 }
 
-type NewEntity struct {
-	Pod Pod
+type NewEntities struct {
+	Pods []Pod
 }
 
-func (n NewEntity) MessageName() string {
-	return "NewEntity"
+func (n NewEntities) MessageName() string {
+	return "NewEntities"
 }
-func (n NewEntity) String() string {
-	return fmt.Sprintf("New entity: %s", n.Pod.Name)
+func (n NewEntities) String() string {
+	return fmt.Sprintf("%d new entities", len(n.Pods))
 }
 
 type ErrorLevel string

@@ -79,7 +79,7 @@ func startListener(ctx context.Context, bus bus.MessageBus, port int) error {
 
 	err = bus.Publish(ListenerReady{Name: "listener", Port: port})
 	if err != nil {
-		fmt.Println("Error publishing listener event:", err)
+		slog.Error("Error publishing listener event: " + err.Error())
 	}
 
 	numSessions := 0
@@ -93,7 +93,7 @@ func startListener(ctx context.Context, bus bus.MessageBus, port int) error {
 			// Accept incoming connections
 			conn, err := listener.Accept()
 			if err != nil {
-				fmt.Println("Error:", err)
+				slog.Error(err.Error())
 				continue
 			}
 			numSessions++
@@ -110,10 +110,9 @@ func startListener(ctx context.Context, bus bus.MessageBus, port int) error {
 func sendCommand(conn net.Conn, cmd string) (string, error) {
 	writer := bufio.NewWriter(conn)
 	// _, err := conn.Write([]byte(cmd))
-	slog.Debug("Sent command: ", cmd, "")
-	// fmt.Println("Sent command:", cmd)
+	slog.Debug("Sent command: ", "cmd", cmd)
 	if _, err := writer.WriteString(cmd + "\n"); err != nil {
-		fmt.Println("Error sending command:", err)
+		slog.Error("Error sending command: " + err.Error())
 		return "", err
 	}
 	writer.Flush()
@@ -122,7 +121,7 @@ func sendCommand(conn net.Conn, cmd string) (string, error) {
 	s, err := reader.ReadString('\n') // maybe use scanner instead?
 	slog.Debug("Rx Simple IO:", s, "")
 	if err != nil {
-		fmt.Println("Error receiving command response:", err)
+		slog.Error("Error receiving command response: " + err.Error())
 		return "", err
 	}
 	return strings.Trim(s, "\n"), nil
@@ -134,15 +133,15 @@ func handleSession(ctx context.Context, bus bus.MessageBus, conn net.Conn, id st
 
 	hostname, err := sendCommand(conn, "hostname")
 	if err != nil {
-		fmt.Println("Error reading from connection:", err)
+		slog.Error("Error reading from connection: " + err.Error())
 	}
 	user, err := sendCommand(conn, "whoami")
 	if err != nil {
-		fmt.Println("Error reading from connection:", err)
+		slog.Error("Error reading from connection: " + err.Error())
 	}
 	os, err := sendCommand(conn, "uname")
 	if err != nil {
-		fmt.Println("Error reading from connection:", err)
+		slog.Error("Error reading from connection: " + err.Error())
 	}
 	// results <- os
 	err = bus.Publish(SessionStarted{Session: Session{
@@ -165,9 +164,9 @@ func handleSession(ctx context.Context, bus bus.MessageBus, conn net.Conn, id st
 
 			res, err := sendCommand(conn, cmd)
 			if err != nil {
-				fmt.Println("Error for ", cmd, ": ", err)
+				slog.Error("Coulnd't send command", "cmd", cmd, err)
 			}
-			fmt.Println("Received data:", string(res))
+			slog.Debug("Received data: " + string(res))
 			results <- res
 		}
 	}

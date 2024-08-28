@@ -37,12 +37,13 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 		go func() {
 			channel := make(chan domain.Pod)
 			go populatePods(ctx, channel)
-			fmt.Println("Populating pods")
+			pods := []domain.Pod{}
 			for p := range channel {
-				err := mb.Publish(domain.NewEntity{Pod: p})
-				if err != nil {
-					fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
-				}
+				pods = append(pods, p)
+			}
+			err := mb.Publish(domain.NewEntities{Pods: pods})
+			if err != nil {
+				fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
 			}
 		}()
 	}

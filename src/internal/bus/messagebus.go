@@ -26,7 +26,7 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 		if len(b.subscribers[msg.MessageName()]) == 0 {
 			// fmt.Printf("🙉 %s: no subs\n", event.MessageName())
 		} else {
-			slog.Info("Bus", "🔊", msg.MessageName())
+			slog.Info("🔊 " + msg.MessageName())
 		}
 		for _, handler := range b.subscribers[msg.MessageName()] {
 			event := msg.(domain.Event)
@@ -34,7 +34,7 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 			if err != nil {
 				err := b.Publish(domain.ErrorMsg{Level: domain.LevelError, Msg: err.Error()})
 				if err != nil {
-					slog.Error("Bus", "Couldn't publish error message: ", err.Error())
+					slog.Error("Couldn't publish error message: ", "error", err.Error())
 				}
 				return err
 			}
