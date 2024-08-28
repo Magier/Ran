@@ -107,15 +107,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case c2.SessionStarted:
 		addEntry(&m.Entries, nil, msg.Session.Hostname)
 		// m.Entries = append(m.Entries, msg.Session.Hostname)
-	case domain.NewEntity:
-		groupPath := []string{msg.Pod.Namespace}
-		if msg.Pod.Labels != nil {
-			name, ok := msg.Pod.Labels["app.kubernetes.io/name"]
-			if ok {
-				groupPath = append(groupPath, name) // add as workload name
+	case domain.NewEntities:
+		for _, pod := range msg.Pods {
+			groupPath := []string{pod.Namespace}
+
+			if pod.Labels != nil {
+				name, ok := pod.Labels["app.kubernetes.io/name"]
+				if ok {
+					groupPath = append(groupPath, name) // add as workload name
+				}
 			}
+			addEntry(&m.Entries, groupPath, pod.Name)
 		}
-		addEntry(&m.Entries, groupPath, msg.Pod.Name)
 		// m.Entries = append(m.Entries, msg.Pod.Name)
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -142,7 +145,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			// }
 		}
 	case tea.WindowSizeMsg:
-		h := msg.Height - 2 // -1 for the statusbar and top border
+		h := msg.Height - 10 // -1 for the statusbar and top border
 		m.style = m.style.Width(int(m.width * float32(msg.Width)))
 		m.style = m.style.Height(h).MaxHeight(h)
 	}
