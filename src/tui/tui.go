@@ -105,7 +105,6 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)
 	logWindow := logwindow.NewLogWindow(numLogLines, .45, 0.2)
 	statusBar := statusbar.NewStatusBar()
-	focusedWnd := ArmoryWnd
 
 	wnds := map[Wnd]FocusableWnd{
 		ExplorerWnd: &explorer,
@@ -114,7 +113,8 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 		CmdPrompt:   &cmdPrompt,
 	}
 
-	armory.Focus()
+	focusedWnd := ExplorerWnd
+	explorer.Focus()
 
 	return model{
 		bus: bus,
