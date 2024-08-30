@@ -10,17 +10,21 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type ResourceGroup struct {
-	name      string
-	kind      string
-	resources []string
-	subGroups map[string]*ResourceGroup // TODO: needs to be reworked to sth. that respects order
-	expanded  bool
+type Node struct {
+	name       string
+	kind       string
+	children   []*Node
+	isExpanded bool
+	// isExpanded() bool
+}
+
+func (n Node) isLeaf() bool {
+	return len(n.children) == 0
 }
 
 // Rework to ordered map
 type Model struct {
-	Entries ResourceGroup
+	root    *Node
 	focused bool
 	width   float32
 	style   lipgloss.Style
@@ -28,10 +32,9 @@ type Model struct {
 }
 
 func NewExplorer(width float32) Model {
-	entries := ResourceGroup{
-		resources: make([]string, 0),
-		subGroups: make(map[string]*ResourceGroup, 0),
-		expanded:  true,
+	root := &Node{
+		isExpanded: true,
+		children:   make([]*Node, 0),
 	}
 
 	var style = lipgloss.NewStyle().
@@ -50,8 +53,7 @@ func NewExplorer(width float32) Model {
 		BorderBottom(true)
 
 	return Model{
-		// Entries: make([]string, 0),
-		Entries: entries,
+		root:    root,
 		focused: false,
 		width:   width,
 		style:   style,
@@ -63,50 +65,54 @@ func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-func newResourceGroup(name string) ResourceGroup {
-	return ResourceGroup{
-		name:      name,
-		kind:      "",
-		resources: make([]string, 0),
-		subGroups: make(map[string]*ResourceGroup, 0),
-		expanded:  false,
+func newNode(name string, kind string) *Node {
+	return &Node{
+		name:       name,
+		kind:       kind,
+		isExpanded: false,
+		children:   make([]*Node, 0),
 	}
 }
 
 func (m *Model) numVisibleEntries() int {
-	i := len(m.Entries.resources) + len(m.Entries.subGroups)
-
-	for _, subGroup := range m.Entries.subGroups {
-		i += len(subGroup.subGroups)
-		if subGroup.expanded {
-			i += len(subGroup.resources)
+	i := len(m.root.children)
+	for _, node := range m.root.children {
+		if node.isExpanded {
+			i += len(node.children)
 		}
 	}
 	return i
 }
 
-func addEntry(groups *ResourceGroup, groupPath []string, entry string) {
-	currGroup := groups
+func addEntry(root *Node, groupPath []string, entry string, kind string) {
+	currGroup := root
 	if groupPath != nil {
-		// walk to the correct resource group denoted by the groupPath
+		// walk to the correct node denoted by the groupPath
 		for _, groupName := range groupPath {
-			if _, ok := currGroup.subGroups[groupName]; !ok {
-				g := newResourceGroup(groupName)
-				currGroup.subGroups[groupName] = &g
+			childIdx := -1
+			for i, child := range currGroup.children {
+				if child.name == groupName {
+					childIdx = i
+					break
+				}
 			}
-			currGroup = currGroup.subGroups[groupName]
+			if childIdx == -1 {
+				g := newNode(groupName, kind)
+				// TODO: add proper sorting of entries
+				currGroup.children = append(currGroup.children, g)
+				childIdx = len(currGroup.children) - 1
+			}
+			currGroup = currGroup.children[childIdx]
 		}
-		currGroup.resources = append(currGroup.resources, entry)
-	} else { // global objects
-		groups.resources = append(groups.resources, entry)
 	}
+	// TODO: add proper sorting of entries
+	currGroup.children = append(currGroup.children, newNode(entry, kind))
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case c2.SessionStarted:
-		addEntry(&m.Entries, nil, msg.Session.Hostname)
-		// m.Entries = append(m.Entries, msg.Session.Hostname)
+		addEntry(m.root, nil, msg.Session.Hostname, "Implant")
 	case domain.NewEntities:
 		for _, pod := range msg.Pods {
 			groupPath := []string{pod.Namespace}
@@ -117,9 +123,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					groupPath = append(groupPath, name) // add as workload name
 				}
 			}
-			addEntry(&m.Entries, groupPath, pod.Name)
+			addEntry(m.root, groupPath, pod.Name, "Pod")
 		}
-		// m.Entries = append(m.Entries, msg.Pod.Name)
 	case tea.KeyMsg:
 		switch msg.String() {
 		// The "up" and "k" keys move the cursor up
@@ -152,25 +157,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func renderLines(entries *ResourceGroup, level int) []string {
+func renderTree(root *Node, level int) []string {
 	lines := make([]string, 0)
 	// builder := strings.Builder{}
 	indent := strings.Repeat("  ", level*2)
-
-	for _, e := range entries.resources {
-		lines = append(lines, indent+e)
-		// builder.WriteString(indent + e + "\n")
-	}
-	for _, subGroup := range entries.subGroups {
-		lines = append(lines, indent+subGroup.name)
-		// builder.WriteString(indent + subGroup.name + "\n")
-		if subGroup.expanded {
-			lines = append(lines, renderLines(subGroup, level+1)...)
-			// builder.WriteString()
+	for _, child := range root.children {
+		lines = append(lines, indent+child.name)
+		if child.isExpanded {
+			lines = append(lines, renderTree(child, level+1)...)
 		}
 	}
-
-	// return builder.String()
 	return lines
 }
 
@@ -179,7 +175,8 @@ func (m Model) View() string {
 
 	var s string
 
-	lines := renderLines(&m.Entries, 0)
+	lines := renderTree(m.root, 0)
+	// lines := renderLines(&m.Entries, 0)
 	if m.cursor >= 0 {
 		lines[m.cursor] = selectedStyle.Render(lines[m.cursor])
 	}
