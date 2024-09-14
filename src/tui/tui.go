@@ -108,9 +108,9 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 
 	wnds := map[Wnd]FocusableWnd{
 		ExplorerWnd: &explorer,
-		MainWnd:     &mainWnd,
-		ArmoryWnd:   &armory,
-		CmdPrompt:   &cmdPrompt,
+		// MainWnd:     &mainWnd,
+		ArmoryWnd: &armory,
+		// CmdPrompt:   &cmdPrompt,
 	}
 
 	focusedWnd := ExplorerWnd
@@ -146,6 +146,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.windows[ExplorerWnd] = &m.explorer
 	cmds = append(cmds, cmd)
 
+	m.armory, cmd = m.armory.Update(msg)
+	m.windows[ArmoryWnd] = &m.armory
+	cmds = append(cmds, cmd)
+
+	m.cmdPrompt, cmd = m.cmdPrompt.Update(msg)
+	m.windows[CmdPrompt] = &m.cmdPrompt
+	cmds = append(cmds, cmd)
+
 	m.mainWindow, cmd = m.mainWindow.Update(msg)
 	m.windows[MainWnd] = &m.mainWindow
 	cmds = append(cmds, cmd)
@@ -154,14 +162,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 
 	m.logWindow, cmd = m.logWindow.Update(msg)
-	cmds = append(cmds, cmd)
-
-	m.armory, cmd = m.armory.Update(msg)
-	m.windows[ArmoryWnd] = &m.armory
-	cmds = append(cmds, cmd)
-
-	m.cmdPrompt, cmd = m.cmdPrompt.Update(msg)
-	m.windows[CmdPrompt] = &m.cmdPrompt
 	cmds = append(cmds, cmd)
 
 	switch msg := msg.(type) {
@@ -197,14 +197,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		case tea.KeyTab:
-			m.FocusNextWnd()
-			cmds = append(cmds, nil)
+			// m.FocusNextWnd()
+			m.ToggleFocusedWindow()
 		case tea.KeyShiftTab:
-			m.FocusPreviousWnd()
+			// m.FocusPreviousWnd()
+			m.ToggleFocusedWindow()
 		case tea.KeyEscape:
 			m.focusedWnd = Nothing
-			// default:
-			// 	return handleKeyMsg(m, msg)
+		// default:
+		// 	return handleKeyMsg(m, msg)
+		default:
+			switch msg.String() {
+			case ":":
+				m.ShowCommandPrompt()
+			}
 		}
 
 		// 'a' -> focus armory (it's filter function)
@@ -229,7 +235,10 @@ func (m model) View() string {
 	explorerView := m.explorer.View()
 	mainView := m.mainWindow.View()
 	logView := m.logWindow.View()
-	cmdPromptView := m.cmdPrompt.View()
+	var cmdPromptView = ""
+	if m.focusedWnd == CmdPrompt {
+		cmdPromptView = m.cmdPrompt.View()
+	}
 	armoryView := m.armory.View()
 	statusBar := m.statusBar.View()
 
@@ -247,29 +256,47 @@ func (m model) View() string {
 	return s
 }
 
-func (m *model) FocusNextWnd() {
-	oldWnd, ok := m.windows[m.focusedWnd]
-	if ok {
-		oldWnd.Blur()
-	}
-	m.focusedWnd += 1
-	if m.focusedWnd > CmdPrompt {
-		m.focusedWnd = ExplorerWnd
-	}
+// func (m *model) FocusNextWnd() {
+// 	oldWnd, ok := m.windows[m.focusedWnd]
+// 	if ok {
+// 		oldWnd.Blur()
+// 	}
+// 	if m.focusedWnd > CmdPrompt {
+// 		m.focusedWnd = ExplorerWnd
+// 	}
 
-	newWnd := m.windows[m.focusedWnd]
-	newWnd.Focus()
-}
-func (m *model) FocusPreviousWnd() {
+// 	newWnd := m.windows[m.focusedWnd]
+// 	newWnd.Focus()
+// }
+// func (m *model) FocusPreviousWnd() {
+// 	oldWnd, ok := m.windows[m.focusedWnd]
+// 	if ok {
+// 		oldWnd.Blur()
+// 	}
+// 	if m.focusedWnd == ExplorerWnd {
+// 		m.focusedWnd = ArmoryWnd
+// 	} else {
+// 		m.focusedWnd -= 1
+// 	}
+// 	newWnd := m.windows[m.focusedWnd]
+// 	newWnd.Focus()
+// }
+
+func (m *model) ToggleFocusedWindow() {
 	oldWnd, ok := m.windows[m.focusedWnd]
 	if ok {
 		oldWnd.Blur()
 	}
 	if m.focusedWnd == ExplorerWnd {
-		m.focusedWnd = CmdPrompt
+		m.focusedWnd = ArmoryWnd
 	} else {
-		m.focusedWnd -= 1
+		m.focusedWnd = ExplorerWnd
 	}
-	newWnd := m.windows[m.focusedWnd]
-	newWnd.Focus()
+	m.windows[m.focusedWnd].Focus()
+}
+
+func (m *model) ShowCommandPrompt() {
+	m.windows[m.focusedWnd].Blur()
+	m.focusedWnd = CmdPrompt
+	m.windows[m.focusedWnd].Focus()
 }
