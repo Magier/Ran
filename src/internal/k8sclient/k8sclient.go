@@ -8,10 +8,11 @@ import (
 	"github.com/Magier/Ran/domain"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-func NewK8sClient(kubeConfigPath string) (*kubernetes.Clientset, error) {
+func GetConfig() (*restclient.Config, error) {
 	home, exists := os.LookupEnv("HOME")
 	if !exists {
 		home = "/root"
@@ -20,6 +21,11 @@ func NewK8sClient(kubeConfigPath string) (*kubernetes.Clientset, error) {
 	configPath := filepath.Join(home, ".kube", "config")
 	// use the current context in kubeconfig
 	config, err := clientcmd.BuildConfigFromFlags("", configPath)
+	return config, err
+}
+
+func NewK8sClient(kubeConfigPath string) (*kubernetes.Clientset, error) {
+	config, err := GetConfig()
 	if err != nil {
 		return nil, err
 	}
