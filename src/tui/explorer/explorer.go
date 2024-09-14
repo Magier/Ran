@@ -6,6 +6,7 @@ import (
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
+	"github.com/Magier/Ran/tui/icon"
 	tuimsg "github.com/Magier/Ran/tui/messages"
 	"github.com/Magier/Ran/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
@@ -121,11 +122,26 @@ func addEntry(root *Node, parentNodes []*Node, id string, entry string, kind str
 	currGroup.children = append(currGroup.children, newNode(id, entry, kind))
 }
 
+func getIcon(kind string) string {
+	switch kind {
+	case "Namespace":
+		return icon.Namespace
+	case "Pod":
+		return icon.Pod
+	case "Container":
+		return icon.Container
+	case "Workload":
+		return icon.Workload
+	}
+	return ""
+}
+
 func buildShownEntries(tree *Node, level int) []entry {
 	lines := make([]entry, 0)
 	indent := strings.Repeat("  ", level*2)
 	for _, child := range tree.children {
-		text := indent + child.name
+		icon := getIcon(child.kind)
+		text := indent + icon + " " + child.name
 		if !child.isLeaf() {
 			text += fmt.Sprintf(" (%d)", len(child.children))
 		}
@@ -144,41 +160,47 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case c2.SessionStarted:
 		addEntry(m.entitiesTree, nil, msg.Session.Id, msg.Session.Hostname, "Implant")
 		m.entries = buildShownEntries(m.entitiesTree, 0)
+		if m.cursor == -1 {
+			m.cursor = 0
+		}
 	case domain.NewEntities:
 		for _, pod := range msg.Pods {
-			parentNodes := []*Node{newNode("", pod.Namespace, "Namespace")}
+			parentNodes := []*Node{newNode("", pod.GetNamespace(), "Namespace")}
 
-			if pod.Labels != nil {
-				name, ok := pod.Labels["app.kubernetes.io/name"]
-				if ok {
-					parentNodes = append(parentNodes, newNode("", name, "Workload")) // add as workload name
-				}
+			name, ok := pod.GetLabel("app.kubernetes.io/name")
+			if ok {
+				parentNodes = append(parentNodes, newNode("", name, "Workload")) // add as workload name
 			}
-			addEntry(m.entitiesTree, parentNodes, pod.Id, pod.Name, "Pod")
+			addEntry(m.entitiesTree, parentNodes, pod.GetId(), pod.GetPodName(), "Pod")
 		}
 		m.entries = buildShownEntries(m.entitiesTree, 0)
+		if m.cursor == -1 {
+			m.cursor = 0
+		}
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
+		if m.focused {
+			switch msg.String() {
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
+				}
 
-		case "down", "j":
-			if m.cursor < len(m.entries)-1 {
-				m.cursor++
+			case "down", "j":
+				if m.cursor < len(m.entries)-1 {
+					m.cursor++
+				}
+			case " ":
+				m.entries[m.cursor].ref.isExpanded = !m.entries[m.cursor].ref.isExpanded
+				m.entries = buildShownEntries(m.entitiesTree, 0)
+			case "right", "l":
+				m.entries[m.cursor].ref.isExpanded = true
+				m.entries = buildShownEntries(m.entitiesTree, 0)
+			case "left", "h":
+				m.entries[m.cursor].ref.isExpanded = false
+				m.entries = buildShownEntries(m.entitiesTree, 0)
+			case "enter":
+				cmd = selectEntity(m.entries[m.cursor].ref)
 			}
-		case " ":
-			m.entries[m.cursor].ref.isExpanded = !m.entries[m.cursor].ref.isExpanded
-			m.entries = buildShownEntries(m.entitiesTree, 0)
-		case "right", "l":
-			m.entries[m.cursor].ref.isExpanded = true
-			m.entries = buildShownEntries(m.entitiesTree, 0)
-		case "left", "h":
-			m.entries[m.cursor].ref.isExpanded = false
-			m.entries = buildShownEntries(m.entitiesTree, 0)
-		case "enter":
-			cmd = selectEntity(m.entries[m.cursor].ref)
 		}
 	case tea.WindowSizeMsg:
 		h := msg.Height - 10 // -1 for the statusbar and top border
@@ -195,17 +217,18 @@ func selectEntity(node *Node) tea.Cmd {
 }
 
 func (m Model) View() string {
-	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor)
-
 	var s string
+	lineStyle := lipgloss.NewStyle().Foreground(theme.InactiveColor).Faint(true).Inline(true)
 
 	lines := []string{}
 	for _, entry := range m.entries {
-		lines = append(lines, entry.text)
+		lines = append(lines, lineStyle.Render(entry.text))
 	}
 
+	selectedStyle := lipgloss.NewStyle().Bold(true).UnsetForeground().Foreground(theme.PrimaryColor)
 	if m.cursor >= 0 {
-		lines[m.cursor] = selectedStyle.Render(lines[m.cursor])
+		// use the raw text again to avoid conflicting styles
+		lines[m.cursor] = selectedStyle.Render(m.entries[m.cursor].text)
 	}
 	s += strings.Join(lines, "\n")
 
