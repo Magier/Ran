@@ -18,7 +18,8 @@ type UiEvent interface {
 }
 
 type NewEntities struct {
-	Pods []Pod
+	Pods       []PodInterface
+	Identities []Identity
 }
 
 func (n NewEntities) MessageName() string {
