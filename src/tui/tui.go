@@ -10,7 +10,7 @@ import (
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
-	"github.com/Magier/Ran/tui/armory"
+	armory "github.com/Magier/Ran/tui/armoryWindow"
 	"github.com/Magier/Ran/tui/commandprompt"
 	"github.com/Magier/Ran/tui/explorer"
 	logwindow "github.com/Magier/Ran/tui/logwindow"
