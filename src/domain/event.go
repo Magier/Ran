@@ -18,7 +18,7 @@ type UiEvent interface {
 }
 
 type NewEntities struct {
-	Pods       []PodInterface
+	Entities   []Entity
 	Identities []Identity
 }
 
@@ -26,7 +26,7 @@ func (n NewEntities) MessageName() string {
 	return "NewEntities"
 }
 func (n NewEntities) String() string {
-	return fmt.Sprintf("%d new entities", len(n.Pods))
+	return fmt.Sprintf("%d new entities", len(n.Entities))
 }
 
 type ErrorLevel string

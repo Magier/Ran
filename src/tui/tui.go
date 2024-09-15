@@ -99,7 +99,7 @@ type model struct {
 func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	const numLogLines = 7
 
-	explorer := explorer.NewExplorer(.3)
+	explorer := explorer.NewExplorer(c, .3)
 	mainWnd := mainwindow.NewMainWindow(.45, 0.7)
 	armory := armory.NewAmory(.25)
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)

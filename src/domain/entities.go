@@ -6,44 +6,68 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-type PodInterface interface {
+type Entity interface {
 	GetId() string
-	GetPodName() string
-	GetNamespace() string
-	GetLabel(label string) (string, bool)
+	GetName() string
+	GetKind() string
+}
+
+type Ownable interface {
+	GetOwner() (OwnerRef, bool)
 }
 
 type Namespaced interface {
 	GetNamespace() string
 }
 
-type Pod struct {
+type OwnerRef struct {
+	Name string
+	Kind string
+	Uid  string
+}
+
+type K8sEntity struct {
 	Id          string
 	Name        string
-	Namespace   string
+	Kind        string
 	Labels      map[string]string
 	Annotations map[string]string
 	CreatedAt   string
-	Spec        v1.PodSpec
-	IP          net.IPAddr
+	Owner       OwnerRef
 }
 
-func (p Pod) GetId() string {
-	return p.Id
+func (e K8sEntity) GetId() string {
+	return e.Id
 }
 
-func (p Pod) GetPodName() string {
-	return p.Name
+func (e K8sEntity) GetName() string {
+	return e.Name
 }
-func (p Pod) GetNamespace() string {
-	return p.Namespace
+
+func (e K8sEntity) GetKind() string {
+	return e.Kind
 }
-func (p Pod) GetLabel(label string) (string, bool) {
-	if p.Labels != nil {
-		v, ok := p.Labels[label]
+
+func (e K8sEntity) GetLabel(label string) (string, bool) {
+	if e.Labels != nil {
+		v, ok := e.Labels[label]
 		return v, ok
 	}
 	return "", false
+}
+func (e K8sEntity) GetOwner() (OwnerRef, bool) {
+	if e.Owner.Name != "" {
+		return e.Owner, true
+	}
+	return OwnerRef{}, false
+}
+
+type NamespacedResource struct {
+	Namespace string
+}
+
+func (n NamespacedResource) GetNamespace() string {
+	return n.Namespace
 }
 
 type ApiServer struct {
@@ -54,6 +78,36 @@ type ApiServer struct {
 
 type Identity struct {
 	Name     string
+	Kind     string
 	CertData []byte
 	KeyData  []byte
+}
+type Pod struct {
+	K8sEntity
+	NamespacedResource
+	Spec v1.PodSpec
+	IP   net.IPAddr
+}
+
+type Deployment struct {
+	K8sEntity
+	NamespacedResource
+}
+
+type ReplicaSet struct {
+	K8sEntity
+	NamespacedResource
+}
+
+func (r ReplicaSet) GetKind() string {
+	return "ReplicaSet"
+}
+
+type StatefulSet struct {
+	K8sEntity
+	NamespacedResource
+}
+
+func (s StatefulSet) GetKind() string {
+	return "StatefulSet"
 }
