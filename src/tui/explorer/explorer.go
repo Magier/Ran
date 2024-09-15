@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Magier/Ran/c2"
+	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/tui/icon"
 	tuimsg "github.com/Magier/Ran/tui/messages"
@@ -13,26 +14,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type Node struct {
-	name       string
-	kind       string
-	id         string
-	children   []*Node
-	isExpanded bool
-	// isExpanded() bool
-}
-
 type entry struct {
 	text string
 	ref  *Node
 }
 
-func (n Node) isLeaf() bool {
-	return len(n.children) == 0
-}
-
 // Rework to ordered map
 type Model struct {
+	campaign     *campaign.Campaign
 	entitiesTree *Node
 	entries      []entry
 	focused      bool
@@ -41,7 +30,7 @@ type Model struct {
 	cursor       int
 }
 
-func NewExplorer(width float32) Model {
+func NewExplorer(c *campaign.Campaign, width float32) Model {
 	root := &Node{
 		isExpanded: true,
 		children:   make([]*Node, 0),
@@ -63,6 +52,7 @@ func NewExplorer(width float32) Model {
 		BorderBottom(true)
 
 	return Model{
+		campaign:     c,
 		entitiesTree: root,
 		focused:      false,
 		width:        width,
@@ -95,33 +85,6 @@ func (m *Model) numVisibleEntries() int {
 	return i
 }
 
-// Add an entry to the tree of entities
-// returns true if the added entry is visible in TUI or not
-func addEntry(root *Node, parentNodes []*Node, id string, entry string, kind string) {
-	currGroup := root
-	if parentNodes != nil {
-		// walk to the correct node denoted by the groupPath
-		for _, parent := range parentNodes {
-			childIdx := -1
-			for i, child := range currGroup.children {
-				if child.name == parent.name {
-					childIdx = i
-					break
-				}
-			}
-			if childIdx == -1 {
-				// g := newNode("", parent.name, "Namespace")
-				// TODO: add proper sorting of entries
-				currGroup.children = append(currGroup.children, parent)
-				childIdx = len(currGroup.children) - 1
-			}
-			currGroup = currGroup.children[childIdx]
-		}
-	}
-	// TODO: add proper sorting of entries
-	currGroup.children = append(currGroup.children, newNode(id, entry, kind))
-}
-
 func getIcon(kind string) string {
 	switch kind {
 	case "Namespace":
@@ -130,8 +93,12 @@ func getIcon(kind string) string {
 		return icon.Pod
 	case "Container":
 		return icon.Container
-	case "Workload":
+	case "Workload", "Deployment", "StatefulSet", "DaemonSet":
 		return icon.Workload
+	case "Job":
+		return icon.Job
+	case "CronJob":
+		return icon.CronJob
 	}
 	return ""
 }
@@ -158,20 +125,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case c2.SessionStarted:
-		addEntry(m.entitiesTree, nil, msg.Session.Id, msg.Session.Hostname, "Implant")
+		addNode(m.entitiesTree, nil, msg.Session.Id, msg.Session.Hostname, "Implant")
 		m.entries = buildShownEntries(m.entitiesTree, 0)
 		if m.cursor == -1 {
 			m.cursor = 0
 		}
 	case domain.NewEntities:
-		for _, pod := range msg.Pods {
-			parentNodes := []*Node{newNode("", pod.GetNamespace(), "Namespace")}
-
-			name, ok := pod.GetLabel("app.kubernetes.io/name")
-			if ok {
-				parentNodes = append(parentNodes, newNode("", name, "Workload")) // add as workload name
-			}
-			addEntry(m.entitiesTree, parentNodes, pod.GetId(), pod.GetPodName(), "Pod")
+		for _, entity := range msg.Entities {
+			addEntity(m, entity)
 		}
 		m.entries = buildShownEntries(m.entitiesTree, 0)
 		if m.cursor == -1 {
@@ -198,6 +159,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			case "left", "h":
 				m.entries[m.cursor].ref.isExpanded = false
 				m.entries = buildShownEntries(m.entitiesTree, 0)
+			case "g": // go to the top
+				m.cursor = 0
+			case "G": // go to the bottom
+				m.cursor = len(m.entries) - 1
 			case "enter":
 				cmd = selectEntity(m.entries[m.cursor].ref)
 			}
@@ -218,7 +183,8 @@ func selectEntity(node *Node) tea.Cmd {
 
 func (m Model) View() string {
 	var s string
-	lineStyle := lipgloss.NewStyle().Foreground(theme.InactiveColor).Faint(true).Inline(true)
+	lineStyle := lipgloss.NewStyle().Faint(true).Inline(true)
+	// lineStyle := lipgloss.NewStyle().Foreground(theme.InactiveColor).Faint(true).Inline(true)
 
 	lines := []string{}
 	for _, entry := range m.entries {

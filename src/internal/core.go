@@ -45,7 +45,7 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 }
 
 func loadClusterData(ctx context.Context, mb bus.MessageBus) {
-	channel := make(chan domain.Pod)
+	channel := make(chan domain.Entity)
 
 	k8sConfig, err := k8s.GetConfig()
 	if err != nil {
@@ -60,41 +60,56 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 
 	apiServerPod := domain.ApiServer{
 		Pod: domain.Pod{
-			Name:      "*API Server",
-			Namespace: "kube-system",
+			K8sEntity: domain.K8sEntity{
+				Id:   "#apiServer",
+				Name: "#API Server",
+				Kind: "Pod",
+			},
+			NamespacedResource: domain.NamespacedResource{
+				Namespace: "kube-system",
+			},
 		},
 		ExternalIP: *apiServerIPAddr,
 		CAData:     k8sConfig.CAData,
 	}
 	k8sConfigUser := domain.Identity{
-		Name:     k8sConfig.Username,
+		Name:     "#kubeconfig-user" + k8sConfig.Username,
 		CertData: k8sConfig.CertData,
 		KeyData:  k8sConfig.KeyData,
 	}
 	err = mb.Publish(domain.NewEntities{
-		Pods:       []domain.PodInterface{apiServerPod},
+		Entities:   []domain.Entity{apiServerPod},
 		Identities: []domain.Identity{k8sConfigUser}})
 	if err != nil {
 		fmt.Printf("Couldn't add apiServer as new entity to bus: %s", err.Error())
 	}
 
-	go populatePods(ctx, channel)
-	pods := []domain.PodInterface{}
+	go populateEntities(ctx, channel)
+	pods := []domain.Entity{}
 	for p := range channel {
 		pods = append(pods, p)
 	}
-	err = mb.Publish(domain.NewEntities{Pods: pods})
+	err = mb.Publish(domain.NewEntities{Entities: pods})
 	if err != nil {
 		fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
 	}
 }
 
-func populatePods(ctx context.Context, channel chan<- domain.Pod) {
+func populateEntities(ctx context.Context, channel chan<- domain.Entity) {
 	defer close(channel)
 	client, err := k8s.NewK8sClient("")
 	if err != nil {
 		panic(err)
 	}
+
+	deployments, err := k8s.GetDeployments(ctx, client)
+	if err != nil {
+		panic(err)
+	}
+	for _, d := range deployments {
+		channel <- d
+	}
+
 	pods, err := k8s.GetPods(ctx, client)
 	if err != nil {
 		panic(err)
