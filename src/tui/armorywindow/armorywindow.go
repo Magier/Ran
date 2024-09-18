@@ -1,6 +1,7 @@
 package armory
 
 import (
+	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/tui/theme"
 	"github.com/charmbracelet/bubbles/list"
@@ -10,6 +11,7 @@ import (
 
 type Action struct {
 	title, desc string
+	msg         domain.Message
 }
 type ActionSelected struct {
 	Action domain.Message
@@ -26,11 +28,11 @@ type Model struct {
 	width   float32
 }
 
-func NewAmory(width float32) Model {
-	actions := []list.Item{
-		Action{title: "Create Listener", desc: "Catch incoming shells"},
-		Action{title: "Create Redirector", desc: "Create a proxy routing traffic to the C2"},
-		Action{title: "Get Environment Variables", desc: "EnvVars can have secrets or interesting configurations"},
+func NewAmory(armory armory.Armory, width float32) Model {
+	actions := []list.Item{}
+
+	for _, ttp := range armory.GetTTPs() {
+		actions = append(actions, Action{title: ttp.GetTitle(), desc: ttp.GetDescription(), msg: ttp.GetMessage()})
 	}
 	armoryList := list.New(actions, list.NewDefaultDelegate(), 40, 30)
 	armoryList.Title = "Armory"
@@ -73,8 +75,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case tea.KeyMsg:
 			switch msg.Type {
 			case tea.KeyEnter:
+				selectedIdx := m.actions.Cursor()
 				cmd = func() tea.Msg {
-					return ActionSelected{Action: domain.StartListener{Port: 1337}}
+					return ActionSelected{Action: m.actions.Items()[selectedIdx].(Action).msg}
 				}
 				cmds = append(cmds, cmd)
 			}

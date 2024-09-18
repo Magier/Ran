@@ -6,11 +6,12 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
-	armory "github.com/Magier/Ran/tui/armoryWindow"
+	armoryWindow "github.com/Magier/Ran/tui/armoryWindow"
 	"github.com/Magier/Ran/tui/commandprompt"
 	"github.com/Magier/Ran/tui/explorer"
 	logwindow "github.com/Magier/Ran/tui/logwindow"
@@ -45,8 +46,8 @@ type FocusableWnd interface {
 	Blur()
 }
 
-func SetupTUI(bus bus.MessageBus, c *campaign.Campaign) *tea.Program {
-	p := tea.NewProgram(initialModel(bus, c), tea.WithAltScreen())
+func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Program {
+	p := tea.NewProgram(initialModel(bus, c, a), tea.WithAltScreen())
 
 	logger := slog.New(logwindow.NewLogHandler(p))
 	slog.SetDefault(logger)
@@ -79,7 +80,7 @@ func RunTUI(p *tea.Program) {
 type model struct {
 	bus bus.MessageBus
 	// choices  []string // items on the to-do list
-	armory     armory.Model // Armory
+	armory     armoryWindow.Model // Armory
 	explorer   explorer.Model
 	mainWindow mainwindow.Model
 	cmdPrompt  commandprompt.Model
@@ -96,12 +97,12 @@ type model struct {
 	// selected map[int]struct{}, // which to-do items are selected
 }
 
-func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
+func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) model {
 	const numLogLines = 7
 
 	explorer := explorer.NewExplorer(c, .3)
 	mainWnd := mainwindow.NewMainWindow(.45, 0.7)
-	armory := armory.NewAmory(.25)
+	armoryWnd := armoryWindow.NewAmory(a, .25)
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)
 	logWindow := logwindow.NewLogWindow(numLogLines, .45, 0.2)
 	statusBar := statusbar.NewStatusBar()
@@ -109,7 +110,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	wnds := map[Wnd]FocusableWnd{
 		ExplorerWnd: &explorer,
 		// MainWnd:     &mainWnd,
-		ArmoryWnd: &armory,
+		ArmoryWnd: &armoryWnd,
 		// CmdPrompt:   &cmdPrompt,
 	}
 
@@ -119,7 +120,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	return model{
 		bus: bus,
 		// actions:   armory,
-		armory:     armory,
+		armory:     armoryWnd,
 		campaign:   c,
 		mainWindow: mainWnd,
 		cmdPrompt:  cmdPrompt,
@@ -187,8 +188,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil { // TODO: properly handle errors in UI
 			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
 		}
-	case armory.ActionSelected:
+	case armoryWindow.ActionSelected:
 		err := m.bus.Publish(msg.Action)
+		// TODO: properly assemble the action by interpolating the values
+		// e.g. the target of the action, parameters, etc.
 		if err != nil { // TODO: properly handle errors in UI
 			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
 		}

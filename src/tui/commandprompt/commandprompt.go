@@ -90,10 +90,11 @@ func handleUserAction(model Model, input string) tea.Cmd {
 		success := true
 		switch action {
 		case "listen":
-			port := 1337
+			port := uint(1337)
 			if len(args) > 0 {
 				var err error
-				port, err = strconv.Atoi(args[0])
+				p, err := strconv.Atoi(args[0])
+				port = uint(p)
 				if err != nil {
 					// msgLevel = "warn"
 					port = 1337

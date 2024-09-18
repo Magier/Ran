@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 
+	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
@@ -24,10 +25,14 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
 	defer cancel()
 	mb := bus.CreateMessageBus()
+	a, err := armory.LoadArmory()
+	if err != nil {
+		panic(err)
+	}
 	c := campaign.StartCampaign(mb)
 	var ui *tea.Program = nil
 	if withTui {
-		ui = tui.SetupTUI(mb, c)
+		ui = tui.SetupTUI(mb, c, a)
 	}
 	c2.StartC2(ctx, mb)
 	planner.StartApi(mb)

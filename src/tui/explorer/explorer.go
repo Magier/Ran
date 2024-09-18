@@ -182,6 +182,7 @@ func selectEntity(node *Node) tea.Cmd {
 }
 
 func (m Model) View() string {
+	// TODO: implement scrolling for big lists
 	var s string
 	lineStyle := lipgloss.NewStyle().Faint(true).Inline(true)
 	// lineStyle := lipgloss.NewStyle().Foreground(theme.InactiveColor).Faint(true).Inline(true)
