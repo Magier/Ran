@@ -4,7 +4,7 @@ import "fmt"
 
 type ListenerReady struct {
 	Name string
-	Port int
+	Port uint
 	// protocol string
 }
 
