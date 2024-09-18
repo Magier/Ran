@@ -64,6 +64,35 @@ func GetDeployments(ctx context.Context, clientset *kubernetes.Clientset) ([]dom
 	return depls, nil
 }
 
+func getOwnerReference(meta metav1.Object) domain.OwnerRef {
+	var owner domain.OwnerRef
+	if len(meta.GetOwnerReferences()) == 0 {
+		return owner
+	}
+
+	ownerKind := meta.GetOwnerReferences()[0].Kind
+	ownerName := meta.GetOwnerReferences()[0].Name
+
+	if ownerKind == "ReplicaSet" {
+		// skip RS and instead reference the deployment with unknown UID
+		parts := strings.Split(ownerName, "-")
+		// drop the last part of a string where all parts are separated by '-'
+		name := strings.Join(parts[:len(parts)-1], "-")
+		owner = domain.OwnerRef{
+			Name: name,
+			Kind: "Deployment",
+		}
+	} else {
+		owner = domain.OwnerRef{
+			Name: ownerName,
+			Kind: ownerKind,
+			Uid:  string(meta.GetOwnerReferences()[0].UID),
+		}
+	}
+
+	return owner
+}
+
 func GetPods(ctx context.Context, clientset *kubernetes.Clientset) ([]domain.Pod, error) {
 	k8sPods, err := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -73,26 +102,8 @@ func GetPods(ctx context.Context, clientset *kubernetes.Clientset) ([]domain.Pod
 	pods := make([]domain.Pod, 0)
 	for _, pod := range k8sPods.Items {
 		meta := pod.GetObjectMeta()
-		ownerKind := meta.GetOwnerReferences()[0].Kind
-		ownerName := meta.GetOwnerReferences()[0].Name
-		var owner domain.OwnerRef
 
-		if ownerKind == "ReplicaSet" {
-			// skip RS and instead reference the deployment with unknown UID
-			parts := strings.Split(ownerName, "-")
-			// drop the last part of a string where all parts are separated by '-'
-			name := strings.Join(parts[:len(parts)-1], "-")
-			owner = domain.OwnerRef{
-				Name: name,
-				Kind: "Deployment",
-			}
-		} else {
-			owner = domain.OwnerRef{
-				Name: ownerName,
-				Kind: ownerKind,
-				Uid:  string(meta.GetOwnerReferences()[0].UID),
-			}
-		}
+		owner := getOwnerReference(meta)
 
 		pods = append(pods, domain.Pod{
 			K8sEntity: domain.K8sEntity{
