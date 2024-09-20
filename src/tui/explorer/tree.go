@@ -5,23 +5,74 @@ import (
 	"log"
 
 	"github.com/Magier/Ran/domain"
+	tree "github.com/charmbracelet/lipgloss/tree"
 )
 
+type Children struct {
+	children []*Node
+}
+
+func (c Children) At(index int) tree.Node {
+	return c.children[index]
+}
+func (c Children) Length() int {
+	return len(c.children)
+}
+
 type Node struct {
-	name       string
-	kind       string
-	id         string
-	children   []*Node
+	name string
+	kind string
+	id   string
+	// children   []*Node
 	isExpanded bool
-	// isExpanded() bool
+	children   Children
+}
+
+func (n *Node) String() string {
+	icon := getIcon(n.kind)
+	s := fmt.Sprintf("%s %s", icon, n.name)
+	if !n.isLeaf() {
+		s += fmt.Sprintf(" (%d)", n.children.Length())
+	}
+	return s
+}
+
+func (n *Node) Value() string {
+	return n.name
+}
+
+func (n *Node) Children() tree.Children {
+	return n.children
+}
+
+func (n *Node) Hidden() bool {
+	return !n.isExpanded
+}
+
+// func (n *Node) At(index int) *Node {
+// 	return n.children[index]
+// }
+// func (n *Node) Length() int {
+// 	return len(n.children)
+// }
+
+func newNode(id string, name string, kind string) *Node {
+	return &Node{
+		name:       name,
+		id:         id,
+		kind:       kind,
+		isExpanded: true,
+		children:   Children{children: make([]*Node, 0)},
+		// children:   make([]*Node, 0),
+	}
 }
 
 func (n Node) isLeaf() bool {
-	return len(n.children) == 0
+	return n.children.Length() == 0
 }
 
 func (n Node) findChild(name, parent string, kind, parentKind string) (*Node, bool) {
-	for _, child := range n.children {
+	for _, child := range n.children.children {
 		if child.name == name {
 			return child, true
 		}
@@ -67,13 +118,13 @@ func addEntity(m Model, entity domain.Entity) {
 	addNode(m.entitiesTree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
 }
 
-func findorCreateParents(root *Node, parentNodes []*Node) (*Node, error) {
+func findOrCreateParents(root *Node, parentNodes []*Node) (*Node, error) {
 	currGroup := root
 	if parentNodes != nil {
 		// walk to the correct node denoted by the groupPath
 		for _, parent := range parentNodes {
 			childIdx := -1
-			for i, child := range currGroup.children {
+			for i, child := range currGroup.children.children {
 				if child.name == parent.name {
 					childIdx = i
 					break
@@ -82,10 +133,10 @@ func findorCreateParents(root *Node, parentNodes []*Node) (*Node, error) {
 			if childIdx == -1 {
 				// g := newNode("", parent.name, "Namespace")
 				// TODO: add proper sorting of entries
-				currGroup.children = append(currGroup.children, parent)
-				childIdx = len(currGroup.children) - 1
+				currGroup.children.children = append(currGroup.children.children, parent)
+				childIdx = len(currGroup.children.children) - 1
 			}
-			currGroup = currGroup.children[childIdx]
+			currGroup = currGroup.children.children[childIdx]
 		}
 	}
 	return currGroup, nil
@@ -95,9 +146,10 @@ func findorCreateParents(root *Node, parentNodes []*Node) (*Node, error) {
 // returns true if the added entry is visible in TUI or not
 func addNode(root *Node, parentNodes []*Node, id string, entry string, kind string) {
 	// TODO: add proper sorting of entries
-	parent, err := findorCreateParents(root, parentNodes)
+	parent, err := findOrCreateParents(root, parentNodes)
 	if err != nil {
 		log.Fatalf("Failed to find or create parent node: %v", err)
 	}
-	parent.children = append(parent.children, newNode(id, entry, kind))
+	parent.children.children = append(parent.children.children, newNode(id, entry, kind))
+
 }

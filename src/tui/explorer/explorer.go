@@ -1,7 +1,6 @@
 package explorer
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/Magier/Ran/c2"
@@ -12,6 +11,7 @@ import (
 	"github.com/Magier/Ran/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	tree "github.com/charmbracelet/lipgloss/tree"
 )
 
 type entry struct {
@@ -19,10 +19,15 @@ type entry struct {
 	ref  *Node
 }
 
+func (e entry) String() string {
+	return e.text
+}
+
 // Rework to ordered map
 type Model struct {
 	campaign     *campaign.Campaign
 	entitiesTree *Node
+	tree         *tree.Tree
 	entries      []entry
 	focused      bool
 	width        float32
@@ -33,7 +38,9 @@ type Model struct {
 func NewExplorer(c *campaign.Campaign, width float32) Model {
 	root := &Node{
 		isExpanded: true,
-		children:   make([]*Node, 0),
+		children: Children{
+			children: make([]*Node, 0),
+		},
 	}
 
 	var style = lipgloss.NewStyle().
@@ -54,10 +61,11 @@ func NewExplorer(c *campaign.Campaign, width float32) Model {
 	return Model{
 		campaign:     c,
 		entitiesTree: root,
-		focused:      false,
-		width:        width,
-		style:        style,
-		cursor:       -1,
+		// tree:         t,
+		focused: false,
+		width:   width,
+		style:   style,
+		cursor:  -1,
 	}
 }
 
@@ -65,21 +73,11 @@ func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-func newNode(id string, name string, kind string) *Node {
-	return &Node{
-		name:       name,
-		id:         id,
-		kind:       kind,
-		isExpanded: false,
-		children:   make([]*Node, 0),
-	}
-}
-
 func (m *Model) numVisibleEntries() int {
-	i := len(m.entitiesTree.children)
-	for _, node := range m.entitiesTree.children {
+	i := m.entitiesTree.Children().Length()
+	for _, node := range m.entitiesTree.children.children {
 		if node.isExpanded {
-			i += len(node.children)
+			i += node.Children().Length()
 		}
 	}
 	return i
@@ -106,12 +104,8 @@ func getIcon(kind string) string {
 func buildShownEntries(tree *Node, level int) []entry {
 	lines := make([]entry, 0)
 	indent := strings.Repeat("  ", level*2)
-	for _, child := range tree.children {
-		icon := getIcon(child.kind)
-		text := indent + icon + " " + child.name
-		if !child.isLeaf() {
-			text += fmt.Sprintf(" (%d)", len(child.children))
-		}
+	for _, child := range tree.children.children {
+		text := indent + child.String()
 		lines = append(lines, entry{text: text, ref: child})
 		if child.isExpanded {
 			lines = append(lines, buildShownEntries(child, level+1)...)
@@ -120,6 +114,27 @@ func buildShownEntries(tree *Node, level int) []entry {
 	return lines
 }
 
+// func MyEnumerator(children tree.Children, index int) string {
+// 	c := children.At(0).(*Node)
+// 	if c.kind == "Namespace" {
+// 		return ""
+// 	}
+// 	if children.Length()-1 == index {
+// 		return "╰──"
+// 	}
+// 	return "├──"
+// }
+
+// func buildShownTree(orig *Node) *tree.Tree {
+// 	t := tree.New().Enumerator(MyEnumerator)
+// 	var _ tree.Node = orig.children.children[0]
+
+// 	for _, child := range orig.children.children {
+// 		t.Child(child)
+// 	}
+// 	return t
+// }
+
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd = nil
 
@@ -127,6 +142,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case c2.SessionStarted:
 		addNode(m.entitiesTree, nil, msg.Session.Id, msg.Session.Hostname, "Implant")
 		m.entries = buildShownEntries(m.entitiesTree, 0)
+		// m.tree = buildShownTree(m.entitiesTree)
 		if m.cursor == -1 {
 			m.cursor = 0
 		}
@@ -135,6 +151,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			addEntity(m, entity)
 		}
 		m.entries = buildShownEntries(m.entitiesTree, 0)
+		// m.tree = buildShownTree(m.entitiesTree)
 		if m.cursor == -1 {
 			m.cursor = 0
 		}
@@ -198,6 +215,7 @@ func (m Model) View() string {
 		lines[m.cursor] = selectedStyle.Render(m.entries[m.cursor].text)
 	}
 	s += strings.Join(lines, "\n")
+	// s += m.tree.String()
 
 	if m.focused {
 		activeStyle := m.style.BorderForeground(theme.PrimaryColor)
