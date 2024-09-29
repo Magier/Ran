@@ -62,6 +62,15 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		return nil, nil
 	})
 
+	mb.Subscribe(domain.ExecCmd{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
+		cmd := event.(domain.ExecCmd)
+		// check technique to execute CMD -> kubectl exec uses API
+		// or shell listener?
+		fmt.Println(".... ExecCmd is not implemented in C2")
+		_ = cmd
+		return nil, nil
+	})
+
 	err := mb.Publish(C2Started{})
 	if err != nil {
 		// panic(err)

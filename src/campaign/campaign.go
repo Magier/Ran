@@ -80,3 +80,17 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 	}
 	return &campaign
 }
+
+func (c Campaign) InflateActionTemplate(action domain.Message, targetId string) (domain.Message, error) {
+
+	// check if it is targeted
+	t, ok := action.(domain.Targeter)
+	if ok {
+		e, ok := c.entities[targetId]
+		if ok {
+			t.SetTarget(e)
+		}
+	}
+
+	return action, nil
+}

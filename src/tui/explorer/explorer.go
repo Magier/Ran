@@ -61,11 +61,11 @@ func NewExplorer(c *campaign.Campaign, width float32) Model {
 	return Model{
 		campaign:     c,
 		entitiesTree: root,
-		// tree:         t,
-		focused: false,
-		width:   width,
-		style:   style,
-		cursor:  -1,
+		tree:         tree.New(),
+		focused:      false,
+		width:        width,
+		style:        style,
+		cursor:       -1,
 	}
 }
 
@@ -114,26 +114,36 @@ func buildShownEntries(tree *Node, level int) []entry {
 	return lines
 }
 
-// func MyEnumerator(children tree.Children, index int) string {
-// 	c := children.At(0).(*Node)
-// 	if c.kind == "Namespace" {
-// 		return ""
-// 	}
-// 	if children.Length()-1 == index {
-// 		return "╰──"
-// 	}
-// 	return "├──"
-// }
+func MyEnumerator(children tree.Children, index int) string {
+	if children.Length() == 0 {
+		return ""
+	}
+	a := children.At(0)
+	_ = a
+	// c := .(*Node)
+	// if c.kind == "Namespace" {
+	// 	return ""
+	// }
+	if children.Length()-1 == index {
+		return "╰──"
+	}
+	return "├──"
+}
 
-// func buildShownTree(orig *Node) *tree.Tree {
-// 	t := tree.New().Enumerator(MyEnumerator)
-// 	var _ tree.Node = orig.children.children[0]
+func buildShownTree(m Model, orig *Node) *tree.Tree {
+	t := tree.New().Enumerator(MyEnumerator)
+	var _ tree.Node = orig.children.children[0]
 
-// 	for _, child := range orig.children.children {
-// 		t.Child(child)
-// 	}
-// 	return t
-// }
+	for _, child := range orig.children.children {
+		sub := tree.Root(child)
+		if child.children.Length() > 0 {
+			nodes := buildShownTree(m, child)
+			sub.Child(nodes)
+		}
+		t.Child(sub)
+	}
+	return t
+}
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd = nil
@@ -142,7 +152,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case c2.SessionStarted:
 		addNode(m.entitiesTree, nil, msg.Session.Id, msg.Session.Hostname, "Implant")
 		m.entries = buildShownEntries(m.entitiesTree, 0)
-		// m.tree = buildShownTree(m.entitiesTree)
+		// m.tree = buildShownTree(m, m.entitiesTree)
 		if m.cursor == -1 {
 			m.cursor = 0
 		}
@@ -151,7 +161,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			addEntity(m, entity)
 		}
 		m.entries = buildShownEntries(m.entitiesTree, 0)
-		// m.tree = buildShownTree(m.entitiesTree)
+		// m.tree = buildShownTree(m, m.entitiesTree)
 		if m.cursor == -1 {
 			m.cursor = 0
 		}
@@ -170,6 +180,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			case " ":
 				m.entries[m.cursor].ref.isExpanded = !m.entries[m.cursor].ref.isExpanded
 				m.entries = buildShownEntries(m.entitiesTree, 0)
+				// m.tree.Children().At(m.cursor)
 			case "right", "l":
 				m.entries[m.cursor].ref.isExpanded = true
 				m.entries = buildShownEntries(m.entitiesTree, 0)
@@ -204,12 +215,20 @@ func (m Model) View() string {
 	lineStyle := lipgloss.NewStyle().Faint(true).Inline(true)
 	// lineStyle := lipgloss.NewStyle().Foreground(theme.InactiveColor).Faint(true).Inline(true)
 
+	// highlightSelectedFunc := func(_ tree.Children, i int) lipgloss.Style {
+	// 	if m.cursor == i {
+	// 		return lipgloss.NewStyle().Background(lipgloss.Color("#7D56F4"))
+	// 	}
+	// 	return lipgloss.NewStyle().Faint(true)
+	// }
+	// m.tree.ItemStyleFunc(highlightSelectedFunc)
+
 	lines := []string{}
 	for _, entry := range m.entries {
 		lines = append(lines, lineStyle.Render(entry.text))
 	}
 
-	selectedStyle := lipgloss.NewStyle().Bold(true).UnsetForeground().Foreground(theme.PrimaryColor)
+	selectedStyle := lipgloss.NewStyle().Bold(true).UnsetForeground().Background(theme.PrimaryColor)
 	if m.cursor >= 0 {
 		// use the raw text again to avoid conflicting styles
 		lines[m.cursor] = selectedStyle.Render(m.entries[m.cursor].text)
@@ -230,4 +249,8 @@ func (m *Model) Focus() {
 }
 func (m *Model) Blur() {
 	m.focused = false
+}
+
+func (m Model) GetSelectedEntity() string {
+	return m.entries[m.cursor].ref.id
 }

@@ -39,16 +39,18 @@ func (c CreateRedirector) GetMessage() domain.Message {
 
 type ReadEnvVars struct {
 	TTPMeta
+	TargetId        string
 	Target          string
 	TargetNamespace string
-	TargetId        string
 }
 
 func (c ReadEnvVars) GetMessage() domain.Message {
 	return domain.ReadEnvVars{
-		Target:          c.Target,
-		TargetNamespace: c.TargetNamespace,
-		TargetId:        c.TargetId,
+		Target: &domain.Target{
+			Id:   c.TargetId,
+			Name: c.Target,
+			Ns:   c.TargetNamespace,
+		},
 	}
 }
 
@@ -58,7 +60,7 @@ type KubectlExecCmd struct {
 }
 
 func (c KubectlExecCmd) GetMessage() domain.Message {
-	return domain.ExecCmd{Cmd: c.Cmd}
+	return domain.ExecCmd{Cmd: c.Cmd, Target: &domain.Target{}}
 }
 
 type Armory struct {
