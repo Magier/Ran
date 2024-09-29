@@ -101,8 +101,11 @@ func GetPods(ctx context.Context, clientset *kubernetes.Clientset) ([]domain.Pod
 
 	pods := make([]domain.Pod, 0)
 	for _, pod := range k8sPods.Items {
-		meta := pod.GetObjectMeta()
+		if pod.Status.Phase != "Running" {
+			continue
+		}
 
+		meta := pod.GetObjectMeta()
 		owner := getOwnerReference(meta)
 
 		pods = append(pods, domain.Pod{

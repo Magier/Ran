@@ -61,7 +61,7 @@ func newNode(id string, name string, kind string) *Node {
 		name:       name,
 		id:         id,
 		kind:       kind,
-		isExpanded: true,
+		isExpanded: false,
 		children:   Children{children: make([]*Node, 0)},
 		// children:   make([]*Node, 0),
 	}

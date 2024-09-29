@@ -189,7 +189,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
 		}
 	case armoryWindow.ActionSelected:
-		err := m.bus.Publish(msg.Action)
+		target := m.explorer.GetSelectedEntity()
+
+		a, err := m.campaign.InflateActionTemplate(msg.Action, target)
+		if err != nil {
+			fmt.Printf("Could not inflate action template: %v\n", err)
+		}
+
+		err = m.bus.Publish(a)
 		// TODO: properly assemble the action by interpolating the values
 		// e.g. the target of the action, parameters, etc.
 		if err != nil { // TODO: properly handle errors in UI

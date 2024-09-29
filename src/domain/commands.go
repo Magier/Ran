@@ -1,10 +1,52 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type Command interface {
 	Message
 	String() string
+}
+
+type Targeter interface {
+	GetTarget() Target
+	SetTarget(Entity)
+	// InitTarget(Entity)
+}
+type Target struct {
+	Entity Entity
+	Id     string
+	Name   string
+	Ns     string
+}
+
+func (t Target) InitTarget(e Entity) Target {
+	newTarget := Target{
+		Id:     e.GetId(),
+		Name:   e.GetName(),
+		Entity: e,
+	}
+
+	if nsEntity, ok := e.(Namespaced); ok {
+		newTarget.Ns = nsEntity.GetNamespace()
+	}
+	return newTarget
+}
+
+func (t *Target) GetTarget() Target {
+	return *t
+}
+
+func (t *Target) SetTarget(e Entity) {
+	t.Id = e.GetId()
+	t.Name = e.GetName()
+	t.Entity = e
+
+	if nsEntity, ok := e.(Namespaced); ok {
+		t.Ns = nsEntity.GetNamespace()
+	}
+	// t.Target = newTarget
 }
 
 type StartListener struct {
@@ -30,9 +72,7 @@ func (c StartC2Redirector) String() string {
 }
 
 type ReadEnvVars struct {
-	Target          string
-	TargetNamespace string
-	TargetId        string
+	*Target
 }
 
 func (c ReadEnvVars) MessageName() string {
@@ -43,11 +83,9 @@ func (c ReadEnvVars) String() string {
 }
 
 type ExecCmd struct {
-	Cmd        string
-	Args       []string
-	TargetId   string
-	TargetName string
-	TargetNs   string
+	Cmd  string
+	Args []string
+	*Target
 }
 
 func (e ExecCmd) MessageName() string {
@@ -55,5 +93,5 @@ func (e ExecCmd) MessageName() string {
 }
 
 func (e ExecCmd) String() string {
-	return fmt.Sprintf("Executed %s on %s/%s", e.Cmd, e.TargetNs, e.TargetName)
+	return fmt.Sprintf("Executed %s on %s/%s", e.Cmd, e.Target.Ns, e.Target.Name)
 }
