@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"strings"
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
@@ -15,12 +16,6 @@ func (c CampaignStarted) MessageName() string {
 	return "campaign"
 }
 
-func onListenerReady(ctx context.Context, event domain.Event) (domain.Message, error) {
-	// ev := event.(c2.ListenerReady)
-	// print(fmt.Sprintf("Listener '%s' ready on port %d\n", ev.Name, ev.Port))
-	return nil, nil
-}
-
 func onNewSession(ctx context.Context, event domain.Event, campaign *Campaign) error {
 	ev := event.(c2.SessionStarted)
 	campaign.sessions[ev.Session.Id] = ev.Session
@@ -28,16 +23,17 @@ func onNewSession(ctx context.Context, event domain.Event, campaign *Campaign) e
 }
 
 type Campaign struct {
-	sessions map[string]c2.Session
-	entities map[string]domain.Entity
+	listeners map[string]uint
+	sessions  map[string]c2.Session
+	entities  map[string]domain.Entity
 }
 
-func (c Campaign) GetEntityById(id string) (domain.Entity, bool) {
+func (c *Campaign) GetEntityById(id string) (domain.Entity, bool) {
 	e, ok := c.entities[id]
 	return e, ok
 }
 
-func (c Campaign) GetEntityByName(name, ns string) (domain.Entity, bool) {
+func (c *Campaign) GetEntityByName(name, ns string) (domain.Entity, bool) {
 	for _, e := range c.entities {
 		nsEntity, ok := e.(domain.Namespaced)
 		if ok && nsEntity.GetNamespace() == ns && e.GetName() == name {
@@ -62,15 +58,21 @@ func (c *Campaign) onNewEntity(ctx context.Context, event domain.Event) (domain.
 	// TODO: reconcile new entities with existing ones
 	return nil, nil
 }
+func (c *Campaign) onListenerReady(ctx context.Context, event domain.Event) (domain.Message, error) {
+	ev := event.(c2.ListenerReady)
+	c.listeners[ev.Name] = ev.Port
+	return nil, nil
+}
 
 func StartCampaign(mb bus.MessageBus) *Campaign {
-	campaign := Campaign{
-		sessions: make(map[string]c2.Session),
-		entities: make(map[string]domain.Entity),
+	campaign := &Campaign{
+		sessions:  make(map[string]c2.Session),
+		entities:  make(map[string]domain.Entity),
+		listeners: make(map[string]uint),
 	}
-	mb.Subscribe(c2.ListenerReady{}, onListenerReady)
+	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		return nil, onNewSession(ctx, event, &campaign)
+		return nil, onNewSession(ctx, event, campaign)
 	})
 	mb.Subscribe(domain.NewEntities{}, campaign.onNewEntity)
 
@@ -78,10 +80,27 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 	if err != nil {
 		panic(err)
 	}
-	return &campaign
+	return campaign
 }
 
 func (c Campaign) InflateActionTemplate(action domain.Message, targetId string) (domain.Message, error) {
+	tmpl, ok := action.(domain.Templater)
+	if ok {
+		template := tmpl.GetTemplate()
+		// do thing
+		if strings.Contains(template, "$LISTENER_PORT") {
+			// get listener port from campaign
+			c.GetSessions()
+			template = strings.Replace(template, "$LISTENER_PORT", "1337", -1)
+		}
+		if strings.Contains(template, "$LISTENER") {
+			// get listener from campaign
+			c.GetSessions()
+			template = strings.Replace(template, "$LISTENER", "arstarst", -1)
+		}
+
+		tmpl.SetGroundedString(template)
+	}
 
 	// check if it is targeted
 	t, ok := action.(domain.Targeter)
