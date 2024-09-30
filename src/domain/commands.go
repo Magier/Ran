@@ -9,6 +9,11 @@ type Command interface {
 	String() string
 }
 
+type Templater interface {
+	GetTemplate() string
+	SetGroundedString(string)
+}
+
 type Targeter interface {
 	GetTarget() Target
 	SetTarget(Entity)
@@ -88,10 +93,18 @@ type ExecCmd struct {
 	*Target
 }
 
-func (e ExecCmd) MessageName() string {
+func (e *ExecCmd) MessageName() string {
 	return "ExecCmd"
 }
 
-func (e ExecCmd) String() string {
+func (e *ExecCmd) String() string {
 	return fmt.Sprintf("Executed %s on %s/%s", e.Cmd, e.Target.Ns, e.Target.Name)
+}
+
+func (e *ExecCmd) GetTemplate() string {
+	return e.Cmd
+}
+
+func (e *ExecCmd) SetGroundedString(value string) {
+	e.Cmd = value
 }

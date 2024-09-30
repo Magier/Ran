@@ -60,7 +60,7 @@ type KubectlExecCmd struct {
 }
 
 func (c KubectlExecCmd) GetMessage() domain.Message {
-	return domain.ExecCmd{Cmd: c.Cmd, Target: &domain.Target{}}
+	return &domain.ExecCmd{Cmd: c.Cmd, Target: &domain.Target{}}
 }
 
 type Armory struct {
