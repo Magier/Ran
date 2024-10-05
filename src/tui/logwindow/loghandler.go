@@ -53,7 +53,7 @@ func (h *LogHandler) Handle(ctx context.Context, r slog.Record) error {
 	err := h.h.Handle(ctx, r)
 	attrs := h.b.String()
 
-	h.program.Send(LogMessage{
+	go h.program.Send(LogMessage{
 		Msg:   r.Message + " " + attrs,
 		Level: r.Level.String(),
 		Time:  r.Time,
