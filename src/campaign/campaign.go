@@ -2,6 +2,8 @@ package campaign
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Magier/Ran/c2"
@@ -23,7 +25,7 @@ func onNewSession(ctx context.Context, event domain.Event, campaign *Campaign) e
 }
 
 type Campaign struct {
-	listeners map[string]uint
+	listeners map[string]domain.Listener
 	sessions  map[string]c2.Session
 	entities  map[string]domain.Entity
 }
@@ -60,7 +62,14 @@ func (c *Campaign) onNewEntity(ctx context.Context, event domain.Event) (domain.
 }
 func (c *Campaign) onListenerReady(ctx context.Context, event domain.Event) (domain.Message, error) {
 	ev := event.(c2.ListenerReady)
-	c.listeners[ev.Name] = ev.Port
+	id := fmt.Sprintf("%s_%d", ev.Name, ev.Port)
+	c.listeners[id] = domain.Listener{
+		ID:         id,
+		IP:         ev.IP,
+		Port:       ev.Port,
+		Protocol:   ev.Protocol,
+		Redirector: "",
+	}
 	return nil, nil
 }
 
@@ -68,7 +77,7 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 	campaign := &Campaign{
 		sessions:  make(map[string]c2.Session),
 		entities:  make(map[string]domain.Entity),
-		listeners: make(map[string]uint),
+		listeners: make(map[string]domain.Listener),
 	}
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
@@ -84,19 +93,17 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 }
 
 func (c Campaign) InflateActionTemplate(action domain.Message, targetId string) (domain.Message, error) {
+	// TODO: do not alter the actual template used fo multiple invocations
 	tmpl, ok := action.(domain.Templater)
 	if ok {
 		template := tmpl.GetTemplate()
-		// do thing
-		if strings.Contains(template, "$LISTENER_PORT") {
-			// get listener port from campaign
-			c.GetSessions()
-			template = strings.Replace(template, "$LISTENER_PORT", "1337", -1)
-		}
 		if strings.Contains(template, "$LISTENER") {
-			// get listener from campaign
-			c.GetSessions()
-			template = strings.Replace(template, "$LISTENER", "arstarst", -1)
+			listener, ok := c.GetListener(domain.TCP)
+			if ok {
+				template = inflateListenerTemplate(listener, template)
+			} else {
+				slog.Info("No suitable listener found!")
+			}
 		}
 
 		tmpl.SetGroundedString(template)
@@ -112,4 +119,33 @@ func (c Campaign) InflateActionTemplate(action domain.Message, targetId string) 
 	}
 
 	return action, nil
+}
+
+// GetListener returns the best suitable listener given the constraints
+func (c Campaign) GetListener(protocol domain.Protocol) (domain.Listener, bool) {
+	for _, l := range c.listeners {
+		if l.Protocol == protocol || l.Protocol == domain.ANY {
+			return l, true
+		}
+	}
+
+	return domain.Listener{}, false
+}
+
+func inflateListenerTemplate(listener domain.Listener, template string) string {
+	// TODO: properly handle multiple protocols!
+	if strings.Contains(template, "$LISTENER_PORT") {
+		p := fmt.Sprint(listener.Port)
+		template = strings.Replace(template, "$LISTENER_PORT", p, -1)
+	}
+
+	var dst string
+	if listener.Redirector != "" {
+		dst = listener.Redirector
+	} else {
+		dst = listener.IP.String()
+	}
+
+	template = strings.Replace(template, "$LISTENER", dst, -1)
+	return template
 }

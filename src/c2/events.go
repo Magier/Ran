@@ -1,11 +1,17 @@
 package c2
 
-import "fmt"
+import (
+	"fmt"
+	"net"
+
+	"github.com/Magier/Ran/domain"
+)
 
 type ListenerReady struct {
-	Name string
-	Port uint
-	// protocol string
+	Name     string
+	IP       net.IP
+	Port     uint
+	Protocol domain.Protocol
 }
 
 func (c ListenerReady) MessageName() string {

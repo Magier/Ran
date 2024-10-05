@@ -86,7 +86,13 @@ func startListener(ctx context.Context, bus bus.MessageBus, port uint) error {
 	}
 	defer listener.Close()
 
-	err = bus.Publish(ListenerReady{Name: "listener", Port: port})
+	ip := GetOutboundIP()
+	err = bus.Publish(ListenerReady{
+		Name:     fmt.Sprintf("listener_%d", port),
+		IP:       ip,
+		Port:     port,
+		Protocol: domain.TCP,
+	})
 	if err != nil {
 		slog.Error("Error publishing listener event: " + err.Error())
 	}
@@ -179,4 +185,19 @@ func handleSession(ctx context.Context, bus bus.MessageBus, conn net.Conn, id st
 			results <- res
 		}
 	}
+}
+
+// Get preferred outbound ip of this machine
+// source https://stackoverflow.com/a/37382208
+func GetOutboundIP() net.IP {
+	// this does _not_ establish an outbound connection, because it uses UDP
+	// target IP does not need to exist
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		slog.Error(err.Error())
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP
 }
