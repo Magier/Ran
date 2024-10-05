@@ -6,6 +6,24 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
+type Protocol string
+
+const ANY Protocol = "ANY"
+const TCP Protocol = "TCP"
+
+// const HTTP Protocol = "HTTP"
+// const DNS Protocol = "DNS"
+// const UDP Protocol = "UDP"
+// const mTLS Protocol = "TLS"
+
+type Listener struct {
+	ID         string
+	Port       uint
+	Protocol   Protocol
+	Redirector string
+	IP         net.IP
+}
+
 type Entity interface {
 	GetId() string
 	GetName() string
