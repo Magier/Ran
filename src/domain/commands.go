@@ -93,24 +93,31 @@ func (c ReadEnvVars) String() string {
 	return "Read environment variables"
 }
 
-type ExecCmd struct {
+type C2Channel interface{}
+
+type ExecTTP struct {
+	TTP  TTP
 	Cmd  string
 	Args []string
+	C2Channel
 	*Target
 }
 
-func (e *ExecCmd) MessageName() string {
+func (e *ExecTTP) MessageName() string {
 	return "ExecCmd"
 }
 
-func (e *ExecCmd) String() string {
-	return fmt.Sprintf("Executed %s on %s/%s", e.Cmd, e.Target.Ns, e.Target.Name)
+func (e *ExecTTP) String() string {
+	return fmt.Sprintf("Executed '%s' on %s/%s", e.Cmd, e.Target.Ns, e.Target.Name)
 }
 
-func (e *ExecCmd) GetTemplate() string {
+func (e *ExecTTP) GetTemplate() string {
 	return e.Cmd
 }
 
-func (e *ExecCmd) SetGroundedString(value string) {
+func (e *ExecTTP) SetGroundedString(value string) {
 	e.Cmd = value
+}
+
+type KubectlExec struct {
 }

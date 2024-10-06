@@ -10,8 +10,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
+	k8s "github.com/Magier/Ran/internal/k8sclient"
 )
 
 type C2Started struct {
@@ -62,12 +64,16 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		return nil, nil
 	})
 
-	mb.Subscribe(&domain.ExecCmd{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		cmd := event.(*domain.ExecCmd)
+	mb.Subscribe(&domain.ExecTTP{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
+		cmd := event.(*domain.ExecTTP)
 		// check technique to execute CMD -> kubectl exec uses API
 		// or shell listener?
-		fmt.Println(".... ExecCmd is not implemented in C2")
-		_ = cmd
+		switch cmd.C2Channel.(type) {
+		case armory.KubectlExecCmd:
+			stdout, stderr, err := execKubectl(ctx, *cmd)
+			msg, err := cmd.TTP.HandleResult(cmd.Target.Entity, stdout, stderr)
+			return msg, err
+		}
 		return nil, nil
 	})
 
@@ -200,4 +206,17 @@ func GetOutboundIP() net.IP {
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	return localAddr.IP
+}
+
+func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error) {
+	client, err := k8s.NewK8sClient("")
+	if err != nil {
+		return "", "", err
+	}
+
+	target := cmd.GetTarget()
+	podName := target.Name
+
+	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, podName, target.Ns, cmd.Cmd)
+	return stdOut, stdErr, err
 }
