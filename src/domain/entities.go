@@ -30,6 +30,12 @@ type Entity interface {
 	GetKind() string
 }
 
+type Relation interface {
+}
+
+type Asset interface {
+}
+
 type Ownable interface {
 	GetOwner() (OwnerRef, bool)
 }
