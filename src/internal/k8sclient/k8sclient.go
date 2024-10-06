@@ -1,16 +1,21 @@
 package k8s
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/Magier/Ran/domain"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/remotecommand"
 )
 
 func GetConfig() (*restclient.Config, error) {
@@ -124,4 +129,59 @@ func GetPods(ctx context.Context, clientset *kubernetes.Clientset) ([]domain.Pod
 		})
 	}
 	return pods, nil
+}
+
+func ExecInPod(ctx context.Context, client *kubernetes.Clientset, podName, ns, cmd string) (string, string, error) {
+	req := client.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(ns).
+		SubResource("exec")
+
+	// scheme := runtime.NewScheme()
+	// if err := core_v1.AddToScheme(scheme); err != nil {
+	// 	return "", "", fmt.Errorf("error adding to scheme: %v", err)
+	// }
+
+	kubeCfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{},
+	)
+	config, err := kubeCfg.ClientConfig()
+	if err != nil {
+		return "", "", err
+	}
+
+	// parameterCodec := runtime.NewParameterCodec(scheme)
+	req.VersionedParams(&v1.PodExecOptions{
+		Command: strings.Fields(cmd),
+		// Container: containerName,
+		Stdin:  false,
+		Stdout: true,
+		Stderr: true,
+		TTY:    false,
+	}, scheme.ParameterCodec)
+	// }, parameterCodec)
+
+	// if debug {
+	// 	fmt.Println("Request URL:", req.URL().String())
+	// }
+
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
+	if err != nil {
+		return "", "", fmt.Errorf("error while creating Executor: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		// Stdin:  stdin,
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Tty:    false,
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("error in Stream: %v", err)
+	}
+
+	return stdout.String(), stderr.String(), nil
 }
