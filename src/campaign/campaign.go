@@ -88,6 +88,7 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 		return nil, onNewSession(ctx, event, campaign)
 	})
 	mb.Subscribe(domain.NewEntities{}, campaign.onNewEntity)
+	mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)
 
 	err := mb.Publish(CampaignStarted{})
 	if err != nil {
@@ -134,6 +135,10 @@ func (c Campaign) GetListener(protocol domain.Protocol) (domain.Listener, bool) 
 	}
 
 	return domain.Listener{}, false
+}
+
+func (c *Campaign) onEnvVarsExtracted(ctx context.Context, event domain.Event) (domain.Message, error) {
+	return analyzeEnvironmentVariables(event.(domain.EnvVarsExtracted))
 }
 
 func inflateListenerTemplate(listener domain.Listener, template string) string {
