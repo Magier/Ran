@@ -8,6 +8,12 @@ type Command interface {
 	Message
 	String() string
 }
+type TTP interface {
+	GetTitle() string
+	GetDescription() string
+	GetMessage() Message
+	HandleResult(Entity, ...any) (Event, error)
+}
 
 type Templater interface {
 	GetTemplate() string

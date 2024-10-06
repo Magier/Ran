@@ -1,12 +1,13 @@
 package armory
 
-import "github.com/Magier/Ran/domain"
+import (
+	"errors"
+	"strings"
 
-type TTP interface {
-	GetTitle() string
-	GetDescription() string
-	GetMessage() domain.Message
-}
+	"github.com/Magier/Ran/domain"
+)
+
+type ResultHandler = func(source domain.Entity, args ...any) (domain.Event, error)
 
 type TTPMeta struct {
 	Title, Description string
