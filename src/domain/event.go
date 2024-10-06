@@ -10,7 +10,6 @@ type CommandHandler func(ctx context.Context, command Command) (Message, error)
 
 type Event interface {
 	Message
-	String() string
 }
 
 type UiEvent interface {

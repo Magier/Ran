@@ -12,6 +12,10 @@ func (c APIStarted) MessageName() string {
 	return "PlannerStarted"
 }
 
+func (c APIStarted) String() string {
+	return "API started"
+}
+
 func simplePlan() []domain.Command {
 	plan := []domain.Command{
 		domain.StartListener{Port: 1337},

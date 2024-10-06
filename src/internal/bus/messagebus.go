@@ -26,7 +26,7 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 		if len(b.subscribers[msg.MessageName()]) == 0 {
 			// fmt.Printf("🙉 %s: no subs\n", event.MessageName())
 		} else {
-			slog.Info("🔊 " + msg.MessageName())
+			slog.Info("🔊 " + msg.String())
 		}
 		for _, handler := range b.subscribers[msg.MessageName()] {
 			event := msg.(domain.Event)

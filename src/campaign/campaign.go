@@ -18,6 +18,10 @@ func (c CampaignStarted) MessageName() string {
 	return "campaign"
 }
 
+func (c CampaignStarted) String() string {
+	return "campaign started"
+}
+
 func onNewSession(ctx context.Context, event domain.Event, campaign *Campaign) error {
 	ev := event.(c2.SessionStarted)
 	campaign.sessions[ev.Session.Id] = ev.Session
