@@ -50,3 +50,16 @@ func (e ErrorMsg) String() string {
 func (e ErrorMsg) UiMessage() string {
 	return e.Msg
 }
+
+type EnvVarsExtracted struct {
+	Source Entity
+	Vars   map[string]string
+}
+
+func (e EnvVarsExtracted) MessageName() string {
+	return "EnvVarsExtracted"
+}
+
+func (e EnvVarsExtracted) String() string {
+	return fmt.Sprintf("Extracted environment variables from %s", e.Source.GetName())
+}
