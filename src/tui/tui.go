@@ -39,6 +39,7 @@ const (
 	MainWnd
 	ArmoryWnd
 	CmdPrompt
+	LogWnd
 )
 
 type FocusableWnd interface {
@@ -85,12 +86,12 @@ type model struct {
 	mainWindow mainwindow.Model
 	cmdPrompt  commandprompt.Model
 	statusBar  statusbar.Model
+	logWindow  logwindow.Model
 	focusedWnd Wnd
 	windows    map[Wnd]FocusableWnd
 	campaign   *campaign.Campaign
 	keymap     keymap
 	help       help.Model
-	logWindow  logwindow.Model
 	height     int
 	width      int
 	// cursor   int              // which to-do list item our cursor is pointing at
@@ -102,7 +103,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) mod
 
 	explorer := explorer.NewExplorer(c, .3)
 	mainWnd := mainwindow.NewMainWindow(.45, 0.7)
-	armoryWnd := armoryWindow.NewAmory(a, .25)
+	armoryWnd := armoryWindow.NewArmory(a, .25)
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)
 	logWindow := logwindow.NewLogWindow(numLogLines, .45, 0.2)
 	statusBar := statusbar.NewStatusBar()
@@ -112,6 +113,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) mod
 		// MainWnd:     &mainWnd,
 		ArmoryWnd: &armoryWnd,
 		// CmdPrompt:   &cmdPrompt,
+		LogWnd: &logWindow,
 	}
 
 	focusedWnd := ExplorerWnd
@@ -220,6 +222,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case ":":
 				m.ShowCommandPrompt()
+			case "x":
+				m.focusLogWnd()
 			}
 		}
 
@@ -252,14 +256,16 @@ func (m model) View() string {
 	armoryView := m.armory.View()
 	statusBar := m.statusBar.View()
 
+	center := lipgloss.JoinVertical(lipgloss.Left,
+		mainView,
+		logView,
+		cmdPromptView,
+	)
+
 	s += lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.JoinHorizontal(lipgloss.Top,
 			explorerView,
-			lipgloss.JoinVertical(lipgloss.Left,
-				mainView,
-				logView,
-				cmdPromptView,
-			),
+			center,
 			armoryView),
 		statusBar,
 	)
@@ -308,5 +314,11 @@ func (m *model) ToggleFocusedWindow() {
 func (m *model) ShowCommandPrompt() {
 	m.windows[m.focusedWnd].Blur()
 	m.focusedWnd = CmdPrompt
+	m.windows[m.focusedWnd].Focus()
+}
+
+func (m *model) focusLogWnd() {
+	m.windows[m.focusedWnd].Blur()
+	m.focusedWnd = LogWnd
 	m.windows[m.focusedWnd].Focus()
 }

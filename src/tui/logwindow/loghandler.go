@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,7 +52,7 @@ func (h *LogHandler) Handle(ctx context.Context, r slog.Record) error {
 	}()
 
 	err := h.h.Handle(ctx, r)
-	attrs := h.b.String()
+	attrs := strings.TrimSpace(h.b.String())
 
 	go h.program.Send(LogMessage{
 		Msg:   r.Message + " " + attrs,
