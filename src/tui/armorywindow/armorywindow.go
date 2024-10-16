@@ -28,7 +28,7 @@ type Model struct {
 	width   float32
 }
 
-func NewAmory(armory armory.Armory, width float32) Model {
+func NewArmory(armory armory.Armory, width float32) Model {
 	actions := []list.Item{}
 
 	for _, ttp := range armory.GetTTPs() {
@@ -41,10 +41,10 @@ func NewAmory(armory armory.Armory, width float32) Model {
 		Bold(true).
 		// Foreground(lipgloss.Color("#7D56F4")).
 		// Background(lipgloss.Color("#FAFAFA")).
-		PaddingTop(1).
+		// PaddingTop(1).
 		PaddingLeft(1).
-		Height(35).
-		Width(40).
+		// Height(35).
+		// Width(40).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(theme.InactiveColor).
 		BorderTop(true).
@@ -83,7 +83,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		case tea.WindowSizeMsg:
 			m.style = m.style.Width(int(m.width * float32(msg.Width)))
-			h := msg.Height - 10 // -1 for the statusbar
+			h := msg.Height - 1 // -1 for the statusbar
+			// slog.Info(fmt.Sprintf("Armory height: %d", h))
 			m.style = m.style.Height(h)
 			m.actions.SetHeight(h)
 		}

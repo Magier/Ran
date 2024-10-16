@@ -47,7 +47,6 @@ func NewExplorer(c *campaign.Campaign, width float32) Model {
 		Bold(true).
 		// Foreground(lipgloss.Color("#7D56F4")).
 		// Background(lipgloss.Color("#FAFAFA")).
-		PaddingTop(1).
 		PaddingLeft(1).
 		Height(35).
 		Width(22).
@@ -196,7 +195,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		}
 	case tea.WindowSizeMsg:
-		h := msg.Height - 10 // -1 for the statusbar and top border
+		h := msg.Height - 1 // -1 for the statusbar and top border
 		m.style = m.style.Width(int(m.width * float32(msg.Width)))
 		m.style = m.style.Height(h).MaxHeight(h)
 	}
