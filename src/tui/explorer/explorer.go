@@ -48,14 +48,15 @@ func NewExplorer(c *campaign.Campaign, width float32) Model {
 		// Foreground(lipgloss.Color("#7D56F4")).
 		// Background(lipgloss.Color("#FAFAFA")).
 		PaddingLeft(1).
-		Height(35).
+		// Height(35).
 		Width(22).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(theme.InactiveColor).
 		BorderTop(true).
 		BorderLeft(true).
 		BorderRight(true).
-		BorderBottom(true)
+		BorderBottom(true).
+		Background(lipgloss.Color("#d1d820"))
 
 	return Model{
 		campaign:     c,
