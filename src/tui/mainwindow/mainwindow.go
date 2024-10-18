@@ -8,14 +8,14 @@ import (
 )
 
 type Model struct {
-	focused bool
-	style   lipgloss.Style
-	width   float32
-	height  float32
-	content string
+	focused      bool
+	style        lipgloss.Style
+	width        float32
+	bottomOffset int
+	content      string
 }
 
-func NewMainWindow(width float32, height float32) Model {
+func NewMainWindow(width float32, bottomOffset int) Model {
 	var style = lipgloss.NewStyle().
 		Bold(true).
 		// Foreground(lipgloss.Color("#7D56F4")).
@@ -28,10 +28,11 @@ func NewMainWindow(width float32, height float32) Model {
 		BorderForeground(theme.InactiveColor).
 		BorderTop(true).
 		BorderLeft(true).
+		Background(lipgloss.Color("#123123")).
 		BorderRight(true)
 	// BorderBottom(true)
 
-	return Model{content: "", focused: false, style: style, width: width, height: height}
+	return Model{content: "", focused: false, style: style, width: width, bottomOffset: bottomOffset}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -42,7 +43,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.style = m.style.Width(int(m.width * float32(msg.Width)))
-		m.style = m.style.Height(int(m.height*float32(msg.Height)) - 1)
+		m.style = m.style.Height(msg.Height - m.bottomOffset - 1)
 	case tuimsg.EntitySelected:
 		// TODO resolve ID to the actual entity
 		m.content = msg.Id + " " + msg.Kind + " " + msg.Name

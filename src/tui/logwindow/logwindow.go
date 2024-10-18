@@ -19,31 +19,31 @@ type Model struct {
 	style        lipgloss.Style
 	viewport     viewport.Model
 	width        float32
-	height       float32
+	height       int
 	ready        bool
 	scrollOffset int
 }
 
-func NewLogWindow(numLogLines int, width float32, height float32) Model {
+func NewLogWindow(width float32, height int) Model {
 	var style = lipgloss.NewStyle().
 		Bold(true).
 		// Foreground(lipgloss.Color("#7D56F4")).
 		// Background(lipgloss.Color("#FAFAFA")).
 		PaddingLeft(1).
-		Height(6).
-		MaxHeight(6).
+		Height(height).
+		// MaxHeight(height).
 		Width(80).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(theme.InactiveColor).
 		BorderTop(true).
 		BorderLeft(true).
 		BorderRight(true).
-		BorderBottom(true)
+		BorderBottom(false).
+		Background(lipgloss.Color("#d12820"))
 
 	return Model{
-		nummLines:    numLogLines,
 		focused:      true,
-		lines:        make([]string, 0, numLogLines),
+		lines:        make([]string, 0),
 		style:        style,
 		width:        width,
 		height:       height,
@@ -79,18 +79,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.AddLine(msg.String())
 	case tea.WindowSizeMsg:
 		footerHeight := lipgloss.Height(m.footerView())
-
 		w := int(m.width * float32(msg.Width))
-		h := int(m.height*float32(msg.Height)) - 1 // -1 for the statusbar and top border
+		// h := int(m.height*float32(msg.Height)) - 1 // -1 for the statusbar and top border
 		m.style = m.style.Width(w)
-		m.style = m.style.Height(h)
+		// m.style = m.style.Height(h)
 
 		if !m.ready {
-			m.viewport = viewport.New(w, h-footerHeight)
+			m.viewport = viewport.New(w, m.height-footerHeight)
 			m.ready = true
 		} else {
-			m.viewport.Width = msg.Width
-			m.viewport.Height = msg.Height - footerHeight
+			w := int(m.width * float32(msg.Width))
+			m.viewport.Width = w
+			// m.viewport.Height = msg.Height - footerHeight
 		}
 	case tea.KeyMsg:
 		if m.focused {
@@ -137,6 +137,7 @@ func (m *Model) Blur() {
 func (m Model) footerView() string {
 	info := fmt.Sprintf("%d enries %3.f%% ", len(m.lines), m.viewport.ScrollPercent()*100)
 	// info := infoStyle.Render(fmt.Sprintf("%d enries %3.f%%", len(m.lines), m.viewport.ScrollPercent()*100))
+	// w := int(m.width * float32(msg.Width))
 	w := m.viewport.Width - lipgloss.Width(info) - 1
 	line := strings.Repeat("─", max(0, w))
 	return lipgloss.JoinHorizontal(lipgloss.Center, info, line)

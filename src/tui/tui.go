@@ -99,13 +99,13 @@ type model struct {
 }
 
 func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) model {
-	const numLogLines = 7
+	const logWndHeight = 10
 
 	explorer := explorer.NewExplorer(c, .3)
-	mainWnd := mainwindow.NewMainWindow(.45, 0.7)
+	mainWnd := mainwindow.NewMainWindow(.45, logWndHeight)
 	armoryWnd := armoryWindow.NewArmory(a, .25)
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)
-	logWindow := logwindow.NewLogWindow(numLogLines, .45, 0.2)
+	logWindow := logwindow.NewLogWindow(.45, logWndHeight)
 	statusBar := statusbar.NewStatusBar()
 
 	wnds := map[Wnd]FocusableWnd{

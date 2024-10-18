@@ -50,7 +50,8 @@ func NewArmory(armory armory.Armory, width float32) Model {
 		BorderTop(true).
 		BorderLeft(true).
 		BorderRight(true).
-		BorderBottom(true)
+		BorderBottom(false).
+		Background(lipgloss.Color("#01d8e0"))
 
 	return Model{
 		actions: armoryList,
@@ -81,13 +82,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				}
 				cmds = append(cmds, cmd)
 			}
-		case tea.WindowSizeMsg:
-			m.style = m.style.Width(int(m.width * float32(msg.Width)))
-			h := msg.Height - 1 // -1 for the statusbar
-			// slog.Info(fmt.Sprintf("Armory height: %d", h))
-			m.style = m.style.Height(h)
-			m.actions.SetHeight(h)
 		}
+	}
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.style = m.style.Width(int(m.width * float32(msg.Width)))
+		h := msg.Height - 1 // -1 for the statusbar
+		// slog.Info(fmt.Sprintf("Armory height: %d", h))
+		m.style = m.style.Height(h)
+		m.actions.SetHeight(h)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -106,9 +109,9 @@ func (m Model) View() string {
 
 func (m *Model) Focus() {
 	m.focused = true
-	m.actions.SetShowHelp(true)
+	// m.actions.SetShowHelp(true)
 }
 func (m *Model) Blur() {
 	m.focused = false
-	m.actions.SetShowHelp(true)
+	m.actions.SetShowHelp(false)
 }
