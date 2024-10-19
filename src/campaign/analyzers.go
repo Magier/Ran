@@ -1,6 +1,13 @@
 package campaign
 
-import "github.com/Magier/Ran/domain"
+import (
+	"fmt"
+	"log/slog"
+	"strconv"
+	"strings"
+
+	"github.com/Magier/Ran/domain"
+)
 
 // Extract interesting facts from the environment variables.
 // Kubernetes provides useful information as environment variables by default, such as:
@@ -13,12 +20,40 @@ import "github.com/Magier/Ran/domain"
 // :param event: EnvironmentVariablesReceived  event with the source system and the variables
 // returns a new event with new facts, if there were any
 func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, error) {
+	entities := make([]domain.Entity, 0)
+	relations := make([]domain.Relation, 0)
+	assets := make([]domain.Asset, 0)
+
+	podName, found := ev.Vars["HOSTNAME"]
+	if found {
+		entities = append(entities, domain.K8sEntity{Id: ev.Source.GetId(), Name: podName})
+	}
+
+	// TODO: parse variables ending with '.svc.cluster.local'
+
 	// podName = get(event.variables, "HOSTNAME", "?")
 	// ns = Namespace(name="?")
 	// # TODO: env vars don't imply it's in a Pod?
 	// pod = System(id=event.sourceSystemId, name=podName, ns=ns)
 
 	// services = getServicesFromEnvVars(event.variables)
+	services := getServicesFromEnvVars(ev.Vars)
+
+	for svcName, _ := range services {
+		if svcName == "KUBERNETES" {
+			kubeSystemNs := domain.Namespace{Name: svcName}
+			entities = append(entities, kubeSystemNs)
+
+			apiServer := domain.ApiServer{
+				Pod: domain.Pod{
+					NamespacedResource: domain.NamespacedResource{Namespace: "kube-system"},
+				},
+			}
+			entities = append(entities, apiServer)
+		} else {
+
+		}
+	}
 
 	// entities = [ns, pod]
 	// relations = []
@@ -39,57 +74,119 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 	// # TODO: analyze if URL is K8s DNS specific
 	// return NewFacts(entities=entities, relations=relations, assets=[])
 	return domain.NewFacts{
-		Entities:  make([]domain.Entity, 0),
-		Relations: make([]domain.Relation, 0),
-		Assets:    make([]domain.Asset, 0),
+		Entities:  entities,
+		Relations: relations,
+		Assets:    assets,
 	}, nil
 }
 
-// function getServicesFromEnvVars(variables::Dict{String,String})::Dict
-//     """Extract services from the environment variables.
-//     To extract services automatically populated by Kubernetes, a simple heuristic is used.
-//         1) look for all entries ending with `<xyz>_SERVICE_HOST`, the leading `<xyz>` is the service name
-//         2) for all service names get all other environment variables starting with this name
-//         3) get the host by reading the `<xyz>_SERVICE_HOST` value
-//         4) get all named ports by reading `<xyz>_SERVICE_PORT_<portname>`
-//             - if no named port was found, read `<xyz>_SERVICE_PORT` directly, which is the port number
+type ServiceInfo struct {
+	host  string
+	ports map[string]int
+}
 
-//     Group the dict of variables to a single entry with key kUBERNETES and value {host="10.96.0.1" and ports={"HTTPS": 443}}
-//     ```
-//     {
-//       'KUBERNETES_PORT': 'tcp://10.96.0.1:443',
-//       'KUBERNETES_PORT_443_TCP': 'tcp://10.96.0.1:443',
-//       'KUBERNETES_PORT_443_TCP_ADDR': '10.96.0.1',
-//       'KUBERNETES_PORT_443_TCP_PORT': '443',
-//       'KUBERNETES_PORT_443_TCP_PROTO': 'tcp',
-//       'KUBERNETES_SERVICE_HOST': '10.96.0.1',
-//       'KUBERNETES_SERVICE_PORT': '443',
-//       'KUBERNETES_SERVICE_PORT_HTTPS': '443',
-//     }```
+// Extract services from the environment variables.
+// To extract services automatically populated by Kubernetes, a simple heuristic is used.
+//  1. look for all entries ending with `<xyz>_SERVICE_HOST`, the leading `<xyz>` is the service name
+//  2. for all service names get all other environment variables starting with this name
+//  3. get the host by reading the `<xyz>_SERVICE_HOST` value
+//  4. get all named ports by reading `<xyz>_SERVICE_PORT_<portname>`
+//     - if no named port was found, read `<xyz>_SERVICE_PORT` directly, which is the port number
+//
+// Group the dict of variables to a single entry with key kUBERNETES and value {host="10.96.0.1" and ports={"HTTPS": 443}}
+// ```
+//
+//	{
+//	  'KUBERNETES_PORT': 'tcp://10.96.0.1:443',
+//	  'KUBERNETES_PORT_443_TCP': 'tcp://10.96.0.1:443',
+//	  'KUBERNETES_PORT_443_TCP_ADDR': '10.96.0.1',
+//	  'KUBERNETES_PORT_443_TCP_PORT': '443',
+//	  'KUBERNETES_PORT_443_TCP_PROTO': 'tcp',
+//	  'KUBERNETES_SERVICE_HOST': '10.96.0.1',
+//	  'KUBERNETES_SERVICE_PORT': '443',
+//	  'KUBERNETES_SERVICE_PORT_HTTPS': '443',
+//	}```
+//
+// :param variables: a dict of environment variables and their values
+// :return: a dict of services, with the service name as the key, and a dict with `host` and `ports` as its value
+func getServicesFromEnvVars(vars map[string]string) map[string]ServiceInfo {
+	const SVC_HOST_SFX = "_SERVICE_HOST"
+	const SVC_HOST = "SERVICE_HOST"
+	const SVC_PORT = "SERVICE_PORT"
 
-//     :param variables: a dict of environment variables and their values
-//     :return: a dict of services, with the service name as the key, and a dict with `host` and `ports` as its value
-//     """
-//     SVC_HOST_SFX = "_SERVICE_HOST"
-//     serviceNames = [replace(s, SVC_HOST_SFX => "") for s in keys(variables) if endswith(s, SVC_HOST_SFX)]
+	serviceNames := make([]string, 0)
+	// serviceNames := make(map[string]string)
+	for k := range vars {
+		if strings.HasSuffix(k, SVC_HOST_SFX) {
+			name := strings.Replace(k, SVC_HOST_SFX, "", 1)
+			serviceNames = append(serviceNames, name)
+		}
+	}
 
-//     svcGroups = Dict()
+	svcGroups := make(map[string]ServiceInfo)
+	for _, svcName := range serviceNames {
+		grp := make(map[string]string, 0)
+		for v, value := range vars {
+			if strings.HasPrefix(v, svcName) {
+				entry := strings.Replace(v, svcName+"_", "", 1)
+				grp[entry] = value
+			}
+		}
 
-//     for svc in serviceNames
-//         svcVars = Dict(replace(k, "$(svc)_" => "") => v for (k, v) in variables if startswith(k, svc))
-//         host = svcVars["SERVICE_HOST"]
-//         # specifically filter for named ports, which end with `SERVICE_PORT_<NAME>`
-//         ports = Dict(split(k, "_")[end] => parse(Int, p) for (k, p) in svcVars if occursin("SERVICE_PORT_", k))
-//         # if no named port is present, add the default port
-//         if length(ports) == 0
-//             p = svcVars["SERVICE_PORT"]  # this var should always be present
-//             ports[p] = parse(Int, p)
-//         end
-//         svcGroups[svc] = Dict("host" => host, "ports" => ports)
-//     end
+		host, ok := grp[SVC_HOST]
+		if !ok {
+			slog.Error(fmt.Sprintf("No host found for service '%s'", svcName))
+		}
 
-//     return svcGroups
-// end
+		// TODO  also support the PROTO specifiied as environment variable
+		ports := make(map[string]int)
+		for k, v := range grp {
+			if strings.HasPrefix(k, SVC_PORT+"_") {
+				port, err := strconv.Atoi(v)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Can't convert Port %s to int", v))
+				} else {
+					ports[strings.Replace(k, SVC_PORT+"_", "", 1)] = port
+				}
+			}
+		}
+
+		// If no named port was present use the SERVICE_PORT variable, which should always exist
+		if len(ports) == 0 {
+			p := grp[SVC_PORT]
+			port, err := strconv.Atoi(p)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Can't convert Port %s to int", p))
+			} else {
+				ports[""] = port
+			}
+		}
+
+		svcGroups[svcName] = ServiceInfo{
+			host:  host,
+			ports: ports,
+		}
+	}
+
+	return svcGroups
+
+	//     for svc in serviceNames
+	//         svcVars = Dict(replace(k, "$(svc)_" => "") => v for (k, v) in variables if startswith(k, svc))
+	//         host = svcVars["SERVICE_HOST"]
+	//         # specifically filter for named ports, which end with `SERVICE_PORT_<NAME>`
+	//         ports = Dict(split(k, "_")[end] => parse(Int, p) for (k, p) in svcVars if occursin("SERVICE_PORT_", k))
+	//         # if no named port is present, add the default port
+	//         if length(ports) == 0
+	//             p = svcVars["SERVICE_PORT"]  # this var should always be present
+	//             ports[p] = parse(Int, p)
+	//         end
+	//         svcGroups[svc] = Dict("host" => host, "ports" => ports)
+	//     end
+
+	//	return svcGroups
+	//
+	// end
+}
 
 // function analyzeExtractedServiceAccountToken(event::ServiceAccountTokenExtracted)::Union{NewFacts,Nothing}
 //     header, encData, signature = split(event.rawToken, ".")
