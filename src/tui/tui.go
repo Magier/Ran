@@ -92,17 +92,15 @@ type model struct {
 	campaign   *campaign.Campaign
 	keymap     keymap
 	help       help.Model
-	height     int
-	width      int
-	// cursor   int              // which to-do list item our cursor is pointing at
-	// selected map[int]struct{}, // which to-do items are selected
+	// height     int
+	// width      int
 }
 
 func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) model {
 	const logWndHeight = 10
 
 	explorer := explorer.NewExplorer(c, .3)
-	mainWnd := mainwindow.NewMainWindow(.45, logWndHeight)
+	mainWnd := mainwindow.NewMainWindow(.45, logWndHeight+1)
 	armoryWnd := armoryWindow.NewArmory(a, .25)
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)
 	logWindow := logwindow.NewLogWindow(.45, logWndHeight)
@@ -133,8 +131,8 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) mod
 		statusBar:  statusBar,
 		help:       help.New(),
 		keymap:     setupKeymap(),
-		height:     40,
-		width:      120,
+		// height:     40,
+		// width:      120,
 	}
 }
 func (m model) Init() tea.Cmd {
@@ -144,6 +142,11 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
+
+	if m, ok := msg.(tea.WindowSizeMsg); ok {
+		// adjust available hight to account for statusbar
+		msg = tea.WindowSizeMsg{Width: m.Width, Height: m.Height - 1}
+	}
 
 	m.explorer, cmd = m.explorer.Update(msg)
 	m.windows[ExplorerWnd] = &m.explorer
@@ -182,8 +185,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// cmds = append(cmds, logCmd, sysCmd)
 	case tea.WindowSizeMsg:
-		m.height = msg.Height
-		m.width = msg.Width
+		// m.height = msg.Height
+		// m.width = msg.Width
 
 	case commandprompt.SendCommand:
 		err := m.bus.Publish(msg.Action)
@@ -253,16 +256,17 @@ func (m model) View() string {
 	if m.focusedWnd == CmdPrompt {
 		cmdPromptView = m.cmdPrompt.View()
 	}
+	_ = cmdPromptView
 	armoryView := m.armory.View()
 	statusBar := m.statusBar.View()
 
 	center := lipgloss.JoinVertical(lipgloss.Left,
 		mainView,
 		logView,
-		cmdPromptView,
+		// cmdPromptView,
 	)
 
-	s += lipgloss.JoinVertical(lipgloss.Left,
+	s = lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.JoinHorizontal(lipgloss.Top,
 			explorerView,
 			center,
