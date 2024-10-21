@@ -24,10 +24,22 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 	relations := make([]domain.Relation, 0)
 	assets := make([]domain.Asset, 0)
 
+	// TODO: how can it be inferred, if it's from a K8s pod vs any *nix-based system?
+
 	podName, found := ev.Vars["HOSTNAME"]
-	if found {
-		entities = append(entities, domain.K8sEntity{Id: ev.Source.GetId(), Name: podName})
+	if !found {
+		podName = "?"
 	}
+	nsName := "?unknown"
+	srcPod := domain.Pod{
+		K8sEntity: domain.K8sEntity{
+			Id:        ev.Source.GetId(),
+			Name:      podName,
+			Namespace: nsName,
+		},
+		EnvVars: ev.Vars,
+	}
+	entities = append(entities, srcPod)
 
 	// TODO: parse variables ending with '.svc.cluster.local'
 
@@ -39,40 +51,44 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 	// services = getServicesFromEnvVars(event.variables)
 	services := getServicesFromEnvVars(ev.Vars)
 
-	for svcName, _ := range services {
+	for svcName, info := range services {
+		rel := domain.Reference{
+			Source: srcPod.Id,
+		}
 		if svcName == "KUBERNETES" {
 			kubeSystemNs := domain.Namespace{Name: svcName}
 			entities = append(entities, kubeSystemNs)
 
 			apiServer := domain.ApiServer{
 				Pod: domain.Pod{
-					NamespacedResource: domain.NamespacedResource{Namespace: "kube-system"},
+					K8sEntity: domain.K8sEntity{
+						Namespace: "kube-system",
+					},
 				},
 			}
+			rel.Target = apiServer.Id
 			entities = append(entities, apiServer)
 		} else {
-
+			svc := domain.Service{
+				K8sEntity: domain.K8sEntity{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Host:  info.host,
+				Ports: info.ports,
+			}
+			//         # services are either from same namespace as the pod, or 'kube-system'; assume same namespace as pod for now
+			//         # TODO check if there are other services from the kube-system NS, which are added as env_var
+			//         sys = Service(name=svc, ip=data["host"], ports=data["ports"], ns=ns)
+			entities = append(entities, svc)
+			rel.Target = svc.Id
 		}
+		relations = append(relations, rel)
 	}
-
-	// entities = [ns, pod]
-	// relations = []
-	// for (svc, data) in (services)
-	//     if svc == "KUBERNETES"
-	//         kubeSystemNs = Namespace(name="kube-system")
-	//         push!(entities, kubeSystemNs)
-	//         sys = ApiServer(name=svc, ns=kubeSystemNs, ip=data["host"], ports=data["ports"])
-	//     else
-	//         # services are either from same namespace as the pod, or 'kube-system'; assume same namespace as pod for now
-	//         # TODO check if there are other services from the kube-system NS, which are added as env_var
-	//         sys = Service(name=svc, ip=data["host"], ports=data["ports"], ns=ns)
-	//     end
-
-	//     push!(entities, sys)
-	//     push!(relations, Relation(source=pod.id, destination=sys.id, name="references", data="extracted from env_vars"))
-	// end
+	// TODO check for credentials and add them as assets
 	// # TODO: analyze if URL is K8s DNS specific
 	// return NewFacts(entities=entities, relations=relations, assets=[])
+
 	return domain.NewFacts{
 		Entities:  entities,
 		Relations: relations,
@@ -162,30 +178,10 @@ func getServicesFromEnvVars(vars map[string]string) map[string]ServiceInfo {
 			}
 		}
 
-		svcGroups[svcName] = ServiceInfo{
-			host:  host,
-			ports: ports,
-		}
+		svcGroups[svcName] = ServiceInfo{host: host, ports: ports}
 	}
 
 	return svcGroups
-
-	//     for svc in serviceNames
-	//         svcVars = Dict(replace(k, "$(svc)_" => "") => v for (k, v) in variables if startswith(k, svc))
-	//         host = svcVars["SERVICE_HOST"]
-	//         # specifically filter for named ports, which end with `SERVICE_PORT_<NAME>`
-	//         ports = Dict(split(k, "_")[end] => parse(Int, p) for (k, p) in svcVars if occursin("SERVICE_PORT_", k))
-	//         # if no named port is present, add the default port
-	//         if length(ports) == 0
-	//             p = svcVars["SERVICE_PORT"]  # this var should always be present
-	//             ports[p] = parse(Int, p)
-	//         end
-	//         svcGroups[svc] = Dict("host" => host, "ports" => ports)
-	//     end
-
-	//	return svcGroups
-	//
-	// end
 }
 
 // function analyzeExtractedServiceAccountToken(event::ServiceAccountTokenExtracted)::Union{NewFacts,Nothing}
