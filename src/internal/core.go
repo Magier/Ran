@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 
 	"github.com/Magier/Ran/armory"
@@ -34,6 +36,10 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 	if withTui {
 		ui = tui.SetupTUI(mb, c, a)
 	}
+
+	// TODO: turn fileshare into a regular action
+	filesharePort, _ := c.GetFileshare()
+	go ServeFiles(ctx, filesharePort)
 	c2.StartC2(ctx, mb)
 	planner.StartApi(mb)
 
@@ -123,4 +129,9 @@ func populateEntities(ctx context.Context, channel chan<- domain.Entity) {
 		channel <- p
 	}
 
+}
+func ServeFiles(ctx context.Context, port uint) {
+	http.Handle("/", http.FileServer(http.Dir("../static")))
+	p := strconv.FormatUint(uint64(port), 10)
+	http.ListenAndServe(":"+p, nil)
 }
