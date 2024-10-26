@@ -44,7 +44,7 @@ func (ttp TTP) GetTitle() string {
 	return ttp.Name
 }
 func (ttp TTP) GetDescription() string {
-	return ttp.Name
+	return ttp.Description
 }
 func (ttp TTP) GetMessage() Message {
 	if ttp.CommandFn != nil {

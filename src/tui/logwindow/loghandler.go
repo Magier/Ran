@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 const (
@@ -23,7 +24,26 @@ type LogMessage struct {
 }
 
 func (m LogMessage) String() string {
-	return fmt.Sprintf("%s %s %s", m.Time.Format(timeFormat), m.Level, m.Msg)
+	var symbol string
+
+	switch m.Level {
+	case "INFO":
+		symbol = "I "
+	case "WARN":
+		symbol = "⚠️"
+	case "ERROR":
+		symbol = "🚨"
+	}
+
+	return fmt.Sprintf("%s %s %s", symbol, m.Time.Format(timeFormat), m.Msg)
+}
+func (m LogMessage) GetColor() lipgloss.Color {
+	switch m.Level {
+	case "INFO":
+		return lipgloss.Color("#abcabc")
+	default:
+		return lipgloss.Color("#aaaaaa")
+	}
 }
 
 type LogHandler struct {

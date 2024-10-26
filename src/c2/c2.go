@@ -101,7 +101,7 @@ func startListener(ctx context.Context, bus bus.MessageBus, port uint) error {
 
 	ip := GetOutboundIP()
 	err = bus.Publish(ListenerReady{
-		Name:     fmt.Sprintf("listener_%d", port),
+		Name:     fmt.Sprintf("listen_%s_%d", "tcp", port),
 		IP:       ip,
 		Port:     port,
 		Protocol: domain.TCP,
@@ -149,7 +149,7 @@ func sendCommand(conn net.Conn, cmd string) (string, error) {
 	s, err := reader.ReadString('\n') // maybe use scanner instead?
 	slog.Debug("Rx Simple IO:", s, "")
 	if err != nil {
-		slog.Error("Error receiving command response: " + err.Error())
+		slog.Error(fmt.Sprintf("Error receiving response for command '%s': %s", cmd, err.Error()))
 		return "", err
 	}
 	return strings.Trim(s, "\n"), nil
@@ -161,15 +161,18 @@ func handleSession(ctx context.Context, bus bus.MessageBus, conn net.Conn, id st
 
 	hostname, err := sendCommand(conn, "hostname")
 	if err != nil {
-		slog.Error("Error reading from connection: " + err.Error())
+		return
+		// slog.Error("Error reading from connection: " + err.Error())
 	}
 	user, err := sendCommand(conn, "whoami")
 	if err != nil {
-		slog.Error("Error reading from connection: " + err.Error())
+		return
+		// slog.Error("Error reading from connection: " + err.Error())
 	}
 	os, err := sendCommand(conn, "uname")
 	if err != nil {
-		slog.Error("Error reading from connection: " + err.Error())
+		return
+		// slog.Error("Error reading from connection: " + err.Error())
 	}
 	// results <- os
 	err = bus.Publish(SessionStarted{Session: Session{

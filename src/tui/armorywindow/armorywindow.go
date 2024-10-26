@@ -50,8 +50,7 @@ func NewArmory(armory armory.Armory, width float32) Model {
 		BorderTop(true).
 		BorderLeft(true).
 		BorderRight(true).
-		BorderBottom(false).
-		Background(lipgloss.Color("#01d8e0"))
+		BorderBottom(false)
 
 	return Model{
 		actions: armoryList,
@@ -87,7 +86,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.style = m.style.Width(int(m.width * float32(msg.Width)))
-		h := msg.Height - 1 // -1 for the statusbar
+		h := msg.Height - 1 // -1 for the border
 		// slog.Info(fmt.Sprintf("Armory height: %d", h))
 		m.style = m.style.Height(h)
 		m.actions.SetHeight(h)
