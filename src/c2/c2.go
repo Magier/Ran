@@ -86,6 +86,9 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		// panic(err)
 		slog.Error("C2", "can't publish c2 started event:", err.Error())
 	}
+
+	go ConnectToSliverServer("../sliver_cfg.json", mb)
+
 	// wg.Wait()
 }
 
