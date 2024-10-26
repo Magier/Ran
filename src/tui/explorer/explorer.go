@@ -48,6 +48,7 @@ func NewExplorer(c *campaign.Campaign, width float32) Model {
 		// Foreground(lipgloss.Color("#7D56F4")).
 		// Background(lipgloss.Color("#FAFAFA")).
 		PaddingLeft(1).
+		PaddingTop(1).
 		// Height(35).
 		Width(22).
 		BorderStyle(lipgloss.RoundedBorder()).
@@ -55,8 +56,7 @@ func NewExplorer(c *campaign.Campaign, width float32) Model {
 		BorderTop(true).
 		BorderLeft(true).
 		BorderRight(true).
-		BorderBottom(true).
-		Background(lipgloss.Color("#d1d820"))
+		BorderBottom(false)
 
 	return Model{
 		campaign:     c,
@@ -192,13 +192,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			case "G": // go to the bottom
 				m.cursor = len(m.entries) - 1
 			case "enter":
-				cmd = selectEntity(m.entries[m.cursor].ref)
+				if m.cursor >= 0 {
+					cmd = selectEntity(m.entries[m.cursor].ref)
+				}
 			}
 		}
 	case tea.WindowSizeMsg:
-		h := msg.Height - 1 // -1 for the statusbar and top border
+		h := msg.Height - 1 // -1 for the top border
 		m.style = m.style.Width(int(m.width * float32(msg.Width)))
-		m.style = m.style.Height(h).MaxHeight(h)
+		m.style = m.style.Height(h) //.MaxHeight(h)
 	}
 	return m, cmd
 }
@@ -252,5 +254,8 @@ func (m *Model) Blur() {
 }
 
 func (m Model) GetSelectedEntity() string {
+	if m.cursor < 0 {
+		return ""
+	}
 	return m.entries[m.cursor].ref.id
 }

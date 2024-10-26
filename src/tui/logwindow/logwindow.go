@@ -38,11 +38,10 @@ func NewLogWindow(width float32, height int) Model {
 		BorderTop(true).
 		BorderLeft(true).
 		BorderRight(true).
-		BorderBottom(false).
-		Background(lipgloss.Color("#d12820"))
+		BorderBottom(false)
 
 	return Model{
-		focused:      true,
+		focused:      false,
 		lines:        make([]string, 0),
 		style:        style,
 		width:        width,
@@ -135,8 +134,8 @@ func (m *Model) Blur() {
 }
 
 func (m Model) footerView() string {
-	info := fmt.Sprintf("%d enries %3.f%% ", len(m.lines), m.viewport.ScrollPercent()*100)
-	// info := infoStyle.Render(fmt.Sprintf("%d enries %3.f%%", len(m.lines), m.viewport.ScrollPercent()*100))
+	info := fmt.Sprintf("%d entries %3.f%% ", len(m.lines), m.viewport.ScrollPercent()*100)
+	// info := infoStyle.Render(fmt.Sprintf("%d entries %3.f%%", len(m.lines), m.viewport.ScrollPercent()*100))
 	// w := int(m.width * float32(msg.Width))
 	w := m.viewport.Width - lipgloss.Width(info) - 1
 	line := strings.Repeat("─", max(0, w))
