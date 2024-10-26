@@ -152,9 +152,19 @@ func ExecInPod(ctx context.Context, client *kubernetes.Clientset, podName, ns, c
 		return "", "", err
 	}
 
+	var command []string
+	if strings.HasPrefix(cmd, "sh -c") {
+		c, found := strings.CutPrefix(cmd, "sh -c ")
+		if found {
+			command = []string{"sh", "-c", c[1 : len(c)-1]}
+		}
+	} else {
+		command = strings.Fields(cmd)
+	}
+
 	// parameterCodec := runtime.NewParameterCodec(scheme)
 	req.VersionedParams(&v1.PodExecOptions{
-		Command: strings.Fields(cmd),
+		Command: command,
 		// Container: containerName,
 		Stdin:  false,
 		Stdout: true,

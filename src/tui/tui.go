@@ -79,9 +79,8 @@ func RunTUI(p *tea.Program) {
 }
 
 type model struct {
-	bus bus.MessageBus
-	// choices  []string // items on the to-do list
-	armory     armoryWindow.Model // Armory
+	bus        bus.MessageBus
+	armory     armoryWindow.Model
 	explorer   explorer.Model
 	mainWindow mainwindow.Model
 	cmdPrompt  commandprompt.Model
@@ -92,8 +91,6 @@ type model struct {
 	campaign   *campaign.Campaign
 	keymap     keymap
 	help       help.Model
-	// height     int
-	// width      int
 }
 
 func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) model {
@@ -118,8 +115,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) mod
 	explorer.Focus()
 
 	return model{
-		bus: bus,
-		// actions:   armory,
+		bus:        bus,
 		armory:     armoryWnd,
 		campaign:   c,
 		mainWindow: mainWnd,
@@ -131,8 +127,6 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) mod
 		statusBar:  statusBar,
 		help:       help.New(),
 		keymap:     setupKeymap(),
-		// height:     40,
-		// width:      120,
 	}
 }
 func (m model) Init() tea.Cmd {

