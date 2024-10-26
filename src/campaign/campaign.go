@@ -110,6 +110,15 @@ func (c Campaign) InflateActionTemplate(action domain.Message, targetId string) 
 				slog.Info("No suitable listener found!")
 			}
 		}
+		if strings.Contains(template, "$FILESHARE_PORT") {
+			filesharePort, ok := c.GetFileshare()
+			if ok {
+				p := fmt.Sprint(filesharePort)
+				template = strings.Replace(template, "$FILESHARE_PORT", p, -1)
+			} else {
+				slog.Info("No suitable fileshare found!")
+			}
+		}
 
 		tmpl.SetGroundedString(template)
 	}
@@ -135,6 +144,11 @@ func (c Campaign) GetListener(protocol domain.Protocol) (domain.Listener, bool) 
 	}
 
 	return domain.Listener{}, false
+}
+
+func (c Campaign) GetFileshare() (uint, bool) {
+	// TODO: properly implement this
+	return 3000, true
 }
 
 func (c *Campaign) onEnvVarsExtracted(ctx context.Context, event domain.Event) (domain.Message, error) {
