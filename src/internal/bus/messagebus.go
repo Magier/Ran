@@ -22,6 +22,10 @@ type MessageBusProvider struct {
 
 func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 	for msg := range b.channel {
+		if msg == nil {
+			slog.Error("Received empty message!")
+			continue
+		}
 		// fmt.Printf("🚌 handling event %s\n", event.MessageName())
 		if len(b.subscribers[msg.MessageName()]) == 0 {
 			// fmt.Printf("🙉 %s: no subs\n", event.MessageName())
