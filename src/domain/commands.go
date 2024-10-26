@@ -8,11 +8,57 @@ type Command interface {
 	Message
 	String() string
 }
-type TTP interface {
-	GetTitle() string
-	GetDescription() string
-	GetMessage() Message
-	HandleResult(Entity, ...any) (Event, error)
+
+type TTPParams interface{}
+
+type ResultHandler = func(source Entity, args ...any) (Event, error)
+type TTP struct {
+	ID          string
+	Name        string
+	Description string
+	Tactics     []string
+	Technique   []string
+
+	References []string // ms_id::String = ""
+
+	Cmd  string
+	Port uint
+
+	Command   Command
+	CommandFn func(TTP) Message
+
+	TargetId        string
+	Target          string
+	TargetNamespace string
+
+	Requires      map[string]string
+	Effect        func() string
+	ResultHandler ResultHandler
+	Params        TTPParams
+
+	// action::Union{String,Function,Nothing} = nothing
+	// cmd_args::Union{String,Nothing} = nothing
+}
+
+func (ttp TTP) GetTitle() string {
+	return ttp.Name
+}
+func (ttp TTP) GetDescription() string {
+	return ttp.Name
+}
+func (ttp TTP) GetMessage() Message {
+	if ttp.CommandFn != nil {
+		return ttp.CommandFn(ttp)
+	} else {
+		return ttp.Command
+	}
+}
+
+func (ttp TTP) HandleResult(source Entity, args ...any) (Event, error) {
+	if ttp.ResultHandler == nil {
+		return nil, nil
+	}
+	return ttp.ResultHandler(source, args...)
 }
 
 type Templater interface {
