@@ -36,10 +36,10 @@ type Wnd uint
 const (
 	Nothing Wnd = iota
 	ExplorerWnd
-	MainWnd
 	ArmoryWnd
-	CmdPrompt
 	LogWnd
+	MainWnd
+	CmdPrompt
 )
 
 type FocusableWnd interface {
@@ -168,22 +168,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 
 	m.logWindow, cmd = m.logWindow.Update(msg)
+	m.windows[LogWnd] = &m.logWindow
 	cmds = append(cmds, cmd)
 
 	switch msg := msg.(type) {
-	case StatusMsg:
-		newLogModel, cmd := m.logWindow.Update(msg)
-		m.logWindow = newLogModel
-		cmds = append(cmds, cmd)
-		// m.logWindow.AddLine(msg.message)
-	// case c2.ListenerReady:
-	// newLogModel, logCmd := m.logWindow.Update(msg)
-	// m.logWindow = newLogModel
-
-	// newSystemModel, sysCmd := m.systemsList.Update(msg)
-	// m.systemsList = newSystemModel
-
-	// cmds = append(cmds, logCmd, sysCmd)
 	case tea.WindowSizeMsg:
 		// m.height = msg.Height
 		// m.width = msg.Width
@@ -212,36 +200,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		case tea.KeyTab:
-			// m.FocusNextWnd()
-			m.ToggleFocusedWindow()
+			m.FocusNextWnd()
 		case tea.KeyShiftTab:
-			// m.FocusPreviousWnd()
-			m.ToggleFocusedWindow()
+			m.FocusPreviousWnd()
 		case tea.KeyEscape:
 			m.focusedWnd = Nothing
 		// default:
 		// 	return handleKeyMsg(m, msg)
 		default:
 			switch msg.String() {
+			case "a":
+				m.focusWindow(ArmoryWnd)
+			case "e":
+				m.focusWindow(ExplorerWnd)
 			case ":":
-				m.ShowCommandPrompt()
-			case "x":
-				m.focusLogWnd()
+				m.focusWindow(CmdPrompt)
+			case "L":
+				m.focusWindow(LogWnd)
 			}
 		}
-
-		// 'a' -> focus armory (it's filter function)
-		// 'e' -> focus explorer
-		// 'l' -> focus log
-		// ':' -> show commandPrompt
-		// tab -> focus next
-		// shift+tab -> focus previous
-		// 'h' -> show help of focus component
-
-		// check what is focues - is it the cmdInput?
-		// if m.cmdInput.Focused() {
-		// } else {
-		// }
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -276,53 +253,27 @@ func (m model) View() string {
 	return s
 }
 
-// func (m *model) FocusNextWnd() {
-// 	oldWnd, ok := m.windows[m.focusedWnd]
-// 	if ok {
-// 		oldWnd.Blur()
-// 	}
-// 	if m.focusedWnd > CmdPrompt {
-// 		m.focusedWnd = ExplorerWnd
-// 	}
+func (m *model) FocusNextWnd() {
+	id := m.focusedWnd + 1
+	if m.focusedWnd >= LogWnd {
+		id = ExplorerWnd
+	}
+	m.focusWindow(id)
+}
 
-// 	newWnd := m.windows[m.focusedWnd]
-// 	newWnd.Focus()
-// }
-// func (m *model) FocusPreviousWnd() {
-// 	oldWnd, ok := m.windows[m.focusedWnd]
-// 	if ok {
-// 		oldWnd.Blur()
-// 	}
-// 	if m.focusedWnd == ExplorerWnd {
-// 		m.focusedWnd = ArmoryWnd
-// 	} else {
-// 		m.focusedWnd -= 1
-// 	}
-// 	newWnd := m.windows[m.focusedWnd]
-// 	newWnd.Focus()
-// }
+func (m *model) FocusPreviousWnd() {
+	id := m.focusedWnd - 1
+	if m.focusedWnd == ExplorerWnd {
+		id = LogWnd
+	}
+	m.focusWindow(id)
+}
 
-func (m *model) ToggleFocusedWindow() {
+func (m *model) focusWindow(id Wnd) {
 	oldWnd, ok := m.windows[m.focusedWnd]
 	if ok {
 		oldWnd.Blur()
 	}
-	if m.focusedWnd == ExplorerWnd {
-		m.focusedWnd = ArmoryWnd
-	} else {
-		m.focusedWnd = ExplorerWnd
-	}
-	m.windows[m.focusedWnd].Focus()
-}
-
-func (m *model) ShowCommandPrompt() {
-	m.windows[m.focusedWnd].Blur()
-	m.focusedWnd = CmdPrompt
-	m.windows[m.focusedWnd].Focus()
-}
-
-func (m *model) focusLogWnd() {
-	m.windows[m.focusedWnd].Blur()
-	m.focusedWnd = LogWnd
+	m.focusedWnd = id
 	m.windows[m.focusedWnd].Focus()
 }
