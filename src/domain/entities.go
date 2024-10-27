@@ -8,13 +8,15 @@ import (
 
 type Protocol string
 
-const ANY Protocol = "ANY"
-const TCP Protocol = "TCP"
-
-// const HTTP Protocol = "HTTP"
-// const DNS Protocol = "DNS"
-// const UDP Protocol = "UDP"
-// const mTLS Protocol = "TLS"
+const (
+	ANY   Protocol = "ANY"
+	TCP   Protocol = "TCP"
+	UDP   Protocol = "UDP"
+	HTTP  Protocol = "HTTP"
+	HTTPS Protocol = "HTTPS"
+	DNS   Protocol = "DNS"
+	mTLS  Protocol = "mTLS"
+)
 
 type Listener struct {
 	ID         string

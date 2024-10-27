@@ -76,3 +76,17 @@ func (e EnvVarsExtracted) MessageName() string {
 func (e EnvVarsExtracted) String() string {
 	return fmt.Sprintf("Extracted environment variables from %s", e.Source.GetName())
 }
+
+type ConnectedToExternalC2Server struct {
+	Name string
+	Ip   string
+	Type string
+}
+
+func (e ConnectedToExternalC2Server) MessageName() string {
+	return "ConnectedToExternalC2Server"
+}
+
+func (e ConnectedToExternalC2Server) String() string {
+	return fmt.Sprintf("Connected to '%s' C2 server on %s", e.Name, e.Ip)
+}
