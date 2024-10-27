@@ -17,7 +17,6 @@ import (
 	"github.com/bishopfox/sliver/protobuf/clientpb"
 	"github.com/bishopfox/sliver/protobuf/commonpb"
 	"github.com/bishopfox/sliver/protobuf/rpcpb"
-	"github.com/bishopfox/sliver/protobuf/sliverpb"
 )
 
 func makeRequest(session *clientpb.Session) *commonpb.Request {
@@ -29,6 +28,10 @@ func makeRequest(session *clientpb.Session) *commonpb.Request {
 		SessionID: session.ID,
 		Timeout:   timeout,
 	}
+}
+
+type SliverClient struct {
+	rpc rpcpb.SliverRPCClient
 }
 
 func ConnectToSliverServer(configPath string, bus bus.MessageBus) {
@@ -46,8 +49,19 @@ func ConnectToSliverServer(configPath string, bus bus.MessageBus) {
 	if err != nil {
 		slog.Error(err.Error())
 	}
-	slog.Info("[*] Connected to sliver server")
+
+	err = bus.Publish(domain.ConnectedToExternalC2Server{
+		Name: "Sliver",
+		Ip:   config.LHost,
+		Type: "Sliver",
+	})
+	if err != nil {
+		slog.Warn("Couldn't send 'C2 Connected' event: ", "", err.Error())
+		return
+	}
 	defer ln.Close()
+
+	reportOpenListeners(rpc, bus, config.LHost, config.LPort)
 
 	// Open the event stream to be able to collect all events sent by  the server
 	eventStream, err := rpc.Events(context.Background(), &commonpb.Empty{})
@@ -55,46 +69,48 @@ func ConnectToSliverServer(configPath string, bus bus.MessageBus) {
 		slog.Error(err.Error())
 	}
 
-	reportOpenListeners(rpc, bus, config.LHost, config.LPort)
-
 	// infinite loop
 	for {
 		event, err := eventStream.Recv()
 		if err == io.EOF || event == nil {
 			return
 		}
+
+		var resultingMessage domain.Message
 		// Trigger event based on type
 		switch event.EventType {
-
 		// a new session just came in
 		case consts.SessionOpenedEvent:
-			session := event.Session
-
-			err = bus.Publish(SessionStarted{Session: Session{
-				Id:       session.ID,
-				Hostname: session.Hostname,
-				Os:       session.OS,
-				User:     session.Username,
-			}})
-			if err != nil {
-				slog.Error("Error publishing session started event:", err.Error(), "")
-			}
-
-			// call any RPC you want, for the full list, see
-			// https://github.com/BishopFox/sliver/blob/master/protobuf/rpcpb/services.proto
-			resp, err := rpc.Execute(context.Background(), &sliverpb.ExecuteReq{
-				Path:    `env`,
-				Output:  true,
-				Request: makeRequest(session),
-			})
-			if err != nil {
-				log.Fatal(err)
-			}
-			// Don't forget to check for errors in the Response object
-			if resp.Response != nil && resp.Response.Err != "" {
-				log.Fatal(resp.Response.Err)
-			}
+			resultingMessage = SessionStarted{Session: parseSession(event.Session)}
+			// // call any RPC you want, for the full list, see
+			// // https://github.com/BishopFox/sliver/blob/master/protobuf/rpcpb/services.proto
+			// resp, err := rpc.Execute(context.Background(), &sliverpb.ExecuteReq{
+			// 	Path:    `env`,
+			// 	Output:  true,
+			// 	Request: makeRequest(session),
+			// })
+			// if err != nil {
+			// 	log.Fatal(err)
+			// }
+			// // Don't forget to check for errors in the Response object
+			// if resp.Response != nil && resp.Response.Err != "" {
+			// 	log.Fatal(resp.Response.Err)
+			// }
 		}
+
+		err = bus.Publish(resultingMessage)
+		if err != nil {
+			slog.Error("Error publishing session started event:", err.Error(), "")
+		}
+	}
+}
+
+func parseSession(session *clientpb.Session) Session {
+	return Session{
+		Id:       session.ID,
+		Hostname: session.Hostname,
+		Os:       session.OS,
+		User:     session.Username,
 	}
 }
 
@@ -128,4 +144,10 @@ func reportOpenListeners(rpc rpcpb.SliverRPCClient, bus bus.MessageBus, serverIp
 			slog.Error("Error publishing listener event: " + err.Error())
 		}
 	}
+}
+
+func StartSliverListener(ev domain.StartListener) error {
+	// TODO: get client
+	// start listener
+	return nil
 }
