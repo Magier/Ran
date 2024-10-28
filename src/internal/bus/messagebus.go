@@ -2,6 +2,7 @@ package bus
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	domain "github.com/Magier/Ran/domain"
@@ -26,13 +27,11 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 			slog.Error("Received empty message!")
 			continue
 		}
-		// fmt.Printf("🚌 handling event %s\n", event.MessageName())
-		if len(b.subscribers[msg.MessageName()]) == 0 {
-			// fmt.Printf("🙉 %s: no subs\n", event.MessageName())
+		if len(b.subscribers[msgName(msg)]) == 0 {
 		} else {
 			slog.Info("🔊 " + msg.String())
 		}
-		for _, handler := range b.subscribers[msg.MessageName()] {
+		for _, handler := range b.subscribers[msgName(msg)] {
 			event := msg.(domain.Event)
 			msg, err := handler(ctx, event)
 			if err != nil {
@@ -78,8 +77,8 @@ func (b *MessageBusProvider) Publish(events ...domain.Message) error {
 func (b *MessageBusProvider) Subscribe(event domain.Message, handler domain.EventHandler) {
 	// h.mu.Lock()
 	// defer h.mu.Unlock()
-	b.subscribers[event.MessageName()] = append(
-		b.subscribers[event.MessageName()],
+	b.subscribers[msgName(event)] = append(
+		b.subscribers[msgName(event)],
 		handler,
 	)
 }
@@ -89,4 +88,8 @@ func CreateMessageBus() *MessageBusProvider {
 		channel:     make(chan domain.Message, 100),
 		subscribers: make(map[string][]domain.EventHandler),
 	}
+}
+
+func msgName(msg domain.Message) string {
+	return fmt.Sprintf("%T", msg)
 }

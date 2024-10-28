@@ -8,10 +8,6 @@ import (
 type APIStarted struct {
 }
 
-func (c APIStarted) MessageName() string {
-	return "PlannerStarted"
-}
-
 func (c APIStarted) String() string {
 	return "API started"
 }
@@ -20,7 +16,13 @@ func simplePlan() []domain.Command {
 	plan := []domain.Command{
 		domain.StartListener{Port: 1337},
 		domain.StartC2Redirector{DstPort: 1337},
+		// domain.KubectlExec{}
 	}
+
+	// start listner "Primary" :1337
+	// start redirector: ngrok 8080 -> "Primary"
+	//
+
 	return plan
 }
 

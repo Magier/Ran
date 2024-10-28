@@ -19,9 +19,6 @@ import (
 type C2Started struct {
 }
 
-func (c C2Started) MessageName() string {
-	return "c2 started"
-}
 func (c C2Started) String() string {
 	return "c2 started"
 }
@@ -37,20 +34,12 @@ type SessionStarted struct {
 	Session Session
 }
 
-func (c SessionStarted) MessageName() string {
-	return "session started"
-}
-
 func (c SessionStarted) String() string {
 	return "Session started: " + c.Session.Id
 }
 
 type SessionClosed struct {
 	Session Session
-}
-
-func (c SessionClosed) MessageName() string {
-	return "session closed"
 }
 
 func (c SessionClosed) String() string {
