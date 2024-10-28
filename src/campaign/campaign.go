@@ -18,9 +18,19 @@ func (c CampaignStarted) String() string {
 	return "campaign started"
 }
 
-func onNewSession(ctx context.Context, event domain.Event, campaign *Campaign) error {
+func onNewSession(event domain.Event, campaign *Campaign) error {
 	ev := event.(c2.SessionStarted)
 	campaign.sessions[ev.Session.Id] = ev.Session
+	return nil
+}
+
+func onSessionClosed(event domain.Event, campaign *Campaign) error {
+	ev := event.(c2.SessionStarted)
+	_, ok := campaign.sessions[ev.Session.Id]
+	if !ok {
+		return fmt.Errorf("Unknwon session '%s' could not be closed", ev.Session.Id)
+	}
+	delete(campaign.sessions, ev.Session.Id)
 	return nil
 }
 
@@ -73,6 +83,20 @@ func (c *Campaign) onListenerReady(ctx context.Context, event domain.Event) (dom
 	return nil, nil
 }
 
+func (c *Campaign) onListenerStopped(ctx context.Context, event domain.Event) (domain.Message, error) {
+	ev := event.(c2.ListenerStopped)
+	id := fmt.Sprintf("%s_%d", ev.Name, ev.Port)
+
+	_, ok := c.listeners[id]
+	delete(c.listeners, id)
+	if !ok {
+		slog.Error(fmt.Sprintf("Can't stop unknown listener '%s'", ev.Name))
+
+	}
+
+	return nil, nil
+}
+
 func StartCampaign(mb bus.MessageBus) *Campaign {
 	campaign := &Campaign{
 		sessions:  make(map[string]c2.Session),
@@ -81,7 +105,10 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 	}
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		return nil, onNewSession(ctx, event, campaign)
+		return nil, onNewSession(event, campaign)
+	})
+	mb.Subscribe(c2.SessionClosed{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
+		return nil, onSessionClosed(event, campaign)
 	})
 	mb.Subscribe(domain.NewEntities{}, campaign.onNewEntity)
 	mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)

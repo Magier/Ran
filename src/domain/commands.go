@@ -6,7 +6,6 @@ import (
 
 type Command interface {
 	Message
-	String() string
 }
 
 type TTPParams interface{}
@@ -107,11 +106,23 @@ func (t *Target) SetTarget(e Entity) {
 }
 
 type StartListener struct {
-	Port uint
+	Port     uint
+	Protocol Protocol
+	Server   string
 }
 
 func (c StartListener) String() string {
-	return fmt.Sprintf("Listener on port %d started", c.Port)
+	return fmt.Sprintf("Start Listener on port %d", c.Port)
+}
+
+type StopListener struct {
+	Port     uint
+	Protocol Protocol
+	Server   string
+}
+
+func (c StopListener) String() string {
+	return fmt.Sprintf("Stop Listener on port %d", c.Port)
 }
 
 type StartC2Redirector struct {
@@ -119,7 +130,7 @@ type StartC2Redirector struct {
 }
 
 func (c StartC2Redirector) String() string {
-	return "Started C2 redirector"
+	return "Start C2 redirector"
 }
 
 type ReadEnvVars struct {
