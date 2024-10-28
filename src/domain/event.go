@@ -21,9 +21,6 @@ type NewEntities struct {
 	Identities []Identity
 }
 
-func (n NewEntities) MessageName() string {
-	return "NewEntities"
-}
 func (n NewEntities) String() string {
 	return fmt.Sprintf("%d new entities", len(n.Entities))
 }
@@ -41,9 +38,6 @@ type ErrorMsg struct {
 	Msg   string
 }
 
-func (e ErrorMsg) MessageName() string {
-	return "ErrorMsg"
-}
 func (e ErrorMsg) String() string {
 	return e.Msg
 }
@@ -57,9 +51,6 @@ type NewFacts struct {
 	Assets    []Asset
 }
 
-func (e NewFacts) MessageName() string {
-	return "NewFacts"
-}
 func (e NewFacts) String() string {
 	return fmt.Sprintf("Received new facts: %d entities, %d relatiosn, %d assets", len(e.Entities), len(e.Relations), len(e.Assets))
 }
@@ -67,10 +58,6 @@ func (e NewFacts) String() string {
 type EnvVarsExtracted struct {
 	Source Entity
 	Vars   map[string]string
-}
-
-func (e EnvVarsExtracted) MessageName() string {
-	return "EnvVarsExtracted"
 }
 
 func (e EnvVarsExtracted) String() string {
@@ -81,10 +68,6 @@ type ConnectedToExternalC2Server struct {
 	Name string
 	Ip   string
 	Type string
-}
-
-func (e ConnectedToExternalC2Server) MessageName() string {
-	return "ConnectedToExternalC2Server"
 }
 
 func (e ConnectedToExternalC2Server) String() string {

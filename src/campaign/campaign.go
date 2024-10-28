@@ -14,10 +14,6 @@ import (
 type CampaignStarted struct {
 }
 
-func (c CampaignStarted) MessageName() string {
-	return "campaign"
-}
-
 func (c CampaignStarted) String() string {
 	return "campaign started"
 }

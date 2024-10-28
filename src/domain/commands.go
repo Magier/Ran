@@ -110,9 +110,6 @@ type StartListener struct {
 	Port uint
 }
 
-func (c StartListener) MessageName() string {
-	return "StartListener"
-}
 func (c StartListener) String() string {
 	return fmt.Sprintf("Listener on port %d started", c.Port)
 }
@@ -121,9 +118,6 @@ type StartC2Redirector struct {
 	DstPort uint
 }
 
-func (c StartC2Redirector) MessageName() string {
-	return "StartC2Redirector"
-}
 func (c StartC2Redirector) String() string {
 	return "Started C2 redirector"
 }
@@ -132,9 +126,6 @@ type ReadEnvVars struct {
 	*Target
 }
 
-func (c ReadEnvVars) MessageName() string {
-	return "ReadEnvVars"
-}
 func (c ReadEnvVars) String() string {
 	return "Read environment variables"
 }
@@ -147,10 +138,6 @@ type ExecTTP struct {
 	Args []string
 	C2Channel
 	*Target
-}
-
-func (e *ExecTTP) MessageName() string {
-	return "ExecCmd"
 }
 
 func (e *ExecTTP) String() string {
