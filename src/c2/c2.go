@@ -45,6 +45,18 @@ func (c SessionStarted) String() string {
 	return "Session started: " + c.Session.Id
 }
 
+type SessionClosed struct {
+	Session Session
+}
+
+func (c SessionClosed) MessageName() string {
+	return "session closed"
+}
+
+func (c SessionClosed) String() string {
+	return "Session closed: " + c.Session.Id
+}
+
 func StartC2(ctx context.Context, mb bus.MessageBus) {
 	// listeners := make(map[string]net.Listener)
 
