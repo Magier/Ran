@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Magier/Ran/c2"
-	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/tui/theme"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -72,12 +70,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	)
 	switch msg := msg.(type) {
 	case LogMessage:
-		m.AddLine(msg.String())
-	case c2.ListenerReady:
-		m.AddLine(msg.String())
-	case c2.SessionStarted:
-		m.AddLine(msg.String())
-	case domain.ConnectedToExternalC2Server:
 		m.AddLine(msg.String())
 	case tea.WindowSizeMsg:
 		footerHeight := lipgloss.Height(m.footerView())

@@ -28,9 +28,8 @@ func NewMainWindow(width float32, bottomOffset int) Model {
 		BorderForeground(theme.InactiveColor).
 		BorderTop(true).
 		BorderLeft(true).
-		Background(lipgloss.Color("#123123")).
-		BorderRight(true)
-	// BorderBottom(true)
+		BorderRight(true).
+		BorderBottom(false)
 
 	return Model{content: "", focused: false, style: style, width: width, bottomOffset: bottomOffset}
 }
