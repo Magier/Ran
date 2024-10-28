@@ -34,11 +34,7 @@ type SliverClient struct {
 	rpc rpcpb.SliverRPCClient
 }
 
-func ConnectToSliverServer(configPath string, bus bus.MessageBus) {
-	// var configPath string
-	// flag.StringVar(&configPath, "config", "", "path to sliver client config file")
-	// flag.Parse()
-
+func ConnectToSliverServer(ctx context.Context, bus bus.MessageBus, configPath string, cmdChannel <-chan domain.Command) {
 	// load the client configuration from the filesystem
 	config, err := assets.ReadConfig(configPath)
 	if err != nil {
@@ -69,40 +65,68 @@ func ConnectToSliverServer(configPath string, bus bus.MessageBus) {
 		slog.Error(err.Error())
 	}
 
-	// infinite loop
+	events := make(chan *clientpb.Event)
+	go func(eventStream rpcpb.SliverRPC_EventsClient) {
+		for {
+			event, err := eventStream.Recv()
+			if err == io.EOF || event == nil {
+				return
+			}
+
+			events <- event
+		}
+	}(eventStream)
+
 	for {
-		event, err := eventStream.Recv()
-		if err == io.EOF || event == nil {
-			return
-		}
+		select {
+		case cmd, ok := <-cmdChannel:
+			if !ok {
+				cmdChannel = nil
+			}
+			err = executeCommand(cmd)
+			if err != nil {
+				slog.Error("Sliver C2", "Could not send cmd", err.Error())
+			}
 
-		var resultingMessage domain.Message
-		// Trigger event based on type
-		switch event.EventType {
-		// a new session just came in
-		case consts.SessionOpenedEvent:
-			resultingMessage = SessionStarted{Session: parseSession(event.Session)}
-			// // call any RPC you want, for the full list, see
-			// // https://github.com/BishopFox/sliver/blob/master/protobuf/rpcpb/services.proto
-			// resp, err := rpc.Execute(context.Background(), &sliverpb.ExecuteReq{
-			// 	Path:    `env`,
-			// 	Output:  true,
-			// 	Request: makeRequest(session),
-			// })
-			// if err != nil {
-			// 	log.Fatal(err)
-			// }
-			// // Don't forget to check for errors in the Response object
-			// if resp.Response != nil && resp.Response.Err != "" {
-			// 	log.Fatal(resp.Response.Err)
-			// }
-		}
-
-		err = bus.Publish(resultingMessage)
-		if err != nil {
-			slog.Error("Error publishing session started event:", err.Error(), "")
+		case event := <-events:
+			go handleSliverEvent(bus, event)
 		}
 	}
+}
+
+func handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) (domain.Message, error) {
+	var resultingMessage domain.Message
+	// Trigger event based on type
+	switch event.EventType {
+	// a new session just came in
+	case consts.SessionOpenedEvent:
+		resultingMessage = SessionStarted{Session: parseSession(event.Session)}
+	case consts.SessionClosedEvent:
+		resultingMessage = SessionClosed{Session: parseSession(event.Session)}
+
+		// // call any RPC you want, for the full list, see
+		// // https://github.com/BishopFox/sliver/blob/master/protobuf/rpcpb/services.proto
+		// resp, err := rpc.Execute(context.Background(), &sliverpb.ExecuteReq{
+		// 	Path:    `env`,
+		// 	Output:  true,
+		// 	Request: makeRequest(session),
+		// })
+		// if err != nil {
+		// 	log.Fatal(err)
+		// }
+		// // Don't forget to check for errors in the Response object
+		// if resp.Response != nil && resp.Response.Err != "" {
+		// 	log.Fatal(resp.Response.Err)
+		// }
+	}
+
+	err := bus.Publish(resultingMessage)
+	if err != nil {
+		slog.Error("Error publishing session started event:", err.Error(), "")
+		return nil, err
+	}
+	return nil, nil
+}
 }
 
 func parseSession(session *clientpb.Session) Session {
