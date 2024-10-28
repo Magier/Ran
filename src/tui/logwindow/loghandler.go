@@ -26,6 +26,7 @@ type LogMessage struct {
 func (m LogMessage) String() string {
 	var symbol string
 
+	// TODO: use constants here
 	switch m.Level {
 	case "INFO":
 		symbol = "I "

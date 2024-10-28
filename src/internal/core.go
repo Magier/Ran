@@ -27,7 +27,7 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
 	defer cancel()
 	mb := bus.CreateMessageBus()
-	a, err := armory.LoadArmory()
+	a, err := armory.LoadArmory("../armory/")
 	if err != nil {
 		panic(err)
 	}

@@ -31,9 +31,9 @@ func (n NewEntities) String() string {
 type ErrorLevel string
 
 var (
-	LevelInfo  ErrorLevel = "info"
-	LevelWarn  ErrorLevel = "warn"
-	LevelError ErrorLevel = "error"
+	LevelInfo  ErrorLevel = "INFO"
+	LevelWarn  ErrorLevel = "WARN"
+	LevelError ErrorLevel = "ERROR"
 )
 
 type ErrorMsg struct {

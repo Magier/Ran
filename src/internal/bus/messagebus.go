@@ -36,10 +36,7 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 			event := msg.(domain.Event)
 			msg, err := handler(ctx, event)
 			if err != nil {
-				err := b.Publish(domain.ErrorMsg{Level: domain.LevelError, Msg: err.Error()})
-				if err != nil {
-					slog.Error("Couldn't publish error message: ", "error", err.Error())
-				}
+				slog.Error(err.Error())
 				return err
 			}
 			if msg != nil {
