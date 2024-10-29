@@ -108,7 +108,13 @@ func LoadArmory(dir string) (Armory, error) {
 		{
 			Name:        "Create Listener",
 			Description: "Catch incoming shells",
-			Command:     domain.StartListener{Port: 1337},
+			Command:     domain.StartListener{Port: 1337, Protocol: domain.TCP},
+			// Port:        1337,
+		},
+		{
+			Name:        "Create Sliver HTTP Listener",
+			Description: "Catch incoming shells",
+			Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP, Server: "sliver"},
 			// Port:        1337,
 		},
 		{
@@ -124,6 +130,7 @@ func LoadArmory(dir string) (Armory, error) {
 			CommandFn: func(t domain.TTP) domain.Message {
 				return &domain.ExecTTP{TTP: t, Cmd: t.Cmd, Target: &domain.Target{}, C2Channel: KubectlExecCmd{}}
 			},
+			Requires: map[string]string{"access_level": "UserExecute"},
 		},
 		{
 			Name: "Check Token permissions",

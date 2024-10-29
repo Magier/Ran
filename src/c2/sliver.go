@@ -7,6 +7,7 @@ import (
 	"log"
 	"log/slog"
 	"net"
+	"slices"
 	"strings"
 
 	"github.com/Magier/Ran/domain"
@@ -43,11 +44,12 @@ func CreateSliverClient(configPath string) SliverClient {
 		log.Fatal(err)
 	}
 	return SliverClient{
-		config: config,
+		config:     config,
+		cmdChannel: make(chan domain.Command, 1),
 	}
 }
 
-func (c *SliverClient) Connect(ctx context.Context, bus bus.MessageBus, cmdChannel chan domain.Command) error {
+func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 	// func ConnectToSliverServer(ctx context.Context, bus bus.MessageBus, configPath string, cmdChannel <-chan domain.Command) {
 	// connect to the server
 	rpc, ln, err := transport.MTLSConnect(c.config)
@@ -56,7 +58,6 @@ func (c *SliverClient) Connect(ctx context.Context, bus bus.MessageBus, cmdChann
 		return err
 	}
 	c.rpc = rpc
-	c.cmdChannel = cmdChannel
 
 	err = bus.Publish(domain.ConnectedToExternalC2Server{
 		Name: "Sliver",
@@ -69,7 +70,7 @@ func (c *SliverClient) Connect(ctx context.Context, bus bus.MessageBus, cmdChann
 	}
 	defer ln.Close()
 
-	reportOpenListeners(rpc, bus, c.config.LHost, c.config.LPort)
+	reportOpenListeners(rpc, bus, c.GetServerIp(), c.config.LPort)
 
 	// Open the event stream to be able to collect all events sent by  the server
 	eventStream, err := rpc.Events(context.Background(), &commonpb.Empty{})
@@ -99,9 +100,9 @@ func (c *SliverClient) Connect(ctx context.Context, bus bus.MessageBus, cmdChann
 		select {
 		case <-ctx.Done():
 			break
-		case cmd, ok := <-cmdChannel:
+		case cmd, ok := <-c.cmdChannel:
 			if !ok {
-				cmdChannel = nil
+				c.cmdChannel = nil
 			}
 			err = c.handleCommand(cmd)
 			if err != nil {
@@ -111,6 +112,17 @@ func (c *SliverClient) Connect(ctx context.Context, bus bus.MessageBus, cmdChann
 			go handleSliverEvent(bus, event)
 		}
 	}
+}
+
+func (c SliverClient) GetServerIp() net.IP {
+	var ip net.IP
+	// resolve the local IP to the 'external' one, so the compromised systems can reach it
+	if slices.Contains([]string{"0.0.0.0", "localhost"}, c.config.LHost) {
+		ip = GetOutboundIP()
+	} else {
+		ip = net.ParseIP(c.config.LHost)
+	}
+	return ip
 }
 
 func handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) error {
@@ -187,19 +199,12 @@ func parseSession(session *clientpb.Session) Session {
 	}
 }
 
-func reportOpenListeners(rpc rpcpb.SliverRPCClient, bus bus.MessageBus, serverIp string, clientPort int) {
+func reportOpenListeners(rpc rpcpb.SliverRPCClient, bus bus.MessageBus, serverIp net.IP, clientPort int) {
 	jobs, err := rpc.GetJobs(context.Background(), &commonpb.Empty{})
 	if err != nil {
 		slog.Error(err.Error())
 	}
 
-	// resolve the local IP to the 'external' one, so the compromised systems can reach it
-	var ip net.IP
-	if serverIp == "0.0.0.0" || serverIp == "localhost" {
-		ip = GetOutboundIP()
-	} else {
-		ip = net.ParseIP(serverIp)
-	}
 	for _, job := range jobs.Active {
 		// no need to leak infrastructure details
 		// so ignore the listener for new (multiplayer) clients
@@ -209,7 +214,7 @@ func reportOpenListeners(rpc rpcpb.SliverRPCClient, bus bus.MessageBus, serverIp
 
 		err = bus.Publish(ListenerReady{
 			Name:     fmt.Sprintf("sliver_%s", job.Name),
-			IP:       ip,
+			IP:       serverIp,
 			Port:     uint(job.Port),
 			Protocol: domain.Protocol(strings.ToUpper(job.Protocol)),
 		})
@@ -221,7 +226,6 @@ func reportOpenListeners(rpc rpcpb.SliverRPCClient, bus bus.MessageBus, serverIp
 
 func (c SliverClient) Execute(ev domain.Command) (domain.Message, error) {
 	c.cmdChannel <- ev
-	// return nil, fmt.Errorf("Starting Sliver Listener not yet implemented")
 	return nil, nil
 }
 

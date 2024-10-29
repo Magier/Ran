@@ -1,13 +1,10 @@
 package c2
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
 	"net"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/Magier/Ran/armory"
@@ -17,10 +14,9 @@ import (
 )
 
 type C2Client interface {
-	// Connect() C2Client
+	Connect(context.Context, bus.MessageBus) error
 	Execute(domain.Command) (domain.Message, error)
-	// StartListener(domain.StartListener) (domain.Message, error)
-	// StopListener(domain.StopListener) (domain.Message, error)
+	GetServerIp() net.IP
 }
 
 type C2Started struct {
@@ -55,16 +51,18 @@ func (c SessionClosed) String() string {
 
 func StartC2(ctx context.Context, mb bus.MessageBus) {
 	// listeners := make(map[string]net.Listener)
-	c2Client := CreateSliverClient("../sliver_cfg.json")
+	// TODO start builtin C2 once an action demands it
+	c2Clients := map[string]C2Client{
+		"":       NewBuiltInServer(mb),
+		"sliver": CreateSliverClient("../sliver_cfg.json"),
+	}
 
 	mb.Subscribe(domain.StartListener{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		// cmd := event.(domain.StartListener)
-		// _, err := c2Client.StartListener(cmd)
-		// err := StartListener(cmd)
-		// if err != nil {
-		// 	slog.Error(err.Error())
-		// }
-		return onStartListener(mb, ctx, event, c2Client)
+		client, ok := selectClient(c2Clients, event)
+		if ok {
+			return onStartListener(mb, ctx, event, client)
+		}
+		return nil, fmt.Errorf("No suitable client found to start listener")
 	})
 
 	mb.Subscribe(&domain.ExecTTP{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
@@ -89,146 +87,60 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		slog.Error("C2", "can't publish c2 started event:", err.Error())
 	}
 
-	cmdChannel := make(chan domain.Command, 1)
-	go c2Client.Connect(ctx, mb, cmdChannel)
-
-	// wg.Wait()
-}
-
-func startListener(ctx context.Context, bus bus.MessageBus, port uint) error {
-	listener, err := net.Listen("tcp", ":"+strconv.FormatUint(uint64(port), 10))
-	if err != nil {
-		return fmt.Errorf("Unable to bind to port: %s", err)
-	}
-	defer listener.Close()
-
-	ip := GetOutboundIP()
-	err = bus.Publish(ListenerReady{
-		Name:     fmt.Sprintf("listen_%s_%d", "tcp", port),
-		IP:       ip,
-		Port:     port,
-		Protocol: domain.TCP,
-	})
-	if err != nil {
-		slog.Error("Error publishing listener event: " + err.Error())
-	}
-
-	numSessions := 0
-
-	for {
-		select {
-		case <-ctx.Done():
-			slog.InfoContext(ctx, "Shutting down listener")
-			return nil
-		default:
-			// Accept incoming connections
-			conn, err := listener.Accept()
+	var wg sync.WaitGroup
+	for _, client := range c2Clients {
+		go func() {
+			wg.Add(1)
+			defer wg.Done()
+			err := client.Connect(ctx, mb)
 			if err != nil {
 				slog.Error(err.Error())
-				continue
 			}
-			numSessions++
-
-			// bus.Publish()
-			// Handle client connection in a goroutine
-			in := make(chan string, 5)
-			out := make(chan string, 5)
-			go handleSession(ctx, bus, conn, strconv.Itoa(numSessions), in, out)
-		}
+		}()
 	}
+	wg.Wait()
+}
+
+func selectClient(clients map[string]C2Client, event domain.Event) (C2Client, bool) {
+	var server string
+	switch cmd := event.(type) {
+	case domain.StartListener:
+		server = cmd.Server
+	case domain.StopListener:
+		server = cmd.Server
+	}
+
+	client, ok := clients[server]
+	if ok {
+		return client, true
+	}
+	return nil, false
 }
 
 func onStartListener(mb bus.MessageBus, ctx context.Context, event domain.Event, c2Client C2Client) (domain.Message, error) {
 	cmd := event.(domain.StartListener)
+	c2Client.Execute(cmd)
 
-	var wg sync.WaitGroup
-	switch cmd.Server {
-	case "":
-		wg.Add(1)
-		go func() {
-			err := startListener(ctx, mb, cmd.Port)
-			if err != nil {
-				slog.Error(err.Error())
-			}
-			// TODO handle disconnecting listener
-			wg.Done()
-		}()
-	case "sliver":
-		_, err := c2Client.Execute(cmd)
-		if err != nil {
-			slog.Error(err.Error())
-		}
-	}
+	// var wg sync.WaitGroup
+	// switch cmd.Server {
+	// case "":
+	// 	wg.Add(1)
+	// 	go func() {
+	// 		err := startListener(ctx, mb, cmd)
+	// 		if err != nil {
+	// 			slog.Error(err.Error())
+	// 		}
+	// 		// TODO handle disconnecting listener
+	// 		wg.Done()
+	// 	}()
+	// case "sliver":
+	// 	_, err := c2Client.Execute(cmd)
+	// 	if err != nil {
+	// 		slog.Error(err.Error())
+	// 	}
+	// }
 	// return startListener(ctx, mb, cmd.Port)
 	return nil, nil
-}
-
-func sendCommand(conn net.Conn, cmd string) (string, error) {
-	writer := bufio.NewWriter(conn)
-	// _, err := conn.Write([]byte(cmd))
-	slog.Debug("Sent command: ", "cmd", cmd)
-	if _, err := writer.WriteString(cmd + "\n"); err != nil {
-		slog.Error("Error sending command: " + err.Error())
-		return "", err
-	}
-	writer.Flush()
-	// raw_result := make([]byte, 1024)
-	reader := bufio.NewReader(conn)
-	s, err := reader.ReadString('\n') // maybe use scanner instead?
-	slog.Debug("Rx Simple IO:", s, "")
-	if err != nil {
-		slog.Error(fmt.Sprintf("Error receiving response for command '%s': %s", cmd, err.Error()))
-		return "", err
-	}
-	return strings.Trim(s, "\n"), nil
-}
-
-func handleSession(ctx context.Context, bus bus.MessageBus, conn net.Conn, id string, cmds <-chan string, results chan<- string) {
-	defer conn.Close()
-	slog.Debug("C2", "", "Handling session")
-
-	hostname, err := sendCommand(conn, "hostname")
-	if err != nil {
-		return
-		// slog.Error("Error reading from connection: " + err.Error())
-	}
-	user, err := sendCommand(conn, "whoami")
-	if err != nil {
-		return
-		// slog.Error("Error reading from connection: " + err.Error())
-	}
-	os, err := sendCommand(conn, "uname")
-	if err != nil {
-		return
-		// slog.Error("Error reading from connection: " + err.Error())
-	}
-	// results <- os
-	err = bus.Publish(SessionStarted{Session: Session{
-		Id:       id,
-		Hostname: hostname,
-		Os:       os,
-		User:     user,
-	}})
-	if err != nil {
-		slog.Error("Error publishing session started event:", err.Error(), "")
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			close(results)
-			return
-		default:
-			cmd := <-cmds
-
-			res, err := sendCommand(conn, cmd)
-			if err != nil {
-				slog.Error("Coulnd't send command", "cmd", cmd, "error", err)
-			}
-			slog.Debug("Received data: " + string(res))
-			results <- res
-		}
-	}
 }
 
 // Get preferred outbound ip of this machine
