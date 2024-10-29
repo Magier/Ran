@@ -31,33 +31,45 @@ func makeRequest(session *clientpb.Session) *commonpb.Request {
 }
 
 type SliverClient struct {
-	rpc rpcpb.SliverRPCClient
+	config     *assets.ClientConfig
+	rpc        rpcpb.SliverRPCClient
+	cmdChannel chan domain.Command
 }
 
-func ConnectToSliverServer(ctx context.Context, bus bus.MessageBus, configPath string, cmdChannel <-chan domain.Command) {
+func CreateSliverClient(configPath string) SliverClient {
 	// load the client configuration from the filesystem
 	config, err := assets.ReadConfig(configPath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// connect to the server
-	rpc, ln, err := transport.MTLSConnect(config)
-	if err != nil {
-		slog.Error(err.Error())
+	return SliverClient{
+		config: config,
 	}
+}
+
+func (c *SliverClient) Connect(ctx context.Context, bus bus.MessageBus, cmdChannel chan domain.Command) error {
+	// func ConnectToSliverServer(ctx context.Context, bus bus.MessageBus, configPath string, cmdChannel <-chan domain.Command) {
+	// connect to the server
+	rpc, ln, err := transport.MTLSConnect(c.config)
+	if err != nil {
+		slog.Error("Couldn't connect to Sliver server", "", err.Error())
+		return err
+	}
+	c.rpc = rpc
+	c.cmdChannel = cmdChannel
 
 	err = bus.Publish(domain.ConnectedToExternalC2Server{
 		Name: "Sliver",
-		Ip:   config.LHost,
+		Ip:   c.config.LHost,
 		Type: "Sliver",
 	})
 	if err != nil {
 		slog.Warn("Couldn't send 'C2 Connected' event: ", "", err.Error())
-		return
+		return err
 	}
 	defer ln.Close()
 
-	reportOpenListeners(rpc, bus, config.LHost, config.LPort)
+	reportOpenListeners(rpc, bus, c.config.LHost, c.config.LPort)
 
 	// Open the event stream to be able to collect all events sent by  the server
 	eventStream, err := rpc.Events(context.Background(), &commonpb.Empty{})
@@ -65,36 +77,43 @@ func ConnectToSliverServer(ctx context.Context, bus bus.MessageBus, configPath s
 		slog.Error(err.Error())
 	}
 
+	// handle all incoming events in the background
 	events := make(chan *clientpb.Event)
 	go func(eventStream rpcpb.SliverRPC_EventsClient) {
 		for {
-			event, err := eventStream.Recv()
-			if err == io.EOF || event == nil {
-				return
+			select {
+			case <-ctx.Done():
+				break
+			default:
+				event, err := eventStream.Recv()
+				if err == io.EOF || event == nil {
+					return
+				}
+				events <- event
 			}
-
-			events <- event
 		}
 	}(eventStream)
 
+	// handle all commands sent to the Sliver server
 	for {
 		select {
+		case <-ctx.Done():
+			break
 		case cmd, ok := <-cmdChannel:
 			if !ok {
 				cmdChannel = nil
 			}
-			err = executeCommand(cmd)
+			err = c.handleCommand(cmd)
 			if err != nil {
 				slog.Error("Sliver C2", "Could not send cmd", err.Error())
 			}
-
 		case event := <-events:
 			go handleSliverEvent(bus, event)
 		}
 	}
 }
 
-func handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) (domain.Message, error) {
+func handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) error {
 	var resultingMessage domain.Message
 	// Trigger event based on type
 	switch event.EventType {
@@ -104,29 +123,59 @@ func handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) (domain.Messag
 	case consts.SessionClosedEvent:
 		resultingMessage = SessionClosed{Session: parseSession(event.Session)}
 
-		// // call any RPC you want, for the full list, see
-		// // https://github.com/BishopFox/sliver/blob/master/protobuf/rpcpb/services.proto
-		// resp, err := rpc.Execute(context.Background(), &sliverpb.ExecuteReq{
-		// 	Path:    `env`,
-		// 	Output:  true,
-		// 	Request: makeRequest(session),
-		// })
-		// if err != nil {
-		// 	log.Fatal(err)
-		// }
-		// // Don't forget to check for errors in the Response object
-		// if resp.Response != nil && resp.Response.Err != "" {
-		// 	log.Fatal(resp.Response.Err)
-		// }
+	case consts.JobStartedEvent:
+		job := event.Job
+		// resolve the local IP to the 'external' one, so the compromised systems can reach it
+		// TODO get IP of sliver
+		resultingMessage = ListenerReady{
+			Id:   fmt.Sprintf("%d", job.ID),
+			Name: fmt.Sprintf("sliver_%s", job.Name),
+			// IP:       ip,
+			Port:     uint(job.Port),
+			Protocol: domain.Protocol(strings.ToUpper(job.Protocol)),
+		}
+
+	case consts.JobStoppedEvent:
+		job := event.Job
+		resultingMessage = ListenerStopped{
+			Name: fmt.Sprintf("sliver_%s", job.Name),
+			Port: uint(job.Port),
+		}
 	}
 
 	err := bus.Publish(resultingMessage)
 	if err != nil {
 		slog.Error("Error publishing session started event:", err.Error(), "")
-		return nil, err
+		return err
 	}
-	return nil, nil
+	return nil
 }
+
+func (c SliverClient) handleCommand(msg domain.Command) error {
+	switch cmd := msg.(type) {
+	case domain.StartListener:
+		_, err := c.startListener(cmd)
+		return err
+	case domain.StopListener:
+		_, err := c.stopListener(cmd)
+		return err
+	}
+	// // call any RPC you want, for the full list, see
+	// // https://github.com/BishopFox/sliver/blob/master/protobuf/rpcpb/services.proto
+	// resp, err := rpc.Execute(context.Background(), &sliverpb.ExecuteReq{
+	// 	Path:    `env`,
+	// 	Output:  true,
+	// 	Request: makeRequest(session),
+	// })
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// // Don't forget to check for errors in the Response object
+	// if resp.Response != nil && resp.Response.Err != "" {
+	// 	log.Fatal(resp.Response.Err)
+	// }
+
+	return nil
 }
 
 func parseSession(session *clientpb.Session) Session {
@@ -170,8 +219,28 @@ func reportOpenListeners(rpc rpcpb.SliverRPCClient, bus bus.MessageBus, serverIp
 	}
 }
 
-func StartSliverListener(ev domain.StartListener) error {
-	// TODO: get client
-	// start listener
-	return nil
+func (c SliverClient) Execute(ev domain.Command) (domain.Message, error) {
+	c.cmdChannel <- ev
+	// return nil, fmt.Errorf("Starting Sliver Listener not yet implemented")
+	return nil, nil
+}
+
+func (c SliverClient) startListener(ev domain.StartListener) (domain.Message, error) {
+	switch ev.Protocol {
+	case domain.HTTP:
+		_, err := c.rpc.StartHTTPListener(context.Background(), &clientpb.HTTPListenerReq{
+			Port: uint32(ev.Port),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("Starting Sliver Listener failed " + err.Error())
+		}
+		// there will be an event from sliver notifying about the successful creation of the listener
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf("Starting Sliver %s Listener not yet implemented", ev.Protocol)
+}
+
+func (c SliverClient) stopListener(ev domain.StopListener) (domain.Message, error) {
+	return nil, fmt.Errorf("Stopping Sliver Listener not yet implemented")
 }
