@@ -16,6 +16,13 @@ import (
 	k8s "github.com/Magier/Ran/internal/k8sclient"
 )
 
+type C2Client interface {
+	// Connect() C2Client
+	Execute(domain.Command) (domain.Message, error)
+	// StartListener(domain.StartListener) (domain.Message, error)
+	// StopListener(domain.StopListener) (domain.Message, error)
+}
+
 type C2Started struct {
 }
 
@@ -48,21 +55,16 @@ func (c SessionClosed) String() string {
 
 func StartC2(ctx context.Context, mb bus.MessageBus) {
 	// listeners := make(map[string]net.Listener)
+	c2Client := CreateSliverClient("../sliver_cfg.json")
 
-	var wg sync.WaitGroup
 	mb.Subscribe(domain.StartListener{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		cmd := event.(domain.StartListener)
-		wg.Add(1)
-		go func() {
-			err := startListener(ctx, mb, cmd.Port)
-			if err != nil {
-				mb.Publish(domain.ErrorMsg{Level: domain.LevelError, Msg: err.Error()})
-			}
-			// TODO handle disconnecting listener
-			wg.Done()
-		}()
-		// return startListener(ctx, mb, cmd.Port)
-		return nil, nil
+		// cmd := event.(domain.StartListener)
+		// _, err := c2Client.StartListener(cmd)
+		// err := StartListener(cmd)
+		// if err != nil {
+		// 	slog.Error(err.Error())
+		// }
+		return onStartListener(mb, ctx, event, c2Client)
 	})
 
 	mb.Subscribe(&domain.ExecTTP{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
@@ -84,11 +86,11 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 
 	err := mb.Publish(C2Started{})
 	if err != nil {
-		// panic(err)
 		slog.Error("C2", "can't publish c2 started event:", err.Error())
 	}
 
-	go ConnectToSliverServer("../sliver_cfg.json", mb)
+	cmdChannel := make(chan domain.Command, 1)
+	go c2Client.Connect(ctx, mb, cmdChannel)
 
 	// wg.Wait()
 }
@@ -134,6 +136,31 @@ func startListener(ctx context.Context, bus bus.MessageBus, port uint) error {
 			go handleSession(ctx, bus, conn, strconv.Itoa(numSessions), in, out)
 		}
 	}
+}
+
+func onStartListener(mb bus.MessageBus, ctx context.Context, event domain.Event, c2Client C2Client) (domain.Message, error) {
+	cmd := event.(domain.StartListener)
+
+	var wg sync.WaitGroup
+	switch cmd.Server {
+	case "":
+		wg.Add(1)
+		go func() {
+			err := startListener(ctx, mb, cmd.Port)
+			if err != nil {
+				slog.Error(err.Error())
+			}
+			// TODO handle disconnecting listener
+			wg.Done()
+		}()
+	case "sliver":
+		_, err := c2Client.Execute(cmd)
+		if err != nil {
+			slog.Error(err.Error())
+		}
+	}
+	// return startListener(ctx, mb, cmd.Port)
+	return nil, nil
 }
 
 func sendCommand(conn net.Conn, cmd string) (string, error) {
