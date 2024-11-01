@@ -83,6 +83,12 @@ func (n Node) findChild(name, parent string, kind, parentKind string) (*Node, bo
 func addEntity(m Model, entity domain.Entity) {
 	parentNodes := make([]*Node, 0)
 
+	if _, ok := entity.(domain.Namespace); ok {
+		// parentNodes = append(parentNodes, newNode("", ns.GetName(), "Namespace"))
+		addNode(m.entitiesTree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
+		return
+	}
+
 	k8sEntity, ok := entity.(domain.Ownable)
 	if !ok {
 		fmt.Println(entity.GetName() + " " + entity.GetKind() + " Not a K8sEntity")

@@ -61,7 +61,7 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Pr
 	bus.Subscribe(c2.ListenerReady{}, forwardEvent)
 	bus.Subscribe(c2.SessionStarted{}, forwardEvent)
 	bus.Subscribe(domain.ConnectedToExternalC2Server{}, forwardEvent)
-	bus.Subscribe(domain.NewEntities{}, forwardEvent)
+	bus.Subscribe(domain.KnowledgeUpdated{}, forwardEvent)
 
 	bus.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
 		msg := event.(domain.ErrorMsg)

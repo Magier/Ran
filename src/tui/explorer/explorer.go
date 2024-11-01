@@ -156,11 +156,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.cursor == -1 {
 			m.cursor = 0
 		}
-	case domain.NewEntities:
-		for _, entity := range msg.Entities {
-			addEntity(m, entity)
-		}
-		m.entries = buildShownEntries(m.entitiesTree, 0)
+	case domain.KnowledgeUpdated:
+		m = m.rebuildEntries()
 		// m.tree = buildShownTree(m, m.entitiesTree)
 		if m.cursor == -1 {
 			m.cursor = 0
@@ -205,6 +202,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m Model) rebuildEntries() Model {
+	for _, entity := range m.campaign.GetEntities() {
+		addEntity(m, entity)
+	}
+	m.entries = buildShownEntries(m.entitiesTree, 0)
+	return m
+}
+
 func selectEntity(node *Node) tea.Cmd {
 	return func() tea.Msg {
 		return tuimsg.EntitySelected{Id: node.id, Kind: node.kind, Name: node.name}
@@ -231,7 +236,7 @@ func (m Model) View() string {
 	}
 
 	selectedStyle := lipgloss.NewStyle().Bold(true).UnsetForeground().Background(theme.PrimaryColor)
-	if m.cursor >= 0 {
+	if m.cursor >= 0 && len(lines) > 0 {
 		// use the raw text again to avoid conflicting styles
 		lines[m.cursor] = selectedStyle.Render(m.entries[m.cursor].text)
 	}

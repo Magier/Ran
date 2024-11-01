@@ -26,13 +26,40 @@ type Listener struct {
 	IP         net.IP
 }
 
+type Workload interface {
+	Entity
+	GetPods() []Pod
+}
+
+type AbstractWorkload struct {
+	K8sEntity
+	// NamespacedResource
+	ResourceOwner
+}
+
+func (wl AbstractWorkload) GetKind() string {
+	return "AbstractWorkload"
+}
+
+//	func (wl AbstractWorkload) GetPods() []Pod {
+//		return wl.Pods
+//	}
+func (wl AbstractWorkload) IsAbstract() bool {
+	return true
+}
+
+type ResourceOwner struct {
+	Pods []Pod
+}
+
+func (w ResourceOwner) GetPods() []Pod {
+	return w.Pods
+}
+
 type Entity interface {
 	GetId() string
 	GetName() string
 	GetKind() string
-}
-
-type Relation interface {
 }
 
 type Asset interface {
@@ -46,6 +73,10 @@ type Namespaced interface {
 	GetNamespace() string
 }
 
+type EntityPlaceholder interface {
+	IsAbstract() bool
+}
+
 type OwnerRef struct {
 	Name string
 	Kind string
@@ -56,10 +87,12 @@ type K8sEntity struct {
 	Id          string
 	Name        string
 	Kind        string
+	Namespace   string
 	Labels      map[string]string
 	Annotations map[string]string
 	CreatedAt   string
 	Owner       OwnerRef
+	IP          net.IP
 }
 
 func (e K8sEntity) GetId() string {
@@ -88,18 +121,43 @@ func (e K8sEntity) GetOwner() (OwnerRef, bool) {
 	return OwnerRef{}, false
 }
 
-type NamespacedResource struct {
-	Namespace string
+func (e K8sEntity) GetNamespace() string {
+	return e.Namespace
 }
 
-func (n NamespacedResource) GetNamespace() string {
-	return n.Namespace
+func (e K8sEntity) IsNamespaced() bool {
+	return e.Namespace != ""
 }
+
+// type NamespacedResource struct {
+// 	Namespace string
+// }
+
+// func (n NamespacedResource) GetNamespace() string {
+// 	return n.Namespace
+// }
 
 type ApiServer struct {
 	Pod
 	CAData     []byte
 	ExternalIP net.IPAddr
+}
+
+type Namespace struct {
+	Id   string
+	Name string
+}
+
+func (ns Namespace) GetId() string {
+	return ns.Id
+}
+
+func (ns Namespace) GetName() string {
+	return ns.Name
+}
+
+func (ns Namespace) GetKind() string {
+	return "Namespace"
 }
 
 type Identity struct {
@@ -110,19 +168,30 @@ type Identity struct {
 }
 type Pod struct {
 	K8sEntity
-	NamespacedResource
-	Spec v1.PodSpec
-	IP   net.IPAddr
+	// NamespacedResource
+	Spec    v1.PodSpec
+	IP      net.IPAddr
+	EnvVars map[string]string
 }
 
 type Deployment struct {
 	K8sEntity
-	NamespacedResource
+	// NamespacedResource
+	ResourceOwner
+}
+
+type Service struct {
+	K8sEntity
+	// NamespacedResource
+	Targets []string
+	Host    string
+	FQDN    string
+	Ports   map[string]int
 }
 
 type ReplicaSet struct {
 	K8sEntity
-	NamespacedResource
+	// NamespacedResource
 }
 
 func (r ReplicaSet) GetKind() string {
@@ -131,7 +200,7 @@ func (r ReplicaSet) GetKind() string {
 
 type StatefulSet struct {
 	K8sEntity
-	NamespacedResource
+	// NamespacedResource
 }
 
 func (s StatefulSet) GetKind() string {

@@ -55,12 +55,13 @@ func GetDeployments(ctx context.Context, clientset *kubernetes.Clientset) ([]dom
 			K8sEntity: domain.K8sEntity{
 				Id:          string(meta.GetUID()),
 				Name:        meta.GetName(),
+				Namespace:   meta.GetNamespace(),
 				Kind:        "Deployment",
 				Labels:      meta.GetLabels(),
 				Annotations: meta.GetAnnotations(),
 			},
-			NamespacedResource: domain.NamespacedResource{
-				Namespace: meta.GetNamespace(),
+			ResourceOwner: domain.ResourceOwner{
+				Pods: make([]domain.Pod, 0),
 			},
 			// Spec:        depl.Spec,
 			// Owner:       owner,
@@ -117,13 +118,11 @@ func GetPods(ctx context.Context, clientset *kubernetes.Clientset) ([]domain.Pod
 			K8sEntity: domain.K8sEntity{
 				Id:          string(meta.GetUID()),
 				Name:        meta.GetName(),
+				Namespace:   meta.GetNamespace(),
 				Kind:        "Pod",
 				Labels:      meta.GetLabels(),
 				Annotations: meta.GetAnnotations(),
 				Owner:       owner,
-			},
-			NamespacedResource: domain.NamespacedResource{
-				Namespace: meta.GetNamespace(),
 			},
 			Spec: pod.Spec,
 		})
