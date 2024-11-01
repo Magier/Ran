@@ -72,11 +72,9 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 	apiServerPod := domain.ApiServer{
 		Pod: domain.Pod{
 			K8sEntity: domain.K8sEntity{
-				Id:   "#apiServer",
-				Name: "#API Server",
-				Kind: "Pod",
-			},
-			NamespacedResource: domain.NamespacedResource{
+				Id:        "#apiServer",
+				Name:      "#API Server",
+				Kind:      "Pod",
 				Namespace: "kube-system",
 			},
 		},
@@ -88,7 +86,7 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 		CertData: k8sConfig.CertData,
 		KeyData:  k8sConfig.KeyData,
 	}
-	err = mb.Publish(domain.NewEntities{
+	err = mb.Publish(domain.NewFacts{
 		Entities:   []domain.Entity{apiServerPod},
 		Identities: []domain.Identity{k8sConfigUser}})
 	if err != nil {
@@ -100,7 +98,7 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 	for p := range channel {
 		pods = append(pods, p)
 	}
-	err = mb.Publish(domain.NewEntities{Entities: pods})
+	err = mb.Publish(domain.NewFacts{Entities: pods})
 	if err != nil {
 		fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
 	}

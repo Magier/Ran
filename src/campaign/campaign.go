@@ -18,26 +18,29 @@ func (c CampaignStarted) String() string {
 	return "campaign started"
 }
 
-func onNewSession(event domain.Event, campaign *Campaign) error {
-	ev := event.(c2.SessionStarted)
-	campaign.sessions[ev.Session.Id] = ev.Session
-	return nil
+func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
+	c.sessions[ev.Session.Id] = ev.Session
+	return nil, nil
 }
 
-func onSessionClosed(event domain.Event, campaign *Campaign) error {
-	ev := event.(c2.SessionStarted)
-	_, ok := campaign.sessions[ev.Session.Id]
+func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) {
+	_, ok := c.sessions[ev.Session.Id]
 	if !ok {
-		return fmt.Errorf("Unknwon session '%s' could not be closed", ev.Session.Id)
+		return nil, fmt.Errorf("Unknwon session '%s' could not be closed", ev.Session.Id)
 	}
-	delete(campaign.sessions, ev.Session.Id)
-	return nil
+	delete(c.sessions, ev.Session.Id)
+	return nil, nil
 }
 
 type Campaign struct {
 	listeners map[string]domain.Listener
 	sessions  map[string]c2.Session
 	entities  map[string]domain.Entity
+	relations []domain.Relation
+}
+
+func (c *Campaign) GetEntities() map[string]domain.Entity {
+	return c.entities
 }
 
 func (c *Campaign) GetEntityById(id string) (domain.Entity, bool) {
@@ -63,13 +66,18 @@ func (c *Campaign) GetSessions() []c2.Session {
 	return sessions
 }
 
-func (c *Campaign) onNewEntity(ctx context.Context, event domain.Event) (domain.Message, error) {
-	for _, entity := range event.(domain.NewEntities).Entities {
+func (c *Campaign) onNewFacts(ctx context.Context, event domain.Event) (domain.Message, error) {
+	// TODO: properly track how many changes the update contained
+	numChanges := 0
+	for _, entity := range event.(domain.NewFacts).Entities {
 		c.entities[entity.GetId()] = entity
 	}
 	// TODO: reconcile new entities with existing ones
-	return nil, nil
+	return domain.KnowledgeUpdated{
+		NumChanges: numChanges,
+	}, nil
 }
+
 func (c *Campaign) onListenerReady(ctx context.Context, event domain.Event) (domain.Message, error) {
 	ev := event.(c2.ListenerReady)
 	id := fmt.Sprintf("%s_%d", ev.Name, ev.Port)
@@ -101,16 +109,17 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 	campaign := &Campaign{
 		sessions:  make(map[string]c2.Session),
 		entities:  make(map[string]domain.Entity),
+		relations: make([]domain.Relation, 0),
 		listeners: make(map[string]domain.Listener),
 	}
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		return nil, onNewSession(event, campaign)
+		return campaign.onNewSession(event.(c2.SessionStarted))
 	})
 	mb.Subscribe(c2.SessionClosed{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		return nil, onSessionClosed(event, campaign)
+		return campaign.onSessionClosed(event.(c2.SessionClosed))
 	})
-	mb.Subscribe(domain.NewEntities{}, campaign.onNewEntity)
+	mb.Subscribe(domain.NewFacts{}, campaign.onNewFacts)
 	mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)
 
 	err := mb.Publish(CampaignStarted{})

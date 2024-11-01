@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 type EventHandler func(ctx context.Context, event Event) (Message, error)
@@ -14,15 +15,6 @@ type Event interface {
 
 type UiEvent interface {
 	UiMessage() string
-}
-
-type NewEntities struct {
-	Entities   []Entity
-	Identities []Identity
-}
-
-func (n NewEntities) String() string {
-	return fmt.Sprintf("%d new entities", len(n.Entities))
 }
 
 type ErrorLevel string
@@ -46,13 +38,35 @@ func (e ErrorMsg) UiMessage() string {
 }
 
 type NewFacts struct {
-	Entities  []Entity
-	Relations []Relation
-	Assets    []Asset
+	Entities   []Entity
+	Relations  []Relation
+	Identities []Identity
+	Assets     []Asset
 }
 
 func (e NewFacts) String() string {
-	return fmt.Sprintf("Received new facts: %d entities, %d relatiosn, %d assets", len(e.Entities), len(e.Relations), len(e.Assets))
+	resources := map[string]int{
+		"entities":   len(e.Entities),
+		"relations":  len(e.Relations),
+		"identities": len(e.Identities),
+		"assets":     len(e.Assets),
+	}
+
+	infos := []string{}
+	for label, count := range resources {
+		if count > 0 {
+			infos = append(infos, fmt.Sprintf("%d %s", count, label))
+		}
+	}
+	return "Received new facts: " + strings.Join(infos, ", ")
+}
+
+type KnowledgeUpdated struct {
+	NumChanges int
+}
+
+func (e KnowledgeUpdated) String() string {
+	return fmt.Sprintf("%d facts changed in knowledge base", e.NumChanges)
 }
 
 type EnvVarsExtracted struct {
