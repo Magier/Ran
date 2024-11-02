@@ -103,6 +103,7 @@ type ServiceInfo struct {
 
 // Extract services from the environment variables.
 // To extract services automatically populated by Kubernetes, a simple heuristic is used.
+// (see: https://kubernetes.io/docs/concepts/services-networking/service/#environment-variables)
 //  1. look for all entries ending with `<xyz>_SERVICE_HOST`, the leading `<xyz>` is the service name
 //  2. for all service names get all other environment variables starting with this name
 //  3. get the host by reading the `<xyz>_SERVICE_HOST` value
