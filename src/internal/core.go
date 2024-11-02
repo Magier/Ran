@@ -69,13 +69,20 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 		fmt.Printf("Couldn't resolve apiServer IP: %s", err.Error())
 	}
 
+	name := "#API Server"
+	ns := "kube-system"
 	apiServerPod := domain.ApiServer{
 		Pod: domain.Pod{
 			K8sEntity: domain.K8sEntity{
 				Id:        "#apiServer",
-				Name:      "#API Server",
+				Name:      name,
 				Kind:      "Pod",
-				Namespace: "kube-system",
+				Namespace: ns,
+				Owner: domain.OwnerRef{
+					Uid:  fmt.Sprintf("ns/%s/wl/%s", ns, name),
+					Kind: "AbstractWorkload",
+					Name: name,
+				},
 			},
 		},
 		ExternalIP: *apiServerIPAddr,

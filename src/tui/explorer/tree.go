@@ -84,7 +84,6 @@ func addEntity(m Model, entity domain.Entity) {
 	parentNodes := make([]*Node, 0)
 
 	if _, ok := entity.(domain.Namespace); ok {
-		// parentNodes = append(parentNodes, newNode("", ns.GetName(), "Namespace"))
 		addNode(m.entitiesTree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
 		return
 	}
@@ -97,7 +96,11 @@ func addEntity(m Model, entity domain.Entity) {
 
 	namespaced, ok := entity.(domain.Namespaced)
 	if ok {
-		parentNodes = append(parentNodes, newNode("", namespaced.GetNamespace(), "Namespace"))
+		nsName := namespaced.GetNamespace()
+		if nsName == "" {
+			nsName = "?"
+		}
+		parentNodes = append(parentNodes, newNode("ns/"+nsName, nsName, "Namespace"))
 	}
 
 	ownerRef, ok := k8sEntity.GetOwner()
@@ -116,9 +119,10 @@ func addEntity(m Model, entity domain.Entity) {
 		if ok {
 			ownerId = owner.GetId()
 			ownerName = owner.GetName()
-			ownerKind = owner.GetKind()
+			if k := owner.GetKind(); k != "" {
+				ownerKind = k
+			}
 		}
-
 		parentNodes = append(parentNodes, newNode(ownerId, ownerName, ownerKind))
 	}
 	addNode(m.entitiesTree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
@@ -131,7 +135,7 @@ func findOrCreateParents(root *Node, parentNodes []*Node) (*Node, error) {
 		for _, parent := range parentNodes {
 			childIdx := -1
 			for i, child := range currGroup.children.children {
-				if child.name == parent.name {
+				if child.id == parent.id {
 					childIdx = i
 					break
 				}
@@ -156,6 +160,16 @@ func addNode(root *Node, parentNodes []*Node, id string, entry string, kind stri
 	if err != nil {
 		log.Fatalf("Failed to find or create parent node: %v", err)
 	}
-	parent.children.children = append(parent.children.children, newNode(id, entry, kind))
+	if !hasChild(parent, id) {
+		parent.children.children = append(parent.children.children, newNode(id, entry, kind))
+	}
+}
 
+func hasChild(parent *Node, childId string) bool {
+	for _, c := range parent.children.children {
+		if c.id == childId {
+			return true
+		}
+	}
+	return false
 }

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"net"
 
 	v1 "k8s.io/api/core/v1"
@@ -37,8 +38,12 @@ type AbstractWorkload struct {
 	ResourceOwner
 }
 
+func (wl AbstractWorkload) GetId() string {
+	return fmt.Sprintf("ns/%s/wl/%s", wl.GetNamespace(), wl.GetName())
+}
+
 func (wl AbstractWorkload) GetKind() string {
-	return "AbstractWorkload"
+	return "Workload"
 }
 
 //	func (wl AbstractWorkload) GetPods() []Pod {
@@ -144,12 +149,11 @@ type ApiServer struct {
 }
 
 type Namespace struct {
-	Id   string
 	Name string
 }
 
 func (ns Namespace) GetId() string {
-	return ns.Id
+	return "ns/" + ns.Name
 }
 
 func (ns Namespace) GetName() string {
@@ -174,10 +178,18 @@ type Pod struct {
 	EnvVars map[string]string
 }
 
+func (p Pod) GetId() string {
+	return fmt.Sprintf("ns/%s/pod/%s", p.GetNamespace(), p.GetName())
+}
+
 type Deployment struct {
 	K8sEntity
 	// NamespacedResource
 	ResourceOwner
+}
+
+func (d Deployment) GetId() string {
+	return fmt.Sprintf("ns/%s/depl/%s", d.GetNamespace(), d.GetName())
 }
 
 type Service struct {
@@ -189,20 +201,36 @@ type Service struct {
 	Ports   map[string]int
 }
 
+func (s Service) GetId() string {
+	return fmt.Sprintf("ns/%s/svc/%s", s.GetNamespace(), s.GetName())
+}
+
 type ReplicaSet struct {
 	K8sEntity
+	ResourceOwner
 	// NamespacedResource
 }
 
-func (r ReplicaSet) GetKind() string {
-	return "ReplicaSet"
+func (s ReplicaSet) GetId() string {
+	return fmt.Sprintf("ns/%s/rs/%s", s.GetNamespace(), s.GetName())
 }
 
 type StatefulSet struct {
 	K8sEntity
+	ResourceOwner
 	// NamespacedResource
 }
 
-func (s StatefulSet) GetKind() string {
-	return "StatefulSet"
+func (s StatefulSet) GetId() string {
+	return fmt.Sprintf("ns/%s/sts/%s", s.GetNamespace(), s.GetName())
+}
+
+type DaemonSet struct {
+	K8sEntity
+	ResourceOwner
+	// NamespacedResource
+}
+
+func (s DaemonSet) GetId() string {
+	return fmt.Sprintf("ns/%s/ds/%s", s.GetNamespace(), s.GetName())
 }

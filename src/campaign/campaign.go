@@ -71,6 +71,17 @@ func (c *Campaign) onNewFacts(ctx context.Context, event domain.Event) (domain.M
 	numChanges := 0
 	for _, entity := range event.(domain.NewFacts).Entities {
 		c.entities[entity.GetId()] = entity
+		otherEntities, relations := extractRelatedEntities(c, entity)
+		numChanges++
+		for _, e := range otherEntities {
+			c.entities[e.GetId()] = e
+			numChanges++
+		}
+
+		for _, rel := range relations {
+			c.relations = append(c.relations, rel)
+			numChanges++
+		}
 	}
 	// TODO: reconcile new entities with existing ones
 	return domain.KnowledgeUpdated{
