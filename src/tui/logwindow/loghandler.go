@@ -9,16 +9,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Magier/Ran/domain"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 const (
-	timeFormat = "[15:01:05.000]"
+	timeFormat  = "[15:01:05.000]"
+	minLogLevel = slog.LevelDebug
 )
 
 type LogMessage struct {
-	Level string
+	Level domain.ErrorLevel
 	Time  time.Time
 	Msg   string
 }
@@ -28,11 +30,13 @@ func (m LogMessage) String() string {
 
 	// TODO: use constants here
 	switch m.Level {
-	case "INFO":
+	case domain.LevelDebug:
+		symbol = "🛠️"
+	case domain.LevelInfo:
 		symbol = "I "
-	case "WARN":
+	case domain.LevelWarn:
 		symbol = "⚠️"
-	case "ERROR":
+	case domain.LevelError:
 		symbol = "🚨"
 	}
 
@@ -40,7 +44,7 @@ func (m LogMessage) String() string {
 }
 func (m LogMessage) GetColor() lipgloss.Color {
 	switch m.Level {
-	case "INFO":
+	case domain.LevelInfo, domain.LevelDebug:
 		return lipgloss.Color("#abcabc")
 	default:
 		return lipgloss.Color("#aaaaaa")
@@ -77,16 +81,19 @@ func (h *LogHandler) Handle(ctx context.Context, r slog.Record) error {
 
 	go h.program.Send(LogMessage{
 		Msg:   r.Message + " " + attrs,
-		Level: r.Level.String(),
+		Level: domain.ErrorLevel(r.Level.String()),
 		Time:  r.Time,
 	})
 	return err
 }
 
 func NewLogHandler(p *tea.Program) slog.Handler {
+	lvl := new(slog.LevelVar)
+	lvl.Set(minLogLevel)
 	opts := &slog.HandlerOptions{
 		AddSource:   false,
 		ReplaceAttr: ignoreNestedAttributes,
+		Level:       lvl,
 	}
 	b := &bytes.Buffer{}
 	return &LogHandler{

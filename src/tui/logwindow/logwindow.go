@@ -12,15 +12,14 @@ import (
 )
 
 type Model struct {
-	focused      bool
-	nummLines    int
-	lines        []string
-	style        lipgloss.Style
-	viewport     viewport.Model
-	width        float32
-	height       int
-	ready        bool
-	scrollOffset int
+	focused   bool
+	nummLines int
+	lines     []string
+	style     lipgloss.Style
+	viewport  viewport.Model
+	width     float32
+	height    int
+	ready     bool
 }
 
 func NewLogWindow(width float32, height int) Model {
@@ -40,13 +39,12 @@ func NewLogWindow(width float32, height int) Model {
 		BorderBottom(false)
 
 	return Model{
-		focused:      false,
-		lines:        make([]string, 0),
-		style:        style,
-		width:        width,
-		height:       height,
-		ready:        false,
-		scrollOffset: 0,
+		focused: false,
+		lines:   make([]string, 0),
+		style:   style,
+		width:   width,
+		height:  height,
+		ready:   false,
 	}
 }
 

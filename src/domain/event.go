@@ -20,6 +20,7 @@ type UiEvent interface {
 type ErrorLevel string
 
 var (
+	LevelDebug ErrorLevel = "DEBUG"
 	LevelInfo  ErrorLevel = "INFO"
 	LevelWarn  ErrorLevel = "WARN"
 	LevelError ErrorLevel = "ERROR"

@@ -65,7 +65,7 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Pr
 
 	bus.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
 		msg := event.(domain.ErrorMsg)
-		p.Send(logwindow.LogMessage{Level: string(msg.Level), Msg: msg.Msg})
+		p.Send(logwindow.LogMessage{Level: msg.Level, Msg: msg.Msg})
 		return nil, nil
 	})
 
