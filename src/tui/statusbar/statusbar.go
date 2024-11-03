@@ -1,177 +1,167 @@
 package statusbar
 
 import (
+	"fmt"
+
+	"github.com/Magier/Ran/c2"
+	"github.com/Magier/Ran/domain"
+	"github.com/Magier/Ran/tui/icon"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/reflow/truncate"
 )
 
-var (
-	statusNugget = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Padding(0, 1)
-
-	statusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#343433", Dark: "#C1C6B2"}).
-			Background(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#353533"})
-
-	statusStyle = lipgloss.NewStyle().
-			Inherit(statusBarStyle).
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Background(lipgloss.Color("#FF5F87")).
-			Padding(0, 1).
-			MarginRight(1)
-
-	encodingStyle = statusNugget.
-			Background(lipgloss.Color("#A550DF")).
-			Align(lipgloss.Right)
-
-	statusText = lipgloss.NewStyle().Inherit(statusBarStyle)
-
-	fishCakeStyle = statusNugget.Background(lipgloss.Color("#6124DF"))
-
-	// Page.
-
-	docStyle = lipgloss.NewStyle().Padding(1, 2, 1, 2)
-)
-
-// Height represents the height of the statusbar.
-const Height = 1
-
-// ColorConfig
 type ColorConfig struct {
 	Foreground lipgloss.AdaptiveColor
 	Background lipgloss.AdaptiveColor
 }
 
+var (
+	primaryColor    = lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
+	positiveColor   = lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"}
+	negativeColor   = lipgloss.AdaptiveColor{Light: "#FF5F87", Dark: "#FF5B23"}
+	backgroundColor = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#353533"}
+	passiveColor    = lipgloss.AdaptiveColor{Light: "#343433", Dark: "#C1C6B2"}
+
+	defaultStyle = lipgloss.NewStyle().
+			Height(1).
+			Foreground(passiveColor).
+			Background(backgroundColor)
+
+	activeColorConfig = ColorConfig{
+		Foreground: positiveColor,
+		Background: backgroundColor,
+	}
+
+	neutralColorConfig = ColorConfig{
+		Foreground: passiveColor,
+		Background: backgroundColor,
+	}
+	negativeColorConfig = ColorConfig{
+		Foreground: negativeColor,
+		Background: backgroundColor,
+	}
+	// listenerStyle = statusNugget.Background(lipgloss.Color("#6124DF"))
+)
+
+// Height represents the height of the statusbar.
+const Height = 1
+
+type Field struct {
+	icon  string
+	title string
+	color ColorConfig
+}
+
 // Model represents the properties of the statusbar.
 type Model struct {
-	Width              int
-	Height             int
-	FirstColumn        string
-	SecondColumn       string
-	ThirdColumn        string
-	FourthColumn       string
-	FirstColumnColors  ColorConfig
-	SecondColumnColors ColorConfig
-	ThirdColumnColors  ColorConfig
-	FourthColumnColors ColorConfig
+	Width               int
+	c2ServerStatus      Field
+	listenerStatus      Field
+	identityStatus      Field
+	listeners           map[string]c2.ListenerReady
+	availableIdentities int
 }
 
-// NewStatusBar creates a new instance of the statusbar.
 func NewStatusBar() Model {
-	subtle := lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#383838"}
-	highlight := lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
-	// special := lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"}
-	color := ColorConfig{
-		Foreground: highlight,
-		Background: subtle,
-	}
-
+	listeners := make(map[string]c2.ListenerReady)
 	return Model{
-		FirstColumnColors:  color,
-		SecondColumnColors: color,
-		ThirdColumnColors:  color,
-		FourthColumnColors: color,
-		FirstColumn:        "Ran",
-		SecondColumn:       "Waiting ...",
+		availableIdentities: 0,
+		identityStatus: Field{
+			title: "no identities",
+			icon:  icon.Fingerprint,
+		},
+		c2ServerStatus: Field{
+			title: "pending ...",
+			icon:  icon.LanPending,
+		},
+		listeners:      listeners,
+		listenerStatus: updateListenerStatus(listeners),
 	}
-}
-
-// SetSize sets the width of the statusbar.
-func (m *Model) SetSize(width int) {
-	m.Width = width
 }
 
 // Update updates the size of the statusbar.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.SetSize(msg.Width)
+		m.Width = msg.Width
+	case domain.ConnectedToExternalC2Server:
+		var ipDetail string
+		if msg.Ip != "0.0.0.0" && msg.Ip != "localhost" {
+			ipDetail = fmt.Sprintf(" (%s)", msg.Ip)
+		}
+		m.c2ServerStatus.title = fmt.Sprintf("C2: %s%s", msg.Name, ipDetail)
+		m.c2ServerStatus.icon = icon.LanConnect
+		m.c2ServerStatus.color = activeColorConfig
+	case c2.ListenerReady:
+		m.listeners[msg.Name] = msg
+		m.listenerStatus = updateListenerStatus(m.listeners)
+	case c2.ListenerStopped:
+		delete(m.listeners, msg.Name)
+		m.listenerStatus = updateListenerStatus(m.listeners)
 	}
 
 	return m, nil
 }
 
-// SetContent sets the content of the statusbar.
-func (m *Model) SetContent(firstColumn, secondColumn, thirdColumn, fourthColumn string) {
-	m.FirstColumn = firstColumn
-	m.SecondColumn = secondColumn
-	m.ThirdColumn = thirdColumn
-	m.FourthColumn = fourthColumn
+func updateListenerStatus(listeners map[string]c2.ListenerReady) Field {
+	numListeners := len(listeners)
+
+	title := "no listeners"
+	i := icon.Listen
+	color := activeColorConfig
+
+	if numListeners == 0 {
+		i = "🔇"
+		color = negativeColorConfig
+	} else if numListeners == 1 {
+		var listener c2.ListenerReady
+		for _, l := range listeners {
+			listener = l
+			break
+		}
+		title = fmt.Sprintf("%s:%d", listener.Name, listener.Port)
+	} else {
+		title = fmt.Sprintf("%d listeners", numListeners)
+	}
+
+	return Field{
+		title: title,
+		icon:  i,
+		color: color,
+	}
 }
 
-// SetColors sets the colors of the 4 columns.
-func (m *Model) SetColors(firstColumnColors, secondColumnColors, thirdColumnColors, fourthColumnColors ColorConfig) {
-	m.FirstColumnColors = firstColumnColors
-	m.SecondColumnColors = secondColumnColors
-	m.ThirdColumnColors = thirdColumnColors
-	m.FourthColumnColors = fourthColumnColors
-}
-
-// View returns a string representation of a statusbar.
 func (m Model) View() string {
+	cols := []string{}
+	remainingWidth := m.Width
 
-	// w := lipgloss.Width
+	// left columns
+	for _, field := range []Field{m.c2ServerStatus, m.identityStatus} {
+		col := lipgloss.NewStyle().
+			Inherit(defaultStyle).
+			Padding(0, 1).
+			Foreground(field.color.Foreground).
+			Background(field.color.Background).
+			Render(field.icon + " " + field.title)
+		cols = append(cols, col)
+		remainingWidth -= lipgloss.Width(col)
+	}
 
-	// statusKey := statusStyle.Render("STATUS")
-	// encoding := encodingStyle.Render("UTF-8")
-	// fishCake := fishCakeStyle.Render("🍥 Fish Cake")
-	// width := 96
-	// // width := pty.Window.Width
-	// statusVal := statusText.
-	// 	Width(width - w(statusKey) - w(encoding) - w(fishCake)).
-	// 	Render("Ravishing")
+	//right columns
+	rightCols := []string{}
+	for _, field := range []Field{m.listenerStatus} {
+		col := defaultStyle.
+			Foreground(field.color.Foreground).
+			Background(field.color.Background).
+			Padding(0, 1).
+			Inherit(defaultStyle).
+			Render(field.icon + " " + field.title)
+		rightCols = append(rightCols, col)
+		remainingWidth -= lipgloss.Width(col)
+	}
 
-	// bar := lipgloss.JoinHorizontal(lipgloss.Top,
-	// 	statusKey,
-	// 	statusVal,
-	// 	encoding,
-	// 	fishCake,
-	// )
-
-	// s += statusBarStyle.Width(width).Render(bar)
-
-	width := lipgloss.Width
-
-	firstColumn := lipgloss.NewStyle().
-		Foreground(m.FirstColumnColors.Foreground).
-		Background(m.FirstColumnColors.Background).
-		Padding(0, 1).
-		Height(Height).
-		Render(truncate.StringWithTail(m.FirstColumn, 30, "..."))
-
-	thirdColumn := lipgloss.NewStyle().
-		Foreground(m.ThirdColumnColors.Foreground).
-		Background(m.ThirdColumnColors.Background).
-		Align(lipgloss.Right).
-		Padding(0, 1).
-		Height(Height).
-		Render(m.ThirdColumn)
-
-	fourthColumn := lipgloss.NewStyle().
-		Foreground(m.FourthColumnColors.Foreground).
-		Background(m.FourthColumnColors.Background).
-		Padding(0, 1).
-		Height(Height).
-		Render(m.FourthColumn)
-
-	secondColumn := lipgloss.NewStyle().
-		Foreground(m.SecondColumnColors.Foreground).
-		Background(m.SecondColumnColors.Background).
-		Padding(0, 1).
-		Height(Height).
-		Width(m.Width - width(firstColumn) - width(thirdColumn) - width(fourthColumn)).
-		Render(truncate.StringWithTail(
-			m.SecondColumn,
-			uint(m.Width-width(firstColumn)-width(thirdColumn)-width(fourthColumn)-3),
-			"..."),
-		)
-
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		firstColumn,
-		secondColumn,
-		thirdColumn,
-		fourthColumn,
-	)
+	// spacer column to separate left- and right-aligned columns
+	cols = append(cols, defaultStyle.Width(max(0, remainingWidth)).Render())
+	cols = append(cols, rightCols...)
+	return lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 }
