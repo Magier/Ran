@@ -1,6 +1,7 @@
 package explorer
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/Magier/Ran/c2"
@@ -91,7 +92,7 @@ func getIcon(kind string) string {
 		return icon.Pod
 	case "Container":
 		return icon.Container
-	case "Workload", "Deployment", "StatefulSet", "DaemonSet":
+	case "AbstractWorkload", "Deployment", "StatefulSet", "DaemonSet":
 		return icon.Workload
 	case "Job":
 		return icon.Job
@@ -104,6 +105,11 @@ func getIcon(kind string) string {
 func buildShownEntries(tree *Node, level int) []entry {
 	lines := make([]entry, 0)
 	indent := strings.Repeat("  ", level*2)
+
+	sort.Slice(tree.children.children, func(i, j int) bool {
+		return tree.children.children[i].name < tree.children.children[j].name
+	})
+
 	for _, child := range tree.children.children {
 		text := indent + child.String()
 		lines = append(lines, entry{text: text, ref: child})
@@ -203,7 +209,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) rebuildEntries() Model {
-	for _, entity := range m.campaign.GetEntities() {
+	// TODO: keep track of what was expanded and re-expand it after rebuilding
+	m.entitiesTree = &Node{
+		isExpanded: true,
+		children: Children{
+			children: make([]*Node, 0),
+		},
+	}
+	entities := m.campaign.GetEntities()
+	for _, entity := range entities {
 		addEntity(m, entity)
 	}
 	m.entries = buildShownEntries(m.entitiesTree, 0)
