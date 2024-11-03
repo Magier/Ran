@@ -31,7 +31,7 @@ func (m LogMessage) String() string {
 	// TODO: use constants here
 	switch m.Level {
 	case domain.LevelDebug:
-		symbol = "🛠️"
+		symbol = "🛠️ "
 	case domain.LevelInfo:
 		symbol = "I "
 	case domain.LevelWarn:

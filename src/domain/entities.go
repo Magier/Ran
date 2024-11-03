@@ -43,7 +43,7 @@ func (wl AbstractWorkload) GetId() string {
 }
 
 func (wl AbstractWorkload) GetKind() string {
-	return "Workload"
+	return "AbstractWorkload"
 }
 
 //	func (wl AbstractWorkload) GetPods() []Pod {
