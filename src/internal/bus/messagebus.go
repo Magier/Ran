@@ -10,7 +10,6 @@ import (
 
 type MessageBus interface {
 	Execute(cmd domain.Message) error
-	RegisterCommand(cmd domain.Message, fn interface{})
 	Publish(events ...domain.Message) error
 	// Publish(ctx context.Context, events ...domain.Event) error
 	Subscribe(event domain.Message, handler domain.EventHandler)
@@ -60,10 +59,6 @@ func (b *MessageBusProvider) Execute(cmd domain.Message) error {
 	// }()
 	// return ch, nil
 	return nil
-}
-
-func (b *MessageBusProvider) RegisterCommand(cmd domain.Message, fn interface{}) {
-	_ = 4
 }
 
 func (b *MessageBusProvider) Publish(events ...domain.Message) error {
