@@ -29,7 +29,7 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 		}
 		if len(b.subscribers[msgName(msg)]) == 0 {
 		} else {
-			slog.Info("🔊 " + msg.String())
+			slog.Debug("🔊 " + msg.String())
 		}
 		for _, handler := range b.subscribers[msgName(msg)] {
 			event := msg.(domain.Event)

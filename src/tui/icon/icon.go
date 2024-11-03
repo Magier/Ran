@@ -22,7 +22,7 @@ var (
 	Fingerprint string = ""
 
 	LanConnect    string = "󰌘"
-	LanDisConnect string = "󰌙"
+	LanDisconnect string = "󰌙"
 	LanPending    string = "󰌚"
 
 	PeriodicTable string = "󰢶"
