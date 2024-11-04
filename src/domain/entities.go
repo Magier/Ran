@@ -19,6 +19,14 @@ const (
 	mTLS  Protocol = "mTLS"
 )
 
+type IdentityType string
+
+const (
+	AdminUser      IdentityType = "AdminUser"
+	User           IdentityType = "User"
+	ServiceAccount IdentityType = "ServiceAccount"
+)
+
 type Listener struct {
 	ID         string
 	Port       uint
@@ -166,7 +174,7 @@ func (ns Namespace) GetKind() string {
 
 type Identity struct {
 	Name     string
-	Kind     string
+	Kind     IdentityType
 	CertData []byte
 	KeyData  []byte
 }

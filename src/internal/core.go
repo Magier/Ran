@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -58,7 +59,7 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 	channel := make(chan domain.Entity)
 
-	k8sConfig, err := k8s.GetConfig()
+	k8sConfig, k8sContext, err := k8s.GetConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -89,9 +90,10 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 		CAData:     k8sConfig.CAData,
 	}
 	k8sConfigUser := domain.Identity{
-		Name:     "#kubeconfig-user" + k8sConfig.Username,
-		CertData: k8sConfig.CertData,
-		KeyData:  k8sConfig.KeyData,
+		Name:     k8sContext.Name,
+		Kind:     domain.AdminUser,
+		CertData: k8sContext.UserCert,
+		KeyData:  k8sContext.UserKey,
 	}
 	err = mb.Publish(domain.NewFacts{
 		Entities:   []domain.Entity{apiServerPod},
@@ -105,9 +107,13 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 	for p := range channel {
 		pods = append(pods, p)
 	}
-	err = mb.Publish(domain.NewFacts{Entities: pods})
-	if err != nil {
-		fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
+	if len(pods) > 0 {
+		err = mb.Publish(domain.NewFacts{Entities: pods})
+		if err != nil {
+			fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
+		}
+	} else {
+		slog.Warn("No pods found at for initialization!")
 	}
 }
 
