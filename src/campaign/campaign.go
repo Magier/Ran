@@ -33,10 +33,12 @@ func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) 
 }
 
 type Campaign struct {
-	listeners map[string]domain.Listener
-	sessions  map[string]c2.Session
-	entities  map[string]domain.Entity
-	relations []domain.Relation
+	activeIdentity string
+	listeners      map[string]domain.Listener
+	sessions       map[string]c2.Session
+	entities       map[string]domain.Entity
+	relations      []domain.Relation
+	identities     map[string]domain.Identity
 }
 
 func (c *Campaign) GetEntities() map[string]domain.Entity {
@@ -58,6 +60,18 @@ func (c *Campaign) GetEntityByName(name, ns string) (domain.Entity, bool) {
 	return nil, false
 }
 
+func (c *Campaign) GetActiveIdentity() (domain.Identity, bool) {
+	if c.activeIdentity == "" {
+		return domain.Identity{}, false
+	}
+	id, ok := c.identities[c.activeIdentity]
+	return id, ok
+}
+
+func (c *Campaign) GetIdentities() map[string]domain.Identity {
+	return c.identities
+}
+
 func (c *Campaign) GetSessions() []c2.Session {
 	sessions := make([]c2.Session, 0, len(c.sessions))
 	for _, s := range c.sessions {
@@ -69,7 +83,8 @@ func (c *Campaign) GetSessions() []c2.Session {
 func (c *Campaign) onNewFacts(ctx context.Context, event domain.Event) (domain.Message, error) {
 	// TODO: properly track how many changes the update contained
 	numChanges := 0
-	for _, entity := range event.(domain.NewFacts).Entities {
+	ev := event.(domain.NewFacts)
+	for _, entity := range ev.Entities {
 		c.entities[entity.GetId()] = entity
 		otherEntities, relations := extractRelatedEntities(c, entity)
 		numChanges++
@@ -83,10 +98,24 @@ func (c *Campaign) onNewFacts(ctx context.Context, event domain.Event) (domain.M
 			numChanges++
 		}
 	}
+
+	for _, identity := range ev.Identities {
+		// if there is no active identity, use the first encountered Id as the active oneo
+		if c.activeIdentity == "" {
+			c.activeIdentity = identity.Name
+		}
+		c.identities[identity.Name] = identity
+	}
+
 	// TODO: reconcile new entities with existing ones
-	return domain.KnowledgeUpdated{
-		NumChanges: numChanges,
-	}, nil
+	var msg domain.Message
+	if numChanges > 0 {
+		msg = domain.KnowledgeUpdated{
+			NumChanges: numChanges,
+		}
+		return msg, nil
+	}
+	return nil, nil
 }
 
 func (c *Campaign) onListenerReady(ctx context.Context, event domain.Event) (domain.Message, error) {
@@ -118,10 +147,11 @@ func (c *Campaign) onListenerStopped(ctx context.Context, event domain.Event) (d
 
 func StartCampaign(mb bus.MessageBus) *Campaign {
 	campaign := &Campaign{
-		sessions:  make(map[string]c2.Session),
-		entities:  make(map[string]domain.Entity),
-		relations: make([]domain.Relation, 0),
-		listeners: make(map[string]domain.Listener),
+		sessions:   make(map[string]c2.Session),
+		entities:   make(map[string]domain.Entity),
+		relations:  make([]domain.Relation, 0),
+		listeners:  make(map[string]domain.Listener),
+		identities: make(map[string]domain.Identity),
 	}
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {

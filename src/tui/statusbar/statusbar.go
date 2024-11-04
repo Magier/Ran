@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Magier/Ran/c2"
+	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/tui/icon"
 	tea "github.com/charmbracelet/bubbletea"
@@ -54,17 +55,19 @@ type Field struct {
 
 // Model represents the properties of the statusbar.
 type Model struct {
+	c                   *campaign.Campaign
 	Width               int
 	c2ServerStatus      Field
 	listenerStatus      Field
 	identityStatus      Field
-	listeners           map[string]c2.ListenerReady
 	availableIdentities int
+	listeners           map[string]c2.ListenerReady
 }
 
-func NewStatusBar() Model {
+func NewStatusBar(c *campaign.Campaign) Model {
 	listeners := make(map[string]c2.ListenerReady)
 	return Model{
+		c:                   c,
 		availableIdentities: 0,
 		identityStatus: Field{
 			title: "no identities",
@@ -98,6 +101,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case c2.ListenerStopped:
 		delete(m.listeners, msg.Name)
 		m.listenerStatus = updateListenerStatus(m.listeners)
+	case domain.KnowledgeUpdated:
+		identities := m.c.GetIdentities()
+		m.availableIdentities = len(identities)
+		activeIdentity, ok := m.c.GetActiveIdentity()
+		if ok {
+			m.identityStatus.title = activeIdentity.Name
+			m.identityStatus.color = activeColorConfig
+		}
 	}
 
 	return m, nil

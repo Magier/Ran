@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,16 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 )
 
-func GetConfig() (*restclient.Config, error) {
+type KubeContext struct {
+	Name     string
+	UserCert []uint8
+	UserKey  []uint8
+	AuthExec bool
+	Server   string
+	ServerCA []uint8
+}
+
+func GetConfig() (*restclient.Config, KubeContext, error) {
 	home, exists := os.LookupEnv("HOME")
 	if !exists {
 		home = "/root"
@@ -27,11 +37,36 @@ func GetConfig() (*restclient.Config, error) {
 	configPath := filepath.Join(home, ".kube", "config")
 	// use the current context in kubeconfig
 	config, err := clientcmd.BuildConfigFromFlags("", configPath)
-	return config, err
+
+	var context KubeContext
+	if contextConfig := clientcmd.GetConfigFromFileOrDie(configPath); contextConfig != nil {
+		ctxName := contextConfig.CurrentContext
+
+		clusterInfo, ok := contextConfig.Clusters[ctxName]
+		if !ok {
+			slog.Warn("Couldn't get kubeconfig cluster of context " + ctxName)
+		}
+
+		authInfo, ok := contextConfig.AuthInfos[ctxName]
+		if !ok {
+			slog.Warn("Couldn't get auth kubeconfig of context " + ctxName)
+		}
+
+		context = KubeContext{
+			Name:     ctxName,
+			UserCert: authInfo.ClientCertificateData,
+			UserKey:  authInfo.ClientCertificateData,
+			AuthExec: authInfo.Exec != nil,
+			Server:   clusterInfo.Server,
+			ServerCA: clusterInfo.CertificateAuthorityData,
+		}
+	}
+
+	return config, context, err
 }
 
 func NewK8sClient(kubeConfigPath string) (*kubernetes.Clientset, error) {
-	config, err := GetConfig()
+	config, _, err := GetConfig()
 	if err != nil {
 		return nil, err
 	}

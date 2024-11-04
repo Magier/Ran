@@ -102,7 +102,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) mod
 	armoryWnd := armoryWindow.NewArmory(a, .25)
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)
 	logWindow := logwindow.NewLogWindow(.45, logWndHeight)
-	statusBar := statusbar.NewStatusBar()
+	statusBar := statusbar.NewStatusBar(c)
 
 	wnds := map[Wnd]FocusableWnd{
 		ExplorerWnd: &explorer,
