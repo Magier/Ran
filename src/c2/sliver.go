@@ -54,7 +54,6 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 	// connect to the server
 	rpc, ln, err := transport.MTLSConnect(c.config)
 	if err != nil {
-		slog.Error("Couldn't connect to Sliver server", "", err.Error())
 		return err
 	}
 	c.rpc = rpc
