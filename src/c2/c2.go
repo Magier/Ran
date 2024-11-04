@@ -26,6 +26,15 @@ func (c C2Started) String() string {
 	return "c2 started"
 }
 
+type C2ConnectFailed struct {
+	Name   string
+	Reason string
+}
+
+func (c C2ConnectFailed) String() string {
+	return fmt.Sprintf("Failed to connect to %s: %s", c.Name, c.Reason)
+}
+
 type Session struct {
 	Id       string
 	Hostname string
@@ -88,13 +97,19 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 	}
 
 	var wg sync.WaitGroup
-	for _, client := range c2Clients {
+	for name, client := range c2Clients {
 		go func() {
 			wg.Add(1)
 			defer wg.Done()
 			err := client.Connect(ctx, mb)
 			if err != nil {
-				slog.Error(err.Error())
+				err = mb.Publish(C2ConnectFailed{
+					Name:   name,
+					Reason: err.Error(),
+				})
+				if err != nil {
+					slog.Error(err.Error())
+				}
 			}
 		}()
 	}

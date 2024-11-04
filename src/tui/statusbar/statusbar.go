@@ -87,6 +87,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
+	case c2.C2ConnectFailed:
+		m.c2ServerStatus.title = "not connected to " + msg.Name
+		m.c2ServerStatus.icon = icon.LanDisconnect
+		m.c2ServerStatus.color = negativeColorConfig
 	case domain.ConnectedToExternalC2Server:
 		var ipDetail string
 		if msg.Ip != "0.0.0.0" && msg.Ip != "localhost" {
