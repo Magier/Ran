@@ -48,7 +48,7 @@ type FocusableWnd interface {
 }
 
 func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Program {
-	p := tea.NewProgram(initialModel(bus, c, a), tea.WithAltScreen())
+	p := tea.NewProgram(initialModel(bus, c, a), tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	logger := slog.New(logwindow.NewLogHandler(p))
 	slog.SetDefault(logger)

@@ -2,6 +2,7 @@ package statusbar
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/campaign"
@@ -84,6 +85,7 @@ func NewStatusBar(c *campaign.Campaign) Model {
 
 // Update updates the size of the statusbar.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
@@ -113,9 +115,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.identityStatus.title = activeIdentity.Name
 			m.identityStatus.color = activeColorConfig
 		}
+	case tea.MouseMsg:
+		switch msg.Action {
+		case tea.MouseActionPress:
+			c2StatusCol := renderField(m.c2ServerStatus)
+			if msg.X < lipgloss.Width(c2StatusCol) {
+				text := fmt.Sprintf("inside: (X: %d, Y: %d) %s", msg.X, msg.Y, tea.MouseEvent(msg))
+				slog.Info("Mouse", "", text)
+				// TODO Set Cmd to retry C2 connectiong
+			}
+		}
 	}
-
-	return m, nil
+	return m, cmd
 }
 
 func updateListenerStatus(listeners map[string]c2.ListenerReady) Field {
@@ -146,18 +157,22 @@ func updateListenerStatus(listeners map[string]c2.ListenerReady) Field {
 	}
 }
 
+func renderField(field Field) string {
+	return lipgloss.NewStyle().
+		Inherit(defaultStyle).
+		Padding(0, 1).
+		Foreground(field.color.Foreground).
+		Background(field.color.Background).
+		Render(field.icon + " " + field.title)
+}
+
 func (m Model) View() string {
 	cols := []string{}
 	remainingWidth := m.Width
 
 	// left columns
 	for _, field := range []Field{m.c2ServerStatus, m.identityStatus} {
-		col := lipgloss.NewStyle().
-			Inherit(defaultStyle).
-			Padding(0, 1).
-			Foreground(field.color.Foreground).
-			Background(field.color.Background).
-			Render(field.icon + " " + field.title)
+		col := renderField(field)
 		cols = append(cols, col)
 		remainingWidth -= lipgloss.Width(col)
 	}
