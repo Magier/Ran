@@ -17,6 +17,11 @@ She is symbolized by a net, which she uses to ensnare and pull the unwary into t
 
 ---
 
+## Setup
+
+- Install Sliver
+    - generate a operator configuration, so Ran can act as a client
+
 
 ## Similar Projects
 
