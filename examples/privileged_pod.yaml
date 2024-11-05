@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privileged-pod
+  namespace: default
+spec:
+  hostNetwork: true
+  hostPID: true
+  hostIPC: true
+  containers:
+  - name: privileged-container
+    image: nginx
+    command: ["/bin/sh", "-c", "sleep 1h"]
+    securityContext:
+      privileged: true
+  volumeMounts:
+  - name: host-volume
+    mountPath: /host
+  volumes:
+  - name: host-volume
+    hostPath:
+      path: /
+      type: Directory
