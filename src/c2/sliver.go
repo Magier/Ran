@@ -113,6 +113,10 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 	}
 }
 
+func (c SliverClient) GetName() string {
+	return "sliver"
+}
+
 func (c SliverClient) GetServerIp() net.IP {
 	var ip net.IP
 	// resolve the local IP to the 'external' one, so the compromised systems can reach it

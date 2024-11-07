@@ -11,7 +11,7 @@ import (
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
-	armoryWindow "github.com/Magier/Ran/tui/armoryWindow"
+	armorywindow "github.com/Magier/Ran/tui/armorywindow"
 	"github.com/Magier/Ran/tui/commandprompt"
 	"github.com/Magier/Ran/tui/explorer"
 	logwindow "github.com/Magier/Ran/tui/logwindow"
@@ -82,7 +82,7 @@ func RunTUI(p *tea.Program) {
 
 type model struct {
 	bus        bus.MessageBus
-	armory     armoryWindow.Model
+	armory     armorywindow.Model
 	explorer   explorer.Model
 	mainWindow mainwindow.Model
 	cmdPrompt  commandprompt.Model
@@ -100,7 +100,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) mod
 
 	explorer := explorer.NewExplorer(c, .3)
 	mainWnd := mainwindow.NewMainWindow(.45, logWndHeight+1)
-	armoryWnd := armoryWindow.NewArmory(a, .25)
+	armoryWnd := armorywindow.NewArmory(a, .25)
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)
 	logWindow := logwindow.NewLogWindow(.45, logWndHeight)
 	statusBar := statusbar.NewStatusBar(c)
@@ -177,7 +177,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil { // TODO: properly handle errors in UI
 			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
 		}
-	case armoryWindow.ActionSelected:
+	case armorywindow.ActionSelected:
 		target := m.explorer.GetSelectedEntity()
 
 		a, err := m.campaign.InflateActionTemplate(msg.Action, target)
@@ -190,6 +190,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// e.g. the target of the action, parameters, etc.
 		if err != nil { // TODO: properly handle errors in UI
 			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
+		}
+	case domain.StartC2:
+		err := m.bus.Publish(msg)
+		if err != nil {
+			slog.Error("Error sending command to msg bus!!", "", err.Error())
 		}
 	case tea.KeyMsg:
 		switch msg.Type {
