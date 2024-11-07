@@ -69,6 +69,10 @@ func (c BuiltInC2Server) handleCommand(msg domain.Command) (domain.Message, erro
 	return nil, nil
 }
 
+func (c BuiltInC2Server) GetName() string {
+	return ""
+}
+
 func (c BuiltInC2Server) startListener(ctx context.Context, bus bus.MessageBus, cmd domain.StartListener) error {
 	listener, err := net.Listen("tcp", ":"+strconv.FormatUint(uint64(cmd.Port), 10))
 	if err != nil {

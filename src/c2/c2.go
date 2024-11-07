@@ -17,6 +17,7 @@ type C2Client interface {
 	Connect(context.Context, bus.MessageBus) error
 	Execute(domain.Command) (domain.Message, error)
 	GetServerIp() net.IP
+	GetName() string
 }
 
 type C2Started struct {
@@ -91,29 +92,43 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		return nil, nil
 	})
 
+	mb.Subscribe(domain.StartC2{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
+		cmd := event.(domain.StartC2)
+		client, ok := c2Clients[cmd.C2Name]
+		if !ok {
+			return nil, fmt.Errorf("'%s' is not a valid C2 server to connect to", cmd.C2Name)
+		}
+		go connectToC2(ctx, mb, client)
+		return nil, nil
+	})
+
 	err := mb.Publish(C2Started{})
 	if err != nil {
 		slog.Error("C2", "can't publish c2 started event:", err.Error())
 	}
 
 	var wg sync.WaitGroup
-	for name, client := range c2Clients {
+	for _, client := range c2Clients {
 		go func() {
 			wg.Add(1)
 			defer wg.Done()
-			err := client.Connect(ctx, mb)
-			if err != nil {
-				err = mb.Publish(C2ConnectFailed{
-					Name:   name,
-					Reason: err.Error(),
-				})
-				if err != nil {
-					slog.Error(err.Error())
-				}
-			}
+			connectToC2(ctx, mb, client)
 		}()
 	}
 	wg.Wait()
+}
+
+func connectToC2(ctx context.Context, mb bus.MessageBus, c2client C2Client) {
+	err := c2client.Connect(ctx, mb)
+	if err != nil {
+		err = mb.Publish(C2ConnectFailed{
+			Name:   c2client.GetName(),
+			Reason: err.Error(),
+		})
+		if err != nil {
+			slog.Error(err.Error())
+		}
+	}
 }
 
 func selectClient(clients map[string]C2Client, event domain.Event) (C2Client, bool) {

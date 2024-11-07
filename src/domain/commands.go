@@ -105,6 +105,14 @@ func (t *Target) SetTarget(e Entity) {
 	// t.Target = newTarget
 }
 
+type StartC2 struct {
+	C2Name string
+}
+
+func (cmd StartC2) String() string {
+	return "start c2 " + cmd.C2Name
+}
+
 type StartListener struct {
 	Port     uint
 	Protocol Protocol
