@@ -99,8 +99,19 @@ func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 					Pods: []domain.Pod{pod},
 				},
 			}
+		} else if ownerRef.Kind == "Node" {
+			owner = domain.K8sNode{
+				K8sEntity: domain.K8sEntity{
+					Name:      ownerRef.Name,
+					Kind:      ownerRef.Kind,
+					Namespace: pod.GetNamespace(),
+				},
+				ResourceOwner: domain.ResourceOwner{
+					Pods: []domain.Pod{pod},
+				},
+			}
 		} else {
-			slog.Error("Getting workload from pod not implemented for kind " + ownerRef.Kind)
+			slog.Error("Getting workload from pod not implemented for kind " + ownerRef.Kind + " for pod: " + pod.GetName())
 		}
 	}
 

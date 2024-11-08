@@ -242,3 +242,12 @@ type DaemonSet struct {
 func (s DaemonSet) GetId() string {
 	return fmt.Sprintf("ns/%s/ds/%s", s.GetNamespace(), s.GetName())
 }
+
+type K8sNode struct {
+	K8sEntity
+	ResourceOwner
+}
+
+func (n K8sNode) GetId() string {
+	return fmt.Sprintf("node/%s", n.GetName())
+}
