@@ -154,6 +154,7 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 		identities: make(map[string]domain.Identity),
 	}
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
+	mb.Subscribe(c2.ListenerStopped{}, campaign.onListenerStopped)
 	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
 		return campaign.onNewSession(event.(c2.SessionStarted))
 	})

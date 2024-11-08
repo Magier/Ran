@@ -2,7 +2,6 @@ package statusbar
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/campaign"
@@ -61,6 +60,7 @@ type Model struct {
 	c2ServerStatus      Field
 	listenerStatus      Field
 	identityStatus      Field
+	selectedC2          string
 	availableIdentities int
 	listeners           map[string]c2.ListenerReady
 }
@@ -90,6 +90,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 	case c2.C2ConnectFailed:
+		m.selectedC2 = msg.Name
 		m.c2ServerStatus.title = "not connected to " + msg.Name
 		m.c2ServerStatus.icon = icon.LanDisconnect
 		m.c2ServerStatus.color = negativeColorConfig
@@ -98,6 +99,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.Ip != "0.0.0.0" && msg.Ip != "localhost" {
 			ipDetail = fmt.Sprintf(" (%s)", msg.Ip)
 		}
+		m.selectedC2 = msg.Name
 		m.c2ServerStatus.title = fmt.Sprintf("C2: %s%s", msg.Name, ipDetail)
 		m.c2ServerStatus.icon = icon.LanConnect
 		m.c2ServerStatus.color = activeColorConfig
@@ -116,13 +118,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.identityStatus.color = activeColorConfig
 		}
 	case tea.MouseMsg:
-		switch msg.Action {
-		case tea.MouseActionPress:
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			c2StatusCol := renderField(m.c2ServerStatus)
 			if msg.X < lipgloss.Width(c2StatusCol) {
-				text := fmt.Sprintf("inside: (X: %d, Y: %d) %s", msg.X, msg.Y, tea.MouseEvent(msg))
-				slog.Info("Mouse", "", text)
-				// TODO Set Cmd to retry C2 connectiong
+				cmd = func() tea.Msg { return domain.StartC2{C2Name: m.selectedC2} }
+
+				m.c2ServerStatus.icon = icon.LanPending
+				m.c2ServerStatus.title = "connecting to " + m.selectedC2
+				m.c2ServerStatus.color = neutralColorConfig
 			}
 		}
 	}
