@@ -108,18 +108,18 @@ func (c *Campaign) onNewFacts(ctx context.Context, event domain.Event) (domain.M
 	}
 
 	// TODO: reconcile new entities with existing ones
-	var msg domain.Message
+	var response domain.Message
 	if numChanges > 0 {
-		msg = domain.KnowledgeUpdated{
+		response = domain.KnowledgeUpdated{
 			NumChanges: numChanges,
 		}
-		return msg, nil
+		return response, nil
 	}
 	return nil, nil
 }
 
-func (c *Campaign) onListenerReady(ctx context.Context, event domain.Event) (domain.Message, error) {
-	ev := event.(c2.ListenerReady)
+func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	ev := msg.(c2.ListenerReady)
 	id := fmt.Sprintf("%s_%d", ev.Name, ev.Port)
 	c.listeners[id] = domain.Listener{
 		ID:         id,
@@ -131,8 +131,8 @@ func (c *Campaign) onListenerReady(ctx context.Context, event domain.Event) (dom
 	return nil, nil
 }
 
-func (c *Campaign) onListenerStopped(ctx context.Context, event domain.Event) (domain.Message, error) {
-	ev := event.(c2.ListenerStopped)
+func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	ev := msg.(c2.ListenerStopped)
 	id := fmt.Sprintf("%s_%d", ev.Name, ev.Port)
 
 	_, ok := c.listeners[id]
@@ -145,21 +145,26 @@ func (c *Campaign) onListenerStopped(ctx context.Context, event domain.Event) (d
 	return nil, nil
 }
 
-func StartCampaign(mb bus.MessageBus) *Campaign {
-	campaign := &Campaign{
+func NewCampaign() *Campaign {
+	return &Campaign{
 		sessions:   make(map[string]c2.Session),
 		entities:   make(map[string]domain.Entity),
 		relations:  make([]domain.Relation, 0),
 		listeners:  make(map[string]domain.Listener),
 		identities: make(map[string]domain.Identity),
 	}
+
+}
+
+func StartCampaign(mb bus.MessageBus) *Campaign {
+	campaign := NewCampaign()
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.ListenerStopped{}, campaign.onListenerStopped)
-	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		return campaign.onNewSession(event.(c2.SessionStarted))
+	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		return campaign.onNewSession(msg.(c2.SessionStarted))
 	})
-	mb.Subscribe(c2.SessionClosed{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		return campaign.onSessionClosed(event.(c2.SessionClosed))
+	mb.Subscribe(c2.SessionClosed{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		return campaign.onSessionClosed(msg.(c2.SessionClosed))
 	})
 	mb.Subscribe(domain.NewFacts{}, campaign.onNewFacts)
 	mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)
@@ -225,8 +230,8 @@ func (c Campaign) GetFileshare() (uint, bool) {
 	return 3000, true
 }
 
-func (c *Campaign) onEnvVarsExtracted(ctx context.Context, event domain.Event) (domain.Message, error) {
-	return analyzeEnvironmentVariables(event.(domain.EnvVarsExtracted))
+func (c *Campaign) onEnvVarsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	return analyzeEnvironmentVariables(msg.(domain.EnvVarsExtracted))
 }
 
 func inflateListenerTemplate(listener domain.Listener, template string) string {

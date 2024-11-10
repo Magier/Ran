@@ -8,6 +8,7 @@ import (
 )
 
 type ListenerReady struct {
+	domain.EventImpl
 	Id       string
 	Name     string
 	IP       net.IP
@@ -20,10 +21,47 @@ func (c ListenerReady) String() string {
 }
 
 type ListenerStopped struct {
+	domain.EventImpl
 	Name string
 	Port uint
 }
 
 func (c ListenerStopped) String() string {
 	return fmt.Sprintf("Listener '%s' stopped", c.Name)
+}
+
+type SessionStarted struct {
+	domain.EventImpl
+	Session Session
+}
+
+func (c SessionStarted) String() string {
+	return "Session started: " + c.Session.Id
+}
+
+type SessionClosed struct {
+	domain.EventImpl
+	Session Session
+}
+
+func (c SessionClosed) String() string {
+	return "Session closed: " + c.Session.Id
+}
+
+type C2Started struct {
+	domain.EventImpl
+}
+
+func (c C2Started) String() string {
+	return "c2 started"
+}
+
+type C2ConnectFailed struct {
+	domain.EventImpl
+	Name   string
+	Reason string
+}
+
+func (c C2ConnectFailed) String() string {
+	return fmt.Sprintf("Failed to connect to %s: %s", c.Name, c.Reason)
 }

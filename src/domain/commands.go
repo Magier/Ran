@@ -6,7 +6,11 @@ import (
 
 type Command interface {
 	Message
+	IsCommand()
 }
+type CommandImpl struct{}
+
+func (c CommandImpl) IsCommand() {}
 
 type TTPParams interface{}
 
@@ -106,6 +110,7 @@ func (t *Target) SetTarget(e Entity) {
 }
 
 type StartC2 struct {
+	CommandImpl
 	C2Name string
 }
 
@@ -114,6 +119,7 @@ func (cmd StartC2) String() string {
 }
 
 type StartListener struct {
+	CommandImpl
 	Port     uint
 	Protocol Protocol
 	Server   string
@@ -124,6 +130,7 @@ func (c StartListener) String() string {
 }
 
 type StopListener struct {
+	CommandImpl
 	Port     uint
 	Protocol Protocol
 	Server   string
@@ -134,6 +141,7 @@ func (c StopListener) String() string {
 }
 
 type StartC2Redirector struct {
+	CommandImpl
 	DstPort uint
 }
 
@@ -142,6 +150,7 @@ func (c StartC2Redirector) String() string {
 }
 
 type ReadEnvVars struct {
+	CommandImpl
 	*Target
 }
 
@@ -152,6 +161,7 @@ func (c ReadEnvVars) String() string {
 type C2Channel interface{}
 
 type ExecTTP struct {
+	CommandImpl
 	TTP  TTP
 	Cmd  string
 	Args []string
@@ -172,4 +182,5 @@ func (e *ExecTTP) SetGroundedString(value string) {
 }
 
 type KubectlExec struct {
+	CommandImpl
 }

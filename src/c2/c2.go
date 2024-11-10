@@ -20,43 +20,11 @@ type C2Client interface {
 	GetName() string
 }
 
-type C2Started struct {
-}
-
-func (c C2Started) String() string {
-	return "c2 started"
-}
-
-type C2ConnectFailed struct {
-	Name   string
-	Reason string
-}
-
-func (c C2ConnectFailed) String() string {
-	return fmt.Sprintf("Failed to connect to %s: %s", c.Name, c.Reason)
-}
-
 type Session struct {
 	Id       string
 	Hostname string
 	Os       string
 	User     string
-}
-
-type SessionStarted struct {
-	Session Session
-}
-
-func (c SessionStarted) String() string {
-	return "Session started: " + c.Session.Id
-}
-
-type SessionClosed struct {
-	Session Session
-}
-
-func (c SessionClosed) String() string {
-	return "Session closed: " + c.Session.Id
 }
 
 func StartC2(ctx context.Context, mb bus.MessageBus) {
@@ -67,16 +35,17 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		"sliver": CreateSliverClient("../sliver_cfg.json"),
 	}
 
-	mb.Subscribe(domain.StartListener{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		client, ok := selectClient(c2Clients, event)
+	mb.Subscribe(domain.StartListener{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		cmd := msg.(domain.Command)
+		client, ok := selectClient(c2Clients, cmd)
 		if ok {
-			return onStartListener(mb, ctx, event, client)
+			return onStartListener(mb, ctx, cmd, client)
 		}
 		return nil, fmt.Errorf("No suitable client found to start listener")
 	})
 
-	mb.Subscribe(&domain.ExecTTP{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		cmd := event.(*domain.ExecTTP)
+	mb.Subscribe(&domain.ExecTTP{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		cmd := msg.(*domain.ExecTTP)
 		// check technique to execute CMD -> kubectl exec uses API
 		// or shell listener?
 		switch cmd.C2Channel.(type) {
@@ -92,8 +61,8 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		return nil, nil
 	})
 
-	mb.Subscribe(domain.StartC2{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		cmd := event.(domain.StartC2)
+	mb.Subscribe(domain.StartC2{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		cmd := msg.(domain.StartC2)
 		client, ok := c2Clients[cmd.C2Name]
 		if !ok {
 			return nil, fmt.Errorf("'%s' is not a valid C2 server to connect to", cmd.C2Name)
@@ -131,9 +100,9 @@ func connectToC2(ctx context.Context, mb bus.MessageBus, c2client C2Client) {
 	}
 }
 
-func selectClient(clients map[string]C2Client, event domain.Event) (C2Client, bool) {
+func selectClient(clients map[string]C2Client, msg domain.Command) (C2Client, bool) {
 	var server string
-	switch cmd := event.(type) {
+	switch cmd := msg.(type) {
 	case domain.StartListener:
 		server = cmd.Server
 	case domain.StopListener:
@@ -147,8 +116,8 @@ func selectClient(clients map[string]C2Client, event domain.Event) (C2Client, bo
 	return nil, false
 }
 
-func onStartListener(mb bus.MessageBus, ctx context.Context, event domain.Event, c2Client C2Client) (domain.Message, error) {
-	cmd := event.(domain.StartListener)
+func onStartListener(mb bus.MessageBus, ctx context.Context, msg domain.Command, c2Client C2Client) (domain.Message, error) {
+	cmd := msg.(domain.StartListener)
 	c2Client.Execute(cmd)
 
 	// var wg sync.WaitGroup

@@ -6,12 +6,17 @@ import (
 	"strings"
 )
 
+type MessageHandler func(ctx context.Context, msg Message) (Message, error)
 type EventHandler func(ctx context.Context, event Event) (Message, error)
 type CommandHandler func(ctx context.Context, command Command) (Message, error)
 
 type Event interface {
 	Message
+	IsEvent()
 }
+type EventImpl struct{}
+
+func (e EventImpl) IsEvent() {}
 
 type UiEvent interface {
 	UiMessage() string
@@ -27,6 +32,7 @@ var (
 )
 
 type ErrorMsg struct {
+	EventImpl
 	Level ErrorLevel
 	Msg   string
 }
@@ -39,6 +45,7 @@ func (e ErrorMsg) UiMessage() string {
 }
 
 type NewFacts struct {
+	EventImpl
 	Entities   []Entity
 	Relations  []Relation
 	Identities []Identity
@@ -63,6 +70,7 @@ func (e NewFacts) String() string {
 }
 
 type KnowledgeUpdated struct {
+	EventImpl
 	NumChanges int
 }
 
@@ -71,6 +79,7 @@ func (e KnowledgeUpdated) String() string {
 }
 
 type EnvVarsExtracted struct {
+	EventImpl
 	Source Entity
 	Vars   map[string]string
 }
@@ -80,6 +89,7 @@ func (e EnvVarsExtracted) String() string {
 }
 
 type ConnectedToExternalC2Server struct {
+	EventImpl
 	Name string
 	Ip   string
 	Type string

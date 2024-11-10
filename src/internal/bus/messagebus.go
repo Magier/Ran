@@ -12,12 +12,12 @@ type MessageBus interface {
 	Execute(cmd domain.Message) error
 	Publish(events ...domain.Message) error
 	// Publish(ctx context.Context, events ...domain.Event) error
-	Subscribe(event domain.Message, handler domain.EventHandler)
+	Subscribe(event domain.Message, handler domain.MessageHandler)
 }
 
 type MessageBusProvider struct {
 	channel     chan domain.Message
-	subscribers map[string][]domain.EventHandler
+	subscribers map[string][]domain.MessageHandler
 }
 
 func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
@@ -69,7 +69,7 @@ func (b *MessageBusProvider) Publish(events ...domain.Message) error {
 	return nil
 }
 
-func (b *MessageBusProvider) Subscribe(event domain.Message, handler domain.EventHandler) {
+func (b *MessageBusProvider) Subscribe(event domain.Message, handler domain.MessageHandler) {
 	// h.mu.Lock()
 	// defer h.mu.Unlock()
 	b.subscribers[msgName(event)] = append(
@@ -81,7 +81,7 @@ func (b *MessageBusProvider) Subscribe(event domain.Message, handler domain.Even
 func CreateMessageBus() *MessageBusProvider {
 	return &MessageBusProvider{
 		channel:     make(chan domain.Message, 100),
-		subscribers: make(map[string][]domain.EventHandler),
+		subscribers: make(map[string][]domain.MessageHandler),
 	}
 }
 
