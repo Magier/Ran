@@ -53,8 +53,8 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Pr
 	logger := slog.New(logwindow.NewLogHandler(p))
 	slog.SetDefault(logger)
 
-	forwardEvent := func(ctx context.Context, event domain.Event) (domain.Message, error) {
-		p.Send(event)
+	forwardEvent := func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		p.Send(msg)
 		return nil, nil
 	}
 
@@ -65,7 +65,7 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Pr
 	bus.Subscribe(domain.ConnectedToExternalC2Server{}, forwardEvent)
 	bus.Subscribe(domain.KnowledgeUpdated{}, forwardEvent)
 
-	bus.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Event) (domain.Message, error) {
+	bus.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Message) (domain.Message, error) {
 		msg := event.(domain.ErrorMsg)
 		p.Send(logwindow.LogMessage{Level: msg.Level, Msg: msg.Msg})
 		return nil, nil
