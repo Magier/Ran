@@ -80,13 +80,11 @@ func (c *Campaign) GetSessions() []c2.Session {
 	return sessions
 }
 
-func (c *Campaign) onNewFacts(ctx context.Context, event domain.Event) (domain.Message, error) {
-	// TODO: properly track how many changes the update contained
+func (c *Campaign) AddEntities(entities ...domain.Entity) int {
 	numChanges := 0
-	ev := event.(domain.NewFacts)
-	for _, entity := range ev.Entities {
-		c.entities[entity.GetId()] = entity
+	for _, entity := range entities {
 		otherEntities, relations := extractRelatedEntities(c, entity)
+		c.entities[entity.GetId()] = entity
 		numChanges++
 		for _, e := range otherEntities {
 			c.entities[e.GetId()] = e
@@ -94,10 +92,30 @@ func (c *Campaign) onNewFacts(ctx context.Context, event domain.Event) (domain.M
 		}
 
 		for _, rel := range relations {
+			if ownsRel, ok := rel.(domain.Owns); ok {
+				if ownable, ok := entity.(domain.Ownable); ok {
+					ownerRef, _ := ownable.GetOwner()
+					if ownerRef.Name != ownsRel.Owner.GetName() {
+						// TODO: Kind is empty!! fix it
+						e := ownable.SetOwner(ownsRel.Owner.GetName(), ownerRef.Kind)
+						c.entities[entity.GetId()] = e.(domain.Entity)
+					}
+				}
+			}
+
 			c.relations = append(c.relations, rel)
 			numChanges++
 		}
+
 	}
+	return numChanges
+}
+
+func (c *Campaign) onNewFacts(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	// TODO: properly track how many changes the update contained
+	numChanges := 0
+	ev := msg.(domain.NewFacts)
+	numChanges += c.AddEntities(ev.Entities...)
 
 	for _, identity := range ev.Identities {
 		// if there is no active identity, use the first encountered Id as the active oneo

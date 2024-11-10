@@ -3,6 +3,7 @@ package explorer
 import (
 	"fmt"
 	"log"
+	"log/slog"
 
 	"github.com/Magier/Ran/domain"
 	tree "github.com/charmbracelet/lipgloss/tree"
@@ -90,7 +91,7 @@ func addEntity(m Model, entity domain.Entity) {
 
 	k8sEntity, ok := entity.(domain.Ownable)
 	if !ok {
-		fmt.Println(entity.GetName() + " " + entity.GetKind() + " Not a K8sEntity")
+		slog.Debug(entity.GetName() + " " + entity.GetKind() + " Not a K8sEntity")
 		return
 	}
 
