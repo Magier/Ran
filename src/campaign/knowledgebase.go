@@ -1,7 +1,6 @@
 package campaign
 
 import (
-	"fmt"
 	"log/slog"
 
 	"github.com/Magier/Ran/domain"
@@ -48,67 +47,43 @@ func extractRelatedEntities(campaign *Campaign, entity domain.Entity) ([]domain.
 func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 	var owner domain.Workload
 	ownerName := pod.GetName()
-	if ownerName == "#API Server" {
-		fmt.Print("")
+	resOwner := domain.ResourceOwner{
+		Pods: []domain.Pod{pod},
 	}
 
 	if ownerRef, ok := pod.GetOwner(); ok {
 		ownerName = ownerRef.Name
 
+		ownerEntity := domain.K8sEntity{
+			Name:      ownerRef.Name,
+			Kind:      ownerRef.Kind,
+			Namespace: pod.GetNamespace(),
+		}
+
 		if ownerRef.Kind == "Deployment" {
 			owner = domain.Deployment{
-				K8sEntity: domain.K8sEntity{
-					Name:      ownerRef.Name,
-					Kind:      ownerRef.Kind,
-					Namespace: pod.GetNamespace(),
-				},
-				ResourceOwner: domain.ResourceOwner{
-					Pods: []domain.Pod{pod},
-				},
+				K8sEntity:     ownerEntity,
+				ResourceOwner: resOwner,
 			}
 		} else if ownerRef.Kind == "StatefulSet" {
 			owner = domain.StatefulSet{
-				K8sEntity: domain.K8sEntity{
-					Name:      ownerRef.Name,
-					Kind:      ownerRef.Kind,
-					Namespace: pod.GetNamespace(),
-				},
-				ResourceOwner: domain.ResourceOwner{
-					Pods: []domain.Pod{pod},
-				},
+				K8sEntity:     ownerEntity,
+				ResourceOwner: resOwner,
 			}
 		} else if ownerRef.Kind == "DaemonSet" {
 			owner = domain.DaemonSet{
-				K8sEntity: domain.K8sEntity{
-					Name:      ownerRef.Name,
-					Kind:      ownerRef.Kind,
-					Namespace: pod.GetNamespace(),
-				},
-				ResourceOwner: domain.ResourceOwner{
-					Pods: []domain.Pod{pod},
-				},
+				K8sEntity:     ownerEntity,
+				ResourceOwner: resOwner,
 			}
 		} else if ownerRef.Kind == "AbstractWorkload" {
-			owner = domain.DaemonSet{
-				K8sEntity: domain.K8sEntity{
-					Name:      ownerRef.Name,
-					Kind:      ownerRef.Kind,
-					Namespace: pod.GetNamespace(),
-				},
-				ResourceOwner: domain.ResourceOwner{
-					Pods: []domain.Pod{pod},
-				},
+			owner = domain.AbstractWorkload{
+				K8sEntity:     ownerEntity,
+				ResourceOwner: resOwner,
 			}
 		} else if ownerRef.Kind == "Node" {
 			owner = domain.K8sNode{
-				K8sEntity: domain.K8sEntity{
-					Name:      ownerRef.Name,
-					Kind:      ownerRef.Kind,
-					Namespace: pod.GetNamespace(),
-				},
-				ResourceOwner: domain.ResourceOwner{
-					Pods: []domain.Pod{pod},
-				},
+				K8sEntity:     ownerEntity,
+				ResourceOwner: resOwner,
 			}
 		} else {
 			slog.Error("Getting workload from pod not implemented for kind " + ownerRef.Kind + " for pod: " + pod.GetName())
@@ -124,15 +99,13 @@ func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 				Name:      ownerName,
 				Namespace: pod.GetNamespace(),
 			},
-			ResourceOwner: domain.ResourceOwner{
-				Pods: []domain.Pod{pod},
-			},
+			ResourceOwner: resOwner,
 		}
 	}
 	// TODO for a static pod the owner is actually the Node, think of way to properly model this
 	rel := domain.Owns{
 		Owner:  owner,
-		Object: pod,
+		Object: &pod,
 	}
 	return owner, rel
 }

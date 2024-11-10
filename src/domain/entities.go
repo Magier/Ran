@@ -80,6 +80,7 @@ type Asset interface {
 
 type Ownable interface {
 	GetOwner() (OwnerRef, bool)
+	SetOwner(name, kind string) Ownable
 }
 
 type Namespaced interface {
@@ -132,6 +133,13 @@ func (e K8sEntity) GetOwner() (OwnerRef, bool) {
 		return e.Owner, true
 	}
 	return OwnerRef{}, false
+}
+func (e K8sEntity) SetOwner(name, kind string) Ownable {
+	e.Owner = OwnerRef{
+		Name: name,
+		Kind: kind,
+	}
+	return e
 }
 
 func (e K8sEntity) GetNamespace() string {
@@ -194,6 +202,16 @@ type Deployment struct {
 	K8sEntity
 	// NamespacedResource
 	ResourceOwner
+}
+
+func NewDeployment(name, ns string) Deployment {
+	return Deployment{
+		K8sEntity: K8sEntity{
+			Name:      name,
+			Namespace: ns,
+			Kind:      "Deployment",
+		},
+	}
 }
 
 func (d Deployment) GetId() string {
