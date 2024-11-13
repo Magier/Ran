@@ -63,31 +63,37 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 	if err != nil {
 		panic(err)
 	}
-	// extract the HOST of the url which is an ip address
-	apiServerIP := strings.Split(k8sConfig.Host, ":")[1][2:]
-	apiServerIPAddr, err := net.ResolveIPAddr("ip", apiServerIP)
-	if err != nil {
-		fmt.Printf("Couldn't resolve apiServer IP: %s", err.Error())
-	}
 
-	name := "#API Server"
-	ns := "kube-system"
-	apiServerPod := domain.ApiServer{
-		Pod: domain.Pod{
-			K8sEntity: domain.K8sEntity{
-				Id:        "#apiServer",
-				Name:      name,
-				Kind:      "Pod",
-				Namespace: ns,
-				Owner: domain.OwnerRef{
-					Uid:  fmt.Sprintf("ns/%s/wl/%s", ns, name),
-					Kind: "AbstractWorkload",
-					Name: name,
+	addApiServer := false
+	entities := make([]domain.Entity, 0)
+	// extract the HOST of the url which is an ip address
+	if addApiServer {
+		apiServerIP := strings.Split(k8sConfig.Host, ":")[1][2:]
+		apiServerIPAddr, err := net.ResolveIPAddr("ip", apiServerIP)
+		if err != nil {
+			fmt.Printf("Couldn't resolve apiServer IP: %s", err.Error())
+		}
+
+		name := "#API Server"
+		ns := "kube-system"
+		apiServerPod := domain.ApiServer{
+			Pod: domain.Pod{
+				K8sEntity: domain.K8sEntity{
+					Id:        "#apiServer",
+					Name:      name,
+					Kind:      "Pod",
+					Namespace: ns,
+					Owner: domain.OwnerRef{
+						Uid:  fmt.Sprintf("ns/%s/wl/%s", ns, name),
+						Kind: "AbstractWorkload",
+						Name: name,
+					},
 				},
 			},
-		},
-		ExternalIP: *apiServerIPAddr,
-		CAData:     k8sConfig.CAData,
+			ExternalIP: *apiServerIPAddr,
+			CAData:     k8sConfig.CAData,
+		}
+		entities = append(entities, apiServerPod)
 	}
 	k8sConfigUser := domain.Identity{
 		Name:     k8sContext.Name,
@@ -96,7 +102,7 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 		KeyData:  k8sContext.UserKey,
 	}
 	err = mb.Publish(domain.NewFacts{
-		Entities:   []domain.Entity{apiServerPod},
+		Entities:   entities,
 		Identities: []domain.Identity{k8sConfigUser}})
 	if err != nil {
 		fmt.Printf("Couldn't add apiServer as new entity to bus: %s", err.Error())
@@ -124,7 +130,9 @@ func populateEntities(ctx context.Context, channel chan<- domain.Entity) {
 		panic(err)
 	}
 
-	deployments, err := k8s.GetDeployments(ctx, client)
+	var nsName string = "default"
+
+	deployments, err := k8s.GetDeployments(ctx, client, nsName)
 	if err != nil {
 		panic(err)
 	}
@@ -132,7 +140,7 @@ func populateEntities(ctx context.Context, channel chan<- domain.Entity) {
 		channel <- d
 	}
 
-	pods, err := k8s.GetPods(ctx, client)
+	pods, err := k8s.GetPods(ctx, client, nsName)
 	if err != nil {
 		panic(err)
 	}

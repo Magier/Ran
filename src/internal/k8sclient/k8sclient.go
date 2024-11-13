@@ -77,8 +77,8 @@ func NewK8sClient(kubeConfigPath string) (*kubernetes.Clientset, error) {
 	return clientset, nil
 }
 
-func GetDeployments(ctx context.Context, clientset *kubernetes.Clientset) ([]domain.Deployment, error) {
-	k8sDeployments, err := clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
+func GetDeployments(ctx context.Context, clientset *kubernetes.Clientset, ns string) ([]domain.Deployment, error) {
+	k8sDeployments, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -134,8 +134,8 @@ func getOwnerReference(meta metav1.Object) domain.OwnerRef {
 	return owner
 }
 
-func GetPods(ctx context.Context, clientset *kubernetes.Clientset) ([]domain.Pod, error) {
-	k8sPods, err := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+func GetPods(ctx context.Context, clientset *kubernetes.Clientset, ns string) ([]domain.Pod, error) {
+	k8sPods, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}

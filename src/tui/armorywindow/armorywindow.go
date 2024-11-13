@@ -3,6 +3,7 @@ package armory
 import (
 	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/domain"
+	tuimsg "github.com/Magier/Ran/tui/messages"
 	"github.com/Magier/Ran/tui/theme"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,6 +27,7 @@ type Model struct {
 	focused bool
 	style   lipgloss.Style
 	width   float32
+	target  tuimsg.EntitySelected
 }
 
 func NewArmory(armory armory.Armory, width float32) Model {
@@ -81,6 +83,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				}
 				cmds = append(cmds, cmd)
 			}
+		case tuimsg.EntitySelected:
+			m.target = msg
 		}
 	}
 	switch msg := msg.(type) {
