@@ -31,8 +31,7 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 			slog.Debug("🔊 " + msg.String())
 		}
 		for _, handler := range b.subscribers[msgName(msg)] {
-			event := msg.(domain.Event)
-			msg, err := handler(ctx, event)
+			msg, err := handler(ctx, msg)
 			if err != nil {
 				slog.Error(err.Error())
 				return err

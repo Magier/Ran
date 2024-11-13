@@ -10,6 +10,7 @@ import (
 	"github.com/Magier/Ran/tui/icon"
 	tuimsg "github.com/Magier/Ran/tui/messages"
 	"github.com/Magier/Ran/tui/theme"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tree "github.com/charmbracelet/lipgloss/tree"
@@ -34,6 +35,7 @@ type Model struct {
 	width        float32
 	style        lipgloss.Style
 	cursor       int
+	viewport     viewport.Model
 }
 
 func NewExplorer(c *campaign.Campaign, width float32) Model {
@@ -98,6 +100,8 @@ func getIcon(kind string) string {
 		return icon.Job
 	case "CronJob":
 		return icon.CronJob
+	case "Node":
+		return icon.WorkerNode
 	}
 	return ""
 }
@@ -138,7 +142,6 @@ func MyEnumerator(children tree.Children, index int) string {
 
 func buildShownTree(m Model, orig *Node) *tree.Tree {
 	t := tree.New().Enumerator(MyEnumerator)
-	var _ tree.Node = orig.children.children[0]
 
 	for _, child := range orig.children.children {
 		sub := tree.Root(child)

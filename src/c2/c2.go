@@ -39,7 +39,7 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		cmd := msg.(domain.Command)
 		client, ok := selectClient(c2Clients, cmd)
 		if ok {
-			return onStartListener(mb, ctx, cmd, client)
+			return client.Execute(cmd)
 		}
 		return nil, fmt.Errorf("No suitable client found to start listener")
 	})
@@ -116,31 +116,31 @@ func selectClient(clients map[string]C2Client, msg domain.Command) (C2Client, bo
 	return nil, false
 }
 
-func onStartListener(mb bus.MessageBus, ctx context.Context, msg domain.Command, c2Client C2Client) (domain.Message, error) {
-	cmd := msg.(domain.StartListener)
-	c2Client.Execute(cmd)
+// func onStartListener(mb bus.MessageBus, ctx context.Context, msg domain.Command, c2Client C2Client) (domain.Message, error) {
+// 	cmd := msg.(domain.StartListener)
+// 	c2Client.Execute(cmd)
 
-	// var wg sync.WaitGroup
-	// switch cmd.Server {
-	// case "":
-	// 	wg.Add(1)
-	// 	go func() {
-	// 		err := startListener(ctx, mb, cmd)
-	// 		if err != nil {
-	// 			slog.Error(err.Error())
-	// 		}
-	// 		// TODO handle disconnecting listener
-	// 		wg.Done()
-	// 	}()
-	// case "sliver":
-	// 	_, err := c2Client.Execute(cmd)
-	// 	if err != nil {
-	// 		slog.Error(err.Error())
-	// 	}
-	// }
-	// return startListener(ctx, mb, cmd.Port)
-	return nil, nil
-}
+// var wg sync.WaitGroup
+// switch cmd.Server {
+// case "":
+// 	wg.Add(1)
+// 	go func() {
+// 		err := startListener(ctx, mb, cmd)
+// 		if err != nil {
+// 			slog.Error(err.Error())
+// 		}
+// 		// TODO handle disconnecting listener
+// 		wg.Done()
+// 	}()
+// case "sliver":
+// 	_, err := c2Client.Execute(cmd)
+// 	if err != nil {
+// 		slog.Error(err.Error())
+// 	}
+// }
+// return startListener(ctx, mb, cmd.Port)
+// 	return nil, nil
+// }
 
 // Get preferred outbound ip of this machine
 // source https://stackoverflow.com/a/37382208
