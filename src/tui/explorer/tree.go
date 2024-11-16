@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"sort"
 
 	"github.com/Magier/Ran/domain"
 	tree "github.com/charmbracelet/lipgloss/tree"
@@ -21,9 +22,10 @@ func (c Children) Length() int {
 }
 
 type Node struct {
-	name string
-	kind string
-	id   string
+	name   string
+	kind   string
+	id     string
+	isPwnd bool
 	// children   []*Node
 	isExpanded bool
 	children   Children
@@ -57,11 +59,12 @@ func (n *Node) Hidden() bool {
 // 	return len(n.children)
 // }
 
-func newNode(id string, name string, kind string) *Node {
+func newNode(id, name, kind string) *Node {
 	return &Node{
 		name:       name,
 		id:         id,
 		kind:       kind,
+		isPwnd:     false,
 		isExpanded: false,
 		children:   Children{children: make([]*Node, 0)},
 		// children:   make([]*Node, 0),
@@ -81,11 +84,33 @@ func (n Node) findChild(name, parent string, kind, parentKind string) (*Node, bo
 	return nil, false
 }
 
-func addEntity(m Model, entity domain.Entity) {
+func (n *Node) iterate(yield func(n *Node) bool) {
+	// indent := strings.Repeat("  ", level*2)
+
+	sort.Slice(n.children.children, func(i, j int) bool {
+		return n.children.children[i].name < n.children.children[j].name
+	})
+
+	for _, child := range n.children.children {
+		// text := indent + child.String()
+		// lines = append(lines, entry{text: text, ref: child})
+		if yield(child) {
+			child.iterate(yield)
+			// lines = append(lines, buildShownEntries(child, level+1)...)
+		}
+	}
+	// return lines
+}
+
+func addEntity(m Model, entity domain.Entity, expandedNodes map[string]struct{}) {
 	parentNodes := make([]*Node, 0)
 
 	if _, ok := entity.(domain.Namespace); ok {
-		addNode(m.entitiesTree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
+		n := addNode(m.entitiesTree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
+		if n != nil {
+			_, isExpanded := expandedNodes[n.id]
+			n.isExpanded = isExpanded
+		}
 		return
 	}
 
@@ -101,7 +126,11 @@ func addEntity(m Model, entity domain.Entity) {
 		if nsName == "" {
 			nsName = "?"
 		}
-		parentNodes = append(parentNodes, newNode("ns/"+nsName, nsName, "Namespace"))
+		id := "ns/" + nsName
+		n := newNode(id, nsName, "Namespace")
+		_, isExpanded := expandedNodes[id]
+		n.isExpanded = isExpanded
+		parentNodes = append(parentNodes, n)
 	}
 
 	ownerRef, ok := k8sEntity.GetOwner()
@@ -124,9 +153,22 @@ func addEntity(m Model, entity domain.Entity) {
 				ownerKind = k
 			}
 		}
-		parentNodes = append(parentNodes, newNode(ownerId, ownerName, ownerKind))
+		_, isExpanded := expandedNodes[ownerId]
+		n := newNode(ownerId, ownerName, ownerKind)
+		n.isExpanded = isExpanded
+		parentNodes = append(parentNodes, n)
 	}
-	addNode(m.entitiesTree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
+
+	n := addNode(m.entitiesTree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
+	if n != nil {
+		_, isExpanded := expandedNodes[n.id]
+		n.isExpanded = isExpanded
+		if pod, ok := entity.(domain.K8sEntity); ok {
+			n.isPwnd = pod.AccessLevel > domain.NoAccess
+		} else if sys, ok := entity.(domain.System); ok {
+			n.isPwnd = sys.AccessLevel > domain.NoAccess
+		}
+	}
 }
 
 func findOrCreateParents(root *Node, parentNodes []*Node) (*Node, error) {
@@ -155,15 +197,18 @@ func findOrCreateParents(root *Node, parentNodes []*Node) (*Node, error) {
 
 // Add an entry to the tree of entities
 // returns true if the added entry is visible in TUI or not
-func addNode(root *Node, parentNodes []*Node, id string, entry string, kind string) {
+func addNode(root *Node, parentNodes []*Node, id, entry, kind string) *Node {
 	// TODO: add proper sorting of entries
 	parent, err := findOrCreateParents(root, parentNodes)
 	if err != nil {
 		log.Fatalf("Failed to find or create parent node: %v", err)
 	}
+	var node *Node
 	if !hasChild(parent, id) {
-		parent.children.children = append(parent.children.children, newNode(id, entry, kind))
+		node = newNode(id, entry, kind)
+		parent.children.children = append(parent.children.children, node)
 	}
+	return node
 }
 
 func hasChild(parent *Node, childId string) bool {
