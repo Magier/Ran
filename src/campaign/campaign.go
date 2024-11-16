@@ -20,7 +20,34 @@ func (c CampaignStarted) String() string {
 
 func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 	c.sessions[ev.Session.Id] = ev.Session
-	return nil, nil
+
+	var system domain.Entity
+
+	// see if a pod with that name is already known, if so update it or add a new 'system'
+	for _, e := range c.entities {
+		if strings.HasSuffix(e.GetId(), "pod/"+ev.Session.Hostname) {
+			if pod, ok := e.(domain.K8sEntity); ok {
+				pod.AccessLevel = domain.CanExecute
+				system = pod
+			} else {
+				slog.Warn("onNewSession: Dont know how to update accesslevel of " + e.GetId())
+				system = e
+			}
+			break
+		}
+	}
+
+	if system == nil {
+		system = domain.System{
+			Name:        ev.Session.Hostname,
+			OS:          ev.Session.Os,
+			AccessLevel: domain.CanExecute,
+		}
+	}
+	msg := domain.NewFacts{
+		Entities: []domain.Entity{system},
+	}
+	return msg, nil
 }
 
 func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) {
@@ -106,7 +133,6 @@ func (c *Campaign) AddEntities(entities ...domain.Entity) int {
 			c.relations = append(c.relations, rel)
 			numChanges++
 		}
-
 	}
 	return numChanges
 }

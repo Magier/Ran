@@ -20,6 +20,12 @@ const (
 )
 
 type IdentityType string
+type AccessLevel int
+
+const (
+	NoAccess AccessLevel = 1 << iota
+	CanExecute
+)
 
 const (
 	AdminUser      IdentityType = "AdminUser"
@@ -83,6 +89,24 @@ type Ownable interface {
 	SetOwner(name, kind string) Ownable
 }
 
+type System struct {
+	Name        string
+	OS          string
+	IP          net.IP
+	AccessLevel AccessLevel
+}
+
+func (s System) GetId() string {
+	return "system/" + s.Name
+}
+func (s System) GetName() string {
+	return s.Name
+}
+
+func (s System) GetKind() string {
+	return "System"
+}
+
 type Namespaced interface {
 	GetNamespace() string
 }
@@ -107,6 +131,19 @@ type K8sEntity struct {
 	CreatedAt   string
 	Owner       OwnerRef
 	IP          net.IP
+	AccessLevel AccessLevel
+}
+
+func NewK8sEntity(name, kind, namespace string) K8sEntity {
+	return K8sEntity{
+		Name:        name,
+		Kind:        kind,
+		Namespace:   namespace,
+		AccessLevel: NoAccess,
+		Labels:      make(map[string]string),
+		Annotations: make(map[string]string),
+		// TODO set createdAt here
+	}
 }
 
 func (e K8sEntity) GetId() string {

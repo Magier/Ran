@@ -70,6 +70,7 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 	defer ln.Close()
 
 	reportOpenListeners(rpc, bus, c.GetServerIp(), c.config.LPort)
+	reportEstablishedSessions(rpc, bus)
 
 	// Open the event stream to be able to collect all events sent by  the server
 	eventStream, err := rpc.Events(context.Background(), &commonpb.Empty{})
@@ -223,6 +224,26 @@ func reportOpenListeners(rpc rpcpb.SliverRPCClient, bus bus.MessageBus, serverIp
 		})
 		if err != nil {
 			slog.Error("Error publishing listener event: " + err.Error())
+		}
+	}
+}
+
+func reportEstablishedSessions(rpc rpcpb.SliverRPCClient, bus bus.MessageBus) {
+	sessions, err := rpc.GetSessions(context.Background(), &commonpb.Empty{})
+	if err != nil {
+		slog.Error(err.Error())
+	}
+	for _, session := range sessions.GetSessions() {
+		err = bus.Publish(SessionStarted{
+			Session: Session{
+				Id:       session.ID,
+				Hostname: session.Hostname,
+				Os:       session.OS,
+				User:     session.Username,
+			},
+		})
+		if err != nil {
+			slog.Error("Error publishing pre-existing session(started) event: " + err.Error())
 		}
 	}
 }

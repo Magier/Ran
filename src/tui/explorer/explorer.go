@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/tui/icon"
@@ -158,13 +157,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd = nil
 
 	switch msg := msg.(type) {
-	case c2.SessionStarted:
-		addNode(m.entitiesTree, nil, msg.Session.Id, msg.Session.Hostname, "Implant")
-		m.entries = buildShownEntries(m.entitiesTree, 0)
-		// m.tree = buildShownTree(m, m.entitiesTree)
-		if m.cursor == -1 {
-			m.cursor = 0
-		}
 	case domain.KnowledgeUpdated:
 		m = m.rebuildEntries()
 		// m.tree = buildShownTree(m, m.entitiesTree)
@@ -213,6 +205,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 func (m Model) rebuildEntries() Model {
 	// TODO: keep track of what was expanded and re-expand it after rebuilding
+	expandedNodes := make(map[string]struct{})
+	m.entitiesTree.iterate(func(n *Node) bool {
+		if n.isExpanded {
+			expandedNodes[n.id] = struct{}{}
+		}
+		return n.isExpanded
+	})
+
 	m.entitiesTree = &Node{
 		isExpanded: true,
 		children: Children{
@@ -221,7 +221,7 @@ func (m Model) rebuildEntries() Model {
 	}
 	entities := m.campaign.GetEntities()
 	for _, entity := range entities {
-		addEntity(m, entity)
+		addEntity(m, entity, expandedNodes)
 	}
 	m.entries = buildShownEntries(m.entitiesTree, 0)
 	return m
@@ -237,6 +237,7 @@ func (m Model) View() string {
 	// TODO: implement scrolling for big lists
 	var s string
 	lineStyle := lipgloss.NewStyle().Faint(true).Inline(true)
+	pwndStyle := lipgloss.NewStyle().Faint(true).Inline(true).Foreground(theme.SecondaryColor)
 	// lineStyle := lipgloss.NewStyle().Foreground(theme.InactiveColor).Faint(true).Inline(true)
 
 	// highlightSelectedFunc := func(_ tree.Children, i int) lipgloss.Style {
@@ -248,14 +249,21 @@ func (m Model) View() string {
 	// m.tree.ItemStyleFunc(highlightSelectedFunc)
 
 	lines := []string{}
+	var style lipgloss.Style
 	for _, entry := range m.entries {
-		lines = append(lines, lineStyle.Render(entry.text))
+		style = lineStyle
+		if entry.ref.isPwnd {
+			style = pwndStyle
+		}
+
+		lines = append(lines, style.Render(entry.text))
 	}
 
 	selectedStyle := lipgloss.NewStyle().Bold(true).UnsetForeground().Background(theme.PrimaryColor)
 	if m.cursor >= 0 && len(lines) > 0 {
 		// use the raw text again to avoid conflicting styles
-		lines[m.cursor] = selectedStyle.Render(m.entries[m.cursor].text)
+		e := m.entries[m.cursor]
+		lines[m.cursor] = selectedStyle.Render(e.text)
 	}
 	s += strings.Join(lines, "\n")
 	// s += m.tree.String()
