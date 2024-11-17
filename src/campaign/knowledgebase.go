@@ -97,6 +97,7 @@ func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 			K8sEntity: domain.K8sEntity{
 				Id:        id.String(),
 				Name:      ownerName,
+				Kind:      "Workload",
 				Namespace: pod.GetNamespace(),
 			},
 			ResourceOwner: resOwner,

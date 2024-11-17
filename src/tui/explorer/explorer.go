@@ -38,13 +38,6 @@ type Model struct {
 }
 
 func NewExplorer(c *campaign.Campaign, width float32) Model {
-	root := &Node{
-		isExpanded: true,
-		children: Children{
-			children: make([]*Node, 0),
-		},
-	}
-
 	var style = lipgloss.NewStyle().
 		Bold(true).
 		// Foreground(lipgloss.Color("#7D56F4")).
@@ -62,7 +55,7 @@ func NewExplorer(c *campaign.Campaign, width float32) Model {
 
 	return Model{
 		campaign:     c,
-		entitiesTree: root,
+		entitiesTree: newTree(),
 		tree:         tree.New(),
 		focused:      false,
 		width:        width,
@@ -75,15 +68,15 @@ func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *Model) numVisibleEntries() int {
-	i := m.entitiesTree.Children().Length()
-	for _, node := range m.entitiesTree.children.children {
-		if node.isExpanded {
-			i += node.Children().Length()
-		}
-	}
-	return i
-}
+// func (m *Model) numVisibleEntries() int {
+// 	i := m.entitiesTree.Children().Length()
+// 	for _, node := range m.entitiesTree.children.children {
+// 		if node.isExpanded {
+// 			i += node.Children().Length()
+// 		}
+// 	}
+// 	return i
+// }
 
 func getIcon(kind string) string {
 	switch kind {
@@ -139,19 +132,19 @@ func MyEnumerator(children tree.Children, index int) string {
 	return "├──"
 }
 
-func buildShownTree(m Model, orig *Node) *tree.Tree {
-	t := tree.New().Enumerator(MyEnumerator)
+// func buildShownTree(m Model, orig *Node) *tree.Tree {
+// 	t := tree.New().Enumerator(MyEnumerator)
 
-	for _, child := range orig.children.children {
-		sub := tree.Root(child)
-		if child.children.Length() > 0 {
-			nodes := buildShownTree(m, child)
-			sub.Child(nodes)
-		}
-		t.Child(sub)
-	}
-	return t
-}
+// 	for _, child := range orig.children.children {
+// 		sub := tree.Root(child)
+// 		if child.children.Length() > 0 {
+// 			nodes := buildShownTree(m, child)
+// 			sub.Child(nodes)
+// 		}
+// 		t.Child(sub)
+// 	}
+// 	return t
+// }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd = nil
@@ -159,7 +152,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case domain.KnowledgeUpdated:
 		m = m.rebuildEntries()
-		// m.tree = buildShownTree(m, m.entitiesTree)
 		if m.cursor == -1 {
 			m.cursor = 0
 		}
@@ -204,24 +196,20 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) rebuildEntries() Model {
-	// TODO: keep track of what was expanded and re-expand it after rebuilding
+	// keep track of previously opened nodes
 	expandedNodes := make(map[string]struct{})
-	m.entitiesTree.iterate(func(n *Node) bool {
+	m.entitiesTree.traverse(func(n *Node) bool {
 		if n.isExpanded {
 			expandedNodes[n.id] = struct{}{}
 		}
 		return n.isExpanded
 	})
 
-	m.entitiesTree = &Node{
-		isExpanded: true,
-		children: Children{
-			children: make([]*Node, 0),
-		},
-	}
+	// start new tree from scratch
+	m.entitiesTree = newTree()
 	entities := m.campaign.GetEntities()
 	for _, entity := range entities {
-		addEntity(m, entity, expandedNodes)
+		addEntity(m.entitiesTree, m.campaign, entity, expandedNodes)
 	}
 	m.entries = buildShownEntries(m.entitiesTree, 0)
 	return m
@@ -237,16 +225,7 @@ func (m Model) View() string {
 	// TODO: implement scrolling for big lists
 	var s string
 	lineStyle := lipgloss.NewStyle().Faint(true).Inline(true)
-	pwndStyle := lipgloss.NewStyle().Faint(true).Inline(true).Foreground(theme.SecondaryColor)
-	// lineStyle := lipgloss.NewStyle().Foreground(theme.InactiveColor).Faint(true).Inline(true)
-
-	// highlightSelectedFunc := func(_ tree.Children, i int) lipgloss.Style {
-	// 	if m.cursor == i {
-	// 		return lipgloss.NewStyle().Background(lipgloss.Color("#7D56F4"))
-	// 	}
-	// 	return lipgloss.NewStyle().Faint(true)
-	// }
-	// m.tree.ItemStyleFunc(highlightSelectedFunc)
+	pwndStyle := lipgloss.NewStyle().Faint(true).Inline(true).Foreground(theme.PositiveColor)
 
 	lines := []string{}
 	var style lipgloss.Style
@@ -266,7 +245,6 @@ func (m Model) View() string {
 		lines[m.cursor] = selectedStyle.Render(e.text)
 	}
 	s += strings.Join(lines, "\n")
-	// s += m.tree.String()
 
 	if m.focused {
 		activeStyle := m.style.BorderForeground(theme.PrimaryColor)
