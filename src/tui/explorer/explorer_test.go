@@ -8,25 +8,51 @@ import (
 )
 
 func TestAddEntity(t *testing.T) {
-	// add pod
-	entities := []domain.Entity{}
+	t.Run("add Pod before its workload", func(t *testing.T) {
+		wl := domain.NewDeployment("test-workload", "default")
+		pod := domain.NewPod(wl.Name+"-1", wl.Namespace)
+		pod.Owner = domain.OwnerRef{Name: wl.Name, Kind: wl.Kind}
 
-	c := campaign.NewCampaign()
-	c.AddEntities(entities)
-	model := NewExplorer(c, 0)
+		root := newTree()
+		c := campaign.NewCampaign()
+		// add the pod first
+		addEntity(root, c, pod, nil)
+		addEntity(root, c, wl, nil)
 
-	model.rebuildEntries()
+		if len(root.children.children) != 1 {
+			t.Error("Root node must have a child node for the namespace")
+		}
+		nsNode := root.children.At(0)
+		if nsNode.Children().Length() != 1 {
+			t.Error("Only 1 workload node should be in the namespace")
+		}
+		wlNode := nsNode.Children().At(0)
+		if wlNode.Children().Length() != 1 {
+			t.Error("Exactly 1 Pod node should be in the workload")
+		}
+	})
 
-	// base := newResourceGroup("base")
-	// groups := []string{"cluster", "namespace", "workload"}
-	// addNode(&base, groups, "deployment")
+	t.Run("add Pod after its workload", func(t *testing.T) {
+		wl := domain.NewDeployment("test-workload", "default")
+		pod := domain.NewPod(wl.Name+"-1", wl.Namespace)
+		pod.Owner = domain.OwnerRef{Name: wl.Name, Kind: wl.Kind}
 
-	// if len(base.subGroups) != 1 {
-	// 	t.Fatalf("expected 1 group, got %d", len(base.subGroups))
-	// }
+		root := newTree()
+		c := campaign.NewCampaign()
+		// add the workload first
+		addEntity(root, c, wl, nil)
+		addEntity(root, c, pod, nil)
 
-	// test := base.subGroups["cluster"].subGroups["namespace"].subGroups["workload"].resources[0] == "deployment"
-	// if !test {
-	// 	t.Fatalf("expected 'deployment' to be at desired subgroups")
-	// }
+		if len(root.children.children) != 1 {
+			t.Error("Root node must have a child node for the namespace")
+		}
+		nsNode := root.children.At(0)
+		if nsNode.Children().Length() != 1 {
+			t.Error("Only 1 workload node should be in the namespace")
+		}
+		wlNode := nsNode.Children().At(0)
+		if wlNode.Children().Length() != 1 {
+			t.Error("Exactly 1 Pod node should be in the workload")
+		}
+	})
 }

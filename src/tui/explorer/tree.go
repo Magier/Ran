@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	tree "github.com/charmbracelet/lipgloss/tree"
 )
@@ -52,12 +53,21 @@ func (n *Node) Hidden() bool {
 	return !n.isExpanded
 }
 
-// func (n *Node) At(index int) *Node {
-// 	return n.children[index]
-// }
-// func (n *Node) Length() int {
-// 	return len(n.children)
-// }
+//	func (n *Node) At(index int) *Node {
+//		return n.children[index]
+//	}
+//
+//	func (n *Node) Length() int {
+//		return len(n.children)
+//	}
+func newTree() *Node {
+	return &Node{
+		isExpanded: true,
+		children: Children{
+			children: make([]*Node, 0),
+		},
+	}
+}
 
 func newNode(id, name, kind string) *Node {
 	return &Node{
@@ -84,29 +94,30 @@ func (n Node) findChild(name, parent string, kind, parentKind string) (*Node, bo
 	return nil, false
 }
 
-func (n *Node) iterate(yield func(n *Node) bool) {
-	// indent := strings.Repeat("  ", level*2)
-
+// Traverses the tree of children in postorder.
+// Call the provided yiel dfunction for ever visited node.
+// The return type of the yield function dictates, if the subtree of the node will be traversed as well.
+func (n *Node) traverse(yield func(n *Node) bool) {
 	sort.Slice(n.children.children, func(i, j int) bool {
 		return n.children.children[i].name < n.children.children[j].name
 	})
 
 	for _, child := range n.children.children {
-		// text := indent + child.String()
-		// lines = append(lines, entry{text: text, ref: child})
 		if yield(child) {
-			child.iterate(yield)
-			// lines = append(lines, buildShownEntries(child, level+1)...)
+			child.traverse(yield)
 		}
 	}
-	// return lines
 }
 
-func addEntity(m Model, entity domain.Entity, expandedNodes map[string]struct{}) {
+func addEntity(tree *Node, campaign *campaign.Campaign, entity domain.Entity, expandedNodes map[string]struct{}) {
 	parentNodes := make([]*Node, 0)
 
+	if expandedNodes == nil {
+		expandedNodes = make(map[string]struct{})
+	}
+
 	if _, ok := entity.(domain.Namespace); ok {
-		n := addNode(m.entitiesTree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
+		n := addNode(tree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
 		if n != nil {
 			_, isExpanded := expandedNodes[n.id]
 			n.isExpanded = isExpanded
@@ -121,8 +132,9 @@ func addEntity(m Model, entity domain.Entity, expandedNodes map[string]struct{})
 	}
 
 	namespaced, ok := entity.(domain.Namespaced)
+	var nsName string
 	if ok {
-		nsName := namespaced.GetNamespace()
+		nsName = namespaced.GetNamespace()
 		if nsName == "" {
 			nsName = "?"
 		}
@@ -135,15 +147,18 @@ func addEntity(m Model, entity domain.Entity, expandedNodes map[string]struct{})
 
 	ownerRef, ok := k8sEntity.GetOwner()
 	if ok {
-		ownerId := ownerRef.Uid
-		ownerName := ownerRef.Name
 		ownerKind := ownerRef.Kind
+		if ownerKind == "" {
+			ownerKind = "Workload"
+		}
+		ownerId := domain.GenerateId(ownerRef.Name, ownerKind, nsName)
+		ownerName := ownerRef.Name
 
 		// find top level owner of the entity for grouping within a namespaces
-		owner, ok := m.campaign.GetEntityById(ownerRef.Uid)
+		owner, ok := campaign.GetEntityById(ownerId)
 		if !ok {
 			e := entity.(domain.Namespaced)
-			owner, ok = m.campaign.GetEntityByName(ownerRef.Name, e.GetNamespace())
+			owner, ok = campaign.GetEntityByName(ownerName, e.GetNamespace())
 		}
 		// use information of the resolved owner, if possible
 		if ok {
@@ -159,7 +174,7 @@ func addEntity(m Model, entity domain.Entity, expandedNodes map[string]struct{})
 		parentNodes = append(parentNodes, n)
 	}
 
-	n := addNode(m.entitiesTree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
+	n := addNode(tree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())
 	if n != nil {
 		_, isExpanded := expandedNodes[n.id]
 		n.isExpanded = isExpanded

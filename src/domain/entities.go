@@ -115,6 +115,16 @@ type EntityPlaceholder interface {
 	IsAbstract() bool
 }
 
+func GenerateId(name, kind, ns string) string {
+	kindShortName := GetResourceShortName(kind)
+	id := "/" + kindShortName + "/" + name
+	// if it doesn't start with "ns/" then ID has pattern "/kind", which equate to a clusterwide resource
+	if ns != "" {
+		id = "ns/" + ns + id
+	}
+	return id
+}
+
 type OwnerRef struct {
 	Name string
 	Kind string
@@ -147,7 +157,7 @@ func NewK8sEntity(name, kind, namespace string) K8sEntity {
 }
 
 func (e K8sEntity) GetId() string {
-	return e.Id
+	return GenerateId(e.Name, e.Kind, e.Namespace)
 }
 
 func (e K8sEntity) GetName() string {
@@ -231,8 +241,9 @@ type Pod struct {
 	EnvVars map[string]string
 }
 
-func (p Pod) GetId() string {
-	return fmt.Sprintf("ns/%s/pod/%s", p.GetNamespace(), p.GetName())
+func NewPod(name, ns string) Pod {
+	entity := NewK8sEntity(name, "Pod", ns)
+	return Pod{K8sEntity: entity}
 }
 
 type Deployment struct {
@@ -251,10 +262,6 @@ func NewDeployment(name, ns string) Deployment {
 	}
 }
 
-func (d Deployment) GetId() string {
-	return fmt.Sprintf("ns/%s/depl/%s", d.GetNamespace(), d.GetName())
-}
-
 type Service struct {
 	K8sEntity
 	// NamespacedResource
@@ -264,18 +271,10 @@ type Service struct {
 	Ports   map[string]int
 }
 
-func (s Service) GetId() string {
-	return fmt.Sprintf("ns/%s/svc/%s", s.GetNamespace(), s.GetName())
-}
-
 type ReplicaSet struct {
 	K8sEntity
 	ResourceOwner
 	// NamespacedResource
-}
-
-func (s ReplicaSet) GetId() string {
-	return fmt.Sprintf("ns/%s/rs/%s", s.GetNamespace(), s.GetName())
 }
 
 type StatefulSet struct {
@@ -284,18 +283,10 @@ type StatefulSet struct {
 	// NamespacedResource
 }
 
-func (s StatefulSet) GetId() string {
-	return fmt.Sprintf("ns/%s/sts/%s", s.GetNamespace(), s.GetName())
-}
-
 type DaemonSet struct {
 	K8sEntity
 	ResourceOwner
 	// NamespacedResource
-}
-
-func (s DaemonSet) GetId() string {
-	return fmt.Sprintf("ns/%s/ds/%s", s.GetNamespace(), s.GetName())
 }
 
 type K8sNode struct {
