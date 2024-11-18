@@ -7,6 +7,7 @@ import (
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/tui/icon"
+	"github.com/Magier/Ran/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -18,7 +19,6 @@ type ColorConfig struct {
 
 var (
 	primaryColor    = lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
-	positiveColor   = lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"}
 	negativeColor   = lipgloss.AdaptiveColor{Light: "#FF5F87", Dark: "#FF5B23"}
 	backgroundColor = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#353533"}
 	passiveColor    = lipgloss.AdaptiveColor{Light: "#343433", Dark: "#C1C6B2"}
@@ -29,7 +29,7 @@ var (
 			Background(backgroundColor)
 
 	activeColorConfig = ColorConfig{
-		Foreground: positiveColor,
+		Foreground: theme.PositiveColor,
 		Background: backgroundColor,
 	}
 

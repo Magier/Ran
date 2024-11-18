@@ -60,11 +60,7 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 			entities = append(entities, kubeSystemNs)
 
 			apiServer := domain.ApiServer{
-				Pod: domain.Pod{
-					K8sEntity: domain.K8sEntity{
-						Namespace: "kube-system",
-					},
-				},
+				Pod: domain.NewPod("api-server", "kube-system"),
 			}
 			rel.Target = apiServer.Id
 			entities = append(entities, apiServer)

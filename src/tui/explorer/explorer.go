@@ -162,15 +162,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				if m.cursor > 0 {
 					m.cursor--
 				}
-
+				cmd = selectEntity(m.entries[m.cursor].ref)
 			case "down", "j":
 				if m.cursor < len(m.entries)-1 {
 					m.cursor++
 				}
+				cmd = selectEntity(m.entries[m.cursor].ref)
 			case " ":
 				m.entries[m.cursor].ref.isExpanded = !m.entries[m.cursor].ref.isExpanded
 				m.entries = buildShownEntries(m.entitiesTree, 0)
-				// m.tree.Children().At(m.cursor)
 			case "right", "l":
 				m.entries[m.cursor].ref.isExpanded = true
 				m.entries = buildShownEntries(m.entitiesTree, 0)
@@ -179,12 +179,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				m.entries = buildShownEntries(m.entitiesTree, 0)
 			case "g": // go to the top
 				m.cursor = 0
+				cmd = selectEntity(m.entries[m.cursor].ref)
 			case "G": // go to the bottom
 				m.cursor = len(m.entries) - 1
+				cmd = selectEntity(m.entries[m.cursor].ref)
 			case "enter":
-				if m.cursor >= 0 {
-					cmd = selectEntity(m.entries[m.cursor].ref)
-				}
+				// if m.cursor >= 0 {
+				// 	cmd = selectEntity(m.entries[m.cursor].ref)
+				// }
 			}
 		}
 	case tea.WindowSizeMsg:
