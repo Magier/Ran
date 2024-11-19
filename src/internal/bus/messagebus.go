@@ -27,6 +27,7 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 			continue
 		}
 		if len(b.subscribers[msgName(msg)]) == 0 {
+			slog.Debug("No subscribers for event " + msgName(msg))
 		} else {
 			slog.Debug("🔊 " + msg.String())
 		}
