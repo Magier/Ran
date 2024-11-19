@@ -173,17 +173,18 @@ func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error
 	// ensure target is actually a pod
 	if pod, ok := target.Entity.(domain.Pod); ok {
 		targetName = target.Name
-	} else {
-		workload, ok := target.Entity.(domain.Workload)
-		if ok {
-			pods := workload.GetPods()
-			if len(pods) > 0 {
-				pod = pods[0]
-			} else {
-				return "", "", fmt.Errorf("No target pod found in workload '%s'", target.Name)
-			}
+	} else if workload, ok := target.Entity.(domain.Workload); ok {
+		pods := workload.GetPods()
+		if len(pods) > 0 {
+			pod = pods[0]
+			targetName = pod.Name
+		} else {
+			return "", "", fmt.Errorf("No target pod found in workload '%s'", target.Name)
 		}
-		targetName = pod.Name
+	} else if e, ok := target.Entity.(domain.K8sEntity); ok {
+		if e.Kind == "Pod" {
+			targetName = e.Name
+		}
 	}
 
 	// TODO: handle case of multiple containers
