@@ -179,9 +179,9 @@ func addEntity(tree *Node, campaign *campaign.Campaign, entity domain.Entity, ex
 		_, isExpanded := expandedNodes[n.id]
 		n.isExpanded = isExpanded
 		if pod, ok := entity.(domain.K8sEntity); ok {
-			n.isPwnd = pod.AccessLevel > domain.NoAccess
+			n.isPwnd = pod.AccessLevel != domain.NoAccess
 		} else if sys, ok := entity.(domain.System); ok {
-			n.isPwnd = sys.AccessLevel > domain.NoAccess
+			n.isPwnd = sys.AccessLevel != domain.NoAccess
 		}
 	}
 }

@@ -19,12 +19,29 @@ const (
 	mTLS  Protocol = "mTLS"
 )
 
-type IdentityType string
-type AccessLevel int
+type Requirement interface {
+	Satisfies(any) bool
+}
 
-const (
-	NoAccess AccessLevel = 1 << iota
-	CanExecute
+type IdentityType string
+type AccessLevel struct {
+	user  int // 0 = none, 1 = user, 2 = root
+	level int // 0 = none, 1 = read, 2 = exec
+}
+
+func (lvl AccessLevel) Satisfies(value any) bool {
+	if v, ok := value.(AccessLevel); ok {
+		return v.user <= lvl.user && v.level <= lvl.level
+	}
+	return false
+}
+
+var (
+	NoAccess = AccessLevel{user: 0, level: 0}
+	UserRead = AccessLevel{user: 1, level: 1}
+	UserExec = AccessLevel{user: 1, level: 2}
+	RootRead = AccessLevel{user: 2, level: 1}
+	RootExec = AccessLevel{user: 2, level: 2}
 )
 
 const (
@@ -85,6 +102,7 @@ type Asset interface {
 }
 
 type Ownable interface {
+	GetId() string
 	GetOwner() (OwnerRef, bool)
 	SetOwner(name, kind string) Ownable
 }

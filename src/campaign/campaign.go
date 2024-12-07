@@ -27,7 +27,11 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 	for _, e := range c.kb.GetEntities() {
 		if strings.HasSuffix(e.GetId(), "pod/"+ev.Session.Hostname) {
 			if pod, ok := e.(domain.K8sEntity); ok {
-				pod.AccessLevel = domain.CanExecute
+				if ev.Session.IsRoot {
+					pod.AccessLevel = domain.RootExec
+				} else {
+					pod.AccessLevel = domain.UserExec
+				}
 				system = pod
 			} else {
 				slog.Warn("onNewSession: Dont know how to update accesslevel of " + e.GetId())
@@ -38,14 +42,21 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 	}
 
 	if system == nil {
+		accessLevel := domain.UserExec
+		if ev.Session.IsRoot {
+			accessLevel = domain.RootExec
+		}
+
 		system = domain.System{
 			Name:        ev.Session.Hostname,
 			OS:          ev.Session.Os,
-			AccessLevel: domain.CanExecute,
+			AccessLevel: accessLevel,
 		}
 	}
+
 	msg := domain.NewFacts{
-		Entities: []domain.Entity{system},
+		Entities:  []domain.Entity{system},
+		Relations: []domain.Relation{},
 	}
 	return msg, nil
 }
@@ -228,17 +239,23 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 		execCmd.Cmd = template
 	}
 
+	var target domain.Entity
 	// check if it is targeted
 	if t, ok := action.(domain.Targeter); ok {
-		e, ok := c.kb.GetEntity(targetId)
+		target, ok = c.kb.GetEntity(targetId)
 		if ok {
-			execCmd.Target = t.SetTarget(e)
+			execCmd.Target = t.SetTarget(target)
 		}
-
 	}
 
-	// TODO: check requirements of the TTP
 	// if it need userRead/ userExecute, identify the necessary channel
+	if execCmd.TTP.Requires.AccessLevel != domain.NoAccess {
+		if system, ok := target.(domain.K8sEntity); ok {
+			if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
+				execCmd.C2Channel = nil
+			}
+		}
+	}
 
 	return execCmd, nil
 }

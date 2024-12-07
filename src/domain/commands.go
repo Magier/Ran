@@ -15,6 +15,13 @@ func (c CommandImpl) IsCommand() {}
 type TTPParams interface{}
 
 type ResultHandler = func(source Entity, args ...any) (Event, error)
+
+type Requirements struct {
+	Kind           string
+	AccessLevel    AccessLevel
+	RbacPermission string
+}
+
 type TTP struct {
 	ID          string
 	Name        string
@@ -34,7 +41,8 @@ type TTP struct {
 	Target          string
 	TargetNamespace string
 
-	Requires      map[string]string
+	// Requires      map[string]string
+	Requires      Requirements
 	Effect        func() string
 	ResultHandler ResultHandler
 	Params        TTPParams

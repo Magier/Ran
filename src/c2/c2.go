@@ -25,6 +25,7 @@ type Session struct {
 	Hostname string
 	Os       string
 	User     string
+	IsRoot   bool
 }
 
 func StartC2(ctx context.Context, mb bus.MessageBus) {
@@ -44,8 +45,8 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		return nil, fmt.Errorf("No suitable client found to start listener")
 	})
 
-	mb.Subscribe(&domain.ExecTTP{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		cmd := msg.(*domain.ExecTTP)
+	mb.Subscribe(domain.ExecTTP{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		cmd := msg.(domain.ExecTTP)
 		// check technique to execute CMD -> kubectl exec uses API
 		// or shell listener?
 		switch cmd.C2Channel.(type) {
