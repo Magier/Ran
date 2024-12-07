@@ -1,23 +1,112 @@
 package campaign
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/Magier/Ran/domain"
+	"github.com/dominikbraun/graph"
 	"github.com/google/uuid"
 )
 
-func extractRelatedEntities(campaign *Campaign, entity domain.Entity) ([]domain.Entity, []domain.Relation) {
-	entities := []domain.Entity{}
+type KnowledgeGraph = graph.Graph[string, domain.Entity]
+
+type KnowledgeBase interface {
+	GetEntity(id string) (domain.Entity, bool)
+	GetEntities() map[string]domain.Entity
+	AddEntities(entities ...domain.Entity) (int, error)
+	AddEntity(entity domain.Entity) error
+}
+
+type BuiltInKnowledgeBase struct {
+	graph     graph.Graph[string, domain.Entity]
+	Entities  map[string]domain.Entity
+	Relations []domain.Relation
+}
+
+func entityHash(e domain.Entity) string {
+	return e.GetId()
+}
+
+func InitGraph() BuiltInKnowledgeBase {
+	g := graph.New(entityHash, graph.Directed())
+
+	kg := BuiltInKnowledgeBase{
+		graph:     g,
+		Entities:  make(map[string]domain.Entity),
+		Relations: make([]domain.Relation, 0),
+	}
+
+	return kg
+}
+
+func (kg BuiltInKnowledgeBase) AddEntity(e domain.Entity) error {
+	kg.Entities[e.GetId()] = e
+	return kg.graph.AddVertex(e)
+}
+
+func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, error) {
+	numChanges := 0
+	for _, entity := range entities {
+		otherEntities, relations := extractRelatedEntities(kg.Entities, entity)
+		_ = kg.AddEntity(entity)
+		// kg.Entities[entity.GetId()] = entity
+		numChanges++
+		for _, e := range otherEntities {
+			_ = kg.AddEntity(e)
+			// kg.Entities[e.GetId()] = e
+			numChanges++
+		}
+
+		for _, rel := range relations {
+			if ownsRel, ok := rel.(domain.Owns); ok {
+				if ownable, ok := entity.(domain.Ownable); ok {
+					ownerRef, _ := ownable.GetOwner()
+					if ownerRef.Name != ownsRel.Owner.GetName() {
+						// TODO: Kind is empty!! fix it
+						e := ownable.SetOwner(ownsRel.Owner.GetName(), ownerRef.Kind)
+						_ = kg.AddEntity(e.(domain.Entity))
+						// kg.Entities[entity.GetId()] = e.(domain.Entity)
+					}
+				}
+			}
+
+			err := kg.graph.AddEdge(rel.GetSource(), rel.GetTarget(), graph.EdgeAttribute("label", rel.GetRelationName()))
+			if err != nil {
+				slog.Warn(fmt.Sprintf("Failed to insert relationship '%s-[%s]->%s'", rel.GetSource(), rel.GetTarget(), rel.GetRelationName()))
+			} else {
+				numChanges++
+			}
+			kg.Relations = append(kg.Relations, rel)
+		}
+	}
+	return numChanges, nil
+}
+
+func (kg BuiltInKnowledgeBase) GetEntity(id string) (domain.Entity, bool) {
+	e, ok := kg.Entities[id]
+	return e, ok
+}
+
+func (kg BuiltInKnowledgeBase) GetEntities() map[string]domain.Entity {
+	return kg.Entities
+}
+
+// func (kg BuiltInKnowledgeBase) AddRelation() error {
+// 	kg.Relations = append(kg.Relations, rel)
+// }
+
+func extractRelatedEntities(entities map[string]domain.Entity, entity domain.Entity) ([]domain.Entity, []domain.Relation) {
+	newEntities := []domain.Entity{}
 	relations := []domain.Relation{}
 
 	mapNsRelation := func(e domain.Namespaced) bool {
 		if nsName := e.GetNamespace(); nsName != "" {
 			nsId := "ns/" + nsName
-			ns, ok := campaign.entities[nsId]
+			ns, ok := entities[nsId]
 			if !ok {
 				ns = domain.Namespace{Name: nsName}
-				entities = append(entities, ns)
+				newEntities = append(newEntities, ns)
 			}
 			relations = append(relations, domain.Contains{Container: ns, Object: entity})
 			return true
@@ -27,7 +116,7 @@ func extractRelatedEntities(campaign *Campaign, entity domain.Entity) ([]domain.
 
 	mapPod := func(pod domain.Pod) bool {
 		wl, rel := getWorkloadFromPod(pod)
-		entities = append(entities, wl)
+		newEntities = append(newEntities, wl)
 		relations = append(relations, rel)
 		return mapNsRelation(pod)
 	}
@@ -41,7 +130,7 @@ func extractRelatedEntities(campaign *Campaign, entity domain.Entity) ([]domain.
 		mapNsRelation(e)
 	}
 
-	return entities, relations
+	return newEntities, relations
 }
 
 func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
