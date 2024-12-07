@@ -240,6 +240,7 @@ func reportEstablishedSessions(rpc rpcpb.SliverRPCClient, bus bus.MessageBus) {
 				Hostname: session.Hostname,
 				Os:       session.OS,
 				User:     session.Username,
+				IsRoot:   session.UID == "0",
 			},
 		})
 		if err != nil {
