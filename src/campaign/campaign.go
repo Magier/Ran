@@ -24,7 +24,7 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 	var system domain.Entity
 
 	// see if a pod with that name is already known, if so update it or add a new 'system'
-	for _, e := range c.entities {
+	for _, e := range c.kb.GetEntities() {
 		if strings.HasSuffix(e.GetId(), "pod/"+ev.Session.Hostname) {
 			if pod, ok := e.(domain.K8sEntity); ok {
 				pod.AccessLevel = domain.CanExecute
@@ -60,25 +60,24 @@ func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) 
 }
 
 type Campaign struct {
+	kb             KnowledgeBase
 	activeIdentity string
 	listeners      map[string]domain.Listener
 	sessions       map[string]c2.Session
-	entities       map[string]domain.Entity
-	relations      []domain.Relation
 	identities     map[string]domain.Identity
 }
 
 func (c *Campaign) GetEntities() map[string]domain.Entity {
-	return c.entities
+	return c.kb.GetEntities()
 }
 
 func (c *Campaign) GetEntityById(id string) (domain.Entity, bool) {
-	e, ok := c.entities[id]
+	e, ok := c.kb.GetEntity(id)
 	return e, ok
 }
 
 func (c *Campaign) GetEntityByName(name, ns string) (domain.Entity, bool) {
-	for _, e := range c.entities {
+	for _, e := range c.kb.GetEntities() {
 		nsEntity, ok := e.(domain.Namespaced)
 		if ok && nsEntity.GetNamespace() == ns && e.GetName() == name {
 			return e, true
@@ -108,31 +107,9 @@ func (c *Campaign) GetSessions() []c2.Session {
 }
 
 func (c *Campaign) AddEntities(entities ...domain.Entity) int {
-	numChanges := 0
-	for _, entity := range entities {
-		otherEntities, relations := extractRelatedEntities(c, entity)
-		c.entities[entity.GetId()] = entity
-		numChanges++
-		for _, e := range otherEntities {
-			c.entities[e.GetId()] = e
-			numChanges++
-		}
-
-		for _, rel := range relations {
-			if ownsRel, ok := rel.(domain.Owns); ok {
-				if ownable, ok := entity.(domain.Ownable); ok {
-					ownerRef, _ := ownable.GetOwner()
-					if ownerRef.Name != ownsRel.Owner.GetName() {
-						// TODO: Kind is empty!! fix it
-						e := ownable.SetOwner(ownsRel.Owner.GetName(), ownerRef.Kind)
-						c.entities[entity.GetId()] = e.(domain.Entity)
-					}
-				}
-			}
-
-			c.relations = append(c.relations, rel)
-			numChanges++
-		}
+	numChanges, err := c.kb.AddEntities(entities...)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to insert %d entities: %v", len(entities), err))
 	}
 	return numChanges
 }
@@ -190,10 +167,11 @@ func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (d
 }
 
 func NewCampaign() *Campaign {
+	kg := InitGraph()
+
 	return &Campaign{
+		kb:         kg,
 		sessions:   make(map[string]c2.Session),
-		entities:   make(map[string]domain.Entity),
-		relations:  make([]domain.Relation, 0),
 		listeners:  make(map[string]domain.Listener),
 		identities: make(map[string]domain.Identity),
 	}
@@ -220,8 +198,12 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 	return campaign
 }
 
-func (c Campaign) InflateActionTemplate(action domain.Message, targetId string) (domain.Message, error) {
-	// TODO: do not alter the actual template used fo multiple invocations
+func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.Message, error) {
+	execCmd, ok := action.(domain.ExecTTP)
+	if !ok {
+		return action, fmt.Errorf("expected action to be of type domain.ExecTTP")
+	}
+
 	tmpl, ok := action.(domain.Templater)
 	if ok {
 		template := tmpl.GetTemplate()
@@ -243,19 +225,22 @@ func (c Campaign) InflateActionTemplate(action domain.Message, targetId string) 
 			}
 		}
 
-		tmpl.SetGroundedString(template)
+		execCmd.Cmd = template
 	}
 
 	// check if it is targeted
-	t, ok := action.(domain.Targeter)
-	if ok {
-		e, ok := c.entities[targetId]
+	if t, ok := action.(domain.Targeter); ok {
+		e, ok := c.kb.GetEntity(targetId)
 		if ok {
-			t.SetTarget(e)
+			execCmd.Target = t.SetTarget(e)
 		}
+
 	}
 
-	return action, nil
+	// TODO: check requirements of the TTP
+	// if it need userRead/ userExecute, identify the necessary channel
+
+	return execCmd, nil
 }
 
 // GetListener returns the best suitable listener given the constraints
