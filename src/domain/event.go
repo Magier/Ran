@@ -79,6 +79,16 @@ func (e KnowledgeUpdated) String() string {
 	return fmt.Sprintf("%d facts changed in knowledge base", e.NumChanges)
 }
 
+type ServiceAccountTokenExtracted struct {
+	EventImpl
+	SourceSystemId string
+	Token          string
+}
+
+func (e ServiceAccountTokenExtracted) String() string {
+	return fmt.Sprintf("SA Token extracted")
+}
+
 type EnvVarsExtracted struct {
 	EventImpl
 	Source Entity

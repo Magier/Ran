@@ -285,7 +285,22 @@ func (c SliverClient) stopListener(ev domain.StopListener) (domain.Event, error)
 
 func (c SliverClient) downloadFile(sessionId, path string) ([]byte, error) {
 	ctx := context.Background()
-	dl, err := c.rpc.Download(ctx, &sliverpb.DownloadReq{Path: path, Request: makeRequest(sessionId)})
+	dl, err := c.rpc.Download(ctx, &sliverpb.DownloadReq{Path: path,
+		Request: makeRequest(sessionId)})
+
+	if dl.Encoder == "gzip" {
+		r, err := gzip.NewReader(bytes.NewReader(dl.Data))
+		if err != nil {
+			return nil, fmt.Errorf("Decoding failed %w", err)
+		}
+		raw, err := io.ReadAll(io.Reader(r))
+		r.Close()
+		if err != nil {
+			return nil, fmt.Errorf("Decoding failed %w", err)
+		}
+		dl.Data = raw
+	}
+
 	return dl.GetData(), err
 }
 

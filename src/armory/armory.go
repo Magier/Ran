@@ -214,3 +214,14 @@ func handleEnvVarResult(source domain.Entity, args ...any) (domain.Event, error)
 		Vars:   vars,
 	}, nil
 }
+
+func handleSaTokenRead(source domain.Entity, args ...any) (domain.Event, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("Sa Token Read expects exactly 1 argument - received %d", len(args))
+	}
+	raw := args[0].([]byte)
+	return domain.ServiceAccountTokenExtracted{
+		SourceSystemId: source.GetId(),
+		Token:          string(raw),
+	}, nil
+}
