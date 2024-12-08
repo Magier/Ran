@@ -88,13 +88,13 @@ func (e EnvVarsExtracted) String() string {
 	return fmt.Sprintf("Extracted environment variables from %s", e.Source.GetName())
 }
 
-type ConnectedToExternalC2Server struct {
+type C2Connected struct {
 	EventImpl
 	Name string
-	Ip   string
-	Type string
+	IP   net.IP
+	Kind string
 }
 
-func (e ConnectedToExternalC2Server) String() string {
-	return fmt.Sprintf("Connected to '%s' C2 server on %s", e.Name, e.Ip)
+func (e C2Connected) String() string {
+	return fmt.Sprintf("Connected to '%s' C2 server on %s", e.Name, e.IP)
 }

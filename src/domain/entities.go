@@ -125,6 +125,23 @@ func (s System) GetKind() string {
 	return "System"
 }
 
+type C2System struct {
+	Kind string
+	Name string
+	IP   net.IP
+}
+
+func (s C2System) GetId() string {
+	return "c2/" + s.Kind
+}
+func (s C2System) GetName() string {
+	return s.Name
+}
+
+func (s C2System) GetKind() string {
+	return "C2"
+}
+
 type Namespaced interface {
 	GetNamespace() string
 }

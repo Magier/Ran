@@ -1,11 +1,15 @@
 package domain
 
-import "log/slog"
+import "fmt"
 
 type Relation interface {
 	GetSource() string
 	GetTarget() string
 	GetRelationName() string
+}
+
+func GetRelationId(rel Relation) string {
+	return fmt.Sprintf("%s-[%s]->%s", rel.GetSource(), rel.GetRelationName(), rel.GetTarget())
 }
 
 type Reference struct {
@@ -52,16 +56,64 @@ type Owns struct {
 }
 
 func (r Owns) GetSource() string {
-	return r.Owner.GetName()
+	return r.Owner.GetId()
 }
 func (r Owns) GetTarget() string {
-	if o, ok := r.Object.(K8sEntity); ok {
-		return o.GetName()
-	}
-	slog.Error("Owns target is not a K8sEntity!", "target", r.Object)
-	return "?"
+	return r.Object.GetId()
 }
 
 func (r Owns) GetRelationName() string {
 	return "owns"
+}
+
+type C2Channel interface {
+	Relation
+	GetKind() string
+}
+
+type ImplantC2Channel struct {
+	SessionId string
+	Source    string
+	Kind      string
+	Target    Target
+	Protocol  string
+}
+
+func (ch ImplantC2Channel) GetSource() string {
+	return ch.Source
+}
+
+func (ch ImplantC2Channel) GetTarget() string {
+	return ch.Target.Id
+}
+
+func (ch ImplantC2Channel) GetRelationName() string {
+	return fmt.Sprintf("Implant %s %s Channel", ch.Kind, ch.Protocol)
+}
+
+func (ch ImplantC2Channel) GetKind() string {
+	return ch.Kind
+}
+
+type KubectlExecChannel struct {
+	Source string
+	Cmd    string
+	Target
+}
+
+func (ch KubectlExecChannel) GetSource() string {
+	return ch.Source
+}
+
+func (ch KubectlExecChannel) GetTarget() string {
+	return ch.Target.Name
+}
+
+func (ch KubectlExecChannel) GetRelationName() string {
+	return "Kubectl exec"
+}
+
+func (ch KubectlExecChannel) GetKind() string {
+	// TODO: change this to the identity to use
+	return "exec"
 }

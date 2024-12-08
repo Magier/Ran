@@ -160,7 +160,7 @@ func handleSession(ctx context.Context, bus bus.MessageBus, conn net.Conn, id st
 		// slog.Error("Error reading from connection: " + err.Error())
 	}
 	// results <- os
-	err = bus.Publish(SessionStarted{Session: Session{
+	err = bus.Publish(SessionStarted{C2Kind: "", Session: Session{
 		Id:       id,
 		Hostname: hostname,
 		Os:       os,

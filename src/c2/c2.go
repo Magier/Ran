@@ -7,7 +7,6 @@ import (
 	"net"
 	"sync"
 
-	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
 	k8s "github.com/Magier/Ran/internal/k8sclient"
@@ -21,11 +20,13 @@ type C2Client interface {
 }
 
 type Session struct {
-	Id       string
-	Hostname string
-	Os       string
-	User     string
-	IsRoot   bool
+	Id         string
+	Hostname   string
+	Os         string
+	OsVersion  string
+	User       string
+	RemoteAddr string
+	IsRoot     bool
 }
 
 func StartC2(ctx context.Context, mb bus.MessageBus) {
@@ -50,8 +51,12 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		// check technique to execute CMD -> kubectl exec uses API
 		// or shell listener?
 		switch cmd.C2Channel.(type) {
-		case armory.KubectlExecCmd:
-			stdout, stderr, err := execKubectl(ctx, *cmd)
+		case domain.ImplantC2Channel:
+			if c2, ok := c2Clients[cmd.C2Channel.GetKind()]; ok {
+				c2.Execute(cmd)
+			}
+		case domain.KubectlExecChannel:
+			stdout, stderr, err := execKubectl(ctx, cmd)
 			if err != nil {
 				slog.Warn(err.Error())
 			} else {
@@ -72,10 +77,7 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		return nil, nil
 	})
 
-	err := mb.Publish(C2Started{})
-	if err != nil {
-		slog.Error("C2", "can't publish c2 started event:", err.Error())
-	}
+	// TODO: send command after actually conncting to C2, with the right IP(s)
 
 	var wg sync.WaitGroup
 	for _, client := range c2Clients {
@@ -89,6 +91,7 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 }
 
 func connectToC2(ctx context.Context, mb bus.MessageBus, c2client C2Client) {
+	// successful C2Connect event is sent by the client itself
 	err := c2client.Connect(ctx, mb)
 	if err != nil {
 		err = mb.Publish(C2ConnectFailed{
