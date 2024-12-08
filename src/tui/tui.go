@@ -180,8 +180,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case armorywindow.ActionSelected:
 		target := m.explorer.GetSelectedEntity()
-
-		a, err := m.campaign.InflateActionTemplate(msg.Action, target)
+		a, err := m.campaign.GroundAction(msg.Action, target)
+		// a, err := m.campaign.InflateActionTemplate(msg.Action, target)
 		if err != nil {
 			fmt.Printf("Could not inflate action template: %v\n", err)
 		}
