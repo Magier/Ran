@@ -53,15 +53,14 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		switch cmd.C2Channel.(type) {
 		case domain.ImplantC2Channel:
 			if c2, ok := c2Clients[cmd.C2Channel.GetKind()]; ok {
-				c2.Execute(cmd)
+				return c2.Execute(cmd)
 			}
 		case domain.KubectlExecChannel:
 			stdout, stderr, err := execKubectl(ctx, cmd)
 			if err != nil {
 				slog.Warn(err.Error())
 			} else {
-				msg, err := cmd.TTP.HandleResult(cmd.Target.Entity, stdout, stderr)
-				return msg, err
+				return cmd.TTP.HandleResult(cmd.Target.Entity, stdout, stderr)
 			}
 		}
 		return nil, nil

@@ -136,8 +136,9 @@ func LoadArmory(dir string) (Armory, error) {
 			CommandFn: func(t domain.TTP) domain.Message {
 				return domain.ExecTTP{TTP: t, Cmd: t.Cmd, Args: t.Args} // , Target: domain.Target{}
 			},
-			Requires: domain.Requirements{AccessLevel: domain.UserRead},
-			Effects:  []string{"Pod name", "ServiceAccount name", "Namespace name"},
+			Requires:      domain.Requirements{AccessLevel: domain.UserRead},
+			Effects:       []string{"Pod name", "ServiceAccount name", "Namespace name"},
+			ResultHandler: handleSaTokenRead,
 		},
 
 		{
