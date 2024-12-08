@@ -5,6 +5,7 @@ go 1.22.4
 require (
 	github.com/bishopfox/sliver v1.15.16
 	github.com/charmbracelet/bubbletea v1.1.1
+	github.com/dominikbraun/graph v0.23.0
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.8.1
 	k8s.io/api v0.31.1
@@ -16,7 +17,6 @@ require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dominikbraun/graph v0.23.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect

@@ -1,6 +1,8 @@
 package c2
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -95,9 +97,12 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 			if !ok {
 				c.cmdChannel = nil
 			}
-			err = c.handleCommand(cmd)
+			event, err := c.handleCommand(cmd)
 			if err != nil {
 				slog.Error("Sliver C2", "Could not send cmd", err.Error())
+			}
+			if event != nil {
+
 			}
 		case event := <-events:
 			go handleSliverEvent(bus, event)
@@ -158,29 +163,26 @@ func handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) error {
 	return nil
 }
 
-func (c SliverClient) handleCommand(msg domain.Command) error {
+func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 	switch cmd := msg.(type) {
 	case domain.StartListener:
-		_, err := c.startListener(cmd)
-		return err
+		return c.startListener(cmd)
 	case domain.StopListener:
-		_, err := c.stopListener(cmd)
-		return err
+		return c.stopListener(cmd)
 	case domain.ExecTTP:
 		c2Channel := cmd.C2Channel.(domain.ImplantC2Channel)
 		switch cmd.TTP.Cmd {
 		case "get_file":
 			if len(cmd.TTP.Args) == 0 {
-				return fmt.Errorf("Path of file to retrieve is required as argument")
+				return nil, fmt.Errorf("Path of file to retrieve is required as argument")
 			} else if len(cmd.TTP.Args) != 1 {
 				slog.Warn("Received unknown arguments to download file: ", cmd.TTP.Args)
 			}
 			data, err := c.downloadFile(c2Channel.SessionId, cmd.TTP.Args[0])
 			if err != nil {
-				slog.Warn(err.Error())
-			} else {
-				fmt.Sprintf("starst", data)
+				return nil, err
 			}
+			return cmd.TTP.HandleResult(cmd.Target.Entity, data)
 		}
 	}
 
@@ -199,7 +201,7 @@ func (c SliverClient) handleCommand(msg domain.Command) error {
 	// 	log.Fatal(resp.Response.Err)
 	// }
 
-	return nil
+	return nil, nil
 }
 
 func parseSession(session *clientpb.Session) Session {
@@ -261,7 +263,7 @@ func (c SliverClient) Execute(ev domain.Command) (domain.Message, error) {
 	return nil, nil
 }
 
-func (c SliverClient) startListener(ev domain.StartListener) (domain.Message, error) {
+func (c SliverClient) startListener(ev domain.StartListener) (domain.Event, error) {
 	switch ev.Protocol {
 	case domain.HTTP:
 		_, err := c.rpc.StartHTTPListener(context.Background(), &clientpb.HTTPListenerReq{
@@ -277,7 +279,7 @@ func (c SliverClient) startListener(ev domain.StartListener) (domain.Message, er
 	return nil, fmt.Errorf("Starting Sliver %s Listener not yet implemented", ev.Protocol)
 }
 
-func (c SliverClient) stopListener(ev domain.StopListener) (domain.Message, error) {
+func (c SliverClient) stopListener(ev domain.StopListener) (domain.Event, error) {
 	return nil, fmt.Errorf("Stopping Sliver Listener not yet implemented")
 }
 
