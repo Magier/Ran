@@ -18,6 +18,19 @@ func (c CampaignStarted) String() string {
 	return "campaign started"
 }
 
+func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	ev := msg.(domain.C2Connected)
+	system := domain.C2System{
+		Kind: ev.Kind,
+		Name: ev.Name,
+		IP:   ev.IP,
+	}
+
+	return domain.NewFacts{
+		Entities: []domain.Entity{system},
+	}, nil
+}
+
 func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 	c.sessions[ev.Session.Id] = ev.Session
 
@@ -54,9 +67,23 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 		}
 	}
 
+	// convert the communication channel to a relationship
+	c2Channel := domain.ImplantC2Channel{
+		SessionId: ev.Session.Id,
+		Source:    fmt.Sprintf("%s/%s", "c2", ev.C2Kind),
+		Kind:      ev.C2Kind,
+		Target: domain.Target{
+			Id:     system.GetId(),
+			Name:   system.GetName(),
+			Entity: system,
+		},
+		// 	Target    Target
+		// Protocol  string
+	}
+
 	msg := domain.NewFacts{
 		Entities:  []domain.Entity{system},
-		Relations: []domain.Relation{},
+		Relations: []domain.Relation{c2Channel},
 	}
 	return msg, nil
 }
@@ -125,11 +152,20 @@ func (c *Campaign) AddEntities(entities ...domain.Entity) int {
 	return numChanges
 }
 
+func (c *Campaign) AddRelations(relations ...domain.Relation) int {
+	numChanges, err := c.kb.AddRelations(relations...)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to insert %d relations: %v", len(relations), err))
+	}
+	return numChanges
+}
+
 func (c *Campaign) onNewFacts(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	// TODO: properly track how many changes the update contained
 	numChanges := 0
 	ev := msg.(domain.NewFacts)
 	numChanges += c.AddEntities(ev.Entities...)
+	numChanges += c.AddRelations(ev.Relations...)
 
 	for _, identity := range ev.Identities {
 		// if there is no active identity, use the first encountered Id as the active oneo
@@ -191,6 +227,7 @@ func NewCampaign() *Campaign {
 
 func StartCampaign(mb bus.MessageBus) *Campaign {
 	campaign := NewCampaign()
+	mb.Subscribe(domain.C2Connected{}, campaign.onC2Connected)
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.ListenerStopped{}, campaign.onListenerStopped)
 	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -252,12 +289,39 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 	if execCmd.TTP.Requires.AccessLevel != domain.NoAccess {
 		if system, ok := target.(domain.K8sEntity); ok {
 			if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
-				execCmd.C2Channel = nil
+				c2Channel, err := findC2Channel(c.kb, target)
+				if err == nil {
+					execCmd.C2Channel = c2Channel
+				}
+
 			}
 		}
 	}
 
 	return execCmd, nil
+}
+
+func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, error) {
+	for _, entity := range kg.GetEntities() {
+		if c2, ok := entity.(domain.C2System); ok {
+			_, relations, err := kg.GetPath(c2.GetId(), target.GetId())
+			if err != nil {
+				slog.Warn(fmt.Sprintf("Failed to get path from '%s' to '%s'", c2.GetId(), target.GetId()))
+			}
+
+			if l := len(relations); l > 0 {
+				rel := relations[0]
+				if l > 1 {
+					slog.Info(fmt.Sprintf("Got %d possible channels, using 1st one", l))
+				}
+				return rel.(domain.C2Channel), nil
+			}
+		} else {
+			slog.Info("test")
+		}
+	}
+
+	return nil, fmt.Errorf("No channel found")
 }
 
 // GetListener returns the best suitable listener given the constraints

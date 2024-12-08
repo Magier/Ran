@@ -94,10 +94,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.c2ServerStatus.title = "not connected to " + msg.Name
 		m.c2ServerStatus.icon = icon.LanDisconnect
 		m.c2ServerStatus.color = negativeColorConfig
-	case domain.ConnectedToExternalC2Server:
+	case domain.C2Connected:
 		var ipDetail string
-		if msg.Ip != "0.0.0.0" && msg.Ip != "localhost" {
-			ipDetail = fmt.Sprintf(" (%s)", msg.Ip)
+		ip := msg.IP.String()
+		if ip != "0.0.0.0" && ip != "localhost" {
+			ipDetail = fmt.Sprintf(" (%s)", ip)
 		}
 		m.selectedC2 = msg.Name
 		m.c2ServerStatus.title = fmt.Sprintf("C2: %s%s", msg.Name, ipDetail)

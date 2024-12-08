@@ -48,14 +48,6 @@ func (c SessionClosed) String() string {
 	return "Session closed: " + c.Session.Id
 }
 
-type C2Started struct {
-	domain.EventImpl
-}
-
-func (c C2Started) String() string {
-	return "c2 started"
-}
-
 type C2ConnectFailed struct {
 	domain.EventImpl
 	Name   string

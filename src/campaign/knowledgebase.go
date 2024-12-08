@@ -14,14 +14,17 @@ type KnowledgeGraph = graph.Graph[string, domain.Entity]
 type KnowledgeBase interface {
 	GetEntity(id string) (domain.Entity, bool)
 	GetEntities() map[string]domain.Entity
-	AddEntities(entities ...domain.Entity) (int, error)
 	AddEntity(entity domain.Entity) error
+	AddEntities(entities ...domain.Entity) (int, error)
+	AddRelation(relation domain.Relation) error
+	AddRelations(relations ...domain.Relation) (int, error)
+	GetPath(source, target string) ([]domain.Entity, []domain.Relation, error)
 }
 
 type BuiltInKnowledgeBase struct {
 	graph     graph.Graph[string, domain.Entity]
 	Entities  map[string]domain.Entity
-	Relations []domain.Relation
+	Relations map[string]domain.Relation
 }
 
 func entityHash(e domain.Entity) string {
@@ -34,7 +37,7 @@ func InitGraph() BuiltInKnowledgeBase {
 	kg := BuiltInKnowledgeBase{
 		graph:     g,
 		Entities:  make(map[string]domain.Entity),
-		Relations: make([]domain.Relation, 0),
+		Relations: make(map[string]domain.Relation),
 	}
 
 	return kg
@@ -71,13 +74,12 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 				}
 			}
 
-			err := kg.graph.AddEdge(rel.GetSource(), rel.GetTarget(), graph.EdgeAttribute("label", rel.GetRelationName()))
+			err := kg.AddRelation(rel)
 			if err != nil {
-				slog.Warn(fmt.Sprintf("Failed to insert relationship '%s-[%s]->%s'", rel.GetSource(), rel.GetTarget(), rel.GetRelationName()))
+				slog.Warn(fmt.Sprintf("Failed to insert relationship '%s': %v", domain.GetRelationId(rel), err))
 			} else {
 				numChanges++
 			}
-			kg.Relations = append(kg.Relations, rel)
 		}
 	}
 	return numChanges, nil
@@ -90,6 +92,54 @@ func (kg BuiltInKnowledgeBase) GetEntity(id string) (domain.Entity, bool) {
 
 func (kg BuiltInKnowledgeBase) GetEntities() map[string]domain.Entity {
 	return kg.Entities
+}
+func (kg BuiltInKnowledgeBase) AddRelation(rel domain.Relation) error {
+	kg.Relations[domain.GetRelationId(rel)] = rel
+	return kg.graph.AddEdge(rel.GetSource(), rel.GetTarget(),
+		graph.EdgeAttribute("label", rel.GetRelationName()),
+		graph.EdgeData(rel),
+	)
+}
+
+func (kg BuiltInKnowledgeBase) AddRelations(relations ...domain.Relation) (int, error) {
+	numChanges := 0
+	for _, rel := range relations {
+		err := kg.AddRelation(rel)
+		if err == nil {
+			numChanges += 1
+		}
+	}
+	return numChanges, nil
+}
+
+func (kg BuiltInKnowledgeBase) GetPath(source, target string) ([]domain.Entity, []domain.Relation, error) {
+	path, err := graph.ShortestPath(kg.graph, source, target)
+	var _ = path
+	if err != nil {
+		return nil, nil, err
+	}
+
+	adjMatrix, err := kg.graph.AdjacencyMap()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	nodesOnPath := make([]domain.Entity, 0)
+	relations := make([]domain.Relation, 0)
+
+	for i := 0; i < len(path)-1; i++ {
+		srcId := path[i]
+		targetId := path[i+1]
+
+		if adjMap, ok := adjMatrix[srcId]; ok {
+			if edge, ok := adjMap[targetId]; ok {
+				rel := edge.Properties.Data.(domain.Relation)
+				relations = append(relations, rel)
+			}
+		}
+	}
+
+	return nodesOnPath, relations, nil
 }
 
 // func (kg BuiltInKnowledgeBase) AddRelation() error {
