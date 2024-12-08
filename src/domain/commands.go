@@ -32,6 +32,7 @@ type TTP struct {
 	References []string // ms_id::String = ""
 
 	Cmd  string
+	Args []string
 	Port uint
 
 	Command   Command
@@ -44,6 +45,7 @@ type TTP struct {
 	// Requires      map[string]string
 	Requires      Requirements
 	Effect        func() string
+	Effects       []string
 	ResultHandler ResultHandler
 	Params        TTPParams
 
@@ -74,12 +76,12 @@ func (ttp TTP) HandleResult(source Entity, args ...any) (Event, error) {
 
 type Templater interface {
 	GetTemplate() string
-	SetGroundedString(string)
+	GroundCommand(string) Templater
 }
 
 type Targeter interface {
 	GetTarget() Target
-	SetTarget(Entity)
+	SetTarget(Entity) Target
 	// InitTarget(Entity)
 }
 type Target struct {
@@ -102,11 +104,11 @@ func (t Target) InitTarget(e Entity) Target {
 	return newTarget
 }
 
-func (t *Target) GetTarget() Target {
-	return *t
+func (t Target) GetTarget() Target {
+	return t
 }
 
-func (t *Target) SetTarget(e Entity) {
+func (t Target) SetTarget(e Entity) Target {
 	t.Id = e.GetId()
 	t.Name = e.GetName()
 	t.Entity = e
@@ -114,7 +116,7 @@ func (t *Target) SetTarget(e Entity) {
 	if nsEntity, ok := e.(Namespaced); ok {
 		t.Ns = nsEntity.GetNamespace()
 	}
-	// t.Target = newTarget
+	return t
 }
 
 type StartC2 struct {
@@ -159,34 +161,37 @@ func (c StartC2Redirector) String() string {
 
 type ReadEnvVars struct {
 	CommandImpl
-	*Target
+	Target
 }
 
 func (c ReadEnvVars) String() string {
 	return "Read environment variables"
 }
 
-type C2Channel interface{}
-
 type ExecTTP struct {
 	CommandImpl
-	TTP  TTP
-	Cmd  string
-	Args []string
-	C2Channel
-	*Target
+	TTP       TTP
+	Cmd       string
+	Args      []string
+	C2Channel C2Channel
+	Target
 }
 
-func (e *ExecTTP) String() string {
-	return fmt.Sprintf("Executed '%s' on %s/%s", e.Cmd, e.Target.Ns, e.Target.Name)
+func (e ExecTTP) GetTarget() Target {
+	return e.Target
 }
 
-func (e *ExecTTP) GetTemplate() string {
+func (e ExecTTP) String() string {
+	return fmt.Sprintf("Executed '%s' on %s", e.Cmd, e.C2Channel.GetTarget())
+}
+
+func (e ExecTTP) GetTemplate() string {
 	return e.Cmd
 }
 
-func (e *ExecTTP) SetGroundedString(value string) {
+func (e ExecTTP) GroundCommand(value string) Templater {
 	e.Cmd = value
+	return e
 }
 
 type KubectlExec struct {
