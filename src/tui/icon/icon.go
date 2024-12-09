@@ -20,6 +20,7 @@ var (
 	Job         string = ""
 	CronJob     string = "󰔠"
 	Fingerprint string = ""
+	Identity    string = ""
 
 	LanConnect    string = "󰌘"
 	LanDisconnect string = "󰌙"
