@@ -1,3 +1,18 @@
+// import IconListener from '~icons/game-icons/fishing-net';
+// import function to get icon data from iconify
+// import { getIcon } from '@iconify/svelte';
+// import { listIcons } from '@iconify/svelte';
+
+
+// function getIconData(iconName) {
+// 	const a = IconListener
+// 	debugger
+// 	const icon = getIcon('cil:paper-plane');
+// 	const data = icon.body;
+// 	// return getIcon('').toSvg();
+// 	return 'data:image/svg+xml;utf8,' + encodeURIComponent(data);
+// }
+
 
 export const layout = {
 	// name: 'klay',
@@ -150,6 +165,14 @@ export function getGraphStyle(){
 		style: {
 			shape: 'heptagon',
 			'background-color': 'steelblue'
+		}
+	},
+	{
+		selector: 'node[kind="Listener"]',
+		style: {
+			shape: 'rectangle',
+			'background-opacity': 0,
+			'background-image': '/listener.svg',
 		}
 	},
 	{
