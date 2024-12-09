@@ -42,7 +42,10 @@ Ran is heavily inspired by similar tools in this domain, such as:
 #### Tools for potential support
 - https://github.com/vulsio/go-exploitdb
 - [PEASS-ng](https://github.com/peass-ng/PEASS-ng)
-
+- [go-pillage-registries](https://github.com/nccgroup/go-pillage-registries)
+- [amicontained](https://github.com/genuinetools/amicontained)
+- [dopwn](https://github.com/4ARMED/dopwn)
+- [botb](https://github.com/brompwnie/botb)
 
 ## Armory
 

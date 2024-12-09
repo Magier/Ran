@@ -19,6 +19,7 @@
     "@iconify-json/icon-park": "^1.1.12",
     "@iconify-json/material-symbols": "^1.1.73",
     "@iconify-json/mdi": "^1.1.55",
+    "@iconify/svelte": "^4.0.2",
     "@skeletonlabs/skeleton": "2.4.0",
     "@skeletonlabs/tw-plugin": "0.2.3",
     "@sveltejs/adapter-auto": "^2.0.0",
