@@ -45,9 +45,9 @@ var (
 )
 
 const (
-	AdminUser      IdentityType = "AdminUser"
-	User           IdentityType = "User"
-	ServiceAccount IdentityType = "ServiceAccount"
+	AdminUser        IdentityType = "AdminUser"
+	User             IdentityType = "User"
+	ServiceAccountId IdentityType = "ServiceAccount"
 )
 
 type Listener struct {
@@ -96,9 +96,6 @@ type Entity interface {
 	GetId() string
 	GetName() string
 	GetKind() string
-}
-
-type Asset interface {
 }
 
 type Ownable interface {
@@ -331,4 +328,54 @@ type K8sNode struct {
 
 func (n K8sNode) GetId() string {
 	return fmt.Sprintf("node/%s", n.GetName())
+}
+
+type Asset interface {
+}
+
+// JWT RFC: https://datatracker.ietf.org/doc/html/rfc7519#section-4
+type JWToken struct {
+	Subject        string   `json:"sub"`
+	Audience       []string `json:"aud"`
+	Issuer         string   `json:"iss"`
+	ExpiresAt      int      `json:"exp"`
+	IssuedAt       int      `json:"iat"`
+	NotValidBefore int      `json:"nbf"`
+	Raw            string
+}
+
+type ServiceAccountToken struct {
+	JWToken
+	Kubernetes struct {
+		Namespace string `json:"namespace"`
+		Pod       struct {
+			Name string `json:"name"`
+			UID  string `json:"uid"`
+		} `json:"pod"`
+		ServiceAccount struct {
+			Name string `json:"name"`
+			UID  string `json:"uid"`
+		} `json:"serviceaccount"`
+		Warnafter int `json:"warnafter"`
+	} `json:"kubernetes.io"`
+	// TODO verify if issuer is indicator of K8s API server?
+	// PodUid             string
+	Raw string
+}
+
+// TODO differentiate between k8s resources and a IAM entity?
+type ServiceAccount struct {
+	K8sEntity
+	// kind: str = "ServiceAccount"
+	Token ServiceAccountToken
+	// token: str | ServiceAccountToken | None = Field(None, exclude=True)
+	Can []string
+}
+
+func (sa ServiceAccount) GetId() string {
+	return fmt.Sprintf("ns/%s/sa/%s", sa.GetNamespace(), sa.GetName())
+}
+
+func (sa ServiceAccount) GetKind() string {
+	return "ServiceAccount"
 }
