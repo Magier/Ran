@@ -237,6 +237,7 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 		return campaign.onSessionClosed(msg.(c2.SessionClosed))
 	})
 	mb.Subscribe(domain.NewFacts{}, campaign.onNewFacts)
+	mb.Subscribe(domain.ServiceAccountTokenExtracted{}, campaign.onServiceAccountTokenExtracted)
 	mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)
 
 	err := mb.Publish(CampaignStarted{})
@@ -316,8 +317,6 @@ func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, er
 				}
 				return rel.(domain.C2Channel), nil
 			}
-		} else {
-			slog.Info("test")
 		}
 	}
 
@@ -342,6 +341,11 @@ func (c Campaign) GetFileshare() (uint, bool) {
 
 func (c *Campaign) onEnvVarsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	return analyzeEnvironmentVariables(msg.(domain.EnvVarsExtracted))
+}
+func (c *Campaign) onServiceAccountTokenExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	ev := msg.(domain.ServiceAccountTokenExtracted)
+	msg, err := analyzeServiceAccountToken(ev.Token)
+	return msg, err
 }
 
 func inflateListenerTemplate(listener domain.Listener, template string) string {

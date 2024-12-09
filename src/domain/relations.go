@@ -117,3 +117,20 @@ func (ch KubectlExecChannel) GetKind() string {
 	// TODO: change this to the identity to use
 	return "exec"
 }
+
+type Uses struct {
+	SubjectId string
+	ObjectId  string
+}
+
+func (u Uses) GetSource() string {
+	return u.SubjectId
+}
+
+func (u Uses) GetTarget() string {
+	return u.ObjectId
+}
+
+func (u Uses) GetRelationName() string {
+	return "uses"
+}

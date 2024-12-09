@@ -1,6 +1,9 @@
 package campaign
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -90,6 +93,59 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 		Relations: relations,
 		Assets:    assets,
 	}, nil
+}
+
+func analyzeServiceAccountToken(token string) (domain.Event, error) {
+	parts := strings.SplitN(token, ".", 3)
+	if len(parts) != 3 {
+		return nil, errors.New("invalid token format")
+	}
+	/*
+		# add max of padding before decoding in case padding is missing (
+		# extra padding will be ignored by Python's b64decode function anyways
+	*/
+	encPayload := parts[1]
+	payloadData, err := base64.RawStdEncoding.DecodeString(encPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	saToken := domain.ServiceAccountToken{}
+	if err := json.Unmarshal(payloadData, &saToken); err != nil {
+		return nil, err
+	}
+	saToken.Raw = token
+
+	ns := domain.Namespace{Name: saToken.Kubernetes.Namespace}
+	sa := domain.ServiceAccount{
+		K8sEntity: domain.K8sEntity{
+			Name:      saToken.Kubernetes.ServiceAccount.Name,
+			Namespace: ns.Name,
+		},
+		Token: saToken,
+	}
+
+	// TODO check: if SA tokens can target other pods than the system where it was mounted on?
+	pod := domain.NewPod(saToken.Kubernetes.Pod.Name, ns.Name)
+	saUsage := domain.Uses{
+		SubjectId: pod.Id,
+		ObjectId:  sa.Id,
+	}
+
+	// TODO: add token to loot (with ref to the system)
+	// - extract the namespace, SA name and pod name (if necessary?)
+	// - update topology and add parent node being the namespace (if not yet set)
+	// - set `kind` of the system
+	// - send updated topology to the UI
+	//   - add the SA token as a small entity
+	//   - everything is in NS compound node
+
+	return domain.NewFacts{
+		Entities:  []domain.Entity{ns, sa, pod},
+		Assets:    []domain.Asset{saToken},
+		Relations: []domain.Relation{saUsage},
+	}, nil
+
 }
 
 type ServiceInfo struct {

@@ -102,7 +102,10 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 				slog.Error("Sliver C2", "Could not send cmd", err.Error())
 			}
 			if event != nil {
-
+				err := bus.Publish(event)
+				if err != nil {
+					slog.Error("Sliver C2", "Could not publish resulting event", err.Error())
+				}
 			}
 		case event := <-events:
 			go handleSliverEvent(bus, event)
