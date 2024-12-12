@@ -134,3 +134,22 @@ func (u Uses) GetTarget() string {
 func (u Uses) GetRelationName() string {
 	return "uses"
 }
+
+type CanAccess struct {
+	SourceId    string
+	TargetId    string
+	AccessLevel AccessLevel
+	Identity    Identity
+}
+
+func (u CanAccess) GetSource() string {
+	return u.SourceId
+}
+
+func (u CanAccess) GetTarget() string {
+	return u.TargetId
+}
+
+func (u CanAccess) GetRelationName() string {
+	return "can-access"
+}

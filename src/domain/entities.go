@@ -259,12 +259,33 @@ func (ns Namespace) GetKind() string {
 	return "Namespace"
 }
 
-type Identity struct {
-	Name     string
-	Kind     IdentityType
-	CertData []byte
-	KeyData  []byte
+type RbacPermission struct {
+	Verbs         []string
+	Scope         string // "" is invalid, "*" =cluster-wide, any string = namespaces
+	ResourceTypes []string
+	ResourceNames []string
 }
+
+type Identity struct {
+	Name        string
+	Kind        IdentityType
+	CertData    []byte
+	KeyData     []byte
+	Permissions []RbacPermission
+}
+
+func (id Identity) Can(permission string) bool {
+	for _, perm := range id.Permissions {
+		for _, v := range perm.Verbs {
+			// TODO: properly filter for scope, resource name/type + wildcards
+			if v == permission || v == "*" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type Pod struct {
 	K8sEntity
 	// NamespacedResource

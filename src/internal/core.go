@@ -100,6 +100,11 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 		Kind:     domain.AdminUser,
 		CertData: k8sContext.UserCert,
 		KeyData:  k8sContext.UserKey,
+		Permissions: []domain.RbacPermission{{
+			Verbs:         []string{"*"},
+			ResourceTypes: []string{"*"},
+			Scope:         "*",
+		}},
 	}
 	err = mb.Publish(domain.NewFacts{
 		Entities:   entities,

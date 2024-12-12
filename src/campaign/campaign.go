@@ -109,6 +109,16 @@ func (c *Campaign) GetEntities() map[string]domain.Entity {
 	return c.kb.GetEntities()
 }
 
+func (c *Campaign) GetPods() []domain.Pod {
+	pods := make([]domain.Pod, 0)
+	for _, e := range c.kb.GetEntities() {
+		if p, ok := e.(domain.Pod); ok {
+			pods = append(pods, p)
+		}
+	}
+	return pods
+}
+
 func (c *Campaign) GetEntityById(id string) (domain.Entity, bool) {
 	e, ok := c.kb.GetEntity(id)
 	return e, ok
@@ -174,6 +184,29 @@ func (c *Campaign) onNewFacts(ctx context.Context, msg domain.Message) (domain.M
 		}
 		c.identities[identity.Name] = identity
 	}
+
+	// evaluate potential relationships based on RBAC permissions
+	accessRelations := make([]domain.Relation, 0)
+	c2s := c.GetC2s()
+	// TODO: Fix this: pods are not properly retrieved?! ... fking Go ...
+	pods := c.GetPods()
+
+	for _, identity := range c.identities {
+		if identity.Can("pod/exec") {
+			for _, p := range pods {
+				for _, c2 := range c2s {
+					accessRelations = append(accessRelations, domain.CanAccess{
+						SourceId:    c2.GetId(),
+						TargetId:    p.GetId(),
+						Identity:    identity,
+						AccessLevel: domain.UserExec,
+					})
+				}
+				p.AccessLevel = domain.UserExec
+			}
+		}
+	}
+	c.AddRelations(accessRelations...)
 
 	// TODO: reconcile new entities with existing ones
 	var response domain.Message
@@ -300,6 +333,16 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 	}
 
 	return execCmd, nil
+}
+
+func (c Campaign) GetC2s() []domain.C2System {
+	c2s := make([]domain.C2System, 0)
+	for _, entity := range c.GetEntities() {
+		if c2, ok := entity.(domain.C2System); ok {
+			c2s = append(c2s, c2)
+		}
+	}
+	return c2s
 }
 
 func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, error) {

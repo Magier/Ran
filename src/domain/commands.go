@@ -182,7 +182,14 @@ func (e ExecTTP) GetTarget() Target {
 }
 
 func (e ExecTTP) String() string {
-	return fmt.Sprintf("Executed '%s' on %s", e.Cmd, e.C2Channel.GetTarget())
+	var target string
+	if e.C2Channel != nil {
+		target = e.C2Channel.GetTarget()
+	} else {
+		target = e.Target.Id
+	}
+
+	return fmt.Sprintf("Executed '%s' on %s", e.Cmd, target)
 }
 
 func (e ExecTTP) GetTemplate() string {
