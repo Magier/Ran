@@ -53,6 +53,10 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 			break
 		}
 	}
+	err := c.syncCapabilities()
+	if err != nil {
+		slog.Error(err.Error())
+	}
 
 	if system == nil {
 		accessLevel := domain.UserExec
@@ -185,28 +189,10 @@ func (c *Campaign) onNewFacts(ctx context.Context, msg domain.Message) (domain.M
 		c.identities[identity.Name] = identity
 	}
 
-	// evaluate potential relationships based on RBAC permissions
-	accessRelations := make([]domain.Relation, 0)
-	c2s := c.GetC2s()
-	// TODO: Fix this: pods are not properly retrieved?! ... fking Go ...
-	pods := c.GetPods()
-
-	for _, identity := range c.identities {
-		if identity.Can("pod/exec") {
-			for _, p := range pods {
-				for _, c2 := range c2s {
-					accessRelations = append(accessRelations, domain.CanAccess{
-						SourceId:    c2.GetId(),
-						TargetId:    p.GetId(),
-						Identity:    identity,
-						AccessLevel: domain.UserExec,
-					})
-				}
-				p.AccessLevel = domain.UserExec
-			}
-		}
+	err := c.syncCapabilities()
+	if err != nil {
+		slog.Error(err.Error())
 	}
-	c.AddRelations(accessRelations...)
 
 	// TODO: reconcile new entities with existing ones
 	var response domain.Message
@@ -321,6 +307,7 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 
 	// if it need userRead/ userExecute, identify the necessary channel
 	if execCmd.TTP.Requires.AccessLevel != domain.NoAccess {
+		// TODO: Entity can't be converted to K8sEntity -> use reflection?
 		if system, ok := target.(domain.K8sEntity); ok {
 			if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
 				c2Channel, err := findC2Channel(c.kb, target)
@@ -380,6 +367,34 @@ func (c Campaign) GetListener(protocol domain.Protocol) (domain.Listener, bool) 
 func (c Campaign) GetFileshare() (uint, bool) {
 	// TODO: properly implement this
 	return 3000, true
+}
+
+func (c Campaign) syncCapabilities() error {
+	// evaluate potential relationships based on RBAC permissions
+	accessRelations := make([]domain.Relation, 0)
+	c2s := c.GetC2s()
+	// TODO: Fix this: pods are not properly retrieved?! ... fking Go ...
+	pods := c.GetPods()
+
+	for _, identity := range c.identities {
+		if identity.Can("pod/exec") {
+			for _, p := range pods {
+				for _, c2 := range c2s {
+					accessRelations = append(accessRelations, domain.CanAccess{
+						SourceId:    c2.GetId(),
+						TargetId:    p.GetId(),
+						Identity:    identity,
+						AccessLevel: domain.UserExec,
+					})
+				}
+				p.AccessLevel = domain.UserExec
+				_ = c.kb.AddEntity(p) // update the entity
+			}
+		}
+	}
+	c.AddRelations(accessRelations...)
+
+	return nil
 }
 
 func (c *Campaign) onEnvVarsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
