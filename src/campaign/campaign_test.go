@@ -52,10 +52,10 @@ func TestAddPodWhenItsWorkloadIsAlreadyKnownDoesNotGenerateExtraWorkload(t *test
 		K8sEntity: domain.K8sEntity{
 			Name:      name + "-123",
 			Namespace: ns,
-			// Owner: domain.OwnerRef{
-			// 	Name: name,
-			// 	Kind: wl.GetKind(),
-			// },
+			Owner: domain.OwnerRef{
+				Name: name,
+				Kind: wl.GetKind(),
+			},
 		},
 	}
 	c.AddEntities(p)
