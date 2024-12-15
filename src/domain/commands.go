@@ -204,3 +204,11 @@ func (e ExecTTP) GroundCommand(value string) Templater {
 type KubectlExec struct {
 	CommandImpl
 }
+
+type PrintGraph struct {
+	CommandImpl
+}
+
+func (p PrintGraph) String() string {
+	return "printGraph"
+}

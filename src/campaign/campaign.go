@@ -50,6 +50,7 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 	})
 	mb.Subscribe(domain.NewFacts{}, campaign.onNewFacts)
 	mb.Subscribe(domain.ServiceAccountTokenExtracted{}, campaign.onServiceAccountTokenExtracted)
+	mb.Subscribe(domain.PrintGraph{}, campaign.onPrintGraph)
 	mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)
 
 	// err := mb.Publish(CampaignStarted{})

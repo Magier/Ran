@@ -60,7 +60,6 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 		} else {
 			slog.Error(err.Error())
 		}
-		// kg.Entities[entity.GetId()] = entity
 
 		for _, rel := range relations {
 			if ownsRel, ok := rel.(domain.Owns); ok {
