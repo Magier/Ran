@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
+	"github.com/dominikbraun/graph/draw"
+	"github.com/goccy/go-graphviz"
 )
 
 func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -157,5 +160,29 @@ func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (d
 
 	}
 
+	return nil, nil
+}
+
+func (c *Campaign) onPrintGraph(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	if kb, ok := c.kb.(BuiltInKnowledgeBase); ok {
+		var buf bytes.Buffer
+		err := draw.DOT(kb.graph, &buf)
+		if err != nil {
+			return nil, err
+		}
+
+		// taken from https://github.com/goccy/go-graphviz?tab=readme-ov-file#3-render-graph
+		g, err := graphviz.New(ctx)
+		if err != nil {
+			return nil, err
+		}
+		graph, err := graphviz.ParseBytes(buf.Bytes())
+		if err != nil {
+			return nil, err
+		}
+		if err := g.RenderFilename(ctx, graph, graphviz.PNG, "topo.png"); err != nil {
+			return nil, err
+		}
+	}
 	return nil, nil
 }

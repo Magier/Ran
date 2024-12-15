@@ -183,12 +183,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a, err := m.campaign.GroundAction(msg.Action, target)
 		// a, err := m.campaign.InflateActionTemplate(msg.Action, target)
 		if err != nil {
-			fmt.Printf("Could not inflate action template: %v\n", err)
+			fmt.Printf("Could not ground action template: %v\n", err)
 		}
 
 		err = m.bus.Publish(a)
-		// TODO: properly assemble the action by interpolating the values
-		// e.g. the target of the action, parameters, etc.
 		if err != nil { // TODO: properly handle errors in UI
 			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
 		}
@@ -211,6 +209,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 	return handleKeyMsg(m, msg)
 		default:
 			switch msg.String() {
+			case "p":
+				err := m.bus.Publish(domain.PrintGraph{})
+				if err != nil {
+					fmt.Printf("Error sending command to msg bus!!: %v\n", err)
+				}
 			case "a":
 				m.focusWindow(ArmoryWnd)
 			case "e":
