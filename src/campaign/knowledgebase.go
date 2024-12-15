@@ -53,13 +53,14 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 	for _, entity := range entities {
 		otherEntities, relations := extractRelatedEntities(kg.Entities, entity)
 		_ = kg.AddEntity(entity)
-		// kg.Entities[entity.GetId()] = entity
 		numChanges++
-		for _, e := range otherEntities {
-			_ = kg.AddEntity(e)
-			// kg.Entities[e.GetId()] = e
-			numChanges++
+		changes, err := kg.AddEntities(otherEntities...)
+		if err == nil {
+			numChanges += changes
+		} else {
+			slog.Error(err.Error())
 		}
+		// kg.Entities[entity.GetId()] = entity
 
 		for _, rel := range relations {
 			if ownsRel, ok := rel.(domain.Owns); ok {
@@ -67,9 +68,14 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 					ownerRef, _ := ownable.GetOwner()
 					if ownerRef.Name != ownsRel.Owner.GetName() {
 						// TODO: Kind is empty!! fix it
-						e := ownable.SetOwner(ownsRel.Owner.GetName(), ownerRef.Kind)
-						_ = kg.AddEntity(e.(domain.Entity))
-						// kg.Entities[entity.GetId()] = e.(domain.Entity)
+						ownerRef := ownable.SetOwner(ownsRel.Owner.GetName(), ownerRef.Kind)
+
+						if p, ok := entity.(domain.Pod); ok {
+							p.Owner = ownerRef
+							kg.Entities[entity.GetId()] = p
+						} else {
+							slog.Warn(fmt.Sprintf("Can't update owner of %s '%s': missing type check", entity.GetKind(), entity.GetId()))
+						}
 					}
 				}
 			}
