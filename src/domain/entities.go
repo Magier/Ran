@@ -36,6 +36,20 @@ func (lvl AccessLevel) Satisfies(value any) bool {
 	return false
 }
 
+func (lvl AccessLevel) String() string {
+	switch lvl {
+	case UserRead:
+		return "user-read"
+	case UserExec:
+		return "user-exec"
+	case RootRead:
+		return "root-read"
+	case RootExec:
+		return "root-exec"
+	}
+	return ""
+}
+
 var (
 	NoAccess = AccessLevel{user: 0, level: 0}
 	UserRead = AccessLevel{user: 1, level: 1}
