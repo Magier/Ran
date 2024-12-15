@@ -22,6 +22,20 @@ type Requirements struct {
 	RbacPermission string
 }
 
+func (r Requirements) Satisfied(any) bool {
+	if r.Kind != "" {
+		return false
+	}
+	if r.AccessLevel != NoAccess {
+		return false
+	}
+
+	if r.RbacPermission != "" {
+		return false
+	}
+	return true
+}
+
 type TTP struct {
 	ID          string
 	Name        string

@@ -10,9 +10,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const ellipsis = "…"
+
 type Action struct {
-	title, desc string
-	msg         domain.Message
+	title, desc  string
+	msg          domain.Message
+	requirements domain.Requirements
+	condition    domain.Requirements
 }
 type ActionSelected struct {
 	Action domain.Message
@@ -34,19 +38,26 @@ func NewArmory(armory armory.Armory, width float32) Model {
 	actions := []list.Item{}
 
 	for _, ttp := range armory.GetTTPs() {
-		actions = append(actions, Action{title: ttp.GetTitle(), desc: ttp.GetDescription(), msg: ttp.GetMessage()})
+		actions = append(actions, Action{
+			title:        ttp.GetTitle(),
+			desc:         ttp.GetDescription(),
+			msg:          ttp.GetMessage(),
+			requirements: ttp.Requires,
+		})
 	}
-	armoryList := list.New(actions, list.NewDefaultDelegate(), 40, 30)
+
+	d := actionItemDelegate{
+		base: list.NewDefaultDelegate(),
+		// Styles: list.NewDefaultItemStyles(),
+	}
+	// d := list.NewDefaultDelegate()
+
+	armoryList := list.New(actions, d, 40, 30)
 	armoryList.Title = "Armory"
 	armoryList.SetShowStatusBar(false)
 	var style = lipgloss.NewStyle().
 		Bold(true).
-		// Foreground(lipgloss.Color("#7D56F4")).
-		// Background(lipgloss.Color("#FAFAFA")).
-		// PaddingTop(1).
 		PaddingLeft(1).
-		// Height(35).
-		// Width(40).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(theme.InactiveColor).
 		BorderTop(true).
