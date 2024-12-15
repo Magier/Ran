@@ -101,7 +101,7 @@ type Entity interface {
 type Ownable interface {
 	GetId() string
 	GetOwner() (OwnerRef, bool)
-	SetOwner(name, kind string) Ownable
+	SetOwner(name, kind string) OwnerRef
 }
 
 type System struct {
@@ -213,12 +213,11 @@ func (e K8sEntity) GetOwner() (OwnerRef, bool) {
 	}
 	return OwnerRef{}, false
 }
-func (e K8sEntity) SetOwner(name, kind string) Ownable {
-	e.Owner = OwnerRef{
+func (e K8sEntity) SetOwner(name, kind string) OwnerRef {
+	return OwnerRef{
 		Name: name,
 		Kind: kind,
 	}
-	return e
 }
 
 func (e K8sEntity) GetNamespace() string {
