@@ -88,7 +88,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case tea.KeyMsg:
 			switch msg.Type {
 			case tea.KeyEnter:
-				selectedIdx := m.actions.Cursor()
+				selectedIdx := m.actions.Index()
 				actions := m.actions.Items()
 				cmd = func() tea.Msg {
 					return ActionSelected{Action: actions[selectedIdx].(Action).msg}
