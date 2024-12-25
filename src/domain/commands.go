@@ -76,8 +76,10 @@ func (ttp TTP) GetDescription() string {
 func (ttp TTP) GetMessage() Message {
 	if ttp.CommandFn != nil {
 		return ttp.CommandFn(ttp)
-	} else {
+	} else if ttp.Command != nil {
 		return ttp.Command
+	} else {
+		return ExecTTP{TTP: ttp, Cmd: ttp.Cmd, Args: ttp.Args}
 	}
 }
 

