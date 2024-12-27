@@ -20,6 +20,7 @@ type Requirements struct {
 	Kind           string
 	AccessLevel    AccessLevel
 	RbacPermission string
+	Infra          []string
 }
 
 func (r Requirements) Satisfied(any) bool {
@@ -37,34 +38,31 @@ func (r Requirements) Satisfied(any) bool {
 }
 
 type TTP struct {
-	ID          string
-	Name        string
-	Description string
-	Tactics     []string
-	Technique   []string
+	ID          string   `yaml:"id"`
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	Tactics     []string `yaml:"tactics"`
+	Technique   []string `yaml:"technique"`
 
-	References []string // ms_id::String = ""
+	References []string `yaml:"references"`
 
-	Cmd  string
-	Args []string
-	Port uint
+	Cmd  string   `yaml:"cmd"`
+	Args []string `yaml:"args"`
+	Port uint     `yaml:"port"`
 
-	Command   Command
-	CommandFn func(TTP) Message
+	Command   Command           `yaml:"command"`
+	CommandFn func(TTP) Message `yaml:"-"`
+	Execute   func(TTP) Message `yaml:"-"`
 
-	TargetId        string
-	Target          string
-	TargetNamespace string
+	TargetId        string `yaml:"target_id"`
+	Target          string `yaml:"target"`
+	TargetNamespace string `yaml:"target_namespace"`
 
-	// Requires      map[string]string
-	Requires      Requirements
-	Effect        func() string
-	Effects       []string
-	ResultHandler ResultHandler
-	Params        TTPParams
-
-	// action::Union{String,Function,Nothing} = nothing
-	// cmd_args::Union{String,Nothing} = nothing
+	Requires      Requirements  `yaml:"requires"`
+	Effect        func() string `yaml:"-"`
+	Effects       []string      `yaml:"effects"`
+	ResultHandler ResultHandler `yaml:"-"`
+	Params        TTPParams     `yaml:"params"`
 }
 
 func (ttp TTP) GetTitle() string {
