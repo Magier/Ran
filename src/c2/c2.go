@@ -1,10 +1,13 @@
 package c2
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
 	"net"
+	"os/exec"
+	"strings"
 	"sync"
 
 	"github.com/Magier/Ran/domain"
@@ -61,6 +64,13 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 				slog.Warn(err.Error())
 			} else {
 				return cmd.TTP.HandleResult(cmd.Target.Entity, stdout, stderr)
+			}
+		case nil:
+			if cmd.TTP.Execute.Code != "" {
+				err := executeCode(cmd.TTP.Execute)
+				if err != nil {
+					slog.Warn(err.Error())
+				}
 			}
 		}
 		return nil, nil
@@ -193,4 +203,29 @@ func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error
 	// TODO: handle case of multiple containers
 	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, target.Ns, cmd.Cmd)
 	return stdOut, stdErr, err
+}
+
+// Execute the code specified in the TTP.
+// Note: this is highly insecure. Ensure you trust the code before allowing these TTPs.
+func executeCode(snippet domain.CodeSnippet) error {
+	var cmd *exec.Cmd
+	if strings.ToLower(snippet.Lang) == "python" {
+		var args = []string{"-c", snippet.Code}
+		for k, v := range snippet.Parameters {
+			args = append(args, "--"+k, v)
+		}
+		// TODO: maybe use `exec.CommandContext` to provide a timeout, so no reverse shells are possible?
+		cmd = exec.Command("python3", args...)
+	} else {
+		return fmt.Errorf("'%s' not supported as execution language", snippet.Code)
+	}
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("failed to execute python code: %s, error: %v", out.String(), err)
+	}
+	slog.Debug(out.String())
+	return nil
 }

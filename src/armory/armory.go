@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/Magier/Ran/domain"
+	"gopkg.in/yaml.v2"
 )
 
 // type ResultHandler = func(source domain.Entity, args ...any) (domain.Event, error)
@@ -75,50 +77,20 @@ type Armory struct {
 }
 
 func LoadArmory(dir string) (Armory, error) {
-	ttps := make([]domain.TTP, 0)
-
-	err := filepath.WalkDir(dir, func(w string, d fs.DirEntry, err error) error {
-		if d.IsDir() {
-			// skip subfolder with all unsupported check details
-			// if d.Name() == SkipDir { }
-			return err
-		}
-
-		if strings.HasSuffix(w, ".yaml") {
-			a := 5
-			_ = a
-			// parse the TTP
-			// parse the preconditions and effect
-			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
-
-		}
-
-		if strings.HasSuffix(w, ".md") {
-			// parse the TTP
-			// parse the preconditions and effect
-			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
-
-		}
-
-		return nil
-	})
-	if err != nil {
-		fmt.Println("Couldn't load armory: ", err.Error())
-	}
-
-	ttps = []domain.TTP{
+	ttps := []domain.TTP{
 		{
 			Name:        "Create Listener",
 			Description: "Catch incoming shells",
 			Command:     domain.StartListener{Port: 1337, Protocol: domain.TCP},
 			// Port:        1337,
+			Requires: domain.Requirements{Exists: "listener"},
 		},
 		{
 			Name:        "Create Sliver HTTP Listener",
 			Description: "Catch incoming shells",
 			Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP, Server: "sliver"},
-			Requires: domain.Requirements{
-				Kind: "C2:Sliver",
+			Requires:    domain.Requirements{
+				// Kind: "C2:Sliver",
 			},
 			// Port:        1337,
 		},
@@ -182,6 +154,45 @@ func LoadArmory(dir string) (Armory, error) {
 			ResultHandler: handleEnvVarResult,
 			Cmd:           "env",
 		},
+	}
+
+	err := filepath.WalkDir(dir, func(w string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			// skip subfolder with all unsupported check details
+			// if d.Name() == SkipDir { }
+			return err
+		}
+
+		if strings.HasSuffix(w, ".yaml") {
+			content, err := os.ReadFile(w)
+			if err != nil {
+				return fmt.Errorf("failed to read file %s: %w", w, err)
+			}
+
+			var ttp domain.TTP
+			err = yaml.Unmarshal(content, &ttp)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal YAML content from file %s: %w", w, err)
+			}
+
+			ttps = append(ttps, ttp)
+			// parse the TTP
+			// parse the preconditions and effect
+			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
+
+		}
+
+		if strings.HasSuffix(w, ".md") {
+			// parse the TTP
+			// parse the preconditions and effect
+			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
+
+		}
+
+		return nil
+	})
+	if err != nil {
+		fmt.Println("Couldn't load armory: ", err.Error())
 	}
 
 	return Armory{

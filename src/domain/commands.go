@@ -37,6 +37,12 @@ func (r Requirements) Satisfied(any) bool {
 	return true
 }
 
+type CodeSnippet struct {
+	Lang       string            `yaml:"lang"`
+	Code       string            `yaml:"code"`
+	Parameters map[string]string `yaml:"parameters"`
+}
+
 type TTP struct {
 	ID          string   `yaml:"id"`
 	Name        string   `yaml:"name"`
@@ -52,7 +58,8 @@ type TTP struct {
 
 	Command   Command           `yaml:"command"`
 	CommandFn func(TTP) Message `yaml:"-"`
-	Execute   func(TTP) Message `yaml:"-"`
+
+	Execute CodeSnippet `yaml:"execute"`
 
 	TargetId        string `yaml:"target_id"`
 	Target          string `yaml:"target"`
