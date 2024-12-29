@@ -175,20 +175,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case commandprompt.SendCommand:
 		err := m.bus.Publish(msg.Action)
-		if err != nil { // TODO: properly handle errors in UI
-			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 		}
 	case armorywindow.ActionSelected:
 		target := m.explorer.GetSelectedEntity()
 		a, err := m.campaign.GroundAction(msg.Action, target)
-		// a, err := m.campaign.InflateActionTemplate(msg.Action, target)
 		if err != nil {
-			fmt.Printf("Could not ground action template: %v\n", err)
+			slog.Error(fmt.Sprintf("Could not ground action template: %v\n", err))
 		}
 
 		err = m.bus.Publish(a)
-		if err != nil { // TODO: properly handle errors in UI
-			fmt.Printf("Error sending command to msg bus!!: %v\n", err)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 		}
 	case domain.StartC2:
 		err := m.bus.Publish(msg)
@@ -212,7 +211,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "p":
 				err := m.bus.Publish(domain.PrintGraph{})
 				if err != nil {
-					fmt.Printf("Error sending command to msg bus!!: %v\n", err)
+					slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 				}
 			case "a":
 				m.focusWindow(ArmoryWnd)
