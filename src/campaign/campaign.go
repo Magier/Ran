@@ -232,7 +232,6 @@ func (c Campaign) syncCapabilities() error {
 	// evaluate potential relationships based on RBAC permissions
 	accessRelations := make([]domain.Relation, 0)
 	c2s := c.GetC2s()
-	// TODO: Fix this: pods are not properly retrieved?! ... fking Go ...
 	pods := c.GetPods()
 
 	for _, identity := range c.identities {

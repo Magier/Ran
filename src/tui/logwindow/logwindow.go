@@ -12,14 +12,13 @@ import (
 )
 
 type Model struct {
-	focused   bool
-	nummLines int
-	lines     []string
-	style     lipgloss.Style
-	viewport  viewport.Model
-	width     float32
-	height    int
-	ready     bool
+	focused  bool
+	lines    []string
+	style    lipgloss.Style
+	viewport viewport.Model
+	width    float32
+	height   int
+	ready    bool
 }
 
 func NewLogWindow(width float32, height int) Model {
@@ -92,11 +91,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			case "G": // go to the bottom
 				m.viewport.GotoBottom()
 			}
+			// Handle keyboard and mouse events in the viewport
+			m.viewport, cmd = m.viewport.Update(msg)
+			cmds = append(cmds, cmd)
 		}
 	}
-	// Handle keyboard and mouse events in the viewport
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
 }
