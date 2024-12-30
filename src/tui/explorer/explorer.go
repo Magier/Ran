@@ -221,7 +221,7 @@ func (m Model) rebuildEntries() Model {
 
 func selectEntity(node *Node) tea.Cmd {
 	return func() tea.Msg {
-		return tuimsg.EntitySelected{Id: node.id, Kind: node.kind, Name: node.name}
+		return tuimsg.EntitySelected{Id: node.id, Kind: node.kind, Name: node.name, AccessLevel: node.accessLevel}
 	}
 }
 

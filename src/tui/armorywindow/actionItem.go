@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Magier/Ran/domain"
+	tuimsg "github.com/Magier/Ran/tui/messages"
 	"github.com/Magier/Ran/tui/theme"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,13 +27,25 @@ var (
 )
 
 type actionItemDelegate struct {
-	base list.DefaultDelegate
+	base   list.DefaultDelegate
+	target tuimsg.EntitySelected
+	state  tuimsg.State
 	// Styles list.DefaultItemStyles
 }
 
-func (d actionItemDelegate) Height() int                             { return 3 }
-func (d actionItemDelegate) Spacing() int                            { return 1 }
-func (d actionItemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d actionItemDelegate) Height() int  { return 3 }
+func (d actionItemDelegate) Spacing() int { return 1 }
+func (d actionItemDelegate) Update(msg tea.Msg, model *list.Model) tea.Cmd {
+	switch msg := msg.(type) {
+	case tuimsg.EntitySelected:
+		d.target = msg
+		model.SetDelegate(d)
+	case tuimsg.StateChanged:
+		d.state = msg.State
+		model.SetDelegate(d)
+	}
+	return nil
+}
 func (d actionItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
 	var (
 		title, desc  string
@@ -65,7 +78,7 @@ func (d actionItemDelegate) Render(w io.Writer, m list.Model, index int, listIte
 	}
 
 	isSatisfied := false
-	if action.requirements.Satisfied(nil) {
+	if action.requirements.Satisfied(d.target, d.target.AccessLevel, d.state) {
 		isSatisfied = true
 	}
 
@@ -105,7 +118,7 @@ func (d actionItemDelegate) Render(w io.Writer, m list.Model, index int, listIte
 	}
 
 	fmt.Fprintf(w, "%s", title)
-	if d.base.ShowDescription {
+	if d.base.ShowDescription && action.Description() != "" {
 		fmt.Fprintf(w, "\n%s", desc)
 	}
 	requirementsLine := renderRequirementBadges(action.requirements, action.condition, s.NormalTitle)
@@ -136,7 +149,7 @@ func renderRequirementBadges(r domain.Requirements, cond domain.Requirements, s 
 		} else {
 			s = s.Foreground(theme.BlueColor)
 		}
-		badges = append(badges, s.Render(r.Kind))
+		badges = append(badges, s.Render("is "+r.Kind))
 	}
 
 	if r.RbacPermission != "" {
@@ -146,7 +159,13 @@ func renderRequirementBadges(r domain.Requirements, cond domain.Requirements, s 
 		} else {
 			s = s.Foreground(theme.SecondaryColor)
 		}
-		badges = append(badges, s.Render(r.RbacPermission))
+		badges = append(badges, s.Render("can "+r.RbacPermission))
 	}
-	return strings.Join(badges, " ")
+
+	if r.Exists != "" {
+		s := badgeStyle
+		s = s.Foreground(theme.PrimaryColor)
+		badges = append(badges, s.Render("∃ "+r.Exists))
+	}
+	return strings.Join(badges, ", ")
 }

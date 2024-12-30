@@ -21,10 +21,11 @@ type Requirements struct {
 	AccessLevel    AccessLevel
 	RbacPermission string
 	Infra          []string
+	Exists         string
 }
 
-func (r Requirements) Satisfied(any) bool {
-	if r.Kind != "" {
+func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state map[string]int) bool {
+	if r.Kind != "" && r.Kind != target.GetKind() {
 		return false
 	}
 	if r.AccessLevel != NoAccess {
@@ -33,6 +34,12 @@ func (r Requirements) Satisfied(any) bool {
 
 	if r.RbacPermission != "" {
 		return false
+	}
+
+	if r.Exists != "" {
+		if num, ok := state[r.Exists]; !ok || num == 0 {
+			return false
+		}
 	}
 	return true
 }

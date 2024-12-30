@@ -28,8 +28,9 @@ type Node struct {
 	id     string
 	isPwnd bool
 	// children   []*Node
-	isExpanded bool
-	children   Children
+	isExpanded  bool
+	accessLevel domain.AccessLevel
+	children    Children
 }
 
 func (n *Node) String() string {
@@ -75,7 +76,7 @@ func newNode(id, name, kind string) *Node {
 		id:         id,
 		kind:       kind,
 		isPwnd:     false,
-		isExpanded: false,
+		isExpanded: true,
 		children:   Children{children: make([]*Node, 0)},
 		// children:   make([]*Node, 0),
 	}
@@ -95,7 +96,7 @@ func (n Node) findChild(name, parent string, kind, parentKind string) (*Node, bo
 }
 
 // Traverses the tree of children in postorder.
-// Call the provided yiel dfunction for ever visited node.
+// Call the provided yield function for every visited node.
 // The return type of the yield function dictates, if the subtree of the node will be traversed as well.
 func (n *Node) traverse(yield func(n *Node) bool) {
 	sort.Slice(n.children.children, func(i, j int) bool {
@@ -140,8 +141,10 @@ func addEntity(tree *Node, campaign *campaign.Campaign, entity domain.Entity, ex
 		}
 		id := "ns/" + nsName
 		n := newNode(id, nsName, "Namespace")
-		_, isExpanded := expandedNodes[id]
-		n.isExpanded = isExpanded
+		_, found := expandedNodes[id]
+		if found {
+			n.isExpanded = true
+		}
 		parentNodes = append(parentNodes, n)
 	}
 
@@ -188,24 +191,22 @@ func addEntity(tree *Node, campaign *campaign.Campaign, entity domain.Entity, ex
 
 func findOrCreateParents(root *Node, parentNodes []*Node) (*Node, error) {
 	currGroup := root
-	if parentNodes != nil {
-		// walk to the correct node denoted by the groupPath
-		for _, parent := range parentNodes {
-			childIdx := -1
-			for i, child := range currGroup.children.children {
-				if child.id == parent.id {
-					childIdx = i
-					break
-				}
+	// walk to the correct node denoted by the groupPath
+	for _, parent := range parentNodes {
+		childIdx := -1
+		for i, child := range currGroup.children.children {
+			if child.id == parent.id {
+				childIdx = i
+				break
 			}
-			if childIdx == -1 {
-				// g := newNode("", parent.name, "Namespace")
-				// TODO: add proper sorting of entries
-				currGroup.children.children = append(currGroup.children.children, parent)
-				childIdx = len(currGroup.children.children) - 1
-			}
-			currGroup = currGroup.children.children[childIdx]
 		}
+		if childIdx == -1 {
+			// g := newNode("", parent.name, "Namespace")
+			// TODO: add proper sorting of entries
+			currGroup.children.children = append(currGroup.children.children, parent)
+			childIdx = len(currGroup.children.children) - 1
+		}
+		currGroup = currGroup.children.children[childIdx]
 	}
 	return currGroup, nil
 }

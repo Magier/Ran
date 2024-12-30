@@ -83,7 +83,6 @@ func LoadArmory(dir string) (Armory, error) {
 			Description: "Catch incoming shells",
 			Command:     domain.StartListener{Port: 1337, Protocol: domain.TCP},
 			// Port:        1337,
-			Requires: domain.Requirements{Exists: "listener"},
 		},
 		{
 			Name:        "Create Sliver HTTP Listener",
@@ -98,6 +97,7 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:        "Create Redirector",
 			Description: "Create a proxy routing traffic to the C2",
 			Command:     domain.StartC2Redirector{DstPort: 1337},
+			Requires:    domain.Requirements{Exists: "listener"},
 		},
 		{
 			Name:        "Drop & Exec Implant",
