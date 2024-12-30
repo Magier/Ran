@@ -2,6 +2,7 @@ package armory
 
 import (
 	"github.com/Magier/Ran/armory"
+	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
 	tuimsg "github.com/Magier/Ran/tui/messages"
 	"github.com/Magier/Ran/tui/theme"
@@ -32,6 +33,7 @@ type Model struct {
 	style   lipgloss.Style
 	width   float32
 	target  tuimsg.EntitySelected
+	state   tuimsg.State
 }
 
 func NewArmory(armory armory.Armory, width float32) Model {
@@ -70,6 +72,7 @@ func NewArmory(armory armory.Armory, width float32) Model {
 		focused: false,
 		style:   style,
 		width:   width,
+		state:   tuimsg.NewState(),
 	}
 }
 
@@ -81,11 +84,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
 
-	if m.focused {
-		m.actions, cmd = m.actions.Update(msg)
-		cmds = append(cmds, cmd)
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if m.focused {
 			switch msg.Type {
 			case tea.KeyEnter:
 				selectedIdx := m.actions.Index()
@@ -95,17 +96,29 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				}
 				cmds = append(cmds, cmd)
 			}
-		case tuimsg.EntitySelected:
-			m.target = msg
 		}
-	}
-	switch msg := msg.(type) {
+	case tuimsg.EntitySelected:
+		m.target = msg
+	case c2.ListenerReady:
+		m.state = m.state.Update("listener", 1)
+		m.actions, cmd = m.actions.Update(tuimsg.StateChanged{State: m.state})
+		cmds = append(cmds, cmd)
+	case c2.ListenerStopped:
+		m.state = m.state.Update("listener", -1)
+		m.actions, cmd = m.actions.Update(tuimsg.StateChanged{State: m.state})
+		cmds = append(cmds, cmd)
+		// m.state = msg.State
 	case tea.WindowSizeMsg:
 		m.style = m.style.Width(int(m.width * float32(msg.Width)))
 		h := msg.Height - 1 // -1 for the border
-		// slog.Info(fmt.Sprintf("Armory height: %d", h))
 		m.style = m.style.Height(h)
 		m.actions.SetHeight(h)
+	}
+
+	// only update key events, if it's actually targeting the ArmoryWindow
+	if _, ok := msg.(tea.KeyMsg); !ok || m.focused {
+		m.actions, cmd = m.actions.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
