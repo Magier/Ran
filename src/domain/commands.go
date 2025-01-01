@@ -28,7 +28,7 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state ma
 	if r.Kind != "" && r.Kind != target.GetKind() {
 		return false
 	}
-	if r.AccessLevel != NoAccess {
+	if r.AccessLevel != NoAccess && r.AccessLevel != accessLevel {
 		return false
 	}
 
