@@ -17,7 +17,6 @@ type Action struct {
 	title, desc  string
 	msg          domain.Message
 	requirements domain.Requirements
-	condition    domain.Requirements
 }
 type ActionSelected struct {
 	Action domain.Message
@@ -33,7 +32,7 @@ type Model struct {
 	style   lipgloss.Style
 	width   float32
 	target  tuimsg.EntitySelected
-	state   tuimsg.State
+	state   domain.State
 }
 
 func NewArmory(armory armory.Armory, width float32) Model {
@@ -48,13 +47,7 @@ func NewArmory(armory armory.Armory, width float32) Model {
 		})
 	}
 
-	d := actionItemDelegate{
-		base: list.NewDefaultDelegate(),
-		// Styles: list.NewDefaultItemStyles(),
-	}
-	// d := list.NewDefaultDelegate()
-
-	armoryList := list.New(actions, d, 40, 30)
+	armoryList := list.New(actions, NewActionItemDelegate(), 40, 30)
 	armoryList.Title = "Armory"
 	armoryList.SetShowStatusBar(false)
 	var style = lipgloss.NewStyle().

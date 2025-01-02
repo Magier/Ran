@@ -19,22 +19,94 @@ const (
 	mTLS  Protocol = "mTLS"
 )
 
-type Requirement interface {
-	Satisfies(any) bool
+type Condition interface {
+	Satisfies(Condition) bool
+	IsSet() bool
 }
 
-type IdentityType string
+type Requirements struct {
+	Kind           IsOfKind
+	AccessLevel    AccessLevel
+	RbacPermission Permission
+	Infra          []string
+	State          State        // check for existing entities
+	Exists         EntityExists // relates to the state
+}
+
+func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state State) bool {
+	if r.Kind != "" && r.Kind != IsOfKind(target.GetKind()) {
+		return false
+	}
+	if !accessLevel.Satisfies(r.AccessLevel) {
+		return false
+	}
+
+	if r.RbacPermission != "" {
+		return false
+	}
+
+	if len(r.State) > 0 {
+		if !state.Satisfies(r.State) {
+			return false
+		}
+	}
+	return true
+}
+
+type IsOfKind string
+
+func (k IsOfKind) Satisfies(r Condition) bool {
+	if kind, ok := r.(IsOfKind); ok {
+		return k == kind
+	}
+	return false
+}
+func (k IsOfKind) IsSet() bool {
+	return k != ""
+}
+
+var _ Condition = (*IsOfKind)(nil)
+
+type State map[string]int
+
+func (s State) Satisfies(r Condition) bool {
+	if entityKind, ok := r.(EntityExists); ok {
+		numExists, existsOk := s[string(entityKind)]
+		return existsOk && numExists > 0
+	}
+	return false
+}
+func (s State) IsSet() bool {
+	return false
+}
+func (s State) Update(key string, numChange int) State {
+	prevNum, exists := s[key]
+	if !exists {
+		prevNum = 0
+	}
+
+	s[key] = prevNum + numChange
+	return s
+}
+
+var _ Condition = (*State)(nil)
+
 type AccessLevel struct {
 	user  int // 0 = none, 1 = user, 2 = root
 	level int // 0 = none, 1 = read, 2 = exec
 }
 
-func (lvl AccessLevel) Satisfies(value any) bool {
-	if v, ok := value.(AccessLevel); ok {
-		return v.user <= lvl.user && v.level <= lvl.level
+func (lvl AccessLevel) Satisfies(requirement Condition) bool {
+	if r, ok := requirement.(AccessLevel); ok {
+		return r.user <= lvl.user && r.level <= lvl.level
 	}
 	return false
 }
+func (lvl AccessLevel) IsSet() bool {
+	return lvl != NoAccess
+}
+
+var _ Condition = (*AccessLevel)(nil)
 
 func (lvl AccessLevel) String() string {
 	switch lvl {
@@ -57,6 +129,29 @@ var (
 	RootRead = AccessLevel{user: 2, level: 1}
 	RootExec = AccessLevel{user: 2, level: 2}
 )
+
+type Permission string
+
+func (p Permission) Satisfies(r Condition) bool {
+	return false
+}
+
+func (p Permission) IsSet() bool {
+	return false
+}
+
+type EntityExists string
+
+func (e EntityExists) Satisfies(requirement Condition) bool {
+	return false
+}
+func (e EntityExists) IsSet() bool {
+	return e != ""
+}
+
+var _ Condition = (*AccessLevel)(nil)
+
+type IdentityType string
 
 const (
 	AdminUser        IdentityType = "AdminUser"

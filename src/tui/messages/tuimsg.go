@@ -24,21 +24,10 @@ func (e EntitySelected) GetName() string {
 	return e.Name
 }
 
-type State map[string]int
 type StateChanged struct {
-	State State
+	State domain.State
 }
 
-func NewState() State {
-	return make(State)
-}
-
-func (s State) Update(key string, numChange int) State {
-	prevNum, exists := s[key]
-	if !exists {
-		prevNum = 0
-	}
-
-	s[key] = prevNum + numChange
-	return s
+func NewState() domain.State {
+	return make(domain.State)
 }
