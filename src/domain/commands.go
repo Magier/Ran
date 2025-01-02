@@ -16,34 +16,6 @@ type TTPParams interface{}
 
 type ResultHandler = func(source Entity, args ...any) (Event, error)
 
-type Requirements struct {
-	Kind           string
-	AccessLevel    AccessLevel
-	RbacPermission string
-	Infra          []string
-	Exists         string
-}
-
-func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state map[string]int) bool {
-	if r.Kind != "" && r.Kind != target.GetKind() {
-		return false
-	}
-	if r.AccessLevel != NoAccess && r.AccessLevel != accessLevel {
-		return false
-	}
-
-	if r.RbacPermission != "" {
-		return false
-	}
-
-	if r.Exists != "" {
-		if num, ok := state[r.Exists]; !ok || num == 0 {
-			return false
-		}
-	}
-	return true
-}
-
 type CodeSnippet struct {
 	Lang       string            `yaml:"lang"`
 	Code       string            `yaml:"code"`

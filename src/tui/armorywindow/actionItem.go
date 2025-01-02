@@ -27,10 +27,17 @@ var (
 )
 
 type actionItemDelegate struct {
-	base   list.DefaultDelegate
-	target tuimsg.EntitySelected
-	state  tuimsg.State
+	base      list.DefaultDelegate
+	target    tuimsg.EntitySelected
+	condition domain.Requirements
 	// Styles list.DefaultItemStyles
+}
+
+func NewActionItemDelegate() actionItemDelegate {
+	return actionItemDelegate{
+		base:      list.NewDefaultDelegate(),
+		condition: domain.Requirements{},
+	}
 }
 
 func (d actionItemDelegate) Height() int  { return 3 }
@@ -39,9 +46,12 @@ func (d actionItemDelegate) Update(msg tea.Msg, model *list.Model) tea.Cmd {
 	switch msg := msg.(type) {
 	case tuimsg.EntitySelected:
 		d.target = msg
+		d.condition.AccessLevel = d.target.AccessLevel
+		d.condition.Kind = domain.IsOfKind(d.target.Kind)
+		// TODO: update RBAC permission
 		model.SetDelegate(d)
 	case tuimsg.StateChanged:
-		d.state = msg.State
+		d.condition.State = msg.State
 		model.SetDelegate(d)
 	}
 	return nil
@@ -78,7 +88,7 @@ func (d actionItemDelegate) Render(w io.Writer, m list.Model, index int, listIte
 	}
 
 	isSatisfied := false
-	if action.requirements.Satisfied(d.target, d.target.AccessLevel, d.state) {
+	if action.requirements.Satisfied(d.target, d.target.AccessLevel, d.condition.State) {
 		isSatisfied = true
 	}
 
@@ -121,7 +131,7 @@ func (d actionItemDelegate) Render(w io.Writer, m list.Model, index int, listIte
 	if d.base.ShowDescription && action.Description() != "" {
 		fmt.Fprintf(w, "\n%s", desc)
 	}
-	requirementsLine := renderRequirementBadges(action.requirements, action.condition, s.NormalTitle)
+	requirementsLine := renderRequirementBadges(action.requirements, d.condition, s.NormalTitle)
 	if requirementsLine != "" {
 		fmt.Fprintf(w, "\n%s", requirementsLine)
 	}
@@ -131,41 +141,29 @@ func renderRequirementBadges(r domain.Requirements, cond domain.Requirements, s 
 	badges := make([]string, 0)
 	// use the same indentation, but ensure background is only set on the actual badge content
 	p := s.GetPaddingLeft()
-	badgeStyle := s.PaddingLeft(0).MarginLeft(p)
-	if r.AccessLevel != domain.NoAccess {
-		s := badgeStyle
-		if cond.AccessLevel.Satisfies(r.AccessLevel) {
-			s = s.Background(theme.PrimaryColor)
-		} else {
-			s = s.Foreground(theme.PrimaryColor)
-		}
-		badges = append(badges, s.Render(r.AccessLevel.String()))
+	badgeStyle := s.PaddingLeft(0).MarginLeft(p).Foreground(theme.NegativeColor)
+
+	checks := []struct {
+		enforce   bool
+		satisfied bool
+		label     string
+	}{
+		{r.AccessLevel.IsSet(), cond.AccessLevel.Satisfies(r.AccessLevel), r.AccessLevel.String()},
+		{r.Kind.IsSet(), cond.Kind.Satisfies(r.Kind), "is " + string(r.Kind)},
+		{r.RbacPermission.IsSet(), cond.RbacPermission == r.RbacPermission, "can " + string(r.RbacPermission)},
+		{r.Exists.IsSet(), cond.State.Satisfies(r.Exists), "∃ " + string(r.Exists)},
 	}
 
-	if r.Kind != "" {
-		s := badgeStyle
-		if cond.Kind == r.Kind {
-			s = s.Background(theme.BlueColor)
-		} else {
-			s = s.Foreground(theme.BlueColor)
+	for _, check := range checks {
+		if !check.enforce {
+			continue
 		}
-		badges = append(badges, s.Render("is "+r.Kind))
-	}
 
-	if r.RbacPermission != "" {
 		s := badgeStyle
-		if cond.RbacPermission == r.RbacPermission {
-			s = s.Background(theme.SecondaryColor)
-		} else {
-			s = s.Foreground(theme.SecondaryColor)
+		if check.satisfied {
+			s = s.Foreground(theme.PositiveColor)
 		}
-		badges = append(badges, s.Render("can "+r.RbacPermission))
-	}
-
-	if r.Exists != "" {
-		s := badgeStyle
-		s = s.Foreground(theme.PrimaryColor)
-		badges = append(badges, s.Render("∃ "+r.Exists))
+		badges = append(badges, s.Render(check.label))
 	}
 	return strings.Join(badges, ", ")
 }
