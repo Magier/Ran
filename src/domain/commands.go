@@ -159,15 +159,6 @@ func (c StartC2Redirector) String() string {
 	return "Start C2 redirector"
 }
 
-type ReadEnvVars struct {
-	CommandImpl
-	Target
-}
-
-func (c ReadEnvVars) String() string {
-	return "Read environment variables"
-}
-
 type ExecTTP struct {
 	CommandImpl
 	TTP       TTP
