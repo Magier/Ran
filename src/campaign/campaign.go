@@ -167,13 +167,12 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 	// if it need userRead/ userExecute, identify the necessary channel
 	if execCmd.TTP.Requires.AccessLevel != domain.NoAccess {
 		// TODO: Entity can't be converted to K8sEntity -> use reflection?
-		if system, ok := target.(domain.K8sEntity); ok {
+		if system, ok := target.(domain.Pod); ok {
 			if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
 				c2Channel, err := findC2Channel(c.kb, target)
 				if err == nil {
 					execCmd.C2Channel = c2Channel
 				}
-
 			}
 		}
 	}
@@ -204,7 +203,16 @@ func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, er
 				if l > 1 {
 					slog.Info(fmt.Sprintf("Got %d possible channels, using 1st one", l))
 				}
-				return rel.(domain.C2Channel), nil
+
+				if ch, ok := rel.(domain.C2Channel); ok {
+					return ch, nil
+				} else if canAccess, ok := rel.(domain.CanAccess); ok {
+					return domain.PodExecC2Channel{
+						SourceId: canAccess.SourceId,
+						TargetId: canAccess.TargetId,
+						Identity: canAccess.Identity,
+					}, nil
+				}
 			}
 		}
 	}

@@ -69,7 +69,7 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 	// convert the communication channel to a relationship
 	c2Channel := domain.ImplantC2Channel{
 		SessionId: ev.Session.Id,
-		Source:    fmt.Sprintf("%s/%s", "c2", ev.C2Kind),
+		SourceId:  fmt.Sprintf("%s/%s", "c2", ev.C2Kind),
 		Kind:      ev.C2Kind,
 		Target: domain.Target{
 			Id:     system.GetId(),
@@ -183,6 +183,7 @@ func (c *Campaign) onPrintGraph(ctx context.Context, msg domain.Message) (domain
 		if err := g.RenderFilename(ctx, graph, graphviz.PNG, "topo.png"); err != nil {
 			return nil, err
 		}
+		slog.Info("saved topo.png file!")
 	}
 	return nil, nil
 }

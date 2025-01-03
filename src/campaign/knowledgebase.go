@@ -100,8 +100,10 @@ func (kg BuiltInKnowledgeBase) GetEntities() map[string]domain.Entity {
 }
 func (kg BuiltInKnowledgeBase) AddRelation(rel domain.Relation) error {
 	kg.Relations[domain.GetRelationId(rel)] = rel
+	cost := domain.GetRelationCost(rel)
 	return kg.graph.AddEdge(rel.GetSource(), rel.GetTarget(),
 		graph.EdgeAttribute("label", rel.GetRelationName()),
+		graph.EdgeWeight(cost),
 		graph.EdgeData(rel),
 	)
 }

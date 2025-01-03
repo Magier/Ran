@@ -73,14 +73,14 @@ type C2Channel interface {
 
 type ImplantC2Channel struct {
 	SessionId string
-	Source    string
+	SourceId  string
 	Kind      string
 	Target    Target
 	Protocol  string
 }
 
 func (ch ImplantC2Channel) GetSource() string {
-	return ch.Source
+	return ch.SourceId
 }
 
 func (ch ImplantC2Channel) GetTarget() string {
@@ -95,27 +95,28 @@ func (ch ImplantC2Channel) GetKind() string {
 	return ch.Kind
 }
 
-type KubectlExecChannel struct {
-	Source string
-	Cmd    string
-	Target
+type PodExecC2Channel struct {
+	SourceId string
+	// Cmd    string
+	TargetId string
+	Identity Identity
 }
 
-func (ch KubectlExecChannel) GetSource() string {
-	return ch.Source
+func (ch PodExecC2Channel) GetSource() string {
+	return ch.SourceId
 }
 
-func (ch KubectlExecChannel) GetTarget() string {
-	return ch.Target.Name
+func (ch PodExecC2Channel) GetTarget() string {
+	return ch.TargetId
 }
 
-func (ch KubectlExecChannel) GetRelationName() string {
-	return "Kubectl exec"
+func (ch PodExecC2Channel) GetRelationName() string {
+	return "pod exec"
 }
 
-func (ch KubectlExecChannel) GetKind() string {
+func (ch PodExecC2Channel) GetKind() string {
 	// TODO: change this to the identity to use
-	return "exec"
+	return "pod/exec"
 }
 
 type Uses struct {
@@ -152,4 +153,16 @@ func (u CanAccess) GetTarget() string {
 
 func (u CanAccess) GetRelationName() string {
 	return "can-access"
+}
+func (u CanAccess) GetCost() int {
+	return 100
+}
+
+// Utility function to provide default cost 0 for all informative relations or call the respective cost function
+func GetRelationCost(relation Relation) int {
+	switch r := relation.(type) {
+	case CanAccess:
+		return r.GetCost()
+	}
+	return 0
 }

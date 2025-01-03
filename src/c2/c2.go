@@ -53,12 +53,12 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		cmd := msg.(domain.ExecTTP)
 		// check technique to execute CMD -> kubectl exec uses API
 		// or shell listener?
-		switch cmd.C2Channel.(type) {
+		switch ch := cmd.C2Channel.(type) {
 		case domain.ImplantC2Channel:
 			if c2, ok := c2Clients[cmd.C2Channel.GetKind()]; ok {
 				return c2.Execute(cmd)
 			}
-		case domain.KubectlExecChannel:
+		case domain.PodExecC2Channel:
 			stdout, stderr, err := execKubectl(ctx, cmd)
 			if err != nil {
 				slog.Warn(err.Error())
@@ -71,7 +71,11 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 				if err != nil {
 					slog.Warn(err.Error())
 				}
+			} else {
+				slog.Warn("Can't Exec TTP: no channel defined and no code provided!")
 			}
+		default:
+			slog.Warn(fmt.Sprintf("Can't Exec TTP: unclear how to handle channel %v", ch))
 		}
 		return nil, nil
 	})
