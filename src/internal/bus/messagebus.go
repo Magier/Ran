@@ -20,7 +20,7 @@ type MessageBusProvider struct {
 	subscribers map[string][]domain.MessageHandler
 }
 
-func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
+func (b *MessageBusProvider) HandleEvents(ctx context.Context) {
 	for msg := range b.channel {
 		if msg == nil {
 			slog.Error("Received empty message!")
@@ -35,7 +35,6 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 			msg, err := handler(ctx, msg)
 			if err != nil {
 				slog.Error(err.Error())
-				return err
 			}
 			if msg != nil {
 				err = b.Publish(msg)
@@ -45,7 +44,6 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
 }
 
 // func (b *MessageBusProvider) Execute(cmd domain.Message) (chan struct{}, error) {

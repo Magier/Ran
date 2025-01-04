@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 
 	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
@@ -56,50 +54,43 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 	}
 }
 
-func loadClusterData(ctx context.Context, mb bus.MessageBus) {
-	channel := make(chan domain.Entity)
+type MaybeEntity struct {
+	Entity domain.Entity
+	Error  error
+}
 
-	k8sConfig, k8sContext, err := k8s.GetConfig()
+func loadClusterData(ctx context.Context, mb bus.MessageBus) {
+	client, err := k8s.NewK8sClient("")
 	if err != nil {
-		panic(err)
+		_ = mb.Publish(domain.ErrorMsg{
+			Level: domain.LevelFatal,
+			Msg:   "Couldn't create K8s client for context " + client.Context.Name,
+		})
+		return
+	} else if !client.TestConnection() {
+		_ = mb.Publish(domain.ErrorMsg{
+			Level: domain.LevelFatal,
+			Msg:   "Can't connect to " + client.Context.Name,
+		})
+		return
 	}
 
 	addApiServer := false
 	entities := make([]domain.Entity, 0)
-	// extract the HOST of the url which is an ip address
 	if addApiServer {
-		apiServerIP := strings.Split(k8sConfig.Host, ":")[1][2:]
-		apiServerIPAddr, err := net.ResolveIPAddr("ip", apiServerIP)
+		apiServerPod, err := client.GetApiServer()
 		if err != nil {
-			fmt.Printf("Couldn't resolve apiServer IP: %s", err.Error())
+			slog.Error(fmt.Sprintf("Couldn't resolve apiServer IP: %s", err.Error()))
+		} else {
+			entities = append(entities, apiServerPod)
 		}
-
-		name := "#API Server"
-		ns := "kube-system"
-		apiServerPod := domain.ApiServer{
-			Pod: domain.Pod{
-				K8sEntity: domain.K8sEntity{
-					Id:        "#apiServer",
-					Name:      name,
-					Kind:      "Pod",
-					Namespace: ns,
-					Owner: domain.OwnerRef{
-						Uid:  fmt.Sprintf("ns/%s/wl/%s", ns, name),
-						Kind: "AbstractWorkload",
-						Name: name,
-					},
-				},
-			},
-			ExternalIP: *apiServerIPAddr,
-			CAData:     k8sConfig.CAData,
-		}
-		entities = append(entities, apiServerPod)
 	}
+
 	k8sConfigUser := domain.Identity{
-		Name:     k8sContext.Name,
+		Name:     client.Context.Name,
 		Kind:     domain.AdminUser,
-		CertData: k8sContext.UserCert,
-		KeyData:  k8sContext.UserKey,
+		CertData: client.Context.UserCert,
+		KeyData:  client.Context.UserKey,
 		Permissions: []domain.RbacPermission{{
 			Verbs:         []string{"*"},
 			ResourceTypes: []string{"*"},
@@ -113,13 +104,18 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 		fmt.Printf("Couldn't add apiServer as new entity to bus: %s", err.Error())
 	}
 
+	channel := make(chan MaybeEntity)
 	go populateEntities(ctx, channel)
-	pods := []domain.Entity{}
-	for p := range channel {
-		pods = append(pods, p)
+	entities = []domain.Entity{}
+	for maybeEntity := range channel {
+		if maybeEntity.Error != nil {
+			slog.Error(maybeEntity.Error.Error())
+		} else {
+			entities = append(entities, maybeEntity.Entity)
+		}
 	}
-	if len(pods) > 0 {
-		err = mb.Publish(domain.NewFacts{Entities: pods})
+	if len(entities) > 0 {
+		err = mb.Publish(domain.NewFacts{Entities: entities})
 		if err != nil {
 			fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
 		}
@@ -128,32 +124,35 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 	}
 }
 
-func populateEntities(ctx context.Context, channel chan<- domain.Entity) {
+func populateEntities(ctx context.Context, channel chan<- MaybeEntity) {
 	defer close(channel)
 	client, err := k8s.NewK8sClient("")
 	if err != nil {
-		panic(err)
+		channel <- MaybeEntity{Entity: nil, Error: err}
+		return
 	}
 
-	var nsName string = "default"
-
-	deployments, err := k8s.GetDeployments(ctx, client, nsName)
+	var nsName string = ""
+	deployments, err := client.GetDeployments(ctx, nsName)
 	if err != nil {
-		panic(err)
-	}
-	for _, d := range deployments {
-		channel <- d
+		channel <- MaybeEntity{Entity: nil, Error: err}
+		return
+	} else {
+		for _, d := range deployments {
+			channel <- MaybeEntity{Entity: d, Error: nil}
+		}
 	}
 
-	pods, err := k8s.GetPods(ctx, client, nsName)
+	pods, err := client.GetPods(ctx, nsName)
 	if err != nil {
-		panic(err)
+		channel <- MaybeEntity{Entity: nil, Error: err}
+	} else {
+		for _, p := range pods {
+			channel <- MaybeEntity{Entity: p, Error: nil}
+		}
 	}
-	for _, p := range pods {
-		channel <- p
-	}
-
 }
+
 func ServeFiles(ctx context.Context, port uint) {
 	http.Handle("/", http.FileServer(http.Dir("../static")))
 	p := strconv.FormatUint(uint64(port), 10)

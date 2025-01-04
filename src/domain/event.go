@@ -23,18 +23,19 @@ type UiEvent interface {
 	UiMessage() string
 }
 
-type ErrorLevel string
+type MsgLevel string
 
 var (
-	LevelDebug ErrorLevel = "DEBUG"
-	LevelInfo  ErrorLevel = "INFO"
-	LevelWarn  ErrorLevel = "WARN"
-	LevelError ErrorLevel = "ERROR"
+	LevelDebug MsgLevel = "DEBUG"
+	LevelInfo  MsgLevel = "INFO"
+	LevelWarn  MsgLevel = "WARN"
+	LevelError MsgLevel = "ERROR"
+	LevelFatal MsgLevel = "FATAL"
 )
 
 type ErrorMsg struct {
 	EventImpl
-	Level ErrorLevel
+	Level MsgLevel
 	Msg   string
 }
 

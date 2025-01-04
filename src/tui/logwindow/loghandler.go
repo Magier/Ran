@@ -20,7 +20,7 @@ const (
 )
 
 type LogMessage struct {
-	Level domain.ErrorLevel
+	Level domain.MsgLevel
 	Time  time.Time
 	Msg   string
 }
@@ -81,7 +81,7 @@ func (h *LogHandler) Handle(ctx context.Context, r slog.Record) error {
 
 	go h.program.Send(LogMessage{
 		Msg:   r.Message + " " + attrs,
-		Level: domain.ErrorLevel(r.Level.String()),
+		Level: domain.MsgLevel(r.Level.String()),
 		Time:  r.Time,
 	})
 	return err

@@ -3,11 +3,15 @@ package k8s
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Magier/Ran/domain"
 	v1 "k8s.io/api/core/v1"
@@ -65,20 +69,85 @@ func GetConfig() (*restclient.Config, KubeContext, error) {
 	return config, context, err
 }
 
-func NewK8sClient(kubeConfigPath string) (*kubernetes.Clientset, error) {
-	config, _, err := GetConfig()
-	if err != nil {
-		return nil, err
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, err
-	}
-	return clientset, nil
+type K8sClient struct {
+	*kubernetes.Clientset
+	Config  *restclient.Config
+	Context KubeContext
 }
 
-func GetDeployments(ctx context.Context, clientset *kubernetes.Clientset, ns string) ([]domain.Deployment, error) {
-	k8sDeployments, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
+func (c K8sClient) Valid() bool {
+	return c.Clientset != nil
+}
+
+func (c K8sClient) TestConnection() bool {
+	var timeout time.Duration = time.Second * 2
+	url := c.RESTClient().Get().AbsPath("/livez").URL()
+	client := http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	res, err := client.Get(url.String())
+	if err != nil {
+		return false
+	}
+	res.Body.Close()
+	return true
+}
+
+func (client K8sClient) GetApiServer() (domain.ApiServer, error) {
+	// extract the HOST of the url which is an ip address
+	apiServerIP := strings.Split(client.Config.Host, ":")[1][2:]
+	apiServerIPAddr, err := net.ResolveIPAddr("ip", apiServerIP)
+	if err != nil {
+		return domain.ApiServer{}, err
+	}
+
+	name := "#API Server"
+	ns := "kube-system"
+	apiServerPod := domain.ApiServer{
+		Pod: domain.Pod{
+			K8sEntity: domain.K8sEntity{
+				Id:        "#apiServer",
+				Name:      name,
+				Kind:      "Pod",
+				Namespace: ns,
+				Owner: domain.OwnerRef{
+					Uid:  fmt.Sprintf("ns/%s/wl/%s", ns, name),
+					Kind: "AbstractWorkload",
+					Name: name,
+				},
+			},
+		},
+		ExternalIP: *apiServerIPAddr,
+		CAData:     client.Config.CAData,
+	}
+	return apiServerPod, nil
+}
+
+func NewK8sClient(kubeConfigPath string) (K8sClient, error) {
+	config, context, err := GetConfig()
+	if err != nil {
+		return K8sClient{}, err
+	}
+
+	c := K8sClient{
+		Config:  config,
+		Context: context,
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return c, err
+	}
+	c.Clientset = clientset
+
+	return c, nil
+}
+
+func (c K8sClient) GetDeployments(ctx context.Context, ns string) ([]domain.Deployment, error) {
+	k8sDeployments, err := c.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -134,8 +203,8 @@ func getOwnerReference(meta metav1.Object) domain.OwnerRef {
 	return owner
 }
 
-func GetPods(ctx context.Context, clientset *kubernetes.Clientset, ns string) ([]domain.Pod, error) {
-	k8sPods, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
+func (c K8sClient) GetPods(ctx context.Context, ns string) ([]domain.Pod, error) {
+	k8sPods, err := c.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +234,7 @@ func GetPods(ctx context.Context, clientset *kubernetes.Clientset, ns string) ([
 	return pods, nil
 }
 
-func ExecInPod(ctx context.Context, client *kubernetes.Clientset, podName, ns, cmd string) (string, string, error) {
+func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string) (string, string, error) {
 	req := client.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(podName).
