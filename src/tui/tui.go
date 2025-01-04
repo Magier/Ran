@@ -67,7 +67,23 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Pr
 
 	bus.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Message) (domain.Message, error) {
 		msg := event.(domain.ErrorMsg)
-		p.Send(logwindow.LogMessage{Level: msg.Level, Msg: msg.Msg})
+
+		if msg.Level == domain.LevelFatal {
+			// fatal message means the normal operation is not possible
+			// retryCmd := func() tea.Msg {
+			// 	return closeModalMsg{}
+			// }
+			p.Send(showModalMsg{
+				hideRest: true,
+				text:     msg.Msg,
+				actions: []ModalAction{
+					// {Label: "Retry", Action: retryCmd},
+					{Label: "Quit", Action: tea.Quit},
+				},
+			})
+		} else {
+			p.Send(logwindow.LogMessage{Level: msg.Level, Msg: msg.Msg})
+		}
 		return nil, nil
 	})
 
@@ -94,6 +110,10 @@ type model struct {
 	campaign   *campaign.Campaign
 	keymap     keymap
 	help       help.Model
+	modal      ModalModel
+	showModal  bool
+	width      int
+	height     int
 }
 
 func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) model {
@@ -145,6 +165,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		msg = tea.WindowSizeMsg{Width: m.Width, Height: m.Height - 1}
 	}
 
+	m.modal, cmd = m.modal.Update(msg)
+	cmds = append(cmds, cmd)
+
 	m.explorer, cmd = m.explorer.Update(msg)
 	m.windows[ExplorerWnd] = &m.explorer
 	cmds = append(cmds, cmd)
@@ -170,9 +193,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// m.height = msg.Height
-		// m.width = msg.Width
-
+		m.width = msg.Width
+		m.height = msg.Height
 	case commandprompt.SendCommand:
 		err := m.bus.Publish(msg.Action)
 		if err != nil {
@@ -223,12 +245,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusWindow(LogWnd)
 			}
 		}
+	case showModalMsg:
+		m.modal = NewModal(msg.text, msg.actions, m.width, m.height)
+		m.showModal = true
+	case closeModalMsg:
+		m.showModal = false
 	}
 	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
 	var s string
+
+	if m.showModal {
+		s = m.modal.View()
+		if m.modal.HideRest {
+			return s
+		}
+	}
 
 	explorerView := m.explorer.View()
 	mainView := m.mainWindow.View()
