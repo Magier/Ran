@@ -57,7 +57,7 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 		Kind: "sliver",
 	})
 	if err != nil {
-		slog.Warn("Couldn't send 'C2 Connected' event: ", "", err.Error())
+		slog.Warn("Couldn't send sliver 'C2 Connected' event: ", "", err.Error())
 		return err
 	}
 	defer ln.Close()
@@ -174,7 +174,7 @@ func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 		return c.stopListener(cmd)
 	case domain.ExecTTP:
 		c2Channel := cmd.C2Channel.(domain.ImplantC2Channel)
-		switch cmd.TTP.Cmd {
+		switch cmd.TTP.GetCommand("sliver") {
 		case "get_file":
 			if len(cmd.TTP.Args) == 0 {
 				return nil, fmt.Errorf("Path of file to retrieve is required as argument")
@@ -261,8 +261,8 @@ func reportEstablishedSessions(rpc rpcpb.SliverRPCClient, bus bus.MessageBus) {
 	}
 }
 
-func (c SliverClient) Execute(ev domain.Command) (domain.Message, error) {
-	c.cmdChannel <- ev
+func (c SliverClient) Execute(execTTP domain.Command) (domain.Message, error) {
+	c.cmdChannel <- execTTP
 	return nil, nil
 }
 

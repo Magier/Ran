@@ -29,6 +29,15 @@ func NewBuiltInServer(bus bus.MessageBus) BuiltInC2Server {
 }
 
 func (c BuiltInC2Server) Connect(ctx context.Context, mb bus.MessageBus) error {
+	err := mb.Publish(domain.C2Connected{
+		Name: "",
+		IP:   c.GetServerIp(),
+		Kind: "builtin",
+	})
+	if err != nil {
+		slog.Warn("Couldn't send 'builtin C2 Connected' event: ", "", err.Error())
+		return err
+	}
 	for {
 		select {
 		case <-ctx.Done():

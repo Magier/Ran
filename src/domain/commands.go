@@ -31,9 +31,10 @@ type TTP struct {
 
 	References []string `yaml:"references"`
 
-	Cmd  string   `yaml:"cmd"`
-	Args []string `yaml:"args"`
-	Port uint     `yaml:"port"`
+	Cmd         string            `yaml:"cmd"`
+	CmdVariants map[string]string `yaml:"cmdVariants"`
+	Args        []string          `yaml:"args"`
+	Port        uint              `yaml:"port"`
 
 	Command   Command           `yaml:"command"`
 	CommandFn func(TTP) Message `yaml:"-"`
@@ -65,6 +66,15 @@ func (ttp TTP) GetMessage() Message {
 	} else {
 		return ExecTTP{TTP: ttp, Cmd: ttp.Cmd, Args: ttp.Args}
 	}
+}
+
+func (ttp TTP) GetCommand(variant string) string {
+	// some TTPs may have special commands for various C2 frameworks
+	if cmd, ok := ttp.CmdVariants[variant]; ok {
+		return cmd
+	}
+	// default to the general command
+	return ttp.Cmd
 }
 
 func (ttp TTP) HandleResult(source Entity, args ...any) (Event, error) {

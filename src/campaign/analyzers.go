@@ -128,8 +128,8 @@ func analyzeServiceAccountToken(token string) (domain.Event, error) {
 	// TODO check: if SA tokens can target other pods than the system where it was mounted on?
 	pod := domain.NewPod(saToken.Kubernetes.Pod.Name, ns.Name)
 	saUsage := domain.Uses{
-		SubjectId: pod.Id,
-		ObjectId:  sa.Id,
+		SubjectId: pod.GetId(),
+		ObjectId:  sa.GetId(),
 	}
 
 	// TODO: add token to loot (with ref to the system)
