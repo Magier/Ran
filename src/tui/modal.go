@@ -60,6 +60,7 @@ type ModalModel struct {
 	// actionMap    map[string]tea.Msg
 	screenWidth  int
 	screenHeight int
+	isVisible    bool
 }
 
 type ModalAction struct {
@@ -85,15 +86,18 @@ func (m ModalModel) Update(msg tea.Msg) (ModalModel, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyTab:
-			m.activeButton = (m.activeButton + 1) % len(m.Actions)
-		case tea.KeyShiftTab:
-			numActions := len(m.Actions)
-			// workaround because GO does not have math. sound modulo operation :(
-			m.activeButton = ((m.activeButton-1)%numActions + numActions) % numActions
-		case tea.KeyEnter:
-			cmd = m.Actions[m.activeButton].Action
+		if m.isVisible {
+			switch msg.Type {
+			case tea.KeyTab:
+				m.activeButton = (m.activeButton + 1) % len(m.Actions)
+			case tea.KeyShiftTab:
+				numActions := len(m.Actions)
+				// workaround because GO does not have math. sound modulo operation :(
+				m.activeButton = ((m.activeButton-1)%numActions + numActions) % numActions
+			case tea.KeyEnter:
+				cmd = m.Actions[m.activeButton].Action
+				m.isVisible = false
+			}
 		}
 	}
 	return m, cmd

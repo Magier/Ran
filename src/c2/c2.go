@@ -205,7 +205,8 @@ func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error
 	}
 
 	// TODO: handle case of multiple containers
-	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, target.Ns, cmd.Cmd)
+	c := cmd.TTP.GetCommand("")
+	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, target.Ns, c, cmd.TTP.Args)
 	return stdOut, stdErr, err
 }
 

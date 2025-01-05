@@ -234,7 +234,7 @@ func (c K8sClient) GetPods(ctx context.Context, ns string) ([]domain.Pod, error)
 	return pods, nil
 }
 
-func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string) (string, string, error) {
+func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string, args []string) (string, string, error) {
 	req := client.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(podName).
@@ -263,6 +263,7 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string) (
 		}
 	} else {
 		command = strings.Fields(cmd)
+		command = append(command, args...)
 	}
 
 	// parameterCodec := runtime.NewParameterCodec(scheme)
