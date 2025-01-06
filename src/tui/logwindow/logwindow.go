@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/tui/theme"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,13 +14,15 @@ import (
 
 type Model struct {
 	focused  bool
-	lines    []string
+	lines    []LogMessage
 	style    lipgloss.Style
 	viewport viewport.Model
 	width    float32
 	height   int
 	ready    bool
 }
+
+var baseStyle = lipgloss.NewStyle()
 
 func NewLogWindow(width float32, height int) Model {
 	var style = lipgloss.NewStyle().
@@ -39,7 +42,7 @@ func NewLogWindow(width float32, height int) Model {
 
 	return Model{
 		focused: false,
-		lines:   make([]string, 0),
+		lines:   make([]LogMessage, 0),
 		style:   style,
 		width:   width,
 		height:  height,
@@ -47,13 +50,25 @@ func NewLogWindow(width float32, height int) Model {
 	}
 }
 
-func (m *Model) AddLine(line string) {
+func (m *Model) AddLine(line LogMessage) {
 	m.lines = append(m.lines, line)
 	var s string
-	for _, res := range m.lines {
-		s += res + "\n"
+	for _, msg := range m.lines {
+		style := baseStyle
+		switch msg.Level {
+		case domain.LevelError:
+			style = baseStyle.Foreground(theme.NegativeColor)
+		case domain.LevelWarn:
+			style = baseStyle.Foreground(theme.WarnColor)
+		case domain.LevelInfo:
+			style = baseStyle.Foreground(theme.PositiveColor)
+		case domain.LevelDebug:
+			style = baseStyle.Foreground(theme.InactiveColor)
+		}
+		s += style.Render(msg.Msg) + "\n"
 	}
 	m.viewport.SetContent(s)
+	m.viewport.ViewDown()
 }
 
 func (m Model) Init() tea.Cmd {
@@ -67,7 +82,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	)
 	switch msg := msg.(type) {
 	case LogMessage:
-		m.AddLine(msg.String())
+		m.AddLine(msg)
 	case tea.WindowSizeMsg:
 		footerHeight := lipgloss.Height(m.footerView())
 		w := int(m.width * float32(msg.Width))
@@ -101,14 +116,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	var s string
-	for _, res := range m.lines {
-		s += res + "\n"
-	}
 	if !m.ready {
 		return "\n  Initializing..."
 	}
-	s = fmt.Sprintf("%s\n%s", m.viewport.View(), m.footerView())
+	s := fmt.Sprintf("%s\n%s", m.viewport.View(), m.footerView())
 
 	if m.focused {
 		activeStyle := m.style.BorderForeground(theme.PrimaryColor)
