@@ -46,7 +46,11 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 	// TODO maybe switch between TUI and web-UI (start frontend as well?)
 
 	if loadKubeConfig {
-		go loadClusterData(ctx, mb)
+		namespaces := []string{
+			"default",
+			"restricted-ns",
+		}
+		go loadClusterData(ctx, mb, namespaces)
 	}
 
 	if ui != nil {
@@ -59,7 +63,7 @@ type MaybeEntity struct {
 	Error  error
 }
 
-func loadClusterData(ctx context.Context, mb bus.MessageBus) {
+func loadClusterData(ctx context.Context, mb bus.MessageBus, namespaces []string) {
 	client, err := k8s.NewK8sClient("")
 	if err != nil {
 		_ = mb.Publish(domain.ErrorMsg{
@@ -105,7 +109,8 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 	}
 
 	channel := make(chan MaybeEntity)
-	go populateEntities(ctx, channel)
+	go populateEntities(ctx, namespaces, channel)
+
 	entities = []domain.Entity{}
 	for maybeEntity := range channel {
 		if maybeEntity.Error != nil {
@@ -124,7 +129,7 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus) {
 	}
 }
 
-func populateEntities(ctx context.Context, channel chan<- MaybeEntity) {
+func populateEntities(ctx context.Context, namespaces []string, channel chan<- MaybeEntity) {
 	defer close(channel)
 	client, err := k8s.NewK8sClient("")
 	if err != nil {
@@ -132,23 +137,29 @@ func populateEntities(ctx context.Context, channel chan<- MaybeEntity) {
 		return
 	}
 
-	var nsName string = ""
-	deployments, err := client.GetDeployments(ctx, nsName)
-	if err != nil {
-		channel <- MaybeEntity{Entity: nil, Error: err}
-		return
-	} else {
-		for _, d := range deployments {
-			channel <- MaybeEntity{Entity: d, Error: nil}
-		}
+	// no restriction of namespaces -> load all namespaces indicated to K8s client by namespace ""
+	if len(namespaces) == 0 {
+		namespaces = []string{""}
 	}
 
-	pods, err := client.GetPods(ctx, nsName)
-	if err != nil {
-		channel <- MaybeEntity{Entity: nil, Error: err}
-	} else {
-		for _, p := range pods {
-			channel <- MaybeEntity{Entity: p, Error: nil}
+	for _, nsName := range namespaces {
+		deployments, err := client.GetDeployments(ctx, nsName)
+		if err != nil {
+			channel <- MaybeEntity{Entity: nil, Error: err}
+			return
+		} else {
+			for _, d := range deployments {
+				channel <- MaybeEntity{Entity: d, Error: nil}
+			}
+		}
+
+		pods, err := client.GetPods(ctx, nsName)
+		if err != nil {
+			channel <- MaybeEntity{Entity: nil, Error: err}
+		} else {
+			for _, p := range pods {
+				channel <- MaybeEntity{Entity: p, Error: nil}
+			}
 		}
 	}
 }
