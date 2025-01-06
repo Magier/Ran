@@ -128,7 +128,7 @@ func addEntity(tree *Node, campaign *campaign.Campaign, entity domain.Entity, ex
 
 	k8sEntity, ok := entity.(domain.Ownable)
 	if !ok {
-		slog.Debug(entity.GetName() + " " + entity.GetKind() + " Not a K8sEntity")
+		slog.Debug("[TUI]" + entity.GetName() + " " + entity.GetKind() + " Not a K8sEntity")
 		return
 	}
 
