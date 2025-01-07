@@ -3,11 +3,14 @@ package campaign
 import (
 	"fmt"
 	"log/slog"
+	"regexp"
 
 	"github.com/Magier/Ran/domain"
 	"github.com/dominikbraun/graph"
 	"github.com/google/uuid"
 )
+
+var WorkloadNamePattern = regexp.MustCompile(`^(?P<workload>.*)-[a-z0-9]{9}-[a-z0-9]{5}$`)
 
 type KnowledgeGraph = graph.Graph[string, domain.Entity]
 
@@ -43,17 +46,42 @@ func InitGraph() BuiltInKnowledgeBase {
 	return kg
 }
 
-func (kg BuiltInKnowledgeBase) AddEntity(e domain.Entity) error {
-	kg.Entities[e.GetId()] = e
-	return kg.graph.AddVertex(e)
+func updateEntity(entity, other domain.Entity) domain.Entity {
+	if ownable, ok := entity.(domain.Ownable); ok {
+		hasOwner := false
+		ownerRef, _ := ownable.GetOwner()
+		if ownerRef.Name == "" {
+			prevOwnable := other.(domain.Ownable)
+			ownerRef, hasOwner = prevOwnable.GetOwner()
+		}
+
+		if hasOwner {
+			// omg, it can't possibly be idiomaitic Go to be so fking cumbersome ...
+			switch e := entity.(type) {
+			case domain.Pod:
+				e.Owner = ownerRef
+				return e
+			}
+		}
+	}
+	return entity
+}
+
+func (kg BuiltInKnowledgeBase) AddEntity(entity domain.Entity) error {
+	kg.Entities[entity.GetId()] = entity
+	return kg.graph.AddVertex(entity)
 }
 
 func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, error) {
 	numChanges := 0
 	for _, entity := range entities {
-		otherEntities, relations := extractRelatedEntities(kg.Entities, entity)
+		if prevEntity, exists := kg.GetEntity(entity.GetId()); exists {
+			entity = updateEntity(entity, prevEntity)
+		}
 		_ = kg.AddEntity(entity)
 		numChanges++
+
+		otherEntities, relations := extractRelatedEntities(kg.Entities, entity)
 		changes, err := kg.AddEntities(otherEntities...)
 		if err == nil {
 			numChanges += changes
@@ -65,7 +93,11 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 			if ownsRel, ok := rel.(domain.Owns); ok {
 				if ownable, ok := entity.(domain.Ownable); ok {
 					ownerRef, _ := ownable.GetOwner()
-					if ownerRef.Name != ownsRel.Owner.GetName() {
+
+					// no valid owner reference. Check possible owner based on previous relations
+					if ownerRef.Name == "" {
+
+					} else if ownerRef.Name != ownsRel.Owner.GetName() {
 						// TODO: Kind is empty!! fix it
 						ownerRef := ownable.SetOwner(ownsRel.Owner.GetName(), ownerRef.Kind)
 
@@ -192,14 +224,11 @@ func extractRelatedEntities(entities map[string]domain.Entity, entity domain.Ent
 
 func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 	var owner domain.Workload
-	ownerName := pod.GetName()
 	resOwner := domain.ResourceOwner{
 		Pods: []domain.Pod{pod},
 	}
 
 	if ownerRef, ok := pod.GetOwner(); ok {
-		ownerName = ownerRef.Name
-
 		ownerEntity := domain.K8sEntity{
 			Name:      ownerRef.Name,
 			Kind:      ownerRef.Kind,
@@ -239,6 +268,12 @@ func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 	// A pod is always part of a workload, even a static pod
 	if owner == nil {
 		id := uuid.New()
+
+		ownerName := pod.GetName()
+		if matches := WorkloadNamePattern.FindStringSubmatch(ownerName); len(matches) > 1 {
+			ownerName = matches[WorkloadNamePattern.SubexpIndex("workload")]
+		}
+
 		owner = domain.AbstractWorkload{
 			K8sEntity: domain.K8sEntity{
 				Id:        id.String(),

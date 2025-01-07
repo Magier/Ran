@@ -39,11 +39,11 @@ type Contains struct {
 }
 
 func (r Contains) GetSource() string {
-	return r.Container.GetName()
+	return r.Container.GetId()
 }
 
 func (r Contains) GetTarget() string {
-	return r.Object.GetName()
+	return r.Object.GetId()
 }
 
 func (r Contains) GetRelationName() string {
