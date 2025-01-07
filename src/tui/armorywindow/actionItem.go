@@ -34,8 +34,10 @@ type actionItemDelegate struct {
 }
 
 func NewActionItemDelegate() actionItemDelegate {
+	d := list.NewDefaultDelegate()
+	d.ShowDescription = false
 	return actionItemDelegate{
-		base:      list.NewDefaultDelegate(),
+		base:      d,
 		condition: domain.Requirements{},
 	}
 }
