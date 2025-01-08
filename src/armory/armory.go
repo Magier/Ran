@@ -107,9 +107,12 @@ func LoadArmory(dir string) (Armory, error) {
 			Requires: domain.Requirements{AccessLevel: domain.UserExec},
 		},
 		{
-			Name:          "Read SerivceAccount Token",
-			Description:   "Command to download a prepared C2 implant and execute it to establish a session",
-			Cmd:           "get_file",
+			Name:        "Read SerivceAccount Token",
+			Description: "Command to download a prepared C2 implant and execute it to establish a session",
+			Cmd:         "cat",
+			CmdVariants: map[string]string{
+				"sliver": "get_file",
+			},
 			Args:          []string{"/var/run/secrets/kubernetes.io/serviceaccount/token"},
 			Requires:      domain.Requirements{AccessLevel: domain.UserRead},
 			Effects:       []string{"Pod name", "ServiceAccount name", "Namespace name"},
@@ -118,7 +121,12 @@ func LoadArmory(dir string) (Armory, error) {
 
 		{
 			Name:     "Check Token permissions",
+			Tactics:  []string{"Discovery"},
 			Requires: domain.Requirements{Kind: "ServiceAccount"},
+			CmdVariants: map[string]string{
+				"kubectl": "kubectl auth can-i --list --token=$TOKEN --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n $NAMESPACE",
+				"curl":    "kubectl auth can-i --list --token=$TOKEN --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n $NAMESPACE",
+			},
 		},
 		{
 			Name:        "Start Netcat shell",
@@ -213,12 +221,27 @@ func handleEnvVarResult(source domain.Entity, args ...any) (domain.Event, error)
 }
 
 func handleSaTokenRead(source domain.Entity, args ...any) (domain.Event, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("Sa Token Read expects exactly 1 argument - received %d", len(args))
+	if len(args) == 0 {
+		return nil, fmt.Errorf("No SA token provided as argument")
 	}
-	raw := args[0].([]byte)
+
+	var token string
+	switch t := args[0].(type) {
+	case string:
+		token = t
+	case []byte:
+		token = string(t)
+	}
+	if len(token) == 0 {
+		return nil, fmt.Errorf("Empty SA token can't be decoded")
+	}
+	if len(args) > 1 {
+		if args[1] != "" {
+			return nil, fmt.Errorf("Sa Token Read expects exactly 1 argument - received %d", len(args))
+		}
+	}
 	return domain.ServiceAccountTokenExtracted{
 		SourceSystemId: source.GetId(),
-		Token:          string(raw),
+		Token:          token,
 	}, nil
 }

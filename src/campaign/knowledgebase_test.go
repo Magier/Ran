@@ -17,3 +17,46 @@ func TestAddSinglePod(t *testing.T) {
 		t.Error("Expect exactly 1 pod in the knowledge base")
 	}
 }
+
+func TestDontAddExtraWorkloadWhenAddingPodWithOwner(t *testing.T) {
+	nsName := "default"
+	depl := domain.NewDeployment("test", nsName)
+	p := domain.NewPod("test", nsName)
+	p.Owner = domain.OwnerRef{
+		Kind: depl.Kind,
+		Name: depl.Name,
+	}
+
+	c := NewCampaign()
+	c.AddEntities(p) // implicitely adds Deployment because of the OwnerRef
+	pods := c.GetEntities()
+	if len(pods) != 3 { // NS + Deployment + Pod
+		t.Error("The pod has exactly 1 owner!")
+	}
+
+	// adding it again should make no difference
+	p = domain.NewPod("test", nsName)
+	c.AddEntities(depl, p)
+	if len(c.GetEntities()) != 3 { // NS + Deployment + Pod
+		t.Error("The pod has exactly 1 owner!")
+	}
+}
+
+func TestMoreInformationOnPodOwner(t *testing.T) {
+	nsName := "default"
+	p := domain.NewPod("test", nsName)
+	c := NewCampaign()
+
+	// this will add the intermediary AbstractWorkload
+	c.AddEntities(p)
+
+	depl := domain.NewDeployment("test", nsName)
+	c.AddEntities(depl)
+	owns := domain.Owns{Owner: depl, Object: p}
+	c.AddRelations(owns)
+
+	pods := c.GetEntities()
+	if len(pods) != 3 {
+		t.Error("The pod has exactly 1 owner!")
+	}
+}
