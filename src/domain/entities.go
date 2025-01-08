@@ -355,6 +355,8 @@ type Namespace struct {
 	Name string
 }
 
+var _ Entity = (*Namespace)(nil)
+
 func (ns Namespace) GetId() string {
 	return "ns/" + ns.Name
 }
