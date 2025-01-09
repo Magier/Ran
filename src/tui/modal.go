@@ -60,7 +60,7 @@ type ModalModel struct {
 	// actionMap    map[string]tea.Msg
 	screenWidth  int
 	screenHeight int
-	isVisible    bool
+	IsVisible    bool
 }
 
 type ModalAction struct {
@@ -68,13 +68,9 @@ type ModalAction struct {
 	Action tea.Cmd
 }
 
-func NewModal(text string, actions []ModalAction, screenWidth, screenHeight int) ModalModel {
+func NewModal() ModalModel {
 	return ModalModel{
-		Text:         text,
-		Actions:      actions,
 		HideRest:     true,
-		screenWidth:  screenWidth,
-		screenHeight: screenHeight,
 		activeButton: 0,
 	}
 }
@@ -86,7 +82,7 @@ func (m ModalModel) Update(msg tea.Msg) (ModalModel, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.isVisible {
+		if m.IsVisible {
 			switch msg.Type {
 			case tea.KeyTab:
 				m.activeButton = (m.activeButton + 1) % len(m.Actions)
@@ -96,11 +92,26 @@ func (m ModalModel) Update(msg tea.Msg) (ModalModel, tea.Cmd) {
 				m.activeButton = ((m.activeButton-1)%numActions + numActions) % numActions
 			case tea.KeyEnter:
 				cmd = m.Actions[m.activeButton].Action
-				m.isVisible = false
+				m.IsVisible = false
 			}
 		}
+	case tea.WindowSizeMsg:
+		m.screenWidth = msg.Width
+		m.screenHeight = msg.Height
 	}
 	return m, cmd
+}
+
+func (m *ModalModel) SetContent(text string, actions []ModalAction) {
+	m.Text = text
+	m.Actions = actions
+}
+
+func (m *ModalModel) Show() {
+	m.IsVisible = true
+}
+func (m *ModalModel) Hide() {
+	m.IsVisible = false
 }
 
 func (m ModalModel) View() string {

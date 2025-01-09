@@ -111,7 +111,6 @@ type model struct {
 	keymap     keymap
 	help       help.Model
 	modal      ModalModel
-	showModal  bool
 	width      int
 	height     int
 }
@@ -146,6 +145,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) mod
 		logWindow:  logWindow,
 		explorer:   explorer,
 		windows:    wnds,
+		modal:      NewModal(),
 		focusedWnd: focusedWnd,
 		statusBar:  statusBar,
 		help:       help.New(),
@@ -246,10 +246,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case showModalMsg:
-		m.modal = NewModal(msg.text, msg.actions, m.width, m.height)
-		m.showModal = true
+		m.modal.SetContent(msg.text, msg.actions)
+		m.modal.Show()
 	case closeModalMsg:
-		m.showModal = false
+		m.modal.Hide()
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -257,7 +257,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	var s string
 
-	if m.showModal {
+	if m.modal.IsVisible {
 		s = m.modal.View()
 		if m.modal.HideRest {
 			return s
