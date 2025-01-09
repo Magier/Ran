@@ -164,20 +164,57 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 		}
 	}
 
-	// if it need userRead/ userExecute, identify the necessary channel
-	if execCmd.TTP.Requires.AccessLevel != domain.NoAccess {
-		// TODO: Entity can't be converted to K8sEntity -> use reflection?
-		if system, ok := target.(domain.Pod); ok {
-			if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
-				c2Channel, err := findC2Channel(c.kb, target)
-				if err == nil {
-					execCmd.C2Channel = c2Channel
+	if isActionOnRemoteTarget(execCmd.TTP) {
+		var system domain.Pod
+		switch t := target.(type) {
+		case domain.Pod:
+			system = t
+		case domain.ServiceAccount:
+			// *vomit*
+			if owner, ok := t.GetOwner(); ok {
+				if e, ok := c.GetEntityByName(owner.Name, t.Namespace); ok {
+					if pod, ok := e.(domain.Pod); ok {
+						system = pod
+					}
 				}
+			} else if users, err := c.kb.GetIncomingEntities(t, domain.Uses{}); err == nil {
+				if len(users) > 0 {
+					user := users[0]
+					if pod, ok := user.(domain.Pod); ok {
+						system = pod
+					}
+				}
+			}
+			execCmd.Target = execCmd.InitTarget(system)
+			// TODO: properly supply values of the SA token to the TTP
+		}
+
+		if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
+			c2Channel, err := findC2Channel(c.kb, target)
+			if err == nil {
+				execCmd.C2Channel = c2Channel
 			}
 		}
 	}
 
 	return execCmd, nil
+}
+
+// Determine if the TTP will be executed in the target environment, or the operator infrastructure
+func isActionOnRemoteTarget(ttp domain.TTP) bool {
+	tactics := ttp.Tactics
+	numTactics := len(tactics)
+	if numTactics == 0 {
+		return false
+	} else if numTactics > 1 {
+		slog.Debug(fmt.Sprintf("TTP %s has %d tactics; using the first to determine its nature", ttp.Name, numTactics))
+	}
+	switch tactics[0] {
+	case domain.Reconnaissance, domain.ResourceDevelopment:
+		return false
+	default:
+		return true
+	}
 }
 
 func (c Campaign) GetC2s() []domain.C2System {

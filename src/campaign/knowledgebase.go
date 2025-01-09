@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 
 	"github.com/Magier/Ran/domain"
 	"github.com/dominikbraun/graph"
@@ -22,6 +23,7 @@ type KnowledgeBase interface {
 	AddRelation(relation domain.Relation) error
 	AddRelations(relations ...domain.Relation) (int, error)
 	GetPath(source, target string) ([]domain.Entity, []domain.Relation, error)
+	GetIncomingEntities(entity domain.Entity, rel domain.Relation) ([]domain.Entity, error)
 }
 
 type BuiltInKnowledgeBase struct {
@@ -113,7 +115,11 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 
 			err := kg.AddRelation(rel)
 			if err != nil {
-				slog.Warn(fmt.Sprintf("Failed to insert relationship '%s': %v", domain.GetRelationId(rel), err))
+				if err.Error() == "edge already exists" {
+					slog.Debug(fmt.Sprintf("Edge '%s' already exists", domain.GetRelationId(rel)))
+				} else {
+					slog.Warn(fmt.Sprintf("Failed to insert relationship '%s': %v", domain.GetRelationId(rel), err))
+				}
 			} else {
 				numChanges++
 			}
@@ -149,6 +155,18 @@ func (kg BuiltInKnowledgeBase) AddRelations(relations ...domain.Relation) (int, 
 		}
 	}
 	return numChanges, nil
+}
+func (kg BuiltInKnowledgeBase) GetIncomingEntities(entity domain.Entity, rel domain.Relation) ([]domain.Entity, error) {
+	incoming := []domain.Entity{}
+	for name, edge := range kg.Relations {
+		if strings.HasSuffix(name, fmt.Sprintf("-[%s]->%s", rel.GetRelationName(), entity.GetId())) {
+			if src, ok := kg.Entities[edge.GetSource()]; ok {
+				incoming = append(incoming, src)
+			}
+		}
+	}
+
+	return incoming, nil
 }
 
 func (kg BuiltInKnowledgeBase) GetPath(source, target string) ([]domain.Entity, []domain.Relation, error) {
