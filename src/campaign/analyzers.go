@@ -121,6 +121,7 @@ func analyzeServiceAccountToken(token string) (domain.Event, error) {
 		K8sEntity: domain.K8sEntity{
 			Name:      saToken.Kubernetes.ServiceAccount.Name,
 			Namespace: ns.Name,
+			Kind:      "ServiceAccount",
 		},
 		Token: saToken,
 	}
