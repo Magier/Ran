@@ -123,14 +123,33 @@ func LoadArmory(dir string) (Armory, error) {
 			Effects:       []string{"Pod name", "ServiceAccount name", "Namespace name"},
 			ResultHandler: handleSaTokenRead,
 		},
+		{
+			Name:     "Install kubectl",
+			Tactics:  []domain.Tactic{domain.Discovery},
+			Requires: domain.Requirements{Kind: "ServiceAccount"},
+			CmdVariants: map[string]string{
+				"curl": "curl -LO \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\" && chmod +x kubectl && mkdir -p ~/.local/bin && mv ./kubectl ~/.local/bin/kubectl",
+			},
+		},
 
 		{
 			Name:     "Check Token permissions",
 			Tactics:  []domain.Tactic{domain.Discovery},
 			Requires: domain.Requirements{Kind: "ServiceAccount"},
 			CmdVariants: map[string]string{
-				"kubectl": "kubectl auth can-i --list --token=$TOKEN --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n $NAMESPACE",
-				"curl":    "kubectl auth can-i --list --token=$TOKEN --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n $NAMESPACE",
+				// "kubectl":           "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS}",
+				// "kubectl_remote_sa": "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS} --as=system:serviceaccount:${NS}:${SA.NAME}",
+				"curl": `curl -XPOST 
+					--cacert ${CA_PATH} 
+					-H "Authorizaton: Bearer ${TOKEN}" 
+					-H "application/vnd.kubernetes.protobuf,application/json" 
+					-H "Content-Type: "application/json" 
+					${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews 
+					--data '{ 
+						"kind": "SelfSubjectRulesReview",
+						"apiVersion": "authorization.k8s.io/v1",
+						"spec": { "namspace": ${NS} }"
+					}`,
 			},
 		},
 		{

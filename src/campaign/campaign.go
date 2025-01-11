@@ -97,6 +97,15 @@ func (c *Campaign) GetActiveIdentity() (domain.Identity, bool) {
 	return id, ok
 }
 
+func (c *Campaign) GetApiUrl(internalIp bool) (string, error) {
+	if internalIp {
+		// TODO use actual IP/port
+		slog.Warn("Using hardcoded internal API IP")
+		return "https://10.96.0.1:443", nil
+	}
+	return "", fmt.Errorf("%t K8s API URL unknown", internalIp)
+}
+
 func (c *Campaign) GetIdentities() map[string]domain.Identity {
 	return c.identities
 }
@@ -170,24 +179,16 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 		case domain.Pod:
 			system = t
 		case domain.ServiceAccount:
-			// *vomit*
-			if owner, ok := t.GetOwner(); ok {
-				if e, ok := c.GetEntityByName(owner.Name, t.Namespace); ok {
-					if pod, ok := e.(domain.Pod); ok {
-						system = pod
-					}
-				}
-			} else if users, err := c.kb.GetIncomingEntities(t, domain.Uses{}); err == nil {
-				if len(users) > 0 {
-					user := users[0]
-					if pod, ok := user.(domain.Pod); ok {
-						system = pod
-					}
-				}
+			var ttp domain.TTP
+			var err error
+			system, ttp, err = c.groundTtpOnServiceAccount(execCmd.TTP, t)
+			if err != nil {
+
+			} else {
+				execCmd.TTP = ttp
 			}
-			execCmd.Target = execCmd.InitTarget(system)
-			// TODO: properly supply values of the SA token to the TTP
 		}
+		execCmd.Target = execCmd.InitTarget(system)
 
 		if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
 			c2Channel, err := findC2Channel(c.kb, target)
@@ -198,6 +199,68 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 	}
 
 	return execCmd, nil
+}
+
+func (c Campaign) groundTtpOnServiceAccount(ttp domain.TTP, t domain.ServiceAccount) (domain.Pod, domain.TTP, error) {
+
+	var system domain.Pod
+	// *vomit*
+	if owner, ok := t.GetOwner(); ok {
+		if e, ok := c.GetEntityByName(owner.Name, t.Namespace); ok {
+			if pod, ok := e.(domain.Pod); ok {
+				system = pod
+			}
+		}
+	} else if users, err := c.kb.GetIncomingEntities(t, domain.Uses{}); err == nil {
+		if len(users) > 0 {
+			user := users[0]
+			if pod, ok := user.(domain.Pod); ok {
+				system = pod
+			}
+		}
+	}
+
+	// replace template with grounded commands
+	if ttp.Cmd != "" {
+		cmdString, err := c.groundServiceAccountTemplate(ttp.Cmd, t)
+		if err != nil {
+			slog.Warn("Grounding SA Template", "", err.Error())
+		}
+		var _ = cmdString
+	}
+	for key, cmd := range ttp.CmdVariants {
+		cmdString, err := c.groundServiceAccountTemplate(cmd, t)
+		if err != nil {
+			slog.Warn("Grounding SA Template", "", err.Error())
+		} else {
+			ttp.CmdVariants[key] = cmdString
+		}
+	}
+
+	// TODO: properly supply values of the SA token to the TTP
+	return system, ttp, nil
+
+}
+
+func (c Campaign) groundServiceAccountTemplate(template string, sa domain.ServiceAccount) (string, error) {
+	// TODO: remove whitespaces
+	if strings.Contains(template, "${API_SERVER}") {
+		apiUrl, err := c.GetApiUrl(true)
+		if err != nil {
+			slog.Error("Groudn SA Template", "", err.Error())
+		} else {
+			template = strings.Replace(template, "${API_SERVER}", apiUrl, -1)
+		}
+		// get API server
+	}
+	template = strings.Replace(template, "${TOKEN}", sa.Token.Raw, -1)
+	template = strings.Replace(template, "${CA_PATH}", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt", -1)
+	template = strings.Replace(template, "${NS}", sa.Namespace, -1)
+
+	template = strings.ReplaceAll(template, "\n", "")
+	template = strings.ReplaceAll(template, "\t", "")
+
+	return template, nil
 }
 
 // Determine if the TTP will be executed in the target environment, or the operator infrastructure

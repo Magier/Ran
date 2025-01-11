@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"log/slog"
 )
 
 type Command interface {
@@ -41,6 +42,14 @@ const (
 	Impact              = "TA0040"
 )
 
+type HttpCmd struct {
+	Endpoint string
+	Method   string
+	Args     []string
+	Headers  map[string]string
+	Body     string
+}
+
 type TTP struct {
 	ID          string   `yaml:"id"`
 	Name        string   `yaml:"name"`
@@ -52,6 +61,7 @@ type TTP struct {
 
 	Cmd         string            `yaml:"cmd"`
 	CmdVariants map[string]string `yaml:"cmdVariants"`
+	HttpCmd     HttpCmd           `yaml:"httpCmd"`
 	Args        []string          `yaml:"args"`
 	Port        uint              `yaml:"port"`
 
@@ -92,6 +102,18 @@ func (ttp TTP) GetCommand(variant string) string {
 	if cmd, ok := ttp.CmdVariants[variant]; ok {
 		return cmd
 	}
+
+	if ttp.Cmd != "" {
+		return ttp.Cmd
+	}
+
+	// return the first variant
+	for _, cmd := range ttp.CmdVariants {
+		return cmd
+	}
+
+	slog.Warn("No valid command found for TTP " + ttp.GetTitle())
+
 	// default to the general command
 	return ttp.Cmd
 }
