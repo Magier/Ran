@@ -139,17 +139,18 @@ func LoadArmory(dir string) (Armory, error) {
 			CmdVariants: map[string]string{
 				// "kubectl":           "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS}",
 				// "kubectl_remote_sa": "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS} --as=system:serviceaccount:${NS}:${SA.NAME}",
+				// "curl": `curl ${API_SERVER}/api/ -H "Authorization: Bearer ${TOKEN}" --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt  --verbose`,
 				"curl": `curl -XPOST 
+					${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews 
 					--cacert ${CA_PATH} 
 					-H "Authorizaton: Bearer ${TOKEN}" 
 					-H "application/vnd.kubernetes.protobuf,application/json" 
 					-H "Content-Type: "application/json" 
-					${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews 
-					--data '{ 
+					--data '{
 						"kind": "SelfSubjectRulesReview",
 						"apiVersion": "authorization.k8s.io/v1",
 						"spec": { "namspace": ${NS} }"
-					}`,
+					}'`,
 			},
 		},
 		{

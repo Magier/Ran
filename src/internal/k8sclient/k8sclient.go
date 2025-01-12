@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Magier/Ran/domain"
+	"github.com/anmitsu/go-shlex"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -262,8 +263,13 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string, a
 			command = []string{"sh", "-c", c[1 : len(c)-1]}
 		}
 	} else {
-		command = strings.Fields(cmd)
-		command = append(command, args...)
+		// Go's `strings.Fields` function doesn't handle quoted substrings, so a dedicated lib is necessary
+		command, err = shlex.Split(cmd, true)
+		if err != nil {
+			slog.Error("Could not parse TTP command", "", err.Error())
+		} else {
+			command = append(command, args...)
+		}
 	}
 
 	// parameterCodec := runtime.NewParameterCodec(scheme)
