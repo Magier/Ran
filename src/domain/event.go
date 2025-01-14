@@ -110,3 +110,13 @@ type C2Connected struct {
 func (e C2Connected) String() string {
 	return fmt.Sprintf("Connected to '%s' C2 server on %s", e.Name, e.IP)
 }
+
+type TTPFailed struct {
+	EventImpl
+	Id     string
+	Reason string
+}
+
+func (ttp TTPFailed) String() string {
+	return fmt.Sprintf("TTP '%s' ", ttp.Id)
+}
