@@ -211,6 +211,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 		}
+		m.focusWindow(ExplorerWnd)
 	case domain.StartC2:
 		err := m.bus.Publish(msg)
 		if err != nil {

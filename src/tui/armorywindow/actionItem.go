@@ -42,7 +42,7 @@ func NewActionItemDelegate() actionItemDelegate {
 	}
 }
 
-func (d actionItemDelegate) Height() int  { return 3 }
+func (d actionItemDelegate) Height() int  { return 2 }
 func (d actionItemDelegate) Spacing() int { return 1 }
 func (d actionItemDelegate) Update(msg tea.Msg, model *list.Model) tea.Cmd {
 	switch msg := msg.(type) {

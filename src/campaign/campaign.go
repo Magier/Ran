@@ -101,7 +101,8 @@ func (c *Campaign) GetApiUrl(internalIp bool) (string, error) {
 	if internalIp {
 		// TODO use actual IP/port
 		slog.Warn("Using hardcoded internal API IP")
-		return "https://10.96.0.1:443", nil
+		return "https://10.96.0.1", nil
+		// return "https://kubernetes.default.svc.cluster.local", nil
 	}
 	return "", fmt.Errorf("%t K8s API URL unknown", internalIp)
 }
