@@ -50,6 +50,7 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 	})
 	mb.Subscribe(domain.NewFacts{}, campaign.onNewFacts)
 	mb.Subscribe(domain.ServiceAccountTokenExtracted{}, campaign.onServiceAccountTokenExtracted)
+	mb.Subscribe(domain.TokenPermissionsRetrieved{}, campaign.onTokenPermissionsExtracted)
 	mb.Subscribe(domain.PrintGraph{}, campaign.onPrintGraph)
 	mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)
 
@@ -244,22 +245,21 @@ func (c Campaign) groundTtpOnServiceAccount(ttp domain.TTP, t domain.ServiceAcco
 }
 
 func (c Campaign) groundServiceAccountTemplate(template string, sa domain.ServiceAccount) (string, error) {
-	// TODO: remove whitespaces
 	if strings.Contains(template, "${API_SERVER}") {
 		apiUrl, err := c.GetApiUrl(true)
 		if err != nil {
-			slog.Error("Groudn SA Template", "", err.Error())
+			slog.Error("Ground SA Template", "", err.Error())
 		} else {
 			template = strings.Replace(template, "${API_SERVER}", apiUrl, -1)
 		}
-		// get API server
 	}
 	template = strings.Replace(template, "${TOKEN}", sa.Token.Raw, -1)
 	template = strings.Replace(template, "${CA_PATH}", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt", -1)
 	template = strings.Replace(template, "${NS}", sa.Namespace, -1)
+	template = strings.Replace(template, "${SA_NAME}", sa.Name, -1)
 
-	template = strings.ReplaceAll(template, "\n", "")
-	template = strings.ReplaceAll(template, "\t", "")
+	template = strings.ReplaceAll(template, "\n", " ")
+	template = strings.ReplaceAll(template, "\t", " ")
 
 	return template, nil
 }

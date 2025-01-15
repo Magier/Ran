@@ -475,20 +475,21 @@ type JWToken struct {
 	Raw            string
 }
 
+type ResourceRef struct {
+	Name string `json:"name"`
+	UID  string `json:"uid"`
+}
+
 type ServiceAccountToken struct {
 	JWToken
 	Kubernetes struct {
-		Namespace string `json:"namespace"`
-		Pod       struct {
-			Name string `json:"name"`
-			UID  string `json:"uid"`
-		} `json:"pod"`
-		ServiceAccount struct {
-			Name string `json:"name"`
-			UID  string `json:"uid"`
-		} `json:"serviceaccount"`
-		Warnafter int `json:"warnafter"`
+		Namespace      string      `json:"namespace"`
+		Pod            ResourceRef `json:"pod,omitempty"`
+		Node           ResourceRef `json:"node,omitempty"`
+		ServiceAccount ResourceRef `json:"serviceaccount,omitempty"`
+		Warnafter      int         `json:"warnafter"`
 	} `json:"kubernetes.io"`
+	IsBound bool
 	// TODO verify if issuer is indicator of K8s API server?
 	// PodUid             string
 	Raw string

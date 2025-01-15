@@ -105,6 +105,15 @@ func (c *Campaign) onServiceAccountTokenExtracted(ctx context.Context, msg domai
 	return msg, err
 }
 
+func (c *Campaign) onTokenPermissionsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	ev := msg.(domain.TokenPermissionsRetrieved)
+
+	sa := ev.Source
+	var _ = sa
+
+	return nil, nil
+}
+
 func (c *Campaign) onNewFacts(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	// TODO: properly track how many changes the update contained
 	numChanges := 0

@@ -14,7 +14,7 @@ import (
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/internal/bus"
-	k8s "github.com/Magier/Ran/internal/k8sclient"
+	k8s "github.com/Magier/Ran/k8sclient"
 	"github.com/Magier/Ran/planner"
 	"github.com/Magier/Ran/tui"
 	tea "github.com/charmbracelet/bubbletea"

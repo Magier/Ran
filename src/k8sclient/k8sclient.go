@@ -300,7 +300,7 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string, a
 		Tty:    false,
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("error in Stream: %v", err)
+		return "", stderr.String(), err
 	}
 
 	return stdout.String(), stderr.String(), nil
