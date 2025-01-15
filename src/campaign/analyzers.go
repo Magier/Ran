@@ -115,6 +115,9 @@ func analyzeServiceAccountToken(token string) (domain.Event, error) {
 		return nil, err
 	}
 	saToken.Raw = token
+	// a token is bound if there is a Pod (and node) in the priveat kubernetes.io claim
+	// see: https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/#bound-service-account-tokens
+	saToken.IsBound = saToken.Kubernetes.Pod.UID != ""
 
 	ns := domain.Namespace{Name: saToken.Kubernetes.Namespace}
 	sa := domain.ServiceAccount{

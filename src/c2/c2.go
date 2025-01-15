@@ -12,7 +12,7 @@ import (
 
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
-	k8s "github.com/Magier/Ran/internal/k8sclient"
+	k8s "github.com/Magier/Ran/k8sclient"
 )
 
 type C2Client interface {

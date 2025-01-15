@@ -1,12 +1,16 @@
 package armory
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	k8s_types "github.com/Magier/Ran/k8sclient/types"
 
 	"github.com/Magier/Ran/domain"
 	"gopkg.in/yaml.v2"
@@ -139,13 +143,13 @@ func LoadArmory(dir string) (Armory, error) {
 			CmdVariants: map[string]string{
 				// "kubectl":           "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS}",
 				// "kubectl_remote_sa": "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS} --as=system:serviceaccount:${NS}:${SA.NAME}",
-				// -H "Impersonate-User: system:serviceaccount:${NS}:${TARGET.NAME}"
 				// -H "application/vnd.kubernetes.protobuf,application/json"
-				"curl": `curl -XPOST 
-					${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews 
-					--cacert ${CA_PATH} 
-					-H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" 
-					-H "Content-Type: application/json" 
+				//	-H "Impersonate-User: system:serviceaccount:${NS}:${SA_NAME}"   <- for "external" checks; requires impersonation RBAC permissions
+				"curl": `curl -XPOST
+					${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews
+					--cacert ${CA_PATH}
+					-H "Authorization: Bearer ${TOKEN}"
+					-H "Content-Type: application/json"
 					--data '{
 						"kind": "SelfSubjectRulesReview",
 						"apiVersion": "authorization.k8s.io/v1",
@@ -282,7 +286,7 @@ func handleSelfSubjectReviewResult(source domain.Entity, args ...any) (domain.Ev
 		return nil, fmt.Errorf("Expected string data")
 	}
 
-	var result k8s.SelfSubjectRulesReview
+	var result k8s_types.SelfSubjectRulesReview
 	err := json.Unmarshal([]byte(jsonData), &result)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to unmarshal JSON: %w", err)
@@ -293,11 +297,15 @@ func handleSelfSubjectReviewResult(source domain.Entity, args ...any) (domain.Ev
 			Reason: result.Message,
 		}, nil
 	}
-	// return domain.SelfSubjectRulesReviewExtracted{
-	// 	Source: source,
-	// 	Result: result,
-	// }, nil
 
-	//
-	return nil, nil
+	if result.Status.Incomplete {
+		slog.Warn("Results from SelfSubjectRulesReview are incomplete!")
+	}
+
+	return domain.TokenPermissionsRetrieved{
+		TokenName:        source.GetName(),
+		Source:           source,
+		ResourceRules:    result.Status.ResourceRules,
+		NonResourceRules: result.Status.NonResourceRules,
+	}, nil
 }
