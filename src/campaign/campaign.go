@@ -167,12 +167,9 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 	}
 
 	var target domain.Entity
-	// check if it is targeted
-	if t, ok := action.(domain.Targeter); ok {
-		target, ok = c.kb.GetEntity(targetId)
-		if ok {
-			execCmd.Target = t.SetTarget(target)
-		}
+	target, ok = c.kb.GetEntity(targetId)
+	if ok {
+		execCmd.Target = target
 	}
 
 	if isActionOnRemoteTarget(execCmd.TTP) {
@@ -190,7 +187,6 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 				execCmd.TTP = ttp
 			}
 		}
-		execCmd.Target = execCmd.InitTarget(system)
 
 		if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
 			c2Channel, err := findC2Channel(c.kb, target)
@@ -308,11 +304,15 @@ func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, er
 				if ch, ok := rel.(domain.C2Channel); ok {
 					return ch, nil
 				} else if canAccess, ok := rel.(domain.CanAccess); ok {
-					return domain.PodExecC2Channel{
-						SourceId: canAccess.SourceId,
-						TargetId: canAccess.TargetId,
-						Identity: canAccess.Identity,
-					}, nil
+					if target, ok := kg.GetEntity(canAccess.TargetId); ok {
+						return domain.PodExecC2Channel{
+							SourceId: canAccess.SourceId,
+							Target:   target,
+							Identity: canAccess.Identity,
+						}, nil
+					} else {
+						return nil, fmt.Errorf("Could not identify target %s", canAccess.TargetId)
+					}
 				}
 			}
 		}

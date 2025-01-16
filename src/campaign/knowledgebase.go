@@ -139,7 +139,7 @@ func (kg BuiltInKnowledgeBase) GetEntities() map[string]domain.Entity {
 func (kg BuiltInKnowledgeBase) AddRelation(rel domain.Relation) error {
 	kg.Relations[domain.GetRelationId(rel)] = rel
 	cost := domain.GetRelationCost(rel)
-	return kg.graph.AddEdge(rel.GetSource(), rel.GetTarget(),
+	return kg.graph.AddEdge(rel.GetSourceId(), rel.GetTargetId(),
 		graph.EdgeAttribute("label", rel.GetRelationName()),
 		graph.EdgeWeight(cost),
 		graph.EdgeData(rel),
@@ -160,7 +160,7 @@ func (kg BuiltInKnowledgeBase) GetIncomingEntities(entity domain.Entity, rel dom
 	incoming := []domain.Entity{}
 	for name, edge := range kg.Relations {
 		if strings.HasSuffix(name, fmt.Sprintf("-[%s]->%s", rel.GetRelationName(), entity.GetId())) {
-			if src, ok := kg.Entities[edge.GetSource()]; ok {
+			if src, ok := kg.Entities[edge.GetSourceId()]; ok {
 				incoming = append(incoming, src)
 			}
 		}

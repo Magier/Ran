@@ -63,7 +63,7 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 			if err != nil {
 				slog.Warn(err.Error())
 			} else {
-				msg, err := cmd.TTP.HandleResult(cmd.Target.Entity, stdout, stderr)
+				msg, err := cmd.TTP.HandleResult(cmd.Target, stdout, stderr)
 				if err != nil {
 					msg = domain.TTPFailed{Id: cmd.TTP.ID}
 				}
@@ -185,26 +185,30 @@ func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error
 		return "", "", err
 	}
 
-	target := cmd.GetTarget()
-	if target.Entity == nil {
+	target := cmd.C2Channel.GetTarget()
+	if target == nil {
 		return "", "", fmt.Errorf("Could not exec command: No valid target selected!")
 	}
 
 	var targetName string
+	var targetNs string
 	// ensure target is actually a pod
-	if pod, ok := target.Entity.(domain.Pod); ok {
-		targetName = target.Name
-	} else if workload, ok := target.Entity.(domain.Workload); ok {
+	if pod, ok := target.(domain.Pod); ok {
+		targetName = target.GetName()
+		targetNs = pod.Namespace
+	} else if workload, ok := target.(domain.Workload); ok {
 		pods := workload.GetPods()
 		if len(pods) > 0 {
 			pod = pods[0]
 			targetName = pod.Name
+			targetNs = pod.Namespace
 		} else {
-			return "", "", fmt.Errorf("No target pod found in workload '%s'", target.Name)
+			return "", "", fmt.Errorf("No target pod found in workload '%s'", target.GetName())
 		}
-	} else if e, ok := target.Entity.(domain.K8sEntity); ok {
+	} else if e, ok := target.(domain.K8sEntity); ok {
 		if e.Kind == "Pod" {
 			targetName = e.Name
+			targetNs = e.Namespace
 		}
 	}
 
@@ -214,7 +218,8 @@ func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error
 	if c == "" {
 		c = cmd.TTP.GetCommand("")
 	}
-	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, target.Ns, c, cmd.TTP.Args)
+
+	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, targetNs, c, cmd.TTP.Args)
 	return stdOut, stdErr, err
 }
 
