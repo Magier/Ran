@@ -178,6 +178,8 @@ type AbstractWorkload struct {
 	ResourceOwner
 }
 
+var _ Workload = (*AbstractWorkload)(nil)
+
 func (wl AbstractWorkload) GetId() string {
 	return fmt.Sprintf("ns/%s/wl/%s", wl.GetNamespace(), wl.GetName())
 }

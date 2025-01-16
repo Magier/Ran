@@ -185,7 +185,7 @@ func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 			if err != nil {
 				return nil, err
 			}
-			return cmd.TTP.HandleResult(cmd.Target.Entity, data)
+			return cmd.TTP.HandleResult(cmd.Target, data)
 		}
 	}
 

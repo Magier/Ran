@@ -3,13 +3,13 @@ package domain
 import "fmt"
 
 type Relation interface {
-	GetSource() string
-	GetTarget() string
+	GetSourceId() string
+	GetTargetId() string
 	GetRelationName() string
 }
 
 func GetRelationId(rel Relation) string {
-	return fmt.Sprintf("%s-[%s]->%s", rel.GetSource(), rel.GetRelationName(), rel.GetTarget())
+	return fmt.Sprintf("%s-[%s]->%s", rel.GetSourceId(), rel.GetRelationName(), rel.GetTargetId())
 }
 
 type Reference struct {
@@ -18,10 +18,10 @@ type Reference struct {
 	Medium string
 }
 
-func (r Reference) GetSource() string {
+func (r Reference) GetSourceId() string {
 	return r.Source
 }
-func (r Reference) GetTarget() string {
+func (r Reference) GetTargetId() string {
 	return r.Target
 }
 
@@ -38,11 +38,11 @@ type Contains struct {
 	Object    Entity
 }
 
-func (r Contains) GetSource() string {
+func (r Contains) GetSourceId() string {
 	return r.Container.GetId()
 }
 
-func (r Contains) GetTarget() string {
+func (r Contains) GetTargetId() string {
 	return r.Object.GetId()
 }
 
@@ -55,10 +55,10 @@ type Owns struct {
 	Object Ownable
 }
 
-func (r Owns) GetSource() string {
+func (r Owns) GetSourceId() string {
 	return r.Owner.GetId()
 }
-func (r Owns) GetTarget() string {
+func (r Owns) GetTargetId() string {
 	return r.Object.GetId()
 }
 
@@ -69,22 +69,28 @@ func (r Owns) GetRelationName() string {
 type C2Channel interface {
 	Relation
 	GetKind() string
+	GetTarget() Entity
 }
 
 type ImplantC2Channel struct {
 	SessionId string
 	SourceId  string
 	Kind      string
-	Target    Target
+	Target    Entity
 	Protocol  string
 }
 
-func (ch ImplantC2Channel) GetSource() string {
+var _ C2Channel = (*ImplantC2Channel)(nil)
+
+func (ch ImplantC2Channel) GetSourceId() string {
 	return ch.SourceId
 }
 
-func (ch ImplantC2Channel) GetTarget() string {
-	return ch.Target.Id
+func (ch ImplantC2Channel) GetTargetId() string {
+	return ch.Target.GetId()
+}
+func (ch ImplantC2Channel) GetTarget() Entity {
+	return ch.Target
 }
 
 func (ch ImplantC2Channel) GetRelationName() string {
@@ -98,16 +104,21 @@ func (ch ImplantC2Channel) GetKind() string {
 type PodExecC2Channel struct {
 	SourceId string
 	// Cmd    string
-	TargetId string
+	Target   Entity
 	Identity Identity
 }
 
-func (ch PodExecC2Channel) GetSource() string {
+var _ C2Channel = (*PodExecC2Channel)(nil)
+
+func (ch PodExecC2Channel) GetSourceId() string {
 	return ch.SourceId
 }
 
-func (ch PodExecC2Channel) GetTarget() string {
-	return ch.TargetId
+func (ch PodExecC2Channel) GetTargetId() string {
+	return ch.Target.GetId()
+}
+func (ch PodExecC2Channel) GetTarget() Entity {
+	return ch.Target
 }
 
 func (ch PodExecC2Channel) GetRelationName() string {
@@ -124,11 +135,11 @@ type Uses struct {
 	ObjectId  string
 }
 
-func (u Uses) GetSource() string {
+func (u Uses) GetSourceId() string {
 	return u.SubjectId
 }
 
-func (u Uses) GetTarget() string {
+func (u Uses) GetTargetId() string {
 	return u.ObjectId
 }
 
@@ -143,11 +154,11 @@ type CanAccess struct {
 	Identity    Identity
 }
 
-func (u CanAccess) GetSource() string {
+func (u CanAccess) GetSourceId() string {
 	return u.SourceId
 }
 
-func (u CanAccess) GetTarget() string {
+func (u CanAccess) GetTargetId() string {
 	return u.TargetId
 }
 

@@ -71,12 +71,7 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 		SessionId: ev.Session.Id,
 		SourceId:  fmt.Sprintf("%s/%s", "c2", ev.C2Kind),
 		Kind:      ev.C2Kind,
-		Target: domain.Target{
-			Id:     system.GetId(),
-			Name:   system.GetName(),
-			Entity: system,
-		},
-		// 	Target    Target
+		Target:    system,
 		// Protocol  string
 	}
 

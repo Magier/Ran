@@ -130,46 +130,6 @@ type Templater interface {
 	GroundCommand(string) Templater
 }
 
-type Targeter interface {
-	GetTarget() Target
-	SetTarget(Entity) Target
-	// InitTarget(Entity)
-}
-type Target struct {
-	Entity Entity
-	Id     string
-	Name   string
-	Ns     string
-}
-
-func (t Target) InitTarget(e Entity) Target {
-	newTarget := Target{
-		Id:     e.GetId(),
-		Name:   e.GetName(),
-		Entity: e,
-	}
-
-	if nsEntity, ok := e.(Namespaced); ok {
-		newTarget.Ns = nsEntity.GetNamespace()
-	}
-	return newTarget
-}
-
-func (t Target) GetTarget() Target {
-	return t
-}
-
-func (t Target) SetTarget(e Entity) Target {
-	t.Id = e.GetId()
-	t.Name = e.GetName()
-	t.Entity = e
-
-	if nsEntity, ok := e.(Namespaced); ok {
-		t.Ns = nsEntity.GetNamespace()
-	}
-	return t
-}
-
 type StartC2 struct {
 	CommandImpl
 	C2Name string
@@ -216,19 +176,19 @@ type ExecTTP struct {
 	Cmd       string
 	Args      []string
 	C2Channel C2Channel
-	Target
+	Target    Entity
 }
 
-func (e ExecTTP) GetTarget() Target {
+func (e ExecTTP) GetTarget() Entity {
 	return e.Target
 }
 
 func (e ExecTTP) String() string {
 	var target string
 	if e.C2Channel != nil {
-		target = e.C2Channel.GetTarget()
+		target = e.C2Channel.GetTargetId()
 	} else {
-		target = e.Target.Id
+		target = e.Target.GetId()
 	}
 
 	return fmt.Sprintf("Executed '%s' on %s", e.Cmd, target)
