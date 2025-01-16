@@ -302,9 +302,13 @@ func handleSelfSubjectReviewResult(source domain.Entity, args ...any) (domain.Ev
 		slog.Warn("Results from SelfSubjectRulesReview are incomplete!")
 	}
 
+	sa, ok := source.(domain.ServiceAccount)
+	if !ok {
+		slog.Warn("the source of the SubjectReviewResult is not a valid ServiceAccount!")
+	}
 	return domain.TokenPermissionsRetrieved{
 		TokenName:        source.GetName(),
-		Source:           source,
+		ServiceAccount:   sa,
 		ResourceRules:    result.Status.ResourceRules,
 		NonResourceRules: result.Status.NonResourceRules,
 	}, nil

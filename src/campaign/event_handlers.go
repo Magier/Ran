@@ -102,11 +102,19 @@ func (c *Campaign) onServiceAccountTokenExtracted(ctx context.Context, msg domai
 
 func (c *Campaign) onTokenPermissionsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(domain.TokenPermissionsRetrieved)
+	sa := ev.ServiceAccount
 
-	sa := ev.Source
-	var _ = sa
+	for _, rule := range ev.ResourceRules {
+		for _, res := range rule.Resources {
+			for _, verb := range rule.Verbs {
+				sa.Can = append(sa.Can, fmt.Sprintf("%s %s", verb, res))
+			}
+		}
+	}
 
-	return nil, nil
+	return domain.NewFacts{
+		Entities: []domain.Entity{sa},
+	}, nil
 }
 
 func (c *Campaign) onNewFacts(ctx context.Context, msg domain.Message) (domain.Message, error) {

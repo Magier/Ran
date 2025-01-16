@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	k8s_types "github.com/Magier/Ran/k8sclient/types"
 )
 
 type MessageHandler func(ctx context.Context, msg Message) (Message, error)
@@ -119,4 +121,17 @@ type TTPFailed struct {
 
 func (ttp TTPFailed) String() string {
 	return fmt.Sprintf("TTP '%s' ", ttp.Id)
+}
+
+type TokenPermissionsRetrieved struct {
+	EventImpl
+	TokenName        string
+	ServiceAccount   ServiceAccount
+	Result           string
+	ResourceRules    []k8s_types.ResourceRule
+	NonResourceRules []k8s_types.NonResourceRule
+}
+
+func (e TokenPermissionsRetrieved) String() string {
+	return fmt.Sprintf("'%s' Token Permissions Retrieved", e.TokenName)
 }
