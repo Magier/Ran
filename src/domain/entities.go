@@ -401,9 +401,10 @@ func (id Identity) Can(permission string) bool {
 type Pod struct {
 	K8sEntity
 	// NamespacedResource
-	Spec    v1.PodSpec
-	IP      net.IPAddr
-	EnvVars map[string]string
+	Spec     v1.PodSpec
+	IP       net.IPAddr
+	EnvVars  map[string]string
+	HostName string
 }
 
 func NewPod(name, ns string) Pod {
