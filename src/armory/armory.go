@@ -173,12 +173,6 @@ func LoadArmory(dir string) (Armory, error) {
 			Cmd:           "env",
 			ResultHandler: handleEnvVarResult,
 		},
-		// {
-		// 	Name:          "Kubectl Exec Env",
-		// 	Description:   "Use kubectl exec to read environment variables of a pod",
-		// 	ResultHandler: handleEnvVarResult,
-		// 	Cmd:           "env",
-		// },
 	}
 
 	err := filepath.WalkDir(dir, func(w string, d fs.DirEntry, err error) error {
@@ -203,7 +197,6 @@ func LoadArmory(dir string) (Armory, error) {
 			ttps = append(ttps, ttp)
 			// parse the TTP
 			// parse the preconditions and effect
-			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
 
 		}
 

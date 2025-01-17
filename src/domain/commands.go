@@ -74,8 +74,7 @@ type TTP struct {
 	Target          string `yaml:"target"`
 	TargetNamespace string `yaml:"target_namespace"`
 
-	Requires      Requirements  `yaml:"requires"`
-	Effect        func() string `yaml:"-"`
+	Requires      Requirements  `yaml:"preconditions"`
 	Effects       []string      `yaml:"effects"`
 	ResultHandler ResultHandler `yaml:"-"`
 	Params        TTPParams     `yaml:"params"`
