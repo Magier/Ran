@@ -25,12 +25,13 @@ type Condition interface {
 }
 
 type Requirements struct {
-	Kind           IsOfKind
+	Kind           IsOfKind `yaml:"kind"`
 	AccessLevel    AccessLevel
 	RbacPermission Permission
 	Infra          []string
-	State          State        // check for existing entities
-	Exists         EntityExists // relates to the state
+	State          State                  // check for existing entities
+	Exists         EntityExists           // relates to the state
+	OtherFields    map[string]interface{} `yaml:",inline"` // Inline captures untagged fields
 }
 
 func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state State) bool {
