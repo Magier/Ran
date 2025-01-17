@@ -29,19 +29,14 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 
 	// TODO: how can it be inferred, if it's from a K8s pod vs any *nix-based system?
 
-	podName, found := ev.Vars["HOSTNAME"]
-	if !found {
-		podName = "?"
+	srcPod := ev.Source.(domain.Pod)
+	hostname, found := ev.Vars["HOSTNAME"]
+	if found {
+		srcPod.HostName = hostname
 	}
-	nsName := "?unknown"
-	srcPod := domain.Pod{
-		K8sEntity: domain.K8sEntity{
-			Id:        ev.Source.GetId(),
-			Name:      podName,
-			Namespace: nsName,
-		},
-		EnvVars: ev.Vars,
-	}
+
+	nsName := srcPod.GetNamespace()
+	srcPod.EnvVars = ev.Vars
 	entities = append(entities, srcPod)
 
 	// TODO: parse variables ending with '.svc.cluster.local'
@@ -59,11 +54,11 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 			Source: srcPod.Id,
 		}
 		if svcName == "KUBERNETES" {
-			kubeSystemNs := domain.Namespace{Name: svcName}
+			kubeSystemNs := domain.Namespace{Name: "kube-system"}
 			entities = append(entities, kubeSystemNs)
 
 			apiServer := domain.ApiServer{
-				Pod: domain.NewPod("api-server", "kube-system"),
+				Pod: domain.NewPod("api-server", kubeSystemNs.Name),
 			}
 			rel.Target = apiServer.Id
 			entities = append(entities, apiServer)

@@ -97,15 +97,14 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 					ownerRef, _ := ownable.GetOwner()
 
 					// no valid owner reference. Check possible owner based on previous relations
-					if ownerRef.Name == "" {
-
-					} else if ownerRef.Name != ownsRel.Owner.GetName() {
-						// TODO: Kind is empty!! fix it
-						ownerRef := ownable.SetOwner(ownsRel.Owner.GetName(), ownerRef.Kind)
-
+					if ownerRef.Name == "" || ownerRef.Name != ownsRel.Owner.GetName() {
+						ownerRef = ownable.SetOwner(ownsRel.Owner.GetName(), ownsRel.Owner.GetKind())
 						if p, ok := entity.(domain.Pod); ok {
 							p.Owner = ownerRef
 							kg.Entities[entity.GetId()] = p
+						} else if apiServer, ok := entity.(domain.ApiServer); ok {
+							apiServer.Owner = ownerRef
+							kg.Entities[entity.GetId()] = apiServer
 						} else {
 							slog.Warn(fmt.Sprintf("Can't update owner of %s '%s': missing type check", entity.GetKind(), entity.GetId()))
 						}
