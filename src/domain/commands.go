@@ -50,6 +50,12 @@ type HttpCmd struct {
 	Body     string
 }
 
+type CmdVariant string
+
+func (v CmdVariant) GetCmd() string {
+	return string(v)
+}
+
 type TTP struct {
 	ID          string   `yaml:"id"`
 	Name        string   `yaml:"name"`
@@ -59,11 +65,11 @@ type TTP struct {
 
 	References []string `yaml:"references"`
 
-	Cmd         string            `yaml:"cmd"`
-	CmdVariants map[string]string `yaml:"cmdVariants"`
-	HttpCmd     HttpCmd           `yaml:"httpCmd"`
-	Args        []string          `yaml:"args"`
-	Port        uint              `yaml:"port"`
+	Cmd         string                `yaml:"cmd"`
+	CmdVariants map[string]CmdVariant `yaml:"cmdVariants"`
+	HttpCmd     HttpCmd               `yaml:"httpCmd"`
+	Args        []string              `yaml:"args"`
+	Port        uint                  `yaml:"port"`
 
 	Command   Command           `yaml:"command"`
 	CommandFn func(TTP) Message `yaml:"-"`
@@ -80,6 +86,9 @@ type TTP struct {
 	Params        TTPParams     `yaml:"params"`
 }
 
+func (ttp TTP) GetID() string {
+	return ttp.Name
+}
 func (ttp TTP) GetTitle() string {
 	return ttp.Name
 }
@@ -99,7 +108,7 @@ func (ttp TTP) GetMessage() Message {
 func (ttp TTP) GetCommand(variant string) string {
 	// some TTPs may have special commands for various C2 frameworks
 	if cmd, ok := ttp.CmdVariants[variant]; ok {
-		return cmd
+		return string(cmd)
 	}
 
 	if ttp.Cmd != "" {
@@ -108,7 +117,7 @@ func (ttp TTP) GetCommand(variant string) string {
 
 	// return the first variant
 	for _, cmd := range ttp.CmdVariants {
-		return cmd
+		return string(cmd)
 	}
 
 	slog.Warn("No valid command found for TTP " + ttp.GetTitle())
@@ -122,11 +131,6 @@ func (ttp TTP) HandleResult(source Entity, args ...any) (Event, error) {
 		return nil, nil
 	}
 	return ttp.ResultHandler(source, args...)
-}
-
-type Templater interface {
-	GetTemplate() string
-	GroundCommand(string) Templater
 }
 
 type StartC2 struct {
@@ -171,11 +175,12 @@ func (c StartC2Redirector) String() string {
 
 type ExecTTP struct {
 	CommandImpl
-	TTP       TTP
-	Cmd       string
-	Args      []string
-	C2Channel C2Channel
-	Target    Entity
+	TTP         TTP
+	Cmd         string
+	CmdVariants []string
+	Args        []string
+	C2Channel   C2Channel
+	Target      Entity
 }
 
 func (e ExecTTP) GetTarget() Entity {
@@ -191,15 +196,6 @@ func (e ExecTTP) String() string {
 	}
 
 	return fmt.Sprintf("Executed '%s' on %s", e.Cmd, target)
-}
-
-func (e ExecTTP) GetTemplate() string {
-	return e.Cmd
-}
-
-func (e ExecTTP) GroundCommand(value string) Templater {
-	e.Cmd = value
-	return e
 }
 
 type KubectlExec struct {

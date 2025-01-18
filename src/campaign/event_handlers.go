@@ -13,6 +13,22 @@ import (
 	"github.com/goccy/go-graphviz"
 )
 
+func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	ev := msg.(domain.ActionSelected)
+
+	ttp, ok := c.armory.GetTTP(ev.ActionID)
+	if !ok {
+		msg := fmt.Sprintf("No TTP with ID %s found!", ev.ActionID)
+		slog.Error(msg)
+		return nil, fmt.Errorf(msg)
+	}
+	msg, err := c.GroundAction(ttp, ev.TargetID)
+
+	if err != nil {
+		slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
+	}
+	return msg, err
+}
 func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(domain.C2Connected)
 	system := domain.C2System{

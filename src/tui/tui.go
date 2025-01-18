@@ -201,13 +201,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 		}
 	case armorywindow.ActionSelected:
-		target := m.explorer.GetSelectedEntity()
-		a, err := m.campaign.GroundAction(msg.Action, target)
-		if err != nil {
-			slog.Error(fmt.Sprintf("Could not ground action template: %v\n", err))
-		}
+		targetID := m.explorer.GetSelectedEntity()
 
-		err = m.bus.Publish(a)
+		err := m.bus.Publish(domain.ActionSelected{
+			ActionID: msg.ActionID,
+			TargetID: targetID,
+		})
+
 		if err != nil {
 			slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 		}

