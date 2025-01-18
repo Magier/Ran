@@ -48,6 +48,18 @@ func (e ErrorMsg) UiMessage() string {
 	return e.Msg
 }
 
+type ActionSelected struct {
+	EventImpl
+	ActionID string
+	TargetID string
+}
+
+var _ Event = (*ActionSelected)(nil)
+
+func (e ActionSelected) String() string {
+	return fmt.Sprintf("Action '%s' selected", e.ActionID)
+}
+
 type NewFacts struct {
 	EventImpl
 	Entities   []Entity
@@ -117,6 +129,7 @@ type TTPFailed struct {
 	EventImpl
 	Id     string
 	Reason string
+	TTP    TTP
 }
 
 func (ttp TTPFailed) String() string {

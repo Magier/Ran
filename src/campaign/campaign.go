@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
@@ -14,16 +15,18 @@ import (
 type Campaign struct {
 	kb             KnowledgeBase
 	activeIdentity string
+	armory         armory.Armory
 	listeners      map[string]domain.Listener
 	sessions       map[string]c2.Session
 	identities     map[string]domain.Identity
 }
 
-func NewCampaign() *Campaign {
+func NewCampaign(armory armory.Armory) *Campaign {
 	kg := InitGraph()
 
 	return &Campaign{
 		kb:         kg,
+		armory:     armory,
 		sessions:   make(map[string]c2.Session),
 		listeners:  make(map[string]domain.Listener),
 		identities: make(map[string]domain.Identity),
@@ -37,8 +40,8 @@ func NewCampaign() *Campaign {
 // 	return "campaign started"
 // }
 
-func StartCampaign(mb bus.MessageBus) *Campaign {
-	campaign := NewCampaign()
+func StartCampaign(mb bus.MessageBus, armory armory.Armory) *Campaign {
+	campaign := NewCampaign(armory)
 	mb.Subscribe(domain.C2Connected{}, campaign.onC2Connected)
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.ListenerStopped{}, campaign.onListenerStopped)
@@ -48,6 +51,7 @@ func StartCampaign(mb bus.MessageBus) *Campaign {
 	mb.Subscribe(c2.SessionClosed{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		return campaign.onSessionClosed(msg.(c2.SessionClosed))
 	})
+	mb.Subscribe(domain.ActionSelected{}, campaign.onActionSelected)
 	mb.Subscribe(domain.NewFacts{}, campaign.onNewFacts)
 	mb.Subscribe(domain.ServiceAccountTokenExtracted{}, campaign.onServiceAccountTokenExtracted)
 	mb.Subscribe(domain.TokenPermissionsRetrieved{}, campaign.onTokenPermissionsExtracted)
@@ -136,15 +140,15 @@ func (c *Campaign) AddRelations(relations ...domain.Relation) int {
 	return numChanges
 }
 
-func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.Message, error) {
-	execCmd, ok := action.(domain.ExecTTP)
-	if !ok {
-		return action, fmt.Errorf("expected action to be of type domain.ExecTTP")
+func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message, error) {
+	execCmd := domain.ExecTTP{
+		TTP: ttp,
 	}
 
-	tmpl, ok := action.(domain.Templater)
-	if ok {
-		template := tmpl.GetTemplate()
+	cmdVariants := make([]string, 0)
+	// TODO order the variants depending on utility/priority
+	for _, cmdVariant := range ttp.CmdVariants {
+		template := cmdVariant.GetCmd()
 		if strings.Contains(template, "$LISTENER") {
 			listener, ok := c.GetListener(domain.TCP)
 			if ok {
@@ -163,11 +167,14 @@ func (c Campaign) GroundAction(action domain.Message, targetId string) (domain.M
 			}
 		}
 
-		execCmd.Cmd = template
+		cmdVariants = append(cmdVariants, template)
+		// ttp.CmdVariants[k] = domain.CmdVariant(template)
+		// execCmd.Cmd = template
 	}
+	execCmd.CmdVariants = cmdVariants
 
 	var target domain.Entity
-	target, ok = c.kb.GetEntity(targetId)
+	target, ok := c.kb.GetEntity(targetId)
 	if ok {
 		execCmd.Target = target
 	}
@@ -227,11 +234,11 @@ func (c Campaign) groundTtpOnServiceAccount(ttp domain.TTP, t domain.ServiceAcco
 		var _ = cmdString
 	}
 	for key, cmd := range ttp.CmdVariants {
-		cmdString, err := c.groundServiceAccountTemplate(cmd, t)
+		cmdString, err := c.groundServiceAccountTemplate(string(cmd), t)
 		if err != nil {
 			slog.Warn("Grounding SA Template", "", err.Error())
 		} else {
-			ttp.CmdVariants[key] = cmdString
+			ttp.CmdVariants[key] = domain.CmdVariant(cmdString)
 		}
 	}
 
@@ -285,6 +292,17 @@ func (c Campaign) GetC2s() []domain.C2System {
 		}
 	}
 	return c2s
+}
+
+func (c Campaign) GetC2(name string) (domain.C2System, bool) {
+	for _, entity := range c.GetEntities() {
+		if c2, ok := entity.(domain.C2System); ok {
+			if c2.Name == name {
+				return c2, true
+			}
+		}
+	}
+	return domain.C2System{}, false
 }
 
 func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, error) {

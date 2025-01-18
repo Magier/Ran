@@ -14,12 +14,14 @@ import (
 const ellipsis = "…"
 
 type Action struct {
+	ID           string
 	title, desc  string
 	msg          domain.Message
 	requirements domain.Requirements
 }
 type ActionSelected struct {
-	Action domain.Message
+	ActionID string
+	Action   domain.Message
 }
 
 func (a Action) Title() string       { return a.title }
@@ -40,6 +42,7 @@ func NewArmory(armory armory.Armory, width float32) Model {
 
 	for _, ttp := range armory.GetTTPs() {
 		actions = append(actions, Action{
+			ID:           ttp.GetID(),
 			title:        ttp.GetTitle(),
 			desc:         ttp.GetDescription(),
 			msg:          ttp.GetMessage(),
@@ -85,7 +88,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				selectedIdx := m.actions.Index()
 				actions := m.actions.Items()
 				cmd = func() tea.Msg {
-					return ActionSelected{Action: actions[selectedIdx].(Action).msg}
+					action := actions[selectedIdx].(Action)
+					return ActionSelected{ActionID: action.Title()}
 				}
 				cmds = append(cmds, cmd)
 			}

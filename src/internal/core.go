@@ -30,7 +30,7 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 	if err != nil {
 		panic(err)
 	}
-	c := campaign.StartCampaign(mb)
+	c := campaign.StartCampaign(mb, a)
 	var ui *tea.Program = nil
 	if withTui {
 		ui = tui.SetupTUI(mb, c, a)
