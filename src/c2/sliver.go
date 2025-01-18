@@ -24,6 +24,7 @@ import (
 )
 
 type SliverClient struct {
+	Name       string
 	config     *assets.ClientConfig
 	rpc        rpcpb.SliverRPCClient
 	cmdChannel chan domain.Command
@@ -36,6 +37,7 @@ func CreateSliverClient(configPath string) SliverClient {
 		log.Fatal(err)
 	}
 	return SliverClient{
+		Name:       "sliver",
 		config:     config,
 		cmdChannel: make(chan domain.Command, 1),
 	}
@@ -52,7 +54,7 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 
 	serverIp := c.GetServerIp()
 	err = bus.Publish(domain.C2Connected{
-		Name: "sliver",
+		Name: c.Name,
 		IP:   serverIp,
 		Kind: "sliver",
 	})
@@ -108,7 +110,7 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 				}
 			}
 		case event := <-events:
-			go handleSliverEvent(bus, event)
+			go c.handleSliverEvent(bus, event)
 		}
 	}
 }
@@ -128,7 +130,7 @@ func (c SliverClient) GetServerIp() net.IP {
 	return ip
 }
 
-func handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) error {
+func (c SliverClient) handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) error {
 	var resultingMessage domain.Message
 	// Trigger event based on type
 	switch event.EventType {
@@ -141,10 +143,10 @@ func handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) error {
 	case consts.JobStartedEvent:
 		job := event.Job
 		// resolve the local IP to the 'external' one, so the compromised systems can reach it
-		// TODO get IP of sliver
 		resultingMessage = ListenerReady{
-			Id:   fmt.Sprintf("%d", job.ID),
-			Name: fmt.Sprintf("sliver_%s", job.Name),
+			Id:       fmt.Sprintf("%d", job.ID),
+			Name:     fmt.Sprintf("sliver_%s", job.Name),
+			C2Server: c.Name,
 			// IP:       ip,
 			Port:     uint(job.Port),
 			Protocol: domain.Protocol(strings.ToUpper(job.Protocol)),

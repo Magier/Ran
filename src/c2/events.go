@@ -11,6 +11,7 @@ type ListenerReady struct {
 	domain.EventImpl
 	Id       string
 	Name     string
+	C2Server string
 	IP       net.IP
 	Port     uint
 	Protocol domain.Protocol

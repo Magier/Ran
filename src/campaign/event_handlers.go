@@ -151,9 +151,15 @@ func (c *Campaign) onNewFacts(ctx context.Context, msg domain.Message) (domain.M
 func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(c2.ListenerReady)
 	id := fmt.Sprintf("%s_%d", ev.Name, ev.Port)
+
+	c2, ok := c.GetC2(ev.C2Server)
+	if !ok {
+		return nil, fmt.Errorf("No C2 '%s' found", ev.C2Server)
+	}
+
 	c.listeners[id] = domain.Listener{
 		ID:         id,
-		IP:         ev.IP,
+		IP:         c2.IP,
 		Port:       ev.Port,
 		Protocol:   ev.Protocol,
 		Redirector: "",
