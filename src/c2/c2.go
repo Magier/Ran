@@ -15,11 +15,15 @@ import (
 	k8s "github.com/Magier/Ran/k8sclient"
 )
 
+const BuiltInC2 = "builtin"
+
 type C2Client interface {
 	Connect(context.Context, bus.MessageBus) error
 	Execute(domain.Command) (domain.Message, error)
 	GetServerIp() net.IP
 	GetName() string
+	IsReady() bool
+	SetReady(state bool) C2Client
 }
 
 type Session struct {
@@ -36,9 +40,18 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 	// listeners := make(map[string]net.Listener)
 	// TODO start builtin C2 once an action demands it
 	c2Clients := map[string]C2Client{
-		"":       NewBuiltInServer(mb),
-		"sliver": CreateSliverClient("../sliver_cfg.json"),
+		BuiltInC2:  NewBuiltInServer(mb),
+		SliverKind: CreateSliverClient("../sliver_cfg.json"),
 	}
+
+	mb.Subscribe(domain.C2Connected{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		ev := msg.(domain.C2Connected)
+		client, ok := c2Clients[ev.Name]
+		if ok {
+			c2Clients[ev.Name] = client.SetReady(true)
+		}
+		return nil, fmt.Errorf("No suitable client found to update C2 state")
+	})
 
 	mb.Subscribe(domain.StartListener{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		cmd := msg.(domain.Command)
@@ -130,6 +143,16 @@ func selectClient(clients map[string]C2Client, msg domain.Command) (C2Client, bo
 		server = cmd.Server
 	case domain.StopListener:
 		server = cmd.Server
+	}
+
+	// no server defined means the C2 will choose the best option
+	if server == "" {
+		for _, c2Name := range []string{SliverKind, BuiltInC2} {
+			client, ok := clients[c2Name]
+			if ok && client.IsReady() {
+				return client, true
+			}
+		}
 	}
 
 	client, ok := clients[server]

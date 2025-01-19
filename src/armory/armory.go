@@ -86,18 +86,14 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:        "Create Listener",
 			Description: "Catch incoming shells",
 			Tactics:     []domain.Tactic{domain.ResourceDevelopment},
-			Command:     domain.StartListener{Port: 1337, Protocol: domain.TCP},
+			Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP},
 			// Port:        1337,
-		},
-		{
-			Name:        "Create Sliver HTTP Listener",
-			Description: "Catch incoming shells",
-			Tactics:     []domain.Tactic{domain.ResourceDevelopment},
-			Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP, Server: "sliver"},
-			Requires:    domain.Requirements{
-				// Kind: "C2:Sliver",
+			CmdVariants: map[string]domain.CmdVariant{},
+			Args: map[string]string{
+				"Port":     "1337",
+				"Protocol": string(domain.HTTP),
 			},
-			// Port:        1337,
+			// Effects: c2.ListenerReady{},
 		},
 		{
 			Name:        "Create Redirector",
@@ -122,11 +118,11 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:        "Read SerivceAccount Token",
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
 			Tactics:     []domain.Tactic{domain.CredentialAccess},
-			Cmd:         "cat",
 			CmdVariants: map[string]domain.CmdVariant{
+				"":       "cat",
 				"sliver": "get_file",
 			},
-			Args:          []string{"/var/run/secrets/kubernetes.io/serviceaccount/token"},
+			Args:          map[string]string{"TOKEN_PATH": "/var/run/secrets/kubernetes.io/serviceaccount/token"},
 			Requires:      domain.Requirements{AccessLevel: domain.UserRead},
 			Effects:       []string{"Pod name", "ServiceAccount name", "Namespace name"},
 			ResultHandler: handleSaTokenRead,

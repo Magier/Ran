@@ -23,11 +23,14 @@ import (
 	"github.com/bishopfox/sliver/protobuf/sliverpb"
 )
 
+const SliverKind = "sliver"
+
 type SliverClient struct {
 	Name       string
 	config     *assets.ClientConfig
 	rpc        rpcpb.SliverRPCClient
 	cmdChannel chan domain.Command
+	isReady    bool
 }
 
 func CreateSliverClient(configPath string) SliverClient {
@@ -37,7 +40,7 @@ func CreateSliverClient(configPath string) SliverClient {
 		log.Fatal(err)
 	}
 	return SliverClient{
-		Name:       "sliver",
+		Name:       SliverKind,
 		config:     config,
 		cmdChannel: make(chan domain.Command, 1),
 	}
@@ -50,20 +53,19 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 	if err != nil {
 		return err
 	}
+	defer ln.Close()
 	c.rpc = rpc
 
 	serverIp := c.GetServerIp()
 	err = bus.Publish(domain.C2Connected{
 		Name: c.Name,
 		IP:   serverIp,
-		Kind: "sliver",
+		Kind: SliverKind,
 	})
 	if err != nil {
 		slog.Warn("Couldn't send sliver 'C2 Connected' event: ", "", err.Error())
 		return err
 	}
-	defer ln.Close()
-
 	reportOpenListeners(rpc, bus, serverIp, c.config.LPort)
 	reportEstablishedSessions(rpc, bus)
 
@@ -115,8 +117,17 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 	}
 }
 
+func (c SliverClient) SetReady(state bool) C2Client {
+	c.isReady = state
+	return c
+}
+
+func (c SliverClient) IsReady() bool {
+	return c.isReady
+}
+
 func (c SliverClient) GetName() string {
-	return "sliver"
+	return c.Name
 }
 
 func (c SliverClient) GetServerIp() net.IP {
@@ -136,7 +147,7 @@ func (c SliverClient) handleSliverEvent(bus bus.MessageBus, event *clientpb.Even
 	switch event.EventType {
 	// a new session just came in
 	case consts.SessionOpenedEvent:
-		resultingMessage = SessionStarted{Session: parseSession(event.Session), C2Kind: "sliver"}
+		resultingMessage = SessionStarted{Session: parseSession(event.Session), C2Kind: SliverKind}
 	case consts.SessionClosedEvent:
 		resultingMessage = SessionClosed{Session: parseSession(event.Session)}
 
@@ -176,14 +187,22 @@ func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 		return c.stopListener(cmd)
 	case domain.ExecTTP:
 		c2Channel := cmd.C2Channel.(domain.ImplantC2Channel)
-		switch cmd.TTP.GetCommand("sliver") {
+		switch cmd.TTP.GetCommand(SliverKind) {
 		case "get_file":
-			if len(cmd.TTP.Args) == 0 {
+			path, ok := cmd.TTP.Args["Path"]
+			if !ok {
 				return nil, fmt.Errorf("Path of file to retrieve is required as argument")
-			} else if len(cmd.TTP.Args) != 1 {
-				slog.Warn("Received unknown arguments to download file: ", cmd.TTP.Args)
 			}
-			data, err := c.downloadFile(c2Channel.SessionId, cmd.TTP.Args[0])
+			if len(cmd.TTP.Args) != 1 {
+				var args []string
+				for k, v := range cmd.TTP.Args {
+					args = append(args, fmt.Sprintf("%s=%s", k, v))
+				}
+				argsStr := strings.Join(args, ", ")
+				slog.Warn("Received unknown arguments to download file: " + argsStr)
+			}
+
+			data, err := c.downloadFile(c2Channel.SessionId, path)
 			if err != nil {
 				return nil, err
 			}
@@ -253,7 +272,7 @@ func reportEstablishedSessions(rpc rpcpb.SliverRPCClient, bus bus.MessageBus) {
 	}
 	for _, session := range sessions.GetSessions() {
 		err = bus.Publish(SessionStarted{
-			C2Kind:  "sliver",
+			C2Kind:  SliverKind,
 			C2Name:  session.ActiveC2,
 			Session: parseSession(session),
 		})
