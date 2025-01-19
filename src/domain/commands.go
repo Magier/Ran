@@ -68,7 +68,7 @@ type TTP struct {
 	Cmd         string                `yaml:"cmd"`
 	CmdVariants map[string]CmdVariant `yaml:"cmdVariants"`
 	HttpCmd     HttpCmd               `yaml:"httpCmd"`
-	Args        []string              `yaml:"args"`
+	Args        map[string]string     `yaml:"args"`
 	Port        uint                  `yaml:"port"`
 
 	Command   Command           `yaml:"command"`
@@ -178,7 +178,7 @@ type ExecTTP struct {
 	TTP         TTP
 	Cmd         string
 	CmdVariants []string
-	Args        []string
+	Args        map[string]string
 	C2Channel   C2Channel
 	Target      Entity
 }

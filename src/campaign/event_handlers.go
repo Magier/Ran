@@ -22,13 +22,34 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 		slog.Error(msg)
 		return nil, fmt.Errorf(msg)
 	}
-	msg, err := c.GroundAction(ttp, ev.TargetID)
 
+	var tactic domain.Tactic
+	if len(ttp.Tactics) > 0 {
+		tactic = ttp.Tactics[0]
+	}
+
+	// it's a technique on the C2 side to prepare the infrastructer, not in the target environment
+	if tactic == domain.Reconnaissance || tactic == domain.ResourceDevelopment {
+		return handlePreAction(ttp)
+	}
+
+	msg, err := c.GroundAction(ttp, ev.TargetID)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
 	}
 	return msg, err
 }
+
+func handlePreAction(ttp domain.TTP) (domain.Message, error) {
+	switch cmd := ttp.Command.(type) {
+	case domain.StartListener:
+		return cmd, nil
+		// default:
+	}
+
+	return nil, nil
+}
+
 func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(domain.C2Connected)
 	system := domain.C2System{

@@ -235,7 +235,7 @@ func (c K8sClient) GetPods(ctx context.Context, ns string) ([]domain.Pod, error)
 	return pods, nil
 }
 
-func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string, args []string) (string, string, error) {
+func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string, args map[string]string) (string, string, error) {
 	req := client.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(podName).
@@ -268,7 +268,9 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string, a
 		if err != nil {
 			slog.Error("Could not parse TTP command", "", err.Error())
 		} else {
-			command = append(command, args...)
+			for k, v := range args {
+				command = append(command, k, v)
+			}
 		}
 	}
 

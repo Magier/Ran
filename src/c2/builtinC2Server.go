@@ -8,16 +8,22 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
 )
 
+var builtinC2Mutex sync.Mutex
+
 type BuiltInC2Server struct {
 	bus        bus.MessageBus
 	cmdChannel chan domain.Command
 	ip         net.IP
+	isReady    bool
 }
+
+var _ C2Client = (*BuiltInC2Server)(nil)
 
 func NewBuiltInServer(bus bus.MessageBus) BuiltInC2Server {
 	ip := GetOutboundIP()
@@ -25,12 +31,13 @@ func NewBuiltInServer(bus bus.MessageBus) BuiltInC2Server {
 		bus:        bus,
 		cmdChannel: make(chan domain.Command, 1),
 		ip:         ip,
+		isReady:    false,
 	}
 }
 
 func (c BuiltInC2Server) Connect(ctx context.Context, mb bus.MessageBus) error {
 	err := mb.Publish(domain.C2Connected{
-		Name: "",
+		Name: BuiltInC2,
 		IP:   c.GetServerIp(),
 		Kind: "builtin",
 	})
@@ -49,6 +56,15 @@ func (c BuiltInC2Server) Connect(ctx context.Context, mb bus.MessageBus) error {
 			}
 		}
 	}
+}
+func (c BuiltInC2Server) SetReady(state bool) C2Client {
+	c.isReady = state
+	return c
+}
+func (c BuiltInC2Server) IsReady() bool {
+	builtinC2Mutex.Lock()
+	defer builtinC2Mutex.Unlock()
+	return c.isReady
 }
 
 func (c BuiltInC2Server) Execute(ev domain.Command) (domain.Message, error) {
@@ -94,6 +110,7 @@ func (c BuiltInC2Server) startListener(ctx context.Context, bus bus.MessageBus, 
 		Id:       listenerId,
 		Name:     fmt.Sprintf("%s_%d", listenerId, cmd.Port),
 		IP:       c.GetServerIp(),
+		C2Server: BuiltInC2,
 		Port:     cmd.Port,
 		Protocol: domain.TCP,
 	})
