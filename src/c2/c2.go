@@ -47,10 +47,13 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 	mb.Subscribe(domain.C2Connected{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		ev := msg.(domain.C2Connected)
 		client, ok := c2Clients[ev.Name]
+		var err error
 		if ok {
 			c2Clients[ev.Name] = client.SetReady(true)
+		} else {
+			err = fmt.Errorf("No suitable client found to update C2 state")
 		}
-		return nil, fmt.Errorf("No suitable client found to update C2 state")
+		return nil, err
 	})
 
 	mb.Subscribe(domain.StartListener{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {

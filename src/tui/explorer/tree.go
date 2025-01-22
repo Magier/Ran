@@ -3,7 +3,6 @@ package explorer
 import (
 	"fmt"
 	"log"
-	"log/slog"
 	"sort"
 
 	"github.com/Magier/Ran/campaign"
@@ -126,15 +125,9 @@ func addEntity(tree *Node, campaign *campaign.Campaign, entity domain.Entity, ex
 		return
 	}
 
-	k8sEntity, ok := entity.(domain.Ownable)
-	if !ok {
-		slog.Debug("[TUI]" + entity.GetName() + " " + entity.GetKind() + " Not a K8sEntity")
-		return
-	}
-
 	namespaced, ok := entity.(domain.Namespaced)
 	var nsName string
-	if ok {
+	if ok && namespaced.IsNamespaced() {
 		nsName = namespaced.GetNamespace()
 		if nsName == "" {
 			nsName = "?"
@@ -148,33 +141,42 @@ func addEntity(tree *Node, campaign *campaign.Campaign, entity domain.Entity, ex
 		parentNodes = append(parentNodes, n)
 	}
 
-	ownerRef, ok := k8sEntity.GetOwner()
+	k8sEntity, ok := entity.(domain.Ownable)
 	if ok {
-		ownerKind := ownerRef.Kind
-		if ownerKind == "" {
-			ownerKind = "Workload"
-		}
-		ownerId := domain.GenerateId(ownerRef.Name, ownerKind, nsName)
-		ownerName := ownerRef.Name
-
-		// find top level owner of the entity for grouping within a namespaces
-		owner, ok := campaign.GetEntityById(ownerId)
-		if !ok {
-			e := entity.(domain.Namespaced)
-			owner, ok = campaign.GetEntityByName(ownerName, e.GetNamespace())
-		}
-		// use information of the resolved owner, if possible
+		ownerRef, ok := k8sEntity.GetOwner()
 		if ok {
-			ownerId = owner.GetId()
-			ownerName = owner.GetName()
-			if k := owner.GetKind(); k != "" {
-				ownerKind = k
+			ownerKind := ownerRef.Kind
+			if ownerKind == "" {
+				ownerKind = "Workload"
 			}
+			ownerId := domain.GenerateId(ownerRef.Name, ownerKind, nsName)
+			ownerName := ownerRef.Name
+
+			// find top level owner of the entity for grouping within a namespaces
+			owner, ok := campaign.GetEntityById(ownerId)
+			if !ok {
+				e := entity.(domain.Namespaced)
+				owner, ok = campaign.GetEntityByName(ownerName, e.GetNamespace())
+			}
+			// use information of the resolved owner, if possible
+			if ok {
+				ownerId = owner.GetId()
+				ownerName = owner.GetName()
+				if k := owner.GetKind(); k != "" {
+					ownerKind = k
+				}
+			}
+			_, isExpanded := expandedNodes[ownerId]
+			n := newNode(ownerId, ownerName, ownerKind)
+			n.isExpanded = isExpanded
+			parentNodes = append(parentNodes, n)
 		}
-		_, isExpanded := expandedNodes[ownerId]
-		n := newNode(ownerId, ownerName, ownerKind)
-		n.isExpanded = isExpanded
-		parentNodes = append(parentNodes, n)
+	} else {
+		switch entity.(type) {
+		// Skip C2 servers in the TUI for now
+		case domain.C2System:
+			return
+		}
 	}
 
 	n := addNode(tree, parentNodes, entity.GetId(), entity.GetName(), entity.GetKind())

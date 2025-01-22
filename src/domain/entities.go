@@ -253,6 +253,7 @@ func (s C2System) GetKind() string {
 
 type Namespaced interface {
 	GetNamespace() string
+	IsNamespaced() bool
 }
 
 type EntityPlaceholder interface {
@@ -337,7 +338,7 @@ func (e K8sEntity) GetNamespace() string {
 }
 
 func (e K8sEntity) IsNamespaced() bool {
-	return e.Namespace != ""
+	return true
 }
 
 // type NamespacedResource struct {
@@ -374,9 +375,10 @@ func (ns Namespace) GetKind() string {
 
 type RbacPermission struct {
 	Verbs         []string
-	Scope         string // "" is invalid, "*" =cluster-wide, any string = namespaces
 	ResourceTypes []string
 	ResourceNames []string
+	ApiGroups     []string
+	Scope         string // "" is invalid, "*" =cluster-wide, any string = namespaces
 }
 
 type Identity struct {
@@ -457,8 +459,18 @@ type DaemonSet struct {
 }
 
 type K8sNode struct {
+	UID string
 	K8sEntity
 	ResourceOwner
+}
+
+func (n K8sNode) IsNamespaced() bool { return false }
+
+func NewK8sNode(name string) K8sNode {
+	entity := NewK8sEntity(name, "Node", "")
+	return K8sNode{
+		K8sEntity: entity,
+	}
 }
 
 func (n K8sNode) GetId() string {
@@ -505,7 +517,7 @@ type ServiceAccount struct {
 	// kind: str = "ServiceAccount"
 	Token ServiceAccountToken
 	// token: str | ServiceAccountToken | None = Field(None, exclude=True)
-	Can []string
+	Can []RbacPermission
 }
 
 func (sa ServiceAccount) GetId() string {
