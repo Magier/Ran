@@ -177,3 +177,21 @@ func GetRelationCost(relation Relation) int {
 	}
 	return 0
 }
+
+type RunsOn struct {
+	Pod  Pod
+	Node K8sNode
+}
+
+var _ Relation = (*RunsOn)(nil)
+
+func (r RunsOn) GetSourceId() string {
+	return r.Pod.GetId()
+}
+func (r RunsOn) GetTargetId() string {
+	return r.Node.GetId()
+}
+
+func (r RunsOn) GetRelationName() string {
+	return "runs-on"
+}

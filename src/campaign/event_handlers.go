@@ -142,11 +142,23 @@ func (c *Campaign) onTokenPermissionsExtracted(ctx context.Context, msg domain.M
 	sa := ev.ServiceAccount
 
 	for _, rule := range ev.ResourceRules {
-		for _, res := range rule.Resources {
-			for _, verb := range rule.Verbs {
-				sa.Can = append(sa.Can, fmt.Sprintf("%s %s", verb, res))
-			}
-		}
+		sa.Can = append(sa.Can, domain.RbacPermission{
+			Verbs:         rule.Verbs,
+			ResourceTypes: rule.Resources,
+			ResourceNames: rule.ResourceNames,
+			ApiGroups:     rule.APIGroups,
+			Scope:         sa.GetNamespace(),
+		})
+	}
+
+	for _, rule := range ev.ResourceRules {
+		sa.Can = append(sa.Can, domain.RbacPermission{
+			Verbs:         rule.Verbs,
+			ResourceTypes: rule.Resources,
+			ResourceNames: rule.ResourceNames,
+			ApiGroups:     rule.APIGroups,
+			Scope:         "*",
+		})
 	}
 
 	return domain.NewFacts{

@@ -16,7 +16,6 @@ const ellipsis = "…"
 type Action struct {
 	ID           string
 	title, desc  string
-	msg          domain.Message
 	requirements domain.Requirements
 }
 type ActionSelected struct {
@@ -45,7 +44,6 @@ func NewArmory(armory armory.Armory, width float32) Model {
 			ID:           ttp.GetID(),
 			title:        ttp.GetTitle(),
 			desc:         ttp.GetDescription(),
-			msg:          ttp.GetMessage(),
 			requirements: ttp.Requires,
 		})
 	}

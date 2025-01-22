@@ -257,6 +257,7 @@ func reportOpenListeners(rpc rpcpb.SliverRPCClient, bus bus.MessageBus, serverIp
 			Name:     fmt.Sprintf("sliver_%s", job.Name),
 			IP:       serverIp,
 			Port:     uint(job.Port),
+			C2Server: SliverKind,
 			Protocol: domain.Protocol(strings.ToUpper(job.Protocol)),
 		})
 		if err != nil {

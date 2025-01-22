@@ -122,27 +122,27 @@ func analyzeServiceAccountToken(token string) (domain.Event, error) {
 			Kind:      "ServiceAccount",
 		},
 		Token: saToken,
+		Can:   make([]domain.RbacPermission, 0),
 	}
 
-	// TODO check: if SA tokens can target other pods than the system where it was mounted on?
 	pod := domain.NewPod(saToken.Kubernetes.Pod.Name, ns.Name)
 	saUsage := domain.Uses{
 		SubjectId: pod.GetId(),
 		ObjectId:  sa.GetId(),
 	}
 
-	// TODO: add token to loot (with ref to the system)
-	// - extract the namespace, SA name and pod name (if necessary?)
-	// - update topology and add parent node being the namespace (if not yet set)
-	// - set `kind` of the system
-	// - send updated topology to the UI
-	//   - add the SA token as a small entity
-	//   - everything is in NS compound node
+	// bound SA tokens also provide information on the node it is running on
+	node := domain.NewK8sNode(saToken.Kubernetes.Node.Name)
+	node.UID = saToken.Kubernetes.Node.UID
+	podRunsOnNode := domain.RunsOn{
+		Pod:  pod,
+		Node: node,
+	}
 
 	return domain.NewFacts{
-		Entities:  []domain.Entity{ns, sa, pod},
+		Entities:  []domain.Entity{ns, sa, pod, node},
 		Assets:    []domain.Asset{saToken},
-		Relations: []domain.Relation{saUsage},
+		Relations: []domain.Relation{saUsage, podRunsOnNode},
 	}, nil
 
 }

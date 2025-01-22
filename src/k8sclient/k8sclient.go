@@ -269,7 +269,10 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string, a
 			slog.Error("Could not parse TTP command", "", err.Error())
 		} else {
 			for k, v := range args {
-				command = append(command, k, v)
+				if k != "" {
+					command = append(command, k)
+				}
+				command = append(command, v)
 			}
 		}
 	}

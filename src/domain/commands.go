@@ -195,7 +195,8 @@ func (e ExecTTP) String() string {
 		target = e.Target.GetId()
 	}
 
-	return fmt.Sprintf("Executed '%s' on %s", e.Cmd, target)
+	c := e.TTP.GetCommand("")
+	return fmt.Sprintf("Executed '%s' on %s", c, target)
 }
 
 type KubectlExec struct {
