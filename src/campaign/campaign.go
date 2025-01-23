@@ -145,33 +145,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 		TTP: ttp,
 	}
 
-	cmdVariants := make([]string, 0)
-	// TODO order the variants depending on utility/priority
-	for _, cmdVariant := range ttp.CmdVariants {
-		template := cmdVariant.GetCmd()
-		if strings.Contains(template, "$LISTENER") {
-			listener, ok := c.GetListener(domain.TCP)
-			if ok {
-				template = inflateListenerTemplate(listener, template)
-			} else {
-				slog.Info("No suitable listener found!")
-			}
-		}
-		if strings.Contains(template, "$FILESHARE_PORT") {
-			filesharePort, ok := c.GetFileshare()
-			if ok {
-				p := fmt.Sprint(filesharePort)
-				template = strings.Replace(template, "$FILESHARE_PORT", p, -1)
-			} else {
-				slog.Info("No suitable fileshare found!")
-			}
-		}
-
-		cmdVariants = append(cmdVariants, template)
-		// ttp.CmdVariants[k] = domain.CmdVariant(template)
-		// execCmd.Cmd = template
-	}
-	execCmd.CmdVariants = cmdVariants
+	execCmd.CmdVariants = groundTTP(ttp, c.groundCmdTemplate)
 
 	var target domain.Entity
 	target, ok := c.kb.GetEntity(targetId)
@@ -185,13 +159,12 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 		case domain.Pod:
 			system = t
 		case domain.ServiceAccount:
-			var ttp domain.TTP
 			var err error
-			system, ttp, err = c.groundTtpOnServiceAccount(execCmd.TTP, t)
-			if err != nil {
+			var cmdVariants []domain.CmdVariant
 
+			if system, cmdVariants, err = c.groundTtpOnServiceAccount(execCmd.TTP, t); err == nil {
+				execCmd.CmdVariants = append(execCmd.CmdVariants, cmdVariants...)
 			} else {
-				execCmd.TTP = ttp
 			}
 		}
 
@@ -206,8 +179,51 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 	return execCmd, nil
 }
 
-func (c Campaign) groundTtpOnServiceAccount(ttp domain.TTP, t domain.ServiceAccount) (domain.Pod, domain.TTP, error) {
+type GroundFn func(string) (string, error)
 
+func groundTTP(ttp domain.TTP, fn GroundFn) []domain.CmdVariant {
+	// if a specific Cmd is set, treat it as the top priority variant
+	cmdVariants := make([]domain.CmdVariant, 0)
+	if ttp.Cmd != "" {
+		if cmd, err := fn(ttp.Cmd); err == nil {
+			cmdVariants = append(cmdVariants, domain.CmdVariant{Key: "", Command: cmd})
+		} else {
+			slog.Error(err.Error())
+		}
+	}
+	// TODO order the variants depending on utility/priority
+	for _, cmdVariant := range ttp.CmdVariants {
+		if cmd, err := fn(cmdVariant.Command); err == nil {
+			cmdVariants = append(cmdVariants, domain.CmdVariant{Key: cmdVariant.Key, Command: cmd})
+		} else {
+			slog.Error(err.Error())
+		}
+	}
+	return cmdVariants
+}
+
+func (c Campaign) groundCmdTemplate(template string) (string, error) {
+	if strings.Contains(template, "$LISTENER") {
+		listener, ok := c.GetListener(domain.TCP)
+		if ok {
+			template = inflateListenerTemplate(listener, template)
+		} else {
+			slog.Info("No suitable listener found!")
+		}
+	}
+	if strings.Contains(template, "$FILESHARE_PORT") {
+		filesharePort, ok := c.GetFileshare()
+		if ok {
+			p := fmt.Sprint(filesharePort)
+			template = strings.Replace(template, "$FILESHARE_PORT", p, -1)
+		} else {
+			slog.Info("No suitable fileshare found!")
+		}
+	}
+	return template, nil
+}
+
+func (c Campaign) groundTtpOnServiceAccount(ttp domain.TTP, t domain.ServiceAccount) (domain.Pod, []domain.CmdVariant, error) {
 	var system domain.Pod
 	// *vomit*
 	if owner, ok := t.GetOwner(); ok {
@@ -225,25 +241,12 @@ func (c Campaign) groundTtpOnServiceAccount(ttp domain.TTP, t domain.ServiceAcco
 		}
 	}
 
-	// replace template with grounded commands
-	if ttp.Cmd != "" {
-		cmdString, err := c.groundServiceAccountTemplate(ttp.Cmd, t)
-		if err != nil {
-			slog.Warn("Grounding SA Template", "", err.Error())
-		}
-		var _ = cmdString
-	}
-	for key, cmd := range ttp.CmdVariants {
-		cmdString, err := c.groundServiceAccountTemplate(string(cmd), t)
-		if err != nil {
-			slog.Warn("Grounding SA Template", "", err.Error())
-		} else {
-			ttp.CmdVariants[key] = domain.CmdVariant(cmdString)
-		}
-	}
+	cmdVariants := groundTTP(ttp, func(template string) (string, error) {
+		return c.groundServiceAccountTemplate(template, t)
+	})
 
 	// TODO: properly supply values of the SA token to the TTP
-	return system, ttp, nil
+	return system, cmdVariants, nil
 
 }
 

