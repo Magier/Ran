@@ -241,11 +241,9 @@ func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error
 	}
 
 	// TODO: handle case of multiple containers
-	// TODO: handle mixture of command sources ... grounded template is currently on cmd.Cmd
-	c := cmd.Cmd
+	c := cmd.GetCommand("")
 	if c == "" {
-		c = cmd.CmdVariants[0]
-		// c = cmd.TTP.GetCommand("")
+		return "", "", fmt.Errorf("No suitable command found for TTP " + cmd.TTP.Name)
 	}
 
 	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, targetNs, c, cmd.TTP.Args)

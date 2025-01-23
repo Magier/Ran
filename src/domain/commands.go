@@ -2,7 +2,6 @@ package domain
 
 import (
 	"fmt"
-	"log/slog"
 )
 
 type Command interface {
@@ -50,11 +49,14 @@ type HttpCmd struct {
 	Body     string
 }
 
-type CmdVariant string
-
-func (v CmdVariant) GetCmd() string {
-	return string(v)
+type CmdVariant struct {
+	Key     string
+	Command string
 }
+
+// func (v CmdVariant) GetCmd() string {
+// 	return v.Command
+// }
 
 type TTP struct {
 	ID          string   `yaml:"id"`
@@ -65,11 +67,11 @@ type TTP struct {
 
 	References []string `yaml:"references"`
 
-	Cmd         string                `yaml:"cmd"`
-	CmdVariants map[string]CmdVariant `yaml:"cmdVariants"`
-	HttpCmd     HttpCmd               `yaml:"httpCmd"`
-	Args        map[string]string     `yaml:"args"`
-	Port        uint                  `yaml:"port"`
+	Cmd         string            `yaml:"cmd"`
+	CmdVariants []CmdVariant      `yaml:"cmdVariants"`
+	HttpCmd     HttpCmd           `yaml:"httpCmd"`
+	Args        map[string]string `yaml:"args"`
+	Port        uint              `yaml:"port"`
 
 	Command   Command           `yaml:"command"`
 	CommandFn func(TTP) Message `yaml:"-"`
@@ -101,29 +103,8 @@ func (ttp TTP) GetMessage() Message {
 	} else if ttp.Command != nil {
 		return ttp.Command
 	} else {
-		return ExecTTP{TTP: ttp, Cmd: ttp.Cmd, Args: ttp.Args}
+		return ExecTTP{TTP: ttp, Args: ttp.Args}
 	}
-}
-
-func (ttp TTP) GetCommand(variant string) string {
-	// some TTPs may have special commands for various C2 frameworks
-	if cmd, ok := ttp.CmdVariants[variant]; ok {
-		return string(cmd)
-	}
-
-	if ttp.Cmd != "" {
-		return ttp.Cmd
-	}
-
-	// return the first variant
-	for _, cmd := range ttp.CmdVariants {
-		return string(cmd)
-	}
-
-	slog.Warn("No valid command found for TTP " + ttp.GetTitle())
-
-	// default to the general command
-	return ttp.Cmd
 }
 
 func (ttp TTP) HandleResult(source Entity, args ...any) (Event, error) {
@@ -176,8 +157,7 @@ func (c StartC2Redirector) String() string {
 type ExecTTP struct {
 	CommandImpl
 	TTP         TTP
-	Cmd         string
-	CmdVariants []string
+	CmdVariants []CmdVariant
 	Args        map[string]string
 	C2Channel   C2Channel
 	Target      Entity
@@ -195,8 +175,23 @@ func (e ExecTTP) String() string {
 		target = e.Target.GetId()
 	}
 
-	c := e.TTP.GetCommand("")
-	return fmt.Sprintf("Executed '%s' on %s", c, target)
+	return fmt.Sprintf("Executed '%s' on %s", e.GetCommand(""), target)
+	// return fmt.Sprintf("Executed '%s' on %s", e.TTP.Name, target)
+}
+
+func (e ExecTTP) GetCommand(variant string) string {
+	if variant != "" {
+		for _, v := range e.CmdVariants {
+			if v.Key == variant {
+				return v.Command
+			}
+		}
+	}
+
+	if len(e.CmdVariants) > 0 {
+		return e.CmdVariants[0].Command
+	}
+	return ""
 }
 
 type KubectlExec struct {
