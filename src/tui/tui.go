@@ -119,7 +119,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) mod
 	const logWndHeight = 10
 
 	explorer := explorer.NewExplorer(c, .3)
-	mainWnd := mainwindow.NewMainWindow(.45, logWndHeight+1)
+	mainWnd := mainwindow.NewMainWindow(c, .45, logWndHeight+1)
 	armoryWnd := armorywindow.NewArmory(a, .25)
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)
 	logWindow := logwindow.NewLogWindow(.45, logWndHeight)

@@ -102,7 +102,7 @@ func getIcon(kind string) string {
 
 func buildShownEntries(tree *Node, level int) []entry {
 	lines := make([]entry, 0)
-	indent := strings.Repeat("  ", level*2)
+	indent := strings.Repeat(" ", level*2)
 
 	sort.Slice(tree.children.children, func(i, j int) bool {
 		return tree.children.children[i].name < tree.children.children[j].name
@@ -154,8 +154,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case domain.KnowledgeUpdated:
 		m = m.rebuildEntries()
-		if m.cursor == -1 {
+		if m.cursor == -1 && len(m.entries) > 0 {
 			m.cursor = 0
+			cmd = selectEntity(m.entries[m.cursor].ref)
 		}
 	case tea.KeyMsg:
 		if m.focused {

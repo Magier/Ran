@@ -3,13 +3,15 @@ package campaign
 import (
 	"testing"
 
+	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/domain"
 )
 
 func TestAddSinglePod(t *testing.T) {
 	p := domain.NewPod("test", "default")
 
-	c := NewCampaign()
+	a := armory.Armory{}
+	c := NewCampaign(a)
 	c.AddEntities(p)
 
 	pods := c.GetPods()
@@ -27,7 +29,8 @@ func TestDontAddExtraWorkloadWhenAddingPodWithOwner(t *testing.T) {
 		Name: depl.Name,
 	}
 
-	c := NewCampaign()
+	a := armory.Armory{}
+	c := NewCampaign(a)
 	c.AddEntities(p) // implicitely adds Deployment because of the OwnerRef
 	pods := c.GetEntities()
 	if len(pods) != 3 { // NS + Deployment + Pod
@@ -45,7 +48,8 @@ func TestDontAddExtraWorkloadWhenAddingPodWithOwner(t *testing.T) {
 func TestMoreInformationOnPodOwner(t *testing.T) {
 	nsName := "default"
 	p := domain.NewPod("test", nsName)
-	c := NewCampaign()
+	a := armory.Armory{}
+	c := NewCampaign(a)
 
 	// this will add the intermediary AbstractWorkload
 	c.AddEntities(p)
