@@ -35,7 +35,7 @@ type SessionStarted struct {
 	domain.EventImpl
 	C2Kind  string
 	C2Name  string
-	Session Session
+	Session domain.Session
 }
 
 func (c SessionStarted) String() string {
@@ -44,7 +44,7 @@ func (c SessionStarted) String() string {
 
 type SessionClosed struct {
 	domain.EventImpl
-	Session Session
+	Session domain.Session
 }
 
 func (c SessionClosed) String() string {

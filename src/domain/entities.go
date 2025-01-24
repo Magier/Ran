@@ -408,6 +408,7 @@ type Pod struct {
 	IP       net.IPAddr
 	EnvVars  map[string]string
 	HostName string
+	NodeName string
 }
 
 func NewPod(name, ns string) Pod {
@@ -527,3 +528,36 @@ func (sa ServiceAccount) GetId() string {
 func (sa ServiceAccount) GetKind() string {
 	return "ServiceAccount"
 }
+
+type Session struct {
+	Id          string
+	Name        string
+	Hostname    string
+	Os          string
+	Arch        string
+	OsVersion   string
+	PID         int
+	ProcessName string
+	User        string
+	RemoteAddr  string
+	IsRoot      bool
+	UID         string
+	GID         string
+}
+
+// GetId implements Entity.
+func (s Session) GetId() string {
+	return s.Id
+}
+
+// GetKind implements Entity.
+func (s Session) GetKind() string {
+	return "Session"
+}
+
+// GetName implements Entity.
+func (s Session) GetName() string {
+	return s.Name
+}
+
+var _ Entity = (*Session)(nil)

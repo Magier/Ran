@@ -17,7 +17,7 @@ type Campaign struct {
 	activeIdentity string
 	armory         armory.Armory
 	listeners      map[string]domain.Listener
-	sessions       map[string]c2.Session
+	sessions       map[string]domain.Session
 	identities     map[string]domain.Identity
 }
 
@@ -27,7 +27,7 @@ func NewCampaign(armory armory.Armory) *Campaign {
 	return &Campaign{
 		kb:         kg,
 		armory:     armory,
-		sessions:   make(map[string]c2.Session),
+		sessions:   make(map[string]domain.Session),
 		listeners:  make(map[string]domain.Listener),
 		identities: make(map[string]domain.Identity),
 	}
@@ -116,8 +116,8 @@ func (c *Campaign) GetIdentities() map[string]domain.Identity {
 	return c.identities
 }
 
-func (c *Campaign) GetSessions() []c2.Session {
-	sessions := make([]c2.Session, 0, len(c.sessions))
+func (c *Campaign) GetSessions() []domain.Session {
+	sessions := make([]domain.Session, 0, len(c.sessions))
 	for _, s := range c.sessions {
 		sessions = append(sessions, s)
 	}

@@ -89,6 +89,7 @@ func (ch ImplantC2Channel) GetSourceId() string {
 func (ch ImplantC2Channel) GetTargetId() string {
 	return ch.Target.GetId()
 }
+
 func (ch ImplantC2Channel) GetTarget() Entity {
 	return ch.Target
 }
@@ -194,4 +195,22 @@ func (r RunsOn) GetTargetId() string {
 
 func (r RunsOn) GetRelationName() string {
 	return "runs-on"
+}
+
+type HasC2Session struct {
+	System  System
+	Session Session
+}
+
+var _ Relation = (*HasC2Session)(nil)
+
+func (r HasC2Session) GetSourceId() string {
+	return r.System.GetId()
+}
+func (r HasC2Session) GetTargetId() string {
+	return r.Session.Id
+}
+
+func (r HasC2Session) GetRelationName() string {
+	return "has-session"
 }

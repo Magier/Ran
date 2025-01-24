@@ -228,15 +228,21 @@ func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 	return nil, nil
 }
 
-func parseSession(session *clientpb.Session) Session {
-	return Session{
-		Id:         session.ID,
-		Hostname:   session.Hostname,
-		Os:         session.OS,
-		OsVersion:  session.Version,
-		User:       session.Username,
-		IsRoot:     session.UID == "0",
-		RemoteAddr: session.RemoteAddress,
+func parseSession(session *clientpb.Session) domain.Session {
+	return domain.Session{
+		Id:          session.ID,
+		Name:        session.Name,
+		Hostname:    session.Hostname,
+		Os:          session.OS,
+		Arch:        session.Arch,
+		OsVersion:   session.Version,
+		PID:         int(session.PID),
+		ProcessName: session.Filename,
+		User:        session.Username,
+		IsRoot:      session.UID == "0",
+		UID:         session.UID,
+		GID:         session.GID,
+		RemoteAddr:  session.RemoteAddress,
 	}
 }
 

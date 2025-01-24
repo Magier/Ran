@@ -26,16 +26,6 @@ type C2Client interface {
 	SetReady(state bool) C2Client
 }
 
-type Session struct {
-	Id         string
-	Hostname   string
-	Os         string
-	OsVersion  string
-	User       string
-	RemoteAddr string
-	IsRoot     bool
-}
-
 func StartC2(ctx context.Context, mb bus.MessageBus) {
 	// listeners := make(map[string]net.Listener)
 	// TODO start builtin C2 once an action demands it
@@ -77,7 +67,7 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		case domain.PodExecC2Channel:
 			stdout, stderr, err := execKubectl(ctx, cmd)
 			if err != nil {
-				slog.Warn(err.Error())
+				slog.Warn(err.Error() + ": " + stderr)
 			} else {
 				msg, err := cmd.TTP.HandleResult(cmd.Target, stdout, stderr)
 				if err != nil {
