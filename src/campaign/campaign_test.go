@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/domain"
 )
 
 func TestAddAbstractWorkloadWhenAddingPod(t *testing.T) {
-	c := NewCampaign()
+	a := armory.Armory{}
+	c := NewCampaign(a)
 	ns := "default"
 	name := "test-pod"
 	p := domain.Pod{
@@ -41,7 +43,8 @@ func TestAddAbstractWorkloadWhenAddingPod(t *testing.T) {
 }
 
 func TestAddPodWhenItsWorkloadIsAlreadyKnownDoesNotGenerateExtraWorkload(t *testing.T) {
-	c := NewCampaign()
+	a := armory.Armory{}
+	c := NewCampaign(a)
 	ns := "default"
 	name := "test-pod"
 	wl := domain.NewDeployment(name, ns)
