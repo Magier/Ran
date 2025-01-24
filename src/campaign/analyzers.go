@@ -83,10 +83,10 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 	// # TODO: analyze if URL is K8s DNS specific
 	// return NewFacts(entities=entities, relations=relations, assets=[])
 
-	return domain.NewFacts{
-		Entities:  entities,
-		Relations: relations,
-		Assets:    assets,
+	return domain.FactsChanged{
+		NewEntities:  entities,
+		NewRelations: relations,
+		NewAssets:    assets,
 	}, nil
 }
 
@@ -138,11 +138,12 @@ func analyzeServiceAccountToken(token string) (domain.Event, error) {
 		Pod:  pod,
 		Node: node,
 	}
+	pod.NodeName = node.Name
 
-	return domain.NewFacts{
-		Entities:  []domain.Entity{ns, sa, pod, node},
-		Assets:    []domain.Asset{saToken},
-		Relations: []domain.Relation{saUsage, podRunsOnNode},
+	return domain.FactsChanged{
+		NewEntities:  []domain.Entity{ns, sa, pod, node},
+		NewAssets:    []domain.Asset{saToken},
+		NewRelations: []domain.Relation{saUsage, podRunsOnNode},
 	}, nil
 
 }

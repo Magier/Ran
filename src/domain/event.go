@@ -60,29 +60,47 @@ func (e ActionSelected) String() string {
 	return fmt.Sprintf("Action '%s' selected", e.ActionID)
 }
 
-type NewFacts struct {
+type FactsChanged struct {
 	EventImpl
-	Entities   []Entity
-	Relations  []Relation
-	Identities []Identity
-	Assets     []Asset
+	NewEntities       []Entity
+	NewRelations      []Relation
+	NewIdentities     []Identity
+	NewAssets         []Asset
+	RemovedEntities   []Entity
+	RemovedRelations  []Relation
+	RemovedIdentities []Identity
+	RemovedAssets     []Asset
 }
 
-func (e NewFacts) String() string {
-	resources := map[string]int{
-		"entities":   len(e.Entities),
-		"relations":  len(e.Relations),
-		"identities": len(e.Identities),
-		"assets":     len(e.Assets),
+func (e FactsChanged) String() string {
+	summarizeChanges := func(entities []Entity, rels []Relation, ids []Identity, assets []Asset) string {
+		resources := map[string]int{
+			"entities":   len(entities),
+			"relations":  len(rels),
+			"identities": len(ids),
+			"assets":     len(assets),
+		}
+
+		infos := []string{}
+		for label, count := range resources {
+			if count > 0 {
+				infos = append(infos, fmt.Sprintf("%d %s", count, label))
+			}
+		}
+		return strings.Join(infos, ", ")
 	}
 
-	infos := []string{}
-	for label, count := range resources {
-		if count > 0 {
-			infos = append(infos, fmt.Sprintf("%d %s", count, label))
-		}
+	s := "KB Update: "
+	newFacts := summarizeChanges(e.NewEntities, e.NewRelations, e.NewIdentities, e.NewAssets)
+	if newFacts != "" {
+		s += newFacts
 	}
-	return "Received new facts: " + strings.Join(infos, ", ")
+
+	removedFacts := summarizeChanges(e.NewEntities, e.NewRelations, e.NewIdentities, e.NewAssets)
+	if removedFacts != "" {
+		s += removedFacts
+	}
+	return s
 }
 
 type KnowledgeUpdated struct {
@@ -101,7 +119,7 @@ type ServiceAccountTokenExtracted struct {
 }
 
 func (e ServiceAccountTokenExtracted) String() string {
-	return fmt.Sprintf("SA Token extracted")
+	return "SA Token extracted"
 }
 
 type EnvVarsExtracted struct {
@@ -147,4 +165,13 @@ type TokenPermissionsRetrieved struct {
 
 func (e TokenPermissionsRetrieved) String() string {
 	return fmt.Sprintf("'%s' Token Permissions Retrieved", e.TokenName)
+}
+
+type GraphRendered struct {
+	EventImpl
+	Path string
+}
+
+func (e GraphRendered) String() string {
+	return fmt.Sprintf("saved graph %s ", e.Path)
 }

@@ -58,8 +58,8 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 		IP:   ev.IP,
 	}
 
-	return domain.NewFacts{
-		Entities: []domain.Entity{system},
+	return domain.FactsChanged{
+		NewEntities: []domain.Entity{system},
 	}, nil
 }
 
@@ -112,9 +112,7 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 		// Protocol  string
 	}
 
-	msg := domain.NewFacts{
-		Entities:  []domain.Entity{system},
-		Relations: []domain.Relation{c2Channel},
+	msg := domain.FactsChanged{
 	}
 	return msg, nil
 }
@@ -161,19 +159,19 @@ func (c *Campaign) onTokenPermissionsExtracted(ctx context.Context, msg domain.M
 		})
 	}
 
-	return domain.NewFacts{
-		Entities: []domain.Entity{sa},
+	return domain.FactsChanged{
+		NewEntities: []domain.Entity{sa},
 	}, nil
 }
 
-func (c *Campaign) onNewFacts(ctx context.Context, msg domain.Message) (domain.Message, error) {
+func (c *Campaign) onFactsChanged(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	// TODO: properly track how many changes the update contained
 	numChanges := 0
-	ev := msg.(domain.NewFacts)
-	numChanges += c.AddEntities(ev.Entities...)
-	numChanges += c.AddRelations(ev.Relations...)
+	ev := msg.(domain.FactsChanged)
+	numChanges += c.AddEntities(ev.NewEntities...)
+	numChanges += c.AddRelations(ev.NewRelations...)
 
-	for _, identity := range ev.Identities {
+	for _, identity := range ev.NewIdentities {
 		// if there is no active identity, use the first encountered Id as the active oneo
 		if c.activeIdentity == "" {
 			c.activeIdentity = identity.Name
