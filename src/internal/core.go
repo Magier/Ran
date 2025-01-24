@@ -101,9 +101,9 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus, namespaces []string
 			Scope:         "*",
 		}},
 	}
-	err = mb.Publish(domain.NewFacts{
-		Entities:   entities,
-		Identities: []domain.Identity{k8sConfigUser}})
+	err = mb.Publish(domain.FactsChanged{
+		NewEntities:   entities,
+		NewIdentities: []domain.Identity{k8sConfigUser}})
 	if err != nil {
 		fmt.Printf("Couldn't add apiServer as new entity to bus: %s", err.Error())
 	}
@@ -120,7 +120,7 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus, namespaces []string
 		}
 	}
 	if len(entities) > 0 {
-		err = mb.Publish(domain.NewFacts{Entities: entities})
+		err = mb.Publish(domain.FactsChanged{NewEntities: entities})
 		if err != nil {
 			fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
 		}
