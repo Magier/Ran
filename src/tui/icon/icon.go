@@ -6,7 +6,7 @@ var (
 	// Namespace string = "󱓼"
 	// Namespace string = "󱗽"
 	Workload string = "󱃲"
-	Pod      string = ""
+	Pod      string = "" // "nf-cube"
 	// Pod       string = ""
 	Container   string = ""
 	WorkerNode  string = ""
@@ -17,6 +17,7 @@ var (
 	PC          string = ""
 	Robot       string = ""
 	K8s         string = "󱃾"
+	K8s2        string = "󰠳"
 	Job         string = ""
 	CronJob     string = "󰔠"
 	Fingerprint string = ""
@@ -27,4 +28,6 @@ var (
 	LanPending    string = "󰌚"
 
 	PeriodicTable string = "󰢶"
+
+	Session string = "󰢩"
 )

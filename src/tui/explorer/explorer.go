@@ -96,6 +96,8 @@ func getIcon(kind string) string {
 		return icon.WorkerNode
 	case "ServiceAccount":
 		return icon.Identity
+	case "Session":
+		return icon.Session
 	}
 	return ""
 }

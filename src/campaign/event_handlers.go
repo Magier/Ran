@@ -112,7 +112,14 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 		// Protocol  string
 	}
 
+	hasSession := domain.HasC2Session{
+		System:  system,
+		Session: ev.Session,
+	}
+
 	msg := domain.FactsChanged{
+		NewEntities:  []domain.Entity{system, ev.Session},
+		NewRelations: []domain.Relation{c2Channel, hasSession},
 	}
 	return msg, nil
 }

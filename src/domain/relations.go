@@ -198,7 +198,7 @@ func (r RunsOn) GetRelationName() string {
 }
 
 type HasC2Session struct {
-	System  System
+	System  Entity
 	Session Session
 }
 
