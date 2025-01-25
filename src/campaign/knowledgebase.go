@@ -220,11 +220,12 @@ func extractRelatedEntities(entities map[string]domain.Entity, entity domain.Ent
 		return false
 	}
 
-	mapPod := func(pod domain.Pod) bool {
+	mapPod := func(pod domain.Pod) {
 		wl, rel := getWorkloadFromPod(pod)
 		newEntities = append(newEntities, wl)
 		relations = append(relations, rel)
-		return mapNsRelation(pod)
+		// mapNsRelation(pod)
+		mapNsRelation(wl)
 	}
 
 	switch e := entity.(type) {
@@ -232,8 +233,10 @@ func extractRelatedEntities(entities map[string]domain.Entity, entity domain.Ent
 		mapPod(e)
 	case domain.ApiServer: // sadly Go has no proper way to deal with type hierarchies, so a dedicated case is necessary ... sigh
 		mapPod(e.Pod)
-	case domain.Deployment:
-		mapNsRelation(e)
+	default:
+		if n, ok := entity.(domain.Namespaced); ok {
+			mapNsRelation(n)
+		}
 	}
 
 	return newEntities, relations
@@ -295,7 +298,7 @@ func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 			K8sEntity: domain.K8sEntity{
 				Id:        id.String(),
 				Name:      ownerName,
-				Kind:      "Workload",
+				Kind:      "AbstractWorkload",
 				Namespace: pod.GetNamespace(),
 			},
 			ResourceOwner: resOwner,

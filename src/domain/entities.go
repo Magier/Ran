@@ -170,6 +170,7 @@ type Listener struct {
 
 type Workload interface {
 	Entity
+	Namespaced
 	GetPods() []Pod
 }
 

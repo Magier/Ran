@@ -147,7 +147,7 @@ func addEntity(tree *Node, campaign *campaign.Campaign, entity domain.Entity, ex
 		if ok {
 			ownerKind := ownerRef.Kind
 			if ownerKind == "" {
-				ownerKind = "Workload"
+				ownerKind = "AbstractWorkload"
 			}
 			ownerId := domain.GenerateId(ownerRef.Name, ownerKind, nsName)
 			ownerName := ownerRef.Name
