@@ -101,7 +101,7 @@ func handleUserAction(model Model, input string) tea.Cmd {
 					message = fmt.Sprintf("Invalid port: '%s' using default port %d", args[0], port)
 				}
 			}
-			return SendCommand{Action: domain.StartListener{Port: port}}
+			return SendCommand{Action: domain.StartListener{CommandImpl: domain.NewCmd(), Port: port}}
 
 		// 		case "sessions":
 		// 			// TODO: listen sessions from c2
