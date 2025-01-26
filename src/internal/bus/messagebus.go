@@ -29,7 +29,11 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) {
 		if len(b.subscribers[msgName(msg)]) == 0 {
 			slog.Debug("No subscribers for event " + msgName(msg))
 		} else {
-			slog.Debug("🔊 " + msg.String())
+			icon := "🔊"
+			if _, isCmd := msg.(domain.Command); isCmd {
+				icon = "🎮"
+			}
+			slog.Debug(icon + " " + msg.String())
 		}
 		for _, handler := range b.subscribers[msgName(msg)] {
 			msg, err := handler(ctx, msg)
@@ -59,10 +63,10 @@ func (b *MessageBusProvider) Execute(cmd domain.Message) error {
 	return nil
 }
 
-func (b *MessageBusProvider) Publish(events ...domain.Message) error {
+func (b *MessageBusProvider) Publish(messages ...domain.Message) error {
 	// func (h *MessageBusProvider) Publish(ctx context.Context, events ...domain.Event) error {
-	for _, event := range events {
-		b.channel <- event
+	for _, msg := range messages {
+		b.channel <- msg
 	}
 	return nil
 }

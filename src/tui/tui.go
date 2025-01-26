@@ -64,6 +64,7 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Pr
 	bus.Subscribe(c2.C2ConnectFailed{}, forwardEvent)
 	bus.Subscribe(domain.C2Connected{}, forwardEvent)
 	bus.Subscribe(domain.KnowledgeUpdated{}, forwardEvent)
+	bus.Subscribe(domain.GraphRendered{}, forwardEvent)
 
 	bus.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Message) (domain.Message, error) {
 		msg := event.(domain.ErrorMsg)
@@ -232,7 +233,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			switch msg.String() {
 			case "p":
-				err := m.bus.Publish(domain.PrintGraph{})
+				err := m.bus.Publish(domain.PrintGraph{CommandImpl: domain.NewCmd()})
 				if err != nil {
 					slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 				}

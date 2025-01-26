@@ -142,7 +142,8 @@ func (c *Campaign) AddRelations(relations ...domain.Relation) int {
 
 func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message, error) {
 	execCmd := domain.ExecTTP{
-		TTP: ttp,
+		CommandImpl: domain.NewCmd(),
+		TTP:         ttp,
 	}
 
 	execCmd.CmdVariants = groundTTP(ttp, c.groundCmdTemplate)

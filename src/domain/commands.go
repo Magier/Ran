@@ -2,15 +2,30 @@ package domain
 
 import (
 	"fmt"
+
+	"github.com/google/uuid"
 )
 
 type Command interface {
 	Message
 	IsCommand()
+	GetID() string
 }
-type CommandImpl struct{}
+type CommandImpl struct {
+	ID string
+}
 
+// GetID implements Command.
+func (c CommandImpl) GetID() string {
+	return c.ID
+}
+
+// IsCommand implements Command.
 func (c CommandImpl) IsCommand() {}
+
+func NewCmd() CommandImpl {
+	return CommandImpl{ID: uuid.NewString()}
+}
 
 type TTPParams interface{}
 
@@ -103,7 +118,10 @@ func (ttp TTP) GetMessage() Message {
 	} else if ttp.Command != nil {
 		return ttp.Command
 	} else {
-		return ExecTTP{TTP: ttp, Args: ttp.Args}
+		return ExecTTP{
+			CommandImpl: NewCmd(),
+			TTP:         ttp, Args: ttp.Args,
+		}
 	}
 }
 
@@ -133,6 +151,8 @@ type StartListener struct {
 func (c StartListener) String() string {
 	return fmt.Sprintf("Start Listener on port %d", c.Port)
 }
+
+var _ Command = (*StartListener)(nil)
 
 type StopListener struct {
 	CommandImpl
