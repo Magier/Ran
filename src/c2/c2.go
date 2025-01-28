@@ -233,7 +233,7 @@ func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error
 	// TODO: handle case of multiple containers
 	c := cmd.GetCommand("")
 	if c == "" {
-		return "", "", fmt.Errorf("No suitable command found for TTP " + cmd.TTP.Name)
+		return "", "", fmt.Errorf("No suitable command found for TTP %s", cmd.TTP.Name)
 	}
 
 	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, targetNs, c, cmd.TTP.Args)

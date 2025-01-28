@@ -82,14 +82,12 @@ type TTP struct {
 
 	References []string `yaml:"references"`
 
-	Cmd         string            `yaml:"cmd"`
 	CmdVariants []CmdVariant      `yaml:"cmdVariants"`
 	HttpCmd     HttpCmd           `yaml:"httpCmd"`
 	Args        map[string]string `yaml:"args"`
 	Port        uint              `yaml:"port"`
 
-	Command   Command           `yaml:"command"`
-	CommandFn func(TTP) Message `yaml:"-"`
+	Command Command `yaml:"command"`
 
 	Execute CodeSnippet `yaml:"execute"`
 
@@ -113,9 +111,7 @@ func (ttp TTP) GetDescription() string {
 	return ttp.Description
 }
 func (ttp TTP) GetMessage() Message {
-	if ttp.CommandFn != nil {
-		return ttp.CommandFn(ttp)
-	} else if ttp.Command != nil {
+	if ttp.Command != nil {
 		return ttp.Command
 	} else {
 		return ExecTTP{

@@ -146,7 +146,9 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 		TTP:         ttp,
 	}
 
-	execCmd.CmdVariants = groundTTP(ttp, c.groundCmdTemplate)
+	execCmd.CmdVariants = groundTTP(ttp, func(template string) (string, error) {
+		return c.groundCmdTemplate(template, ttp.Args)
+	})
 
 	var target domain.Entity
 	target, ok := c.kb.GetEntity(targetId)
@@ -185,13 +187,6 @@ type GroundFn func(string) (string, error)
 func groundTTP(ttp domain.TTP, fn GroundFn) []domain.CmdVariant {
 	// if a specific Cmd is set, treat it as the top priority variant
 	cmdVariants := make([]domain.CmdVariant, 0)
-	if ttp.Cmd != "" {
-		if cmd, err := fn(ttp.Cmd); err == nil {
-			cmdVariants = append(cmdVariants, domain.CmdVariant{Key: "", Command: cmd})
-		} else {
-			slog.Error(err.Error())
-		}
-	}
 	// TODO order the variants depending on utility/priority
 	for _, cmdVariant := range ttp.CmdVariants {
 		if cmd, err := fn(cmdVariant.Command); err == nil {
@@ -203,8 +198,8 @@ func groundTTP(ttp domain.TTP, fn GroundFn) []domain.CmdVariant {
 	return cmdVariants
 }
 
-func (c Campaign) groundCmdTemplate(template string) (string, error) {
-	if strings.Contains(template, "$LISTENER") {
+func (c Campaign) groundCmdTemplate(template string, variables map[string]string) (string, error) {
+	if strings.Contains(template, "${LISTENER}") {
 		listener, ok := c.GetListener(domain.TCP)
 		if ok {
 			template = inflateListenerTemplate(listener, template)
@@ -212,15 +207,21 @@ func (c Campaign) groundCmdTemplate(template string) (string, error) {
 			slog.Info("No suitable listener found!")
 		}
 	}
-	if strings.Contains(template, "$FILESHARE_PORT") {
+	if strings.Contains(template, "${FILESHARE_PORT}") {
 		filesharePort, ok := c.GetFileshare()
 		if ok {
 			p := fmt.Sprint(filesharePort)
-			template = strings.Replace(template, "$FILESHARE_PORT", p, -1)
+			template = strings.Replace(template, "${FILESHARE_PORT}", p, -1)
 		} else {
 			slog.Info("No suitable fileshare found!")
 		}
 	}
+
+	for key, v := range variables {
+		templateVariable := fmt.Sprintf("${%s}", strings.ToUpper(key))
+		template = strings.Replace(template, templateVariable, v, -1)
+	}
+
 	return template, nil
 }
 
