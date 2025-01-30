@@ -43,6 +43,8 @@ func NewCampaign(armory armory.Armory) *Campaign {
 func StartCampaign(mb bus.MessageBus, armory armory.Armory) *Campaign {
 	campaign := NewCampaign(armory)
 	mb.Subscribe(domain.C2Connected{}, campaign.onC2Connected)
+	mb.Subscribe(domain.TTPExecuted{}, campaign.onTTPExecuted)
+	mb.Subscribe(domain.TTPFailed{}, campaign.onTTPFailed)
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.ListenerStopped{}, campaign.onListenerStopped)
 	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -389,9 +391,9 @@ func (c Campaign) syncCapabilities() error {
 
 func inflateListenerTemplate(listener domain.Listener, template string) string {
 	// TODO: properly handle multiple protocols!
-	if strings.Contains(template, "$LISTENER_PORT") {
+	if strings.Contains(template, "${LISTENER_PORT}") {
 		p := fmt.Sprint(listener.Port)
-		template = strings.Replace(template, "$LISTENER_PORT", p, -1)
+		template = strings.Replace(template, "${LISTENER_PORT}", p, -1)
 	}
 
 	var dst string
@@ -401,6 +403,6 @@ func inflateListenerTemplate(listener domain.Listener, template string) string {
 		dst = listener.IP.String()
 	}
 
-	template = strings.Replace(template, "$LISTENER", dst, -1)
+	template = strings.Replace(template, "${LISTENER}", dst, -1)
 	return template
 }

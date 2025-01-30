@@ -91,10 +91,6 @@ type TTP struct {
 
 	Execute CodeSnippet `yaml:"execute"`
 
-	TargetId        string `yaml:"target_id"`
-	Target          string `yaml:"target"`
-	TargetNamespace string `yaml:"target_namespace"`
-
 	Requires      Requirements  `yaml:"preconditions"`
 	Effects       []string      `yaml:"effects"`
 	ResultHandler ResultHandler `yaml:"-"`
@@ -191,8 +187,7 @@ func (e ExecTTP) String() string {
 		target = e.Target.GetId()
 	}
 
-	return fmt.Sprintf("Executed '%s' on %s", e.GetCommand(""), target)
-	// return fmt.Sprintf("Executed '%s' on %s", e.TTP.Name, target)
+	return fmt.Sprintf("Executing '%s' on %s", e.GetCommand(""), target)
 }
 
 func (e ExecTTP) GetCommand(variant string) string {
