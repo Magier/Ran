@@ -3,6 +3,7 @@ package c2
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -59,27 +60,36 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		cmd := msg.(domain.ExecTTP)
 		// check technique to execute CMD -> kubectl exec uses API
 		// or shell listener?
+		var err error
+		results := make([]any, 0)
+
 		switch ch := cmd.C2Channel.(type) {
 		case domain.ImplantC2Channel:
 			if c2, ok := c2Clients[cmd.C2Channel.GetKind()]; ok {
-				return c2.Execute(cmd)
+				var res any
+				res, err = c2.Execute(cmd)
+				results = append(results, res)
 			}
 		case domain.PodExecC2Channel:
-			stdout, stderr, err := execKubectl(ctx, cmd)
+			var stdout, stderr string
+			stdout, stderr, err = execKubectl(ctx, cmd)
 			if err != nil {
-				slog.Warn(err.Error() + ": " + stderr)
+				slog.Warn(err.Error() + " (TODO Remove): " + stderr)
+			} else if stdout == "" && strings.Contains(stderr, ": not found") {
+				err = errors.New(stderr)
+				// msg, err := cmd.TTP.HandleResult(cmd.Target, stdout, stderr)
+				// if err != nil {
+				// 	msg = domain.TTPFailed{ID: cmd.TTP.ID, TTP: cmd.TTP, Reason: err.Error()}
+				// } else if msg == nil { // no handler -> try default handler for ExecTTP
+				// 	return handleExecTTPResult(cmd, stdout, stderr)
+				// }
+				// return msg, err
 			} else {
-				msg, err := cmd.TTP.HandleResult(cmd.Target, stdout, stderr)
-				if err != nil {
-					msg = domain.TTPFailed{Id: cmd.TTP.ID, TTP: cmd.TTP, Reason: err.Error()}
-				} else if msg == nil { // no handler -> try default handler for ExecTTP
-					return handleExecTTPResult(cmd, stdout, stderr)
-				}
-				return msg, err
+				results = []any{stdout, stderr}
 			}
 		case nil:
 			if cmd.TTP.Execute.Code != "" {
-				err := executeCode(cmd.TTP.Execute)
+				err = executeCode(cmd.TTP.Execute)
 				if err != nil {
 					slog.Warn(err.Error())
 				}
@@ -89,7 +99,20 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		default:
 			slog.Warn(fmt.Sprintf("Can't Exec TTP: unclear how to handle channel %v", ch))
 		}
-		return nil, nil
+
+		if err != nil {
+			return domain.TTPFailed{
+				ID:     cmd.ID,
+				TTP:    cmd.TTP,
+				Reason: err.Error(),
+			}, nil
+		}
+		return domain.TTPExecuted{
+			ID:      cmd.ID,
+			TTP:     cmd.TTP,
+			Target:  cmd.Target,
+			Results: results,
+		}, nil
 	})
 
 	mb.Subscribe(domain.StartC2{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {

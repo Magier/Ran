@@ -50,6 +50,28 @@ func handlePreAction(ttp domain.TTP) (domain.Message, error) {
 	return nil, nil
 }
 
+func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	cmd := msg.(domain.TTPExecuted)
+	ttp := cmd.TTP
+
+	event, err := ttp.HandleResult(cmd.Target, cmd.Results...)
+	if err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+func (c *Campaign) onTTPFailed(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	cmd := msg.(domain.TTPFailed)
+
+	if strings.Contains(cmd.Reason, ": not found") {
+		// TODO: parse the binary name and add it as information, that the targeted system has no binary
+	}
+
+	slog.Error(cmd.Reason)
+	return nil, nil
+}
+
 func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(domain.C2Connected)
 	system := domain.C2System{
