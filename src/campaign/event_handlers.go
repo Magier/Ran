@@ -23,13 +23,8 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 		return nil, fmt.Errorf(msg)
 	}
 
-	var tactic domain.Tactic
-	if len(ttp.Tactics) > 0 {
-		tactic = ttp.Tactics[0]
-	}
-
-	// it's a technique on the C2 side to prepare the infrastructer, not in the target environment
-	if tactic == domain.Reconnaissance || tactic == domain.ResourceDevelopment {
+	// it's a technique on the C2 side to prepare the infrastructure, not in the target environment
+	if ttp.Tactic == domain.Reconnaissance || ttp.Tactic == domain.ResourceDevelopment {
 		return handlePreAction(ttp)
 	}
 
