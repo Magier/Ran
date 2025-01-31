@@ -87,7 +87,8 @@ type TTP struct {
 	Args        map[string]string `yaml:"args"`
 	Port        uint              `yaml:"port"`
 
-	Command Command `yaml:"command"`
+	Command    string  `yaml:"command"`
+	CommandMsg Message `yaml:-`
 
 	Execute CodeSnippet `yaml:"execute"`
 
@@ -107,8 +108,8 @@ func (ttp TTP) GetDescription() string {
 	return ttp.Description
 }
 func (ttp TTP) GetMessage() Message {
-	if ttp.Command != nil {
-		return ttp.Command
+	if ttp.CommandMsg != nil {
+		return ttp.CommandMsg
 	} else {
 		return ExecTTP{
 			CommandImpl: NewCmd(),
