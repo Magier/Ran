@@ -3,8 +3,10 @@ package campaign
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 
 	"github.com/Magier/Ran/c2"
@@ -36,10 +38,43 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 }
 
 func handlePreAction(ttp domain.TTP) (domain.Message, error) {
-	switch cmd := ttp.Command.(type) {
+	switch cmd := ttp.CommandMsg.(type) {
 	case domain.StartListener:
+		// t := reflect.TypeOf(cmd)
+		// ptr := reflect.New(t)
+		// val := ptr.Elem()
+		// inf := val.Interface()
+		// var _ = inf
+
+		c := reflect.ValueOf(&cmd).Elem()
+		for k, v := range ttp.Args {
+			f := reflect.ValueOf(v)
+			if c.Kind() == reflect.Struct {
+				field := c.FieldByName(k)
+				k := field.Kind()
+				var _ = k
+				if field.Kind() == reflect.String && field.CanSet() {
+					field.SetString(f.String())
+				} else if field.Kind() == reflect.Uint && field.CanSet() {
+					field.SetUint(f.Uint())
+				} else if field.Kind() == reflect.Float64 && field.CanSet() {
+					field.SetFloat(f.Float())
+				} else if field.Kind() == reflect.Slice && field.CanSet() {
+					field.Set(f.Slice(0, f.Len()))
+				}
+			}
+		}
+
+		// field := c.FieldByName("Server")
+		// fieldtString("testSrevr")
+
+		// convert the TTP into a command of the corresponding type
+		// TODO populate the arguments
 		return cmd, nil
 		// default:
+	case nil:
+		return nil, errors.New("No CommandMsg specified for TTP: " + ttp.GetTitle())
+
 	}
 
 	return nil, nil
@@ -119,6 +154,11 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 			AccessLevel: accessLevel,
 		}
 	}
+
+	// TODO: analyze session:
+	// ideas:
+	// hostname != pod-name -> maybe hostPID/hostIPC etc. flags are set on pod?
+	// or maybe the system is a node
 
 	// convert the communication channel to a relationship
 	c2Channel := domain.ImplantC2Channel{
@@ -269,10 +309,11 @@ func (c *Campaign) onPrintGraph(ctx context.Context, msg domain.Message) (domain
 		if err != nil {
 			return nil, err
 		}
-		if err := g.RenderFilename(ctx, graph, graphviz.PNG, "topo.png"); err != nil {
+		path := "topo.png"
+		if err := g.RenderFilename(ctx, graph, graphviz.PNG, path); err != nil {
 			return nil, err
 		}
-		slog.Info("saved topo.png file!")
+		return domain.GraphRendered{Path: path}, nil
 	}
 	return nil, nil
 }

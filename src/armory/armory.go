@@ -22,6 +22,17 @@ type Armory struct {
 	ttps []domain.TTP
 }
 
+var CmdMapping = map[string]domain.Message{
+	"StartListener": domain.StartListener{},
+}
+
+func parseCommandToMessage(cmd string) domain.Message {
+	if msg, ok := CmdMapping[cmd]; ok {
+		return msg
+	}
+	return nil
+}
+
 func LoadArmory(dir string) (Armory, error) {
 	ttps := []domain.TTP{}
 
@@ -30,11 +41,15 @@ func LoadArmory(dir string) (Armory, error) {
 		if d.IsDir() {
 			// skip subfolder with all unsupported check details
 			// if d.Name() == SkipDir { }
-			// skip subfolder with all unsupported check details
-			// if d.Name() == SkipDir { }
 			return err
 		}
 
+		// parse the TTP
+		// parse the preconditions and effect
+		// invoke builder to get the currect sub-type of the TTP (based on the kind?)
+
+		// parse the preconditions and effect
+		// invoke builder to get the currect sub-type of the TTP (based on the kind?)
 		if strings.HasSuffix(w, ".yaml") {
 			content, err := os.ReadFile(w)
 			if err != nil {
@@ -46,25 +61,12 @@ func LoadArmory(dir string) (Armory, error) {
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal YAML content from file %s: %w", w, err)
 			}
-
+			ttp.CommandMsg = parseCommandToMessage(ttp.Command)
 			ttps = append(ttps, ttp)
-			// parse the TTP
-			// parse the preconditions and effect
-
-			// parse the TTP
-			// parse the preconditions and effect
-
 		}
 
-		if strings.HasSuffix(w, ".md") {
-			// parse the TTP
-			// parse the preconditions and effect
-			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
-
-			// parse the preconditions and effect
-			// invoke builder to get the currect sub-type of the TTP (based on the kind?)
-
-		}
+		// if strings.HasSuffix(w, ".md") {
+		// }
 
 		return nil
 	})
@@ -95,7 +97,7 @@ func LoadArmory(dir string) (Armory, error) {
 			Name:        "Create Redirector",
 			Description: "Create a proxy routing traffic to the C2",
 			Tactic:      domain.ResourceDevelopment,
-			Command:     domain.StartC2Redirector{DstPort: 1337},
+			CommandMsg:  domain.StartC2Redirector{DstPort: 1337},
 			Requires:    domain.Requirements{Exists: "listener"},
 		},
 		{
