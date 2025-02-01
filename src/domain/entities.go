@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 )
@@ -30,7 +31,7 @@ type Requirements struct {
 	RbacPermission Permission
 	Infra          []string
 	State          State                  // check for existing entities
-	Exists         EntityExists           // relates to the state
+	Exists         EntitiesExists         // relates to the state
 	OtherFields    map[string]interface{} `yaml:",inline"` // Inline captures untagged fields
 }
 
@@ -46,7 +47,7 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 		return false
 	}
 
-	if len(r.State) > 0 {
+	if len(r.Exists) > 0 {
 		if !state.Satisfies(r.State) {
 			return false
 		}
@@ -71,9 +72,11 @@ var _ Condition = (*IsOfKind)(nil)
 type State map[string]int
 
 func (s State) Satisfies(r Condition) bool {
-	if entityKind, ok := r.(EntityExists); ok {
-		numExists, existsOk := s[string(entityKind)]
-		return existsOk && numExists > 0
+	if entityKinds, ok := r.(EntitiesExists); ok {
+		for _, k := range entityKinds {
+			numExists, existsOk := s[string(k)]
+			return existsOk && numExists > 0
+		}
 	}
 	return false
 }
@@ -141,13 +144,23 @@ func (p Permission) IsSet() bool {
 	return false
 }
 
-type EntityExists string
+type EntitiesExists []string
 
-func (e EntityExists) Satisfies(requirement Condition) bool {
+func (e EntitiesExists) Satisfies(requirement Condition) bool {
 	return false
 }
-func (e EntityExists) IsSet() bool {
-	return e != ""
+func (e EntitiesExists) IsSet() bool {
+	return len(e) > 0
+}
+func (e EntitiesExists) String() string {
+	if len(e) > 0 {
+		entities := make([]string, len(e))
+		for i, entity := range e {
+			entities[i] = string(entity)
+		}
+		return "∃ " + strings.Join(entities, ", ")
+	}
+	return ""
 }
 
 var _ Condition = (*AccessLevel)(nil)

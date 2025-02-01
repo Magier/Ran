@@ -153,19 +153,19 @@ func renderRequirementBadges(r domain.Requirements, cond domain.Requirements, s 
 		{r.AccessLevel.IsSet(), cond.AccessLevel.Satisfies(r.AccessLevel), r.AccessLevel.String()},
 		{r.Kind.IsSet(), cond.Kind.Satisfies(r.Kind), "is " + string(r.Kind)},
 		{r.RbacPermission.IsSet(), cond.RbacPermission == r.RbacPermission, "can " + string(r.RbacPermission)},
-		{r.Exists.IsSet(), cond.State.Satisfies(r.Exists), "∃ " + string(r.Exists)},
+		{r.Exists.IsSet(), len(r.Exists) > 0 && cond.State.Satisfies(r.Exists), r.Exists.String()},
 	}
 
-	for _, check := range checks {
-		if !check.enforce {
+	for _, condition := range checks {
+		if !condition.enforce {
 			continue
 		}
 
 		s := badgeStyle
-		if check.satisfied {
+		if condition.satisfied {
 			s = s.Foreground(theme.PositiveColor)
 		}
-		badges = append(badges, s.Render(check.label))
+		badges = append(badges, s.Render(condition.label))
 	}
 	return strings.Join(badges, ", ")
 }

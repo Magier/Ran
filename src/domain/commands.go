@@ -87,13 +87,15 @@ type TTP struct {
 	Args        map[string]string `yaml:"args"`
 	Port        uint              `yaml:"port"`
 
-	Command    string  `yaml:"command"`
-	CommandMsg Message `yaml:-`
+	Command    string `yaml:"command"`
+	CommandMsg Message
 
 	Execute CodeSnippet `yaml:"execute"`
 
-	Requires      Requirements  `yaml:"preconditions"`
-	Effects       []string      `yaml:"effects"`
+	Requires      Requirements `yaml:"preconditions"`
+	Effects       []string     `yaml:"effects"`
+	Parser        string       `yaml:"parser"`
+	ParserFn      func(any) any
 	ResultHandler ResultHandler `yaml:"-"`
 	Params        TTPParams     `yaml:"params"`
 }

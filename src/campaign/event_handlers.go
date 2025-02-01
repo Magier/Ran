@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/Magier/Ran/c2"
@@ -47,28 +48,33 @@ func handlePreAction(ttp domain.TTP) (domain.Message, error) {
 		// var _ = inf
 
 		c := reflect.ValueOf(&cmd).Elem()
-		for k, v := range ttp.Args {
-			f := reflect.ValueOf(v)
-			if c.Kind() == reflect.Struct {
-				field := c.FieldByName(k)
-				k := field.Kind()
-				var _ = k
-				if field.Kind() == reflect.String && field.CanSet() {
-					field.SetString(f.String())
-				} else if field.Kind() == reflect.Uint && field.CanSet() {
-					field.SetUint(f.Uint())
-				} else if field.Kind() == reflect.Float64 && field.CanSet() {
-					field.SetFloat(f.Float())
-				} else if field.Kind() == reflect.Slice && field.CanSet() {
-					field.Set(f.Slice(0, f.Len()))
-				}
-			}
+		if c.Kind() != reflect.Struct {
+			return nil, errors.New("Can't ground PreAction, because cmd is not a struct!")
 		}
 
-		// field := c.FieldByName("Server")
-		// fieldtString("testSrevr")
+		for name, v := range ttp.Args {
+			f := reflect.ValueOf(v)
+			field := c.FieldByName(name)
 
-		// convert the TTP into a command of the corresponding type
+			if !field.CanSet() {
+				continue
+			}
+
+			switch field.Kind() {
+			case reflect.String:
+				field.SetString(f.String())
+			case reflect.Uint:
+				val, err := strconv.ParseUint(v, 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("failed to convert string to uint: %v", err)
+				}
+				field.SetUint(val)
+			case reflect.Float64:
+				field.SetFloat(f.Float())
+			case reflect.Slice:
+				field.Set(f.Slice(0, f.Len()))
+			}
+		}
 		// TODO populate the arguments
 		return cmd, nil
 		// default:

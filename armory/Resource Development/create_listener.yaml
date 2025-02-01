@@ -1,0 +1,12 @@
+name: Create Listener
+description: Catch incoming reverse shells
+tactic: Resource Development
+techniques: ["Stage Capabilities"]
+args:
+  Port: 1337
+  Protocol: TCP
+command: "StartListener"
+effects: ["ListenerReady"]
+# cmd: {}
+# defend: {}
+refernces:
