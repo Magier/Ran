@@ -1,0 +1,16 @@
+name: Create Redirector
+description: Create a proxy routing traffic to the C2
+tactic: Resource Development
+techniques: ["Stage Capabilities"]
+# preconditions:
+args:
+  DstPort: 1337
+  Protocol: TCP
+command: "CreateRedirector"
+preconditions:
+  exists:
+    - "Listener"
+# effects: ["ListenerReady"]
+# cmd: {}
+# defend: {}
+refernces:

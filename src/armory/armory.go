@@ -23,7 +23,8 @@ type Armory struct {
 }
 
 var CmdMapping = map[string]domain.Message{
-	"StartListener": domain.StartListener{},
+	"StartListener":    domain.StartListener{},
+	"CreateRedirector": domain.StartC2Redirector{},
 }
 
 func parseCommandToMessage(cmd string) domain.Message {
@@ -75,31 +76,6 @@ func LoadArmory(dir string) (Armory, error) {
 	}
 
 	ttps = append(ttps, []domain.TTP{
-		// {
-		// 	Name:        "Create Listener",
-		// 	Description: "Catch incoming shells",
-		// 	Tactic:     domain.ResourceDevelopment,
-		// 	Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP},
-		// 	// Port:        1337,
-		// 	CmdVariants: []domain.CmdVariant{},
-		// 	// Effects:     []domain.Event{c2.ListenerReady{}},
-		// },
-		// {
-		// 	Name:        "Create Listener",
-		// 	Description: "Catch incoming shells",
-		// 	Tactic:     domain.ResourceDevelopment,
-		// 	Command:     domain.StartListener{Port: 1337, Protocol: domain.HTTP},
-		// 	// Port:        1337,
-		// 	CmdVariants: []domain.CmdVariant{},
-		// 	// Effects:     []domain.Event{c2.ListenerReady{}},
-		// },
-		{
-			Name:        "Create Redirector",
-			Description: "Create a proxy routing traffic to the C2",
-			Tactic:      domain.ResourceDevelopment,
-			CommandMsg:  domain.StartC2Redirector{DstPort: 1337},
-			Requires:    domain.Requirements{Exists: "listener"},
-		},
 		{
 			Name:        "Drop & Exec Implant",
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
