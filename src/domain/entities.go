@@ -26,10 +26,9 @@ type Condition interface {
 }
 
 type Requirements struct {
-	Kind           IsOfKind `yaml:"kind"`
-	AccessLevel    AccessLevel
+	Kind           IsOfKind    `yaml:"kind"`
+	AccessLevel    AccessLevel `yaml:"accessLevel"`
 	RbacPermission Permission
-	Infra          []string
 	State          State                  // check for existing entities
 	Exists         EntitiesExists         // relates to the state
 	OtherFields    map[string]interface{} `yaml:",inline"` // Inline captures untagged fields
@@ -124,6 +123,32 @@ func (lvl AccessLevel) String() string {
 		return "root-exec"
 	}
 	return ""
+}
+
+func parseAccessLevel(level string) AccessLevel {
+	switch level {
+	case "user-read":
+		return UserRead
+	case "user-exec":
+		return UserExec
+	case "root-read":
+		return RootRead
+	case "root-exec":
+		return RootExec
+	default:
+		return NoAccess
+	}
+}
+
+// Implements the Unmarshaler interface of the yaml pkg.
+func (e *AccessLevel) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var level string
+	err := unmarshal(&level)
+	if err != nil {
+		return err
+	}
+	*e = parseAccessLevel(level)
+	return nil
 }
 
 var (

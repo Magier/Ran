@@ -65,13 +65,19 @@ type HttpCmd struct {
 }
 
 type CmdVariant struct {
-	Key     string
-	Command string
+	Key     string `yaml:"key"`
+	Command string `yaml:"command"`
 }
 
 // func (v CmdVariant) GetCmd() string {
 // 	return v.Command
 // }
+
+type ParserFn func(any) any
+
+func (e *ParserFn) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	return nil // TODO: explore option of lazy evaluation?
+}
 
 type TTP struct {
 	ID          string   `yaml:"id"`
@@ -87,17 +93,18 @@ type TTP struct {
 	Args        map[string]string `yaml:"args"`
 	Port        uint              `yaml:"port"`
 
-	Command    string `yaml:"command"`
-	CommandMsg Message
+	// Command    string `yaml:"command"`
+	CommandMsg Message // during unmarshal converted via Alias to the message
 
 	Execute CodeSnippet `yaml:"execute"`
 
-	Requires      Requirements `yaml:"preconditions"`
-	Effects       []string     `yaml:"effects"`
-	Parser        string       `yaml:"parser"`
-	ParserFn      func(any) any
-	ResultHandler ResultHandler `yaml:"-"`
-	Params        TTPParams     `yaml:"params"`
+	Requires Requirements `yaml:"preconditions"`
+	Effects  []string     `yaml:"effects"`
+	// Parser        string       `yaml:"parser"`
+	ParserFn func(any) any
+	// ParserFn      func(any) any `yaml:"parser"`
+	ResultHandler ResultHandler
+	Params        TTPParams `yaml:"params"`
 }
 
 func (ttp TTP) GetID() string {
@@ -118,6 +125,48 @@ func (ttp TTP) GetMessage() Message {
 			TTP:         ttp, Args: ttp.Args,
 		}
 	}
+}
+
+var CmdMapping = map[string]Message{
+	"StartListener":    StartListener{},
+	"CreateRedirector": StartC2Redirector{},
+}
+
+type TTPAlias TTP
+type YAMLTTP struct {
+	TTPAlias `yaml:",inline"` // alias is necessary to avoid infinite loop during Unmarshaling TTP -> YAMLTTP (with embedded TTP)
+	Parser   string           `yaml:"parser"`
+	Command  string           `yaml:"command"`
+	// Preconditions map[string]interface{} `yaml:"preconditions"`
+}
+
+func (t YAMLTTP) TTP() (TTP, error) {
+	ttp := TTP(t.TTPAlias)
+
+	ttp.CommandMsg = parseCommandToMessage(t.Command)
+	return ttp, nil
+}
+
+func (ttp *TTP) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Technique from: https://blog.gopheracademy.com/advent-2016/advanced-encoding-decoding/
+	var raw YAMLTTP
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+	var err error
+	*ttp, err = raw.TTP()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func parseCommandToMessage(cmd string) Message {
+	if msg, ok := CmdMapping[cmd]; ok {
+		return msg
+	}
+	return nil
 }
 
 func (ttp TTP) HandleResult(source Entity, args ...any) (Event, error) {
