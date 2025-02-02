@@ -9,4 +9,4 @@ command: "StartListener"
 effects: ["ListenerReady"]
 # cmd: {}
 # defend: {}
-refernces:
+references:

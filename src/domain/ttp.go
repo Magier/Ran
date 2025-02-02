@@ -67,8 +67,7 @@ type TTP struct {
 
 	Requires Requirements `yaml:"preconditions"`
 	Effects  []string     `yaml:"effects"`
-	// Parser        string       `yaml:"parser"`
-	Parser ParserFn `yaml:"parser"`
+	Parser   string       `yaml:"parser"`
 	// ParserFn      func(any) any `yaml:"parser"`
 	ResultHandler ResultHandler
 	Params        TTPParams `yaml:"params"`
@@ -146,6 +145,6 @@ func (ttp TTP) HandleResult(source Entity, args ...any) (Event, error) {
 
 type ParserFn func(source Entity, args ...any) (Event, error)
 
-func (e *ParserFn) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	return nil // TODO: explore option of lazy evaluation?
-}
+// func (e *ParserFn) UnmarshalYAML(unmarshal func(interface{}) error) error {
+// 	return nil // TODO: explore option of lazy evaluation?
+// }

@@ -1,0 +1,25 @@
+name: Check Token permissions
+description: Query the K8s API server for the permissions of thi provided token
+tactic: Discovery
+techniques: ["Permission Groups Discovery"]
+ttp: T1069.003
+# preconditions:
+preconditions:
+  kind: ServiceAccount
+cmdVariants:
+  - key: curl
+    command: >
+      curl -XPOST
+            ${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews
+            --cacert ${CA_PATH}
+            -H "Authorization: Bearer ${TOKEN}"
+            -H "Content-Type: application/json"
+            --data '{
+              "kind": "SelfSubjectRulesReview",
+              "apiVersion": "authorization.k8s.io/v1",
+              "spec": { "namespace": "${NS}" }
+            }'
+parser: selfSubjectReview
+# effects:
+# defend: {}
+references:

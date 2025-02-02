@@ -12,6 +12,7 @@ import (
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
+	"github.com/Magier/Ran/parsers"
 	"github.com/dominikbraun/graph/draw"
 	"github.com/goccy/go-graphviz"
 )
@@ -90,11 +91,15 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	cmd := msg.(domain.TTPExecuted)
 	ttp := cmd.TTP
 
-	event, err := ttp.HandleResult(cmd.Target, cmd.Results...)
-	if err != nil {
-		return nil, err
+	if fn := parsers.GetParser(ttp.Parser); fn != nil {
+		event, err := fn(cmd.Target, cmd.Results...)
+		if err != nil {
+			return nil, err
+		}
+		return event, nil
 	}
-	return event, nil
+
+	return nil, nil
 }
 
 func (c *Campaign) onTTPFailed(ctx context.Context, msg domain.Message) (domain.Message, error) {

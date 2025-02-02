@@ -1,0 +1,17 @@
+name: Read Environment variables
+description: Read environment variables from a target
+tactic: Discovery
+techniques: ["Container and Resource Discovery"]
+ttp: T1613
+preconditions:
+  kind: Pod
+  accessLevel: user-read
+cmdVariants:
+  - key: shell
+    command: env
+  - key: cat
+    command: cat /proc/self/environ
+parser: environmentVariables
+# effects:
+# defend: {}
+references:
