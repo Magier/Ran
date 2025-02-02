@@ -1,11 +1,12 @@
 name: Escape container via NSenter
 description: Catch incoming shells
-tactics: ["Privilege Escalation"]
+tactic: "Privilege Escalation"
 techniques: ["Escape to Host"]
 preconditions:
-  "kind": Pod
+  "kind": Session
   "Pod.securityContext.privileged": true
 effects: []
+command: "EscapeHost"
 cmd: "nsenter --target 1 --mount --uts --ipc --net --pid"
 defend:
   - tactic: detect

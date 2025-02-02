@@ -1,0 +1,20 @@
+name: Install kubectl
+description: Install kubectl to easy execution of further k8s-related commands
+tactic: Execution
+techniques: ["User Execution"]
+# preconditions:
+preconditions:
+  kind: Pod
+  accessLevel: user-exec
+args:
+  PATH: ~/.local/bin/kubectl
+cmdVariants:
+  - key: curl
+    command: >
+      bash -c "curl -LO \"https://dl.k8s.io/release/$(curl -L -s)/bin/linux/amd64/kubectl\"
+      &&  chmod +x kubectl
+      && mkdir -p ~/.local/bin
+      && mv ./kubectl ${PATH}"
+# effects: ["ListenerReady"]
+# defend: {}
+references:

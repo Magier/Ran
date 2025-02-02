@@ -9,8 +9,8 @@ args:
 command: "CreateRedirector"
 preconditions:
   exists:
-    - "Listener"
+    - Listener
 # effects: ["ListenerReady"]
 # cmd: {}
 # defend: {}
-refernces:
+references:

@@ -11,6 +11,18 @@ import (
 	k8s_types "github.com/Magier/Ran/k8sclient/types"
 )
 
+func GetParser(parserName string) domain.ParserFn {
+	switch parserName {
+	case "rawServiceaccountToken":
+		return HandleSaTokenRead
+	case "environmentVariables":
+		return HandleEnvVarResult
+	case "selfSubjectReview", "authCanI":
+		return HandleSelfSubjectReviewResult
+	}
+	return nil
+}
+
 func HandleEnvVarResult(source domain.Entity, args ...any) (domain.Event, error) {
 	stderr := args[1].(string)
 	if stderr != "" {
