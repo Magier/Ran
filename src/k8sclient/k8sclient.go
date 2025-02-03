@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Magier/Ran/domain"
-	"github.com/anmitsu/go-shlex"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -235,7 +234,7 @@ func (c K8sClient) GetPods(ctx context.Context, ns string) ([]domain.Pod, error)
 	return pods, nil
 }
 
-func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string, args map[string]string) (string, string, error) {
+func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string) (string, string, error) {
 	req := client.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(podName).
@@ -256,19 +255,7 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string, a
 		return "", "", err
 	}
 
-	var command []string
-	if strings.HasPrefix(cmd, "sh -c") {
-		c, found := strings.CutPrefix(cmd, "sh -c ")
-		if found {
-			command = []string{"sh", "-c", c[1 : len(c)-1]}
-		}
-	} else {
-		// Go's `strings.Fields` function doesn't handle quoted substrings, so a dedicated lib is necessary
-		command, err = shlex.Split(cmd, true)
-		if err != nil {
-			slog.Error("Could not parse TTP command", "", err.Error())
-		}
-	}
+	command := []string{"sh", "-c", cmd}
 
 	// parameterCodec := runtime.NewParameterCodec(scheme)
 	req.VersionedParams(&v1.PodExecOptions{

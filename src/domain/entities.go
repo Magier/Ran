@@ -73,7 +73,7 @@ type State map[string]int
 func (s State) Satisfies(r Condition) bool {
 	if entityKinds, ok := r.(EntitiesExists); ok {
 		for _, k := range entityKinds {
-			numExists, existsOk := s[string(k)]
+			numExists, existsOk := s[strings.ToLower(string(k))]
 			return existsOk && numExists > 0
 		}
 	}

@@ -91,6 +91,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	cmd := msg.(domain.TTPExecuted)
 	ttp := cmd.TTP
 
+	// post processing will yield the final message
 	if fn := parsers.GetParser(ttp.Parser); fn != nil {
 		event, err := fn(cmd.Target, cmd.Results...)
 		if err != nil {

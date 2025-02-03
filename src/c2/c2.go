@@ -74,7 +74,7 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 			var stdout, stderr string
 			stdout, stderr, err = execKubectl(ctx, cmd)
 			if err != nil {
-				slog.Warn(err.Error() + " (TODO Remove): " + stderr)
+				err = fmt.Errorf("%w: '%s'", err, stderr)
 			} else if stdout == "" && strings.Contains(stderr, ": not found") {
 				err = errors.New(stderr)
 				// msg, err := cmd.TTP.HandleResult(cmd.Target, stdout, stderr)
@@ -259,7 +259,7 @@ func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error
 		return "", "", fmt.Errorf("No suitable command found for TTP %s", cmd.TTP.Name)
 	}
 
-	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, targetNs, c, cmd.TTP.Args)
+	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, targetNs, c)
 	return stdOut, stdErr, err
 }
 
