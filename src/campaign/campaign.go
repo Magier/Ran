@@ -148,7 +148,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 		TTP:         ttp,
 	}
 
-	execCmd.CmdVariants = groundTTP(ttp, func(template string) (string, error) {
+	execCmd.CmdVariants = groundCommands(ttp.CmdVariants, func(template string) (string, error) {
 		return c.groundCmdTemplate(template, ttp.Args)
 	})
 
@@ -164,13 +164,10 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 		case domain.Pod:
 			system = t
 		case domain.ServiceAccount:
-			var err error
-			var cmdVariants []domain.CmdVariant
-
-			if system, cmdVariants, err = c.groundTtpOnServiceAccount(execCmd.TTP, t); err == nil {
-				execCmd.CmdVariants = append(execCmd.CmdVariants, cmdVariants...)
-			} else {
-			}
+			system = c.getServiceAccountOwner(t)
+			execCmd.CmdVariants = groundCommands(execCmd.CmdVariants, func(template string) (string, error) {
+				return c.groundServiceAccountTemplate(template, t)
+			})
 		}
 
 		if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
@@ -186,11 +183,11 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 
 type GroundFn func(string) (string, error)
 
-func groundTTP(ttp domain.TTP, fn GroundFn) []domain.CmdVariant {
+func groundCommands(variants []domain.CmdVariant, fn GroundFn) []domain.CmdVariant {
 	// if a specific Cmd is set, treat it as the top priority variant
 	cmdVariants := make([]domain.CmdVariant, 0)
 	// TODO order the variants depending on utility/priority
-	for _, cmdVariant := range ttp.CmdVariants {
+	for _, cmdVariant := range variants {
 		if cmd, err := fn(cmdVariant.Command); err == nil {
 			cmdVariants = append(cmdVariants, domain.CmdVariant{Key: cmdVariant.Key, Command: cmd})
 		} else {
@@ -201,6 +198,16 @@ func groundTTP(ttp domain.TTP, fn GroundFn) []domain.CmdVariant {
 }
 
 func (c Campaign) groundCmdTemplate(template string, variables map[string]string) (string, error) {
+	if strings.Contains(template, "${API_SERVER}") {
+		apiUrl, err := c.GetApiUrl(true)
+		if err != nil {
+			slog.Error("Ground Template", "", err.Error())
+		} else if apiUrl == "" {
+			slog.Info("No API Server URL found when grounding command")
+		} else {
+			template = strings.Replace(template, "${API_SERVER}", apiUrl, -1)
+		}
+	}
 	if strings.Contains(template, "${LISTENER}") {
 		listener, ok := c.GetListener(domain.TCP)
 		if ok {
@@ -227,16 +234,16 @@ func (c Campaign) groundCmdTemplate(template string, variables map[string]string
 	return template, nil
 }
 
-func (c Campaign) groundTtpOnServiceAccount(ttp domain.TTP, t domain.ServiceAccount) (domain.Pod, []domain.CmdVariant, error) {
+func (c Campaign) getServiceAccountOwner(sa domain.ServiceAccount) domain.Pod {
 	var system domain.Pod
 	// *vomit*
-	if owner, ok := t.GetOwner(); ok {
-		if e, ok := c.GetEntityByName(owner.Name, t.Namespace); ok {
+	if owner, ok := sa.GetOwner(); ok {
+		if e, ok := c.GetEntityByName(owner.Name, sa.Namespace); ok {
 			if pod, ok := e.(domain.Pod); ok {
 				system = pod
 			}
 		}
-	} else if users, err := c.kb.GetIncomingEntities(t, domain.Uses{}); err == nil {
+	} else if users, err := c.kb.GetIncomingEntities(sa, domain.Uses{}); err == nil {
 		if len(users) > 0 {
 			user := users[0]
 			if pod, ok := user.(domain.Pod); ok {
@@ -244,32 +251,14 @@ func (c Campaign) groundTtpOnServiceAccount(ttp domain.TTP, t domain.ServiceAcco
 			}
 		}
 	}
-
-	cmdVariants := groundTTP(ttp, func(template string) (string, error) {
-		return c.groundServiceAccountTemplate(template, t)
-	})
-
-	// TODO: properly supply values of the SA token to the TTP
-	return system, cmdVariants, nil
-
+	return system
 }
 
 func (c Campaign) groundServiceAccountTemplate(template string, sa domain.ServiceAccount) (string, error) {
-	if strings.Contains(template, "${API_SERVER}") {
-		apiUrl, err := c.GetApiUrl(true)
-		if err != nil {
-			slog.Error("Ground SA Template", "", err.Error())
-		} else {
-			template = strings.Replace(template, "${API_SERVER}", apiUrl, -1)
-		}
-	}
 	template = strings.Replace(template, "${TOKEN}", sa.Token.Raw, -1)
 	template = strings.Replace(template, "${CA_PATH}", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt", -1)
 	template = strings.Replace(template, "${NS}", sa.Namespace, -1)
 	template = strings.Replace(template, "${SA_NAME}", sa.Name, -1)
-
-	template = strings.ReplaceAll(template, "\n", " ")
-	template = strings.ReplaceAll(template, "\t", " ")
 
 	return template, nil
 }
