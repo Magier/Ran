@@ -11,10 +11,10 @@ args:
 cmdVariants:
   - key: curl
     command: >
-      bash -c "curl -LO \"https://dl.k8s.io/release/$(curl -L -s)/bin/linux/amd64/kubectl\"
-      &&  chmod +x kubectl
+      curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" 
+      && chmod +x kubectl
       && mkdir -p ~/.local/bin
-      && mv ./kubectl ${PATH}"
+      && mv ./kubectl ${PATH}
 # effects: ["ListenerReady"]
 # defend: {}
 references:

@@ -7,7 +7,7 @@ preconditions:
   "Pod.securityContext.privileged": true
 effects: []
 command: "EscapeHost"
-cmd: "nsenter --target 1 --mount --uts --ipc --net --pid"
+cmd: nsenter --target 1 --mount --uts --ipc --net --pid
 defend:
   - tactic: detect
     id: D3-SCA
