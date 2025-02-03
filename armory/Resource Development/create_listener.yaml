@@ -4,7 +4,7 @@ tactic: Resource Development
 techniques: ["Stage Capabilities"]
 args:
   Port: 1337
-  Protocol: TCP
+  Protocol: HTTP
 command: "StartListener"
 effects: ["ListenerReady"]
 # cmd: {}
