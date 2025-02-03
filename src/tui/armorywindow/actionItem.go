@@ -143,7 +143,7 @@ func renderRequirementBadges(r domain.Requirements, cond domain.Requirements, s 
 	badges := make([]string, 0)
 	// use the same indentation, but ensure background is only set on the actual badge content
 	p := s.GetPaddingLeft()
-	badgeStyle := s.PaddingLeft(0).MarginLeft(p).Foreground(theme.NegativeColor)
+	badgeStyle := s.PaddingLeft(0).Foreground(theme.NegativeColor)
 
 	checks := []struct {
 		enforce   bool
@@ -167,5 +167,6 @@ func renderRequirementBadges(r domain.Requirements, cond domain.Requirements, s 
 		}
 		badges = append(badges, s.Render(condition.label))
 	}
-	return strings.Join(badges, ", ")
+	// add left padding of originally provided style as indentation
+	return strings.Repeat((" "), p) + strings.Join(badges, ", ")
 }
