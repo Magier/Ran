@@ -142,6 +142,9 @@ func populateEntities(ctx context.Context, namespaces []string, channel chan<- M
 		namespaces = []string{""}
 	}
 
+	cluster := domain.Cluster{Name: client.Context.Name, Address: client.Config.Host}
+	channel <- MaybeEntity{Entity: cluster, Error: err}
+
 	for _, nsName := range namespaces {
 		deployments, err := client.GetDeployments(ctx, nsName)
 		if err != nil {

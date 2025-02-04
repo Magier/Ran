@@ -47,7 +47,7 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 	}
 
 	if len(r.Exists) > 0 {
-		if !state.Satisfies(r.State) {
+		if !state.Satisfies(r.Exists) {
 			return false
 		}
 	}
@@ -387,6 +387,30 @@ func (e K8sEntity) IsNamespaced() bool {
 // func (n NamespacedResource) GetNamespace() string {
 // 	return n.Namespace
 // }
+
+const TheOnlyClusterId string = "cluster"
+
+type Cluster struct {
+	Name    string
+	Address string
+}
+
+// GetId implements Entity.
+func (c Cluster) GetId() string {
+	return TheOnlyClusterId // TODO: very naive assumption of having just 1 cluster for now
+}
+
+// GetKind implements Entity.
+func (c Cluster) GetKind() string {
+	return "Cluster"
+}
+
+// GetName implements Entity.
+func (c Cluster) GetName() string {
+	return c.Name
+}
+
+var _ Entity = (*Cluster)(nil)
 
 type ApiServer struct {
 	Pod
