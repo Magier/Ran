@@ -17,6 +17,7 @@ type KnowledgeGraph = graph.Graph[string, domain.Entity]
 
 type KnowledgeBase interface {
 	GetEntity(id string) (domain.Entity, bool)
+	GetC2s() []domain.C2System
 	GetEntities() map[string]domain.Entity
 	AddEntity(entity domain.Entity) error
 	AddEntities(entities ...domain.Entity) (int, error)
@@ -155,6 +156,27 @@ func (kg BuiltInKnowledgeBase) GetEntity(id string) (domain.Entity, bool) {
 func (kg BuiltInKnowledgeBase) GetEntities() map[string]domain.Entity {
 	return kg.Entities
 }
+
+func (kg BuiltInKnowledgeBase) GetC2(name string) (domain.C2System, bool) {
+	for _, entity := range kg.Entities {
+		if c2, ok := entity.(domain.C2System); ok {
+			if c2.Name == name {
+				return c2, true
+			}
+		}
+	}
+	return domain.C2System{}, false
+}
+func (kg BuiltInKnowledgeBase) GetC2s() []domain.C2System {
+	c2s := make([]domain.C2System, 0)
+	for _, entity := range kg.GetEntities() {
+		if c2, ok := entity.(domain.C2System); ok {
+			c2s = append(c2s, c2)
+		}
+	}
+	return c2s
+}
+
 func (kg BuiltInKnowledgeBase) AddRelation(rel domain.Relation) error {
 	kg.Relations[domain.GetRelationId(rel)] = rel
 	cost := domain.GetRelationCost(rel)

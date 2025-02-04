@@ -274,52 +274,42 @@ func isActionOnRemoteTarget(ttp domain.TTP) bool {
 }
 
 func (c Campaign) GetC2s() []domain.C2System {
-	c2s := make([]domain.C2System, 0)
-	for _, entity := range c.GetEntities() {
-		if c2, ok := entity.(domain.C2System); ok {
-			c2s = append(c2s, c2)
-		}
-	}
-	return c2s
+	return c.kb.GetC2s()
 }
 
 func (c Campaign) GetC2(name string) (domain.C2System, bool) {
-	for _, entity := range c.GetEntities() {
-		if c2, ok := entity.(domain.C2System); ok {
-			if c2.Name == name {
-				return c2, true
-			}
+	for _, c2 := range c.GetC2s() {
+		if c2.Name == name {
+			return c2, true
 		}
 	}
 	return domain.C2System{}, false
 }
 
 func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, error) {
-	for _, entity := range kg.GetEntities() {
-		if c2, ok := entity.(domain.C2System); ok {
-			_, relations, err := kg.GetPath(c2.GetId(), target.GetId())
-			if err != nil {
-				slog.Warn(fmt.Sprintf("Failed to get path from '%s' to '%s'", c2.GetId(), target.GetId()))
+	for _, c2 := range kg.GetC2s() {
+		_, relations, err := kg.GetPath(c2.GetId(), target.GetId())
+		if err != nil {
+			slog.Warn(fmt.Sprintf("Failed to get path from '%s' to '%s'", c2.GetId(), target.GetId()))
+		}
+
+		if l := len(relations); l > 0 {
+			rel := relations[0]
+			if l > 1 {
+				slog.Info(fmt.Sprintf("Got %d possible channels, using 1st one", l))
 			}
 
-			if l := len(relations); l > 0 {
-				rel := relations[0]
-				if l > 1 {
-					slog.Info(fmt.Sprintf("Got %d possible channels, using 1st one", l))
-				}
-
-				if ch, ok := rel.(domain.C2Channel); ok {
-					return ch, nil
-				} else if canAccess, ok := rel.(domain.CanAccess); ok {
-					if target, ok := kg.GetEntity(canAccess.TargetId); ok {
-						return domain.PodExecC2Channel{
-							SourceId: canAccess.SourceId,
-							Target:   target,
-							Identity: canAccess.Identity,
-						}, nil
-					} else {
-						return nil, fmt.Errorf("Could not identify target %s", canAccess.TargetId)
-					}
+			if ch, ok := rel.(domain.C2Channel); ok {
+				return ch, nil
+			} else if canAccess, ok := rel.(domain.CanAccess); ok {
+				if target, ok := kg.GetEntity(canAccess.TargetId); ok {
+					return domain.PodExecC2Channel{
+						SourceId: canAccess.SourceId,
+						Target:   target,
+						Identity: canAccess.Identity,
+					}, nil
+				} else {
+					return nil, fmt.Errorf("Could not identify target %s", canAccess.TargetId)
 				}
 			}
 		}

@@ -33,6 +33,22 @@ func (r Reference) String() string {
 	return "extracted from " + r.Medium
 }
 
+type Operates struct {
+	Operator C2System
+	System   C2System
+}
+
+func (r Operates) GetSourceId() string {
+	return r.Operator.GetId()
+}
+func (r Operates) GetTargetId() string {
+	return r.System.GetId()
+}
+
+func (r Operates) GetRelationName() string {
+	return "operates"
+}
+
 type Contains struct {
 	Container Entity
 	Object    Entity

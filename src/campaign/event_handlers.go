@@ -122,8 +122,18 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 		IP:   ev.IP,
 	}
 
+	rels := []domain.Relation{}
+	if ev.Name != "builtin" {
+		c2s := c.GetC2s()
+		builtin := c2s[0] // the builtin is always the first C2
+		operatesRel := domain.Operates{Operator: builtin, System: system}
+		c.AddRelations(operatesRel)
+		rels = append(rels, operatesRel)
+	}
+
 	return domain.FactsChanged{
-		NewEntities: []domain.Entity{system},
+		NewEntities:  []domain.Entity{system},
+		NewRelations: rels,
 	}, nil
 }
 
