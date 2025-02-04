@@ -74,13 +74,33 @@ func (kg BuiltInKnowledgeBase) AddEntity(entity domain.Entity) error {
 	return kg.graph.AddVertex(entity)
 }
 
+func (kg BuiltInKnowledgeBase) GetCluster() (domain.Cluster, bool) {
+	if cluster, ok := kg.Entities[domain.TheOnlyClusterId]; ok {
+		return cluster.(domain.Cluster), true
+	}
+	return domain.Cluster{}, false
+}
+
 func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, error) {
 	numChanges := 0
+	cluster, hasCluster := kg.GetCluster()
+
 	for _, entity := range entities {
 		if prevEntity, exists := kg.GetEntity(entity.GetId()); exists {
 			entity = updateEntity(entity, prevEntity)
+		} else {
+			_ = kg.AddEntity(entity)
+			switch entity.(type) {
+			case domain.Namespace:
+				if hasCluster {
+					err := kg.AddRelation(domain.Contains{Container: cluster, Object: entity})
+					if err != nil {
+						slog.Error(err.Error())
+					}
+				}
+			}
 		}
-		_ = kg.AddEntity(entity)
+
 		numChanges++
 
 		otherEntities, relations := extractRelatedEntities(kg.Entities, entity)
@@ -214,7 +234,7 @@ func extractRelatedEntities(entities map[string]domain.Entity, entity domain.Ent
 				ns = domain.Namespace{Name: nsName}
 				newEntities = append(newEntities, ns)
 			}
-			relations = append(relations, domain.Contains{Container: ns, Object: entity})
+			relations = append(relations, domain.Contains{Container: ns, Object: e.(domain.Entity)})
 			return true
 		}
 		return false
