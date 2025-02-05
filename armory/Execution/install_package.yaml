@@ -1,0 +1,21 @@
+name: Install Package
+description: Using the OS package manager
+tactic: Execution
+techniques: ["User Execution"]
+# preconditions:
+preconditions:
+  kind: Pod
+  accessLevel: user-exec
+parameters:
+  PKG:
+    default: curl
+    type: string
+    description: the name of the tool to install
+args: # default values if none is provided
+  PKG: "curl"
+cmdVariants:
+  - key: ubuntu
+    command: apt update && apt install -y ${PKG}
+effects: ["has-binary(${TARGET}, ${PKG}"]
+# defend: {}
+references:

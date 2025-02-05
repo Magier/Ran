@@ -1,6 +1,6 @@
 package domain
 
-type TTPParams interface{}
+import "github.com/creasty/defaults"
 
 type ResultHandler = func(source Entity, args ...any) (Event, error)
 
@@ -46,6 +46,24 @@ type CmdVariant struct {
 // 	return v.Command
 // }
 
+type Parameter struct {
+	// Name        string `yaml:"name"`
+	Type        string   `yaml:"type"`
+	Required    bool     `yaml:"required" default:"true"`
+	Description string   `yaml:"description"`
+	Examples    []string `yaml:"examples"`
+}
+
+func (p *Parameter) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	_ = defaults.Set(p)
+
+	type plain Parameter
+	if err := unmarshal((*plain)(p)); err != nil {
+		return err
+	}
+	return nil
+}
+
 type TTP struct {
 	ID          string   `yaml:"id"`
 	Name        string   `yaml:"name"`
@@ -55,10 +73,11 @@ type TTP struct {
 
 	References []string `yaml:"references"`
 
-	CmdVariants []CmdVariant      `yaml:"cmdVariants"`
-	HttpCmd     HttpCmd           `yaml:"httpCmd"`
-	Args        map[string]string `yaml:"args"`
-	Port        uint              `yaml:"port"`
+	CmdVariants []CmdVariant         `yaml:"cmdVariants"`
+	HttpCmd     HttpCmd              `yaml:"httpCmd"`
+	Params      map[string]Parameter `yaml:"parameters"`
+	Args        map[string]string    `yaml:"args"`
+	Port        uint                 `yaml:"port"`
 
 	// Command    string `yaml:"command"`
 	CommandMsg Message // during unmarshal converted via Alias to the message
@@ -70,7 +89,6 @@ type TTP struct {
 	Parser   string       `yaml:"parser"`
 	// ParserFn      func(any) any `yaml:"parser"`
 	ResultHandler ResultHandler
-	Params        TTPParams `yaml:"params"`
 }
 
 func (ttp TTP) GetID() string {

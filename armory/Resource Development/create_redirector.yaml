@@ -3,9 +3,17 @@ description: Create a proxy routing traffic to the C2
 tactic: Resource Development
 techniques: ["Stage Capabilities"]
 # preconditions:
+parameters:
+  DST_PORT:
+    type: int
+    description: the port to listen for incoming connections
+  PROTOCOL:
+    type: string
+    description: the protocol used for the communication
+    required: false
 args:
-  DstPort: 1337
-  Protocol: TCP
+  DST_PORT: 1337
+  PROTOCOL: TCP
 command: "CreateRedirector"
 preconditions:
   exists:

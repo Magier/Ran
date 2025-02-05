@@ -2,9 +2,17 @@ name: Create Listener
 description: Catch incoming reverse shells
 tactic: Resource Development
 techniques: ["Stage Capabilities"]
+parameters:
+  PORT:
+    type: int
+    description: the port to listen for incoming connections
+  PROTOCOL:
+    type: string
+    description: the protocol used for the communication
+    required: false
 args:
-  Port: 1337
-  Protocol: HTTP
+  PoRT: 1337
+  PROTOCOL: HTTP
 command: "StartListener"
 effects: ["ListenerReady"]
 # cmd: {}

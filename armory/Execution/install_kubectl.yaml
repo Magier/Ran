@@ -6,8 +6,11 @@ techniques: ["User Execution"]
 preconditions:
   kind: Pod
   accessLevel: user-exec
-args:
-  PATH: ~/.local/bin/kubectl
+parameters:
+  PATH:
+    default: ~/.local/bin/kubectl
+    type: string
+    description: the target path where to install the binary
 cmdVariants:
   - key: curl
     command: >
