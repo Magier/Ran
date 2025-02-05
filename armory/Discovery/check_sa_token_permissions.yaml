@@ -4,6 +4,19 @@ tactic: Discovery
 techniques: ["Permission Groups Discovery"]
 ttp: T1069.003
 # preconditions:
+parameters:
+  API_SERVER:
+    type: string
+    description: the URL of the API server
+  CA_PATH:
+    type: string
+    description: the path to the CA certificate to use for the request
+  NS:
+    type: string
+    description: the namespace of the service account
+  TOKEN:
+    type: string
+    description: the token which will be checked
 preconditions:
   kind: ServiceAccount
 cmdVariants:

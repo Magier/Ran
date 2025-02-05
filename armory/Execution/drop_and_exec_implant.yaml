@@ -2,6 +2,20 @@ name: Drop & Exec Implant
 description: Command to download a prepared C2 implant and execute it to establish a session
 tactic: Execution
 techniques: ["User Execution"]
+parameters:
+  LISTENER:
+    type: string
+    description: the URL of the listener, which as a fileshare
+  FILESHARE_PORT:
+    type: int
+    description: the port of the fileshare on the listener
+  SRC_BIN:
+    type: string
+    description: the name of the binary on the fileshare
+  DST_BIN:
+    type: string
+    description: the destination path of the binary at the remote system
+    required: false
 args:
   SRC_BIN: "implant"
   DST_BIN: "/tmp/pause"

