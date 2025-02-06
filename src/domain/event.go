@@ -17,9 +17,14 @@ type Event interface {
 	Message
 	IsEvent()
 }
-type EventImpl struct{}
+type EventImpl struct {
+	CmdId string
+}
 
 func (e EventImpl) IsEvent() {}
+func (e EventImpl) GetCmdID() string {
+	return e.CmdId
+}
 
 type UiEvent interface {
 	UiMessage() string

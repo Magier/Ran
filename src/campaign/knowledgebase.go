@@ -135,9 +135,7 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 
 			err := kg.AddRelation(rel)
 			if err != nil {
-				if err.Error() == "edge already exists" {
-					slog.Debug(fmt.Sprintf("Edge '%s' already exists", domain.GetRelationId(rel)))
-				} else {
+				if err.Error() != "edge already exists" {
 					slog.Warn(fmt.Sprintf("Failed to insert relationship '%s': %v", domain.GetRelationId(rel), err))
 				}
 			} else {

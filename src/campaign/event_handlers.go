@@ -15,6 +15,7 @@ import (
 	"github.com/Magier/Ran/parsers"
 	"github.com/dominikbraun/graph/draw"
 	"github.com/goccy/go-graphviz"
+	"github.com/iancoleman/strcase"
 )
 
 func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -27,11 +28,6 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 		return nil, fmt.Errorf(msg)
 	}
 
-	// it's a technique on the C2 side to prepare the infrastructure, not in the target environment
-	if ttp.Tactic == domain.Reconnaissance || ttp.Tactic == domain.ResourceDevelopment {
-		return handlePreAction(ttp)
-	}
-
 	msg, err := c.GroundAction(ttp, ev.TargetID)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
@@ -39,7 +35,7 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 	return msg, err
 }
 
-func handlePreAction(ttp domain.TTP) (domain.Message, error) {
+func hydrateCommand(ttp domain.TTP, execID string) (domain.Command, error) {
 	switch cmd := ttp.CommandMsg.(type) {
 	case domain.StartListener:
 		// t := reflect.TypeOf(cmd)
@@ -54,6 +50,7 @@ func handlePreAction(ttp domain.TTP) (domain.Message, error) {
 		}
 
 		for name, v := range ttp.Args {
+			name = strcase.ToCamel(name)
 			f := reflect.ValueOf(v)
 			field := c.FieldByName(name)
 
@@ -76,6 +73,7 @@ func handlePreAction(ttp domain.TTP) (domain.Message, error) {
 				field.Set(f.Slice(0, f.Len()))
 			}
 		}
+		cmd.SetID(execID)
 		// TODO populate the arguments
 		return cmd, nil
 		// default:
@@ -86,21 +84,25 @@ func handlePreAction(ttp domain.TTP) (domain.Message, error) {
 
 	return nil, nil
 }
+func (c *Campaign) onExecuteTTP(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	cmd := msg.(domain.ExecTTP)
+	err := c.trail.AddNewStep(cmd.ID, cmd.TTP)
+	return nil, err
+}
 
 func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	cmd := msg.(domain.TTPExecuted)
 	ttp := cmd.TTP
 
+	err := c.trail.UpdateStep(cmd.ID, cmd.TTP, true)
+
 	// post processing will yield the final message
 	if fn := parsers.GetParser(ttp.Parser); fn != nil {
 		event, err := fn(cmd.Target, cmd.Results...)
-		if err != nil {
-			return nil, err
-		}
-		return event, nil
+		return event, err
 	}
 
-	return nil, nil
+	return nil, err
 }
 
 func (c *Campaign) onTTPFailed(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -110,6 +112,7 @@ func (c *Campaign) onTTPFailed(ctx context.Context, msg domain.Message) (domain.
 		// TODO: parse the binary name and add it as information, that the targeted system has no binary
 	}
 
+	c.trail.UpdateStep(cmd.ID, cmd.TTP, true)
 	slog.Error(cmd.Reason)
 	return nil, nil
 }
@@ -283,7 +286,7 @@ func (c *Campaign) onFactsChanged(ctx context.Context, msg domain.Message) (doma
 
 func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(c2.ListenerReady)
-	id := fmt.Sprintf("%s_%d", ev.Name, ev.Port)
+	id := ev.Name
 
 	c2, ok := c.GetC2(ev.C2Server)
 	if !ok {

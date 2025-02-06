@@ -155,7 +155,7 @@ func (c SliverClient) handleSliverEvent(bus bus.MessageBus, event *clientpb.Even
 		job := event.Job
 		// resolve the local IP to the 'external' one, so the compromised systems can reach it
 		resultingMessage = ListenerReady{
-			Id:       fmt.Sprintf("%d", job.ID),
+			ID:       fmt.Sprintf("%d", job.ID),
 			Name:     fmt.Sprintf("sliver_%s", job.Name),
 			C2Server: c.Name,
 			// IP:       ip,

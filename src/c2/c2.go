@@ -47,32 +47,32 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		return nil, err
 	})
 
-	mb.Subscribe(domain.StartListener{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		cmd := msg.(domain.Command)
-		client, ok := selectClient(c2Clients, cmd)
-		if ok {
-			return client.Execute(cmd)
-		}
-		return nil, fmt.Errorf("No suitable client found to start listener")
-	})
-
 	mb.Subscribe(domain.ExecTTP{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		cmd := msg.(domain.ExecTTP)
+		exec := msg.(domain.ExecTTP)
 		// check technique to execute CMD -> kubectl exec uses API
 		// or shell listener?
 		var err error
 		results := make([]any, 0)
 
-		switch ch := cmd.C2Channel.(type) {
+		switch cmd := exec.CommandMsg.(type) {
+		case domain.StartListener:
+			client, ok := selectClient(c2Clients, cmd)
+			if ok {
+				return client.Execute(cmd)
+			}
+			return nil, fmt.Errorf("No suitable client found to start listener")
+		}
+
+		switch ch := exec.C2Channel.(type) {
 		case domain.ImplantC2Channel:
-			if c2, ok := c2Clients[cmd.C2Channel.GetKind()]; ok {
+			if c2, ok := c2Clients[exec.C2Channel.GetKind()]; ok {
 				var res any
-				res, err = c2.Execute(cmd)
+				res, err = c2.Execute(exec)
 				results = append(results, res)
 			}
 		case domain.PodExecC2Channel:
 			var stdout, stderr string
-			stdout, stderr, err = execKubectl(ctx, cmd)
+			stdout, stderr, err = execKubectl(ctx, exec)
 			if err != nil {
 				err = fmt.Errorf("%w: '%s'", err, stderr)
 			} else if stdout == "" && strings.Contains(stderr, ": not found") {
@@ -88,8 +88,8 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 				results = []any{stdout, stderr}
 			}
 		case nil:
-			if cmd.TTP.Execute.Code != "" {
-				err = executeCode(cmd.TTP.Execute)
+			if exec.TTP.Execute.Code != "" {
+				err = executeCode(exec.TTP.Execute)
 				if err != nil {
 					slog.Warn(err.Error())
 				}
@@ -102,15 +102,15 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 
 		if err != nil {
 			return domain.TTPFailed{
-				ID:     cmd.ID,
-				TTP:    cmd.TTP,
+				ID:     exec.ID,
+				TTP:    exec.TTP,
 				Reason: err.Error(),
 			}, nil
 		}
 		return domain.TTPExecuted{
-			ID:      cmd.ID,
-			TTP:     cmd.TTP,
-			Target:  cmd.Target,
+			ID:      exec.ID,
+			TTP:     exec.TTP,
+			Target:  exec.Target,
 			Results: results,
 		}, nil
 	})

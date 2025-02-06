@@ -107,13 +107,14 @@ func (c BuiltInC2Server) startListener(ctx context.Context, bus bus.MessageBus, 
 
 	listenerId := fmt.Sprintf("builtin_%s", cmd.Protocol)
 	err = bus.Publish(ListenerReady{
-		Id:       listenerId,
-		Name:     fmt.Sprintf("%s_%d", listenerId, cmd.Port),
-		IP:       c.GetServerIp(),
-		C2Server: BuiltInC2,
-		Port:     cmd.Port,
-		Protocol: domain.TCP,
+		EventImpl: domain.EventImpl{CmdId: cmd.ID},
+		Name:      fmt.Sprintf("%s_%d", listenerId, cmd.Port),
+		IP:        c.GetServerIp(),
+		C2Server:  BuiltInC2,
+		Port:      cmd.Port,
+		Protocol:  domain.TCP,
 	})
+
 	if err != nil {
 		slog.Error("Error publishing listener event: " + err.Error())
 	}
