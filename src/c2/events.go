@@ -9,7 +9,7 @@ import (
 
 type ListenerReady struct {
 	domain.EventImpl
-	Id       string
+	ID       string
 	Name     string
 	C2Server string
 	IP       net.IP

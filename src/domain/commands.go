@@ -15,6 +15,10 @@ type CommandImpl struct {
 	ID string
 }
 
+func (c *CommandImpl) SetID(id string) {
+	c.ID = id
+}
+
 // GetID implements Command.
 func (c CommandImpl) GetID() string {
 	return c.ID
@@ -76,6 +80,7 @@ type ExecTTP struct {
 	Args        map[string]string
 	C2Channel   C2Channel
 	Target      Entity
+	CommandMsg  Command
 }
 
 func (e ExecTTP) GetTarget() Entity {

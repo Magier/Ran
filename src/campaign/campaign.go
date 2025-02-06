@@ -10,10 +10,12 @@ import (
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
+	"github.com/google/uuid"
 )
 
 type Campaign struct {
 	kb             KnowledgeBase
+	trail          AuditTrail
 	activeIdentity string
 	armory         armory.Armory
 	listeners      map[string]domain.Listener
@@ -26,6 +28,7 @@ func NewCampaign(armory armory.Armory) *Campaign {
 
 	return &Campaign{
 		kb:         kg,
+		trail:      NewAuditTrail(),
 		armory:     armory,
 		sessions:   make(map[string]domain.Session),
 		listeners:  make(map[string]domain.Listener),
@@ -43,6 +46,7 @@ func NewCampaign(armory armory.Armory) *Campaign {
 func StartCampaign(mb bus.MessageBus, armory armory.Armory) *Campaign {
 	campaign := NewCampaign(armory)
 	mb.Subscribe(domain.C2Connected{}, campaign.onC2Connected)
+	mb.Subscribe(domain.ExecTTP{}, campaign.onExecuteTTP)
 	mb.Subscribe(domain.TTPExecuted{}, campaign.onTTPExecuted)
 	mb.Subscribe(domain.TTPFailed{}, campaign.onTTPFailed)
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
@@ -147,6 +151,14 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 		CommandImpl: domain.NewCmd(),
 		TTP:         ttp,
 	}
+	execCmd.SetID(uuid.New().String())
+
+	// it's a technique on the C2 side to prepare the infrastructure, not in the target environment
+	cmdMsg, err := hydrateCommand(ttp, execCmd.ID)
+	if err != nil {
+		return nil, err
+	}
+	execCmd.CommandMsg = cmdMsg
 
 	execCmd.CmdVariants = groundCommands(ttp.CmdVariants, func(template string) (string, error) {
 		return c.groundCmdTemplate(template, ttp.Args)

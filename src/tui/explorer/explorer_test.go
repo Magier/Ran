@@ -3,6 +3,7 @@ package explorer
 import (
 	"testing"
 
+	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 )
@@ -14,7 +15,8 @@ func TestAddEntity(t *testing.T) {
 		pod.Owner = domain.OwnerRef{Name: wl.Name, Kind: wl.Kind}
 
 		root := newTree()
-		c := campaign.NewCampaign()
+		a := armory.Armory{}
+		c := campaign.NewCampaign(a)
 		// add the pod first
 		addEntity(root, c, pod, nil)
 		addEntity(root, c, wl, nil)
@@ -38,7 +40,8 @@ func TestAddEntity(t *testing.T) {
 		pod.Owner = domain.OwnerRef{Name: wl.Name, Kind: wl.Kind}
 
 		root := newTree()
-		c := campaign.NewCampaign()
+		a := armory.Armory{}
+		c := campaign.NewCampaign(a)
 		// add the workload first
 		addEntity(root, c, wl, nil)
 		addEntity(root, c, pod, nil)
