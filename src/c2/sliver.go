@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/Magier/Ran/domain"
-	bus "github.com/Magier/Ran/internal/bus"
 	"github.com/bishopfox/sliver/client/assets"
 	consts "github.com/bishopfox/sliver/client/constants"
 	"github.com/bishopfox/sliver/client/transport"
@@ -26,11 +25,12 @@ import (
 const SliverKind = "sliver"
 
 type SliverClient struct {
-	Name       string
-	config     *assets.ClientConfig
-	rpc        rpcpb.SliverRPCClient
-	cmdChannel chan domain.Command
-	isReady    bool
+	Name        string
+	config      *assets.ClientConfig
+	rpc         rpcpb.SliverRPCClient
+	cmdChannel  chan domain.Command
+	eventStream chan domain.Event
+	isReady     bool
 }
 
 func CreateSliverClient(configPath string) SliverClient {
@@ -46,8 +46,7 @@ func CreateSliverClient(configPath string) SliverClient {
 	}
 }
 
-func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
-	// func ConnectToSliverServer(ctx context.Context, bus bus.MessageBus, configPath string, cmdChannel <-chan domain.Command) {
+func (c SliverClient) Connect(ctx context.Context) error {
 	// connect to the server
 	rpc, ln, err := transport.MTLSConnect(c.config)
 	if err != nil {
@@ -57,40 +56,37 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 	c.rpc = rpc
 
 	serverIp := c.GetServerIp()
-	err = bus.Publish(domain.C2Connected{
+
+	c.eventStream <- domain.C2Connected{
 		Name: c.Name,
 		IP:   serverIp,
 		Kind: SliverKind,
-	})
-	if err != nil {
-		slog.Warn("Couldn't send sliver 'C2 Connected' event: ", "", err.Error())
-		return err
 	}
-	reportOpenListeners(rpc, bus, serverIp, c.config.LPort)
-	reportEstablishedSessions(rpc, bus)
+	reportOpenListeners(rpc, c.eventStream, serverIp, c.config.LPort)
+	reportEstablishedSessions(rpc, c.eventStream)
 
 	// Open the event stream to be able to collect all events sent by  the server
-	eventStream, err := rpc.Events(context.Background(), &commonpb.Empty{})
+	sliverEventStream, err := rpc.Events(context.Background(), &commonpb.Empty{})
 	if err != nil {
 		slog.Error(err.Error())
 	}
 
 	// handle all incoming events in the background
 	events := make(chan *clientpb.Event)
-	go func(eventStream rpcpb.SliverRPC_EventsClient) {
+	go func(sliverEventStream rpcpb.SliverRPC_EventsClient) {
 		for {
 			select {
 			case <-ctx.Done():
 				break
 			default:
-				event, err := eventStream.Recv()
+				event, err := sliverEventStream.Recv()
 				if err == io.EOF || event == nil {
 					return
 				}
 				events <- event
 			}
 		}
-	}(eventStream)
+	}(sliverEventStream)
 
 	// handle all commands sent to the Sliver server
 	for {
@@ -106,15 +102,22 @@ func (c SliverClient) Connect(ctx context.Context, bus bus.MessageBus) error {
 				slog.Error("Sliver C2", "Could not send cmd", err.Error())
 			}
 			if event != nil {
-				err := bus.Publish(event)
+				c.eventStream <- event
 				if err != nil {
 					slog.Error("Sliver C2", "Could not publish resulting event", err.Error())
 				}
 			}
 		case event := <-events:
-			go c.handleSliverEvent(bus, event)
+			go c.handleSliverEvent(c.eventStream, event)
 		}
 	}
+}
+func (c SliverClient) Shutdown() {
+	close(c.cmdChannel)
+}
+
+func (c SliverClient) GetEventStream() <-chan domain.Event {
+	return c.eventStream
 }
 
 func (c SliverClient) SetReady(state bool) C2Client {
@@ -141,8 +144,8 @@ func (c SliverClient) GetServerIp() net.IP {
 	return ip
 }
 
-func (c SliverClient) handleSliverEvent(bus bus.MessageBus, event *clientpb.Event) error {
-	var resultingMessage domain.Message
+func (c SliverClient) handleSliverEvent(results chan<- domain.Event, event *clientpb.Event) error {
+	var resultingMessage domain.Event
 	// Trigger event based on type
 	switch event.EventType {
 	// a new session just came in
@@ -171,11 +174,7 @@ func (c SliverClient) handleSliverEvent(bus bus.MessageBus, event *clientpb.Even
 		}
 	}
 
-	err := bus.Publish(resultingMessage)
-	if err != nil {
-		slog.Error("Error publishing session started event:", err.Error(), "")
-		return err
-	}
+	results <- resultingMessage
 	return nil
 }
 
@@ -246,7 +245,7 @@ func parseSession(session *clientpb.Session) domain.Session {
 	}
 }
 
-func reportOpenListeners(rpc rpcpb.SliverRPCClient, bus bus.MessageBus, serverIp net.IP, clientPort int) {
+func reportOpenListeners(rpc rpcpb.SliverRPCClient, results chan<- domain.Event, serverIp net.IP, clientPort int) {
 	jobs, err := rpc.GetJobs(context.Background(), &commonpb.Empty{})
 	if err != nil {
 		slog.Error(err.Error())
@@ -259,32 +258,26 @@ func reportOpenListeners(rpc rpcpb.SliverRPCClient, bus bus.MessageBus, serverIp
 			continue
 		}
 
-		err = bus.Publish(ListenerReady{
+		results <- ListenerReady{
 			Name:     fmt.Sprintf("sliver_%s", job.Name),
 			IP:       serverIp,
 			Port:     uint(job.Port),
 			C2Server: SliverKind,
 			Protocol: domain.Protocol(strings.ToUpper(job.Protocol)),
-		})
-		if err != nil {
-			slog.Error("Error publishing listener event: " + err.Error())
 		}
 	}
 }
 
-func reportEstablishedSessions(rpc rpcpb.SliverRPCClient, bus bus.MessageBus) {
+func reportEstablishedSessions(rpc rpcpb.SliverRPCClient, results chan<- domain.Event) {
 	sessions, err := rpc.GetSessions(context.Background(), &commonpb.Empty{})
 	if err != nil {
 		slog.Error(err.Error())
 	}
 	for _, session := range sessions.GetSessions() {
-		err = bus.Publish(SessionStarted{
+		results <- SessionStarted{
 			C2Kind:  SliverKind,
 			C2Name:  session.ActiveC2,
 			Session: parseSession(session),
-		})
-		if err != nil {
-			slog.Error("Error publishing pre-existing session(started) event: " + err.Error())
 		}
 	}
 }
