@@ -39,7 +39,7 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 	// TODO: turn fileshare into a regular action
 	filesharePort, _ := c.GetFileshare()
 	go ServeFiles(ctx, filesharePort)
-	c2.StartC2(ctx, mb)
+	go c2.StartC2(ctx, mb)
 	planner.StartApi(mb)
 
 	go mb.HandleEvents(ctx)

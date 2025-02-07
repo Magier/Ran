@@ -15,6 +15,8 @@ import (
 
 var builtinC2Mutex sync.Mutex
 
+const builtinKind = "builtin"
+
 type BuiltInC2Server struct {
 	cmdChannel  chan domain.Command
 	ip          net.IP
@@ -161,7 +163,7 @@ func (c BuiltInC2Server) startListener(ctx context.Context, cmd domain.StartList
 				continue
 			}
 
-			sessionID := strconv.Itoa(numSessions + 1)
+			sessionID := "krill_" + strconv.Itoa(numSessions+1)
 			session, err := NewSession(sessionID, conn)
 			if err != nil {
 				slog.Error("Could not create new C2 session: " + err.Error())
@@ -233,12 +235,14 @@ func (s Session) Start(ctx context.Context) {
 		return
 		// slog.Error("Error reading from connection: " + err.Error())
 	}
-	s.results <- SessionStarted{C2Kind: "", Session: domain.Session{
-		Id:       s.ID,
-		Hostname: hostname,
-		Os:       os,
-		User:     user,
-	}}
+	s.results <- SessionStarted{
+		C2Kind: builtinKind,
+		Session: domain.Session{
+			Id:       s.ID,
+			Hostname: hostname,
+			Os:       os,
+			User:     user,
+		}}
 
 	for {
 		select {
