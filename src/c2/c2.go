@@ -19,19 +19,21 @@ import (
 const BuiltInC2 = "builtin"
 
 type C2Client interface {
-	Connect(context.Context, bus.MessageBus) error
+	Connect(context.Context) error
 	Execute(domain.Command) (domain.Message, error)
 	GetServerIp() net.IP
 	GetName() string
 	IsReady() bool
 	SetReady(state bool) C2Client
+	GetEventStream() <-chan domain.Event
+	Shutdown()
 }
 
 func StartC2(ctx context.Context, mb bus.MessageBus) {
 	// listeners := make(map[string]net.Listener)
 	// TODO start builtin C2 once an action demands it
 	c2Clients := map[string]C2Client{
-		BuiltInC2:  NewBuiltInServer(mb),
+		BuiltInC2:  NewBuiltInServer(),
 		SliverKind: CreateSliverClient("../sliver_cfg.json"),
 	}
 
@@ -47,74 +49,6 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		return nil, err
 	})
 
-	mb.Subscribe(domain.ExecTTP{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		exec := msg.(domain.ExecTTP)
-		// check technique to execute CMD -> kubectl exec uses API
-		// or shell listener?
-		var err error
-		results := make([]any, 0)
-
-		switch cmd := exec.CommandMsg.(type) {
-		case domain.StartListener:
-			client, ok := selectClient(c2Clients, cmd)
-			if ok {
-				return client.Execute(cmd)
-			}
-			return nil, fmt.Errorf("No suitable client found to start listener")
-		}
-
-		switch ch := exec.C2Channel.(type) {
-		case domain.ImplantC2Channel:
-			if c2, ok := c2Clients[exec.C2Channel.GetKind()]; ok {
-				var res any
-				res, err = c2.Execute(exec)
-				results = append(results, res)
-			}
-		case domain.PodExecC2Channel:
-			var stdout, stderr string
-			stdout, stderr, err = execKubectl(ctx, exec)
-			if err != nil {
-				err = fmt.Errorf("%w: '%s'", err, stderr)
-			} else if stdout == "" && strings.Contains(stderr, ": not found") {
-				err = errors.New(stderr)
-				// msg, err := cmd.TTP.HandleResult(cmd.Target, stdout, stderr)
-				// if err != nil {
-				// 	msg = domain.TTPFailed{ID: cmd.TTP.ID, TTP: cmd.TTP, Reason: err.Error()}
-				// } else if msg == nil { // no handler -> try default handler for ExecTTP
-				// 	return handleExecTTPResult(cmd, stdout, stderr)
-				// }
-				// return msg, err
-			} else {
-				results = []any{stdout, stderr}
-			}
-		case nil:
-			if exec.TTP.Execute.Code != "" {
-				err = executeCode(exec.TTP.Execute)
-				if err != nil {
-					slog.Warn(err.Error())
-				}
-			} else {
-				slog.Warn("Can't Exec TTP: no channel defined and no code provided!")
-			}
-		default:
-			slog.Warn(fmt.Sprintf("Can't Exec TTP: unclear how to handle channel %v", ch))
-		}
-
-		if err != nil {
-			return domain.TTPFailed{
-				ID:     exec.ID,
-				TTP:    exec.TTP,
-				Reason: err.Error(),
-			}, nil
-		}
-		return domain.TTPExecuted{
-			ID:      exec.ID,
-			TTP:     exec.TTP,
-			Target:  exec.Target,
-			Results: results,
-		}, nil
-	})
-
 	mb.Subscribe(domain.StartC2{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		cmd := msg.(domain.StartC2)
 		client, ok := c2Clients[cmd.C2Name]
@@ -125,22 +59,53 @@ func StartC2(ctx context.Context, mb bus.MessageBus) {
 		return nil, nil
 	})
 
-	// TODO: send command after actually conncting to C2, with the right IP(s)
+	mb.Subscribe(domain.ExecTTP{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		return executeTTP(ctx, msg, c2Clients)
+	})
 
-	var wg sync.WaitGroup
+	// TODO: send command after actually conncting to C2, with the right IP(s)
+	c2EventStreams := make([]<-chan domain.Event, len(c2Clients))
 	for _, client := range c2Clients {
-		go func() {
-			wg.Add(1)
-			defer wg.Done()
-			connectToC2(ctx, mb, client)
-		}()
+		go connectToC2(ctx, mb, client)
+		c2EventStreams = append(c2EventStreams, client.GetEventStream())
 	}
-	wg.Wait()
+
+	for event := range fanIn[domain.Event](c2EventStreams...) {
+		err := mb.Publish(event)
+		if err != nil {
+			slog.Error("Failed to publish C2 event: " + err.Error())
+		}
+	}
+
+	slog.Debug("Stopping C2 layer")
+}
+
+func fanIn[T domain.Event](channels ...<-chan T) chan T {
+	wg := sync.WaitGroup{}
+	wg.Add(len(channels))
+	output := make(chan T)
+	for _, c := range channels {
+		go func(channel <-chan T) {
+			defer wg.Done()
+			for i := range channel {
+				output <- i
+				// select {
+				// case output <- i:
+				// 	return
+				// }
+			}
+		}(c)
+	}
+	go func() {
+		wg.Wait()
+		close(output)
+	}()
+	return output
 }
 
 func connectToC2(ctx context.Context, mb bus.MessageBus, c2client C2Client) {
 	// successful C2Connect event is sent by the client itself
-	err := c2client.Connect(ctx, mb)
+	err := c2client.Connect(ctx)
 	if err != nil {
 		err = mb.Publish(C2ConnectFailed{
 			Name:   c2client.GetName(),
@@ -150,6 +115,74 @@ func connectToC2(ctx context.Context, mb bus.MessageBus, c2client C2Client) {
 			slog.Error(err.Error())
 		}
 	}
+}
+
+func executeTTP(ctx context.Context, msg domain.Message, c2Clients map[string]C2Client) (domain.Message, error) {
+	exec := msg.(domain.ExecTTP)
+	// check technique to execute CMD -> kubectl exec uses API
+	// or shell listener?
+	var err error
+	results := make([]any, 0)
+
+	switch cmd := exec.CommandMsg.(type) {
+	case domain.StartListener:
+		client, ok := selectClient(c2Clients, cmd)
+		if ok {
+			return client.Execute(cmd)
+		}
+		return nil, fmt.Errorf("No suitable client found to start listener")
+	}
+
+	switch ch := exec.C2Channel.(type) {
+	case domain.ImplantC2Channel:
+		if c2, ok := c2Clients[exec.C2Channel.GetKind()]; ok {
+			var res any
+			res, err = c2.Execute(exec)
+			results = append(results, res)
+		}
+	case domain.PodExecC2Channel:
+		var stdout, stderr string
+		stdout, stderr, err = execKubectl(ctx, exec)
+		if err != nil {
+			err = fmt.Errorf("%w: '%s'", err, stderr)
+		} else if stdout == "" && strings.Contains(stderr, ": not found") {
+			err = errors.New(stderr)
+			// msg, err := cmd.TTP.HandleResult(cmd.Target, stdout, stderr)
+			// if err != nil {
+			// 	msg = domain.TTPFailed{ID: cmd.TTP.ID, TTP: cmd.TTP, Reason: err.Error()}
+			// } else if msg == nil { // no handler -> try default handler for ExecTTP
+			// 	return handleExecTTPResult(cmd, stdout, stderr)
+			// }
+			// return msg, err
+		} else {
+			results = []any{stdout, stderr}
+		}
+	case nil:
+		if exec.TTP.Execute.Code != "" {
+			err = executeCode(exec.TTP.Execute)
+			if err != nil {
+				slog.Warn(err.Error())
+			}
+		} else {
+			slog.Warn("Can't Exec TTP: no channel defined and no code provided!")
+		}
+	default:
+		slog.Warn(fmt.Sprintf("Can't Exec TTP: unclear how to handle channel %v", ch))
+	}
+
+	if err != nil {
+		return domain.TTPFailed{
+			ID:     exec.ID,
+			TTP:    exec.TTP,
+			Reason: err.Error(),
+		}, nil
+	}
+	return domain.TTPExecuted{
+		ID:      exec.ID,
+		TTP:     exec.TTP,
+		Target:  exec.Target,
+		Results: results,
+	}, nil
 }
 
 func selectClient(clients map[string]C2Client, msg domain.Command) (C2Client, bool) {
