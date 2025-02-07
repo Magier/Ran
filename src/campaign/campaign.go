@@ -156,7 +156,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 	// it's a technique on the C2 side to prepare the infrastructure, not in the target environment
 	cmdMsg, err := hydrateCommand(ttp, execCmd.ID)
 	if err != nil {
-		return nil, err
+		slog.Warn(err.Error())
 	}
 	execCmd.CommandMsg = cmdMsg
 

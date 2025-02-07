@@ -111,7 +111,7 @@ func (ch ImplantC2Channel) GetTarget() Entity {
 }
 
 func (ch ImplantC2Channel) GetRelationName() string {
-	return fmt.Sprintf("Implant %s %s Channel", ch.Kind, ch.Protocol)
+	return fmt.Sprintf("%s-c2-%s-channel", ch.Kind, ch.Protocol)
 }
 
 func (ch ImplantC2Channel) GetKind() string {

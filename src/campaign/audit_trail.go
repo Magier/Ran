@@ -47,7 +47,7 @@ func (a *AuditTrail) popOpenStep(id string) (AttackStep, bool) {
 	return AttackStep{}, false
 }
 
-func (a *AuditTrail) UpdateStep(id string, ttp domain.TTP, success bool) error {
+func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool) {
 	step, ok := a.popOpenStep(id)
 
 	if ok {
@@ -60,8 +60,6 @@ func (a *AuditTrail) UpdateStep(id string, ttp domain.TTP, success bool) error {
 	} else {
 		slog.Warn(fmt.Sprintf("Could not pop open attack step %s", id))
 	}
-
-	return nil
 }
 
 func (a AuditTrail) Export(ttp domain.TTP, success bool) error {

@@ -82,6 +82,8 @@ func getIcon(kind string) string {
 	switch kind {
 	case "Namespace":
 		return icon.Namespace
+	case "Cluster":
+		return icon.K8s
 	case "Pod":
 		return icon.Pod
 	case "Container":

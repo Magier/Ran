@@ -94,15 +94,14 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	cmd := msg.(domain.TTPExecuted)
 	ttp := cmd.TTP
 
-	err := c.trail.UpdateStep(cmd.ID, cmd.TTP, true)
+	c.trail.CompleteStep(cmd.ID, cmd.TTP, true)
 
 	// post processing will yield the final message
 	if fn := parsers.GetParser(ttp.Parser); fn != nil {
 		event, err := fn(cmd.Target, cmd.Results...)
 		return event, err
 	}
-
-	return nil, err
+	return nil, nil
 }
 
 func (c *Campaign) onTTPFailed(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -112,7 +111,7 @@ func (c *Campaign) onTTPFailed(ctx context.Context, msg domain.Message) (domain.
 		// TODO: parse the binary name and add it as information, that the targeted system has no binary
 	}
 
-	c.trail.UpdateStep(cmd.ID, cmd.TTP, true)
+	c.trail.CompleteStep(cmd.ID, cmd.TTP, true)
 	slog.Error(cmd.Reason)
 	return nil, nil
 }
@@ -288,6 +287,7 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 	ev := msg.(c2.ListenerReady)
 	id := ev.Name
 
+	c.trail.CompleteStep(ev.CmdId, domain.TTP{}, true)
 	c2, ok := c.GetC2(ev.C2Server)
 	if !ok {
 		return nil, fmt.Errorf("No C2 '%s' found", ev.C2Server)
