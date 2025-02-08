@@ -14,17 +14,20 @@ import (
 var WorkloadNamePattern = regexp.MustCompile(`^(?P<workload>.*)-[a-z0-9]{9}-[a-z0-9]{5}$`)
 
 type KnowledgeGraph = graph.Graph[string, domain.Entity]
+type AdjacencyList = map[string]map[string]string
 
 type KnowledgeBase interface {
 	GetEntity(id string) (domain.Entity, bool)
 	GetC2s() []domain.C2System
 	GetEntities() map[string]domain.Entity
+	GetClusters() map[string]domain.Entity
 	AddEntity(entity domain.Entity) error
 	AddEntities(entities ...domain.Entity) (int, error)
 	AddRelation(relation domain.Relation) error
 	AddRelations(relations ...domain.Relation) (int, error)
 	GetPath(source, target string) ([]domain.Entity, []domain.Relation, error)
 	GetIncomingEntities(entity domain.Entity, rel domain.Relation) ([]domain.Entity, error)
+	GetAdjecencyList() AdjacencyList
 }
 
 type BuiltInKnowledgeBase struct {
@@ -75,11 +78,37 @@ func (kg BuiltInKnowledgeBase) AddEntity(entity domain.Entity) error {
 	return kg.graph.AddVertex(entity)
 }
 
+func (kg BuiltInKnowledgeBase) GetClusters() map[string]domain.Entity {
+	clusters := make(map[string]domain.Entity)
+	if cluster, ok := kg.Entities[domain.TheOnlyClusterId]; ok {
+		clusters[domain.TheOnlyClusterId] = cluster.(domain.Cluster)
+	}
+	return clusters
+}
+
 func (kg BuiltInKnowledgeBase) GetCluster() (domain.Cluster, bool) {
 	if cluster, ok := kg.Entities[domain.TheOnlyClusterId]; ok {
 		return cluster.(domain.Cluster), true
 	}
 	return domain.Cluster{}, false
+}
+
+func (kg BuiltInKnowledgeBase) GetAdjecencyList() AdjacencyList {
+	m, err := kg.graph.AdjacencyMap()
+	if err != nil {
+		slog.Error(err.Error())
+		return nil
+	}
+
+	adjList := make(map[string]map[string]string)
+	for src, targets := range m {
+		adjList[src] = make(map[string]string)
+		for target, edge := range targets {
+			adjList[src][target] = edge.Properties.Attributes["label"]
+		}
+	}
+
+	return adjList
 }
 
 func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, error) {

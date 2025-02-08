@@ -130,6 +130,10 @@ func (c *Campaign) GetSessions() []domain.Session {
 	return sessions
 }
 
+func (c *Campaign) GetGraph() AdjacencyList {
+	return c.kb.GetAdjecencyList()
+}
+
 func (c *Campaign) AddEntities(entities ...domain.Entity) int {
 	numChanges, err := c.kb.AddEntities(entities...)
 	if err != nil {
