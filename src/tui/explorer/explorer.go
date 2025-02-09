@@ -205,10 +205,13 @@ func (m Model) rebuildEntries() Model {
 	m.entities = make([]entry, 0)
 	depthFirstTraversal(adj, "cluster", func(n string, level int) {
 		if e, ok := entities[n]; ok {
+			accessLevel, isPwnd := getAccessLevel(e)
 			entry := entry{
 				level:       level,
 				entity:      e,
 				numChildren: len(adj[e.GetId()]),
+				accessLevel: accessLevel,
+				isPwnd:      isPwnd,
 			}
 			entry.isExpanded = checkExpandedFn(entry)
 			m.entities = append(m.entities, entry)
@@ -217,6 +220,20 @@ func (m Model) rebuildEntries() Model {
 
 	m.entries = buildShownEntries(m.entities)
 	return m
+}
+
+func getAccessLevel(entity domain.Entity) (domain.AccessLevel, bool) {
+	var isPwnd bool
+	var accessLevel domain.AccessLevel
+	switch e := entity.(type) {
+	case domain.Pod:
+		isPwnd = e.AccessLevel != domain.NoAccess
+		accessLevel = e.AccessLevel
+	case domain.System:
+		isPwnd = e.AccessLevel != domain.NoAccess
+		accessLevel = e.AccessLevel
+	}
+	return accessLevel, isPwnd
 }
 
 func depthFirstTraversal(adjList map[string]map[string]string, startNode string, visit func(node string, level int)) {
