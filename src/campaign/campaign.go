@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -25,6 +26,8 @@ type Campaign struct {
 
 func NewCampaign(armory armory.Armory) *Campaign {
 	kg := InitGraph()
+
+	_ = kg.AddEntity(domain.C2System{Name: "Ran", Kind: "Ran"})
 
 	return &Campaign{
 		kb:         kg,
@@ -353,20 +356,22 @@ func (c Campaign) GetFileshare() (uint, bool) {
 func (c Campaign) syncCapabilities() error {
 	// evaluate potential relationships based on RBAC permissions
 	accessRelations := make([]domain.Relation, 0)
-	c2s := c.GetC2s()
+	// c2s := c.GetC2s()
+	c2, ok := c.GetC2("Ran")
+	if !ok {
+		return errors.New("Couldn't retrieve Ran from KG to sync capabilities")
+	}
 	pods := c.GetPods()
 
 	for _, identity := range c.identities {
 		if identity.Can("pod/exec") {
 			for _, p := range pods {
-				for _, c2 := range c2s {
-					accessRelations = append(accessRelations, domain.CanAccess{
-						SourceId:    c2.GetId(),
-						TargetId:    p.GetId(),
-						Identity:    identity,
-						AccessLevel: domain.UserExec,
-					})
-				}
+				accessRelations = append(accessRelations, domain.CanAccess{
+					SourceId:    c2.GetId(),
+					TargetId:    p.GetId(),
+					Identity:    identity,
+					AccessLevel: domain.UserExec,
+				})
 				p.AccessLevel = domain.UserExec
 				_ = c.kb.AddEntity(p) // update the entity
 			}

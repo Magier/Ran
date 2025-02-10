@@ -200,10 +200,32 @@ func (m Model) rebuildEntries() Model {
 	}
 
 	adj := m.campaign.GetGraph()
+	adj = removeIrrelevantEdges(adj, []string{"can-access"})
+
 	entities := m.campaign.GetEntities()
 
+	// keep track of which entities where not mapped
+	unmappedEntities := make(map[string]struct{})
+	for key := range entities {
+		unmappedEntities[key] = struct{}{}
+	}
+
 	m.entities = make([]entry, 0)
-	depthFirstTraversal(adj, "cluster", func(n string, level int) {
+
+	depthFirstTraversal(adj, "c2/Ran", func(n string, level int, relation string) {
+		if e, ok := entities[n]; ok {
+			entry := entry{
+				level:       level,
+				entity:      e,
+				numChildren: len(adj[e.GetId()]),
+				isExpanded:  true,
+			}
+			m.entities = append(m.entities, entry)
+			delete(unmappedEntities, n)
+		}
+	})
+
+	depthFirstTraversal(adj, "cluster", func(n string, level int, relation string) {
 		if e, ok := entities[n]; ok {
 			accessLevel, isPwnd := getAccessLevel(e)
 			entry := entry{
@@ -215,11 +237,27 @@ func (m Model) rebuildEntries() Model {
 			}
 			entry.isExpanded = checkExpandedFn(entry)
 			m.entities = append(m.entities, entry)
+			delete(unmappedEntities, n)
 		}
 	})
 
 	m.entries = buildShownEntries(m.entities)
 	return m
+}
+
+// remove all entries from the given adjancency list, if the edge label is specified in the blacklist
+func removeIrrelevantEdges(adjList campaign.AdjacencyList, edgesToRemove []string) campaign.AdjacencyList {
+	for node, neighbors := range adjList {
+		for neighbor, edge := range neighbors {
+			for _, e := range edgesToRemove {
+				if edge == e {
+					delete(adjList[node], neighbor)
+				}
+			}
+		}
+	}
+
+	return adjList
 }
 
 func getAccessLevel(entity domain.Entity) (domain.AccessLevel, bool) {
@@ -236,20 +274,20 @@ func getAccessLevel(entity domain.Entity) (domain.AccessLevel, bool) {
 	return accessLevel, isPwnd
 }
 
-func depthFirstTraversal(adjList map[string]map[string]string, startNode string, visit func(node string, level int)) {
+func depthFirstTraversal(adjList map[string]map[string]string, startNode string, visit func(node string, level int, relation string)) {
 	visited := make(map[string]bool)
-	var dfs func(node string, level int)
-	dfs = func(node string, level int) {
+	var dfs func(node string, level int, relation string)
+	dfs = func(node string, level int, relation string) {
 		if visited[node] {
 			return
 		}
 		visited[node] = true
-		visit(node, level)
-		for neighbor := range adjList[node] {
-			dfs(neighbor, level+1)
+		visit(node, level, relation)
+		for neighbor, edge := range adjList[node] {
+			dfs(neighbor, level+1, edge)
 		}
 	}
-	dfs(startNode, 0)
+	dfs(startNode, 0, "")
 }
 
 func buildShownEntries(entries []entry) []entry {
