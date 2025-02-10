@@ -17,7 +17,7 @@ var (
 	PC          string = ""
 	Robot       string = ""
 	K8s         string = "󱃾"
-	K8s2        string = "󰠳"
+	Net         string = "󰠳"
 	Job         string = ""
 	CronJob     string = "󰔠"
 	Fingerprint string = ""
