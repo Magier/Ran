@@ -309,7 +309,10 @@ func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, er
 	for _, c2 := range kg.GetC2s() {
 		_, relations, err := kg.GetPath(c2.GetId(), target.GetId())
 		if err != nil {
-			slog.Warn(fmt.Sprintf("Failed to get path from '%s' to '%s'", c2.GetId(), target.GetId()))
+			if !strings.HasPrefix(err.Error(), "target vertex not reachable") {
+				slog.Debug(fmt.Sprintf("Failed to get path from '%s' to '%s'", c2.GetId(), target.GetId()))
+			}
+			continue
 		}
 
 		if l := len(relations); l > 0 {

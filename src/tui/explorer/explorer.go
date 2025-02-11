@@ -2,6 +2,8 @@ package explorer
 
 import (
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/Magier/Ran/campaign"
@@ -183,20 +185,17 @@ func getEntriesIndex(entries []entry, entry entry) int {
 
 func (m Model) rebuildEntries() Model {
 	// keep track of previously opened nodes
-	expandedNodes := make(map[string]struct{})
+	expandedNodes := make(map[string]bool)
 	for _, e := range m.entries {
-		expandedNodes[e.entity.GetId()] = struct{}{}
+		expandedNodes[e.entity.GetId()] = e.isExpanded
 	}
-	var checkExpandedFn func(entry) bool
-	if len(m.entries) == 0 {
-		checkExpandedFn = func(e entry) bool {
-			return e.level <= 1
-		}
-	} else {
-		checkExpandedFn = func(e entry) bool {
-			_, isExpanded := expandedNodes[e.entity.GetId()]
+
+	checkExpandedFn := func(e entry) bool {
+		isExpanded, found := expandedNodes[e.entity.GetId()]
+		if found {
 			return isExpanded
 		}
+		return e.level < 2
 	}
 
 	adj := m.campaign.GetGraph()
@@ -234,12 +233,20 @@ func (m Model) rebuildEntries() Model {
 				numChildren: len(adj[e.GetId()]),
 				accessLevel: accessLevel,
 				isPwnd:      isPwnd,
+				isExpanded:  level < 3,
 			}
 			entry.isExpanded = checkExpandedFn(entry)
 			m.entities = append(m.entities, entry)
 			delete(unmappedEntities, n)
 		}
 	})
+
+	// just a safety to ensure all known entities are handled as expected
+	if len(unmappedEntities) > 0 {
+		for e, _ := range unmappedEntities {
+			slog.Info(fmt.Sprintf("Entity '%s' not mapped into explorer", e))
+		}
+	}
 
 	m.entries = buildShownEntries(m.entities)
 	return m
@@ -283,8 +290,18 @@ func depthFirstTraversal(adjList map[string]map[string]string, startNode string,
 		}
 		visited[node] = true
 		visit(node, level, relation)
-		for neighbor, edge := range adjList[node] {
-			dfs(neighbor, level+1, edge)
+
+		neighbours := adjList[node]
+		// Collect and sort neighbors by their name
+		neighborList := make([]string, 0, len(neighbours))
+		for neighbor := range neighbours {
+			neighborList = append(neighborList, neighbor)
+		}
+		sort.Strings(neighborList)
+
+		for _, n := range neighborList {
+			edge := neighbours[n]
+			dfs(n, level+1, edge)
 		}
 	}
 	dfs(startNode, 0, "")
