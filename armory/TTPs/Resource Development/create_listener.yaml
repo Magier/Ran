@@ -11,7 +11,7 @@ parameters:
     description: the protocol used for the communication
     required: false
 args:
-  PoRT: 1337
+  PORT: 1337
   PROTOCOL: HTTP
 command: "StartListener"
 effects: ["ListenerReady"]

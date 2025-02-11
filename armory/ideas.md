@@ -10,7 +10,12 @@
 
 ## Lateral Movement
 - Wiz [NamespaceHound](https://github.com/wiz-sec-public/namespacehound)
+- given: hostPath mount: put a static pod manifest on the node, which spawns a privileged pod
+	- try with invalid namespace name in manifest -> visibile in k8s api?
 
+## Discovery
+
+- [K8spider](https://github.com/Esonhugh/k8spider): supports to scan all services installed in Kubernetes cluster and all exposed ports in service
 
 ## Interesting tools to try to support
 
