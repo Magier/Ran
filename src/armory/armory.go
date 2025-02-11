@@ -18,7 +18,32 @@ type Armory struct {
 	ttps []domain.TTP
 }
 
+func (a Armory) GetTTP(id string) (domain.TTP, bool) {
+	for _, ttp := range a.ttps {
+		if ttp.GetID() == id {
+			return ttp, true
+		}
+	}
+	return domain.TTP{}, false
+}
+
+func (a Armory) GetTTPs() []domain.TTP {
+	return a.ttps
+}
+
 func LoadArmory(dir string) (Armory, error) {
+	ttps, err := loadTTPs(filepath.Join(dir, "ttps"))
+
+	if err != nil {
+		return Armory{}, errors.New("Couldn't load armory: " + err.Error())
+	}
+
+	return Armory{
+		ttps: ttps,
+	}, nil
+}
+
+func loadTTPs(dir string) ([]domain.TTP, error) {
 	ttps := []domain.TTP{}
 
 	// parse "attacks as code" in the specified dir folder
@@ -29,12 +54,6 @@ func LoadArmory(dir string) (Armory, error) {
 			return err
 		}
 
-		// parse the TTP
-		// parse the preconditions and effect
-		// invoke builder to get the currect sub-type of the TTP (based on the kind?)
-
-		// parse the preconditions and effect
-		// invoke builder to get the currect sub-type of the TTP (based on the kind?)
 		if strings.HasSuffix(w, ".yaml") {
 			content, err := os.ReadFile(w)
 			if err != nil {
@@ -49,19 +68,15 @@ func LoadArmory(dir string) (Armory, error) {
 			// ttp.CommandMsg = parseCommandToMessage(ttp.Command)
 			ttps = append(ttps, ttp)
 		}
-
 		// if strings.HasSuffix(w, ".md") {
 		// }
-
 		return nil
 	})
-	if err != nil {
-		return Armory{}, errors.New("Couldn't load armory: " + err.Error())
-	}
 
-	return Armory{
-		ttps: sortTTPs(ttps),
-	}, nil
+	if err != nil {
+		return ttps, errors.New("Couldn't load TTPs: " + err.Error())
+	}
+	return sortTTPs(ttps), nil
 }
 
 // order all the TTPs first by the Tactic and then by their names
@@ -96,15 +111,8 @@ func sortTTPs(ttps []domain.TTP) []domain.TTP {
 	return ttps
 }
 
-func (a Armory) GetTTP(id string) (domain.TTP, bool) {
-	for _, ttp := range a.ttps {
-		if ttp.GetID() == id {
-			return ttp, true
-		}
-	}
-	return domain.TTP{}, false
-}
+func loadTools(dir string) ([]domain.TTP, error) {
+	ttps := []domain.TTP{}
 
-func (a Armory) GetTTPs() []domain.TTP {
-	return a.ttps
+	return ttps, nil
 }
