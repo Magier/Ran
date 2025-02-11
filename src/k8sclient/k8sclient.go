@@ -288,5 +288,5 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string) (
 		return "", stderr.String(), err
 	}
 
-	return stdout.String(), stderr.String(), nil
+	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), nil
 }
