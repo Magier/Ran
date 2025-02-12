@@ -1,6 +1,10 @@
 package domain
 
-import "github.com/creasty/defaults"
+import (
+	"strings"
+
+	"github.com/creasty/defaults"
+)
 
 type ResultHandler = func(source Entity, args ...any) (Event, error)
 
@@ -109,6 +113,38 @@ func (ttp TTP) GetMessage() Message {
 			TTP:         ttp, Args: ttp.Args,
 		}
 	}
+}
+
+type ToolFunctions []TTP
+type Tool struct {
+	Name string        `yaml:"name"`
+	TTPs ToolFunctions `yaml:"functions"` //`yaml:"functions"`
+	// Functions ToolFunctions `yaml:"functions`
+	// TTPs []
+	Bin   string `yaml:"bin"`
+	Local bool   `yaml:"local"`
+}
+
+type YAMLToolFunctions map[string]TTP
+
+// Implements the Unmarshaler interface of the yaml pkg.
+func (t *ToolFunctions) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var functions YAMLToolFunctions
+	err := unmarshal(&functions)
+	if err != nil {
+		return err
+	}
+
+	ttps := []TTP{}
+	for name, ttp := range functions {
+		ttp.Name = strings.Replace(name, "_", " ", -1)
+		ttps = append(ttps, ttp)
+	}
+	*t = ttps
+	return nil
+}
+
+type ToolFunction struct {
 }
 
 var CmdMapping = map[string]Message{

@@ -33,10 +33,15 @@ func (a Armory) GetTTPs() []domain.TTP {
 
 func LoadArmory(dir string) (Armory, error) {
 	ttps, err := loadTTPs(filepath.Join(dir, "ttps"))
-
 	if err != nil {
 		return Armory{}, errors.New("Couldn't load armory: " + err.Error())
 	}
+
+	toolTTPs, err := loadTools(filepath.Join(dir, "tools"))
+	if err != nil {
+		return Armory{}, errors.New("Couldn't load tools: " + err.Error())
+	}
+	ttps = append(ttps, toolTTPs...)
 
 	return Armory{
 		ttps: ttps,
@@ -114,5 +119,30 @@ func sortTTPs(ttps []domain.TTP) []domain.TTP {
 func loadTools(dir string) ([]domain.TTP, error) {
 	ttps := []domain.TTP{}
 
+	err := filepath.WalkDir(dir, func(w string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return err
+		}
+
+		if strings.HasSuffix(w, ".yaml") {
+			content, err := os.ReadFile(w)
+			if err != nil {
+				return fmt.Errorf("failed to read file %s: %w", w, err)
+			}
+
+			var tool domain.Tool
+			err = yaml.Unmarshal(content, &tool)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal YAML content from file %s: %w", w, err)
+			}
+			// ttp.CommandMsg = parseCommandToMessage(ttp.Command)
+			ttps = append(ttps, tool.TTPs...)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return ttps, errors.New("Couldn't load TTPs: " + err.Error())
+	}
 	return ttps, nil
 }
