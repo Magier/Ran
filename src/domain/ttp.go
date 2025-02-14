@@ -116,13 +116,12 @@ func (ttp TTP) GetMessage() Message {
 }
 
 type ToolFunctions []TTP
+
 type Tool struct {
-	Name string        `yaml:"name"`
-	TTPs ToolFunctions `yaml:"functions"` //`yaml:"functions"`
-	// Functions ToolFunctions `yaml:"functions`
-	// TTPs []
-	Bin   string `yaml:"bin"`
-	Local bool   `yaml:"local"`
+	Name  string        `yaml:"name"`
+	TTPs  ToolFunctions `yaml:"functions"`
+	Bin   string        `yaml:"bin"`
+	Local bool          `yaml:"local"`
 }
 
 type YAMLToolFunctions map[string]TTP
@@ -137,7 +136,9 @@ func (t *ToolFunctions) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 	ttps := []TTP{}
 	for name, ttp := range functions {
-		ttp.Name = strings.Replace(name, "_", " ", -1)
+		if ttp.Name == "" {
+			ttp.Name = strings.Replace(name, "_", " ", -1)
+		}
 		ttps = append(ttps, ttp)
 	}
 	*t = ttps
@@ -163,7 +164,16 @@ type YAMLTTP struct {
 func (t YAMLTTP) TTP() (TTP, error) {
 	ttp := TTP(t.TTPAlias)
 
-	ttp.CommandMsg = parseCommandToMessage(t.Command)
+	cmd, isMessage := parseCommandToMessage(t.Command)
+	if isMessage {
+		ttp.CommandMsg = cmd
+	} else {
+		ttp.CmdVariants = append(ttp.CmdVariants, CmdVariant{
+			Key:     "",
+			Command: t.Command,
+		})
+
+	}
 	// ttp.Parser = parsers.HandleSaTokenRead
 	return ttp, nil
 }
@@ -183,11 +193,11 @@ func (ttp *TTP) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func parseCommandToMessage(cmd string) Message {
+func parseCommandToMessage(cmd string) (Message, bool) {
 	if msg, ok := CmdMapping[cmd]; ok {
-		return msg
+		return msg, true
 	}
-	return nil
+	return nil, false
 }
 
 func (ttp TTP) HandleResult(source Entity, args ...any) (Event, error) {
