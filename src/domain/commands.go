@@ -75,12 +75,12 @@ func (c StartC2Redirector) String() string {
 
 type ExecTTP struct {
 	CommandImpl
-	TTP         TTP
-	CmdVariants []CmdVariant
-	Args        map[string]string
-	C2Channel   C2Channel
-	Target      Entity
-	CommandMsg  Command
+	TTP        TTP
+	Variant    CmdVariant
+	Args       map[string]string
+	C2Channel  C2Channel
+	Target     Entity
+	CommandMsg Command
 }
 
 func (e ExecTTP) GetTarget() Entity {
@@ -95,22 +95,7 @@ func (e ExecTTP) String() string {
 		target = e.Target.GetId()
 	}
 
-	return fmt.Sprintf("Executing '%s' on %s", e.GetCommand(""), target)
-}
-
-func (e ExecTTP) GetCommand(variant string) string {
-	if variant != "" {
-		for _, v := range e.CmdVariants {
-			if v.Key == variant {
-				return v.Command
-			}
-		}
-	}
-
-	if len(e.CmdVariants) > 0 {
-		return e.CmdVariants[0].Command
-	}
-	return ""
+	return fmt.Sprintf("Executing '%s' on %s", e.Variant.Command, target)
 }
 
 type KubectlExec struct {

@@ -165,15 +165,16 @@ type YAMLTTP struct {
 func (t YAMLTTP) TTP() (TTP, error) {
 	ttp := TTP(t.TTPAlias)
 
-	cmd, isMessage := parseCommandToMessage(t.Command)
-	if isMessage {
-		ttp.CommandMsg = cmd
-	} else {
-		ttp.CmdVariants = append(ttp.CmdVariants, CmdVariant{
-			Key:     "",
-			Command: t.Command,
-		})
-
+	if t.Command != "" {
+		cmd, isMessage := parseCommandToMessage(t.Command)
+		if isMessage {
+			ttp.CommandMsg = cmd
+		} else {
+			ttp.CmdVariants = append(ttp.CmdVariants, CmdVariant{
+				Key:     "",
+				Command: t.Command,
+			})
+		}
 	}
 	// ttp.Parser = parsers.HandleSaTokenRead
 	return ttp, nil
