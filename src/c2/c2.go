@@ -133,6 +133,50 @@ func executeTTP(ctx context.Context, msg domain.Message, c2Clients map[string]C2
 		return nil, fmt.Errorf("No suitable client found to start listener")
 	}
 
+	if exec.Variant.IsLocalCommand {
+		results, err = execLocally(ctx, exec, exec.Variant, c2Clients)
+	} else {
+		results, err = execRemotely(ctx, exec, exec.Variant, c2Clients)
+	}
+
+	if err != nil {
+		return domain.TTPFailed{
+			ID:     exec.ID,
+			TTP:    exec.TTP,
+			Reason: err.Error(),
+		}, nil
+	}
+	return domain.TTPExecuted{
+		ID:      exec.ID,
+		TTP:     exec.TTP,
+		Target:  exec.Target,
+		Results: results,
+	}, nil
+}
+
+func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant, c2Clients map[string]C2Client) ([]any, error) {
+	var err error
+	if exec.TTP.Execute.Code != "" {
+		err = executeCode(exec.TTP.Execute)
+		if err != nil {
+			slog.Warn(err.Error())
+		}
+	} else {
+		slog.Warn("Can't Exec TTP: no channel defined and no code provided!")
+	}
+	return nil, err
+}
+
+// execRemotely uses a C2 channel to execute the command on the target system
+func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant, c2Clients map[string]C2Client) ([]any, error) {
+	target := exec.C2Channel.GetTarget()
+	if target == nil {
+		return nil, fmt.Errorf("Could not exec command: No valid target selected!")
+	}
+
+	var err error
+	results := make([]any, 0)
+
 	switch ch := exec.C2Channel.(type) {
 	case domain.ImplantC2Channel:
 		if c2, ok := c2Clients[exec.C2Channel.GetKind()]; ok {
@@ -142,7 +186,7 @@ func executeTTP(ctx context.Context, msg domain.Message, c2Clients map[string]C2
 		}
 	case domain.PodExecC2Channel:
 		var stdout, stderr string
-		stdout, stderr, err = execKubectl(ctx, exec)
+		stdout, stderr, err = execKubectl(ctx, cmd, target)
 		if err != nil {
 			err = fmt.Errorf("%w: '%s'", err, stderr)
 		} else if stdout == "" && strings.Contains(stderr, ": not found") {
@@ -169,20 +213,7 @@ func executeTTP(ctx context.Context, msg domain.Message, c2Clients map[string]C2
 	default:
 		slog.Warn(fmt.Sprintf("Can't Exec TTP: unclear how to handle channel %v", ch))
 	}
-
-	if err != nil {
-		return domain.TTPFailed{
-			ID:     exec.ID,
-			TTP:    exec.TTP,
-			Reason: err.Error(),
-		}, nil
-	}
-	return domain.TTPExecuted{
-		ID:      exec.ID,
-		TTP:     exec.TTP,
-		Target:  exec.Target,
-		Results: results,
-	}, nil
+	return results, err
 }
 
 func selectClient(clients map[string]C2Client, msg domain.Command) (C2Client, bool) {
@@ -253,15 +284,10 @@ func GetOutboundIP() net.IP {
 	return localAddr.IP
 }
 
-func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error) {
+func execKubectl(ctx context.Context, cmd domain.CmdVariant, target domain.Entity) (string, string, error) {
 	client, err := k8s.NewK8sClient("")
 	if err != nil {
 		return "", "", err
-	}
-
-	target := cmd.C2Channel.GetTarget()
-	if target == nil {
-		return "", "", fmt.Errorf("Could not exec command: No valid target selected!")
 	}
 
 	var targetName string
@@ -287,12 +313,7 @@ func execKubectl(ctx context.Context, cmd domain.ExecTTP) (string, string, error
 	}
 
 	// TODO: handle case of multiple containers
-	c := cmd.GetCommand("")
-	if c == "" {
-		return "", "", fmt.Errorf("No suitable command found for TTP %s", cmd.TTP.Name)
-	}
-
-	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, targetNs, c)
+	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, targetNs, cmd.Command)
 	return stdOut, stdErr, err
 }
 

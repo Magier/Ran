@@ -153,6 +153,11 @@ func (c *Campaign) AddRelations(relations ...domain.Relation) int {
 	return numChanges
 }
 
+func (c Campaign) selectBestCommandVariant(ttp domain.TTP) (domain.CmdVariant, error) {
+	// TODO: select the variant to execute
+	return ttp.CmdVariants[0], nil
+}
+
 func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message, error) {
 	execCmd := domain.ExecTTP{
 		CommandImpl: domain.NewCmd(),
@@ -167,9 +172,18 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 	}
 	execCmd.CommandMsg = cmdMsg
 
-	execCmd.CmdVariants = groundCommands(ttp.CmdVariants, func(template string) (string, error) {
+	variant, err := c.selectBestCommandVariant(ttp)
+	if err != nil {
+		return nil, err
+	}
+
+	variant, err = groundCommandVariant(variant, func(template string) (string, error) {
 		return c.groundCmdTemplate(template, ttp.Args)
 	})
+	if err != nil {
+		return nil, err
+	}
+	execCmd.Variant = variant
 
 	var target domain.Entity
 	target, ok := c.kb.GetEntity(targetId)
@@ -177,16 +191,20 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 		execCmd.Target = target
 	}
 
-	if isActionOnRemoteTarget(execCmd.TTP) {
+	if isActionOnRemoteTarget(execCmd.TTP, execCmd.Variant) {
 		var system domain.Pod
 		switch t := target.(type) {
 		case domain.Pod:
 			system = t
 		case domain.ServiceAccount:
 			system = c.getServiceAccountOwner(t)
-			execCmd.CmdVariants = groundCommands(execCmd.CmdVariants, func(template string) (string, error) {
+
+			variant, err = groundCommandVariant(variant, func(template string) (string, error) {
 				return c.groundServiceAccountTemplate(template, t)
 			})
+			if err != nil {
+				execCmd.Variant = variant
+			}
 		}
 
 		if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
@@ -202,18 +220,16 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 
 type GroundFn func(string) (string, error)
 
-func groundCommands(variants []domain.CmdVariant, fn GroundFn) []domain.CmdVariant {
+func groundCommandVariant(variant domain.CmdVariant, fn GroundFn) (domain.CmdVariant, error) {
 	// if a specific Cmd is set, treat it as the top priority variant
-	cmdVariants := make([]domain.CmdVariant, 0)
-	// TODO order the variants depending on utility/priority
-	for _, cmdVariant := range variants {
-		if cmd, err := fn(cmdVariant.Command); err == nil {
-			cmdVariants = append(cmdVariants, domain.CmdVariant{Key: cmdVariant.Key, Command: cmd})
-		} else {
-			slog.Error(err.Error())
-		}
+	cmd, err := fn(variant.Command)
+	if err == nil {
+		// copy variant, to ensure all other fields remain the same
+		groundedVariant := variant
+		groundedVariant.Command = cmd
+		return groundedVariant, nil
 	}
-	return cmdVariants
+	return variant, err
 }
 
 func (c Campaign) groundCmdTemplate(template string, variables map[string]string) (string, error) {
@@ -283,7 +299,12 @@ func (c Campaign) groundServiceAccountTemplate(template string, sa domain.Servic
 }
 
 // Determine if the TTP will be executed in the target environment, or the operator infrastructure
-func isActionOnRemoteTarget(ttp domain.TTP) bool {
+func isActionOnRemoteTarget(ttp domain.TTP, cmd domain.CmdVariant) bool {
+	if cmd.IsLocalCommand {
+		return false
+	}
+
+	// TODO: get rid of this approach
 	switch ttp.Tactic {
 	case domain.Reconnaissance, domain.ResourceDevelopment:
 		return false

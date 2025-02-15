@@ -186,7 +186,7 @@ func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 		return c.stopListener(cmd)
 	case domain.ExecTTP:
 		c2Channel := cmd.C2Channel.(domain.ImplantC2Channel)
-		switch cmd.GetCommand(SliverKind) {
+		switch cmd.Variant.Command {
 		case "get_file":
 			path, ok := cmd.TTP.Args["Path"]
 			if !ok {
@@ -205,6 +205,7 @@ func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 			if err != nil {
 				return nil, err
 			}
+			// TODO: get rid of the result handling here and return generic result
 			return cmd.TTP.HandleResult(cmd.Target, data)
 		}
 	}
