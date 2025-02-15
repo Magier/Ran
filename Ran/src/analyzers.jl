@@ -1,7 +1,7 @@
- import JSON3
- using Base64
+import JSON3
+using Base64
 
- function analyzeEnvironmentVariables( event:: EnvironmentVariablesExtracted) :: Union{Event,Nothing}
+function analyzeEnvironmentVariables(event::EnvironmentVariablesExtracted)::Union{Event,Nothing}
     """Extract interesting facts from the environment variables.
     Kubernetes provides useful information as environment variables by default, such as:
     - the name of the pod
@@ -17,7 +17,7 @@
     podName = get(event.variables, "HOSTNAME", "?")
     ns = Namespace(name="?")
     # TODO: env vars don't imply it's in a Pod?
-    pod = Pod(id=event.sourceSystemId, name=podName, ns=ns)
+    pod = System(id=event.sourceSystemId, name=podName, ns=ns)
 
     services = getServicesFromEnvVars(event.variables)
 
@@ -43,7 +43,7 @@ end
 
 
 
-function getServicesFromEnvVars(variables:: Dict{String, String}) :: Dict
+function getServicesFromEnvVars(variables::Dict{String,String})::Dict
     """Extract services from the environment variables.
     To extract services automatically populated by Kubernetes, a simple heuristic is used.
         1) look for all entries ending with `<xyz>_SERVICE_HOST`, the leading `<xyz>` is the service name
@@ -83,7 +83,7 @@ function getServicesFromEnvVars(variables:: Dict{String, String}) :: Dict
             p = svcVars["SERVICE_PORT"]  # this var should always be present
             ports[p] = parse(Int, p)
         end
-        svcGroups[svc] = Dict("host"=> host, "ports"=> ports)
+        svcGroups[svc] = Dict("host" => host, "ports" => ports)
     end
 
     return svcGroups
@@ -91,7 +91,7 @@ end
 
 
 
-function analyzeExtractedServiceAccountToken(event:: ServiceAccountTokenExtracted) :: Union{NewFacts, Nothing}
+function analyzeExtractedServiceAccountToken(event::ServiceAccountTokenExtracted)::Union{NewFacts,Nothing}
     header, encData, signature = split(event.rawToken, ".")
     # add max of padding before decoding in case padding is missing (
     # extra padding will be ignored by Python's b64decode function anyways
@@ -119,7 +119,7 @@ function analyzeExtractedServiceAccountToken(event:: ServiceAccountTokenExtracte
     )
 
     token = ServiceAccountToken(
-        jwtToken = jwt,
+        jwtToken=jwt,
         namespace=k8sInfo["namespace"],
         podName=k8sInfo["pod"]["name"],
         podUid=k8sInfo["pod"]["uid"],

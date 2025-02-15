@@ -14,7 +14,7 @@ cmdVariants:
     command: hostname -i
 # parser: environmentVariables
 effects:
-  - "$$ has-ip"
+  - target.ip
 # defend: {}
 references:
 

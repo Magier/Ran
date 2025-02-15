@@ -60,3 +60,8 @@ type C2ConnectFailed struct {
 func (c C2ConnectFailed) String() string {
 	return fmt.Sprintf("Failed to connect to %s: %s", c.Name, c.Reason)
 }
+
+type BinaryDownloaded struct {
+	Name string
+	Path string
+}

@@ -17,10 +17,14 @@ type Action struct {
 	ID           string
 	title, desc  string
 	requirements domain.Requirements
+	params       map[string]domain.Parameter
+	args         map[string]string
 }
+
 type ActionSelected struct {
 	ActionID string
 	Action   domain.Message
+	Args     map[string]any
 }
 
 func (a Action) Title() string       { return a.title }
@@ -45,11 +49,13 @@ func NewArmory(armory armory.Armory, width float32) Model {
 			title:        ttp.GetTitle(),
 			desc:         ttp.GetDescription(),
 			requirements: ttp.Requires,
+			params:       ttp.Params,
+			args:         ttp.Args,
 		})
 	}
 
 	armoryList := list.New(actions, NewActionItemDelegate(), 40, 30)
-	armoryList.Title = "Armory"
+	// armoryList.Title = "Armory"
 	armoryList.SetShowStatusBar(false)
 	var style = lipgloss.NewStyle().
 		Bold(true).
@@ -85,10 +91,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			case tea.KeyEnter:
 				selectedIdx := m.actions.Index()
 				actions := m.actions.Items()
-				cmd = func() tea.Msg {
-					action := actions[selectedIdx].(Action)
-					return ActionSelected{ActionID: action.Title()}
-				}
+				action := actions[selectedIdx].(Action)
+				cmd = func() tea.Msg { return ActionSelected{ActionID: action.Title()} }
 				cmds = append(cmds, cmd)
 			}
 		}

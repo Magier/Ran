@@ -16,5 +16,6 @@ func newAtomicTestCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&godMode, "godmode", false, "enable Godmode to use the local kubeconfig context to load all available resources")
+	cmd.Flags().StringP("target", "t", "", `set the initial target for the emulation. In the pattern "<ns>/<service or pod>" or a URL`)
 	return cmd
 }
