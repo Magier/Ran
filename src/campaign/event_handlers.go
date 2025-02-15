@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"reflect"
 	"strconv"
 	"strings"
@@ -101,6 +102,13 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		event, err := fn(cmd.Target, cmd.Results...)
 		return event, err
 	}
+
+	if len(ttp.Effects) > 1 {
+		slog.Info(fmt.Sprintf("TTP has %d effects; using only first one", len(ttp.Effects)))
+	}
+	for _, effect := range ttp.Effects {
+		return parseEffect(effect, cmd.Target, cmd.Results...), nil
+	}
 	return nil, nil
 }
 
@@ -121,7 +129,7 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 	system := domain.C2System{
 		Kind: ev.Kind,
 		Name: ev.Name,
-		IP:   ev.IP,
+		IPs:  []net.IP{ev.IP},
 	}
 
 	rels := []domain.Relation{}
@@ -292,9 +300,14 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 		return nil, fmt.Errorf("No C2 '%s' found", ev.C2Server)
 	}
 
+	var c2IP net.IP
+	if len(c2.IPs) > 0 {
+		c2IP = c2.IPs[0]
+	}
+
 	c.listeners[id] = domain.Listener{
 		ID:         id,
-		IP:         c2.IP,
+		IP:         c2IP,
 		Port:       ev.Port,
 		Protocol:   ev.Protocol,
 		Redirector: "",
@@ -314,6 +327,25 @@ func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (d
 	}
 
 	return nil, nil
+}
+
+func parseEffect(effect string, source domain.Entity, args ...any) domain.Message {
+	entities := []domain.Entity{}
+	switch effect {
+	// TODO: set these 'attribute' effects via reflection
+	case "target.ip":
+		if pod, ok := source.(domain.Pod); ok {
+			ipStr := args[0].(string)
+			parsedIP := net.ParseIP(ipStr)
+			if parsedIP == nil {
+				slog.Error("Failed to parse IP")
+				break
+			}
+			pod.IPs = []net.IPAddr{{IP: parsedIP}}
+			entities = append(entities, pod)
+		}
+	}
+	return domain.FactsChanged{NewEntities: entities}
 }
 
 func (c *Campaign) onPrintGraph(ctx context.Context, msg domain.Message) (domain.Message, error) {
