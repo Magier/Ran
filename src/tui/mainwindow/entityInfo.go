@@ -1,6 +1,8 @@
 package mainwindow
 
 import (
+	"strings"
+
 	"github.com/Magier/Ran/domain"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -29,16 +31,27 @@ func renderEntity(entity domain.Entity) string {
 }
 
 func renderPod(e domain.Pod) string {
+	ips := []string{}
+	for _, ip := range e.IPs {
+		ips = append(ips, ip.String())
+	}
+
 	lines := []string{
 		"Pod ID: " + e.GetId(),
 		"Namespace: " + e.Namespace,
 		"HostName:" + strOrDefault(e.HostName, "?"),
-		"IP: " + strOrDefault(e.IP.String(), "?"),
+		"IP: " + strOrDefault(strings.Join(ips, ", "), "?"),
 		"NodeName: " + strOrDefault(e.NodeName, "?"),
 		"HostPID: " + strOrDefault(e.HostPID.String(), "?"),
 		"HostIPC: " + strOrDefault(e.HostIPC.String(), "?"),
 		"HostNetwork: " + strOrDefault(e.HostNetwork.String(), "?"),
 	}
+
+	// e.EnvVars
+
+	// e.mounts
+
+	// e.bins
 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }

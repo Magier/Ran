@@ -1,32 +1,34 @@
 
 mutable struct Campaign
     entities::Vector{Entity}
+    # entities::Dict{String,Entity}
     relations::Vector{AbstractRelation}
     assets::Vector{Asset}
-    armory::Dict{AbstractString, TTP}
+    armory::Dict{AbstractString,TTP}
 end
 
 
 function getTopology(campaign::Campaign)
     return Dict(
         "entities" => campaign.entities,
+        # "entities" => values(campaign.entities),
         "relations" => campaign.relations,
         "assets" => campaign.assets
     )
 end
 
-function structToDict(s::Any) :: Dict{AbstractString, Any}
-    return Dict(string(key)=>getfield(s, key) for key ∈ fieldnames(typeof(s)))
+function structToDict(s::Any)::Dict{AbstractString,Any}
+    return Dict(string(key) => getfield(s, key) for key ∈ fieldnames(typeof(s)))
 end
 
 
-function onClientConnected(ev::ClientConnected, campaign:: Campaign)
+function onClientConnected(ev::ClientConnected, campaign::Campaign)
     topology = getTopology(campaign)
     return SendToUi("armory", campaign.armory), SendToUi("topology", topology)
 end
 
 
-function onListenerReady(ev::ListenerReady, campaign:: Campaign)
+function onListenerReady(ev::ListenerReady, campaign::Campaign)
     push!(campaign.entities, Listener(id=ev.id, name="Listener $(ev.port)", port=ev.port, protocol="tcp"))
 
     topology = getTopology(campaign)
@@ -34,10 +36,10 @@ function onListenerReady(ev::ListenerReady, campaign:: Campaign)
 end
 
 
-function onSessionStarted(ev::SessionStarted, campaign:: Campaign)
+function onSessionStarted(ev::SessionStarted, campaign::Campaign)
     @debug("  [🧵$(Threads.threadid())][Campaign] session started")
 
-    push!(campaign.entities, System(id=ev.id, name=ev.hostname, os=ev.os, accessLevel=UserExecute ))
+    push!(campaign.entities, System(id=ev.id, name=ev.hostname, os=ev.os, accessLevel=UserExecute))
     # add direction of command (listener commands the target system)
     push!(campaign.relations, Relation(name="simple shell", source=ev.listenerId, destination=ev.id))
 
@@ -45,16 +47,23 @@ function onSessionStarted(ev::SessionStarted, campaign:: Campaign)
     return SendToUi("topology", topology)
 end
 
-function onSessionEnded(ev::SessionEnded, campaign:: Campaign)
+function onSessionEnded(ev::SessionEnded, campaign::Campaign)
     @debug("  [🧵$(Threads.threadid())][Campaign] session ended")
     # TODO remove system from campaign
     return []
 end
 
 
-function onPrepareTTP(ev::PrepareTTP, campaign:: Campaign)
+function onPrepareTTP(ev::PrepareTTP, campaign::Campaign)
     ttp = get(campaign.armory, ev.ttp, nothing)
-    return ExecuteActionOnTarget(ttp=ttp, target=ev.target)
+
+    target = get(campaign.entities, ev.target, nothing)
+    if target isa System
+        return ExecuteActionOnTarget(ttp=ttp, target=ev.target)
+    end
+    if target isa Listener
+        @warn ("not implemented do listener action")
+    end
 end
 
 function onActionExecuted(ev::ActionExecuted, campaign::Campaign)
@@ -80,7 +89,7 @@ function onNewFacts(ev::NewFacts, campaign::Campaign)
 
     topology = getTopology(campaign)
     return SendToUi("topology", topology)
-end 
+end
 
 function resetCampaign(ev::ResetCampaign, campaign::Campaign)
     # keep only the running listeners

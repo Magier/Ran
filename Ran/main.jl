@@ -1,5 +1,3 @@
-includet("src/Ran.jl")
-
+# includet("src/Ran.jl")
+include("src/Ran.jl")
 using .Ran
-
-Ran.main()

@@ -43,9 +43,7 @@ class Campaign:
         msg_bus.register_event_handler(events.SessionConnected, self.add_session)
         msg_bus.register_event_handler(events.SessionDisconnected, self.remove_session)
         msg_bus.register_event_handler(events.ServiceAccountTokenExtracted, self.handle_extracted_serviceaccount_token)
-        msg_bus.register_event_handler(
-            events.EnvironmentVariablesExtracted, self.analyze_extracted_environment_variables
-        )
+        msg_bus.register_event_handler(events.EnvironmentVariablesExtracted, self.analyze_extracted_environment_variables)
         msg_bus.register_event_handler(events.TokenCapabilitiesQueried, self.analyze_token_permissions)
         msg_bus.register_event_handler(events.SystemBinariesListed, self.analyze_system_binaries)
         msg_bus.register_event_handler(events.NewFacts, self.add_new_facts)
@@ -70,9 +68,7 @@ class Campaign:
         # TODO add any implicitely configured namespaces
 
         self.relations += event.relations
-        return events.UiEvent(
-            type=EventType.Topology, data=Topology(entities=self.entities.values(), relations=self.relations)
-        )
+        return events.UiEvent(type=EventType.Topology, data=Topology(entities=self.entities.values(), relations=self.relations))
 
     async def add_session(self, event: events.SessionConnected) -> Event | None:
         try:
@@ -81,9 +77,7 @@ class Campaign:
             self.entities[new_system.id] = new_system
             back_channel = Relation(name=f"{event.system.transport} channel", source=self.entities["c2"].id, destination=new_system.id)
             self.relations.append(back_channel)
-            ev = events.UiEvent(
-                type=EventType.Topology, data=Topology(entities=self.entities.values(), relations=self.relations)
-            )
+            ev = events.UiEvent(type=EventType.Topology, data=Topology(entities=self.entities.values(), relations=self.relations))
             return ev
         except Exception as exc:
             print("ERROR adding a session: " + str(exc))
@@ -111,33 +105,28 @@ class Campaign:
             # remove any relation to the deleted entities
             self.relations = [r for r in self.relations if not (r.source == entity_id or r.destination == entity_id)]
             self.entities.pop(entity_id)
-        ev = events.UiEvent(
-            type=EventType.Topology, data=Topology(entities=self.entities.values(), relations=self.relations)
-        )
+        ev = events.UiEvent(type=EventType.Topology, data=Topology(entities=self.entities.values(), relations=self.relations))
         return ev
-    
-    async def prepare_ttp(self, cmd: commands.PrepareTTP) -> commands.Command | None:
 
+    async def prepare_ttp(self, cmd: commands.PrepareTTP) -> commands.Command | None:
         ttp = self.armory.get_ttp_by_id(cmd.ttp_id)
         if ttp is None:
             raise ValueError(f"No TTP with the value '{cmd.ttp_id}' registered in the Armory")
 
         if cmd.system_id is None:
             pass
-            # TODO try to infer best target for the action 
+            # TODO try to infer best target for the action
 
         return commands.ExecuteTTP(
             name=cmd.name,
-            system_id = cmd.system_id,
+            system_id=cmd.system_id,
             ttp=ttp,
             target=cmd.target,
             technique=cmd.technique,
             params=cmd.params,
         )
 
-    async def handle_extracted_serviceaccount_token(
-        self, event: events.ServiceAccountTokenExtracted
-    ) -> events.NewFacts | None:
+    async def handle_extracted_serviceaccount_token(self, event: events.ServiceAccountTokenExtracted) -> events.NewFacts | None:
         header, enc_payload, signature = event.token.split(".")
         # add max of padding before decoding in case padding is missing (
         # extra padding will be ignored by Python's b64decode function anyways
@@ -188,9 +177,7 @@ class Campaign:
             relations=[sa_usage],
         )
 
-    async def analyze_extracted_environment_variables(
-        self, event: events.EnvironmentVariablesExtracted
-    ) -> Event | None:
+    async def analyze_extracted_environment_variables(self, event: events.EnvironmentVariablesExtracted) -> Event | None:
         """Extract interesting facts from the environment variables.
         Kubernetes provides useful information as environment variables by default, such as:
         - the name of the pod
@@ -221,9 +208,7 @@ class Campaign:
                 # TODO check if there are other services from the kube-system NS, which are added as env_var
                 sys = Service(name=svc, ip=data["host"], ports=data["ports"], ns=ns)
             entities.append(sys)
-            relations.append(
-                Relation(source=pod.id, destination=sys.id, name="references", data="extracted from env_vars")
-            )
+            relations.append(Relation(source=pod.id, destination=sys.id, name="references", data="extracted from env_vars"))
         # TODO: analyze if URL is K8s DNS specific
         return events.NewFacts(entities=entities, relations=relations, assets=[])
 
@@ -285,7 +270,7 @@ def get_services_from_env_vars(variables: dict[str, str]) -> dict:
         svc_vars = {k.replace(f"{svc}_", ""): v for k, v in variables.items() if k.startswith(svc)}
         host = svc_vars["SERVICE_HOST"]
         # specifically filter for named ports, which end with `SERVICE_PORT_<NAME>`
-        ports = {k.split("_")[-1]: int(p) for k, p, in svc_vars.items() if "SERVICE_PORT_" in k}
+        ports = {k.split("_")[-1]: int(p) for k, p in svc_vars.items() if "SERVICE_PORT_" in k}
         # if no named port is present, add the default port
         if len(ports) == 0:
             p = svc_vars["SERVICE_PORT"]  # this var should always be present
@@ -310,6 +295,6 @@ def merge_entities(e1: domain.Entity, e2: domain.Entity) -> domain.Entity:
     # if it's not a sublcass, then use the previous class, to avoid loosing facts
     ctor = class1 if issubclass(class1, class2) else class2
     attrs = {a: getattr(e, a) for e in [e1, e2] for a in e.model_fields_set}
-    attrs["id"] = e1.id # keep the initial ID
+    attrs["id"] = e1.id  # keep the initial ID
 
     return ctor(**attrs)

@@ -42,8 +42,9 @@ type HttpCmd struct {
 }
 
 type CmdVariant struct {
-	Key     string `yaml:"key"`
-	Command string `yaml:"command"`
+	Key            string `yaml:"key"`
+	Command        string `yaml:"command"`
+	IsLocalCommand bool   `yaml:"isLocal"`
 }
 
 // func (v CmdVariant) GetCmd() string {
@@ -81,7 +82,7 @@ type TTP struct {
 	HttpCmd     HttpCmd              `yaml:"httpCmd"`
 	Params      map[string]Parameter `yaml:"parameters"`
 	Args        map[string]string    `yaml:"args"`
-	Port        uint                 `yaml:"port"`
+	// Port        uint                 `yaml:"port"`
 
 	// Command    string `yaml:"command"`
 	CommandMsg Message // during unmarshal converted via Alias to the message

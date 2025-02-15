@@ -171,6 +171,17 @@ func (p Permission) IsSet() bool {
 
 type EntitiesExists []string
 
+// // Implements the Unmarshaler interface of the yaml pkg.
+// func (e *EntitiesExists) UnmarshalYAML(unmarshal func(interface{}) error) error {
+// 	var entities []string
+// 	err := unmarshal(&entities)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	*e = entities
+// 	return nil
+// }
+
 func (e EntitiesExists) Satisfies(requirement Condition) bool {
 	return false
 }
@@ -471,11 +482,21 @@ type Pod struct {
 	EnvVars     map[string]string
 	HostName    string
 	NodeName    string
+	HostPID     ProbBool
+	HostIPC     ProbBool
+	HostNetwork ProbBool
+	Devices     []string
+	Binaries    []string
 }
 
 func NewPod(name, ns string) Pod {
 	entity := NewK8sEntity(name, "Pod", ns)
-	return Pod{K8sEntity: entity}
+	return Pod{
+		K8sEntity:   entity,
+		HostPID:     .5,
+		HostIPC:     .5,
+		HostNetwork: .5,
+	}
 }
 
 type Deployment struct {

@@ -330,18 +330,28 @@ func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (d
 }
 
 func parseEffect(effect string, source domain.Entity, args ...any) domain.Message {
+	if len(args) == 0 {
+		slog.Warn("Can't parse effect %s because there are no arguments")
+		return nil
+	}
+
 	entities := []domain.Entity{}
 	switch effect {
 	// TODO: set these 'attribute' effects via reflection
 	case "target.ip":
 		if pod, ok := source.(domain.Pod); ok {
-			ipStr := args[0].(string)
-			parsedIP := net.ParseIP(ipStr)
-			if parsedIP == nil {
-				slog.Error("Failed to parse IP")
-				break
+			ips := []net.IPAddr{}
+			if res, ok := args[0].(string); ok {
+				for _, ip := range strings.Split(res, " ") {
+					parsedIP := net.ParseIP(ip)
+					if parsedIP == nil {
+						slog.Error("Failed to parse IP")
+						break
+					}
+					ips = append(ips, net.IPAddr{IP: parsedIP})
+				}
 			}
-			pod.IPs = []net.IPAddr{{IP: parsedIP}}
+			pod.IPs = ips
 			entities = append(entities, pod)
 		}
 	}

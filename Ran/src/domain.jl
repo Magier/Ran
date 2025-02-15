@@ -12,7 +12,10 @@ abstract type Asset end
     CredentialAccess = 6
     Discovery = 7
     LateralMovement = 8
-    Impact = 9
+    Collection = 9
+    CommandAndControl = 10
+    Exfiltration = 11
+    Impact = 12
 end
 
 @enum Technique begin
@@ -21,6 +24,7 @@ end
     GatherVictimHostInformation = 1592
     ContainerAndResourceDiscovery = 1613
     ExploitationForPrivilegeEscalation = 1068
+    WebService = 1102
     ContainerServiceAccount = 9016  # MS-TA9016
 
     SystemNetworkConfigurationDiscovery = 1016
@@ -48,11 +52,11 @@ include("./domain/entities.jl")
 
 
 abstract type AbstractRelation end
-Base.@kwdef struct  Relation <: AbstractRelation
+Base.@kwdef struct Relation <: AbstractRelation
     name::AbstractString
     source::AbstractString
     destination::AbstractString
-    data::Union{AbstractString, Nothing} = nothing
+    data::Union{AbstractString,Nothing} = nothing
 end
 
 

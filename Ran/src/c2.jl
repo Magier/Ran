@@ -17,7 +17,6 @@ end
 
 
 function sendCommand(conn, cmd::String, compress::Bool=true)
-
     if compress
         cmd = cmd * " | base64 -w 0; echo ''" # also need to drop the standard newlines after 76 chars
     end

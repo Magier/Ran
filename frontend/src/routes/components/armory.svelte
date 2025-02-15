@@ -26,7 +26,7 @@
 		CredentialAccess: IconCredentialAccess,
 		Discovery: IconDiscovery,
 		LateralMovement: IconDiscovery,
-		Impact: IconDiscovery,
+		Impact: IconDiscovery
 	};
 
 	// ==============================================================
@@ -38,8 +38,8 @@
 
 	const dispatch = createEventDispatcher();
 
-	let className = "";
-    export { className as class };
+	let className = '';
+	export { className as class };
 
 	export let selectedNode: Object | null = null;
 	export let globalConditions: Object = {};
@@ -62,7 +62,7 @@
 		store.armory((new_armory: Map<string, TTP[]>) => {
 			armory = new_armory;
 		});
-		store.sendMessage("armory", {});
+		store.sendMessage('armory', {});
 	});
 
 	onDestroy(() => {
@@ -118,9 +118,9 @@
 			{#each Object.entries(armory) as [id, ttp]}
 				<ActionCard
 					{ttp}
-					onClick={sendAction}
 					icon={iconMap[ttp.tactics[0]]}
 					conditions={selectedConditions}
+					onClick={sendAction}
 					on:click={() => sendAction(ttp)}
 				/>
 

