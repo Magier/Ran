@@ -258,7 +258,7 @@ type Ownable interface {
 type System struct {
 	Name        string
 	OS          string
-	IP          net.IP
+	IPs         []net.IP
 	AccessLevel AccessLevel
 }
 
@@ -276,7 +276,7 @@ func (s System) GetKind() string {
 type C2System struct {
 	Kind string
 	Name string
-	IP   net.IP
+	IPs  []net.IP
 }
 
 func (s C2System) GetId() string {
@@ -324,7 +324,6 @@ type K8sEntity struct {
 	Annotations map[string]string
 	CreatedAt   string
 	Owner       OwnerRef
-	IP          net.IP
 	AccessLevel AccessLevel
 }
 
@@ -467,11 +466,11 @@ func (id Identity) Can(permission string) bool {
 type Pod struct {
 	K8sEntity
 	// NamespacedResource
-	Spec     v1.PodSpec
-	IP       net.IPAddr
-	EnvVars  map[string]string
-	HostName string
-	NodeName string
+	Spec        v1.PodSpec
+	IPs         []net.IPAddr
+	EnvVars     map[string]string
+	HostName    string
+	NodeName    string
 }
 
 func NewPod(name, ns string) Pod {

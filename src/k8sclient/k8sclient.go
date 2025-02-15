@@ -106,20 +106,15 @@ func (client K8sClient) GetApiServer() (domain.ApiServer, error) {
 
 	name := "#API Server"
 	ns := "kube-system"
+	p := domain.NewPod(name, ns)
+
+	p.K8sEntity.Owner = domain.OwnerRef{
+		Uid:  fmt.Sprintf("ns/%s/wl/%s", ns, name),
+		Kind: "AbstractWorkload",
+		Name: name,
+	}
 	apiServerPod := domain.ApiServer{
-		Pod: domain.Pod{
-			K8sEntity: domain.K8sEntity{
-				Id:        "#apiServer",
-				Name:      name,
-				Kind:      "Pod",
-				Namespace: ns,
-				Owner: domain.OwnerRef{
-					Uid:  fmt.Sprintf("ns/%s/wl/%s", ns, name),
-					Kind: "AbstractWorkload",
-					Name: name,
-				},
-			},
-		},
+		Pod:        p,
 		ExternalIP: *apiServerIPAddr,
 		CAData:     client.Config.CAData,
 	}
@@ -218,18 +213,14 @@ func (c K8sClient) GetPods(ctx context.Context, ns string) ([]domain.Pod, error)
 		meta := pod.GetObjectMeta()
 		owner := getOwnerReference(meta)
 
-		pods = append(pods, domain.Pod{
-			K8sEntity: domain.K8sEntity{
-				Id:          string(meta.GetUID()),
-				Name:        meta.GetName(),
-				Namespace:   meta.GetNamespace(),
-				Kind:        "Pod",
-				Labels:      meta.GetLabels(),
-				Annotations: meta.GetAnnotations(),
-				Owner:       owner,
-			},
-			Spec: pod.Spec,
-		})
+		p := domain.NewPod(meta.GetName(), meta.GetNamespace())
+		p.K8sEntity.Id = string(meta.GetUID())
+		p.K8sEntity.Labels = meta.GetLabels()
+		p.K8sEntity.Annotations = meta.GetAnnotations()
+		p.K8sEntity.Owner = owner
+		p.Spec = pod.Spec
+
+		pods = append(pods, p)
 	}
 	return pods, nil
 }

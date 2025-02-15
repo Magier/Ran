@@ -118,8 +118,9 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 	for _, entity := range entities {
 		if prevEntity, exists := kg.GetEntity(entity.GetId()); exists {
 			entity = updateEntity(entity, prevEntity)
-		} else {
 			_ = kg.AddEntity(entity)
+		} else {
+			_ = kg.AddEntity(entity) // entity has to be added before the relation
 			switch entity.(type) {
 			case domain.Namespace:
 				if hasCluster {
