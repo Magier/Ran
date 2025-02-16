@@ -6,17 +6,27 @@ type Relation interface {
 	GetSourceId() string
 	GetTargetId() string
 	GetRelationName() string
+	IsReverse() bool
 }
 
 func GetRelationId(rel Relation) string {
 	return fmt.Sprintf("%s-[%s]->%s", rel.GetSourceId(), rel.GetRelationName(), rel.GetTargetId())
 }
 
+type RelationImpl struct{}
+
+func (r RelationImpl) IsReverse() bool {
+	return false
+}
+
 type Reference struct {
+	RelationImpl
 	Source string
 	Target string
 	Medium string
 }
+
+var _ Relation = (*Reference)(nil)
 
 func (r Reference) GetSourceId() string {
 	return r.Source
@@ -34,9 +44,12 @@ func (r Reference) String() string {
 }
 
 type Operates struct {
+	RelationImpl
 	Operator C2System
 	System   C2System
 }
+
+var _ Relation = (*Operates)(nil)
 
 func (r Operates) GetSourceId() string {
 	return r.Operator.GetId()
@@ -50,9 +63,12 @@ func (r Operates) GetRelationName() string {
 }
 
 type Contains struct {
+	RelationImpl
 	Container Entity
 	Object    Entity
 }
+
+var _ Relation = (*Contains)(nil)
 
 func (r Contains) GetSourceId() string {
 	return r.Container.GetId()
@@ -67,9 +83,12 @@ func (r Contains) GetRelationName() string {
 }
 
 type Owns struct {
+	RelationImpl
 	Owner  Entity
 	Object Ownable
 }
+
+var _ Relation = (*Owns)(nil)
 
 func (r Owns) GetSourceId() string {
 	return r.Owner.GetId()
@@ -89,6 +108,7 @@ type C2Channel interface {
 }
 
 type ImplantC2Channel struct {
+	RelationImpl
 	SessionId string
 	SourceId  string
 	Kind      string
@@ -119,6 +139,7 @@ func (ch ImplantC2Channel) GetKind() string {
 }
 
 type PodExecC2Channel struct {
+	RelationImpl
 	SourceId string
 	// Cmd    string
 	Target   Entity
@@ -148,9 +169,12 @@ func (ch PodExecC2Channel) GetKind() string {
 }
 
 type Uses struct {
+	RelationImpl
 	SubjectId string
 	ObjectId  string
 }
+
+var _ Relation = (*Uses)(nil)
 
 func (u Uses) GetSourceId() string {
 	return u.SubjectId
@@ -165,11 +189,14 @@ func (u Uses) GetRelationName() string {
 }
 
 type CanAccess struct {
+	RelationImpl
 	SourceId    string
 	TargetId    string
 	AccessLevel AccessLevel
 	Identity    Identity
 }
+
+var _ Relation = (*CanAccess)(nil)
 
 func (u CanAccess) GetSourceId() string {
 	return u.SourceId
@@ -195,12 +222,59 @@ func GetRelationCost(relation Relation) int {
 	return 0
 }
 
+type ManagesNode struct {
+	RelationImpl
+	Cluster Cluster
+	Node    K8sNode
+}
+
+var _ Relation = (*ManagesNode)(nil)
+
+func (r ManagesNode) GetSourceId() string {
+	return r.Cluster.GetId()
+}
+func (r ManagesNode) GetTargetId() string {
+	return r.Node.GetId()
+}
+
+func (r ManagesNode) GetRelationName() string {
+	return "manages-node"
+}
+
+type Runs struct {
+	RelationImpl
+	Node K8sNode
+	Pod  Pod
+}
+
+var _ Relation = (*Runs)(nil)
+
+func (r Runs) IsInverse() bool {
+	return true
+}
+
+func (r Runs) GetSourceId() string {
+	return r.Node.GetId()
+}
+func (r Runs) GetTargetId() string {
+	return r.Pod.GetId()
+}
+
+func (r Runs) GetRelationName() string {
+	return "runs"
+}
+
 type RunsOn struct {
+	RelationImpl
 	Pod  Pod
 	Node K8sNode
 }
 
 var _ Relation = (*RunsOn)(nil)
+
+func (r RunsOn) IsInverse() bool {
+	return true
+}
 
 func (r RunsOn) GetSourceId() string {
 	return r.Pod.GetId()
@@ -214,6 +288,7 @@ func (r RunsOn) GetRelationName() string {
 }
 
 type HasC2Session struct {
+	RelationImpl
 	System  Entity
 	Session Session
 }

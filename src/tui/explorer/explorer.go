@@ -134,17 +134,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			case " ":
 				e := m.entries[m.cursor]
 				m.expandEntry(e, !e.isExpanded)
-				// idx := getEntriesIndex(m.entities, m.entries[m.cursor].entity.GetId())
-				// m.entities[m.cursor].isExpanded = !m.entries[m.cursor].isExpanded
-				// m.entries = buildShownEntries(m.entities)
 			case "right", "l":
 				m.expandEntry(m.entities[m.cursor], true)
-				// m.entries[m.cursor].isExpanded = true
-				// m.entries = buildShownEntries(m.entities)
 			case "left", "h":
 				m.expandEntry(m.entities[m.cursor], false)
-				// m.entries[m.cursor].isExpanded = false
-				// m.entries = buildShownEntries(m.entities)
 			case "g": // go to the top
 				m.cursor = 0
 				cmd = selectEntity(m.entries[m.cursor])
@@ -199,7 +192,7 @@ func (m Model) rebuildEntries() Model {
 	}
 
 	adj := m.campaign.GetGraph()
-	adj = removeIrrelevantEdges(adj, []string{"can-access"})
+	adj = removeIrrelevantEdges(adj, []domain.Relation{domain.CanAccess{}, domain.RunsOn{}, domain.Runs{}})
 
 	entities := m.campaign.GetEntities()
 
@@ -224,6 +217,8 @@ func (m Model) rebuildEntries() Model {
 		}
 	})
 
+	// TODO: customize DFS, so the K8sNodes show the pods, without interfering with the logical perspective of namespaces and their workloads
+	// -> duplicate the entry
 	depthFirstTraversal(adj, "cluster", func(n string, level int, relation string) {
 		if e, ok := entities[n]; ok {
 			accessLevel, isPwnd := getAccessLevel(e)
@@ -253,11 +248,11 @@ func (m Model) rebuildEntries() Model {
 }
 
 // remove all entries from the given adjancency list, if the edge label is specified in the blacklist
-func removeIrrelevantEdges(adjList campaign.AdjacencyList, edgesToRemove []string) campaign.AdjacencyList {
+func removeIrrelevantEdges(adjList campaign.AdjacencyList, edgesToRemove []domain.Relation) campaign.AdjacencyList {
 	for node, neighbors := range adjList {
 		for neighbor, edge := range neighbors {
 			for _, e := range edgesToRemove {
-				if edge == e {
+				if edge == e.GetRelationName() {
 					delete(adjList[node], neighbor)
 				}
 			}
