@@ -29,14 +29,14 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 		return nil, fmt.Errorf(msg)
 	}
 
-	msg, err := c.GroundAction(ttp, ev.TargetID)
+	msg, err := c.GroundAction(ttp, ev.TargetID, ev.Args)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
 	}
 	return msg, err
 }
 
-func hydrateCommand(ttp domain.TTP, execID string) (domain.Command, error) {
+func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (domain.Command, error) {
 	switch cmd := ttp.CommandMsg.(type) {
 	case domain.StartListener:
 		// t := reflect.TypeOf(cmd)
@@ -50,7 +50,7 @@ func hydrateCommand(ttp domain.TTP, execID string) (domain.Command, error) {
 			return nil, errors.New("Can't ground PreAction, because cmd is not a struct!")
 		}
 
-		for name, v := range ttp.Args {
+		for name, v := range args {
 			name = strcase.ToCamel(name)
 			f := reflect.ValueOf(v)
 			field := c.FieldByName(name)

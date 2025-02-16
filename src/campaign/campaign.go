@@ -155,35 +155,37 @@ func (c *Campaign) AddRelations(relations ...domain.Relation) int {
 
 func (c Campaign) selectBestCommandVariant(ttp domain.TTP) (domain.CmdVariant, error) {
 	// TODO: select the variant to execute
+	// - keep track of tried variants
+	// - favor robust C2 over builtin one
+
+	if len(ttp.CmdVariants) == 0 {
+		return domain.CmdVariant{}, errors.New("No valid Command Variant available for TTP " + ttp.GetID())
+	}
 	return ttp.CmdVariants[0], nil
 }
 
-func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message, error) {
+func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]string) (domain.Message, error) {
 	execCmd := domain.ExecTTP{
 		CommandImpl: domain.NewCmd(),
 		TTP:         ttp,
+		Args:        args,
 	}
 	execCmd.SetID(uuid.New().String())
 
 	// it's a technique on the C2 side to prepare the infrastructure, not in the target environment
-	cmdMsg, err := hydrateCommand(ttp, execCmd.ID)
+	cmdMsg, err := hydrateCommand(ttp, execCmd.ID, args)
 	if err != nil {
 		slog.Warn(err.Error())
 	}
 	execCmd.CommandMsg = cmdMsg
 
 	variant, err := c.selectBestCommandVariant(ttp)
-	if err != nil {
-		return nil, err
-	}
+	// TODO: re-enable this error check
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	variant, err = groundCommandVariant(variant, func(template string) (string, error) {
-		return c.groundCmdTemplate(template, ttp.Args)
-	})
-	if err != nil {
-		return nil, err
-	}
-	execCmd.Variant = variant
+	execCmd.Variant.Command = c.groundCmdTemplate(variant.Command, ttp.Args)
 
 	var target domain.Entity
 	target, ok := c.kb.GetEntity(targetId)
@@ -198,13 +200,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 			system = t
 		case domain.ServiceAccount:
 			system = c.getServiceAccountOwner(t)
-
-			variant, err = groundCommandVariant(variant, func(template string) (string, error) {
-				return c.groundServiceAccountTemplate(template, t)
-			})
-			if err != nil {
-				execCmd.Variant = variant
-			}
+			execCmd.Variant.Command = c.groundServiceAccountTemplate(execCmd.Variant.Command, t)
 		}
 
 		if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
@@ -220,19 +216,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string) (domain.Message,
 
 type GroundFn func(string) (string, error)
 
-func groundCommandVariant(variant domain.CmdVariant, fn GroundFn) (domain.CmdVariant, error) {
-	// if a specific Cmd is set, treat it as the top priority variant
-	cmd, err := fn(variant.Command)
-	if err == nil {
-		// copy variant, to ensure all other fields remain the same
-		groundedVariant := variant
-		groundedVariant.Command = cmd
-		return groundedVariant, nil
-	}
-	return variant, err
-}
-
-func (c Campaign) groundCmdTemplate(template string, variables map[string]string) (string, error) {
+func (c Campaign) groundCmdTemplate(template string, variables map[string]string) string {
 	if strings.Contains(template, "${API_SERVER}") {
 		apiUrl, err := c.GetApiUrl(true)
 		if err != nil {
@@ -266,7 +250,7 @@ func (c Campaign) groundCmdTemplate(template string, variables map[string]string
 		template = strings.Replace(template, templateVariable, v, -1)
 	}
 
-	return template, nil
+	return template
 }
 
 func (c Campaign) getServiceAccountOwner(sa domain.ServiceAccount) domain.Pod {
@@ -289,13 +273,13 @@ func (c Campaign) getServiceAccountOwner(sa domain.ServiceAccount) domain.Pod {
 	return system
 }
 
-func (c Campaign) groundServiceAccountTemplate(template string, sa domain.ServiceAccount) (string, error) {
+func (c Campaign) groundServiceAccountTemplate(template string, sa domain.ServiceAccount) string {
 	template = strings.Replace(template, "${TOKEN}", sa.Token.Raw, -1)
 	template = strings.Replace(template, "${CA_PATH}", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt", -1)
 	template = strings.Replace(template, "${NS}", sa.Namespace, -1)
 	template = strings.Replace(template, "${SA_NAME}", sa.Name, -1)
 
-	return template, nil
+	return template
 }
 
 // Determine if the TTP will be executed in the target environment, or the operator infrastructure

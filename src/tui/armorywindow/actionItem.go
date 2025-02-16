@@ -90,7 +90,7 @@ func (d actionItemDelegate) Render(w io.Writer, m list.Model, index int, listIte
 	}
 
 	isSatisfied := false
-	if action.requirements.Satisfied(d.target, d.target.AccessLevel, d.condition.State) {
+	if action.Requirements.Satisfied(d.target, d.target.AccessLevel, d.condition.State) {
 		isSatisfied = true
 	}
 
@@ -133,7 +133,7 @@ func (d actionItemDelegate) Render(w io.Writer, m list.Model, index int, listIte
 	if d.base.ShowDescription && action.Description() != "" {
 		fmt.Fprintf(w, "\n%s", desc)
 	}
-	requirementsLine := renderRequirementBadges(action.requirements, d.condition, s.NormalTitle)
+	requirementsLine := renderRequirementBadges(action.Requirements, d.condition, s.NormalTitle)
 	if requirementsLine != "" {
 		fmt.Fprintf(w, "\n%s", requirementsLine)
 	}
