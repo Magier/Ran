@@ -121,10 +121,17 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 			_ = kg.AddEntity(entity)
 		} else {
 			_ = kg.AddEntity(entity) // entity has to be added before the relation
-			switch entity.(type) {
+			switch e := entity.(type) {
 			case domain.Namespace:
 				if hasCluster {
 					err := kg.AddRelation(domain.Contains{Container: cluster, Object: entity})
+					if err != nil {
+						slog.Error(err.Error())
+					}
+				}
+			case domain.K8sNode:
+				if hasCluster {
+					err := kg.AddRelation(domain.ManagesNode{Cluster: cluster, Node: e})
 					if err != nil {
 						slog.Error(err.Error())
 					}
@@ -208,8 +215,14 @@ func (kg BuiltInKnowledgeBase) GetC2s() []domain.C2System {
 func (kg BuiltInKnowledgeBase) AddRelation(rel domain.Relation) error {
 	kg.Relations[domain.GetRelationId(rel)] = rel
 	cost := domain.GetRelationCost(rel)
+
+	dir := "forward"
+	if rel.IsReverse() {
+		dir = "back"
+	}
 	return kg.graph.AddEdge(rel.GetSourceId(), rel.GetTargetId(),
 		graph.EdgeAttribute("label", rel.GetRelationName()),
+		graph.EdgeAttribute("dir", dir),
 		graph.EdgeWeight(cost),
 		graph.EdgeData(rel),
 	)
