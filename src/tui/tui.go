@@ -17,6 +17,7 @@ import (
 	logwindow "github.com/Magier/Ran/tui/logwindow"
 	"github.com/Magier/Ran/tui/mainwindow"
 	"github.com/Magier/Ran/tui/statusbar"
+	"github.com/Magier/Ran/tui/widgets"
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -70,16 +71,12 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Pr
 		msg := event.(domain.ErrorMsg)
 
 		if msg.Level == domain.LevelFatal {
-			// fatal message means the normal operation is not possible
-			// retryCmd := func() tea.Msg {
-			// 	return closeModalMsg{}
-			// }
-			p.Send(showModalMsg{
-				hideRest: true,
-				text:     msg.Msg,
-				actions: []ModalAction{
+			p.Send(widgets.ShowModalMsg{
+				HideRest: true,
+				Text:     msg.Msg,
+				Actions: []widgets.ModalAction{
 					// {Label: "Retry", Action: retryCmd},
-					{Label: "Quit", Action: tea.Quit},
+					{Label: "Quit", Action: func(map[string]string) tea.Cmd { return tea.Quit }},
 				},
 			})
 		} else {
@@ -111,7 +108,7 @@ type model struct {
 	campaign   *campaign.Campaign
 	keymap     keymap
 	help       help.Model
-	modal      ModalModel
+	modal      widgets.ModalModel
 	width      int
 	height     int
 }
@@ -146,7 +143,7 @@ func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) mod
 		logWindow:  logWindow,
 		explorer:   explorer,
 		windows:    wnds,
-		modal:      NewModal(),
+		modal:      widgets.NewModal(),
 		focusedWnd: focusedWnd,
 		statusBar:  statusBar,
 		help:       help.New(),
@@ -202,17 +199,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 		}
 	case armorywindow.ActionSelected:
-		targetID := m.explorer.GetSelectedEntity()
-
-		err := m.bus.Publish(domain.ActionSelected{
-			ActionID: msg.ActionID,
-			TargetID: targetID,
-		})
-
-		if err != nil {
-			slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
-		}
-		m.focusWindow(ExplorerWnd)
+		action := msg.Action
+		cmds = append(cmds, m.handleActionSelection(action)...)
 	case domain.StartC2:
 		err := m.bus.Publish(msg)
 		if err != nil {
@@ -247,10 +235,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusWindow(LogWnd)
 			}
 		}
-	case showModalMsg:
-		m.modal.SetContent(msg.text, msg.actions)
-		m.modal.Show()
-	case closeModalMsg:
+	case widgets.ShowModalMsg:
+		m.modal.SetContent(msg.Text, msg.Fields, msg.Actions)
+		m.modal.Show(true)
+		// remove focus from other window, to prevent propagating msgs in the background of the modal
+		oldWnd, ok := m.windows[m.focusedWnd]
+		if ok {
+			oldWnd.Blur()
+		}
+	case widgets.CloseModalMsg:
 		m.modal.Hide()
 	}
 	return m, tea.Batch(cmds...)
@@ -259,10 +252,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	var s string
 
+	var modalContent string
 	if m.modal.IsVisible {
-		s = m.modal.View()
+		modalContent = m.modal.View()
 		if m.modal.HideRest {
-			return s
+			return modalContent
 		}
 	}
 
@@ -290,6 +284,16 @@ func (m model) View() string {
 			armoryView),
 		statusBar,
 	)
+
+	if modalContent != "" {
+		s = lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			modalContent,
+			// 	// lipgloss.WithWhitespaceChars("猫咪"),
+			// lipgloss.WithWhitespaceForeground(subtle),
+		)
+	}
+
 	return s
 }
 
@@ -316,4 +320,48 @@ func (m *model) focusWindow(id Wnd) {
 	}
 	m.focusedWnd = id
 	m.windows[m.focusedWnd].Focus()
+}
+
+func (m model) handleActionSelection(action armorywindow.Action) []tea.Cmd {
+	cmds := []tea.Cmd{}
+
+	targetID := m.explorer.GetSelectedEntity()
+	cmd := domain.ActionSelected{
+		ActionID: action.ID,
+		TargetID: targetID,
+	}
+
+	sendAction := func(fields map[string]string) {
+		cmd.Args = fields
+		err := m.bus.Publish(cmd)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
+		}
+		m.focusWindow(ExplorerWnd)
+	}
+
+	// if the action has parameters, show the modal to specify the arguments
+	// otherwise, send of the aciton
+	if len(action.Params) > 0 {
+		modalActions := []widgets.ModalAction{
+			{Label: "Run", Action: func(fields map[string]string) tea.Cmd {
+				sendAction(fields)
+				return nil
+			}},
+			{Label: "Cancel", Action: func(map[string]string) tea.Cmd { return nil }},
+		}
+
+		resMsg := widgets.ShowModalMsg{
+			HideRest: true,
+			Title:    action.Name,
+			Text:     action.Desc,
+			Fields:   action.GetFormFields(),
+			Type:     widgets.Confirm,
+			Actions:  modalActions,
+		}
+		cmds = append(cmds, func() tea.Msg { return resMsg })
+	} else {
+		sendAction(nil)
+	}
+	return cmds
 }

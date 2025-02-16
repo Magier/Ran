@@ -1,35 +1,86 @@
 package armory
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
 	tuimsg "github.com/Magier/Ran/tui/messages"
 	"github.com/Magier/Ran/tui/theme"
+	"github.com/Magier/Ran/tui/widgets"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 const ellipsis = "…"
 
 type Action struct {
 	ID           string
-	title, desc  string
-	requirements domain.Requirements
-	params       map[string]domain.Parameter
-	args         map[string]string
+	Name, Desc   string
+	Requirements domain.Requirements
+	Params       map[string]domain.Parameter
+	Args         map[string]string
+}
+
+func (a Action) Title() string       { return a.Name }
+func (a Action) Description() string { return a.Desc }
+func (a Action) FilterValue() string { return a.Name }
+
+func (a Action) GetFormFields() []widgets.FormField {
+
+	fields := []widgets.FormField{}
+	for name, param := range a.Params {
+		var elem widgets.Element
+
+		switch strings.ToLower(param.Type) {
+		case "string":
+			input := textinput.New()
+			input.Placeholder = name
+			input.SetValue(param.Default)
+			input.Width = 100
+			elem = input
+		case "int":
+			input := textinput.New()
+			input.Placeholder = name
+			input.SetValue(param.Default)
+			input.Validate = intValidator
+			elem = input
+			// case "bool":
+			// 	input :=
+			// 	input.Placeholder = name
+			// 	input.SetValue(param.Default)
+			// 	input.Validate = intValidator
+			// 	elem = input
+		}
+		fields = append(fields, widgets.FormField{
+			Label: cases.Title(language.English, cases.NoLower).String(name),
+			Elem:  elem,
+		})
+	}
+	return fields
+}
+func intValidator(s string) error {
+	// TODO check the range, if one is specified
+	_, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return fmt.Errorf("%s is not a valid number", s)
+	}
+	return nil
 }
 
 type ActionSelected struct {
-	ActionID string
-	Action   domain.Message
-	Args     map[string]any
+	ActionID  string
+	Action    Action
+	ActionMsg domain.Message
+	Args      map[string]any
 }
-
-func (a Action) Title() string       { return a.title }
-func (a Action) Description() string { return a.desc }
-func (a Action) FilterValue() string { return a.title }
 
 type Model struct {
 	actions list.Model
@@ -46,16 +97,17 @@ func NewArmory(armory armory.Armory, width float32) Model {
 	for _, ttp := range armory.GetTTPs() {
 		actions = append(actions, Action{
 			ID:           ttp.GetID(),
-			title:        ttp.GetTitle(),
-			desc:         ttp.GetDescription(),
-			requirements: ttp.Requires,
-			params:       ttp.Params,
-			args:         ttp.Args,
+			Name:         ttp.GetTitle(),
+			Desc:         ttp.GetDescription(),
+			Requirements: ttp.Requires,
+			Params:       ttp.Params,
+			Args:         ttp.Args,
 		})
 	}
 
 	armoryList := list.New(actions, NewActionItemDelegate(), 40, 30)
 	// armoryList.Title = "Armory"
+	armoryList.SetShowTitle(false)
 	armoryList.SetShowStatusBar(false)
 	var style = lipgloss.NewStyle().
 		Bold(true).
@@ -89,10 +141,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.focused {
 			switch msg.Type {
 			case tea.KeyEnter:
-				selectedIdx := m.actions.Index()
-				actions := m.actions.Items()
-				action := actions[selectedIdx].(Action)
-				cmd = func() tea.Msg { return ActionSelected{ActionID: action.Title()} }
+				action := m.actions.SelectedItem().(Action)
+				m.actions.ResetFilter()
+				cmd = func() tea.Msg { return ActionSelected{Action: action} }
 				cmds = append(cmds, cmd)
 			}
 		}

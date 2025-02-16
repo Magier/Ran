@@ -57,6 +57,7 @@ type ActionSelected struct {
 	EventImpl
 	ActionID string
 	TargetID string
+	Args     map[string]string
 }
 
 var _ Event = (*ActionSelected)(nil)

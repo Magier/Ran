@@ -57,6 +57,7 @@ type Parameter struct {
 	Required    bool     `yaml:"required" default:"true"`
 	Description string   `yaml:"description"`
 	Examples    []string `yaml:"examples"`
+	Default     string   `yaml:"default"`
 }
 
 func (p *Parameter) UnmarshalYAML(unmarshal func(interface{}) error) error {
