@@ -133,7 +133,7 @@ func executeTTP(ctx context.Context, msg domain.Message, c2Clients map[string]C2
 		return nil, fmt.Errorf("No suitable client found to start listener")
 	}
 
-	if exec.Variant.IsLocalCommand {
+	if exec.Variant.IsLocalCommand || exec.C2Channel == nil {
 		results, err = execLocally(ctx, exec, exec.Variant, c2Clients)
 	} else {
 		results, err = execRemotely(ctx, exec, exec.Variant, c2Clients)
@@ -154,12 +154,18 @@ func executeTTP(ctx context.Context, msg domain.Message, c2Clients map[string]C2
 	}, nil
 }
 
-func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant, c2Clients map[string]C2Client) ([]any, error) {
+func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant, _ map[string]C2Client) ([]any, error) {
 	var err error
 	if exec.TTP.Execute.Code != "" {
 		err = executeCode(exec.TTP.Execute)
 		if err != nil {
 			slog.Warn(err.Error())
+		}
+	} else if cmd.Command != "" {
+		if cmd.Key == "kubectl" {
+			// TODO use the custom k8sclient to execute this -> generalize kubectl exec
+		} else {
+			slog.Warn(fmt.Sprintf("Unclear hwo to locally execute variant '%s'", cmd.Command))
 		}
 	} else {
 		slog.Warn("Can't Exec TTP: no channel defined and no code provided!")
@@ -200,15 +206,6 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVarian
 			// return msg, err
 		} else {
 			results = []any{stdout, stderr}
-		}
-	case nil:
-		if exec.TTP.Execute.Code != "" {
-			err = executeCode(exec.TTP.Execute)
-			if err != nil {
-				slog.Warn(err.Error())
-			}
-		} else {
-			slog.Warn("Can't Exec TTP: no channel defined and no code provided!")
 		}
 	default:
 		slog.Warn(fmt.Sprintf("Can't Exec TTP: unclear how to handle channel %v", ch))

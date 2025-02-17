@@ -179,13 +179,13 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 	}
 	execCmd.CommandMsg = cmdMsg
 
-	variant, err := c.selectBestCommandVariant(ttp)
+	execCmd.Variant, err = c.selectBestCommandVariant(ttp)
 	// TODO: re-enable this error check
 	// if err != nil {
 	// 	return nil, err
 	// }
 
-	execCmd.Variant.Command = c.groundCmdTemplate(variant.Command, ttp.Args)
+	execCmd.Variant.Command = c.groundCmdTemplate(execCmd.Variant.Command, args)
 
 	var target domain.Entity
 	target, ok := c.kb.GetEntity(targetId)
