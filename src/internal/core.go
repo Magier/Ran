@@ -46,10 +46,7 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 	// TODO maybe switch between TUI and web-UI (start frontend as well?)
 
 	if loadKubeConfig {
-		namespaces := []string{
-			"default",
-			"restricted-ns",
-		}
+		namespaces := []string{}
 		go loadClusterData(ctx, mb, namespaces)
 	}
 

@@ -192,7 +192,7 @@ func (m Model) rebuildEntries() Model {
 	}
 
 	adj := m.campaign.GetGraph()
-	adj = removeIrrelevantEdges(adj, []domain.Relation{domain.CanAccess{}, domain.RunsOn{}, domain.Runs{}})
+	adj = removeIrrelevantEdges(adj, []domain.Relation{domain.CanAccess{}, domain.RunsOn{}, domain.Runs{}, domain.Uses{}})
 
 	entities := m.campaign.GetEntities()
 

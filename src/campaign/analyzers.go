@@ -130,6 +130,10 @@ func analyzeServiceAccountToken(token string) (domain.Event, error) {
 		SubjectId: pod.GetId(),
 		ObjectId:  sa.GetId(),
 	}
+	nsContainsSa := domain.Contains{
+		Container: ns,
+		Object:    sa,
+	}
 
 	// bound SA tokens also provide information on the node it is running on
 	node := domain.NewK8sNode(saToken.Kubernetes.Node.Name)
@@ -148,7 +152,7 @@ func analyzeServiceAccountToken(token string) (domain.Event, error) {
 	return domain.FactsChanged{
 		NewEntities:  []domain.Entity{ns, sa, pod, node},
 		NewAssets:    []domain.Asset{saToken},
-		NewRelations: []domain.Relation{saUsage, nodeRunsPod, podRunsOnNode},
+		NewRelations: []domain.Relation{saUsage, nsContainsSa, nodeRunsPod, podRunsOnNode},
 	}, nil
 
 }
