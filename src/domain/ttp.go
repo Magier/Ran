@@ -82,7 +82,7 @@ type TTP struct {
 	CmdVariants []CmdVariant         `yaml:"cmdVariants"`
 	HttpCmd     HttpCmd              `yaml:"httpCmd"`
 	Params      map[string]Parameter `yaml:"parameters"`
-	Args        map[string]string    `yaml:"args"`
+	// Args        map[string]string    `yaml:"args"`
 	// Port        uint                 `yaml:"port"`
 
 	// Command    string `yaml:"command"`
@@ -112,7 +112,7 @@ func (ttp TTP) GetMessage() Message {
 	} else {
 		return ExecTTP{
 			CommandImpl: NewCmd(),
-			TTP:         ttp, Args: ttp.Args,
+			// TTP:         ttp, Args: ttp.Args,
 		}
 	}
 }
