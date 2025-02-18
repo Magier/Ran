@@ -281,3 +281,29 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string) (
 
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), nil
 }
+
+func DeployPod(ctx context.Context, client K8sClient, podName, ns, image, cmd string, hostIPC, hostPID, hostNetwork bool) (string, error) {
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: podName},
+		Spec: v1.PodSpec{
+			RestartPolicy: v1.RestartPolicyNever,
+			Containers: []v1.Container{{
+				Name:    podName,
+				Image:   image,
+				Command: strings.Fields(cmd),
+				// Args:    []string{"-c", "print()"},
+			}},
+		},
+	}
+
+	p, err := client.CoreV1().Pods(ns).Create(
+		context.Background(),
+		pod,
+		metav1.CreateOptions{},
+	)
+	if err != nil {
+		return "", err
+	}
+	return p.Status.String(), nil
+
+}

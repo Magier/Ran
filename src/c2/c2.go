@@ -164,6 +164,17 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant
 	} else if cmd.Command != "" {
 		if cmd.Key == "kubectl" {
 			// TODO use the custom k8sclient to execute this -> generalize kubectl exec
+			client, err := k8s.NewK8sClient("")
+			if err != nil {
+				return nil, err
+			}
+
+			podName := exec.Args["Name"]
+			ns := exec.Args["Namespace"]
+			image := exec.Args["Image"]
+			cmd := exec.Args["Command"]
+			status, err := k8s.DeployPod(ctx, client, podName, ns, image, cmd, hostPID, hostIPC, hostNetwork)
+			return []any{status}, err
 		} else {
 			slog.Warn(fmt.Sprintf("Unclear hwo to locally execute variant '%s'", cmd.Command))
 		}
