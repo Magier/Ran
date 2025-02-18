@@ -34,7 +34,6 @@ func (a Action) Description() string { return a.Desc }
 func (a Action) FilterValue() string { return a.Name }
 
 func (a Action) GetFormFields() []widgets.FormField {
-
 	fields := []widgets.FormField{}
 	for name, param := range a.Params {
 		var elem widgets.Element
@@ -52,12 +51,15 @@ func (a Action) GetFormFields() []widgets.FormField {
 			input.SetValue(param.Default)
 			input.Validate = intValidator
 			elem = input
-			// case "bool":
-			// 	input :=
-			// 	input.Placeholder = name
-			// 	input.SetValue(param.Default)
-			// 	input.Validate = intValidator
-			// 	elem = input
+		case "bool":
+			input := widgets.CheckBox{}
+			v := false
+			boolValue, err := strconv.ParseBool(param.Default)
+			if err == nil {
+				v = boolValue
+			}
+			input.SetValue(v)
+			elem = input
 		}
 		fields = append(fields, widgets.FormField{
 			Label: cases.Title(language.English, cases.NoLower).String(name),

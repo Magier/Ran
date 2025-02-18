@@ -1,6 +1,8 @@
 package widgets
 
 import (
+	"strconv"
+
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -19,7 +21,7 @@ var (
 	dialogBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#874BFD")).
-			Padding(1, 0).
+			Padding(0, 1, 1).
 			BorderTop(true).
 			BorderLeft(true).
 			BorderRight(true).
@@ -70,24 +72,32 @@ type Element interface {
 }
 
 type FormField struct {
-	Label string
-	Elem  Element
+	Label   string
+	Elem    Element
+	Options []string
 }
 
 func (f FormField) Update(msg tea.Msg) (FormField, tea.Cmd) {
+	var cmd tea.Cmd
 	switch e := f.Elem.(type) {
 	case textinput.Model:
-		newModel, cmd := e.Update(msg)
+		var newModel textinput.Model
+		newModel, cmd = e.Update(msg)
 		f.Elem = newModel
-		return f, cmd
+	case CheckBox:
+		var cbx CheckBox
+		cbx, cmd = e.Update(msg)
+		f.Elem = cbx
 	}
-	return f, nil
+	return f, cmd
 }
 
 func (f FormField) Value() string {
 	switch e := f.Elem.(type) {
 	case textinput.Model:
 		return e.Value()
+	case CheckBox:
+		return strconv.FormatBool(e.Value())
 	}
 	return ""
 }
@@ -97,11 +107,17 @@ func (f *FormField) Blur() {
 	case textinput.Model:
 		e.Blur()
 		f.Elem = e
+	case CheckBox:
+		e.Blur()
+		f.Elem = e
 	}
 }
 func (f *FormField) Focus() {
 	switch e := f.Elem.(type) {
 	case textinput.Model:
+		e.Focus()
+		f.Elem = e
+	case CheckBox:
 		e.Focus()
 		f.Elem = e
 	}
@@ -183,10 +199,12 @@ func (m ModalModel) Update(msg tea.Msg) (ModalModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *ModalModel) SetContent(text string, fields []FormField, actions []ModalAction) {
+func (m *ModalModel) SetContent(title, text string, fields []FormField, actions []ModalAction) {
+	m.Title = title
 	m.Text = text
 	m.Fields = fields
 	m.Actions = actions
+	m.Fields[0].Focus()
 }
 
 func (m *ModalModel) Show(hideRest bool) {
@@ -210,22 +228,28 @@ func (m ModalModel) View() string {
 		buttons = append(buttons, style.Render(action.Label))
 	}
 
-	content := lipgloss.NewStyle().Width(100).Align(lipgloss.Center).Foreground(warn).Render(m.Text)
+	titleStyle := lipgloss.NewStyle().Align(lipgloss.Center).Bold(true)
 
+	content := lipgloss.JoinVertical(lipgloss.Center,
+		titleStyle.Render(m.Title), "\n",
+		defaultStyle.Render(m.Text),
+	)
+	// content := lipgloss.NewStyle().Align(lipgloss.Center).Foreground(warn).Render(m.Text) + "\n\n"
+
+	fields := []string{}
 	for i, field := range m.Fields {
 		style := defaultStyle
 		if i == m.focusedField {
 			style = focusedStyle
 		}
-
-		content += style.Render(field.View()) + "\n"
+		fields = append(fields, style.Render(field.View()))
 	}
+	body := lipgloss.JoinVertical(lipgloss.Left, fields...)
 
 	ui := lipgloss.JoinVertical(
-		lipgloss.Center, content,
+		lipgloss.Center, content, "\n", body,
 		lipgloss.JoinHorizontal(lipgloss.Top, buttons...),
 	)
-
 	// dialog := lipgloss.Place(m.screenWidth, m.screenHeight,
 	// 	lipgloss.Center, lipgloss.Center,
 	// 	dialogBoxStyle.Render(ui),
