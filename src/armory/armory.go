@@ -135,8 +135,12 @@ func loadTools(dir string) ([]domain.TTP, error) {
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal YAML content from file %s: %w", w, err)
 			}
-			// ttp.CommandMsg = parseCommandToMessage(ttp.Command)
-			ttps = append(ttps, tool.TTPs...)
+
+			for _, ttp := range tool.TTPs {
+				ttp.Name = fmt.Sprintf("%s: %s", tool.Name, ttp.Name)
+				// ttp.CommandMsg = parseCommandToMessage(ttp.Command)
+				ttps = append(ttps, ttp)
+			}
 		}
 		return nil
 	})

@@ -103,7 +103,7 @@ func NewArmory(armory armory.Armory, width float32) Model {
 			Desc:         ttp.GetDescription(),
 			Requirements: ttp.Requires,
 			Params:       ttp.Params,
-			Args:         ttp.Args,
+			// Args:         ttp.Args,
 		})
 	}
 

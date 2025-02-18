@@ -188,13 +188,13 @@ func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 		c2Channel := cmd.C2Channel.(domain.ImplantC2Channel)
 		switch cmd.Variant.Command {
 		case "get_file":
-			path, ok := cmd.TTP.Args["Path"]
+			path, ok := cmd.Args["Path"]
 			if !ok {
 				return nil, fmt.Errorf("Path of file to retrieve is required as argument")
 			}
-			if len(cmd.TTP.Args) != 1 {
+			if len(cmd.Args) != 1 {
 				var args []string
-				for k, v := range cmd.TTP.Args {
+				for k, v := range cmd.Args {
 					args = append(args, fmt.Sprintf("%s=%s", k, v))
 				}
 				argsStr := strings.Join(args, ", ")
