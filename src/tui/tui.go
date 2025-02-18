@@ -236,7 +236,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case widgets.ShowModalMsg:
-		m.modal.SetContent(msg.Text, msg.Fields, msg.Actions)
+		m.modal.SetContent(msg.Title, msg.Text, msg.Fields, msg.Actions)
 		m.modal.Show(true)
 		// remove focus from other window, to prevent propagating msgs in the background of the modal
 		oldWnd, ok := m.windows[m.focusedWnd]
