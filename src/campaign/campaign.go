@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/Magier/Ran/armory"
@@ -180,10 +181,16 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 	execCmd.CommandMsg = cmdMsg
 
 	execCmd.Variant, err = c.selectBestCommandVariant(ttp)
-	// TODO: re-enable this error check
-	// if err != nil {
-	// 	return nil, err
-	// }
+	if err != nil {
+		return nil, err
+	}
+
+	// use the default value for all parameters, if no extra arg is specified
+	for k, v := range execCmd.TTP.Params {
+		if _, ok := args[k]; !ok {
+			args[k] = v.Default
+		}
+	}
 
 	execCmd.Variant.Command = c.groundCmdTemplate(execCmd.Variant.Command, args)
 
@@ -209,6 +216,13 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 				execCmd.C2Channel = c2Channel
 			}
 		}
+	}
+
+	// safety: warn about any variable, that was not properly grounded
+	re := regexp.MustCompile(`\$\{([^}]+)\}`)
+	vars := re.FindAllStringSubmatch(execCmd.Variant.Command, -1)
+	for _, v := range vars {
+		slog.Warn(fmt.Sprintf("Ungrounded variable '%s' NOT found in command", v[1]))
 	}
 
 	return execCmd, nil
