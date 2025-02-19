@@ -40,9 +40,10 @@ func CreateSliverClient(configPath string) SliverClient {
 		log.Fatal(err)
 	}
 	return SliverClient{
-		Name:       SliverKind,
-		config:     config,
-		cmdChannel: make(chan domain.Command, 1),
+		Name:        SliverKind,
+		config:      config,
+		cmdChannel:  make(chan domain.Command, 1),
+		eventStream: make(chan domain.Event, 1),
 	}
 }
 

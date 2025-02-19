@@ -57,6 +57,7 @@ type Field struct {
 type Model struct {
 	c                   *campaign.Campaign
 	Width               int
+	tuiHeight           int
 	c2ServerStatus      Field
 	listenerStatus      Field
 	identityStatus      Field
@@ -89,6 +90,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
+		m.tuiHeight = msg.Height
 	case c2.C2ConnectFailed:
 		m.selectedC2 = msg.Name
 		m.c2ServerStatus.title = "not connected to " + msg.Name
@@ -119,7 +121,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.identityStatus.color = activeColorConfig
 		}
 	case tea.MouseMsg:
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		// check if the click was just on the statusBar (= last row of the TUI)
+		clickOnStatusBar := msg.Button == tea.MouseButtonLeft && msg.Y >= m.tuiHeight
+		if msg.Action == tea.MouseActionPress && clickOnStatusBar {
 			c2StatusCol := renderField(m.c2ServerStatus)
 			if msg.X < lipgloss.Width(c2StatusCol) {
 				cmd = func() tea.Msg { return domain.StartC2{C2Name: m.selectedC2} }
