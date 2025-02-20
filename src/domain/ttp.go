@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/creasty/defaults"
+	"gopkg.in/yaml.v3"
 )
 
 type ResultHandler = func(source Entity, args ...any) (Event, error)
@@ -52,7 +53,7 @@ type CmdVariant struct {
 // }
 
 type Parameter struct {
-	// Name        string `yaml:"name"`
+	Name        string   `yaml:"name"`
 	Type        string   `yaml:"type"`
 	Required    bool     `yaml:"required" default:"true"`
 	Description string   `yaml:"description"`
@@ -79,9 +80,9 @@ type TTP struct {
 
 	References []string `yaml:"references"`
 
-	CmdVariants []CmdVariant         `yaml:"cmdVariants"`
-	HttpCmd     HttpCmd              `yaml:"httpCmd"`
-	Params      map[string]Parameter `yaml:"parameters"`
+	CmdVariants []CmdVariant `yaml:"cmdVariants"`
+	HttpCmd     HttpCmd      `yaml:"httpCmd"`
+	Params      []Parameter
 	// Args        map[string]string    `yaml:"args"`
 	// Port        uint                 `yaml:"port"`
 
@@ -155,11 +156,28 @@ var CmdMapping = map[string]Message{
 	"CreateRedirector": StartC2Redirector{},
 }
 
+// whacky hack to keep order of params defined as dict: https://github.com/go-yaml/yaml/issues/698
+type ParamSlice []Parameter
+
+func (p *ParamSlice) UnmarshalYAML(value *yaml.Node) error {
+	for i := 0; i < len(value.Content); i += 2 {
+		var param Parameter
+		if err := value.Content[i+1].Decode(&param); err != nil {
+			return err
+		}
+		param.Name = value.Content[i].Value
+		*p = append(*p, param)
+	}
+
+	return nil
+}
+
 type TTPAlias TTP
 type YAMLTTP struct {
 	TTPAlias `yaml:",inline"` // alias is necessary to avoid infinite loop during Unmarshaling TTP -> YAMLTTP (with embedded TTP)
 	// Parser   string           `yaml:"parser"`
-	Command string `yaml:"command"`
+	Command    string     `yaml:"command"`
+	Parameters ParamSlice `yaml:"parameters"`
 	// Preconditions map[string]interface{} `yaml:"preconditions"`
 }
 
@@ -177,6 +195,11 @@ func (t YAMLTTP) TTP() (TTP, error) {
 			})
 		}
 	}
+
+	for _, param := range t.Parameters {
+		ttp.Params = append(ttp.Params, param)
+	}
+
 	// ttp.Parser = parsers.HandleSaTokenRead
 	return ttp, nil
 }
