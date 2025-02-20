@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -173,7 +174,33 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant
 			ns := exec.Args["Namespace"]
 			image := exec.Args["Image"]
 			cmd := exec.Args["Command"]
-			status, err := k8s.DeployPod(ctx, client, podName, ns, image, cmd, hostPID, hostIPC, hostNetwork)
+			nodeName := exec.Args["NodeName"]
+
+			checkFlag := func(key string) (bool, error) {
+				valStr, ok := exec.Args[key]
+				if ok {
+					val, err := strconv.ParseBool(valStr)
+					if err != nil {
+						return false, fmt.Errorf("invalid %s value '%s': %w", key, key, err)
+					}
+					return val, nil
+				}
+				return false, fmt.Errorf("'%s' is not a valid argument", key)
+			}
+
+			hostNetwork, _ := checkFlag("HostNetwork")
+			hostIPC, _ := checkFlag("HostIPC")
+			hostPID, _ := checkFlag("HostPID")
+			privileged, _ := checkFlag("Privileged")
+			podCfg := k8s.PodConfig{
+				Command:     cmd,
+				HostIPC:     hostIPC,
+				HostPID:     hostPID,
+				HostNetwork: hostNetwork,
+				Privileged:  privileged,
+				NodeName:    nodeName,
+			}
+			status, err := k8s.DeployPod(ctx, client, podName, ns, image, podCfg)
 			return []any{status}, err
 		} else {
 			slog.Warn(fmt.Sprintf("Unclear hwo to locally execute variant '%s'", cmd.Command))
