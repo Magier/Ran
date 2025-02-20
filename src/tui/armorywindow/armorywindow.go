@@ -25,7 +25,7 @@ type Action struct {
 	ID           string
 	Name, Desc   string
 	Requirements domain.Requirements
-	Params       map[string]domain.Parameter
+	Params       []domain.Parameter
 	Args         map[string]string
 }
 
@@ -35,19 +35,19 @@ func (a Action) FilterValue() string { return a.Name }
 
 func (a Action) GetFormFields() []widgets.FormField {
 	fields := []widgets.FormField{}
-	for name, param := range a.Params {
+	for _, param := range a.Params {
 		var elem widgets.Element
 
 		switch strings.ToLower(param.Type) {
 		case "string":
 			input := textinput.New()
-			input.Placeholder = name
+			input.Placeholder = param.Name
 			input.SetValue(param.Default)
 			input.Width = 100
 			elem = input
 		case "int":
 			input := textinput.New()
-			input.Placeholder = name
+			input.Placeholder = param.Name
 			input.SetValue(param.Default)
 			input.Validate = intValidator
 			elem = input
@@ -62,7 +62,7 @@ func (a Action) GetFormFields() []widgets.FormField {
 			elem = input
 		}
 		fields = append(fields, widgets.FormField{
-			Label: cases.Title(language.English, cases.NoLower).String(name),
+			Label: cases.Title(language.English, cases.NoLower).String(param.Name),
 			Elem:  elem,
 		})
 	}

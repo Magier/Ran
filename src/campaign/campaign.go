@@ -186,12 +186,11 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 	}
 
 	// use the default value for all parameters, if no extra arg is specified
-	for k, v := range execCmd.TTP.Params {
-		if _, ok := args[k]; !ok {
-			args[k] = v.Default
+	for _, param := range execCmd.TTP.Params {
+		if _, ok := args[param.Name]; !ok {
+			args[param.Name] = param.Default
 		}
 	}
-
 	execCmd.Variant.Command = c.groundCmdTemplate(execCmd.Variant.Command, args)
 
 	var target domain.Entity

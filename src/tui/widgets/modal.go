@@ -166,10 +166,10 @@ func (m ModalModel) Update(msg tea.Msg) (ModalModel, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.IsVisible {
 			switch msg.Type {
-			case tea.KeyTab, tea.KeyCtrlN:
+			case tea.KeyTab, tea.KeyCtrlN, tea.KeyDown:
 				m.nextElement()
 				m.activeButton = (m.activeButton + 1) % len(m.Actions)
-			case tea.KeyShiftTab, tea.KeyCtrlP:
+			case tea.KeyShiftTab, tea.KeyCtrlP, tea.KeyUp:
 				m.prevElement()
 				numActions := len(m.Actions)
 				// workaround because GO does not have math. sound modulo operation :(
