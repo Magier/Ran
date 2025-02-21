@@ -482,11 +482,22 @@ type Pod struct {
 	EnvVars     map[string]string
 	HostName    string
 	NodeName    string
+	Privileged  ProbBool
 	HostPID     ProbBool
 	HostIPC     ProbBool
 	HostNetwork ProbBool
 	Devices     []string
 	Binaries    []string
+}
+type PodConfig struct {
+	Image       string
+	Command     string
+	Args        []string
+	HostIPC     bool
+	HostPID     bool
+	HostNetwork bool
+	Privileged  bool
+	NodeName    string
 }
 
 func NewPod(name, ns string) Pod {

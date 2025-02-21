@@ -19,6 +19,8 @@ func GetParser(parserName string) domain.ParserFn {
 		return HandleEnvVarResult
 	case "selfSubjectReview", "authCanI":
 		return HandleSelfSubjectReviewResult
+	case "newContainer":
+		return HandleNewContainer
 	}
 	return nil
 }
@@ -105,5 +107,38 @@ func HandleSelfSubjectReviewResult(source domain.Entity, args ...any) (domain.Ev
 		ServiceAccount:   sa,
 		ResourceRules:    result.Status.ResourceRules,
 		NonResourceRules: result.Status.NonResourceRules,
+	}, nil
+}
+
+func HandleNewContainer(source domain.Entity, args ...any) (domain.Event, error) {
+	numArgs := len(args)
+	if numArgs == 0 {
+		return nil, fmt.Errorf("No data")
+	}
+	if numArgs != 3 {
+		return nil, fmt.Errorf("Expected podName, namespaceName and podConfig; got %d args instead", numArgs)
+	}
+
+	podName := args[0].(string)
+	nsName := args[1].(string)
+	p := domain.NewPod(podName, nsName)
+	cfg := args[2].(domain.PodConfig)
+
+	p.HostIPC = domain.NewProbBool(cfg.HostIPC)
+	p.HostPID = domain.NewProbBool(cfg.HostPID)
+	p.HostNetwork = domain.NewProbBool(cfg.HostNetwork)
+	p.Privileged = domain.NewProbBool(cfg.Privileged)
+
+	ns := domain.Namespace{Name: nsName}
+	status := args[3].(string)
+	var _ = status
+
+	rels := []domain.Relation{
+		domain.Contains{Container: ns, Object: p},
+	}
+
+	return domain.FactsChanged{
+		NewEntities:  []domain.Entity{ns, p},
+		NewRelations: rels,
 	}, nil
 }

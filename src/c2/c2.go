@@ -192,7 +192,8 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant
 			hostIPC, _ := checkFlag("HostIPC")
 			hostPID, _ := checkFlag("HostPID")
 			privileged, _ := checkFlag("Privileged")
-			podCfg := k8s.PodConfig{
+			podCfg := domain.PodConfig{
+				Image:       image,
 				Command:     cmd,
 				HostIPC:     hostIPC,
 				HostPID:     hostPID,
@@ -200,8 +201,9 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant
 				Privileged:  privileged,
 				NodeName:    nodeName,
 			}
-			status, err := k8s.DeployPod(ctx, client, podName, ns, image, podCfg)
-			return []any{status}, err
+			status, err := k8s.DeployPod(ctx, client, podName, ns, podCfg)
+			var _ = status
+			return []any{podName, ns, podCfg}, err
 		} else {
 			slog.Warn(fmt.Sprintf("Unclear hwo to locally execute variant '%s'", cmd.Command))
 		}
