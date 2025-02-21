@@ -31,15 +31,6 @@ type KubeContext struct {
 	Server   string
 	ServerCA []uint8
 }
-type PodConfig struct {
-	Command     string
-	Args        []string
-	HostIPC     bool
-	HostPID     bool
-	HostNetwork bool
-	Privileged  bool
-	NodeName    string
-}
 
 func GetConfig() (*restclient.Config, KubeContext, error) {
 	home, exists := os.LookupEnv("HOME")
@@ -291,7 +282,7 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string) (
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), nil
 }
 
-func DeployPod(ctx context.Context, client K8sClient, podName, ns, image string, cfg PodConfig) (string, error) {
+func DeployPod(ctx context.Context, client K8sClient, podName, ns string, cfg domain.PodConfig) (string, error) {
 	// TODO: sysctls are on the PodSecurityContext
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: podName},
@@ -303,7 +294,7 @@ func DeployPod(ctx context.Context, client K8sClient, podName, ns, image string,
 			NodeName:      cfg.NodeName,
 			Containers: []v1.Container{{
 				Name:    podName,
-				Image:   image,
+				Image:   cfg.Image,
 				Command: strings.Fields(cfg.Command),
 				// Args:    []string{"-c", "print()"},
 				SecurityContext: &v1.SecurityContext{
