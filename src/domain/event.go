@@ -194,3 +194,13 @@ type GraphRendered struct {
 func (e GraphRendered) String() string {
 	return fmt.Sprintf("saved graph %s ", e.Path)
 }
+
+type AttackFlowSaved struct {
+	EventImpl
+	Path string
+}
+
+func (e AttackFlowSaved) String() string {
+	return fmt.Sprintf("saved attack flow to %s ", e.Path)
+}
+

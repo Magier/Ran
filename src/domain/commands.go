@@ -109,3 +109,12 @@ type PrintGraph struct {
 func (p PrintGraph) String() string {
 	return "printGraph"
 }
+
+type SaveAttackFlow struct {
+	CommandImpl
+	Path string
+}
+
+func (p SaveAttackFlow) String() string {
+	return "saveAttackFlow"
+}

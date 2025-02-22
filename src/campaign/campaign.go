@@ -66,6 +66,7 @@ func StartCampaign(mb bus.MessageBus, armory armory.Armory) *Campaign {
 	mb.Subscribe(domain.ServiceAccountTokenExtracted{}, campaign.onServiceAccountTokenExtracted)
 	mb.Subscribe(domain.TokenPermissionsRetrieved{}, campaign.onTokenPermissionsExtracted)
 	mb.Subscribe(domain.PrintGraph{}, campaign.onPrintGraph)
+	mb.Subscribe(domain.SaveAttackFlow{}, campaign.onSaveAttackFlow)
 	mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)
 
 	// err := mb.Publish(CampaignStarted{})
@@ -181,7 +182,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 	execCmd.CommandMsg = cmdMsg
 
 	execCmd.Variant, err = c.selectBestCommandVariant(ttp)
-	if err != nil {
+	if err != nil && cmdMsg == nil {
 		return nil, err
 	}
 
