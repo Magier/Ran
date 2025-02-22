@@ -16,6 +16,7 @@ import (
 	"github.com/Magier/Ran/tui/explorer"
 	logwindow "github.com/Magier/Ran/tui/logwindow"
 	"github.com/Magier/Ran/tui/mainwindow"
+	tuimsg "github.com/Magier/Ran/tui/messages"
 	"github.com/Magier/Ran/tui/statusbar"
 	"github.com/Magier/Ran/tui/widgets"
 	"github.com/charmbracelet/bubbles/help"
@@ -96,21 +97,22 @@ func RunTUI(p *tea.Program) {
 }
 
 type model struct {
-	bus        bus.MessageBus
-	armory     armorywindow.Model
-	explorer   explorer.Model
-	mainWindow mainwindow.Model
-	cmdPrompt  commandprompt.Model
-	statusBar  statusbar.Model
-	logWindow  logwindow.Model
-	focusedWnd Wnd
-	windows    map[Wnd]FocusableWnd
-	campaign   *campaign.Campaign
-	keymap     keymap
-	help       help.Model
-	modal      widgets.ModalModel
-	width      int
-	height     int
+	bus         bus.MessageBus
+	armory      armorywindow.Model
+	explorer    explorer.Model
+	mainWindow  mainwindow.Model
+	cmdPrompt   commandprompt.Model
+	statusBar   statusbar.Model
+	logWindow   logwindow.Model
+	focusedWnd  Wnd
+	windows     map[Wnd]FocusableWnd
+	campaign    *campaign.Campaign
+	keymap      keymap
+	help        help.Model
+	modal       widgets.ModalModel
+	width       int
+	height      int
+	isFiltering bool
 }
 
 func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) model {
@@ -206,6 +208,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			slog.Error("Error sending command to msg bus!!", "", err.Error())
 		}
+	case tuimsg.ContentFilterStarted:
+		m.isFiltering = true
+	case tuimsg.ContentFilterStopped:
+		m.isFiltering = false
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
@@ -219,20 +225,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// default:
 		// 	return handleKeyMsg(m, msg)
 		default:
-			switch msg.String() {
-			case "p":
-				err := m.bus.Publish(domain.PrintGraph{CommandImpl: domain.NewCmd()})
-				if err != nil {
-					slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
+			// avoid accidently executing commands when filtering content
+			if !m.isFiltering {
+				switch msg.String() {
+				case "p":
+					err := m.bus.Publish(domain.PrintGraph{CommandImpl: domain.NewCmd()})
+					if err != nil {
+						slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
+					}
+				case "a":
+					m.focusWindow(ArmoryWnd)
+				case "e":
+					m.focusWindow(ExplorerWnd)
+				case ":":
+					m.focusWindow(CmdPrompt)
+				case "L":
+					m.focusWindow(LogWnd)
 				}
-			case "a":
-				m.focusWindow(ArmoryWnd)
-			case "e":
-				m.focusWindow(ExplorerWnd)
-			case ":":
-				m.focusWindow(CmdPrompt)
-			case "L":
-				m.focusWindow(LogWnd)
 			}
 		}
 	case widgets.ShowModalMsg:
