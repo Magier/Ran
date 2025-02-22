@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -382,4 +383,25 @@ func (c *Campaign) onPrintGraph(ctx context.Context, msg domain.Message) (domain
 		return domain.GraphRendered{Path: path}, nil
 	}
 	return nil, nil
+}
+
+func (c *Campaign) onSaveAttackFlow(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	cmd, ok := msg.(domain.SaveAttackFlow)
+	if !ok {
+		return nil, errors.New("Received invalid valiad SaveAttackFlow command")
+	}
+
+	af, err := c.trail.ConvertToAttackFlow()
+	if err != nil {
+		return nil, errors.New("Received invalid valiad SaveAttackFlow command")
+	}
+	data, err := af.Marshal()
+	if err != nil {
+		return nil, errors.New("Couldn't marshal attack flow to JSON: " + err.Error())
+	}
+	err = os.WriteFile(cmd.Path, []byte(data), 0644)
+	if err != nil {
+		return nil, fmt.Errorf("Failed o save attack flow: %w", err)
+	}
+	return domain.AttackFlowSaved{Path: cmd.Path}, nil
 }

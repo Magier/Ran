@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	attackflow "github.com/Magier/Ran/attack_flow"
 	"github.com/Magier/Ran/domain"
 )
 
@@ -62,6 +63,7 @@ func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool) {
 	}
 }
 
-func (a AuditTrail) Export(ttp domain.TTP, success bool) error {
-	return nil
+func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
+
+	return attackflow.StixBundle{}, nil
 }
