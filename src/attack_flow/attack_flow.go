@@ -8,6 +8,8 @@ package attackflow
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -22,12 +24,95 @@ func (r *StixBundle) Marshal() ([]byte, error) {
 }
 
 type StixBundle struct {
-	Type        string       `json:"type"`
-	ID          string       `json:"id"`
-	SpecVersion string       `json:"spec_version"`
-	Created     time.Time    `json:"created"`
-	Modified    time.Time    `json:"modified"`
-	Objects     []StixObject `json:"objects"`
+	Type        string      `json:"type"`
+	ID          string      `json:"id"`
+	SpecVersion string      `json:"spec_version"`
+	Created     time.Time   `json:"created"`
+	Modified    time.Time   `json:"modified"`
+	Objects     ObjectSlice `json:"objects"`
+}
+type ObjectSlice []StixObject
+
+func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
+	var obj []json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+
+	for _, raw := range obj {
+		sdo := SDO{}
+		if err := json.Unmarshal(raw, &sdo); err != nil {
+			e := err.Error()
+			slog.Error(e)
+			return err
+		}
+
+		var err error
+		var obj StixObject
+
+		switch sdo.Type {
+		case "extension-definition":
+			var o ExtensionDefinition
+			err = json.Unmarshal(raw, &o)
+			obj = o
+		case "identity":
+			var o Identity
+			err = json.Unmarshal(raw, &o)
+			obj = o
+		case "attack-flow":
+			var o AttackFlow
+			err = json.Unmarshal(raw, &o)
+			obj = o
+		case "attack-action":
+			var o AttackAction
+			err = json.Unmarshal(raw, &o)
+			obj = o
+		case "attack-condition":
+			var o AttackCondition
+			err = json.Unmarshal(raw, &o)
+			obj = o
+		case "attack-asset":
+			var o AttackAsset
+			err = json.Unmarshal(raw, &o)
+			obj = o
+		case "attack-operator":
+			var o AttackOperator
+			err = json.Unmarshal(raw, &o)
+			obj = o
+		case "relationship":
+			var o Relationship
+			err = json.Unmarshal(raw, &o)
+			obj = o
+		case "infrastructure":
+			var o Infrastructure
+			err = json.Unmarshal(raw, &o)
+			obj = o
+		case "note":
+			var o Note
+			err = json.Unmarshal(raw, &o)
+			obj = o
+		default:
+			err = fmt.Errorf("%s SDO type is not correctly unmarshalled", sdo.Type)
+		}
+		if err != nil {
+			e := err.Error()
+			slog.Error(e)
+			return err
+		} else {
+			*objects = append(*objects, obj)
+		}
+	}
+
+	// for i := 0; i < len(value.Content); i += 2 {
+	// 	var param Parameter
+	// 	if err := value.Content[i+1].Decode(&param); err != nil {
+	// 		return err
+	// 	}
+	// 	param.Name = value.Content[i].Value
+	// 	*p = append(*p, param)
+	// }
+
+	return nil
 }
 
 type SDO struct {
@@ -41,7 +126,7 @@ type SDO struct {
 	Confidence         *int                `json:"confidence"`
 	Description        string              `json:"description"`
 	ExternalReferences []ExternalReference `json:"external_references"`
-	Extensions         []Extension         `json:"extensions"`
+	Extensions         Extensions          `json:"extensions"`
 }
 
 func (sdo SDO) GetType() string {
@@ -58,12 +143,12 @@ type ExternalReference struct {
 	URL         string `json:"url"`
 }
 type ExtensionDefinition struct {
-	// ExtensionType string `json:"extension_type"`
 	SDO            `json:",inline"`
 	Schema         string   `json:"schema"`
 	Version        string   `json:"version"`
 	ExtensionTypes []string `json:"extension_types"`
 }
+
 type Extension struct {
 	Type string `json:"type"`
 	// Properties ExtensionsProperties `json:"properties"`
@@ -81,6 +166,16 @@ var _ StixObject = (*AttackFlow)(nil)
 type Identity struct {
 	SDO                `json:",inline"`
 	ContactInformation string `json:"contact_information"`
+}
+type Infrastructure struct {
+	SDO                 `json:",inline"`
+	InfrastructureTypes []string `json:"infrastructure_types,omitempty"`
+}
+type Note struct {
+	SDO        `json:",inline"`
+	Abstract   string   `json:"abstract"`
+	Content    string   `json:"content"`
+	ObjectRefs []string `json:"object_refs"`
 }
 
 type AttackCondition struct {
@@ -109,17 +204,25 @@ type AttackAsset struct {
 	SDO       `json:",inline"`
 	ObjectRef string `json:"object_ref"`
 }
+type AttackOperator struct {
+	SDO        `json:",inline"`
+	Operator   string   `json:"operator"`
+	EffectRefs []string `json:"effect_refs"`
+}
 
-type RelationShip struct {
+type Relationship struct {
 	SDO
 	SourceRef        string `json:"source_ref"`
 	TargetRef        string `json:"target_ref"`
 	RelationshipType string `json:"relationship_type"`
 }
 
-// type Extensions struct {
-// 	ExtensionDefinition ExtensionDefinition `json:"extension-definition-"`
-// }
+type ExtensionDefInstance struct {
+	ExtensionType string `json:"extension_type"`
+}
+type Extensions struct {
+	ExtensionDefinition ExtensionDefInstance `json:"extension-definition-"`
+}
 
 type Objects struct {
 	Type               string              `json:"type"`
