@@ -11,6 +11,7 @@ import (
 	tuimsg "github.com/Magier/Ran/tui/messages"
 	"github.com/Magier/Ran/tui/theme"
 	"github.com/Magier/Ran/tui/widgets"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -141,12 +142,19 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.focused {
+
+			if key.Matches(msg, m.actions.KeyMap.Filter) {
+				cmds = append(cmds, func() tea.Msg { return tuimsg.ContentFilterStarted{} })
+			} else if m.actions.FilterState() == list.Filtering && key.Matches(msg, m.actions.KeyMap.ClearFilter) {
+				cmds = append(cmds, func() tea.Msg { return tuimsg.ContentFilterStopped{} })
+			}
+
 			switch msg.Type {
 			case tea.KeyEnter:
 				action := m.actions.SelectedItem().(Action)
 				m.actions.ResetFilter()
-				cmd = func() tea.Msg { return ActionSelected{Action: action} }
-				cmds = append(cmds, cmd)
+				cmds = append(cmds, func() tea.Msg { return ActionSelected{Action: action} })
+				cmds = append(cmds, func() tea.Msg { return tuimsg.ContentFilterStopped{} })
 			}
 		}
 	case tuimsg.EntitySelected:

@@ -1,6 +1,8 @@
 package tuimsg
 
-import "github.com/Magier/Ran/domain"
+import (
+	"github.com/Magier/Ran/domain"
+)
 
 type EntitySelected struct {
 	Id          string
@@ -30,4 +32,10 @@ type StateChanged struct {
 
 func NewState() domain.State {
 	return make(domain.State)
+}
+
+type ContentFilterStarted struct {
+}
+
+type ContentFilterStopped struct {
 }
