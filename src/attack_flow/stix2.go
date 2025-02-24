@@ -31,8 +31,8 @@ func NewStixBundle() StixBundle {
 			ID:           mitreId,
 			SpecVersion:  "2.1",
 			CreatedByRef: mitreId,
-			Created:      mitreTime,
-			Modified:     mitreTime,
+			Created:      Timestamp(mitreTime),
+			Modified:     Timestamp(mitreTime),
 			Name:         "MITRE Engenuity Center for Threat-Informed Defense",
 		},
 		IdentityClass: Organization,
@@ -44,8 +44,8 @@ func NewStixBundle() StixBundle {
 			ID:           "extension-definition--" + MitreUUID,
 			SpecVersion:  "2.1",
 			CreatedByRef: mitre.ID,
-			Created:      mitreTime,
-			Modified:     mitreTime,
+			Created:      Timestamp(mitreTime),
+			Modified:     Timestamp(mitreTime),
 			Name:         "Attack Flow",
 			Description:  "Extends STIX 2.1 with features to create Attack Flows.",
 			ExternalReferences: []ExternalReference{
@@ -135,25 +135,35 @@ func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type Timestamp time.Time
+
+func (t Timestamp) MarshalJSON() ([]byte, error) {
+	tt := time.Time(t)
+	// STIX timestamp must be  RFC 3339-formatted timestamp using UTC
+	// https://docs.oasis-open.org/cti/stix/v2.1/os/stix-v2.1-os.html#_ksbm2nost85y
+	return json.Marshal(tt.Format("2006-01-02T15:04:05.000Z"))
+}
+
 type SDO struct {
 	Type               string              `json:"type"`
 	ID                 string              `json:"id"`
 	SpecVersion        string              `json:"spec_version"`
-	CreatedByRef       string              `json:"created-by-ref,omitempty"`
-	Created            time.Time           `json:"created"`
-	Modified           time.Time           `json:"modified"`
+	CreatedByRef       string              `json:"created_by_ref,omitempty"`
+	Created            Timestamp           `json:"created"`
+	Modified           Timestamp           `json:"modified"`
 	Name               string              `json:"name"`
-	Confidence         *int                `json:"confidence"`
+	Confidence         *int                `json:"confidence,omitempty"`
 	Description        string              `json:"description"`
-	ExternalReferences []ExternalReference `json:"external_references"`
+	ExternalReferences []ExternalReference `json:"external_references,omitempty"`
 	Extensions         Extensions          `json:"extensions,omitempty"`
 }
+type Extensions map[string]ExtensionDefInstance
 
 func NewSDO(sdoType, name, description string, isExtension bool) SDO {
 	now := time.Now()
 	extensions := Extensions{}
 	if isExtension {
-		extensions.ExtensionDefinition = ExtensionDefInstance{
+		extensions["extension-definition--fb9c968a-745b-4ade-9b25-c324172197f4"] = ExtensionDefInstance{
 			ExtensionType: "new-sdo",
 		}
 	}
@@ -162,8 +172,8 @@ func NewSDO(sdoType, name, description string, isExtension bool) SDO {
 		Type:               sdoType,
 		ID:                 fmt.Sprintf("%s--%s", sdoType, uuid.New()),
 		SpecVersion:        "2.1",
-		Created:            now,
-		Modified:           now,
+		Created:            Timestamp(now),
+		Modified:           Timestamp(now),
 		Name:               name,
 		Description:        description,
 		ExternalReferences: []ExternalReference{},
@@ -171,11 +181,15 @@ func NewSDO(sdoType, name, description string, isExtension bool) SDO {
 	}
 }
 
+func (sdo SDO) GetID() string {
+	return sdo.ID
+}
 func (sdo SDO) GetType() string {
 	return sdo.Type
 }
 
 type StixObject interface {
+	GetID() string
 	GetType() string
 }
 
@@ -232,8 +246,4 @@ type Relationship struct {
 
 type ExtensionDefInstance struct {
 	ExtensionType string `json:"extension_type"`
-}
-
-type Extensions struct {
-	ExtensionDefinition ExtensionDefInstance `json:"extension-definition-"`
 }

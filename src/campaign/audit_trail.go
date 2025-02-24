@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -64,6 +65,35 @@ func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool) {
 }
 
 func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
+	if len(a.steps) == 0 {
+		return attackflow.StixBundle{}, errors.New("A valid AttackFlow must have at list one attack-action or -condition")
+	}
 
-	return attackflow.StixBundle{}, nil
+	bundle := attackflow.NewStixBundle()
+
+	// TODO: properly specify name and description of the flow
+	af, creator := attackflow.NewAttackFlow("Ran Campaign", "A description")
+	bundle.Objects = append(bundle.Objects, creator)
+
+	var obj attackflow.AttackFlowObject
+	obj = af
+	var action attackflow.AttackAction
+	for _, s := range a.steps {
+		var technique string
+		if len(technique) > 0 {
+			technique = s.TTP.Technique[0]
+		}
+		action = attackflow.NewAttackAction(s.TTP.Name, s.Description, string(s.TTP.Tactic), technique)
+		action.SDO.Created = attackflow.Timestamp(s.StartAt)
+		action.SDO.Modified = attackflow.Timestamp(s.CompletedAt)
+		// TODO link the observable
+		// bundle.Objects = append(bundle.Objects, action)
+		obj = obj.Append(action)
+		bundle.Objects = append(bundle.Objects, obj)
+		obj = action
+	}
+
+	// ensure last action is also added
+	bundle.Objects = append(bundle.Objects, action)
+	return bundle, nil
 }

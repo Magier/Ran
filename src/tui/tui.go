@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
@@ -223,7 +224,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEscape:
 			m.focusedWnd = Nothing
 		case tea.KeyCtrlS:
-			err := m.bus.Publish(domain.SaveAttackFlow{CommandImpl: domain.NewCmd()})
+			now := time.Now().Format("2006-01-02T15-04-05")
+			err := m.bus.Publish(domain.SaveAttackFlow{CommandImpl: domain.NewCmd(), Path: fmt.Sprintf("../campaign_%s.json", now)})
 			if err != nil {
 				slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 			}
