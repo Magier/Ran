@@ -44,17 +44,27 @@ func TestCompleteStep(t *testing.T) {
 func TestConvertToAttackFlow(t *testing.T) {
 	auditTrail := NewAuditTrail()
 	ttp := domain.TTP{ID: "test-ttp"}
+	steps := []AttackStep{{
+		ID:      "initial access",
+		TTP:     ttp,
+		Success: true,
+	}, {
+		ID:      "lateral movement",
+		TTP:     ttp,
+		Success: true,
+	},
+	}
 
-	err := auditTrail.AddNewStep("initial access", ttp)
-	assert.NoError(t, err)
-	auditTrail.CompleteStep("initial access", ttp, true)
-
-	err = auditTrail.AddNewStep("lateral movement", ttp)
-	assert.NoError(t, err)
-	auditTrail.CompleteStep("lateral movement", ttp, true)
+	for _, s := range steps {
+		err := auditTrail.AddNewStep(s.ID, s.TTP)
+		assert.NoError(t, err)
+		auditTrail.CompleteStep(s.ID, s.TTP, s.Success)
+	}
 
 	af, err := auditTrail.ConvertToAttackFlow()
 	assert.NoError(t, err)
 	assert.NotNil(t, af)
-	// Add more assertions based on the expected structure of attackflow.StixBundle
+
+	expectedSteps := 4 + len(steps)
+	assert.Equalf(t, expectedSteps, len(af.Objects), "Expected AttackFlow to have %d objects", expectedSteps)
 }
