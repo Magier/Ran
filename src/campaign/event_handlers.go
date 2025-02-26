@@ -96,7 +96,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	cmd := msg.(domain.TTPExecuted)
 	ttp := cmd.TTP
 
-	c.trail.CompleteStep(cmd.ID, cmd.TTP, true)
+	c.trail.CompleteStep(cmd.ID, cmd.TTP, true, cmd.TTP.Description)
 
 	// post processing will yield the final message
 	if fn := parsers.GetParser(ttp.Parser); fn != nil {
@@ -120,7 +120,7 @@ func (c *Campaign) onTTPFailed(ctx context.Context, msg domain.Message) (domain.
 		// TODO: parse the binary name and add it as information, that the targeted system has no binary
 	}
 
-	c.trail.CompleteStep(cmd.ID, cmd.TTP, true)
+	c.trail.CompleteStep(cmd.ID, cmd.TTP, false, cmd.Reason)
 	slog.Error(cmd.Reason)
 	return nil, nil
 }
@@ -295,7 +295,7 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 	ev := msg.(c2.ListenerReady)
 	id := ev.Name
 
-	c.trail.CompleteStep(ev.CmdId, domain.TTP{}, true)
+	c.trail.CompleteStep(ev.CmdId, domain.TTP{}, true, fmt.Sprintf("Listener on C2 '%s' port %d ready", ev.C2Server, ev.Port))
 	c2, ok := c.GetC2(ev.C2Server)
 	if !ok {
 		return nil, fmt.Errorf("No C2 '%s' found", ev.C2Server)

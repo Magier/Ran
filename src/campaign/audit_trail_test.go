@@ -32,7 +32,7 @@ func TestCompleteStep(t *testing.T) {
 	err := auditTrail.AddNewStep("step1", ttp)
 	assert.NoError(t, err)
 
-	auditTrail.CompleteStep("step1", ttp, true)
+	auditTrail.CompleteStep("step1", ttp, true, "description")
 	assert.Len(t, auditTrail.steps, 1)
 	assert.Empty(t, auditTrail.openSteps)
 	assert.Equal(t, "step1", auditTrail.steps[0].ID)
@@ -58,7 +58,7 @@ func TestConvertToAttackFlow(t *testing.T) {
 	for _, s := range steps {
 		err := auditTrail.AddNewStep(s.ID, s.TTP)
 		assert.NoError(t, err)
-		auditTrail.CompleteStep(s.ID, s.TTP, s.Success)
+		auditTrail.CompleteStep(s.ID, s.TTP, s.Success, "description")
 	}
 
 	af, err := auditTrail.ConvertToAttackFlow()
