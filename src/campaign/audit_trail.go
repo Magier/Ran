@@ -49,13 +49,13 @@ func (a *AuditTrail) popOpenStep(id string) (AttackStep, bool) {
 	return AttackStep{}, false
 }
 
-func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool) {
+func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool, descr string) {
 	step, ok := a.popOpenStep(id)
 
 	if ok {
 		step.CompletedAt = time.Now()
 		step.Success = success
-		step.Description = "temp description"
+		step.Description = descr
 		// # TODO: enrich observables depending on the TTP
 		// step.Observables = append(step.Observables, )
 		a.steps = append(a.steps, step)
@@ -87,10 +87,16 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 		action.SDO.Created = attackflow.Timestamp(s.StartAt)
 		action.SDO.Modified = attackflow.Timestamp(s.CompletedAt)
 		// TODO link the observable
-		// bundle.Objects = append(bundle.Objects, action)
 		obj = obj.Append(action)
-		bundle.Objects = append(bundle.Objects, obj)
-		obj = action
+
+		if s.Success {
+			// no more descendants expected, add it to the final list of objects
+			bundle.Objects = append(bundle.Objects, obj)
+			obj = action
+		} else {
+			// if it failed, then it's a dead "branch", just add the action directly
+			bundle.Objects = append(bundle.Objects, action)
+		}
 	}
 
 	// ensure last action is also added
