@@ -2,6 +2,7 @@ package attackflow
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -55,24 +56,38 @@ func (f AttackFlow) Append(obj AttackFlowObject) AttackFlowObject {
 // https://center-for-threat-informed-defense.github.io/attack-flow/language/#attack-flow-sdos
 
 type AttackAction struct {
-	SDO          `json:",inline"`
-	TacticID     string   `json:"tactic_id"`
-	TacticRef    string   `json:"tactic_ref"`
-	TechniqueID  string   `json:"technique_id"`
-	TechniqueRef string   `json:"technique_ref"`
-	EffectRefs   []string `json:"effect_refs,omitempty"`
+	SDO            `json:",inline"`
+	TacticID       string    `json:"tactic_id"`
+	TacticRef      string    `json:"tactic_ref"`
+	TechniqueID    string    `json:"technique_id"`
+	TechniqueRef   string    `json:"technique_ref"`
+	CommandRef     string    `json:"command_ref,omitempty"`
+	AssetRefs      []string  `json:"asset_refs,omitempty"`
+	EffectRefs     []string  `json:"effect_refs,omitempty"`
+	ExecutionStart Timestamp `json:"execution_start,omitempty"`
+	ExecutionEnd   Timestamp `json:"execution_end,omitempty"`
 }
 
-func NewAttackAction(name, description, tactic, technique string) AttackAction {
+func NewAttackAction(name, description, tactic, technique, cmd string, execStart, execEnd time.Time) (AttackAction, []StixObject) {
 	sdo := NewSDO("attack-action", name, description, true)
-	return AttackAction{
-		SDO:          sdo,
-		TacticID:     tactic,
-		TacticRef:    fmt.Sprintf("x-mitre-tactic--%s", uuid.New()),
-		TechniqueID:  technique,
-		TechniqueRef: fmt.Sprintf("attack-pattern--%s", uuid.New()),
-		EffectRefs:   []string{},
+
+	proc := Process{
+		SCO:         NewSCO("process"),
+		CommandLine: cmd,
 	}
+
+	return AttackAction{
+		SDO:            sdo,
+		TacticID:       tactic,
+		TacticRef:      fmt.Sprintf("x-mitre-tactic--%s", uuid.New()),
+		TechniqueID:    technique,
+		TechniqueRef:   fmt.Sprintf("attack-pattern--%s", uuid.New()),
+		ExecutionStart: Timestamp(execStart),
+		ExecutionEnd:   Timestamp(execEnd),
+		EffectRefs:     []string{},
+		AssetRefs:      []string{},
+		CommandRef:     proc.ID,
+	}, []StixObject{proc}
 }
 func (f AttackAction) Append(obj AttackFlowObject) AttackFlowObject {
 	f.EffectRefs = append(f.EffectRefs, obj.GetID())

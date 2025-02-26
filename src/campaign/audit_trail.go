@@ -14,8 +14,10 @@ type AttackStep struct {
 	ID          string
 	TTP         domain.TTP
 	Success     bool
+	Command     string
 	Description string
 	StartAt     time.Time
+	Target      domain.Entity
 	CompletedAt time.Time
 	Observables []any
 }
@@ -29,10 +31,12 @@ func NewAuditTrail() AuditTrail {
 	return AuditTrail{}
 }
 
-func (a *AuditTrail) AddNewStep(id string, ttp domain.TTP) error {
+func (a *AuditTrail) AddNewStep(action domain.ExecTTP) error {
 	a.openSteps = append(a.openSteps, AttackStep{
-		ID:      id,
-		TTP:     ttp,
+		ID:      action.ID,
+		TTP:     action.TTP,
+		Target:  action.Target,
+		Command: action.Variant.Command,
 		StartAt: time.Now(),
 	})
 	return nil
@@ -78,16 +82,16 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 	var obj attackflow.AttackFlowObject
 	obj = af
 	var action attackflow.AttackAction
+	var observables []attackflow.StixObject
 	for _, s := range a.steps {
 		var technique string
 		if len(technique) > 0 {
 			technique = s.TTP.Technique[0]
 		}
-		action = attackflow.NewAttackAction(s.TTP.Name, s.Description, string(s.TTP.Tactic), technique)
-		action.SDO.Created = attackflow.Timestamp(s.StartAt)
-		action.SDO.Modified = attackflow.Timestamp(s.CompletedAt)
+		action, observables = attackflow.NewAttackAction(s.TTP.Name, s.Description, string(s.TTP.Tactic), technique, s.Command, s.StartAt, s.CompletedAt)
 		// TODO link the observable
 		obj = obj.Append(action)
+		bundle.Objects = append(bundle.Objects, observables...)
 
 		if s.Success {
 			// no more descendants expected, add it to the final list of objects
