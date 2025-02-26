@@ -88,7 +88,7 @@ func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (doma
 }
 func (c *Campaign) onExecuteTTP(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	cmd := msg.(domain.ExecTTP)
-	err := c.trail.AddNewStep(cmd.ID, cmd.TTP)
+	err := c.trail.AddNewStep(cmd)
 	return nil, err
 }
 

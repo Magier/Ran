@@ -231,19 +231,84 @@ type Infrastructure struct {
 	SDO                 `json:",inline"`
 	InfrastructureTypes []string `json:"infrastructure_types,omitempty"`
 }
+
 type Note struct {
 	SDO        `json:",inline"`
 	Abstract   string   `json:"abstract"`
 	Content    string   `json:"content"`
 	ObjectRefs []string `json:"object_refs"`
 }
+
+// type RelationshipType string
+
+// const (
+// 	Indicates IdentityClass = "indicates"
+// 	BasedOn   IdentityClass = "based-on"
+// )
+
 type Relationship struct {
 	SDO
-	SourceRef        string `json:"source_ref"`
-	TargetRef        string `json:"target_ref"`
-	RelationshipType string `json:"relationship_type"`
+	SourceRef string `json:"source_ref"`
+	TargetRef string `json:"target_ref"`
+	Type      string `json:"relationship_type"`
 }
 
 type ExtensionDefInstance struct {
 	ExtensionType string `json:"extension_type"`
+}
+
+type SCO struct {
+	Type        string `json:"type"`
+	ID          string `json:"id"`
+	SpecVersion string `json:"spec_version"`
+}
+
+func (sco SCO) GetID() string {
+	return sco.ID
+}
+func (sco SCO) GetType() string {
+	return sco.Type
+}
+
+func NewSCO(scoType string) SCO {
+	return SCO{
+		ID:          fmt.Sprintf("%s--%s", scoType, uuid.New()),
+		Type:        scoType,
+		SpecVersion: "2.1",
+	}
+}
+
+// Schema: https://docs.oasis-open.org/cti/stix/v2.1/cs01/stix-v2.1-cs01.html#_hpppnm86a1jm
+type Process struct {
+	SCO         `json:",inline"`
+	PID         int               `json:"pid,omitempty"`
+	Cwd         string            `json:"cwd,omitempty"`
+	CommandLine string            `json:"command_line"`
+	CreatedTime Timestamp         `json:"created_time"`
+	EnvVars     map[string]string `json:"environment_variables,omitempty"`
+	IsHidden    bool              `json:"is_hidden,omitempty"`
+	// The list of network connections opened by the process,
+	//  as a reference to one or more Network Traffic objects.
+	OpenedConnectionRefs []string `json:"opened_connection_refs,omitempty"`
+	// The user that created the process, as a reference to a User Account object.
+	CreatorUserRef string `json:"creator_user_ref,omitempty"`
+	// The executable binary that was executed as the process image, as a reference to a File object.
+	ImageRef string `json:"image_ref,omitempty"`
+	// The other process that spawned (i.e. is the parent of) this one, as a reference to a Process object.
+	ParentRef string `json:"parent_ref,omitempty"`
+	// The other processes that were spawned by (i.e. children of) this process,
+	//  as a reference to one or more other Process objects.
+	ChildRefs []string `json:"child_refs,omitempty"`
+}
+
+// Schema: https://docs.oasis-open.org/cti/stix/v2.1/cs01/stix-v2.1-cs01.html#_99bl2dibcztv
+type File struct {
+	SCO    `json:",inline"`
+	Name   string   `json:"name"`
+	Hashes []string `json:"hashes"`
+	// Specifies a list of references to other Cyber-observable Objects contained within the file,
+	//  such as another file that is appended to the end of the file,
+	//  or an IP address that is contained somewhere in the file.
+	// This is intended for use cases other than those targeted by the Archive extension.
+	ContainsRefs []string `json:"contains_refs"`
 }
