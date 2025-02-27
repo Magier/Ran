@@ -205,7 +205,7 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant
 			var _ = status
 			return []any{podName, ns, podCfg}, err
 		} else {
-			slog.Warn(fmt.Sprintf("Unclear hwo to locally execute variant '%s'", cmd.Command))
+			slog.Warn(fmt.Sprintf("Unclear how to locally execute variant '%s'", cmd.Command))
 		}
 	} else {
 		slog.Warn("Can't Exec TTP: no channel defined and no code provided!")
