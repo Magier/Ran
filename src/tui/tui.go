@@ -331,6 +331,9 @@ func (m *model) FocusPreviousWnd() {
 }
 
 func (m *model) focusWindow(id Wnd) {
+	if id == m.focusedWnd {
+		return
+	}
 	oldWnd, ok := m.windows[m.focusedWnd]
 	if ok {
 		oldWnd.Blur()
@@ -339,7 +342,7 @@ func (m *model) focusWindow(id Wnd) {
 	m.windows[m.focusedWnd].Focus()
 }
 
-func (m model) handleActionSelection(action armorywindow.Action) []tea.Cmd {
+func (m *model) handleActionSelection(action armorywindow.Action) []tea.Cmd {
 	cmds := []tea.Cmd{}
 
 	targetID := m.explorer.GetSelectedEntity()

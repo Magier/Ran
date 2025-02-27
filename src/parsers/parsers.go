@@ -26,6 +26,9 @@ func GetParser(parserName string) domain.ParserFn {
 }
 
 func HandleEnvVarResult(source domain.Entity, args ...any) (domain.Event, error) {
+	if len(args) == 0 {
+		return nil, errors.New("No environment variables received!")
+	}
 	stderr := args[1].(string)
 	if stderr != "" {
 		return nil, errors.New(stderr)
@@ -121,6 +124,7 @@ func HandleNewContainer(source domain.Entity, args ...any) (domain.Event, error)
 
 	podName := args[0].(string)
 	nsName := args[1].(string)
+	ns := domain.Namespace{Name: nsName}
 	p := domain.NewPod(podName, nsName)
 	cfg := args[2].(domain.PodConfig)
 
@@ -129,16 +133,11 @@ func HandleNewContainer(source domain.Entity, args ...any) (domain.Event, error)
 	p.HostNetwork = domain.NewProbBool(cfg.HostNetwork)
 	p.Privileged = domain.NewProbBool(cfg.Privileged)
 
-	ns := domain.Namespace{Name: nsName}
-	status := args[3].(string)
-	var _ = status
-
-	rels := []domain.Relation{
-		domain.Contains{Container: ns, Object: p},
-	}
-
+	// rels := []domain.Relation{
+	// 	domain.Contains{Container: ns, Object: p},
+	//  }
 	return domain.FactsChanged{
-		NewEntities:  []domain.Entity{ns, p},
-		NewRelations: rels,
+		NewEntities: []domain.Entity{ns, p},
+		// NewRelations: rels,
 	}, nil
 }
