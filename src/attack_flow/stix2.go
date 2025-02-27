@@ -227,9 +227,21 @@ type Identity struct {
 	IdentityClass      IdentityClass `json:"identity_class"`
 	ContactInformation string        `json:"contact_information,omitempty"`
 }
+
+// Specifies infrastructure used for command and control (C2). This is typically a domain name or IP address.
+const InfraTypeC2 = "command-and-control"
+
+// Specific infrastructure used for anonymization, such as a proxy.
+const InfraTypeAnonymization = "anonymization"
+
+const InfraTypeExfiltration = "exfiltration"
+const InfraTypeStaging = "staging"
+
+// All InfaTypes: https://docs.oasis-open.org/cti/stix/v2.1/cs01/stix-v2.1-cs01.html#_67vrmztjft3h
+
 type Infrastructure struct {
-	SDO                 `json:",inline"`
-	InfrastructureTypes []string `json:"infrastructure_types,omitempty"`
+	SDO   `json:",inline"`
+	Types []string `json:"infrastructure_types,omitempty"`
 }
 
 type Note struct {
@@ -246,11 +258,48 @@ type Note struct {
 // 	BasedOn   IdentityClass = "based-on"
 // )
 
+const RelatedTo = "related-to"
+
+// https://docs.oasis-open.org/cti/stix/v2.1/cs01/stix-v2.1-cs01.html#_cqhkqvhnlgfh
+
+type SRO struct {
+	ID          string    `json:"id"`
+	Type        string    `json:"type"`
+	SpecVersion string    `json:"spec_version"`
+	Created     Timestamp `json:"created,omitempty"`
+	Modified    Timestamp `json:"modified,omitempty"`
+	Description string    `json:"description,omitempty"`
+}
+
+func (sro SRO) GetID() string {
+	return sro.ID
+}
+func (sro SRO) GetType() string {
+	return sro.Type
+}
+
+func NewSRO(scoType string) SRO {
+	return SRO{
+		ID:          fmt.Sprintf("%s--%s", scoType, uuid.New()),
+		Type:        scoType,
+		SpecVersion: "2.1",
+	}
+}
+
 type Relationship struct {
-	SDO
+	SRO       `json:",inline"`
 	SourceRef string `json:"source_ref"`
 	TargetRef string `json:"target_ref"`
 	Type      string `json:"relationship_type"`
+}
+
+func Newrelationship(srcRef, targetRef, label string) Relationship {
+	return Relationship{
+		SRO:       NewSRO("relationship"),
+		SourceRef: srcRef,
+		TargetRef: targetRef,
+		Type:      label,
+	}
 }
 
 type ExtensionDefInstance struct {
