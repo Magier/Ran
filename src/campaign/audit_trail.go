@@ -93,6 +93,21 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 		obj = obj.Append(action)
 		bundle.Objects = append(bundle.Objects, observables...)
 
+		if s.Target != nil {
+			if c2, ok := s.Target.(domain.C2System); ok {
+				infra := attackflow.Infrastructure{
+					SDO:   attackflow.NewSDO("infrastructure", c2.Name, "", false),
+					Types: []string{attackflow.InfraTypeC2},
+				}
+				infraRel := attackflow.Newrelationship(action.ID, infra.ID, attackflow.RelatedTo)
+				bundle.Objects = append(bundle.Objects, infra, infraRel)
+			} else {
+				asset := attackflow.NewAttackAsset(s.Target.GetId(), s.Target.GetName())
+				action.AssetRefs = append(action.AssetRefs, asset.ID)
+				bundle.Objects = append(bundle.Objects, asset)
+			}
+		}
+
 		if s.Success {
 			// no more descendants expected, add it to the final list of objects
 			bundle.Objects = append(bundle.Objects, obj)

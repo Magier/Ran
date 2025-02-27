@@ -70,10 +70,16 @@ type AttackAction struct {
 
 func NewAttackAction(name, description, tactic, technique, cmd string, execStart, execEnd time.Time) (AttackAction, []StixObject) {
 	sdo := NewSDO("attack-action", name, description, true)
+	observables := []StixObject{}
 
-	proc := Process{
-		SCO:         NewSCO("process"),
-		CommandLine: cmd,
+	var proc Process
+	if cmd != "" {
+		proc = Process{
+			SCO:         NewSCO("process"),
+			CommandLine: cmd,
+			CreatedTime: Timestamp(execStart), // this is not the exact timestamp, but hopefully close enough
+		}
+		observables = append(observables, proc)
 	}
 
 	return AttackAction{
@@ -87,7 +93,7 @@ func NewAttackAction(name, description, tactic, technique, cmd string, execStart
 		EffectRefs:     []string{},
 		AssetRefs:      []string{},
 		CommandRef:     proc.ID,
-	}, []StixObject{proc}
+	}, observables
 }
 func (f AttackAction) Append(obj AttackFlowObject) AttackFlowObject {
 	f.EffectRefs = append(f.EffectRefs, obj.GetID())
@@ -98,7 +104,13 @@ var _ AttackFlowObject = (*AttackAction)(nil)
 
 type AttackAsset struct {
 	SDO       `json:",inline"`
-	ObjectRef string `json:"object_ref"`
+	ObjectRef string `json:"object_ref,omitempty"`
+}
+
+func NewAttackAsset(name, description string) AttackAsset {
+	return AttackAsset{
+		SDO: NewSDO("attack-asset", name, description, true),
+	}
 }
 
 var _ AttackFlowObject = (*AttackAsset)(nil)
