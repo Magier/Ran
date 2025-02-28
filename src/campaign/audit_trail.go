@@ -83,6 +83,9 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 	obj = af
 	var action attackflow.AttackAction
 	var observables []attackflow.StixObject
+
+	knownAssets := map[string]string{}
+
 	for _, s := range a.steps {
 		var technique string
 		if len(technique) > 0 {
@@ -94,17 +97,29 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 		bundle.Objects = append(bundle.Objects, observables...)
 
 		if s.Target != nil {
-			if c2, ok := s.Target.(domain.C2System); ok {
-				infra := attackflow.Infrastructure{
-					SDO:   attackflow.NewSDO("infrastructure", c2.Name, "", false),
-					Types: []string{attackflow.InfraTypeC2},
+			targetID := s.Target.GetId()
+			if assetID, ok := knownAssets[s.Target.GetId()]; ok {
+				if _, ok := s.Target.(domain.C2System); ok {
+					infraRel := attackflow.Newrelationship(action.ID, assetID, attackflow.RelatedTo)
+					bundle.Objects = append(bundle.Objects, infraRel)
+				} else {
+					action.AssetRefs = append(action.AssetRefs, assetID)
 				}
-				infraRel := attackflow.Newrelationship(action.ID, infra.ID, attackflow.RelatedTo)
-				bundle.Objects = append(bundle.Objects, infra, infraRel)
-			} else {
-				asset := attackflow.NewAttackAsset(s.Target.GetId(), s.Target.GetName())
-				action.AssetRefs = append(action.AssetRefs, asset.ID)
-				bundle.Objects = append(bundle.Objects, asset)
+			} else { // create a new asset/infrastructure
+				if c2, ok := s.Target.(domain.C2System); ok {
+					asset := attackflow.Infrastructure{
+						SDO:   attackflow.NewSDO("infrastructure", c2.Name, "", false),
+						Types: []string{attackflow.InfraTypeC2},
+					}
+					infraRel := attackflow.Newrelationship(action.ID, asset.ID, attackflow.RelatedTo)
+					bundle.Objects = append(bundle.Objects, asset, infraRel)
+					knownAssets[targetID] = asset.ID
+				} else {
+					asset := attackflow.NewAttackAsset(s.Target.GetId(), s.Target.GetName())
+					action.AssetRefs = append(action.AssetRefs, asset.ID)
+					bundle.Objects = append(bundle.Objects, asset)
+					knownAssets[targetID] = asset.ID
+				}
 			}
 		}
 
