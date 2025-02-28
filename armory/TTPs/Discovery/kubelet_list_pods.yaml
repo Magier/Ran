@@ -1,0 +1,23 @@
+name: Get Pods via Kubelet
+description: Get a list of pods on the node via the kubelet API
+tactic: Discovery
+techniques: ["Container and Resource Discovery"]
+ttp: T1613
+preconditions:
+  kind: ServiceAccount
+  # accessLevel: user-read
+  # SA can-read node/proxy
+cmdVariants:
+  - key: curl
+    command: >-
+      curl -k -H "Authorization: Bearer ${TOKEN}" https://${NODE}:10250/pods
+
+# parser: environmentVariables
+effects:
+  - k8s.podList
+# defend: {}
+references:
+  - https://www.aquasec.com/blog/privilege-escalation-kubernetes-rbac/
+  - https://kubenomicon.com/Discovery/Access_kubelet_API.html
+  - https://gist.github.com/lizrice/c32740fac51db2a5518f06c3dae4944f
+  - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/Access%20Kubelet%20API/

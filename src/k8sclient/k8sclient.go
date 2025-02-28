@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"encoding/json"
+
 	"github.com/Magier/Ran/domain"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -245,7 +247,6 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string) (
 	if err != nil {
 		return "", "", err
 	}
-
 	command := []string{"sh", "-c", cmd}
 
 	// parameterCodec := runtime.NewParameterCodec(scheme)
@@ -313,5 +314,14 @@ func DeployPod(ctx context.Context, client K8sClient, podName, ns string, cfg do
 		return "", err
 	}
 	return p.Status.String(), nil
+}
 
+// ParsePodList converts a JSON string containing a PodList into a v1.PodList object.
+func ParsePodList(jsonStr string) (*v1.PodList, error) {
+	var podList v1.PodList
+	err := json.Unmarshal([]byte(jsonStr), &podList)
+	if err != nil {
+		return nil, err
+	}
+	return &podList, nil
 }
