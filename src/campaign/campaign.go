@@ -292,6 +292,7 @@ func (c Campaign) groundServiceAccountTemplate(template string, sa domain.Servic
 	template = strings.Replace(template, "${CA_PATH}", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt", -1)
 	template = strings.Replace(template, "${NS}", sa.Namespace, -1)
 	template = strings.Replace(template, "${SA_NAME}", sa.Name, -1)
+	template = strings.Replace(template, "${NODE}", sa.Token.Kubernetes.Node.Name, -1)
 
 	return template
 }

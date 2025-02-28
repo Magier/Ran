@@ -14,6 +14,7 @@ import (
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
+	k8s "github.com/Magier/Ran/k8sclient"
 	"github.com/Magier/Ran/parsers"
 	"github.com/dominikbraun/graph/draw"
 	"github.com/goccy/go-graphviz"
@@ -337,7 +338,7 @@ func parseEffect(effect string, source domain.Entity, args ...any) domain.Messag
 	}
 
 	entities := []domain.Entity{}
-	switch effect {
+	switch strings.ToLower(effect) {
 	// TODO: set these 'attribute' effects via reflection
 	case "target.ip":
 		if pod, ok := source.(domain.Pod); ok {
@@ -354,6 +355,17 @@ func parseEffect(effect string, source domain.Entity, args ...any) domain.Messag
 			}
 			pod.IPs = ips
 			entities = append(entities, pod)
+		}
+	case "k8s.podlist":
+		if res, ok := args[0].(string); ok {
+			podList, err := k8s.ParsePodList(res)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
+			}
+
+			for _, pod := range podList.Items {
+				entities = append(entities, domain.NewPod(pod.Name, pod.Namespace))
+			}
 		}
 	}
 	return domain.FactsChanged{NewEntities: entities}
