@@ -29,6 +29,12 @@ Instead, when using at least micro emulations, where an adversary has to explore
 
 ---
 
+### For Defenders
+
+Creating detections for environments is always very challenging. Maintaing these over time even more so. By viewing an environment through the lens of an adversary, different gaps or opportinities may arise.
+Using Ran, practicioners can explore the threats on their own environments and record all steps.
+Ran can export these tracked attacker steps into an [AttackFlow](https://ctid.mitre.org/projects/attack-flow), which is based on STIX 2. Some of the captured steps have observables linked, which can inform the managed detection rules.
+
 
 ## Architecture
 
@@ -40,18 +46,14 @@ Ran consists of 2 major components:
     3) classic planning
     4) Deterministic AI: 
         - Behavior Trees
-        - (Goal-Oriented Action Planning) GOAP
-    5) Reasoning (Probabilistic AI) (RL, LLM, Active Inference)
+        - Goal-Oriented Action Planning (GOAP)
+    5) Probabilistic AI
+        - (RL, LLM, Active Inference)
 
 
 This approach is [📄 Automated Adversary Emulation: A Case for Planning and Acting with Unknowns](https://www.mitre.org/sites/default/files/2021-11/prs-18-0944-1-automated-adversary-emulation-planning-acting.pdf)
 
 
-## For Defenders
-
-Creating detections for environments is always very challenging. Maintaing these over time even more so. By viewing an environment through the lens of an adversary, different gaps or opportinities may arise.
-Using Ran, practicioners can explore the threats on their own environments and record all steps.
-Ran can export these tracked attacker steps into an [AttackFlow](https://ctid.mitre.org/projects/attack-flow), which is based on STIX 2. Some of the captured steps have observables linked, which can inform the managed detection rules.
 
 
 ## Setup
@@ -110,10 +112,10 @@ Ran is heavily inspired by similar tools in this domain, such as:
 
 ## Roadmap:
 
-- [ ] Track the executed TTPs (audit trail)
-- [ ] Export trail of executed TTP as [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/)
+- [x] Track the executed TTPs (audit trail)
+- [x] Export trail of executed TTP as [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/)
+- [ ] option to provide [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/) as a plan
 - [ ] Derive produced observable from the TTP execution and link it in the Attack Flow
-- [ ] support examples of BishopFox' [BadPods](https://bishopfox.com/blog/kubernetes-pod-privilege-escalation)
 - [ ] Support hierarchical TTPs: they use other TTPs as building blocks (akin to HTN)
     - e.g., `Install implant` could be -> `generate implant` + `download binary` + `execute binary`
 - [ ] create API server for the execution layer
