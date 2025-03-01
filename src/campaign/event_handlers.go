@@ -364,7 +364,7 @@ func parseEffect(effect string, source domain.Entity, args ...any) domain.Messag
 			}
 
 			for _, pod := range podList.Items {
-				entities = append(entities, domain.NewPod(pod.Name, pod.Namespace))
+				entities = append(entities, domain.NewPodFromK8sSpec(pod))
 			}
 		}
 	}
