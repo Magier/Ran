@@ -477,18 +477,22 @@ func (id Identity) Can(permission string) bool {
 type Pod struct {
 	K8sEntity
 	// NamespacedResource
-	Spec        v1.PodSpec
-	IPs         []net.IPAddr
-	EnvVars     map[string]string
-	HostName    string
-	NodeName    string
-	Privileged  ProbBool
-	HostPID     ProbBool
-	HostIPC     ProbBool
-	HostNetwork ProbBool
-	Devices     []string
-	Binaries    []string
+	Spec                         v1.PodSpec
+	IPs                          []net.IPAddr
+	EnvVars                      map[string]string
+	ServiceAccountName           string
+	AutomountServiceAccountToken bool
+	HostName                     string
+	NodeName                     string
+	Privileged                   ProbBool
+	HostPID                      ProbBool
+	HostIPC                      ProbBool
+	HostNetwork                  ProbBool
+	Devices                      []string
+	Binaries                     []string
+	Containers                   []v1.Container
 }
+
 type PodConfig struct {
 	Image       string
 	Command     string
@@ -507,6 +511,31 @@ func NewPod(name, ns string) Pod {
 		HostPID:     .5,
 		HostIPC:     .5,
 		HostNetwork: .5,
+	}
+}
+
+func NewPodFromK8sSpec(p v1.Pod) Pod {
+	entity := NewK8sEntity(p.ObjectMeta.Name, "Pod", p.Namespace)
+	isPriv := NewProbBool(false)
+
+	for _, c := range p.Spec.Containers {
+		if c.SecurityContext != nil {
+			priv := c.SecurityContext.Privileged
+			if priv != nil {
+				isPriv = NewProbBool(*priv)
+			}
+		}
+	}
+
+	return Pod{
+		K8sEntity:   entity,
+		HostPID:     NewProbBool(p.Spec.HostPID),
+		HostIPC:     NewProbBool(p.Spec.HostIPC),
+		HostNetwork: NewProbBool(p.Spec.HostNetwork),
+		NodeName:    p.Spec.NodeName,
+		Privileged:  isPriv,
+		IPs:         []net.IPAddr{{IP: net.ParseIP(p.Status.PodIP)}},
+		Containers:  p.Spec.Containers,
 	}
 }
 
