@@ -204,7 +204,9 @@ func (m *ModalModel) SetContent(title, text string, fields []FormField, actions 
 	m.Text = text
 	m.Fields = fields
 	m.Actions = actions
-	m.Fields[0].Focus()
+	if len(m.Fields) > 0 {
+		m.Fields[0].Focus()
+	}
 }
 
 func (m *ModalModel) Show(hideRest bool) {

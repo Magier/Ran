@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 
 	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
@@ -20,7 +21,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func StartRan(withTui bool, loadKubeConfig bool) {
+func StartRan(withTui bool, loadKubeConfig bool, target string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 
 	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
@@ -45,10 +46,8 @@ func StartRan(withTui bool, loadKubeConfig bool) {
 	go mb.HandleEvents(ctx)
 	// TODO maybe switch between TUI and web-UI (start frontend as well?)
 
-	if loadKubeConfig {
-		namespaces := []string{}
-		go loadClusterData(ctx, mb, namespaces)
-	}
+	namespaces := []string{}
+	go loadInitialEntities(ctx, mb, loadKubeConfig, target, namespaces)
 
 	if ui != nil {
 		tui.RunTUI(ui)
@@ -60,7 +59,7 @@ type MaybeEntity struct {
 	Error  error
 }
 
-func loadClusterData(ctx context.Context, mb bus.MessageBus, namespaces []string) {
+func loadInitialEntities(ctx context.Context, mb bus.MessageBus, loadAll bool, target string, namespaces []string) {
 	client, err := k8s.NewK8sClient("")
 	if err != nil {
 		_ = mb.Publish(domain.ErrorMsg{
@@ -75,54 +74,86 @@ func loadClusterData(ctx context.Context, mb bus.MessageBus, namespaces []string
 		})
 		return
 	}
+	cluster := domain.Cluster{Name: client.Context.Name, Address: client.Config.Host}
+	entities := []domain.Entity{cluster}
+	identities := []domain.Identity{}
+	relations := []domain.Relation{}
 
-	addApiServer := false
-	entities := make([]domain.Entity, 0)
-	if addApiServer {
-		apiServerPod, err := client.GetApiServer()
-		if err != nil {
-			slog.Error(fmt.Sprintf("Couldn't resolve apiServer IP: %s", err.Error()))
-		} else {
-			entities = append(entities, apiServerPod)
+	if loadAll {
+		addApiServer := false
+		if addApiServer {
+			apiServerPod, err := client.GetApiServer()
+			if err != nil {
+				slog.Error(fmt.Sprintf("Couldn't resolve apiServer IP: %s", err.Error()))
+			} else {
+				entities = append(entities, apiServerPod)
+			}
 		}
+
+		k8sConfigUser := domain.Identity{
+			Name:     client.Context.Name,
+			Kind:     domain.AdminUser,
+			CertData: client.Context.UserCert,
+			KeyData:  client.Context.UserKey,
+			Permissions: []domain.RbacPermission{{
+				Verbs:         []string{"*"},
+				ResourceTypes: []string{"*"},
+				Scope:         "*",
+			}},
+		}
+
+		identities = append(identities, k8sConfigUser)
+	} else if target != "" {
+		ns := "default"
+		if strings.Contains(target, "/") {
+			parts := strings.SplitN(target, "/", 2)
+			ns = parts[0]
+			target = parts[1]
+		}
+
+		initialPod := domain.NewPod(target, ns)
+
+		initialAccessRelation := domain.CanAccess{
+			SourceId: "c2/Ran",
+			TargetId: initialPod.GetId(),
+			// Identity:    identity,
+			AccessLevel: domain.UserExec,
+		}
+		initialPod.AccessLevel = domain.UserExec
+		entities = append(entities, initialPod)
+		relations = append(relations, initialAccessRelation)
 	}
 
-	k8sConfigUser := domain.Identity{
-		Name:     client.Context.Name,
-		Kind:     domain.AdminUser,
-		CertData: client.Context.UserCert,
-		KeyData:  client.Context.UserKey,
-		Permissions: []domain.RbacPermission{{
-			Verbs:         []string{"*"},
-			ResourceTypes: []string{"*"},
-			Scope:         "*",
-		}},
-	}
 	err = mb.Publish(domain.FactsChanged{
 		NewEntities:   entities,
-		NewIdentities: []domain.Identity{k8sConfigUser}})
+		NewIdentities: identities,
+		NewRelations:  relations,
+	})
 	if err != nil {
-		fmt.Printf("Couldn't add apiServer as new entity to bus: %s", err.Error())
+		fmt.Printf("Couldn't add initial entities to bus: %s", err.Error())
 	}
 
-	channel := make(chan MaybeEntity)
-	go populateEntities(ctx, namespaces, channel)
+	// gradually load all entities
+	if loadAll {
+		channel := make(chan MaybeEntity)
+		go populateEntities(ctx, namespaces, channel)
 
-	entities = []domain.Entity{}
-	for maybeEntity := range channel {
-		if maybeEntity.Error != nil {
-			slog.Error(maybeEntity.Error.Error())
+		entities = []domain.Entity{}
+		for maybeEntity := range channel {
+			if maybeEntity.Error != nil {
+				slog.Error(maybeEntity.Error.Error())
+			} else {
+				entities = append(entities, maybeEntity.Entity)
+			}
+		}
+		if len(entities) > 0 {
+			err = mb.Publish(domain.FactsChanged{NewEntities: entities})
+			if err != nil {
+				fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
+			}
 		} else {
-			entities = append(entities, maybeEntity.Entity)
+			slog.Warn("No pods found at for initialization!")
 		}
-	}
-	if len(entities) > 0 {
-		err = mb.Publish(domain.FactsChanged{NewEntities: entities})
-		if err != nil {
-			fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
-		}
-	} else {
-		slog.Warn("No pods found at for initialization!")
 	}
 }
 
@@ -138,9 +169,6 @@ func populateEntities(ctx context.Context, namespaces []string, channel chan<- M
 	if len(namespaces) == 0 {
 		namespaces = []string{""}
 	}
-
-	cluster := domain.Cluster{Name: client.Context.Name, Address: client.Config.Host}
-	channel <- MaybeEntity{Entity: cluster, Error: err}
 
 	for _, nsName := range namespaces {
 		deployments, err := client.GetDeployments(ctx, nsName)
