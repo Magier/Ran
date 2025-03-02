@@ -158,7 +158,7 @@ func NewModal() ModalModel {
 }
 
 func (m ModalModel) Init() tea.Cmd {
-	return textinput.Blink
+	return nil
 }
 func (m ModalModel) Update(msg tea.Msg) (ModalModel, tea.Cmd) {
 	var cmds []tea.Cmd
