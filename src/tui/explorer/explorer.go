@@ -99,6 +99,8 @@ func getIcon(kind string) string {
 		return icon.Identity
 	case "Session":
 		return icon.Session
+	case "Service":
+		return icon.Service
 	}
 	return ""
 }

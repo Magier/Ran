@@ -1,6 +1,7 @@
 package mainwindow
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Magier/Ran/domain"
@@ -24,6 +25,8 @@ func renderEntity(entity domain.Entity) string {
 		return renderC2(e)
 	case domain.Namespace:
 		return renderNamespace(e)
+	case domain.Service:
+		return renderService(e)
 	case nil:
 		return "-"
 	}
@@ -72,6 +75,22 @@ func renderServiceAccount(sa domain.ServiceAccount) string {
 	lines := []string{
 		sa.GetKind() + ": " + sa.Name,
 		"ID: " + sa.GetId(),
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+func renderService(svc domain.Service) string {
+	portInfos := []string{}
+	for name, p := range svc.Ports {
+		portInfos = append(portInfos, fmt.Sprintf("%s:%d", name, p))
+	}
+
+	lines := []string{
+		svc.GetKind() + ": " + svc.Name,
+		"ID: " + svc.GetId(),
+		"Ports: " + strings.Join(portInfos, ", "),
+		"Targets: " + strings.Join(svc.Targets, ", "),
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
