@@ -67,6 +67,7 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 				K8sEntity: domain.K8sEntity{
 					Name:      svcName,
 					Namespace: nsName,
+					Kind:      "Service",
 				},
 				Host:  info.host,
 				Ports: info.ports,
