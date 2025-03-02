@@ -26,7 +26,7 @@ func simplePlan() []domain.Command {
 	return plan
 }
 
-func StartApi(mb bus.MessageBus) {
+func StartAPI(mb bus.MessageBus) {
 	err := mb.Publish(APIStarted{})
 	if err != nil {
 		panic(err)

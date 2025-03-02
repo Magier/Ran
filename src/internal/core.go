@@ -21,12 +21,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func StartRan(withTui bool, loadKubeConfig bool, target string) {
+func StartRan(withTui bool, loadKubeConfig bool, target string, planPath string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-
 	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
 	defer cancel()
 	mb := bus.CreateMessageBus()
+	p := planner.CreatePlanner(planPath, mb)
 	a, err := armory.LoadArmory("../armory/")
 	if err != nil {
 		panic(err)
@@ -41,13 +41,15 @@ func StartRan(withTui bool, loadKubeConfig bool, target string) {
 	filesharePort, _ := c.GetFileshare()
 	go ServeFiles(ctx, filesharePort)
 	go c2.StartC2(ctx, mb)
-	planner.StartApi(mb)
+	planner.StartAPI(mb)
 
 	go mb.HandleEvents(ctx)
 	// TODO maybe switch between TUI and web-UI (start frontend as well?)
 
 	namespaces := []string{}
 	go loadInitialEntities(ctx, mb, loadKubeConfig, target, namespaces)
+
+	p.Execute()
 
 	if ui != nil {
 		tui.RunTUI(ui)

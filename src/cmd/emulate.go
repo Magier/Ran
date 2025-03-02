@@ -1,18 +1,23 @@
 package cmd
 
 import (
-	"fmt"
-
+	core "github.com/Magier/Ran/internal"
 	"github.com/spf13/cobra"
 )
 
 func newEmulationCmd() *cobra.Command {
-	return &cobra.Command{
+	var target string
+	var godMode bool
+	var planPath string
+	cmd := &cobra.Command{
 		Use:   "emulate",
 		Short: "Emulate adversary behavior against a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			// Do Stuff Here
-			fmt.Println("Running emulation")
+			core.StartRan(true, godMode, target, planPath)
 		},
 	}
+	cmd.Flags().BoolVar(&godMode, "godmode", false, "enable Godmode to use the local kubeconfig context to load all available resources")
+	cmd.Flags().StringVarP(&target, "target", "t", "", `set the initial target for the emulation. In the pattern "<ns>/<service or pod>" or a URL`)
+	cmd.Flags().StringVarP(&planPath, "path", "p", "", `path to the file of the plan`)
+	return cmd
 }
