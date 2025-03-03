@@ -48,9 +48,17 @@ type CmdVariant struct {
 	IsLocalCommand bool   `yaml:"isLocal"`
 }
 
-// func (v CmdVariant) GetCmd() string {
-// 	return v.Command
-// }
+func (c *CmdVariant) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type tmpVVariant CmdVariant
+	if err := unmarshal((*tmpVVariant)(c)); err != nil {
+		return err
+	}
+	// go-yaml doesn't properly parse fold-style multiline strings:
+	// https://github.com/go-yaml/yaml/issues/789
+	// so manually replace the newline characters
+	c.Command = strings.ReplaceAll(c.Command, "\n", "")
+	return nil
+}
 
 type Parameter struct {
 	Name        string   `yaml:"name"`

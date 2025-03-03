@@ -21,7 +21,7 @@ preconditions:
   kind: ServiceAccount
 cmdVariants:
   - key: curl
-    command: >
+    command: >-
       curl -XPOST
             ${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews
             --cacert ${CA_PATH}
