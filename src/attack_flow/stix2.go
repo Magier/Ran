@@ -137,11 +137,25 @@ func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
 
 type Timestamp time.Time
 
+const TimestampLayout = "2006-01-02T15:04:05.000Z"
+
+func (ts *Timestamp) UnmarshalJSON(data []byte) error {
+	s := strings.Trim(string(data), "\"")
+	if s == "null" {
+		return fmt.Errorf("No valid timestamp provided in Stixbundle")
+	}
+	t, err := time.Parse(TimestampLayout, s)
+	if err != nil {
+		return fmt.Errorf("Failed to parse timestamp: %v", err)
+	}
+	*ts = Timestamp(t)
+	return nil
+}
 func (t Timestamp) MarshalJSON() ([]byte, error) {
 	tt := time.Time(t)
 	// STIX timestamp must be  RFC 3339-formatted timestamp using UTC
 	// https://docs.oasis-open.org/cti/stix/v2.1/os/stix-v2.1-os.html#_ksbm2nost85y
-	return json.Marshal(tt.Format("2006-01-02T15:04:05.000Z"))
+	return json.Marshal(tt.Format(TimestampLayout))
 }
 
 type SDO struct {
