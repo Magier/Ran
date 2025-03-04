@@ -5,6 +5,8 @@ import (
 	"net"
 	"strings"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -347,6 +349,31 @@ func NewK8sEntity(name, kind, namespace string) K8sEntity {
 		Labels:      make(map[string]string),
 		Annotations: make(map[string]string),
 		// TODO set createdAt here
+	}
+}
+func K8sEntityFromId(id string) K8sEntity {
+	parts := strings.Split(id, "/")
+	n := len(parts)
+	// IDs have format ns/<ns>/<kind>/<name>
+	// where the ns information is opitonal
+
+	name := parts[n-1]
+	kind := parts[n-2]
+	var ns string
+
+	if n > 2 {
+		ns = parts[n-3]
+	}
+
+	// if n > 4 {
+	// 	cluster = parts[n-5]
+	// }
+
+	return K8sEntity{
+		Id:        id,
+		Name:      name,
+		Kind:      cases.Title(language.English, cases.NoLower).String(kind),
+		Namespace: ns,
 	}
 }
 
