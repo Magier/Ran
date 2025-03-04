@@ -77,7 +77,7 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 
 	// TODO: properly specify name and description of the flow
 	af, creator := attackflow.NewAttackFlow("Ran Campaign", "A description")
-	bundle.Objects = append(bundle.Objects, creator)
+	bundle.Objects = bundle.Objects.Append(creator)
 
 	var obj attackflow.AttackFlowObject
 	obj = af
@@ -94,14 +94,14 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 		action, observables = attackflow.NewAttackAction(s.TTP.Name, s.Description, string(s.TTP.Tactic), technique, s.Command, s.StartAt, s.CompletedAt)
 		// TODO link the observable
 		obj = obj.Append(action)
-		bundle.Objects = append(bundle.Objects, observables...)
+		bundle.Objects = bundle.Objects.Append(observables...)
 
 		if s.Target != nil {
 			targetID := s.Target.GetId()
 			if assetID, ok := knownAssets[s.Target.GetId()]; ok {
 				if _, ok := s.Target.(domain.C2System); ok {
 					infraRel := attackflow.Newrelationship(action.ID, assetID, attackflow.RelatedTo)
-					bundle.Objects = append(bundle.Objects, infraRel)
+					bundle.Objects = bundle.Objects.Append(infraRel)
 				} else {
 					action.AssetRefs = append(action.AssetRefs, assetID)
 				}
@@ -112,12 +112,12 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 						Types: []string{attackflow.InfraTypeC2},
 					}
 					infraRel := attackflow.Newrelationship(action.ID, asset.ID, attackflow.RelatedTo)
-					bundle.Objects = append(bundle.Objects, asset, infraRel)
+					bundle.Objects = bundle.Objects.Append(asset, infraRel)
 					knownAssets[targetID] = asset.ID
 				} else {
 					asset := attackflow.NewAttackAsset(s.Target.GetId(), s.Target.GetName())
 					action.AssetRefs = append(action.AssetRefs, asset.ID)
-					bundle.Objects = append(bundle.Objects, asset)
+					bundle.Objects = bundle.Objects.Append(asset)
 					knownAssets[targetID] = asset.ID
 				}
 			}
@@ -125,15 +125,15 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 
 		if s.Success {
 			// no more descendants expected, add it to the final list of objects
-			bundle.Objects = append(bundle.Objects, obj)
+			bundle.Objects = bundle.Objects.Append(obj)
 			obj = action
 		} else {
 			// if it failed, then it's a dead "branch", just add the action directly
-			bundle.Objects = append(bundle.Objects, action)
+			bundle.Objects = bundle.Objects.Append(action)
 		}
 	}
 
 	// ensure last action is also added
-	bundle.Objects = append(bundle.Objects, action)
+	bundle.Objects = bundle.Objects.Append(action)
 	return bundle, nil
 }

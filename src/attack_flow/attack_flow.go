@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Magier/Ran/domain"
 	"github.com/google/uuid"
 )
 
@@ -150,4 +151,71 @@ var _ AttackFlowObject = (*AttackOperator)(nil)
 func (op AttackOperator) Append(obj AttackFlowObject) AttackFlowObject {
 	op.EffectRefs = append(op.EffectRefs, obj.GetID())
 	return op
+}
+
+func TraverseAttackFlow(bundle StixBundle, visitFn func(StixObject)) {
+	// Assume bundle.Objects is a map[string]StixObject where keys are IDs.
+	// First, locate the AttackFlow object to get its starting references.
+	var attackFlow AttackFlow
+	found := false
+	for _, obj := range bundle.Objects {
+		if af, ok := obj.(AttackFlow); ok {
+			attackFlow = af
+			found = true
+			break
+		}
+	}
+	if !found {
+		fmt.Println("No AttackFlow object found in the bundle.")
+		return
+	}
+
+	visited := make(map[string]bool)
+	queue := make([]string, 0)
+	// Enqueue the starting references from the AttackFlow.
+	queue = append(queue, attackFlow.StartRefs...)
+
+	// Perform BFS.
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		obj, exists := bundle.Objects[currentID]
+		if !exists {
+			fmt.Printf("Object with ID %s not found in bundle.\n", currentID)
+			continue
+		}
+
+		visitFn(obj)
+
+		// Determine child references based on object type.
+		var children []string
+		switch o := obj.(type) {
+		case AttackAction:
+			children = o.EffectRefs
+		case AttackCondition:
+			children = append(o.OnTrueRefs, o.OnFalseRefs...)
+		case AttackOperator:
+			children = o.EffectRefs
+		// AttackAsset and other objects do not hold child references.
+		default:
+			// No children for other types.
+		}
+
+		// Enqueue any unvisited child references.
+		for _, childID := range children {
+			if !visited[childID] {
+				queue = append(queue, childID)
+			}
+		}
+	}
+}
+
+func AssetToEntity(asset AttackAsset) domain.Entity {
+	return domain.K8sEntityFromId(asset.Name)
 }

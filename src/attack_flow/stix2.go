@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,13 +68,18 @@ func NewStixBundle() StixBundle {
 		ExtensionTypes: []string{"new-sdo"},
 	}
 
+	objSlice := ObjectSlice{
+		extDef.ID: extDef,
+		mitreId:   mitre,
+	}
+
 	return StixBundle{
 		Type:        "bundle",
 		ID:          fmt.Sprintf("bundle--%s", uuid.New()),
 		SpecVersion: "2.1",
 		Created:     now,
 		Modified:    now,
-		Objects:     ObjectSlice{extDef, mitre},
+		Objects:     objSlice,
 	}
 }
 
@@ -86,14 +93,36 @@ func (r *StixBundle) Marshal() ([]byte, error) {
 	return json.Marshal(r)
 }
 
-type ObjectSlice []StixObject
+type ObjectSlice map[string]StixObject
+
+func (o ObjectSlice) Append(objects ...StixObject) ObjectSlice {
+	for _, obj := range objects {
+		o[obj.GetID()] = obj
+	}
+	return o
+}
 
 func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
 	var obj []json.RawMessage
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return err
 	}
+	*objects = make(ObjectSlice)
 
+	// Create a mapping from SDO types to factory functions.
+	factories := map[string]func() StixObject{
+		"extension-definition": func() StixObject { return &ExtensionDefinition{} },
+		"identity":             func() StixObject { return &Identity{} },
+		"attack-flow":          func() StixObject { return &AttackFlow{} },
+		"attack-action":        func() StixObject { return &AttackAction{} },
+		"attack-condition":     func() StixObject { return &AttackCondition{} },
+		"attack-asset":         func() StixObject { return &AttackAsset{} },
+		"attack-operator":      func() StixObject { return &AttackOperator{} },
+		"relationship":         func() StixObject { return &Relationship{} },
+		"infrastructure":       func() StixObject { return &Infrastructure{} },
+		"process":              func() StixObject { return &Process{} },
+		"note":                 func() StixObject { return &Note{} },
+	}
 	for _, raw := range obj {
 		sdo := SDO{}
 		if err := json.Unmarshal(raw, &sdo); err != nil {
@@ -102,28 +131,22 @@ func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
 			return err
 		}
 
-		// Create a mapping from SDO types to factory functions.
-		factories := map[string]func() StixObject{
-			"extension-definition": func() StixObject { return &ExtensionDefinition{} },
-			"identity":             func() StixObject { return &Identity{} },
-			"attack-flow":          func() StixObject { return &AttackFlow{} },
-			"attack-action":        func() StixObject { return &AttackAction{} },
-			"attack-condition":     func() StixObject { return &AttackCondition{} },
-			"attack-asset":         func() StixObject { return &AttackAsset{} },
-			"attack-operator":      func() StixObject { return &AttackOperator{} },
-			"relationship":         func() StixObject { return &Relationship{} },
-			"infrastructure":       func() StixObject { return &Infrastructure{} },
-			"note":                 func() StixObject { return &Note{} },
-		}
-
 		var err error
 		if factory, ok := factories[sdo.Type]; !ok {
 			err = fmt.Errorf("%s SDO type is not correctly unmarshalled", sdo.Type)
 		} else {
-			instance := factory()
-			err = json.Unmarshal(raw, instance)
+			// Create a pointer instance for JSON unmarshalling.
+			instancePtr := factory()
+			err = json.Unmarshal(raw, instancePtr)
 			if err == nil {
-				*objects = append(*objects, instance)
+				// Convert the pointer to a value before appending.
+				value := reflect.ValueOf(instancePtr).Elem().Interface()
+				if stixObj, ok := value.(StixObject); ok {
+					(*objects)[stixObj.GetID()] = stixObj
+					// *objects = append(*objects, stixObj)
+				} else {
+					err = fmt.Errorf("unmarshalled object does not implement StixObject")
+				}
 			}
 		}
 		if err != nil {

@@ -26,7 +26,6 @@ func StartRan(withTui bool, loadKubeConfig bool, target string, planPath string)
 	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
 	defer cancel()
 	mb := bus.CreateMessageBus()
-	p := planner.CreatePlanner(planPath, mb)
 	a, err := armory.LoadArmory("../armory/")
 	if err != nil {
 		panic(err)
@@ -37,6 +36,7 @@ func StartRan(withTui bool, loadKubeConfig bool, target string, planPath string)
 		ui = tui.SetupTUI(mb, c, a)
 	}
 
+	p := planner.CreatePlanner(planPath, a, mb)
 	// TODO: turn fileshare into a regular action
 	filesharePort, _ := c.GetFileshare()
 	go ServeFiles(ctx, filesharePort)
@@ -49,7 +49,7 @@ func StartRan(withTui bool, loadKubeConfig bool, target string, planPath string)
 	namespaces := []string{}
 	go loadInitialEntities(ctx, mb, loadKubeConfig, target, namespaces)
 
-	p.Execute()
+	go p.Execute(ctx)
 
 	if ui != nil {
 		tui.RunTUI(ui)
