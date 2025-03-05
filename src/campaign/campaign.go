@@ -167,6 +167,9 @@ func (c Campaign) selectBestCommandVariant(ttp domain.TTP) (domain.CmdVariant, e
 }
 
 func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]string) (domain.Message, error) {
+	if args == nil {
+		args = make(map[string]string)
+	}
 	execCmd := domain.ExecTTP{
 		CommandImpl: domain.NewCmd(),
 		TTP:         ttp,
@@ -261,7 +264,9 @@ func (c Campaign) groundCmdTemplate(template string, variables map[string]string
 
 	for key, v := range variables {
 		templateVariable := fmt.Sprintf("${%s}", strings.ToUpper(key))
-		template = strings.Replace(template, templateVariable, v, -1)
+		if v != "" {
+			template = strings.Replace(template, templateVariable, v, -1)
+		}
 	}
 
 	return template

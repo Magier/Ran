@@ -57,6 +57,7 @@ type ActionSelected struct {
 	EventImpl
 	ActionID string
 	TargetID string
+	Variant  string
 	Args     map[string]string
 }
 
