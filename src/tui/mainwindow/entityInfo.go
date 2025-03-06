@@ -75,6 +75,16 @@ func renderServiceAccount(sa domain.ServiceAccount) string {
 	lines := []string{
 		sa.GetKind() + ": " + sa.Name,
 		"ID: " + sa.GetId(),
+		"Node: " + sa.Token.Kubernetes.Node.Name,
+	}
+
+	if len(sa.Can) > 0 {
+		lines = append(lines, "Can: ")
+		for _, rule := range sa.Can {
+			verbs := strings.Join(rule.Verbs, ", ")
+			resTypes := strings.Join(rule.ResourceTypes, ", ")
+			lines = append(lines, fmt.Sprintf("\t - %s: %s", verbs, resTypes))
+		}
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)

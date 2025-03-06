@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
@@ -50,6 +51,13 @@ func StartRan(withTui bool, loadKubeConfig bool, target string, planPath string)
 	go loadInitialEntities(ctx, mb, loadKubeConfig, target, namespaces)
 
 	go p.Execute(ctx)
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		if err := mb.Publish(domain.RanReady{}); err != nil {
+			panic(err.Error())
+		}
+	}()
 
 	if ui != nil {
 		tui.RunTUI(ui)

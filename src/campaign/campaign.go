@@ -331,6 +331,10 @@ func (c Campaign) GetC2(name string) (domain.C2System, bool) {
 }
 
 func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, error) {
+	if target == nil {
+		return nil, errors.New("Can't find a C2 channel if target is nil")
+	}
+
 	for _, c2 := range kg.GetC2s() {
 		_, relations, err := kg.GetPath(c2.GetId(), target.GetId())
 		if err != nil {

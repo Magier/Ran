@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 )
@@ -91,11 +92,13 @@ func (e ExecTTP) String() string {
 	var target string
 	if e.C2Channel != nil {
 		target = e.C2Channel.GetTargetId()
-	} else {
+	} else if e.Target != nil {
 		target = e.Target.GetId()
+	} else {
+		slog.Error(fmt.Sprintf("Could not find target for ExecTTP '%s'", e.GetID()))
 	}
 
-	return fmt.Sprintf("Executing '%s' on %s", e.Variant.Command, target)
+	return fmt.Sprintf("Executing '%s' on %s", e.TTP.Name, target)
 }
 
 type KubectlExec struct {

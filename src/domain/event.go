@@ -26,6 +26,14 @@ func (e EventImpl) GetCmdID() string {
 	return e.CmdId
 }
 
+type RanReady struct {
+	EventImpl
+}
+
+func (e RanReady) String() string {
+	return "Ran Ready"
+}
+
 type UiEvent interface {
 	UiMessage() string
 }
@@ -205,3 +213,8 @@ func (e AttackFlowSaved) String() string {
 	return fmt.Sprintf("saved attack flow to %s ", e.Path)
 }
 
+type PodDeployed struct {
+	EventImpl
+	PodCfg    PodConfig
+	Namespace string
+}
