@@ -8,10 +8,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Magier/Ran/mitre"
 	"github.com/google/uuid"
 )
 
 const MitreUUID = "fb9c968a-745b-4ade-9b25-c324172197f4"
+
+//go:generate go run gen_mappings.go https://github.com/mitre-attack/attack-stix-data/blob/master/enterprise-attack/enterprise-attack.json
+var MitreTechniqueMapping = map[string]string{
+	"T1099": "attack-pattern--0f4e3b4b-5e58-4e47-8e0d-8f4f9e6e1f9d",
+}
+
+var MitreTacticMapping = map[mitre.Tactic]string{
+	mitre.Discovery:        "x-mitre-tactic--2558fd61-8c75-4730-94c4-11926db2a263",
+	mitre.CredentialAccess: "x-mitre-tactic--f1e1b1e2-1e3e-4e1e-8e1e-1e1e1e1e1e1e",
+}
 
 type StixBundle struct {
 	Type        string      `json:"type"`
@@ -83,7 +94,7 @@ func NewStixBundle() StixBundle {
 	}
 }
 
-func UnmarshalAttackFlow(data []byte) (StixBundle, error) {
+func UnmarshalStixBundle(data []byte) (StixBundle, error) {
 	var r StixBundle
 	err := json.Unmarshal(data, &r)
 	return r, err

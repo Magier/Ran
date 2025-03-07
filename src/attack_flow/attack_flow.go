@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/Magier/Ran/domain"
-	"github.com/google/uuid"
+	"github.com/Magier/Ran/mitre"
 )
 
 type AttackFlow struct {
@@ -83,12 +83,15 @@ func NewAttackAction(name, description, tactic, technique, cmd string, execStart
 		observables = append(observables, proc)
 	}
 
+	stixTacticId := MitreTacticMapping[mitre.Tactic(tactic)]
+	stixTechniqueId := MitreTechniqueMapping[technique]
+
 	return AttackAction{
 		SDO:            sdo,
 		TacticID:       tactic,
-		TacticRef:      fmt.Sprintf("x-mitre-tactic--%s", uuid.New()),
+		TacticRef:      stixTacticId,
 		TechniqueID:    technique,
-		TechniqueRef:   fmt.Sprintf("attack-pattern--%s", uuid.New()),
+		TechniqueRef:   stixTechniqueId,
 		ExecutionStart: Timestamp(execStart),
 		ExecutionEnd:   Timestamp(execEnd),
 		EffectRefs:     []string{},

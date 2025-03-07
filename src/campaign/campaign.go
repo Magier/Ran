@@ -12,6 +12,7 @@ import (
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
+	"github.com/Magier/Ran/mitre"
 	"github.com/google/uuid"
 )
 
@@ -310,7 +311,7 @@ func isActionOnRemoteTarget(ttp domain.TTP, cmd domain.CmdVariant) bool {
 
 	// TODO: get rid of this approach
 	switch ttp.Tactic {
-	case domain.Reconnaissance, domain.ResourceDevelopment:
+	case mitre.Reconnaissance, mitre.ResourceDevelopment:
 		return false
 	default:
 		return true
