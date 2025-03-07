@@ -37,7 +37,7 @@ func LoadPlan(path string, armory armory.Armory) PlayBookPlanner {
 		return PlayBookPlanner{}
 	}
 
-	af, err := attackflow.UnmarshalAttackFlow(data)
+	af, err := attackflow.UnmarshalStixBundle(data)
 	if err != nil {
 		slog.Error(err.Error())
 	}
@@ -82,7 +82,13 @@ func LoadPlan(path string, armory armory.Armory) PlayBookPlanner {
 func (p PlayBookPlanner) Execute(ctx context.Context) {
 	flowControl := make(chan bool, 1)
 
+	// this is the starting point of the Palnner
+	p.bus.Subscribe(domain.RanReady{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		flowControl <- true
+		return nil, nil
+	})
 	p.bus.Subscribe(domain.TTPExecuted{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		// ensure the knowledge was properly consolidate
 		flowControl <- true
 		return nil, nil
 	})
@@ -90,27 +96,18 @@ func (p PlayBookPlanner) Execute(ctx context.Context) {
 		flowControl <- false
 		return nil, nil
 	})
-	// p.bus.Subscribe(domain.CampaignStarted{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-	// 	flowControl <- false
-	// 	return nil, nil
-	// })
-	// TODO find/create a good event when to start the execution of the plan
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		flowControl <- true
-	}()
 
-	for _, step := range p.Steps {
+	for i := range p.Steps {
 		select {
 		case <-ctx.Done():
 			break
-		case wasSucceeded, ok := <-flowControl:
-			if !ok {
+		case wasSuccess, ok := <-flowControl:
+			if !ok || !wasSuccess {
 				break
 			}
-			time.Sleep(200 * time.Millisecond)
-			var _ = wasSucceeded
-			err := p.bus.Publish(step)
+
+			time.Sleep(100 * time.Millisecond)
+			err := p.bus.Publish(p.Steps[i])
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to publish next step in plan: %v", err))
 			}
