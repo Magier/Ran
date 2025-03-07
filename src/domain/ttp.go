@@ -3,6 +3,8 @@ package domain
 import (
 	"strings"
 
+	mitre "github.com/Magier/Ran/mitre"
+
 	"github.com/creasty/defaults"
 	"gopkg.in/yaml.v3"
 )
@@ -14,25 +16,6 @@ type CodeSnippet struct {
 	Code       string            `yaml:"code"`
 	Parameters map[string]string `yaml:"parameters"`
 }
-
-type Tactic string
-
-const (
-	Reconnaissance      = "Reconnaissance"       // TA0043
-	ResourceDevelopment = "Resource Development" // TA0042
-	InitialAccess       = "Initial Access"       // TA0001
-	Execution           = "Execution"            // TA0002
-	Persistence         = "Persistence"          // TA0003
-	PrivilegeEscalation = "Privilege Escalation" // TA0004
-	DefenseEvasion      = "Defense Evasion"      // TA0005
-	CredentialAccess    = "Credential Access"    // TA0006
-	Discovery           = "Discovery"            // TA0007
-	LateralMovement     = "Lateral Movement"     // TA0008
-	Collection          = "Collection"           // TA0009
-	CommandAndControl   = "Command And Control"  // TA0011
-	Exfiltration        = "Exfiltration"         // TA0010
-	Impact              = "Impact"               // TA0040
-)
 
 type HttpCmd struct {
 	Endpoint string
@@ -80,11 +63,11 @@ func (p *Parameter) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 type TTP struct {
-	ID          string   `yaml:"id"`
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Tactic      Tactic   `yaml:"tactic"`
-	Technique   []string `yaml:"technique"`
+	ID          string       `yaml:"id"`
+	Name        string       `yaml:"name"`
+	Description string       `yaml:"description"`
+	Tactic      mitre.Tactic `yaml:"tactic"`
+	Technique   []string     `yaml:"technique"`
 
 	References []string `yaml:"references"`
 

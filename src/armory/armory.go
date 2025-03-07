@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Magier/Ran/domain"
+	"github.com/Magier/Ran/mitre"
 	"gopkg.in/yaml.v3"
 )
 
@@ -86,24 +87,24 @@ func loadTTPs(dir string) ([]domain.TTP, error) {
 
 // order all the TTPs first by the Tactic and then by their names
 func sortTTPs(ttps []domain.TTP) []domain.TTP {
-	tacticOrder := []domain.Tactic{
-		domain.Reconnaissance,
-		domain.ResourceDevelopment,
-		domain.InitialAccess,
-		domain.Discovery,
-		domain.Execution,
-		domain.CredentialAccess,
-		domain.Persistence,
-		domain.PrivilegeEscalation,
-		domain.DefenseEvasion,
-		domain.LateralMovement,
-		domain.Collection,
-		domain.CommandAndControl,
-		domain.Exfiltration,
-		domain.Impact,
+	tacticOrder := []mitre.Tactic{
+		mitre.Reconnaissance,
+		mitre.ResourceDevelopment,
+		mitre.InitialAccess,
+		mitre.Discovery,
+		mitre.Execution,
+		mitre.CredentialAccess,
+		mitre.Persistence,
+		mitre.PrivilegeEscalation,
+		mitre.DefenseEvasion,
+		mitre.LateralMovement,
+		mitre.Collection,
+		mitre.CommandAndControl,
+		mitre.Exfiltration,
+		mitre.Impact,
 	}
 
-	tacticIndex := make(map[domain.Tactic]int)
+	tacticIndex := make(map[mitre.Tactic]int)
 	for i, tactic := range tacticOrder {
 		tacticIndex[tactic] = i
 	}
