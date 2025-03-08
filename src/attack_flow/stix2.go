@@ -8,21 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Magier/Ran/mitre"
 	"github.com/google/uuid"
 )
 
 const MitreUUID = "fb9c968a-745b-4ade-9b25-c324172197f4"
 
-//go:generate go run gen_mappings.go https://github.com/mitre-attack/attack-stix-data/blob/master/enterprise-attack/enterprise-attack.json
-var MitreTechniqueMapping = map[string]string{
-	"T1099": "attack-pattern--0f4e3b4b-5e58-4e47-8e0d-8f4f9e6e1f9d",
-}
-
-var MitreTacticMapping = map[mitre.Tactic]string{
-	mitre.Discovery:        "x-mitre-tactic--2558fd61-8c75-4730-94c4-11926db2a263",
-	mitre.CredentialAccess: "x-mitre-tactic--f1e1b1e2-1e3e-4e1e-8e1e-1e1e1e1e1e1e",
-}
+//go:generate go run gen_mappings.go https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json
 
 type StixBundle struct {
 	Type        string      `json:"type"`
@@ -113,6 +104,70 @@ func (o ObjectSlice) Append(objects ...StixObject) ObjectSlice {
 	return o
 }
 
+type MitreCollection struct {
+	SDO          `json:",inline"`
+	MitreVersion string `json:"x-mitre_version"`
+}
+
+type MitreMatrix struct {
+	SDO        `json:",inline"`
+	TacticRefs []string `json:"tactic_refs"`
+}
+
+type KillChainPhase struct {
+	KillChainName string `json:"kill_chain_name"`
+	PhaseName     string `json:"phase_name"`
+}
+
+type AttackPattern struct {
+	SDO            `json:",inline"`
+	KillChain      []KillChainPhase `json:"kill_chain_phases"`
+	Platforms      []string         `json:"x_mitre_platforms"`
+	Deprecated     bool             `json:"x_mitre_deprecated"`
+	Detection      string           `json:"x_mitre_detection"`
+	IsSubtechnique bool             `json:"x_mitre_is_subtechnique"`
+}
+
+type MitreTactic struct {
+	SDO       `json:",inline"`
+	Domains   []string `json:"x_mitre_domains"`
+	Shortname string   `json:"x_mitre_shortname"`
+}
+
+type Tool struct {
+	SDO        `json:",inline"`
+	Platforms  []string `json:"x_mitre_platforms"`
+	Deprecated bool     `json:"x_mitre_deprecated"`
+	Alias      []string `json:"x_mitre_aliases"`
+	Domain     []string `json:"x_mitre_domains"`
+}
+
+var StixObjectFactory = map[string]func() StixObject{
+	"extension-definition":   func() StixObject { return &ExtensionDefinition{} },
+	"identity":               func() StixObject { return &Identity{} },
+	"attack-flow":            func() StixObject { return &AttackFlow{} },
+	"attack-action":          func() StixObject { return &AttackAction{} },
+	"attack-condition":       func() StixObject { return &AttackCondition{} },
+	"attack-pattern":         func() StixObject { return &AttackPattern{} },
+	"attack-asset":           func() StixObject { return &AttackAsset{} },
+	"attack-operator":        func() StixObject { return &AttackOperator{} },
+	"relationship":           func() StixObject { return &Relationship{} },
+	"infrastructure":         func() StixObject { return &Infrastructure{} },
+	"process":                func() StixObject { return &Process{} },
+	"note":                   func() StixObject { return &Note{} },
+	"x-mitre-collection":     func() StixObject { return &MitreCollection{} },
+	"x-mitre-tactic":         func() StixObject { return &MitreTactic{} },
+	"campaign":               func() StixObject { return nil },
+	"course-of-action":       func() StixObject { return nil },
+	"intrusion-set":          func() StixObject { return nil },
+	"malware":                func() StixObject { return nil },
+	"tool":                   func() StixObject { return &Tool{} },
+	"x-mitre-data-source":    func() StixObject { return nil }, // TODO: can be a Container, so may be interesting
+	"x-mitre-data-component": func() StixObject { return nil },
+	"x-mitre-matrix":         func() StixObject { return &MitreMatrix{} },
+	"marking-definition":     func() StixObject { return nil },
+}
+
 func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
 	var obj []json.RawMessage
 	if err := json.Unmarshal(data, &obj); err != nil {
@@ -121,19 +176,7 @@ func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
 	*objects = make(ObjectSlice)
 
 	// Create a mapping from SDO types to factory functions.
-	factories := map[string]func() StixObject{
-		"extension-definition": func() StixObject { return &ExtensionDefinition{} },
-		"identity":             func() StixObject { return &Identity{} },
-		"attack-flow":          func() StixObject { return &AttackFlow{} },
-		"attack-action":        func() StixObject { return &AttackAction{} },
-		"attack-condition":     func() StixObject { return &AttackCondition{} },
-		"attack-asset":         func() StixObject { return &AttackAsset{} },
-		"attack-operator":      func() StixObject { return &AttackOperator{} },
-		"relationship":         func() StixObject { return &Relationship{} },
-		"infrastructure":       func() StixObject { return &Infrastructure{} },
-		"process":              func() StixObject { return &Process{} },
-		"note":                 func() StixObject { return &Note{} },
-	}
+	// see https://mitre-attack.github.io/attack-data-model/docs/overview
 	for _, raw := range obj {
 		sdo := SDO{}
 		if err := json.Unmarshal(raw, &sdo); err != nil {
@@ -143,11 +186,18 @@ func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
 		}
 
 		var err error
-		if factory, ok := factories[sdo.Type]; !ok {
-			err = fmt.Errorf("%s SDO type is not correctly unmarshalled", sdo.Type)
+		if factory, ok := StixObjectFactory[sdo.Type]; !ok {
+			fmt.Println("Skipping unknown SDO type:", sdo.Type)
+			continue
 		} else {
 			// Create a pointer instance for JSON unmarshalling.
 			instancePtr := factory()
+
+			// nil pointer means the type should be skipped
+			if instancePtr == nil {
+				continue
+			}
+
 			err = json.Unmarshal(raw, instancePtr)
 			if err == nil {
 				// Convert the pointer to a value before appending.
@@ -171,7 +221,7 @@ func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
 
 type Timestamp time.Time
 
-const TimestampLayout = "2006-01-02T15:04:05.000Z"
+const TimestampLayout = "2006-01-02T15:04:05.9Z"
 
 func (ts *Timestamp) UnmarshalJSON(data []byte) error {
 	s := strings.Trim(string(data), "\"")
@@ -245,6 +295,7 @@ type ExternalReference struct {
 	SourceName  string `json:"source_name"`
 	Description string `json:"description"`
 	URL         string `json:"url"`
+	ExternalID  string `json:"external_id"`
 }
 type ExtensionDefinition struct {
 	SDO            `json:",inline"`
