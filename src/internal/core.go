@@ -37,7 +37,6 @@ func StartRan(withTui bool, loadKubeConfig bool, target string, planPath string)
 		ui = tui.SetupTUI(mb, c, a)
 	}
 
-	p := planner.CreatePlanner(planPath, a, mb)
 	// TODO: turn fileshare into a regular action
 	filesharePort, _ := c.GetFileshare()
 	go ServeFiles(ctx, filesharePort)
@@ -50,7 +49,10 @@ func StartRan(withTui bool, loadKubeConfig bool, target string, planPath string)
 	namespaces := []string{}
 	go loadInitialEntities(ctx, mb, loadKubeConfig, target, namespaces)
 
-	go p.Execute(ctx)
+	if planPath != "" {
+		p := planner.CreatePlanner(planPath, a, mb)
+		go p.Execute(ctx)
+	}
 
 	go func() {
 		time.Sleep(200 * time.Millisecond)
