@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	attackflow "github.com/Magier/Ran/attack_flow"
 	"github.com/Magier/Ran/domain"
+	attackflow "github.com/Magier/Ran/mitre/attack_flow"
 )
 
 type AttackStep struct {
@@ -89,7 +89,7 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 	for _, s := range a.steps {
 		var technique string
 		if len(technique) > 0 {
-			technique = s.TTP.Technique[0]
+			technique = s.TTP.Techniques[0]
 		}
 		action, observables = attackflow.NewAttackAction(s.TTP.Name, s.Description, string(s.TTP.Tactic), technique, s.Command, s.StartAt, s.CompletedAt)
 		// TODO link the observable

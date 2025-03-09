@@ -1,10 +1,10 @@
 package domain
 
 import (
+	"log/slog"
 	"strings"
 
-	mitre "github.com/Magier/Ran/mitre"
-
+	"github.com/Magier/Ran/mitre"
 	"github.com/creasty/defaults"
 	"gopkg.in/yaml.v3"
 )
@@ -67,7 +67,7 @@ type TTP struct {
 	Name        string       `yaml:"name"`
 	Description string       `yaml:"description"`
 	Tactic      mitre.Tactic `yaml:"tactic"`
-	Technique   []string     `yaml:"technique"`
+	Techniques  []string     `yaml:"techniques"`
 
 	References []string `yaml:"references"`
 
@@ -174,6 +174,17 @@ type YAMLTTP struct {
 
 func (t YAMLTTP) TTP() (TTP, error) {
 	ttp := TTP(t.TTPAlias)
+
+	// normalize techniques to use the ID
+	for i, entry := range ttp.Techniques {
+		if !mitre.IsTechniqueID(entry) {
+			if id, ok := mitre.GetTechniqueIDByName(entry); ok {
+				ttp.Techniques[i] = id
+			} else {
+				slog.Warn("Could not find technique ID", "Name", entry)
+			}
+		}
+	}
 
 	if t.Command != "" {
 		cmd, isMessage := parseCommandToMessage(t.Command)
