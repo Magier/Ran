@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/Magier/Ran/armory"
-	attackflow "github.com/Magier/Ran/attack_flow"
 	"github.com/Magier/Ran/domain"
 	bus "github.com/Magier/Ran/internal/bus"
+	attackflow "github.com/Magier/Ran/mitre/attack_flow"
 )
 
 type Planner interface {
@@ -122,7 +122,7 @@ func lookupTTPInArmory(action attackflow.AttackAction, armory armory.Armory) (do
 			return ttp, true
 		}
 
-		for _, tech := range ttp.Technique {
+		for _, tech := range ttp.Techniques {
 			if tech == action.TechniqueID {
 				return ttp, true
 			}

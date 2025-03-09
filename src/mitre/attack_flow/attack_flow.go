@@ -1,6 +1,7 @@
 package attackflow
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -69,6 +70,18 @@ type AttackAction struct {
 	ExecutionEnd   Timestamp `json:"execution_end,omitempty"`
 }
 
+func (a *AttackAction) UnmarshalJSON(data []byte) error {
+	type Alias AttackAction
+	action := Alias{}
+	if err := json.Unmarshal(data, &action); err != nil {
+		return err
+	}
+	action.TechniqueID = mitre.TechniqueMapping[action.TechniqueRef]
+
+	*a = AttackAction(action)
+	return nil
+}
+
 func NewAttackAction(name, description, tactic, technique, cmd string, execStart, execEnd time.Time) (AttackAction, []StixObject) {
 	sdo := NewSDO("attack-action", name, description, true)
 	observables := []StixObject{}
@@ -83,8 +96,8 @@ func NewAttackAction(name, description, tactic, technique, cmd string, execStart
 		observables = append(observables, proc)
 	}
 
-	stixTacticId := MitreTacticMapping[mitre.Tactic(tactic)]
-	stixTechniqueId := MitreTechniqueMapping[technique]
+	stixTacticId := mitre.TacticMapping[tactic]
+	stixTechniqueId := mitre.TechniqueMapping[technique]
 
 	return AttackAction{
 		SDO:            sdo,

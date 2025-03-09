@@ -1,7 +1,7 @@
 name: Start reverse shell
 description: Establish a reverse shell
 tactic: Execution
-techniques: [""]
+techniques: ["Command and Scripting Interpreter: Unix Shell"]
 args:
   SRC_BIN: "implant"
   DST_BIN: "/tmp/pause"
