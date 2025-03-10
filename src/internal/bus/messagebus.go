@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"reflect"
 
 	domain "github.com/Magier/Ran/domain"
 )
@@ -12,7 +13,7 @@ type MessageBus interface {
 	Execute(cmd domain.Message) error
 	Publish(events ...domain.Message) error
 	// Publish(ctx context.Context, events ...domain.Event) error
-	Subscribe(event domain.Message, handler domain.MessageHandler)
+	Subscribe(event domain.Message, handler domain.MessageHandler) func()
 }
 
 type MessageBusProvider struct {
@@ -71,13 +72,27 @@ func (b *MessageBusProvider) Publish(messages ...domain.Message) error {
 	return nil
 }
 
-func (b *MessageBusProvider) Subscribe(event domain.Message, handler domain.MessageHandler) {
+func (b *MessageBusProvider) Subscribe(event domain.Message, handler domain.MessageHandler) func() {
 	// h.mu.Lock()
 	// defer h.mu.Unlock()
+	key := msgName(event)
 	b.subscribers[msgName(event)] = append(
 		b.subscribers[msgName(event)],
 		handler,
 	)
+
+	return func() {
+		handlers := b.subscribers[key]
+		currentHandlerPtr := reflect.ValueOf(handler).Pointer()
+
+		newHandlers := make([]domain.MessageHandler, 0, len(handlers))
+		for _, h := range handlers {
+			if reflect.ValueOf(h).Pointer() != currentHandlerPtr {
+				newHandlers = append(newHandlers, h)
+			}
+		}
+		b.subscribers[key] = newHandlers
+	}
 }
 
 func CreateMessageBus() *MessageBusProvider {
