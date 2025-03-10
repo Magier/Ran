@@ -80,22 +80,25 @@ func LoadPlan(path string, armory armory.Armory) PlayBookPlanner {
 }
 
 func (p PlayBookPlanner) Execute(ctx context.Context) {
+	// the channel signals when a new TTP is executed
 	flowControl := make(chan bool, 1)
-
-	// this is the starting point of the Palnner
-	p.bus.Subscribe(domain.RanReady{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		flowControl <- true
-		return nil, nil
-	})
-	p.bus.Subscribe(domain.TTPExecuted{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		// ensure the knowledge was properly consolidate
-		flowControl <- true
-		return nil, nil
-	})
-	p.bus.Subscribe(domain.TTPFailed{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		flowControl <- false
-		return nil, nil
-	})
+	subscribe := func(msgType domain.Message, flag bool) func() {
+		return p.bus.Subscribe(msgType, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+			flowControl <- flag
+			return nil, nil
+		})
+	}
+	unsubs := []func(){
+		subscribe(domain.RanReady{}, true), // simplified starting point of the Planner
+		subscribe(domain.TTPExecuted{}, true),
+		subscribe(domain.TTPFailed{}, false),
+	}
+	stopPlanner := func() {
+		for _, unsub := range unsubs {
+			unsub()
+		}
+	}
+	defer stopPlanner()
 
 	for i := range p.Steps {
 		select {
@@ -105,7 +108,6 @@ func (p PlayBookPlanner) Execute(ctx context.Context) {
 			if !ok || !wasSuccess {
 				break
 			}
-
 			time.Sleep(100 * time.Millisecond)
 			err := p.bus.Publish(p.Steps[i])
 			if err != nil {
