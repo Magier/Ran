@@ -66,10 +66,19 @@ func updateEntity(entity, other domain.Entity) domain.Entity {
 			switch e := entity.(type) {
 			case domain.Pod:
 				e.Owner = ownerRef
-				return e
+				entity = e
 			}
 		}
 	}
+
+	if entity.(domain.Entity).GetKind() == "Pod" {
+		pod := entity.(domain.Pod)
+		prevPod := other.(domain.Pod)
+
+		pod.AccessLevel = prevPod.AccessLevel
+		entity = pod
+	}
+
 	return entity
 }
 
