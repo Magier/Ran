@@ -48,6 +48,7 @@ func renderPod(e domain.Pod) string {
 		"HostPID: " + strOrDefault(e.HostPID.String(), "?"),
 		"HostIPC: " + strOrDefault(e.HostIPC.String(), "?"),
 		"HostNetwork: " + strOrDefault(e.HostNetwork.String(), "?"),
+		"AccessLevel: " + e.AccessLevel.String(),
 	}
 
 	// e.EnvVars
