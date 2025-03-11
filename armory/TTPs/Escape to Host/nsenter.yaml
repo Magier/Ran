@@ -1,5 +1,5 @@
 name: Escape container via NSenter 🚧
-description: Catch incoming shells
+description: Container escape via the nsenter built-in linux program that allows executing a binary into another namespace.
 tactic: "Privilege Escalation"
 techniques: ["Escape to Host"]
 preconditions:

