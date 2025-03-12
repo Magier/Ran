@@ -14,13 +14,17 @@ import (
 	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/campaign"
+	"github.com/Magier/Ran/core/bus"
 	"github.com/Magier/Ran/domain"
-	"github.com/Magier/Ran/internal/bus"
 	k8s "github.com/Magier/Ran/k8sclient"
 	"github.com/Magier/Ran/planner"
 	"github.com/Magier/Ran/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func Hello(name string) string {
+	return "Hello  from Ran, " + name
+}
 
 func StartRan(withTui bool, loadKubeConfig bool, target string, planPath string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)

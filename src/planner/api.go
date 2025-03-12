@@ -1,8 +1,8 @@
 package planner
 
 import (
+	bus "github.com/Magier/Ran/core/bus"
 	"github.com/Magier/Ran/domain"
-	bus "github.com/Magier/Ran/internal/bus"
 )
 
 type APIStarted struct {

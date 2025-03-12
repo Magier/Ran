@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Magier/Ran/core/bus"
 	"github.com/Magier/Ran/domain"
-	bus "github.com/Magier/Ran/internal/bus"
 	k8s "github.com/Magier/Ran/k8sclient"
 )
 
