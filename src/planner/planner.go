@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/Magier/Ran/armory"
+	bus "github.com/Magier/Ran/core/bus"
 	"github.com/Magier/Ran/domain"
-	bus "github.com/Magier/Ran/internal/bus"
 	attackflow "github.com/Magier/Ran/mitre/attack_flow"
 )
 

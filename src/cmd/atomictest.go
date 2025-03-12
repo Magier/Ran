@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	core "github.com/Magier/Ran/internal"
+	"github.com/Magier/Ran/core"
 	"github.com/spf13/cobra"
 )
 

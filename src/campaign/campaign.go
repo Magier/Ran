@@ -10,8 +10,8 @@ import (
 
 	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
+	"github.com/Magier/Ran/core/bus"
 	"github.com/Magier/Ran/domain"
-	bus "github.com/Magier/Ran/internal/bus"
 	"github.com/Magier/Ran/mitre"
 	"github.com/google/uuid"
 )
