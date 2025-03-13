@@ -12,7 +12,8 @@ func newAtomicTestCmd() *cobra.Command {
 		Use:   "invoke",
 		Short: "Run an atomic test in a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			core.StartRan(true, godMode, target, "")
+			r := core.InitRan()
+			r.Start(true, godMode, target, "")
 		},
 	}
 

@@ -22,45 +22,57 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func Hello(name string) string {
-	return "Hello  from Ran, " + name
+type Ran struct {
+	Bus      bus.MessageBus
+	armory   armory.Armory
+	campaign *campaign.Campaign
+	// c2       *c2.C2
 }
 
-func StartRan(withTui bool, loadKubeConfig bool, target string, planPath string) {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
-	defer cancel()
+func InitRan() Ran {
 	mb := bus.CreateMessageBus()
 	a, err := armory.LoadArmory("../armory/")
 	if err != nil {
 		panic(err)
 	}
 	c := campaign.StartCampaign(mb, a)
+	ran := Ran{
+		Bus:      mb,
+		armory:   a,
+		campaign: c,
+	}
+	return ran
+}
+
+func (r Ran) Start(withTui bool, loadKubeConfig bool, target string, planPath string) {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
+	defer cancel()
 	var ui *tea.Program = nil
 	if withTui {
-		ui = tui.SetupTUI(mb, c, a)
+		ui = tui.SetupTUI(r.Bus, r.campaign, r.armory)
 	}
 
 	// TODO: turn fileshare into a regular action
-	filesharePort, _ := c.GetFileshare()
+	filesharePort, _ := r.campaign.GetFileshare()
 	go ServeFiles(ctx, filesharePort)
-	go c2.StartC2(ctx, mb)
-	planner.StartAPI(mb)
+	go c2.StartC2(ctx, r.Bus)
+	// planner.StartAPI(r.Bus)
 
-	go mb.HandleEvents(ctx)
+	go r.Bus.HandleEvents(ctx)
 	// TODO maybe switch between TUI and web-UI (start frontend as well?)
 
 	namespaces := []string{}
-	go loadInitialEntities(ctx, mb, loadKubeConfig, target, namespaces)
+	go loadInitialEntities(ctx, r.Bus, loadKubeConfig, target, namespaces)
 
 	if planPath != "" {
-		p := planner.CreatePlanner(planPath, a, mb)
+		p := planner.CreatePlanner(planPath, r.armory, r.Bus)
 		go p.Execute(ctx)
 	}
 
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		if err := mb.Publish(domain.RanReady{}); err != nil {
+		if err := r.Bus.Publish(domain.RanReady{}); err != nil {
 			panic(err.Error())
 		}
 	}()

@@ -1,26 +1,38 @@
 <script lang="ts">
-  import logo from './assets/images/logo-universal.png'
-  import {Greet} from '../wailsjs/go/main/App.js'
+  import logo from "./assets/images/Ran.svg";
+  // import logo from './assets/images/logo-universal.png'
+  import { StartEmulation } from "../wailsjs/go/main/App.js";
+  import * as runtime from "../wailsjs/runtime";
 
-  let resultText: string = "Please enter your name below 👇"
-  let name: string
+  let target: string = "default/kubelet-reader-pod";
+  runtime.EventsOn("terminal-echo", (a) => {
+    console.log(a);
+  });
 
-  function greet(): void {
-    Greet(name).then(result => resultText = result)
+  function start(): void {
+    StartEmulation(target);
+    // StartEmulation(target).then((result) => (resultText = result));
   }
 </script>
 
 <main>
-  <img alt="Wails logo" id="logo" src="{logo}">
-  <div class="result" id="result">{resultText}</div>
+  <img alt="Wails logo" id="logo" src={logo} />
+  <br />
+
   <div class="input-box" id="input">
-    <input autocomplete="off" bind:value={name} class="input" id="name" type="text"/>
-    <button class="btn" on:click={greet}>Greet</button>
+    <label for="target">Target: </label>
+    <input
+      autocomplete="off"
+      bind:value={target}
+      class="input"
+      id="target"
+      type="text"
+    />
+    <button class="btn" on:click={start}>Start</button>
   </div>
 </main>
 
 <style>
-
   #logo {
     display: block;
     width: 50%;
@@ -75,5 +87,4 @@
     border: none;
     background-color: rgba(255, 255, 255, 1);
   }
-
 </style>

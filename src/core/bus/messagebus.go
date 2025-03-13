@@ -10,7 +10,8 @@ import (
 )
 
 type MessageBus interface {
-	Execute(cmd domain.Message) error
+	// Execute(cmd domain.Message) error
+	HandleEvents(ctx context.Context)
 	Publish(events ...domain.Message) error
 	// Publish(ctx context.Context, events ...domain.Event) error
 	Subscribe(event domain.Message, handler domain.MessageHandler) func()
@@ -52,17 +53,15 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) {
 }
 
 // func (b *MessageBusProvider) Execute(cmd domain.Message) (chan struct{}, error) {
-func (b *MessageBusProvider) Execute(cmd domain.Message) error {
-	// ch := make(chan struct{}, 1)
-	// // lookup command provider
-	// go func() {
-	// 	defer close(ch)
-	// 	// TODO: do the command
-	// 	ch <- struct{}{}
-	// }()
-	// return ch, nil
-	return nil
-}
+// func (b *MessageBusProvider) Execute(cmd domain.Message) error {
+// ch := make(chan struct{}, 1)
+// // lookup command provider
+// go func() {
+// 	defer close(ch)
+// 	// TODO: do the command
+// 	ch <- struct{}{}
+// }()
+// return ch, nil
 
 func (b *MessageBusProvider) Publish(messages ...domain.Message) error {
 	// func (h *MessageBusProvider) Publish(ctx context.Context, events ...domain.Event) error {
