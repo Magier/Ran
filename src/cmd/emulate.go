@@ -13,7 +13,8 @@ func newEmulationCmd() *cobra.Command {
 		Use:   "emulate",
 		Short: "Emulate adversary behavior against a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			core.StartRan(true, godMode, target, planPath)
+			r := core.InitRan()
+			r.Start(true, godMode, target, planPath)
 		},
 	}
 	cmd.Flags().BoolVar(&godMode, "godmode", false, "enable Godmode to use the local kubeconfig context to load all available resources")
