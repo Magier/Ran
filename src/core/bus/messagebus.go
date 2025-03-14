@@ -15,6 +15,7 @@ type MessageBus interface {
 	Publish(events ...domain.Message) error
 	// Publish(ctx context.Context, events ...domain.Event) error
 	Subscribe(event domain.Message, handler domain.MessageHandler) func()
+	SubscribeToName(name string, handler domain.MessageHandler) func()
 }
 
 type MessageBusProvider struct {
@@ -28,7 +29,10 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) {
 			slog.Error("Received empty message!")
 			continue
 		}
-		if len(b.subscribers[msgName(msg)]) == 0 {
+
+		// "*" subscribers listen to all events
+		subscribers := append(b.subscribers[msgName(msg)], b.subscribers[domain.ALL_EVENTS]...)
+		if len(subscribers) == 0 {
 			slog.Debug("No subscribers for event " + msgName(msg))
 		} else {
 			icon := "🔊"
@@ -37,7 +41,7 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) {
 			}
 			slog.Debug(icon + " " + msg.String())
 		}
-		for _, handler := range b.subscribers[msgName(msg)] {
+		for _, handler := range subscribers {
 			msg, err := handler(ctx, msg)
 			if err != nil {
 				slog.Error(err.Error())
@@ -71,17 +75,17 @@ func (b *MessageBusProvider) Publish(messages ...domain.Message) error {
 	return nil
 }
 
-func (b *MessageBusProvider) Subscribe(event domain.Message, handler domain.MessageHandler) func() {
+func (b *MessageBusProvider) SubscribeToName(name string, handler domain.MessageHandler) func() {
 	// h.mu.Lock()
 	// defer h.mu.Unlock()
-	key := msgName(event)
-	b.subscribers[msgName(event)] = append(
-		b.subscribers[msgName(event)],
+	// name := msgName(event)
+	b.subscribers[name] = append(
+		b.subscribers[name],
 		handler,
 	)
 
 	return func() {
-		handlers := b.subscribers[key]
+		handlers := b.subscribers[name]
 		currentHandlerPtr := reflect.ValueOf(handler).Pointer()
 
 		newHandlers := make([]domain.MessageHandler, 0, len(handlers))
@@ -90,14 +94,20 @@ func (b *MessageBusProvider) Subscribe(event domain.Message, handler domain.Mess
 				newHandlers = append(newHandlers, h)
 			}
 		}
-		b.subscribers[key] = newHandlers
+		b.subscribers[name] = newHandlers
 	}
+}
+func (b *MessageBusProvider) Subscribe(event domain.Message, handler domain.MessageHandler) func() {
+	name := msgName(event)
+	return b.SubscribeToName(name, handler)
 }
 
 func CreateMessageBus() *MessageBusProvider {
 	return &MessageBusProvider{
-		channel:     make(chan domain.Message, 100),
-		subscribers: make(map[string][]domain.MessageHandler),
+		channel: make(chan domain.Message, 100),
+		subscribers: map[string][]domain.MessageHandler{
+			domain.ALL_EVENTS: {}, // a wildcard event, where subscribers will receive all events
+		},
 	}
 }
 

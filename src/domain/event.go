@@ -13,6 +13,8 @@ type MessageHandler func(ctx context.Context, msg Message) (Message, error)
 type EventHandler func(ctx context.Context, event Event) (Message, error)
 type CommandHandler func(ctx context.Context, command Command) (Message, error)
 
+const ALL_EVENTS = "*"
+
 type Event interface {
 	Message
 	IsEvent()

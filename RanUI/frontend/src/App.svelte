@@ -5,7 +5,7 @@
   import * as runtime from "../wailsjs/runtime";
 
   let target: string = "default/kubelet-reader-pod";
-  runtime.EventsOn("terminal-echo", (a) => {
+  runtime.EventsOn("*", (a) => {
     console.log(a);
   });
 
