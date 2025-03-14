@@ -44,7 +44,7 @@ func InitRan() Ran {
 	return ran
 }
 
-func (r Ran) Start(withTui bool, loadKubeConfig bool, target string, planPath string) {
+func (r *Ran) Start(withTui bool, loadKubeConfig bool, target string, planPath string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
 	defer cancel()
