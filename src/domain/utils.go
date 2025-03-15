@@ -1,6 +1,9 @@
 package domain
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 func GetResourceShortName(kind string) string {
 	switch k := strings.ToLower(kind); k {
@@ -29,4 +32,30 @@ func GetResourceShortName(kind string) string {
 	default:
 		return k
 	}
+}
+func CleanEventName(s string) string {
+	// remove the "domain." prefix if present
+	s = strings.TrimPrefix(s, "domain.")
+
+	var result strings.Builder
+	for i, r := range s {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				prev := rune(s[i-1])
+				nextLower := false
+				if i+1 < len(s) {
+					nextLower = unicode.IsLower(rune(s[i+1]))
+				}
+				if !unicode.IsUpper(prev) || nextLower {
+					result.WriteRune('-')
+				}
+			}
+			result.WriteRune(unicode.ToLower(r))
+		} else if r == '.' {
+			// skip - next upper case letter will add a dash
+		} else {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
 }

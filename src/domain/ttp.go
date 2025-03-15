@@ -86,7 +86,7 @@ type TTP struct {
 	Effects  []string     `yaml:"effects"`
 	Parser   string       `yaml:"parser"`
 	// ParserFn      func(any) any `yaml:"parser"`
-	ResultHandler ResultHandler
+	ResultHandler ResultHandler `json:"-" yaml:"-"`
 }
 
 func (ttp TTP) GetID() string {

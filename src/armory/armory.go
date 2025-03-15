@@ -32,21 +32,20 @@ func (a Armory) GetTTPs() []domain.TTP {
 	return a.ttps
 }
 
-func LoadArmory(dir string) (Armory, error) {
-	ttps, err := loadTTPs(filepath.Join(dir, "ttps"))
+func (a *Armory) Load(dir string) error {
+	var err error
+	a.ttps, err = loadTTPs(filepath.Join(dir, "ttps"))
 	if err != nil {
-		return Armory{}, errors.New("Couldn't load armory: " + err.Error())
+		return errors.New("Couldn't load armory: " + err.Error())
 	}
 
 	toolTTPs, err := loadTools(filepath.Join(dir, "tools"))
 	if err != nil {
-		return Armory{}, errors.New("Couldn't load tools: " + err.Error())
+		return errors.New("Couldn't load tools: " + err.Error())
 	}
-	ttps = append(ttps, toolTTPs...)
+	a.ttps = append(a.ttps, toolTTPs...)
 
-	return Armory{
-		ttps: ttps,
-	}, nil
+	return nil
 }
 
 func loadTTPs(dir string) ([]domain.TTP, error) {
