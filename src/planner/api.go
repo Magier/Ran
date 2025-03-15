@@ -8,6 +8,10 @@ import (
 type APIStarted struct {
 }
 
+func (c APIStarted) GetID() string {
+	return "api-started"
+}
+
 func (c APIStarted) String() string {
 	return "API started"
 }

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	ran "github.com/Magier/Ran/core"
 	domain "github.com/Magier/Ran/domain"
@@ -22,7 +24,15 @@ func NewApp() *App {
 
 	// forward all events directly to the frontend
 	r.Bus.SubscribeToName(domain.ALL_EVENTS, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		runtime.EventsEmit(a.ctx, domain.ALL_EVENTS, msg.String())
+		runtime.LogInfo(a.ctx, "Forwarding event to frontend: "+msg.String())
+
+		jsonBytes, err := json.Marshal(msg)
+		if err != nil {
+			runtime.LogError(a.ctx, "failed to marshal event: "+err.Error())
+			return nil, err
+		}
+		eventName := domain.CleanEventName(fmt.Sprintf("%T", msg))
+		runtime.EventsEmit(a.ctx, eventName, string(jsonBytes))
 		return nil, nil
 	})
 

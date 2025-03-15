@@ -31,10 +31,7 @@ type Ran struct {
 
 func InitRan() Ran {
 	mb := bus.CreateMessageBus()
-	a, err := armory.LoadArmory("../armory/")
-	if err != nil {
-		panic(err)
-	}
+	a := armory.Armory{}
 	c := campaign.StartCampaign(mb, a)
 	ran := Ran{
 		Bus:      mb,
@@ -51,6 +48,18 @@ func (r *Ran) Start(withTui bool, loadKubeConfig bool, target string, planPath s
 	var ui *tea.Program = nil
 	if withTui {
 		ui = tui.SetupTUI(r.Bus, r.campaign, r.armory)
+	}
+
+	err := r.armory.Load("../armory/")
+	if err != nil {
+		panic(fmt.Sprintf("Couldn't load armory: %s", err.Error()))
+	} else {
+		err = r.Bus.Publish(armory.Loaded{
+			TTPs: r.armory.GetTTPs(),
+		})
+		if err != nil {
+			panic(fmt.Sprintf("Couldn't publish ArmoryLoaded event: %s", err.Error()))
+		}
 	}
 
 	// TODO: turn fileshare into a regular action

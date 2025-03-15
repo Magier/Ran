@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
 	"strings"
 
 	k8s_types "github.com/Magier/Ran/k8sclient/types"
@@ -24,7 +25,21 @@ type EventImpl struct {
 }
 
 func (e EventImpl) IsEvent() {}
-func (e EventImpl) GetCmdID() string {
+func (e EventImpl) GetID() string {
+	if e.CmdId == "" {
+		pc, _, _, ok := runtime.Caller(1)
+		if ok {
+			fn := runtime.FuncForPC(pc)
+			if fn != nil {
+				parts := strings.Split(fn.Name(), ".")
+				if len(parts) >= 2 {
+					return parts[len(parts)-2]
+				}
+			}
+		}
+		return "unknown"
+	}
+
 	return e.CmdId
 }
 
