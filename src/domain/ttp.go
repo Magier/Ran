@@ -63,17 +63,17 @@ func (p *Parameter) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 type TTP struct {
-	ID          string       `yaml:"id"`
-	Name        string       `yaml:"name"`
-	Description string       `yaml:"description"`
-	Tactic      mitre.Tactic `yaml:"tactic"`
-	Techniques  []string     `yaml:"techniques"`
+	ID          string       `yaml:"id" json:"id"`
+	Name        string       `yaml:"name" json:"name"`
+	Description string       `yaml:"description" json:"description" `
+	Tactic      mitre.Tactic `yaml:"tactic" json:"tactic"`
+	Techniques  []string     `yaml:"techniques" json:"techniques"`
 
-	References []string `yaml:"references"`
+	References []string `yaml:"references" json:"references"`
 
-	CmdVariants []CmdVariant `yaml:"cmdVariants"`
-	HttpCmd     HttpCmd      `yaml:"httpCmd"`
-	Params      []Parameter
+	CmdVariants []CmdVariant `yaml:"cmdVariants" json:"cmdVariants"`
+	HttpCmd     HttpCmd      `yaml:"httpCmd" json:"httpCmd"`
+	Params      []Parameter  `json:"params"`
 	// Args        map[string]string    `yaml:"args"`
 	// Port        uint                 `yaml:"port"`
 
@@ -82,8 +82,8 @@ type TTP struct {
 
 	Execute CodeSnippet `yaml:"execute"`
 
-	Requires Requirements `yaml:"preconditions"`
-	Effects  []string     `yaml:"effects"`
+	Requires Requirements `yaml:"preconditions" json:"requires"`
+	Effects  []string     `yaml:"effects" json:"effects"`
 	Parser   string       `yaml:"parser"`
 	// ParserFn      func(any) any `yaml:"parser"`
 	ResultHandler ResultHandler `json:"-" yaml:"-"`
