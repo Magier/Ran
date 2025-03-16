@@ -16,7 +16,8 @@ import (
 )
 
 type Armory struct {
-	ttps []domain.TTP
+	SrcDir string
+	ttps   []domain.TTP
 }
 
 func (a Armory) GetTTP(id string) (domain.TTP, bool) {
@@ -32,14 +33,14 @@ func (a Armory) GetTTPs() []domain.TTP {
 	return a.ttps
 }
 
-func (a *Armory) Load(dir string) error {
+func (a *Armory) Load() error {
 	var err error
-	a.ttps, err = loadTTPs(filepath.Join(dir, "ttps"))
+	a.ttps, err = loadTTPs(filepath.Join(a.SrcDir, "ttps"))
 	if err != nil {
 		return errors.New("Couldn't load armory: " + err.Error())
 	}
 
-	toolTTPs, err := loadTools(filepath.Join(dir, "tools"))
+	toolTTPs, err := loadTools(filepath.Join(a.SrcDir, "tools"))
 	if err != nil {
 		return errors.New("Couldn't load tools: " + err.Error())
 	}

@@ -18,44 +18,38 @@ import (
 	"github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
 	"github.com/Magier/Ran/planner"
-	"github.com/Magier/Ran/tui"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 type Ran struct {
 	Bus      bus.MessageBus
-	armory   armory.Armory
-	campaign *campaign.Campaign
+	Armory   armory.Armory
+	Campaign *campaign.Campaign
 	// c2       *c2.C2
 }
 
 func InitRan() Ran {
 	mb := bus.CreateMessageBus()
-	a := armory.Armory{}
+	a := armory.Armory{SrcDir: "../armory/"}
 	c := campaign.StartCampaign(mb, a)
 	ran := Ran{
 		Bus:      mb,
-		armory:   a,
-		campaign: c,
+		Armory:   a,
+		Campaign: c,
 	}
 	return ran
 }
 
-func (r *Ran) Start(withTui bool, loadKubeConfig bool, target string, planPath string) {
+func (r *Ran) Start(loadKubeConfig bool, target string, planPath string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
 	defer cancel()
-	var ui *tea.Program = nil
-	if withTui {
-		ui = tui.SetupTUI(r.Bus, r.campaign, r.armory)
-	}
 
-	err := r.armory.Load("../armory/")
+	err := r.Armory.Load()
 	if err != nil {
 		panic(fmt.Sprintf("Couldn't load armory: %s", err.Error()))
 	} else {
 		err = r.Bus.Publish(armory.Loaded{
-			TTPs: r.armory.GetTTPs(),
+			TTPs: r.Armory.GetTTPs(),
 		})
 		if err != nil {
 			panic(fmt.Sprintf("Couldn't publish ArmoryLoaded event: %s", err.Error()))
@@ -63,8 +57,8 @@ func (r *Ran) Start(withTui bool, loadKubeConfig bool, target string, planPath s
 	}
 
 	// TODO: turn fileshare into a regular action
-	filesharePort, _ := r.campaign.GetFileshare()
-	go ServeFiles(ctx, filesharePort)
+	// filesharePort, _ := r.campaign.GetFileshare()
+	// go ServeFiles(ctx, filesharePort)
 	go c2.StartC2(ctx, r.Bus)
 	// planner.StartAPI(r.Bus)
 
@@ -75,7 +69,7 @@ func (r *Ran) Start(withTui bool, loadKubeConfig bool, target string, planPath s
 	go loadInitialEntities(ctx, r.Bus, loadKubeConfig, target, namespaces)
 
 	if planPath != "" {
-		p := planner.CreatePlanner(planPath, r.armory, r.Bus)
+		p := planner.CreatePlanner(planPath, r.Armory, r.Bus)
 		go p.Execute(ctx)
 	}
 
@@ -85,10 +79,23 @@ func (r *Ran) Start(withTui bool, loadKubeConfig bool, target string, planPath s
 			panic(err.Error())
 		}
 	}()
+}
 
-	if ui != nil {
-		tui.RunTUI(ui)
+func (r Ran) ReplayEvents() {
+	err := r.Bus.Publish(armory.Loaded{
+		TTPs: r.Armory.GetTTPs(),
+	})
+	if err != nil {
+		panic(fmt.Sprintf("Couldn't publish ArmoryLoaded event: %s", err.Error()))
 	}
+}
+
+func (r *Ran) Subscribe(event domain.Event, handler domain.MessageHandler) {
+	r.Bus.Subscribe(event, handler)
+}
+
+func (r *Ran) SubscribeToName(name string, handler domain.MessageHandler) {
+	r.Bus.SubscribeToName(name, handler)
 }
 
 type MaybeEntity struct {
@@ -229,8 +236,8 @@ func populateEntities(ctx context.Context, namespaces []string, channel chan<- M
 	}
 }
 
-func ServeFiles(ctx context.Context, port uint) {
+func ServeFiles(ctx context.Context, port uint) error {
 	http.Handle("/", http.FileServer(http.Dir("../static")))
 	p := strconv.FormatUint(uint64(port), 10)
-	http.ListenAndServe(":"+p, nil)
+	return http.ListenAndServe(":"+p, nil)
 }
