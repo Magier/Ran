@@ -95,20 +95,8 @@ type Model struct {
 }
 
 func NewArmory(armory armory.Armory, width float32) Model {
-	actions := []list.Item{}
 
-	for _, ttp := range armory.GetTTPs() {
-		actions = append(actions, Action{
-			ID:           ttp.GetID(),
-			Name:         ttp.GetTitle(),
-			Desc:         ttp.GetDescription(),
-			Requirements: ttp.Requires,
-			Params:       ttp.Params,
-			// Args:         ttp.Args,
-		})
-	}
-
-	armoryList := list.New(actions, NewActionItemDelegate(), 40, 30)
+	armoryList := list.New([]list.Item{}, NewActionItemDelegate(), 40, 30)
 	// armoryList.Title = "Armory"
 	armoryList.SetShowTitle(false)
 	armoryList.SetShowStatusBar(false)
@@ -159,6 +147,20 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 	case tuimsg.EntitySelected:
 		m.target = msg
+	case armory.Loaded:
+		actions := []list.Item{}
+		for _, ttp := range msg.TTPs {
+			actions = append(actions, Action{
+				ID:           ttp.GetID(),
+				Name:         ttp.GetTitle(),
+				Desc:         ttp.GetDescription(),
+				Requirements: ttp.Requires,
+				Params:       ttp.Params,
+				// Args:         ttp.Args,
+			})
+		}
+		cmd = m.actions.SetItems(actions)
+		cmds = append(cmds, cmd)
 	case c2.ListenerReady:
 		m.state = m.state.Update("listener", 1)
 		m.actions, cmd = m.actions.Update(tuimsg.StateChanged{State: m.state})

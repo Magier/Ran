@@ -10,6 +10,7 @@ import (
 	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/campaign"
+	"github.com/Magier/Ran/core"
 	"github.com/Magier/Ran/core/bus"
 	"github.com/Magier/Ran/domain"
 	armorywindow "github.com/Magier/Ran/tui/armorywindow"
@@ -50,8 +51,8 @@ type FocusableWnd interface {
 	Blur()
 }
 
-func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Program {
-	p := tea.NewProgram(initialModel(bus, c, a), tea.WithAltScreen(), tea.WithMouseCellMotion())
+func SetupTUI(ran core.Ran) *tea.Program {
+	p := tea.NewProgram(initialModel(ran.Bus, ran.Campaign, ran.Armory), tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	logger := slog.New(logwindow.NewLogHandler(p))
 	slog.SetDefault(logger)
@@ -61,15 +62,16 @@ func SetupTUI(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) *tea.Pr
 		return nil, nil
 	}
 
-	bus.Subscribe(c2.ListenerReady{}, forwardEvent)
-	bus.Subscribe(c2.ListenerStopped{}, forwardEvent)
-	bus.Subscribe(c2.SessionStarted{}, forwardEvent)
-	bus.Subscribe(c2.C2ConnectFailed{}, forwardEvent)
-	bus.Subscribe(domain.C2Connected{}, forwardEvent)
-	bus.Subscribe(domain.KnowledgeUpdated{}, forwardEvent)
-	bus.Subscribe(domain.GraphRendered{}, forwardEvent)
+	ran.Subscribe(armory.Loaded{}, forwardEvent)
+	ran.Subscribe(c2.ListenerReady{}, forwardEvent)
+	ran.Subscribe(c2.ListenerStopped{}, forwardEvent)
+	ran.Subscribe(c2.SessionStarted{}, forwardEvent)
+	ran.Subscribe(c2.C2ConnectFailed{}, forwardEvent)
+	ran.Subscribe(domain.C2Connected{}, forwardEvent)
+	ran.Subscribe(domain.KnowledgeUpdated{}, forwardEvent)
+	ran.Subscribe(domain.GraphRendered{}, forwardEvent)
 
-	bus.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Message) (domain.Message, error) {
+	ran.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Message) (domain.Message, error) {
 		msg := event.(domain.ErrorMsg)
 
 		if msg.Level == domain.LevelFatal {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/Magier/Ran/core"
+	"github.com/Magier/Ran/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -12,8 +13,10 @@ func newAtomicTestCmd() *cobra.Command {
 		Use:   "invoke",
 		Short: "Run an atomic test in a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			r := core.InitRan()
-			r.Start(true, godMode, target, "")
+			ran := core.InitRan()
+			t := tui.SetupTUI(ran)
+			ran.Start(godMode, target, "")
+			tui.RunTUI(t)
 		},
 	}
 

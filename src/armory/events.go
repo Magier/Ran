@@ -8,5 +8,5 @@ type Loaded struct {
 }
 
 func (e Loaded) String() string {
-	return "loaded"
+	return "Armory loaded"
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/Magier/Ran/core"
+	"github.com/Magier/Ran/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -13,8 +14,10 @@ func newEmulationCmd() *cobra.Command {
 		Use:   "emulate",
 		Short: "Emulate adversary behavior against a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			r := core.InitRan()
-			r.Start(true, godMode, target, planPath)
+			ran := core.InitRan()
+			t := tui.SetupTUI(ran)
+			ran.Start(godMode, target, planPath)
+			tui.RunTUI(t)
 		},
 	}
 	cmd.Flags().BoolVar(&godMode, "godmode", false, "enable Godmode to use the local kubeconfig context to load all available resources")
