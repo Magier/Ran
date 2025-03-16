@@ -43,6 +43,13 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	runtime.EventsOn(a.ctx, "get-armory", func(data ...any) {
+		runtime.LogInfo(a.ctx, "get-armory")
+		// runtime.EventsEmit(a.ctx, "armory", "armory")
+		// runtime.EventsEmit(a.ctx, "armory", a.ran.Armory.GetTTPs())
+		runtime.EventsEmit(a.ctx, "armory-loaded", a.ran.Armory.GetTTPs())
+	})
+
 }
 
 // Greet returns a greeting for the given name

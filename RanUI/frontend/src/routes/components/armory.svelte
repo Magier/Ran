@@ -1,32 +1,31 @@
 <script lang="ts">
 	import type { TTP } from '$lib/model';
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-	// import IconInitialAccess from '~icons/healthicons/entry-outline';
-	// import IconPrivilegeEscalation from '~icons/mdi/account-arrow-up';
-	// import IconCredentialAccess from '~icons/mdi/key-chain-variant';
-	// import IconDiscovery from '~icons/mdi/gold';
-	// import IconExecution from '~icons/material-symbols/settings-slow-motion';
+	import { onDestroy, onMount } from 'svelte';
 	import store from '$lib/stores/store';
-	// // import { filteredArmory, searchAbilities } from '$lib/stores/armoryStore.js';
+	import Icon from '@iconify/svelte';
 
-	// import {
-	// 	TreeView
-	// 	// TreeViewItem,
-	// 	// RecursiveTreeView,
-	// 	// type TreeViewNode
-	// } from '@skeletonlabs/skeleton';
-	// import ActionCard from './action_card.svelte';
+	type ArmoryProps = {
+		class?: string;
+		action: (ttp: TTP) => void;
+	};
+	// import { filteredArmory, searchAbilities } from '$lib/stores/armoryStore.js';
 
-	const iconMap = {
-		// InitialAccess: IconInitialAccess,
-		// Execution: IconExecution,
-		// Persistence: IconExecution,
-		// PrivilegeEscalation: IconPrivilegeEscalation,
-		// DefenseEvasion: IconPrivilegeEscalation,
-		// CredentialAccess: IconCredentialAccess,
-		// Discovery: IconDiscovery,
-		// LateralMovement: IconDiscovery,
-		// Impact: IconDiscovery
+	import ActionCard from './action_card.svelte';
+	import { Accordion } from '@skeletonlabs/skeleton-svelte';
+
+	const iconMap: Record<string, string> = {
+		'Resource Development': 'healthicons:entry-outline',
+		'Initial Access': 'material-symbols:door-open-outline',
+		Execution: 'material-symbols:settings-slow-motion',
+		Persistence: 'game-icons:life-jacket',
+		'Privilege Escalation': 'mdi:account-arrow-up',
+		'Defense Evasion': 'game-icons:hood',
+		'Credential Access': 'mdi:key-chain-variant',
+		'Command And Control': 'material-symbols:satellite-alt',
+		Discovery: 'material-symbols:schema-outline',
+		'Lateral Movement': 'material-symbols:timeline',
+		Impact: 'game-icons:falling-bomb',
+		Other: 'game-icons:dig-dug'
 	};
 
 	// ==============================================================
@@ -36,23 +35,15 @@
 	// 				similar to: https://www.youtube.com/watch?v=lrzHaTcpRh8
 	// ==============================================================
 
-	// const dispatch = createEventDispatcher();
-
-	let className = '';
-	// export { className as class };
+	let { class: className = '', action: sendAction }: ArmoryProps = $props();
 
 	// export let selectedNode: Object | null = null;
 	// export let globalConditions: Object = {};
 	// $: selectedConditions = { ...globalConditions, ...(selectedNode ?? {}) };
-	let armory: TTP[] = [];
+	let armory: Map<string, TTP[]> = $state(new Map());
 
 	// const filteredArmoryStore = createSearchStore(armory);
 	// const unsubscribe = filteredArmory.subscribe((ttp) => searchAbilities(ttp));
-
-	function sendAction(ttp: TTP) {
-		console.error('sending action not yet implemtend');
-		// dispatch('action', { ...ttp });
-	}
 
 	// function searchAbilities = () => {
 	// 	return filteredAbilities =
@@ -61,17 +52,18 @@
 	onMount(() => {
 		store.armory((new_armory: Map<string, TTP[]>) => {
 			armory = new_armory;
+			console.log(armory);
 		});
-		store.sendMessage('armory', {});
+		store.sendMessage('get-armory', {});
 	});
 
 	onDestroy(() => {
 		// unsubscribe();
 	});
 
-	let filteredTtps: TTP[] = [];
+	let filteredTtps: TTP[] = $state([]);
 	// For Search Input
-	let searchTerm: string = '';
+	let searchTerm: string = $state('');
 	// resets language menu if search input is used
 	// $: if (searchTerm) selectedLang = '';
 
@@ -87,9 +79,11 @@
 			searchTerm = '';
 		}
 	}
+	let tag = $state('IconInitialAccess');
 </script>
 
 <div class="bg-surface-100-800-token inset-y-0 right-0 h-full w-80 {className}">
+	<h1>Armory</h1>
 	<div class="mx-4 mb-2">
 		<h1>Search/Filter</h1>
 		<input
@@ -97,35 +91,49 @@
 			placeholder="Search..."
 			class="input rounded-container-token"
 			bind:value={searchTerm}
-			on:keydown|stopPropagation={handleClearWithEscape}
-			on:input={searchAbilities}
+			onkeydown={handleClearWithEscape}
+			oninput={searchAbilities}
 		/>
 	</div>
-	<!-- <TreeView open class=" space-y-2 overflow-y-auto overflow-x-hidden">
+	<div>
+		<Accordion>
+			{#each Array.from(armory) as [tactic, ttps]}
+				<hr class="hr" />
+				<Accordion.Item value={tactic} disabled={ttps.length === 0}>
+					{#snippet lead()}
+						<Icon icon={iconMap[tactic]} width="24"></Icon>
+					{/snippet}
+					{#snippet control()}
+						{tactic}
+					{/snippet}
+					{#snippet panel()}
+						{#each ttps as ttp}
+							<ActionCard {ttp} icon={iconMap[ttp.tactic]} onclick={() => sendAction(ttp)} />
+						{/each}
+					{/snippet}
+				</Accordion.Item>
+			{/each}
+		</Accordion>
+
+		<!-- <TreeView open class=" space-y-2 overflow-y-auto overflow-x-hidden">
+
 		{#if searchTerm && filteredTtps.length === 0}
 			Nothing to see :(
 		{:else if filteredTtps.length > 0}
 			{#each filteredTtps as ttp}
-				<!-- {#each ttps as ttp} 
-				<ActionCard
-					{ttp}
-					icon={iconMap[ttp.tactics[0]]}
-					onClick={sendAction}
-					on:click={() => sendAction(ttp)}
-				/>
-			{/each} 
-		{:else}
-			{#each Object.entries(armory) as [id, ttp]}
-				<ActionCard
-					{ttp}
-					icon={iconMap[ttp.tactics[0]]}
-					conditions={selectedConditions}
-					onClick={sendAction}
-					on:click={() => sendAction(ttp)}
-				/>
-
-				<!-- {/each} -->
-	<!-- <TreeViewItem disabled={ttps.length === 0}>
+				{#each ttps as ttp}
+					<ActionCard {ttp} icon={iconMap[ttp.tactic]} onclick={() => sendAction(ttp)} />
+				{/each}
+			{:else}
+				{#each Object.entries(armory) as [id, ttp]}
+					<ActionCard
+						{ttp}
+						icon={iconMap[ttp.tactic]}
+						conditions={selectedConditions}
+						onclick={() => sendAction(ttp)}
+					/>
+				{/each}
+				 <TreeViewItem disabled={ttps.length === 0}>
 					<svelte:fragment slot="lead">
 						<svelte:component this={iconMap[tactic]} />
 					</svelte:fragment>
@@ -141,8 +149,8 @@
 						{/each}
 					</svelte:fragment>
 				</TreeViewItem> -->
-	<!-- {/each} -->
-	<!-- {#each Object.entries($filteredArmory.filtered) as [tactic, ttps]}
+		<!-- {/each} -->
+		<!-- {#each Object.entries($filteredArmory.filtered) as [tactic, ttps]}
 				<TreeViewItem disabled={ttps.length === 0}>
 					<svelte:fragment slot="lead">
 						<svelte:component this={iconMap[tactic]} />
@@ -158,8 +166,9 @@
 							/>
 						{/each}
 					</svelte:fragment>
-				</TreeViewItem> -->
-	<!-- {/each} -->
-	<!-- {/if} -->
-	<!-- </TreeView>  -->
+				</TreeViewItem> 
+			{/each}
+		{/if}
+		<!-- </TreeView>  -->
+	</div>
 </div>
