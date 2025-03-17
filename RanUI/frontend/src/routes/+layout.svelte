@@ -21,3 +21,9 @@
 </AppBar>
 
 {@render children()}
+
+<style>
+	* {
+		color: #b6b6b6;
+	}
+</style>

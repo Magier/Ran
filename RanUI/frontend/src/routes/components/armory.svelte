@@ -85,8 +85,9 @@
 <div class="bg-surface-100-800-token inset-y-0 right-0 h-full w-80 {className}">
 	<h1>Armory</h1>
 	<div class="mx-4 mb-2">
-		<h1>Search/Filter</h1>
+		<label for="search-box">Search/Filter</label>
 		<input
+			id="search-box"
 			type="search"
 			placeholder="Search..."
 			class="input rounded-container-token"

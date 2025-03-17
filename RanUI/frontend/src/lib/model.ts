@@ -13,8 +13,9 @@ export type TTP = {
     technique?: string;
     name: string;
     action: string;
+    description: string;
     cmd_args?: object;
-    tactics: string[];
+    tactic: string;
     ms_id?: string;
     requires?: Object,
     params?: Object

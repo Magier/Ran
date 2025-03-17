@@ -25,6 +25,7 @@ type KnowledgeBase interface {
 	AddEntities(entities ...domain.Entity) (int, error)
 	AddRelation(relation domain.Relation) error
 	AddRelations(relations ...domain.Relation) (int, error)
+	GetRelations() map[string]domain.Relation
 	GetPath(source, target string) ([]domain.Entity, []domain.Relation, error)
 	GetIncomingEntities(entity domain.Entity, rel domain.Relation) ([]domain.Entity, error)
 	GetAdjecencyList() AdjacencyList
@@ -199,6 +200,10 @@ func (kg BuiltInKnowledgeBase) GetEntity(id string) (domain.Entity, bool) {
 
 func (kg BuiltInKnowledgeBase) GetEntities() map[string]domain.Entity {
 	return kg.Entities
+}
+
+func (kg BuiltInKnowledgeBase) GetRelations() map[string]domain.Relation {
+	return kg.Relations
 }
 
 func (kg BuiltInKnowledgeBase) GetC2(name string) (domain.C2System, bool) {

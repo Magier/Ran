@@ -80,6 +80,9 @@ func StartCampaign(mb bus.MessageBus, armory armory.Armory) *Campaign {
 func (c *Campaign) GetEntities() map[string]domain.Entity {
 	return c.kb.GetEntities()
 }
+func (c *Campaign) GetRelations() map[string]domain.Relation {
+	return c.kb.GetRelations()
+}
 
 func (c *Campaign) GetPods() []domain.Pod {
 	pods := make([]domain.Pod, 0)
