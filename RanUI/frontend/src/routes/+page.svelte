@@ -2,9 +2,11 @@
 	import Armory from './components/armory.svelte';
 	import store from '$lib/stores/store';
 	import * as runtime from '$lib/wailsjs/runtime';
-	// import { StartEmulation } from '$lib/wailsjs/go/main/App.js';
+	import { StartEmulation } from '$lib/wailsjs/go/main/App.js';
 	import { onMount } from 'svelte';
+	import Icon from '@iconify/svelte';
 	import type { TTP } from '$lib/model';
+	import Graph from './components/graph.svelte';
 	function sendAction(ttp: TTP) {
 		console.log(ttp);
 	}
@@ -13,8 +15,8 @@
 	// 	store.connectBackend();
 	// });
 	function start(): void {
-		console.warn('StartEmulation not implemented');
-		// StartEmulation(target);
+		// console.warn('StartEmulation not implemented');
+		StartEmulation(target);
 		// StartEmulation(target).then((result) => (resultText = result));
 	}
 	let target: string = 'default/kubelet-reader-pod';
@@ -26,16 +28,22 @@
 		<input autocomplete="off" bind:value={target} class="input" id="target" type="text" />
 		<button class="btn" onclick={start}>Start</button>
 	</div>
+
 	{#await store.connect(false)}
+		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
 		<div>loading...</div>
 	{:then sessions}
-		<div class="basis-3/4"></div>
+		<Graph class="basis-3/4" />
 		<Armory class="basis-1/4" action={sendAction} />
 	{:catch err}
 		<div class="justify-center">
 			<figure>
 				<section class="img-bg"></section>
-				<IconRanLogo class="fill-token h-64 w-64 -scale-x-[100%]" />
+				<Icon
+					icon="game-icons:fishing-net"
+					rotate={90}
+					class="fill-token h-64 w-64 -scale-x-[100%]"
+				/>
 			</figure>
 			<h2 class="h2 text-center">Ran</h2>
 			{err}

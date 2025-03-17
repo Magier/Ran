@@ -50,5 +50,12 @@
 		"onlyBuiltDependencies": [
 			"esbuild"
 		]
+	},
+	"dependencies": {
+		"@floating-ui/dom": "^1.6.13",
+		"@types/cytoscape": "^3.21.9",
+		"cytoscape": "^3.31.1",
+		"cytoscape-fcose": "^2.2.0",
+		"cytoscape-popper": "^4.0.1"
 	}
 }

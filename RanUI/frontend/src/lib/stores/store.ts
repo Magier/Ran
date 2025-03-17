@@ -2,6 +2,8 @@ import { get, writable } from 'svelte/store';
 import { browser } from '$app/environment';
 import type { TTP, ArmoryType, Node, Edge } from '$lib/model';
 import * as runtime from "$lib/wailsjs/runtime";
+import { GetGraph } from '$lib/wailsjs/go/main/App';
+import type { main } from '$lib/wailsjs/go/models';
 
 interface Command {
 	[key: string]: any
@@ -14,7 +16,8 @@ const alerts = writable("");
 
 const RETRIES: number = 3;
 
-const armory = writable<ArmoryType>({});
+const armory = writable<ArmoryType>(new Map());
+let useWails: boolean = true;
 let socket: WebSocket | null = null;
 
 const MAX_RETRIES = 3;
@@ -94,16 +97,23 @@ function connectBackend() {
 	console.log("connecting backend")
 	// runtime.EventsOn("*", onMessage)
 	runtime.EventsOn("*", (a) => {
-		debugger
 		console.log(a);
 	});
 	runtime.EventsOn("armory-loaded", (data) => {
-		debugger
-		const msg = JSON.parse(data);
-		let a = parseArmory(msg)
+		console.info("Armory loaded")
+		let a = parseArmory(data)
 		armory.set(a);
-		console.log(a);
 	});
+	runtime.EventsOn("facts-changed", (data) => {
+		console.info("Facts changed")
+		const facts = JSON.parse(data);
+		const [ns, es] = parseTopology(facts);
+		graph.set({ nodes: ns, edges: es });
+	});
+
+	GetGraph().then((g: main.Graph) => {
+		graph.set(g);
+	})
 }
 
 function parse_topology(data: any): [Node[], Edge[]] {
@@ -133,36 +143,59 @@ function parse_topology(data: any): [Node[], Edge[]] {
 	return [nodes, edges];
 }
 
-function parseArmory(data: ArmoryType | Object): ArmoryType {
-	// this comes from the backend must be converted
-	if (data && 'ttps' in data) {
-		let armoryMap = new Map<string, TTP[]>();
-		for (let [key, value] of Object.entries(data['ttps'] as Record<string, any>)) {
-			let parsedValue = value as { [key: string]: any };
-			let ttp: TTP = {
-				id: parsedValue['ID'],
-				name: parsedValue['Name'],
-				description: parsedValue['Description'],
-				// action: parsedValue['action'],
-				tactics: [parsedValue['Tactic']],
-				technique: parsedValue['Techniques'],
-				requires: parsedValue['Requires'],
-				params: parsedValue['Params']
+function parseTopology(data: any): [Node[], Edge[]] {
+	let nodes = [];
+	for (let entity of data.NewEntities) {
+		// define namespace as the nodes parent, if present
+		if (entity.Namespace !== undefined) {
+			if (typeof entity.Namespace === 'object') {
+				entity.parent = entity.Namspace.Id;
+			} else if (typeof entity.Namespace === 'string') {
+				entity.parent = entity.Namespace;
 			}
-			armoryMap.set(key, value);
 		}
-		// Armory contains a CmdId field; process accordingly if needed.
-		return armoryMap;
+		if (entity.Id === undefined) {
+			entity.Id = entity.Name;
+		}
+		nodes.push(entity);
 	}
-	return data as ArmoryType;
+
+	let edges = [];
+	debugger
+	for (let edge of data.NewRelations) {
+		edge.target = edge.TargetId;
+		edge.id = `${edge.SourceId}->${edge.target}`;
+		edges.push(edge);
+	}
+
+	return [nodes, edges];
+}
+
+function parseArmory(data: TTP[]): ArmoryType {
+	// this comes from the backend must be converted
+	let armoryMap = new Map<string, TTP[]>();
+	for (let ttp of data) {
+		let groupName = ttp.tactic;
+		if (groupName === "") {
+			groupName = "Other";
+		}
+		if (!armoryMap.has(groupName)) {
+			armoryMap.set(groupName, []);
+		}
+		armoryMap.get(groupName)!.push(ttp);
+	}
+	// Armory contains a CmdId field; process accordingly if needed.
+	return armoryMap;
 }
 
 const sendMessage = (msgType: string, command: Command) => {
-	if (browser) {
-		if (socket && socket.readyState == 1) {
-			command.msg_type = msgType;
-			socket.send(JSON.stringify(command));
-		}
+	if (useWails) {
+		console.log(`Sending message ${msgType} to backend`)
+		runtime.EventsEmit(msgType, JSON.stringify(command));
+	}
+	if (socket && socket.readyState == 1) {
+		command.msg_type = msgType;
+		socket.send(JSON.stringify(command));
 	}
 };
 
