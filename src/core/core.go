@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/Magier/Ran/armory"
@@ -27,7 +26,7 @@ type Ran struct {
 	// c2       *c2.C2
 }
 
-func InitRan() Ran {
+func InitRan(target string) Ran {
 	mb := bus.CreateMessageBus()
 	a := armory.Armory{SrcDir: "../armory/"}
 	c := campaign.StartCampaign(mb, a)
@@ -36,10 +35,15 @@ func InitRan() Ran {
 		Armory:   a,
 		Campaign: c,
 	}
+
+	if target != "" {
+		ran.SetTarget(target)
+	}
+
 	return ran
 }
 
-func (r *Ran) Start(loadKubeConfig bool, target string, planPath string) {
+func (r *Ran) Start(loadKubeConfig bool, planPath string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
 	defer cancel()
@@ -52,7 +56,7 @@ func (r *Ran) Start(loadKubeConfig bool, target string, planPath string) {
 			TTPs: r.Armory.GetTTPs(),
 		})
 		if err != nil {
-			panic(fmt.Sprintf("Couldn't publish ArmoryLoaded event: %s", err.Error()))
+			panic(fmt.Sprintf("Couldn't publish Armory.Loaded event: %s", err.Error()))
 		}
 	}
 
@@ -66,7 +70,7 @@ func (r *Ran) Start(loadKubeConfig bool, target string, planPath string) {
 	// TODO maybe switch between TUI and web-UI (start frontend as well?)
 
 	namespaces := []string{}
-	go loadInitialEntities(ctx, r.Bus, loadKubeConfig, target, namespaces)
+	go loadInitialEntities(ctx, r.Bus, loadKubeConfig, namespaces)
 
 	if planPath != "" {
 		p := planner.CreatePlanner(planPath, r.Armory, r.Bus)
@@ -82,6 +86,7 @@ func (r *Ran) Start(loadKubeConfig bool, target string, planPath string) {
 }
 
 func (r Ran) ReplayEvents() {
+	// TODO: replay the events that were actually already sent to the bus, instead of creating new events
 	err := r.Bus.Publish(armory.Loaded{
 		TTPs: r.Armory.GetTTPs(),
 	})
@@ -98,12 +103,20 @@ func (r *Ran) SubscribeToName(name string, handler domain.MessageHandler) {
 	r.Bus.SubscribeToName(name, handler)
 }
 
+func (r *Ran) SetTarget(target string) {
+	facts := campaign.SetTarget(target)
+	err := r.Bus.Publish(facts)
+	if err != nil {
+		panic(fmt.Sprintf("Couldn't set target: %s", err.Error()))
+	}
+}
+
 type MaybeEntity struct {
 	Entity domain.Entity
 	Error  error
 }
 
-func loadInitialEntities(ctx context.Context, mb bus.MessageBus, loadAll bool, target string, namespaces []string) {
+func loadInitialEntities(ctx context.Context, mb bus.MessageBus, loadAll bool, namespaces []string) {
 	client, err := k8s.NewK8sClient("")
 	if err != nil {
 		_ = mb.Publish(domain.ErrorMsg{
@@ -147,25 +160,6 @@ func loadInitialEntities(ctx context.Context, mb bus.MessageBus, loadAll bool, t
 		}
 
 		identities = append(identities, k8sConfigUser)
-	} else if target != "" {
-		ns := "default"
-		if strings.Contains(target, "/") {
-			parts := strings.SplitN(target, "/", 2)
-			ns = parts[0]
-			target = parts[1]
-		}
-
-		initialPod := domain.NewPod(target, ns)
-
-		initialAccessRelation := domain.CanAccess{
-			SourceId: "c2/Ran",
-			TargetId: initialPod.GetId(),
-			// Identity:    identity,
-			AccessLevel: domain.UserExec,
-		}
-		initialPod.AccessLevel = domain.UserExec
-		entities = append(entities, initialPod)
-		relations = append(relations, initialAccessRelation)
 	}
 
 	err = mb.Publish(domain.FactsChanged{

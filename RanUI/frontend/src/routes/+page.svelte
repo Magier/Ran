@@ -15,7 +15,6 @@
 	// 	store.connectBackend();
 	// });
 	function start(): void {
-		// console.warn('StartEmulation not implemented');
 		StartEmulation(target);
 		// StartEmulation(target).then((result) => (resultText = result));
 	}
@@ -23,17 +22,23 @@
 </script>
 
 <div class="items-top mx-auto flex h-full justify-center">
-	<div class="input-box" id="input">
-		<label for="target">Target: </label>
-		<input autocomplete="off" bind:value={target} class="input" id="target" type="text" />
-		<button class="btn" onclick={start}>Start</button>
-	</div>
-
 	{#await store.connect(false)}
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
 		<div>loading...</div>
 	{:then sessions}
-		<Graph class="basis-3/4" />
+		<div class="basis-3/4">
+			<div class="flex items-center">
+				<input
+					autocomplete="off"
+					bind:value={target}
+					id="target"
+					type="text"
+					class="mr-2 rounded-l p-2"
+				/>
+				<button onclick={start} class="btn preset-filled-primary-500">Start</button>
+			</div>
+			<Graph />
+		</div>
 		<Armory class="basis-1/4" action={sendAction} />
 	{:catch err}
 		<div class="justify-center">
@@ -57,41 +62,5 @@
 <style>
 	* {
 		color: white;
-	}
-	.input-box .btn {
-		width: 60px;
-		height: 30px;
-		line-height: 30px;
-		border-radius: 3px;
-		border: none;
-		margin: 0 0 0 20px;
-		padding: 0 8px;
-		cursor: pointer;
-	}
-
-	.input-box .btn:hover {
-		/* background-image: linear-gradient(to top, #cfd9df 0%, #e2ebf0 100%); */
-		color: #333333;
-	}
-
-	.input-box .input {
-		border: none;
-		border-radius: 3px;
-		outline: none;
-		height: 30px;
-		line-height: 30px;
-		padding: 0 10px;
-		/* background-color: rgba(240, 240, 240, 1); */
-		-webkit-font-smoothing: antialiased;
-	}
-
-	.input-box .input:hover {
-		border: none;
-		background-color: rgba(255, 255, 255, 1);
-	}
-
-	.input-box .input:focus {
-		border: none;
-		background-color: rgba(255, 255, 255, 1);
 	}
 </style>
