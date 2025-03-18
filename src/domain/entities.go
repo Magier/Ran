@@ -520,6 +520,8 @@ type Pod struct {
 	Containers                   []v1.Container
 }
 
+var _ Namespaced = (*Pod)(nil)
+
 type PodConfig struct {
 	Image       string
 	Command     string

@@ -2,7 +2,7 @@ export namespace main {
 	
 	export class Edge {
 	    id: string;
-	    label: string;
+	    name: string;
 	    sourceId: string;
 	    targetId: string;
 	
@@ -13,7 +13,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
-	        this.label = source["label"];
+	        this.name = source["name"];
 	        this.sourceId = source["sourceId"];
 	        this.targetId = source["targetId"];
 	    }
