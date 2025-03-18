@@ -30,7 +30,7 @@ type Node struct {
 
 type Edge struct {
 	ID       string `json:"id"`
-	Label    string `json:"label"`
+	Name     string `json:"name"`
 	SourceID string `json:"sourceId"`
 	TargetID string `json:"targetId"`
 }
@@ -101,16 +101,19 @@ func (a *App) GetGraph() Graph {
 	relations := a.ran.Campaign.GetRelations()
 	edges := make([]Edge, 0, len(relations))
 	for id, relation := range relations {
-		label := relation.GetRelationName()
-		edges = append(edges, Edge{
-			ID:       id,
-			Label:    label,
-			SourceID: relation.GetSourceId(),
-			TargetID: relation.GetTargetId(),
-		})
 
-		if label == "contains" || label == "owns" {
+		name := relation.GetRelationName()
+		// convert "hierarchical" relations to parent relationships.
+		// || name == "owns"
+		if name == "contains" {
 			parentNodes[relation.GetTargetId()] = relation.GetSourceId()
+		} else {
+			edges = append(edges, Edge{
+				ID:       id,
+				Name:     name,
+				SourceID: relation.GetSourceId(),
+				TargetID: relation.GetTargetId(),
+			})
 		}
 	}
 
@@ -121,6 +124,12 @@ func (a *App) GetGraph() Graph {
 		// Here, we're using the entity's type (via %T) as its Name.
 		// Adjust this logic if your entity has a dedicated name field.
 		parent := parentNodes[entity.GetId()]
+
+		if parent == "" {
+			if nsEntity, ok := entity.(domain.Namespaced); ok {
+				parent = "ns/" + nsEntity.GetNamespace()
+			}
+		}
 
 		node := Node{
 			ID:       entity.GetId(),

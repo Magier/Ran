@@ -105,13 +105,16 @@ function connectBackend() {
 		armory.set(a);
 	});
 	runtime.EventsOn("facts-changed", (data) => {
-		console.info("Facts changed")
-		const facts = JSON.parse(data);
-		const [ns, es] = parseTopology(facts);
-		graph.set({ nodes: ns, edges: es });
-	});
+		// const facts = JSON.parse(data);
+		// const [ns, es] = parseTopology(facts);
+		GetGraph().then((g: main.Graph) => {
+			console.log(g)
+			graph.set(g);
+		});
+	})
 
 	GetGraph().then((g: main.Graph) => {
+		console.log(g)
 		graph.set(g);
 	})
 }
