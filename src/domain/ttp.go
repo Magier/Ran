@@ -133,6 +133,9 @@ func (t *ToolFunctions) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		if ttp.Name == "" {
 			ttp.Name = strings.Replace(name, "_", " ", -1)
 		}
+		if ttp.ID == "" {
+			ttp.ID = ttp.Name
+		}
 		ttps = append(ttps, ttp)
 	}
 	*t = ttps
@@ -200,6 +203,9 @@ func (t YAMLTTP) TTP() (TTP, error) {
 
 	for _, param := range t.Parameters {
 		ttp.Params = append(ttp.Params, param)
+	}
+	if ttp.ID == "" {
+		ttp.ID = ttp.Name
 	}
 
 	// ttp.Parser = parsers.HandleSaTokenRead

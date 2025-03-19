@@ -2,14 +2,12 @@
 	import Armory from './components/armory.svelte';
 	import store from '$lib/stores/store';
 	import * as runtime from '$lib/wailsjs/runtime';
-	import { StartEmulation } from '$lib/wailsjs/go/main/App.js';
-	import { onMount } from 'svelte';
+	import { ActionSelected, StartEmulation } from '$lib/wailsjs/go/main/App.js';
+	// import { onMount } from 'svelte';
 	import Icon from '@iconify/svelte';
 	import type { TTP } from '$lib/model';
 	import Graph from './components/graph.svelte';
-	function sendAction(ttp: TTP) {
-		console.log(ttp);
-	}
+	import { type main } from '$lib/wailsjs/go/models';
 
 	// onMount(() => {
 	// 	store.connectBackend();
@@ -18,7 +16,26 @@
 		StartEmulation(target);
 		// StartEmulation(target).then((result) => (resultText = result));
 	}
+	let target: string = $state('default/kubelet-reader-pod');
+
+	let selectedNodeId: string = $state('');
+	let selectedNode: main.Node | undefined = $state();
+	let activeGlobalConditions: Object = {};
+
+	function sendAction(ttp: TTP) {
+		// const ttp = event.detail;
+		console.log(ttp);
+
 	let target: string = 'default/kubelet-reader-pod';
+			ActionSelected(ttp.id, selectedNodeId, '');
+			// store.sendMessage('execute_ttp', {
+			// 	target: selectedNodeId,
+			// 	ttp_id: ttp.id,
+			// 	technique: ttp.technique,
+			// 	action: ttp.action,
+			// 	cmd_args: ttp.cmd_args
+			// });
+	}
 </script>
 
 <div class="items-top mx-auto flex h-full justify-center">
@@ -36,8 +53,9 @@
 					class="mr-2 rounded-l p-2"
 				/>
 				<button onclick={start} class="btn preset-filled-primary-500">Start</button>
+				<span>{selectedNodeId}</span>
 			</div>
-			<Graph />
+			<Graph bind:selectedNodeId bind:selectedNode />
 		</div>
 		<Armory class="basis-1/4" action={sendAction} />
 	{:catch err}
