@@ -26,7 +26,7 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 
 	ttp, ok := c.armory.GetTTP(ev.ActionID)
 	if !ok {
-		msg := fmt.Sprintf("No TTP with ID %s found!", ev.ActionID)
+		msg := fmt.Sprintf("No TTP with ID '%s' found!", ev.ActionID)
 		slog.Error(msg)
 		return nil, fmt.Errorf(msg)
 	}

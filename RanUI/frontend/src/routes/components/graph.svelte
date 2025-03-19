@@ -20,16 +20,20 @@
 
 	type GraphProps = {
 		class?: string;
+		selectedNodeId: string;
+		selectedNode?: main.Node;
 	};
-	let { class: className = '' }: GraphProps = $props();
+	let {
+		class: className = '',
+		selectedNodeId = $bindable(),
+		selectedNode = $bindable()
+	}: GraphProps = $props();
 
 	let nodes = $state([]);
 	let edges = $state([]);
 
 	let graphContainer = $state();
 	let cy: cytoscape.Core;
-	let selectedNode: main.Node | null = $state(null);
-	let selectedNodeId: string = $state('');
 	let arrowEl = $state();
 	let currPopper = $state();
 
