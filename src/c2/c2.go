@@ -30,12 +30,12 @@ type C2Client interface {
 	Shutdown()
 }
 
-func StartC2(ctx context.Context, mb bus.MessageBus) {
+func StartC2(ctx context.Context, mb bus.MessageBus, sliverConfigPath string) {
 	// listeners := make(map[string]net.Listener)
 	// TODO start builtin C2 once an action demands it
 	c2Clients := map[string]C2Client{
 		BuiltInC2:  NewBuiltInServer(),
-		SliverKind: CreateSliverClient("../sliver_cfg.json"),
+		SliverKind: CreateSliverClient(sliverConfigPath),
 	}
 
 	mb.Subscribe(domain.C2Connected{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {

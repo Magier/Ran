@@ -52,7 +52,7 @@ type FocusableWnd interface {
 }
 
 func SetupTUI(ran core.Ran) *tea.Program {
-	p := tea.NewProgram(initialModel(ran.Bus, ran.Campaign, ran.Armory), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(initialModel(ran.Bus, ran.Campaign), tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	logger := slog.New(logwindow.NewLogHandler(p))
 	slog.SetDefault(logger)
@@ -118,12 +118,12 @@ type model struct {
 	isFiltering bool
 }
 
-func initialModel(bus bus.MessageBus, c *campaign.Campaign, a armory.Armory) model {
+func initialModel(bus bus.MessageBus, c *campaign.Campaign) model {
 	const logWndHeight = 10
 
 	explorer := explorer.NewExplorer(c, .3)
 	mainWnd := mainwindow.NewMainWindow(c, .45, logWndHeight+1)
-	armoryWnd := armorywindow.NewArmory(a, .25)
+	armoryWnd := armorywindow.NewArmory(.25)
 	cmdPrompt := commandprompt.NewCommandPrompt(.45)
 	logWindow := logwindow.NewLogWindow(.45, logWndHeight)
 	statusBar := statusbar.NewStatusBar(c)

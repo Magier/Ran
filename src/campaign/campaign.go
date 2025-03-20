@@ -20,13 +20,13 @@ type Campaign struct {
 	kb             KnowledgeBase
 	trail          AuditTrail
 	activeIdentity string
-	armory         armory.Armory
+	armory         *armory.Armory
 	listeners      map[string]domain.Listener
 	sessions       map[string]domain.Session
 	identities     map[string]domain.Identity
 }
 
-func NewCampaign(armory armory.Armory) *Campaign {
+func NewCampaign(armory *armory.Armory) *Campaign {
 	kg := InitGraph()
 
 	_ = kg.AddEntity(domain.C2System{Name: "Ran", Kind: "Ran"})
@@ -48,7 +48,7 @@ func NewCampaign(armory armory.Armory) *Campaign {
 // 	return "campaign started"
 // }
 
-func StartCampaign(mb bus.MessageBus, armory armory.Armory) *Campaign {
+func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	campaign := NewCampaign(armory)
 	mb.Subscribe(domain.C2Connected{}, campaign.onC2Connected)
 	mb.Subscribe(domain.ExecTTP{}, campaign.onExecuteTTP)

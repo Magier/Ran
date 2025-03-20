@@ -43,14 +43,14 @@ type Graph struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	r := ran.InitRan("")
+	r := ran.InitRan("", "./armory/", "sliver_cfg.json")
 
 	a := &App{ran: &r}
 
 	// forward all events directly to the frontend
 	r.Bus.SubscribeToName(domain.ALL_EVENTS, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		eventName := domain.CleanEventName(fmt.Sprintf("%T", msg))
-		runtime.LogInfo(a.ctx, "Forwarding event to frontend: "+eventName)
+		runtime.LogInfo(a.ctx, ">> 🖥️: "+eventName)
 
 		jsonBytes, err := json.Marshal(msg)
 		if err != nil {
@@ -80,7 +80,8 @@ func (a *App) startup(ctx context.Context) {
 	// 	runtime.LogInfo(a.ctx, "Runtime ready")
 	// })
 	runtime.LogInfo(a.ctx, "RanUI starting up")
-	a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
+	a.ran.Start(false, "")
+	// a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
 }
 
 func (a *App) domready(ctx context.Context) {
@@ -153,4 +154,17 @@ func (a *App) StartEmulation(target string) bool {
 	a.ran.SetTarget(target)
 	// a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
 	return true
+}
+
+func (a *App) ActionSelected(actionID, targetID, variant string) { //, args map[string]string) {
+	runtime.LogInfo(a.ctx, "ActionSelected"+actionID+" target: "+targetID)
+	err := a.ran.Bus.Publish(domain.ActionSelected{
+		ActionID: actionID,
+		TargetID: targetID,
+		Variant:  variant,
+		// Args:     args,
+	})
+	if err != nil {
+		runtime.LogError(a.ctx, "failed to publish ActionSelected event: "+err.Error())
+	}
 }

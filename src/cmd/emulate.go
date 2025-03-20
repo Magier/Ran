@@ -14,7 +14,7 @@ func newEmulationCmd() *cobra.Command {
 		Use:   "emulate",
 		Short: "Emulate adversary behavior against a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			ran := core.InitRan(target)
+			ran := core.InitRan(target, "../armory/", "../sliver_cfg.json")
 			t := tui.SetupTUI(ran)
 			ran.Start(godMode, planPath)
 			tui.RunTUI(t)
