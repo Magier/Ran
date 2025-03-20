@@ -94,7 +94,7 @@ type Model struct {
 	state   domain.State
 }
 
-func NewArmory(armory armory.Armory, width float32) Model {
+func NewArmory(width float32) Model {
 
 	armoryList := list.New([]list.Item{}, NewActionItemDelegate(), 40, 30)
 	// armoryList.Title = "Armory"

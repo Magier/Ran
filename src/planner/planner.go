@@ -17,8 +17,8 @@ type Planner interface {
 	Execute(context.Context)
 }
 
-func CreatePlanner(path string, armory armory.Armory, mb bus.MessageBus) Planner {
-	p := LoadPlan(path, armory)
+func CreatePlanner(path string, armory *armory.Armory, mb bus.MessageBus) Planner {
+	p := LoadPlan(path, *armory)
 	p.bus = mb
 	return p
 }

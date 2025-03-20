@@ -20,24 +20,38 @@ import (
 )
 
 type Ran struct {
-	Bus      bus.MessageBus
-	Armory   armory.Armory
-	Campaign *campaign.Campaign
+	Bus              bus.MessageBus
+	Armory           *armory.Armory
+	Campaign         *campaign.Campaign
+	sliverConfigPath string
+	target           string
 	// c2       *c2.C2
 }
 
-func InitRan(target string) Ran {
-	mb := bus.CreateMessageBus()
-	a := armory.Armory{SrcDir: "../armory/"}
-	c := campaign.StartCampaign(mb, a)
-	ran := Ran{
-		Bus:      mb,
-		Armory:   a,
-		Campaign: c,
+type Config struct {
+	SliverConfigPath string
+	PlanPath         string
+	ArmoryDir        string
+}
+
+func InitRan(target, armoryDir, sliverConfigPath string) Ran {
+	if armoryDir == "" {
+		armoryDir = "./armory/"
 	}
 
-	if target != "" {
-		ran.SetTarget(target)
+	if sliverConfigPath == "" {
+		sliverConfigPath = "sliver_cfg.json"
+	}
+	mb := bus.CreateMessageBus()
+	a := &armory.Armory{SrcDir: armoryDir}
+	c := campaign.StartCampaign(mb, a)
+
+	ran := Ran{
+		Bus:              mb,
+		Armory:           a,
+		Campaign:         c,
+		sliverConfigPath: sliverConfigPath,
+		target:           target,
 	}
 
 	return ran
@@ -63,14 +77,20 @@ func (r *Ran) Start(loadKubeConfig bool, planPath string) {
 	// TODO: turn fileshare into a regular action
 	// filesharePort, _ := r.campaign.GetFileshare()
 	// go ServeFiles(ctx, filesharePort)
-	go c2.StartC2(ctx, r.Bus)
+	go c2.StartC2(ctx, r.Bus, r.sliverConfigPath)
 	// planner.StartAPI(r.Bus)
 
 	go r.Bus.HandleEvents(ctx)
 	// TODO maybe switch between TUI and web-UI (start frontend as well?)
 
 	namespaces := []string{}
-	go loadInitialEntities(ctx, r.Bus, loadKubeConfig, namespaces)
+	go func() {
+		loadInitialEntities(ctx, r.Bus, loadKubeConfig, namespaces)
+		// ensure target is set after the cluster, so it's properly associated with the cluster
+		if r.target != "" {
+			r.SetTarget(r.target)
+		}
+	}()
 
 	if planPath != "" {
 		p := planner.CreatePlanner(planPath, r.Armory, r.Bus)
