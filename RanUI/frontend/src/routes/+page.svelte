@@ -7,7 +7,10 @@
 	import Icon from '@iconify/svelte';
 	import type { TTP } from '$lib/model';
 	import Graph from './components/graph.svelte';
+	// import ExploitAppModal from '$lib/modals/ExploitAppModal';
 	import { type main } from '$lib/wailsjs/go/models';
+	import { Modal } from '@skeletonlabs/skeleton-svelte';
+	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 
 	// onMount(() => {
 	// 	store.connectBackend();
@@ -20,13 +23,62 @@
 
 	let selectedNodeId: string = $state('');
 	let selectedNode: main.Node | undefined = $state();
+	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: Object = {};
+	let selectedTTP: TTP | undefined = $state();
 
 	function sendAction(ttp: TTP) {
 		// const ttp = event.detail;
 		console.log(ttp);
-
-	let target: string = 'default/kubelet-reader-pod';
+		if (ttp.name === 'Deploy Container') {
+			const modalComponent: ModalComponent = { ref: DeployPodModal };
+			const modal: ModalSettings = {
+				type: 'component',
+				component: modalComponent,
+				// Data
+				title: 'Exploit Application',
+				valueAttr: ttp.params,
+				response: (params: boolean) => {
+					if (params) {
+						ActionSelected(ttp.id, selectedNodeId, '');
+						// store.sendMessage('execute_ttp', {
+						// 	target: selectedNodeId,
+						// 	ttp_id: ttp.id || ttp.technique,
+						// 	technique: ttp.technique,
+						// 	action: ttp.action,
+						// 	cmd_args: params,
+						// 	params: params
+						// });
+					}
+				}
+			};
+			showParamModal = true;
+			// modalStore.trigger(modal);
+		} else if (ttp.params) {
+			selectedTTP = ttp;
+			showParamModal = true;
+			// const modalComponent: ModalComponent = { ref: ExploitAppModal };
+			// const modal: ModalSettings = {
+			// 	type: 'component',
+			// 	component: modalComponent,
+			// 	// Data
+			// 	title: 'Exploit Application',
+			// 	valueAttr: ttp.params,
+			// 	response: (params: boolean | ExploitParams) => {
+			// 		if (params) {
+			// 			store.sendMessage('execute_ttp', {
+			// 				target: selectedNodeId,
+			// 				ttp_id: ttp.id,
+			// 				technique: ttp.technique,
+			// 				action: ttp.action,
+			// 				cmd_args: params,
+			// 				params: params
+			// 			});
+			// 		}
+			// 	}
+			// };
+			// modalStore.trigger(modal);
+		} else {
 			ActionSelected(ttp.id, selectedNodeId, '');
 			// store.sendMessage('execute_ttp', {
 			// 	target: selectedNodeId,
@@ -35,6 +87,38 @@
 			// 	action: ttp.action,
 			// 	cmd_args: ttp.cmd_args
 			// });
+		}
+	}
+
+	function closeModal() {
+		showParamModal = false;
+	}
+	function deleteSelectedNode() {
+		store.sendMessage('delete_entity', {
+			target: selectedNodeId
+		});
+	}
+
+	function onKeydown(event: KeyboardEvent) {
+		if (event.key === 'Delete') {
+			if (selectedNode) {
+				deleteSelectedNode();
+			}
+		} else if (event.key === '`' || (event.ctrlkey && (event.key === '.' || event.key === '/'))) {
+			console.log(` Graph KeyDown: '${event.key}'`);
+			event.preventDefault();
+			const drawerSettings: DrawerSettings = {
+				id: 'console-drawer',
+				// Provide your property overrides:
+				bgDrawer: 'bg-surface-900 text-white',
+				bgBackdrop: 'variant-glass-primary',
+				// width: 'w-[280px] md:w-[480px]',
+				padding: 'p-4',
+				position: 'top',
+				rounded: 'rounded-xl'
+			};
+			drawerStore.open(drawerSettings);
+		}
 	}
 </script>
 
@@ -58,6 +142,24 @@
 			<Graph bind:selectedNodeId bind:selectedNode />
 		</div>
 		<Armory class="basis-1/4" action={sendAction} />
+		<!-- <Modal open={showParamModal}> -->
+		<Modal
+			open={showParamModal}
+			onOpenChange={(e) => (showParamModal = e.open)}
+			contentBase="card min-w-modal bg-surface-100-900 p-8 space-y-4 shadow-xl"
+			backdropClasses="backdrop-blur-sm"
+		>
+			{#snippet content()}
+				<ActionParamsModal
+					ttp={selectedTTP!}
+					onCancel={closeModal}
+					onExecute={(ttp, args) => {
+						closeModal();
+						ActionSelected(ttp, selectedNodeId, args);
+					}}
+				/>
+			{/snippet}
+		</Modal>
 	{:catch err}
 		<div class="justify-center">
 			<figure>
