@@ -51,7 +51,7 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 
 	for svcName, info := range services {
 		rel := domain.Reference{
-			Source: srcPod.Id,
+			Source: srcPod.GetId(),
 		}
 		if svcName == "KUBERNETES" {
 			kubeSystemNs := domain.Namespace{Name: "kube-system"}
@@ -60,7 +60,7 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 			apiServer := domain.ApiServer{
 				Pod: domain.NewPod("api-server", kubeSystemNs.Name),
 			}
-			rel.Target = apiServer.Id
+			rel.Target = apiServer.GetId()
 			entities = append(entities, apiServer)
 		} else {
 			svc := domain.Service{
@@ -76,7 +76,7 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 			//         # TODO check if there are other services from the kube-system NS, which are added as env_var
 			//         sys = Service(name=svc, ip=data["host"], ports=data["ports"], ns=ns)
 			entities = append(entities, svc)
-			rel.Target = svc.Id
+			rel.Target = svc.GetId()
 		}
 		relations = append(relations, rel)
 	}

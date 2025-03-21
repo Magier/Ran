@@ -43,7 +43,7 @@ type Graph struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	r := ran.InitRan("", "./armory/", "sliver_cfg.json")
+	r := ran.InitRan("", "armory/", "sliver_cfg.json")
 
 	a := &App{ran: &r}
 
@@ -80,7 +80,7 @@ func (a *App) startup(ctx context.Context) {
 	// 	runtime.LogInfo(a.ctx, "Runtime ready")
 	// })
 	runtime.LogInfo(a.ctx, "RanUI starting up")
-	a.ran.Start(false, "")
+	a.ran.Start(a.ctx, false, "")
 	// a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
 }
 

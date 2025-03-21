@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"context"
+	"os"
+	"os/signal"
+
 	"github.com/Magier/Ran/core"
 	"github.com/Magier/Ran/tui"
 	"github.com/spf13/cobra"
@@ -13,9 +17,11 @@ func newAtomicTestCmd() *cobra.Command {
 		Use:   "invoke",
 		Short: "Run an atomic test in a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			ran := core.InitRan(target, "../armory/", "../sliver_cfg.json")
+			ran := core.InitRan(target, "armory/", "sliver_cfg.json")
 			t := tui.SetupTUI(ran)
-			ran.Start(godMode, "")
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer cancel()
+			ran.Start(ctx, godMode, "")
 			tui.RunTUI(t)
 		},
 	}

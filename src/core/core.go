@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -42,26 +42,29 @@ func InitRan(target, armoryDir, sliverConfigPath string) Ran {
 	if sliverConfigPath == "" {
 		sliverConfigPath = "sliver_cfg.json"
 	}
+
+	path, _ := os.Getwd()
+	// Temporarily fix for running from the root of the project
+	if filepath.Base(path) == "RanUI" {
+		path = filepath.Dir(path)
+	}
+
 	mb := bus.CreateMessageBus()
-	a := &armory.Armory{SrcDir: armoryDir}
+	a := &armory.Armory{SrcDir: filepath.Join(path, armoryDir)}
 	c := campaign.StartCampaign(mb, a)
 
 	ran := Ran{
 		Bus:              mb,
 		Armory:           a,
 		Campaign:         c,
-		sliverConfigPath: sliverConfigPath,
+		sliverConfigPath: filepath.Join(path, sliverConfigPath),
 		target:           target,
 	}
 
 	return ran
 }
 
-func (r *Ran) Start(loadKubeConfig bool, planPath string) {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	// ctx, cancel := context.WithCancel(context.Background(), os.Interrupt)
-	defer cancel()
-
+func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
 	err := r.Armory.Load()
 	if err != nil {
 		panic(fmt.Sprintf("Couldn't load armory: %s", err.Error()))

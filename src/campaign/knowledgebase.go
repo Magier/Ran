@@ -8,7 +8,6 @@ import (
 
 	"github.com/Magier/Ran/domain"
 	"github.com/dominikbraun/graph"
-	"github.com/google/uuid"
 )
 
 var WorkloadNamePattern = regexp.MustCompile(`^(?P<workload>.*)-[a-z0-9]{9}-[a-z0-9]{5}$`)
@@ -319,10 +318,16 @@ func extractRelatedEntities(entities map[string]domain.Entity, entity domain.Ent
 
 	mapPod := func(pod domain.Pod) {
 		wl, rel := getWorkloadFromPod(pod)
-		newEntities = append(newEntities, wl)
-		relations = append(relations, rel)
 		// mapNsRelation(pod)
-		mapNsRelation(wl)
+		if wl != nil {
+			newEntities = append(newEntities, wl)
+			mapNsRelation(wl)
+		} else {
+			mapNsRelation(pod)
+		}
+		if rel != nil {
+			relations = append(relations, rel)
+		}
 	}
 
 	switch e := entity.(type) {
@@ -383,28 +388,33 @@ func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 	}
 
 	// A pod is always part of a workload, even a static pod
-	if owner == nil {
-		id := uuid.New()
+	// if owner == nil {
+	// 	id := uuid.New()
 
-		ownerName := pod.GetName()
-		if matches := WorkloadNamePattern.FindStringSubmatch(ownerName); len(matches) > 1 {
-			ownerName = matches[WorkloadNamePattern.SubexpIndex("workload")]
-		}
+	// 	ownerName := pod.GetName()
+	// 	if matches := WorkloadNamePattern.FindStringSubmatch(ownerName); len(matches) > 1 {
+	// 		ownerName = matches[WorkloadNamePattern.SubexpIndex("workload")]
+	// 	}
 
-		owner = domain.AbstractWorkload{
-			K8sEntity: domain.K8sEntity{
-				Id:        id.String(),
-				Name:      ownerName,
-				Kind:      "AbstractWorkload",
-				Namespace: pod.GetNamespace(),
-			},
-			ResourceOwner: resOwner,
-		}
-	}
+	// 	owner = domain.AbstractWorkload{
+	// 		K8sEntity: domain.K8sEntity{
+	// 			Id:        id.String(),
+	// 			Name:      ownerName,
+	// 			Kind:      "AbstractWorkload",
+	// 			Namespace: pod.GetNamespace(),
+	// 		},
+	// 		ResourceOwner: resOwner,
+	// 	}
+	// }
+
 	// TODO for a static pod the owner is actually the Node, think of way to properly model this
-	rel := domain.Owns{
-		Owner:  owner,
-		Object: &pod,
+
+	var rel domain.Relation
+	if owner != nil {
+		rel = domain.Owns{
+			Owner:  owner,
+			Object: &pod,
+		}
 	}
 	return owner, rel
 }

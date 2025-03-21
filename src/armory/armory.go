@@ -53,7 +53,7 @@ func loadTTPs(dir string) ([]domain.TTP, error) {
 	ttps := []domain.TTP{}
 
 	// parse "attacks as code" in the specified dir folder
-	err := filepath.WalkDir(dir, func(w string, d fs.DirEntry, err error) error {
+	walkFn := func(w string, d fs.DirEntry, err error) error {
 		if d.IsDir() {
 			// skip subfolder with all unsupported check details
 			// if d.Name() == SkipDir { }
@@ -77,9 +77,9 @@ func loadTTPs(dir string) ([]domain.TTP, error) {
 		// if strings.HasSuffix(w, ".md") {
 		// }
 		return nil
-	})
+	}
 
-	if err != nil {
+	if err := filepath.WalkDir(dir, walkFn); err != nil {
 		return ttps, errors.New("Couldn't load TTPs: " + err.Error())
 	}
 	return sortTTPs(ttps), nil

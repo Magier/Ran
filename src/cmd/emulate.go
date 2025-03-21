@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"context"
+	"os"
+	"os/signal"
+
 	"github.com/Magier/Ran/core"
 	"github.com/Magier/Ran/tui"
 	"github.com/spf13/cobra"
@@ -14,9 +18,11 @@ func newEmulationCmd() *cobra.Command {
 		Use:   "emulate",
 		Short: "Emulate adversary behavior against a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			ran := core.InitRan(target, "../armory/", "../sliver_cfg.json")
+			ran := core.InitRan(target, "armory/", "sliver_cfg.json")
 			t := tui.SetupTUI(ran)
-			ran.Start(godMode, planPath)
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer cancel()
+			ran.Start(ctx, godMode, planPath)
 			tui.RunTUI(t)
 		},
 	}
