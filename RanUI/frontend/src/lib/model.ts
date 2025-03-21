@@ -18,7 +18,7 @@ export type TTP = {
     tactic: string;
     ms_id?: string;
     requires?: Object,
-    params?: Object
+    params?: Object[]
 };
 
 export type Node = {
