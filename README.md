@@ -46,6 +46,7 @@ Ran consists of 2 major components:
     3) classic planning
     4) Deterministic AI: 
         - Behavior Trees
+        - Hierarchical Task Network (HTN)
         - Goal-Oriented Action Planning (GOAP)
     5) Probabilistic AI
         - (RL, LLM, Active Inference)

@@ -1,0 +1,28 @@
+name: curl
+description: curl is a command-line tool for transferring data with URLs.
+
+functions:
+  download_file:
+    description: Retrieve all of the zrok account details (environments, shares)
+    parameters:
+      URL:
+        type: string
+        description: the url from where to download the binary
+      DST_BIN:
+        type: string
+        description: the destination path of the binary at the remote system
+        required: false
+    command: curl -LO ${URL}
+  # upload_file:
+  #   description: start a backend for a reserved share
+  #   tactic: Resource Development
+  #   techniques: ["Stage Capabilities"]
+  #   parameters:
+  #     shareToken:
+  #       type: string
+  #       required: true
+  #       description: to token to identify the share
+  #   args:
+  #     shareToken: "r87y3zg1dvjp"
+  #   command:
+  #     zrok share reserved ${shareToken} --headless

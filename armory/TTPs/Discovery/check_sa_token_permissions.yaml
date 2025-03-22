@@ -1,5 +1,5 @@
 name: Check Token permissions
-description: Query the K8s API server for the permissions of thi provided token
+description: Query the K8s API server for the permissions of this provided token
 tactic: Discovery
 techniques: ["Permission Groups Discovery"]
 ttp: T1069.003
