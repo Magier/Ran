@@ -30,64 +30,64 @@
 	function sendAction(ttp: TTP) {
 		// const ttp = event.detail;
 		console.log(ttp);
-		if (ttp.name === 'Deploy Container') {
-			const modalComponent: ModalComponent = { ref: DeployPodModal };
-			const modal: ModalSettings = {
-				type: 'component',
-				component: modalComponent,
-				// Data
-				title: 'Exploit Application',
-				valueAttr: ttp.params,
-				response: (params: boolean) => {
-					if (params) {
-						ActionSelected(ttp.id, selectedNodeId, '');
-						// store.sendMessage('execute_ttp', {
-						// 	target: selectedNodeId,
-						// 	ttp_id: ttp.id || ttp.technique,
-						// 	technique: ttp.technique,
-						// 	action: ttp.action,
-						// 	cmd_args: params,
-						// 	params: params
-						// });
-					}
-				}
-			};
-			showParamModal = true;
-			// modalStore.trigger(modal);
-		} else if (ttp.params) {
+		if (ttp.params) {
 			selectedTTP = ttp;
 			showParamModal = true;
-			// const modalComponent: ModalComponent = { ref: ExploitAppModal };
-			// const modal: ModalSettings = {
-			// 	type: 'component',
-			// 	component: modalComponent,
-			// 	// Data
-			// 	title: 'Exploit Application',
-			// 	valueAttr: ttp.params,
-			// 	response: (params: boolean | ExploitParams) => {
-			// 		if (params) {
-			// 			store.sendMessage('execute_ttp', {
-			// 				target: selectedNodeId,
-			// 				ttp_id: ttp.id,
-			// 				technique: ttp.technique,
-			// 				action: ttp.action,
-			// 				cmd_args: params,
-			// 				params: params
-			// 			});
-			// 		}
-			// 	}
-			// };
-			// modalStore.trigger(modal);
 		} else {
-			ActionSelected(ttp.id, selectedNodeId, '');
-			// store.sendMessage('execute_ttp', {
-			// 	target: selectedNodeId,
-			// 	ttp_id: ttp.id,
-			// 	technique: ttp.technique,
-			// 	action: ttp.action,
-			// 	cmd_args: ttp.cmd_args
-			// });
+			debugger;
+			ActionSelected(ttp.id, selectedNodeId, {});
 		}
+
+		// if (ttp.name === 'Deploy Container') {
+		// 	const modalComponent: ModalComponent = { ref: DeployPodModal };
+		// 	const modal: ModalSettings = {
+		// 		type: 'component',
+		// 		component: modalComponent,
+		// 		// Data
+		// 		title: 'Exploit Application',
+		// 		valueAttr: ttp.params,
+		// 		response: (params: boolean) => {
+		// 			if (params) {
+		// 				debugger;
+		// 				ActionSelected(ttp.id, selectedNodeId, {});
+		// 				// store.sendMessage('execute_ttp', {
+		// 				// 	target: selectedNodeId,
+		// 				// 	ttp_id: ttp.id || ttp.technique,
+		// 				// 	technique: ttp.technique,
+		// 				// 	action: ttp.action,
+		// 				// 	cmd_args: params,
+		// 				// 	params: params
+		// 				// });
+		// 			}
+		// 		}
+		// 	};
+		// 	showParamModal = true;
+		// 	// modalStore.trigger(modal);
+		// } else if (ttp.params) {
+		// 	selectedTTP = ttp;
+		// 	showParamModal = true;
+		// 	// const modalComponent: ModalComponent = { ref: ExploitAppModal };
+		// 	// const modal: ModalSettings = {
+		// 	// 	type: 'component',
+		// 	// 	component: modalComponent,
+		// 	// 	// Data
+		// 	// 	title: 'Exploit Application',
+		// 	// 	valueAttr: ttp.params,
+		// 	// 	response: (params: boolean | ExploitParams) => {
+		// 	// 		if (params) {
+		// 	// 			store.sendMessage('execute_ttp', {
+		// 	// 				target: selectedNodeId,
+		// 	// 				ttp_id: ttp.id,
+		// 	// 				technique: ttp.technique,
+		// 	// 				action: ttp.action,
+		// 	// 				cmd_args: params,
+		// 	// 				params: params
+		// 	// 			});
+		// 	// 		}
+		// 	// 	}
+		// 	// };
+		// 	// modalStore.trigger(modal);
+		// }
 	}
 
 	function closeModal() {
@@ -99,27 +99,27 @@
 		});
 	}
 
-	function onKeydown(event: KeyboardEvent) {
-		if (event.key === 'Delete') {
-			if (selectedNode) {
-				deleteSelectedNode();
-			}
-		} else if (event.key === '`' || (event.ctrlkey && (event.key === '.' || event.key === '/'))) {
-			console.log(` Graph KeyDown: '${event.key}'`);
-			event.preventDefault();
-			const drawerSettings: DrawerSettings = {
-				id: 'console-drawer',
-				// Provide your property overrides:
-				bgDrawer: 'bg-surface-900 text-white',
-				bgBackdrop: 'variant-glass-primary',
-				// width: 'w-[280px] md:w-[480px]',
-				padding: 'p-4',
-				position: 'top',
-				rounded: 'rounded-xl'
-			};
-			drawerStore.open(drawerSettings);
-		}
-	}
+	// function onKeydown(event: KeyboardEvent) {
+	// 	if (event.key === 'Delete') {
+	// 		if (selectedNode) {
+	// 			deleteSelectedNode();
+	// 		}
+	// 	} else if (event.key === '`' || (event.ctrlkey && (event.key === '.' || event.key === '/'))) {
+	// 		console.log(` Graph KeyDown: '${event.key}'`);
+	// 		event.preventDefault();
+	// 		const drawerSettings: DrawerSettings = {
+	// 			id: 'console-drawer',
+	// 			// Provide your property overrides:
+	// 			bgDrawer: 'bg-surface-900 text-white',
+	// 			bgBackdrop: 'variant-glass-primary',
+	// 			// width: 'w-[280px] md:w-[480px]',
+	// 			padding: 'p-4',
+	// 			position: 'top',
+	// 			rounded: 'rounded-xl'
+	// 		};
+	// 		drawerStore.open(drawerSettings);
+	// 	}
+	// }
 </script>
 
 <div class="items-top mx-auto flex h-full justify-center">
@@ -151,11 +151,12 @@
 		>
 			{#snippet content()}
 				<ActionParamsModal
+					targetId={selectedNodeId}
 					ttp={selectedTTP!}
 					onCancel={closeModal}
-					onExecute={(ttp, args) => {
+					onExecute={(ttpId, args: Record<string, string>) => {
+						ActionSelected(ttpId, selectedNodeId, args);
 						closeModal();
-						ActionSelected(ttp, selectedNodeId, args);
 					}}
 				/>
 			{/snippet}

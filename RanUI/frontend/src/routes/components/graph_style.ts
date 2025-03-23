@@ -52,6 +52,7 @@ const kind_svg_map = {
 	AbstractWorkload: 'deploy.svg',
 	ControlPlane: 'control-plane.svg',
 	ClusterNode: 'node.svg',
+	Node: 'node.svg',
 	Role: 'role.svg',
 	ClusterRole: 'c-role.svg',
 	Service: 'svc.svg',
