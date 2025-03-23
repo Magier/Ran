@@ -4,11 +4,12 @@
 	import Page from '../../routes/+page.svelte';
 
 	interface ParamProps {
+		targetId: string;
 		ttp: TTP;
-		onExecute: (ttp: TTP, args: Arg[]) => void;
+		onExecute: (ttpId: string, args: Record<string, string>) => void;
 		onCancel: () => void;
 	}
-	let { ttp, onExecute, onCancel }: ParamProps = $props();
+	let { targetId = $bindable(), ttp, onExecute, onCancel }: ParamProps = $props();
 
 	interface Arg {
 		Name: string;
@@ -35,11 +36,19 @@
 	// $inspect(args);
 
 	function onInternalExecute() {
-		onExecute(ttp, $state.snapshot(args));
+		const argsDict = args.reduce(
+			(acc: { [key: string]: string }, arg) => {
+				acc[arg.Name] = arg.Value;
+				return acc;
+			},
+			{} as { [key: string]: string }
+		);
+
+		onExecute(ttp.id, argsDict);
 	}
 </script>
 
-<form class="w-full space-y-8">
+<form class="text-surface-50 w-full space-y-8">
 	<header class="flex justify-between">
 		<h4 class="h4">{ttp.name}</h4>
 	</header>
@@ -54,15 +63,13 @@
 				<input
 					class="input"
 					type="text"
-					bind:value={ttp.target}
+					bind:value={targetId}
 					placeholder="Enter target IP or URL"
 				/>
 			</label>
 			{#if args.length > 0}
 				<fieldset class="mt-5">
 					<span class="h5">Params</span>
-					<div class="text-center">{args[0].Value}</div>
-					<!-- note: value must be accessed directly via exploitParams, otherwise 2way binding won't work -->
 					{#each args as arg}
 						<div class="input-group mt-2 grid-cols-[auto_1fr_auto]">
 							<div class="ig-cell preset-tonal">{arg.Name}</div>
