@@ -97,7 +97,7 @@
 		/>
 	</div>
 	<div>
-		<Accordion>
+		<Accordion collapsible>
 			{#each Array.from(armory) as [tactic, ttps]}
 				<hr class="hr" />
 				<Accordion.Item value={tactic} disabled={ttps.length === 0}>

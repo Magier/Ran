@@ -17,7 +17,7 @@ func newAtomicTestCmd() *cobra.Command {
 		Use:   "invoke",
 		Short: "Run an atomic test in a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			ran := core.InitRan(target, "armory/", "sliver_cfg.json")
+			ran := core.InitRan(target, "../armory/", "../sliver_cfg.json")
 			t := tui.SetupTUI(ran)
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer cancel()

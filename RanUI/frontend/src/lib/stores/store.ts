@@ -104,7 +104,8 @@ function connectBackend() {
 		let a = parseArmory(data)
 		armory.set(a);
 	});
-	runtime.EventsOn("facts-changed", (data) => {
+	runtime.EventsOn("knowledge-updated", (data) => {
+		// runtime.EventsOn("facts-changed", (data) => {
 		// const facts = JSON.parse(data);
 		// const [ns, es] = parseTopology(facts);
 		GetGraph().then((g: main.Graph) => {
@@ -112,6 +113,10 @@ function connectBackend() {
 			graph.set(g);
 		});
 	})
+
+	runtime.EventsOn("ttp-failed", (data) => {
+		alerts.set(data);
+	});
 
 	GetGraph().then((g: main.Graph) => {
 		console.log(g)
@@ -146,33 +151,33 @@ function parse_topology(data: any): [Node[], Edge[]] {
 	return [nodes, edges];
 }
 
-function parseTopology(data: any): [Node[], Edge[]] {
-	let nodes = [];
-	for (let entity of data.NewEntities) {
-		// define namespace as the nodes parent, if present
-		if (entity.Namespace !== undefined) {
-			if (typeof entity.Namespace === 'object') {
-				entity.parent = entity.Namspace.Id;
-			} else if (typeof entity.Namespace === 'string') {
-				entity.parent = entity.Namespace;
-			}
-		}
-		if (entity.Id === undefined) {
-			entity.Id = entity.Name;
-		}
-		nodes.push(entity);
-	}
+// function parseTopology(data: any): [Node[], Edge[]] {
+// 	let nodes = [];
+// 	for (let entity of data.NewEntities) {
+// 		// define namespace as the nodes parent, if present
+// 		if (entity.Namespace !== undefined) {
+// 			if (typeof entity.Namespace === 'object') {
+// 				entity.parent = entity.Namspace.Id;
+// 			} else if (typeof entity.Namespace === 'string') {
+// 				entity.parent = entity.Namespace;
+// 			}
+// 		}
+// 		if (entity.Id === undefined) {
+// 			entity.Id = entity.Name;
+// 		}
+// 		nodes.push(entity);
+// 	}
 
-	let edges = [];
-	debugger
-	for (let edge of data.NewRelations) {
-		edge.target = edge.TargetId;
-		edge.id = `${edge.SourceId}->${edge.target}`;
-		edges.push(edge);
-	}
+// 	let edges = [];
+// 	debugger
+// 	for (let edge of data.NewRelations) {
+// 		edge.target = edge.TargetId;
+// 		edge.id = `${edge.SourceId}->${edge.target}`;
+// 		edges.push(edge);
+// 	}
 
-	return [nodes, edges];
-}
+// 	return [nodes, edges];
+// }
 
 function parseArmory(data: TTP[]): ArmoryType {
 	// this comes from the backend must be converted

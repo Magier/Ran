@@ -74,13 +74,9 @@ type TTP struct {
 	CmdVariants []CmdVariant `yaml:"cmdVariants" json:"cmdVariants"`
 	HttpCmd     HttpCmd      `yaml:"httpCmd" json:"httpCmd"`
 	Params      []Parameter  `json:"params"`
-	// Args        map[string]string    `yaml:"args"`
-	// Port        uint                 `yaml:"port"`
 
-	// Command    string `yaml:"command"`
-	CommandMsg Message // during unmarshal converted via Alias to the message
-
-	Execute CodeSnippet `yaml:"execute"`
+	CommandMsg Message     // during unmarshal converted via Alias to the message
+	Execute    CodeSnippet `yaml:"execute"`
 
 	Requires Requirements `yaml:"preconditions" json:"requires"`
 	Effects  []string     `yaml:"effects" json:"effects"`

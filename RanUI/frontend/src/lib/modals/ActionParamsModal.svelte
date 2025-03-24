@@ -1,7 +1,5 @@
 <script lang="ts">
-	import type { TTP } from '$lib/model';
-	import { onMount } from 'svelte';
-	import Page from '../../routes/+page.svelte';
+	import type { Param, TTP } from '$lib/model';
 
 	interface ParamProps {
 		targetId: string;
@@ -18,12 +16,11 @@
 		Type: string;
 	}
 
+	// the args will be the final arguments used when executing the TTP
 	let args: Arg[] = $state([]);
-
 	$effect(() => {
-		console.log('updating the TTP for the modal');
 		args =
-			ttp.params?.map((param) => {
+			ttp.params?.map((param: Param) => {
 				return {
 					Name: param.Name,
 					Value: param.Default,
@@ -32,8 +29,6 @@
 				};
 			}) || [];
 	});
-
-	// $inspect(args);
 
 	function onInternalExecute() {
 		const argsDict = args.reduce(
