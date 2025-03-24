@@ -8,6 +8,15 @@ export enum AccessLevel {
 }
 
 
+export type Param = {
+    Name: string;
+    Type: string;
+    Default: string;
+    Description: string;
+    Required: boolean;
+}
+
+
 export type TTP = {
     id: string;
     technique?: string;
@@ -18,7 +27,7 @@ export type TTP = {
     tactic: string;
     ms_id?: string;
     requires?: Object,
-    params?: Object[]
+    params?: Param[]
 };
 
 export type Node = {

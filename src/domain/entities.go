@@ -5,6 +5,8 @@ import (
 	"net"
 	"strings"
 
+	"encoding/json"
+
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	v1 "k8s.io/api/core/v1"
@@ -29,7 +31,7 @@ type Condition interface {
 
 type Requirements struct {
 	Kind           IsOfKind    `yaml:"kind"`
-	AccessLevel    AccessLevel `yaml:"accessLevel"`
+	AccessLevel    AccessLevel `yaml:"accessLevel" json:"accessLevel"`
 	RbacPermission Permission
 	State          State                  // check for existing entities
 	Exists         EntitiesExists         // relates to the state
@@ -151,6 +153,10 @@ func (e *AccessLevel) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	}
 	*e = parseAccessLevel(level)
 	return nil
+}
+
+func (lvl AccessLevel) MarshalJSON() ([]byte, error) {
+	return json.Marshal(lvl.String())
 }
 
 var (

@@ -3,8 +3,7 @@
 	import cytoscape from 'cytoscape';
 	import fcose from 'cytoscape-fcose';
 	import * as runtime from '$lib/wailsjs/runtime';
-	import { GetGraph } from '$lib/wailsjs/go/main/App';
-	import cytoscapePopper from 'cytoscape-popper';
+	import cytoscapePopper, { type RefElement, type PopperOptions } from 'cytoscape-popper';
 	import {
 		computePosition,
 		arrow,
@@ -37,7 +36,7 @@
 	let arrowEl = $state();
 	let currPopper = $state();
 
-	function popperFactory(ref, content, opts) {
+	function popperFactory(ref: RefElement, content: HTMLElement, opts?: PopperOptions) {
 		// see https://floating-ui.com/docs/computePosition#options
 		const popperOptions = {
 			// matching the default behaviour from Popper@2
@@ -125,7 +124,7 @@
 	}
 
 	function resetSelection(event: cytoscape.Event) {
-		selectedNode = null;
+		selectedNode = undefined;
 		selectedNodeId = '';
 	}
 
