@@ -1,23 +1,36 @@
 <script lang="ts">
 	import type { TTP } from '$lib/model';
 	import { AccessLevel } from '$lib/model';
+	import { IsActionSatisfied } from '$lib/wailsjs/go/main/App';
+	import Icon from '@iconify/svelte';
 
 	interface ActionCardProps {
 		ttp: TTP;
+		targetId?: string;
 		icon: any;
 		conditions?: Object;
 		onclick: (ttp: TTP) => void;
 	}
 
-	let { ttp, icon, conditions, onclick }: ActionCardProps = $props();
-	// let requirementsSatisfied = $derived(checkConditions(ttp, conditions));
-	let requirementsSatisfied = true;
-	let cardStyle = 'card-hover bg-surface-200-700-token';
-	// let cardStyle = $derived(
-	// 	requirementsSatisfied
-	// 		? 'card-hover bg-surface-200-700-token'
-	// 		: 'card-disabled bg-surface-50-900-token'
-	// );
+	let { ttp, targetId, icon, conditions, onclick }: ActionCardProps = $props();
+
+	let requirementsSatisfied = $state(false);
+	$effect(() => {
+		IsActionSatisfied(ttp.id, targetId!)
+			.then((result: boolean) => {
+				console.log(`Requirements ${ttp.name} Satisfied: `, result);
+				requirementsSatisfied = result;
+			})
+			.catch((err) => {
+				console.error(`Error checking requirements for ${ttp.name}: `, err);
+			});
+	});
+
+	let cardStyle = $derived(
+		requirementsSatisfied
+			? 'card-hover bg-surface-200-700-token'
+			: 'card-disabled bg-surface-50-900-token'
+	);
 
 	// function checkConditions(ttp: TTP, conditions: Object) {
 	// 	// no requirements means the action is always possible
@@ -67,18 +80,26 @@
 	disabled={!requirementsSatisfied}
 >
 	<header class="card-header">
-		<!-- <svelte:component this={icon} class="inline-block" /> -->
-		<h5>{ttp.name}</h5>
+		<Icon {icon} class="inline-block" />
+		<span>{ttp.name}</span>
 	</header>
 	<!-- <section class="p-4" /> -->
 	{#if ttp.requires && Object.keys(ttp.requires).length > 0}
 		<footer class="card-footer py-2">
 			{#each Object.entries(ttp.requires) as [name, value]}
 				{#if value}
-					<!-- adjust chip style if the condition is fullfilled or not -->
-					<span class="chip variant-filled-surface mr-1">
-						{name}: {value}
-					</span>
+					{#if name === 'AccessLevel'}
+						{#if Object.keys(value).length > 0}
+							<span class="chip variant-filled-surface mr-1">
+								{name}: {Object.keys(value).join(' or ')}
+							</span>
+						{/if}
+					{:else}
+						<!-- adjust chip style if the condition is fullfilled or not -->
+						<span class="chip variant-filled-surface mr-1">
+							{name}: {value}
+						</span>
+					{/if}
 				{/if}
 			{/each}
 		</footer>

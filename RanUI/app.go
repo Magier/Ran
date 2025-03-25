@@ -156,15 +156,28 @@ func (a *App) StartEmulation(target string) bool {
 	return true
 }
 
-func (a *App) ActionSelected(actionID, targetID, variant string) { //, args map[string]string) {
+func (a *App) ActionSelected(actionID, targetID string, args ActionArgs) { //, args map[string]string) {
 	runtime.LogInfo(a.ctx, "ActionSelected"+actionID+" target: "+targetID)
 	err := a.ran.Bus.Publish(domain.ActionSelected{
 		ActionID: actionID,
 		TargetID: targetID,
-		Variant:  variant,
-		// Args:     args,
+		// Variant:  variant,
+		Args: args,
 	})
 	if err != nil {
 		runtime.LogError(a.ctx, "failed to publish ActionSelected event: "+err.Error())
 	}
+}
+
+func (a *App) IsActionSatisfied(actionId, targetId string) (bool, error) {
+	ttp, ok := a.ran.Armory.GetTTP(actionId)
+	if !ok {
+		return false, fmt.Errorf("TTP '%s' not found", actionId)
+	}
+
+	target, _ := a.ran.Campaign.GetEntityById(targetId)
+	state := domain.State{}
+	accessLevel := domain.UserExec
+	isSatisfied := ttp.Requires.Satisfied(target, accessLevel, state)
+	return isSatisfied, nil
 }

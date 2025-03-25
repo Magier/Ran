@@ -121,6 +121,9 @@ func (c *Campaign) GetPods() []domain.Pod {
 }
 
 func (c *Campaign) GetEntityById(id string) (domain.Entity, bool) {
+	if id == "" {
+		return nil, false
+	}
 	e, ok := c.kb.GetEntity(id)
 	return e, ok
 }
