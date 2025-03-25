@@ -141,8 +141,7 @@
 			</div>
 			<Graph bind:selectedNodeId bind:selectedNode />
 		</div>
-		<Armory class="basis-1/4" action={sendAction} />
-		<!-- <Modal open={showParamModal}> -->
+		<Armory class="basis-1/4" action={sendAction} targetId={selectedNodeId} />
 		<Modal
 			open={showParamModal}
 			onOpenChange={(e) => (showParamModal = e.open)}

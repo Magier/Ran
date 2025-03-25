@@ -6,6 +6,7 @@
 
 	type ArmoryProps = {
 		class?: string;
+		targetId: string;
 		action: (ttp: TTP) => void;
 	};
 	// import { filteredArmory, searchAbilities } from '$lib/stores/armoryStore.js';
@@ -35,7 +36,7 @@
 	// 				similar to: https://www.youtube.com/watch?v=lrzHaTcpRh8
 	// ==============================================================
 
-	let { class: className = '', action: sendAction }: ArmoryProps = $props();
+	let { class: className = '', targetId, action: sendAction }: ArmoryProps = $props();
 
 	// export let selectedNode: Object | null = null;
 	// export let globalConditions: Object = {};
@@ -109,7 +110,13 @@
 					{/snippet}
 					{#snippet panel()}
 						{#each ttps as ttp}
-							<ActionCard {ttp} icon={iconMap[ttp.tactic]} onclick={() => sendAction(ttp)} />
+							<ActionCard
+								{ttp}
+								{targetId}
+								conditions={ttp.requires}
+								icon={iconMap[ttp.tactic]}
+								onclick={() => sendAction(ttp)}
+							/>
 						{/each}
 					{/snippet}
 				</Accordion.Item>

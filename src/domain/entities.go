@@ -39,7 +39,11 @@ type Requirements struct {
 }
 
 func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state State) bool {
-	if r.Kind != "" && r.Kind != IsOfKind(target.GetKind()) {
+	var targetKind IsOfKind
+	if target != nil {
+		targetKind = IsOfKind(target.GetKind())
+	}
+	if r.Kind != "" && r.Kind != targetKind {
 		return false
 	}
 	if !accessLevel.Satisfies(r.AccessLevel) {
