@@ -70,7 +70,6 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
 	runtime.EventsOn(a.ctx, "get-armory", func(data ...any) {
-		runtime.LogInfo(a.ctx, "get-armory")
 		// runtime.EventsEmit(a.ctx, "armory", "armory")
 		// runtime.EventsEmit(a.ctx, "armory", a.ran.Armory.GetTTPs())
 		runtime.EventsEmit(a.ctx, "armory-loaded", a.ran.Armory.GetTTPs())
@@ -85,8 +84,6 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) domready(ctx context.Context) {
-	runtime.LogInfo(a.ctx, "DOM ready")
-
 	// graph := a.GetGraph()
 	// runtime.EventsEmit(a.ctx, "graph", graph)
 
@@ -94,24 +91,20 @@ func (a *App) domready(ctx context.Context) {
 }
 
 func (a *App) GetGraph() Graph {
-	runtime.LogInfo(a.ctx, "GetGraph")
-
 	// frontend uses this information for compound nodes
 	parentNodes := make(map[string]string)
 
 	relations := a.ran.Campaign.GetRelations()
 	edges := make([]Edge, 0, len(relations))
 	for id, relation := range relations {
-
-		name := relation.GetRelationName()
-		// convert "hierarchical" relations to parent relationships.
-		// || name == "owns"
-		if name == "contains" {
+		switch relation.(type) {
+		// convert specific "hierarchical" relations to parent relationships.
+		case domain.Contains, domain.ManagesNode:
 			parentNodes[relation.GetTargetId()] = relation.GetSourceId()
-		} else {
+		default:
 			edges = append(edges, Edge{
 				ID:       id,
-				Name:     name,
+				Name:     relation.GetRelationName(),
 				SourceID: relation.GetSourceId(),
 				TargetID: relation.GetTargetId(),
 			})

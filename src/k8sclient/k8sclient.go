@@ -49,8 +49,13 @@ func GetConfig() (*restclient.Config, KubeContext, error) {
 		ctxName := contextConfig.CurrentContext
 
 		clusterInfo, ok := contextConfig.Clusters[ctxName]
+		var server string
+		var serverCA []uint8
 		if !ok {
 			slog.Warn("Couldn't get kubeconfig cluster of context " + ctxName)
+		} else {
+			server = clusterInfo.Server
+			serverCA = clusterInfo.CertificateAuthorityData
 		}
 
 		authInfo, ok := contextConfig.AuthInfos[ctxName]
@@ -63,8 +68,8 @@ func GetConfig() (*restclient.Config, KubeContext, error) {
 			UserCert: authInfo.ClientCertificateData,
 			UserKey:  authInfo.ClientCertificateData,
 			AuthExec: authInfo.Exec != nil,
-			Server:   clusterInfo.Server,
-			ServerCA: clusterInfo.CertificateAuthorityData,
+			Server:   server,
+			ServerCA: serverCA,
 		}
 	}
 
