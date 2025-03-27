@@ -32,42 +32,42 @@
 			: 'card-disabled bg-surface-50-900-token'
 	);
 
-	// function checkConditions(ttp: TTP, conditions: Object) {
-	// 	// no requirements means the action is always possible
-	// 	if (Object.keys(ttp.requires || {}).length == 0) return true;
-	// 	if (conditions) {
-	// 		for (let [attr, value] of Object.entries(ttp.requires)) {
-	// 			if (!conditions.hasOwnProperty(attr)) {
-	// 				return false;
-	// 			}
-	// 			if (attr === 'accessLevel') {
-	// 				var requiredLevel = AccessLevel[value];
-	// 				var currentLevel = AccessLevel[conditions['accessLevel']];
-	// 				if (currentLevel < requiredLevel) {
-	// 					return false;
-	// 				}
-	// 			} else if (attr === 'can') {
-	// 				let has_capability = false;
-	// 				for (let cap of conditions['can']) {
-	// 					if (cap == value) {
-	// 						has_capability = true;
-	// 						break;
-	// 					}
-	// 				}
-	// 				if (!has_capability) return false;
-	// 			} else if (Array.isArray(value)) {
-	// 				let givenValue = conditions[attr].toLowerCase();
-	// 				let sat = value.filter((v) => v.toLowerCase() == givenValue);
-	// 				if (!sat) {
-	// 					return false;
-	// 				}
-	// 			} else if (conditions[attr] !== value) {
-	// 				return false;
-	// 			}
-	// 		}
-	// 	}
-	// 	return true;
-	// }
+	function checkConditions(ttp: TTP, conditions: Object) {
+		// no requirements means the action is always possible
+		if (Object.keys(ttp.requires || {}).length == 0) return true;
+		if (conditions) {
+			for (let [attr, value] of Object.entries(ttp.requires)) {
+				if (!conditions.hasOwnProperty(attr)) {
+					return false;
+				}
+				if (attr === 'accessLevel') {
+					var requiredLevel = AccessLevel[value];
+					var currentLevel = AccessLevel[conditions['accessLevel']];
+					if (currentLevel < requiredLevel) {
+						return false;
+					}
+				} else if (attr === 'can') {
+					let has_capability = false;
+					for (let cap of conditions['can']) {
+						if (cap == value) {
+							has_capability = true;
+							break;
+						}
+					}
+					if (!has_capability) return false;
+				} else if (Array.isArray(value)) {
+					let givenValue = conditions[attr].toLowerCase();
+					let sat = value.filter((v) => v.toLowerCase() == givenValue);
+					if (!sat) {
+						return false;
+					}
+				} else if (conditions[attr] !== value) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
 
 	// export let onClick = (ttp: TTP) => {};
 </script>
