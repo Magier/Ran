@@ -1,1 +1,193 @@
-<h1>test</h1>
+<script lang="ts">
+	import Armory from './components/armory.svelte';
+	import store from '$lib/stores/store';
+	import * as runtime from '$lib/wailsjs/runtime';
+	import { ActionSelected, StartEmulation } from '$lib/wailsjs/go/main/App.js';
+	// import { onMount } from 'svelte';
+	import Icon from '@iconify/svelte';
+	import type { TTP } from '$lib/model';
+	import Graph from './components/graph.svelte';
+	// import ExploitAppModal from '$lib/modals/ExploitAppModal';
+	import { type main } from '$lib/wailsjs/go/models';
+	import { Modal } from '@skeletonlabs/skeleton-svelte';
+	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
+	import { onMount } from 'svelte';
+	import { ToastProvider } from '@skeletonlabs/skeleton-svelte';
+
+	// onMount(() => {
+	// 	store.connectBackend();
+	// });
+	function start(): void {
+		StartEmulation(target);
+		// StartEmulation(target).then((result) => (resultText = result));
+	}
+	let target: string = $state('default/kubelet-reader-pod');
+
+	let selectedNodeId: string = $state('');
+	let selectedNode: main.Node | undefined = $state();
+	let showParamModal: boolean = $state(false);
+	let activeGlobalConditions: Object = {};
+	let selectedTTP: TTP | undefined = $state();
+
+	function sendAction(ttp: TTP) {
+		// const ttp = event.detail;
+		console.log(ttp);
+		if (ttp.params) {
+			selectedTTP = ttp;
+			showParamModal = true;
+		} else {
+			debugger;
+			ActionSelected(ttp.id, selectedNodeId, {});
+		}
+
+		// if (ttp.name === 'Deploy Container') {
+		// 	const modalComponent: ModalComponent = { ref: DeployPodModal };
+		// 	const modal: ModalSettings = {
+		// 		type: 'component',
+		// 		component: modalComponent,
+		// 		// Data
+		// 		title: 'Exploit Application',
+		// 		valueAttr: ttp.params,
+		// 		response: (params: boolean) => {
+		// 			if (params) {
+		// 				debugger;
+		// 				ActionSelected(ttp.id, selectedNodeId, {});
+		// 				// store.sendMessage('execute_ttp', {
+		// 				// 	target: selectedNodeId,
+		// 				// 	ttp_id: ttp.id || ttp.technique,
+		// 				// 	technique: ttp.technique,
+		// 				// 	action: ttp.action,
+		// 				// 	cmd_args: params,
+		// 				// 	params: params
+		// 				// });
+		// 			}
+		// 		}
+		// 	};
+		// 	showParamModal = true;
+		// 	// modalStore.trigger(modal);
+		// } else if (ttp.params) {
+		// 	selectedTTP = ttp;
+		// 	showParamModal = true;
+		// 	// const modalComponent: ModalComponent = { ref: ExploitAppModal };
+		// 	// const modal: ModalSettings = {
+		// 	// 	type: 'component',
+		// 	// 	component: modalComponent,
+		// 	// 	// Data
+		// 	// 	title: 'Exploit Application',
+		// 	// 	valueAttr: ttp.params,
+		// 	// 	response: (params: boolean | ExploitParams) => {
+		// 	// 		if (params) {
+		// 	// 			store.sendMessage('execute_ttp', {
+		// 	// 				target: selectedNodeId,
+		// 	// 				ttp_id: ttp.id,
+		// 	// 				technique: ttp.technique,
+		// 	// 				action: ttp.action,
+		// 	// 				cmd_args: params,
+		// 	// 				params: params
+		// 	// 			});
+		// 	// 		}
+		// 	// 	}
+		// 	// };
+		// 	// modalStore.trigger(modal);
+		// }
+	}
+
+	function closeModal() {
+		showParamModal = false;
+	}
+	function deleteSelectedNode() {
+		store.sendMessage('delete_entity', {
+			target: selectedNodeId
+		});
+	}
+
+	// function onKeydown(event: KeyboardEvent) {
+	// 	if (event.key === 'Delete') {
+	// 		if (selectedNode) {
+	// 			deleteSelectedNode();
+	// 		}
+	// 	} else if (event.key === '`' || (event.ctrlkey && (event.key === '.' || event.key === '/'))) {
+	// 		console.log(` Graph KeyDown: '${event.key}'`);
+	// 		event.preventDefault();
+	// 		const drawerSettings: DrawerSettings = {
+	// 			id: 'console-drawer',
+	// 			// Provide your property overrides:
+	// 			bgDrawer: 'bg-surface-900 text-white',
+	// 			bgBackdrop: 'variant-glass-primary',
+	// 			// width: 'w-[280px] md:w-[480px]',
+	// 			padding: 'p-4',
+	// 			position: 'top',
+	// 			rounded: 'rounded-xl'
+	// 		};
+	// 		drawerStore.open(drawerSettings);
+	// 	}
+	// }
+	onMount(() => {
+		store.onAlert((alert) => {
+			console.log(alert);
+		});
+	});
+</script>
+
+<div class="items-top test mx-auto flex h-full justify-center">
+	{#await store.connect(false)}
+		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
+		<div>loading...</div>
+	{:then sessions}
+		<div class="basis-3/4">
+			<div class="flex items-center">
+				<input
+					autocomplete="off"
+					bind:value={target}
+					id="target"
+					type="text"
+					class="mr-2 rounded-l p-2"
+				/>
+				<button onclick={start} class="btn preset-filled-primary-500">Start</button>
+				<span>{selectedNodeId}</span>
+			</div>
+			<Graph bind:selectedNodeId bind:selectedNode />
+		</div>
+		<Armory class="basis-1/4" action={sendAction} targetId={selectedNodeId} />
+		<!-- globalConditions={activeGlobalConditions}
+			{selectedNode}
+		/> -->
+		<Modal
+			open={showParamModal}
+			onOpenChange={(e) => (showParamModal = e.open)}
+			contentBase="card min-w-modal bg-surface-100-900 p-8 space-y-4 shadow-xl"
+			backdropClasses="backdrop-blur-sm"
+		>
+			{#snippet content()}
+				<ActionParamsModal
+					targetId={selectedNodeId}
+					ttp={selectedTTP!}
+					onCancel={closeModal}
+					onExecute={(ttpId, args: Record<string, string>) => {
+						ActionSelected(ttpId, selectedNodeId, args);
+						closeModal();
+					}}
+				/>
+			{/snippet}
+		</Modal>
+	{:catch err}
+		<div class="justify-center">
+			<figure>
+				<section class="img-bg"></section>
+				<Icon
+					icon="game-icons:fishing-net"
+					rotate={90}
+					class="fill-token h-64 w-64 -scale-x-[100%]"
+				/>
+			</figure>
+			<h2 class="h2 text-center">Ran</h2>
+			{err}
+		</div>
+	{/await}
+</div>
+
+<style>
+	* {
+		color: white;
+	}
+</style>
