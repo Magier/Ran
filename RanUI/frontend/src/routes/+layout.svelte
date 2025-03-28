@@ -1,43 +1,39 @@
 <script lang="ts">
 	import { AppBar, Navigation } from '@skeletonlabs/skeleton-svelte';
-	import HomeIcon from '~icons/mdi/home';
-	// import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	// import Paperclip from '@lucide/svelte/icons/paperclip';
-	// import Calendar from '@lucide/svelte/icons/calendar';
-	// import CircleUser from '@lucide/svelte/icons/circle-user';
+	import { page } from '$app/state';
+	import IconMap from '~icons/game-icons/treasure-map';
+	import IconSteps from '~icons/game-icons/footsteps';
 	import '../app.css';
-	let page = $state('graph');
 	let { children } = $props();
+	let graphSelected = $state(true);
 </script>
 
 <AppBar>
 	{#snippet lead()}
 		<!-- <ArrowLeft size={24} /> -->
+		<span>Ran</span>
 	{/snippet}
+
 	{#snippet trail()}
-		<!-- <Paperclip size={20} />
-		<Calendar size={20} />
-		<CircleUser size={20} /> -->
+		<nav>
+			<a class="{page.url.pathname === '/' ? 'selected' : ''} pr-3" href="/"
+				><IconMap class="inline-block text-xl" /> Graph</a
+			>
+			<a class={page.url.pathname === '/trace' ? 'selected' : ''} href="/trace"
+				><IconSteps class="inline-block text-xl" /> Trace</a
+			>
+		</nav>
 	{/snippet}
-	<span>Ran</span>
 </AppBar>
 
-<div class="card border-surface-100-900 grid h-[640px] w-full grid-cols-[auto_1fr] border-[1px]">
-	<!-- Component -->
-	<Navigation.Rail value={page} onValueChange={(newValue: string) => (page = newValue)}>
-		{#snippet tiles()}
-			<Navigation.Tile label="Graph" href="#/graph"><HomeIcon /></Navigation.Tile>
-			<Navigation.Tile label="Trace" href="#/trace"><HomeIcon /></Navigation.Tile>
-		{/snippet}
-	</Navigation.Rail>
-	<!-- Content -->
-	<div class="flex items-center justify-center">
-		{@render children()}
-	</div>
-</div>
+{@render children()}
 
 <style>
 	* {
 		color: #b6b6b6;
+	}
+
+	.selected {
+		color: white;
 	}
 </style>
