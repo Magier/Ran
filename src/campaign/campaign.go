@@ -171,6 +171,9 @@ func (c *Campaign) GetSessions() []domain.Session {
 func (c *Campaign) GetGraph() AdjacencyList {
 	return c.kb.GetAdjecencyList()
 }
+func (c *Campaign) GetAuditTrail() AuditTrail {
+	return c.trail
+}
 
 func (c *Campaign) AddEntities(entities ...domain.Entity) int {
 	numChanges, err := c.kb.AddEntities(entities...)

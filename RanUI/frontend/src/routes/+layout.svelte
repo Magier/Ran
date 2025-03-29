@@ -26,7 +26,9 @@
 	{/snippet}
 </AppBar>
 
-{@render children()}
+<main>
+	{@render children()}
+</main>
 
 <style>
 	* {

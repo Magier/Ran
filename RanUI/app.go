@@ -174,3 +174,37 @@ func (a *App) IsActionSatisfied(actionId, targetId string) (bool, error) {
 	isSatisfied := ttp.Requires.Satisfied(target, accessLevel, state)
 	return isSatisfied, nil
 }
+
+func (a *App) GetTrace() Graph {
+
+	nodes := make([]Node, 0)
+	edges := make([]Edge, 0)
+
+	trail := a.ran.Campaign.GetAuditTrail()
+
+	var srcId string
+
+	for _, step := range trail.GetSteps() {
+		node := Node{
+			ID:   step.ID,
+			Name: step.TTP.Name,
+		}
+		nodes = append(nodes, node)
+
+		if srcId != "" {
+			edges = append(edges, Edge{
+				ID:       fmt.Sprintf("%s->%s", srcId, node.ID),
+				Name:     "",
+				SourceID: srcId,
+				TargetID: node.ID,
+			})
+		}
+		srcId = node.ID
+	}
+
+	graph := Graph{
+		Nodes: nodes,
+		Edges: edges,
+	}
+	return graph
+}
