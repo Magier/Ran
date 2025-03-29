@@ -18,6 +18,7 @@
 	"devDependencies": {
 		"@eslint/compat": "^1.2.5",
 		"@eslint/js": "^9.18.0",
+		"@iconify-json/game-icons": "^1.2.1",
 		"@iconify-json/healthicons": "^1.2.6",
 		"@iconify-json/material-symbols": "^1.2.16",
 		"@iconify/svelte": "^4.2.0",
@@ -32,6 +33,7 @@
 		"eslint": "^9.18.0",
 		"eslint-config-prettier": "^10.0.1",
 		"eslint-plugin-svelte": "^3.0.0",
+		"game-icons:treasure-map": "link:@iconify-json/game-icons:treasure-map",
 		"globals": "^16.0.0",
 		"jsdom": "^26.0.0",
 		"prettier": "^3.4.2",

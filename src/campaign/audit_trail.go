@@ -137,3 +137,7 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 	bundle.Objects = bundle.Objects.Append(action)
 	return bundle, nil
 }
+
+func (a AuditTrail) GetSteps() []AttackStep {
+	return a.steps
+}

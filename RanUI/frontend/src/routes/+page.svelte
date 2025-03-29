@@ -18,8 +18,11 @@
 	// 	store.connectBackend();
 	// });
 	function start(): void {
-		StartEmulation(target);
-		// StartEmulation(target).then((result) => (resultText = result));
+		StartEmulation(target).catch((err) => {
+			// TODO: show prompt asking to create the pod
+			console.error(err);
+			alert('Error starting emulation: ' + err);
+		});
 	}
 	let target: string = $state('default/kubelet-reader-pod');
 
@@ -129,7 +132,7 @@
 	});
 </script>
 
-<div class="items-top test mx-auto flex h-full justify-center">
+<div class="items-top mx-auto flex h-full justify-center">
 	{#await store.connect(false)}
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
 		<div>loading...</div>

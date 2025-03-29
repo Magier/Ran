@@ -30,6 +30,9 @@ importers:
       '@eslint/js':
         specifier: ^9.18.0
         version: 9.22.0
+      '@iconify-json/game-icons':
+        specifier: ^1.2.1
+        version: 1.2.1
       '@iconify-json/healthicons':
         specifier: ^1.2.6
         version: 1.2.6
@@ -72,6 +75,9 @@ importers:
       eslint-plugin-svelte:
         specifier: ^3.0.0
         version: 3.1.0(eslint@9.22.0(jiti@2.4.2))(svelte@5.23.0)
+      game-icons:treasure-map:
+        specifier: link:@iconify-json/game-icons:treasure-map
+        version: link:@iconify-json/game-icons:treasure-map
       globals:
         specifier: ^16.0.0
         version: 16.0.0
@@ -395,6 +401,9 @@ packages:
   '@humanwhocodes/retry@0.4.2':
     resolution: {integrity: sha512-xeO57FpIu4p1Ri3Jq/EXq4ClRm86dVF2z/+kvFnyqVYRavTZmaFaUBbWCOuuTh0o/g7DSsk6kc2vrS4Vl5oPOQ==}
     engines: {node: '>=18.18'}
+
+  '@iconify-json/game-icons@1.2.1':
+    resolution: {integrity: sha512-JrKwJT+xmee87QRGIoUdR59fxMzqykS9NUnG7P0XVeznKwr3WkAw5IVWSQVQDLcN6+X3mdMFme3Hbhh6f0qTDw==}
 
   '@iconify-json/healthicons@1.2.6':
     resolution: {integrity: sha512-y1GHsyEivmilnhUCnT1U+M1ZwOU+2NV243uK0pL8vOq3DkYcdDgRvsuAX3aHGGfPAjH5U+Mb+jCeSFEUZr94pA==}
@@ -2319,6 +2328,10 @@ snapshots:
   '@humanwhocodes/retry@0.3.1': {}
 
   '@humanwhocodes/retry@0.4.2': {}
+
+  '@iconify-json/game-icons@1.2.1':
+    dependencies:
+      '@iconify/types': 2.0.0
 
   '@iconify-json/healthicons@1.2.6':
     dependencies:
