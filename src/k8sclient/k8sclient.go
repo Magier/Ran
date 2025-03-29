@@ -148,6 +148,25 @@ func NewK8sClient(kubeConfigPath string) (K8sClient, error) {
 	return c, nil
 }
 
+func (c K8sClient) GetPod(ctx context.Context, ns, name string) (domain.Pod, error) {
+	k8sPod, err := c.CoreV1().Pods(ns).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return domain.Pod{}, err
+	}
+
+	meta := k8sPod.GetObjectMeta()
+	owner := getOwnerReference(meta)
+
+	p := domain.NewPod(meta.GetName(), meta.GetNamespace())
+	p.K8sEntity.Id = string(meta.GetUID())
+	p.K8sEntity.Labels = meta.GetLabels()
+	p.K8sEntity.Annotations = meta.GetAnnotations()
+	p.K8sEntity.Owner = owner
+	p.Spec = k8sPod.Spec
+
+	return p, nil
+}
+
 func (c K8sClient) GetDeployments(ctx context.Context, ns string) ([]domain.Deployment, error) {
 	k8sDeployments, err := c.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {

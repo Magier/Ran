@@ -41,6 +41,39 @@ type Graph struct {
 	RootNodeID string `json:"rootNodeId"`
 }
 
+type ActionArgs map[string]string
+
+type AccessLevel string
+
+const (
+	NoAccess AccessLevel = "NoAccess"
+	UserRead AccessLevel = "UserRead"
+	UserExec AccessLevel = "UserExec"
+	RootRead AccessLevel = "RootRead"
+	RootExec AccessLevel = "RootExec"
+)
+
+var AllAccessLevels = []struct {
+	Value  AccessLevel
+	TSName string
+}{
+	{NoAccess, "NoAccess"},
+	{UserRead, "UserRead"},
+	{UserExec, "UserExec"},
+	{RootRead, "RootRead"},
+	{RootExec, "RootExec"},
+}
+
+// type TTP struct {
+// 	ID          string `json:"id"`
+// 	Name        string `json:"name"`
+// 	Description string `json:"description"`
+// 	Techniques   []string `json:"techniques"`
+// 	Tactic      string `json:"tactic"`
+// 	Variants     []string `json:"variant"`
+// 	Parameters  string `json:"params"`
+// }
+
 // NewApp creates a new App application struct
 func NewApp() *App {
 	r := ran.InitRan("", "armory/", "sliver_cfg.json")
@@ -143,10 +176,25 @@ func (a *App) GetGraph() Graph {
 }
 
 // Greet returns a greeting for the given name
-func (a *App) StartEmulation(target string) bool {
-	a.ran.SetTarget(target)
+func (a *App) StartEmulation(target string) error {
+	err := a.ran.SetTarget(target)
 	// a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
-	return true
+
+	if err != nil {
+		result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+			Type:    runtime.QuestionDialog,
+			Title:   "Question",
+			Message: "Create the desired pod?",
+			Buttons: []string{"Yes", "No"},
+			// DefaultButton: "No",
+		})
+
+		runtime.LogInfo(a.ctx, "Dialog result: "+result)
+
+		return err
+	}
+
+	return err
 }
 
 func (a *App) ActionSelected(actionID, targetID string, args ActionArgs) { //, args map[string]string) {
