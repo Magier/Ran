@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Magier/Ran/armory"
@@ -25,6 +26,7 @@ type Ran struct {
 	Campaign         *campaign.Campaign
 	sliverConfigPath string
 	target           string
+	ctx              context.Context
 	// c2       *c2.C2
 }
 
@@ -65,6 +67,7 @@ func InitRan(target, armoryDir, sliverConfigPath string) Ran {
 }
 
 func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
+	r.ctx = ctx
 	err := r.Armory.Load()
 	if err != nil {
 		panic(fmt.Sprintf("Couldn't load armory: %s", err.Error()))
@@ -126,12 +129,33 @@ func (r *Ran) SubscribeToName(name string, handler domain.MessageHandler) {
 	r.Bus.SubscribeToName(name, handler)
 }
 
-func (r *Ran) SetTarget(target string) {
+func (r *Ran) SetTarget(target string) error {
+	// check if target is a valid entity
+	ns := "default"
+	if strings.Contains(target, "/") {
+		parts := strings.Split(target, "/")
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid target format")
+		}
+		ns = parts[0]
+		target = parts[1]
+	}
+
+	client, err := k8s.NewK8sClient("")
+	if err != nil {
+		return fmt.Errorf("could not create K8s client: %v", err.Error())
+	}
+	_, err = client.GetPod(r.ctx, ns, target)
+	if err != nil {
+		return fmt.Errorf("no pod found: %v", err.Error())
+	}
+
 	facts := campaign.SetTarget(target)
-	err := r.Bus.Publish(facts)
+	err = r.Bus.Publish(facts)
 	if err != nil {
 		panic(fmt.Sprintf("Couldn't set target: %s", err.Error()))
 	}
+	return nil
 }
 
 type MaybeEntity struct {

@@ -43,9 +43,9 @@ Ran consists of 2 major components:
 - Planner: component deliberating what actions to execute and in what order. Maturity levels:
     1) No planner: a human operator 
     2) Imperative Plan: pre-defined plan, that will be executed (i.e. a runbook)
-    3) classic planning
     4) Deterministic AI: 
         - Behavior Trees
+        - Classical planning
         - Hierarchical Task Network (HTN)
         - Goal-Oriented Action Planning (GOAP)
     5) Probabilistic AI
