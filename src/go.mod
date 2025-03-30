@@ -1,6 +1,6 @@
 module github.com/Magier/Ran
 
-go 1.22.4
+go 1.24.1
 
 require (
 	github.com/bishopfox/sliver v1.15.16

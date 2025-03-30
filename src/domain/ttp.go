@@ -15,6 +15,7 @@ type CodeSnippet struct {
 	Lang       string            `yaml:"lang"`
 	Code       string            `yaml:"code"`
 	Parameters map[string]string `yaml:"parameters"`
+	EnvVars    []string          `yaml:"envVars"`
 }
 
 type HttpCmd struct {
@@ -26,9 +27,10 @@ type HttpCmd struct {
 }
 
 type CmdVariant struct {
-	Key            string `yaml:"key"`
-	Command        string `yaml:"command"`
-	IsLocalCommand bool   `yaml:"isLocal"`
+	Key            string      `yaml:"key"`
+	Command        string      `yaml:"command"`
+	IsLocalCommand bool        `yaml:"isLocal"`
+	Execute        CodeSnippet `yaml:"execute"`
 }
 
 func (c *CmdVariant) UnmarshalYAML(unmarshal func(interface{}) error) error {
@@ -74,9 +76,7 @@ type TTP struct {
 	CmdVariants []CmdVariant `yaml:"cmdVariants" json:"cmdVariants"`
 	HttpCmd     HttpCmd      `yaml:"httpCmd" json:"httpCmd"`
 	Params      []Parameter  `json:"params"`
-
-	CommandMsg Message     // during unmarshal converted via Alias to the message
-	Execute    CodeSnippet `yaml:"execute"`
+	CommandMsg  Message      // during unmarshal converted via Alias to the message
 
 	Requires Requirements `yaml:"preconditions" json:"requires"`
 	Effects  []string     `yaml:"effects" json:"effects"`
