@@ -295,8 +295,6 @@ cmdVariants:
         def async_main(ingress: str, admission: str, c2: str, local_mode: bool = False):
             if local_mode:
                 admission_url = f"https://localhost:{admission_port}/validate"
-                # self.admission_url = f"https://localhost:{admission_port}/networking/v1/ingresses"
-                # self.target_url = f"http://a69124e9f5b6849d280eef1a1cfc8800-470dec7f5fe179c1.elb.us-east-1.amazonaws.com/fake/addr"
                 target_url = f"http://localhost:{ingress_port}/fake/addr"
             else:
                 admission_url = (
