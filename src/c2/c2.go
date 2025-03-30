@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -157,8 +158,8 @@ func executeTTP(ctx context.Context, msg domain.Message, c2Clients map[string]C2
 
 func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant, _ map[string]C2Client) ([]any, error) {
 	var err error
-	if exec.TTP.Execute.Code != "" {
-		err = executeCode(exec.TTP.Execute)
+	if cmd.Execute.Code != "" {
+		err = executeCode(ctx, cmd.Command, cmd.Execute)
 		if err != nil {
 			slog.Warn(err.Error())
 		}
@@ -356,15 +357,17 @@ func execKubectl(ctx context.Context, cmd domain.CmdVariant, target domain.Entit
 
 // Execute the code specified in the TTP.
 // Note: this is highly insecure. Ensure you trust the code before allowing these TTPs.
-func executeCode(snippet domain.CodeSnippet) error {
+func executeCode(ctx context.Context, bin string, snippet domain.CodeSnippet) error {
 	var cmd *exec.Cmd
 	if strings.ToLower(snippet.Lang) == "python" {
 		var args = []string{"-c", snippet.Code}
 		for k, v := range snippet.Parameters {
-			args = append(args, "--"+k, v)
+			args = append(args, "--"+strings.ToLower(k), v)
 		}
-		// TODO: maybe use `exec.CommandContext` to provide a timeout, so no reverse shells are possible?
-		cmd = exec.Command("python3", args...)
+		cmd = exec.CommandContext(ctx, bin, args...)
+		if len(snippet.EnvVars) > 0 {
+			cmd.Env = append(os.Environ(), snippet.EnvVars...)
+		}
 	} else {
 		return fmt.Errorf("'%s' not supported as execution language", snippet.Code)
 	}

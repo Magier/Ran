@@ -233,6 +233,11 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 	}
 	execCmd.Variant.Command = c.groundCmdTemplate(execCmd.Variant.Command, args)
 
+	if execCmd.Variant.Execute.Code != "" {
+		// forward the TTP args to the code snippet
+		execCmd.Variant.Execute.Parameters = args
+	}
+
 	var target domain.Entity
 	target, ok := c.kb.GetEntity(targetId)
 	if ok {
