@@ -229,6 +229,22 @@ type Listener struct {
 	IP         net.IP
 }
 
+// GetKind implements Entity.
+func (l Listener) GetKind() string {
+	return "Listener"
+}
+
+// GetName implements Entity.
+func (l Listener) GetName() string {
+	return fmt.Sprintf("listener_%d", l.Port)
+}
+
+func (l Listener) GetId() string {
+	return l.ID
+}
+
+var _ Entity = (*Listener)(nil)
+
 type Workload interface {
 	Entity
 	Namespaced

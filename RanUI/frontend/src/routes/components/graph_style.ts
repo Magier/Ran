@@ -174,7 +174,7 @@ export function getGraphStyle() {
 			style: {
 				'background-opacity': 0,
 				shape: 'round-rectangle',
-				'background-image': '/adversary-dark.svg'
+				'background-image': '/c2-dark.svg'
 			}
 		},
 		{

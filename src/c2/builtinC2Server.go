@@ -63,7 +63,7 @@ func (c BuiltInC2Server) Connect(ctx context.Context) error {
 	c.eventStream <- domain.C2Connected{
 		Name: BuiltInC2,
 		IP:   c.GetServerIp(),
-		Kind: "builtin",
+		Kind: "C2",
 	}
 	for {
 		select {

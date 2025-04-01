@@ -128,6 +128,12 @@ func (c *Campaign) onTTPFailed(ctx context.Context, msg domain.Message) (domain.
 
 func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(domain.C2Connected)
+
+	// builtin C2 is part of Ran C2
+	if ev.Name == c2.BuiltInC2 {
+		return nil, nil
+	}
+
 	system := domain.C2System{
 		Kind: ev.Kind,
 		Name: ev.Name,
@@ -294,7 +300,7 @@ func (c *Campaign) onFactsChanged(ctx context.Context, msg domain.Message) (doma
 
 func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(c2.ListenerReady)
-	id := ev.Name
+	listenerID := ev.Name
 
 	c.trail.CompleteStep(ev.CmdId, domain.TTP{}, true, fmt.Sprintf("Listener on C2 '%s' port %d ready", ev.C2Server, ev.Port))
 	c2, ok := c.GetC2(ev.C2Server)
@@ -307,14 +313,25 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 		c2IP = c2.IPs[0]
 	}
 
-	c.listeners[id] = domain.Listener{
-		ID:         id,
+	listener := domain.Listener{
+		ID:         listenerID,
 		IP:         c2IP,
 		Port:       ev.Port,
 		Protocol:   ev.Protocol,
 		Redirector: "",
 	}
-	return nil, nil
+	c.listeners[listenerID] = listener
+
+	return domain.FactsChanged{
+		NewEntities: []domain.Entity{listener},
+		NewRelations: []domain.Relation{
+			domain.ListenesOn{
+				C2ID:       c2.GetId(),
+				ListenerID: listenerID,
+				Port:       int(ev.Port),
+			},
+		},
+	}, nil
 }
 
 func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (domain.Message, error) {
