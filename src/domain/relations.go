@@ -107,6 +107,25 @@ type C2Channel interface {
 	GetTarget() Entity
 }
 
+type ListenesOn struct {
+	RelationImpl
+	Port       int
+	Protocol   int
+	C2ID       string
+	ListenerID string
+}
+
+func (ch ListenesOn) GetSourceId() string {
+	return ch.C2ID
+}
+
+func (ch ListenesOn) GetTargetId() string {
+	return ch.ListenerID
+}
+func (ch ListenesOn) GetRelationName() string {
+	return "listens-on"
+}
+
 type ImplantC2Channel struct {
 	RelationImpl
 	SessionId string

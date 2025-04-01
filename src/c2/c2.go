@@ -18,7 +18,7 @@ import (
 	k8s "github.com/Magier/Ran/k8sclient"
 )
 
-const BuiltInC2 = "builtin"
+const BuiltInC2 = "Ran"
 
 type C2Client interface {
 	Connect(context.Context) error

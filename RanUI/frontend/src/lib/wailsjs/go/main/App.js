@@ -10,6 +10,10 @@ export function GetGraph() {
   return window['go']['main']['App']['GetGraph']();
 }
 
+export function GetTrace() {
+  return window['go']['main']['App']['GetTrace']();
+}
+
 export function IsActionSatisfied(arg1, arg2) {
   return window['go']['main']['App']['IsActionSatisfied'](arg1, arg2);
 }
