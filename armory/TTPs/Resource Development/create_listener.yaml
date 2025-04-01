@@ -13,6 +13,8 @@ parameters:
     description: the protocol used for the communication
     required: false
 command: "StartListener"
+preconditions:
+  kind: C2
 effects: ["ListenerReady"]
 # cmd: {}
 # defend: {}
