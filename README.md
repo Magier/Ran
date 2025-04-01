@@ -17,6 +17,9 @@ She is symbolized by a net, which she uses to ensnare and pull the unwary into t
 
 > ** ⚠️ Warning: This project is highly experimental and not fit for normal use. Use at your own risk.**
 
+
+![](./docs/ui_example.png)
+
 ## Motivation
 
 In security, the cliche of the "attacker's advantage" is often cited: 

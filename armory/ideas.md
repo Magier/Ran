@@ -84,3 +84,7 @@ kubectl label --overwrite ns ${NS} pod-security.kubernetes.io/enforce=privileged
 
 - [Piko](https://github.com/andydunstall/piko?utm_source=tldrnewsletter): open-source alternative to Ngrok, designed to serve production traffic and be simple to host (particularly on Kubernetes)
 - [RedGuard](https://github.com/wikiZ/RedGuard): a C2 front flow control tool,Can avoid Blue Teams,AVs,EDRs check.
+
+
+## Exfiltrate secrets via DNS
+- e.g. suggested in [Command and Kubectl - K8s Security for Pentesters and Defenders](https://www.canva.com/design/DAGgrY1QwQ0/HDW7_YCi5EvJ6u_GONhFow/view?utm_source=tldrsec.com&utm_medium=referral&utm_campaign=tl-dr-sec-272-ai-agent-security-kubernetes-security-state-of-cloudsec-reports-insights-or-self-owns#43)
