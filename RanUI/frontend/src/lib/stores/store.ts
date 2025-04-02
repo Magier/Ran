@@ -114,10 +114,6 @@ function connectBackend() {
 		});
 	})
 
-	runtime.EventsOn("ttp-failed", (data) => {
-		alerts.set(data);
-	});
-
 	GetGraph().then((g: main.Graph) => {
 		console.log(g)
 		graph.set(g);

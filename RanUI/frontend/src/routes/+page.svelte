@@ -12,7 +12,31 @@
 	import { Modal } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 	import { onMount } from 'svelte';
-	import { ToastProvider } from '@skeletonlabs/skeleton-svelte';
+	import { type ToastContext } from '@skeletonlabs/skeleton-svelte';
+	import { getContext } from 'svelte';
+	import { json } from '@sveltejs/kit';
+
+	export const toast: ToastContext = getContext('toast');
+	type ToastType = 'info' | 'error' | 'success' | undefined;
+
+	function triggerInfo(title: string, description: string, toastType: ToastType) {
+		toast.create({ title: title, description: description, type: toastType, duration: 5000 });
+	}
+
+	$effect(() => {
+		runtime.EventsOn('exec-ttp', (dataStr) => {
+			let data = JSON.parse(dataStr);
+			triggerInfo('Start TTP', data.TTP.name, 'info');
+		});
+		runtime.EventsOn('ttp-executed', (dataStr) => {
+			let data = JSON.parse(dataStr);
+			triggerInfo('TTP completed', data.TTP.name, 'success');
+		});
+		runtime.EventsOn('ttp-failed', (dataStr) => {
+			let data = JSON.parse(dataStr);
+			triggerInfo('TTP failed', data, 'error');
+		});
+	});
 
 	// onMount(() => {
 	// 	store.connectBackend();
@@ -21,7 +45,6 @@
 		StartEmulation(target).catch((err) => {
 			// TODO: show prompt asking to create the pod
 			console.error(err);
-			alert('Error starting emulation: ' + err);
 		});
 	}
 	let target: string = $state('default/kubelet-reader-pod');
