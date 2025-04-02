@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import IconMap from '~icons/game-icons/treasure-map';
 	import IconSteps from '~icons/game-icons/footsteps';
+	import { ToastProvider } from '@skeletonlabs/skeleton-svelte';
 	import '../app.css';
 	let { children } = $props();
 	let graphSelected = $state(true);
@@ -26,9 +27,11 @@
 	{/snippet}
 </AppBar>
 
-<main>
-	{@render children()}
-</main>
+<ToastProvider>
+	<main>
+		{@render children()}
+	</main>
+</ToastProvider>
 
 <style>
 	* {
