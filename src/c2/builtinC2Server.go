@@ -15,7 +15,7 @@ import (
 
 var builtinC2Mutex sync.Mutex
 
-const builtinKind = "builtin"
+const builtinKind = "Ran"
 
 type BuiltInC2Server struct {
 	cmdChannel  chan domain.Command
@@ -117,12 +117,17 @@ func (c BuiltInC2Server) handleCommand(msg domain.Command) (domain.Message, erro
 			// TODO handle disconnecting listener
 			err := c.startListener(context.Background(), cmd)
 			if err != nil {
-				slog.Error(err.Error())
+				c.eventStream <- domain.TTPFailed{
+					ID:     msg.GetID(),
+					Reason: err.Error(),
+				}
 			}
 		}()
 	case domain.StopListener:
 		err := c.stopListener(cmd)
 		return nil, err
+	default:
+		return nil, nil
 	}
 	// TODO: Forward the command to the respective session
 	return nil, nil
