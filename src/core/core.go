@@ -134,11 +134,16 @@ func (r *Ran) SetTarget(target string) error {
 	ns := "default"
 	if strings.Contains(target, "/") {
 		parts := strings.Split(target, "/")
-		if len(parts) != 2 {
+		if len(parts) == 2 {
+			ns = parts[0]
+			target = parts[1]
+		} else if parts[0] == "ns" && len(parts) == 4 {
+			// it's the ID format `ns/<ns>/<kind>/<podname>`
+			ns = parts[1]
+			target = parts[3]
+		} else {
 			return fmt.Errorf("invalid target format")
 		}
-		ns = parts[0]
-		target = parts[1]
 	}
 
 	client, err := k8s.NewK8sClient("")
@@ -150,7 +155,7 @@ func (r *Ran) SetTarget(target string) error {
 		return fmt.Errorf("no pod found: %v", err.Error())
 	}
 
-	facts := campaign.SetTarget(target)
+	facts := campaign.SetTarget(fmt.Sprintf("%s/%s", ns, target))
 	err = r.Bus.Publish(facts)
 	if err != nil {
 		panic(fmt.Sprintf("Couldn't set target: %s", err.Error()))
