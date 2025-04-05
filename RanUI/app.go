@@ -181,10 +181,11 @@ func (a *App) StartEmulation(target string) error {
 	// a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
 
 	if err != nil {
+		runtime.EventsEmit(a.ctx, "error", err.Error())
 		result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
 			Type:    runtime.QuestionDialog,
 			Title:   "Question",
-			Message: "Create the desired pod?",
+			Message: "Target pod not found. Create the it instead?",
 			Buttons: []string{"Yes", "No"},
 			// DefaultButton: "No",
 		})
@@ -255,4 +256,27 @@ func (a *App) GetTrace() Graph {
 		Edges: edges,
 	}
 	return graph
+}
+
+func (a *App) GetRunningPods() []string {
+	var ns string // empty NS = all namespaces
+	client, err := k8s.NewK8sClient("")
+	if err != nil {
+		runtime.LogErrorf(a.ctx, "Could not get running pods: %v", err)
+	}
+	pods, err := client.GetPods(a.ctx, ns)
+	if err != nil {
+		runtime.LogErrorf(a.ctx, "Could not get running pods: %v", err)
+	}
+
+	podIds := []string{}
+	hiddenNamespaces := []string{"kube-system", "local-path-storage"}
+
+	for _, p := range pods {
+		if !slices.Contains(hiddenNamespaces, p.GetNamespace()) {
+			podIds = append(podIds, p.GetId())
+		}
+	}
+	// TODO: find a good way to sort the Pods
+	return podIds
 }

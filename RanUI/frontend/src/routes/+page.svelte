@@ -8,33 +8,39 @@
 	import type { TTP } from '$lib/model';
 	import Graph from './components/graph.svelte';
 	// import ExploitAppModal from '$lib/modals/ExploitAppModal';
-	import { type main } from '$lib/wailsjs/go/models';
+	import { GetRunningPods } from '$lib/wailsjs/go/main/App';
+	import { main } from '$lib/wailsjs/go/models';
 	import { Modal } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 	import { onMount } from 'svelte';
 	import { type ToastContext } from '@skeletonlabs/skeleton-svelte';
 	import { getContext } from 'svelte';
 	import { json } from '@sveltejs/kit';
+	import { Combobox } from '@skeletonlabs/skeleton-svelte';
 
 	export const toast: ToastContext = getContext('toast');
 	type ToastType = 'info' | 'error' | 'success' | undefined;
 
-	function triggerInfo(title: string, description: string, toastType: ToastType) {
+	function showToast(title: string, description: string, toastType: ToastType) {
 		toast.create({ title: title, description: description, type: toastType, duration: 5000 });
 	}
 
 	$effect(() => {
 		runtime.EventsOn('exec-ttp', (dataStr) => {
 			let data = JSON.parse(dataStr);
-			triggerInfo('Start TTP', data.TTP.name, 'info');
+			showToast('Start TTP', data.TTP.name, 'info');
 		});
 		runtime.EventsOn('ttp-executed', (dataStr) => {
 			let data = JSON.parse(dataStr);
-			triggerInfo('TTP completed', data.TTP.name, 'success');
+			showToast('TTP completed', data.TTP.name, 'success');
 		});
 		runtime.EventsOn('ttp-failed', (dataStr) => {
 			let data = JSON.parse(dataStr);
-			triggerInfo('TTP failed', data, 'error');
+			showToast('TTP failed', data, 'error');
+		});
+		runtime.EventsOn('error', (dataStr) => {
+			// let data = JSON.parse(dataStr);
+			showToast('Error in backend', dataStr, 'error');
 		});
 	});
 
@@ -42,12 +48,37 @@
 	// 	store.connectBackend();
 	// });
 	function start(): void {
-		StartEmulation(target).catch((err) => {
-			// TODO: show prompt asking to create the pod
-			console.error(err);
-		});
+		if (selectedTarget === '') {
+			showToast('No target selected', 'Please select a target to start the emulation', 'error');
+			return;
+		}
+
+		StartEmulation(selectedTarget)
+			.then((e) => {
+				targetIsSet = true;
+			})
+			.catch((err) => {
+				// TODO: show prompt asking to create the pod
+				console.error(err);
+			});
 	}
-	let target: string = $state('default/kubelet-reader-pod');
+
+	interface ComboboxData {
+		label: string;
+		value: string;
+	}
+	let selectedTarget = $state('arstarsta');
+	let availablePods: ComboboxData[] = $state([{ label: 'Loading...', value: 'testing' }]);
+
+	$effect(() => {
+		GetRunningPods().then((pods) => {
+			availablePods = pods.map((pod: string) => ({ label: pod, value: pod }));
+			console.log('new available pods');
+			console.log(availablePods);
+		});
+	});
+
+	let targetIsSet: boolean = $state(false);
 
 	let selectedNodeId: string = $state('');
 	let selectedNode: main.Node | undefined = $state();
@@ -161,17 +192,24 @@
 		<div>loading...</div>
 	{:then sessions}
 		<div class="basis-3/4">
-			<div class="flex items-center">
-				<input
-					autocomplete="off"
-					bind:value={target}
-					id="target"
-					type="text"
-					class="mr-2 rounded-l p-2"
-				/>
-				<button onclick={start} class="btn preset-filled-primary-500">Start</button>
-				<span>{selectedNodeId}</span>
-			</div>
+			{#if !targetIsSet}
+				<div class="flex items-center">
+					<input
+						autocomplete="off"
+						bind:value={selectedTarget}
+						id="target"
+						type="text"
+						class="mr-2 rounded-l p-2"
+					/>
+					<select class="select" bind:value={selectedTarget}>
+						{#each availablePods as pod}
+							<option value={pod.value}>{pod.label}</option>
+						{/each}
+					</select>
+					<button onclick={start} class="btn preset-filled-primary-500">Start</button>
+					<span>{selectedNodeId}</span>
+				</div>
+			{/if}
 			<Graph bind:selectedNodeId bind:selectedNode />
 		</div>
 		<Armory class="basis-1/4" action={sendAction} targetId={selectedNodeId} />
