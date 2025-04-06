@@ -67,7 +67,7 @@
 		label: string;
 		value: string;
 	}
-	let selectedTarget = $state('arstarsta');
+	let selectedTarget = $state('');
 	let availablePods: ComboboxData[] = $state([{ label: 'Loading...', value: 'testing' }]);
 
 	$effect(() => {
