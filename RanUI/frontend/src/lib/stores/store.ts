@@ -26,7 +26,7 @@ let retries: number = 0;
 let hadError: boolean = false;
 
 
-function onMessage(event) {
+function onMessage(event: { data: string; }) {
 	console.group("Msg from WS")
 	console.log(event.data);
 	const msg = JSON.parse(event.data);

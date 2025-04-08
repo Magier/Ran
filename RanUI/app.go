@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
+	"slices"
 
 	ran "github.com/Magier/Ran/core"
 	domain "github.com/Magier/Ran/domain"
+	k8s "github.com/Magier/Ran/k8sclient"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -15,17 +19,24 @@ type App struct {
 	ctx context.Context
 	ran *ran.Ran
 }
+type Entitlement struct {
+	Verbs         []string `json:"verbs"`
+	ResourceTypes []string `json:"resourceTypes"`
+	ResourceNames []string `json:"resourceNames"`
+	Namespace     string   `json:"namespace"`
+}
 
 type Node struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	ParentID    string `json:"parent"`
-	IP          string `json:"ip"`
-	Username    string `json:"username"`
-	AccessLevel string `json:"accessLevel"`
-	OS          string `json:"os"`
-	Version     string `json:"version"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	Kind         string        `json:"kind"`
+	ParentID     string        `json:"parent"`
+	IP           string        `json:"ip"`
+	Username     string        `json:"username"`
+	AccessLevel  string        `json:"accessLevel"`
+	OS           string        `json:"os"`
+	Version      string        `json:"version"`
+	Entitlements []Entitlement `json:"entitlements"`
 }
 
 type Edge struct {
@@ -94,8 +105,42 @@ func NewApp() *App {
 		return nil, nil
 	})
 
+	// Initialize structured logging with slog.
+	// Make sure to add "os" and "log/slog" to your import list.
+	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})
+	slog.SetDefault(slog.New(h))
+	slog.Info("Slog handler initialized")
+
 	return a
 }
+
+// func ignoreNestedAttributes(groups []string, a slog.Attr) slog.Attr {
+// 	if a.Key == slog.TimeKey ||
+// 		a.Key == slog.LevelKey ||
+// 		a.Key == slog.MessageKey {
+// 		return slog.Attr{}
+// 	}
+// 	return a
+// }
+
+// func NewLogHandler() slog.Handler {
+// 	lvl := new(slog.LevelVar)
+// 	lvl.Set(slog.LevelInfo)
+// 	opts := &slog.HandlerOptions{
+// 		AddSource:   false,
+// 		ReplaceAttr: ignoreNestedAttributes,
+// 		Level:       lvl,
+// 	}
+// 	b := &bytes.Buffer{}
+// 	return &LogHandler{
+// 		h:       slog.NewTextHandler(b, opts),
+// 		b:       b,
+// 		m:       &sync.Mutex{},
+// 		program: p,
+// 	}
+// }
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
@@ -164,6 +209,20 @@ func (a *App) GetGraph() Graph {
 			Kind:     entity.GetKind(),
 			ParentID: parent,
 		}
+
+		switch e := entity.(type) {
+		case domain.ServiceAccount:
+			entitlements := []Entitlement{}
+			for _, rule := range e.Can {
+				entitlements = append(entitlements, Entitlement{
+					Verbs:         rule.Verbs,
+					ResourceTypes: rule.ResourceTypes,
+				})
+			}
+
+			node.Entitlements = entitlements
+		}
+
 		nodes = append(nodes, node)
 	}
 
