@@ -10,6 +10,10 @@ export function GetGraph() {
   return window['go']['main']['App']['GetGraph']();
 }
 
+export function GetRunningPods() {
+  return window['go']['main']['App']['GetRunningPods']();
+}
+
 export function GetTrace() {
   return window['go']['main']['App']['GetTrace']();
 }

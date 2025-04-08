@@ -6,6 +6,8 @@ export function ActionSelected(arg1:string,arg2:string,arg3:main.ActionArgs):Pro
 
 export function GetGraph():Promise<main.Graph>;
 
+export function GetRunningPods():Promise<Array<string>>;
+
 export function GetTrace():Promise<main.Graph>;
 
 export function IsActionSatisfied(arg1:string,arg2:string):Promise<boolean>;

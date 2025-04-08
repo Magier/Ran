@@ -186,11 +186,35 @@ export function getGraphStyle() {
 			}
 		},
 		{
-			selector: "node[^kind][os= 'linux']",
+			selector: 'node[kind="System"]',
 			style: {
-				'background-image': '/Tux.svg',
+				'background-image': '/system.svg',
 				'background-opacity': 0,
 				'background-fit': 'contain'
+			}
+		},
+		{
+			selector: "node[^kind][os='macos']",
+			style: {
+				'background-image': '/macos.svg',
+				'background-opacity': 0,
+				'background-fit': 'contain'
+			}
+		},
+		{
+			selector: "node[^kind][os='linux']",
+			style: {
+				'background-image': '/system.svg',
+				'background-opacity': 0,
+				'background-fit': 'contain'
+			}
+		},
+		{
+			selector: 'node[kind="Session"]',
+			style: {
+				shape: 'rectangle',
+				'background-opacity': 0,
+				'background-image': '/session.svg',
 			}
 		},
 		// {
