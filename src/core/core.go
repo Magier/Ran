@@ -24,10 +24,10 @@ type Ran struct {
 	Bus              bus.MessageBus
 	Armory           *armory.Armory
 	Campaign         *campaign.Campaign
+	C2               c2.C2Manager
 	sliverConfigPath string
 	target           string
 	ctx              context.Context
-	// c2       *c2.C2
 }
 
 type Config struct {
@@ -54,11 +54,13 @@ func InitRan(target, armoryDir, sliverConfigPath string) Ran {
 	mb := bus.CreateMessageBus()
 	a := &armory.Armory{SrcDir: filepath.Join(path, armoryDir)}
 	c := campaign.StartCampaign(mb, a)
+	c2 := c2.InitC2Manager(mb, sliverConfigPath)
 
 	ran := Ran{
 		Bus:              mb,
 		Armory:           a,
 		Campaign:         c,
+		C2:               c2,
 		sliverConfigPath: filepath.Join(path, sliverConfigPath),
 		target:           target,
 	}
