@@ -31,20 +31,28 @@ type C2Client interface {
 	Shutdown()
 }
 
-func StartC2(ctx context.Context, mb bus.MessageBus, sliverConfigPath string) {
-	// listeners := make(map[string]net.Listener)
-	// TODO start builtin C2 once an action demands it
+type C2Manager struct {
+	bus     bus.MessageBus
+	clients map[string]C2Client
+}
+
+func InitC2Manager(mb bus.MessageBus, sliverConfigPath string) C2Manager {
 	c2Clients := map[string]C2Client{
 		BuiltInC2:  NewBuiltInServer(),
 		SliverKind: CreateSliverClient(sliverConfigPath),
 	}
 
+	manager := C2Manager{
+		bus:     mb,
+		clients: c2Clients,
+	}
+
 	mb.Subscribe(domain.C2Connected{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		ev := msg.(domain.C2Connected)
-		client, ok := c2Clients[ev.Name]
+		client, ok := manager.clients[ev.Name]
 		var err error
 		if ok {
-			c2Clients[ev.Name] = client.SetReady(true)
+			manager.clients[ev.Name] = client.SetReady(true)
 		} else {
 			err = fmt.Errorf("No suitable client found to update C2 state")
 		}
@@ -53,33 +61,36 @@ func StartC2(ctx context.Context, mb bus.MessageBus, sliverConfigPath string) {
 
 	mb.Subscribe(domain.StartC2{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		cmd := msg.(domain.StartC2)
-		client, ok := c2Clients[cmd.C2Name]
-		if !ok {
-			return nil, fmt.Errorf("'%s' is not a valid C2 server to connect to", cmd.C2Name)
-		}
-		go connectToC2(ctx, mb, client)
-		return nil, nil
+		return manager.StartC2Client(ctx, cmd.C2Name)
 	})
 
 	mb.Subscribe(domain.ExecTTP{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		return executeTTP(ctx, msg, c2Clients)
+		return manager.ExecuteTTP(ctx, msg, manager.clients)
 	})
 
+	return manager
+}
+
+func (c2 *C2Manager) Start(ctx context.Context) error {
+	// listeners := make(map[string]net.Listener)
+	// TODO start builtin C2 once an action demands it
+
 	// TODO: send command after actually conncting to C2, with the right IP(s)
-	c2EventStreams := make([]<-chan domain.Event, len(c2Clients))
-	for _, client := range c2Clients {
-		go connectToC2(ctx, mb, client)
+	c2EventStreams := make([]<-chan domain.Event, len(c2.clients))
+	for _, client := range c2.clients {
+		go connectToC2(ctx, c2.bus, client)
 		c2EventStreams = append(c2EventStreams, client.GetEventStream())
 	}
 
 	for event := range fanIn[domain.Event](c2EventStreams...) {
-		err := mb.Publish(event)
+		err := c2.bus.Publish(event)
 		if err != nil {
 			slog.Error("Failed to publish C2 event: " + err.Error())
 		}
 	}
 
 	slog.Debug("Stopping C2 layer")
+	return nil
 }
 
 func fanIn[T domain.Event](channels ...<-chan T) chan T {
@@ -119,7 +130,16 @@ func connectToC2(ctx context.Context, mb bus.MessageBus, c2client C2Client) {
 	}
 }
 
-func executeTTP(ctx context.Context, msg domain.Message, c2Clients map[string]C2Client) (domain.Message, error) {
+func (c2 C2Manager) StartC2Client(ctx context.Context, c2Name string) (domain.Message, error) {
+	client, ok := c2.clients[c2Name]
+	if !ok {
+		return nil, fmt.Errorf("'%s' is not a valid C2 server to connect to", c2Name)
+	}
+	go connectToC2(ctx, c2.bus, client)
+	return nil, nil
+}
+
+func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Clients map[string]C2Client) (domain.Message, error) {
 	exec := msg.(domain.ExecTTP)
 	// check technique to execute CMD -> kubectl exec uses API
 	// or shell listener?
