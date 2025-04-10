@@ -15,4 +15,4 @@ Cargo.lock
 .DS_Store
 
 # contents of 'static' folder are created during runtime
-static  
+# static  

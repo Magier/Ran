@@ -76,7 +76,7 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	return campaign
 }
 
-func SetTarget(target string) domain.FactsChanged {
+func (c *Campaign) SetTarget(target string) error {
 	ns := "default"
 	if strings.Contains(target, "/") {
 		parts := strings.SplitN(target, "/", 2)
@@ -93,13 +93,9 @@ func SetTarget(target string) domain.FactsChanged {
 		AccessLevel: domain.UserExec,
 	}
 	initialPod.AccessLevel = domain.UserExec
-	entities := []domain.Entity{initialPod}
-	relations := []domain.Relation{initialAccessRelation}
-
-	return domain.FactsChanged{
-		NewEntities:  entities,
-		NewRelations: relations,
-	}
+	c.AddEntities(initialPod)
+	c.AddRelations(initialAccessRelation)
+	return nil
 }
 
 func (c *Campaign) GetEntities() map[string]domain.Entity {

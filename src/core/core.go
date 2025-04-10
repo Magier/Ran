@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Magier/Ran/armory"
@@ -68,6 +69,55 @@ func InitRan(target, armoryDir, sliverConfigPath string) Ran {
 	return ran
 }
 
+func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) {
+	if ttpID == "" {
+		fmt.Println("No TTP ID provided")
+		return
+	}
+	r.Start(ctx, true, "")
+
+	var ttp domain.TTP
+	ttp, ok := r.Armory.GetTTP(ttpID)
+	if !ok {
+		panic(fmt.Sprintf("Couldn't get TTP '%s'", ttpID))
+	}
+
+	args := make(map[string]string)
+
+	err := r.SetTarget(target)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Couldn't set target: %s", err.Error()))
+	}
+
+	msg, err := r.Campaign.GroundAction(ttp, target, args)
+	if err != nil {
+		panic(fmt.Sprintf("Couldn't ground action: %s", err.Error()))
+	}
+
+	var wg sync.WaitGroup
+
+	r.Bus.Subscribe(domain.TTPExecuted{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		defer wg.Done()
+
+		if e, ok := msg.(domain.TTPExecuted); ok {
+			if e.TTP.ID == ttpID {
+				fmt.Printf("✅ TTP '%s' executed successfully\n", ttpID)
+				return nil, nil
+			}
+			fmt.Printf("❌ TTP '%s' failed to execute: %s\n", ttpID, e.Reason)
+		}
+		return nil, nil
+	})
+
+	wg.Add(1)
+	err = r.Bus.Publish(msg)
+	if err != nil {
+		panic(fmt.Sprintf("Couldn't publish action: %s", err.Error()))
+	}
+	// TODO: execute cleanup
+	wg.Wait()
+}
+
 func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
 	r.ctx = ctx
 	err := r.Armory.Load()
@@ -85,7 +135,12 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
 	// TODO: turn fileshare into a regular action
 	// filesharePort, _ := r.campaign.GetFileshare()
 	// go ServeFiles(ctx, filesharePort)
-	go c2.StartC2(ctx, r.Bus, r.sliverConfigPath)
+	go func() {
+		err := r.C2.Start(ctx)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Couldn't start C2: %s", err.Error()))
+		}
+	}()
 	// planner.StartAPI(r.Bus)
 
 	go r.Bus.HandleEvents(ctx)
@@ -96,7 +151,10 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
 		loadInitialEntities(ctx, r.Bus, loadKubeConfig, namespaces)
 		// ensure target is set after the cluster, so it's properly associated with the cluster
 		if r.target != "" {
-			r.SetTarget(r.target)
+			err = r.SetTarget(r.target)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Couldn't set target: %s", err.Error()))
+			}
 		}
 	}()
 
@@ -134,6 +192,7 @@ func (r *Ran) SubscribeToName(name string, handler domain.MessageHandler) {
 func (r *Ran) SetTarget(target string) error {
 	// check if target is a valid entity
 	ns := "default"
+	kind := "pod"
 	if strings.Contains(target, "/") {
 		parts := strings.Split(target, "/")
 		if len(parts) == 2 {
@@ -142,6 +201,7 @@ func (r *Ran) SetTarget(target string) error {
 		} else if parts[0] == "ns" && len(parts) == 4 {
 			// it's the ID format `ns/<ns>/<kind>/<podname>`
 			ns = parts[1]
+			kind = parts[2]
 			target = parts[3]
 		} else {
 			return fmt.Errorf("invalid target format")
@@ -152,13 +212,15 @@ func (r *Ran) SetTarget(target string) error {
 	if err != nil {
 		return fmt.Errorf("could not create K8s client: %v", err.Error())
 	}
-	_, err = client.GetPod(r.ctx, ns, target)
-	if err != nil {
-		return fmt.Errorf("no pod found: %v", err.Error())
+
+	if kind == "pod" {
+		_, err = client.GetPod(r.ctx, ns, target)
+		if err != nil {
+			return fmt.Errorf("no pod found: %v", err.Error())
+		}
 	}
 
-	facts := campaign.SetTarget(fmt.Sprintf("%s/%s", ns, target))
-	err = r.Bus.Publish(facts)
+	err = r.Campaign.SetTarget(fmt.Sprintf("%s/%s", ns, target))
 	if err != nil {
 		panic(fmt.Sprintf("Couldn't set target: %s", err.Error()))
 	}
