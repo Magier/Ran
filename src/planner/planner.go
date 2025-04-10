@@ -91,7 +91,6 @@ func (p PlayBookPlanner) Execute(ctx context.Context) {
 	unsubs := []func(){
 		subscribe(domain.RanReady{}, true), // simplified starting point of the Planner
 		subscribe(domain.TTPExecuted{}, true),
-		subscribe(domain.TTPFailed{}, false),
 	}
 	stopPlanner := func() {
 		for _, unsub := range unsubs {

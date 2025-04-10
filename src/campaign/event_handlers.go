@@ -97,32 +97,31 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	cmd := msg.(domain.TTPExecuted)
 	ttp := cmd.TTP
 
-	c.trail.CompleteStep(cmd.ID, cmd.TTP, true, cmd.TTP.Description)
-
-	// post processing will yield the final message
-	if fn := parsers.GetParser(ttp.Parser); fn != nil {
-		event, err := fn(cmd.Target, cmd.Results...)
-		return event, err
+	var description string
+	if cmd.Success {
+		description = cmd.TTP.Description
+	} else {
+		description = cmd.Reason
 	}
 
-	if len(ttp.Effects) > 1 {
-		slog.Info(fmt.Sprintf("TTP has %d effects; using only first one", len(ttp.Effects)))
-	}
-	for _, effect := range ttp.Effects {
-		return parseEffect(effect, cmd.Target, cmd.Results...), nil
-	}
-	return nil, nil
-}
+	c.trail.CompleteStep(cmd.ID, cmd.TTP, cmd.Success, description)
 
-func (c *Campaign) onTTPFailed(ctx context.Context, msg domain.Message) (domain.Message, error) {
-	cmd := msg.(domain.TTPFailed)
+	if cmd.Success {
+		// post processing will yield the final message
+		if fn := parsers.GetParser(ttp.Parser); fn != nil {
+			event, err := fn(cmd.Target, cmd.Results...)
+			return event, err
+		}
 
-	if strings.Contains(cmd.Reason, ": not found") {
-		// TODO: parse the binary name and add it as information, that the targeted system has no binary
+		if len(ttp.Effects) > 1 {
+			slog.Info(fmt.Sprintf("TTP has %d effects; using only first one", len(ttp.Effects)))
+		}
+		for _, effect := range ttp.Effects {
+			return parseEffect(effect, cmd.Target, cmd.Results...), nil
+		}
+	} else {
+		slog.Error(cmd.Reason)
 	}
-
-	c.trail.CompleteStep(cmd.ID, cmd.TTP, false, cmd.Reason)
-	slog.Error(cmd.Reason)
 	return nil, nil
 }
 

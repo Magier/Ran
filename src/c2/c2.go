@@ -161,16 +161,16 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Client
 		results, err = execRemotely(ctx, exec, exec.Variant, c2Clients)
 	}
 
+	var failureReason string
 	if err != nil {
-		return domain.TTPFailed{
-			ID:     exec.ID,
-			TTP:    exec.TTP,
-			Reason: err.Error(),
-		}, nil
+		failureReason = err.Error()
 	}
+
 	return domain.TTPExecuted{
 		ID:      exec.ID,
 		TTP:     exec.TTP,
+		Success: err == nil,
+		Reason:  failureReason,
 		Target:  exec.Target,
 		Results: results,
 	}, nil

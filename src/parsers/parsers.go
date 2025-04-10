@@ -92,8 +92,9 @@ func HandleSelfSubjectReviewResult(source domain.Entity, args ...any) (domain.Ev
 	}
 
 	if result.Code >= 400 {
-		return domain.TTPFailed{
-			Reason: result.Message,
+		return domain.TTPExecuted{
+			Success: false,
+			Reason:  result.Message,
 		}, nil
 	}
 
