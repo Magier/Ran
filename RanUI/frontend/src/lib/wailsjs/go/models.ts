@@ -18,6 +18,24 @@ export namespace main {
 	        this.targetId = source["targetId"];
 	    }
 	}
+	export class Entitlement {
+	    verbs: string[];
+	    resourceTypes: string[];
+	    resourceNames: string[];
+	    namespace: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Entitlement(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.verbs = source["verbs"];
+	        this.resourceTypes = source["resourceTypes"];
+	        this.resourceNames = source["resourceNames"];
+	        this.namespace = source["namespace"];
+	    }
+	}
 	export class Node {
 	    id: string;
 	    name: string;
@@ -28,6 +46,7 @@ export namespace main {
 	    accessLevel: string;
 	    os: string;
 	    version: string;
+	    entitlements: Entitlement[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Node(source);
@@ -44,7 +63,26 @@ export namespace main {
 	        this.accessLevel = source["accessLevel"];
 	        this.os = source["os"];
 	        this.version = source["version"];
+	        this.entitlements = this.convertValues(source["entitlements"], Entitlement);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Graph {
 	    nodes: Node[];

@@ -15,7 +15,7 @@ She is symbolized by a net, which she uses to ensnare and pull the unwary into t
 ❗ This tool is only intended for educational/demonstration purposes! Any other usage is highly discouraged.
 
 
-> ** ⚠️ Warning: This project is highly experimental and not fit for normal use. Use at your own risk.**
+> ** ⚠️ Warning: This project is very early stage and highly experimental. Use at your own risk.**
 
 
 ![](./docs/ui_example.png)
@@ -119,6 +119,7 @@ Ran is heavily inspired by similar tools in this domain, such as:
 - [x] Track the executed TTPs (audit trail)
 - [x] Export trail of executed TTP as [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/)
 - [ ] option to provide [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/) as a plan
+- [ ] [MCP](https://www.anthropic.com/news/model-context-protocol) support for "Vibe kiddies" 🤖
 - [ ] Derive produced observable from the TTP execution and link it in the Attack Flow
 - [ ] Support hierarchical TTPs: they use other TTPs as building blocks (akin to HTN)
     - e.g., `Install implant` could be -> `generate implant` + `download binary` + `execute binary`

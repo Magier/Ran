@@ -155,7 +155,10 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Client
 		return nil, fmt.Errorf("No suitable client found to start listener")
 	}
 
-	if exec.Variant.IsLocalCommand || exec.C2Channel == nil {
+	if exec.Variant.IsLocalCommand {
+		results, err = execLocally(ctx, exec, exec.Variant, c2Clients)
+	} else if exec.C2Channel == nil {
+		slog.Warn("No C2 channel defined - executing locally")
 		results, err = execLocally(ctx, exec, exec.Variant, c2Clients)
 	} else {
 		results, err = execRemotely(ctx, exec, exec.Variant, c2Clients)
