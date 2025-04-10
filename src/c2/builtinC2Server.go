@@ -117,9 +117,10 @@ func (c BuiltInC2Server) handleCommand(msg domain.Command) (domain.Message, erro
 			// TODO handle disconnecting listener
 			err := c.startListener(context.Background(), cmd)
 			if err != nil {
-				c.eventStream <- domain.TTPFailed{
-					ID:     msg.GetID(),
-					Reason: err.Error(),
+				c.eventStream <- domain.TTPExecuted{
+					ID:      msg.GetID(),
+					Success: false,
+					Reason:  err.Error(),
 				}
 			}
 		}()

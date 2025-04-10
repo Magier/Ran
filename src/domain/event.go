@@ -179,6 +179,8 @@ type TTPExecuted struct {
 	EventImpl
 	ID         string
 	TTP        TTP
+	Success    bool
+	Reason     string
 	Target     Entity
 	ResultType Message
 	Results    []any
@@ -186,17 +188,6 @@ type TTPExecuted struct {
 
 func (ttp TTPExecuted) String() string {
 	return fmt.Sprintf("TTP '%s' executed (%s)", ttp.ID, ttp.TTP.Name)
-}
-
-type TTPFailed struct {
-	EventImpl
-	ID     string
-	Reason string
-	TTP    TTP
-}
-
-func (ttp TTPFailed) String() string {
-	return fmt.Sprintf("TTP '%s' failed", ttp.ID)
 }
 
 type TokenPermissionsRetrieved struct {
