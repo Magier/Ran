@@ -112,7 +112,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case c2.ListenerStopped:
 		delete(m.listeners, msg.Name)
 		m.listenerStatus = updateListenerStatus(m.listeners)
-	case domain.KnowledgeUpdated:
+	case domain.FactsChanged:
 		identities := m.c.GetIdentities()
 		m.availableIdentities = len(identities)
 		activeIdentity, ok := m.c.GetActiveIdentity()

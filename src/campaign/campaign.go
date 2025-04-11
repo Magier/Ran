@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Magier/Ran/armory"
@@ -13,7 +15,7 @@ import (
 	"github.com/Magier/Ran/core/bus"
 	"github.com/Magier/Ran/domain"
 	"github.com/Magier/Ran/mitre"
-	"github.com/google/uuid"
+	"github.com/iancoleman/strcase"
 )
 
 type Campaign struct {
@@ -24,6 +26,18 @@ type Campaign struct {
 	listeners      map[string]domain.Listener
 	sessions       map[string]domain.Session
 	identities     map[string]domain.Identity
+}
+type NewFacts struct {
+	Entities   []domain.Entity
+	Relations  []domain.Relation
+	Identities []domain.Identity
+	Assets     []domain.Asset
+}
+
+type RemovedFacts struct {
+	Entities   []domain.Entity
+	Relations  []domain.Relation
+	Identities []domain.Identity
 }
 
 func NewCampaign(armory *armory.Armory) *Campaign {
@@ -62,7 +76,6 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 		return campaign.onSessionClosed(msg.(c2.SessionClosed))
 	})
 	mb.Subscribe(domain.ActionSelected{}, campaign.onActionSelected)
-	mb.Subscribe(domain.FactsChanged{}, campaign.onFactsChanged)
 	mb.Subscribe(domain.ServiceAccountTokenExtracted{}, campaign.onServiceAccountTokenExtracted)
 	mb.Subscribe(domain.TokenPermissionsRetrieved{}, campaign.onTokenPermissionsExtracted)
 	mb.Subscribe(domain.PrintGraph{}, campaign.onPrintGraph)
@@ -76,7 +89,7 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	return campaign
 }
 
-func (c *Campaign) SetTarget(target string) error {
+func (c *Campaign) SetTarget(target string) (domain.Event, error) {
 	ns := "default"
 	if strings.Contains(target, "/") {
 		parts := strings.SplitN(target, "/", 2)
@@ -93,9 +106,40 @@ func (c *Campaign) SetTarget(target string) error {
 		AccessLevel: domain.UserExec,
 	}
 	initialPod.AccessLevel = domain.UserExec
-	c.AddEntities(initialPod)
-	c.AddRelations(initialAccessRelation)
-	return nil
+
+	return c.UpdateFacts(NewFacts{
+		Entities:  []domain.Entity{initialPod},
+		Relations: []domain.Relation{initialAccessRelation},
+	}, RemovedFacts{})
+}
+
+func (c *Campaign) UpdateFacts(new NewFacts, removed RemovedFacts) (domain.FactsChanged, error) {
+	c.AddEntities(new.Entities...)
+	c.AddRelations(new.Relations...)
+
+	for _, identity := range new.Identities {
+		// if there is no active identity, use the first encountered Id as the active oneo
+		if c.activeIdentity == "" {
+			c.activeIdentity = identity.Name
+		}
+		c.identities[identity.Name] = identity
+	}
+
+	err := c.syncCapabilities()
+	if err != nil {
+		slog.Error(err.Error())
+	}
+	// TODO: reconcile new entities with existing ones
+
+	return domain.FactsChanged{
+		NewEntities:   new.Entities,
+		NewRelations:  new.Relations,
+		NewIdentities: new.Identities,
+
+		RemovedEntities:   removed.Entities,
+		RemovedRelations:  removed.Relations,
+		RemovedIdentities: removed.Identities,
+	}, nil
 }
 
 func (c *Campaign) GetEntities() map[string]domain.Entity {
@@ -202,16 +246,19 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 		args = make(map[string]string)
 	}
 	execCmd := domain.ExecTTP{
-		CommandImpl: domain.NewCmd(),
+		CommandImpl: domain.NewCmd(""),
 		TTP:         ttp,
 		Args:        args,
 	}
-	execCmd.SetID(uuid.New().String())
 
 	// it's a technique on the C2 side to prepare the infrastructure, not in the target environment
 	cmdMsg, err := hydrateCommand(ttp, execCmd.ID, args)
 	if err != nil {
-		slog.Warn(err.Error())
+		if strings.HasPrefix(err.Error(), "No CommandMsg specified") {
+			slog.Debug(err.Error())
+		} else {
+			slog.Warn(err.Error())
+		}
 	}
 	execCmd.CommandMsg = cmdMsg
 
@@ -265,6 +312,55 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 	}
 
 	return execCmd, nil
+}
+
+func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (domain.Command, error) {
+	switch cmd := ttp.CommandMsg.(type) {
+	case domain.StartListener:
+		// t := reflect.TypeOf(cmd)
+		// ptr := reflect.New(t)
+		// val := ptr.Elem()
+		// inf := val.Interface()
+		// var _ = inf
+
+		c := reflect.ValueOf(&cmd).Elem()
+		if c.Kind() != reflect.Struct {
+			return nil, errors.New("Can't ground PreAction, because cmd is not a struct!")
+		}
+
+		for name, v := range args {
+			name = strcase.ToCamel(name)
+			f := reflect.ValueOf(v)
+			field := c.FieldByName(name)
+
+			if !field.CanSet() {
+				continue
+			}
+
+			switch field.Kind() {
+			case reflect.String:
+				field.SetString(f.String())
+			case reflect.Uint:
+				val, err := strconv.ParseUint(v, 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("failed to convert string to uint: %v", err)
+				}
+				field.SetUint(val)
+			case reflect.Float64:
+				field.SetFloat(f.Float())
+			case reflect.Slice:
+				field.Set(f.Slice(0, f.Len()))
+			}
+		}
+		cmd.SetID(execID)
+		// TODO populate the arguments
+		return cmd, nil
+		// default:
+	case nil:
+		return nil, errors.New("No CommandMsg specified for TTP: " + ttp.GetTitle())
+	}
+
+	return nil, nil
 }
 
 type GroundFn func(string) (string, error)

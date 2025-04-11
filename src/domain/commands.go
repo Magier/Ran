@@ -28,8 +28,11 @@ func (c CommandImpl) GetID() string {
 // IsCommand implements Command.
 func (c CommandImpl) IsCommand() {}
 
-func NewCmd() CommandImpl {
-	return CommandImpl{ID: uuid.NewString()}
+func NewCmd(id string) CommandImpl {
+	if id == "" {
+		id = uuid.NewString()
+	}
+	return CommandImpl{ID: id}
 }
 
 type StartC2 struct {

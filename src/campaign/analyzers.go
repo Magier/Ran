@@ -22,10 +22,9 @@ import (
 // See [docs: Container Environmeent](https://kubernetes.io/docs/concepts/containers/container-environment/) for more.
 // :param event: EnvironmentVariablesReceived  event with the source system and the variables
 // returns a new event with new facts, if there were any
-func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, error) {
+func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (NewFacts, RemovedFacts, error) {
 	entities := make([]domain.Entity, 0)
 	relations := make([]domain.Relation, 0)
-	assets := make([]domain.Asset, 0)
 
 	// TODO: how can it be inferred, if it's from a K8s pod vs any *nix-based system?
 
@@ -80,21 +79,24 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (domain.Event, erro
 		}
 		relations = append(relations, rel)
 	}
+
 	// TODO check for credentials and add them as assets
 	// # TODO: analyze if URL is K8s DNS specific
 	// return NewFacts(entities=entities, relations=relations, assets=[])
 
-	return domain.FactsChanged{
-		NewEntities:  entities,
-		NewRelations: relations,
-		NewAssets:    assets,
-	}, nil
+	return NewFacts{
+		Entities:  entities,
+		Relations: relations,
+	}, RemovedFacts{}, nil
 }
 
-func analyzeServiceAccountToken(token string) (domain.Event, error) {
+func analyzeServiceAccountToken(token string) (NewFacts, RemovedFacts, error) {
 	parts := strings.SplitN(token, ".", 3)
+	newFacts := NewFacts{}
+	removedFacts := RemovedFacts{}
+
 	if len(parts) != 3 {
-		return nil, errors.New("invalid token format")
+		return newFacts, removedFacts, errors.New("invalid token format")
 	}
 	/*
 		# add max of padding before decoding in case padding is missing (
@@ -103,12 +105,12 @@ func analyzeServiceAccountToken(token string) (domain.Event, error) {
 	encPayload := parts[1]
 	payloadData, err := base64.RawStdEncoding.DecodeString(encPayload)
 	if err != nil {
-		return nil, err
+		return newFacts, removedFacts, err
 	}
 
 	saToken := domain.ServiceAccountToken{}
 	if err := json.Unmarshal(payloadData, &saToken); err != nil {
-		return nil, err
+		return newFacts, removedFacts, err
 	}
 	saToken.Raw = token
 	// a token is bound if there is a Pod (and node) in the priveat kubernetes.io claim
@@ -150,11 +152,11 @@ func analyzeServiceAccountToken(token string) (domain.Event, error) {
 		Node: node,
 	}
 
-	return domain.FactsChanged{
-		NewEntities:  []domain.Entity{ns, sa, pod, node},
-		NewAssets:    []domain.Asset{saToken},
-		NewRelations: []domain.Relation{saUsage, nsContainsSa, nodeRunsPod, podRunsOnNode},
-	}, nil
+	return NewFacts{
+		Entities:  []domain.Entity{ns, sa, pod, node},
+		Assets:    []domain.Asset{saToken},
+		Relations: []domain.Relation{saUsage, nsContainsSa, nodeRunsPod, podRunsOnNode},
+	}, removedFacts, nil
 
 }
 

@@ -68,7 +68,7 @@ func SetupTUI(ran core.Ran) *tea.Program {
 	ran.Subscribe(c2.SessionStarted{}, forwardEvent)
 	ran.Subscribe(c2.C2ConnectFailed{}, forwardEvent)
 	ran.Subscribe(domain.C2Connected{}, forwardEvent)
-	ran.Subscribe(domain.KnowledgeUpdated{}, forwardEvent)
+	ran.Subscribe(domain.FactsChanged{}, forwardEvent)
 	ran.Subscribe(domain.GraphRendered{}, forwardEvent)
 
 	ran.Subscribe(domain.ErrorMsg{}, func(ctx context.Context, event domain.Message) (domain.Message, error) {
@@ -227,7 +227,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focusedWnd = Nothing
 		case tea.KeyCtrlS:
 			now := time.Now().Format("2006-01-02T15-04-05")
-			err := m.bus.Publish(domain.SaveAttackFlow{CommandImpl: domain.NewCmd(), Path: fmt.Sprintf("../campaign_%s.json", now)})
+			err := m.bus.Publish(domain.SaveAttackFlow{CommandImpl: domain.NewCmd(""), Path: fmt.Sprintf("../campaign_%s.json", now)})
 			if err != nil {
 				slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 			}
@@ -239,7 +239,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.isFiltering {
 				switch msg.String() {
 				case "p":
-					err := m.bus.Publish(domain.PrintGraph{CommandImpl: domain.NewCmd()})
+					err := m.bus.Publish(domain.PrintGraph{CommandImpl: domain.NewCmd("")})
 					if err != nil {
 						slog.Error(fmt.Sprintf("Error sending command to msg bus!!: %v\n", err))
 					}

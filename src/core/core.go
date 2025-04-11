@@ -22,13 +22,12 @@ import (
 )
 
 type Ran struct {
-	Bus              bus.MessageBus
-	Armory           *armory.Armory
-	Campaign         *campaign.Campaign
-	C2               c2.C2Manager
-	sliverConfigPath string
-	target           string
-	ctx              context.Context
+	Bus      bus.MessageBus
+	Armory   *armory.Armory
+	Campaign *campaign.Campaign
+	C2       c2.C2Manager
+	target   string
+	ctx      context.Context
 }
 
 type Config struct {
@@ -55,15 +54,14 @@ func InitRan(target, armoryDir, sliverConfigPath string) Ran {
 	mb := bus.CreateMessageBus()
 	a := &armory.Armory{SrcDir: filepath.Join(path, armoryDir)}
 	c := campaign.StartCampaign(mb, a)
-	c2 := c2.InitC2Manager(mb, sliverConfigPath)
+	c2 := c2.InitC2Manager(mb, filepath.Join(path, sliverConfigPath))
 
 	ran := Ran{
-		Bus:              mb,
-		Armory:           a,
-		Campaign:         c,
-		C2:               c2,
-		sliverConfigPath: filepath.Join(path, sliverConfigPath),
-		target:           target,
+		Bus:      mb,
+		Armory:   a,
+		Campaign: c,
+		C2:       c2,
+		target:   target,
 	}
 
 	return ran
@@ -144,19 +142,32 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
 	// planner.StartAPI(r.Bus)
 
 	go r.Bus.HandleEvents(ctx)
-	// TODO maybe switch between TUI and web-UI (start frontend as well?)
 
+	// load initial entities from the target cluster into the campaign
 	namespaces := []string{}
-	go func() {
-		loadInitialEntities(ctx, r.Bus, loadKubeConfig, namespaces)
-		// ensure target is set after the cluster, so it's properly associated with the cluster
-		if r.target != "" {
-			err = r.SetTarget(r.target)
+	initialFacts := make(chan MaybeNewFacts, 1)
+	go loadInitialEntities(ctx, initialFacts, loadKubeConfig, namespaces)
+	for update := range initialFacts {
+		if update.Error != nil {
+			_ = r.Bus.Publish(domain.ErrorMsg{
+				Level: domain.LevelFatal,
+				Msg:   update.Error.Error(),
+			})
+		} else {
+			_, err := r.Campaign.UpdateFacts(update.NewFacts, campaign.RemovedFacts{})
 			if err != nil {
-				slog.Error(fmt.Sprintf("Couldn't set target: %s", err.Error()))
+				slog.Error(fmt.Sprintf("Couldn't update facts: %s", err.Error()))
 			}
 		}
-	}()
+	}
+
+	// ensure target is set after the cluster, so it's properly associated with the cluster
+	if r.target != "" {
+		err = r.SetTarget(r.target)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Couldn't set target: %s", err.Error()))
+		}
+	}
 
 	if planPath != "" {
 		p := planner.CreatePlanner(planPath, r.Armory, r.Bus)
@@ -220,11 +231,12 @@ func (r *Ran) SetTarget(target string) error {
 		}
 	}
 
-	err = r.Campaign.SetTarget(fmt.Sprintf("%s/%s", ns, target))
+	msg, err := r.Campaign.SetTarget(fmt.Sprintf("%s/%s", ns, target))
 	if err != nil {
-		panic(fmt.Sprintf("Couldn't set target: %s", err.Error()))
+		return err
 	}
-	return nil
+	err = r.Bus.Publish(msg)
+	return err
 }
 
 type MaybeEntity struct {
@@ -232,21 +244,23 @@ type MaybeEntity struct {
 	Error  error
 }
 
-func loadInitialEntities(ctx context.Context, mb bus.MessageBus, loadAll bool, namespaces []string) {
+type MaybeNewFacts struct {
+	NewFacts campaign.NewFacts
+	Error    error
+}
+
+func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, loadAll bool, namespaces []string) {
+	defer close(results)
+
 	client, err := k8s.NewK8sClient("")
 	if err != nil {
-		_ = mb.Publish(domain.ErrorMsg{
-			Level: domain.LevelFatal,
-			Msg:   "Couldn't create K8s client for context " + client.Context.Name,
-		})
+		results <- MaybeNewFacts{Error: fmt.Errorf("Couldn't create K8s client for context %s (%v)", client.Context.Name, err)}
 		return
 	} else if !client.TestConnection() {
-		_ = mb.Publish(domain.ErrorMsg{
-			Level: domain.LevelFatal,
-			Msg:   "Can't connect to " + client.Context.Name,
-		})
+		results <- MaybeNewFacts{Error: fmt.Errorf("Can't connect to %s (%v)", client.Context.Name, err)}
 		return
 	}
+
 	cluster := domain.Cluster{Name: client.Context.Name, Address: client.Config.Host}
 	entities := []domain.Entity{cluster}
 	identities := []domain.Identity{}
@@ -278,14 +292,11 @@ func loadInitialEntities(ctx context.Context, mb bus.MessageBus, loadAll bool, n
 		identities = append(identities, k8sConfigUser)
 	}
 
-	err = mb.Publish(domain.FactsChanged{
-		NewEntities:   entities,
-		NewIdentities: identities,
-		NewRelations:  relations,
-	})
-	if err != nil {
-		fmt.Printf("Couldn't add initial entities to bus: %s", err.Error())
-	}
+	results <- MaybeNewFacts{NewFacts: campaign.NewFacts{
+		Entities:   entities,
+		Identities: identities,
+		Relations:  relations,
+	}}
 
 	// gradually load all entities
 	if loadAll {
@@ -301,10 +312,7 @@ func loadInitialEntities(ctx context.Context, mb bus.MessageBus, loadAll bool, n
 			}
 		}
 		if len(entities) > 0 {
-			err = mb.Publish(domain.FactsChanged{NewEntities: entities})
-			if err != nil {
-				fmt.Printf("Couldn't publish newEntity event: %s", err.Error())
-			}
+			results <- MaybeNewFacts{NewFacts: campaign.NewFacts{Entities: entities}}
 		} else {
 			slog.Warn("No pods found at for initialization!")
 		}

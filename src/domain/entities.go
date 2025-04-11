@@ -515,6 +515,23 @@ type Identity struct {
 	Permissions []RbacPermission
 }
 
+// GetId implements Entity.
+func (id *Identity) GetId() string {
+	return id.Name
+}
+
+// GetKind implements Entity.
+func (id *Identity) GetKind() string {
+	return string(id.Kind)
+}
+
+// GetName implements Entity.
+func (id *Identity) GetName() string {
+	return id.Name
+}
+
+var _ (Entity) = (*Identity)(nil)
+
 func (id Identity) Can(permission string) bool {
 	for _, perm := range id.Permissions {
 		for _, v := range perm.Verbs {
