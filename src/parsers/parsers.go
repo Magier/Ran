@@ -134,11 +134,9 @@ func HandleNewContainer(source domain.Entity, args ...any) (domain.Event, error)
 	p.HostNetwork = domain.NewProbBool(cfg.HostNetwork)
 	p.Privileged = domain.NewProbBool(cfg.Privileged)
 
-	// rels := []domain.Relation{
-	// 	domain.Contains{Container: ns, Object: p},
-	//  }
-	return domain.FactsChanged{
-		NewEntities: []domain.Entity{ns, p},
-		// NewRelations: rels,
+	slog.Error(fmt.Sprintf("Creating new pod %s in namespace %s is not yet properly implemented! FIX NEEDED!", p.Name, ns.Name))
+	return domain.NewPodDeployed{
+		Pod:       p,
+		Namespace: ns,
 	}, nil
 }

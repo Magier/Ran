@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -99,7 +100,7 @@ func (ttp TTP) GetMessage() Message {
 		return ttp.CommandMsg
 	} else {
 		return ExecTTP{
-			CommandImpl: NewCmd(),
+			CommandImpl: NewCmd(""),
 			// TTP:         ttp, Args: ttp.Args,
 		}
 	}
@@ -180,7 +181,7 @@ func (t YAMLTTP) TTP() (TTP, error) {
 			if id, ok := mitre.GetTechniqueIDByName(entry); ok {
 				ttp.Techniques[i] = id
 			} else {
-				slog.Warn("Could not find technique ID", "Name", entry)
+				slog.Warn(fmt.Sprintf("TTP '%s' has no valid Mitre technique assigned (value: '%s')", ttp.Name, entry))
 			}
 		}
 	}

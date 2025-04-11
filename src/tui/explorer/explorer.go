@@ -114,7 +114,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd = nil
 
 	switch msg := msg.(type) {
-	case domain.KnowledgeUpdated:
+	case domain.FactsChanged:
 		m = m.rebuildEntries()
 		if m.cursor == -1 && len(m.entries) > 0 {
 			m.cursor = 0

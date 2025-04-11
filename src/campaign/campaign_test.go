@@ -10,7 +10,7 @@ import (
 
 func TestAddAbstractWorkloadWhenAddingPod(t *testing.T) {
 	a := armory.Armory{}
-	c := NewCampaign(a)
+	c := NewCampaign(&a)
 	ns := "default"
 	name := "test-pod"
 	p := domain.Pod{
@@ -44,7 +44,7 @@ func TestAddAbstractWorkloadWhenAddingPod(t *testing.T) {
 
 func TestAddPodWhenItsWorkloadIsAlreadyKnownDoesNotGenerateExtraWorkload(t *testing.T) {
 	a := armory.Armory{}
-	c := NewCampaign(a)
+	c := NewCampaign(&a)
 	ns := "default"
 	name := "test-pod"
 	wl := domain.NewDeployment(name, ns)

@@ -18,8 +18,8 @@ func (c APIStarted) String() string {
 
 func simplePlan() []domain.Command {
 	plan := []domain.Command{
-		domain.StartListener{CommandImpl: domain.NewCmd(), Port: 1337},
-		domain.StartC2Redirector{CommandImpl: domain.NewCmd(), DstPort: 1337},
+		domain.StartListener{CommandImpl: domain.NewCmd(""), Port: 1337},
+		domain.StartC2Redirector{CommandImpl: domain.NewCmd(""), DstPort: 1337},
 		// domain.KubectlExec{}
 	}
 

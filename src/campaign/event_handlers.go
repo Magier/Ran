@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"reflect"
-	"strconv"
 	"strings"
 
 	"github.com/Magier/Ran/c2"
@@ -18,7 +16,6 @@ import (
 	"github.com/Magier/Ran/parsers"
 	"github.com/dominikbraun/graph/draw"
 	"github.com/goccy/go-graphviz"
-	"github.com/iancoleman/strcase"
 )
 
 func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -28,7 +25,7 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 	if !ok {
 		msg := fmt.Sprintf("No TTP with ID '%s' found!", ev.ActionID)
 		slog.Error(msg)
-		return nil, fmt.Errorf(msg)
+		return nil, errors.New(msg)
 	}
 
 	msg, err := c.GroundAction(ttp, ev.TargetID, ev.Args)
@@ -38,55 +35,6 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 	return msg, err
 }
 
-func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (domain.Command, error) {
-	switch cmd := ttp.CommandMsg.(type) {
-	case domain.StartListener:
-		// t := reflect.TypeOf(cmd)
-		// ptr := reflect.New(t)
-		// val := ptr.Elem()
-		// inf := val.Interface()
-		// var _ = inf
-
-		c := reflect.ValueOf(&cmd).Elem()
-		if c.Kind() != reflect.Struct {
-			return nil, errors.New("Can't ground PreAction, because cmd is not a struct!")
-		}
-
-		for name, v := range args {
-			name = strcase.ToCamel(name)
-			f := reflect.ValueOf(v)
-			field := c.FieldByName(name)
-
-			if !field.CanSet() {
-				continue
-			}
-
-			switch field.Kind() {
-			case reflect.String:
-				field.SetString(f.String())
-			case reflect.Uint:
-				val, err := strconv.ParseUint(v, 10, 64)
-				if err != nil {
-					return nil, fmt.Errorf("failed to convert string to uint: %v", err)
-				}
-				field.SetUint(val)
-			case reflect.Float64:
-				field.SetFloat(f.Float())
-			case reflect.Slice:
-				field.Set(f.Slice(0, f.Len()))
-			}
-		}
-		cmd.SetID(execID)
-		// TODO populate the arguments
-		return cmd, nil
-		// default:
-	case nil:
-		return nil, errors.New("No CommandMsg specified for TTP: " + ttp.GetTitle())
-
-	}
-
-	return nil, nil
-}
 func (c *Campaign) onExecuteTTP(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	cmd := msg.(domain.ExecTTP)
 	err := c.trail.AddNewStep(cmd)
@@ -117,7 +65,8 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 			slog.Info(fmt.Sprintf("TTP has %d effects; using only first one", len(ttp.Effects)))
 		}
 		for _, effect := range ttp.Effects {
-			return parseEffect(effect, cmd.Target, cmd.Results...), nil
+			new, removed := parseEffect(effect, cmd.Target, cmd.Results...)
+			c.UpdateFacts(new, removed)
 		}
 	} else {
 		slog.Error(cmd.Reason)
@@ -147,10 +96,7 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 	c.AddRelations(operatesRel)
 	rels = append(rels, operatesRel)
 
-	return domain.FactsChanged{
-		NewEntities:  []domain.Entity{system},
-		NewRelations: rels,
-	}, nil
+	return c.UpdateFacts(NewFacts{Entities: []domain.Entity{system}, Relations: rels}, RemovedFacts{})
 }
 
 func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
@@ -212,11 +158,10 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 		Session: ev.Session,
 	}
 
-	msg := domain.FactsChanged{
-		NewEntities:  []domain.Entity{system, ev.Session},
-		NewRelations: []domain.Relation{c2Channel, hasSession},
-	}
-	return msg, nil
+	return c.UpdateFacts(
+		NewFacts{[]domain.Entity{system, ev.Session}, []domain.Relation{c2Channel, hasSession}, nil, nil},
+		RemovedFacts{},
+	)
 }
 
 func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) {
@@ -225,16 +170,28 @@ func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) 
 		return nil, fmt.Errorf("Unknwon session '%s' could not be closed", ev.Session.Id)
 	}
 	delete(c.sessions, ev.Session.Id)
+
+	// TODO: remove session from all relations
+	slog.Error(fmt.Sprintf("Session removal for '%s' not yet implemented", ev.Session.Id))
 	return nil, nil
 }
 
 func (c *Campaign) onEnvVarsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
-	return analyzeEnvironmentVariables(msg.(domain.EnvVarsExtracted))
+	newFacts, removedFacts, err := analyzeEnvironmentVariables(msg.(domain.EnvVarsExtracted))
+	if err != nil {
+		return nil, err
+	} else {
+		return c.UpdateFacts(newFacts, removedFacts)
+	}
 }
 func (c *Campaign) onServiceAccountTokenExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(domain.ServiceAccountTokenExtracted)
-	msg, err := analyzeServiceAccountToken(ev.Token)
-	return msg, err
+	newFacts, removedFacts, err := analyzeServiceAccountToken(ev.Token)
+	if err != nil {
+		return nil, err
+	} else {
+		return c.UpdateFacts(newFacts, removedFacts)
+	}
 }
 
 func (c *Campaign) onTokenPermissionsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -261,40 +218,7 @@ func (c *Campaign) onTokenPermissionsExtracted(ctx context.Context, msg domain.M
 		})
 	}
 
-	return domain.FactsChanged{
-		NewEntities: []domain.Entity{sa},
-	}, nil
-}
-
-func (c *Campaign) onFactsChanged(ctx context.Context, msg domain.Message) (domain.Message, error) {
-	// TODO: properly track how many changes the update contained
-	numChanges := 0
-	ev := msg.(domain.FactsChanged)
-	numChanges += c.AddEntities(ev.NewEntities...)
-	numChanges += c.AddRelations(ev.NewRelations...)
-
-	for _, identity := range ev.NewIdentities {
-		// if there is no active identity, use the first encountered Id as the active oneo
-		if c.activeIdentity == "" {
-			c.activeIdentity = identity.Name
-		}
-		c.identities[identity.Name] = identity
-	}
-
-	err := c.syncCapabilities()
-	if err != nil {
-		slog.Error(err.Error())
-	}
-
-	// TODO: reconcile new entities with existing ones
-	var response domain.Message
-	if numChanges > 0 {
-		response = domain.KnowledgeUpdated{
-			NumChanges: numChanges,
-		}
-		return response, nil
-	}
-	return nil, nil
+	return c.UpdateFacts(NewFacts{Entities: []domain.Entity{sa}}, RemovedFacts{})
 }
 
 func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -321,16 +245,18 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 	}
 	c.listeners[listenerID] = listener
 
-	return domain.FactsChanged{
-		NewEntities: []domain.Entity{listener},
-		NewRelations: []domain.Relation{
-			domain.ListenesOn{
-				C2ID:       c2.GetId(),
-				ListenerID: listenerID,
-				Port:       int(ev.Port),
-			},
-		},
-	}, nil
+	return c.UpdateFacts(
+		NewFacts{
+			Entities: []domain.Entity{listener},
+			Relations: []domain.Relation{
+				domain.ListenesOn{
+					C2ID:       c2.GetId(),
+					ListenerID: listenerID,
+					Port:       int(ev.Port),
+				},
+			}},
+		RemovedFacts{},
+	)
 }
 
 func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -343,14 +269,15 @@ func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (d
 		slog.Error(fmt.Sprintf("Can't stop unknown listener '%s'", ev.Name))
 
 	}
-
+	// TODO: remove listener from all relations
+	slog.Error(fmt.Sprintf("Listener removal for '%s' not yet implemented", ev.Name))
 	return nil, nil
 }
 
-func parseEffect(effect string, source domain.Entity, args ...any) domain.Message {
+func parseEffect(effect string, source domain.Entity, args ...any) (NewFacts, RemovedFacts) {
 	if len(args) == 0 {
 		slog.Warn("Can't parse effect %s because there are no arguments")
-		return nil
+		return NewFacts{}, RemovedFacts{}
 	}
 
 	entities := []domain.Entity{}
@@ -384,7 +311,7 @@ func parseEffect(effect string, source domain.Entity, args ...any) domain.Messag
 			}
 		}
 	}
-	return domain.FactsChanged{NewEntities: entities}
+	return NewFacts{Entities: entities}, RemovedFacts{}
 }
 
 func (c *Campaign) onPrintGraph(ctx context.Context, msg domain.Message) (domain.Message, error) {

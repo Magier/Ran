@@ -11,7 +11,7 @@ func TestAddSinglePod(t *testing.T) {
 	p := domain.NewPod("test", "default")
 
 	a := armory.Armory{}
-	c := NewCampaign(a)
+	c := NewCampaign(&a)
 	c.AddEntities(p)
 
 	pods := c.GetPods()
@@ -30,7 +30,7 @@ func TestDontAddExtraWorkloadWhenAddingPodWithOwner(t *testing.T) {
 	}
 
 	a := armory.Armory{}
-	c := NewCampaign(a)
+	c := NewCampaign(&a)
 	c.AddEntities(p) // implicitely adds Deployment because of the OwnerRef
 	pods := c.GetEntities()
 	if len(pods) != 3 { // NS + Deployment + Pod
@@ -49,7 +49,7 @@ func TestMoreInformationOnPodOwner(t *testing.T) {
 	nsName := "default"
 	p := domain.NewPod("test", nsName)
 	a := armory.Armory{}
-	c := NewCampaign(a)
+	c := NewCampaign(&a)
 
 	// this will add the intermediary AbstractWorkload
 	c.AddEntities(p)

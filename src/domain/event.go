@@ -135,15 +135,6 @@ func (e FactsChanged) String() string {
 	return s
 }
 
-type KnowledgeUpdated struct {
-	EventImpl
-	NumChanges int
-}
-
-func (e KnowledgeUpdated) String() string {
-	return fmt.Sprintf("%d facts changed in knowledge base", e.NumChanges)
-}
-
 type ServiceAccountTokenExtracted struct {
 	EventImpl
 	SourceSystemId string
@@ -152,6 +143,16 @@ type ServiceAccountTokenExtracted struct {
 
 func (e ServiceAccountTokenExtracted) String() string {
 	return "SA Token extracted"
+}
+
+type NewPodDeployed struct {
+	EventImpl
+	Pod       Entity
+	Namespace Namespace
+}
+
+func (e NewPodDeployed) String() string {
+	return "New container deployed"
 }
 
 type EnvVarsExtracted struct {

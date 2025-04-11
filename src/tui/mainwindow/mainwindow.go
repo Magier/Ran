@@ -70,7 +70,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		} else {
 			slog.Warn("TUI", "", "Failed to resolve "+msg.Id)
 		}
-	case domain.KnowledgeUpdated:
+	case domain.FactsChanged:
 		if m.entity != nil {
 			entityID := m.entity.GetId()
 			if e, ok := m.campaign.GetEntityById(entityID); ok {
