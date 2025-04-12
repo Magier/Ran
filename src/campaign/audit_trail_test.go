@@ -18,7 +18,7 @@ func TestAddNewStep(t *testing.T) {
 	auditTrail := NewAuditTrail()
 	ttp := domain.TTP{ID: "test-ttp"}
 
-	err := auditTrail.AddNewStep("step1", ttp)
+	err := auditTrail.AddNewStep(domain.ExecTTP{CommandImpl: domain.NewCmd("step1"), TTP: ttp})
 	assert.NoError(t, err)
 	assert.Len(t, auditTrail.openSteps, 1)
 	assert.Equal(t, "step1", auditTrail.openSteps[0].ID)
@@ -29,7 +29,7 @@ func TestCompleteStep(t *testing.T) {
 	auditTrail := NewAuditTrail()
 	ttp := domain.TTP{ID: "test-ttp"}
 
-	err := auditTrail.AddNewStep("step1", ttp)
+	err := auditTrail.AddNewStep(domain.ExecTTP{CommandImpl: domain.NewCmd("step1"), TTP: ttp})
 	assert.NoError(t, err)
 
 	auditTrail.CompleteStep("step1", ttp, true, "description")
@@ -56,7 +56,7 @@ func TestConvertToAttackFlow(t *testing.T) {
 	}
 
 	for _, s := range steps {
-		err := auditTrail.AddNewStep(s.ID, s.TTP)
+		err := auditTrail.AddNewStep(domain.ExecTTP{CommandImpl: domain.NewCmd(s.ID), TTP: s.TTP})
 		assert.NoError(t, err)
 		auditTrail.CompleteStep(s.ID, s.TTP, s.Success, "description")
 	}

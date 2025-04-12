@@ -304,11 +304,12 @@ func parseEffect(effect string, source domain.Entity, args ...any) (NewFacts, Re
 			podList, err := k8s.ParsePodList(res)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
+			} else {
+				for _, pod := range podList.Items {
+					entities = append(entities, domain.NewPodFromK8sSpec(pod))
+				}
 			}
 
-			for _, pod := range podList.Items {
-				entities = append(entities, domain.NewPodFromK8sSpec(pod))
-			}
 		}
 	}
 	return NewFacts{Entities: entities}, RemovedFacts{}
