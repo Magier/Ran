@@ -101,7 +101,11 @@
 		<Accordion collapsible>
 			{#each Array.from(armory) as [tactic, ttps]}
 				<hr class="hr" />
-				<Accordion.Item value={tactic} disabled={ttps.length === 0}>
+				<Accordion.Item
+					value={tactic}
+					classes="text-surface-contrast-200-800"
+					disabled={ttps.length === 0}
+				>
 					{#snippet lead()}
 						<Icon icon={iconMap[tactic]} width="24"></Icon>
 					{/snippet}

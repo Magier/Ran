@@ -99,6 +99,10 @@ export function getGraphStyle() {
 		return `rgb(${rgb})`;
 	}
 	const primary = css('color-primary-500')
+	// const textColor = css('white')
+	const textColor = 'white'
+	// const textColor = css('text-primary-contrast-200-800')
+	const selectedTextColor = css('white')
 	const surface = css('color-surface-500');
 
 
@@ -108,7 +112,7 @@ export function getGraphStyle() {
 			style: {
 				width: '30',
 				height: '30',
-				color: 'white',
+				color: textColor,
 				'background-color': surface,
 				'background-fit': 'cover',
 				'background-clip': 'none',
@@ -134,7 +138,7 @@ export function getGraphStyle() {
 			selector: 'node:selected',
 			style: {
 				'background-color': primary,
-				color: 'white',
+				color: selectedTextColor,
 				'border-color': primary,
 				'line-color': primary,
 				'target-arrow-color': primary,
@@ -291,7 +295,7 @@ export function getGraphStyle() {
 		{
 			selector: 'edge[name="controls"]',
 			style: {
-				color: primary,
+				color: textColor,
 				'line-color': primary,
 				'target-arrow-color': primary,
 				width: '2'

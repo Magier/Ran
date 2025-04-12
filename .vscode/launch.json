@@ -15,7 +15,7 @@
             ]
         },
         {
-            "name": "Go Ran",
+            "name": "Atomic: Get SA Token",
             "type": "go",
             "request": "launch",
             "mode": "debug",
@@ -23,12 +23,14 @@
             "console": "integratedTerminal",
             "args": [
                 "invoke",
-                "--godmode"
+                "Read Service Account Token",
+                "--target",
+                "ns/dev/pod/workstation-7885f9c4f8-bbhgp"
             ]
             // "program": "${fileDirname}"
         },
         {
-            "name": "Go Ran targeted",
+            "name": "Atomic Check Token Permissions",
             "type": "go",
             "request": "launch",
             "mode": "debug",
@@ -36,13 +38,28 @@
             "console": "integratedTerminal",
             "args": [
                 "invoke",
+                "Check Token permissions",
+                "--target",
+                "ns/dev/sa/developer"
+            ]
+            // "program": "${fileDirname}"
+        },
+        {
+            "name": "TUI: targeted",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/src",
+            "console": "integratedTerminal",
+            "args": [
+                "emulate",
                 "--target",
                 "default/kubelet-reader-pod"
             ]
             // "program": "${fileDirname}"
         },
         {
-            "name": "Go Ran emulate plan",
+            "name": "TUI: Ran emulate plan",
             "type": "go",
             "request": "launch",
             "mode": "debug",

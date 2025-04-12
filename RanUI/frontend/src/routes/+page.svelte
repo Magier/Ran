@@ -32,11 +32,8 @@
 		});
 		runtime.EventsOn('ttp-executed', (dataStr) => {
 			let data = JSON.parse(dataStr);
-			showToast('TTP completed', data.TTP.name, 'success');
-		});
-		runtime.EventsOn('ttp-failed', (dataStr) => {
-			let data = JSON.parse(dataStr);
-			showToast('TTP failed', data, 'error');
+			const toastType = data.Success ? 'success' : 'error';
+			showToast('TTP completed', data.TTP.name, toastType);
 		});
 		runtime.EventsOn('error', (dataStr) => {
 			// let data = JSON.parse(dataStr);

@@ -100,14 +100,10 @@ function connectBackend() {
 		console.log(a);
 	});
 	runtime.EventsOn("armory-loaded", (data) => {
-		console.info("Armory loaded")
 		let a = parseArmory(data)
 		armory.set(a);
 	});
 	runtime.EventsOn("facts-changed", (data) => {
-		// runtime.EventsOn("facts-changed", (data) => {
-		// const facts = JSON.parse(data);
-		// const [ns, es] = parseTopology(facts);
 		GetGraph().then((g: main.Graph) => {
 			console.log(g)
 			graph.set(g);

@@ -28,7 +28,7 @@
 
 	let cardStyle = $derived(
 		requirementsSatisfied
-			? 'card-hover bg-surface-200-700-token'
+			? 'card-hover bg-surface-200-800-token'
 			: 'card-disabled bg-surface-50-900-token'
 	);
 
@@ -87,17 +87,23 @@
 	{#if ttp.requires && Object.keys(ttp.requires).length > 0}
 		<footer class="card-footer py-2">
 			{#each Object.entries(ttp.requires) as [name, value]}
-				{#if value}
+				{#if !!value}
 					{#if name === 'AccessLevel'}
 						{#if Object.keys(value).length > 0}
 							<span class="chip variant-filled-surface mr-1">
 								{name}: {Object.keys(value).join(' or ')}
 							</span>
 						{/if}
+					{:else if name === 'OtherFields'}
+						{#each Object.entries(value) as [name, val]}
+							<span class="chip variant-filled-surface mr-1">
+								{name}: {JSON.stringify(val)}
+							</span>
+						{/each}
 					{:else}
 						<!-- adjust chip style if the condition is fullfilled or not -->
 						<span class="chip variant-filled-surface mr-1">
-							{name}: {value}
+							{name}: {JSON.stringify(value)}
 						</span>
 					{/if}
 				{/if}

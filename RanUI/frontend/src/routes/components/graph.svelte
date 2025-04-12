@@ -245,7 +245,7 @@
 	});
 </script>
 
-<div id="graph" class={className} bind:this={graphContainer}>
+<div id="graph" class={['bg-tertiary-surface-950-50', { className }]} bind:this={graphContainer}>
 	<EntityInfo {selectedNode} />
 </div>
 
@@ -254,6 +254,6 @@
 		width: 100%;
 		height: 1000px;
 		display: block;
-		background-color: #1a1a1a;
+		/* background-color: #1a1a1a; */
 	}
 </style>
