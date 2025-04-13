@@ -711,7 +711,8 @@ type ServiceAccountToken struct {
 type ServiceAccount struct {
 	K8sEntity
 	// kind: str = "ServiceAccount"
-	Token ServiceAccountToken
+	Token       ServiceAccountToken
+	SecretNames []string
 	// token: str | ServiceAccountToken | None = Field(None, exclude=True)
 	Can []RbacPermission
 }
@@ -722,6 +723,18 @@ func (sa ServiceAccount) GetId() string {
 
 func (sa ServiceAccount) GetKind() string {
 	return "ServiceAccount"
+}
+func NewServiceAccountFromK8sSpec(sa v1.ServiceAccount) ServiceAccount {
+	entity := NewK8sEntity(sa.ObjectMeta.Name, "ServiceAccount", sa.Namespace)
+
+	secretNames := make([]string, len(sa.Secrets))
+	for i, secret := range sa.Secrets {
+		secretNames[i] = secret.Name
+	}
+	return ServiceAccount{
+		K8sEntity:   entity,
+		SecretNames: secretNames,
+	}
 }
 
 type Session struct {

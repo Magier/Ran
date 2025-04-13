@@ -66,7 +66,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		}
 		for _, effect := range ttp.Effects {
 			new, removed := parseEffect(effect, cmd.Target, cmd.Results...)
-			c.UpdateFacts(new, removed)
+			return c.UpdateFacts(new, removed)
 		}
 	} else {
 		slog.Error(cmd.Reason)
@@ -301,12 +301,24 @@ func parseEffect(effect string, source domain.Entity, args ...any) (NewFacts, Re
 		}
 	case "k8s.podlist":
 		if res, ok := args[0].(string); ok {
-			podList, err := k8s.ParsePodList(res)
+			list, err := k8s.ParsePodList(res)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
 			} else {
-				for _, pod := range podList.Items {
-					entities = append(entities, domain.NewPodFromK8sSpec(pod))
+				for _, res := range list.Items {
+					entities = append(entities, domain.NewPodFromK8sSpec(res))
+				}
+			}
+
+		}
+	case "k8s.serviceaccountlist":
+		if res, ok := args[0].(string); ok {
+			list, err := k8s.ParseServiceAccountList(res)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
+			} else {
+				for _, res := range list.Items {
+					entities = append(entities, domain.NewServiceAccountFromK8sSpec(res))
 				}
 			}
 

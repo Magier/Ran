@@ -98,7 +98,7 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) {
 		defer wg.Done()
 
 		if e, ok := msg.(domain.TTPExecuted); ok {
-			if e.TTP.ID == ttpID {
+			if e.Success {
 				fmt.Printf("✅ TTP '%s' executed successfully\n", ttpID)
 				return nil, nil
 			}

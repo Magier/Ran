@@ -273,17 +273,29 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 			args[param.Name] = param.Default
 		}
 	}
-	execCmd.Variant.Command = c.groundCmdTemplate(execCmd.Variant.Command, args)
-
-	if execCmd.Variant.Execute.Code != "" {
-		// forward the TTP args to the code snippet
-		execCmd.Variant.Execute.Parameters = args
-	}
 
 	var target domain.Entity
 	target, ok := c.kb.GetEntity(targetId)
 	if ok {
 		execCmd.Target = target
+	}
+
+	// TODO: properly set the default values to the most plausible options
+	for key, arg := range args {
+		if arg == "${NS}" {
+			if ns, ok := target.(domain.Namespaced); ok {
+				args[key] = ns.GetNamespace()
+			} else {
+				slog.Warn(fmt.Sprintf("Target '%s' is not namespaced, can't set NS variable", target.GetName()))
+			}
+		}
+	}
+
+	execCmd.Variant.Command = c.groundCmdTemplate(execCmd.Variant.Command, args)
+
+	if execCmd.Variant.Execute.Code != "" {
+		// forward the TTP args to the code snippet
+		execCmd.Variant.Execute.Parameters = args
 	}
 
 	if isActionOnRemoteTarget(execCmd.TTP, execCmd.Variant) {
