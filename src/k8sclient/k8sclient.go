@@ -342,10 +342,20 @@ func DeployPod(ctx context.Context, client K8sClient, podName, ns string, cfg do
 
 // ParsePodList converts a JSON string containing a PodList into a v1.PodList object.
 func ParsePodList(jsonStr string) (*v1.PodList, error) {
-	var podList v1.PodList
-	err := json.Unmarshal([]byte(jsonStr), &podList)
+	var list v1.PodList
+	err := json.Unmarshal([]byte(jsonStr), &list)
 	if err != nil {
 		return nil, err
 	}
-	return &podList, nil
+	return &list, nil
+}
+
+// ParseServiceAccountList converts a JSON string containing a PodList into a v1.PodList object.
+func ParseServiceAccountList(jsonStr string) (*v1.ServiceAccountList, error) {
+	var list v1.ServiceAccountList
+	err := json.Unmarshal([]byte(jsonStr), &list)
+	if err != nil {
+		return nil, err
+	}
+	return &list, nil
 }
