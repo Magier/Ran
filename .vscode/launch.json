@@ -15,6 +15,21 @@
             ]
         },
         {
+            "name": "Atomic: Get SAs",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/src",
+            "console": "integratedTerminal",
+            "args": [
+                "invoke",
+                "Get ServiceAccounts via API Server",
+                "--target",
+                "ns/dev/pod/workstation-7885f9c4f8-bbhgp"
+            ]
+            // "program": "${fileDirname}"
+        },
+        {
             "name": "Atomic: Get SA Token",
             "type": "go",
             "request": "launch",
