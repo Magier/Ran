@@ -38,8 +38,15 @@ type C2Manager struct {
 
 func InitC2Manager(mb bus.MessageBus, sliverConfigPath string) C2Manager {
 	c2Clients := map[string]C2Client{
-		BuiltInC2:  NewBuiltInServer(),
-		SliverKind: CreateSliverClient(sliverConfigPath),
+		BuiltInC2: NewBuiltInServer(),
+	}
+
+	if sliverConfigPath != "" {
+		if sliverClient, err := CreateSliverClient(sliverConfigPath); err != nil {
+			slog.Warn(err.Error())
+		} else {
+			c2Clients[SliverKind] = sliverClient
+		}
 	}
 
 	manager := C2Manager{
