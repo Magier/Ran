@@ -28,7 +28,7 @@
 </AppBar>
 
 <ToastProvider>
-	<main>
+	<main class="h-full">
 		{@render children()}
 	</main>
 </ToastProvider>
