@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net"
 	"slices"
@@ -33,18 +32,18 @@ type SliverClient struct {
 	isReady     bool
 }
 
-func CreateSliverClient(configPath string) SliverClient {
+func CreateSliverClient(configPath string) (SliverClient, error) {
 	// load the client configuration from the filesystem
 	config, err := assets.ReadConfig(configPath)
 	if err != nil {
-		log.Fatal(err)
+		return SliverClient{}, fmt.Errorf("Could not load sliver config: %w", err)
 	}
 	return SliverClient{
 		Name:        SliverKind,
 		config:      config,
 		cmdChannel:  make(chan domain.Command, 1),
 		eventStream: make(chan domain.Event, 1),
-	}
+	}, nil
 }
 
 func (c SliverClient) Connect(ctx context.Context) error {
