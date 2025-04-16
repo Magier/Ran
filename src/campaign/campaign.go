@@ -285,8 +285,10 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 		if arg == "${NS}" {
 			if ns, ok := target.(domain.Namespaced); ok {
 				args[key] = ns.GetNamespace()
-			} else {
+			} else if target != nil {
 				slog.Warn(fmt.Sprintf("Target '%s' is not namespaced, can't set NS variable", target.GetName()))
+			} else {
+				slog.Warn("No valid target, can't get its NS variable")
 			}
 		}
 	}
