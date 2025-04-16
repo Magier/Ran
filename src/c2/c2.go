@@ -186,15 +186,15 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Client
 	}, nil
 }
 
-func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant, _ map[string]C2Client) ([]any, error) {
+func execLocally(ctx context.Context, exec domain.ExecTTP, variant domain.CmdVariant, _ map[string]C2Client) ([]any, error) {
 	var err error
-	if cmd.Execute.Code != "" {
-		err = executeCode(ctx, cmd.Command, cmd.Execute)
+	if variant.Execute.Code != "" {
+		err = executeCode(ctx, variant.Command, variant.Execute)
 		if err != nil {
 			slog.Warn(err.Error())
 		}
-	} else if cmd.Command != "" {
-		if cmd.Key == "kubectl" {
+	} else if variant.Command != "" {
+		if variant.Key == "kubectl" && strings.Contains(variant.Command, "exec") {
 			// TODO use the custom k8sclient to execute this -> generalize kubectl exec
 			client, err := k8s.NewK8sClient("")
 			if err != nil {
@@ -236,7 +236,7 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant
 			var _ = status
 			return []any{podName, ns, podCfg}, err
 		} else {
-			slog.Warn(fmt.Sprintf("Unclear how to locally execute variant '%s'", cmd.Command))
+			slog.Warn(fmt.Sprintf("Unclear how to locally execute variant '%s'", variant.Command))
 		}
 	} else {
 		slog.Warn("Can't Exec TTP: no channel defined and no code provided!")

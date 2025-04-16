@@ -39,31 +39,53 @@ Using Ran, practicioners can explore the threats on their own environments and r
 Ran can export these tracked attacker steps into an [AttackFlow](https://ctid.mitre.org/projects/attack-flow), which is based on STIX 2. Some of the captured steps have observables linked, which can inform the managed detection rules.
 
 
-## Architecture
+## Concept
 
 Ran consists of 2 major components:
-- C2: a classic command & control component executing given actions and manages implants, etc.
-- Planner: component deliberating what actions to execute and in what order. Maturity levels:
-    1) No planner: a human operator 
-    2) Imperative Plan: pre-defined plan, that will be executed (i.e. a runbook)
-    4) Deterministic AI: 
-        - Behavior Trees
-        - Classical planning
-        - Hierarchical Task Network (HTN)
-        - Goal-Oriented Action Planning (GOAP)
-    5) Probabilistic AI
-        - (RL, LLM, Active Inference)
+1) **Actuator**: responsible for executing or delegating the actions to C2 a framework
+2) **Planner**/**Reasoner**: responsible for deciding what actions to execute and in what order
+
+### Actuator
+The actuator is responsible for executing the actions. It can be a simple command line tool, or a more complex C2 framework (e.g. Sliver, Caldera, etc.). The actuator is responsible for executing the actions and reporting the results back to the planner.
+The actuator is also responsible for tracking the executed actions and their results. This information is used to create an audit trail of the executed actions.
 
 
-This approach is [📄 Automated Adversary Emulation: A Case for Planning and Acting with Unknowns](https://www.mitre.org/sites/default/files/2021-11/prs-18-0944-1-automated-adversary-emulation-planning-acting.pdf)
+### Planner/Reasoner
+
+There are various approaches to planning and reasoning about actions. As this is an educational project, various approaches will explored:
+
+1) No planner: the human operator decides on single tasks (classic atomic red teaming tool)
+2) Imperative Plan: execute pre-defined plan/runbook (e.g. Mitre's [Attack Flow](https://ctid.mitre.org/projects/attack-flow))
+3) "Classic" AI: commonly used in games and robotics
+    - Behavior Trees
+    - Classical planning
+    - Hierarchical Task Network (HTN)
+    - Goal-Oriented Action Planning (GOAP)
+5) Modern AI: Reinforcement learning, Active Inference, Hybrid systems
+
+_Note: the evolutions are heavily inspired by book [📖 Artificial Intelligence: A Modern Approach](https://aima.cs.berkeley.edu/)_
+
+
+The case for planning and acting (especially in unknown environments) is well motivated in Mitre's [📄 Automated Adversary Emulation: A Case for Planning and Acting with Unknowns](https://www.mitre.org/sites/default/files/2021-11/prs-18-0944-1-automated-adversary-emulation-planning-acting.pdf) paper
 
 
 
 
-## Setup
+## Prerequisites
 
-- Install Sliver
-    - generate a operator configuration, so Ran can act as a client
+(Optional) If [Sliver](https://github.com/BishopFox/sliver) is used as a C2 framework, Ran will act as a client. Therefore, follow the [instructions](https://sliver.sh/docs?name=Multi-player+Mode) to create a new _operator_ configuration. Ran currently expects this configuration to be called `sliver_cfg.json` in the same directory as the binary. The sliver server can either run locally or on a remote system.
+
+
+## Usage
+
+_TODO: provide clear instructions_
+
+### Atomic Testing Tool
+
+
+### Interactive mode
+
+---
 
 
 ## Similar Projects
