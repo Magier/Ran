@@ -18,6 +18,10 @@ parameters:
     type: string
     default: sleep infinity
     description: the command executed when starting the container
+  ServiceAccount:
+    type: string
+    default: default
+    description: the service account used by the workload
   HostIPC:
     type: bool
     description: is the IPC namespace shared with the host
