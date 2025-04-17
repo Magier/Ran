@@ -14,6 +14,7 @@
 		Value: string;
 		Description: string;
 		Type: string;
+		IsTrue: boolean;
 	}
 
 	// the args will be the final arguments used when executing the TTP
@@ -24,10 +25,12 @@
 				return {
 					Name: param.Name,
 					Value: param.Default,
+					IsTrue: param.Default === 'true',
 					Description: param.Description,
-					Type: 'text'
+					Type: param.Type
 				};
 			}) || [];
+		console.log('args', args);
 	});
 
 	function onInternalExecute() {
@@ -68,12 +71,27 @@
 					{#each args as arg}
 						<div class="input-group mt-2 grid-cols-[auto_1fr_auto]">
 							<div class="ig-cell preset-tonal">{arg.Name}</div>
-							<input
+							{#if arg.Type === 'bool'}
+								<input
+									class="ig-input"
+									bind:checked={arg.IsTrue}
+									type="checkbox"
+									placeholder={arg.Description}
+								/>
+							{:else}
+								<input
+									class="ig-input"
+									bind:value={arg.Value}
+									type="text"
+									placeholder={arg.Description}
+								/>
+							{/if}
+							<!-- <input
 								class="ig-input"
 								bind:value={arg.Value}
 								type={arg.Type}
 								placeholder={arg.Description}
-							/>
+							/> -->
 						</div>
 					{/each}
 				</fieldset>
