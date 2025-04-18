@@ -33,7 +33,10 @@
 		runtime.EventsOn('ttp-executed', (dataStr) => {
 			let data = JSON.parse(dataStr);
 			const toastType = data.Success ? 'success' : 'error';
-			showToast('TTP completed', data.TTP.name, toastType);
+			const title = data.Success
+				? `TTP ${data.TTP.name} executed successfully`
+				: `TTP ${data.TTP.name} failed`;
+			showToast(title, data.TTP.name, toastType);
 		});
 		runtime.EventsOn('error', (dataStr) => {
 			// let data = JSON.parse(dataStr);

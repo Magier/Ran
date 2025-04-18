@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { GetTrace } from '$lib/wailsjs/go/main/App';
 	import { main } from '$lib/wailsjs/go/models';
+	import AttackStepDetails from '$lib/components/attack_step_details.svelte';
 	import {
 		SvelteFlow,
 		Position,
@@ -14,6 +15,7 @@
 	import dagre from '@dagrejs/dagre';
 	import { writable } from 'svelte/store';
 	import '@xyflow/svelte/dist/style.css';
+	import { Modal } from '@skeletonlabs/skeleton-svelte';
 
 	const dagreGraph = new dagre.graphlib.Graph();
 	dagreGraph.setDefaultEdgeLabel(() => ({}));
@@ -25,12 +27,13 @@
 
 	const nodeWidth = 172;
 	const nodeHeight = 36;
+	let selectedTTP: main.Node | null = $state(null);
 
 	function convertNode(node: main.Node): Node {
 		return {
 			id: node.id,
 			type: 'default',
-			data: { label: node.name },
+			data: { label: node.name, ttp: node },
 			position: { x: 0, y: 0 } // will be replaced by the layout algorithm
 		};
 	}
@@ -77,6 +80,7 @@
 
 	GetTrace()
 		.then((result: main.Graph) => {
+			console.log('Graph:', result);
 			const { nodes: ns, edges: es } = result;
 			const laidOutElements = layOutElements(ns.map(convertNode), es.map(convertEdge), 'TB');
 
@@ -102,7 +106,13 @@
 		{edges}
 		fitView
 		colorMode="dark"
-		on:nodeclick={(event) => console.log('on node click', event.detail.node)}
+		on:nodeclick={(event) => {
+			selectedTTP = event.detail.node.data.ttp as main.Node;
+		}}
+		on:paneclick={(event) => {
+			selectedTTP = null;
+		}}
+		on:selectionclick={(event) => console.log('on selection click', event, event.detail)}
 		minZoom={0.1}
 		maxZoom={2.5}
 	>
@@ -112,5 +122,23 @@
 	</SvelteFlow>
 </div>
 
-<style>
-</style>
+<Modal
+	open={selectedTTP !== null}
+	onOpenChange={(e) => {
+		if (!e.open) {
+			selectedTTP = null;
+		}
+	}}
+	triggerBase="btn preset-tonal"
+	contentBase="bg-surface-100-900 p-4 space-y-4 shadow-xl w-[480px] h-screen"
+	positionerJustify="justify-end"
+	positionerAlign=""
+	positionerPadding=""
+	transitionsPositionerIn={{ x: 480, duration: 200 }}
+	transitionsPositionerOut={{ x: 480, duration: 200 }}
+>
+	<!-- {#snippet trigger()}Open Drawer{/snippet} -->
+	{#snippet content()}
+		<AttackStepDetails ttp={selectedTTP} />
+	{/snippet}
+</Modal>

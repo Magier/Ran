@@ -18,9 +18,8 @@
 	}
 
 	// the args will be the final arguments used when executing the TTP
-	let args: Arg[] = $state([]);
-	$effect(() => {
-		args =
+	let args: Arg[] = $derived.by(() => {
+		return (
 			ttp.params?.map((param: Param) => {
 				return {
 					Name: param.Name,
@@ -29,8 +28,8 @@
 					Description: param.Description,
 					Type: param.Type
 				};
-			}) || [];
-		console.log('args', args);
+			}) || []
+		);
 	});
 
 	function onInternalExecute() {

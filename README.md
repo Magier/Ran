@@ -138,14 +138,34 @@ Ran is heavily inspired by similar tools in this domain, such as:
 
 ## Roadmap:
 
+### MVP
+- [ ] Support K8s-related TTPs of [Leonidas](https://github.com/WithSecureLabs/leonidas)
+    - [ ] Document comparison
+- [ ] Support K8s-related TTPs of [Stratus Red Team](https://stratus-red-team.cloud/attack-techniques/kubernetes/)
+    - [ ] Document comparison
 - [x] Track the executed TTPs (audit trail)
-- [x] Export trail of executed TTP as [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/)
+    - [ ] show trace in UI
+    - [x] Export trail of executed TTP as [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/)
+
+### 2nd Iteration
 - [ ] option to provide [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/) as a plan
+- [ ] Support sliver as a C2 framework 
+    - add respective CmdVariants where necessary
+- [ ] Derive produced Observable from the TTP execution and link it in the Attack Flow
 - [ ] [MCP](https://www.anthropic.com/news/model-context-protocol) support for "Vibe kiddies" 🤖
-- [ ] Derive produced observable from the TTP execution and link it in the Attack Flow
+- [ ] (Optional) Generate Sigma from STIX Observables?
 - [ ] Support hierarchical TTPs: they use other TTPs as building blocks (akin to HTN)
     - e.g., `Install implant` could be -> `generate implant` + `download binary` + `execute binary`
-- [ ] create API server for the execution layer
+
+### 3rd Itration
+- [ ] Map TTPs to [D3FEND](https://d3fend.mitre.org/)
+- [ ] Simple Planning for a explicit goal
+- [ ] Explore generation of attack trees
+
+### 4th Iteration: First basic autonomous emulation
+- [ ] Behavior Tree execution
+- [ ] Construct behavior tree from observed actions (trace -> Process Tree -> Bhavior Tree) 
+
 
 ## References
 
