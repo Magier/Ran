@@ -120,7 +120,7 @@ func (c BuiltInC2Server) handleCommand(msg domain.Command) (domain.Message, erro
 				c.eventStream <- domain.TTPExecuted{
 					ID:      msg.GetID(),
 					Success: false,
-					Reason:  err.Error(),
+					Results: []string{err.Error()},
 				}
 			}
 		}()
@@ -188,7 +188,7 @@ func (c BuiltInC2Server) startListener(ctx context.Context, cmd domain.StartList
 					case string:
 						// TODO: fix this
 						c.eventStream <- domain.TTPExecuted{
-							Results: []any{r},
+							Results: []string{r},
 						}
 					case domain.Event:
 						c.eventStream <- r

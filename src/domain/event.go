@@ -181,10 +181,9 @@ type TTPExecuted struct {
 	ID         string
 	TTP        TTP
 	Success    bool
-	Reason     string
 	Target     Entity
 	ResultType Message
-	Results    []any
+	Results    []string
 }
 
 func (ttp TTPExecuted) String() string {
