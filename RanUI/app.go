@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 
+	campaign "github.com/Magier/Ran/campaign"
 	ran "github.com/Magier/Ran/core"
 	domain "github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
@@ -50,6 +51,13 @@ type Graph struct {
 	Nodes      []Node `json:"nodes"`
 	Edges      []Edge `json:"edges"`
 	RootNodeID string `json:"rootNodeId"`
+}
+
+type AttackStep = campaign.AttackStep
+type AttackFlow struct {
+	Steps      []AttackStep `json:"steps"`
+	Edges      []Edge       `json:"edges"`
+	RootNodeID string       `json:"rootNodeId"`
 }
 
 type ActionArgs map[string]string
@@ -282,38 +290,31 @@ func (a *App) IsActionSatisfied(actionId, targetId string) (bool, error) {
 	return isSatisfied, nil
 }
 
-func (a *App) GetTrace() Graph {
-
-	nodes := make([]Node, 0)
+func (a *App) GetTrace() AttackFlow {
+	steps := make([]AttackStep, 0)
 	edges := make([]Edge, 0)
 
 	trail := a.ran.Campaign.GetAuditTrail()
 
 	var srcId string
-
 	for _, step := range trail.GetSteps() {
-		node := Node{
-			ID:   step.ID,
-			Name: step.TTP.Name,
-		}
-		nodes = append(nodes, node)
+		steps = append(steps, step)
 
 		if srcId != "" {
 			edges = append(edges, Edge{
-				ID:       fmt.Sprintf("%s->%s", srcId, node.ID),
+				ID:       fmt.Sprintf("%s->%s", srcId, step.ID),
 				Name:     "",
 				SourceID: srcId,
-				TargetID: node.ID,
+				TargetID: step.ID,
 			})
 		}
-		srcId = node.ID
+		srcId = step.ID
 	}
 
-	graph := Graph{
-		Nodes: nodes,
+	return AttackFlow{
+		Steps: steps,
 		Edges: edges,
 	}
-	return graph
 }
 
 func (a *App) GetRunningPods() []string {

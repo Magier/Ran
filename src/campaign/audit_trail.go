@@ -15,7 +15,7 @@ type AttackStep struct {
 	TTP         domain.TTP
 	Success     bool
 	Command     string
-	Description string
+	Results     []string
 	StartAt     time.Time
 	Target      domain.Entity
 	CompletedAt time.Time
@@ -53,13 +53,13 @@ func (a *AuditTrail) popOpenStep(id string) (AttackStep, bool) {
 	return AttackStep{}, false
 }
 
-func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool, descr string) {
+func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool, results []string) {
 	step, ok := a.popOpenStep(id)
 
 	if ok {
 		step.CompletedAt = time.Now()
 		step.Success = success
-		step.Description = descr
+		step.Results = results
 		// # TODO: enrich observables depending on the TTP
 		// step.Observables = append(step.Observables, )
 		a.steps = append(a.steps, step)
@@ -91,7 +91,7 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 		if len(technique) > 0 {
 			technique = s.TTP.Techniques[0]
 		}
-		action, observables = attackflow.NewAttackAction(s.TTP.Name, s.Description, string(s.TTP.Tactic), technique, s.Command, s.StartAt, s.CompletedAt)
+		action, observables = attackflow.NewAttackAction(s.TTP.Name, s.TTP.Description, string(s.TTP.Tactic), technique, s.Command, s.StartAt, s.CompletedAt)
 		// TODO link the observable
 		obj = obj.Append(action)
 		bundle.Objects = bundle.Objects.Append(observables...)

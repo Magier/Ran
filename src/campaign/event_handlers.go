@@ -45,14 +45,16 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	cmd := msg.(domain.TTPExecuted)
 	ttp := cmd.TTP
 
-	var description string
-	if cmd.Success {
-		description = cmd.TTP.Description
-	} else {
-		description = cmd.Reason
-	}
+	var results []string = cmd.Results
+	// if cmd.Success {
+	// 	for _, r := range cmd.Results {
+	// 		results = append(results, s)
+	// 	}
+	// } else {
+	// 	results = []string{cmd.Reason}
+	// }
 
-	c.trail.CompleteStep(cmd.ID, cmd.TTP, cmd.Success, description)
+	c.trail.CompleteStep(cmd.ID, cmd.TTP, cmd.Success, results)
 
 	if cmd.Success {
 		// post processing will yield the final message
@@ -69,7 +71,13 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 			return c.UpdateFacts(new, removed)
 		}
 	} else {
-		slog.Error(cmd.Reason)
+		var msg string
+		if len(cmd.Results) > 0 {
+			msg = cmd.Results[0]
+		} else {
+			msg = "Unknown error"
+		}
+		slog.Error(msg)
 	}
 	return nil, nil
 }
@@ -225,7 +233,7 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 	ev := msg.(c2.ListenerReady)
 	listenerID := ev.Name
 
-	c.trail.CompleteStep(ev.CmdId, domain.TTP{}, true, fmt.Sprintf("Listener on C2 '%s' port %d ready", ev.C2Server, ev.Port))
+	c.trail.CompleteStep(ev.CmdId, domain.TTP{}, true, []string{fmt.Sprintf("Listener on C2 '%s' port %d ready", ev.C2Server, ev.Port)})
 	c2, ok := c.GetC2(ev.C2Server)
 	if !ok {
 		return nil, fmt.Errorf("No C2 '%s' found", ev.C2Server)
@@ -274,7 +282,7 @@ func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (d
 	return nil, nil
 }
 
-func parseEffect(effect string, source domain.Entity, args ...any) (NewFacts, RemovedFacts) {
+func parseEffect(effect string, source domain.Entity, args ...string) (NewFacts, RemovedFacts) {
 	if len(args) == 0 {
 		slog.Warn("Can't parse effect %s because there are no arguments")
 		return NewFacts{}, RemovedFacts{}
@@ -286,42 +294,37 @@ func parseEffect(effect string, source domain.Entity, args ...any) (NewFacts, Re
 	case "target.ip":
 		if pod, ok := source.(domain.Pod); ok {
 			ips := []net.IPAddr{}
-			if res, ok := args[0].(string); ok {
-				for _, ip := range strings.Split(res, " ") {
-					parsedIP := net.ParseIP(ip)
-					if parsedIP == nil {
-						slog.Error("Failed to parse IP")
-						break
-					}
-					ips = append(ips, net.IPAddr{IP: parsedIP})
+			res := args[0]
+			for _, ip := range strings.Split(res, " ") {
+				parsedIP := net.ParseIP(ip)
+				if parsedIP == nil {
+					slog.Error("Failed to parse IP")
+					break
 				}
+				ips = append(ips, net.IPAddr{IP: parsedIP})
 			}
 			pod.IPs = ips
 			entities = append(entities, pod)
 		}
 	case "k8s.podlist":
-		if res, ok := args[0].(string); ok {
-			list, err := k8s.ParsePodList(res)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
-			} else {
-				for _, res := range list.Items {
-					entities = append(entities, domain.NewPodFromK8sSpec(res))
-				}
+		res := args[0]
+		list, err := k8s.ParsePodList(res)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
+		} else {
+			for _, res := range list.Items {
+				entities = append(entities, domain.NewPodFromK8sSpec(res))
 			}
-
 		}
 	case "k8s.serviceaccountlist":
-		if res, ok := args[0].(string); ok {
-			list, err := k8s.ParseServiceAccountList(res)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
-			} else {
-				for _, res := range list.Items {
-					entities = append(entities, domain.NewServiceAccountFromK8sSpec(res))
-				}
+		res := args[0]
+		list, err := k8s.ParseServiceAccountList(res)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
+		} else {
+			for _, res := range list.Items {
+				entities = append(entities, domain.NewServiceAccountFromK8sSpec(res))
 			}
-
 		}
 	}
 	return NewFacts{Entities: entities}, RemovedFacts{}

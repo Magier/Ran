@@ -8,7 +8,7 @@ export function GetGraph():Promise<main.Graph>;
 
 export function GetRunningPods():Promise<Array<string>>;
 
-export function GetTrace():Promise<main.Graph>;
+export function GetTrace():Promise<main.AttackFlow>;
 
 export function IsActionSatisfied(arg1:string,arg2:string):Promise<boolean>;
 

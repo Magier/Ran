@@ -102,7 +102,11 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) {
 				fmt.Printf("✅ TTP '%s' executed successfully\n", ttpID)
 				return nil, nil
 			}
-			fmt.Printf("❌ TTP '%s' failed to execute: %s\n", ttpID, e.Reason)
+			if len(e.Results) > 0 {
+				fmt.Printf("❌ TTP '%s' failed to execute: %s\n", ttpID, e.Results[0])
+			} else {
+				fmt.Printf("❌ TTP '%s' failed to execute (no results)\n", ttpID)
+			}
 		}
 		return nil, nil
 	})

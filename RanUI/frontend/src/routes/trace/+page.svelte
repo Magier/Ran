@@ -27,13 +27,13 @@
 
 	const nodeWidth = 172;
 	const nodeHeight = 36;
-	let selectedTTP: main.Node | null = $state(null);
+	let selectedStep: campaign.AttackStep | null = $state(null);
 
-	function convertNode(node: main.Node): Node {
+	function convertStep(step: campaign.AttackStep): Node {
 		return {
-			id: node.id,
+			id: step.ID,
 			type: 'default',
-			data: { label: node.name, ttp: node },
+			data: { label: step.TTP.name, step: step },
 			position: { x: 0, y: 0 } // will be replaced by the layout algorithm
 		};
 	}
@@ -79,10 +79,10 @@
 	}
 
 	GetTrace()
-		.then((result: main.Graph) => {
+		.then((result: main.AttackFlow) => {
 			console.log('Graph:', result);
-			const { nodes: ns, edges: es } = result;
-			const laidOutElements = layOutElements(ns.map(convertNode), es.map(convertEdge), 'TB');
+			const { steps, edges: es } = result;
+			const laidOutElements = layOutElements(steps.map(convertStep), es.map(convertEdge), 'TB');
 
 			nodes.set(laidOutElements.nodes);
 			edges.set(laidOutElements.edges);
@@ -107,10 +107,10 @@
 		fitView
 		colorMode="dark"
 		on:nodeclick={(event) => {
-			selectedTTP = event.detail.node.data.ttp as main.Node;
+			selectedStep = event.detail.node.data.step as campaign.AttackStep;
 		}}
 		on:paneclick={(event) => {
-			selectedTTP = null;
+			selectedStep = null;
 		}}
 		on:selectionclick={(event) => console.log('on selection click', event, event.detail)}
 		minZoom={0.1}
@@ -123,22 +123,25 @@
 </div>
 
 <Modal
-	open={selectedTTP !== null}
+	open={selectedStep !== null}
 	onOpenChange={(e) => {
+		console.log('Modal open:', e.open);
 		if (!e.open) {
-			selectedTTP = null;
+			selectedStep = null;
 		}
 	}}
-	triggerBase="btn preset-tonal"
 	contentBase="bg-surface-100-900 p-4 space-y-4 shadow-xl w-[480px] h-screen"
 	positionerJustify="justify-end"
 	positionerAlign=""
 	positionerPadding=""
-	transitionsPositionerIn={{ x: 480, duration: 200 }}
+	transitionsPositionerIn={{
+		x: 480,
+		duration: 200
+	}}
 	transitionsPositionerOut={{ x: 480, duration: 200 }}
 >
 	<!-- {#snippet trigger()}Open Drawer{/snippet} -->
 	{#snippet content()}
-		<AttackStepDetails ttp={selectedTTP} />
+		<AttackStepDetails step={selectedStep!} />
 	{/snippet}
 </Modal>

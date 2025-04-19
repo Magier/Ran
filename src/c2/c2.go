@@ -3,6 +3,7 @@ package c2
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -151,7 +152,7 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Client
 	// check technique to execute CMD -> kubectl exec uses API
 	// or shell listener?
 	var err error
-	results := make([]any, 0)
+	results := make([]string, 0)
 
 	switch cmd := exec.CommandMsg.(type) {
 	case domain.StartListener:
@@ -171,22 +172,20 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Client
 		results, err = execRemotely(ctx, exec, exec.Variant, c2Clients)
 	}
 
-	var failureReason string
 	if err != nil {
-		failureReason = err.Error()
+		results = append(results, err.Error())
 	}
 
 	return domain.TTPExecuted{
 		ID:      exec.ID,
 		TTP:     exec.TTP,
 		Success: err == nil,
-		Reason:  failureReason,
 		Target:  exec.Target,
 		Results: results,
 	}, nil
 }
 
-func execLocally(ctx context.Context, exec domain.ExecTTP, variant domain.CmdVariant, _ map[string]C2Client) ([]any, error) {
+func execLocally(ctx context.Context, exec domain.ExecTTP, variant domain.CmdVariant, _ map[string]C2Client) ([]string, error) {
 	var err error
 	if variant.Execute.Code != "" {
 		err = executeCode(ctx, variant.Command, variant.Execute)
@@ -234,32 +233,38 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, variant domain.CmdVar
 			}
 			status, err := k8s.DeployPod(ctx, client, podName, ns, podCfg)
 			var _ = status
-			return []any{podName, ns, podCfg}, err
+
+			podCfgJson, err := json.Marshal(podCfg)
+			slog.Warn("‼️ Marshalled PodConfig JSON to str; please check it!!: ", string(podCfgJson))
+			return []string{podName, ns, string(podCfgJson)}, err
 		} else {
-			slog.Warn(fmt.Sprintf("Unclear how to locally execute variant '%s'", variant.Command))
+			return nil, fmt.Errorf("Unclear how to locally execute variant '%s'", variant.Command)
 		}
 	} else {
-		slog.Warn("Can't Exec TTP: no channel defined and no code provided!")
+		return nil, errors.New("Can't Exec TTP: no channel defined and no code provided!")
 	}
 	return nil, err
 }
 
 // execRemotely uses a C2 channel to execute the command on the target system
-func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant, c2Clients map[string]C2Client) ([]any, error) {
+func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant, c2Clients map[string]C2Client) ([]string, error) {
 	target := exec.C2Channel.GetTarget()
 	if target == nil {
 		return nil, fmt.Errorf("Could not exec command: No valid target selected!")
 	}
 
 	var err error
-	results := make([]any, 0)
+	results := make([]string, 0)
 
 	switch ch := exec.C2Channel.(type) {
 	case domain.ImplantC2Channel:
 		if c2, ok := c2Clients[exec.C2Channel.GetKind()]; ok {
-			var res any
-			res, err = c2.Execute(exec)
-			results = append(results, res)
+			msg, err := c2.Execute(exec)
+			if err != nil {
+				results = append(results, err.Error())
+			} else {
+				results = append(results, msg.String())
+			}
 		}
 	case domain.PodExecC2Channel:
 		var stdout, stderr string
@@ -276,7 +281,7 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVarian
 			// }
 			// return msg, err
 		} else {
-			results = []any{stdout, stderr}
+			results = []string{stdout, stderr}
 		}
 	default:
 		slog.Warn(fmt.Sprintf("Can't Exec TTP: unclear how to handle channel %v", ch))
