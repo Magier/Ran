@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { GetTrace } from '$lib/wailsjs/go/main/App';
-	import { main } from '$lib/wailsjs/go/models';
+	import { campaign, main } from '$lib/wailsjs/go/models';
 	import AttackStepDetails from '$lib/components/attack_step_details.svelte';
+	import ActionNode from '$lib/components/flow/attack_node.svelte';
 	import {
 		SvelteFlow,
 		Position,
@@ -10,7 +11,8 @@
 		BackgroundVariant,
 		MiniMap,
 		type Node,
-		type Edge
+		type Edge,
+		type NodeTypes
 	} from '@xyflow/svelte';
 	import dagre from '@dagrejs/dagre';
 	import { writable } from 'svelte/store';
@@ -23,6 +25,10 @@
 	let nodes = writable<Node[]>([]);
 	let edges = writable<Edge[]>([]);
 
+	const nodeTypes: NodeTypes = {
+		actionNode: ActionNode
+	};
+
 	// const snapGrid = [25, 25];
 
 	const nodeWidth = 172;
@@ -32,7 +38,7 @@
 	function convertStep(step: campaign.AttackStep): Node {
 		return {
 			id: step.ID,
-			type: 'default',
+			type: 'actionNode',
 			data: { label: step.TTP.name, step: step },
 			position: { x: 0, y: 0 } // will be replaced by the layout algorithm
 		};
@@ -101,15 +107,17 @@
 	<!-- <Graph bind:selectedNodeId /> -->
 
 	<SvelteFlow
-		id="testing"
 		{nodes}
 		{edges}
+		{nodeTypes}
 		fitView
 		colorMode="dark"
 		on:nodeclick={(event) => {
+			console.log('on node click', event, event.detail);
 			selectedStep = event.detail.node.data.step as campaign.AttackStep;
 		}}
 		on:paneclick={(event) => {
+			console.log('on pane click', event, event.detail);
 			selectedStep = null;
 		}}
 		on:selectionclick={(event) => console.log('on selection click', event, event.detail)}
@@ -145,3 +153,9 @@
 		<AttackStepDetails step={selectedStep!} />
 	{/snippet}
 </Modal>
+
+<style>
+	:global(.svelte-flow__node) {
+		text-align: center;
+	}
+</style>

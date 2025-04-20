@@ -32,12 +32,21 @@
 			<div class={['badge', badgeStyle]}>{status}</div>
 		</div>
 
-		<div class="mt-4">
-			<span class="label">Result</span>
+		<div class="mt-4 w-full">
+			<span class="label mb-1 flex-none">Result:</span>
 			{#each step.Results as result}
-				<code class="">{result}</code>
+				<samp
+					class="min-h-32 w-full overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all"
+					>{result}</samp
+				>
 			{/each}
 		</div>
 	</article>
 	<footer></footer>
 {/if}
+
+<style>
+	.code {
+		overflow-wrap: anywhere;
+	}
+</style>
