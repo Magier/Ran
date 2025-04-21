@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -284,13 +285,23 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 	for key, arg := range args {
 		if arg == "${NS}" {
 			if ns, ok := target.(domain.Namespaced); ok {
-				args[key] = ns.GetNamespace()
+				arg = ns.GetNamespace()
 			} else if target != nil {
 				slog.Warn(fmt.Sprintf("Target '%s' is not namespaced, can't set NS variable", target.GetName()))
 			} else {
 				slog.Warn("No valid target, can't get its NS variable")
 			}
+		} else if strings.Contains(arg, "${POD_NAME}") {
+			targetName := target.GetName()
+			arg = strings.Replace(arg, "${POD_NAME}", targetName, -1)
 		}
+
+		if strings.Contains(arg, "${RANDOM}") {
+			randomNum := strconv.Itoa(rand.Intn(1e5))
+			arg = strings.Replace(arg, "${RANDOM}", randomNum, -1)
+		}
+		// persist all the changes made to the arg
+		args[key] = arg
 	}
 
 	execCmd.Variant.Command = c.groundCmdTemplate(execCmd.Variant.Command, args)
