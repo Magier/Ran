@@ -97,32 +97,7 @@
 			ActionSelected(ttp.id, selectedNodeId, {});
 		}
 
-		// if (ttp.name === 'Deploy Container') {
-		// 	const modalComponent: ModalComponent = { ref: DeployPodModal };
-		// 	const modal: ModalSettings = {
-		// 		type: 'component',
-		// 		component: modalComponent,
-		// 		// Data
-		// 		title: 'Exploit Application',
-		// 		valueAttr: ttp.params,
-		// 		response: (params: boolean) => {
-		// 			if (params) {
-		// 				debugger;
-		// 				ActionSelected(ttp.id, selectedNodeId, {});
-		// 				// store.sendMessage('execute_ttp', {
-		// 				// 	target: selectedNodeId,
-		// 				// 	ttp_id: ttp.id || ttp.technique,
-		// 				// 	technique: ttp.technique,
-		// 				// 	action: ttp.action,
-		// 				// 	cmd_args: params,
-		// 				// 	params: params
-		// 				// });
-		// 			}
-		// 		}
-		// 	};
-		// 	showParamModal = true;
-		// 	// modalStore.trigger(modal);
-		// } else if (ttp.params) {
+		// if (ttp.params) {
 		// 	selectedTTP = ttp;
 		// 	showParamModal = true;
 		// 	// const modalComponent: ModalComponent = { ref: ExploitAppModal };
