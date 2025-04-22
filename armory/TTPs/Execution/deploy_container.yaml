@@ -44,13 +44,16 @@ parameters:
     description: the name of the node where the pod should be deployed
 cmdVariants:
   - key: kubectl
-    command: kubectl run ${NAME} --image=${IMAGE} --field-manager=Ran --restart=Never  --command -- ${COMMAND}
+    command: >
+      kubectl run ${NAME} --image=${IMAGE} -q --field-manager=Ran --restart=Never  --command -- ${COMMAND} && 
+      && kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.terminated}' pod/${NAME}
 preconditions:
   accessLevel: "can-create"
 effects:
-  - Pod($p)
+  - Pod($p2)
   - Namespace($ns)
   - ns.contains($p)
+  - created(creator:$p1, target:$p2)
 parser: newContainer
 defend: {}
 references:
