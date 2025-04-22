@@ -245,7 +245,7 @@
 	});
 </script>
 
-<div id="graph" class={['bg-tertiary-surface-950-50', { className }]} bind:this={graphContainer}>
+<div id="graph" class={['bg-tertiary-surface-800-200', { className }]} bind:this={graphContainer}>
 	<EntityInfo {selectedNode} />
 </div>
 
