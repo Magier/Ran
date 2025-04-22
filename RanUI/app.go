@@ -308,7 +308,11 @@ func (a *App) GetTrace() AttackFlow {
 				TargetID: step.ID,
 			})
 		}
-		srcId = step.ID
+
+		// update the srcId for the next edge, if it was a success
+		if step.Success {
+			srcId = step.ID
+		}
 	}
 
 	return AttackFlow{

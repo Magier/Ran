@@ -180,6 +180,7 @@ type TTPExecuted struct {
 	EventImpl
 	ID         string
 	TTP        TTP
+	Args       map[string]string
 	Success    bool
 	Target     Entity
 	ResultType Message

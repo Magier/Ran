@@ -179,6 +179,7 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Client
 	return domain.TTPExecuted{
 		ID:      exec.ID,
 		TTP:     exec.TTP,
+		Args:    exec.Args,
 		Success: err == nil,
 		Target:  exec.Target,
 		Results: results,

@@ -27,6 +27,7 @@ type Campaign struct {
 	listeners      map[string]domain.Listener
 	sessions       map[string]domain.Session
 	identities     map[string]domain.Identity
+	bus            bus.MessageBus
 }
 type NewFacts struct {
 	Entities   []domain.Entity
@@ -35,10 +36,23 @@ type NewFacts struct {
 	Assets     []domain.Asset
 }
 
+func (f *NewFacts) Update(new NewFacts) {
+	f.Entities = append(f.Entities, new.Entities...)
+	f.Assets = append(f.Assets, new.Assets...)
+	f.Relations = append(f.Relations, new.Relations...)
+	f.Identities = append(f.Identities, new.Identities...)
+}
+
 type RemovedFacts struct {
 	Entities   []domain.Entity
 	Relations  []domain.Relation
 	Identities []domain.Identity
+}
+
+func (f *RemovedFacts) Update(new RemovedFacts) {
+	f.Entities = append(f.Entities, new.Entities...)
+	f.Relations = append(f.Relations, new.Relations...)
+	f.Identities = append(f.Identities, new.Identities...)
 }
 
 func NewCampaign(armory *armory.Armory) *Campaign {
@@ -65,6 +79,7 @@ func NewCampaign(armory *armory.Armory) *Campaign {
 
 func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	campaign := NewCampaign(armory)
+	campaign.bus = mb
 	mb.Subscribe(domain.C2Connected{}, campaign.onC2Connected)
 	mb.Subscribe(domain.ExecTTP{}, campaign.onExecuteTTP)
 	mb.Subscribe(domain.TTPExecuted{}, campaign.onTTPExecuted)

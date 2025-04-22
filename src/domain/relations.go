@@ -101,6 +101,25 @@ func (r Owns) GetRelationName() string {
 	return "owns"
 }
 
+type Created struct {
+	RelationImpl
+	Creator Entity
+	Object  Entity
+}
+
+var _ Relation = (*Created)(nil)
+
+func (r Created) GetSourceId() string {
+	return r.Creator.GetId()
+}
+func (r Created) GetTargetId() string {
+	return r.Object.GetId()
+}
+
+func (r Created) GetRelationName() string {
+	return "created"
+}
+
 type C2Channel interface {
 	Relation
 	GetKind() string
