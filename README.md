@@ -103,6 +103,7 @@ Ran is heavily inspired by similar tools in this domain, such as:
 - [kubestroyer](https://github.com/Rolix44/Kubestroyer)
 - [Leonidas](https://github.com/WithSecureLabs/leonidas)
 - [IceKube](https://github.com/WithSecureLabs/IceKube)
+- [clusterfuck](https://bsssq.xyz/posts/kube/)
 
 
 #### Tools for potential support
@@ -120,7 +121,6 @@ Ran is heavily inspired by similar tools in this domain, such as:
 
 ### Container Escape
 - https://github.com/danielsagi/kube-pod-escape
-
 - https://github.com/aws-samples/hardeneks
 
 
@@ -139,15 +139,17 @@ Ran is heavily inspired by similar tools in this domain, such as:
 ## Roadmap:
 
 ### MVP
-- [ ] Support K8s-related TTPs of [Leonidas](https://github.com/WithSecureLabs/leonidas)
+- [ ] Support K8s-related TTPs of [Leonidas](https://github.com/WithSecureLabs/leonidas) (atomic)
     - [ ] Document comparison
-- [ ] Support K8s-related TTPs of [Stratus Red Team](https://stratus-red-team.cloud/attack-techniques/kubernetes/)
+- [ ] Support K8s-related TTPs of [Stratus Red Team](https://stratus-red-team.cloud/attack-techniques/kubernetes/) (atomic)
     - [ ] Document comparison
 - [x] Track the executed TTPs (audit trail)
     - [ ] show trace in UI
     - [x] Export trail of executed TTP as [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/)
 
 ### 2nd Iteration
+- [ ] support cleanup logic for every TTP
+- [ ] Campaign reset functionality
 - [ ] option to provide [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/) as a plan
 - [ ] Support sliver as a C2 framework 
     - add respective CmdVariants where necessary
@@ -156,6 +158,9 @@ Ran is heavily inspired by similar tools in this domain, such as:
 - [ ] (Optional) Generate Sigma from STIX Observables?
 - [ ] Support hierarchical TTPs: they use other TTPs as building blocks (akin to HTN)
     - e.g., `Install implant` could be -> `generate implant` + `download binary` + `execute binary`
+- [ ] improve audit tracing
+    - [ ] merge multiple (failed) attempts into 1 node? 
+    - [ ] Show key value in the title, to quickly differentiate same TTPs, but different objectives
 
 ### 3rd Itration
 - [ ] Map TTPs to [D3FEND](https://d3fend.mitre.org/)

