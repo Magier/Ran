@@ -4,9 +4,15 @@ tactic: Discovery
 techniques: ["Container and Resource Discovery"]
 ttp: T1613
 preconditions:
-  kind: ServiceAccount
   # accessLevel: user-read
   # SA can-read node/proxy
+parameters:
+  NODE:
+    type: string
+    description: the name of the node for which the running pods will be listed
+  TOKEN:
+    type: string
+    description: the ServiceAccount token used to authenticate to the kubelet API
 cmdVariants:
   - key: curl
     command: >-

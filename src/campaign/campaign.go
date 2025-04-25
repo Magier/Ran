@@ -283,47 +283,10 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 		return nil, err
 	}
 
-	// use the default value for all parameters, if no extra arg is specified
-	for _, param := range execCmd.TTP.Params {
-		if _, ok := args[param.Name]; !ok {
-			args[param.Name] = param.Default
-		}
-	}
-
 	var target domain.Entity
 	target, ok := c.kb.GetEntity(targetId)
 	if ok {
 		execCmd.Target = target
-	}
-
-	// TODO: properly set the default values to the most plausible options
-	for key, arg := range args {
-		if arg == "${NS}" {
-			if ns, ok := target.(domain.Namespaced); ok {
-				arg = ns.GetNamespace()
-			} else if target != nil {
-				slog.Warn(fmt.Sprintf("Target '%s' is not namespaced, can't set NS variable", target.GetName()))
-			} else {
-				slog.Warn("No valid target, can't get its NS variable")
-			}
-		} else if strings.Contains(arg, "${POD_NAME}") {
-			targetName := target.GetName()
-			arg = strings.Replace(arg, "${POD_NAME}", targetName, -1)
-		}
-
-		if strings.Contains(arg, "${RANDOM}") {
-			randomNum := strconv.Itoa(rand.Intn(1e5))
-			arg = strings.Replace(arg, "${RANDOM}", randomNum, -1)
-		}
-		// persist all the changes made to the arg
-		args[key] = arg
-	}
-
-	execCmd.Variant.Command = c.groundCmdTemplate(execCmd.Variant.Command, args)
-
-	if execCmd.Variant.Execute.Code != "" {
-		// forward the TTP args to the code snippet
-		execCmd.Variant.Execute.Parameters = args
 	}
 
 	if isActionOnRemoteTarget(execCmd.TTP, execCmd.Variant) {
@@ -333,7 +296,6 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 			system = t
 		case domain.ServiceAccount:
 			system = c.getServiceAccountOwner(t)
-			execCmd.Variant.Command = c.groundServiceAccountTemplate(execCmd.Variant.Command, t)
 		}
 
 		if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
@@ -344,14 +306,80 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 		}
 	}
 
+	// use the default value for all parameters, if no extra arg is specified
+	for _, param := range execCmd.TTP.Params {
+		if _, ok := args[param.Name]; !ok {
+			args[param.Name] = param.Default
+		}
+	}
+	args, err = c.groundArgs(args, target)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to ground args: %s", err.Error()))
+	}
+	if execCmd.Variant.Execute.Code != "" {
+		// forward the TTP args to the code snippet
+		execCmd.Variant.Execute.Parameters = args
+	}
+	execCmd.Variant.Command = c.groundCmdTemplate(execCmd.Variant.Command, args)
+
 	// safety: warn about any variable, that was not properly grounded
 	re := regexp.MustCompile(`\$\{([^}]+)\}`)
 	vars := re.FindAllStringSubmatch(execCmd.Variant.Command, -1)
 	for _, v := range vars {
 		slog.Warn(fmt.Sprintf("Ungrounded variable '%s' NOT found in command", v[1]))
 	}
-
 	return execCmd, nil
+}
+
+func (c Campaign) groundArgs(args map[string]string, target domain.Entity) (map[string]string, error) {
+	// TODO: properly set the default values to the most plausible options
+	for key, arg := range args {
+		if key == "NS" || arg == "${NS}" {
+			if ns, ok := target.(domain.Namespaced); ok {
+				arg = ns.GetNamespace()
+			} else if target != nil {
+				slog.Warn(fmt.Sprintf("Target '%s' is not namespaced, can't set NS variable", target.GetName()))
+			} else {
+				slog.Warn("No valid target, can't get its NS variable")
+			}
+		} else if strings.Contains(arg, "${POD_NAME}") {
+			targetName := target.GetName()
+			arg = strings.Replace(arg, "${POD_NAME}", targetName, -1)
+		} else if key == "TOKEN" {
+			if arg != "" {
+				if nsEntity, ok := target.(domain.Namespaced); ok {
+					// create dummy service account to produce valid ID
+					tmpSa := domain.NewServiceAccount(arg, nsEntity.GetNamespace())
+					saEntity, ok := c.kb.GetEntity(tmpSa.GetId())
+					if ok {
+						sa, ok := saEntity.(domain.ServiceAccount)
+						if ok {
+							arg = sa.Token.Raw
+						}
+					}
+				}
+			} else {
+				if sa, ok := target.(domain.ServiceAccount); ok {
+					arg = sa.Token.Raw
+					// } else if pod, ok := target.(domain.Pod); ok {
+					// 	arg = pod.ServiceAccountToken.Raw
+				} else {
+					slog.Warn("No valid ServiceAccount or Pod found to extract the token from")
+				}
+			}
+		} else if key == "NODE" && arg == "" {
+			if pod, ok := target.(domain.Pod); ok {
+				arg = pod.NodeName
+			}
+		}
+
+		if strings.Contains(arg, "${RANDOM}") {
+			randomNum := strconv.Itoa(rand.Intn(1e5))
+			arg = strings.Replace(arg, "${RANDOM}", randomNum, -1)
+		}
+		args[key] = arg
+	}
+	return args, nil
 }
 
 func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (domain.Command, error) {
@@ -402,8 +430,6 @@ func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (doma
 
 	return nil, nil
 }
-
-type GroundFn func(string) (string, error)
 
 func (c Campaign) groundCmdTemplate(template string, variables map[string]string) string {
 	if strings.Contains(template, "${API_SERVER}") {
@@ -462,16 +488,6 @@ func (c Campaign) getServiceAccountOwner(sa domain.ServiceAccount) domain.Pod {
 		}
 	}
 	return system
-}
-
-func (c Campaign) groundServiceAccountTemplate(template string, sa domain.ServiceAccount) string {
-	template = strings.Replace(template, "${TOKEN}", sa.Token.Raw, -1)
-	template = strings.Replace(template, "${CA_PATH}", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt", -1)
-	template = strings.Replace(template, "${NS}", sa.Namespace, -1)
-	template = strings.Replace(template, "${SA_NAME}", sa.Name, -1)
-	template = strings.Replace(template, "${NODE}", sa.Token.Kubernetes.Node.Name, -1)
-
-	return template
 }
 
 // Determine if the TTP will be executed in the target environment, or the operator infrastructure

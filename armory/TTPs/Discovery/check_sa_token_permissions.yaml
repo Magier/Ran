@@ -11,6 +11,7 @@ parameters:
   CA_PATH:
     type: string
     description: the path to the CA certificate to use for the request
+    default: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
   NS:
     type: string
     description: the namespace of the service account
