@@ -717,6 +717,17 @@ type ServiceAccount struct {
 	Can []RbacPermission
 }
 
+func NewServiceAccount(name, ns string) ServiceAccount {
+	return ServiceAccount{
+		K8sEntity: K8sEntity{
+			Name:      name,
+			Namespace: ns,
+			Kind:      "ServiceAccount",
+		},
+		Can: make([]RbacPermission, 0),
+	}
+}
+
 func (sa ServiceAccount) GetId() string {
 	return fmt.Sprintf("ns/%s/sa/%s", sa.GetNamespace(), sa.GetName())
 }

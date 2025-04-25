@@ -118,15 +118,8 @@ func analyzeServiceAccountToken(token string) (NewFacts, RemovedFacts, error) {
 	saToken.IsBound = saToken.Kubernetes.Pod.UID != ""
 
 	ns := domain.Namespace{Name: saToken.Kubernetes.Namespace}
-	sa := domain.ServiceAccount{
-		K8sEntity: domain.K8sEntity{
-			Name:      saToken.Kubernetes.ServiceAccount.Name,
-			Namespace: ns.Name,
-			Kind:      "ServiceAccount",
-		},
-		Token: saToken,
-		Can:   make([]domain.RbacPermission, 0),
-	}
+	sa := domain.NewServiceAccount(saToken.Kubernetes.ServiceAccount.Name, ns.Name)
+	sa.Token = saToken
 
 	pod := domain.NewPod(saToken.Kubernetes.Pod.Name, ns.Name)
 	saUsage := domain.Uses{
