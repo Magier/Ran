@@ -4,11 +4,14 @@ tactic: Discovery
 techniques: ["Container and Resource Discovery"]
 ttp: T1613
 preconditions:
+  kind: Node
+  #rbac: system:authenticated
   # accessLevel: user-read
   # SA can-read node/proxy
 parameters:
   NODE:
     type: string
+    default: ${TARGET}
     description: the name of the node for which the running pods will be listed
   TOKEN:
     type: string
@@ -16,7 +19,7 @@ parameters:
 cmdVariants:
   - key: curl
     command: >-
-      curl -k -H "Authorization: Bearer ${TOKEN}" https://${NODE}:10250/pods
+      curl -k -s -H "Authorization: Bearer ${TOKEN}" https://${NODE}:10250/pods
 
 # parser: environmentVariables
 effects:

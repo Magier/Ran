@@ -281,6 +281,8 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVarian
 			// 	return handleExecTTPResult(cmd, stdout, stderr)
 			// }
 			// return msg, err
+		} else if strings.Contains(strings.ToLower(stdout), "unauthorized") {
+			err = errors.New(stdout)
 		} else {
 			results = []string{stdout, stderr}
 		}

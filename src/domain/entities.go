@@ -513,6 +513,7 @@ type Identity struct {
 	CertData    []byte
 	KeyData     []byte
 	Permissions []RbacPermission
+	Token       string
 }
 
 // GetId implements Entity.
