@@ -289,17 +289,15 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 		execCmd.Target = target
 	}
 
+	var execSystem domain.Entity
 	if isActionOnRemoteTarget(execCmd.TTP, execCmd.Variant) {
-		var system domain.Pod
-		switch t := target.(type) {
-		case domain.Pod:
-			system = t
-		case domain.ServiceAccount:
-			system = c.getServiceAccountOwner(t)
+		execSystem, err = c.getSystemForExecution(ttp, target)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to get system for execution: %s", err.Error()))
 		}
 
-		if system.AccessLevel.Satisfies(execCmd.TTP.Requires.AccessLevel) {
-			c2Channel, err := findC2Channel(c.kb, target)
+		if execSystem != nil {
+			c2Channel, err := findC2Channel(c.kb, execSystem)
 			if err == nil {
 				execCmd.C2Channel = c2Channel
 			}
@@ -312,7 +310,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 			args[param.Name] = param.Default
 		}
 	}
-	args, err = c.groundArgs(args, target)
+	args, err = c.groundArgs(args, target, execSystem)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to ground args: %s", err.Error()))
 	}
@@ -331,7 +329,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 	return execCmd, nil
 }
 
-func (c Campaign) groundArgs(args map[string]string, target domain.Entity) (map[string]string, error) {
+func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.Entity) (map[string]string, error) {
 	// TODO: properly set the default values to the most plausible options
 	for key, arg := range args {
 		if key == "NS" || arg == "${NS}" {
@@ -346,8 +344,8 @@ func (c Campaign) groundArgs(args map[string]string, target domain.Entity) (map[
 			targetName := target.GetName()
 			arg = strings.Replace(arg, "${POD_NAME}", targetName, -1)
 		} else if key == "TOKEN" {
-			if arg != "" {
-				if nsEntity, ok := target.(domain.Namespaced); ok {
+			if arg != "" { // resolve the name of the identity to its token
+				if nsEntity, ok := target.(domain.Namespaced); ok && nsEntity.IsNamespaced() {
 					// create dummy service account to produce valid ID
 					tmpSa := domain.NewServiceAccount(arg, nsEntity.GetNamespace())
 					saEntity, ok := c.kb.GetEntity(tmpSa.GetId())
@@ -358,18 +356,35 @@ func (c Campaign) groundArgs(args map[string]string, target domain.Entity) (map[
 						}
 					}
 				}
-			} else {
+			} else { // try to find a sane default
 				if sa, ok := target.(domain.ServiceAccount); ok {
 					arg = sa.Token.Raw
-					// } else if pod, ok := target.(domain.Pod); ok {
-					// 	arg = pod.ServiceAccountToken.Raw
 				} else {
-					slog.Warn("No valid ServiceAccount or Pod found to extract the token from")
+					switch sys := execSystem.(type) {
+					case domain.Pod:
+						if sys.ServiceAccountName != "" {
+							tmpSa := domain.NewServiceAccount(sys.ServiceAccountName, sys.GetNamespace())
+							saEntity, ok := c.kb.GetEntity(tmpSa.GetId())
+							if ok {
+								sa, ok := saEntity.(domain.ServiceAccount)
+								if ok {
+									arg = sa.Token.Raw
+								}
+							}
+						}
+					default:
+						slog.Warn("No valid ServiceAccount or Pod found to extract the token from")
+					}
 				}
 			}
-		} else if key == "NODE" && arg == "" {
-			if pod, ok := target.(domain.Pod); ok {
-				arg = pod.NodeName
+		} else if key == "NODE" {
+			if arg == "" {
+				if pod, ok := target.(domain.Pod); ok {
+					arg = pod.NodeName
+				}
+			} else {
+				// ensure the node kind prefis is removed
+				arg, _ = strings.CutPrefix(arg, "node/")
 			}
 		}
 
@@ -431,6 +446,45 @@ func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (doma
 	return nil, nil
 }
 
+func (c Campaign) getSystemForExecution(ttp domain.TTP, target domain.Entity) (domain.Entity, error) {
+	// Find best system to execute the TTP on based on a few heuristics:
+	// 1) if the TTP targets the pod, and it's compromised, use it
+	// 2) if the TTP targets a service account, use the pod and check 1)
+	// 3) for now just pick any compromised system (Pod or Node) in the cluster
+	if pod, ok := target.(domain.Pod); ok {
+		if pod.AccessLevel.Satisfies(domain.UserExec) {
+			return pod, nil
+		}
+	} else if sa, ok := target.(domain.ServiceAccount); ok {
+		if owner, ok := c.getServiceAccountOwner(sa); ok {
+			if owner.AccessLevel.Satisfies(domain.UserExec) {
+				return owner, nil
+			}
+		}
+	}
+
+	compromisedSystems := make([]domain.Entity, 0)
+	for _, entity := range c.kb.GetEntities() {
+		switch system := entity.(type) {
+		case domain.Pod:
+			if system.AccessLevel.Satisfies(domain.UserExec) {
+				compromisedSystems = append(compromisedSystems, system)
+			}
+		case domain.K8sNode:
+			if system.AccessLevel.Satisfies(domain.UserExec) {
+				compromisedSystems = append(compromisedSystems, system)
+			}
+		}
+	}
+
+	if len(compromisedSystems) > 0 {
+		slog.Warn(fmt.Sprintf("New perfect match for TTP execution found, using first best compromised system: %s", compromisedSystems[0].GetName()))
+		return compromisedSystems[0], nil
+	}
+
+	return nil, fmt.Errorf("No suitable system found for execution")
+}
+
 func (c Campaign) groundCmdTemplate(template string, variables map[string]string) string {
 	if strings.Contains(template, "${API_SERVER}") {
 		apiUrl, err := c.GetApiUrl(true)
@@ -470,24 +524,23 @@ func (c Campaign) groundCmdTemplate(template string, variables map[string]string
 	return template
 }
 
-func (c Campaign) getServiceAccountOwner(sa domain.ServiceAccount) domain.Pod {
-	var system domain.Pod
+func (c Campaign) getServiceAccountOwner(sa domain.ServiceAccount) (domain.Pod, bool) {
 	// *vomit*
 	if owner, ok := sa.GetOwner(); ok {
 		if e, ok := c.GetEntityByName(owner.Name, sa.Namespace); ok {
 			if pod, ok := e.(domain.Pod); ok {
-				system = pod
+				return pod, true
 			}
 		}
 	} else if users, err := c.kb.GetIncomingEntities(sa, domain.Uses{}); err == nil {
 		if len(users) > 0 {
 			user := users[0]
 			if pod, ok := user.(domain.Pod); ok {
-				system = pod
+				return pod, true
 			}
 		}
 	}
-	return system
+	return domain.Pod{}, false
 }
 
 // Determine if the TTP will be executed in the target environment, or the operator infrastructure

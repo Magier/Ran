@@ -122,6 +122,7 @@ func analyzeServiceAccountToken(token string) (NewFacts, RemovedFacts, error) {
 	sa.Token = saToken
 
 	pod := domain.NewPod(saToken.Kubernetes.Pod.Name, ns.Name)
+	pod.ServiceAccountName = sa.Name
 	saUsage := domain.Uses{
 		SubjectId: pod.GetId(),
 		ObjectId:  sa.GetId(),
