@@ -3,6 +3,11 @@ description: Deploy a new ephemeral container, which mounts the service account 
 tactic: Credential Access
 techniques: ["Steal Application Access Token", "Deploy Container"]
 parameters:
+  ServiceAccount:
+    type: string
+    default: "${TARGET}"
+    required: false
+    description: the service account used by the workload
   Name:
     type: string
     description: the name of the resulting workload. The name must be RFC 1123 compliant.
@@ -19,11 +24,6 @@ parameters:
     type: string
     default: /bin/sh -c "cat /var/run/secrets/kubernetes.io/serviceaccount/token"
     description: the command executed when starting the container
-  ServiceAccount:
-    type: string
-    default: ""
-    required: false
-    description: the service account used by the workload
 cmdVariants:
   - key: kubectl
     command: >
@@ -31,7 +31,8 @@ cmdVariants:
       && kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.terminated}' pod/${NAME} --timeout=5s 
       && kubectl logs ${NAME}
 preconditions:
-  accessLevel: "can-create"
+  accessLevel: "can-create(Pod)"
+  rbac: "can-create(Pod)"
 effects:
   - Pod($p)
   - Namespace($ns)

@@ -21,9 +21,13 @@
 	let args: Arg[] = $derived.by(() => {
 		return (
 			ttp.params?.map((param: Param) => {
+				let value = param.Default === '${TARGET}' ? targetId : param.Default;
+				console.log('Param value: ', value);
+				debugger;
+
 				return {
 					Name: param.Name,
-					Value: param.Default,
+					Value: value,
 					IsTrue: param.Default === 'true',
 					Description: param.Description,
 					Type: param.Type

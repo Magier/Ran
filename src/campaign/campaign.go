@@ -343,6 +343,10 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 		} else if strings.Contains(arg, "${POD_NAME}") {
 			targetName := target.GetName()
 			arg = strings.Replace(arg, "${POD_NAME}", targetName, -1)
+		} else if key == "ServiceAccount" {
+			if strings.Contains(arg, "ns/") && strings.Contains(arg, "/sa/") {
+				arg = strings.SplitN(arg, "/", 4)[3]
+			}
 		} else if key == "TOKEN" {
 			if arg != "" { // resolve the name of the identity to its token
 				if nsEntity, ok := target.(domain.Namespaced); ok && nsEntity.IsNamespaced() {
