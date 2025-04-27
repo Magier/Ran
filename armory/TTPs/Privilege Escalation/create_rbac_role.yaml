@@ -7,7 +7,7 @@ techniques:
 parameters:
   SERVICE_ACCOUNT:
     type: string
-    default: default
+    default: ${TARGET}
     description: the name of the service account to which the role will be bound
   NAMESPACE:
     type: string
