@@ -83,7 +83,7 @@
 	let tag = $state('IconInitialAccess');
 </script>
 
-<div class="bg-surface-100-800-token inset-y-0 right-0 h-full w-80 {className}">
+<div class="bg-surface-100-800-token inset-y-0 right-0 h-full {className}">
 	<h1>Armory</h1>
 	<div class="mx-4 mb-2">
 		<label for="search-box">Search/Filter</label>
