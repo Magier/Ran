@@ -17,6 +17,7 @@
 	import { getContext } from 'svelte';
 	import { json } from '@sveltejs/kit';
 	import { Combobox } from '@skeletonlabs/skeleton-svelte';
+	import EntityInfo from './components/entityInfo.svelte';
 
 	export const toast: ToastContext = getContext('toast');
 	type ToastType = 'info' | 'error' | 'success' | undefined;
@@ -82,6 +83,7 @@
 
 	let selectedNodeId: string = $state('');
 	let selectedNode: main.Node | undefined = $state();
+	let showDetails = $derived(selectedNodeId !== '');
 	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: Object = {};
 	let selectedTTP: TTP | undefined = $state();
@@ -161,12 +163,13 @@
 	});
 </script>
 
-<div class="items-top mx-auto flex h-full justify-center">
+<div class="grid h-screen grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
 	{#await store.connect(false)}
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
 		<div>loading...</div>
 	{:then sessions}
-		<div class="basis-3/4">
+		<Armory class="" action={sendAction} targetId={selectedNodeId} />
+		<div class="">
 			{#if !targetIsSet}
 				<div class="flex items-center">
 					<input
@@ -187,7 +190,9 @@
 			{/if}
 			<Graph bind:selectedNodeId bind:selectedNode />
 		</div>
-		<Armory class="basis-1/4" action={sendAction} targetId={selectedNodeId} />
+		<aside class={['h-screen', showDetails ? 'w-96' : 'w-0']}>
+			<EntityInfo {selectedNode} />
+		</aside>
 		<!-- globalConditions={activeGlobalConditions}
 			{selectedNode}
 		/> -->
