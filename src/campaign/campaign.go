@@ -330,6 +330,9 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 }
 
 func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.Entity) (map[string]string, error) {
+	if target == nil {
+		target = execSystem
+	}
 	// TODO: properly set the default values to the most plausible options
 	for key, arg := range args {
 		if key == "NS" || arg == "${NS}" {
@@ -341,8 +344,12 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 				slog.Warn("No valid target, can't get its NS variable")
 			}
 		} else if strings.Contains(arg, "${POD_NAME}") {
-			targetName := target.GetName()
-			arg = strings.Replace(arg, "${POD_NAME}", targetName, -1)
+			var podName string
+			if target == nil {
+				slog.Warn("No valid target or execSystem, use 'ran' as fallback for POD_NAME variable")
+				podName = "ran"
+			}
+			arg = strings.Replace(arg, "${POD_NAME}", podName, -1)
 		} else if key == "ServiceAccount" {
 			if strings.Contains(arg, "ns/") && strings.Contains(arg, "/sa/") {
 				arg = strings.SplitN(arg, "/", 4)[3]
@@ -482,7 +489,7 @@ func (c Campaign) getSystemForExecution(ttp domain.TTP, target domain.Entity) (d
 	}
 
 	if len(compromisedSystems) > 0 {
-		slog.Warn(fmt.Sprintf("New perfect match for TTP execution found, using first best compromised system: %s", compromisedSystems[0].GetName()))
+		slog.Warn(fmt.Sprintf("No match for TTP execution found, using first best compromised system: %s", compromisedSystems[0].GetName()))
 		return compromisedSystems[0], nil
 	}
 

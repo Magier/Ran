@@ -17,14 +17,12 @@
 		IsTrue: boolean;
 	}
 
+	let args = $state<Arg[]>([]);
 	// the args will be the final arguments used when executing the TTP
-	let args: Arg[] = $derived.by(() => {
-		return (
+	$effect(() => {
+		args =
 			ttp.params?.map((param: Param) => {
 				let value = param.Default === '${TARGET}' ? targetId : param.Default;
-				console.log('Param value: ', value);
-				debugger;
-
 				return {
 					Name: param.Name,
 					Value: value,
@@ -32,13 +30,21 @@
 					Description: param.Description,
 					Type: param.Type
 				};
-			}) || []
-		);
+			}) || [];
 	});
 
 	function onInternalExecute() {
 		const argsDict = args.reduce(
 			(acc: { [key: string]: string }, arg) => {
+				if (arg.Type === 'bool') {
+					arg.Value = arg.IsTrue ? 'true' : 'false';
+				} else if (arg.Type === 'int') {
+					arg.Value = parseInt(arg.Value).toString();
+				} else if (arg.Type === 'float') {
+					arg.Value = parseFloat(arg.Value).toString();
+				} else if (arg.Type === 'string') {
+					arg.Value = arg.Value.toString();
+				}
 				acc[arg.Name] = arg.Value;
 				return acc;
 			},
