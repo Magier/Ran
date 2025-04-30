@@ -15,10 +15,10 @@ parameters:
     type: string
     default: nginx
     description: the image used by the workload
-  Command:
-    type: string
-    default: sleep infinity
-    description: the command executed when starting the container
+  # Command:   # currently this is a string, but the cmdVariant excepts a list
+  #   type: string
+  #   default: sleep infinity
+  #   description: the command executed when starting the container
   ServiceAccount:
     type: string
     default: ""
@@ -26,27 +26,55 @@ parameters:
     description: the service account used by the workload
   Privileged:
     type: bool
+    default: false
     description: is the container is running in privileged mode
   HostIPC:
     type: bool
+    default: false
     description: is the IPC namespace shared with the host
   HostPID:
     type: bool
+    default: false
     description: is the PID namespace shared with the host
   HostNetwork:
     type: bool
+    default: false
     description: is the network shared with the host
+  NodeName:
+    type: string
+    default: ""
+    description: the name of the node where the pod should be deployed
   Identity:
     type: string
     description: the identity used to deploy the container
-  NodeName:
-    type: string
-    description: the name of the node where the pod should be deployed
 cmdVariants:
   - key: kubectl
-    command: >
-      kubectl run ${NAME} --image=${IMAGE} -q --field-manager=Ran --restart=Never  --command -- ${COMMAND} && 
-      && kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.terminated}' pod/${NAME}
+    command: |+
+      echo '{
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+          "name": "${NAME}",
+          "namespace": "${NAMESPACE}"
+        },
+        "spec": {
+          "hostPID": ${HOSTPID},
+          "hostIPC": ${HOSTIPC},
+          "hostNetwork": ${HOSTNETWORK},
+          "serviceAccountName": "${SERVICEACCOUNT}",
+          "nodeName": "${NODENAME}",
+          "containers": [{
+              "name": "${NAME}",
+              "image": "${IMAGE}",
+              "command": ["sleep", "infinity"],
+                "securityContext": {
+                  "privileged": ${PRIVILEGED}
+              }
+          }]
+        }
+      }' | kubectl apply -f -  
+      && 
+      kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/${NAME}
 preconditions:
   accessLevel: "can-create"
 effects:
@@ -59,3 +87,4 @@ defend: {}
 references:
   - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/New%20Container/
   - https://kubenomicon.com/Execution/New_container.html
+  - https://bishopfox.com/blog/kubernetes-pod-privilege-escalation
