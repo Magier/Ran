@@ -348,6 +348,8 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			if target == nil {
 				slog.Warn("No valid target or execSystem, use 'ran' as fallback for POD_NAME variable")
 				podName = "ran"
+			} else {
+				podName = target.GetName()
 			}
 			arg = strings.Replace(arg, "${POD_NAME}", podName, -1)
 		} else if key == "ServiceAccount" {
@@ -527,9 +529,8 @@ func (c Campaign) groundCmdTemplate(template string, variables map[string]string
 
 	for key, v := range variables {
 		templateVariable := fmt.Sprintf("${%s}", strings.ToUpper(key))
-		if v != "" {
-			template = strings.Replace(template, templateVariable, v, -1)
-		}
+		// TOOD: check if for casese where the variable is not set, and if that's a problem
+		template = strings.Replace(template, templateVariable, v, -1)
 	}
 
 	return template
