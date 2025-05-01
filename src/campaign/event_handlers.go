@@ -56,83 +56,49 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 
 	c.trail.CompleteStep(cmd.ID, cmd.TTP, cmd.Success, results)
 
-	if cmd.Success {
-		newFacts := NewFacts{}
-		removedFacts := RemovedFacts{}
+	newFacts := NewFacts{}
+	removedFacts := RemovedFacts{}
 
-		// TODO: Temporary workaround: dedicated handling for newly created pods
-		// ensure the podCfg is properly provided regardless of which command variant is executed
-		for _, technique := range cmd.TTP.Techniques {
-			if technique == "T1610" || strings.ToLower(technique) == "deploy container" {
-				// TODO: completly replace the cmd.Results
-				// TODO: add the `created` relation
-				newPod := domain.NewPod(
-					cmd.Args["Name"],
-					cmd.Args["Namespace"],
-				)
+	// TODO: Temporary workaround: dedicated handling for newly created pods
+	// ensure the podCfg is properly provided regardless of which command variant is executed
+	for _, technique := range cmd.TTP.Techniques {
+		if technique == "T1610" || strings.ToLower(technique) == "deploy container" {
+			new, removed, err := analyzeDeployPodResult(cmd)
 
-				if saName, ok := cmd.Args["ServiceAccount"]; ok {
-					newPod.ServiceAccountName = saName
-				}
-				if val, ok := cmd.Args["Privileged"]; ok {
-					newPod.Privileged = domain.NewProbBool(strings.ToLower(val) == "true")
-				}
-				if val, ok := cmd.Args["HostIPC"]; ok {
-					newPod.HostIPC = domain.NewProbBool(strings.ToLower(val) == "true")
-				}
-				if val, ok := cmd.Args["HostPID"]; ok {
-					newPod.HostPID = domain.NewProbBool(strings.ToLower(val) == "true")
-				}
-				if val, ok := cmd.Args["HostNetwork"]; ok {
-					newPod.HostNetwork = domain.NewProbBool(strings.ToLower(val) == "true")
-				}
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to analyze deploy pod result: %v", err))
+			}
 
-				createdRel := domain.Created{Creator: cmd.Target, Object: newPod}
-
-				// cmd.Results = append(cmd.Results)
-				newFacts.Update(NewFacts{
-					Entities:  []domain.Entity{newPod},
-					Relations: []domain.Relation{createdRel},
-				})
-
-				msg, err := c.UpdateFacts(newFacts, removedFacts)
-				if err != nil {
-					slog.Error("[onTTPExecuted] Couldn't update facts when adding new container: " + err.Error())
-				} else {
-					// TODO: fix this dirty hack to return multiple messages from a single function
-					if err := c.bus.Publish(msg); err != nil {
-						slog.Error("[onTTPExecuted] failed to publish updateFacts event: " + err.Error())
-					}
+			// newFacts.Update(new)
+			msg, err := c.UpdateFacts(new, removed)
+			if err != nil {
+				slog.Error("[onTTPExecuted] Couldn't update facts when adding new container: " + err.Error())
+			} else {
+				// TODO: fix this dirty hack to return multiple messages from a single function
+				if err := c.bus.Publish(msg); err != nil {
+					slog.Error("[onTTPExecuted] failed to publish updateFacts event: " + err.Error())
 				}
 			}
 		}
-
-		// post processing will yield the final message
-		if fn := parsers.GetParser(ttp.Parser); fn != nil {
-			event, err := fn(cmd.Target, cmd.Results...)
-			return event, err
-		}
-
-		if len(ttp.Effects) > 1 {
-			slog.Info(fmt.Sprintf("TTP has %d effects; using only first one", len(ttp.Effects)))
-		}
-		for _, effect := range ttp.Effects {
-			new, removed := parseEffect(effect, cmd.Target, cmd.Results...)
-			newFacts.Update(new)
-			removedFacts.Update(removed)
-		}
-
-		return c.UpdateFacts(newFacts, removedFacts)
-
-	} else {
-		var msg string
-		if len(cmd.Results) > 0 {
-			msg = cmd.Results[0]
-		} else {
-			msg = "Unknown error"
-		}
-		slog.Error(msg)
 	}
+
+	// post processing will yield the final message
+	if fn := parsers.GetParser(ttp.Parser); fn != nil {
+		event, err := fn(cmd.Target, cmd.Results...)
+		return event, err
+	}
+
+	if len(ttp.Effects) > 1 {
+		slog.Info(fmt.Sprintf("TTP has %d effects; using only first one", len(ttp.Effects)))
+	}
+	for _, effect := range ttp.Effects {
+		new, removed := parseEffect(effect, cmd.Target, cmd.Results...)
+		newFacts.Update(new)
+		removedFacts.Update(removed)
+	}
+
+	return c.UpdateFacts(newFacts, removedFacts)
+
 	return nil, nil
 }
 

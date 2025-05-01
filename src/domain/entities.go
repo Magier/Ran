@@ -482,7 +482,10 @@ type ApiServer struct {
 }
 
 type Namespace struct {
-	Name string
+	Name        string
+	EnforcedPSS string
+	WarnPSS     string
+	AuditPSS    string
 }
 
 var _ Entity = (*Namespace)(nil)
