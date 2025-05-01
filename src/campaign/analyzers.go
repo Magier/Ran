@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -152,6 +153,71 @@ func analyzeServiceAccountToken(token string) (NewFacts, RemovedFacts, error) {
 		Relations: []domain.Relation{saUsage, nsContainsSa, nodeRunsPod, podRunsOnNode},
 	}, removedFacts, nil
 
+}
+
+func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
+	if !ev.Success {
+		return analyzeDeployPodFailure(ev)
+	}
+
+	newPod := domain.NewPod(
+		ev.Args["Name"],
+		ev.Args["Namespace"],
+	)
+
+	if saName, ok := ev.Args["ServiceAccount"]; ok {
+		newPod.ServiceAccountName = saName
+	}
+	if val, ok := ev.Args["Privileged"]; ok {
+		newPod.Privileged = domain.NewProbBool(strings.ToLower(val) == "true")
+	}
+	if val, ok := ev.Args["HostIPC"]; ok {
+		newPod.HostIPC = domain.NewProbBool(strings.ToLower(val) == "true")
+	}
+	if val, ok := ev.Args["HostPID"]; ok {
+		newPod.HostPID = domain.NewProbBool(strings.ToLower(val) == "true")
+	}
+	if val, ok := ev.Args["HostNetwork"]; ok {
+		newPod.HostNetwork = domain.NewProbBool(strings.ToLower(val) == "true")
+	}
+
+	createdRel := domain.Created{Creator: ev.Target, Object: newPod}
+
+	return NewFacts{
+		Entities:  []domain.Entity{newPod},
+		Relations: []domain.Relation{createdRel},
+	}, RemovedFacts{}, nil
+}
+func analyzeDeployPodFailure(event domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
+	entities := make([]domain.Entity, 0)
+	if len(event.Results) == 0 {
+		slog.Error("No results found for deploy pod, so nothing to analyze :(")
+	} else {
+		res := event.Results[0]
+
+		if strings.Contains(res, "already exists") {
+			slog.Debug("Pod already exists, so nothing to analyze")
+		} else if strings.Contains(res, "Error from server (Forbidden)") {
+			// Check if the error message contains information about pod security violations
+			podSecurityViolationPattern := regexp.MustCompile(`violates PodSecurity "([^"]+)": (.+)`)
+			matches := podSecurityViolationPattern.FindStringSubmatch(res)
+			if len(matches) >= 3 {
+				securityProfile := matches[1] // e.g., "baseline:latest"
+				violationReason := matches[2] // e.g., "privileged ..."
+				slog.Error(fmt.Sprintf("Pod creation failed due to security violation - Profile: %s, Reason: %s",
+					securityProfile, violationReason))
+
+				if target, ok := event.Target.(domain.Namespaced); ok {
+					ns := domain.Namespace{Name: target.GetNamespace(), EnforcedPSS: securityProfile}
+					entities = append(entities, ns)
+				}
+			}
+		} else {
+			slog.Error("Unknown error while deploying pod: " + res)
+		}
+	}
+
+	return NewFacts{Entities: entities}, RemovedFacts{}, nil
 }
 
 type ServiceInfo struct {
