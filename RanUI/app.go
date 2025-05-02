@@ -32,12 +32,9 @@ type Node struct {
 	Name         string        `json:"name"`
 	Kind         string        `json:"kind"`
 	ParentID     string        `json:"parent"`
-	IP           string        `json:"ip"`
-	Username     string        `json:"username"`
 	AccessLevel  string        `json:"accessLevel"`
-	OS           string        `json:"os"`
-	Version      string        `json:"version"`
 	Entitlements []Entitlement `json:"entitlements"`
+	Entity       domain.Entity `json:"entity"`
 }
 
 type Edge struct {
@@ -215,6 +212,7 @@ func (a *App) GetGraph() Graph {
 			Name:     entity.GetName(),
 			Kind:     entity.GetKind(),
 			ParentID: parent,
+			Entity:   entity,
 		}
 
 		switch e := entity.(type) {

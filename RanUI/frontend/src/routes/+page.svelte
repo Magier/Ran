@@ -23,6 +23,7 @@
 	type ToastType = 'info' | 'error' | 'success' | undefined;
 
 	function showToast(title: string, description: string, toastType: ToastType) {
+		console.log('Showing toast', title, description, toastType);
 		toast.create({ title: title, description: description, type: toastType, duration: 5000 });
 	}
 
@@ -172,13 +173,6 @@
 		<div class="">
 			{#if !targetIsSet}
 				<div class="flex items-center">
-					<input
-						autocomplete="off"
-						bind:value={selectedTarget}
-						id="target"
-						type="text"
-						class="mr-2 rounded-l p-2"
-					/>
 					<select class="select" bind:value={selectedTarget}>
 						{#each availablePods as pod}
 							<option value={pod.value}>{pod.label}</option>
@@ -186,6 +180,13 @@
 					</select>
 					<button onclick={start} class="btn preset-filled-primary-500">Start</button>
 					<span>{selectedNodeId}</span>
+					<!-- <input
+						autocomplete="off"
+						bind:value={selectedTarget}
+						id="target"
+						type="text"
+						class="mr-2 rounded-l p-2"
+					/> -->
 				</div>
 			{/if}
 			<Graph bind:selectedNodeId bind:selectedNode />

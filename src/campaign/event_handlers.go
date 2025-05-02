@@ -98,8 +98,6 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	}
 
 	return c.UpdateFacts(newFacts, removedFacts)
-
-	return nil, nil
 }
 
 func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domain.Message, error) {

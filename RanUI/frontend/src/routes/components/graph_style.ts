@@ -214,6 +214,13 @@ export function getGraphStyle() {
 			}
 		},
 		{
+			selector: "node[kind='Namespace'][?entity.EnforcedPSS]",
+			style: {
+				'background-color': 'orange',
+				'border-color': 'orange'
+			}
+		},
+		{
 			selector: 'node[kind="Session"]',
 			style: {
 				shape: 'rectangle',
