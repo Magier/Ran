@@ -192,7 +192,9 @@
 			<Graph bind:selectedNodeId bind:selectedNode />
 		</div>
 		<aside class={['h-screen', showDetails ? 'w-96' : 'w-0']}>
-			<EntityInfo {selectedNode} />
+			<svelte:boundary onerror={(e) => console.error(e)}>
+				<EntityInfo {selectedNode} />
+			</svelte:boundary>
 		</aside>
 		<!-- globalConditions={activeGlobalConditions}
 			{selectedNode}

@@ -347,12 +347,9 @@ export namespace main {
 	    name: string;
 	    kind: string;
 	    parent: string;
-	    ip: string;
-	    username: string;
 	    accessLevel: string;
-	    os: string;
-	    version: string;
 	    entitlements: Entitlement[];
+	    entity: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new Node(source);
@@ -364,12 +361,9 @@ export namespace main {
 	        this.name = source["name"];
 	        this.kind = source["kind"];
 	        this.parent = source["parent"];
-	        this.ip = source["ip"];
-	        this.username = source["username"];
 	        this.accessLevel = source["accessLevel"];
-	        this.os = source["os"];
-	        this.version = source["version"];
 	        this.entitlements = this.convertValues(source["entitlements"], Entitlement);
+	        this.entity = source["entity"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

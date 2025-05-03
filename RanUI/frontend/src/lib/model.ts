@@ -42,4 +42,44 @@ export type Edge = {
     label: string
 }
 
+
+
+export type EntityId = {
+    name: string
+    namespace: string
+    kind: string
+}
+
+export function parseEntityId(entityId: string): EntityId {
+    // example id is "ns/<namespace>/<kind>/<name>"
+    // Check if the string starts with "ns/"
+    if (!entityId.startsWith('ns/')) {
+        throw new Error('Entity ID must start with "ns/"');
+    }
+
+    // Split the string by '/'
+    const parts = entityId.split('/');
+
+    // We expect at least 4 parts: ["ns", "<namespace>", "<kind>", "<name>"]
+    if (parts.length == 2) {
+        return {
+            name: parts[1],
+            namespace: '',
+            kind: 'namespace'
+        }
+    }
+    if (parts.length < 4) {
+        throw new Error('Invalid entity ID format');
+    }
+
+    // Extract the components
+    const ns = parts[1];
+    const kind = parts[2];
+    const name = parts[3];
+
+    return { name, namespace: ns, kind };
+}
+
+
+
 export type ArmoryType = Map<string, TTP[]>;
