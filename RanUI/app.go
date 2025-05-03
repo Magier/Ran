@@ -183,6 +183,8 @@ func (a *App) GetGraph() Graph {
 		// convert specific "hierarchical" relations to parent relationships.
 		case domain.Contains, domain.ManagesNode:
 			parentNodes[relation.GetTargetId()] = relation.GetSourceId()
+		case domain.Runs:
+			// skip this relation for now, as it's the inverse of RunsOn and adds no uX improvements
 		default:
 			edges = append(edges, Edge{
 				ID:       id,

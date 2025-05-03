@@ -16,28 +16,22 @@
 		: ''}"
 	data-popup
 >
-	<div><span>Name:</span> {selectedNode?.name}</div>
-	<!-- {#if selectedNode?.kind} -->
-	<div><span>Kind:</span> {selectedNode?.kind}</div>
+	{#if selectedNode?.entity !== null}
+		{#each Object.entries(selectedNode?.entity || {}) as [label, data]}
+			{#if data !== ''}
+				<div><span>{label}:</span> {prettyPrint(data)}</div>
+			{/if}
+		{/each}
+	{/if}
 
-	{#if selectedNode?.ip}
-		<div><span>IP:</span> {selectedNode?.ip}</div>{/if}
-	{#if selectedNode?.username}
-		<div><span>Username:</span> {selectedNode?.username}</div>{/if}
 	{#if selectedNode?.accessLevel}
 		<div><span>AccessLevel:</span> {selectedNode?.accessLevel}</div>{/if}
-	{#if selectedNode?.os}
-		<div><span>OS:</span> {selectedNode?.os}</div>{/if}
-	{#if selectedNode?.version}
-		<div><span>Version:</span> {selectedNode?.version}</div>{/if}
-
 	{#if selectedNode?.entitlements}
+		<h4>Entitlements</h4>
 		{#each selectedNode.entitlements as e}
 			<div><span>Can {e.verbs.join(', ')}</span>{e.resourceTypes}</div>
 		{/each}
 	{/if}
-
-	<!-- <div bind:this={arrowEl} class="arrow variant-filled"></div> -->
 </div>
 
 <style>

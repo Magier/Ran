@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Param, TTP } from '$lib/model';
+	import { parseEntityId, type Param, type TTP } from '$lib/model';
 
 	interface ParamProps {
 		targetId: string;
@@ -22,7 +22,12 @@
 	$effect(() => {
 		args =
 			ttp.params?.map((param: Param) => {
-				let value = param.Default === '${TARGET}' ? targetId : param.Default;
+				let value = param.Default;
+				if (value === '${TARGET}') {
+					let id = parseEntityId(targetId);
+					value = IdleDeadline.name;
+				}
+
 				return {
 					Name: param.Name,
 					Value: value,
