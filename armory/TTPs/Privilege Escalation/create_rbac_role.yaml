@@ -1,4 +1,4 @@
-name: Create Admin Role and bind it to a Service Account
+name: Create Admin Role
 description: Create a highly privileged RBAC role and bind it to an existing service account
 tactic: Privilege Escalation
 techniques:
@@ -25,6 +25,9 @@ cmdVariants:
 preconditions:
   kind: ServiceAccount
   accessLevel: can-create role
+parser: newRole
+effects:
+  - Role(${ROLE_NAME})
 # cmd: {}
 # defend: {}
 refernces:
