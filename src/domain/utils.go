@@ -23,8 +23,6 @@ func GetResourceShortName(kind string) string {
 		return "sa"
 	case "rolebinding":
 		return "rb"
-	case "role":
-		return "r"
 	case "clusterrolebinding":
 		return "crb"
 	case "clusterrole":

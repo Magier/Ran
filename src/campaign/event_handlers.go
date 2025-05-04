@@ -82,9 +82,10 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		}
 	}
 
+	// TODO: properly streamline the various ways to handle the results of a TTP execution
 	// post processing will yield the final message
 	if fn := parsers.GetParser(ttp.Parser); fn != nil {
-		event, err := fn(cmd.Target, cmd.Results...)
+		event, err := fn(cmd, cmd.Target, cmd.Results...)
 		return event, err
 	}
 
@@ -298,6 +299,49 @@ func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (d
 	// TODO: remove listener from all relations
 	slog.Error(fmt.Sprintf("Listener removal for '%s' not yet implemented", ev.Name))
 	return nil, nil
+}
+
+func (c *Campaign) onNewK8sResourceCreated(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	ev := msg.(domain.NewK8sResourceCreated)
+	slog.Info(fmt.Sprintf("New K8s resource created: %s", ev.Resource))
+
+	relations := make([]domain.Relation, 0)
+	if ev.CreatorID != "" {
+		if creator, ok := c.GetEntityById(ev.CreatorID); ok {
+			relations = append(relations, domain.Created{
+				Creator: creator,
+				Object:  ev.Resource,
+			})
+		}
+	}
+
+	// TODO: handle this properly depending on the effects case where a rolebinding is created
+	if binding, ok := ev.Resource.(domain.RoleBinding); ok {
+		roleEntity, hasRole := c.GetEntityById(binding.RoleID)
+		role, isRole := roleEntity.(domain.Role)
+		if hasRole && isRole {
+			for _, subjectID := range binding.SubjectIDs {
+				subject, hasSubject := c.GetEntityById(subjectID)
+				sa, isSa := subject.(domain.ServiceAccount)
+
+				if hasSubject && isSa {
+					relations = append(relations, domain.BindsRole{
+						Role:    role,
+						Subject: sa,
+					})
+				}
+			}
+		} else {
+			return nil, fmt.Errorf("RoleBinding '%s' references unknown role '%s'", binding.GetId(), binding.RoleID)
+		}
+	}
+
+	return c.UpdateFacts(
+		NewFacts{
+			Entities:  []domain.Entity{ev.Resource},
+			Relations: relations,
+		}, RemovedFacts{},
+	)
 }
 
 func parseEffect(effect string, source domain.Entity, args ...string) (NewFacts, RemovedFacts) {

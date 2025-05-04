@@ -227,3 +227,25 @@ type PodDeployed struct {
 	PodCfg    PodConfig
 	Namespace string
 }
+
+type NewK8sResourceCreated struct {
+	EventImpl
+	Resource  Entity
+	CreatorID string
+}
+
+func (e NewK8sResourceCreated) String() string {
+	return "New K8s Resource created"
+}
+
+type NewRoleBindingCreated struct {
+	EventImpl
+	Binding        Entity
+	Role           string
+	ServiceAccount string
+	Namespace      Namespace
+}
+
+func (e NewRoleBindingCreated) String() string {
+	return "New role-binding created"
+}

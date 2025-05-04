@@ -677,6 +677,24 @@ func (n K8sNode) GetId() string {
 	return fmt.Sprintf("node/%s", n.GetName())
 }
 
+type Role struct {
+	K8sEntity
+}
+
+func (role Role) GetKind() string {
+	return "Role"
+}
+
+type RoleBinding struct {
+	K8sEntity
+	RoleID     string
+	SubjectIDs []string
+}
+
+func (role RoleBinding) GetKind() string {
+	return "RoleBinding"
+}
+
 type Asset interface {
 }
 

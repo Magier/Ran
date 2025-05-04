@@ -343,3 +343,27 @@ func (r HasC2Session) GetTargetId() string {
 func (r HasC2Session) GetRelationName() string {
 	return "has-session"
 }
+
+type BindsRole struct {
+	RelationImpl
+	// TODO: generalize this to User and Groups
+	Subject ServiceAccount
+	Role    Role
+}
+
+var _ Relation = (*BindsRole)(nil)
+
+func (r BindsRole) IsInverse() bool {
+	return true
+}
+
+func (r BindsRole) GetSourceId() string {
+	return r.Subject.GetId()
+}
+func (r BindsRole) GetTargetId() string {
+	return r.Role.GetId()
+}
+
+func (r BindsRole) GetRelationName() string {
+	return "binds"
+}

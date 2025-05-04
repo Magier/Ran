@@ -21,11 +21,15 @@ func GetParser(parserName string) domain.ParserFn {
 		return HandleSelfSubjectReviewResult
 	case "newContainer":
 		return HandleNewContainer
+	case "newRole":
+		return HandleNewRole
+	case "newRoleBinding":
+		return HandleNewRoleBinding
 	}
 	return nil
 }
 
-func HandleEnvVarResult(source domain.Entity, args ...string) (domain.Event, error) {
+func HandleEnvVarResult(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
 	if len(args) == 0 {
 		return nil, errors.New("No environment variables received!")
 	}
@@ -49,7 +53,7 @@ func HandleEnvVarResult(source domain.Entity, args ...string) (domain.Event, err
 	}, nil
 }
 
-func HandleSaTokenRead(source domain.Entity, args ...string) (domain.Event, error) {
+func HandleSaTokenRead(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("No SA token provided as argument")
 	}
@@ -81,7 +85,7 @@ func HandleSaTokenRead(source domain.Entity, args ...string) (domain.Event, erro
 	}, nil
 }
 
-func HandleSelfSubjectReviewResult(source domain.Entity, args ...string) (domain.Event, error) {
+func HandleSelfSubjectReviewResult(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
 	// try parse JSON
 	if len(args) == 0 {
 		return nil, fmt.Errorf("No data")
@@ -116,7 +120,7 @@ func HandleSelfSubjectReviewResult(source domain.Entity, args ...string) (domain
 	}, nil
 }
 
-func HandleNewContainer(source domain.Entity, args ...string) (domain.Event, error) {
+func HandleNewContainer(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
 	numArgs := len(args)
 	if numArgs == 0 {
 		return nil, fmt.Errorf("No data")
@@ -146,5 +150,80 @@ func HandleNewContainer(source domain.Entity, args ...string) (domain.Event, err
 	return domain.NewPodDeployed{
 		Pod:       p,
 		Namespace: ns,
+	}, nil
+}
+
+func HandleNewRole(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
+	// TODO: check if the actual TTP execution failed, because the role already exists
+	// -> overall, the intended effects are met, but it may be a confiict (e.g. name collision), for downstream TTPs
+	if strings.Contains(args[0], "Error from server (Forbidden)") {
+		// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
+		if strings.Contains(args[0], "attempting to grant RBAC permissions not currently held") {
+			return nil, errors.New(args[0])
+		}
+	}
+
+	name := ev.Args["ROLE_NAME"]
+	if strings.Contains(args[0], "already exists") {
+		slog.Info(fmt.Sprintf("Role '%s' already exists: %s", name, args[0]))
+	}
+
+	var ns string
+	var creator domain.ServiceAccount
+
+	if sa, ok := ev.Target.(domain.ServiceAccount); ok {
+		ns = sa.GetNamespace()
+		creator = sa
+	}
+
+	role := domain.Role{
+		K8sEntity: domain.K8sEntity{
+			Name:      name,
+			Namespace: ns,
+			Kind:      "Role",
+		},
+	}
+
+	myId := role.GetId()
+	var _ = myId
+
+	return domain.NewK8sResourceCreated{
+		Resource:  role,
+		CreatorID: creator.GetId(),
+	}, nil
+}
+
+func HandleNewRoleBinding(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
+	if strings.Contains(args[0], "Error from server (Forbidden)") {
+		// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
+		if strings.Contains(args[0], "attempting to grant RBAC permissions not currently held") {
+			return nil, errors.New(args[0])
+		}
+	}
+
+	name := ev.Args["BINDING_NAME"]
+	if strings.Contains(args[0], "already exists") {
+		slog.Info(fmt.Sprintf("RoleBinding '%s' already exists: %s", name, args[0]))
+	}
+
+	ns := ev.Args["NAMESPACE"]
+	roleID := fmt.Sprintf("ns/%s/role/%s", ns, ev.Args["ROLE_NAME"])
+	subjectID := fmt.Sprintf("ns/%s/sa/%s", ns, ev.Args["SUBJECT"])
+
+	binding := domain.RoleBinding{
+		K8sEntity: domain.K8sEntity{
+			Name:      name,
+			Namespace: ns,
+			Kind:      "RoleBinding",
+		},
+		RoleID:     roleID,
+		SubjectIDs: []string{subjectID},
+	}
+
+	// TODO infer the proper creator
+	// creatorName := fmt.Sprintf("ns/%s/sa/%s", ns, ev.Args["TOKEN"])
+	return domain.NewK8sResourceCreated{
+		Resource: binding,
+		// CreatorID: creatorName,
 	}, nil
 }

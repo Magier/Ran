@@ -94,6 +94,7 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	mb.Subscribe(domain.ActionSelected{}, campaign.onActionSelected)
 	mb.Subscribe(domain.ServiceAccountTokenExtracted{}, campaign.onServiceAccountTokenExtracted)
 	mb.Subscribe(domain.TokenPermissionsRetrieved{}, campaign.onTokenPermissionsExtracted)
+	mb.Subscribe(domain.NewK8sResourceCreated{}, campaign.onNewK8sResourceCreated)
 	mb.Subscribe(domain.PrintGraph{}, campaign.onPrintGraph)
 	mb.Subscribe(domain.SaveAttackFlow{}, campaign.onSaveAttackFlow)
 	mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)

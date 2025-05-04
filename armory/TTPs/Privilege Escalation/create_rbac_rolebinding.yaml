@@ -5,10 +5,10 @@ techniques:
   - "Account Manipulation: Additional Container Cluster Roles"
   - T1098.006
 parameters:
-  SERVICEACCOUNT:
+  SUBJECT:
     type: string
     default: ${TARGET}
-    description: the name of the service account to which the role will be bound
+    description: the name of the serviceaccount, user or group to which the role will be bound
   NAMESPACE:
     type: string
     default: ${NS}
@@ -23,16 +23,19 @@ parameters:
     description: the name of the service account to which the role will be bound
   BINDING_NAME:
     type: string
-    default: ${SERVICE_ACCOUNT}-${ROLE_NAME}
+    default: ${SUBJECT}-${ROLE_NAME}
     description: the name of the service account to which the role will be bound
 cmdVariants:
   - key: kubectl
     # export TOKEN=${TOKEN}
     command: >
-      kubectl create rolebinding ${BINDING_NAME} --namsepace=${NAMESPACE} --role=${ROLE_NAME} --serviceaccount=${NAMESPACE}:${SERVICEACCOUNT} --token=${TOKEN}
+      kubectl create rolebinding ${BINDING_NAME} --namespace=${NAMESPACE} --role=${ROLE_NAME} --serviceaccount=${NAMESPACE}:${SUBJECT} --token=${TOKEN}
 preconditions:
   kind: ServiceAccount
   accessLevel: can-create rolebinding
+parser: newRoleBinding
+effects:
+  - "RoleBinding(${BINDING_NAME}, Role(${ROLE_NAME}), ServiceAccount(${SERVICEACCOUNT}))"
 # cmd: {}
 # defend: {}
 refernces:
