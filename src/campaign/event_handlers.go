@@ -305,6 +305,7 @@ func (c *Campaign) onNewK8sResourceCreated(ctx context.Context, msg domain.Messa
 	ev := msg.(domain.NewK8sResourceCreated)
 	slog.Info(fmt.Sprintf("New K8s resource created: %s", ev.Resource))
 
+	entities := []domain.Entity{}
 	relations := make([]domain.Relation, 0)
 	if ev.CreatorID != "" {
 		if creator, ok := c.GetEntityById(ev.CreatorID); ok {
@@ -334,11 +335,13 @@ func (c *Campaign) onNewK8sResourceCreated(ctx context.Context, msg domain.Messa
 		} else {
 			return nil, fmt.Errorf("RoleBinding '%s' references unknown role '%s'", binding.GetId(), binding.RoleID)
 		}
+	} else {
+		entities = append(entities, ev.Resource)
 	}
 
 	return c.UpdateFacts(
 		NewFacts{
-			Entities:  []domain.Entity{ev.Resource},
+			Entities:  entities,
 			Relations: relations,
 		}, RemovedFacts{},
 	)

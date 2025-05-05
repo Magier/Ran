@@ -25,7 +25,7 @@
 				let value = param.Default;
 				if (value === '${TARGET}') {
 					let id = parseEntityId(targetId);
-					value = IdleDeadline.name;
+					value = id.name;
 				}
 
 				return {
