@@ -1,0 +1,23 @@
+name: Create New Service Account Token
+description: Create a new service account token
+tactic: Credential Access
+techniques: ["Steal Application Access Token"]
+parameters:
+  SERVICEACCOUNT:
+    type: string
+    default: ${TARGET}
+    description: the name of the service account for which the token will be created
+  DURATION:
+    type: string
+    default: "0" # 0 means the duration is determined by the API server
+    description: the duration of the token
+cmdVariants:
+  - key: kubectl
+    command: >
+      kubectl create token ${SERVICEACCOUNT} --duration=24h
+preconditions:
+  kind: ServiceAccount
+  accessLevel: user-read
+  rbac: "can-create serviceaccount/token"
+# effects: []
+parser: rawServiceaccountToken
