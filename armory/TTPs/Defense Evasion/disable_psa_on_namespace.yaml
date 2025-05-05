@@ -1,0 +1,16 @@
+name: Disable PSA on Namespace
+description: Disables Pod Security Admission on a namespace by overwriting the enforced PodSecurityStandard to `privileged`.
+tactic: Defese Evasion
+techniques: ["Impair Defenses", "T1562"]
+parameters:
+  NAMESPACE:
+    type: string
+    default: ${TARGET}
+    description: the name of the namespace to disable Pod Security Admission on
+cmdVariants:
+  - key: kubectl
+    command: kubectl label ns ${NAMESPACE} pod-security.kubernetes.io/enforce=privileged --overwrite
+preconditions:
+  kind: Namespace
+  rbac: "can-update namespace"
+# effects: []
