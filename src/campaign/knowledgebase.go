@@ -62,7 +62,6 @@ func updateEntity(entity, other domain.Entity) domain.Entity {
 		}
 
 		if hasOwner {
-			// omg, it can't possibly be idiomaitic Go to be so fking cumbersome ...
 			switch e := entity.(type) {
 			case domain.Pod:
 				e.Owner = ownerRef
@@ -78,6 +77,12 @@ func updateEntity(entity, other domain.Entity) domain.Entity {
 		pod.AccessLevel = prevPod.AccessLevel
 		entity = pod
 	}
+
+	// TODO: generalize the update/merge of the two entities
+	// Heuristic:
+	// 1) if old one has default value, ignore the field
+	// 2) if new one has default value, use the value from the old one
+	// 3) if both have a value set, use the new one
 
 	return entity
 }

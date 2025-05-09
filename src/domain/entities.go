@@ -548,6 +548,11 @@ func (id Identity) Can(permission string) bool {
 	return false
 }
 
+type VolumeMount struct {
+	MountPath string
+	HostPath  string
+}
+
 type Pod struct {
 	K8sEntity
 	// NamespacedResource
@@ -562,6 +567,7 @@ type Pod struct {
 	HostPID                      ProbBool
 	HostIPC                      ProbBool
 	HostNetwork                  ProbBool
+	VolumeMount                  VolumeMount
 	Devices                      []string
 	Binaries                     []string
 	Containers                   []v1.Container

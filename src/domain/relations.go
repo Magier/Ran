@@ -367,3 +367,28 @@ func (r BindsRole) GetTargetId() string {
 func (r BindsRole) GetRelationName() string {
 	return "binds"
 }
+
+type MountsHostPath struct {
+	RelationImpl
+	Pod       Pod
+	Node      K8sNode
+	HostPath  string
+	MountPath string
+}
+
+var _ Relation = (*MountsHostPath)(nil)
+
+func (r MountsHostPath) IsInverse() bool {
+	return true
+}
+
+func (r MountsHostPath) GetSourceId() string {
+	return r.Pod.GetId()
+}
+func (r MountsHostPath) GetTargetId() string {
+	return r.Node.GetId()
+}
+
+func (r MountsHostPath) GetRelationName() string {
+	return fmt.Sprintf("mounds %s", r.HostPath)
+}
