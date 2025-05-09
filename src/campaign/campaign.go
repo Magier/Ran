@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"text/template"
 
 	"github.com/Magier/Ran/armory"
 	"github.com/Magier/Ran/c2"
@@ -334,6 +335,9 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 	if target == nil {
 		target = execSystem
 	}
+
+	// TODO: build a dependency graph between the args and resolve them in that order
+
 	// TODO: properly set the default values to the most plausible options
 	for key, arg := range args {
 		if key == "NS" || arg == "${NS}" {
@@ -391,7 +395,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 					}
 				}
 			}
-		} else if key == "NODE" {
+		} else if strings.ToUpper(key) == "NODE" {
 			if arg == "" {
 				if pod, ok := target.(domain.Pod); ok {
 					arg = pod.NodeName
@@ -499,30 +503,43 @@ func (c Campaign) getSystemForExecution(ttp domain.TTP, target domain.Entity) (d
 	return nil, fmt.Errorf("No suitable system found for execution")
 }
 
-func (c Campaign) groundCmdTemplate(template string, variables map[string]string) string {
-	if strings.Contains(template, "${API_SERVER}") {
+func (c Campaign) groundCmdTemplate(cmdTemplate string, variables map[string]string) string {
+	tmpl, err := template.New("cmd").Parse(cmdTemplate)
+	if err != nil {
+		slog.Error("Ground Template", "", err.Error())
+		return cmdTemplate
+	}
+	var buf strings.Builder
+	err = tmpl.Execute(&buf, variables)
+	if err != nil {
+		slog.Error("Ground Template", "", err.Error())
+		return cmdTemplate
+	}
+	cmdTemplate = buf.String()
+
+	if strings.Contains(cmdTemplate, "${API_SERVER}") {
 		apiUrl, err := c.GetApiUrl(true)
 		if err != nil {
 			slog.Error("Ground Template", "", err.Error())
 		} else if apiUrl == "" {
 			slog.Info("No API Server URL found when grounding command")
 		} else {
-			template = strings.Replace(template, "${API_SERVER}", apiUrl, -1)
+			cmdTemplate = strings.Replace(cmdTemplate, "${API_SERVER}", apiUrl, -1)
 		}
 	}
-	if strings.Contains(template, "${LISTENER}") {
+	if strings.Contains(cmdTemplate, "${LISTENER}") {
 		listener, ok := c.GetListener(domain.TCP)
 		if ok {
-			template = inflateListenerTemplate(listener, template)
+			cmdTemplate = inflateListenerTemplate(listener, cmdTemplate)
 		} else {
 			slog.Info("No suitable listener found!")
 		}
 	}
-	if strings.Contains(template, "${FILESHARE_PORT}") {
+	if strings.Contains(cmdTemplate, "${FILESHARE_PORT}") {
 		filesharePort, ok := c.GetFileshare()
 		if ok {
 			p := fmt.Sprint(filesharePort)
-			template = strings.Replace(template, "${FILESHARE_PORT}", p, -1)
+			cmdTemplate = strings.Replace(cmdTemplate, "${FILESHARE_PORT}", p, -1)
 		} else {
 			slog.Info("No suitable fileshare found!")
 		}
@@ -531,10 +548,10 @@ func (c Campaign) groundCmdTemplate(template string, variables map[string]string
 	for key, v := range variables {
 		templateVariable := fmt.Sprintf("${%s}", strings.ToUpper(key))
 		// TOOD: check if for casese where the variable is not set, and if that's a problem
-		template = strings.Replace(template, templateVariable, v, -1)
+		cmdTemplate = strings.Replace(cmdTemplate, templateVariable, v, -1)
 	}
 
-	return template
+	return cmdTemplate
 }
 
 func (c Campaign) getServiceAccountOwner(sa domain.ServiceAccount) (domain.Pod, bool) {

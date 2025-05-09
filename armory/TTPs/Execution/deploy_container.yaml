@@ -40,6 +40,14 @@ parameters:
     type: bool
     default: false
     description: is the network shared with the host
+  HostPath:
+    type: string
+    default: "/"
+    description: the host path mounted into the container with pattern <path on host>:<path in pod>
+  Mount:
+    type: string
+    default: "/host"
+    description: the host path mounted into the container with pattern <path on host>:<path in pod>
   NodeName:
     type: string
     default: ""
@@ -70,7 +78,16 @@ cmdVariants:
                 "securityContext": {
                   "privileged": ${PRIVILEGED}
               }
+              {{if .Mount}}
+              , "volumeMounts": [{"name": "hostmount", "mountPath": "{{ .Mount }}"} ]
+              {{end}}
           }]
+
+          {{if .HostPath }}
+          , "volumes": [{
+            "name": "hostmount", "hostPath": {"path": "{{.HostPath}}" }
+          }] 
+          {{ end }}
         }
       }' | kubectl apply -f -  
       && 

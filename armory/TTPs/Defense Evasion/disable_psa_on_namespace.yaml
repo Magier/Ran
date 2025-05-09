@@ -1,6 +1,6 @@
 name: Disable PSA on Namespace
 description: Disables Pod Security Admission on a namespace by overwriting the enforced PodSecurityStandard to `privileged`.
-tactic: Defese Evasion
+tactic: Defense Evasion
 techniques: ["Impair Defenses", "T1562"]
 parameters:
   NAMESPACE:
