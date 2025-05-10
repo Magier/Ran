@@ -160,6 +160,8 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 		return analyzeDeployPodFailure(ev)
 	}
 
+	relations := make([]domain.Relation, 0)
+
 	newPod := domain.NewPod(
 		ev.Args["Name"],
 		ev.Args["Namespace"],
@@ -181,11 +183,31 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 		newPod.HostNetwork = domain.NewProbBool(strings.ToLower(val) == "true")
 	}
 
-	createdRel := domain.Created{Creator: ev.Target, Object: newPod}
+	if val, ok := ev.Args["HostPath"]; ok {
+		mountPath := ev.Args["MountPath"]
+		newPod.VolumeMount = domain.VolumeMount{
+			HostPath:  val,
+			MountPath: mountPath,
+		}
+
+		// TODO: find out how this can be best resolved with the "runs-on" relation
+		node := domain.NewK8sNode("??")
+
+		relations = append(relations, domain.MountsHostPath{
+			Pod:       newPod,
+			Node:      node,
+			HostPath:  val,
+			MountPath: mountPath,
+		})
+	}
+
+	// TODO: the target is not the creator, but the executing system; model this properly
+	// createdRel := domain.Created{Creator: ev.Target, Object: newPod}
+	// relations = append(relations, createdRel)
 
 	return NewFacts{
 		Entities:  []domain.Entity{newPod},
-		Relations: []domain.Relation{createdRel},
+		Relations: relations,
 	}, RemovedFacts{}, nil
 }
 func analyzeDeployPodFailure(event domain.TTPExecuted) (NewFacts, RemovedFacts, error) {

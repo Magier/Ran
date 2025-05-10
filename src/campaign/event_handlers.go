@@ -93,7 +93,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		slog.Info(fmt.Sprintf("TTP has %d effects; using only first one", len(ttp.Effects)))
 	}
 	for _, effect := range ttp.Effects {
-		new, removed := parseEffect(effect, cmd.Target, cmd.Results...)
+		new, removed := ParseEffect(effect, cmd.Target, cmd.Results...)
 		newFacts.Update(new)
 		removedFacts.Update(removed)
 	}
@@ -347,7 +347,7 @@ func (c *Campaign) onNewK8sResourceCreated(ctx context.Context, msg domain.Messa
 	)
 }
 
-func parseEffect(effect string, source domain.Entity, args ...string) (NewFacts, RemovedFacts) {
+func ParseEffect(effect string, source domain.Entity, args ...string) (NewFacts, RemovedFacts) {
 	if len(args) == 0 {
 		slog.Warn("Can't parse effect %s because there are no arguments")
 		return NewFacts{}, RemovedFacts{}
@@ -385,10 +385,20 @@ func parseEffect(effect string, source domain.Entity, args ...string) (NewFacts,
 		res := args[0]
 		list, err := k8s.ParseServiceAccountList(res)
 		if err != nil {
-			slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
+			slog.Error(fmt.Sprintf("Could not parse ServiceAccountList: %v", err))
 		} else {
 			for _, res := range list.Items {
 				entities = append(entities, domain.NewServiceAccountFromK8sSpec(res))
+			}
+		}
+	case "k8s.secretlist":
+		res := args[0]
+		secrets, err := parsers.ParseSecretList(res)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not parse SecretList: %v", err))
+		} else {
+			for _, secret := range secrets {
+				entities = append(entities, secret)
 			}
 		}
 	}
