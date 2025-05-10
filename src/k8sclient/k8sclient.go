@@ -344,18 +344,18 @@ func DeployPod(ctx context.Context, client K8sClient, podName, ns string, cfg do
 func ParsePodList(jsonStr string) (*v1.PodList, error) {
 	var list v1.PodList
 	err := json.Unmarshal([]byte(jsonStr), &list)
-	if err != nil {
-		return nil, err
-	}
-	return &list, nil
+	return &list, err
 }
 
 // ParseServiceAccountList converts a JSON string containing a PodList into a v1.PodList object.
 func ParseServiceAccountList(jsonStr string) (*v1.ServiceAccountList, error) {
 	var list v1.ServiceAccountList
 	err := json.Unmarshal([]byte(jsonStr), &list)
-	if err != nil {
-		return nil, err
-	}
-	return &list, nil
+	return &list, err
+}
+
+func ParseSecretList(jsonStr string) (*v1.SecretList, error) {
+	var list v1.SecretList
+	err := json.Unmarshal([]byte(jsonStr), &list)
+	return &list, err
 }

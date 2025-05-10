@@ -9,7 +9,7 @@ import (
 func TestParseTargetIPsReceivedEffect(t *testing.T) {
 	result := "::1 172.18.0.1"
 	pod := domain.NewPod("test", "default")
-	new, _ := parseEffect("target.ip", pod, result)
+	new, _ := ParseEffect("target.ip", pod, result)
 
 	if len(new.Entities) != 1 {
 		t.Fatalf("Got more than 1 expected change when parsing effect")

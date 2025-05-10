@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Magier/Ran/domain"
+	k8s "github.com/Magier/Ran/k8sclient"
 	k8s_types "github.com/Magier/Ran/k8sclient/types"
 )
 
@@ -226,4 +227,18 @@ func HandleNewRoleBinding(ev domain.TTPExecuted, source domain.Entity, args ...s
 		Resource: binding,
 		// CreatorID: creatorName,
 	}, nil
+}
+
+func ParseSecretList(jsonStr string) ([]domain.K8sSecret, error) {
+	secretList, err := k8s.ParseSecretList(jsonStr)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse SecretList: %w", err)
+	}
+
+	secrets := make([]domain.K8sSecret, 0, len(secretList.Items))
+	for _, item := range secretList.Items {
+		secrets = append(secrets, domain.NewSecretFromK8sSpec(item))
+	}
+
+	return secrets, nil
 }

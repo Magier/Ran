@@ -808,3 +808,37 @@ func (s Session) GetName() string {
 }
 
 var _ Entity = (*Session)(nil)
+
+type K8sSecret struct {
+	K8sEntity
+	// NamespacedResource
+	Data map[string]string
+	Type string // https://kubernetes.io/docs/concepts/configuration/secret/#secret-types
+}
+
+var _ Entity = (*K8sSecret)(nil)
+
+func (s K8sSecret) GetId() string {
+	return fmt.Sprintf("ns/%s/secret/%s", s.GetNamespace(), s.GetName())
+}
+func (s K8sSecret) GetName() string {
+	return s.Name
+}
+func (s K8sSecret) GetKind() string {
+	return "Secret"
+}
+
+func NewSecretFromK8sSpec(s v1.Secret) K8sSecret {
+	entity := NewK8sEntity(s.ObjectMeta.Name, "Secret", s.ObjectMeta.Namespace)
+
+	// Convert map[string][]byte to map[string]string
+	dataStr := make(map[string]string, len(s.Data))
+	for k, v := range s.Data {
+		dataStr[k] = string(v)
+	}
+	return K8sSecret{
+		K8sEntity: entity,
+		Type:      string(s.Type),
+		Data:      dataStr,
+	}
+}
