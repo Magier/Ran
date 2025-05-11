@@ -6,6 +6,10 @@ export function ActionSelected(arg1, arg2, arg3) {
   return window['go']['main']['App']['ActionSelected'](arg1, arg2, arg3);
 }
 
+export function GetApplicableTTPs(arg1) {
+  return window['go']['main']['App']['GetApplicableTTPs'](arg1);
+}
+
 export function GetGraph() {
   return window['go']['main']['App']['GetGraph']();
 }
@@ -16,10 +20,6 @@ export function GetRunningPods() {
 
 export function GetTrace() {
   return window['go']['main']['App']['GetTrace']();
-}
-
-export function IsActionSatisfied(arg1, arg2) {
-  return window['go']['main']['App']['IsActionSatisfied'](arg1, arg2);
 }
 
 export function StartEmulation(arg1) {

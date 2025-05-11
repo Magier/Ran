@@ -1,7 +1,8 @@
 <script lang="ts">
-	import type { TTP } from '$lib/model';
+	import type { ArmoryType, TTP } from '$lib/model';
 	import { onDestroy, onMount } from 'svelte';
-	import store from '$lib/stores/store';
+	import { Switch } from '@skeletonlabs/skeleton-svelte';
+	import store, { parseArmory } from '$lib/stores/store';
 	import Icon from '@iconify/svelte';
 
 	type ArmoryProps = {
@@ -13,17 +14,19 @@
 
 	import ActionCard from './action_card.svelte';
 	import { Accordion } from '@skeletonlabs/skeleton-svelte';
+	import { GetApplicableTTPs } from '$lib/wailsjs/go/main/App';
 
 	const iconMap: Record<string, string> = {
 		'Resource Development': 'healthicons:entry-outline',
 		'Initial Access': 'material-symbols:door-open-outline',
+		Discovery: 'material-symbols:schema-outline',
 		Execution: 'material-symbols:settings-slow-motion',
 		Persistence: 'game-icons:life-jacket',
 		'Privilege Escalation': 'mdi:account-arrow-up',
 		'Defense Evasion': 'game-icons:hood',
 		'Credential Access': 'mdi:key-chain-variant',
 		'Command And Control': 'material-symbols:satellite-alt',
-		Discovery: 'material-symbols:schema-outline',
+		Collection: 'game-icons:receive-money',
 		'Lateral Movement': 'material-symbols:timeline',
 		Impact: 'game-icons:falling-bomb',
 		Other: 'game-icons:dig-dug'
@@ -41,7 +44,20 @@
 	// export let selectedNode: Object | null = null;
 	// export let globalConditions: Object = {};
 	// $: selectedConditions = { ...globalConditions, ...(selectedNode ?? {}) };
-	let armory: Map<string, TTP[]> = $state(new Map());
+	let armory: ArmoryType = $state(new Map());
+	let showAllTTPs: boolean = $state(false);
+
+	let applicableTTPs: ArmoryType = $state(new Map());
+	$effect(() => {
+		GetApplicableTTPs(targetId)
+			.then((result: TTP[]) => {
+				applicableTTPs = parseArmory(result);
+			})
+			.catch((err) => {
+				console.error('Error fetching applicable TTPs:', err);
+			});
+		// console.log('Armory:', armory);
+	});
 
 	// const filteredArmoryStore = createSearchStore(armory);
 	// const unsubscribe = filteredArmory.subscribe((ttp) => searchAbilities(ttp));
@@ -80,12 +96,33 @@
 			searchTerm = '';
 		}
 	}
+
+	function isTTPApplicable(ttp: TTP): boolean {
+		let procedures = applicableTTPs.get(ttp.tactic) || [];
+		for (let proc of procedures) {
+			if (proc.name === ttp.name) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	let tag = $state('IconInitialAccess');
 </script>
 
 <div class="bg-surface-100-800-token inset-y-0 right-0 h-full {className}">
-	<h1>Armory</h1>
-	<div class="mx-4 mb-2">
+	<div class="my-2 flex items-center justify-between">
+		<span class="px-2 text-xl">Armory</span>
+		<label class="flex items-center gap-2">
+			Show all
+			<Switch
+				name="Show All"
+				checked={showAllTTPs}
+				onCheckedChange={(e) => (showAllTTPs = e.checked)}
+			/>
+		</label>
+	</div>
+	<!-- <div class="mx-4 mb-2">
 		<label for="search-box">Search/Filter</label>
 		<input
 			id="search-box"
@@ -96,10 +133,10 @@
 			onkeydown={handleClearWithEscape}
 			oninput={searchAbilities}
 		/>
-	</div>
+	</div> -->
 	<div>
 		<Accordion collapsible>
-			{#each Array.from(armory) as [tactic, ttps]}
+			{#each Array.from(showAllTTPs ? armory : applicableTTPs) as [tactic, ttps]}
 				<hr class="hr" />
 				<Accordion.Item
 					value={tactic}
@@ -110,7 +147,12 @@
 						<Icon icon={iconMap[tactic]} width="24"></Icon>
 					{/snippet}
 					{#snippet control()}
-						{tactic}
+						<div class="flex w-full items-center">
+							<span class="flex-1">{tactic}</span>
+							<span class="ml-2 text-xs text-gray-500"
+								>{applicableTTPs.get(tactic)?.length ?? 0}</span
+							>
+						</div>
 					{/snippet}
 					{#snippet panel()}
 						{#each ttps as ttp}
@@ -119,6 +161,7 @@
 								{targetId}
 								conditions={ttp.requires}
 								icon={iconMap[ttp.tactic]}
+								enabled={isTTPApplicable(ttp)}
 								onclick={() => sendAction(ttp)}
 							/>
 						{/each}

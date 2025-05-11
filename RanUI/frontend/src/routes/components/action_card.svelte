@@ -1,35 +1,20 @@
 <script lang="ts">
 	import type { TTP } from '$lib/model';
 	import { AccessLevel } from '$lib/model';
-	import { IsActionSatisfied } from '$lib/wailsjs/go/main/App';
 	import Icon from '@iconify/svelte';
 
 	interface ActionCardProps {
 		ttp: TTP;
-		targetId?: string;
 		icon: any;
+		enabled?: boolean;
 		conditions?: Object;
 		onclick: (ttp: TTP) => void;
 	}
 
-	let { ttp, targetId, icon, conditions, onclick }: ActionCardProps = $props();
-
-	let requirementsSatisfied = $state(false);
-	$effect(() => {
-		IsActionSatisfied(ttp.id, targetId!)
-			.then((result: boolean) => {
-				console.log(`Requirements ${ttp.name} Satisfied: `, result);
-				requirementsSatisfied = result;
-			})
-			.catch((err) => {
-				console.error(`Error checking requirements for ${ttp.name}: `, err);
-			});
-	});
+	let { ttp, icon, enabled = true, onclick }: ActionCardProps = $props();
 
 	let cardStyle = $derived(
-		requirementsSatisfied
-			? 'card-hover bg-surface-200-800-token'
-			: 'card-disabled bg-surface-50-900-token'
+		enabled ? 'card-hover bg-surface-200-800-token' : 'card-disabled bg-surface-50-900-token'
 	);
 
 	function checkConditions(ttp: TTP, conditions: Object) {
@@ -77,7 +62,7 @@
 	class="card {cardStyle} w-full p-1 text-left"
 	role="menuitem"
 	tabindex="0"
-	disabled={!requirementsSatisfied}
+	disabled={!enabled}
 >
 	<header class="card-header">
 		<Icon {icon} class="inline-block" />

@@ -277,17 +277,18 @@ func (a *App) ActionSelected(actionID, targetID string, args ActionArgs) { //, a
 	}
 }
 
-func (a *App) IsActionSatisfied(actionId, targetId string) (bool, error) {
-	ttp, ok := a.ran.Armory.GetTTP(actionId)
-	if !ok {
-		return false, fmt.Errorf("TTP '%s' not found", actionId)
-	}
-
+func (a *App) GetApplicableTTPs(targetId string) []domain.TTP {
+	ttps := make([]domain.TTP, 0)
 	target, _ := a.ran.Campaign.GetEntityById(targetId)
 	state := domain.State{}
 	accessLevel := domain.UserExec
-	isSatisfied := ttp.Requires.Satisfied(target, accessLevel, state)
-	return isSatisfied, nil
+	for _, ttp := range a.ran.Armory.GetTTPs() {
+		isSatisfied := ttp.Requires.Satisfied(target, accessLevel, state)
+		if isSatisfied {
+			ttps = append(ttps, ttp)
+		}
+	}
+	return ttps
 }
 
 func (a *App) GetTrace() AttackFlow {

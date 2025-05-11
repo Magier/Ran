@@ -19,13 +19,12 @@ export type Param = {
 
 export type TTP = {
     id: string;
+    tactic: string;
     technique?: string;
     name: string;
-    action: string;
+    action?: string;
     description: string;
     cmd_args?: object;
-    tactic: string;
-    ms_id?: string;
     requires?: Object,
     params?: Param[]
 };

@@ -171,7 +171,7 @@ function parse_topology(data: any): [Node[], Edge[]] {
 // 	return [nodes, edges];
 // }
 
-function parseArmory(data: TTP[]): ArmoryType {
+export function parseArmory(data: TTP[]): ArmoryType {
 	// this comes from the backend must be converted
 	let armoryMap = new Map<string, TTP[]>();
 	for (let ttp of data) {
