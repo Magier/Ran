@@ -22,6 +22,7 @@ cmdVariants:
   - key: wget
     command: wget ${URL} -O ${DST_BIN} && chmod +x ${DST_BIN} && ${DST_BIN} &
 preconditions:
+  kind: "Pod"
   accessLevel: "user-exec"
 # cmd: {}
 # defend: {}
