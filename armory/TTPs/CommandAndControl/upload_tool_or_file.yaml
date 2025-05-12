@@ -9,10 +9,33 @@ parameters:
   DST_PATH:
     type: string
     description: Path on the target system where the file will be transfered
-args:
-  SRC_PATH: "../static/peirates"
-  DST_PATH: "/tmp/peirates"
+  # DST_DIR:
+  #   type: string
+  #   description: Path on the target system where the file will be transfered
 cmdVariants:
+  - key: curl
+    command: >
+      curl -L ${SRC_PATH} {{ if .DST_PATH }} -o ${DST_PATH} {{ else }} -O {{ end }} &&
+      {{ if .DST_PATH }}
+      f=`basename ${DST_PATH}` `
+      {{ else }}
+      f=`ls -t | head -n1` 
+      {{ end }}
+      && if [ ! -f "$f" ]; then echo "Could not identify downloaded file." && exit 1; fi;  
+      case "$f" in
+        *.tar.gz|*.tgz) out=`tar -xzf "$f"` ;; 
+        *.tar.bz2|*.tbz2) out=`tar -xjf "$f"` ;; 
+        *.tar.xz|*.txz) out=`tar -xJf "$f"` ;; 
+        *.zip) out=`unzip -q "$f"` ;; 
+        *.gz) out=`basename "$f" .gz`; gunzip "$f" ;; 
+        *.bz2) out=`basename "$f" .bz2`; bunzip2 "$f" ;; 
+        *.xz) out=`basename "$f" .xz`; unxz "$f" ;; 
+        *.7z) out=`7z x "$f" | awk '/Extracting  / {print $2}'` ;; 
+        *.rar) out=`unrar x -idq "$f" | awk '/Extracting  / {print $2}'` ;; 
+        *) echo "Unsupported file type"; exit 2 ;; 
+      esac; 
+      for x in $out; do [ -f "$x" ] && chmod +x "$x"; done;
+    isLocal: false
   # - key: curl
   #   command: curl -F 'data=@${SRC_PATH}' ${DST_PATH}
   #   isLocal: true
