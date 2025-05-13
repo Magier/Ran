@@ -35,6 +35,7 @@ type Node struct {
 	AccessLevel  string        `json:"accessLevel"`
 	Entitlements []Entitlement `json:"entitlements"`
 	Entity       domain.Entity `json:"entity"`
+	Compromised  bool          `json:"compromised"`
 }
 
 type Edge struct {
@@ -218,6 +219,10 @@ func (a *App) GetGraph() Graph {
 		}
 
 		switch e := entity.(type) {
+		case domain.Pod:
+			node.Compromised = e.AccessLevel.IsSet()
+		case domain.K8sNode:
+			node.Compromised = e.AccessLevel.IsSet()
 		case domain.ServiceAccount:
 			entitlements := []Entitlement{}
 			for _, rule := range e.Can {
@@ -226,6 +231,7 @@ func (a *App) GetGraph() Graph {
 					ResourceTypes: rule.ResourceTypes,
 				})
 			}
+			node.Compromised = (e.Token.Raw != "")
 
 			node.Entitlements = entitlements
 		}

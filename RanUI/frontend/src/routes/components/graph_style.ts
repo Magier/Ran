@@ -110,8 +110,8 @@ export function getGraphStyle() {
 		{
 			selector: 'node',
 			style: {
-				width: '30',
-				height: '30',
+				width: '20',
+				height: '20',
 				color: textColor,
 				'background-color': surface,
 				'background-fit': 'cover',
@@ -152,6 +152,33 @@ export function getGraphStyle() {
 				width: '15',
 				height: '15',
 				'font-size': 8
+			}
+		},
+		{
+			selector: "node[kind='Pod']",
+			style: {
+				width: '30',
+				height: '30',
+			}
+		},
+		{
+			selector: "node[?compromised]",
+			style: {
+				'color': '#c2655b',
+				'border-color': '#c2655b',
+				'border-width': 2,
+				'background-color': 'red',
+				// 'background-image': [
+				// 	'k8s/pod.svg',
+				// 	'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>'],
+				// 'background-opacity': 0.4, // Adjust for desired tint strength
+			}
+		},
+		{
+			selector: "node[kind='Node']",
+			style: {
+				width: '30',
+				height: '30',
 			}
 		},
 		{
