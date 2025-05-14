@@ -103,13 +103,13 @@ func (s State) Update(key string, numChange int) State {
 var _ Condition = (*State)(nil)
 
 type AccessLevel struct {
-	user  int // 0 = none, 1 = user, 2 = root
-	level int // 0 = none, 1 = read, 2 = exec
+	User  int // 0 = none, 1 = user, 2 = root
+	Level int // 0 = none, 1 = read, 2 = exec
 }
 
 func (lvl AccessLevel) Satisfies(requirement Condition) bool {
 	if r, ok := requirement.(AccessLevel); ok {
-		return r.user <= lvl.user && r.level <= lvl.level
+		return r.User <= lvl.User && r.Level <= lvl.Level
 	}
 	return false
 }
@@ -164,11 +164,11 @@ func (lvl AccessLevel) MarshalJSON() ([]byte, error) {
 }
 
 var (
-	NoAccess = AccessLevel{user: 0, level: 0}
-	UserRead = AccessLevel{user: 1, level: 1}
-	UserExec = AccessLevel{user: 1, level: 2}
-	RootRead = AccessLevel{user: 2, level: 1}
-	RootExec = AccessLevel{user: 2, level: 2}
+	NoAccess = AccessLevel{User: 0, Level: 0}
+	UserRead = AccessLevel{User: 1, Level: 1}
+	UserExec = AccessLevel{User: 1, Level: 2}
+	RootRead = AccessLevel{User: 2, Level: 1}
+	RootExec = AccessLevel{User: 2, Level: 2}
 )
 
 type Permission string

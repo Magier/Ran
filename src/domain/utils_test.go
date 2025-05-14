@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestCleanEventName(t *testing.T) {
 	tests := []struct {
@@ -57,5 +60,68 @@ func TestCleanEventName(t *testing.T) {
 				t.Errorf("CleanEventName(%q) = %q; want %q", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestUpdateEntity_MergesFieldsCorrectly(t *testing.T) {
+	newPod := NewPod("test", "default")
+	newPod.HostIPC = NewProbBool(true)
+
+	oldPod := NewPod("test", "default")
+	oldPod.AccessLevel = UserExec
+
+	// Should copy AccessLevel from oldPod, because the new one has no additional information
+	merged := UpdateEntity(newPod, oldPod).(Pod)
+	if merged.AccessLevel != UserExec {
+		t.Errorf("Expected AccessLevel to be 5, got %d", merged.AccessLevel)
+	}
+	if merged.HostIPC != NewProbBool(true) {
+		t.Errorf("Expected HostIPC to be true, got %v", merged.HostIPC)
+	}
+}
+
+func TestUpdateEntity_DeepEqualReturnsOriginal(t *testing.T) {
+	pod := Pod{
+		K8sEntity: K8sEntity{
+			Id:          "pod/test",
+			Name:        "test",
+			Kind:        "Pod",
+			Namespace:   "default",
+			AccessLevel: UserExec,
+			Owner:       OwnerRef{},
+		},
+	}
+	result := UpdateEntity(pod, pod)
+	if !reflect.DeepEqual(result, Entity(pod)) {
+		t.Error("Expected updateEntity to return the original entity when DeepEqual")
+	}
+}
+
+func TestUpdateEntity_OwnableMergesOwner(t *testing.T) {
+	// OwnerRef is empty in entity, but set in other
+	entity := Pod{
+		K8sEntity: K8sEntity{
+			Id:        "pod/test",
+			Name:      "test",
+			Kind:      "Pod",
+			Namespace: "default",
+			Owner:     OwnerRef{},
+		},
+	}
+	other := Pod{
+		K8sEntity: K8sEntity{
+			Id:        "pod/test",
+			Name:      "test",
+			Kind:      "Pod",
+			Namespace: "default",
+			Owner: OwnerRef{
+				Kind: "Deployment",
+				Name: "deploy2",
+			},
+		},
+	}
+	merged := UpdateEntity(entity, other).(Pod)
+	if merged.Owner.Name != "deploy2" || merged.Owner.Kind != "Deployment" {
+		t.Errorf("Expected Owner to be merged from other, got %+v", merged.Owner)
 	}
 }
