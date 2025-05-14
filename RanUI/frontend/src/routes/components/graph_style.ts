@@ -23,6 +23,8 @@ export const layout = {
 	name: 'fcose',
 	// // Whether or not to animate the layout
 	animate: false,
+	quality: "proof",
+	randomize: false,
 	// // False for random, true for greedy sampling
 	// samplingType: true,
 	// // Sample size to construct distance matrix
@@ -82,7 +84,7 @@ function mapKindIcons(obj: Object) {
 		return {
 			selector: selector,
 			style: {
-				'background-image': `/k8s/${icon}`
+				'background-image': [`/k8s/${icon}`]//, 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>'],
 			}
 		};
 	});
@@ -135,6 +137,12 @@ export function getGraphStyle() {
 			}
 		},
 		{
+			selector: '[kind="Namespace"]:parent',
+			style: {
+				'border-color': '#326CE5',
+			}
+		},
+		{
 			selector: 'node:selected',
 			style: {
 				'background-color': primary,
@@ -164,8 +172,8 @@ export function getGraphStyle() {
 		{
 			selector: "node[?compromised]",
 			style: {
-				'color': '#c2655b',
-				'border-color': '#c2655b',
+				'color': '#b0061e',
+				'border-color': '#b0061e',
 				'border-width': 2,
 				'background-color': 'red',
 				// 'background-image': [
@@ -201,7 +209,15 @@ export function getGraphStyle() {
 			}
 		},
 		{
-			selector: 'node[kind="C2"]',
+			selector: 'node[name="Ran"]',
+			style: {
+				width: '30',
+				height: '30',
+				'background-image': '/Ran.svg'
+			}
+		},
+		{
+			selector: 'node[kind="C2"][name!="Ran"]',
 			style: {
 				'background-opacity': 0,
 				shape: 'round-rectangle',
@@ -373,13 +389,6 @@ export function getGraphStyle() {
 				color: 'gray',
 				'line-color': 'gray',
 				'target-arrow-color': 'gray'
-			}
-		},
-		{
-			selector: "edge[relation='reference']",
-			style: {
-				'line-color': 'green',
-				width: 2
 			}
 		},
 		{
