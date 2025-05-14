@@ -52,41 +52,6 @@ func InitGraph() BuiltInKnowledgeBase {
 	return kg
 }
 
-func updateEntity(entity, other domain.Entity) domain.Entity {
-	if ownable, ok := entity.(domain.Ownable); ok {
-		hasOwner := false
-		ownerRef, _ := ownable.GetOwner()
-		if ownerRef.Name == "" {
-			prevOwnable := other.(domain.Ownable)
-			ownerRef, hasOwner = prevOwnable.GetOwner()
-		}
-
-		if hasOwner {
-			switch e := entity.(type) {
-			case domain.Pod:
-				e.Owner = ownerRef
-				entity = e
-			}
-		}
-	}
-
-	if entity.(domain.Entity).GetKind() == "Pod" {
-		pod := entity.(domain.Pod)
-		prevPod := other.(domain.Pod)
-
-		pod.AccessLevel = prevPod.AccessLevel
-		entity = pod
-	}
-
-	// TODO: generalize the update/merge of the two entities
-	// Heuristic:
-	// 1) if old one has default value, ignore the field
-	// 2) if new one has default value, use the value from the old one
-	// 3) if both have a value set, use the new one
-
-	return entity
-}
-
 func (kg BuiltInKnowledgeBase) AddEntity(entity domain.Entity) error {
 	kg.Entities[entity.GetId()] = entity
 	return kg.graph.AddVertex(entity)
@@ -131,7 +96,7 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 
 	for _, entity := range entities {
 		if prevEntity, exists := kg.GetEntity(entity.GetId()); exists {
-			entity = updateEntity(entity, prevEntity)
+			entity = domain.UpdateEntity(entity, prevEntity)
 			_ = kg.AddEntity(entity)
 		} else {
 			_ = kg.AddEntity(entity) // entity has to be added before the relation
