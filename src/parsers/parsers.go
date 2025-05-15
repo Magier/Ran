@@ -26,6 +26,10 @@ func GetParser(parserName string) domain.ParserFn {
 		return HandleNewRole
 	case "newRoleBinding":
 		return HandleNewRoleBinding
+	case "newCronJob":
+		return HandleNewCronJob
+	default:
+		slog.Warn(fmt.Sprintf("Parser '%s' not implemented!", parserName))
 	}
 	return nil
 }

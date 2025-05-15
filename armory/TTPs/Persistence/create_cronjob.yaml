@@ -1,0 +1,47 @@
+name: Create CronJob
+description: Create a cronjob that runs a command at a specified schedule
+tactic: Persistence
+techniques:
+  - "Scheduled Task/Job: Container Orchestration Job "
+  - T1053.007
+parameters:
+  Name:
+    type: string
+    default: "maintenance"
+    description: the name of the cronjob. The name must be RFC 1123 compliant.
+  IMAGE:
+    type: string
+    default: "busybox"
+    description: the image used by the cronjob
+  COMMAND:
+    type: string
+    default: "/bin/sh -c - date;"
+    description: the command executed when starting the cronjob
+  SCHEDULE:
+    type: string
+    default: "* * * * *"
+    description: the token used to authenticate to the API server
+  NAMESPACE:
+    type: string
+    default: ${NS}
+    description: the name of the namespace in which the role will be created
+  TOKEN:
+    type: string
+    default: ""
+    description: the token used to authenticate to the API server
+cmdVariants:
+  - key: kubectl
+    # export TOKEN=${TOKEN}
+    command: >
+      kubectl create cronjob ${NAME} --image=${IMAGE} --schedule="${SCHEDULE}" --token=${TOKEN} --namespace=${NAMESPACE} -- ${COMMAND}
+preconditions:
+  # kind: ServiceAccount
+  accessLevel: can-create CronJob
+parser: newCronJob
+effects:
+  - CronJob(${NAME})
+# cmd: {}
+# defend: {}
+refernces:
+  - https://attack.mitre.org/techniques/T1098/006/
+  - https://github.com/Container-Security-Training/Kubecon-EU-25
