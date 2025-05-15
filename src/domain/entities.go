@@ -637,6 +637,22 @@ func NewDeployment(name, ns string) Deployment {
 	}
 }
 
+type CronJob struct {
+	K8sEntity
+	// NamespacedResource
+	ResourceOwner
+}
+
+func NewCronJob(name, ns string) CronJob {
+	return CronJob{
+		K8sEntity: K8sEntity{
+			Name:      name,
+			Namespace: ns,
+			Kind:      "CronJob",
+		},
+	}
+}
+
 type Service struct {
 	K8sEntity
 	// NamespacedResource
