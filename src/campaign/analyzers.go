@@ -232,6 +232,11 @@ func analyzeDeployPodFailure(event domain.TTPExecuted) (NewFacts, RemovedFacts, 
 				if target, ok := event.Target.(domain.Namespaced); ok {
 					ns := domain.Namespace{Name: target.GetNamespace(), EnforcedPSS: securityProfile}
 					entities = append(entities, ns)
+				} else if nsName, ok := event.Args["Namespace"]; ok {
+					ns := domain.Namespace{Name: nsName, EnforcedPSS: securityProfile}
+					entities = append(entities, ns)
+				} else {
+					slog.Error("No namespace found in event target or args")
 				}
 			}
 		} else {
