@@ -93,7 +93,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		slog.Info(fmt.Sprintf("TTP has %d effects; using only first one", len(ttp.Effects)))
 	}
 	for _, effect := range ttp.Effects {
-		new, removed := ParseEffect(effect, cmd.Target, cmd.Results...)
+		new, removed := ParseEffect(effect, cmd.Target, cmd.Args, cmd.Results...)
 		newFacts.Update(new)
 		removedFacts.Update(removed)
 	}
@@ -347,10 +347,16 @@ func (c *Campaign) onNewK8sResourceCreated(ctx context.Context, msg domain.Messa
 	)
 }
 
-func ParseEffect(effect string, source domain.Entity, args ...string) (NewFacts, RemovedFacts) {
-	if len(args) == 0 {
+func ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (NewFacts, RemovedFacts) {
+	if len(results) == 0 {
 		slog.Warn("Can't parse effect %s because there are no arguments")
 		return NewFacts{}, RemovedFacts{}
+	}
+
+	alredyExists := false
+	if strings.Contains(results[0], "already exists") {
+		alredyExists = true
+		slog.Info(fmt.Sprintf("Parsing Effect: entity '%s' already exists", effect))
 	}
 
 	entities := []domain.Entity{}
@@ -359,7 +365,7 @@ func ParseEffect(effect string, source domain.Entity, args ...string) (NewFacts,
 	case "target.ip":
 		if pod, ok := source.(domain.Pod); ok {
 			ips := []net.IPAddr{}
-			res := args[0]
+			res := results[0]
 			for _, ip := range strings.Split(res, " ") {
 				parsedIP := net.ParseIP(ip)
 				if parsedIP == nil {
@@ -372,7 +378,7 @@ func ParseEffect(effect string, source domain.Entity, args ...string) (NewFacts,
 			entities = append(entities, pod)
 		}
 	case "k8s.podlist":
-		res := args[0]
+		res := results[0]
 		list, err := k8s.ParsePodList(res)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
@@ -382,7 +388,7 @@ func ParseEffect(effect string, source domain.Entity, args ...string) (NewFacts,
 			}
 		}
 	case "k8s.serviceaccountlist":
-		res := args[0]
+		res := results[0]
 		list, err := k8s.ParseServiceAccountList(res)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Could not parse ServiceAccountList: %v", err))
@@ -391,8 +397,22 @@ func ParseEffect(effect string, source domain.Entity, args ...string) (NewFacts,
 				entities = append(entities, domain.NewServiceAccountFromK8sSpec(res))
 			}
 		}
+	case "k8s.serviceaccount":
+		res := results[0]
+
+		name := args["Name"]
+		ns := args["Namespace"]
+		if strings.HasPrefix(res, "serviceaccount/") && strings.HasSuffix(res, " created") {
+			name := strings.TrimSuffix(strings.TrimPrefix(res, "serviceaccount/"), " created")
+			if name == "" && len(results) > 1 {
+				name = results[1]
+			}
+		} else if alredyExists {
+		}
+		sa := domain.NewServiceAccount(name, ns)
+		entities = append(entities, sa)
 	case "k8s.secretlist":
-		res := args[0]
+		res := results[0]
 		secrets, err := parsers.ParseSecretList(res)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Could not parse SecretList: %v", err))

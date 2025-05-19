@@ -158,6 +158,48 @@ func HandleNewContainer(ev domain.TTPExecuted, source domain.Entity, args ...str
 	}, nil
 }
 
+func HandleNewCronJob(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
+	numArgs := len(args)
+	if numArgs == 0 {
+		return nil, fmt.Errorf("No data")
+	}
+
+	podName := args[0]
+	nsName := args[1]
+	if nsName == "" {
+		if src, ok := source.(domain.K8sEntity); ok {
+			nsName = src.GetNamespace()
+		} else {
+			return nil, fmt.Errorf("source does not have a namespace")
+		}
+	}
+	ns := domain.Namespace{Name: nsName}
+	p := domain.NewPod(podName, nsName)
+
+	if len(args) >= 3 {
+		// TODO: marshal the podConfig
+		var cfg domain.PodConfig
+		err := json.Unmarshal([]byte(args[2]), &cfg)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to unmarshal PodConfig JSON: %w", err)
+		}
+		// cfgJson := args[2].(domain.PodConfig)
+
+		p.HostIPC = domain.NewProbBool(cfg.HostIPC)
+		p.HostPID = domain.NewProbBool(cfg.HostPID)
+		p.HostNetwork = domain.NewProbBool(cfg.HostNetwork)
+		p.Privileged = domain.NewProbBool(cfg.Privileged)
+	}
+
+	// TODO: this should also add the new CronJob to the knowledge base, which owns this pod
+
+	slog.Error(fmt.Sprintf("Creating new pod %s in namespace %s is not yet properly implemented! FIX NEEDED!", p.Name, ns.Name))
+	return domain.NewPodDeployed{
+		Pod:       p,
+		Namespace: ns,
+	}, nil
+}
+
 func HandleNewRole(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
 	// TODO: check if the actual TTP execution failed, because the role already exists
 	// -> overall, the intended effects are met, but it may be a confiict (e.g. name collision), for downstream TTPs
