@@ -21,9 +21,13 @@ type KnowledgeBase interface {
 	GetEntities() map[string]domain.Entity
 	GetClusters() map[string]domain.Entity
 	AddEntity(entity domain.Entity) error
+	RemoveEntity(entity domain.Entity) error
 	AddEntities(entities ...domain.Entity) (int, error)
+	RemoveEntities(entities ...domain.Entity) (int, error)
 	AddRelation(relation domain.Relation) error
+	RemoveRelation(relation domain.Relation) error
 	AddRelations(relations ...domain.Relation) (int, error)
+	RemoveRelations(relations ...domain.Relation) (int, error)
 	GetRelations() map[string]domain.Relation
 	GetPath(source, target string) ([]domain.Entity, []domain.Relation, error)
 	GetIncomingEntities(entity domain.Entity, rel domain.Relation) ([]domain.Entity, error)
@@ -55,6 +59,32 @@ func InitGraph() BuiltInKnowledgeBase {
 func (kg BuiltInKnowledgeBase) AddEntity(entity domain.Entity) error {
 	kg.Entities[entity.GetId()] = entity
 	return kg.graph.AddVertex(entity)
+}
+
+func (kg BuiltInKnowledgeBase) RemoveEntity(entity domain.Entity) error {
+	e, ok := kg.Entities[entity.GetId()]
+	if !ok {
+		return fmt.Errorf("entity %s not found", entity.GetId())
+	}
+
+	delete(kg.Entities, e.GetId())
+	err := kg.DisconnectNode(e.GetId())
+	if err != nil {
+		return err
+	}
+
+	return kg.graph.RemoveVertex(e.GetId())
+}
+
+func (kg BuiltInKnowledgeBase) DisconnectNode(nodeID string) error {
+	for _, relation := range kg.Relations {
+		if relation.GetSourceId() == nodeID || relation.GetTargetId() == nodeID {
+			if err := kg.RemoveRelation(relation); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (kg BuiltInKnowledgeBase) GetClusters() map[string]domain.Entity {
@@ -162,6 +192,31 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 	return numChanges, nil
 }
 
+func (kg BuiltInKnowledgeBase) RemoveEntities(entities ...domain.Entity) (int, error) {
+	numChanges := 0
+
+	for _, entitiy := range entities {
+		if _, ok := kg.Entities[entitiy.GetId()]; ok {
+			// remove all relations to this entity
+			for _, rel := range kg.Relations {
+				if rel.GetSourceId() == entitiy.GetId() || rel.GetTargetId() == entitiy.GetId() {
+					err := kg.RemoveRelation(rel)
+					if err != nil {
+						slog.Error(err.Error())
+					}
+				}
+			}
+			// remove the entity from the graph
+			err := kg.RemoveEntity(entitiy)
+			if err != nil {
+				return numChanges, err
+			}
+		}
+	}
+
+	return numChanges, nil
+}
+
 func (kg BuiltInKnowledgeBase) GetEntity(id string) (domain.Entity, bool) {
 	e, ok := kg.Entities[id]
 	return e, ok
@@ -210,6 +265,10 @@ func (kg BuiltInKnowledgeBase) AddRelation(rel domain.Relation) error {
 		graph.EdgeData(rel),
 	)
 }
+func (kg BuiltInKnowledgeBase) RemoveRelation(relation domain.Relation) error {
+	delete(kg.Relations, domain.GetRelationId(relation))
+	return kg.graph.RemoveEdge(relation.GetSourceId(), relation.GetTargetId())
+}
 
 func (kg BuiltInKnowledgeBase) AddRelations(relations ...domain.Relation) (int, error) {
 	numChanges := 0
@@ -221,6 +280,18 @@ func (kg BuiltInKnowledgeBase) AddRelations(relations ...domain.Relation) (int, 
 	}
 	return numChanges, nil
 }
+
+func (kg BuiltInKnowledgeBase) RemoveRelations(relations ...domain.Relation) (int, error) {
+	numChanges := 0
+	for _, rel := range relations {
+		err := kg.RemoveRelation(rel)
+		if err == nil {
+			numChanges += 1
+		}
+	}
+	return numChanges, nil
+}
+
 func (kg BuiltInKnowledgeBase) GetIncomingEntities(entity domain.Entity, rel domain.Relation) ([]domain.Entity, error) {
 	incoming := []domain.Entity{}
 	for name, edge := range kg.Relations {

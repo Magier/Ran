@@ -353,13 +353,14 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		return NewFacts{}, RemovedFacts{}
 	}
 
-	alredyExists := false
+	alreadyExists := false
 	if strings.Contains(results[0], "already exists") {
-		alredyExists = true
+		alreadyExists = true
 		slog.Info(fmt.Sprintf("Parsing Effect: entity '%s' already exists", effect))
 	}
 
 	entities := []domain.Entity{}
+	removedEntities := []domain.Entity{}
 	switch strings.ToLower(effect) {
 	// TODO: set these 'attribute' effects via reflection
 	case "target.ip":
@@ -407,10 +408,23 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			if name == "" && len(results) > 1 {
 				name = results[1]
 			}
-		} else if alredyExists {
+		} else if alreadyExists {
 		}
 		sa := domain.NewServiceAccount(name, ns)
 		entities = append(entities, sa)
+	case "delete k8s.serviceaccount":
+		res := results[0]
+
+		name := args["Name"]
+		ns := args["Namespace"]
+		if strings.HasPrefix(res, "serviceaccount/") && strings.HasSuffix(res, " deleted") {
+			name := strings.TrimSuffix(strings.TrimPrefix(res, "serviceaccount/"), " deleted")
+			if name == "" && len(results) > 1 {
+				name = results[1]
+			}
+		}
+		sa := domain.NewServiceAccount(name, ns)
+		removedEntities = append(entities, sa)
 	case "k8s.secretlist":
 		res := results[0]
 		secrets, err := parsers.ParseSecretList(res)
@@ -422,7 +436,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			}
 		}
 	}
-	return NewFacts{Entities: entities}, RemovedFacts{}
+	return NewFacts{Entities: entities}, RemovedFacts{Entities: removedEntities}
 }
 
 func (c *Campaign) onPrintGraph(ctx context.Context, msg domain.Message) (domain.Message, error) {
