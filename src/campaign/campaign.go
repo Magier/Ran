@@ -135,6 +135,8 @@ func (c *Campaign) UpdateFacts(new NewFacts, removed RemovedFacts) (domain.Facts
 	c.AddEntities(new.Entities...)
 	c.AddRelations(new.Relations...)
 
+	c.RemoveEntities(removed.Entities...)
+
 	for _, identity := range new.Identities {
 		// if there is no active identity, use the first encountered Id as the active oneo
 		if c.activeIdentity == "" {
@@ -239,11 +241,26 @@ func (c *Campaign) AddEntities(entities ...domain.Entity) int {
 	}
 	return numChanges
 }
+func (c *Campaign) RemoveEntities(entities ...domain.Entity) int {
+	numChanges, err := c.kb.RemoveEntities(entities...)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to remove %d entities: %v", len(entities), err))
+	}
+	return numChanges
+}
 
 func (c *Campaign) AddRelations(relations ...domain.Relation) int {
 	numChanges, err := c.kb.AddRelations(relations...)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to insert %d relations: %v", len(relations), err))
+	}
+	return numChanges
+}
+
+func (c *Campaign) RemoveRelations(relations ...domain.Relation) int {
+	numChanges, err := c.kb.RemoveRelations(relations...)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to remove %d relations: %v", len(relations), err))
 	}
 	return numChanges
 }
