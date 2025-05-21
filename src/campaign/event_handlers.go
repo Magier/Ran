@@ -13,7 +13,6 @@ import (
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
-	"github.com/Magier/Ran/parsers"
 	"github.com/dominikbraun/graph/draw"
 	"github.com/goccy/go-graphviz"
 )
@@ -84,7 +83,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 
 	// TODO: properly streamline the various ways to handle the results of a TTP execution
 	// post processing will yield the final message
-	if fn := parsers.GetParser(ttp.Parser); fn != nil {
+	if fn := GetParser(ttp.Parser); fn != nil {
 		event, err := fn(cmd, cmd.Target, cmd.Results...)
 		return event, err
 	}
@@ -427,7 +426,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		removedEntities = append(entities, sa)
 	case "k8s.secretlist":
 		res := results[0]
-		secrets, err := parsers.ParseSecretList(res)
+		secrets, err := ParseSecretList(res)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Could not parse SecretList: %v", err))
 		} else {
