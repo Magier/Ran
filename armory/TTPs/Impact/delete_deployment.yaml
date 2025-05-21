@@ -1,0 +1,31 @@
+name: Delete Deployment
+description: Delete a deployment
+tactic: Impact
+techniques:
+  - Service Stop
+  - T1489
+parameters:
+  Name:
+    type: string
+    default: ${TARGET}
+    description: the name of the deployment to delete
+  Namespace:
+    type: string
+    default: ${NS}
+    description: the name of the namespace of the deployment
+  Token:
+    type: string
+    default: ""
+    description: the token used to authenticate to the API server
+cmdVariants:
+  - key: kubectl
+    command: >
+      kubectl delete deployment {{ .Name }}  --namespace={{ .Namespace}} --token={{ .Token }}
+preconditions:
+  kind: Deployment
+  accessLevel: can-delete deployment
+effects:
+  - "delete k8s.deployment"
+# cmd: {}
+# defend: {}
+refernces:

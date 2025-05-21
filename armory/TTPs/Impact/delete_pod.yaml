@@ -1,0 +1,31 @@
+name: Delete Pod
+description: Delete a pod
+tactic: Impact
+techniques:
+  - Service Stop
+  - T1489
+parameters:
+  Name:
+    type: string
+    default: ${TARGET}
+    description: the name of the pod to delete
+  Namespace:
+    type: string
+    default: ${NS}
+    description: the name of the namespace of the pod
+  Token:
+    type: string
+    default: ""
+    description: the token used to authenticate to the API server
+cmdVariants:
+  - key: kubectl
+    command: >
+      kubectl delete pod {{ .Name }}  --namespace={{ .Namespace}} --token={{ .Token }}
+preconditions:
+  kind: Pod
+  accessLevel: can-delete Pods
+effects:
+  - "delete k8s.Pod"
+# cmd: {}
+# defend: {}
+refernces:
