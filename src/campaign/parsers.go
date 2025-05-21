@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 
 	"github.com/Magier/Ran/domain"
@@ -287,4 +288,105 @@ func ParseSecretList(jsonStr string) ([]domain.K8sSecret, error) {
 	}
 
 	return secrets, nil
+}
+
+func ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (NewFacts, RemovedFacts) {
+	if len(results) == 0 {
+		slog.Warn("Can't parse effect %s because there are no arguments")
+		return NewFacts{}, RemovedFacts{}
+	}
+
+	// alreadyExists := false
+	if strings.Contains(results[0], "already exists") {
+		// alreadyExists = true
+		slog.Info(fmt.Sprintf("Parsing Effect: entity '%s' already exists", effect))
+	}
+
+	isRemoveEffect := strings.HasPrefix(effect, "delete")
+	effect = strings.TrimPrefix(effect, "delete ")
+
+	entities := []domain.Entity{}
+	switch strings.ToLower(effect) {
+	// TODO: set these 'attribute' effects via reflection
+	case "target.ip":
+		if pod, ok := source.(domain.Pod); ok {
+			ips := []net.IPAddr{}
+			res := results[0]
+			for _, ip := range strings.Split(res, " ") {
+				parsedIP := net.ParseIP(ip)
+				if parsedIP == nil {
+					slog.Error("Failed to parse IP")
+					break
+				}
+				ips = append(ips, net.IPAddr{IP: parsedIP})
+			}
+			pod.IPs = ips
+			entities = append(entities, pod)
+		}
+	case "k8s.podlist":
+		res := results[0]
+		list, err := k8s.ParsePodList(res)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
+		} else {
+			for _, res := range list.Items {
+				entities = append(entities, domain.NewPodFromK8sSpec(res))
+			}
+		}
+	case "k8s.deploymentlist":
+		res := results[0]
+		list, err := k8s.ParseDeploymentList(res)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not parse DeploymentList: %v", err))
+		} else {
+			for _, res := range list.Items {
+				entities = append(entities, domain.NewDeploymentFromK8sSpec(res))
+			}
+		}
+	case "k8s.serviceaccountlist":
+		res := results[0]
+		list, err := k8s.ParseServiceAccountList(res)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not parse ServiceAccountList: %v", err))
+		} else {
+			for _, res := range list.Items {
+				entities = append(entities, domain.NewServiceAccountFromK8sSpec(res))
+			}
+		}
+	case "k8s.serviceaccount":
+		name := args["Name"]
+		ns := args["Namespace"]
+		sa := domain.NewServiceAccount(name, ns)
+		entities = append(entities, sa)
+	case "k8s.pod":
+		name := args["Name"]
+		ns := args["Namespace"]
+		pod := domain.NewPod(name, ns)
+		entities = append(entities, pod)
+	case "k8s.deployment":
+		name := args["Name"]
+		ns := args["Namespace"]
+		pod := domain.NewDeployment(name, ns)
+		entities = append(entities, pod)
+	case "k8s.secretlist":
+		res := results[0]
+		secrets, err := ParseSecretList(res)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not parse SecretList: %v", err))
+		} else {
+			for _, secret := range secrets {
+				entities = append(entities, secret)
+			}
+		}
+	}
+
+	newFacts := NewFacts{}
+	removedFacts := RemovedFacts{}
+	if isRemoveEffect {
+		removedFacts = RemovedFacts{Entities: entities}
+	} else {
+		newFacts = NewFacts{Entities: entities}
+	}
+
+	return newFacts, removedFacts
 }

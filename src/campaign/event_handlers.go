@@ -12,7 +12,6 @@ import (
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
-	k8s "github.com/Magier/Ran/k8sclient"
 	"github.com/dominikbraun/graph/draw"
 	"github.com/goccy/go-graphviz"
 )
@@ -344,98 +343,6 @@ func (c *Campaign) onNewK8sResourceCreated(ctx context.Context, msg domain.Messa
 			Relations: relations,
 		}, RemovedFacts{},
 	)
-}
-
-func ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (NewFacts, RemovedFacts) {
-	if len(results) == 0 {
-		slog.Warn("Can't parse effect %s because there are no arguments")
-		return NewFacts{}, RemovedFacts{}
-	}
-
-	alreadyExists := false
-	if strings.Contains(results[0], "already exists") {
-		alreadyExists = true
-		slog.Info(fmt.Sprintf("Parsing Effect: entity '%s' already exists", effect))
-	}
-
-	entities := []domain.Entity{}
-	removedEntities := []domain.Entity{}
-	switch strings.ToLower(effect) {
-	// TODO: set these 'attribute' effects via reflection
-	case "target.ip":
-		if pod, ok := source.(domain.Pod); ok {
-			ips := []net.IPAddr{}
-			res := results[0]
-			for _, ip := range strings.Split(res, " ") {
-				parsedIP := net.ParseIP(ip)
-				if parsedIP == nil {
-					slog.Error("Failed to parse IP")
-					break
-				}
-				ips = append(ips, net.IPAddr{IP: parsedIP})
-			}
-			pod.IPs = ips
-			entities = append(entities, pod)
-		}
-	case "k8s.podlist":
-		res := results[0]
-		list, err := k8s.ParsePodList(res)
-		if err != nil {
-			slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
-		} else {
-			for _, res := range list.Items {
-				entities = append(entities, domain.NewPodFromK8sSpec(res))
-			}
-		}
-	case "k8s.serviceaccountlist":
-		res := results[0]
-		list, err := k8s.ParseServiceAccountList(res)
-		if err != nil {
-			slog.Error(fmt.Sprintf("Could not parse ServiceAccountList: %v", err))
-		} else {
-			for _, res := range list.Items {
-				entities = append(entities, domain.NewServiceAccountFromK8sSpec(res))
-			}
-		}
-	case "k8s.serviceaccount":
-		res := results[0]
-
-		name := args["Name"]
-		ns := args["Namespace"]
-		if strings.HasPrefix(res, "serviceaccount/") && strings.HasSuffix(res, " created") {
-			name := strings.TrimSuffix(strings.TrimPrefix(res, "serviceaccount/"), " created")
-			if name == "" && len(results) > 1 {
-				name = results[1]
-			}
-		} else if alreadyExists {
-		}
-		sa := domain.NewServiceAccount(name, ns)
-		entities = append(entities, sa)
-	case "delete k8s.serviceaccount":
-		res := results[0]
-
-		name := args["Name"]
-		ns := args["Namespace"]
-		if strings.HasPrefix(res, "serviceaccount/") && strings.HasSuffix(res, " deleted") {
-			name := strings.TrimSuffix(strings.TrimPrefix(res, "serviceaccount/"), " deleted")
-			if name == "" && len(results) > 1 {
-				name = results[1]
-			}
-		}
-		sa := domain.NewServiceAccount(name, ns)
-		removedEntities = append(entities, sa)
-	case "k8s.secretlist":
-		res := results[0]
-		secrets, err := ParseSecretList(res)
-		if err != nil {
-			slog.Error(fmt.Sprintf("Could not parse SecretList: %v", err))
-		} else {
-			for _, secret := range secrets {
-				entities = append(entities, secret)
-			}
-		}
-	}
-	return NewFacts{Entities: entities}, RemovedFacts{Entities: removedEntities}
 }
 
 func (c *Campaign) onPrintGraph(ctx context.Context, msg domain.Message) (domain.Message, error) {

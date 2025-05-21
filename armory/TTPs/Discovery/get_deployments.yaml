@@ -1,11 +1,11 @@
-name: Get ServiceAccounts via API Server
-description: Get a list of ServiceAccounts via the API server
+name: Get Deployments via API Server
+description: Get a list of deployments via the API server
 tactic: Discovery
 techniques: ["Container and Resource Discovery"]
 ttp: T1613
 preconditions:
   # accessLevel: user-read
-  can-get: ["serviceaccounts"]
+  can-get: ["deployments"]
 parameters:
   TOKEN:
     type: string
@@ -23,15 +23,15 @@ parameters:
 cmdVariants:
   - key: kubectl
     command: >-
-      kubectl get serviceaccounts --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
+      kubectl get deployments --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
   - key: curl
     command: >-
       curl -XGET 
       -H "Accept: application/json;as=Table;v=v1;g=meta.k8s.io,application/json;as=Table;v=v1beta1;g=meta.k8s.io,application/json"
       -H "User-Agent: kubectl/v1.30.3 (linux/amd64) kubernetes/6fc0a69"
       -H "Authorization: Bearer ${TOKEN}"
-      '${API_SERVER}/api/v1/namespaces/${NS}/serviceaccounts?limit=500
+      '${API_SERVER}/api/v1/namespaces/${NS}/deployments?limit=500
 effects:
-  - k8s.serviceAccountList
+  - k8s.deploymentList
 # defend: {}
 references:

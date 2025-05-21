@@ -21,6 +21,8 @@ parameters:
 preconditions:
   kind: ServiceAccount
 cmdVariants:
+  - key: kubectl
+    command: kubectl auth can-i --list
   - key: curl
     command: >-
       curl -XPOST
