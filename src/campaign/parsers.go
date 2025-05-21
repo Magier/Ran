@@ -1,4 +1,4 @@
-package parsers
+package campaign
 
 import (
 	"encoding/json"
