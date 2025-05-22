@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -634,6 +635,30 @@ func NewDeployment(name, ns string) Deployment {
 			Namespace: ns,
 			Kind:      "Deployment",
 		},
+	}
+}
+func NewDeploymentFromK8sSpec(p appsv1.Deployment) Deployment {
+	entity := NewK8sEntity(p.ObjectMeta.Name, "Deployment", p.Namespace)
+	// isPriv := NewProbBool(false)
+
+	// for _, c := range p.Spec.Template.Spec.Containers {
+	// if c.SecurityContext != nil {
+	// priv := c.SecurityContext.Privileged
+	// if priv != nil {
+	// 	isPriv = NewProbBool(*priv)
+	// }
+	// }
+	// }
+
+	return Deployment{
+		K8sEntity: entity,
+		// HostPID:     NewProbBool(p.Spec.Template.Spec.HostPID),
+		// HostIPC:     NewProbBool(p.Spec.Template.Spec.HostIPC),
+		// HostNetwork: NewProbBool(p.Spec.Template.Spec.HostNetwork),
+		// NodeName:    p.Spec.Template.Spec.NodeName,
+		// Privileged:  isPriv,
+		// IPs:         []net.IPAddr{{IP: net.ParseIP(p.Status.PodIP)}},
+		// Containers:  p.Spec.Template.Spec.Containers,
 	}
 }
 

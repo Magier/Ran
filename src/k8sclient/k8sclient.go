@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 
 	"github.com/Magier/Ran/domain"
+	appsV1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -343,6 +344,13 @@ func DeployPod(ctx context.Context, client K8sClient, podName, ns string, cfg do
 // ParsePodList converts a JSON string containing a PodList into a v1.PodList object.
 func ParsePodList(jsonStr string) (*v1.PodList, error) {
 	var list v1.PodList
+	err := json.Unmarshal([]byte(jsonStr), &list)
+	return &list, err
+}
+
+// ParseDeploymentList converts a JSON string containing a DeploymentList into an appsV1.DeploymentList object.
+func ParseDeploymentList(jsonStr string) (*appsV1.DeploymentList, error) {
+	var list appsV1.DeploymentList
 	err := json.Unmarshal([]byte(jsonStr), &list)
 	return &list, err
 }
