@@ -180,10 +180,31 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Client
 		ID:      exec.ID,
 		TTP:     exec.TTP,
 		Args:    exec.Args,
-		Success: err == nil,
+		Success: wasExecSuccessful(results[0], results[1], err),
 		Target:  exec.Target,
 		Results: results,
 	}, nil
+}
+
+func wasExecSuccessful(stdout, stderr string, err error) bool {
+	if err != nil {
+		return false
+	}
+	if strings.Contains(strings.ToLower(stdout), "unauthorized") {
+		return false
+	}
+	if strings.Contains(strings.ToLower(stderr), "not found") {
+		return false
+	}
+
+	if strings.Contains(stderr, "Cannot exec") {
+		return false
+	}
+	if strings.Contains(stderr, "exiting now") {
+		return false
+	}
+
+	return true
 }
 
 func execLocally(ctx context.Context, exec domain.ExecTTP, variant domain.CmdVariant, _ map[string]C2Client) ([]string, error) {
@@ -272,17 +293,6 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVarian
 		stdout, stderr, err = execKubectl(ctx, cmd, target)
 		if err != nil {
 			err = fmt.Errorf("%w: '%s'", err, stderr)
-		} else if stdout == "" && strings.Contains(stderr, ": not found") {
-			err = errors.New(stderr)
-			// msg, err := cmd.TTP.HandleResult(cmd.Target, stdout, stderr)
-			// if err != nil {
-			// 	msg = domain.TTPFailed{ID: cmd.TTP.ID, TTP: cmd.TTP, Reason: err.Error()}
-			// } else if msg == nil { // no handler -> try default handler for ExecTTP
-			// 	return handleExecTTPResult(cmd, stdout, stderr)
-			// }
-			// return msg, err
-		} else if strings.Contains(strings.ToLower(stdout), "unauthorized") {
-			err = errors.New(stdout)
 		} else {
 			results = []string{stdout, stderr}
 		}

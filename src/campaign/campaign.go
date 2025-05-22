@@ -527,7 +527,19 @@ func (c Campaign) groundCmdTemplate(cmdTemplate string, variables map[string]str
 		return cmdTemplate
 	}
 	var buf strings.Builder
-	err = tmpl.Execute(&buf, variables)
+
+	// Convert string "true"/"false" to bool for template execution
+	vars := make(map[string]interface{})
+	for k, v := range variables {
+		if v == "true" {
+			vars[k] = true
+		} else if v == "false" {
+			vars[k] = false
+		} else {
+			vars[k] = v
+		}
+	}
+	err = tmpl.Execute(&buf, vars)
 	if err != nil {
 		slog.Error("Ground Template", "", err.Error())
 		return cmdTemplate
