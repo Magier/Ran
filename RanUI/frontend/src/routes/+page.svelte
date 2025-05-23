@@ -2,7 +2,7 @@
 	import Armory from './components/armory.svelte';
 	import store from '$lib/stores/store';
 	import * as runtime from '$lib/wailsjs/runtime';
-	import { ActionSelected, StartEmulation } from '$lib/wailsjs/go/main/App.js';
+	import { ExecuteAction, StartEmulation } from '$lib/wailsjs/go/main/App.js';
 	// import { onMount } from 'svelte';
 	import Icon from '@iconify/svelte';
 	import type { TTP } from '$lib/model';
@@ -13,42 +13,18 @@
 	import { Modal } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 	import { onMount } from 'svelte';
-	import { type ToastContext } from '@skeletonlabs/skeleton-svelte';
-	import { getContext } from 'svelte';
-	import { json } from '@sveltejs/kit';
+	import { showToast, toaster } from '$lib/components/toaster';
 	import { Combobox } from '@skeletonlabs/skeleton-svelte';
 	import EntityInfo from './components/entityInfo.svelte';
 
-	export const toast: ToastContext = getContext('toast');
-	type ToastType = 'info' | 'error' | 'success' | undefined;
-
-	function showToast(title: string, description: string, toastType: ToastType) {
-		console.log('Showing toast', title, description, toastType);
-		toast.create({ title: title, description: description, type: toastType, duration: 5000 });
-	}
 
 	$effect(() => {
-		runtime.EventsOn('exec-ttp', (dataStr) => {
-			let data = JSON.parse(dataStr);
-			showToast('Start TTP', data.TTP.name, 'info');
-		});
-		runtime.EventsOn('ttp-executed', (dataStr) => {
-			let data = JSON.parse(dataStr);
-			const toastType = data.Success ? 'success' : 'error';
-			const title = data.Success
-				? `TTP ${data.TTP.name} executed successfully`
-				: `TTP ${data.TTP.name} failed`;
-			showToast(title, data.TTP.name, toastType);
-		});
 		runtime.EventsOn('error', (dataStr) => {
 			// let data = JSON.parse(dataStr);
 			showToast('Error in backend', dataStr, 'error');
 		});
 	});
 
-	// onMount(() => {
-	// 	store.connectBackend();
-	// });
 	function start(): void {
 		if (selectedTarget === '') {
 			showToast('No target selected', 'Please select a target to start the emulation', 'error');
@@ -97,7 +73,7 @@
 			showParamModal = true;
 		} else {
 			debugger;
-			ActionSelected(ttp.id, selectedNodeId, {});
+			ExecuteAction(ttp.id, selectedNodeId, {});
 		}
 
 		// if (ttp.params) {
@@ -162,15 +138,51 @@
 			console.log(alert);
 		});
 	});
+
+	function onExecuteTTP(ttpId: string, args: Record<string, string>) {
+		let toastId: string;
+
+		const deleteResultFn = runtime.EventsOn('ttp-executed', (dataStr) => {
+			console.warn("got ttp executed event", dataStr);
+			deleteResultFn();
+
+			let data = JSON.parse(dataStr);
+			const toastType = data.Success ? 'success' : 'error';
+			const title = data.Success
+				? `TTP ${data.TTP.name} executed successfully`
+				: `TTP ${data.TTP.name} failed`;
+			toaster.update(toastId, {
+				title: title,
+				description: data.TTP.name,
+				type: toastType,
+				duration: 5000
+			});
+		});
+
+		ExecuteAction(ttpId, selectedNodeId, args)
+			.then((e) => {
+				toastId = toaster.create({
+					title: 'Executing TTP',
+					description: ttpId, // TODO: show the TTP name
+					type: 'info',
+					duration: 0}
+				)
+			})
+			.catch((err) => {
+				showToast('Error executing TTP', err, 'error');
+			}
+		);
+		closeModal();
+	}
 </script>
 
-<div class="grid h-screen grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
+<div class="grid h-[calc(100vh-70px)] grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
 	{#await store.connect(false)}
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
 		<div>loading...</div>
 	{:then sessions}
 		<Armory class="" action={sendAction} targetId={selectedNodeId} />
-		<div class="">
+		<div class="flex flex-col">
 			{#if !targetIsSet}
 				<div class="flex items-center">
 					<select class="select" bind:value={selectedTarget}>
@@ -179,7 +191,6 @@
 						{/each}
 					</select>
 					<button onclick={start} class="btn preset-filled-primary-500">Start</button>
-					<span>{selectedNodeId}</span>
 					<!-- <input
 						autocomplete="off"
 						bind:value={selectedTarget}
@@ -191,7 +202,7 @@
 			{/if}
 			<Graph bind:selectedNodeId bind:selectedNode />
 		</div>
-		<aside class={['h-screen', showDetails ? 'w-96' : 'w-0']}>
+		<aside class={['', showDetails ? 'w-96' : 'w-0']}>
 			<svelte:boundary onerror={(e) => console.error(e)}>
 				<EntityInfo {selectedNode} />
 			</svelte:boundary>
@@ -210,10 +221,7 @@
 					targetId={selectedNodeId}
 					ttp={selectedTTP!}
 					onCancel={closeModal}
-					onExecute={(ttpId, args: Record<string, string>) => {
-						ActionSelected(ttpId, selectedNodeId, args);
-						closeModal();
-					}}
+					onExecute={onExecuteTTP}
 				/>
 			{/snippet}
 		</Modal>

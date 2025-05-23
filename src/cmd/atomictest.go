@@ -15,7 +15,7 @@ func newAtomicTestCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "invoke",
 		Short: "Run an atomic test in a Kubernetes cluster",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ArbitraryArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ttpID = args[0]
 			ran := core.InitRan(target, "../armory/", "../sliver_cfg.json")

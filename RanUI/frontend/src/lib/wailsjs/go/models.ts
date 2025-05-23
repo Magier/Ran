@@ -53,6 +53,20 @@ export namespace campaign {
 
 export namespace domain {
 	
+	export class AccessLevel {
+	    User: number;
+	    Level: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AccessLevel(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.User = source["User"];
+	        this.Level = source["Level"];
+	    }
+	}
 	export class CodeSnippet {
 	    Lang: string;
 	    Code: string;
@@ -152,22 +166,9 @@ export namespace domain {
 	        this.Default = source["Default"];
 	    }
 	}
-	export class AccessLevel {
-	
-	
-	    static createFrom(source: any = {}) {
-	        return new AccessLevel(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	
-	    }
-	}
 	export class Requirements {
 	    Kind: string;
-	    // Go type: AccessLevel
-	    accessLevel: any;
+	    accessLevel: AccessLevel;
 	    RbacPermission: string;
 	    State: Record<string, number>;
 	    Exists: string[];
@@ -180,7 +181,7 @@ export namespace domain {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Kind = source["Kind"];
-	        this.accessLevel = this.convertValues(source["accessLevel"], null);
+	        this.accessLevel = this.convertValues(source["accessLevel"], AccessLevel);
 	        this.RbacPermission = source["RbacPermission"];
 	        this.State = source["State"];
 	        this.Exists = source["Exists"];
@@ -264,13 +265,6 @@ export namespace domain {
 
 export namespace main {
 	
-	export enum AccessLevel {
-	    NoAccess = "NoAccess",
-	    UserRead = "UserRead",
-	    UserExec = "UserExec",
-	    RootRead = "RootRead",
-	    RootExec = "RootExec",
-	}
 	export class Edge {
 	    id: string;
 	    name: string;
@@ -350,6 +344,7 @@ export namespace main {
 	    accessLevel: string;
 	    entitlements: Entitlement[];
 	    entity: any;
+	    compromised: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Node(source);
@@ -364,6 +359,7 @@ export namespace main {
 	        this.accessLevel = source["accessLevel"];
 	        this.entitlements = this.convertValues(source["entitlements"], Entitlement);
 	        this.entity = source["entity"];
+	        this.compromised = source["compromised"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
