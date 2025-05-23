@@ -158,14 +158,14 @@
 
 <div
 	id="graph"
-	class={['bg-tertiary-surface-800-200', { className }]}
+	class={['flex-1', 'bg-tertiary-surface-800-200', 'border-1', 'border-solid', { className }]}
 	bind:this={graphContainer}
 ></div>
 
 <style>
 	#graph {
 		width: 100%;
-		height: 1000px;
+		/* height: 1000px; */
 		display: block;
 		/* background-color: #1a1a1a; */
 	}

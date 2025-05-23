@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { AppBar, Navigation } from '@skeletonlabs/skeleton-svelte';
+	import { AppBar, Navigation, Toaster } from '@skeletonlabs/skeleton-svelte';
 	import { page } from '$app/state';
 	import IconMap from '~icons/game-icons/treasure-map';
 	import IconSteps from '~icons/game-icons/footsteps';
-	import { ToastProvider } from '@skeletonlabs/skeleton-svelte';
+	import { toaster } from '$lib/components/toaster';
 	import '../app.css';
 	let { children } = $props();
 	let graphSelected = $state(true);
@@ -27,11 +27,10 @@
 	{/snippet}
 </AppBar>
 
-<ToastProvider>
-	<main class="h-full">
-		{@render children()}
-	</main>
-</ToastProvider>
+<Toaster {toaster}></Toaster>
+<main class="">
+	{@render children()}
+</main>
 
 <style>
 	* {

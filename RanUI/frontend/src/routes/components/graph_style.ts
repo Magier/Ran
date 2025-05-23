@@ -172,8 +172,8 @@ export function getGraphStyle() {
 		{
 			selector: "node[?compromised]",
 			style: {
-				'color': '#b0061e',
-				'border-color': '#b0061e',
+				// 'color': '#600FED',
+				'border-color': '#600FED',
 				'border-width': 2,
 				'background-color': 'red',
 				// 'background-image': [

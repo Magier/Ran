@@ -3,7 +3,7 @@
 import {main} from '../models';
 import {domain} from '../models';
 
-export function ActionSelected(arg1:string,arg2:string,arg3:main.ActionArgs):Promise<void>;
+export function ExecuteAction(arg1:string,arg2:string,arg3:main.ActionArgs):Promise<void>;
 
 export function GetApplicableTTPs(arg1:string):Promise<Array<domain.TTP>>;
 

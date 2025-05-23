@@ -180,16 +180,25 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Client
 		ID:      exec.ID,
 		TTP:     exec.TTP,
 		Args:    exec.Args,
-		Success: wasExecSuccessful(results[0], results[1], err),
+		Success: wasExecSuccessful(results, err),
 		Target:  exec.Target,
 		Results: results,
 	}, nil
 }
 
-func wasExecSuccessful(stdout, stderr string, err error) bool {
+func wasExecSuccessful(results []string, err error) bool {
 	if err != nil {
 		return false
 	}
+
+	var stdout, stderr string
+	if len(results) > 0 {
+		stdout = results[0]
+	}
+	if len(results) > 1 {
+		stderr = results[1]
+	}
+
 	if strings.Contains(strings.ToLower(stdout), "unauthorized") {
 		return false
 	}
