@@ -17,7 +17,6 @@
 	import { Combobox } from '@skeletonlabs/skeleton-svelte';
 	import EntityInfo from './components/entityInfo.svelte';
 
-
 	$effect(() => {
 		runtime.EventsOn('error', (dataStr) => {
 			// let data = JSON.parse(dataStr);
@@ -72,7 +71,6 @@
 			selectedTTP = ttp;
 			showParamModal = true;
 		} else {
-			debugger;
 			ExecuteAction(ttp.id, selectedNodeId, {});
 		}
 
@@ -143,7 +141,7 @@
 		let toastId: string;
 
 		const deleteResultFn = runtime.EventsOn('ttp-executed', (dataStr) => {
-			console.warn("got ttp executed event", dataStr);
+			console.warn('got ttp executed event', dataStr);
 			deleteResultFn();
 
 			let data = JSON.parse(dataStr);
@@ -165,13 +163,12 @@
 					title: 'Executing TTP',
 					description: ttpId, // TODO: show the TTP name
 					type: 'info',
-					duration: 0}
-				)
+					duration: 0
+				});
 			})
 			.catch((err) => {
 				showToast('Error executing TTP', err, 'error');
-			}
-		);
+			});
 		closeModal();
 	}
 </script>
