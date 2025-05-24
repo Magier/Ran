@@ -22,8 +22,8 @@
 	const dagreGraph = new dagre.graphlib.Graph();
 	dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-	let nodes = writable<Node[]>([]);
-	let edges = writable<Edge[]>([]);
+	let nodes = $state.raw([]);
+	let edges = $state.raw([]);
 
 	const nodeTypes: NodeTypes = {
 		actionNode: ActionNode
@@ -90,8 +90,8 @@
 			const { steps, edges: es } = result;
 			const laidOutElements = layOutElements(steps.map(convertStep), es.map(convertEdge), 'TB');
 
-			nodes.set(laidOutElements.nodes);
-			edges.set(laidOutElements.edges);
+			nodes = laidOutElements.nodes;
+			edges = laidOutElements.edges;
 		})
 		.catch((err) => {
 			console.error(err);
@@ -107,20 +107,20 @@
 	<!-- <Graph bind:selectedNodeId /> -->
 
 	<SvelteFlow
-		{nodes}
-		{edges}
+		bind:nodes
+		bind:edges
 		{nodeTypes}
 		fitView
 		colorMode="dark"
-		on:nodeclick={(event) => {
-			console.log('on node click', event, event.detail);
-			selectedStep = event.detail.node.data.step as campaign.AttackStep;
+		onnodeclick={(event) => {
+			console.log('on node click', event, event.node);
+			selectedStep = event.node.data.step as campaign.AttackStep;
 		}}
-		on:paneclick={(event) => {
-			console.log('on pane click', event, event.detail);
+		onpaneclick={(event) => {
+			console.log('on pane click', event);
 			selectedStep = null;
 		}}
-		on:selectionclick={(event) => console.log('on selection click', event, event.detail)}
+		onselectionclick={(event) => console.log('on selection click', event)}
 		minZoom={0.1}
 		maxZoom={2.5}
 	>
