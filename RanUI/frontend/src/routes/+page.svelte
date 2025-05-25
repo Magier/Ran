@@ -65,40 +65,12 @@
 	let selectedTTP: TTP | undefined = $state();
 
 	function sendAction(ttp: TTP) {
-		// const ttp = event.detail;
-		console.log(ttp);
 		if (ttp.params) {
 			selectedTTP = ttp;
 			showParamModal = true;
 		} else {
 			ExecuteAction(ttp.id, selectedNodeId, {});
 		}
-
-		// if (ttp.params) {
-		// 	selectedTTP = ttp;
-		// 	showParamModal = true;
-		// 	// const modalComponent: ModalComponent = { ref: ExploitAppModal };
-		// 	// const modal: ModalSettings = {
-		// 	// 	type: 'component',
-		// 	// 	component: modalComponent,
-		// 	// 	// Data
-		// 	// 	title: 'Exploit Application',
-		// 	// 	valueAttr: ttp.params,
-		// 	// 	response: (params: boolean | ExploitParams) => {
-		// 	// 		if (params) {
-		// 	// 			store.sendMessage('execute_ttp', {
-		// 	// 				target: selectedNodeId,
-		// 	// 				ttp_id: ttp.id,
-		// 	// 				technique: ttp.technique,
-		// 	// 				action: ttp.action,
-		// 	// 				cmd_args: params,
-		// 	// 				params: params
-		// 	// 			});
-		// 	// 		}
-		// 	// 	}
-		// 	// };
-		// 	// modalStore.trigger(modal);
-		// }
 	}
 
 	function closeModal() {
@@ -133,38 +105,39 @@
 	// }
 	onMount(() => {
 		store.onAlert((alert) => {
-			console.log(alert);
+			console.log('Store Alert ', alert);
 		});
 	});
 
+	const ToastMapping: Record<string, string> = {};
 	function onExecuteTTP(ttpId: string, args: Record<string, string>) {
-		let toastId: string;
-
-		const deleteResultFn = runtime.EventsOn('ttp-executed', (dataStr) => {
-			console.warn('got ttp executed event', dataStr);
-			deleteResultFn();
-
+		runtime.EventsOnce('ttp-executed', (dataStr) => {
 			let data = JSON.parse(dataStr);
 			const toastType = data.Success ? 'success' : 'error';
 			const title = data.Success
 				? `TTP ${data.TTP.name} executed successfully`
 				: `TTP ${data.TTP.name} failed`;
-			toaster.update(toastId, {
+
+			const toastConfig = {
 				title: title,
 				description: data.TTP.name,
 				type: toastType,
 				duration: 5000
-			});
+			};
+
+			if (!(ttpId in ToastMapping)) {
+				toaster.create(toastConfig);
+			} else {
+				const toastId = ToastMapping[ttpId];
+				delete ToastMapping[ttpId];
+				toaster.update(toastId, toastConfig);
+			}
 		});
 
 		ExecuteAction(ttpId, selectedNodeId, args)
 			.then((e) => {
-				toastId = toaster.create({
-					title: 'Executing TTP',
-					description: ttpId, // TODO: show the TTP name
-					type: 'info',
-					duration: 0
-				});
+				let toastId = showToast('Executing TTP', ttpId, 'info');
+				ToastMapping[ttpId] = toastId;
 			})
 			.catch((err) => {
 				showToast('Error executing TTP', err, 'error');
@@ -197,7 +170,7 @@
 					/> -->
 				</div>
 			{/if}
-			<Graph bind:selectedNodeId bind:selectedNode />
+			<Graph bind:selectedNodeId bind:selectedNode class="flex-1 " />
 		</div>
 		<aside class={['', showDetails ? 'w-96' : 'w-0']}>
 			<svelte:boundary onerror={(e) => console.error(e)}>
