@@ -42,16 +42,19 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) {
 			slog.Debug(icon + " " + msg.String())
 		}
 		for _, handler := range subscribers {
-			msg, err := handler(ctx, msg)
-			if err != nil {
-				slog.Error(err.Error())
-			}
-			if msg != nil {
-				err = b.Publish(msg)
+			// execute all handlers in parallal, so they don't block each other
+			go func() {
+				msg, err := handler(ctx, msg)
 				if err != nil {
-					slog.Error("Bus", "error publishing message after handler: ", err.Error())
+					slog.Error(err.Error())
 				}
-			}
+				if msg != nil {
+					err = b.Publish(msg)
+					if err != nil {
+						slog.Error("Bus", "error publishing message after handler: ", err.Error())
+					}
+				}
+			}()
 		}
 	}
 }

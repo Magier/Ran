@@ -1,15 +1,7 @@
 <script lang="ts">
-	import { main } from '$lib/wailsjs/go/models';
-
 	let { selectedNode } = $props();
 
-	$inspect(selectedNode).with((type, val) => {
-		console.log('inspect type: ' + type);
-		console.log('selectedNode', selectedNode);
-	});
-
 	function prettyPrint(obj: any): string {
-		console.log(obj, typeof obj);
 		if (typeof obj === 'string') {
 			return obj;
 			// } else if (typeof obj === 'object') {

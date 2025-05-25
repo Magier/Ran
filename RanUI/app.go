@@ -270,7 +270,7 @@ func (a *App) StartEmulation(target string) error {
 	return err
 }
 
-func (a *App) ActionSelected(actionID, targetID string, args ActionArgs) { //, args map[string]string) {
+func (a *App) ExecuteAction(actionID, targetID string, args ActionArgs) { //, args map[string]string) {
 	runtime.LogInfo(a.ctx, "ActionSelected"+actionID+" target: "+targetID)
 	err := a.ran.Bus.Publish(domain.ActionSelected{
 		ActionID: actionID,

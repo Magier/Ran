@@ -70,7 +70,7 @@
 			{ttp.description}
 		</div>
 		<div class="">
-			<label class="label mt-5">
+			<!-- <label class="label mt-5">
 				<span class="label-text">Target</span>
 				<input
 					class="input"
@@ -78,7 +78,7 @@
 					bind:value={targetId}
 					placeholder="Enter target IP or URL"
 				/>
-			</label>
+			</label> -->
 			{#if args.length > 0}
 				<fieldset class="mt-5">
 					<span class="h5">Params</span>

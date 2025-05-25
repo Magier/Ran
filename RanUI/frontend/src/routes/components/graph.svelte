@@ -158,7 +158,7 @@
 
 <div
 	id="graph"
-	class={['flex-1', 'bg-tertiary-surface-800-200', 'border-1', 'border-solid', { className }]}
+	class={['bg-tertiary-surface-800-200', 'border-1', 'border-solid', className]}
 	bind:this={graphContainer}
 ></div>
 
