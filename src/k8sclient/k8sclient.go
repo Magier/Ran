@@ -367,3 +367,9 @@ func ParseSecretList(jsonStr string) (*v1.SecretList, error) {
 	err := json.Unmarshal([]byte(jsonStr), &list)
 	return &list, err
 }
+
+func ParseNodeList(jsonStr string) (*v1.NodeList, error) {
+	var list v1.NodeList
+	err := json.Unmarshal([]byte(jsonStr), &list)
+	return &list, err
+}

@@ -378,6 +378,16 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				entities = append(entities, secret)
 			}
 		}
+	case "k8s.nodelist":
+		res := results[0]
+		nodeList, err := k8s.ParseNodeList(res)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to parse NodeList: %v", err))
+		} else {
+			for _, node := range nodeList.Items {
+				entities = append(entities, domain.NewK8sNodeFromK8sSpec(node))
+			}
+		}
 	}
 
 	newFacts := NewFacts{}
