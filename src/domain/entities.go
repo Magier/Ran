@@ -720,6 +720,14 @@ func NewK8sNode(name string) K8sNode {
 	}
 }
 
+func NewK8sNodeFromK8sSpec(n v1.Node) K8sNode {
+	entity := NewK8sEntity(n.ObjectMeta.Name, "Node", "")
+	return K8sNode{
+		K8sEntity: entity,
+		UID:       string(n.ObjectMeta.UID),
+	}
+}
+
 func (n K8sNode) GetId() string {
 	return fmt.Sprintf("node/%s", n.GetName())
 }
