@@ -2,9 +2,13 @@ package main
 
 import (
 	"embed"
+	"log/slog"
+	"runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
+	"github.com/wailsapp/wails/v2/pkg/menu"
+	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
@@ -15,6 +19,19 @@ var assets embed.FS
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()
+
+	// AppMenu := menu.AppMenu()
+	AppMenu := menu.NewMenu()
+
+	slog.Info("Starting RanUI application", runtime.GOOS, runtime.GOARCH)
+	if runtime.GOOS == "darwin" {
+		AppMenu.Append(menu.AppMenu()) // On macOS platform, this must be done right after `NewMenu()`
+	}
+
+	FileMenu := AppMenu.AddSubmenu("File")
+	FileMenu.AddText("&Save", keys.CmdOrCtrl("s"), func(_ *menu.CallbackData) {
+		app.SaveTrace()
+	})
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -28,6 +45,7 @@ func main() {
 		// BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 1},
 		OnStartup:  app.startup,
 		OnDomReady: app.domready,
+		Menu:       AppMenu,
 		Bind: []interface{}{
 			app,
 		},
