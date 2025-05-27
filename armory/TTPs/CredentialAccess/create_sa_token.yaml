@@ -1,7 +1,7 @@
 name: Create New Service Account Token
 description: Create a new service account token
 tactic: Credential Access
-techniques: ["Steal Application Access Token"]
+techniques: [T1078.003, "Create Account: Local Account"]
 parameters:
   SERVICEACCOUNT:
     type: string
