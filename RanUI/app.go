@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"time"
 
 	campaign "github.com/Magier/Ran/campaign"
 	ran "github.com/Magier/Ran/core"
@@ -116,7 +117,6 @@ func NewApp() *App {
 		Level: slog.LevelInfo,
 	})
 	slog.SetDefault(slog.New(h))
-	slog.Info("Slog handler initialized")
 
 	return a
 }
@@ -349,4 +349,39 @@ func (a *App) GetRunningPods() []string {
 	}
 	// TODO: find a good way to sort the Pods
 	return podIds
+}
+
+func (a *App) SaveTrace() bool {
+	now := time.Now().Format("2006-01-02T15-04-05")
+	defaultFileName := fmt.Sprintf("campaign_%s.json", now)
+	selection, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:                "Save Attack Flow",
+		DefaultFilename:      defaultFileName,
+		CanCreateDirectories: true,
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "Attack Flow (*.json)",
+				Pattern:     "*.json",
+			},
+		},
+	})
+	if err != nil {
+		runtime.LogErrorf(a.ctx, "Failed to open file dialog: %v", err)
+	} else {
+		if selection != "" {
+			err := a.ran.Bus.Publish(domain.SaveAttackFlow{Path: selection})
+
+			if err != nil {
+				runtime.LogErrorf(a.ctx, "Failed to save campaign trace: %v", err)
+			} else {
+				runtime.LogInfof(a.ctx, "Campaign trace saved successfully to %s", selection)
+				return true
+			}
+		} else {
+			runtime.LogInfof(a.ctx, "No file selected")
+		}
+		// TODO: send toast to UI if it was successful or not
+	}
+
+	return false
 }
