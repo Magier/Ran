@@ -20,7 +20,7 @@ parameters:
     description: the token which will be checked
 preconditions:
   kind: ServiceAccount
-cmdVariants:
+procedures:
   - key: kubectl
     command: kubectl auth can-i --list
   - key: curl

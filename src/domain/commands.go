@@ -80,7 +80,7 @@ func (c StartC2Redirector) String() string {
 type ExecTTP struct {
 	CommandImpl
 	TTP        TTP
-	Variant    CmdVariant
+	Variant    Procedure
 	Args       map[string]string
 	C2Channel  C2Channel
 	Target     Entity

@@ -11,7 +11,7 @@ parameters:
     default: /usr/bin/kubectl
     type: string
     description: the target path where to install the binary
-cmdVariants:
+procedures:
   - key: curl
     command: >
       mkdir -p `dirname ${PATH}`

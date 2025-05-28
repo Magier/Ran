@@ -6,7 +6,7 @@ ttp: T1613
 preconditions:
   kind: Pod
   accessLevel: user-read
-cmdVariants:
+procedures:
   - key: shell
     command: env
   - key: cat

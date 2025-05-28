@@ -265,15 +265,15 @@ func (c *Campaign) RemoveRelations(relations ...domain.Relation) int {
 	return numChanges
 }
 
-func (c Campaign) selectBestCommandVariant(ttp domain.TTP) (domain.CmdVariant, error) {
+func (c Campaign) selectBestCommandVariant(ttp domain.TTP) (domain.Procedure, error) {
 	// TODO: select the variant to execute
 	// - keep track of tried variants
 	// - favor robust C2 over builtin one
 
-	if len(ttp.CmdVariants) == 0 {
-		return domain.CmdVariant{}, errors.New("No valid Command Variant available for TTP " + ttp.GetID())
+	if len(ttp.Procedures) == 0 {
+		return domain.Procedure{}, errors.New("No valid Command Variant available for TTP " + ttp.GetID())
 	}
-	return ttp.CmdVariants[0], nil
+	return ttp.Procedures[0], nil
 }
 
 func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]string) (domain.Message, error) {
@@ -603,7 +603,7 @@ func (c Campaign) getServiceAccountOwner(sa domain.ServiceAccount) (domain.Pod, 
 }
 
 // Determine if the TTP will be executed in the target environment, or the operator infrastructure
-func isActionOnRemoteTarget(ttp domain.TTP, cmd domain.CmdVariant) bool {
+func isActionOnRemoteTarget(ttp domain.TTP, cmd domain.Procedure) bool {
 	if cmd.IsLocalCommand {
 		return false
 	}

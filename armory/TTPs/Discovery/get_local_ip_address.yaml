@@ -6,7 +6,7 @@ ttp: T1016
 preconditions:
   kind: Pod
   accessLevel: user-exec
-cmdVariants:
+procedures:
   - key: hostname
     bin: hostname
     precondition:

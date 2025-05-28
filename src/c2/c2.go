@@ -216,7 +216,7 @@ func wasExecSuccessful(results []string, err error) bool {
 	return true
 }
 
-func execLocally(ctx context.Context, exec domain.ExecTTP, variant domain.CmdVariant, _ map[string]C2Client) ([]string, error) {
+func execLocally(ctx context.Context, exec domain.ExecTTP, variant domain.Procedure, _ map[string]C2Client) ([]string, error) {
 	var err error
 	if variant.Execute.Code != "" {
 		err = executeCode(ctx, variant.Command, variant.Execute)
@@ -278,7 +278,7 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, variant domain.CmdVar
 }
 
 // execRemotely uses a C2 channel to execute the command on the target system
-func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.CmdVariant, c2Clients map[string]C2Client) ([]string, error) {
+func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure, c2Clients map[string]C2Client) ([]string, error) {
 	target := exec.C2Channel.GetTarget()
 	if target == nil {
 		return nil, fmt.Errorf("Could not exec command: No valid target selected!")
@@ -379,7 +379,7 @@ func GetOutboundIP() net.IP {
 	return localAddr.IP
 }
 
-func execKubectl(ctx context.Context, cmd domain.CmdVariant, target domain.Entity) (string, string, error) {
+func execKubectl(ctx context.Context, cmd domain.Procedure, target domain.Entity) (string, string, error) {
 	client, err := k8s.NewK8sClient("")
 	if err != nil {
 		return "", "", err

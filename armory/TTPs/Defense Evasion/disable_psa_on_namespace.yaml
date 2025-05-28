@@ -7,7 +7,7 @@ parameters:
     type: string
     default: ${TARGET}
     description: the name of the namespace to disable Pod Security Admission on
-cmdVariants:
+procedures:
   - key: kubectl
     command: kubectl label ns ${NAMESPACE} pod-security.kubernetes.io/enforce=privileged --overwrite
 preconditions:

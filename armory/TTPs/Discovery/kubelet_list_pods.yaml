@@ -16,7 +16,7 @@ parameters:
   TOKEN:
     type: string
     description: the ServiceAccount token used to authenticate to the kubelet API
-cmdVariants:
+procedures:
   - key: curl
     command: >-
       curl -k -s -H "Authorization: Bearer ${TOKEN}" https://${NODE}:10250/pods

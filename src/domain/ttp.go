@@ -27,15 +27,16 @@ type HttpCmd struct {
 	Body     string
 }
 
-type CmdVariant struct {
+type Procedure struct {
 	Key            string      `yaml:"key"`
 	Command        string      `yaml:"command"`
 	IsLocalCommand bool        `yaml:"isLocal"`
 	Execute        CodeSnippet `yaml:"execute"`
+	Cleanup        CodeSnippet `yaml:"cleanup"`
 }
 
-func (c *CmdVariant) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	type tmpVVariant CmdVariant
+func (c *Procedure) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type tmpVVariant Procedure
 	if err := unmarshal((*tmpVVariant)(c)); err != nil {
 		return err
 	}
@@ -74,10 +75,10 @@ type TTP struct {
 
 	References []string `yaml:"references" json:"references"`
 
-	CmdVariants []CmdVariant `yaml:"cmdVariants" json:"cmdVariants"`
-	HttpCmd     HttpCmd      `yaml:"httpCmd" json:"httpCmd"`
-	Params      []Parameter  `json:"params"`
-	CommandMsg  Message      // during unmarshal converted via Alias to the message
+	Procedures []Procedure `yaml:"cmdVariants" json:"procedures"`
+	HttpCmd    HttpCmd     `yaml:"httpCmd" json:"httpCmd"`
+	Params     []Parameter `json:"params"`
+	CommandMsg Message     // during unmarshal converted via Alias to the message
 
 	Requires Requirements `yaml:"preconditions" json:"requires"`
 	Effects  []string     `yaml:"effects" json:"effects"`
@@ -191,7 +192,7 @@ func (t YAMLTTP) TTP() (TTP, error) {
 		if isMessage {
 			ttp.CommandMsg = cmd
 		} else {
-			ttp.CmdVariants = append(ttp.CmdVariants, CmdVariant{
+			ttp.Procedures = append(ttp.Procedures, Procedure{
 				Key:     "",
 				Command: t.Command,
 			})

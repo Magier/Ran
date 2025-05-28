@@ -11,7 +11,7 @@ parameters:
     description: the ServiceAccount token used to authorize this request
     optional: true
     default: ""
-cmdVariants:
+procedures:
   - key: kubectl
     command: >-
       kubectl get nodes --token=${TOKEN} --output=json

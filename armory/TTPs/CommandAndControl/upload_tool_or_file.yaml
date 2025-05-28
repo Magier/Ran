@@ -15,7 +15,7 @@ parameters:
   # DST_DIR:
   #   type: string
   #   description: Path on the target system where the file will be transfered
-cmdVariants:
+procedures:
   - key: curl
     command: >
       curl -sL ${SRC_PATH} {{ if .DST_PATH }} -o ${DST_PATH} {{ else }} -O {{ end }} &&
