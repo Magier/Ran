@@ -55,14 +55,14 @@ parameters:
   Identity:
     type: string
     description: the identity used to deploy the container
-cmdVariants:
+procedures:
   - key: kubectl
     command: |+
       echo '{
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {
-          "name": "${NAME}",
+          "name": "{{NAME}}",
           "namespace": "${NAMESPACE}"
         },
         "spec": {

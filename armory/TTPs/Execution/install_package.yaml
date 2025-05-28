@@ -13,7 +13,7 @@ parameters:
     description: the name of the tool to install
 args: # default values if none is provided
   PKG: "curl"
-cmdVariants:
+procedures:
   - key: ubuntu
     command: apt update && apt install -y ${PKG}
 effects: ["has-binary(${TARGET}, ${PKG}"]

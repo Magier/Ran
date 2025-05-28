@@ -33,7 +33,7 @@ refernces:
   - https://www.wiz.io/blog/ingress-nginx-kubernetes-vulnerabilities#cve-2025-1974---nginx-configuration-code-execution-66
   - https://github.com/zwxxb/CVE-2025-1974
   - https://github.com/hakaioffsec/IngressNightmare-PoC
-cmdVariants:
+procedures:
   - key: "poc script"
     isLocal: true
     command: "/Users/me/Dev/Ran/examples/.venv/bin/python3"

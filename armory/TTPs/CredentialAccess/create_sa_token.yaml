@@ -11,7 +11,7 @@ parameters:
     type: string
     default: "0" # 0 means the duration is determined by the API server
     description: the duration of the token
-cmdVariants:
+procedures:
   - key: kubectl
     command: >
       kubectl create token ${SERVICEACCOUNT} --duration=24h

@@ -16,7 +16,7 @@ parameters:
 args:
   URL: "${LISTENER}/${FILESHARE_PORT}"
   DST_BIN: "/tmp/pause"
-cmdVariants:
+procedures:
   - key: curl
     command: curl -L ${URL} -o ${DST_BIN}  && chmod +x ${DST_BIN} && ${DST_BIN} &
   - key: wget
