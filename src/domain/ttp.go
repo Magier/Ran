@@ -75,7 +75,7 @@ type TTP struct {
 
 	References []string `yaml:"references" json:"references"`
 
-	Procedures []Procedure `yaml:"cmdVariants" json:"procedures"`
+	Procedures []Procedure `yaml:"procedures" json:"procedures"`
 	HttpCmd    HttpCmd     `yaml:"httpCmd" json:"httpCmd"`
 	Params     []Parameter `json:"params"`
 	CommandMsg Message     // during unmarshal converted via Alias to the message
