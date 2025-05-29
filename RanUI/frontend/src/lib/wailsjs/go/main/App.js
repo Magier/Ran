@@ -10,6 +10,10 @@ export function GetApplicableTTPs(arg1) {
   return window['go']['main']['App']['GetApplicableTTPs'](arg1);
 }
 
+export function GetFlow() {
+  return window['go']['main']['App']['GetFlow']();
+}
+
 export function GetGraph() {
   return window['go']['main']['App']['GetGraph']();
 }
@@ -18,8 +22,8 @@ export function GetRunningPods() {
   return window['go']['main']['App']['GetRunningPods']();
 }
 
-export function GetTrace() {
-  return window['go']['main']['App']['GetTrace']();
+export function SaveFlow() {
+  return window['go']['main']['App']['SaveFlow']();
 }
 
 export function StartEmulation(arg1) {

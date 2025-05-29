@@ -22,6 +22,7 @@ func main() {
 
 	// AppMenu := menu.AppMenu()
 	AppMenu := menu.NewMenu()
+	AppMenu.Append(menu.EditMenu())
 
 	slog.Info("Starting RanUI application", runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "darwin" {
@@ -29,8 +30,11 @@ func main() {
 	}
 
 	FileMenu := AppMenu.AddSubmenu("File")
-	FileMenu.AddText("&Save", keys.CmdOrCtrl("s"), func(_ *menu.CallbackData) {
-		app.SaveTrace()
+	FileMenu.AddText("Open", keys.CmdOrCtrl("o"), func(_ *menu.CallbackData) {
+		// TODO: load the Attack Flow
+	})
+	FileMenu.AddText("Save", keys.CmdOrCtrl("s"), func(_ *menu.CallbackData) {
+		app.SaveFlow()
 	})
 
 	// Create application with options

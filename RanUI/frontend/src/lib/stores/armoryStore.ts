@@ -7,11 +7,11 @@ const groupBy = <T, K extends keyof any>(arr: T[], key: (i: T) => K) =>
         return groups;
     }, {} as Record<K, T[]>);
 
- function createSearchStore() {
-    const {subscribe, set, update} = writable({
+function createSearchStore() {
+    const { subscribe, set, update } = writable({
         data: [],
         filtered: [],
-        search:""
+        search: ""
     })
 
     return {
@@ -24,7 +24,6 @@ const groupBy = <T, K extends keyof any>(arr: T[], key: (i: T) => K) =>
 
 export const filteredArmory = createSearchStore();
 export const searchAbilitiesInStore = () => {
-    debugger
     const searchTerm = filteredArmory.search.toLowerCase() || "";
     store.filtered = store.data.filter((ttp) => {
         return ttp.name.toLowerCase().icludes(searchTerm);
@@ -40,5 +39,5 @@ store.armory((new_armory: Map<string, TTP[]>) => {
     // filteredArmory.update(test)
     // armory = new_armory;
     const currentArmory = get(filteredArmory);
-    filteredArmory.set({data: new_armory, filtered: new_armory, search:  currentArmory.search})
+    filteredArmory.set({ data: new_armory, filtered: new_armory, search: currentArmory.search })
 });
