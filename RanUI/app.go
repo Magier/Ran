@@ -297,7 +297,7 @@ func (a *App) GetApplicableTTPs(targetId string) []domain.TTP {
 	return ttps
 }
 
-func (a *App) GetTrace() AttackFlow {
+func (a *App) GetFlow() AttackFlow {
 	steps := make([]AttackStep, 0)
 	edges := make([]Edge, 0)
 
@@ -351,7 +351,7 @@ func (a *App) GetRunningPods() []string {
 	return podIds
 }
 
-func (a *App) SaveTrace() bool {
+func (a *App) SaveFlow() bool {
 	now := time.Now().Format("2006-01-02T15-04-05")
 	defaultFileName := fmt.Sprintf("campaign_%s.json", now)
 	selection, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
@@ -372,9 +372,9 @@ func (a *App) SaveTrace() bool {
 			err := a.ran.Bus.Publish(domain.SaveAttackFlow{Path: selection})
 
 			if err != nil {
-				runtime.LogErrorf(a.ctx, "Failed to save campaign trace: %v", err)
+				runtime.LogErrorf(a.ctx, "Failed to save campaign flow: %v", err)
 			} else {
-				runtime.LogInfof(a.ctx, "Campaign trace saved successfully to %s", selection)
+				runtime.LogInfof(a.ctx, "Campaign flow saved successfully to %s", selection)
 				return true
 			}
 		} else {

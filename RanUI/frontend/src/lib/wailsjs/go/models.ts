@@ -85,45 +85,6 @@ export namespace domain {
 	        this.EnvVars = source["EnvVars"];
 	    }
 	}
-	export class CmdVariant {
-	    Key: string;
-	    Command: string;
-	    IsLocalCommand: boolean;
-	    Execute: CodeSnippet;
-	    Cleanup: CodeSnippet;
-	
-	    static createFrom(source: any = {}) {
-	        return new CmdVariant(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Key = source["Key"];
-	        this.Command = source["Command"];
-	        this.IsLocalCommand = source["IsLocalCommand"];
-	        this.Execute = this.convertValues(source["Execute"], CodeSnippet);
-	        this.Cleanup = this.convertValues(source["Cleanup"], CodeSnippet);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
 	export class HttpCmd {
 	    Endpoint: string;
 	    Method: string;
@@ -165,6 +126,44 @@ export namespace domain {
 	        this.Examples = source["Examples"];
 	        this.Default = source["Default"];
 	    }
+	}
+	export class Procedure {
+	    Key: string;
+	    Command: string;
+	    IsLocalCommand: boolean;
+	    Execute: CodeSnippet;
+	    Cleanup: CodeSnippet;
+	
+	    static createFrom(source: any = {}) {
+	        return new Procedure(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Key = source["Key"];
+	        this.Command = source["Command"];
+	        this.IsLocalCommand = source["IsLocalCommand"];
+	        this.Execute = this.convertValues(source["Execute"], CodeSnippet);
+	        this.Cleanup = this.convertValues(source["Cleanup"], CodeSnippet);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Requirements {
 	    Kind: string;
@@ -213,7 +212,7 @@ export namespace domain {
 	    tactic: string;
 	    techniques: string[];
 	    references: string[];
-	    cmdVariants: CmdVariant[];
+	    procedures: Procedure[];
 	    httpCmd: HttpCmd;
 	    params: Parameter[];
 	    CommandMsg: any;
@@ -233,7 +232,7 @@ export namespace domain {
 	        this.tactic = source["tactic"];
 	        this.techniques = source["techniques"];
 	        this.references = source["references"];
-	        this.cmdVariants = this.convertValues(source["cmdVariants"], CmdVariant);
+	        this.procedures = this.convertValues(source["procedures"], Procedure);
 	        this.httpCmd = this.convertValues(source["httpCmd"], HttpCmd);
 	        this.params = this.convertValues(source["params"], Parameter);
 	        this.CommandMsg = source["CommandMsg"];

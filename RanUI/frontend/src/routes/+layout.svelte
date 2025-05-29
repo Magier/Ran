@@ -18,10 +18,10 @@
 	{#snippet trail()}
 		<nav>
 			<a class="{page.url.pathname === '/' ? 'selected' : ''} pr-3" href="/"
-				><IconMap class="inline-block text-xl" /> Graph</a
+				><IconMap class="inline-block text-xl" />Graph</a
 			>
-			<a class={page.url.pathname === '/trace' ? 'selected' : ''} href="/trace"
-				><IconSteps class="inline-block text-xl" /> Trace</a
+			<a class={page.url.pathname === '/flow' ? 'selected' : ''} href="/flow"
+				><IconSteps class="inline-block text-xl" />Flow</a
 			>
 		</nav>
 	{/snippet}

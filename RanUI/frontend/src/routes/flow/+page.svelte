@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { GetTrace } from '$lib/wailsjs/go/main/App';
+	import { GetFlow } from '$lib/wailsjs/go/main/App';
 	import { campaign, main } from '$lib/wailsjs/go/models';
 	import AttackStepDetails from '$lib/components/attack_step_details.svelte';
 	import ActionNode from '$lib/components/flow/attack_node.svelte';
@@ -84,7 +84,7 @@
 		return { nodes, edges };
 	}
 
-	GetTrace()
+	GetFlow()
 		.then((result: main.AttackFlow) => {
 			console.log('Graph:', result);
 			const { steps, edges: es } = result;

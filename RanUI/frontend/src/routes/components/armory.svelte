@@ -56,7 +56,6 @@
 			.catch((err) => {
 				console.error('Error fetching applicable TTPs:', err);
 			});
-		// console.log('Armory:', armory);
 	});
 
 	// const filteredArmoryStore = createSearchStore(armory);
@@ -69,7 +68,7 @@
 	onMount(() => {
 		store.armory((new_armory: Map<string, TTP[]>) => {
 			armory = new_armory;
-			console.log(armory);
+			console.log('armory update: ', armory, ' length: ', armory.size);
 		});
 		store.sendMessage('get-armory', {});
 	});

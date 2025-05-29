@@ -7,10 +7,12 @@ export function ExecuteAction(arg1:string,arg2:string,arg3:main.ActionArgs):Prom
 
 export function GetApplicableTTPs(arg1:string):Promise<Array<domain.TTP>>;
 
+export function GetFlow():Promise<main.AttackFlow>;
+
 export function GetGraph():Promise<main.Graph>;
 
 export function GetRunningPods():Promise<Array<string>>;
 
-export function GetTrace():Promise<main.AttackFlow>;
+export function SaveFlow():Promise<boolean>;
 
 export function StartEmulation(arg1:string):Promise<void>;
