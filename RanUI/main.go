@@ -30,10 +30,10 @@ func main() {
 	}
 
 	FileMenu := AppMenu.AddSubmenu("File")
-	FileMenu.AddText("Open", keys.CmdOrCtrl("o"), func(_ *menu.CallbackData) {
+	FileMenu.AddText("Open Flow", keys.CmdOrCtrl("o"), func(_ *menu.CallbackData) {
 		// TODO: load the Attack Flow
 	})
-	FileMenu.AddText("Save", keys.CmdOrCtrl("s"), func(_ *menu.CallbackData) {
+	FileMenu.AddText("Save Flow", keys.CmdOrCtrl("s"), func(_ *menu.CallbackData) {
 		app.SaveFlow()
 	})
 

@@ -60,9 +60,9 @@ func (f AttackFlow) Append(obj AttackFlowObject) AttackFlowObject {
 type AttackAction struct {
 	SDO            `json:",inline"`
 	TacticID       string    `json:"tactic_id"`
-	TacticRef      string    `json:"tactic_ref"`
+	TacticRef      string    `json:"tactic_ref,omitempty"`
 	TechniqueID    string    `json:"technique_id"`
-	TechniqueRef   string    `json:"technique_ref"`
+	TechniqueRef   string    `json:"technique_ref,omitempty"`
 	CommandRef     string    `json:"command_ref,omitempty"`
 	AssetRefs      []string  `json:"asset_refs,omitempty"`
 	EffectRefs     []string  `json:"effect_refs,omitempty"`

@@ -21,7 +21,7 @@ type StixBundle struct {
 	SpecVersion string      `json:"spec_version"`
 	Created     time.Time   `json:"created"`
 	Modified    time.Time   `json:"modified"`
-	Objects     ObjectSlice `json:"objects"`
+	Objects     ObjectSlice `json:"objects"` // use a map interntally for easier management of objects
 }
 
 func NewStixBundle() StixBundle {
@@ -103,6 +103,64 @@ func (o ObjectSlice) Append(objects ...StixObject) ObjectSlice {
 	}
 	return o
 }
+func (o ObjectSlice) MarshalJSON() ([]byte, error) {
+	objects := make([]StixObject, 0, len(o))
+	for _, obj := range o {
+		objects = append(objects, obj)
+	}
+	return json.Marshal(objects)
+}
+
+func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
+	var obj []json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	*objects = make(ObjectSlice)
+
+	// Create a mapping from SDO types to factory functions.
+	// see https://mitre-attack.github.io/attack-data-model/docs/overview
+	for _, raw := range obj {
+		sdo := SDO{}
+		if err := json.Unmarshal(raw, &sdo); err != nil {
+			e := err.Error()
+			slog.Error(e)
+			return err
+		}
+
+		var err error
+		if factory, ok := StixObjectFactory[sdo.Type]; !ok {
+			fmt.Println("Skipping unknown SDO type:", sdo.Type)
+			continue
+		} else {
+			// Create a pointer instance for JSON unmarshalling.
+			instancePtr := factory()
+
+			// nil pointer means the type should be skipped
+			if instancePtr == nil {
+				continue
+			}
+
+			err = json.Unmarshal(raw, instancePtr)
+			if err == nil {
+				// Convert the pointer to a value before appending.
+				value := reflect.ValueOf(instancePtr).Elem().Interface()
+				if stixObj, ok := value.(StixObject); ok {
+					(*objects)[stixObj.GetID()] = stixObj
+					// *objects = append(*objects, stixObj)
+				} else {
+					err = fmt.Errorf("unmarshalled object does not implement StixObject")
+				}
+			}
+		}
+		if err != nil {
+			slog.Error(err.Error())
+			return err
+		}
+	}
+
+	return nil
+}
 
 type MitreCollection struct {
 	SDO          `json:",inline"`
@@ -168,60 +226,9 @@ var StixObjectFactory = map[string]func() StixObject{
 	"marking-definition":     func() StixObject { return nil },
 }
 
-func (objects *ObjectSlice) UnmarshalJSON(data []byte) error {
-	var obj []json.RawMessage
-	if err := json.Unmarshal(data, &obj); err != nil {
-		return err
-	}
-	*objects = make(ObjectSlice)
-
-	// Create a mapping from SDO types to factory functions.
-	// see https://mitre-attack.github.io/attack-data-model/docs/overview
-	for _, raw := range obj {
-		sdo := SDO{}
-		if err := json.Unmarshal(raw, &sdo); err != nil {
-			e := err.Error()
-			slog.Error(e)
-			return err
-		}
-
-		var err error
-		if factory, ok := StixObjectFactory[sdo.Type]; !ok {
-			fmt.Println("Skipping unknown SDO type:", sdo.Type)
-			continue
-		} else {
-			// Create a pointer instance for JSON unmarshalling.
-			instancePtr := factory()
-
-			// nil pointer means the type should be skipped
-			if instancePtr == nil {
-				continue
-			}
-
-			err = json.Unmarshal(raw, instancePtr)
-			if err == nil {
-				// Convert the pointer to a value before appending.
-				value := reflect.ValueOf(instancePtr).Elem().Interface()
-				if stixObj, ok := value.(StixObject); ok {
-					(*objects)[stixObj.GetID()] = stixObj
-					// *objects = append(*objects, stixObj)
-				} else {
-					err = fmt.Errorf("unmarshalled object does not implement StixObject")
-				}
-			}
-		}
-		if err != nil {
-			slog.Error(err.Error())
-			return err
-		}
-	}
-
-	return nil
-}
-
 type Timestamp time.Time
 
-const TimestampLayout = "2006-01-02T15:04:05.9Z"
+const TimestampLayout = "2006-01-02T15:04:05.999Z"
 
 func (ts *Timestamp) UnmarshalJSON(data []byte) error {
 	s := strings.Trim(string(data), "\"")

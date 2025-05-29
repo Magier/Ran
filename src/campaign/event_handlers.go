@@ -58,7 +58,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	removedFacts := RemovedFacts{}
 
 	// TODO: Temporary workaround: dedicated handling for newly created pods
-	// ensure the podCfg is properly provided regardless of which command variant is executed
+	// ensure the podCfg is properly provided regardless of which procedure is executed
 	for _, technique := range cmd.TTP.Techniques {
 		if technique == "T1610" || strings.ToLower(technique) == "deploy container" {
 			new, removed, err := analyzeDeployPodResult(cmd)

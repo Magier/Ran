@@ -271,7 +271,7 @@ func (c Campaign) selectBestCommandVariant(ttp domain.TTP) (domain.Procedure, er
 	// - favor robust C2 over builtin one
 
 	if len(ttp.Procedures) == 0 {
-		return domain.Procedure{}, errors.New("No valid Command Variant available for TTP " + ttp.GetID())
+		return domain.Procedure{}, errors.New("No valid Procedure available for TTP " + ttp.GetID())
 	}
 	return ttp.Procedures[0], nil
 }
