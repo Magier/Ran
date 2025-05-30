@@ -3,11 +3,12 @@
 
 	interface ParamProps {
 		targetId: string;
+		procedureId?: string;
 		ttp: TTP;
-		onExecute: (ttpId: string, args: Record<string, string>) => void;
+		onExecute: (ttpId: string, procedureId: string, args: Record<string, string>) => void;
 		onCancel: () => void;
 	}
-	let { targetId = $bindable(), ttp, onExecute, onCancel }: ParamProps = $props();
+	let { targetId = $bindable(), procedureId = '', ttp, onExecute, onCancel }: ParamProps = $props();
 
 	interface Arg {
 		Name: string;
@@ -56,7 +57,7 @@
 			{} as { [key: string]: string }
 		);
 
-		onExecute(ttp.id, argsDict);
+		onExecute(ttp.id, procedureId, argsDict);
 	}
 </script>
 
@@ -70,6 +71,17 @@
 			{ttp.description}
 		</div>
 		<div class="">
+			{#if ttp.procedures && ttp.procedures.length > 0}
+				<span class="h5 label mt-5">Procedures</span>
+				<ul class="list-disc pl-5">
+					<select class="input mt-2">
+						{#each ttp.procedures as procedure}
+							<option value={procedure.Key}>{procedure.Key}</option>
+						{/each}
+					</select>
+				</ul>
+			{/if}
+
 			<!-- <label class="label mt-5">
 				<span class="label-text">Target</span>
 				<input

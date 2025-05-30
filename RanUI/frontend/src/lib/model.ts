@@ -21,6 +21,7 @@ export type TTP = {
     id: string;
     tactic: string;
     technique?: string;
+    procedures?: object[];
     name: string;
     action?: string;
     description: string;

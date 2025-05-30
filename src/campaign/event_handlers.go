@@ -26,7 +26,7 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 		return nil, errors.New(msg)
 	}
 
-	msg, err := c.GroundAction(ttp, ev.TargetID, ev.Args)
+	msg, err := c.GroundAction(ttp, ev.TargetID, ev.ProcedureID, ev.Args)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
 	}

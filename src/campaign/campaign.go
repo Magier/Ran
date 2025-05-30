@@ -265,7 +265,7 @@ func (c *Campaign) RemoveRelations(relations ...domain.Relation) int {
 	return numChanges
 }
 
-func (c Campaign) selectBestCommandVariant(ttp domain.TTP) (domain.Procedure, error) {
+func (c Campaign) selectBestCommandVariant(ttp domain.TTP, procedureID string) (domain.Procedure, error) {
 	// TODO: select the variant to execute
 	// - keep track of tried variants
 	// - favor robust C2 over builtin one
@@ -273,10 +273,17 @@ func (c Campaign) selectBestCommandVariant(ttp domain.TTP) (domain.Procedure, er
 	if len(ttp.Procedures) == 0 {
 		return domain.Procedure{}, errors.New("No valid Procedure available for TTP " + ttp.GetID())
 	}
+
+	for _, proc := range ttp.Procedures {
+		if proc.Key == procedureID {
+			return proc, nil
+		}
+	}
+
 	return ttp.Procedures[0], nil
 }
 
-func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]string) (domain.Message, error) {
+func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, args map[string]string) (domain.Message, error) {
 	if args == nil {
 		args = make(map[string]string)
 	}
@@ -297,7 +304,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId string, args map[string]
 	}
 	execCmd.CommandMsg = cmdMsg
 
-	execCmd.Variant, err = c.selectBestCommandVariant(ttp)
+	execCmd.Variant, err = c.selectBestCommandVariant(ttp, procedureID)
 	if err != nil && cmdMsg == nil {
 		return nil, err
 	}
