@@ -87,7 +87,8 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) {
 		slog.Error(fmt.Sprintf("Couldn't set target: %s", err.Error()))
 	}
 
-	msg, err := r.Campaign.GroundAction(ttp, target, args)
+	msg, err := r.Campaign.GroundAction(ttp, target, "", args)
+	panic("Implement selection of procedure ID")
 	if err != nil {
 		panic(fmt.Sprintf("Couldn't ground action: %s", err.Error()))
 	}

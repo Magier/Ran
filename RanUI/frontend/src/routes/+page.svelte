@@ -65,8 +65,10 @@
 	let selectedTTP: TTP | undefined = $state();
 
 	function sendAction(ttp: TTP) {
+		selectedTTP = ttp;
 		if (ttp.params) {
-			selectedTTP = ttp;
+			showParamModal = true;
+		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
 			ExecuteAction(ttp.id, selectedNodeId, {});
@@ -110,7 +112,7 @@
 	});
 
 	const ToastMapping: Record<string, string> = {};
-	function onExecuteTTP(ttpId: string, args: Record<string, string>) {
+	function onExecuteTTP(ttpId: string, procedureId: string, args: Record<string, string>) {
 		runtime.EventsOnce('ttp-executed', (dataStr) => {
 			let data = JSON.parse(dataStr);
 			const toastType = data.Success ? 'success' : 'error';
@@ -134,7 +136,8 @@
 			}
 		});
 
-		ExecuteAction(ttpId, selectedNodeId, args)
+		console.log('Executing TTP', ttpId, selectedNodeId, procedureId, args);
+		ExecuteAction(ttpId, selectedNodeId, procedureId, args)
 			.then((e) => {
 				let toastId = showToast('Executing TTP', ttpId, 'info');
 				ToastMapping[ttpId] = toastId;

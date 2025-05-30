@@ -130,6 +130,7 @@ export namespace domain {
 	export class Procedure {
 	    Key: string;
 	    Command: string;
+	    Tool: string;
 	    IsLocalCommand: boolean;
 	    Execute: CodeSnippet;
 	    Cleanup: CodeSnippet;
@@ -142,6 +143,7 @@ export namespace domain {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Key = source["Key"];
 	        this.Command = source["Command"];
+	        this.Tool = source["Tool"];
 	        this.IsLocalCommand = source["IsLocalCommand"];
 	        this.Execute = this.convertValues(source["Execute"], CodeSnippet);
 	        this.Cleanup = this.convertValues(source["Cleanup"], CodeSnippet);
