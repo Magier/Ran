@@ -1,3 +1,5 @@
+import type { domain } from "./wailsjs/go/models";
+
 export enum AccessLevel {
     UserRead = 1,
     UserWrite = 2,
@@ -16,19 +18,6 @@ export type Param = {
     Required: boolean;
 }
 
-
-export type TTP = {
-    id: string;
-    tactic: string;
-    technique?: string;
-    procedures?: object[];
-    name: string;
-    action?: string;
-    description: string;
-    cmd_args?: object;
-    requires?: Object,
-    params?: Param[]
-};
 
 export type Node = {
     id: string,
@@ -82,4 +71,4 @@ export function parseEntityId(entityId: string): EntityId {
 
 
 
-export type ArmoryType = Map<string, TTP[]>;
+export type ArmoryType = Map<string, domain.TTP[]>;

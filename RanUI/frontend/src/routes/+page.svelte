@@ -5,11 +5,10 @@
 	import { ExecuteAction, StartEmulation } from '$lib/wailsjs/go/main/App.js';
 	// import { onMount } from 'svelte';
 	import Icon from '@iconify/svelte';
-	import type { TTP } from '$lib/model';
 	import Graph from './components/graph.svelte';
 	// import ExploitAppModal from '$lib/modals/ExploitAppModal';
 	import { GetRunningPods } from '$lib/wailsjs/go/main/App';
-	import { main } from '$lib/wailsjs/go/models';
+	import { domain, main } from '$lib/wailsjs/go/models';
 	import { Modal } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 	import { onMount } from 'svelte';
@@ -62,16 +61,16 @@
 	let showDetails = $derived(selectedNodeId !== '');
 	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: Object = {};
-	let selectedTTP: TTP | undefined = $state();
+	let selectedTTP: domain.TTP | undefined = $state();
 
-	function sendAction(ttp: TTP) {
+	function sendAction(ttp: domain.TTP) {
 		selectedTTP = ttp;
 		if (ttp.params) {
 			showParamModal = true;
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
-			ExecuteAction(ttp.id, selectedNodeId, {});
+			ExecuteAction(ttp.id, selectedNodeId, '', {});
 		}
 	}
 

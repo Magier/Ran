@@ -1,14 +1,14 @@
 <script lang="ts">
-	import type { TTP } from '$lib/model';
 	import { AccessLevel } from '$lib/model';
+	import { domain } from '$lib/wailsjs/go/models';
 	import Icon from '@iconify/svelte';
 
 	interface ActionCardProps {
-		ttp: TTP;
+		ttp: domain.TTP;
 		icon: any;
 		enabled?: boolean;
 		conditions?: Object;
-		onclick: (ttp: TTP) => void;
+		onclick: (ttp: domain.TTP) => void;
 	}
 
 	let { ttp, icon, enabled = true, onclick }: ActionCardProps = $props();
@@ -17,7 +17,7 @@
 		enabled ? 'card-hover bg-surface-200-800-token' : 'card-disabled bg-surface-50-900-token'
 	);
 
-	function checkConditions(ttp: TTP, conditions: Object) {
+	function checkConditions(ttp: domain.TTP, conditions: Object) {
 		// no requirements means the action is always possible
 		if (Object.keys(ttp.requires || {}).length == 0) return true;
 		if (conditions) {
@@ -54,7 +54,7 @@
 		return true;
 	}
 
-	// export let onClick = (ttp: TTP) => {};
+	// export let onClick = (ttp: domain.TTP) => {};
 </script>
 
 <button

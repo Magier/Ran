@@ -1,21 +1,21 @@
 <script lang="ts">
-	import type { ArmoryType, TTP } from '$lib/model';
+	import type { ArmoryType } from '$lib/model';
 	import { onDestroy, onMount } from 'svelte';
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
 	import store, { parseArmory } from '$lib/stores/store';
 	import Icon from '@iconify/svelte';
 
-	type ArmoryProps = {
-		class?: string;
-		targetId: string;
-		action: (ttp: TTP) => void;
-	};
-	// import { filteredArmory, searchAbilities } from '$lib/stores/armoryStore.js';
-
 	import ActionCard from './action_card.svelte';
 	import { Accordion } from '@skeletonlabs/skeleton-svelte';
 	import { GetApplicableTTPs } from '$lib/wailsjs/go/main/App';
+	import { domain } from '$lib/wailsjs/go/models';
 
+	type ArmoryProps = {
+		class?: string;
+		targetId: string;
+		action: (ttp: domain.TTP) => void;
+	};
+	// import { filteredArmory, searchAbilities } from '$lib/stores/armoryStore.js';
 	const iconMap: Record<string, string> = {
 		'Resource Development': 'healthicons:entry-outline',
 		'Initial Access': 'material-symbols:door-open-outline',
@@ -50,7 +50,7 @@
 	let applicableTTPs: ArmoryType = $state(new Map());
 	$effect(() => {
 		GetApplicableTTPs(targetId)
-			.then((result: TTP[]) => {
+			.then((result: domain.TTP[]) => {
 				applicableTTPs = parseArmory(result);
 			})
 			.catch((err) => {
@@ -66,7 +66,7 @@
 	// };
 
 	onMount(() => {
-		store.armory((new_armory: Map<string, TTP[]>) => {
+		store.armory((new_armory: Map<string, domain.TTP[]>) => {
 			armory = new_armory;
 			console.log('armory update: ', armory, ' length: ', armory.size);
 		});
@@ -77,17 +77,19 @@
 		// unsubscribe();
 	});
 
-	let filteredTtps: TTP[] = $state([]);
+	let filteredTtps: domain.TTP[] = $state([]);
 	// For Search Input
 	let searchTerm: string = $state('');
 	// resets language menu if search input is used
 	// $: if (searchTerm) selectedLang = '';
 
 	const searchAbilities = () => {
-		filteredTtps = armory.filter((ttp) => {
-			let ttpName = ttp.name.toLowerCase();
-			return ttpName.includes(searchTerm.toLowerCase());
-		});
+		filteredTtps = Array.from(armory.values())
+			.flat()
+			.filter((ttp: domain.TTP) => {
+				let ttpName = ttp.name.toLowerCase();
+				return ttpName.includes(searchTerm.toLowerCase());
+			});
 	};
 
 	function handleClearWithEscape(event: KeyboardEvent) {
@@ -96,7 +98,7 @@
 		}
 	}
 
-	function isTTPApplicable(ttp: TTP): boolean {
+	function isTTPApplicable(ttp: domain.TTP): boolean {
 		let procedures = applicableTTPs.get(ttp.tactic) || [];
 		for (let proc of procedures) {
 			if (proc.name === ttp.name) {
@@ -157,7 +159,6 @@
 						{#each ttps as ttp}
 							<ActionCard
 								{ttp}
-								{targetId}
 								conditions={ttp.requires}
 								icon={iconMap[ttp.tactic]}
 								enabled={isTTPApplicable(ttp)}

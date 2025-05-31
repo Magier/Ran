@@ -1,9 +1,9 @@
 import { get, writable } from 'svelte/store';
 import { browser } from '$app/environment';
-import type { TTP, ArmoryType, Node, Edge } from '$lib/model';
+import type { ArmoryType, Node, Edge } from '$lib/model';
 import * as runtime from "$lib/wailsjs/runtime";
 import { GetGraph } from '$lib/wailsjs/go/main/App';
-import type { main } from '$lib/wailsjs/go/models';
+import type { domain, main } from '$lib/wailsjs/go/models';
 
 interface Command {
 	[key: string]: any
@@ -171,9 +171,9 @@ function parse_topology(data: any): [Node[], Edge[]] {
 // 	return [nodes, edges];
 // }
 
-export function parseArmory(data: TTP[]): ArmoryType {
+export function parseArmory(data: domain.TTP[]): ArmoryType {
 	// this comes from the backend must be converted
-	let armoryMap = new Map<string, TTP[]>();
+	let armoryMap = new Map<string, domain.TTP[]>();
 	for (let ttp of data) {
 		let groupName = ttp.tactic;
 		if (groupName === "") {
