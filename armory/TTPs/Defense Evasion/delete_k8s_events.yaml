@@ -1,0 +1,26 @@
+name: Delete Kubernetes Events
+description: Deletes all Kubernetes events to avoid detection of malicious activity
+tactic: Defense Evasion
+techniques: ["Indicator Removal", "T1070"]
+parameters:
+  NAMESPACE:
+    type: string
+    default: ${NS}
+    description: the name of the namespace in which the events will be deleted
+  ALL_NS:
+    type: bool
+    description: get pods from all namespaces or just the current one
+    default: false
+procedures:
+  - key: kubectl
+    command: kubectl delete events --all -n ${NAMESPACE}
+preconditions:
+  kind: ServiceAccount
+  rbac: "can-delete events"
+# effects: []
+references:
+  - https://attack.mitre.org/techniques/T1070/
+  - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/Delete%20K8S%20events/
+  - https://kubenomicon.com/Defense_evasion/Delete_events.html
+  - https://hub.armosec.io/docs/c-0031
+  - https://detectioninthe.cloud/ttps/defense_evasion/delete_events/
