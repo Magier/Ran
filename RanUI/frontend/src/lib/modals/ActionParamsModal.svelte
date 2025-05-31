@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { parseEntityId, type Param, type TTP } from '$lib/model';
+	import { parseEntityId, type Param } from '$lib/model';
+	import type { domain } from '$lib/wailsjs/go/models';
 
 	interface ParamProps {
 		targetId: string;
-		procedureId?: string;
-		ttp: TTP;
+		ttp: domain.TTP;
 		onExecute: (ttpId: string, procedureId: string, args: Record<string, string>) => void;
 		onCancel: () => void;
 	}
-	let { targetId = $bindable(), procedureId = '', ttp, onExecute, onCancel }: ParamProps = $props();
+	let { targetId = $bindable(), ttp, onExecute, onCancel }: ParamProps = $props();
 
 	interface Arg {
 		Name: string;
@@ -18,6 +18,7 @@
 		IsTrue: boolean;
 	}
 
+	let procedureId = $state(ttp.procedures?.[0]?.Key || '');
 	let args = $state<Arg[]>([]);
 	// the args will be the final arguments used when executing the TTP
 	$effect(() => {
@@ -71,17 +72,18 @@
 			{ttp.description}
 		</div>
 		<div class="">
-			{#if ttp.procedures && ttp.procedures.length > 0}
-				<span class="h5 label mt-5">Procedures</span>
+			<span class="h5 label mt-5">Procedure</span>
+			{#if ttp.procedures && ttp.procedures.length > 1}
 				<ul class="list-disc pl-5">
-					<select class="input mt-2">
+					<select class="input mt-2" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
 						{#each ttp.procedures as procedure}
 							<option value={procedure.Key}>{procedure.Key}</option>
 						{/each}
 					</select>
 				</ul>
+			{:else}
+				<code class="label mt-2">{procedureId}</code>
 			{/if}
-
 			<!-- <label class="label mt-5">
 				<span class="label-text">Target</span>
 				<input
