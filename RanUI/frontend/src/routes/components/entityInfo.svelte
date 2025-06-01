@@ -24,14 +24,34 @@
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <div
-	class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 p-4 {selectedNode
+	class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-full flex-col overflow-auto p-4 {selectedNode
 		? 'show'
 		: ''}"
 	data-popup
 >
 	{#if selectedNode?.entity !== null}
 		{#each Object.entries(selectedNode?.entity || {}) as [label, data]}
-			{#if data !== ''}
+			{#if typeof data === 'object' && data !== null}
+				<!-- Collapsible section for objects/arrays -->
+				<details>
+					<summary>
+						{label}
+						<span class="badge preset-outlined-surface-500"
+							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
+						>
+					</summary>
+					<pre>{JSON.stringify(data, null, 2)}</pre>
+				</details>
+			{:else if Array.isArray(data) && data.length > 0}
+				<!-- Collapsible section for arrays -->
+				<details>
+					<summary>
+						{label}
+						<span class="badge preset-outlined-surface-500">({data.length} items)</span>
+					</summary>
+					<pre>{JSON.stringify(data, null, 2)}</pre>
+				</details>
+			{:else if data !== ''}
 				<div><span>{label}:</span> {prettyPrint(data)}</div>
 			{/if}
 		{/each}

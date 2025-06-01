@@ -15,6 +15,10 @@ func (b ProbBool) String() string {
 	return fmt.Sprintf("%t (%.1f%%)", b.Bool(), b*100)
 }
 
+func (b ProbBool) IsZero() bool {
+	return b == 0.5
+}
+
 func NewProbBool(val bool) ProbBool {
 	if val {
 		return 1

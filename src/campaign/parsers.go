@@ -46,7 +46,13 @@ func HandleEnvVarResult(ev domain.TTPExecuted, source domain.Entity, args ...str
 
 	stdout := args[0]
 	vars := make(map[string]string)
-	for _, l := range strings.Split(stdout, "\n") {
+
+	var sep = "\n"
+	if strings.Contains(stdout, "\x00") {
+		sep = "\x00"
+	}
+
+	for _, l := range strings.Split(stdout, sep) {
 		k, v, ok := strings.Cut(l, "=")
 		if ok {
 			vars[k] = v
