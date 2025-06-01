@@ -174,7 +174,7 @@
 			{/if}
 			<Graph bind:selectedNodeId bind:selectedNode class="flex-1 " />
 		</div>
-		<aside class={['', showDetails ? 'w-96' : 'w-0']}>
+		<aside class={['flex flex-col overflow-hidden', showDetails ? 'w-96' : 'w-0']}>
 			<svelte:boundary onerror={(e) => console.error(e)}>
 				<EntityInfo {selectedNode} />
 			</svelte:boundary>

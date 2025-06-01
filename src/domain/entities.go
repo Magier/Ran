@@ -359,12 +359,12 @@ type K8sEntity struct {
 	Id          string
 	Name        string
 	Kind        string
-	Namespace   string
-	Labels      map[string]string
-	Annotations map[string]string
-	CreatedAt   string
-	Owner       OwnerRef
-	AccessLevel AccessLevel
+	Namespace   string            `json:"namespace,omitzero"` // Namespace is optional, so it can be empty
+	Labels      map[string]string `json:"labels,omitzero,omitempty"`
+	Annotations map[string]string `json:"annotations,omitzero,omitempty"`
+	CreatedAt   string            `json:"createdAt,omitzero"` // RFC3339 format
+	Owner       OwnerRef          `json:"owner,omitzero"`
+	AccessLevel AccessLevel       `json:"accessLevel,omitzero"` // AccessLevel is a custom type that can be marshaled to/from JSON
 }
 
 func NewK8sEntity(name, kind, namespace string) K8sEntity {
@@ -557,21 +557,21 @@ type VolumeMount struct {
 type Pod struct {
 	K8sEntity
 	// NamespacedResource
-	Spec                         v1.PodSpec
-	IPs                          []net.IPAddr
-	EnvVars                      map[string]string
-	ServiceAccountName           string
-	AutomountServiceAccountToken bool
-	HostName                     string
-	NodeName                     string
-	Privileged                   ProbBool
-	HostPID                      ProbBool
-	HostIPC                      ProbBool
-	HostNetwork                  ProbBool
-	VolumeMount                  VolumeMount
-	Devices                      []string
-	Binaries                     []string
-	Containers                   []v1.Container
+	Spec                         v1.PodSpec        `json:"spec,omitzero"`
+	IPs                          []net.IPAddr      `json:"ips,omitzero"`
+	EnvVars                      map[string]string `json:"envVars,omitzero"`
+	ServiceAccountName           string            `json:"serviceAccountName,omitzero"`
+	AutomountServiceAccountToken ProbBool          `json:"automountServiceAccountToken,omitzero"`
+	HostName                     string            `json:"hostName,omitzero"`
+	NodeName                     string            `json:"nodeName,omitzero"`
+	Privileged                   ProbBool          `json:"privileged,omitzero"`
+	HostPID                      ProbBool          `json:"hostPID,omitzero"`
+	HostIPC                      ProbBool          `json:"hostIPC,omitzero"`
+	HostNetwork                  ProbBool          `json:"hostNetwork,omitzero"`
+	VolumeMount                  VolumeMount       `json:"volumeMount,omitzero"`
+	Devices                      []string          `json:"devices,omitzero"`
+	Binaries                     []string          `json:"binaries,omitzero"`
+	Containers                   []v1.Container    `json:"containers,omitzero"`
 }
 
 var _ Namespaced = (*Pod)(nil)
@@ -590,10 +590,12 @@ type PodConfig struct {
 func NewPod(name, ns string) Pod {
 	entity := NewK8sEntity(name, "Pod", ns)
 	return Pod{
-		K8sEntity:   entity,
-		HostPID:     .5,
-		HostIPC:     .5,
-		HostNetwork: .5,
+		K8sEntity:                    entity,
+		AutomountServiceAccountToken: .5,
+		Privileged:                   .5,
+		HostPID:                      .5,
+		HostIPC:                      .5,
+		HostNetwork:                  .5,
 	}
 }
 
