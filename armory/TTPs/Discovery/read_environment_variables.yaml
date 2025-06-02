@@ -1,8 +1,8 @@
 name: Read Environment variables
 description: Read environment variables from a target
 tactic: Discovery
-techniques: ["Container and Resource Discovery", "Network Service Discovery"]
-ttp: T1613
+techniques:
+  ["Container and Resource Discovery", "Network Service Discovery", T1613]
 preconditions:
   kind: Pod
   accessLevel: user-read

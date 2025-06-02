@@ -1,8 +1,7 @@
 name: Get Pods via API Server
 description: Get a list of pods via the API server
 tactic: Discovery
-techniques: ["Container and Resource Discovery"]
-ttp: T1613
+techniques: ["Container and Resource Discovery", T1613]
 preconditions:
   # accessLevel: user-read
   can-get: ["pods"]

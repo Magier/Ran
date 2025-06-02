@@ -1,7 +1,7 @@
 name: Deploy Container
 description: Deploy a container into an environment to facilitate execution or evade defenses
 tactic: Execution
-techniques: ["Deploy Container"]
+techniques: ["Deploy Container", T1610]
 parameters:
   Name:
     type: string
@@ -15,7 +15,7 @@ parameters:
     type: string
     default: nginx
     description: the image used by the workload
-  # Command:   # currently this is a string, but the cmdVariant excepts a list
+  # Command:   # currently this is a string, but the procedure excepts a list
   #   type: string
   #   default: sleep infinity
   #   description: the command executed when starting the container

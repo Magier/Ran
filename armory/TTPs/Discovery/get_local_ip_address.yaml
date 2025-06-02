@@ -1,8 +1,7 @@
 name: Get local IP address
 description: Retrieve the IP address of the system
 tactic: Discovery
-techniques: ["System Network Configuration Discovery"]
-ttp: T1016
+techniques: ["System Network Configuration Discovery", T1016]
 preconditions:
   kind: Pod
   accessLevel: user-exec
