@@ -216,15 +216,15 @@ func wasExecSuccessful(results []string, err error) bool {
 	return true
 }
 
-func execLocally(ctx context.Context, exec domain.ExecTTP, variant domain.Procedure, _ map[string]C2Client) ([]string, error) {
+func execLocally(ctx context.Context, exec domain.ExecTTP, procedure domain.Procedure, _ map[string]C2Client) ([]string, error) {
 	var err error
-	if variant.Execute.Code != "" {
-		err = executeCode(ctx, variant.Command, variant.Execute)
+	if procedure.Execute.Code != "" {
+		err = executeCode(ctx, procedure.Command, procedure.Execute)
 		if err != nil {
 			slog.Warn(err.Error())
 		}
-	} else if variant.Command != "" {
-		if variant.Key == "kubectl" && strings.Contains(variant.Command, "exec") {
+	} else if procedure.Command != "" {
+		if procedure.Key == "kubectl" && strings.Contains(procedure.Command, "exec") {
 			// TODO use the custom k8sclient to execute this -> generalize kubectl exec
 			client, err := k8s.NewK8sClient("")
 			if err != nil {
@@ -269,7 +269,7 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, variant domain.Proced
 			slog.Warn("‼️ Marshalled PodConfig JSON to str; please check it!!: ", string(podCfgJson))
 			return []string{podName, ns, string(podCfgJson)}, err
 		} else {
-			return nil, fmt.Errorf("Unclear how to locally execute variant '%s'", variant.Command)
+			return nil, fmt.Errorf("Unclear how to locally execute variant '%s'", procedure.Command)
 		}
 	} else {
 		return nil, errors.New("Can't Exec TTP: no channel defined and no code provided!")

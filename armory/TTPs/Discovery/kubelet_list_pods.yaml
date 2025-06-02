@@ -1,8 +1,7 @@
 name: Get Pods via Kubelet
 description: Get a list of pods on the node via the kubelet API
 tactic: Discovery
-techniques: ["Container and Resource Discovery"]
-ttp: T1613
+techniques: ["Container and Resource Discovery", T1613]
 preconditions:
   kind: Node
   #rbac: system:authenticated
