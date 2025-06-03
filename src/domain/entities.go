@@ -276,7 +276,7 @@ func (wl AbstractWorkload) IsAbstract() bool {
 }
 
 type ResourceOwner struct {
-	Pods []Pod
+	Pods []Pod `json:"pods,omitzero"` // Pods that are owned by this workload
 }
 
 func (w ResourceOwner) GetPods() []Pod {
@@ -572,6 +572,7 @@ type Pod struct {
 	Devices                      []string          `json:"devices,omitzero"`
 	Binaries                     []string          `json:"binaries,omitzero"`
 	Containers                   []v1.Container    `json:"containers,omitzero"`
+	Status                       string            `json:"status,omitzero"`
 }
 
 var _ Namespaced = (*Pod)(nil)

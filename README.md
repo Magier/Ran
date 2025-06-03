@@ -140,11 +140,9 @@ Ran is heavily inspired by similar tools in this domain, such as:
 
 ### MVP
 - [ ] Support K8s-related TTPs of [Leonidas](https://github.com/WithSecureLabs/leonidas) (atomic)
-    - [ ] Document comparison
 - [ ] Support K8s-related TTPs of [Stratus Red Team](https://stratus-red-team.cloud/attack-techniques/kubernetes/) (atomic)
-    - [ ] Document comparison
 - [x] Track the executed TTPs (audit trail)
-    - [ ] show trace in UI
+    - [x] show Flow in UI
     - [x] Export trail of executed TTP as [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/)
 
 ### 2nd Iteration
@@ -169,12 +167,12 @@ Ran is heavily inspired by similar tools in this domain, such as:
 
 ### 4th Iteration: First basic autonomous emulation
 - [ ] Behavior Tree execution
-- [ ] Construct behavior tree from observed actions (trace -> Process Tree -> Bhavior Tree) 
+- [ ] Construct behavior tree from observed actions (trace -> Process Tree -> Behavior Tree) 
 
 
 ## References
 
-[Raesene KubeSecurity Lab](https://github.com/raesene/kube_security_lab/tree/main)
+[Raesene KubeSecurity Lab](https://github.com/raesene/kube_security_lab/tree/main)  
 BishopFox's [BadPods](https://bishopfox.com/blog/kubernetes-pod-privilege-escalation)
 
 
