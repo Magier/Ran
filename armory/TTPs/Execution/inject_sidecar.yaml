@@ -1,0 +1,51 @@
+name: Inject Sidecar
+description: Add an additional container to a legitimate running workload. Useful for running malicious code and hide activity.
+tactic: Execution
+techniques: ["Deploy Container", T1610]
+parameters:
+  Target:
+    type: string
+    description: the name of the target workload to which the sidecar will be injected
+    default: ${TARGET}
+  Name:
+    type: string
+    description: the name of the injected sidecar container. The name must be RFC 1123 compliant.
+    default: logs
+  Kind:
+    type: string
+    default: Deployment
+    description: the kind of the target workload (e.g., Deployment, StatefulSet, DaemonSet)
+  Namespace:
+    type: string
+    default: ${NS}
+    description: the namespace in which the workload will be deployed
+  Image:
+    type: string
+    default: nginx
+    description: the image used by the workload
+  # Command: # currently this is a string, but the procedure excepts a list
+  #   type: strings
+  #   default: [sleep, infinity]
+  #   description: the command executed when starting the container
+procedures:
+  - key: kubectl
+    command: |+
+      kubectl patch ${KIND} ${TARGET} 
+        --type='json' 
+        -p='[{"op": "add", "path": "/spec/template/spec/containers/-", "value": {"name": "${NAME}", "image": "${IMAGE}", "command": ["sleep", "infinity"]}}]' 
+        -n ${NAMESPACE}
+preconditions:
+  kind: Deployment
+  rbac: "patch deployment"
+effects:
+  - $d isa k8s.Deployment(${TARGET})
+  - $d.hasPod($p)
+  - $p isa k8s.Pod(${TARGET})
+  - $p.hasContainer($c)
+  - $c.name(${NAME})
+# parser: newContainer
+defend: {}
+references:
+  - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/Sidecar%20Injection/
+  - https://kubenomicon.com/Execution/Sidecar_injection.html
+  - "[K8s Post-Exploitation: Privilege Escalation, Sidecar Container Injection, and Runtime Security - Magno Logan](https://youtu.be/mqnm0AXoNgc?t=817)"
