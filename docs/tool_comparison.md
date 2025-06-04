@@ -1,13 +1,13 @@
 # Comparison
 
-| Tool                                          | Type       | Description   | K8s TTP Coverage |
-|-----------------------------------------------|------------|---------------|------------------|
-| [Atomic Red Team](./atomic-red-team_ref.md)   | Emulation  | primarily AWS | 5/14             |
-| [Leonidas](./leonidas_ref.md)                 | Emulation  |               | 15/18            |
-| [Stratus Red Team](./stratus-red-team_ref.md) | Emulation  |               | 5/8              |
-| [KubeHound](./kubehound_ref.md)               | Simulation |               |                  |
-| [IceKube](./icekube_ref.md)                   | Simulation |               |                  |
-| [Peirates](./peirates_ref.md)                 | PenTest    |               |                  |
+| Tool                                          | Type       | Description   | K8s TTP Coverage        |
+|-----------------------------------------------|------------|---------------|-------------------------|
+| [Atomic Red Team](./atomic-red-team_ref.md)   | Emulation  | primarily AWS | 5/14                    |
+| [Leonidas](./leonidas_ref.md)                 | Emulation  |               | 15/18                   |
+| [Stratus Red Team](./stratus-red-team_ref.md) | Emulation  |               | 5/8                     |
+| [KubeHound](./kubehound_ref.md)               | Simulation |               |                         |
+| [IceKube](./icekube_ref.md)                   | Simulation |               | 8/25 (excl. aux. edges) |
+| [Peirates](./peirates_ref.md)                 | PenTest    |               |                         |
 
 ---
 
