@@ -245,3 +245,61 @@ func TestParseEffect_NoResults(t *testing.T) {
 		t.Fatalf("Expected 0 removed entities")
 	}
 }
+func Test_parsePrettySelfSubjectRulesReview(t *testing.T) {
+	input := `Resources                                       Non-Resource URLs                      Resource Names   Verbs
+*.*                                             []                                     []               [*]
+*                                               []                                     []               [*]
+selfsubjectreviews.authentication.k8s.io        []                                     []               [create]
+selfsubjectaccessreviews.authorization.k8s.io   []                                     []               [create]
+selfsubjectrulesreviews.authorization.k8s.io    []                                     []               [create]
+rolebindings.rbac.authorization.k8s.io          []                                     []               [create]
+roles.rbac.authorization.k8s.io                 []                                     []               [create]
+pods/exec                                       []                                     []               [get create]
+pods/log                                        []                                     []               [get create]
+pods                                            []                                     []               [get list create delete]
+events                                          []                                     []               [get list]
+namespaces                                      []                                     []               [get list]
+serviceaccounts                                 []                                     []               [get list]
+deployments.apps                                []                                     []               [get list]
+replicasets.apps                                []                                     []               [get list]
+												[/.well-known/openid-configuration/]   []               [get]
+												[/.well-known/openid-configuration]    []               [get]
+												[/api/*]                               []               [get]
+												[/api]                                 []               [get]
+												[/apis/*]                              []               [get]
+												[/apis]                                []               [get]
+												[/healthz]                             []               [get]
+												[/healthz]                             []               [get]
+												[/livez]                               []               [get]
+												[/livez]                               []               [get]
+												[/openapi/*]                           []               [get]
+												[/openapi]                             []               [get]
+												[/openid/v1/jwks/]                     []               [get]
+												[/openid/v1/jwks]                      []               [get]
+												[/readyz]                              []               [get]
+												[/readyz]                              []               [get]
+												[/version/]                            []               [get]
+												[/version/]                            []               [get]
+												[/version]                             []               [get]
+												[/version]                             []               [get]`
+
+	result, err := parsePrettySelfSubjectRulesReview(input)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// the JSON equivalent returns 3 NonResourceRules and 11 ResourceRules
+	// the grouping of the rules itself is not reproducable from the data itself,
+	// so this tests, that the parsing returns at least the same number of (ungrouped) rules, as the grouped JSON counterpart
+	// 3 are returned by the JSON equivalent
+	numNonResourceRules := len(result.Status.NonResourceRules)
+	if numNonResourceRules != 20 {
+		t.Fatalf("Expected at least 3 NonResourceRules, got: %d", len(result.Status.NonResourceRules))
+	}
+
+	// 11 are returned by the JSON equivalent
+	numResourceRules := len(result.Status.ResourceRules)
+	if numResourceRules != 15 {
+		t.Fatalf("Expected at 15 ResourceRules, got: %d", len(result.Status.ResourceRules))
+	}
+}
