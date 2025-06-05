@@ -102,11 +102,23 @@ func HandleSelfSubjectReviewResult(ev domain.TTPExecuted, source domain.Entity, 
 	if len(args) == 0 {
 		return nil, fmt.Errorf("No data")
 	}
-	jsonData := args[0]
 	var result k8s_types.SelfSubjectRulesReview
-	err := json.Unmarshal([]byte(jsonData), &result)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal JSON: %w", err)
+	var err error
+
+	data := args[0]
+
+	// Check if jsonData is valid JSON, otherwise try to parse as pretty-printed table
+	if json.Valid([]byte(data)) {
+		err = json.Unmarshal([]byte(data), &result)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to unmarshal JSON: %w", err)
+		}
+	} else {
+		slog.Warn("Input is not valid JSON, attempting to parse as pretty-printed SelfSubjectRulesReview")
+		result, err = parsePrettySelfSubjectRulesReview(data)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to parse pretty-printed SelfSubjectRulesReview: %w", err)
+		}
 	}
 
 	if result.Code >= 400 {
@@ -129,6 +141,50 @@ func HandleSelfSubjectReviewResult(ev domain.TTPExecuted, source domain.Entity, 
 		ServiceAccount:   sa,
 		ResourceRules:    result.Status.ResourceRules,
 		NonResourceRules: result.Status.NonResourceRules,
+	}, nil
+}
+
+func parsePrettySelfSubjectRulesReview(data string) (k8s_types.SelfSubjectRulesReview, error) {
+	resRules := []k8s_types.ResourceRule{}
+	nonResRules := []k8s_types.NonResourceRule{}
+	lines := strings.Split(data, "\n")
+	var row [][]string
+
+	// Skip the header and parse remaining lines
+	for _, line := range lines[1:] {
+		fields := strings.SplitN(line, "[", 4)
+		// clean every cell by dropping the closing ']' and trimming whitespace
+		row = make([][]string, 4)
+		for i := range fields {
+			f := strings.TrimSuffix(strings.TrimSpace(fields[i]), "]")
+			if f == "" {
+				row[i] = []string{}
+			} else {
+				row[i] = strings.Split(f, " ")
+			}
+		}
+
+		// empty "Resources" column means it's a NonResourceRule
+		if len(row[0]) == 0 {
+			nonResRules = append(nonResRules, k8s_types.NonResourceRule{
+				NonResourceURLs: row[0],
+				Verbs:           row[3],
+			})
+		} else {
+			resRules = append(resRules, k8s_types.ResourceRule{
+				APIGroups:     row[0], // assuming default API group
+				Resources:     row[0],
+				ResourceNames: row[2],
+				Verbs:         row[3],
+			})
+		}
+	}
+	// Note: full JSON resopnse is impossible to reproduce, as the grouping is not based on the data itself
+	return k8s_types.SelfSubjectRulesReview{
+		Status: k8s_types.SubjectRulesReviewStatus{
+			ResourceRules:    resRules,
+			NonResourceRules: nonResRules,
+		},
 	}, nil
 }
 

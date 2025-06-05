@@ -791,10 +791,10 @@ type ServiceAccountToken struct {
 type ServiceAccount struct {
 	K8sEntity
 	// kind: str = "ServiceAccount"
-	Token       ServiceAccountToken
-	SecretNames []string
+	Token       ServiceAccountToken `json:"token,omitzero"`
+	SecretNames []string            `json:"secretNames,omitzero"`
 	// token: str | ServiceAccountToken | None = Field(None, exclude=True)
-	Can []RbacPermission
+	Can []RbacPermission `json:"can,omitzero"`
 }
 
 func NewServiceAccount(name, ns string) ServiceAccount {

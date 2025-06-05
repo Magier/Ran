@@ -20,8 +20,6 @@ parameters:
 preconditions:
   kind: ServiceAccount
 procedures:
-  - key: kubectl
-    command: kubectl auth can-i --list
   - key: curl
     command: >-
       curl -XPOST
@@ -34,6 +32,8 @@ procedures:
               "apiVersion": "authorization.k8s.io/v1",
               "spec": { "namespace": "${NS}" }
             }'
+  - key: kubectl
+    command: kubectl auth can-i --list
 parser: selfSubjectReview
 # effects:
 # defend: {}
