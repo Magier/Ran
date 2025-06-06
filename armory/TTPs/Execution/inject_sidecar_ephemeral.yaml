@@ -1,0 +1,63 @@
+name: Inject Sidecar
+description: Add an additional container to a legitimate running workload. Useful for running malicious code and hide activity.
+tactic: Execution
+techniques: ["Deploy Container", T1610]
+parameters:
+  Target:
+    type: string
+    description: the name of the target workload to which the sidecar will be injected
+    default: ${TARGET}
+  Name:
+    type: string
+    description: the name of the injected sidecar container. The name must be RFC 1123 compliant.
+    default: debug
+  Kind:
+    type: string
+    default: Pod
+    description: the kind of the target to debug  e.g., POd, Node)
+  Namespace:
+    type: string
+    default: ${NS}
+    description: the namespace in which the container will be deployed. This is also relevant when creating a debug pod for a node.
+  Image:
+    type: string
+    default: nginx
+    description: the image used by the container
+  Profile:
+    type: string
+    default: sysadmin
+    description: the profile used by the ephemeral container. This is used to determine the capabilities and permissions of the container.
+    options:
+      - legacy
+      - general
+      - baseline
+      - restricted
+      - netadmin
+      - sysadmin
+  Command:
+    type: string
+    default: whoami
+    description: the command executed when starting the container
+  # Command: # currently this is a string, but the procedure excepts a list
+  #   type: strings
+  #   default: [sleep, infinity]
+  #   description: the command executed when starting the container
+procedures:
+  - key: kubectl
+    command: |+
+      kubectl debug ${KIND}/${TARGET} -n=${NAMESPACE} --image=${IMAGE} --container=${NAME} --profile=${PROFILE} -- ${COMMAND}
+preconditions:
+  kind: Pod
+  rbac: "patch pod"
+effects:
+  - $d isa k8s.Deployment(${TARGET})
+  - $d.hasPod($p)
+  - $p isa k8s.Pod(${TARGET})
+  - $p.hasContainer($c)
+  - $c.name(${NAME})
+# parser: newContainer
+defend: {}
+references:
+  - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/Sidecar%20Injection/
+  - https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/
+  - https://raesene.github.io/blog/2025/05/30/kubernetes-debug-profiles/
