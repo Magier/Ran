@@ -149,8 +149,6 @@ func (c *Campaign) UpdateFacts(new NewFacts, removed RemovedFacts) (domain.Facts
 	if err != nil {
 		slog.Error(err.Error())
 	}
-	// TODO: reconcile new entities with existing ones
-
 	return domain.FactsChanged{
 		NewEntities:   new.Entities,
 		NewRelations:  new.Relations,
@@ -304,7 +302,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 	}
 	execCmd.CommandMsg = cmdMsg
 
-	execCmd.Variant, err = c.selectBestCommandVariant(ttp, procedureID)
+	execCmd.Procedure, err = c.selectBestCommandVariant(ttp, procedureID)
 	if err != nil && cmdMsg == nil {
 		return nil, err
 	}
@@ -316,7 +314,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 	}
 
 	var execSystem domain.Entity
-	if isActionOnRemoteTarget(execCmd.TTP, execCmd.Variant) {
+	if isActionOnRemoteTarget(execCmd.TTP, execCmd.Procedure) {
 		execSystem, err = c.getSystemForExecution(ttp, target)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to get system for execution: %s", err.Error()))
@@ -340,15 +338,15 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to ground args: %s", err.Error()))
 	}
-	if execCmd.Variant.Execute.Code != "" {
+	if execCmd.Procedure.Execute.Code != "" {
 		// forward the TTP args to the code snippet
-		execCmd.Variant.Execute.Parameters = args
+		execCmd.Procedure.Execute.Parameters = args
 	}
-	execCmd.Variant.Command = c.groundCmdTemplate(execCmd.Variant.Command, args)
+	execCmd.Procedure.Command = c.groundCmdTemplate(execCmd.Procedure.Command, args)
 
 	// safety: warn about any variable, that was not properly grounded
 	re := regexp.MustCompile(`\$\{([^}]+)\}`)
-	vars := re.FindAllStringSubmatch(execCmd.Variant.Command, -1)
+	vars := re.FindAllStringSubmatch(execCmd.Procedure.Command, -1)
 	for _, v := range vars {
 		slog.Warn(fmt.Sprintf("Ungrounded variable '%s' NOT found in command", v[1]))
 	}

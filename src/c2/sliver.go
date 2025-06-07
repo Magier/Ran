@@ -186,7 +186,7 @@ func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 		return c.stopListener(cmd)
 	case domain.ExecTTP:
 		c2Channel := cmd.C2Channel.(domain.ImplantC2Channel)
-		switch cmd.Variant.Command {
+		switch cmd.Procedure.Command {
 		case "get_file":
 			path, ok := cmd.Args["Path"]
 			if !ok {

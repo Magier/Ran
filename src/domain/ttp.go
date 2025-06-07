@@ -30,9 +30,17 @@ type HttpCmd struct {
 type Procedure struct {
 	Key            string      `yaml:"key"`
 	Command        string      `yaml:"command"`
+	Tool           string      `yaml:"tool"`
 	IsLocalCommand bool        `yaml:"isLocal"`
 	Execute        CodeSnippet `yaml:"execute"`
 	Cleanup        CodeSnippet `yaml:"cleanup"`
+}
+
+func (p Procedure) GetTool() string {
+	if p.Tool != "" {
+		return p.Tool
+	}
+	return p.Key
 }
 
 func (c *Procedure) UnmarshalYAML(unmarshal func(interface{}) error) error {

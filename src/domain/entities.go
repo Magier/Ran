@@ -569,10 +569,13 @@ type Pod struct {
 	HostIPC                      ProbBool          `json:"hostIPC,omitzero"`
 	HostNetwork                  ProbBool          `json:"hostNetwork,omitzero"`
 	VolumeMount                  VolumeMount       `json:"volumeMount,omitzero"`
+	HostPaths                    []string          `json:"hostPaths,omitzero"` // Paths on the host that are mounted into the pod
 	Devices                      []string          `json:"devices,omitzero"`
-	Binaries                     []string          `json:"binaries,omitzero"`
+	Binaries                     map[string]bool   `json:"binaries,omitzero"`
 	Containers                   []v1.Container    `json:"containers,omitzero"`
-	Status                       string            `json:"status,omitzero"`
+	HostIP                       net.IPAddr        `json:"hostIP,omitzero"`
+	Phase                        string            `json:"phase,omitzero"`
+	IsRunning                    bool              `json:"isRunning"`
 }
 
 var _ Namespaced = (*Pod)(nil)
@@ -597,6 +600,8 @@ func NewPod(name, ns string) Pod {
 		HostPID:                      .5,
 		HostIPC:                      .5,
 		HostNetwork:                  .5,
+		IsRunning:                    true,
+		Binaries:                     make(map[string]bool),
 	}
 }
 
@@ -618,10 +623,15 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 		HostPID:     NewProbBool(p.Spec.HostPID),
 		HostIPC:     NewProbBool(p.Spec.HostIPC),
 		HostNetwork: NewProbBool(p.Spec.HostNetwork),
+		HostPaths:   []string{},
 		NodeName:    p.Spec.NodeName,
 		Privileged:  isPriv,
 		IPs:         []net.IPAddr{{IP: net.ParseIP(p.Status.PodIP)}},
+		HostIP:      net.IPAddr{IP: net.ParseIP(p.Status.HostIP)},
+		Binaries:    make(map[string]bool),
 		Containers:  p.Spec.Containers,
+		Phase:       string(p.Status.Phase),
+		IsRunning:   p.Status.Phase == v1.PodRunning,
 	}
 }
 

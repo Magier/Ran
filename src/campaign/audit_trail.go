@@ -36,7 +36,7 @@ func (a *AuditTrail) AddNewStep(action domain.ExecTTP) error {
 		ID:      action.ID,
 		TTP:     action.TTP,
 		Target:  action.Target,
-		Command: action.Variant.Command,
+		Command: action.Procedure.Command,
 		StartAt: time.Now(),
 	})
 	return nil
