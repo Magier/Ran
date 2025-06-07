@@ -182,6 +182,7 @@ type TTPExecuted struct {
 	ID         string
 	TTP        TTP
 	Args       map[string]string
+	Procedure  Procedure
 	Success    bool
 	Target     Entity
 	ResultType Message

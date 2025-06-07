@@ -87,6 +87,20 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		return event, err
 	}
 
+	// the tool part of the procedure was not on the target system
+	if strings.Contains(results[0], fmt.Sprintf("%s: not found", cmd.Procedure.GetTool())) {
+		// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
+		// "bash: wget: command not found"  on nginx pod
+
+		target := cmd.Target
+		if p, ok := target.(domain.Pod); ok {
+			p.Binaries[cmd.Procedure.GetTool()] = false
+			newFacts.Entities = append(newFacts.Entities, p)
+		} else {
+			panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", cmd.TTP.ID, target.GetId()))
+		}
+	}
+
 	if len(ttp.Effects) > 1 {
 		slog.Info(fmt.Sprintf("TTP has %d effects; using only first one", len(ttp.Effects)))
 	}
