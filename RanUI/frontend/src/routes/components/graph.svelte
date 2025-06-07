@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import cytoscape from 'cytoscape';
-	import fcose from 'cytoscape-fcose';
-	import * as runtime from '$lib/wailsjs/runtime';
+	import dagre from 'cytoscape-dagre';
 
 	import { getGraphStyle, layout } from './graph_style';
 	import store from '$lib/stores/store.js';
@@ -25,7 +24,7 @@
 	let graphContainer = $state();
 	let cy: cytoscape.Core;
 
-	cytoscape.use(fcose);
+	cytoscape.use(dagre);
 
 	function handleSelection(event: cytoscape.Event) {
 		let el = event.target;

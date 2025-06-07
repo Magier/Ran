@@ -15,34 +15,8 @@
 
 
 export const layout = {
-	// name: 'klay',
-	// klay: {
-	// 	direction: 'DOWN'
-	// },
-	// ------
-	name: 'fcose',
-	// // Whether or not to animate the layout
-	animate: false,
-	quality: "proof",
-	randomize: false,
-	// // False for random, true for greedy sampling
-	// samplingType: true,
-	// // Sample size to construct distance matrix
-	// sampleSize: 250,
-	// // Separation amount between nodes
-	// nodeSeparation: 750,
-	// // Power iteration tolerance
-	// piTol: 0.0000001,
-	// // Node repulsion (non overlapping) multiplier
-	// nodeRepulsion: (node) => 45000,
-	// // Ideal edge (non nested) length
-	// idealEdgeLength: (edge) => 200,
-	// // Divisor to compute edge forces
-	// edgeElasticity: (edge) => 0.45,
-
-	// gravityRangeCompound: 1
-	packComponents: true
-	// fixedNodeConstraint: [{ nodeId: 'internet', position: { y: 0, x: 50 } }]
+	name: 'dagre',
+	rankDir: 'LR',
 };
 
 const kind_svg_map = {
@@ -167,6 +141,14 @@ export function getGraphStyle() {
 			style: {
 				width: '30',
 				height: '30',
+			}
+		},
+		{
+			selector: "node[kind='Pod'][!entity.isRunning]",
+			style: {
+				width: '20',
+				height: '20',
+				'background-image': '/k8s/pod_transparent.svg',
 			}
 		},
 		{
@@ -423,5 +405,5 @@ export function getGraphStyle() {
 			}
 		}
 	];
-	return graph_style.concat(mapKindIcons(kind_svg_map));
+	return mapKindIcons(kind_svg_map).concat(graph_style);
 }
