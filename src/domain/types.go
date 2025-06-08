@@ -4,6 +4,9 @@ import "fmt"
 
 type ProbBool float32
 
+func (b *ProbBool) Update(delta float32) {
+	*b += ProbBool(delta)
+}
 func (b ProbBool) Bool() bool {
 	return b > 0.5
 }
@@ -16,10 +19,15 @@ func (b ProbBool) String() string {
 }
 
 func (b ProbBool) IsZero() bool {
-	return b == 0.5
+	// either unknown, or known to be false
+	return b == 0.5 || b == 0
 }
 
-func NewProbBool(val bool) ProbBool {
+func NewProbBool() ProbBool {
+	return 0.5
+}
+
+func AsProbBool(val bool) ProbBool {
 	if val {
 		return 1
 	} else {

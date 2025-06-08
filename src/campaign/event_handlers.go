@@ -40,28 +40,30 @@ func (c *Campaign) onExecuteTTP(ctx context.Context, msg domain.Message) (domain
 }
 
 func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domain.Message, error) {
-	cmd := msg.(domain.TTPExecuted)
-	ttp := cmd.TTP
+	ev := msg.(domain.TTPExecuted)
+	ttp := ev.TTP
+	var results []string = ev.Results
 
-	var results []string = cmd.Results
-	// if cmd.Success {
-	// 	for _, r := range cmd.Results {
-	// 		results = append(results, s)
-	// 	}
-	// } else {
-	// 	results = []string{cmd.Reason}
-	// }
-
-	c.trail.CompleteStep(cmd.ID, cmd.TTP, cmd.Success, results)
-
+	c.trail.CompleteStep(ev.ID, ev.TTP, ev.Success, results)
 	newFacts := NewFacts{}
 	removedFacts := RemovedFacts{}
 
+	if !ev.Success {
+		new, removed, err := analyzeFailedTTPExecution(ev)
+
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to analyze failed TTP execution: %v", err))
+		}
+
+		newFacts.Update(new)
+		removedFacts.Update(removed)
+	}
+
 	// TODO: Temporary workaround: dedicated handling for newly created pods
 	// ensure the podCfg is properly provided regardless of which procedure is executed
-	for _, technique := range cmd.TTP.Techniques {
+	for _, technique := range ev.TTP.Techniques {
 		if technique == "T1610" || strings.ToLower(technique) == "deploy container" {
-			new, removed, err := analyzeDeployPodResult(cmd)
+			new, removed, err := analyzeDeployPodResult(ev)
 
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to analyze deploy pod result: %v", err))
@@ -83,29 +85,15 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	// TODO: properly streamline the various ways to handle the results of a TTP execution
 	// post processing will yield the final message
 	if fn := GetParser(ttp.Parser); fn != nil {
-		event, err := fn(cmd, cmd.Target, cmd.Results...)
+		event, err := fn(ev, ev.Target, ev.Results...)
 		return event, err
-	}
-
-	// the tool part of the procedure was not on the target system
-	if strings.Contains(results[0], fmt.Sprintf("%s: not found", cmd.Procedure.GetTool())) {
-		// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
-		// "bash: wget: command not found"  on nginx pod
-
-		target := cmd.Target
-		if p, ok := target.(domain.Pod); ok {
-			p.Binaries[cmd.Procedure.GetTool()] = false
-			newFacts.Entities = append(newFacts.Entities, p)
-		} else {
-			panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", cmd.TTP.ID, target.GetId()))
-		}
 	}
 
 	if len(ttp.Effects) > 1 {
 		slog.Info(fmt.Sprintf("TTP has %d effects; using only first one", len(ttp.Effects)))
 	}
 	for _, effect := range ttp.Effects {
-		new, removed := ParseEffect(effect, cmd.Target, cmd.Args, cmd.Results...)
+		new, removed := ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
 		newFacts.Update(new)
 		removedFacts.Update(removed)
 	}

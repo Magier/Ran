@@ -302,7 +302,7 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string) (
 		Tty:    false,
 	})
 	if err != nil {
-		return "", stderr.String(), err
+		return stdout.String(), stderr.String(), err
 	}
 
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), nil

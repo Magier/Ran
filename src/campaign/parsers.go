@@ -209,10 +209,10 @@ func HandleNewContainer(ev domain.TTPExecuted, source domain.Entity, args ...str
 	}
 	// cfgJson := args[2].(domain.PodConfig)
 
-	p.HostIPC = domain.NewProbBool(cfg.HostIPC)
-	p.HostPID = domain.NewProbBool(cfg.HostPID)
-	p.HostNetwork = domain.NewProbBool(cfg.HostNetwork)
-	p.Privileged = domain.NewProbBool(cfg.Privileged)
+	p.HostIPC = domain.AsProbBool(cfg.HostIPC)
+	p.HostPID = domain.AsProbBool(cfg.HostPID)
+	p.HostNetwork = domain.AsProbBool(cfg.HostNetwork)
+	p.Privileged = domain.AsProbBool(cfg.Privileged)
 
 	slog.Error(fmt.Sprintf("Creating new pod %s in namespace %s is not yet properly implemented! FIX NEEDED!", p.Name, ns.Name))
 	return domain.NewPodDeployed{
@@ -248,10 +248,10 @@ func HandleNewCronJob(ev domain.TTPExecuted, source domain.Entity, args ...strin
 		}
 		// cfgJson := args[2].(domain.PodConfig)
 
-		p.HostIPC = domain.NewProbBool(cfg.HostIPC)
-		p.HostPID = domain.NewProbBool(cfg.HostPID)
-		p.HostNetwork = domain.NewProbBool(cfg.HostNetwork)
-		p.Privileged = domain.NewProbBool(cfg.Privileged)
+		p.HostIPC = domain.AsProbBool(cfg.HostIPC)
+		p.HostPID = domain.AsProbBool(cfg.HostPID)
+		p.HostNetwork = domain.AsProbBool(cfg.HostNetwork)
+		p.Privileged = domain.AsProbBool(cfg.Privileged)
 	}
 
 	// TODO: this should also add the new CronJob to the knowledge base, which owns this pod
@@ -384,6 +384,31 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			}
 			pod.IPs = ips
 			entities = append(entities, pod)
+		}
+	case "target.hasbinary":
+		// "target.hasBinary"
+		if pod, ok := source.(domain.Pod); ok {
+			binaryName := ""
+			dstPath := args["DST_PATH"]
+
+			if dstPath != "" {
+				parts := strings.Split(dstPath, "/")
+				binaryName = parts[len(parts)-1]
+			} else if strings.HasPrefix(results[0], "file: ") {
+				// get the information from the TTP result (explicit echo at the end of the TTP)
+				// Note: tight coupling with the TTP implementation -> brittle
+				dstPath = strings.TrimPrefix(results[0], "file: ")
+			} else {
+				// fallback try to extract the binary name from the source name
+				// however: knowing the location of the binary on the system is not always possible
+				dstPath = "❌"
+				// TODO: get the path from the SRC_PATH?
+				slog.Warn("No DST_PATH provided, and extraction from SRC_PATh is not yet implemented!")
+			}
+			pod.Binaries[binaryName] = dstPath
+			entities = append(entities, pod)
+		} else {
+			slog.Warn("The source of the hasBinary effect is not a Pod!")
 		}
 	case "k8s.podlist":
 		res := results[0]

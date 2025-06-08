@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/Magier/Ran/domain"
@@ -142,5 +143,68 @@ func TestAnalyzeDeployPodFailure_UnknownError(t *testing.T) {
 	}
 	if len(newFacts.Entities) != 0 {
 		t.Errorf("Expected no entities, got %v", newFacts.Entities)
+	}
+}
+func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
+	toolName := "kubectl"
+	event := domain.TTPExecuted{
+		Results: []string{fmt.Sprintf("command terminated with exit code 127: 'sh: 1: %s: not found\n'", toolName)},
+		Procedure: domain.Procedure{
+			Tool: toolName,
+		},
+		Target: domain.Pod{
+			K8sEntity: domain.K8sEntity{
+				Name:      "mypod",
+				Namespace: "default",
+				Kind:      "Pod",
+			},
+			Binaries: map[string]string{},
+		},
+	}
+	newFacts, _, err := analyzeFailedTTPExecution(event)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if len(newFacts.Entities) != 1 {
+		t.Errorf("Expected 1 entity, got %d", len(newFacts.Entities))
+	}
+	pod, ok := newFacts.Entities[0].(domain.Pod)
+	if !ok {
+		t.Fatalf("Expected entity to be Pod, got %T", newFacts.Entities[0])
+	}
+	if val, exists := pod.Binaries["kubectl"]; !exists || val != "❌" {
+		t.Errorf("Expected pod.Binaries[kubectl]=❌, got %v", pod.Binaries)
+	}
+}
+
+func TestAnalyzeFailedTTPExecution_RBAC_ForbiddenWithUser(t *testing.T) {
+	saName := "test-sa"
+	ns := "test-ns"
+	event := domain.TTPExecuted{
+		Results: []string{
+			fmt.Sprintf("command terminated with exit code 1: 'Error from server (Forbidden): pods is forbidden: User \"system:serviceaccount:%s:%s\" cannot list resource \"pods\" in API group \"\" in the namespace \"%s\"\n'", ns, saName, ns),
+		},
+		Procedure: domain.Procedure{Tool: "kubectl"},
+		Target:    domain.NewPod("mypod", ns),
+	}
+	newFacts, _, err := analyzeFailedTTPExecution(event)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// expect the returned entity is a service account
+	if len(newFacts.Entities) != 1 {
+		t.Fatalf("Expected 1 entity, got %d", len(newFacts.Entities))
+	}
+	sa, ok := newFacts.Entities[0].(domain.ServiceAccount)
+	if !ok {
+		t.Fatalf("Expected entity to be ServiceAccount, got %T", newFacts.Entities[0])
+	}
+	if sa.Name != saName || sa.Namespace != ns {
+		t.Errorf("Expected ServiceAccount name 'default' in namespace '%s', got name '%s' in namespace '%s'", ns, sa.Name, sa.Namespace)
+	}
+
+	if len(newFacts.Relations) != 0 {
+		t.Errorf("Expected 0 relations, got %d", len(newFacts.Relations))
 	}
 }

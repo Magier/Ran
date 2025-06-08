@@ -301,10 +301,9 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 	case domain.PodExecC2Channel:
 		var stdout, stderr string
 		stdout, stderr, err = execKubectl(ctx, cmd, target)
+		results = []string{stdout, stderr}
 		if err != nil {
 			err = fmt.Errorf("%w: '%s'", err, stderr)
-		} else {
-			results = []string{stdout, stderr}
 		}
 	default:
 		slog.Warn(fmt.Sprintf("Can't Exec TTP: unclear how to handle channel %v", ch))

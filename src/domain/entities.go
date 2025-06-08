@@ -596,10 +596,11 @@ type Pod struct {
 	HostPID                      ProbBool          `json:"hostPID,omitzero"`
 	HostIPC                      ProbBool          `json:"hostIPC,omitzero"`
 	HostNetwork                  ProbBool          `json:"hostNetwork,omitzero"`
+	ReadOnlyRootFilesystem       ProbBool          `json:"readOnlyRootFilesystem,omitzero"`
 	VolumeMount                  VolumeMount       `json:"volumeMount,omitzero"`
 	HostPaths                    []string          `json:"hostPaths,omitzero"` // Paths on the host that are mounted into the pod
 	Devices                      []string          `json:"devices,omitzero"`
-	Binaries                     map[string]bool   `json:"binaries,omitzero"`
+	Binaries                     map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
 	Containers                   []v1.Container    `json:"containers,omitzero"`
 	HostIP                       net.IPAddr        `json:"hostIP,omitzero"`
 	Phase                        string            `json:"phase,omitzero"`
@@ -623,43 +624,51 @@ func NewPod(name, ns string) Pod {
 	entity := NewK8sEntity(name, "Pod", ns)
 	return Pod{
 		K8sEntity:                    entity,
-		AutomountServiceAccountToken: .5,
-		Privileged:                   .5,
-		HostPID:                      .5,
-		HostIPC:                      .5,
-		HostNetwork:                  .5,
+		AutomountServiceAccountToken: NewProbBool(),
+		Privileged:                   NewProbBool(),
+		HostPID:                      NewProbBool(),
+		HostIPC:                      NewProbBool(),
+		HostNetwork:                  NewProbBool(),
+		ReadOnlyRootFilesystem:       NewProbBool(),
 		IsRunning:                    true,
-		Binaries:                     make(map[string]bool),
+		Binaries:                     make(map[string]string),
 	}
 }
 
 func NewPodFromK8sSpec(p v1.Pod) Pod {
 	entity := NewK8sEntity(p.ObjectMeta.Name, "Pod", p.Namespace)
-	isPriv := NewProbBool(false)
+	isPriv := AsProbBool(false)
 
 	for _, c := range p.Spec.Containers {
 		if c.SecurityContext != nil {
 			priv := c.SecurityContext.Privileged
 			if priv != nil {
-				isPriv = NewProbBool(*priv)
+				isPriv = AsProbBool(*priv)
 			}
 		}
 	}
 
+	// TODO: handle multiple containers in the pod
+	var readOnlyRootFS ProbBool
+	if p.Spec.Containers[0].SecurityContext != nil && p.Spec.Containers[0].SecurityContext.ReadOnlyRootFilesystem != nil {
+		readOnlyRootFS = AsProbBool(*p.Spec.Containers[0].SecurityContext.ReadOnlyRootFilesystem)
+	}
+
 	return Pod{
-		K8sEntity:   entity,
-		HostPID:     NewProbBool(p.Spec.HostPID),
-		HostIPC:     NewProbBool(p.Spec.HostIPC),
-		HostNetwork: NewProbBool(p.Spec.HostNetwork),
-		HostPaths:   []string{},
-		NodeName:    p.Spec.NodeName,
-		Privileged:  isPriv,
-		IPs:         []net.IPAddr{{IP: net.ParseIP(p.Status.PodIP)}},
-		HostIP:      net.IPAddr{IP: net.ParseIP(p.Status.HostIP)},
-		Binaries:    make(map[string]bool),
-		Containers:  p.Spec.Containers,
-		Phase:       string(p.Status.Phase),
-		IsRunning:   p.Status.Phase == v1.PodRunning,
+		K8sEntity:              entity,
+		HostPID:                AsProbBool(p.Spec.HostPID),
+		HostIPC:                AsProbBool(p.Spec.HostIPC),
+		HostNetwork:            AsProbBool(p.Spec.HostNetwork),
+		ReadOnlyRootFilesystem: readOnlyRootFS,
+		HostPaths:              []string{},
+		NodeName:               p.Spec.NodeName,
+		Privileged:             isPriv,
+		IPs:                    []net.IPAddr{{IP: net.ParseIP(p.Status.PodIP)}},
+		HostIP:                 net.IPAddr{IP: net.ParseIP(p.Status.HostIP)},
+		Binaries:               make(map[string]string),
+		Containers:             p.Spec.Containers,
+		Phase:                  string(p.Status.Phase),
+		IsRunning:              p.Status.Phase == v1.PodRunning,
 	}
 }
 
