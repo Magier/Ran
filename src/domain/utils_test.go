@@ -65,7 +65,7 @@ func TestCleanEventName(t *testing.T) {
 
 func TestUpdateEntity_MergesFieldsCorrectly(t *testing.T) {
 	newPod := NewPod("test", "default")
-	newPod.HostIPC = NewProbBool(true)
+	newPod.HostIPC = AsProbBool(true)
 
 	oldPod := NewPod("test", "default")
 	oldPod.AccessLevel = UserExec
@@ -75,7 +75,7 @@ func TestUpdateEntity_MergesFieldsCorrectly(t *testing.T) {
 	if merged.AccessLevel != UserExec {
 		t.Errorf("Expected AccessLevel to be 5, got %d", merged.AccessLevel)
 	}
-	if merged.HostIPC != NewProbBool(true) {
+	if merged.HostIPC != AsProbBool(true) {
 		t.Errorf("Expected HostIPC to be true, got %v", merged.HostIPC)
 	}
 }

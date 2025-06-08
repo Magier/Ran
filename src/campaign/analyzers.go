@@ -155,6 +155,79 @@ func analyzeServiceAccountToken(token string) (NewFacts, RemovedFacts, error) {
 
 }
 
+func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
+	var results []string = ev.Results
+
+	if len(results) == 0 {
+		return NewFacts{}, RemovedFacts{}, fmt.Errorf("no results found for TTP execution %s, so nothing to analyze", ev.TTP.ID)
+	}
+	res := ev.Results[0]
+
+	entities := make([]domain.Entity, 0)
+	relations := make([]domain.Relation, 0)
+
+	// the tool part of the procedure was not on the target system
+	if strings.Contains(res, fmt.Sprintf("%s: not found", ev.Procedure.GetTool())) {
+		// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
+		// "bash: wget: command not found"  on nginx pod
+		target := ev.Target
+		if p, ok := target.(domain.Pod); ok {
+			p.Binaries[ev.Procedure.GetTool()] = "❌"
+			entities = append(entities, p)
+		} else {
+			panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, target.GetId()))
+		}
+	}
+
+	// TTP failed at the Kubernetes API server for various reasons (RBAC, admission control, etc.)
+	// find out which type of error it was
+	if strings.Contains(res, "Error from server (Forbidden)") {
+		// examples:
+		// "command terminated with exit code 1: 'Error from server (Forbidden): pods is forbidden: User \"system:serviceaccount:dev:default\" cannot list resource \"pods\" in API group \"\" in the namespace \"dev\"\n'"
+		if strings.Contains(results[0], "is forbidden: User") { // heuristic: use this as hint for RBAC issue
+			if sa, err := parseViolatingRBACIdentity(results[0]); err == nil {
+				entities = append(entities, sa)
+			} else {
+				slog.Error(fmt.Sprintf("Failed to parse RBAC identity from error message: %s", err.Error()))
+			}
+		}
+	}
+
+	// TTP specific error: could not transfer tool to the target system
+	if strings.Contains(res, " is not writeable") {
+		target := ev.Target
+		if p, ok := target.(domain.Pod); ok {
+			p.ReadOnlyRootFilesystem.Update(.3) // belief update that this flag is set
+			entities = append(entities, p)
+		} else {
+			panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, target.GetId()))
+		}
+	}
+
+	// example: violating PSA: "command terminated with exit code 1: 'Error from server (Forbidden): error when creating "STDIN": pods "bad-pod" is forbidden: violates PodSecurity "baseline:latest": hostPath volumes (volume "hostmount"), privileged (container "bad-pod" must not set securityContext.privileged=true)'"
+
+	// Malformed procedure:
+	// example:
+	// "command terminated with exit code 1: 'error: error parsing STDIN: json: offset 138: invalid character '$' looking for beginning of value\n'"
+
+	return NewFacts{
+		Entities:  entities,
+		Relations: relations,
+	}, RemovedFacts{}, nil
+}
+
+func parseViolatingRBACIdentity(msg string) (domain.Entity, error) {
+	// example: "User \"system:serviceaccount:dev:default\" cannot list resource \"pods\" in API group \"\" in the namespace \"dev\""
+	re := regexp.MustCompile(`User\s+"system:serviceaccount:([^:"]+):([^"]+)"`)
+	matches := re.FindStringSubmatch(msg)
+	if len(matches) != 3 {
+		return nil, fmt.Errorf("could not parse RBAC identity from message: %s", msg)
+	}
+	ns := matches[1]
+	saName := matches[2]
+	return domain.NewServiceAccount(saName, ns), nil
+}
+
 func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
 	if !ev.Success {
 		return analyzeDeployPodFailure(ev)
@@ -171,16 +244,16 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 		newPod.ServiceAccountName = saName
 	}
 	if val, ok := ev.Args["Privileged"]; ok {
-		newPod.Privileged = domain.NewProbBool(strings.ToLower(val) == "true")
+		newPod.Privileged = domain.AsProbBool(strings.ToLower(val) == "true")
 	}
 	if val, ok := ev.Args["HostIPC"]; ok {
-		newPod.HostIPC = domain.NewProbBool(strings.ToLower(val) == "true")
+		newPod.HostIPC = domain.AsProbBool(strings.ToLower(val) == "true")
 	}
 	if val, ok := ev.Args["HostPID"]; ok {
-		newPod.HostPID = domain.NewProbBool(strings.ToLower(val) == "true")
+		newPod.HostPID = domain.AsProbBool(strings.ToLower(val) == "true")
 	}
 	if val, ok := ev.Args["HostNetwork"]; ok {
-		newPod.HostNetwork = domain.NewProbBool(strings.ToLower(val) == "true")
+		newPod.HostNetwork = domain.AsProbBool(strings.ToLower(val) == "true")
 	}
 
 	if val, ok := ev.Args["HostPath"]; ok {
@@ -210,6 +283,7 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 		Relations: relations,
 	}, RemovedFacts{}, nil
 }
+
 func analyzeDeployPodFailure(event domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
 	entities := make([]domain.Entity, 0)
 	if len(event.Results) == 0 {
