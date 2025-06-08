@@ -392,6 +392,34 @@ func K8sEntityFromId(id string) K8sEntity {
 		ns = parts[n-3]
 	}
 
+	// check `kubectl api-resources` as reference for shortnames
+	kindMap := map[string]string{
+		// "pod":     "Pod",
+		// "secret":  "Secret",
+		// "node":    "Node",
+		// "role":        "Role",
+		"sa":      "ServiceAccount",
+		"ns":      "Namespace",
+		"wl":      "AbstractWorkload",
+		"rs":      "ReplicaSet",
+		"sts":     "StatefulSet",
+		"ds":      "DaemonSet",
+		"svc":     "Service",
+		"deploy":  "Deployment",
+		"cronjob": "CronJob",
+		"rb":      "RoleBinding",
+		"cr":      "ClusterRole",
+		"crb":     "ClusterRoleBinding",
+		// "c2":       "C2",
+		// "system":   "System",
+		// "listener": "Listener",
+		// "session":  "Session",
+	}
+	if fullKind, ok := kindMap[strings.ToLower(kind)]; ok {
+		kind = fullKind
+	} else {
+		kind = cases.Title(language.English, cases.NoLower).String(kind) // Title case the kind
+	}
 	// if n > 4 {
 	// 	cluster = parts[n-5]
 	// }
@@ -399,7 +427,7 @@ func K8sEntityFromId(id string) K8sEntity {
 	return K8sEntity{
 		Id:        id,
 		Name:      name,
-		Kind:      cases.Title(language.English, cases.NoLower).String(kind),
+		Kind:      kind,
 		Namespace: ns,
 	}
 }
