@@ -9,19 +9,13 @@ func TestK8sEntityFromId(t *testing.T) {
 		expectedKind string
 		expectedNS   string
 	}{
-		// For an id in the format "ns/default/pod/nginx",
+		// For an id in the format "ns/test/pod/nginx",
 		// the function splits the string and picks:
-		// name = last component ("nginx"),
-		// kind = second-to-last ("pod") then title-cased to "Pod",
-		// namespace = element at index n-4, which for n=4 is the first element.
-		{"ns/default/pod/nginx", "nginx", "Pod", "ns"},
-		// For a cluster-scoped resource with id "pod/nginx"
-		// n = 2 gives: name = "nginx", kind = "pod" title-cased to "Pod",
+		{"ns/test/pod/nginx", "nginx", "Pod", "test"},
+		// For a cluster-scoped resource with id "cr/nginx"
+		// n = 2 gives: name = "nginx", kind = "ClusterRole" title-cased to "Pod",
 		// and no namespace since n > 2 is false.
-		{"pod/nginx", "nginx", "Pod", ""},
-		// Arbitrary id: "a/b/c/d/e" splits into ["a", "b", "c", "d", "e"]:
-		// name = "e", kind = "d" becomes "D", namespace = element at index 1 ("b")
-		{"a/b/c/d/e", "e", "D", "b"},
+		{"cr/nginx", "nginx", "ClusterRole", ""},
 	}
 
 	for _, tt := range tests {
