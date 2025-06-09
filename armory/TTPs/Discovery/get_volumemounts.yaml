@@ -1,0 +1,30 @@
+name: Get VolumeMounts
+description: Get a list of volumes mounted in the pod
+tactic: Discovery
+techniques: ["Container and Resource Discovery", T1613]
+preconditions:
+  accessLevel: user-exec
+  kind: Pod
+# parameters:
+#   TOKEN:
+#     type: string
+#     description: the ServiceAccount token used to authorize this request
+#     optional: true
+#     default: ""
+procedures:
+  - key: mountinfo
+    tool: cat
+    command: cat /proc/self/mountinfo
+  # - key: proc-self-mount
+  #   tool: cat
+  #   command: cat /proc/self/mount
+  # - key: proc-mounts
+  #   tool: cat
+  #   command: cat /proc/mounts
+  - key: mount
+    tool: mount
+    command: mount
+effects:
+  - linux.mounts
+# defend: {}
+references:

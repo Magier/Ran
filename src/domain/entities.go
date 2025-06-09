@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 
@@ -577,9 +578,13 @@ func (id Identity) Can(permission string) bool {
 	return false
 }
 
-type VolumeMount struct {
-	MountPath string
-	HostPath  string
+type Mount struct {
+	Name      string   `json:"name,omitzero"`      // Name of the volume mount
+	MountPath string   `json:"mountPath,omitzero"` // Path in the container where the volume is mounted
+	Root      string   `json:"hostPath,omitzero"`  // Path on the host where the volume is mounted
+	Type      string   `json:"type,omitzero"`      // Type of the volume mount (e.g. "hostPath", "emptyDir", "configMap", etc.)
+	ReadOnly  bool     `json:"readOnly,omitzero"`  // Whether the volume is mounted as read-only
+	Flags     []string `json:"flags,omitzero"`     // e.g. "z", "Z"
 }
 
 type Pod struct {
@@ -597,14 +602,14 @@ type Pod struct {
 	HostIPC                      ProbBool          `json:"hostIPC,omitzero"`
 	HostNetwork                  ProbBool          `json:"hostNetwork,omitzero"`
 	ReadOnlyRootFilesystem       ProbBool          `json:"readOnlyRootFilesystem,omitzero"`
-	VolumeMount                  VolumeMount       `json:"volumeMount,omitzero"`
+	VolumeMounts                 []Mount           `json:"volumeMounts,omitzero"`
 	HostPaths                    []string          `json:"hostPaths,omitzero"` // Paths on the host that are mounted into the pod
-	Devices                      []string          `json:"devices,omitzero"`
 	Binaries                     map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
 	Containers                   []v1.Container    `json:"containers,omitzero"`
 	HostIP                       net.IPAddr        `json:"hostIP,omitzero"`
 	Phase                        string            `json:"phase,omitzero"`
 	IsRunning                    bool              `json:"isRunning"`
+	// Devices                      []string          `json:"devices,omitzero"`
 }
 
 var _ Namespaced = (*Pod)(nil)
@@ -654,6 +659,27 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 		readOnlyRootFS = AsProbBool(*p.Spec.Containers[0].SecurityContext.ReadOnlyRootFilesystem)
 	}
 
+	mounts := make([]Mount, 0, len(p.Spec.Volumes))
+	for _, v := range p.Spec.Volumes {
+		mount := Mount{
+			Name:      v.Name,
+			MountPath: v.HostPath.Path, // Assuming HostPath for simplicity
+			// Type:      string(v.VolumeSource.HostPath.Type),
+			// ReadOnly:  v.HostPath != nil && v.HostPath.ReadOnly,
+		}
+		if v.HostPath != nil {
+			mount.Root = v.HostPath.Path
+		}
+		// if v.EmptyDir != nil {
+		// 	mount.Type = "emptyDir"
+		// } else if v.ConfigMap != nil {
+		// 	mount.Type = "configMap"
+		// 	mount.Flags = v.ConfigMap.Items[0].Key // Example, assuming single item
+		// }
+		mounts = append(mounts, mount)
+	}
+	slog.Warn(">> Pod volumes are not fully supported yet!!")
+
 	return Pod{
 		K8sEntity:              entity,
 		HostPID:                AsProbBool(p.Spec.HostPID),
@@ -662,6 +688,7 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 		ReadOnlyRootFilesystem: readOnlyRootFS,
 		HostPaths:              []string{},
 		NodeName:               p.Spec.NodeName,
+		VolumeMounts:           mounts,
 		Privileged:             isPriv,
 		IPs:                    []net.IPAddr{{IP: net.ParseIP(p.Status.PodIP)}},
 		HostIP:                 net.IPAddr{IP: net.ParseIP(p.Status.HostIP)},

@@ -6,6 +6,13 @@ type ProbBool float32
 
 func (b *ProbBool) Update(delta float32) {
 	*b += ProbBool(delta)
+	// boundary checks
+	if *b < 0 {
+		*b = 0
+	}
+	if *b > 1 {
+		*b = 1
+	}
 }
 func (b ProbBool) Bool() bool {
 	return b > 0.5
