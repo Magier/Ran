@@ -55,6 +55,14 @@
 
 
 
+## Vulnerabilities
+
+### Vulns supported by ctrsploit 
+- CVE-2020-15257 Abuse the containerd-shim's abstract unix socket when running in a container with host network namespace.
+- CVE-2025-47290 TOCTOU vulnerability in containerd that allows modification of the host filesystem during image pull.
+
+
+
 ## Invert detection rules
 
 - [Chainguard's OSquery-defense-kit](https://github.com/chainguard-dev/osquery-defense-kit/tree/main)
@@ -88,3 +96,31 @@ kubectl label --overwrite ns ${NS} pod-security.kubernetes.io/enforce=privileged
 
 ## Exfiltrate secrets via DNS
 - e.g. suggested in [Command and Kubectl - K8s Security for Pentesters and Defenders](https://www.canva.com/design/DAGgrY1QwQ0/HDW7_YCi5EvJ6u_GONhFow/view?utm_source=tldrsec.com&utm_medium=referral&utm_campaign=tl-dr-sec-272-ai-agent-security-kubernetes-security-state-of-cloudsec-reports-insights-or-self-owns#43)
+
+
+
+
+## Interesting Ports and URLs
+
+[Source](https://trustedsec.com/blog/kubernetes-for-pentesters-part-1)
+
+| Port            | Process        | Description                                                            |
+|-----------------|----------------|------------------------------------------------------------------------|
+| 443/TCP         | kube-apiserver | Kubernetes API port                                                    |
+| 2379/TCP        | etcd           | etcd,etcdAPI                                                           |
+| 6666/TCP        | etcd           | etcd                                                                   |
+| 4194/TCP        | cAdvisor       | Container metrics                                                      |
+| 6443/TCP        | kube-apiserver | Kubernetes API port                                                    |
+| 8443/TCP        | kube-apiserver | Minikube API port                                                      |
+| 8080/TCP        | kube-apiserver | Insecure API port                                                      |
+| 10250/TCP       | kubelet        | HTTPS API which allows full mode access                                |
+| 10255/TCP       | kubelet        | Unauthenticated read-only HTTP port: pods, running pods and node state |
+| 10256/TCP       | kube-proxy     | Kube Proxy health check server                                         |
+| 9099/TCP        | calico-felix   | Health check server for Calico                                         |
+| 6782-4/TCP      | weave          | Metrics and endpoints                                                  |
+| 30000-32767/TCP | NodePort       | Proxy to the services                                                  |
+| 44134/TCP       | Tiller         | Helm service listening                                                 |
+
+
+
+
