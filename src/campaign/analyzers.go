@@ -258,10 +258,10 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 
 	if val, ok := ev.Args["HostPath"]; ok {
 		mountPath := ev.Args["MountPath"]
-		newPod.VolumeMount = domain.VolumeMount{
-			HostPath:  val,
+		newPod.VolumeMounts = []domain.Mount{{
+			Root:      val,
 			MountPath: mountPath,
-		}
+		}}
 
 		// TODO: find out how this can be best resolved with the "runs-on" relation
 		node := domain.NewK8sNode("??")

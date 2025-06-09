@@ -116,6 +116,7 @@ Ran is heavily inspired by similar tools in this domain, such as:
 - [MTKPI](https://github.com/r0binak/MTKPI) Multi Tool Kubernetes Pentest Image 
 - [Dredge](https://github.com/grahamhelton/dredge)
 - [deepce](https://github.com/stealthcopter/deepce)
+- [ctrsploit](https://github.com/ctrsploit/ctrsploit)
 
 ## Armory
 

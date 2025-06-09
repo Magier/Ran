@@ -303,3 +303,103 @@ replicasets.apps                                []                              
 		t.Fatalf("Expected at 15 ResourceRules, got: %d", len(result.Status.ResourceRules))
 	}
 }
+
+func Test_inferLinuxMountFormat(t *testing.T) {
+	tests := map[string]struct {
+		line       string
+		parserName string
+		parserFn   MountEntryParserFn
+	}{
+		"unknwon format": {
+			line:     "this is not a valid mount info line",
+			parserFn: nil,
+		},
+		"mountinfo": {
+			line:       "3737 3709 0:446 / /dev rw,nosuid - tmpfs tmpfs rw,seclabel,size=65536k,mode=755,uid=501,gid=1000,inode64",
+			parserName: "parseMountInfoEntry",
+			parserFn:   parseMountInfoEntry,
+		},
+		"mount command": {
+			line:       `overlay on /host type overlay (rw,relatime,context="system_u:object_r:container_file_t:s0:c1022,c1023",lowerdir=/var/home/core/.local/share/containers/storage/overlay/l/BTSOOTPTOH25C6MZDKKNFPDMU5:/var/home/core/.local/share/containers/storage/overlay/l/MZFSHHTOAWWQFH3T7ZBF27FOYN,upperdir=/var/home/core/.local/share/containers/storage/overlay/c52cea6c189a194dd5772cd95895bd0b49262459e81aadd53fd071be5f616a15/diff,workdir=/var/home/core/.local/share/containers/storage/overlay/c52cea6c189a194dd5772cd95895bd0b49262459e81aadd53fd071be5f616a15/work,redirect_dir=nofollow,uuid=on,userxattr)`,
+			parserName: "parseMountCommandEntry",
+			parserFn:   parseMountCommandEntry,
+		},
+		"proc/self/mount": {
+			line:       `tmpfs /dev tmpfs rw,seclabel,nosuid,size=65536k,mode=755,uid=501,gid=1000,inode64 0 0`,
+			parserName: "parserProcMountEntry",
+			parserFn:   parseProcMountEntry,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			fn := getMountEntryParser(test.line)
+			if (fn == nil && test.parserFn != nil) || (fn != nil && test.parserFn == nil) {
+				t.Errorf("Expected parserFn %s (%v), got %v", test.parserName, test.parserFn, fn)
+			}
+		})
+	}
+}
+
+func Test_parseLinuxMountInfo_NoAdditionalVolumeMounts(t *testing.T) {
+	data := `3709 3150 0:400 / / rw,relatime - overlay overlay rw,seclabel,lowerdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21044/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21043/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21042/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21041/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21040/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21039/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21038/fs,upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/48990/fs,workdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/48990/work,redirect_dir=nofollow,uuid=on,userxattr
+3713 3709 0:444 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw
+3737 3709 0:446 / /dev rw,nosuid - tmpfs tmpfs rw,seclabel,size=65536k,mode=755,uid=501,gid=1000,inode64
+3739 3737 0:448 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw,seclabel,gid=100004,mode=620,ptmxmode=666
+3740 3737 0:418 / /dev/mqueue rw,nosuid,nodev,noexec,relatime - mqueue mqueue rw,seclabel
+3741 3709 0:427 / /sys ro,nosuid,nodev,noexec,relatime - sysfs sysfs ro,seclabel
+3872 3741 0:29 / /sys/fs/cgroup ro,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw,seclabel,nsdelegate,memory_recursiveprot
+3873 3709 252:4 /ostree/deploy/fedora-coreos/var/home/core/.local/share/containers/storage/volumes/443579c837e6de9d2b28c81ff56328e90c168aa99c4f7afa741978c93f4417c0/_data/lib/kubelet/pods/6b2441c4-600b-4c24-95d4-ec2c1d63088b/etc-hosts /etc/hosts rw,relatime - xfs /dev/vda4 rw,seclabel,attr2,inode64,logbufs=8,logbsize=32k,prjquota
+3874 3737 252:4 /ostree/deploy/fedora-coreos/var/home/core/.local/share/containers/storage/volumes/443579c837e6de9d2b28c81ff56328e90c168aa99c4f7afa741978c93f4417c0/_data/lib/kubelet/pods/6b2441c4-600b-4c24-95d4-ec2c1d63088b/containers/backend/8504a7c5 /dev/termination-log rw,relatime - xfs /dev/vda4 rw,seclabel,attr2,inode64,logbufs=8,logbsize=32k,prjquota
+3875 3709 252:4 /ostree/deploy/fedora-coreos/var/home/core/.local/share/containers/storage/volumes/443579c837e6de9d2b28c81ff56328e90c168aa99c4f7afa741978c93f4417c0/_data/lib/containerd/io.containerd.grpc.v1.cri/sandboxes/2766762cb4403108e0ed299340a98d82810187db9ae4c675dfedba0500bf4bfc/hostname /etc/hostname rw,relatime - xfs /dev/vda4 rw,seclabel,attr2,inode64,logbufs=8,logbsize=32k,prjquota
+3876 3709 252:4 /ostree/deploy/fedora-coreos/var/home/core/.local/share/containers/storage/volumes/443579c837e6de9d2b28c81ff56328e90c168aa99c4f7afa741978c93f4417c0/_data/lib/containerd/io.containerd.grpc.v1.cri/sandboxes/2766762cb4403108e0ed299340a98d82810187db9ae4c675dfedba0500bf4bfc/resolv.conf /etc/resolv.conf rw,relatime - xfs /dev/vda4 rw,seclabel,attr2,inode64,logbufs=8,logbsize=32k,prjquota
+3877 3737 0:379 / /dev/shm rw,relatime - tmpfs shm rw,seclabel,size=65536k,uid=501,gid=1000,inode64
+3878 3709 0:391 / /run/secrets/kubernetes.io/serviceaccount ro,relatime - tmpfs tmpfs rw,seclabel,size=1993956k,uid=501,gid=1000,inode64
+3879 3737 0:6 /null /dev/null rw,nosuid,noexec master:574 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=229545,mode=755,inode64
+3880 3737 0:6 /random /dev/random rw,nosuid,noexec master:579 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=229545,mode=755,inode64
+3881 3737 0:6 /full /dev/full rw,nosuid,noexec master:664 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=229545,mode=755,inode64
+3882 3737 0:6 /tty /dev/tty rw,nosuid,noexec master:675 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=229545,mode=755,inode64
+3883 3737 0:6 /zero /dev/zero rw,nosuid,noexec master:657 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=229545,mode=755,inode64
+3884 3737 0:6 /urandom /dev/urandom rw,nosuid,noexec master:562 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=229545,mode=755,inode64
+3885 3741 0:400 /product_name /sys/devices/virtual/dmi/id/product_name ro,relatime - overlay overlay rw,seclabel,lowerdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21044/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21043/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21042/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21041/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21040/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21039/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21038/fs,upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/48990/fs,workdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/48990/work,redirect_dir=nofollow,uuid=on,userxattr
+3886 3741 0:400 /product_uuid /sys/devices/virtual/dmi/id/product_uuid ro,relatime - overlay overlay rw,seclabel,lowerdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21044/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21043/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21042/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21041/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21040/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21039/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21038/fs,upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/48990/fs,workdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/48990/work,redirect_dir=nofollow,uuid=on,userxattr
+3887 3886 0:400 /product_uuid /sys/devices/virtual/dmi/id/product_uuid ro,relatime - overlay overlay rw,seclabel,lowerdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21044/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21043/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21042/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21041/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21040/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21039/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21038/fs,upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/48990/fs,workdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/48990/work,redirect_dir=nofollow,uuid=on,userxattr
+3151 3713 0:444 /bus /proc/bus ro,nosuid,nodev,noexec,relatime - proc proc rw
+3152 3713 0:444 /fs /proc/fs ro,nosuid,nodev,noexec,relatime - proc proc rw
+3153 3713 0:444 /irq /proc/irq ro,nosuid,nodev,noexec,relatime - proc proc rw
+3154 3713 0:444 /sys /proc/sys ro,nosuid,nodev,noexec,relatime - proc proc rw
+3155 3713 0:444 /sysrq-trigger /proc/sysrq-trigger ro,nosuid,nodev,noexec,relatime - proc proc rw
+3156 3713 0:459 / /proc/acpi ro,relatime - tmpfs tmpfs ro,seclabel,uid=501,gid=1000,inode64
+3157 3713 0:6 /null /proc/kcore rw,nosuid,noexec master:574 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=229545,mode=755,inode64
+3158 3713 0:6 /null /proc/keys rw,nosuid,noexec master:574 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=229545,mode=755,inode64
+3159 3713 0:6 /null /proc/latency_stats rw,nosuid,noexec master:574 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=229545,mode=755,inode64
+3243 3713 0:6 /null /proc/timer_list rw,nosuid,noexec master:574 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=229545,mode=755,inode64
+3244 3713 0:460 / /proc/scsi ro,relatime - tmpfs tmpfs ro,seclabel,uid=501,gid=1000,inode64
+3245 3741 0:467 / /sys/firmware ro,relatime - tmpfs tmpfs ro,seclabel,uid=501,gid=1000,inode64`
+	mounts, err := parseLinuxMounts(data)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	if len(mounts) != 34 {
+		t.Fatalf("Expected 34 mounts, got %d", len(mounts))
+	}
+}
+
+func Test_parseLinuxMounts_InvalidLine(t *testing.T) {
+	data := "this is not a valid mount line"
+	_, err := parseLinuxMounts(data)
+	if err == nil {
+		t.Fatalf("Expected error for invalid mount line, got nil")
+	}
+}
+
+func Test_parseLinuxMounts_EmptyInput(t *testing.T) {
+	data := ""
+	mounts, err := parseLinuxMounts(data)
+	if err == nil {
+		t.Fatalf("Expected error for empty input")
+	}
+	if len(mounts) != 0 {
+		t.Fatalf("Expected 0 mounts for empty input, got %d", len(mounts))
+	}
+}

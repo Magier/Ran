@@ -367,6 +367,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	isRemoveEffect := strings.HasPrefix(effect, "delete")
 	effect = strings.TrimPrefix(effect, "delete ")
 
+	res := results[0]
 	entities := []domain.Entity{}
 	switch strings.ToLower(effect) {
 	// TODO: set these 'attribute' effects via reflection
@@ -411,7 +412,6 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			slog.Warn("The source of the hasBinary effect is not a Pod!")
 		}
 	case "k8s.podlist":
-		res := results[0]
 		list, err := k8s.ParsePodList(res)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
@@ -421,7 +421,6 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			}
 		}
 	case "k8s.deploymentlist":
-		res := results[0]
 		list, err := k8s.ParseDeploymentList(res)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Could not parse DeploymentList: %v", err))
@@ -431,7 +430,6 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			}
 		}
 	case "k8s.serviceaccountlist":
-		res := results[0]
 		list, err := k8s.ParseServiceAccountList(res)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Could not parse ServiceAccountList: %v", err))
@@ -456,7 +454,6 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		pod := domain.NewDeployment(name, ns)
 		entities = append(entities, pod)
 	case "k8s.secretlist":
-		res := results[0]
 		secrets, err := ParseSecretList(res)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Could not parse SecretList: %v", err))
@@ -466,13 +463,23 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			}
 		}
 	case "k8s.nodelist":
-		res := results[0]
 		nodeList, err := k8s.ParseNodeList(res)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to parse NodeList: %v", err))
 		} else {
 			for _, node := range nodeList.Items {
 				entities = append(entities, domain.NewK8sNodeFromK8sSpec(node))
+			}
+		}
+	case "linux.mounts":
+		if pod, ok := source.(domain.Pod); ok {
+			// TODO: provide the used procedure?
+			mounts, err := parseLinuxMounts(res)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to parse Linux mounts: %v", err))
+			} else {
+				pod.VolumeMounts = append(pod.VolumeMounts, mounts...)
+				entities = append(entities, pod)
 			}
 		}
 	}
@@ -486,4 +493,159 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	}
 
 	return newFacts, removedFacts
+}
+
+// Source: https://pkg.go.dev/github.com/moby/sys/mountinfo#Info for a struct that properly parses the mountinfo
+type MountInfo struct {
+	// ID is a unique identifier of the mount (may be reused after umount).
+	ID int
+
+	// Parent is the ID of the parent mount (or of self for the root
+	// of this mount namespace's mount tree).
+	Parent int
+
+	// Major and Minor are the major and the minor components of the Dev
+	// field of unix.Stat_t structure returned by unix.*Stat calls for
+	// files on this filesystem.
+	Major, Minor int
+
+	// Root is the pathname of the directory in the filesystem which forms
+	// the root of this mount.
+	Root string
+
+	// Mountpoint is the pathname of the mount point relative to the
+	// process's root directory.
+	Mountpoint string
+
+	// Options is a comma-separated list of mount options.
+	Options string
+
+	// Optional are zero or more fields of the form "tag[:value]",
+	// separated by a space.  Currently, the possible optional fields are
+	// "shared", "master", "propagate_from", and "unbindable". For more
+	// information, see mount_namespaces(7) Linux man page.
+	Optional string
+
+	// FSType is the filesystem type in the form "type[.subtype]".
+	FSType string
+
+	// Source is filesystem-specific information, or "none".
+	Source string
+
+	// VFSOptions is a comma-separated list of superblock options.
+	VFSOptions string
+}
+
+type MountEntryParserFn func(string) (domain.Mount, error)
+
+func getMountEntryParser(entry string) MountEntryParserFn {
+	fields := strings.Fields(entry)
+	// Check if the data contains the expected fields for mountinfo
+	if len(fields) == 10 {
+		// first 2 are ints
+		// then major:minor of the Dev field of unix.Stat_t structure
+		// then Root, Mountpoint, Options, Optional, FSType, Source, VFSOptions
+		// see https://pkg.go.dev/github.com/moby/sys/mountinfo#Info for a struct that properly parses the mountinfo
+		return parseMountInfoEntry
+	}
+
+	// example: overlay on /host type overlay (rw,relatime,...)
+	// match the `on` and `type` static keywords
+	if len(fields) >= 6 && fields[1] == "on" && fields[3] == "type" {
+		return parseMountCommandEntry
+	}
+
+	// Check if the data contains the expected fields for mounts
+	if len(fields) == 6 {
+		// TODO: refine this check e.g. by checking the last 2 fields are ints
+		return parseProcMountEntry
+	}
+
+	return nil
+}
+
+func parseMountInfoEntry(line string) (domain.Mount, error) {
+	// first 2 are ints: ID and ParentID
+	// then major:minor of the Dev field of unix.Stat_t structure
+	// then Root, Mountpoint, Options, Optional, FSType, Source, VFSOptions
+	// see https://pkg.go.dev/github.com/moby/sys/mountinfo#Info for a struct that properly parses the mountinfo
+
+	var mount domain.Mount
+	fields := strings.Fields(line)
+	if len(fields) < 10 {
+		return mount, fmt.Errorf("Invalid mountinfo entry: %s", line)
+	}
+
+	// majorMinor := strings.Split(fields[2], ":")
+	// if len(majorMinor) != 2 {
+	// 	return mount, fmt.Errorf("Invalid Major:Minor in mountinfo entry: %s", line)
+	// }
+
+	flags := strings.Split(fields[5], ",")
+
+	isReadOnly := false
+	for _, flag := range flags {
+		if flag == "ro" || flag == "readonly" {
+			isReadOnly = true
+			break
+		}
+	}
+
+	return domain.Mount{
+		Root:      fields[3], // Root
+		MountPath: fields[4], // Mountpoint
+		Type:      fields[7],
+		ReadOnly:  isReadOnly,
+		Flags:     flags, // Options
+
+		// ID:         id,
+		// Parent:     parent,
+		// Major:      major,
+		// Minor:      minor,
+		// Root:       fields[3],
+		// Mountpoint: fields[4],
+		// Options:    fields[5],
+		// Optional:   fields[6],
+		// FSType:     fields[7],
+		// Source:     fields[8],
+		// VFSOptions: fields[9],
+	}, nil
+}
+
+func parseProcMountEntry(line string) (domain.Mount, error) {
+	// /dev/sda1 / ext4 rw,relatime,data=ordered 0 0
+	// fields: [device mountpoint fstype options dump pass]
+	return domain.Mount{}, fmt.Errorf("Parsing proc mount entry is not implemented yet: %s", line)
+}
+
+func parseMountCommandEntry(line string) (domain.Mount, error) {
+	// /dev/sda1 / ext4 rw,relatime,data=ordered 0 0
+	// fields: [device mountpoint fstype options dump pass]
+	return domain.Mount{}, fmt.Errorf("Parsing proc mount entry is not implemented yet: %s", line)
+}
+
+func parseLinuxMounts(data string) ([]domain.Mount, error) {
+	lines := strings.Split(data, "\n")
+
+	// format := inferLinuxMountFormat(data)
+	parserFn := getMountEntryParser(lines[0])
+	if parserFn == nil {
+		return nil, fmt.Errorf("Could not infer mount entry parser from the first line: %s", lines[0])
+	}
+
+	mounts := make([]domain.Mount, 0, len(lines))
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		mount, err := parserFn(line)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to parse mount entry '%s': %w", line, err)
+		} else {
+			mounts = append(mounts, mount)
+		}
+	}
+
+	return mounts, nil
 }
