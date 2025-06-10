@@ -579,12 +579,15 @@ func (id Identity) Can(permission string) bool {
 }
 
 type Mount struct {
-	Name      string   `json:"name,omitzero"`      // Name of the volume mount
-	MountPath string   `json:"mountPath,omitzero"` // Path in the container where the volume is mounted
-	Root      string   `json:"hostPath,omitzero"`  // Path on the host where the volume is mounted
-	Type      string   `json:"type,omitzero"`      // Type of the volume mount (e.g. "hostPath", "emptyDir", "configMap", etc.)
-	ReadOnly  bool     `json:"readOnly,omitzero"`  // Whether the volume is mounted as read-only
-	Flags     []string `json:"flags,omitzero"`     // e.g. "z", "Z"
+	ID         int      `json:"id,omitzero"`         // Unique identifier for the mount
+	ParentID   int      `json:"parentId,omitzero"`   // ID of the parent mount, if any
+	Name       string   `json:"name,omitzero"`       // Name of the volume mount
+	MountPath  string   `json:"mountPath,omitzero"`  // Path in the container where the volume is mounted
+	Root       string   `json:"hostPath,omitzero"`   // Path on the host where the volume is mounted
+	Type       string   `json:"type,omitzero"`       // Type of the volume mount (e.g. "hostPath", "emptyDir", "configMap", etc.)
+	ReadOnly   bool     `json:"readOnly,omitzero"`   // Whether the volume is mounted as read-only
+	IsHostPath bool     `json:"isHostPath,omitzero"` // Whether the source is from the host system
+	Flags      []string `json:"flags,omitzero"`      // e.g. "z", "Z"
 }
 
 type Pod struct {

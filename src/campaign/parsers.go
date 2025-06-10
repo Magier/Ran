@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/Magier/Ran/domain"
@@ -473,7 +474,6 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		}
 	case "linux.mounts":
 		if pod, ok := source.(domain.Pod); ok {
-			// TODO: provide the used procedure?
 			mounts, err := parseLinuxMounts(res)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to parse Linux mounts: %v", err))
@@ -591,12 +591,23 @@ func parseMountInfoEntry(line string) (domain.Mount, error) {
 		}
 	}
 
+	id, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return mount, fmt.Errorf("Invalid ID in mountinfo entry: %s", line)
+	}
+	parentID, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return mount, fmt.Errorf("Invalid ParentID in mountinfo entry: %s", line)
+	}
+
 	return domain.Mount{
-		Root:      fields[3], // Root
-		MountPath: fields[4], // Mountpoint
+		ID:        id,
+		ParentID:  parentID,
+		Root:      fields[3],
+		MountPath: fields[4],
 		Type:      fields[7],
 		ReadOnly:  isReadOnly,
-		Flags:     flags, // Options
+		Flags:     flags,
 
 		// ID:         id,
 		// Parent:     parent,
@@ -620,8 +631,31 @@ func parseProcMountEntry(line string) (domain.Mount, error) {
 
 func parseMountCommandEntry(line string) (domain.Mount, error) {
 	// /dev/sda1 / ext4 rw,relatime,data=ordered 0 0
+	fields := strings.Fields(line)
+	device := fields[0]    // e.g. /dev/sda1
+	_ = fields[1]          // "on"
+	mountPath := fields[2] // e.g. /mnt/host
+	fsType := fields[4]    // e.g. overlay
+	// Trim surrounding parentheses from options field
+	opts := strings.Trim(fields[5], "()")
+	options := strings.Split(opts, ",") // e.g. rw,relatime,...
+
+	readOnly := false
+	for _, opt := range options {
+		if opt == "ro" || opt == "readonly" {
+			readOnly = true
+			break
+		}
+	}
+
 	// fields: [device mountpoint fstype options dump pass]
-	return domain.Mount{}, fmt.Errorf("Parsing proc mount entry is not implemented yet: %s", line)
+	return domain.Mount{
+		Root:      device,
+		MountPath: mountPath,
+		Type:      fsType,
+		ReadOnly:  readOnly,
+		Flags:     options,
+	}, nil
 }
 
 func parseLinuxMounts(data string) ([]domain.Mount, error) {
