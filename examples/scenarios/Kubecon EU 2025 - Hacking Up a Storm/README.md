@@ -29,21 +29,22 @@ Steps:
 5) Get a serviceaccount, which uses the `rbac-manager`
     - create pod, that mounts that serviceaccount
 6) Exec that created pod to read that token
-7) impersonate that serviceaccount on the `workstation` pod
-8) check these permissions  -> `escalate` verb
-9) Create role wildcard permissions called `nsadmin`
-10) create rolebinding, assigning that role to the workstation SA 
-11) check permissions of original SA again
-12) Disable PSA on namespace: Modify namespace label 
-13) (skip?) check if pod starts now
+7) impersonate that serviceaccount on the `workstation` pod   (PrivEsc: Access Token Manipulation: Token Impersonation/Theft [T1134.001])
+8) check these permissions -> `escalate` verb
+9) Create role wildcard permissions called `nsadmin`  (PrivEsc: Access Token Manipulation: Make and Impersonate Token [T1134.003])
+10) create rolebinding, assigning that role to the workstation SA (PrivEsc: Access Token Manipulation: Make and Impersonate Token [T1134.003])
+11) verify elevated permissions of `dev` SA again
+12) Disable PSA on namespace: Modify namespace label (Defense Evasion: Impair Defenses [T1562])
+    - `kubectl label namespace dev pod-security.kubernetes.io/enforce=privileged --overwrite`
+- (skip?) check if pod starts now
 ---   
 
 Act 2
 
-14) create privileged container `noderoot`
-15) chroot onto Node
-16) access `admin.conf` and `super-admin.conf`
-17) impersonate these using:
+13) create privileged container `noderoot`  (deploy container T1610)
+14) chroot onto Node    (PrivEsc Escape to Host https://attack.mitre.org/techniques/T1611/)
+15) access `admin.conf` and `super-admin.conf` 
+16) impersonate these using:
     - `kubectl --kubeconfig=/etc/kubnetetes/admin.conf auth can-i --list`
     - `kubectl --kubeconfig=/etc/kubnetetes/super-admin.conf auth can-i --list`
-18) impact: full cluster admin
+17) impact: full cluster admin

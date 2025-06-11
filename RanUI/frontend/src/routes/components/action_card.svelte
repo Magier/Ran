@@ -59,7 +59,7 @@
 
 <button
 	onclick={() => onclick(ttp)}
-	class="card {cardStyle} w-full p-1 text-left"
+	class="card {cardStyle} preset-tonal-primar hover:bg-primary-100-900 w-full p-1 text-left"
 	role="menuitem"
 	tabindex="0"
 	disabled={!enabled}
@@ -75,19 +75,19 @@
 				{#if !!value}
 					{#if name === 'AccessLevel'}
 						{#if Object.keys(value).length > 0}
-							<span class="chip variant-filled-surface mr-1">
+							<span class="chip variant-filled-surface mr-1 max-w-full truncate">
 								{name}: {Object.keys(value).join(' or ')}
 							</span>
 						{/if}
 					{:else if name === 'OtherFields'}
 						{#each Object.entries(value) as [name, val]}
-							<span class="chip variant-filled-surface mr-1">
+							<span class="chip variant-filled-surface mr-1 max-w-full truncate">
 								{name}: {JSON.stringify(val)}
 							</span>
 						{/each}
 					{:else}
 						<!-- adjust chip style if the condition is fullfilled or not -->
-						<span class="chip variant-filled-surface mr-1">
+						<span class="chip variant-filled-surface mr-1 max-w-full truncate">
 							{name}: {JSON.stringify(value)}
 						</span>
 					{/if}
