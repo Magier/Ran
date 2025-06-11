@@ -62,21 +62,21 @@ procedures:
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {
-          "name": "{{NAME}}",
-          "namespace": "${NAMESPACE}"
+          "name": "{{.Name}}",
+          "namespace": "{{.Namespace}}"
         },
         "spec": {
-          "hostPID": ${HOSTPID},
-          "hostIPC": ${HOSTIPC},
-          "hostNetwork": ${HOSTNETWORK},
-          "serviceAccountName": "${SERVICEACCOUNT}",
-          "nodeName": "${NODENAME}",
+          "hostPID": {{ .HostPID }},
+          "hostIPC": {{ .HostIPC }},
+          "hostNetwork": {{.HostNetwork }},
+          "serviceAccountName": "{{.ServiceAccount }}",
+          "nodeName": "{{.NodeName}}",
           "containers": [{
-              "name": "${NAME}",
-              "image": "${IMAGE}",
+              "name": "{{.Name}}",
+              "image": "{{.Image}}",
               "command": ["sleep", "infinity"],
                 "securityContext": {
-                  "privileged": ${PRIVILEGED}
+                  "privileged": {{.Privileged }}
               }
               {{if .Mount}}
               , "volumeMounts": [{"name": "hostmount", "mountPath": "{{ .Mount }}"} ]
@@ -91,7 +91,7 @@ procedures:
         }
       }' | kubectl apply -f -  
       && 
-      kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/${NAME}
+      kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/{{.Name}}
 preconditions:
   accessLevel: "can-create"
 effects:

@@ -49,7 +49,6 @@
 	$effect(() => {
 		GetRunningPods().then((pods) => {
 			availablePods = pods.map((pod: string) => ({ label: pod, value: pod }));
-			console.log('new available pods');
 			console.log(availablePods);
 		});
 	});
