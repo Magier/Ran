@@ -1,5 +1,10 @@
 <script lang="ts">
+	import Tree from '$lib/components/tree.svelte';
+
 	let { selectedNode } = $props();
+
+	const items = [];
+	// const tree = new Tree({ items });
 
 	function prettyPrint(obj: any): string {
 		if (typeof obj === 'string') {
@@ -31,7 +36,17 @@
 >
 	{#if selectedNode?.entity !== null}
 		{#each Object.entries(selectedNode?.entity || {}) as [label, data]}
-			{#if typeof data === 'object' && data !== null}
+			{#if label === 'volumeMounts'}
+				<details>
+					<summary>
+						{label}
+						<span class="badge preset-outlined-surface-500"
+							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
+						>
+					</summary>
+					<Tree entries={Array.isArray(data) ? data : []} />
+				</details>
+			{:else if typeof data === 'object' && data !== null}
 				<!-- Collapsible section for objects/arrays -->
 				<details>
 					<summary>
@@ -40,7 +55,7 @@
 							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
 						>
 					</summary>
-					<pre>{JSON.stringify(data, null, 2)}</pre>
+					<pre class="max-h-80">{JSON.stringify(data, null, 2)}</pre>
 				</details>
 			{:else if Array.isArray(data) && data.length > 0}
 				<!-- Collapsible section for arrays -->
