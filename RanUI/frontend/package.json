@@ -60,6 +60,7 @@
 		"@xyflow/svelte": "^1.0.2",
 		"@zag-js/toast": "^1.12.4",
 		"cytoscape": "^3.32.0",
-		"cytoscape-dagre": "^2.5.0"
+		"cytoscape-dagre": "^2.5.0",
+		"melt": "^0.34.0"
 	}
 }

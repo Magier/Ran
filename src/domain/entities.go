@@ -665,14 +665,16 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 	mounts := make([]Mount, 0, len(p.Spec.Volumes))
 	for _, v := range p.Spec.Volumes {
 		mount := Mount{
-			Name:      v.Name,
-			MountPath: v.HostPath.Path, // Assuming HostPath for simplicity
+			Name: v.Name,
+			// MountPath: v.HostPath.Path, // Assuming HostPath for simplicity
 			// Type:      string(v.VolumeSource.HostPath.Type),
 			// ReadOnly:  v.HostPath != nil && v.HostPath.ReadOnly,
 		}
 		if v.HostPath != nil {
 			mount.Root = v.HostPath.Path
 		}
+
+		// TODO: add support for ProjectedVolumes
 		// if v.EmptyDir != nil {
 		// 	mount.Type = "emptyDir"
 		// } else if v.ConfigMap != nil {
@@ -689,7 +691,6 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 		HostIPC:                AsProbBool(p.Spec.HostIPC),
 		HostNetwork:            AsProbBool(p.Spec.HostNetwork),
 		ReadOnlyRootFilesystem: readOnlyRootFS,
-		HostPaths:              []string{},
 		NodeName:               p.Spec.NodeName,
 		VolumeMounts:           mounts,
 		Privileged:             isPriv,
@@ -699,6 +700,7 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 		Containers:             p.Spec.Containers,
 		Phase:                  string(p.Status.Phase),
 		IsRunning:              p.Status.Phase == v1.PodRunning,
+		// HostPaths:              []string{},
 	}
 }
 
