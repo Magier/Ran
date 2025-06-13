@@ -19,7 +19,7 @@
 	type TreeProps = {
 		entries?: any[];
 		node?: TreeNode;
-		level: int;
+		level: number;
 	};
 
 	function getNodeName(node: TreeNode): string {
@@ -44,16 +44,17 @@
 
 		// index all nodes by ID
 		data.forEach((node) => {
-			idMap[node.id] = {
+			let nodeId = node.id || node.name;
+			idMap[nodeId] = {
 				...node,
-				title: `${node.mountPath} => ${node.hostPath}`, // Ensure title is set
 				children: []
 			};
 		});
 
 		// build the hierarchical tree
 		data.forEach((node) => {
-			const mappedNode = idMap[node.id];
+			let id = node.id || node.name;
+			const mappedNode = idMap[id];
 			if (node.parentId && idMap[node.parentId]) {
 				idMap[node.parentId].children!.push(mappedNode);
 			} else {
