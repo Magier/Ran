@@ -325,6 +325,27 @@ func (r RunsOn) GetRelationName() string {
 	return "runs-on"
 }
 
+type HasHostPath struct {
+	RelationImpl
+	Pod       Pod
+	Node      K8sNode
+	MountPath string
+	HostPath  string
+}
+
+var _ Relation = (*HasHostPath)(nil)
+
+func (r HasHostPath) GetSourceId() string {
+	return r.Pod.GetId()
+}
+func (r HasHostPath) GetTargetId() string {
+	return r.Node.GetId()
+}
+
+func (r HasHostPath) GetRelationName() string {
+	return "has-hostpath"
+}
+
 type HasC2Session struct {
 	RelationImpl
 	System  Entity

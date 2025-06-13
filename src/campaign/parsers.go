@@ -370,6 +370,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 
 	res := results[0]
 	entities := []domain.Entity{}
+	relations := []domain.Relation{}
 	switch strings.ToLower(effect) {
 	// TODO: set these 'attribute' effects via reflection
 	case "target.ip":
@@ -418,7 +419,15 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
 		} else {
 			for _, res := range list.Items {
-				entities = append(entities, domain.NewPodFromK8sSpec(res))
+				pod := domain.NewPodFromK8sSpec(res)
+				// TODO: lots of duplicate nodeNames will be added as newFacts, but deduplicated at the KB
+				// instead of adding all entities directly, use set of IDs to deduplicate before adding them to the facts
+				node := domain.NewK8sNode(pod.NodeName)
+				entities = append(entities, pod, node)
+				relations = append(relations, domain.RunsOn{Pod: pod, Node: node})
+
+				hostRelations := analyzePodHostRelations(pod)
+				relations = append(relations, hostRelations...)
 			}
 		}
 	case "k8s.deploymentlist":
@@ -487,12 +496,29 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	newFacts := NewFacts{}
 	removedFacts := RemovedFacts{}
 	if isRemoveEffect {
-		removedFacts = RemovedFacts{Entities: entities}
+		removedFacts = RemovedFacts{Entities: entities, Relations: relations}
 	} else {
-		newFacts = NewFacts{Entities: entities}
+		newFacts = NewFacts{Entities: entities, Relations: relations}
 	}
 
 	return newFacts, removedFacts
+}
+
+func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
+	rels := make([]domain.Relation, 0)
+
+	for _, vm := range pod.VolumeMounts {
+		if vm.IsHostPath {
+			rels = append(rels, domain.HasHostPath{
+				Pod:       pod,
+				MountPath: vm.MountPath,
+				HostPath:  vm.Root,
+				Node:      domain.NewK8sNode(pod.NodeName),
+			})
+		}
+	}
+
+	return rels
 }
 
 // Source: https://pkg.go.dev/github.com/moby/sys/mountinfo#Info for a struct that properly parses the mountinfo

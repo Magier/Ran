@@ -643,6 +643,18 @@ func NewPod(name, ns string) Pod {
 	}
 }
 
+func getVolumeMountsFromSpec(pod v1.Pod, mountName string) (v1.VolumeMount, bool) {
+	for _, container := range pod.Spec.Containers {
+		for _, volumeMount := range container.VolumeMounts {
+			if volumeMount.Name == mountName {
+				return volumeMount, true
+			}
+		}
+	}
+
+	return v1.VolumeMount{}, false
+}
+
 func NewPodFromK8sSpec(p v1.Pod) Pod {
 	entity := NewK8sEntity(p.ObjectMeta.Name, "Pod", p.Namespace)
 	isPriv := AsProbBool(false)
@@ -671,7 +683,12 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 			// ReadOnly:  v.HostPath != nil && v.HostPath.ReadOnly,
 		}
 		if v.HostPath != nil {
-			mount.Root = v.HostPath.Path
+			if vm, ok := getVolumeMountsFromSpec(p, v.Name); ok {
+				mount.Root = v.HostPath.Path
+				mount.IsHostPath = true
+				mount.MountPath = vm.MountPath
+				mount.ReadOnly = vm.ReadOnly
+			}
 		}
 
 		// TODO: add support for ProjectedVolumes
