@@ -63,27 +63,24 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	// ensure the podCfg is properly provided regardless of which procedure is executed
 	for _, technique := range ev.TTP.Techniques {
 		if technique == "T1610" || strings.ToLower(technique) == "deploy container" {
-			new, removed, err := analyzeDeployPodResult(ev)
-
+			var err error
+			var removed RemovedFacts
+			var new NewFacts
+			if !ev.Success {
+				new, removed, err = analyzeDeployPodFailure(ev)
+			} else {
+				new, removed, err = analyzeDeployPodResult(ev)
+			}
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to analyze deploy pod result: %v", err))
-			}
-
-			// newFacts.Update(new)
-			msg, err := c.UpdateFacts(new, removed)
-			if err != nil {
-				slog.Error("[onTTPExecuted] Couldn't update facts when adding new container: " + err.Error())
 			} else {
-				// TODO: fix this dirty hack to return multiple messages from a single function
-				if err := c.bus.Publish(msg); err != nil {
-					slog.Error("[onTTPExecuted] failed to publish updateFacts event: " + err.Error())
-				}
+				newFacts.Update(new)
+				removedFacts.Update(removed)
 			}
 		}
 	}
 
 	// TODO: properly streamline the various ways to handle the results of a TTP execution
-	// post processing will yield the final message
 	if fn := GetParser(ttp.Parser); fn != nil {
 		event, err := fn(ev, ev.Target, ev.Results...)
 		return event, err
@@ -96,6 +93,12 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		new, removed := ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
 		newFacts.Update(new)
 		removedFacts.Update(removed)
+	}
+
+	var err error
+	newFacts, removedFacts, err = AnalyzeChanges(newFacts, removedFacts)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
 	}
 
 	return c.UpdateFacts(newFacts, removedFacts)
@@ -211,15 +214,16 @@ func (c *Campaign) onEnvVarsExtracted(ctx context.Context, msg domain.Message) (
 		return c.UpdateFacts(newFacts, removedFacts)
 	}
 }
-func (c *Campaign) onServiceAccountTokenExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
-	ev := msg.(domain.ServiceAccountTokenExtracted)
-	newFacts, removedFacts, err := analyzeServiceAccountToken(ev.Token)
-	if err != nil {
-		return nil, err
-	} else {
-		return c.UpdateFacts(newFacts, removedFacts)
-	}
-}
+
+// func (c *Campaign) onServiceAccountTokenExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
+// 	ev := msg.(domain.ServiceAccountTokenExtracted)
+// 	newFacts, removedFacts, err := analyzeServiceAccountToken(ev.Token)
+// 	if err != nil {
+// 		return nil, err
+// 	} else {
+// 		return c.UpdateFacts(newFacts, removedFacts)
+// 	}
+// }
 
 func (c *Campaign) onTokenPermissionsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(domain.TokenPermissionsRetrieved)

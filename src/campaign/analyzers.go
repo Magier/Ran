@@ -13,6 +13,86 @@ import (
 	"github.com/Magier/Ran/domain"
 )
 
+func AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (NewFacts, RemovedFacts, error) {
+	entities := make(map[string]domain.Entity)
+	relations := make([]domain.Relation, 0)
+	identities := make(map[string]domain.Identity)
+	assets := make([]domain.Asset, 0)
+	// assets := make(map[string]domain.Asset)
+	queue := append([]domain.Entity{}, newFacts.Entities...)
+
+	// TODO: properly implement the integration of new facts, so they keep getting analyzed
+	// but be aware of their nature, e.g. entity vs asset/identity
+
+	// Index-based loop to avoid issues with appending while ranging
+	for i := 0; i < len(queue); i++ {
+		current := queue[i]
+		entities[queue[i].GetId()] = current
+		switch e := current.(type) {
+		case domain.Pod:
+			// TODO: check if the nodeName is present;
+			// if not, then an anonymous node should be created, which may be later consolidated using the `runs-on` relatino
+			node := domain.NewK8sNode(e.NodeName)
+			if e.NodeName == "" {
+				slog.Warn("Pod without nodeName, creating anonymous node", "pod", e.GetId())
+			}
+
+			if _, exists := entities[node.GetId()]; !exists {
+				entities[node.GetId()] = node
+			} else {
+				entities[node.GetId()] = domain.UpdateEntity(entities[node.GetId()], node)
+			}
+			relations = append(relations, domain.RunsOn{Pod: e, Node: node})
+			queue = append(queue, node)
+
+			hostRelations := analyzePodHostRelations(e)
+			relations = append(relations, hostRelations...)
+		case domain.ServiceAccountToken:
+			resultingFacts, err := analyzeServiceAccountToken(e.Raw)
+			if err != nil {
+				slog.Error("Failed to analyze service account token", "error", err)
+			} else {
+				for _, entity := range resultingFacts.Entities {
+					if e, exists := entities[entity.GetId()]; exists {
+						entity = domain.UpdateEntity(entity, e)
+					}
+					entities[entity.GetId()] = entity
+					queue = append(queue, entity)
+				}
+
+				for _, i := range resultingFacts.Identities {
+					identities[i.GetId()] = i
+				}
+
+				assets = append(assets, resultingFacts.Assets...)
+				relations = append(relations, resultingFacts.Relations...)
+			}
+		default:
+			slog.Warn("Unknown entity type in processQueue", "entity", e)
+		}
+	}
+
+	entitiesSlice := make([]domain.Entity, 0, len(entities))
+	for _, entity := range entities {
+		entitiesSlice = append(entitiesSlice, entity)
+	}
+
+	identitySlice := make([]domain.Identity, 0, len(entities))
+	for _, i := range identities {
+		identitySlice = append(identitySlice, i)
+	}
+
+	assetsSlice := make([]domain.Asset, 0, len(assets))
+	assetsSlice = append(assetsSlice, assets...)
+
+	return NewFacts{
+		Entities:   entitiesSlice,
+		Relations:  relations,
+		Assets:     assetsSlice,
+		Identities: identitySlice,
+	}, removedFacts, nil
+}
+
 // Extract interesting facts from the environment variables.
 // Kubernetes provides useful information as environment variables by default, such as:
 // - the name of the pod
@@ -91,13 +171,12 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (NewFacts, RemovedF
 	}, RemovedFacts{}, nil
 }
 
-func analyzeServiceAccountToken(token string) (NewFacts, RemovedFacts, error) {
+func analyzeServiceAccountToken(token string) (NewFacts, error) {
 	parts := strings.SplitN(token, ".", 3)
 	newFacts := NewFacts{}
-	removedFacts := RemovedFacts{}
 
 	if len(parts) != 3 {
-		return newFacts, removedFacts, errors.New("invalid token format")
+		return newFacts, errors.New("invalid token format")
 	}
 	/*
 		# add max of padding before decoding in case padding is missing (
@@ -106,12 +185,12 @@ func analyzeServiceAccountToken(token string) (NewFacts, RemovedFacts, error) {
 	encPayload := parts[1]
 	payloadData, err := base64.RawStdEncoding.DecodeString(encPayload)
 	if err != nil {
-		return newFacts, removedFacts, err
+		return newFacts, err
 	}
 
 	saToken := domain.ServiceAccountToken{}
 	if err := json.Unmarshal(payloadData, &saToken); err != nil {
-		return newFacts, removedFacts, err
+		return newFacts, err
 	}
 	saToken.Raw = token
 	// a token is bound if there is a Pod (and node) in the priveat kubernetes.io claim
@@ -151,7 +230,7 @@ func analyzeServiceAccountToken(token string) (NewFacts, RemovedFacts, error) {
 		Entities:  []domain.Entity{ns, sa, pod, node},
 		Assets:    []domain.Asset{saToken},
 		Relations: []domain.Relation{saUsage, nsContainsSa, nodeRunsPod, podRunsOnNode},
-	}, removedFacts, nil
+	}, nil
 
 }
 
@@ -229,10 +308,6 @@ func parseViolatingRBACIdentity(msg string) (domain.Entity, error) {
 }
 
 func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
-	if !ev.Success {
-		return analyzeDeployPodFailure(ev)
-	}
-
 	relations := make([]domain.Relation, 0)
 
 	newPod := domain.NewPod(
@@ -255,6 +330,9 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 	if val, ok := ev.Args["HostNetwork"]; ok {
 		newPod.HostNetwork = domain.AsProbBool(strings.ToLower(val) == "true")
 	}
+	if nodeName, ok := ev.Args["NodeName"]; ok {
+		newPod.NodeName = nodeName
+	}
 
 	if val, ok := ev.Args["HostPath"]; ok {
 		mountPath := ev.Args["MountPath"]
@@ -262,21 +340,7 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 			Root:      val,
 			MountPath: mountPath,
 		}}
-
-		// TODO: find out how this can be best resolved with the "runs-on" relation
-		node := domain.NewK8sNode("??")
-
-		relations = append(relations, domain.MountsHostPath{
-			Pod:       newPod,
-			Node:      node,
-			HostPath:  val,
-			MountPath: mountPath,
-		})
 	}
-
-	// TODO: the target is not the creator, but the executing system; model this properly
-	// createdRel := domain.Created{Creator: ev.Target, Object: newPod}
-	// relations = append(relations, createdRel)
 
 	return NewFacts{
 		Entities:  []domain.Entity{newPod},
@@ -473,3 +537,49 @@ func getServicesFromEnvVars(vars map[string]string) map[string]ServiceInfo {
 //     )
 
 // }
+
+func analyzeHostPath(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
+	entities := make([]domain.Entity, 0)
+	relations := make([]domain.Relation, 0)
+
+	//  if ev.Target == nil {
+	//   return NewFacts{}, RemovedFacts{}, errors.New("no target found for host path TTP execution")
+	//  }
+
+	//  if p, ok := ev.Target.(domain.Pod); ok {
+	//   p.HostPath = ev.Args["HostPath"]
+	//   p.MountPath = ev.Args["MountPath"]
+	//   entities = append(entities, p)
+
+	//   rel := domain.MountsHostPath{
+	//    Pod:       p,
+	//    HostPath:  ev.Args["HostPath"],
+	//    MountPath: ev.Args["MountPath"],
+	//   }
+	//   relations = append(relations, rel)
+	//  } else {
+	//   slog.Error(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, ev.Target.GetId()))
+	//  }
+
+	return NewFacts{
+		Entities:  entities,
+		Relations: relations,
+	}, RemovedFacts{}, nil
+}
+
+func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
+	rels := make([]domain.Relation, 0)
+
+	for _, vm := range pod.VolumeMounts {
+		if vm.IsHostPath {
+			rels = append(rels, domain.MountsHostPath{
+				Pod:       pod,
+				MountPath: vm.MountPath,
+				HostPath:  vm.Root,
+				Node:      domain.NewK8sNode(pod.NodeName),
+			})
+		}
+	}
+
+	return rels
+}

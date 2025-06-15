@@ -690,6 +690,9 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 				mount.ReadOnly = vm.ReadOnly
 			}
 		}
+		// if v.VolumeSource.Projected != nil {
+		// 	mount.Type = "projected"
+		//}
 
 		// TODO: add support for ProjectedVolumes
 		// if v.EmptyDir != nil {
@@ -882,6 +885,21 @@ type ServiceAccountToken struct {
 	// PodUid             string
 	Raw string
 }
+
+func (s ServiceAccountToken) GetId() string {
+	// Use the ServiceAccount name and namespace to create a unique ID
+	return fmt.Sprintf("ns/%s/sa/%s/token", s.Kubernetes.Namespace, s.Kubernetes.ServiceAccount.Name)
+}
+
+func (s ServiceAccountToken) GetKind() string {
+	return "ServiceAccountToken"
+}
+
+func (s ServiceAccountToken) GetName() string {
+	return fmt.Sprintf("sa-token-%s", s.Kubernetes.ServiceAccount.Name)
+}
+
+var _ Entity = (*ServiceAccountToken)(nil)
 
 // TODO differentiate between k8s resources and a IAM entity?
 type ServiceAccount struct {
