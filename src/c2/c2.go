@@ -10,6 +10,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	osexec "os/exec"
+
 	"strconv"
 	"strings"
 	"sync"
@@ -270,7 +272,20 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, procedure domain.Proc
 			slog.Warn("‼️ Marshalled PodConfig JSON to str; please check it!!: ", string(podCfgJson))
 			return []string{podName, ns, string(podCfgJson)}, err
 		} else {
-			return nil, fmt.Errorf("Unclear how to locally execute variant '%s'", procedure.Command)
+			fields := strings.Fields(procedure.Command)
+			if len(fields) == 0 {
+				return nil, fmt.Errorf("procedure.Command is empty")
+			}
+			cmd := osexec.Command(fields[0], fields[1:]...)
+			// cmd.Stdin = strings.NewReader("some input")
+			var out strings.Builder
+			cmd.Stdout = &out
+			err := cmd.Run()
+			if err != nil {
+				return nil, fmt.Errorf("Faild to  execute procedure '%s' locally", procedure.Command)
+			}
+			res := out.String()
+			return []string{res}, nil
 		}
 	} else {
 		return nil, errors.New("Can't Exec TTP: no channel defined and no code provided!")

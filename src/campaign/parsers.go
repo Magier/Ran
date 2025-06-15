@@ -16,8 +16,8 @@ import (
 
 func GetParser(parserName string) domain.ParserFn {
 	switch parserName {
-	case "rawServiceaccountToken":
-		return HandleSaTokenRead
+	// case "rawServiceaccountToken":
+	// 	return HandleSaTokenRead
 	case "environmentVariables":
 		return HandleEnvVarResult
 	case "selfSubjectReview", "authCanI":
@@ -66,14 +66,15 @@ func HandleEnvVarResult(ev domain.TTPExecuted, source domain.Entity, args ...str
 	}, nil
 }
 
-func HandleSaTokenRead(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
+func parseRawServiceAccountToken(args ...string) (domain.ServiceAccountToken, error) {
+	// func HandleSaTokenRead(source domain.Entity, args ...string) (domain.Event, error) {
 	if len(args) == 0 {
-		return nil, fmt.Errorf("No SA token provided as argument")
+		return domain.ServiceAccountToken{}, fmt.Errorf("No SA token provided as argument")
 	}
 
 	var token string = args[0]
 	if len(token) == 0 {
-		return nil, fmt.Errorf("Empty SA token can't be decoded")
+		return domain.ServiceAccountToken{}, fmt.Errorf("Empty SA token can't be decoded")
 	}
 	if len(args) > 1 && args[1] != "" {
 		slog.Warn(fmt.Sprintf("Sa Token Read expects exactly 1 argument - received %d", len(args)))
@@ -91,11 +92,8 @@ func HandleSaTokenRead(ev domain.TTPExecuted, source domain.Entity, args ...stri
 		}
 	}
 
-	// TODO: the sourceID does not have to be the pod that actually mounts the SA Token
-	return domain.ServiceAccountTokenExtracted{
-		SourceSystemId: source.GetId(),
-		Token:          token,
-	}, nil
+	return domain.ServiceAccountToken{Raw: token}, nil
+
 }
 
 func HandleSelfSubjectReviewResult(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
@@ -413,6 +411,13 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		} else {
 			slog.Warn("The source of the hasBinary effect is not a Pod!")
 		}
+	case "rawserviceaccounttoken":
+		saToken, err := parseRawServiceAccountToken(results...)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to parse raw service account token: %v", err))
+		} else {
+			entities = append(entities, saToken)
+		}
 	case "k8s.podlist":
 		list, err := k8s.ParsePodList(res)
 		if err != nil {
@@ -420,14 +425,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		} else {
 			for _, res := range list.Items {
 				pod := domain.NewPodFromK8sSpec(res)
-				// TODO: lots of duplicate nodeNames will be added as newFacts, but deduplicated at the KB
-				// instead of adding all entities directly, use set of IDs to deduplicate before adding them to the facts
-				node := domain.NewK8sNode(pod.NodeName)
-				entities = append(entities, pod, node)
-				relations = append(relations, domain.RunsOn{Pod: pod, Node: node})
-
-				hostRelations := analyzePodHostRelations(pod)
-				relations = append(relations, hostRelations...)
+				entities = append(entities, pod)
 			}
 		}
 	case "k8s.deploymentlist":
@@ -502,23 +500,6 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	}
 
 	return newFacts, removedFacts
-}
-
-func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
-	rels := make([]domain.Relation, 0)
-
-	for _, vm := range pod.VolumeMounts {
-		if vm.IsHostPath {
-			rels = append(rels, domain.HasHostPath{
-				Pod:       pod,
-				MountPath: vm.MountPath,
-				HostPath:  vm.Root,
-				Node:      domain.NewK8sNode(pod.NodeName),
-			})
-		}
-	}
-
-	return rels
 }
 
 // Source: https://pkg.go.dev/github.com/moby/sys/mountinfo#Info for a struct that properly parses the mountinfo
