@@ -20,8 +20,8 @@ func GetParser(parserName string) domain.ParserFn {
 	// 	return HandleSaTokenRead
 	case "environmentVariables":
 		return HandleEnvVarResult
-	case "selfSubjectReview", "authCanI":
-		return HandleSelfSubjectReviewResult
+		// case "selfSubjectReview", "authCanI":
+		// return HandleSelfSubjectReviewResult
 	case "newContainer":
 		return HandleNewContainer
 	case "newRole":
@@ -96,10 +96,11 @@ func parseRawServiceAccountToken(args ...string) (domain.ServiceAccountToken, er
 
 }
 
-func HandleSelfSubjectReviewResult(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
+func parseSelfSubjectRulesReview(args ...string) (domain.SelfSubjectRulesReview, error) {
 	// try parse JSON
+	var ssrr domain.SelfSubjectRulesReview
 	if len(args) == 0 {
-		return nil, fmt.Errorf("No data")
+		return ssrr, fmt.Errorf("No data")
 	}
 	var result k8s_types.SelfSubjectRulesReview
 	var err error
@@ -110,34 +111,46 @@ func HandleSelfSubjectReviewResult(ev domain.TTPExecuted, source domain.Entity, 
 	if json.Valid([]byte(data)) {
 		err = json.Unmarshal([]byte(data), &result)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to unmarshal JSON: %w", err)
+			return ssrr, fmt.Errorf("Failed to unmarshal JSON: %w", err)
 		}
 	} else {
 		slog.Warn("Input is not valid JSON, attempting to parse as pretty-printed SelfSubjectRulesReview")
 		result, err = parsePrettySelfSubjectRulesReview(data)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to parse pretty-printed SelfSubjectRulesReview: %w", err)
+			return ssrr, fmt.Errorf("Failed to parse pretty-printed SelfSubjectRulesReview: %w", err)
 		}
 	}
 
 	if result.Code >= 400 {
-		return domain.TTPExecuted{
-			Success: false,
-			Results: []string{result.Message},
-		}, nil
+		return ssrr, fmt.Errorf("SelfSubjectRulesReview failed with code %d: %s", result.Code, result.Message)
 	}
 
 	if result.Status.Incomplete {
 		slog.Warn("Results from SelfSubjectRulesReview are incomplete!")
 	}
 
-	sa, ok := source.(domain.ServiceAccount)
-	if !ok {
-		slog.Warn("the source of the SubjectReviewResult is not a valid ServiceAccount!")
-	}
-	return domain.TokenPermissionsRetrieved{
-		TokenName:        source.GetName(),
-		ServiceAccount:   sa,
+	// entitlements := make([]domain.RbacPermission, 0, len(result.Status.ResourceRules)+len(result.Status.NonResourceRules))
+	// for _, rule := range ev.ResourceRules {
+	// 	sa.Can = append(entitlements, domain.RbacPermission{
+	// 		Verbs:         rule.Verbs,
+	// 		ResourceTypes: rule.Resources,
+	// 		ResourceNames: rule.ResourceNames,
+	// 		ApiGroups:     rule.APIGroups,
+	// 		Scope:         sa.GetNamespace(),
+	// 	})
+	// }
+
+	// for _, rule := range ev.ResourceRules {
+	// 	sa.Can = append(sa.Can, domain.RbacPermission{
+	// 		Verbs:         rule.Verbs,
+	// 		ResourceTypes: rule.Resources,
+	// 		ResourceNames: rule.ResourceNames,
+	// 		ApiGroups:     rule.APIGroups,
+	// 		Scope:         "*",
+	// 	})
+	// }
+
+	return domain.SelfSubjectRulesReview{
 		ResourceRules:    result.Status.ResourceRules,
 		NonResourceRules: result.Status.NonResourceRules,
 	}, nil
@@ -418,6 +431,21 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		} else {
 			entities = append(entities, saToken)
 		}
+	case "k8s.selfsubjectrulesreview":
+		ssrr, err := parseSelfSubjectRulesReview(results...)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
+		} else {
+			sa, ok := source.(domain.ServiceAccount)
+			if !ok {
+				slog.Warn("the source of the SubjectReviewResult is not a valid ServiceAccount!")
+			} else {
+				ssrr.ServiceAccount = sa
+				ssrr.TokenName = sa.GetName()
+			}
+		}
+		// TODO: temporary workaround to treat SelfSubjectRulesReview as an entity, so it's processed in the analyzer
+		entities = append(entities, ssrr)
 	case "k8s.podlist":
 		list, err := k8s.ParsePodList(res)
 		if err != nil {

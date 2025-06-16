@@ -13,7 +13,7 @@ import (
 	"github.com/Magier/Ran/domain"
 )
 
-func AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (NewFacts, RemovedFacts, error) {
+func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (NewFacts, RemovedFacts, error) {
 	entities := make(map[string]domain.Entity)
 	relations := make([]domain.Relation, 0)
 	identities := make(map[string]domain.Identity)
@@ -67,6 +67,22 @@ func AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (NewFacts, Rem
 				assets = append(assets, resultingFacts.Assets...)
 				relations = append(relations, resultingFacts.Relations...)
 			}
+		case domain.SelfSubjectRulesReview:
+			resultingFacts, _, err := c.analyzeSelfSubjectRulesReview(e)
+			if err != nil {
+				slog.Error("Failed to analyze SelfSubjectRulesReview", "error", err)
+			} else {
+				for _, entity := range resultingFacts.Entities {
+					if existing, exists := entities[entity.GetId()]; exists {
+						entity = domain.UpdateEntity(entity, existing)
+					}
+					entities[entity.GetId()] = entity
+				}
+
+				panic("this does not properly work yet")
+				// newFacts.Update(resultingFacts)
+				// removedFacts.Update(removedFacts)
+			}
 		default:
 			slog.Warn("Unknown entity type in processQueue", "entity", e)
 		}
@@ -91,6 +107,45 @@ func AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (NewFacts, Rem
 		Assets:     assetsSlice,
 		Identities: identitySlice,
 	}, removedFacts, nil
+}
+
+func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesReview) (NewFacts, RemovedFacts, error) {
+	entities := make([]domain.Entity, 0)
+	relations := make([]domain.Relation, 0)
+
+	sa := ssrr.ServiceAccount
+	ns := domain.Namespace{Name: sa.Namespace}
+	sa.Namespace = ns.Name
+
+	entitlements := make([]domain.RbacPermission, 0, len(ssrr.ResourceRules)+len(ssrr.NonResourceRules))
+	for _, rule := range ssrr.ResourceRules {
+		entitlements = append(entitlements, domain.RbacPermission{
+			Verbs:         rule.Verbs,
+			ResourceTypes: rule.Resources,
+			ResourceNames: rule.ResourceNames,
+			ApiGroups:     rule.APIGroups,
+			Scope:         sa.GetNamespace(),
+		})
+	}
+
+	for _, rule := range ssrr.ResourceRules {
+		entitlements = append(entitlements, domain.RbacPermission{
+			Verbs:         rule.Verbs,
+			ResourceTypes: rule.Resources,
+			ResourceNames: rule.ResourceNames,
+			ApiGroups:     rule.APIGroups,
+			Scope:         "*",
+		})
+	}
+	sa.Can = entitlements
+
+	// TODO: add all the relationships here
+
+	entities = append(entities, ns, sa)
+	return NewFacts{
+		Entities:  entities,
+		Relations: relations,
+	}, RemovedFacts{}, nil
 }
 
 // Extract interesting facts from the environment variables.

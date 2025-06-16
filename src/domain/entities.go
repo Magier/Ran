@@ -899,7 +899,7 @@ func (s ServiceAccountToken) GetName() string {
 	return fmt.Sprintf("sa-token-%s", s.Kubernetes.ServiceAccount.Name)
 }
 
-var _ Entity = (*ServiceAccountToken)(nil)
+var _ Asset = (*ServiceAccountToken)(nil)
 
 // TODO differentiate between k8s resources and a IAM entity?
 type ServiceAccount struct {

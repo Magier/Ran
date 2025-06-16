@@ -6,8 +6,6 @@ import (
 	"net"
 	"runtime"
 	"strings"
-
-	k8s_types "github.com/Magier/Ran/k8sclient/types"
 )
 
 type MessageHandler func(ctx context.Context, msg Message) (Message, error)
@@ -193,18 +191,18 @@ func (ttp TTPExecuted) String() string {
 	return fmt.Sprintf("TTP '%s' executed (%s)", ttp.ID, ttp.TTP.Name)
 }
 
-type TokenPermissionsRetrieved struct {
-	EventImpl
-	TokenName        string
-	ServiceAccount   ServiceAccount
-	Result           string
-	ResourceRules    []k8s_types.ResourceRule
-	NonResourceRules []k8s_types.NonResourceRule
-}
+// type TokenPermissionsRetrieved struct {
+// 	EventImpl
+// 	TokenName        string
+// 	ServiceAccount   ServiceAccount
+// 	Result           string
+// 	ResourceRules    []k8s_types.ResourceRule
+// 	NonResourceRules []k8s_types.NonResourceRule
+// }
 
-func (e TokenPermissionsRetrieved) String() string {
-	return fmt.Sprintf("'%s' Token Permissions Retrieved", e.TokenName)
-}
+// func (e TokenPermissionsRetrieved) String() string {
+// 	return fmt.Sprintf("'%s' Token Permissions Retrieved", e.TokenName)
+// }
 
 type GraphRendered struct {
 	EventImpl

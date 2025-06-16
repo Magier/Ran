@@ -96,7 +96,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	}
 
 	var err error
-	newFacts, removedFacts, err = AnalyzeChanges(newFacts, removedFacts)
+	newFacts, removedFacts, err = c.AnalyzeChanges(newFacts, removedFacts)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
 	}
@@ -224,33 +224,6 @@ func (c *Campaign) onEnvVarsExtracted(ctx context.Context, msg domain.Message) (
 // 		return c.UpdateFacts(newFacts, removedFacts)
 // 	}
 // }
-
-func (c *Campaign) onTokenPermissionsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
-	ev := msg.(domain.TokenPermissionsRetrieved)
-	sa := ev.ServiceAccount
-
-	for _, rule := range ev.ResourceRules {
-		sa.Can = append(sa.Can, domain.RbacPermission{
-			Verbs:         rule.Verbs,
-			ResourceTypes: rule.Resources,
-			ResourceNames: rule.ResourceNames,
-			ApiGroups:     rule.APIGroups,
-			Scope:         sa.GetNamespace(),
-		})
-	}
-
-	for _, rule := range ev.ResourceRules {
-		sa.Can = append(sa.Can, domain.RbacPermission{
-			Verbs:         rule.Verbs,
-			ResourceTypes: rule.Resources,
-			ResourceNames: rule.ResourceNames,
-			ApiGroups:     rule.APIGroups,
-			Scope:         "*",
-		})
-	}
-
-	return c.UpdateFacts(NewFacts{Entities: []domain.Entity{sa}}, RemovedFacts{})
-}
 
 func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(c2.ListenerReady)
