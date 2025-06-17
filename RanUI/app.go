@@ -21,22 +21,23 @@ type App struct {
 	ctx context.Context
 	ran *ran.Ran
 }
-type Entitlement struct {
-	Verbs         []string `json:"verbs"`
-	ResourceTypes []string `json:"resourceTypes"`
-	ResourceNames []string `json:"resourceNames"`
-	Namespace     string   `json:"namespace"`
-}
+
+// type Entitlement struct {
+// 	Verbs         []string `json:"verbs"`
+// 	ResourceTypes []string `json:"resourceTypes"`
+// 	ResourceNames []string `json:"resourceNames"`
+// 	Namespace     string   `json:"namespace"`
+// }
 
 type Node struct {
-	ID           string        `json:"id"`
-	Name         string        `json:"name"`
-	Kind         string        `json:"kind"`
-	ParentID     string        `json:"parent"`
-	AccessLevel  string        `json:"accessLevel"`
-	Entitlements []Entitlement `json:"entitlements"`
-	Entity       domain.Entity `json:"entity"`
-	Compromised  bool          `json:"compromised"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	ParentID    string `json:"parent"`
+	AccessLevel string `json:"accessLevel"`
+	// Entitlements []Entitlement `json:"entitlements"`
+	Entity      domain.Entity `json:"entity"`
+	Compromised bool          `json:"compromised"`
 }
 
 type Edge struct {
@@ -224,16 +225,7 @@ func (a *App) GetGraph() Graph {
 		case domain.K8sNode:
 			node.Compromised = e.AccessLevel.IsSet()
 		case domain.ServiceAccount:
-			entitlements := []Entitlement{}
-			for _, rule := range e.Can {
-				entitlements = append(entitlements, Entitlement{
-					Verbs:         rule.Verbs,
-					ResourceTypes: rule.ResourceTypes,
-				})
-			}
 			node.Compromised = (e.Token.Raw != "")
-
-			node.Entitlements = entitlements
 		}
 
 		nodes = append(nodes, node)

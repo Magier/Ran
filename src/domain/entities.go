@@ -532,6 +532,14 @@ func (ns Namespace) GetKind() string {
 	return "Namespace"
 }
 
+type RBACPermission struct {
+	Verb         string `json:"verb,omitzero"`
+	ResourceName string `json:"resourceName,omitzero"`
+	ResourceType string `json:"resourceType,omitzero"`
+	APIGroup     string `json:"apiGroup,omitzero"`
+	Scope        string `json:"scope,omitzero"` // "" is invalid, "*" =cluster-wide, any string = namespaces
+}
+
 type RbacPermission struct {
 	Verbs         []string
 	ResourceTypes []string
@@ -901,14 +909,11 @@ func (s ServiceAccountToken) GetName() string {
 
 var _ Asset = (*ServiceAccountToken)(nil)
 
-// TODO differentiate between k8s resources and a IAM entity?
 type ServiceAccount struct {
 	K8sEntity
-	// kind: str = "ServiceAccount"
 	Token       ServiceAccountToken `json:"token,omitzero"`
 	SecretNames []string            `json:"secretNames,omitzero"`
-	// token: str | ServiceAccountToken | None = Field(None, exclude=True)
-	Can []RbacPermission `json:"can,omitzero"`
+	Can         []RBACPermission    `json:"can,omitzero"`
 }
 
 func NewServiceAccount(name, ns string) ServiceAccount {
@@ -918,7 +923,7 @@ func NewServiceAccount(name, ns string) ServiceAccount {
 			Namespace: ns,
 			Kind:      "ServiceAccount",
 		},
-		Can: make([]RbacPermission, 0),
+		Can: make([]RBACPermission, 0),
 	}
 }
 

@@ -27,9 +27,9 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 	// Index-based loop to avoid issues with appending while ranging
 	for i := 0; i < len(queue); i++ {
 		current := queue[i]
-		entities[queue[i].GetId()] = current
 		switch e := current.(type) {
 		case domain.Pod:
+			entities[queue[i].GetId()] = current
 			// TODO: check if the nodeName is present;
 			// if not, then an anonymous node should be created, which may be later consolidated using the `runs-on` relatino
 			node := domain.NewK8sNode(e.NodeName)
@@ -79,9 +79,7 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 					entities[entity.GetId()] = entity
 				}
 
-				panic("this does not properly work yet")
-				// newFacts.Update(resultingFacts)
-				// removedFacts.Update(removedFacts)
+				relations = append(relations, resultingFacts.Relations...)
 			}
 		default:
 			slog.Warn("Unknown entity type in processQueue", "entity", e)
@@ -117,27 +115,58 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 	ns := domain.Namespace{Name: sa.Namespace}
 	sa.Namespace = ns.Name
 
-	entitlements := make([]domain.RbacPermission, 0, len(ssrr.ResourceRules)+len(ssrr.NonResourceRules))
-	for _, rule := range ssrr.ResourceRules {
-		entitlements = append(entitlements, domain.RbacPermission{
-			Verbs:         rule.Verbs,
-			ResourceTypes: rule.Resources,
-			ResourceNames: rule.ResourceNames,
-			ApiGroups:     rule.APIGroups,
-			Scope:         sa.GetNamespace(),
-		})
-	}
+	entitlements := make([]domain.RBACPermission, 0, len(ssrr.ResourceRules)+len(ssrr.NonResourceRules))
 
 	for _, rule := range ssrr.ResourceRules {
-		entitlements = append(entitlements, domain.RbacPermission{
-			Verbs:         rule.Verbs,
-			ResourceTypes: rule.Resources,
-			ResourceNames: rule.ResourceNames,
-			ApiGroups:     rule.APIGroups,
-			Scope:         "*",
-		})
+		for _, verb := range rule.Verbs {
+			for _, resource := range rule.Resources {
+				for _, apiGroup := range rule.APIGroups {
+					if len(rule.ResourceNames) == 0 {
+						entitlements = append(entitlements, domain.RBACPermission{
+							Verb:         verb,
+							ResourceType: resource,
+							APIGroup:     apiGroup,
+							Scope:        sa.GetNamespace(),
+						})
+					} else {
+						for _, resourceName := range rule.ResourceNames {
+							entitlements = append(entitlements, domain.RBACPermission{
+								Verb:         verb,
+								ResourceType: resource,
+								ResourceName: resourceName,
+								APIGroup:     apiGroup,
+								Scope:        sa.GetNamespace(),
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+
+	for _, rule := range ssrr.NonResourceRules {
+		for _, verb := range rule.Verbs {
+			for _, url := range rule.NonResourceURLs {
+				entitlements = append(entitlements, domain.RBACPermission{
+					Verb:         verb,
+					ResourceName: url,
+					// Scope:        sa.GetNamespace(),
+				})
+			}
+		}
 	}
 	sa.Can = entitlements
+
+	for _, entitlement := range entitlements {
+		if entitlement.ResourceType == "pods/exec" {
+			relations = append(relations, domain.CanAccess{
+				SourceId:    sa.GetId(),
+				TargetId:    entitlement.ResourceName,
+				AccessLevel: domain.UserExec,
+				// Identity:    sa.GetId(),
+			})
+		}
+	}
 
 	// TODO: add all the relationships here
 
