@@ -22,7 +22,7 @@ func (s SelfSubjectRulesReview) GetId() string {
 
 // GetName implements Entity.
 func (s SelfSubjectRulesReview) GetName() string {
-	panic("unimplemented")
+	return fmt.Sprintf("SelfSubjectRulesReview for %s", s.TokenName)
 }
 
 func (s SelfSubjectRulesReview) GetKind() string {

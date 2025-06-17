@@ -82,9 +82,7 @@ func renderServiceAccount(sa domain.ServiceAccount) string {
 	if len(sa.Can) > 0 {
 		lines = append(lines, "Can: ")
 		for _, rule := range sa.Can {
-			verbs := strings.Join(rule.Verbs, ", ")
-			resTypes := strings.Join(rule.ResourceTypes, ", ")
-			lines = append(lines, fmt.Sprintf("\t - %s: %s", verbs, resTypes))
+			lines = append(lines, fmt.Sprintf("\t - %s: %s", rule.Verb, rule.ResourceType))
 		}
 	}
 
