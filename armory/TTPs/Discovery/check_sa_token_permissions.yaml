@@ -34,7 +34,8 @@ procedures:
             }'
   - key: kubectl
     command: kubectl auth can-i --list
-parser: selfSubjectReview
+effects:
+  - k8s.SelfSubjectRulesReview
 # effects:
 # defend: {}
 references:

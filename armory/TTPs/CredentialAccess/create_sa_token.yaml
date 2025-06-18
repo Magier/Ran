@@ -19,5 +19,5 @@ preconditions:
   kind: ServiceAccount
   accessLevel: user-read
   rbac: "can-create serviceaccount/token"
-# effects: []
-parser: rawServiceaccountToken
+effects:
+  - rawServiceaccountToken

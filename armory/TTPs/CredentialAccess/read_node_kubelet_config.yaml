@@ -1,12 +1,12 @@
-name: Read Service Account Token
-description: Reads the service account token mouneted inside a K8s pod
+name: Read Kubelet.config
+description: Reads the kubelet.conf from the filesystem of a node
 tactic: Credential Access
 techniques: ["Steal Application Access Token", "T1528"]
 parameters:
   PATH:
     type: string
     description: the path to the service account
-    default: "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    default: "/etc/kubernetes/kubelet.conf"
 procedures:
   - key: cat
     command: cat ${PATH}
@@ -14,21 +14,13 @@ procedures:
     command: get_file ${PATH}
 preconditions:
   accessLevel: user-read
-  kind: Pod
+  kind: Node
 effects:
-  - rawServiceaccountToken
-  - "src.pod.name"
-  - "ServiceAccount.name"
-  - "Namespace.name"
+  - file:kubelet.config
 
 # dependencies:
 #   - type: Kubernetes Pod
 #     description: A running Kubernetes pod with a mounted service account token.
-execution:
-  steps:
-    - description: Read the service account token from the pod
-      command: |
-        cat /var/run/secrets/kubernetes.io/serviceaccount/token
 indicators:
   - type: File
     description: The service account token file
