@@ -78,7 +78,6 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 					}
 					entities[entity.GetId()] = entity
 				}
-
 				relations = append(relations, resultingFacts.Relations...)
 			}
 		default:
@@ -157,11 +156,13 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 	}
 	sa.Can = entitlements
 
+	// TODO: move this to the generic entitlement management, whenever something changes
 	for _, entitlement := range entitlements {
 		if entitlement.ResourceType == "pods/exec" {
 			relations = append(relations, domain.CanAccess{
-				SourceId:    sa.GetId(),
-				TargetId:    entitlement.ResourceName,
+				SourceId: sa.GetId(),
+				// TODO: target must be the exact resource, not the generic resource type
+				// TargetId:    entitlement.ResourceName,
 				AccessLevel: domain.UserExec,
 				// Identity:    sa.GetId(),
 			})

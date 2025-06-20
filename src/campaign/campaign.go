@@ -426,6 +426,18 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 				// ensure the node kind prefis is removed
 				arg, _ = strings.CutPrefix(arg, "node/")
 			}
+
+		} else if strings.Contains(strings.ToUpper(arg), "${SRC.MOUNT_PATH}") {
+			sys, ok := execSystem.(domain.Pod)
+			if !ok {
+				return nil, fmt.Errorf("Can't ground SRC.MOUNTPATH variable, because execSystem is not a Pod: %s", execSystem.GetName())
+			}
+			for _, vm := range sys.VolumeMounts {
+				if vm.IsHostPath {
+					arg = vm.MountPath
+					break
+				}
+			}
 		}
 
 		if strings.Contains(arg, "${RANDOM}") {
