@@ -216,6 +216,10 @@ func wasExecSuccessful(results []string, err error) bool {
 		return false
 	}
 
+	if len(stdout) == 0 && len(stderr) > 0 {
+		return false
+	}
+
 	return true
 }
 

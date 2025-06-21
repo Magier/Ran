@@ -108,9 +108,6 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 	ev := msg.(domain.C2Connected)
 
 	// builtin C2 is part of Ran C2
-	if ev.Name == c2.BuiltInC2 {
-		return nil, nil
-	}
 
 	system := domain.C2System{
 		Kind: ev.Kind,
@@ -122,9 +119,11 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 
 	c2s := c.GetC2s()
 	ran := c2s[0] // Ran is always the first C2
-	operatesRel := domain.Operates{Operator: ran, System: system}
-	c.AddRelations(operatesRel)
-	rels = append(rels, operatesRel)
+	if system.GetId() != ran.GetId() {
+		operatesRel := domain.Operates{Operator: ran, System: system}
+		c.AddRelations(operatesRel)
+		rels = append(rels, operatesRel)
+	}
 
 	return c.UpdateFacts(NewFacts{Entities: []domain.Entity{system}, Relations: rels}, RemovedFacts{})
 }
