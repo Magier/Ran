@@ -321,7 +321,7 @@ type C2System struct {
 }
 
 func (s C2System) GetId() string {
-	return "c2/" + s.Kind
+	return "c2/" + s.Name
 }
 func (s C2System) GetName() string {
 	return s.Name
