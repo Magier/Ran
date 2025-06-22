@@ -3,11 +3,12 @@ description: Container escape via the nsenter built-in linux program that allows
 tactic: "Privilege Escalation"
 techniques: ["Escape to Host", T1611]
 preconditions:
-  # "kind": Session
+  "kind": Session
   "Pod.securityContext.privileged": true
 effects: []
-command: "EscapeHost"
-cmd: nsenter --target 1 --mount --uts --ipc --net --pid
+procedures:
+  - key: nsenter
+    command: nsenter --target 1 --mount --uts --ipc --net --pid
 defend:
   - tactic: detect
     id: D3-SCA
