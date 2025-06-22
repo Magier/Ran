@@ -1,0 +1,24 @@
+name: Escape container via chroot
+description: Container escape via the chroot built-in linux program that changes the root directory of the current process to a specified path, effectively isolating it from the rest of the filesystem.
+tactic: "Privilege Escalation"
+techniques: ["Escape to Host", T1611]
+parameters:
+  HOST_PATH:
+    type: string
+    description: the path where the host filesystem is mounted
+preconditions:
+  "kind": Session
+  "Pod.hostPath": true
+effects: []
+procedures:
+  - key: chroot
+    command: chroot ${HOST_PATH}
+defend:
+  # - tactic: detect
+  #   id: D3-SCA
+  #   syscall: setns
+  - tactic: detect
+    id: D3-PSA
+    process_creation: chroot
+refernces:
+  - https://attack.mitre.org/techniques/T1611/

