@@ -9,7 +9,7 @@
 	// import ExploitAppModal from '$lib/modals/ExploitAppModal';
 	import { GetRunningPods } from '$lib/wailsjs/go/main/App';
 	import { domain, main } from '$lib/wailsjs/go/models';
-	import { Modal } from '@skeletonlabs/skeleton-svelte';
+	import { Modal, Popover } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 	import { onMount } from 'svelte';
 	import { showToast, toaster } from '$lib/components/toaster';
@@ -173,11 +173,23 @@
 			{/if}
 			<Graph bind:selectedNodeId bind:selectedNode class="flex-1 " />
 		</div>
-		<aside class={['flex flex-col overflow-hidden', showDetails ? 'w-96' : 'w-0']}>
-			<svelte:boundary onerror={(e) => console.error(e)}>
-				<EntityInfo {selectedNode} />
-			</svelte:boundary>
-		</aside>
+
+		<Popover
+			open={showDetails}
+			onOpenChange={(e) => e.open}
+			positioning={{ placement: 'right', fitViewport: true }}
+			triggerBase=""
+			arrow={false}
+			contentBase=""
+		>
+			{#snippet trigger()}Click Me{/snippet}
+			{#snippet content()}
+				<svelte:boundary onerror={(e) => console.error(e)}>
+					<EntityInfo {selectedNode} />
+				</svelte:boundary>
+			{/snippet}
+		</Popover>
+
 		<!-- globalConditions={activeGlobalConditions}
 			{selectedNode}
 		/> -->
