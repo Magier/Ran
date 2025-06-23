@@ -29,7 +29,7 @@
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <div
-	class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-full flex-col overflow-auto p-4 {selectedNode
+	class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode
 		? 'show'
 		: ''}"
 	data-popup
