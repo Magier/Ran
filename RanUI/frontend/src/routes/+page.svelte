@@ -82,27 +82,6 @@
 		});
 	}
 
-	// function onKeydown(event: KeyboardEvent) {
-	// 	if (event.key === 'Delete') {
-	// 		if (selectedNode) {
-	// 			deleteSelectedNode();
-	// 		}
-	// 	} else if (event.key === '`' || (event.ctrlkey && (event.key === '.' || event.key === '/'))) {
-	// 		console.log(` Graph KeyDown: '${event.key}'`);
-	// 		event.preventDefault();
-	// 		const drawerSettings: DrawerSettings = {
-	// 			id: 'console-drawer',
-	// 			// Provide your property overrides:
-	// 			bgDrawer: 'bg-surface-900 text-white',
-	// 			bgBackdrop: 'variant-glass-primary',
-	// 			// width: 'w-[280px] md:w-[480px]',
-	// 			padding: 'p-4',
-	// 			position: 'top',
-	// 			rounded: 'rounded-xl'
-	// 		};
-	// 		drawerStore.open(drawerSettings);
-	// 	}
-	// }
 	onMount(() => {
 		store.onAlert((alert) => {
 			console.log('Store Alert ', alert);
@@ -147,7 +126,7 @@
 	}
 </script>
 
-<div class="grid h-[calc(100vh-70px)] grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
+<div class="relative grid h-[calc(100vh-70px)] grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
 	{#await store.connect(false)}
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
 		<div>loading...</div>
@@ -162,13 +141,6 @@
 						{/each}
 					</select>
 					<button onclick={start} class="btn preset-filled-primary-500">Start</button>
-					<!-- <input
-						autocomplete="off"
-						bind:value={selectedTarget}
-						id="target"
-						type="text"
-						class="mr-2 rounded-l p-2"
-					/> -->
 				</div>
 			{/if}
 			<Graph bind:selectedNodeId bind:selectedNode class="flex-1 " />
@@ -180,9 +152,10 @@
 			positioning={{ placement: 'right', fitViewport: true }}
 			triggerBase=""
 			arrow={false}
-			contentBase=""
+			portalled={true}
+			contentBase="border border-surface-600 absolute -left-96 top-0 top-0 z-10 w-96 rounded-lg bg-surface-100-900 p-4 shadow-xl "
 		>
-			{#snippet trigger()}Click Me{/snippet}
+			{#snippet trigger()}{/snippet}
 			{#snippet content()}
 				<svelte:boundary onerror={(e) => console.error(e)}>
 					<EntityInfo {selectedNode} />

@@ -59,7 +59,7 @@
 
 <button
 	onclick={() => onclick(ttp)}
-	class="card {cardStyle} preset-tonal-primar hover:bg-primary-100-900 w-full p-1 text-left"
+	class=" {cardStyle}  hover:border-primary-300-700 border-surface-50-950 mt-1 w-full border-2 p-1 text-left"
 	role="menuitem"
 	tabindex="0"
 	disabled={!enabled}

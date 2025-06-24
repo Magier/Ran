@@ -28,12 +28,8 @@
 </script>
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
-<div
-	class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode
-		? 'show'
-		: ''}"
-	data-popup
->
+<!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
+<div class="" data-popup>
 	{#if selectedNode?.entity !== null}
 		{#each Object.entries(selectedNode?.entity || {}) as [label, data]}
 			{#if label === 'volumeMounts'}
@@ -55,7 +51,7 @@
 							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
 						>
 					</summary>
-					<pre class="max-h-80">{JSON.stringify(data, null, 2)}</pre>
+					<pre class="max-h-80 overflow-scroll">{JSON.stringify(data, null, 2)}</pre>
 				</details>
 			{:else if Array.isArray(data) && data.length > 0}
 				<!-- Collapsible section for arrays -->
