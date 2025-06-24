@@ -4,7 +4,7 @@ status: disabled
 tactic: "Privilege Escalation"
 techniques: ["Escape to Host", T1611]
 preconditions:
-  # "kind": Session
+  kind: Session
   "Pod.securityContext.hostPID": true
   "Container.securityContext.capabilities": [SYS_PTRACE, SYS_ADMIN]
 effects: []

@@ -282,7 +282,7 @@ func (a *App) GetApplicableTTPs(targetId string) []domain.TTP {
 	accessLevel := domain.UserExec
 	for _, ttp := range a.ran.Armory.GetTTPs() {
 		isSatisfied := ttp.Requires.Satisfied(target, accessLevel, state)
-		if isSatisfied {
+		if isSatisfied && ttp.Status != "disabled" {
 			ttps = append(ttps, ttp)
 		}
 	}

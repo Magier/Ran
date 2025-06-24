@@ -18,7 +18,7 @@ parameters:
     type: string
     description: the token which will be checked
 preconditions:
-  kind: ServiceAccount
+  # kind: ServiceAccount
 procedures:
   - key: curl
     command: >-
