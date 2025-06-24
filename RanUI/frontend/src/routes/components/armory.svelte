@@ -140,7 +140,7 @@
 			{#each Array.from(showAllTTPs ? armory : applicableTTPs) as [tactic, ttps]}
 				<hr class="hr" />
 				<Accordion.Item
-					panelClasses="px-2"
+					panelClasses="px-2 mb-1"
 					panelPadding="0"
 					value={tactic}
 					classes="text-surface-contrast-200-800"
