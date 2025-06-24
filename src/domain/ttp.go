@@ -80,6 +80,7 @@ type TTP struct {
 	Description string       `yaml:"description" json:"description" `
 	Tactic      mitre.Tactic `yaml:"tactic" json:"tactic"`
 	Techniques  []string     `yaml:"techniques" json:"techniques"`
+	Status      string       `yaml:"status" json:"status"` // e.g. "draft", "stable", "deprecated", "disabled"
 
 	References []string `yaml:"references" json:"references"`
 
