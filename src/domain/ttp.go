@@ -248,7 +248,7 @@ func (ttp TTP) HandleResult(source Entity, args ...any) (Event, error) {
 	return ttp.ResultHandler(source, args...)
 }
 
-type ParserFn func(ev TTPExecuted, source Entity, args ...string) (Event, error)
+type ParserFn func(ev TTPExecuted, source Entity, args map[string]string, results ...string) (Event, error)
 
 // func (e *ParserFn) UnmarshalYAML(unmarshal func(interface{}) error) error {
 // 	return nil // TODO: explore option of lazy evaluation?

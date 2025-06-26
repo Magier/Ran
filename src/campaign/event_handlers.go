@@ -82,7 +82,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 
 	// TODO: properly streamline the various ways to handle the results of a TTP execution
 	if fn := GetParser(ttp.Parser); fn != nil {
-		event, err := fn(ev, ev.Target, ev.Results...)
+		event, err := fn(ev, ev.Target, ev.Args, ev.Results...)
 		return event, err
 	}
 

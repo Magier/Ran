@@ -626,14 +626,16 @@ type Pod struct {
 var _ Namespaced = (*Pod)(nil)
 
 type PodConfig struct {
-	Image       string
-	Command     string
-	Args        []string
-	HostIPC     bool
-	HostPID     bool
-	HostNetwork bool
-	Privileged  bool
-	NodeName    string
+	Image          string
+	Command        string
+	Args           []string
+	HostIPC        bool
+	HostPID        bool
+	HostNetwork    bool
+	Privileged     bool
+	NodeName       string
+	HostMounts     []Mount
+	ServiceAccount string
 }
 
 func NewPod(name, ns string) Pod {
