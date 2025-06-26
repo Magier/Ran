@@ -81,6 +81,7 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 				relations = append(relations, resultingFacts.Relations...)
 			}
 		default:
+			entities[e.GetId()] = e
 			slog.Warn("Unknown entity type in processQueue", "entity", e)
 		}
 	}

@@ -22,8 +22,8 @@ func GetParser(parserName string) domain.ParserFn {
 		return HandleEnvVarResult
 		// case "selfSubjectReview", "authCanI":
 		// return HandleSelfSubjectReviewResult
-	case "newContainer":
-		return HandleNewContainer
+	// case "newContainer":
+
 	case "newRole":
 		return HandleNewRole
 	case "newRoleBinding":
@@ -36,16 +36,16 @@ func GetParser(parserName string) domain.ParserFn {
 	return nil
 }
 
-func HandleEnvVarResult(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
-	if len(args) == 0 {
+func HandleEnvVarResult(ev domain.TTPExecuted, source domain.Entity, _ map[string]string, results ...string) (domain.Event, error) {
+	if len(results) == 0 {
 		return nil, errors.New("No environment variables received!")
 	}
-	stderr := args[1]
+	stderr := results[1]
 	if stderr != "" {
 		return nil, errors.New(stderr)
 	}
 
-	stdout := args[0]
+	stdout := results[0]
 	vars := make(map[string]string)
 
 	var sep = "\n"
@@ -200,31 +200,56 @@ func parsePrettySelfSubjectRulesReview(data string) (k8s_types.SelfSubjectRulesR
 	}, nil
 }
 
-func HandleNewContainer(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
-	numArgs := len(args)
+func HandleNewPod(args map[string]string, results ...string) (domain.Event, error) {
+	var cfg domain.PodConfig
+	var nsName, podName string
+
+	numArgs := len(results)
 	if numArgs == 0 {
 		return nil, fmt.Errorf("No data")
 	}
 	if numArgs != 3 {
-		return nil, fmt.Errorf("Expected podName, namespaceName and podConfig; got %d args instead", numArgs)
+		podName = args["Name"]
+		nsName = args["Namespace"]
+		cfg.NodeName = args["NodeName"]
+		cfg.ServiceAccount = args["ServiceAccount"]
+
+		hostIPC, _ := strconv.ParseBool(args["HostIPC"])
+		cfg.HostIPC = hostIPC
+
+		hostNetwork, _ := strconv.ParseBool(args["HostNetwork"])
+		cfg.HostNetwork = hostNetwork
+
+		hostPID, _ := strconv.ParseBool(args["HostPID"])
+		cfg.HostPID = hostPID
+
+		priv, _ := strconv.ParseBool(args["Privileged"])
+		cfg.Privileged = priv
+
+		hostPath := args["HostPath"]
+		cfg.HostMounts = []domain.Mount{
+			{MountPath: args["Mount"], Root: hostPath, ReadOnly: false, Flags: []string{"rw"}},
+		}
+
+	} else {
+		// TODO: marshal the podConfig
+		err := json.Unmarshal([]byte(results[2]), &cfg)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to unmarshal PodConfig JSON: %w", err)
+		}
 	}
 
-	podName := args[0]
-	nsName := args[1]
+	// cfgJson := args[2].(domain.PodConfig)
 	ns := domain.Namespace{Name: nsName}
 	p := domain.NewPod(podName, nsName)
-	// TODO: marshal the podConfig
-	var cfg domain.PodConfig
-	err := json.Unmarshal([]byte(args[2]), &cfg)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal PodConfig JSON: %w", err)
-	}
-	// cfgJson := args[2].(domain.PodConfig)
 
 	p.HostIPC = domain.AsProbBool(cfg.HostIPC)
 	p.HostPID = domain.AsProbBool(cfg.HostPID)
 	p.HostNetwork = domain.AsProbBool(cfg.HostNetwork)
 	p.Privileged = domain.AsProbBool(cfg.Privileged)
+	p.ServiceAccountName = cfg.ServiceAccount
+	p.NodeName = cfg.NodeName
+	p.VolumeMounts = cfg.HostMounts
 
 	slog.Error(fmt.Sprintf("Creating new pod %s in namespace %s is not yet properly implemented! FIX NEEDED!", p.Name, ns.Name))
 	return domain.NewPodDeployed{
@@ -233,14 +258,14 @@ func HandleNewContainer(ev domain.TTPExecuted, source domain.Entity, args ...str
 	}, nil
 }
 
-func HandleNewCronJob(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
-	numArgs := len(args)
+func HandleNewCronJob(ev domain.TTPExecuted, source domain.Entity, ttpArgs map[string]string, results ...string) (domain.Event, error) {
+	numArgs := len(results)
 	if numArgs == 0 {
 		return nil, fmt.Errorf("No data")
 	}
 
-	podName := args[0]
-	nsName := args[1]
+	podName := results[0]
+	nsName := results[1]
 	if nsName == "" {
 		if src, ok := source.(domain.K8sEntity); ok {
 			nsName = src.GetNamespace()
@@ -251,10 +276,10 @@ func HandleNewCronJob(ev domain.TTPExecuted, source domain.Entity, args ...strin
 	ns := domain.Namespace{Name: nsName}
 	p := domain.NewPod(podName, nsName)
 
-	if len(args) >= 3 {
+	if len(results) >= 3 {
 		// TODO: marshal the podConfig
 		var cfg domain.PodConfig
-		err := json.Unmarshal([]byte(args[2]), &cfg)
+		err := json.Unmarshal([]byte(results[2]), &cfg)
 		if err != nil {
 			return nil, fmt.Errorf("Failed to unmarshal PodConfig JSON: %w", err)
 		}
@@ -275,19 +300,19 @@ func HandleNewCronJob(ev domain.TTPExecuted, source domain.Entity, args ...strin
 	}, nil
 }
 
-func HandleNewRole(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
+func HandleNewRole(ev domain.TTPExecuted, source domain.Entity, ttpArgs map[string]string, results ...string) (domain.Event, error) {
 	// TODO: check if the actual TTP execution failed, because the role already exists
 	// -> overall, the intended effects are met, but it may be a confiict (e.g. name collision), for downstream TTPs
-	if strings.Contains(args[0], "Error from server (Forbidden)") {
+	if strings.Contains(results[0], "Error from server (Forbidden)") {
 		// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
-		if strings.Contains(args[0], "attempting to grant RBAC permissions not currently held") {
-			return nil, errors.New(args[0])
+		if strings.Contains(results[0], "attempting to grant RBAC permissions not currently held") {
+			return nil, errors.New(results[0])
 		}
 	}
 
 	name := ev.Args["ROLE_NAME"]
-	if strings.Contains(args[0], "already exists") {
-		slog.Info(fmt.Sprintf("Role '%s' already exists: %s", name, args[0]))
+	if strings.Contains(results[0], "already exists") {
+		slog.Info(fmt.Sprintf("Role '%s' already exists: %s", name, results[0]))
 	}
 
 	var ns string
@@ -315,17 +340,17 @@ func HandleNewRole(ev domain.TTPExecuted, source domain.Entity, args ...string) 
 	}, nil
 }
 
-func HandleNewRoleBinding(ev domain.TTPExecuted, source domain.Entity, args ...string) (domain.Event, error) {
-	if strings.Contains(args[0], "Error from server (Forbidden)") {
+func HandleNewRoleBinding(ev domain.TTPExecuted, source domain.Entity, ttpArgs map[string]string, results ...string) (domain.Event, error) {
+	if strings.Contains(results[0], "Error from server (Forbidden)") {
 		// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
-		if strings.Contains(args[0], "attempting to grant RBAC permissions not currently held") {
-			return nil, errors.New(args[0])
+		if strings.Contains(results[0], "attempting to grant RBAC permissions not currently held") {
+			return nil, errors.New(results[0])
 		}
 	}
 
 	name := ev.Args["BINDING_NAME"]
-	if strings.Contains(args[0], "already exists") {
-		slog.Info(fmt.Sprintf("RoleBinding '%s' already exists: %s", name, args[0]))
+	if strings.Contains(results[0], "already exists") {
+		slog.Info(fmt.Sprintf("RoleBinding '%s' already exists: %s", name, results[0]))
 	}
 
 	ns := ev.Args["NAMESPACE"]
@@ -480,10 +505,11 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		sa := domain.NewServiceAccount(name, ns)
 		entities = append(entities, sa)
 	case "k8s.pod":
-		name := args["Name"]
-		ns := args["Namespace"]
-		pod := domain.NewPod(name, ns)
-		entities = append(entities, pod)
+		ev, err := HandleNewPod(args)
+		newPod := ev.(domain.NewPodDeployed)
+		if err != nil {
+			entities = append(entities, newPod.Pod, newPod.Namespace)
+		}
 	case "k8s.deployment":
 		name := args["Name"]
 		ns := args["Namespace"]
