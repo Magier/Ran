@@ -10,7 +10,6 @@ type SelfSubjectRulesReview struct {
 	TokenName        string
 	ServiceAccount   ServiceAccount
 	Result           string
-	Entitlements     []RbacPermission
 	ResourceRules    []k8s_types.ResourceRule
 	NonResourceRules []k8s_types.NonResourceRule
 }

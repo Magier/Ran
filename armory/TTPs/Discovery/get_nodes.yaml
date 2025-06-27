@@ -4,7 +4,7 @@ tactic: Discovery
 techniques: ["Cloud Infrastructure Discovery", T1580]
 preconditions:
   # accessLevel: user-read
-  can-get: ["Nodes"]
+  rbac: "get Nodes"
 parameters:
   TOKEN:
     type: string

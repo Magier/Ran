@@ -129,27 +129,6 @@ func parseSelfSubjectRulesReview(args ...string) (domain.SelfSubjectRulesReview,
 		slog.Warn("Results from SelfSubjectRulesReview are incomplete!")
 	}
 
-	// entitlements := make([]domain.RbacPermission, 0, len(result.Status.ResourceRules)+len(result.Status.NonResourceRules))
-	// for _, rule := range ev.ResourceRules {
-	// 	sa.Can = append(entitlements, domain.RbacPermission{
-	// 		Verbs:         rule.Verbs,
-	// 		ResourceTypes: rule.Resources,
-	// 		ResourceNames: rule.ResourceNames,
-	// 		ApiGroups:     rule.APIGroups,
-	// 		Scope:         sa.GetNamespace(),
-	// 	})
-	// }
-
-	// for _, rule := range ev.ResourceRules {
-	// 	sa.Can = append(sa.Can, domain.RbacPermission{
-	// 		Verbs:         rule.Verbs,
-	// 		ResourceTypes: rule.Resources,
-	// 		ResourceNames: rule.ResourceNames,
-	// 		ApiGroups:     rule.APIGroups,
-	// 		Scope:         "*",
-	// 	})
-	// }
-
 	return domain.SelfSubjectRulesReview{
 		ResourceRules:    result.Status.ResourceRules,
 		NonResourceRules: result.Status.NonResourceRules,
@@ -230,7 +209,6 @@ func HandleNewPod(args map[string]string, results ...string) (domain.Event, erro
 		cfg.HostMounts = []domain.Mount{
 			{MountPath: args["Mount"], Root: hostPath, ReadOnly: false, Flags: []string{"rw"}},
 		}
-
 	} else {
 		// TODO: marshal the podConfig
 		err := json.Unmarshal([]byte(results[2]), &cfg)

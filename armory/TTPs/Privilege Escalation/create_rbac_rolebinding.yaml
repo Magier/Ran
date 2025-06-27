@@ -32,7 +32,7 @@ procedures:
       kubectl create rolebinding ${BINDING_NAME} --namespace=${NAMESPACE} --role=${ROLE_NAME} --serviceaccount=${NAMESPACE}:${SUBJECT} --token=${TOKEN}
 preconditions:
   kind: ServiceAccount
-  accessLevel: can-create rolebinding
+  rbac: create rolebinding
 parser: newRoleBinding
 effects:
   - "RoleBinding(${BINDING_NAME}, Role(${ROLE_NAME}), ServiceAccount(${SERVICEACCOUNT}))"

@@ -32,10 +32,10 @@ type Condition interface {
 }
 
 type Requirements struct {
-	Kind           IsOfKind    `yaml:"kind"`
-	AccessLevel    AccessLevel `yaml:"accessLevel" json:"accessLevel"`
-	RbacPermission Permission
-	State          State                  // check for existing entities
+	Kind           IsOfKind               `yaml:"kind"`
+	AccessLevel    AccessLevel            `yaml:"accessLevel" json:"accessLevel"`
+	RBACPermission RBACPermission         `yaml:"rbac" json:"rbac,omitzero"`
+	State          State                  // check for existing entities // TODO: validate again, if this is necessary
 	Exists         EntitiesExists         // relates to the state
 	OtherFields    map[string]interface{} `yaml:",inline"` // Inline captures untagged fields
 }
@@ -52,9 +52,9 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 		return false
 	}
 
-	if r.RbacPermission != "" {
-		return false
-	}
+	// if r.RBACPermission.Verb != "" {
+	// 	return false
+	// }
 
 	if len(r.Exists) > 0 {
 		if !state.Satisfies(r.Exists) {
@@ -173,13 +173,36 @@ var (
 	RootExec = AccessLevel{User: 2, Level: 2}
 )
 
-type Permission string
+// type Permission string
 
-func (p Permission) Satisfies(r Condition) bool {
+// Implements the Unmarshaler interface of the yaml pkg.
+func (p *RBACPermission) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var s string
+	if err := unmarshal(&s); err != nil {
+		return err
+	}
+	fields := strings.Fields(s)
+
+	if len(fields) < 2 {
+		return fmt.Errorf("RBACPermission must have at least 2 fields: verb and resource type, got %d fields", len(fields))
+	}
+
+	verb := fields[0]
+	resourceType := fields[1]
+	// TODO: resource names or scopes are not supported yet
+
+	*p = RBACPermission{
+		Verb:         verb,
+		ResourceType: resourceType,
+	}
+	return nil
+}
+
+func (p RBACPermission) Satisfies(r Condition) bool {
 	return false
 }
 
-func (p Permission) IsSet() bool {
+func (p RBACPermission) IsSet() bool {
 	return false
 }
 
@@ -540,20 +563,20 @@ type RBACPermission struct {
 	Scope        string `json:"scope,omitzero"` // "" is invalid, "*" =cluster-wide, any string = namespaces
 }
 
-type RbacPermission struct {
-	Verbs         []string
-	ResourceTypes []string
-	ResourceNames []string
-	ApiGroups     []string
-	Scope         string // "" is invalid, "*" =cluster-wide, any string = namespaces
-}
+// type RbacPermission struct {
+// 	Verbs         []string
+// 	ResourceTypes []string
+// 	ResourceNames []string
+// 	ApiGroups     []string
+// 	Scope         string // "" is invalid, "*" =cluster-wide, any string = namespaces
+// }
 
 type Identity struct {
 	Name        string
 	Kind        IdentityType
 	CertData    []byte
 	KeyData     []byte
-	Permissions []RbacPermission
+	Permissions []RBACPermission
 	Token       string
 }
 
@@ -576,12 +599,12 @@ var _ (Entity) = (*Identity)(nil)
 
 func (id Identity) Can(permission string) bool {
 	for _, perm := range id.Permissions {
-		for _, v := range perm.Verbs {
-			// TODO: properly filter for scope, resource name/type + wildcards
-			if v == permission || v == "*" {
-				return true
-			}
+		// for _, v := range perm.Verbs {
+		// TODO: properly filter for scope, resource name/type + wildcards
+		if perm.Verb == "*" {
+			return true
 		}
+		// }
 	}
 	return false
 }

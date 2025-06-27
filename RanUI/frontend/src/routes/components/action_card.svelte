@@ -31,9 +31,9 @@
 					if (currentLevel < requiredLevel) {
 						return false;
 					}
-				} else if (attr === 'can') {
+				} else if (attr === 'rbac') {
 					let has_capability = false;
-					for (let cap of conditions['can']) {
+					for (let cap of conditions['rbac']) {
 						if (cap == value) {
 							has_capability = true;
 							break;
@@ -52,6 +52,13 @@
 			}
 		}
 		return true;
+	}
+
+	function formatRbac(rbac: Object): string {
+		if (rbac['verb'] && rbac['resourceType']) {
+			return `${rbac['verb']} ${rbac['resourceType']}`;
+		}
+		return '';
 	}
 
 	// export let onClick = (ttp: domain.TTP) => {};
@@ -79,6 +86,11 @@
 								{name}: {Object.keys(value).join(' or ')}
 							</span>
 						{/if}
+					{:else if name === 'rbac'}
+						<span class="badge bg-success-950 text-secondary-contrast-200-800">
+							<Icon icon={'carbon-user-admin'} width="16"></Icon>
+							{formatRbac(value)}
+						</span>
 					{:else if name === 'OtherFields'}
 						{#each Object.entries(value) as [name, val]}
 							<span class="chip variant-filled-surface mr-1 max-w-full truncate">

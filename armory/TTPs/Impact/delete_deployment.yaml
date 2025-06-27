@@ -23,7 +23,7 @@ procedures:
       kubectl delete deployment {{ .Name }}  --namespace={{ .Namespace}} --token={{ .Token }}
 preconditions:
   kind: Deployment
-  accessLevel: can-delete deployment
+  rbac: delete deployment
 effects:
   - "delete k8s.deployment"
 # cmd: {}

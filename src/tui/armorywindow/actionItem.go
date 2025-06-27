@@ -152,7 +152,7 @@ func renderRequirementBadges(r domain.Requirements, cond domain.Requirements, s 
 	}{
 		{r.AccessLevel.IsSet(), cond.AccessLevel.Satisfies(r.AccessLevel), r.AccessLevel.String()},
 		{r.Kind.IsSet(), cond.Kind.Satisfies(r.Kind), "is " + string(r.Kind)},
-		{r.RbacPermission.IsSet(), cond.RbacPermission == r.RbacPermission, "can " + string(r.RbacPermission)},
+		{r.RBACPermission.IsSet(), cond.RBACPermission == r.RBACPermission, "can " + string(r.RBACPermission.Verb)},
 		{r.Exists.IsSet(), len(r.Exists) > 0 && cond.State.Satisfies(r.Exists), r.Exists.String()},
 	}
 
