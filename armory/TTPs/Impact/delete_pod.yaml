@@ -23,7 +23,7 @@ procedures:
       kubectl delete pod {{ .Name }}  --namespace={{ .Namespace}} --token={{ .Token }}
 preconditions:
   kind: Pod
-  accessLevel: can-delete Pods
+  rbac: delete Pods
 effects:
   - "delete k8s.Pod"
 # cmd: {}

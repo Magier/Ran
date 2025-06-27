@@ -4,7 +4,7 @@ tactic: Discovery
 techniques: ["Container and Resource Discovery", T1613]
 preconditions:
   # accessLevel: user-read
-  can-get: ["deployments"]
+  rbac: "get deployments"
 parameters:
   TOKEN:
     type: string

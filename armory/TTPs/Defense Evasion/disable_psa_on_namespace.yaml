@@ -12,5 +12,5 @@ procedures:
     command: kubectl label ns ${NAMESPACE} pod-security.kubernetes.io/enforce=privileged --overwrite
 preconditions:
   kind: Namespace
-  rbac: "can-update namespace"
+  rbac: "update namespace"
 # effects: []

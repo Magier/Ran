@@ -36,7 +36,7 @@ procedures:
       kubectl create cronjob ${NAME} --image=${IMAGE} --schedule="${SCHEDULE}" --token=${TOKEN} --namespace=${NAMESPACE} -- ${COMMAND}
 preconditions:
   # kind: ServiceAccount
-  accessLevel: can-create CronJob
+  rbac: create CronJob
 parser: newCronJob
 effects:
   - CronJob(${NAME})

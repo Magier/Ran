@@ -16,7 +16,7 @@ procedures:
     command: kubectl delete events --all -n ${NAMESPACE}
 preconditions:
   kind: ServiceAccount
-  rbac: "can-delete events"
+  rbac: "delete events"
 # effects: []
 references:
   - https://attack.mitre.org/techniques/T1070/

@@ -287,10 +287,10 @@ func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, load
 			Kind:     domain.AdminUser,
 			CertData: client.Context.UserCert,
 			KeyData:  client.Context.UserKey,
-			Permissions: []domain.RbacPermission{{
-				Verbs:         []string{"*"},
-				ResourceTypes: []string{"*"},
-				Scope:         "*",
+			Permissions: []domain.RBACPermission{{
+				Verb:         "*",
+				ResourceType: "*",
+				Scope:        "*",
 			}},
 		}
 

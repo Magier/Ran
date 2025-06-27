@@ -85,26 +85,6 @@ export namespace domain {
 	        this.EnvVars = source["EnvVars"];
 	    }
 	}
-	export class HttpCmd {
-	    Endpoint: string;
-	    Method: string;
-	    Args: string[];
-	    Headers: Record<string, string>;
-	    Body: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new HttpCmd(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Endpoint = source["Endpoint"];
-	        this.Method = source["Method"];
-	        this.Args = source["Args"];
-	        this.Headers = source["Headers"];
-	        this.Body = source["Body"];
-	    }
-	}
 	export class Parameter {
 	    Name: string;
 	    Type: string;
@@ -167,10 +147,30 @@ export namespace domain {
 		    return a;
 		}
 	}
+	export class RBACPermission {
+	    verb: string;
+	    resourceName: string;
+	    resourceType: string;
+	    apiGroup: string;
+	    scope: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RBACPermission(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.verb = source["verb"];
+	        this.resourceName = source["resourceName"];
+	        this.resourceType = source["resourceType"];
+	        this.apiGroup = source["apiGroup"];
+	        this.scope = source["scope"];
+	    }
+	}
 	export class Requirements {
 	    Kind: string;
 	    accessLevel: AccessLevel;
-	    RbacPermission: string;
+	    rbac: RBACPermission;
 	    State: Record<string, number>;
 	    Exists: string[];
 	    OtherFields: Record<string, any>;
@@ -183,7 +183,7 @@ export namespace domain {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Kind = source["Kind"];
 	        this.accessLevel = this.convertValues(source["accessLevel"], AccessLevel);
-	        this.RbacPermission = source["RbacPermission"];
+	        this.rbac = this.convertValues(source["rbac"], RBACPermission);
 	        this.State = source["State"];
 	        this.Exists = source["Exists"];
 	        this.OtherFields = source["OtherFields"];
@@ -216,7 +216,6 @@ export namespace domain {
 	    status: string;
 	    references: string[];
 	    procedures: Procedure[];
-	    httpCmd: HttpCmd;
 	    params: Parameter[];
 	    CommandMsg: any;
 	    requires: Requirements;
@@ -237,7 +236,6 @@ export namespace domain {
 	        this.status = source["status"];
 	        this.references = source["references"];
 	        this.procedures = this.convertValues(source["procedures"], Procedure);
-	        this.httpCmd = this.convertValues(source["httpCmd"], HttpCmd);
 	        this.params = this.convertValues(source["params"], Parameter);
 	        this.CommandMsg = source["CommandMsg"];
 	        this.requires = this.convertValues(source["requires"], Requirements);
