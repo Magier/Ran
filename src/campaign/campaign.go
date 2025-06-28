@@ -140,9 +140,9 @@ func (c *Campaign) UpdateFacts(new NewFacts, removed RemovedFacts) (domain.Facts
 	for _, identity := range new.Identities {
 		// if there is no active identity, use the first encountered Id as the active oneo
 		if c.activeIdentity == "" {
-			c.activeIdentity = identity.Name
+			c.activeIdentity = identity.GetId()
 		}
-		c.identities[identity.Name] = identity
+		c.identities[identity.GetId()] = identity
 	}
 
 	err := c.syncCapabilities()
@@ -197,7 +197,7 @@ func (c *Campaign) GetEntityByName(name, ns string) (domain.Entity, bool) {
 
 func (c *Campaign) GetActiveIdentity() (domain.Identity, bool) {
 	if c.activeIdentity == "" {
-		return domain.Identity{}, false
+		return domain.User{}, false
 	}
 	id, ok := c.identities[c.activeIdentity]
 	return id, ok
@@ -233,6 +233,12 @@ func (c *Campaign) GetAuditTrail() AuditTrail {
 }
 
 func (c *Campaign) AddEntities(entities ...domain.Entity) int {
+	for _, entity := range entities {
+		if identity, ok := entity.(domain.Identity); ok {
+			c.identities[identity.GetId()] = identity
+		}
+	}
+
 	numChanges, err := c.kb.AddEntities(entities...)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to insert %d entities: %v", len(entities), err))
@@ -713,7 +719,7 @@ func (c Campaign) syncCapabilities() error {
 	pods := c.GetPods()
 
 	for _, identity := range c.identities {
-		if identity.Can("pod/exec") {
+		if identity.Can("create", "pod/exec") {
 			for _, p := range pods {
 				accessRelations = append(accessRelations, domain.CanAccess{
 					SourceId:    c2.GetId(),

@@ -155,7 +155,7 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 			}
 		}
 	}
-	sa.Can = entitlements
+	sa.Entitelements = entitlements
 
 	// TODO: move this to the generic entitlement management, whenever something changes
 	for _, entitlement := range entitlements {
