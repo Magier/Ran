@@ -282,9 +282,9 @@ func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, load
 			}
 		}
 
-		k8sConfigUser := domain.Identity{
+		k8sConfigUser := domain.User{
 			Name:     client.Context.Name,
-			Kind:     domain.AdminUser,
+			IsAdmin:  true,
 			CertData: client.Context.UserCert,
 			KeyData:  client.Context.UserKey,
 			Permissions: []domain.RBACPermission{{

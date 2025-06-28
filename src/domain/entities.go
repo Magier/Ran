@@ -240,12 +240,6 @@ var _ Condition = (*AccessLevel)(nil)
 
 type IdentityType string
 
-const (
-	AdminUser        IdentityType = "AdminUser"
-	User             IdentityType = "User"
-	ServiceAccountId IdentityType = "ServiceAccount"
-)
-
 type Listener struct {
 	ID         string
 	Port       uint
@@ -571,9 +565,16 @@ type RBACPermission struct {
 // 	Scope         string // "" is invalid, "*" =cluster-wide, any string = namespaces
 // }
 
-type Identity struct {
+type Identity interface {
+	GetId() string
+	GetToken() string
+	Can(verb, res string) bool
+}
+
+type User struct {
 	Name        string
 	Kind        IdentityType
+	IsAdmin     bool
 	CertData    []byte
 	KeyData     []byte
 	Permissions []RBACPermission
@@ -581,24 +582,30 @@ type Identity struct {
 }
 
 // GetId implements Entity.
-func (id *Identity) GetId() string {
-	return id.Name
+func (user User) GetId() string {
+	return user.Name
 }
 
 // GetKind implements Entity.
-func (id *Identity) GetKind() string {
-	return string(id.Kind)
+func (user User) GetKind() string {
+	return string(user.Kind)
 }
 
 // GetName implements Entity.
-func (id *Identity) GetName() string {
-	return id.Name
+func (user User) GetName() string {
+	return user.Name
 }
 
-var _ (Entity) = (*Identity)(nil)
+var _ (Identity) = (*User)(nil)
 
-func (id Identity) Can(permission string) bool {
-	for _, perm := range id.Permissions {
+// GetToken implements Identity.
+func (user User) GetToken() string {
+	return user.Token
+}
+
+// Can implements Identity.
+func (user User) Can(verb, resource string) bool {
+	for _, perm := range user.Permissions {
 		// for _, v := range perm.Verbs {
 		// TODO: properly filter for scope, resource name/type + wildcards
 		if perm.Verb == "*" {
@@ -936,9 +943,9 @@ var _ Asset = (*ServiceAccountToken)(nil)
 
 type ServiceAccount struct {
 	K8sEntity
-	Token       ServiceAccountToken `json:"token,omitzero"`
-	SecretNames []string            `json:"secretNames,omitzero"`
-	Can         []RBACPermission    `json:"can,omitzero"`
+	Token         ServiceAccountToken `json:"token,omitzero"`
+	SecretNames   []string            `json:"secretNames,omitzero"`
+	Entitelements []RBACPermission    `json:"can,omitzero"`
 }
 
 func NewServiceAccount(name, ns string) ServiceAccount {
@@ -948,7 +955,7 @@ func NewServiceAccount(name, ns string) ServiceAccount {
 			Namespace: ns,
 			Kind:      "ServiceAccount",
 		},
-		Can: make([]RBACPermission, 0),
+		Entitelements: make([]RBACPermission, 0),
 	}
 }
 
@@ -971,6 +978,22 @@ func NewServiceAccountFromK8sSpec(sa v1.ServiceAccount) ServiceAccount {
 		SecretNames: secretNames,
 	}
 }
+
+// Implement Identity interface for ServiceAccount
+func (sa ServiceAccount) GetToken() string {
+	return sa.Token.Raw
+}
+
+func (sa ServiceAccount) Can(verb, resource string) bool {
+	for _, perm := range sa.Entitelements {
+		if perm.Verb == "*" || (perm.Verb == verb && perm.ResourceType == resource) {
+			return true
+		}
+	}
+	return false
+}
+
+var _ Identity = (*ServiceAccount)(nil)
 
 type Session struct {
 	Id          string
