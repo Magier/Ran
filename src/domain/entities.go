@@ -35,7 +35,7 @@ type Requirements struct {
 	Kind           IsOfKind               `yaml:"kind"`
 	AccessLevel    AccessLevel            `yaml:"accessLevel" json:"accessLevel"`
 	RBACPermission RBACPermission         `yaml:"rbac" json:"rbac,omitzero"`
-	State          State                  // check for existing entities // TODO: validate again, if this is necessary
+	State          State                  `yaml:"-" json:"-"` // check for existing entities
 	Exists         EntitiesExists         // relates to the state
 	OtherFields    map[string]interface{} `yaml:",inline"` // Inline captures untagged fields
 }
@@ -52,9 +52,12 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 		return false
 	}
 
-	// if r.RBACPermission.Verb != "" {
-	// 	return false
-	// }
+	if r.RBACPermission.Verb != "" {
+		_, ok := state.Entitlements[r.RBACPermission.String()]
+		if !ok {
+			return false
+		}
+	}
 
 	if len(r.Exists) > 0 {
 		if !state.Satisfies(r.Exists) {
@@ -78,12 +81,15 @@ func (k IsOfKind) IsSet() bool {
 
 var _ Condition = (*IsOfKind)(nil)
 
-type State map[string]int
+type State struct {
+	Entitlements map[string][]string `json:"entitlements,omitempty"`
+	EntityCounts map[string]int      `json:"entityCounts,omitempty"`
+}
 
 func (s State) Satisfies(r Condition) bool {
 	if entityKinds, ok := r.(EntitiesExists); ok {
 		for _, k := range entityKinds {
-			numExists, existsOk := s[strings.ToLower(string(k))]
+			numExists, existsOk := s.EntityCounts[strings.ToLower(string(k))]
 			return existsOk && numExists > 0
 		}
 	}
@@ -93,12 +99,12 @@ func (s State) IsSet() bool {
 	return false
 }
 func (s State) Update(key string, numChange int) State {
-	prevNum, exists := s[key]
+	prevNum, exists := s.EntityCounts[key]
 	if !exists {
 		prevNum = 0
 	}
 
-	s[key] = prevNum + numChange
+	s.EntityCounts[key] = prevNum + numChange
 	return s
 }
 
@@ -172,39 +178,6 @@ var (
 	RootRead = AccessLevel{User: 2, Level: 1}
 	RootExec = AccessLevel{User: 2, Level: 2}
 )
-
-// type Permission string
-
-// Implements the Unmarshaler interface of the yaml pkg.
-func (p *RBACPermission) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	var s string
-	if err := unmarshal(&s); err != nil {
-		return err
-	}
-	fields := strings.Fields(s)
-
-	if len(fields) < 2 {
-		return fmt.Errorf("RBACPermission must have at least 2 fields: verb and resource type, got %d fields", len(fields))
-	}
-
-	verb := fields[0]
-	resourceType := fields[1]
-	// TODO: resource names or scopes are not supported yet
-
-	*p = RBACPermission{
-		Verb:         verb,
-		ResourceType: resourceType,
-	}
-	return nil
-}
-
-func (p RBACPermission) Satisfies(r Condition) bool {
-	return false
-}
-
-func (p RBACPermission) IsSet() bool {
-	return false
-}
 
 type EntitiesExists []string
 
@@ -557,6 +530,50 @@ type RBACPermission struct {
 	Scope        string `json:"scope,omitzero"` // "" is invalid, "*" =cluster-wide, any string = namespaces
 }
 
+func (p RBACPermission) String() string {
+	s := fmt.Sprintf("%s %s", p.Verb, p.ResourceType)
+	if p.ResourceName != "" {
+		sep := ""
+		if p.ResourceType != "" {
+			sep = "/"
+		}
+		s += sep + p.ResourceName
+	}
+	return s
+}
+
+// Implements the Unmarshaler interface of the yaml pkg.
+func (p *RBACPermission) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var s string
+	if err := unmarshal(&s); err != nil {
+		return err
+	}
+	fields := strings.Fields(s)
+
+	if len(fields) < 2 {
+		return fmt.Errorf("RBACPermission must have at least 2 fields: verb and resource type, got %d fields", len(fields))
+	}
+
+	verb := fields[0]
+	resourceType := NormalizeResourceType(fields[1])
+
+	// TODO: resource names or scopes are not supported yet
+
+	*p = RBACPermission{
+		Verb:         verb,
+		ResourceType: resourceType,
+	}
+	return nil
+}
+
+func (p RBACPermission) Satisfies(r Condition) bool {
+	return false
+}
+
+func (p RBACPermission) IsSet() bool {
+	return false
+}
+
 // type RbacPermission struct {
 // 	Verbs         []string
 // 	ResourceTypes []string
@@ -569,16 +586,17 @@ type Identity interface {
 	GetId() string
 	GetToken() string
 	Can(verb, res string) bool
+	GetEntitlements() []RBACPermission
 }
 
 type User struct {
-	Name        string
-	Kind        IdentityType
-	IsAdmin     bool
-	CertData    []byte
-	KeyData     []byte
-	Permissions []RBACPermission
-	Token       string
+	Name         string
+	Kind         IdentityType
+	IsAdmin      bool
+	CertData     []byte
+	KeyData      []byte
+	Entitlements []RBACPermission
+	Token        string
 }
 
 // GetId implements Entity.
@@ -596,6 +614,10 @@ func (user User) GetName() string {
 	return user.Name
 }
 
+func (user User) GetEntitlements() []RBACPermission {
+	return user.Entitlements
+}
+
 var _ (Identity) = (*User)(nil)
 
 // GetToken implements Identity.
@@ -605,7 +627,7 @@ func (user User) GetToken() string {
 
 // Can implements Identity.
 func (user User) Can(verb, resource string) bool {
-	for _, perm := range user.Permissions {
+	for _, perm := range user.Entitlements {
 		// for _, v := range perm.Verbs {
 		// TODO: properly filter for scope, resource name/type + wildcards
 		if perm.Verb == "*" {
@@ -991,6 +1013,10 @@ func (sa ServiceAccount) Can(verb, resource string) bool {
 		}
 	}
 	return false
+}
+
+func (sa ServiceAccount) GetEntitlements() []RBACPermission {
+	return sa.Entitelements
 }
 
 var _ Identity = (*ServiceAccount)(nil)

@@ -31,7 +31,7 @@ type StateChanged struct {
 }
 
 func NewState() domain.State {
-	return make(domain.State)
+	return domain.State{}
 }
 
 type ContentFilterStarted struct {

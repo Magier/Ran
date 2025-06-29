@@ -54,9 +54,9 @@
 		return true;
 	}
 
-	function formatRbac(rbac: Object): string {
-		if (rbac['verb'] && rbac['resourceType']) {
-			return `${rbac['verb']} ${rbac['resourceType']}`;
+	function formatRbac(rbac: { verb?: string; resourceType?: string }): string {
+		if (rbac.verb && rbac.resourceType) {
+			return `${rbac.verb} ${rbac.resourceType}`;
 		}
 		return '';
 	}
@@ -77,7 +77,7 @@
 	</header>
 	<!-- <section class="p-4" /> -->
 	{#if ttp.requires && Object.keys(ttp.requires).length > 0}
-		<footer class="card-footer py-2">
+		<footer class="card-footer flex gap-2 py-2">
 			{#each Object.entries(ttp.requires) as [name, value]}
 				{#if !!value}
 					{#if name === 'AccessLevel'}
@@ -91,6 +91,11 @@
 							<Icon icon={'carbon-user-admin'} width="16"></Icon>
 							{formatRbac(value)}
 						</span>
+					{:else if name === 'Kind'}
+						<span class="badge bg-tertiary-950 text-tertiary-contrast-200-800">
+							<Icon icon={'carbon-hexagon-outline'} width="16"></Icon>
+							{value}
+						</span>
 					{:else if name === 'OtherFields'}
 						{#each Object.entries(value) as [name, val]}
 							<span class="chip variant-filled-surface mr-1 max-w-full truncate">
@@ -99,7 +104,8 @@
 						{/each}
 					{:else}
 						<!-- adjust chip style if the condition is fullfilled or not -->
-						<span class="chip variant-filled-surface mr-1 max-w-full truncate">
+						<span class="badge bg-surface-950 text-secondary-contrast-200-800">
+							<!-- <span class="chip variant-filled-surface mr-1 max-w-full truncate"> -->
 							{name}: {JSON.stringify(value)}
 						</span>
 					{/if}

@@ -157,21 +157,6 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 	}
 	sa.Entitelements = entitlements
 
-	// TODO: move this to the generic entitlement management, whenever something changes
-	for _, entitlement := range entitlements {
-		if entitlement.ResourceType == "pods/exec" {
-			relations = append(relations, domain.CanAccess{
-				SourceId: sa.GetId(),
-				// TODO: target must be the exact resource, not the generic resource type
-				// TargetId:    entitlement.ResourceName,
-				AccessLevel: domain.UserExec,
-				// Identity:    sa.GetId(),
-			})
-		}
-	}
-
-	// TODO: add all the relationships here
-
 	entities = append(entities, ns, sa)
 	return NewFacts{
 		Entities:  entities,

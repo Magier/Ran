@@ -171,7 +171,6 @@ export namespace domain {
 	    Kind: string;
 	    accessLevel: AccessLevel;
 	    rbac: RBACPermission;
-	    State: Record<string, number>;
 	    Exists: string[];
 	    OtherFields: Record<string, any>;
 	
@@ -184,7 +183,6 @@ export namespace domain {
 	        this.Kind = source["Kind"];
 	        this.accessLevel = this.convertValues(source["accessLevel"], AccessLevel);
 	        this.rbac = this.convertValues(source["rbac"], RBACPermission);
-	        this.State = source["State"];
 	        this.Exists = source["Exists"];
 	        this.OtherFields = source["OtherFields"];
 	    }
@@ -206,6 +204,20 @@ export namespace domain {
 		    }
 		    return a;
 		}
+	}
+	export class State {
+	    entitlements?: Record<string, string[]>;
+	    entityCounts?: Record<string, number>;
+	
+	    static createFrom(source: any = {}) {
+	        return new State(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entitlements = source["entitlements"];
+	        this.entityCounts = source["entityCounts"];
+	    }
 	}
 	export class TTP {
 	    id: string;
