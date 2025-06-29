@@ -32,6 +32,36 @@ func GetResourceShortName(kind string) string {
 		return k
 	}
 }
+
+func NormalizeResourceType(kind string) string {
+	if kind == "" {
+		return ""
+	}
+
+	kind = strings.ToLower(kind)
+	subResource := ""
+	if strings.Contains(kind, "/") {
+		parts := strings.Split(kind, "/")
+		if len(parts) > 1 {
+			subResource = parts[len(parts)-1]
+			kind = strings.Join(parts[:len(parts)-1], "/")
+		}
+	}
+
+	if strings.HasSuffix(kind, "y") && !strings.ContainsAny(string(kind[len(kind)-2]), "aeiou") {
+		kind = kind[:len(kind)-1] + "ies"
+	} else if !strings.HasSuffix(kind, "s") {
+		kind = kind + "s"
+	}
+
+	// re-assembled to full resource/subresource string
+	if subResource != "" {
+		kind = kind + "/" + subResource
+	}
+
+	return kind
+}
+
 func CleanEventName(s string) string {
 	// remove the "domain." prefix if present
 	s = strings.TrimPrefix(s, "domain.")

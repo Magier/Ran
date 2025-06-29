@@ -79,9 +79,9 @@ func renderServiceAccount(sa domain.ServiceAccount) string {
 		"Node: " + sa.Token.Kubernetes.Node.Name,
 	}
 
-	if len(sa.Can) > 0 {
+	if len(sa.Entitelements) > 0 {
 		lines = append(lines, "Can: ")
-		for _, rule := range sa.Can {
+		for _, rule := range sa.Entitelements {
 			lines = append(lines, fmt.Sprintf("\t - %s: %s", rule.Verb, rule.ResourceType))
 		}
 	}

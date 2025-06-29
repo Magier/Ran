@@ -125,3 +125,70 @@ func TestUpdateEntity_OwnableMergesOwner(t *testing.T) {
 		t.Errorf("Expected Owner to be merged from other, got %+v", merged.Owner)
 	}
 }
+func TestNormalizeResourceType(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple singular resource",
+			input:    "pod",
+			expected: "pods",
+		},
+		{
+			name:     "already plural resource",
+			input:    "pods",
+			expected: "pods",
+		},
+		{
+			name:     "resource ending with y",
+			input:    "policy",
+			expected: "policies",
+		},
+		{
+			name:     "resource ending with y, vowel before y",
+			input:    "key",
+			expected: "keys",
+		},
+		{
+			name:     "resource with subresource",
+			input:    "pod/exec",
+			expected: "pods/exec",
+		},
+		{
+			name:     "resource with subresource ending with y",
+			input:    "policy/status",
+			expected: "policies/status",
+		},
+		{
+			name:     "resource with subresource already plural",
+			input:    "pods/logs",
+			expected: "pods/logs",
+		},
+		{
+			name:     "resource with uppercase letters",
+			input:    "Deployment",
+			expected: "deployments",
+		},
+		{
+			name:     "resource with uppercase and subresource",
+			input:    "Deployment/Status",
+			expected: "deployments/status",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := NormalizeResourceType(tt.input)
+			if result != tt.expected {
+				t.Errorf("NormalizeResourceType(%q) = %q; want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}

@@ -117,7 +117,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.availableIdentities = len(identities)
 		activeIdentity, ok := m.c.GetActiveIdentity()
 		if ok {
-			m.identityStatus.title = activeIdentity.Name
+			m.identityStatus.title = activeIdentity.GetId()
 			m.identityStatus.color = activeColorConfig
 		}
 	case tea.MouseMsg:

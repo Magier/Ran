@@ -280,6 +280,24 @@ func (a *App) GetApplicableTTPs(targetId string) []domain.TTP {
 	target, _ := a.ran.Campaign.GetEntityById(targetId)
 	state := domain.State{}
 	accessLevel := domain.UserExec
+
+	// TODO: this uses RBACPerm.String() to check for equality, however, it does not consider the scope of the permission
+	// Implement a more robust way to check "satisfaction" of permissions, that supports scope and wildcards
+	identities := a.ran.Campaign.GetIdentities()
+	entitlements := make(map[string][]string)
+	for _, identity := range identities {
+		for _, e := range identity.GetEntitlements() {
+			ids := []string{}
+			if existingIds, ok := entitlements[e.String()]; ok {
+				ids = existingIds
+			}
+			// TODO: some system:authorized entitlements are double per identity
+			ids = append(ids, identity.GetId())
+			entitlements[e.String()] = ids
+		}
+	}
+	state.Entitlements = entitlements
+
 	for _, ttp := range a.ran.Armory.GetTTPs() {
 		isSatisfied := ttp.Requires.Satisfied(target, accessLevel, state)
 		if isSatisfied && ttp.Status != "disabled" {
