@@ -719,7 +719,7 @@ func (c Campaign) syncCapabilities() error {
 	pods := c.GetPods()
 
 	for _, identity := range c.identities {
-		if identity.Can("create", "pod/exec") {
+		if identity.Can("create", "pods/exec") {
 			for _, p := range pods {
 				accessRelations = append(accessRelations, domain.CanAccess{
 					SourceId:    c2.GetId(),
