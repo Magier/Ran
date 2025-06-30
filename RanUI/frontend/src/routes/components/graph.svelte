@@ -88,6 +88,13 @@
 				cy.json({
 					elements: { nodes: graph.nodes.map(toCyNode), edges: graph.edges.map(toCyEdge) }
 				});
+
+				// update the currently selected node
+				if (selectedNode !== undefined) {
+					console.log('Selected node: ', selectedNode);
+					const el = graph.nodes.find((n) => n.id === selectedNodeId);
+					selectedNode = el;
+				}
 			}
 
 			cy.layout(layout).run();
