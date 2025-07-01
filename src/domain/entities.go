@@ -55,7 +55,11 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 	if r.RBACPermission.Verb != "" {
 		_, ok := state.Entitlements[r.RBACPermission.String()]
 		if !ok {
-			return false
+			// TODO: temporary workaround to check for wildcard permissions
+			nsAdmin := RBACPermission{Verb: "*", ResourceType: "*"}
+			if _, ok := state.Entitlements[nsAdmin.String()]; !ok {
+				return false
+			}
 		}
 	}
 

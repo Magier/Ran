@@ -162,11 +162,7 @@
 	});
 </script>
 
-<div
-	id="graph"
-	class={['bg-tertiary-surface-800-200', 'border-1', 'border-solid', className]}
-	bind:this={graphContainer}
-></div>
+<div id="graph" class={['bg-tertiary-surface-800-200', className]} bind:this={graphContainer}></div>
 
 <style>
 	#graph {
