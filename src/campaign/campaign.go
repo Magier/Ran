@@ -233,16 +233,24 @@ func (c *Campaign) GetAuditTrail() AuditTrail {
 }
 
 func (c *Campaign) AddEntities(entities ...domain.Entity) int {
-	for _, entity := range entities {
-		if identity, ok := entity.(domain.Identity); ok {
-			c.identities[identity.GetId()] = identity
-		}
-	}
 
 	numChanges, err := c.kb.AddEntities(entities...)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to insert %d entities: %v", len(entities), err))
 	}
+
+	// silly workaraound to ensure that all identities are kept up to date
+	for _, entity := range entities {
+		if identity, ok := entity.(domain.Identity); ok {
+			// add/update all identities, that are part of the entity
+			if e, ok := c.GetEntityById(identity.GetId()); ok {
+				if id, ok := e.(domain.Identity); ok {
+					c.identities[identity.GetId()] = id
+				}
+			}
+		}
+	}
+
 	return numChanges
 }
 func (c *Campaign) RemoveEntities(entities ...domain.Entity) int {
