@@ -306,18 +306,19 @@ func analyzeServiceAccountToken(token string) (NewFacts, error) {
 }
 
 func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
-	var results []string = ev.Results
-
-	if len(results) == 0 {
+	if len(ev.Results) == 0 {
 		return NewFacts{}, RemovedFacts{}, fmt.Errorf("no results found for TTP execution %s, so nothing to analyze", ev.TTP.ID)
 	}
-	res := ev.Results[0]
+	errMsg := ev.Results[0]
+	if errMsg == "" && len(ev.Results) > 1 { // maybe the information is in stderr
+		errMsg = ev.Results[1]
+	}
 
 	entities := make([]domain.Entity, 0)
 	relations := make([]domain.Relation, 0)
 
 	// the tool part of the procedure was not on the target system
-	if strings.Contains(res, fmt.Sprintf("%s: not found", ev.Procedure.GetTool())) {
+	if strings.Contains(errMsg, fmt.Sprintf("%s: not found", ev.Procedure.GetTool())) {
 		// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
 		// "bash: wget: command not found"  on nginx pod
 		target := ev.Target
@@ -331,20 +332,40 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 
 	// TTP failed at the Kubernetes API server for various reasons (RBAC, admission control, etc.)
 	// find out which type of error it was
-	if strings.Contains(res, "Error from server (Forbidden)") {
+	if strings.Contains(errMsg, "Error from server (Forbidden)") {
 		// examples:
 		// "command terminated with exit code 1: 'Error from server (Forbidden): pods is forbidden: User \"system:serviceaccount:dev:default\" cannot list resource \"pods\" in API group \"\" in the namespace \"dev\"\n'"
-		if strings.Contains(results[0], "is forbidden: User") { // heuristic: use this as hint for RBAC issue
-			if sa, err := parseViolatingRBACIdentity(results[0]); err == nil {
+		if strings.Contains(errMsg, "is forbidden: User") { // heuristic: use this as hint for RBAC issue
+			if sa, err := parseViolatingRBACIdentity(errMsg); err == nil {
 				entities = append(entities, sa)
 			} else {
 				slog.Error(fmt.Sprintf("Failed to parse RBAC identity from error message: %s", err.Error()))
 			}
 		}
+
+		// check for PSA failure
+		podSecurityViolationPattern := regexp.MustCompile(`violates PodSecurity "([^"]+)": (.+)`)
+		matches := podSecurityViolationPattern.FindStringSubmatch(errMsg)
+		if len(matches) >= 3 {
+			securityProfile := matches[1] // e.g., "baseline:latest"
+			violationReason := matches[2] // e.g., "privileged ..."
+			slog.Error(fmt.Sprintf("Pod creation failed due to security violation - Profile: %s, Reason: %s",
+				securityProfile, violationReason))
+
+			if target, ok := ev.Target.(domain.Namespaced); ok {
+				ns := domain.Namespace{Name: target.GetNamespace(), EnforcedPSS: securityProfile}
+				entities = append(entities, ns)
+			} else if nsName, ok := ev.Args["Namespace"]; ok {
+				ns := domain.Namespace{Name: nsName, EnforcedPSS: securityProfile}
+				entities = append(entities, ns)
+			} else {
+				slog.Error("No namespace found in event target or args")
+			}
+		}
 	}
 
 	// TTP specific error: could not transfer tool to the target system
-	if strings.Contains(res, " is not writeable") {
+	if strings.Contains(errMsg, " is not writeable") {
 		target := ev.Target
 		if p, ok := target.(domain.Pod); ok {
 			p.ReadOnlyRootFilesystem.Update(.3) // belief update that this flag is set
