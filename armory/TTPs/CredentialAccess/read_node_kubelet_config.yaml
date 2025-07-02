@@ -1,5 +1,5 @@
-name: Read Kubelet.config
-description: Reads the kubelet.conf from the filesystem of a node
+name: Read Sensitive File
+description: Reads the kubeconfig from the filesystem of a node
 tactic: Credential Access
 techniques: ["Steal Application Access Token", "T1528"]
 parameters:
@@ -10,7 +10,8 @@ parameters:
   PATH:
     type: string
     description: the path to the service account
-    default: "/etc/kubernetes/kubelet.conf"
+    default: "/etc/kubernetes/super-admin.conf"
+    # default: "/etc/kubernetes/kubelet.conf"
 procedures:
   - key: cat
     command: cat ${MOUNT_PATH}${PATH}
@@ -20,7 +21,7 @@ preconditions:
   accessLevel: user-read
   kind: Node
 effects:
-  - file:kubelet.config
+  - file:kubeconfig
 
 # dependencies:
 #   - type: Kubernetes Pod

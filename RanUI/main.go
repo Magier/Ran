@@ -40,8 +40,8 @@ func main() {
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  "RanUI",
-		Width:  1024,
-		Height: 768,
+		Width:  1600,
+		Height: 1024,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

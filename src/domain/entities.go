@@ -672,6 +672,7 @@ type Pod struct {
 	VolumeMounts                 []Mount           `json:"volumeMounts,omitzero"`
 	HostPaths                    []string          `json:"hostPaths,omitzero"` // Paths on the host that are mounted into the pod
 	Binaries                     map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
+	Files                        []string          `json:"files,omitzero"`     // List of files on the node
 	Containers                   []v1.Container    `json:"containers,omitzero"`
 	HostIP                       net.IPAddr        `json:"hostIP,omitzero"`
 	Phase                        string            `json:"phase,omitzero"`
@@ -877,6 +878,7 @@ type K8sNode struct {
 	UID string
 	K8sEntity
 	ResourceOwner
+	Files []string `json:"files,omitzero"` // List of files on the node
 }
 
 func (n K8sNode) IsNamespaced() bool { return false }

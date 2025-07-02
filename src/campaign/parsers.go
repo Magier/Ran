@@ -12,6 +12,7 @@ import (
 	"github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
 	k8s_types "github.com/Magier/Ran/k8sclient/types"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 func GetParser(parserName string) domain.ParserFn {
@@ -521,6 +522,54 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				entities = append(entities, pod)
 			}
 		}
+	case "files":
+		res := strings.Trim(results[0], "\n")
+		files := strings.Split(res, "\n")
+
+		switch e := source.(type) {
+		case domain.K8sNode:
+			e.Files = files
+			entities = append(entities, e)
+		case domain.Pod:
+			e.Files = files
+			entities = append(entities, e)
+		}
+	case "file:kubeconfig":
+		if len(results[0]) > 0 {
+			config, err := loadKubeConfigFromString(results[0])
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to load kubeconfig: %v", err))
+			} else {
+				// Extract AuthInfo (user) from kubeconfig
+				rawConfig, err := config.RawConfig()
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failed to get raw kubeconfig: %v", err))
+				} else {
+					currentContext := rawConfig.CurrentContext
+					ctx := rawConfig.Contexts[currentContext]
+					if ctx != nil {
+						cluster := domain.Cluster{
+							Name: ctx.Cluster,
+						}
+						entities = append(entities, cluster)
+
+						authInfo := ctx.AuthInfo
+						user := domain.User{
+							Name:     authInfo,
+							IsAdmin:  true, // TODO: infer if the user is admin based on the kubeconfig
+							CertData: rawConfig.AuthInfos[authInfo].ClientCertificateData,
+							KeyData:  rawConfig.AuthInfos[authInfo].ClientKeyData,
+						}
+						entities = append(entities, user)
+
+						relations = append(relations, domain.Contains{
+							Container: cluster,
+							Object:    user,
+						})
+					}
+				}
+			}
+		}
 	}
 
 	newFacts := NewFacts{}
@@ -532,6 +581,15 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	}
 
 	return newFacts, removedFacts
+}
+
+func loadKubeConfigFromString(configStr string) (clientcmd.ClientConfig, error) {
+	config, err := clientcmd.NewClientConfigFromBytes([]byte(configStr))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	return config, nil
 }
 
 // Source: https://pkg.go.dev/github.com/moby/sys/mountinfo#Info for a struct that properly parses the mountinfo
