@@ -379,6 +379,8 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 		if key == "NS" || arg == "${NS}" {
 			if ns, ok := target.(domain.Namespaced); ok {
 				arg = ns.GetNamespace()
+			} else if ns, ok := target.(domain.Namespace); ok {
+				arg = ns.GetName()
 			} else if target != nil {
 				slog.Warn(fmt.Sprintf("Target '%s' is not namespaced, can't set NS variable", target.GetName()))
 			} else {
@@ -431,8 +433,8 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 					}
 				}
 			}
-		} else if strings.ToUpper(key) == "NODE" {
-			if arg == "" {
+		} else if strings.ToUpper(key) == "NODE" || strings.ToUpper(key) == "NODENAME" {
+			if arg == "" || arg == "${NODE_NAME}" {
 				if pod, ok := target.(domain.Pod); ok {
 					arg = pod.NodeName
 				}
