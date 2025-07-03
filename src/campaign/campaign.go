@@ -124,6 +124,10 @@ func (c *Campaign) SetTarget(target string) (domain.Event, error) {
 		AccessLevel: domain.UserExec,
 	}
 	initialPod.AccessLevel = domain.UserExec
+	err := c.trail.AddNewStep(domain.ExecTTP{})
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to add initial step to audit trail: %s", err.Error()))
+	}
 
 	return c.UpdateFacts(NewFacts{
 		Entities:  []domain.Entity{initialPod},
@@ -545,6 +549,41 @@ func (c Campaign) getSystemForExecution(ttp domain.TTP, target domain.Entity) (d
 		}
 	}
 
+	c2, ok := c.GetC2("Ran") // ensure the C2 is loaded
+	if !ok {
+		return nil, fmt.Errorf("C2 system 'Ran' not found in the knowledge base")
+	}
+
+	// look for paths from compromised systems to the target
+	if node, ok := target.(domain.K8sNode); ok {
+		paths, err := c.kb.GetAllPaths(c2.GetId(), node.GetId())
+
+		// entities, relations, err := c.kb.GetPath(c2.GetId(), node.GetId())
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get path from C2 to target node '%s': %s", node.GetName(), err.Error())
+		}
+
+		var _ = paths
+		for _, path := range paths {
+			// the last node is the target entity, so check if the one before that is already compromised
+
+			for _, compromisedSys := range compromisedSystems {
+				srcBeforeTarget := path.Nodes[len(path.Nodes)-2]
+				rel := path.Relations[len(path.Relations)-1]
+
+				// possible system to execution TTP from, check if relations support it
+				if compromisedSys.GetId() == srcBeforeTarget.GetId() {
+					switch rel.(type) {
+					case domain.CanAccess:
+						return compromisedSys, nil
+					case domain.MountsHostPath:
+						return compromisedSys, nil
+					}
+				}
+			}
+		}
+	}
+
 	if len(compromisedSystems) > 0 {
 		slog.Warn(fmt.Sprintf("No match for TTP execution found, using first best compromised system: %s", compromisedSystems[0].GetName()))
 		return compromisedSystems[0], nil
@@ -669,7 +708,7 @@ func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, er
 	}
 
 	for _, c2 := range kg.GetC2s() {
-		_, relations, err := kg.GetPath(c2.GetId(), target.GetId())
+		paths, err := kg.GetPath(c2.GetId(), target.GetId())
 		if err != nil {
 			if !strings.HasPrefix(err.Error(), "target vertex not reachable") {
 				slog.Debug(fmt.Sprintf("Failed to get path from '%s' to '%s'", c2.GetId(), target.GetId()))
@@ -677,8 +716,8 @@ func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, er
 			continue
 		}
 
-		if l := len(relations); l > 0 {
-			rel := relations[0]
+		if l := len(paths.Relations); l > 0 {
+			rel := paths.Relations[0]
 			if l > 1 {
 				slog.Info(fmt.Sprintf("Got %d possible channels, using 1st one", l))
 			}
