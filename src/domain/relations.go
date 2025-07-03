@@ -248,7 +248,7 @@ func (u CanAccess) GetRelationName() string {
 	return "can-access"
 }
 func (u CanAccess) GetCost() int {
-	return 100
+	return 10
 }
 
 // Utility function to provide default cost 0 for all informative relations or call the respective cost function
@@ -256,8 +256,10 @@ func GetRelationCost(relation Relation) int {
 	switch r := relation.(type) {
 	case CanAccess:
 		return r.GetCost()
+	case MountsHostPath:
+		return 10
 	}
-	return 0
+	return 1000
 }
 
 type ManagesNode struct {

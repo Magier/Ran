@@ -15,6 +15,11 @@ var WorkloadNamePattern = regexp.MustCompile(`^(?P<workload>.*)-[a-z0-9]{9}-[a-z
 type KnowledgeGraph = graph.Graph[string, domain.Entity]
 type AdjacencyList = map[string]map[string]string
 
+type Path struct {
+	Nodes     []domain.Entity
+	Relations []domain.Relation
+}
+
 type KnowledgeBase interface {
 	GetEntity(id string) (domain.Entity, bool)
 	GetC2s() []domain.C2System
@@ -29,7 +34,8 @@ type KnowledgeBase interface {
 	AddRelations(relations ...domain.Relation) (int, error)
 	RemoveRelations(relations ...domain.Relation) (int, error)
 	GetRelations() map[string]domain.Relation
-	GetPath(source, target string) ([]domain.Entity, []domain.Relation, error)
+	GetPath(source, target string) (Path, error)
+	GetAllPaths(source, target string) ([]Path, error)
 	GetIncomingEntities(entity domain.Entity, rel domain.Relation) ([]domain.Entity, error)
 	GetAdjecencyList() AdjacencyList
 }
@@ -276,6 +282,26 @@ func (kg BuiltInKnowledgeBase) AddRelations(relations ...domain.Relation) (int, 
 		err := kg.AddRelation(rel)
 		if err == nil {
 			numChanges += 1
+		} else if err.Error() == "edge already exists" {
+			paths, err := kg.GetPath(rel.GetSourceId(), rel.GetTargetId()) // ensure the edge is in the graph
+			if err != nil {
+				slog.Warn(fmt.Sprintf("~~~ Failed to get path for relation %s: %v", domain.GetRelationId(rel), err))
+			}
+			// prevEdge := kg.Relations[domain.GetRelationId(rel)]
+			prevEdge := paths.Relations[len(paths.Relations)-1] // the last relation in the path is the one we want to update
+			prevCost := domain.GetRelationCost(prevEdge)        // ensure the cost is set
+			newCost := domain.GetRelationCost(rel)
+			if prevCost > newCost {
+				slog.Warn(fmt.Sprintf("Updating edge %s -> %s with new cost %d (was %d)", domain.GetRelationId(prevEdge), domain.GetRelationId(rel), newCost, prevCost))
+				err = kg.RemoveRelation(prevEdge)
+				if err != nil {
+					slog.Warn(fmt.Sprintf("Failed to remove previous relation %s: %v", domain.GetRelationId(prevEdge), err))
+				}
+				err = kg.AddRelation(rel) // re-add the relation with the new cost
+				if err == nil {
+					numChanges += 1
+				}
+			}
 		}
 	}
 	return numChanges, nil
@@ -305,19 +331,31 @@ func (kg BuiltInKnowledgeBase) GetIncomingEntities(entity domain.Entity, rel dom
 	return incoming, nil
 }
 
-func (kg BuiltInKnowledgeBase) GetPath(source, target string) ([]domain.Entity, []domain.Relation, error) {
-	path, err := graph.ShortestPath(kg.graph, source, target)
-	var _ = path
+func (kg BuiltInKnowledgeBase) GetAllPaths(source, target string) ([]Path, error) {
+	paths, err := graph.AllPathsBetween(kg.graph, source, target)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
+	allPaths := make([]Path, 0, len(paths))
 
+	for _, path := range paths {
+		resolvedPath, err := resolvePath(kg, path, source)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve path %v: %w", path, err)
+		}
+		allPaths = append(allPaths, resolvedPath)
+	}
+	return allPaths, nil
+}
+
+func resolvePath(kg BuiltInKnowledgeBase, path []string, source string) (Path, error) {
 	adjMatrix, err := kg.graph.AdjacencyMap()
 	if err != nil {
-		return nil, nil, err
+		return Path{}, err
 	}
 
 	nodesOnPath := make([]domain.Entity, 0)
+	nodesOnPath = append(nodesOnPath, kg.Entities[source])
 	relations := make([]domain.Relation, 0)
 
 	for i := 0; i < len(path)-1; i++ {
@@ -328,11 +366,22 @@ func (kg BuiltInKnowledgeBase) GetPath(source, target string) ([]domain.Entity, 
 			if edge, ok := adjMap[targetId]; ok {
 				rel := edge.Properties.Data.(domain.Relation)
 				relations = append(relations, rel)
+				nodesOnPath = append(nodesOnPath, kg.Entities[targetId])
 			}
 		}
 	}
 
-	return nodesOnPath, relations, nil
+	return Path{
+		Nodes: nodesOnPath, Relations: relations}, nil
+}
+
+func (kg BuiltInKnowledgeBase) GetPath(source, target string) (Path, error) {
+	path, err := graph.ShortestPath(kg.graph, source, target)
+	if err != nil {
+		return Path{}, err
+	}
+
+	return resolvePath(kg, path, source)
 }
 
 // func (kg BuiltInKnowledgeBase) AddRelation() error {

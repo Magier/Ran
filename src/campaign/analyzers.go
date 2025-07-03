@@ -29,6 +29,11 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 		current := queue[i]
 		switch e := current.(type) {
 		case domain.Pod:
+			// TODO: temporary hack: update pod before analyzing, to ensure all the information is available
+			if prev, ok := c.GetEntityById(e.GetId()); ok {
+				current = domain.UpdateEntity(prev, e)
+			}
+
 			entities[queue[i].GetId()] = current
 			// TODO: check if the nodeName is present;
 			// if not, then an anonymous node should be created, which may be later consolidated using the `runs-on` relatino
@@ -427,10 +432,11 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 	}
 
 	if val, ok := ev.Args["HostPath"]; ok {
-		mountPath := ev.Args["MountPath"]
+		mountPath := ev.Args["Mount"]
 		newPod.VolumeMounts = []domain.Mount{{
-			Root:      val,
-			MountPath: mountPath,
+			Root:       val,
+			MountPath:  mountPath,
+			IsHostPath: true,
 		}}
 	}
 
