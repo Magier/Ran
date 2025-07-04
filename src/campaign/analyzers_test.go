@@ -56,10 +56,10 @@ func TestAnalyzeDeployPodFailure_NoResults(t *testing.T) {
 	if len(newFacts.Relations) != 0 {
 		t.Errorf("Expected no relations, got %v", newFacts.Relations)
 	}
-	if len(removedFacts.Entities) == 0 {
+	if len(removedFacts.Entities) != 0 {
 		t.Errorf("Expected empty RemovedFacts, got %v", removedFacts)
 	}
-	if len(removedFacts.Relations) == 0 {
+	if len(removedFacts.Relations) != 0 {
 		t.Errorf("Expected empty RemovedFacts, got %v", removedFacts)
 	}
 }
@@ -83,7 +83,7 @@ func TestAnalyzeDeployPodFailure_PodSecurityViolation(t *testing.T) {
 		Results: []string{
 			"command terminated with exit code 1: 'Error from server (Forbidden): error when creating \"STDIN\": pods \"workstation-66549c6f86-vgqch-44183\" is forbidden: violates PodSecurity \"baseline:latest\": hostPath volumes (volume \"hostmount\")\n'",
 		},
-		Target: &domain.Namespace{Name: nsName},
+		Target: domain.Namespace{Name: nsName},
 	}
 	newFacts, _, err := analyzeDeployPodFailure(event)
 	if err != nil {
@@ -158,7 +158,9 @@ func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
 				Namespace: "default",
 				Kind:      "Pod",
 			},
-			Binaries: map[string]string{},
+			System: domain.SystemImpl{
+				Binaries: map[string]string{},
+			},
 		},
 	}
 	newFacts, _, err := analyzeFailedTTPExecution(event)
@@ -172,8 +174,8 @@ func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
 	if !ok {
 		t.Fatalf("Expected entity to be Pod, got %T", newFacts.Entities[0])
 	}
-	if val, exists := pod.Binaries["kubectl"]; !exists || val != "❌" {
-		t.Errorf("Expected pod.Binaries[kubectl]=❌, got %v", pod.Binaries)
+	if val, exists := pod.System.Binaries["kubectl"]; !exists || val != "❌" {
+		t.Errorf("Expected pod.Binaries[kubectl]=❌, got %v", pod.System.Binaries)
 	}
 }
 

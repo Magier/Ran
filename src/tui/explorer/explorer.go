@@ -272,8 +272,9 @@ func getAccessLevel(entity domain.Entity) (domain.AccessLevel, bool) {
 		isPwnd = e.AccessLevel != domain.NoAccess
 		accessLevel = e.AccessLevel
 	case domain.System:
-		isPwnd = e.AccessLevel != domain.NoAccess
-		accessLevel = e.AccessLevel
+		al := e.GetAccessLevel()
+		isPwnd = al != domain.NoAccess
+		accessLevel = al
 	}
 	return accessLevel, isPwnd
 }
