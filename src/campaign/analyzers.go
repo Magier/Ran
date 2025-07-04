@@ -179,20 +179,20 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 // See [docs: Container Environmeent](https://kubernetes.io/docs/concepts/containers/container-environment/) for more.
 // :param event: EnvironmentVariablesReceived  event with the source system and the variables
 // returns a new event with new facts, if there were any
-func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (NewFacts, RemovedFacts, error) {
+func analyzeEnvironmentVariables(source domain.Entity, envVars map[string]string) (NewFacts, RemovedFacts, error) {
 	entities := make([]domain.Entity, 0)
 	relations := make([]domain.Relation, 0)
 
 	// TODO: how can it be inferred, if it's from a K8s pod vs any *nix-based system?
 
-	srcPod := ev.Source.(domain.Pod)
-	hostname, found := ev.Vars["HOSTNAME"]
+	srcPod := source.(domain.Pod)
+	hostname, found := envVars["HOSTNAME"]
 	if found {
 		srcPod.HostName = hostname
 	}
 
 	nsName := srcPod.GetNamespace()
-	srcPod.EnvVars = ev.Vars
+	srcPod.System.EnvVars = envVars
 	entities = append(entities, srcPod)
 
 	// TODO: parse variables ending with '.svc.cluster.local'
@@ -203,7 +203,7 @@ func analyzeEnvironmentVariables(ev domain.EnvVarsExtracted) (NewFacts, RemovedF
 	// pod = System(id=event.sourceSystemId, name=podName, ns=ns)
 
 	// services = getServicesFromEnvVars(event.variables)
-	services := getServicesFromEnvVars(ev.Vars)
+	services := getServicesFromEnvVars(envVars)
 
 	for svcName, info := range services {
 		rel := domain.Reference{
@@ -328,7 +328,7 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 		// "bash: wget: command not found"  on nginx pod
 		target := ev.Target
 		if p, ok := target.(domain.Pod); ok {
-			p.Binaries[ev.Procedure.GetTool()] = "❌"
+			p.System.Binaries[ev.Procedure.GetTool()] = "❌"
 			entities = append(entities, p)
 		} else {
 			panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, target.GetId()))
@@ -467,6 +467,9 @@ func analyzeDeployPodFailure(event domain.TTPExecuted) (NewFacts, RemovedFacts, 
 
 				if target, ok := event.Target.(domain.Namespaced); ok {
 					ns := domain.Namespace{Name: target.GetNamespace(), EnforcedPSS: securityProfile}
+					entities = append(entities, ns)
+				} else if ns, ok := event.Target.(domain.Namespace); ok {
+					ns.EnforcedPSS = securityProfile
 					entities = append(entities, ns)
 				} else if nsName, ok := event.Args["Namespace"]; ok {
 					ns := domain.Namespace{Name: nsName, EnforcedPSS: securityProfile}

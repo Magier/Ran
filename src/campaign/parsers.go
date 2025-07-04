@@ -19,10 +19,10 @@ func GetParser(parserName string) domain.ParserFn {
 	switch parserName {
 	// case "rawServiceaccountToken":
 	// 	return HandleSaTokenRead
-	case "environmentVariables":
-		return HandleEnvVarResult
-		// case "selfSubjectReview", "authCanI":
-		// return HandleSelfSubjectReviewResult
+	// case "environmentVariables":
+	// 	return HandleEnvVarResult
+	// case "selfSubjectReview", "authCanI":
+	// return HandleSelfSubjectReviewResult
 	// case "newContainer":
 
 	case "newRole":
@@ -37,13 +37,16 @@ func GetParser(parserName string) domain.ParserFn {
 	return nil
 }
 
-func HandleEnvVarResult(ev domain.TTPExecuted, source domain.Entity, _ map[string]string, results ...string) (domain.Event, error) {
+func ParseEnvVarResult(_ map[string]string, results ...string) (map[string]string, error) {
 	if len(results) == 0 {
 		return nil, errors.New("No environment variables received!")
 	}
-	stderr := results[1]
-	if stderr != "" {
-		return nil, errors.New(stderr)
+
+	if len(results) > 1 {
+		stderr := results[1]
+		if stderr != "" {
+			return nil, errors.New(stderr)
+		}
 	}
 
 	stdout := results[0]
@@ -61,10 +64,7 @@ func HandleEnvVarResult(ev domain.TTPExecuted, source domain.Entity, _ map[strin
 		}
 	}
 
-	return domain.EnvVarsExtracted{
-		Source: source,
-		Vars:   vars,
-	}, nil
+	return vars, nil
 }
 
 func parseRawServiceAccountToken(args ...string) (domain.ServiceAccountToken, error) {
@@ -400,7 +400,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				}
 				ips = append(ips, net.IPAddr{IP: parsedIP})
 			}
-			pod.IPs = ips
+			pod.System.IPs = ips
 			entities = append(entities, pod)
 		}
 	case "target.hasbinary":
@@ -423,7 +423,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				// TODO: get the path from the SRC_PATH?
 				slog.Warn("No DST_PATH provided, and extraction from SRC_PATh is not yet implemented!")
 			}
-			pod.Binaries[binaryName] = dstPath
+			pod.System.Binaries[binaryName] = dstPath
 			entities = append(entities, pod)
 		} else {
 			slog.Warn("The source of the hasBinary effect is not a Pod!")
@@ -512,6 +512,27 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				entities = append(entities, domain.NewK8sNodeFromK8sSpec(node))
 			}
 		}
+	case "sys.envvar":
+		envVars, err := ParseEnvVarResult(args, res)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not parse environment variable: %v", err))
+		}
+
+		_, isSys := source.(domain.System)
+		var _ = isSys
+
+		if sys, ok := source.(domain.System); ok {
+			sys.SetEnvironmentVariables(envVars)
+			newFacts, _, err := analyzeEnvironmentVariables(source, envVars)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failure analyzing environment variables %v", err))
+			} else {
+				entities = append(entities, newFacts.Entities...)
+				relations = append(relations, newFacts.Relations...)
+			}
+		} else {
+			panic("The source should implement the System interface!")
+		}
 	case "linux.mounts":
 		if pod, ok := source.(domain.Pod); ok {
 			mounts, err := parseLinuxMounts(res)
@@ -528,10 +549,10 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 
 		switch e := source.(type) {
 		case domain.K8sNode:
-			e.Files = files
+			e.System.Files = files
 			entities = append(entities, e)
 		case domain.Pod:
-			e.Files = files
+			e.System.Files = files
 			entities = append(entities, e)
 		}
 	case "file:kubeconfig":

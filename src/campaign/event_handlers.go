@@ -161,11 +161,11 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 			accessLevel = domain.RootExec
 		}
 
-		system = domain.System{
-			Name:        ev.Session.Hostname,
+		system = domain.UnknownSystem{SystemImpl: domain.SystemImpl{
+			HostName:    ev.Session.Hostname,
 			OS:          ev.Session.Os,
 			AccessLevel: accessLevel,
-		}
+		}}
 	}
 
 	// TODO: analyze session:
@@ -205,14 +205,14 @@ func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) 
 	return nil, nil
 }
 
-func (c *Campaign) onEnvVarsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
-	newFacts, removedFacts, err := analyzeEnvironmentVariables(msg.(domain.EnvVarsExtracted))
-	if err != nil {
-		return nil, err
-	} else {
-		return c.UpdateFacts(newFacts, removedFacts)
-	}
-}
+// func (c *Campaign) onEnvVarsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
+// 	newFacts, removedFacts, err := analyzeEnvironmentVariables(msg.(domain.EnvVarsExtracted))
+// 	if err != nil {
+// 		return nil, err
+// 	} else {
+// 		return c.UpdateFacts(newFacts, removedFacts)
+// 	}
+// }
 
 // func (c *Campaign) onServiceAccountTokenExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
 // 	ev := msg.(domain.ServiceAccountTokenExtracted)

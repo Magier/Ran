@@ -290,23 +290,58 @@ type Ownable interface {
 	SetOwner(name, kind string) OwnerRef
 }
 
-type System struct {
-	Name        string
+type System interface {
+	Entity
+	SetEnvironmentVariables(map[string]string)
+	GetAccessLevel() AccessLevel
+}
+
+type UnknownSystem struct {
+	SystemImpl
+}
+
+func (s UnknownSystem) GetId() string {
+	return "???"
+}
+func (s UnknownSystem) GetName() string {
+	return s.HostName
+}
+
+func (s UnknownSystem) GetKind() string {
+	return "UnknownSystem"
+}
+
+var _ Entity = (*UnknownSystem)(nil)
+
+type SystemImpl struct {
+	HostName    string
 	OS          string
-	IPs         []net.IP
+	IPs         []net.IPAddr
+	EnvVars     map[string]string `json:"envVars,omitzero"`
+	Binaries    map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
+	Files       []string          `json:"files,omitzero"`     // List of files on the node
+	Mounts      []Mount           `json:"volumeMounts,omitzero"`
 	AccessLevel AccessLevel
 }
 
-func (s System) GetId() string {
-	return "system/" + s.Name
-}
-func (s System) GetName() string {
-	return s.Name
+func (s SystemImpl) GetAccessLevel() AccessLevel {
+	return s.AccessLevel
 }
 
-func (s System) GetKind() string {
-	return "System"
+func (s *SystemImpl) SetEnvironmentVariables(vars map[string]string) {
+	s.EnvVars = vars
 }
+
+// func (s System) GetId() string {
+// 	return "system/" + s.Name
+// }
+// func (s System) GetName() string {
+// 	return s.Name
+// }
+
+// func (s System) GetKind() string {
+// 	return "System"
+// }
 
 type C2System struct {
 	Kind string
@@ -656,31 +691,41 @@ type Mount struct {
 
 type Pod struct {
 	K8sEntity
+	System SystemImpl
+	// IPs                          []net.IPAddr      `json:"ips,omitzero"`
+	// EnvVars                      map[string]string `json:"envVars,omitzero"`
+	// Binaries map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
+	// Files    []string          `json:"files,omitzero"`     // List of files on the node
+	// Mounts   []Mount           `json:"volumeMounts,omitzero"`
 	// NamespacedResource
-	Spec                         v1.PodSpec        `json:"spec,omitzero"`
-	IPs                          []net.IPAddr      `json:"ips,omitzero"`
-	EnvVars                      map[string]string `json:"envVars,omitzero"`
-	ServiceAccountName           string            `json:"serviceAccountName,omitzero"`
-	AutomountServiceAccountToken ProbBool          `json:"automountServiceAccountToken,omitzero"`
-	HostName                     string            `json:"hostName,omitzero"`
-	NodeName                     string            `json:"nodeName,omitzero"`
-	Privileged                   ProbBool          `json:"privileged,omitzero"`
-	HostPID                      ProbBool          `json:"hostPID,omitzero"`
-	HostIPC                      ProbBool          `json:"hostIPC,omitzero"`
-	HostNetwork                  ProbBool          `json:"hostNetwork,omitzero"`
-	ReadOnlyRootFilesystem       ProbBool          `json:"readOnlyRootFilesystem,omitzero"`
-	VolumeMounts                 []Mount           `json:"volumeMounts,omitzero"`
-	HostPaths                    []string          `json:"hostPaths,omitzero"` // Paths on the host that are mounted into the pod
-	Binaries                     map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
-	Files                        []string          `json:"files,omitzero"`     // List of files on the node
-	Containers                   []v1.Container    `json:"containers,omitzero"`
-	HostIP                       net.IPAddr        `json:"hostIP,omitzero"`
-	Phase                        string            `json:"phase,omitzero"`
-	IsRunning                    bool              `json:"isRunning"`
+	Spec                         v1.PodSpec     `json:"spec,omitzero"`
+	ServiceAccountName           string         `json:"serviceAccountName,omitzero"`
+	AutomountServiceAccountToken ProbBool       `json:"automountServiceAccountToken,omitzero"`
+	HostName                     string         `json:"hostName,omitzero"`
+	NodeName                     string         `json:"nodeName,omitzero"`
+	Privileged                   ProbBool       `json:"privileged,omitzero"`
+	HostPID                      ProbBool       `json:"hostPID,omitzero"`
+	HostIPC                      ProbBool       `json:"hostIPC,omitzero"`
+	HostNetwork                  ProbBool       `json:"hostNetwork,omitzero"`
+	ReadOnlyRootFilesystem       ProbBool       `json:"readOnlyRootFilesystem,omitzero"`
+	VolumeMounts                 []Mount        `json:"volumeMounts,omitzero"`
+	HostPaths                    []string       `json:"hostPaths,omitzero"` // Paths on the host that are mounted into the pod
+	Containers                   []v1.Container `json:"containers,omitzero"`
+	HostIP                       net.IPAddr     `json:"hostIP,omitzero"`
+	Phase                        string         `json:"phase,omitzero"`
+	IsRunning                    bool           `json:"isRunning"`
 	// Devices                      []string          `json:"devices,omitzero"`
 }
 
 var _ Namespaced = (*Pod)(nil)
+var _ System = (*Pod)(nil)
+
+func (p Pod) GetAccessLevel() AccessLevel {
+	return p.System.GetAccessLevel()
+}
+func (p *Pod) SetEnvironmentVariables(vars map[string]string) {
+	p.System.SetEnvironmentVariables(vars)
+}
 
 type PodConfig struct {
 	Image          string
@@ -698,7 +743,10 @@ type PodConfig struct {
 func NewPod(name, ns string) Pod {
 	entity := NewK8sEntity(name, "Pod", ns)
 	return Pod{
-		K8sEntity:                    entity,
+		K8sEntity: entity,
+		System: SystemImpl{
+			Binaries: make(map[string]string),
+		},
 		AutomountServiceAccountToken: NewProbBool(),
 		Privileged:                   NewProbBool(),
 		HostPID:                      NewProbBool(),
@@ -706,7 +754,6 @@ func NewPod(name, ns string) Pod {
 		HostNetwork:                  NewProbBool(),
 		ReadOnlyRootFilesystem:       NewProbBool(),
 		IsRunning:                    true,
-		Binaries:                     make(map[string]string),
 	}
 }
 
@@ -773,7 +820,11 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 	slog.Warn(">> Pod volumes are not fully supported yet!!")
 
 	return Pod{
-		K8sEntity:              entity,
+		K8sEntity: entity,
+		System: SystemImpl{ // TODO: fill in the system details
+			Binaries: make(map[string]string),
+			IPs:      []net.IPAddr{{IP: net.ParseIP(p.Status.PodIP)}},
+		},
 		HostPID:                AsProbBool(p.Spec.HostPID),
 		HostIPC:                AsProbBool(p.Spec.HostIPC),
 		HostNetwork:            AsProbBool(p.Spec.HostNetwork),
@@ -781,9 +832,7 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 		NodeName:               p.Spec.NodeName,
 		VolumeMounts:           mounts,
 		Privileged:             isPriv,
-		IPs:                    []net.IPAddr{{IP: net.ParseIP(p.Status.PodIP)}},
 		HostIP:                 net.IPAddr{IP: net.ParseIP(p.Status.HostIP)},
-		Binaries:               make(map[string]string),
 		Containers:             p.Spec.Containers,
 		Phase:                  string(p.Status.Phase),
 		IsRunning:              p.Status.Phase == v1.PodRunning,
@@ -878,7 +927,7 @@ type K8sNode struct {
 	UID string
 	K8sEntity
 	ResourceOwner
-	Files []string `json:"files,omitzero"` // List of files on the node
+	System SystemImpl
 }
 
 func (n K8sNode) IsNamespaced() bool { return false }

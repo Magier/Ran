@@ -18,7 +18,7 @@ func TestParseTargetIPsReceivedEffect(t *testing.T) {
 
 	e := new.Entities[0]
 	if pod, ok := e.(domain.Pod); ok {
-		if len(pod.IPs) != 2 {
+		if len(pod.System.IPs) != 2 {
 			t.Fatalf("Expected 2 IPs as a result")
 		}
 	}
