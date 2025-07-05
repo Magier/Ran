@@ -387,9 +387,8 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	entities := []domain.Entity{}
 	relations := []domain.Relation{}
 	switch strings.ToLower(effect) {
-	// TODO: set these 'attribute' effects via reflection
 	case "target.ip":
-		if pod, ok := source.(domain.Pod); ok {
+		if sys, ok := source.(domain.System); ok {
 			ips := []net.IPAddr{}
 			res := results[0]
 			for _, ip := range strings.Split(res, " ") {
@@ -400,12 +399,11 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				}
 				ips = append(ips, net.IPAddr{IP: parsedIP})
 			}
-			pod.System.IPs = ips
-			entities = append(entities, pod)
+			sys.SetIPs(ips)
+			entities = append(entities, sys)
 		}
 	case "target.hasbinary":
-		// "target.hasBinary"
-		if pod, ok := source.(domain.Pod); ok {
+		if sys, ok := source.(domain.Pod); ok {
 			binaryName := ""
 			dstPath := args["DST_PATH"]
 
@@ -423,8 +421,8 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				// TODO: get the path from the SRC_PATH?
 				slog.Warn("No DST_PATH provided, and extraction from SRC_PATh is not yet implemented!")
 			}
-			pod.System.Binaries[binaryName] = dstPath
-			entities = append(entities, pod)
+			sys.Binaries[binaryName] = dstPath
+			entities = append(entities, sys)
 		} else {
 			slog.Warn("The source of the hasBinary effect is not a Pod!")
 		}
@@ -518,9 +516,6 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			slog.Error(fmt.Sprintf("Could not parse environment variable: %v", err))
 		}
 
-		_, isSys := source.(domain.System)
-		var _ = isSys
-
 		if sys, ok := source.(domain.System); ok {
 			sys.SetEnvironmentVariables(envVars)
 			newFacts, _, err := analyzeEnvironmentVariables(source, envVars)
@@ -549,10 +544,10 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 
 		switch e := source.(type) {
 		case domain.K8sNode:
-			e.System.Files = files
+			e.Files = files
 			entities = append(entities, e)
 		case domain.Pod:
-			e.System.Files = files
+			e.Files = files
 			entities = append(entities, e)
 		}
 	case "file:kubeconfig":

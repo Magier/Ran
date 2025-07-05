@@ -53,11 +53,11 @@ func TestParseEffect_TargetIP(t *testing.T) {
 	if !ok {
 		t.Fatalf("Expected entity to be Pod")
 	}
-	if len(pod.System.IPs) != 2 {
-		t.Fatalf("Expected 2 IPs, got %d", len(pod.System.IPs))
+	if len(pod.IPs) != 2 {
+		t.Fatalf("Expected 2 IPs, got %d", len(pod.IPs))
 	}
-	if pod.System.IPs[0].IP.String() != "10.0.0.1" || pod.System.IPs[1].IP.String() != "10.0.0.2" {
-		t.Fatalf("Unexpected IPs: %+v", pod.System.IPs)
+	if pod.IPs[0].IP.String() != "10.0.0.1" || pod.IPs[1].IP.String() != "10.0.0.2" {
+		t.Fatalf("Unexpected IPs: %+v", pod.IPs)
 	}
 	if len(removedFacts.Entities) != 0 {
 		t.Fatalf("Expected 0 removed entities")

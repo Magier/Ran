@@ -35,7 +35,7 @@ func renderEntity(entity domain.Entity) string {
 
 func renderPod(e domain.Pod) string {
 	ips := []string{}
-	for _, ip := range e.System.IPs {
+	for _, ip := range e.IPs {
 		ips = append(ips, ip.String())
 	}
 
@@ -48,7 +48,7 @@ func renderPod(e domain.Pod) string {
 		"HostPID: " + strOrDefault(e.HostPID.String(), "?"),
 		"HostIPC: " + strOrDefault(e.HostIPC.String(), "?"),
 		"HostNetwork: " + strOrDefault(e.HostNetwork.String(), "?"),
-		"AccessLevel: " + e.System.AccessLevel.String(),
+		"AccessLevel: " + e.AccessLevel.String(),
 	}
 
 	// e.EnvVars

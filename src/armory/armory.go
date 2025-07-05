@@ -40,11 +40,12 @@ func (a *Armory) Load() error {
 		return errors.New("Couldn't load armory: " + err.Error())
 	}
 
-	toolTTPs, err := loadTools(filepath.Join(a.SrcDir, "tools"))
-	if err != nil {
-		return errors.New("Couldn't load tools: " + err.Error())
-	}
-	a.ttps = append(a.ttps, toolTTPs...)
+	// TODO: re-enabled loading TTPs from tools
+	// toolTTPs, err := loadTools(filepath.Join(a.SrcDir, "tools"))
+	// if err != nil {
+	// 	return errors.New("Couldn't load tools: " + err.Error())
+	// }
+	// a.ttps = append(a.ttps, toolTTPs...)
 
 	return nil
 }
