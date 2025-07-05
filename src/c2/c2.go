@@ -172,6 +172,11 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Client
 		results, err = execLocally(ctx, exec, exec.Procedure, c2Clients)
 	} else {
 		results, err = execRemotely(ctx, exec, exec.Procedure, c2Clients)
+
+		// TODO: properly fix this dirty hack:
+		if exec.Procedure.Key == "grep" {
+			err = nil
+		}
 	}
 
 	if err != nil {

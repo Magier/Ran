@@ -192,7 +192,7 @@ func analyzeEnvironmentVariables(source domain.Entity, envVars map[string]string
 	}
 
 	nsName := srcPod.GetNamespace()
-	srcPod.System.EnvVars = envVars
+	srcPod.EnvVars = envVars
 	entities = append(entities, srcPod)
 
 	// TODO: parse variables ending with '.svc.cluster.local'
@@ -328,7 +328,7 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 		// "bash: wget: command not found"  on nginx pod
 		target := ev.Target
 		if p, ok := target.(domain.Pod); ok {
-			p.System.Binaries[ev.Procedure.GetTool()] = "❌"
+			p.Binaries[ev.Procedure.GetTool()] = "❌"
 			entities = append(entities, p)
 		} else {
 			panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, target.GetId()))

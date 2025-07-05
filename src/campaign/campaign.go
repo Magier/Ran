@@ -123,7 +123,7 @@ func (c *Campaign) SetTarget(target string) (domain.Event, error) {
 		// Identity:    identity,
 		AccessLevel: domain.UserExec,
 	}
-	initialPod.AccessLevel = domain.UserExec
+	initialPod.SetAccessLevel(domain.UserExec)
 	err := c.trail.AddNewStep(domain.ExecTTP{})
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to add initial step to audit trail: %s", err.Error()))

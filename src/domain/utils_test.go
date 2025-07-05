@@ -83,12 +83,11 @@ func TestUpdateEntity_MergesFieldsCorrectly(t *testing.T) {
 func TestUpdateEntity_DeepEqualReturnsOriginal(t *testing.T) {
 	pod := Pod{
 		K8sEntity: K8sEntity{
-			Id:          "pod/test",
-			Name:        "test",
-			Kind:        "Pod",
-			Namespace:   "default",
-			AccessLevel: UserExec,
-			Owner:       OwnerRef{},
+			Id:        "pod/test",
+			Name:      "test",
+			Kind:      "Pod",
+			Namespace: "default",
+			Owner:     OwnerRef{},
 		},
 	}
 	result := UpdateEntity(pod, pod)

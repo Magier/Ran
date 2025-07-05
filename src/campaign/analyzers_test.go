@@ -147,21 +147,14 @@ func TestAnalyzeDeployPodFailure_UnknownError(t *testing.T) {
 }
 func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
 	toolName := "kubectl"
+	target := domain.NewPod("mypod", "default")
 	event := domain.TTPExecuted{
 		Results: []string{fmt.Sprintf("command terminated with exit code 127: 'sh: 1: %s: not found\n'", toolName)},
 		Procedure: domain.Procedure{
 			Tool: toolName,
 		},
-		Target: domain.Pod{
-			K8sEntity: domain.K8sEntity{
-				Name:      "mypod",
-				Namespace: "default",
-				Kind:      "Pod",
-			},
-			System: domain.SystemImpl{
-				Binaries: map[string]string{},
-			},
-		},
+
+		Target: target,
 	}
 	newFacts, _, err := analyzeFailedTTPExecution(event)
 	if err != nil {
@@ -174,8 +167,8 @@ func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
 	if !ok {
 		t.Fatalf("Expected entity to be Pod, got %T", newFacts.Entities[0])
 	}
-	if val, exists := pod.System.Binaries["kubectl"]; !exists || val != "❌" {
-		t.Errorf("Expected pod.Binaries[kubectl]=❌, got %v", pod.System.Binaries)
+	if val, exists := pod.Binaries["kubectl"]; !exists || val != "❌" {
+		t.Errorf("Expected pod.Binaries[kubectl]=❌, got %v", pod.Binaries)
 	}
 }
 

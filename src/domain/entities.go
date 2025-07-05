@@ -293,11 +293,14 @@ type Ownable interface {
 type System interface {
 	Entity
 	SetEnvironmentVariables(map[string]string)
+	GetEnvironmentVariables() map[string]string
 	GetAccessLevel() AccessLevel
+	SetAccessLevel(AccessLevel)
+	SetIPs(ips []net.IPAddr)
 }
 
 type UnknownSystem struct {
-	SystemImpl
+	*SystemImpl
 }
 
 func (s UnknownSystem) GetId() string {
@@ -311,25 +314,55 @@ func (s UnknownSystem) GetKind() string {
 	return "UnknownSystem"
 }
 
+func NewSystem(hostname, os string, accessLevel AccessLevel) UnknownSystem {
+	return UnknownSystem{
+		SystemImpl: &SystemImpl{
+			HostName:    hostname,
+			OS:          os,
+			AccessLevel: accessLevel,
+			IPs:         []net.IPAddr{},
+			EnvVars:     make(map[string]string),
+			Binaries:    make(map[string]string),
+			Files:       []string{},
+			Mounts:      []Mount{},
+		},
+	}
+}
+
 var _ Entity = (*UnknownSystem)(nil)
 
 type SystemImpl struct {
 	HostName    string
 	OS          string
-	IPs         []net.IPAddr
-	EnvVars     map[string]string `json:"envVars,omitzero"`
+	IPs         []net.IPAddr      `json:"ips,omitzero"` // List of IP addresses associated with the system
+	EnvVars     map[string]string `json:"envVars,omitzero,omitempty"`
 	Binaries    map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
 	Files       []string          `json:"files,omitzero"`     // List of files on the node
 	Mounts      []Mount           `json:"volumeMounts,omitzero"`
 	AccessLevel AccessLevel
 }
 
-func (s SystemImpl) GetAccessLevel() AccessLevel {
+func (s *SystemImpl) GetAccessLevel() AccessLevel {
 	return s.AccessLevel
+}
+
+func (s *SystemImpl) SetAccessLevel(level AccessLevel) {
+	s.AccessLevel = level
+}
+
+func (s *SystemImpl) GetEnvironmentVariables() map[string]string {
+	if s.EnvVars == nil {
+		s.EnvVars = make(map[string]string)
+	}
+	return s.EnvVars
 }
 
 func (s *SystemImpl) SetEnvironmentVariables(vars map[string]string) {
 	s.EnvVars = vars
+}
+
+func (s *SystemImpl) SetIPs(ips []net.IPAddr) {
+	s.IPs = ips
 }
 
 // func (s System) GetId() string {
@@ -394,15 +427,15 @@ type K8sEntity struct {
 	Annotations map[string]string `json:"annotations,omitzero,omitempty"`
 	CreatedAt   string            `json:"createdAt,omitzero"` // RFC3339 format
 	Owner       OwnerRef          `json:"owner,omitzero"`
-	AccessLevel AccessLevel       `json:"accessLevel,omitzero"` // AccessLevel is a custom type that can be marshaled to/from JSON
+	// AccessLevel AccessLevel       `json:"accessLevel,omitzero"` // AccessLevel is a custom type that can be marshaled to/from JSON
 }
 
 func NewK8sEntity(name, kind, namespace string) K8sEntity {
 	return K8sEntity{
-		Name:        name,
-		Kind:        kind,
-		Namespace:   namespace,
-		AccessLevel: NoAccess,
+		Name:      name,
+		Kind:      kind,
+		Namespace: namespace,
+		// AccessLevel: NoAccess,
 		Labels:      make(map[string]string),
 		Annotations: make(map[string]string),
 		// TODO set createdAt here
@@ -691,7 +724,7 @@ type Mount struct {
 
 type Pod struct {
 	K8sEntity
-	System SystemImpl
+	*SystemImpl
 	// IPs                          []net.IPAddr      `json:"ips,omitzero"`
 	// EnvVars                      map[string]string `json:"envVars,omitzero"`
 	// Binaries map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
@@ -720,12 +753,12 @@ type Pod struct {
 var _ Namespaced = (*Pod)(nil)
 var _ System = (*Pod)(nil)
 
-func (p Pod) GetAccessLevel() AccessLevel {
-	return p.System.GetAccessLevel()
-}
-func (p *Pod) SetEnvironmentVariables(vars map[string]string) {
-	p.System.SetEnvironmentVariables(vars)
-}
+// func (p Pod) GetAccessLevel() AccessLevel {
+// 	return p.System.GetAccessLevel()
+// }
+// func (p *Pod) SetEnvironmentVariables(vars map[string]string) {
+// 	p.System.SetEnvironmentVariables(vars)
+// }
 
 type PodConfig struct {
 	Image          string
@@ -744,7 +777,7 @@ func NewPod(name, ns string) Pod {
 	entity := NewK8sEntity(name, "Pod", ns)
 	return Pod{
 		K8sEntity: entity,
-		System: SystemImpl{
+		SystemImpl: &SystemImpl{
 			Binaries: make(map[string]string),
 		},
 		AutomountServiceAccountToken: NewProbBool(),
@@ -821,7 +854,7 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 
 	return Pod{
 		K8sEntity: entity,
-		System: SystemImpl{ // TODO: fill in the system details
+		SystemImpl: &SystemImpl{
 			Binaries: make(map[string]string),
 			IPs:      []net.IPAddr{{IP: net.ParseIP(p.Status.PodIP)}},
 		},
@@ -927,7 +960,7 @@ type K8sNode struct {
 	UID string
 	K8sEntity
 	ResourceOwner
-	System SystemImpl
+	*SystemImpl
 }
 
 func (n K8sNode) IsNamespaced() bool { return false }
@@ -936,6 +969,10 @@ func NewK8sNode(name string) K8sNode {
 	entity := NewK8sEntity(name, "Node", "")
 	return K8sNode{
 		K8sEntity: entity,
+		SystemImpl: &SystemImpl{
+			Binaries: make(map[string]string),
+			EnvVars:  make(map[string]string),
+		},
 	}
 }
 
@@ -944,6 +981,10 @@ func NewK8sNodeFromK8sSpec(n v1.Node) K8sNode {
 	return K8sNode{
 		K8sEntity: entity,
 		UID:       string(n.ObjectMeta.UID),
+		SystemImpl: &SystemImpl{
+			Binaries: make(map[string]string),
+			EnvVars:  make(map[string]string),
+		},
 	}
 }
 

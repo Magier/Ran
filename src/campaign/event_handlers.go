@@ -108,7 +108,6 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 	ev := msg.(domain.C2Connected)
 
 	// builtin C2 is part of Ran C2
-
 	system := domain.C2System{
 		Kind: ev.Kind,
 		Name: ev.Name,
@@ -130,22 +129,20 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 
 func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 	c.sessions[ev.Session.Id] = ev.Session
-
-	var system domain.Entity
+	var sys domain.System
 
 	// see if a pod with that name is already known, if so update it or add a new 'system'
 	for _, e := range c.kb.GetEntities() {
 		if strings.HasSuffix(e.GetId(), "pod/"+ev.Session.Hostname) {
-			if pod, ok := e.(domain.K8sEntity); ok {
+			var ok bool
+			if sys, ok = e.(domain.System); ok {
 				if ev.Session.IsRoot {
-					pod.AccessLevel = domain.RootExec
+					sys.SetAccessLevel(domain.RootExec)
 				} else {
-					pod.AccessLevel = domain.UserExec
+					sys.SetAccessLevel(domain.UserExec)
 				}
-				system = pod
 			} else {
 				slog.Warn("onNewSession: Dont know how to update accesslevel of " + e.GetId())
-				system = e
 			}
 			break
 		}
@@ -155,17 +152,13 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 		slog.Error(err.Error())
 	}
 
-	if system == nil {
+	if sys == nil {
 		accessLevel := domain.UserExec
 		if ev.Session.IsRoot {
 			accessLevel = domain.RootExec
 		}
 
-		system = domain.UnknownSystem{SystemImpl: domain.SystemImpl{
-			HostName:    ev.Session.Hostname,
-			OS:          ev.Session.Os,
-			AccessLevel: accessLevel,
-		}}
+		sys = domain.NewSystem(ev.Session.Hostname, ev.Session.Os, accessLevel)
 	}
 
 	// TODO: analyze session:
@@ -178,17 +171,17 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 		SessionId: ev.Session.Id,
 		SourceId:  fmt.Sprintf("%s/%s", "c2", ev.C2Kind),
 		Kind:      ev.C2Kind,
-		Target:    system,
+		Target:    sys,
 		// Protocol  string
 	}
 
 	hasSession := domain.HasC2Session{
-		System:  system,
+		System:  sys,
 		Session: ev.Session,
 	}
 
 	return c.UpdateFacts(
-		NewFacts{[]domain.Entity{system, ev.Session}, []domain.Relation{c2Channel, hasSession}, nil, nil},
+		NewFacts{[]domain.Entity{sys, ev.Session}, []domain.Relation{c2Channel, hasSession}, nil, nil},
 		RemovedFacts{},
 	)
 }
