@@ -403,3 +403,73 @@ func Test_parseLinuxMounts_EmptyInput(t *testing.T) {
 		t.Fatalf("Expected 0 mounts for empty input, got %d", len(mounts))
 	}
 }
+func Test_parseHasBinaryEffect(t *testing.T) {
+	type testCase struct {
+		name        string
+		source      domain.Entity
+		effect      string
+		args        map[string]string
+		results     []string
+		expectError bool
+		expectBin   string
+		expectPath  string
+	}
+
+	tests := []testCase{
+		{
+			name:        "Valid effect with binary arg",
+			source:      domain.NewPod("mypod", "ns"),
+			effect:      "target.has-binary(${BINARY_NAME})",
+			args:        map[string]string{"BINARY_NAME": "bash"},
+			results:     []string{},
+			expectError: false,
+			expectBin:   "bash",
+			expectPath:  "bash",
+		},
+		{
+			name:        "Missing binary arg",
+			source:      domain.NewPod("mypod", "ns"),
+			effect:      "target.has-binary(${BINARY_NAME})",
+			args:        map[string]string{},
+			results:     []string{},
+			expectError: false, // function does not return error, just warns
+			expectBin:   "",
+		},
+		{
+			name:        "Effect string does not match pattern",
+			source:      domain.NewPod("mypod", "ns"),
+			effect:      "target.has-binary",
+			args:        map[string]string{"BINARY_NAME": "bash"},
+			results:     []string{},
+			expectError: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			entity, err := parseHasBinaryEffect(tc.source, tc.effect, tc.args, tc.results...)
+			if tc.expectError {
+				if err == nil {
+					t.Fatalf("Expected error but got nil")
+				}
+				return
+			}
+			if err != nil && !tc.expectError {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if tc.expectBin != "" {
+				pod, ok := entity.(domain.Pod)
+				if !ok {
+					t.Fatalf("Expected entity to be Pod, got %T", entity)
+				}
+				val, ok := pod.Binaries[tc.expectBin]
+				if !ok {
+					t.Fatalf("Expected binary %q in pod.Binaries", tc.expectBin)
+				}
+				if val != tc.expectPath {
+					t.Fatalf("Expected binary path %q, got %q", tc.expectPath, val)
+				}
+			}
+		})
+	}
+}

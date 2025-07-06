@@ -36,19 +36,17 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 
 			entities[queue[i].GetId()] = current
 			// TODO: check if the nodeName is present;
-			// if not, then an anonymous node should be created, which may be later consolidated using the `runs-on` relatino
-			node := domain.NewK8sNode(e.NodeName)
-			if e.NodeName == "" {
-				slog.Warn("Pod without nodeName, creating anonymous node", "pod", e.GetId())
+			// if not, then an anonymous node should be created, which may be later consolidated using the `runs-on` relation
+			if e.NodeName != "" {
+				node := domain.NewK8sNode(e.NodeName)
+				if _, exists := entities[node.GetId()]; !exists {
+					entities[node.GetId()] = node
+				} else {
+					entities[node.GetId()] = domain.UpdateEntity(entities[node.GetId()], node)
+				}
+				relations = append(relations, domain.RunsOn{Pod: e, Node: node})
+				queue = append(queue, node)
 			}
-
-			if _, exists := entities[node.GetId()]; !exists {
-				entities[node.GetId()] = node
-			} else {
-				entities[node.GetId()] = domain.UpdateEntity(entities[node.GetId()], node)
-			}
-			relations = append(relations, domain.RunsOn{Pod: e, Node: node})
-			queue = append(queue, node)
 
 			hostRelations := analyzePodHostRelations(e)
 			relations = append(relations, hostRelations...)
@@ -323,7 +321,8 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 	relations := make([]domain.Relation, 0)
 
 	// the tool part of the procedure was not on the target system
-	if strings.Contains(errMsg, fmt.Sprintf("%s: not found", ev.Procedure.GetTool())) {
+	toolNotFoundMsg := fmt.Sprintf("%s: not found", ev.Procedure.GetTool())
+	if strings.Contains(errMsg, toolNotFoundMsg) || strings.Contains(ev.Results[1], toolNotFoundMsg) {
 		// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
 		// "bash: wget: command not found"  on nginx pod
 		target := ev.Target
