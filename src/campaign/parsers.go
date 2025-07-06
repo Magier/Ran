@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -381,12 +382,12 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	}
 
 	isRemoveEffect := strings.HasPrefix(effect, "delete")
-	effect = strings.TrimPrefix(effect, "delete ")
+	effect = strings.ToLower(strings.TrimPrefix(effect, "delete "))
 
 	res := results[0]
 	entities := []domain.Entity{}
 	relations := []domain.Relation{}
-	switch strings.ToLower(effect) {
+	switch effect {
 	case "target.ip":
 		if sys, ok := source.(domain.System); ok {
 			ips := []net.IPAddr{}
@@ -403,6 +404,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			entities = append(entities, sys)
 		}
 	case "target.hasbinary":
+		// TODO: merge with alternative, more generic parser for `has-binary` effect in `default` branch, after exploration
 		if sys, ok := source.(domain.Pod); ok {
 			binaryName := ""
 			dstPath := args["DST_PATH"]
@@ -586,6 +588,17 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				}
 			}
 		}
+
+	default:
+		if strings.HasPrefix(effect, "target.has-binary") {
+			resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
+			} else {
+				entities = append(entities, resultingEntity)
+			}
+
+		}
 	}
 
 	newFacts := NewFacts{}
@@ -597,6 +610,31 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	}
 
 	return newFacts, removedFacts
+}
+
+func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]string, results ...string) (domain.Entity, error) {
+	// Extract the binary name from the effect string, e.g. "k8s.has-binary(${BINARY_NAME})"
+	// Match ${...} that is inside (...) — i.e., the outer match includes the parentheses
+	re := regexp.MustCompile(`\(\s*\$\{\s*(.*?)\s*\}\s*\)`)
+
+	match := re.FindStringSubmatch(effect)
+	if len(match) > 1 {
+		paramName := strings.ToUpper(match[1])
+		if sys, ok := source.(domain.Pod); ok {
+			if binaryName, ok := args[paramName]; ok {
+				sys.Binaries[binaryName] = binaryName // same name implies it's a globally available binary
+			} else {
+				slog.Warn(fmt.Sprintf("Effect '%s' expects a parameter '%s' but it was not provided", effect, paramName))
+			}
+			return sys, nil
+		} else {
+			slog.Warn("The source of the has-binary effect is not a Pod!")
+		}
+	} else {
+		// TODO: implement default parameter names, depending on the provided args
+		slog.Warn("No parameter found in the has-binary effect, expected format: k8s.has-binary(${BINARY_NAME})")
+	}
+	return nil, fmt.Errorf("Invalid has-binary effect: %s", effect)
 }
 
 func loadKubeConfigFromString(configStr string) (clientcmd.ClientConfig, error) {

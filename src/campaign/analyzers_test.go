@@ -172,6 +172,42 @@ func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
 	}
 }
 
+func TestAnalyzeFailedTTP_BinaryNotFoundShouldUpdateBinariesOnExecutingSystem(t *testing.T) {
+	toolName := "curl"
+	event := domain.TTPExecuted{
+		Results: []string{
+			"Error 127\n",
+			"/usr/bin/sh: 1: curl: not found\n",
+			"command terminated with exit code 127: '/usr/bin/sh: 1: curl: not found\n'"},
+		Procedure: domain.Procedure{
+			Tool: toolName,
+		},
+		Target: domain.NewPod("mypod", "default"),
+	}
+
+	newFacts, removedFacts, err := analyzeFailedTTPExecution(event)
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if len(newFacts.Entities) != 1 {
+		t.Errorf("Expected 1 entity, got %d", len(newFacts.Entities))
+	}
+	pod, ok := newFacts.Entities[0].(domain.Pod)
+	if !ok {
+		t.Fatalf("Expected entity to be Pod, got %T", newFacts.Entities[0])
+	}
+	if val, exists := pod.Binaries[toolName]; !exists || val != "❌" {
+		t.Errorf("Expected pod.Binaries[%s]=❌, got %v", toolName, pod.Binaries)
+	}
+	if len(removedFacts.Entities) != 0 {
+		t.Errorf("Expected no removed entities, got %d", len(removedFacts.Entities))
+	}
+	if len(removedFacts.Relations) != 0 {
+		t.Errorf("Expected no removed relations, got %d", len(removedFacts.Relations))
+	}
+}
+
 func TestAnalyzeFailedTTPExecution_RBAC_ForbiddenWithUser(t *testing.T) {
 	saName := "test-sa"
 	ns := "test-ns"

@@ -50,7 +50,7 @@ parameters:
     description: the host path mounted into the container with pattern <path on host>:<path in pod>
   NodeName:
     type: string
-    default: ""
+    default: "${NODE_NAME}"
     description: the name of the node where the pod should be deployed
   Identity:
     type: string
