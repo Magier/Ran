@@ -536,7 +536,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to parse Linux mounts: %v", err))
 			} else {
-				pod.VolumeMounts = append(pod.VolumeMounts, mounts...)
+				pod.Mounts = append(pod.Mounts, mounts...)
 				entities = append(entities, pod)
 			}
 		}

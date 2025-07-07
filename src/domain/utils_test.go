@@ -191,3 +191,49 @@ func TestNormalizeResourceType(t *testing.T) {
 		})
 	}
 }
+
+func Test_mergeEntities_PodFieldsPreferNewValues(t *testing.T) {
+	oldPod := NewPod("test", "default")
+	oldPod.HostIPC = AsProbBool(false)
+	newPod := NewPod("test", "default")
+	newPod.HostIPC = AsProbBool(true)
+
+	merged := mergeEntities(newPod, oldPod).(Pod)
+
+	if merged.HostIPC != AsProbBool(true) {
+		t.Errorf("Expected HostIPC to be from newPod, got %v", merged.HostIPC)
+	}
+}
+
+func Test_mergeEntities_MergingSlicesDeduplicatesEntries(t *testing.T) {
+	oldPod := NewPod("test", "default")
+	oldPod.Mounts = []Mount{
+		{
+			Name:      "old-mount",
+			MountPath: "/old/path",
+		},
+	}
+	newPod := NewPod("test", "default")
+	newPod.Mounts = []Mount{
+		{
+			Name:      "new-mount",
+			MountPath: "/new/path",
+		},
+		{
+			Name:      "old-mount",
+			MountPath: "/old/path",
+		},
+	}
+
+	merged := mergeEntities(newPod, oldPod).(Pod)
+
+	if len(merged.Mounts) != 2 {
+		t.Errorf("Expected 2 mounts after merging, got %d", len(merged.Mounts))
+	}
+	if merged.Mounts[0].Name != "new-mount" || merged.Mounts[1].Name != "old-mount" {
+		t.Errorf("Expected mounts to be 'new-mount' and 'old-mount', got %s and %s", merged.Mounts[0].Name, merged.Mounts[1].Name)
+	}
+	if merged.Mounts[0].MountPath != "/new/path" || merged.Mounts[1].MountPath != "/old/path" {
+		t.Errorf("Expected mount paths to be '/new/path' and '/old/path', got %s and %s", merged.Mounts[0].MountPath, merged.Mounts[1].MountPath)
+	}
+}
