@@ -332,14 +332,14 @@ func NewSystem(hostname, os string, accessLevel AccessLevel) UnknownSystem {
 var _ Entity = (*UnknownSystem)(nil)
 
 type SystemImpl struct {
-	HostName    string
-	OS          string
-	IPs         []net.IPAddr      `json:"ips,omitzero"` // List of IP addresses associated with the system
+	HostName    string            `json:"hostName,omitzero"` // Hostname of the system
+	OS          string            `json:"os,omitzero"`       // Operating system of the system (e.g., Linux, Windows)
+	IPs         []net.IPAddr      `json:"ips,omitzero"`      // List of IP addresses associated with the system
 	EnvVars     map[string]string `json:"envVars,omitzero,omitempty"`
 	Binaries    map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
 	Files       []string          `json:"files,omitzero"`     // List of files on the node
-	Mounts      []Mount           `json:"volumeMounts,omitzero"`
-	AccessLevel AccessLevel
+	Mounts      []Mount           `json:"mounts,omitzero"`
+	AccessLevel AccessLevel       `json:"accessLevel,omitzero"` // Access level of the system (e.g., user, root)
 }
 
 func (s *SystemImpl) GetAccessLevel() AccessLevel {
@@ -724,7 +724,7 @@ type Mount struct {
 
 type Pod struct {
 	K8sEntity
-	*SystemImpl
+	*SystemImpl // SystemImpl contains system-level information like OS, IPs, environment variables, etc.
 	// IPs                          []net.IPAddr      `json:"ips,omitzero"`
 	// EnvVars                      map[string]string `json:"envVars,omitzero"`
 	// Binaries map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths

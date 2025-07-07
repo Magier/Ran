@@ -31,12 +31,10 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 		case domain.Pod:
 			// TODO: temporary hack: update pod before analyzing, to ensure all the information is available
 			if prev, ok := c.GetEntityById(e.GetId()); ok {
-				current = domain.UpdateEntity(prev, e)
+				current = domain.UpdateEntity(e, prev)
 			}
 
 			entities[queue[i].GetId()] = current
-			// TODO: check if the nodeName is present;
-			// if not, then an anonymous node should be created, which may be later consolidated using the `runs-on` relation
 			if e.NodeName != "" {
 				node := domain.NewK8sNode(e.NodeName)
 				if _, exists := entities[node.GetId()]; !exists {

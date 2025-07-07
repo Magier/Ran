@@ -29,10 +29,10 @@
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
-<div class="max-h-96 overflow-auto" data-popup>
+<div class="max-h-120 overflow-auto" data-popup>
 	{#if selectedNode?.entity !== null}
 		{#each Object.entries(selectedNode?.entity || {}) as [label, data]}
-			{#if label === 'volumeMounts'}
+			{#if label === 'volumeMounts' || label === 'mounts'}
 				<details>
 					<summary>
 						{label}
