@@ -209,7 +209,7 @@ func HandleNewPod(args map[string]string, results ...string) (domain.Event, erro
 
 		hostPath := args["HostPath"]
 		cfg.HostMounts = []domain.Mount{
-			{MountPath: args["Mount"], Root: hostPath, ReadOnly: false, Flags: []string{"rw"}},
+			{MountPoint: args["Mount"], Root: hostPath, ReadOnly: false, Flags: []string{"rw"}},
 		}
 	} else {
 		// TODO: marshal the podConfig
@@ -752,13 +752,13 @@ func parseMountInfoEntry(line string) (domain.Mount, error) {
 	}
 
 	return domain.Mount{
-		ID:        id,
-		ParentID:  parentID,
-		Root:      fields[3],
-		MountPath: fields[4],
-		Type:      fields[7],
-		ReadOnly:  isReadOnly,
-		Flags:     flags,
+		ID:         id,
+		ParentID:   parentID,
+		Root:       fields[3],
+		MountPoint: fields[4],
+		Type:       fields[7],
+		ReadOnly:   isReadOnly,
+		Flags:      flags,
 
 		// ID:         id,
 		// Parent:     parent,
@@ -801,11 +801,11 @@ func parseMountCommandEntry(line string) (domain.Mount, error) {
 
 	// fields: [device mountpoint fstype options dump pass]
 	return domain.Mount{
-		Root:      device,
-		MountPath: mountPath,
-		Type:      fsType,
-		ReadOnly:  readOnly,
-		Flags:     options,
+		Root:       device,
+		MountPoint: mountPath,
+		Type:       fsType,
+		ReadOnly:   readOnly,
+		Flags:      options,
 	}, nil
 }
 

@@ -297,6 +297,7 @@ type System interface {
 	GetAccessLevel() AccessLevel
 	SetAccessLevel(AccessLevel)
 	SetIPs(ips []net.IPAddr)
+	GetMounts() []Mount
 }
 
 type UnknownSystem struct {
@@ -365,6 +366,29 @@ func (s *SystemImpl) SetIPs(ips []net.IPAddr) {
 	s.IPs = ips
 }
 
+func (s *SystemImpl) GetMounts() []Mount {
+	if s.Mounts == nil {
+		s.Mounts = make([]Mount, 0)
+	}
+	return s.Mounts
+}
+func (s *SystemImpl) UpdateMounts(mounts []Mount) {
+	// Append new mounts and deduplicate by MountPath and Root
+	existing := make(map[string]struct{})
+	for _, m := range s.Mounts {
+		key := m.MountPoint + "|" + m.Root
+		existing[key] = struct{}{}
+	}
+
+	for _, m := range mounts {
+		key := m.MountPoint + "|" + m.Root
+		if _, found := existing[key]; !found {
+			s.Mounts = append(s.Mounts, m)
+			existing[key] = struct{}{}
+		}
+	}
+}
+
 // func (s System) GetId() string {
 // 	return "system/" + s.Name
 // }
@@ -419,9 +443,10 @@ type OwnerRef struct {
 }
 
 type K8sEntity struct {
-	Id          string
-	Name        string
-	Kind        string
+	Id          string            `json:"id,omitzero"`        // Unique identifier for the entity, e.g., "ns/<ns>/<kind>/<name>"
+	UID         string            `json:"uid,omitzero"`       // Unique identifier for the entity, e.g., UID in Kubernetes
+	Name        string            `json:"name,omitzero"`      // Name of the entity, e.g., Pod name, ServiceAccount name, etc.
+	Kind        string            `json:"kind,omitzero"`      // Kind of the entity, e.g., Pod, ServiceAccount, etc.
 	Namespace   string            `json:"namespace,omitzero"` // Namespace is optional, so it can be empty
 	Labels      map[string]string `json:"labels,omitzero,omitempty"`
 	Annotations map[string]string `json:"annotations,omitzero,omitempty"`
@@ -500,7 +525,14 @@ func (e K8sEntity) GetId() string {
 }
 
 func (e K8sEntity) GetName() string {
-	return e.Name
+	name := e.Name
+	if name == "" {
+		name = e.UID
+	}
+	if name == "" {
+		name = e.Id
+	}
+	return name
 }
 
 func (e K8sEntity) GetKind() string {
@@ -714,7 +746,7 @@ type Mount struct {
 	ID         int      `json:"id,omitzero"`         // Unique identifier for the mount
 	ParentID   int      `json:"parentId,omitzero"`   // ID of the parent mount, if any
 	Name       string   `json:"name,omitzero"`       // Name of the volume mount
-	MountPath  string   `json:"mountPath,omitzero"`  // Path in the container where the volume is mounted
+	MountPoint string   `json:"mountPoint,omitzero"` // Path in the container where the volume is mounted
 	Root       string   `json:"hostPath,omitzero"`   // Path on the host where the volume is mounted
 	Type       string   `json:"type,omitzero"`       // Type of the volume mount (e.g. "hostPath", "emptyDir", "configMap", etc.)
 	ReadOnly   bool     `json:"readOnly,omitzero"`   // Whether the volume is mounted as read-only
@@ -833,7 +865,7 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 			if vm, ok := getVolumeMountsFromSpec(p, v.Name); ok {
 				mount.Root = v.HostPath.Path
 				mount.IsHostPath = true
-				mount.MountPath = vm.MountPath
+				mount.MountPoint = vm.MountPath
 				mount.ReadOnly = vm.ReadOnly
 			}
 		}
