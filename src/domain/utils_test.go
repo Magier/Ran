@@ -209,19 +209,19 @@ func Test_mergeEntities_MergingSlicesDeduplicatesEntries(t *testing.T) {
 	oldPod := NewPod("test", "default")
 	oldPod.Mounts = []Mount{
 		{
-			Name:      "old-mount",
-			MountPath: "/old/path",
+			Name:       "old-mount",
+			MountPoint: "/old/path",
 		},
 	}
 	newPod := NewPod("test", "default")
 	newPod.Mounts = []Mount{
 		{
-			Name:      "new-mount",
-			MountPath: "/new/path",
+			Name:       "new-mount",
+			MountPoint: "/new/path",
 		},
 		{
-			Name:      "old-mount",
-			MountPath: "/old/path",
+			Name:       "old-mount",
+			MountPoint: "/old/path",
 		},
 	}
 
@@ -233,7 +233,7 @@ func Test_mergeEntities_MergingSlicesDeduplicatesEntries(t *testing.T) {
 	if merged.Mounts[0].Name != "new-mount" || merged.Mounts[1].Name != "old-mount" {
 		t.Errorf("Expected mounts to be 'new-mount' and 'old-mount', got %s and %s", merged.Mounts[0].Name, merged.Mounts[1].Name)
 	}
-	if merged.Mounts[0].MountPath != "/new/path" || merged.Mounts[1].MountPath != "/old/path" {
-		t.Errorf("Expected mount paths to be '/new/path' and '/old/path', got %s and %s", merged.Mounts[0].MountPath, merged.Mounts[1].MountPath)
+	if merged.Mounts[0].MountPoint != "/new/path" || merged.Mounts[1].MountPoint != "/old/path" {
+		t.Errorf("Expected mount paths to be '/new/path' and '/old/path', got %s and %s", merged.Mounts[0].MountPoint, merged.Mounts[1].MountPoint)
 	}
 }

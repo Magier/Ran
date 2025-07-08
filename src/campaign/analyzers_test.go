@@ -239,3 +239,109 @@ func TestAnalyzeFailedTTPExecution_RBAC_ForbiddenWithUser(t *testing.T) {
 		t.Errorf("Expected 0 relations, got %d", len(newFacts.Relations))
 	}
 }
+func TestAnalyzeMountInfo_EmptyInput(t *testing.T) {
+	pod := domain.NewPod("test-pod", "default")
+	pod.Mounts = []domain.Mount{}
+
+	facts, err := analyzeMountInfo(pod)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if len(facts.Entities) != 0 {
+		t.Errorf("Expected no entities, got %v", facts.Entities)
+	}
+	if len(facts.Relations) != 0 {
+		t.Errorf("Expected no relations, got %v", facts.Relations)
+	}
+}
+
+func TestAnalyzeMountInfo_WithMounts(t *testing.T) {
+	// Prepare a mount with some fields
+	pod := domain.NewPod("test-pod", "default")
+	mount := domain.Mount{
+		Root:       "/host/path",
+		MountPoint: "/container/path",
+		IsHostPath: true,
+		Type:       "ext4",
+	}
+	pod.Mounts = []domain.Mount{mount}
+
+	facts, err := analyzeMountInfo(pod)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	// Since the current implementation does not add entities or relations,
+	// we just check that it returns empty slices.
+	if len(facts.Entities) != 0 {
+		t.Errorf("Expected no entities, got %v", facts.Entities)
+	}
+	if len(facts.Relations) != 0 {
+		t.Errorf("Expected no relations, got %v", facts.Relations)
+	}
+}
+
+func TestAnalyzeMountInfo_WithHostKubeletInfos(t *testing.T) {
+	// podUIDs := []string{
+	// 	"85986f35-1e64-46d8-b4ac-8fcee502c18f",
+	// 	"6d259dfe-4227-4cad-958c-da7d44cb1daa",
+	// 	"8238b82c-8ba1-454f-9508-d2bf78699c74",
+	// 	"1b2033a4-2bf7-4e6f-acda-d2ac8a000d9d",
+	// 	"69defcbb-7483-41f0-8690-19729e42863a",
+	// }
+	// projectedSATokenPaths := []string{
+	// 	"/var/lib/kubelet/pods/85986f35-1e64-46d8-b4ac-8fcee502c18f/volumes/kubernetes.io~projected/kube-api-access-xbvm8",
+	// 	"/var/lib/kubelet/pods/6d259dfe-4227-4cad-958c-da7d44cb1daa/volumes/kubernetes.io~projected/kube-api-access-t8v24",
+	// 	"/var/lib/kubelet/pods/8238b82c-8ba1-454f-9508-d2bf78699c74/volumes/kubernetes.io~projected/kube-api-access-8tnjw",
+	// 	"/var/lib/kubelet/pods/1b2033a4-2bf7-4e6f-acda-d2ac8a000d9d/volumes/kubernetes.io~projected/kube-api-access-rzw7k",
+	// 	"/var/lib/kubelet/pods/69defcbb-7483-41f0-8690-19729e42863a/volumes/kubernetes.io~projected/kube-api-access-5j2q4",
+	// }
+
+	mountInfoStrings := []string{
+		"3906 2769 0:421 / / rw,relatime - overlay overlay rw,seclabel,lowerdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/38/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/37/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/36/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/35/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/34/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/33/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/32/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/31/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/30/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/29/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/28/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/27/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/26/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/25/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/24/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/23/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/22/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/21/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/20/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/19/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/18/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/17/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/16/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/15/fs,upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/50011/fs,workdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/50011/work,redirect_dir=nofollow,uuid=on,userxattr",
+		`3914 3906 0:62 / /mnt/host rw,relatime - overlay overlay rw,context="system_u:object_r:container_file_t:s0:c1022,c1023",lowerdir=/var/home/core/.local/share/containers/storage/overlay/l/BTSOOTPTOH25C6MZDKKNFPDMU5:/var/home/core/.local/share/containers/storage/overlay/l/MZFSHHTOAWWQFH3T7ZBF27FOYN,upperdir=/var/home/core/.local/share/containers/storage/overlay/c52cea6c189a194dd5772cd95895bd0b49262459e81aadd53fd071be5f616a15/diff,workdir=/var/home/core/.local/share/containers/storage/overlay/c52cea6c189a194dd5772cd95895bd0b49262459e81aadd53fd071be5f616a15/work,redirect_dir=nofollow,userxattr`,
+		"3916 3914 252:4 /ostree/deploy/fedora-coreos/var/home/core/.local/share/containers/storage/volumes/443579c837e6de9d2b28c81ff56328e90c168aa99c4f7afa741978c93f4417c0/_data /mnt/host/var rw,relatime - xfs /dev/vda4 rw,seclabel,attr2,inode64,logbufs=8,logbsize=32k,prjquota",
+		"3917 3916 0:261 / /mnt/host/var/lib/kubelet/pods/85986f35-1e64-46d8-b4ac-8fcee502c18f/volumes/kubernetes.io~projected/kube-api-access-xbvm8 rw,relatime - tmpfs tmpfs rw,seclabel,size=1993956k,uid=501,gid=1000,inode64",
+		"3917 3916 0:216 / /mnt/host/var/lib/kubelet/pods/6d259dfe-4227-4cad-958c-da7d44cb1daa/volumes/kubernetes.io~projected/kube-api-access-t8v24 rw,relatime - tmpfs tmpfs rw,seclabel,size=1993956k,uid=501,gid=1000,inode64",
+		"3918 3916 0:217 / /mnt/host/var/lib/kubelet/pods/8238b82c-8ba1-454f-9508-d2bf78699c74/volumes/kubernetes.io~projected/kube-api-access-8tnjw rw,relatime - tmpfs tmpfs rw,seclabel,size=1993956k,uid=501,gid=1000,inode64",
+		"3919 3916 0:225 / /mnt/host/var/lib/kubelet/pods/1b2033a4-2bf7-4e6f-acda-d2ac8a000d9d/volumes/kubernetes.io~projected/kube-api-access-rzw7k rw,relatime - tmpfs tmpfs rw,seclabel,size=1993956k,uid=501,gid=1000,inode64",
+		"3920 3916 0:232 / /mnt/host/var/lib/kubelet/pods/69defcbb-7483-41f0-8690-19729e42863a/volumes/kubernetes.io~projected/kube-api-access-bjzfp rw,relatime - tmpfs tmpfs rw,seclabel,size=1993956k,uid=501,gid=1000,inode64",
+	}
+
+	mounts := make([]domain.Mount, len(mountInfoStrings))
+	for i, mountInfo := range mountInfoStrings {
+		mount, err := parseMountInfoEntry(mountInfo)
+		if err != nil {
+			t.Errorf("Failed to parse mount info '%s': %v", mountInfo, err)
+			return
+		}
+		mounts[i] = mount
+	}
+
+	pod := domain.NewPod("test-pod", "default")
+	pod.Mounts = mounts
+	numPods := 5
+
+	facts, err := analyzeMountInfo(pod)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	// Since the current implementation does not add entities or relations,
+	// we just check that it returns empty slices.
+	// expect 5 new pods to be found based on their UID
+	if len(facts.Entities) != numPods+1 { // +1 for the node entity
+		t.Errorf("Expected %d pods exposed through kubelet files , got %v", numPods, facts.Entities)
+	}
+
+	// the identified projected SA tokens should be listed as interesting files
+	node, ok := facts.Entities[0].(domain.K8sNode)
+	if !ok {
+		t.Fatalf("Expected first entity to be K8sNode, got %T", facts.Entities[0])
+	}
+	if len(node.SystemImpl.Files) != numPods {
+		t.Errorf("Expected the node to have the %d interesting files, got %d", numPods, len(node.SystemImpl.Files))
+	}
+
+	if len(facts.Relations) != 0 {
+		t.Errorf("Expected no relations, got %v", facts.Relations)
+	}
+}

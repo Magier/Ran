@@ -454,7 +454,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			}
 			for _, vm := range sys.VolumeMounts {
 				if vm.IsHostPath {
-					arg = vm.MountPath
+					arg = vm.MountPoint
 					break
 				}
 			}

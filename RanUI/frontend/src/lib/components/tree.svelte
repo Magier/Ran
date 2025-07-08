@@ -19,14 +19,14 @@
 	type TreeProps = {
 		entries?: any[];
 		node?: TreeNode;
-		level: number;
+		level?: number;
 	};
 
 	function getNodeName(node: TreeNode): string {
 		if (node.name) {
 			return node.name;
 		}
-		return `${node.mountPath} => ${node.hostPath}`;
+		return `${node.mountPoint} => ${node.hostPath}`;
 	}
 
 	let { entries = [], level = 0, node }: TreeProps = $props();

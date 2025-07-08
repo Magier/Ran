@@ -46,6 +46,24 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 				queue = append(queue, node)
 			}
 
+			resultingFacts, err := analyzeMountInfo(e)
+			if err != nil {
+				slog.Error("Failed to analyze SelfSubjectRulesReview", "error", err)
+			} else {
+				for _, entity := range resultingFacts.Entities {
+					if existing, exists := entities[entity.GetId()]; exists {
+						entity = domain.UpdateEntity(entity, existing)
+					}
+					entities[entity.GetId()] = entity
+				}
+				relations = append(relations, resultingFacts.Relations...)
+			}
+
+			newFacts1, err := analyzeHostPath(e)
+			var _ = newFacts1 // to avoid unused variable warning
+			if err != nil {
+				slog.Warn("Failed to analyze host path for pod", "error", err, "pod", e.GetId())
+			}
 			hostRelations := analyzePodHostRelations(e)
 			relations = append(relations, hostRelations...)
 		case domain.ServiceAccountToken:
@@ -432,7 +450,7 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 		mountPath := ev.Args["Mount"]
 		newPod.VolumeMounts = []domain.Mount{{
 			Root:       val,
-			MountPath:  mountPath,
+			MountPoint: mountPath,
 			IsHostPath: true,
 		}}
 	}
@@ -636,9 +654,139 @@ func getServicesFromEnvVars(vars map[string]string) map[string]ServiceInfo {
 
 // }
 
-func analyzeHostPath(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
+func extractHostPaths(mounts []domain.Mount) []domain.Mount {
+	hostMounts := make([]domain.Mount, 0)
+	// Define keywords that suggest host mount exposure
+	// hostPathIndicators := []string{
+	// 	"/var/lib/kubelet",
+	// 	"/etc/hostname",
+	// 	"/etc/resolv.conf",
+	// 	"/dev/vda", // common block device prefix
+	// }
+
+	// fsTypeIndicators := []string{
+	// 	"xfs", "ext4", "btrfs", // real filesystems
+	// }
+
+	// for _, mount := range mounts {
+	// 	for _, keyword := range hostPathIndicators {
+	// 		if strings.Contains(mount.MountPoint, keyword) {
+	// 			// extract the host mount point
+	// 			hostMounts = append(hostMounts, mount)
+	// 			// return "/mnt/host", true
+	// 		}
+	// 	}
+	// 	// // Additional check: mounted from real device and looks like /dev/vda or similar
+	// 	// postParts := strings.Fields(postSeparator)
+	// 	// if len(postParts) >= 2 {
+	// 	// 	source := postParts[1]
+	// 	// 	if strings.HasPrefix(source, "/dev/") && strings.HasPrefix(mountPoint, "/") {
+	// 	// 		return mountPoint, true
+	// 	// 	}
+	// 	// }
+	// 	// Check if mount is backed by a real device
+	// 	for _, fs := range fsTypeIndicators {
+	// 		// if fsType == fs && strings.HasPrefix(source, "/dev/") {
+	// 		if mount.Type == fs && strings.HasPrefix(mount.MountPoint, "/dev/") {
+	// 			hostMounts = append(hostMounts, mount)
+	// 		}
+	// 	}
+	// }
+
+	return hostMounts
+}
+
+func analyzeMountInfo(system domain.System) (NewFacts, error) {
 	entities := make([]domain.Entity, 0)
 	relations := make([]domain.Relation, 0)
+
+	var node domain.K8sNode
+	var srcPod domain.Pod
+	var foundNode bool
+
+	trackedHostPaths := map[string]bool{} // to avoid duplicates
+
+	for _, mount := range system.GetMounts() {
+		if strings.Contains(mount.MountPoint, "/var/lib/kubelet") {
+			if !foundNode {
+				foundNode = true
+				node = domain.NewK8sNode("?")
+				if pod, ok := system.(domain.Pod); ok {
+					srcPod = pod
+					relations = append(relations, domain.RunsOn{
+						Pod:  pod,
+						Node: node,
+					})
+				} else {
+					slog.Error("system is not of type domain.Pod")
+				}
+				// node is zero value, handle initialization if needed
+			}
+
+			// if the mount point doesn't start with /var/lib, then it must be a hostpath
+			if !strings.HasPrefix(mount.MountPoint, "/var/lib/kubelet/pods/") {
+				if i := strings.Index(mount.MountPoint, "/var/lib/kubelet/"); i >= 0 {
+					hostPath, filePath := mount.MountPoint[:i], mount.MountPoint[i:]
+					node.SystemImpl.Files = append(node.SystemImpl.Files, filePath)
+					if _, exists := trackedHostPaths[hostPath]; exists {
+						slog.Debug(fmt.Sprintf("Host path %s already tracked, skipping", hostPath))
+					} else {
+						// TODO: check if srcPod is actually defined
+						srcPod.VolumeMounts = append(srcPod.VolumeMounts, domain.Mount{
+							Root:       mount.Root,
+							MountPoint: hostPath,
+							IsHostPath: true,
+						})
+						trackedHostPaths[hostPath] = true
+					}
+				}
+			}
+
+			slog.Debug(fmt.Sprintf("Host path found: %s", mount.MountPoint))
+		}
+	}
+
+	// TODO analyze the kubelet files on the node
+
+	if foundNode {
+		entities = append(entities, node)
+	}
+	entities = append(entities, srcPod)
+
+	return NewFacts{
+		Entities:  entities,
+		Relations: relations,
+	}, nil
+}
+
+func analyzeHostPath(pod domain.Pod) (NewFacts, error) {
+	entities := make([]domain.Entity, 0)
+	relations := make([]domain.Relation, 0)
+
+	hostPaths := extractHostPaths(pod.GetMounts()) // TODO: handle multiple results, if necessary
+
+	if len(hostPaths) > 0 {
+		pod.VolumeMounts = append(pod.VolumeMounts)
+
+		slog.Debug(fmt.Sprintf("Host path found: %s", hostPaths[0].MountPoint))
+		// pod := ev.Target.(domain.Pod)
+		// pod.VolumeMounts = append(pod.VolumeMounts, domain.Mount{
+		// 	Root:       hostPath,
+		// 	MountPath:  ev.Args["MountPath"],
+		// 	IsHostPath: true,
+		// })
+		// entities = append(entities, pod)
+
+		// rel := domain.MountsHostPath{
+		// 	Pod:       pod,
+		// 	MountPath: ev.Args["MountPath"],
+		// 	HostPath:  hostPath,
+		// 	Node:      domain.NewK8sNode(pod.NodeName),
+		// }
+		// relations = append(relations, rel)
+	} else {
+		slog.Debug("No host path found in the results")
+	}
 
 	//  if ev.Target == nil {
 	//   return NewFacts{}, RemovedFacts{}, errors.New("no target found for host path TTP execution")
@@ -662,7 +810,7 @@ func analyzeHostPath(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
 	return NewFacts{
 		Entities:  entities,
 		Relations: relations,
-	}, RemovedFacts{}, nil
+	}, nil
 }
 
 func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
@@ -672,7 +820,7 @@ func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
 		if vm.IsHostPath {
 			rels = append(rels, domain.MountsHostPath{
 				Pod:       pod,
-				MountPath: vm.MountPath,
+				MountPath: vm.MountPoint,
 				HostPath:  vm.Root,
 				Node:      domain.NewK8sNode(pod.NodeName),
 			})
