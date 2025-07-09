@@ -207,7 +207,13 @@ func (a *App) GetGraph() Graph {
 
 		if parent == "" {
 			if nsEntity, ok := entity.(domain.Namespaced); ok {
-				parent = "ns/" + nsEntity.GetNamespace()
+				ns := nsEntity.GetNamespace()
+				if ns == "" {
+					slog.Warn("Entity has no namespace, skipping it", "entity", entity.GetId())
+					continue
+				}
+
+				parent = "ns/" + ns
 			}
 		}
 

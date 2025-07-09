@@ -779,6 +779,7 @@ type Pod struct {
 	HostIP                       net.IPAddr     `json:"hostIP,omitzero"`
 	Phase                        string         `json:"phase,omitzero"`
 	IsRunning                    bool           `json:"isRunning"`
+	RunsOn                       *K8sNode       `json:"-"` // Node name or ID where the pod is running
 	// Devices                      []string          `json:"devices,omitzero"`
 }
 

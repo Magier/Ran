@@ -42,6 +42,7 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 				} else {
 					entities[node.GetId()] = domain.UpdateEntity(entities[node.GetId()], node)
 				}
+				e.RunsOn = &node
 				relations = append(relations, domain.RunsOn{Pod: e, Node: node})
 				queue = append(queue, node)
 			}
@@ -59,11 +60,16 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 				relations = append(relations, resultingFacts.Relations...)
 			}
 
+			// ensure to use the latest version of the pod
+			e = entities[e.GetId()].(domain.Pod)
 			newFacts1, err := analyzeHostPath(e)
 			var _ = newFacts1 // to avoid unused variable warning
 			if err != nil {
 				slog.Warn("Failed to analyze host path for pod", "error", err, "pod", e.GetId())
 			}
+
+			// ensure to use the latest version of the pod
+			e = entities[e.GetId()].(domain.Pod)
 			hostRelations := analyzePodHostRelations(e)
 			relations = append(relations, hostRelations...)
 		case domain.ServiceAccountToken:
@@ -311,6 +317,7 @@ func analyzeServiceAccountToken(token string) (NewFacts, error) {
 		Node: node,
 		Pod:  pod,
 	}
+	pod.RunsOn = &node
 	podRunsOnNode := domain.RunsOn{
 		Pod:  pod,
 		Node: node,
@@ -701,8 +708,8 @@ func analyzeMountInfo(system domain.System) (NewFacts, error) {
 	relations := make([]domain.Relation, 0)
 
 	var node domain.K8sNode
-	var srcPod domain.Pod
 	var foundNode bool
+	var srcPod domain.Pod
 
 	trackedHostPaths := map[string]bool{} // to avoid duplicates
 
@@ -713,6 +720,7 @@ func analyzeMountInfo(system domain.System) (NewFacts, error) {
 				node = domain.NewK8sNode("?")
 				if pod, ok := system.(domain.Pod); ok {
 					srcPod = pod
+					srcPod.RunsOn = &node
 					relations = append(relations, domain.RunsOn{
 						Pod:  pod,
 						Node: node,
@@ -726,8 +734,8 @@ func analyzeMountInfo(system domain.System) (NewFacts, error) {
 			// if the mount point doesn't start with /var/lib, then it must be a hostpath
 			if !strings.HasPrefix(mount.MountPoint, "/var/lib/kubelet/pods/") {
 				if i := strings.Index(mount.MountPoint, "/var/lib/kubelet/"); i >= 0 {
-					hostPath, filePath := mount.MountPoint[:i], mount.MountPoint[i:]
-					node.SystemImpl.Files = append(node.SystemImpl.Files, filePath)
+					hostPath, saTokenPath := mount.MountPoint[:i], mount.MountPoint[i:]+"/token"
+					node.SystemImpl.Files = append(node.SystemImpl.Files, saTokenPath)
 					if _, exists := trackedHostPaths[hostPath]; exists {
 						slog.Debug(fmt.Sprintf("Host path %s already tracked, skipping", hostPath))
 					} else {
@@ -751,7 +759,9 @@ func analyzeMountInfo(system domain.System) (NewFacts, error) {
 	if foundNode {
 		entities = append(entities, node)
 	}
-	entities = append(entities, srcPod)
+	if srcPod.Kind != "" { // Kind is automtically set when using a constructor like NewPod
+		entities = append(entities, srcPod)
+	}
 
 	return NewFacts{
 		Entities:  entities,
@@ -818,11 +828,15 @@ func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
 
 	for _, vm := range pod.VolumeMounts {
 		if vm.IsHostPath {
+			node := *pod.RunsOn
+			if pod.RunsOn == nil {
+				node = domain.NewK8sNode(pod.NodeName)
+			}
 			rels = append(rels, domain.MountsHostPath{
 				Pod:       pod,
 				MountPath: vm.MountPoint,
 				HostPath:  vm.Root,
-				Node:      domain.NewK8sNode(pod.NodeName),
+				Node:      node,
 			})
 		}
 	}
