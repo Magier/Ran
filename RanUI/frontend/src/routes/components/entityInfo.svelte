@@ -1,5 +1,7 @@
 <script lang="ts">
 	import Tree from '$lib/components/tree.svelte';
+	import EntitlementInfo from './entitlement_info.svelte';
+	import {domain} from '$lib/wailsjs/go/models';
 
 	let { selectedNode } = $props();
 
@@ -41,6 +43,16 @@
 						>
 					</summary>
 					<Tree entries={Array.isArray(data) ? data : []} />
+				</details>
+			{:else if label === 'can'}
+				<details>
+					<summary>
+						{label}
+						<span class="badge preset-outlined-surface-500"
+							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
+						>
+					</summary>
+					<EntitlementInfo entitlements={data as domain.RBACPermission[]} />
 				</details>
 			{:else if typeof data === 'object' && data !== null}
 				<!-- Collapsible section for objects/arrays -->

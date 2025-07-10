@@ -153,7 +153,7 @@
 			triggerBase=""
 			arrow={false}
 			portalled={true}
-			contentBase="border border-surface-600 absolute -left-96 top-0 top-0 z-10 w-96 rounded-lg bg-surface-100-900 p-4 shadow-xl "
+			contentBase="border border-surface-600 absolute w-110 -left-110 top-0 top-0 z-10  rounded-lg bg-surface-100-900 p-4 shadow-xl "
 		>
 			{#snippet trigger()}{/snippet}
 			{#snippet content()}
