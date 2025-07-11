@@ -345,7 +345,7 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 
 	// the tool part of the procedure was not on the target system
 	toolNotFoundMsg := fmt.Sprintf("%s: not found", ev.Procedure.GetTool())
-	if strings.Contains(errMsg, toolNotFoundMsg) || strings.Contains(ev.Results[1], toolNotFoundMsg) {
+	if strings.Contains(errMsg, toolNotFoundMsg) || (len(ev.Results) > 1 && strings.Contains(ev.Results[1], toolNotFoundMsg)) {
 		// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
 		// "bash: wget: command not found"  on nginx pod
 		target := ev.Target

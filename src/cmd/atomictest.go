@@ -18,7 +18,7 @@ func newAtomicTestCmd() *cobra.Command {
 		Args:  cobra.ArbitraryArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			ttpID = args[0]
-			ran := core.InitRan(target, "../armory/", "../sliver_cfg.json")
+			ran := core.InitRan(target, "../armory/")
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer cancel()
 			ran.ExecuteAtomicTTP(ctx, ttpID, target)

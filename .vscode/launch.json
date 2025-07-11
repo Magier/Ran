@@ -60,6 +60,23 @@
             // "program": "${fileDirname}"
         },
         {
+            "name": "Atomic Create Role",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/src",
+            "console": "integratedTerminal",
+            "args": [
+                "invoke",
+                "Create Admin Role",
+                "--role-name",
+                "nsadmin",
+                "--namespace",
+                "dev"
+            ]
+            // "program": "${fileDirname}"
+        },
+        {
             "name": "TUI: targeted",
             "type": "go",
             "request": "launch",
