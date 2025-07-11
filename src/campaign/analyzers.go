@@ -828,9 +828,11 @@ func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
 
 	for _, vm := range pod.VolumeMounts {
 		if vm.IsHostPath {
-			node := *pod.RunsOn
+			var node domain.K8sNode
 			if pod.RunsOn == nil {
 				node = domain.NewK8sNode(pod.NodeName)
+			} else {
+				node = *pod.RunsOn
 			}
 			rels = append(rels, domain.MountsHostPath{
 				Pod:       pod,

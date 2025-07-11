@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import cytoscape from 'cytoscape';
 	import dagre from 'cytoscape-dagre';
+	import { toaster } from '$lib/components/toaster';
 
 	import { getGraphStyle, layout } from './graph_style';
 	import store from '$lib/stores/store.js';
@@ -85,9 +86,13 @@
 			cy.invalidateDimensions();
 			const graph = value as main.Graph;
 			if (Object.keys(graph).length > 0) {
-				cy.json({
-					elements: { nodes: graph.nodes.map(toCyNode), edges: graph.edges.map(toCyEdge) }
-				});
+				try {
+					cy.json({
+						elements: { nodes: graph.nodes.map(toCyNode), edges: graph.edges.map(toCyEdge) }
+					});
+				} catch (e) {
+					toaster.create({ title: "Graph error", description: 'Error updating graph: ' + e, type: 'error' });
+				}
 
 				// update the currently selected node
 				if (selectedNode !== undefined) {

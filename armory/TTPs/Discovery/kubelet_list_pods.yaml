@@ -20,7 +20,6 @@ procedures:
     command: >-
       curl -k -s -H "Authorization: Bearer ${TOKEN}" https://${NODE}:10250/pods
 
-# parser: environmentVariables
 effects:
   - k8s.podList
 # defend: {}

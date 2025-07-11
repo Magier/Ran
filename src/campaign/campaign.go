@@ -237,7 +237,6 @@ func (c *Campaign) GetAuditTrail() AuditTrail {
 }
 
 func (c *Campaign) AddEntities(entities ...domain.Entity) int {
-
 	numChanges, err := c.kb.AddEntities(entities...)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to insert %d entities: %v", len(entities), err))
@@ -441,6 +440,9 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			if arg == "" || arg == "${NODE_NAME}" {
 				if pod, ok := target.(domain.Pod); ok {
 					arg = pod.NodeName
+				} else {
+					// variable will be set to empty string, K8s decides where to place the pod
+					arg = ""
 				}
 			} else {
 				// ensure the node kind prefis is removed
@@ -462,7 +464,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 
 		if strings.Contains(arg, "${RANDOM}") {
 			randomNum := strconv.Itoa(rand.Intn(1e5))
-			arg = strings.Replace(arg, "${RANDOM}", randomNum, -1)
+			arg = strings.ReplaceAll(arg, "${RANDOM}", randomNum)
 		}
 		args[key] = arg
 	}
@@ -761,17 +763,18 @@ func (c Campaign) syncCapabilities() error {
 	// evaluate potential relationships based on RBAC permissions
 	accessRelations := make([]domain.Relation, 0)
 	// c2s := c.GetC2s()
-	c2, ok := c.GetC2("Ran")
-	if !ok {
-		return errors.New("Couldn't retrieve Ran from KG to sync capabilities")
-	}
+	// c2, ok := c.GetC2("Ran")
+	// if !ok {
+	// 	return errors.New("Couldn't retrieve Ran from KG to sync capabilities")
+	// }
 	pods := c.GetPods()
 
 	for _, identity := range c.identities {
 		if identity.Can("create", "pods/exec") {
 			for _, p := range pods {
+				srcId := identity.GetId()
 				accessRelations = append(accessRelations, domain.CanAccess{
-					SourceId:    c2.GetId(),
+					SourceId:    srcId,
 					TargetId:    p.GetId(),
 					Identity:    identity,
 					AccessLevel: domain.UserExec,
@@ -782,7 +785,6 @@ func (c Campaign) syncCapabilities() error {
 		}
 	}
 	c.AddRelations(accessRelations...)
-
 	return nil
 }
 

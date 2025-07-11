@@ -11,7 +11,6 @@ procedures:
     precondition:
       accessLevel: user-exec
     command: hostname -i
-# parser: environmentVariables
 effects:
   - target.ip
 # defend: {}
