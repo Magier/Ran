@@ -30,12 +30,11 @@ type App struct {
 // }
 
 type Node struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	ParentID    string `json:"parent"`
-	AccessLevel string `json:"accessLevel"`
-	// Entitlements []Entitlement `json:"entitlements"`
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Kind        string        `json:"kind"`
+	ParentID    string        `json:"parent"`
+	AccessLevel string        `json:"accessLevel"`
 	Entity      domain.Entity `json:"entity"`
 	Compromised bool          `json:"compromised"`
 }
@@ -154,23 +153,15 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
 	runtime.EventsOn(a.ctx, "get-armory", func(data ...any) {
-		// runtime.EventsEmit(a.ctx, "armory", "armory")
-		// runtime.EventsEmit(a.ctx, "armory", a.ran.Armory.GetTTPs())
 		runtime.EventsEmit(a.ctx, "armory-loaded", a.ran.Armory.GetTTPs())
 	})
 
-	// runtime.EventsOn(a.ctx, "runtime:ready", func(data ...any) {
-	// 	runtime.LogInfo(a.ctx, "Runtime ready")
-	// })
 	runtime.LogInfo(a.ctx, "RanUI starting up")
 	a.ran.Start(a.ctx, false, "")
 	// a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
 }
 
 func (a *App) domready(ctx context.Context) {
-	// graph := a.GetGraph()
-	// runtime.EventsEmit(a.ctx, "graph", graph)
-
 	a.ran.ReplayEvents()
 }
 

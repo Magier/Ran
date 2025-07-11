@@ -5,8 +5,6 @@ techniques: ["Command and Scripting Interpreter: Unix Shell"]
 # args:
 #   SRC_BIN: "implant"
 #   DST_BIN: "/tmp/pause"
-# command: "StartListener"
-# effects: ["ListenerReady"]
 parameters:
   LISTENER:
     type: string

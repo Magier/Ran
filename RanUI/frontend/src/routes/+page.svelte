@@ -124,6 +124,21 @@
 			});
 		closeModal();
 	}
+
+	function handleError(e: unknown) {
+		let description = 'Unknown error';
+		if (e instanceof Error) {
+			description = e.message;
+		} else if (typeof e === 'string') {
+			description = e;
+		}
+
+		toaster.create({
+			title: 'Error',
+			description,
+			type: 'error'
+		});
+	}
 </script>
 
 <div class="relative grid h-[calc(100vh-70px)] grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
@@ -157,7 +172,7 @@
 		>
 			{#snippet trigger()}{/snippet}
 			{#snippet content()}
-				<svelte:boundary onerror={(e) => console.error(e)}>
+				<svelte:boundary onerror={handleError}>
 					<EntityInfo {selectedNode} />
 				</svelte:boundary>
 			{/snippet}
