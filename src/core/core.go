@@ -36,13 +36,9 @@ type Config struct {
 	ArmoryDir        string
 }
 
-func InitRan(target, armoryDir, sliverConfigPath string) Ran {
+func InitRan(target, armoryDir string) Ran {
 	if armoryDir == "" {
 		armoryDir = "./armory/"
-	}
-
-	if sliverConfigPath == "" {
-		sliverConfigPath = "sliver_cfg.json"
 	}
 
 	path, _ := os.Getwd()
@@ -54,7 +50,7 @@ func InitRan(target, armoryDir, sliverConfigPath string) Ran {
 	mb := bus.CreateMessageBus()
 	a := &armory.Armory{SrcDir: filepath.Join(path, armoryDir)}
 	c := campaign.StartCampaign(mb, a)
-	c2 := c2.InitC2Manager(mb, filepath.Join(path, sliverConfigPath))
+	c2 := c2.InitC2Manager(mb)
 
 	ran := Ran{
 		Bus:      mb,

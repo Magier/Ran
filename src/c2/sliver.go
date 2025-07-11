@@ -207,6 +207,8 @@ func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 			}
 			// TODO: get rid of the result handling here and return generic result
 			return cmd.TTP.HandleResult(cmd.Target, data)
+		default:
+			slog.Warn("Sliver C2 does not support command: " + cmd.Procedure.Command)
 		}
 	}
 

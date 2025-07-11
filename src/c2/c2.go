@@ -39,17 +39,9 @@ type C2Manager struct {
 	clients map[string]C2Client
 }
 
-func InitC2Manager(mb bus.MessageBus, sliverConfigPath string) C2Manager {
+func InitC2Manager(mb bus.MessageBus) C2Manager {
 	c2Clients := map[string]C2Client{
 		BuiltInC2: NewBuiltInServer(),
-	}
-
-	if sliverConfigPath != "" {
-		if sliverClient, err := CreateSliverClient(sliverConfigPath); err != nil {
-			slog.Warn(err.Error())
-		} else {
-			c2Clients[SliverKind] = sliverClient
-		}
 	}
 
 	manager := C2Manager{
@@ -74,17 +66,28 @@ func InitC2Manager(mb bus.MessageBus, sliverConfigPath string) C2Manager {
 		return manager.StartC2Client(ctx, cmd.C2Name)
 	})
 
-	mb.Subscribe(domain.ExecTTP{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		return manager.ExecuteTTP(ctx, msg, manager.clients)
+	mb.Subscribe(domain.ExecTTP{}, func(ctx context.Context, cmd domain.Message) (domain.Message, error) {
+		msg, err := manager.ExecuteTTP(ctx, cmd)
+		// ensure all errors are treated as failed TTP executions, to surface the underlying error
+		if err != nil {
+			ev := cmd.(domain.ExecTTP)
+			msg = domain.TTPExecuted{
+				ID:        ev.ID,
+				TTP:       ev.TTP,
+				Args:      ev.Args,
+				Procedure: ev.Procedure,
+				Success:   false,
+				Target:    ev.Target,
+				Results:   []string{err.Error()},
+			}
+		}
+		return msg, nil
 	})
 
 	return manager
 }
 
 func (c2 *C2Manager) Start(ctx context.Context) error {
-	// listeners := make(map[string]net.Listener)
-	// TODO start builtin C2 once an action demands it
-
 	// TODO: send command after actually conncting to C2, with the right IP(s)
 	c2EventStreams := make([]<-chan domain.Event, len(c2.clients))
 	for _, client := range c2.clients {
@@ -146,10 +149,22 @@ func (c2 C2Manager) StartC2Client(ctx context.Context, c2Name string) (domain.Me
 		return nil, fmt.Errorf("'%s' is not a valid C2 server to connect to", c2Name)
 	}
 	go connectToC2(ctx, c2.bus, client)
+	c2EventStream := client.GetEventStream()
+
+	wg := sync.WaitGroup{}
+	go func() {
+		defer wg.Done()
+		for ev := range c2EventStream {
+			err := c2.bus.Publish(ev)
+			if err != nil {
+				slog.Error("Failed to publish C2 event: " + err.Error())
+			}
+		}
+	}()
 	return nil, nil
 }
 
-func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Clients map[string]C2Client) (domain.Message, error) {
+func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	exec := msg.(domain.ExecTTP)
 	// check technique to execute CMD -> kubectl exec uses API
 	// or shell listener?
@@ -158,20 +173,38 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message, c2Client
 
 	switch cmd := exec.CommandMsg.(type) {
 	case domain.StartListener:
-		client, ok := selectClient(c2Clients, cmd)
+		client, ok := selectClient(c2.clients, cmd)
 		if ok {
 			return client.Execute(cmd)
 		}
 		return nil, fmt.Errorf("No suitable client found to start listener")
 	}
 
-	if exec.Procedure.IsLocalCommand {
-		results, err = execLocally(ctx, exec, exec.Procedure, c2Clients)
+	if strings.HasPrefix(exec.Procedure.Command, "c2") {
+		switch exec.Procedure.Command {
+		case "c2.connect":
+			if exec.Procedure.Tool == SliverKind {
+				cfgPath := exec.Args["CONFIG_PATH"]
+				if sliverClient, err := CreateSliverClient(cfgPath); err == nil {
+					c2.clients[SliverKind] = sliverClient
+				} else {
+					return nil, fmt.Errorf("Failed to create Sliver client: %w", err)
+				}
+			}
+			msg, err := c2.StartC2Client(ctx, exec.Procedure.Tool)
+			if err != nil {
+				return nil, fmt.Errorf("Failed to start C2 client: %w", err)
+			} else {
+				c2.bus.Publish(msg)
+			}
+		}
+	} else if exec.Procedure.IsLocalCommand {
+		results, err = execLocally(ctx, exec, exec.Procedure, c2.clients)
 	} else if exec.C2Channel == nil {
 		slog.Warn("No C2 channel defined - executing locally")
-		results, err = execLocally(ctx, exec, exec.Procedure, c2Clients)
+		results, err = execLocally(ctx, exec, exec.Procedure, c2.clients)
 	} else {
-		results, err = execRemotely(ctx, exec, exec.Procedure, c2Clients)
+		results, err = execRemotely(ctx, exec, exec.Procedure, c2.clients)
 
 		// TODO: properly fix this dirty hack:
 		if exec.Procedure.Key == "grep" {
