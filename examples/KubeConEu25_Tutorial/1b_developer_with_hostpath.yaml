@@ -1,0 +1,101 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - events
+      - namespaces
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+      - pods/log
+    verbs:
+      - get
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - "apps"
+    resources:
+      - "deployments"
+      - "replicasets"
+    verbs:
+      - "get"
+      - "list"
+  - apiGroups:
+      - "rbac.authorization.k8s.io"
+    resources:
+      - roles
+      - rolebindings
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: developer
+subjects:
+  - kind: ServiceAccount
+    name: developer
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: developer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: workstation
+  name: workstation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workstation
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: workstation
+    spec:
+      volumes:
+        - name: noderoot
+          hostPath:
+            path: /
+      containers:
+        - image: ctrsec/tools:latest
+          name: tools
+          resources: {}
+          volumeMounts:
+            - mountPath: /mnt/host
+              name: noderoot
+      serviceAccount: developer
+
+status: {}
