@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: update-log-file
+  name: update-log-file
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: update-log-file
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: update-log-file
+    spec:
+      containers:
+      - image: ctrsec/tools
+        name: tools
+        resources: {}
+        command: ["/bin/bash", "-c"]
+        args: ["while true; do date >> /var/log/applogs.txt; sleep 30; done"]
+        volumeMounts:
+        - mountPath: /var/log/applogs.txt
+          name: logfile
+      volumes:
+      - name: logfile
+        hostPath:
+          path: /var/log/applogs.txt
+          type: FileOrCreate
+status: {}

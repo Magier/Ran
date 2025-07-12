@@ -94,7 +94,7 @@ var AllAccessLevels = []struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	r := ran.InitRan("", "armory/", "sliver_cfg.json")
+	r := ran.InitRan("", "armory/")
 	a := &App{ran: &r}
 
 	// forward all events directly to the frontend
