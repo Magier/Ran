@@ -124,9 +124,23 @@ func (c *Campaign) SetTarget(target string) (domain.Event, error) {
 		AccessLevel: domain.UserExec,
 	}
 	initialPod.SetAccessLevel(domain.UserExec)
-	err := c.trail.AddNewStep(domain.ExecTTP{})
+
+	initialAccessTTP := domain.TTP{
+		ID:         "initial_access",
+		Name:       "Initial Access",
+		Tactic:     mitre.InitialAccess,
+		Techniques: []string{},
+	}
+	ev := domain.ExecTTP{
+		CommandImpl: domain.NewCmd(""),
+		TTP:         initialAccessTTP,
+		Target:      initialPod,
+	}
+	err := c.trail.AddNewStep(ev)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to add initial step to audit trail: %s", err.Error()))
+	} else {
+		c.trail.CompleteStep(ev.GetID(), ev.TTP, true, []string{})
 	}
 
 	return c.UpdateFacts(NewFacts{
