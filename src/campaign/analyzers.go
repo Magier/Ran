@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -233,9 +234,10 @@ func analyzeEnvironmentVariables(source domain.Entity, envVars map[string]string
 			kubeSystemNs := domain.Namespace{Name: "kube-system"}
 			entities = append(entities, kubeSystemNs)
 
-			apiServer := domain.ApiServer{
-				Pod: domain.NewPod("api-server", kubeSystemNs.Name),
-			}
+			p := domain.NewPod("api-server", kubeSystemNs.Name)
+			p.IPs = append(p.IPs, net.IPAddr{IP: net.ParseIP(info.host)})
+
+			apiServer := domain.ApiServer{Pod: p}
 			rel.Target = apiServer.GetId()
 			entities = append(entities, apiServer)
 		} else {

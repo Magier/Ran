@@ -7,7 +7,7 @@
 
     let { entitlements}: EntitlementsInfoProps = $props();
 
-    function getUtitlity(e: domain.RBACPermission): number {
+    function getUtility(e: domain.RBACPermission): number {
         let utility = 0;
 
         // regular API endpoints have no real value (for now?)
@@ -32,13 +32,15 @@
                 utility += 8;
             } else if (e.resourceType.includes('role')) {
                 utility += 8;
+            } else if (e.resourceType.startsWith('selfsubject')) {
+                return 1;
             }
         }
         return utility; // Unknown verb
     }
 
     function getStyle(e: domain.RBACPermission): string {
-        const utility = getUtitlity(e);
+        const utility = getUtility(e);
         if (utility > 5) {
             return 'text-success-500';
         } else if (utility > 0) {

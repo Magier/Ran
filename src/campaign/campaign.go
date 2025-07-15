@@ -122,6 +122,7 @@ func (c *Campaign) SetTarget(target string) (domain.Event, error) {
 		TargetId: initialPod.GetId(),
 		// Identity:    identity,
 		AccessLevel: domain.UserExec,
+		PodsExec:    true,
 	}
 	initialPod.SetAccessLevel(domain.UserExec)
 
@@ -718,43 +719,52 @@ func (c Campaign) GetC2(name string) (domain.C2System, bool) {
 	return domain.C2System{}, false
 }
 
-func findC2Channel(kg KnowledgeBase, target domain.Entity) (domain.C2Channel, error) {
-	if target == nil {
+func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channel, error) {
+	if finalTarget == nil {
 		return nil, errors.New("Can't find a C2 channel if target is nil")
 	}
 
+	var c2Channel domain.PodExecC2Channel
+	var lastSegment *domain.PodExecC2Channel
 	for _, c2 := range kg.GetC2s() {
-		paths, err := kg.GetPath(c2.GetId(), target.GetId())
+		paths, err := kg.GetPath(c2.GetId(), finalTarget.GetId())
 		if err != nil {
 			if !strings.HasPrefix(err.Error(), "target vertex not reachable") {
-				slog.Debug(fmt.Sprintf("Failed to get path from '%s' to '%s'", c2.GetId(), target.GetId()))
+				slog.Debug(fmt.Sprintf("Failed to get path from '%s' to '%s'", c2.GetId(), finalTarget.GetId()))
 			}
 			continue
 		}
 
-		if l := len(paths.Relations); l > 0 {
-			rel := paths.Relations[0]
-			if l > 1 {
-				slog.Info(fmt.Sprintf("Got %d possible channels, using 1st one", l))
-			}
-
+		for _, rel := range paths.Relations {
 			if ch, ok := rel.(domain.C2Channel); ok {
 				return ch, nil
 			} else if canAccess, ok := rel.(domain.CanAccess); ok {
-				if target, ok := kg.GetEntity(canAccess.TargetId); ok {
-					return domain.PodExecC2Channel{
+				if relTarget, ok := kg.GetEntity(rel.GetTargetId()); ok {
+					ch := domain.PodExecC2Channel{
 						SourceId: canAccess.SourceId,
-						Target:   target,
+						Target:   relTarget,
 						Identity: canAccess.Identity,
-					}, nil
+					}
+
+					// set a pointer to the next channel, the C2 execution component can chain the channels
+					if lastSegment != nil {
+						c2Channel.NextChannel = &ch
+					} else {
+						c2Channel = ch
+					}
+					lastSegment = &ch
 				} else {
 					return nil, fmt.Errorf("Could not identify target %s", canAccess.TargetId)
 				}
+
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("No channel found")
+	if lastSegment == nil {
+		return c2Channel, fmt.Errorf("No channel found")
+	}
+	return c2Channel, nil
 }
 
 // GetListener returns the best suitable listener given the constraints
@@ -792,6 +802,7 @@ func (c Campaign) syncCapabilities() error {
 					TargetId:    p.GetId(),
 					Identity:    identity,
 					AccessLevel: domain.UserExec,
+					PodsExec:    true,
 				})
 				p.AccessLevel = domain.UserExec
 				_ = c.kb.AddEntity(p) // update the entity

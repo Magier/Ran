@@ -357,6 +357,12 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 		}
 	case domain.PodExecC2Channel:
 		var stdout, stderr string
+
+		if ch.NextChannel != nil {
+			// wrap the CMD in another pod/exec call, that will be executed from the direct target
+			cmd.Command = fmt.Sprintf("kubectl exec %s -- %s", ch.NextChannel.Target.GetName(), cmd.Command)
+		}
+
 		stdout, stderr, err = execKubectl(ctx, cmd, target)
 		results = []string{stdout, stderr}
 		if err != nil {
