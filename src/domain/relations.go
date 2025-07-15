@@ -180,8 +180,9 @@ type PodExecC2Channel struct {
 	RelationImpl
 	SourceId string
 	// Cmd    string
-	Target   Entity
-	Identity Identity
+	Target      Entity
+	Identity    Identity
+	NextChannel *PodExecC2Channel // for chaining multiple pod exec channels
 }
 
 var _ C2Channel = (*PodExecC2Channel)(nil)
@@ -232,6 +233,7 @@ type CanAccess struct {
 	TargetId    string
 	AccessLevel AccessLevel
 	Identity    Identity
+	PodsExec    bool
 }
 
 var _ Relation = (*CanAccess)(nil)
