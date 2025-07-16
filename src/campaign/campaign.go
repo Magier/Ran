@@ -796,7 +796,12 @@ func (c Campaign) syncCapabilities() error {
 	for _, identity := range c.identities {
 		if identity.Can("create", "pods/exec") {
 			for _, p := range pods {
+				// can't access any pods that are no longer running
+				if !p.IsRunning {
+					continue
+				}
 				srcId := identity.GetId()
+
 				accessRelations = append(accessRelations, domain.CanAccess{
 					SourceId:    srcId,
 					TargetId:    p.GetId(),

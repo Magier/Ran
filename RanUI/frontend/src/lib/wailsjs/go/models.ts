@@ -281,6 +281,7 @@ export namespace main {
 	export class Edge {
 	    id: string;
 	    name: string;
+	    weight: number;
 	    sourceId: string;
 	    targetId: string;
 	
@@ -292,6 +293,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.weight = source["weight"];
 	        this.sourceId = source["sourceId"];
 	        this.targetId = source["targetId"];
 	    }

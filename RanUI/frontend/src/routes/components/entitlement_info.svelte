@@ -21,6 +21,8 @@
             utility += 2;
         } else if (e.verb === 'delete') {
             utility += 2;
+        } else if (e.verb === '*') {
+            utility += 10;
         }
 
         if (e.resourceType) {

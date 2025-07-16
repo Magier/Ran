@@ -575,6 +575,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 						user := domain.User{
 							Name:     authInfo,
 							IsAdmin:  true, // TODO: infer if the user is admin based on the kubeconfig
+							Kind:     "User",
 							CertData: rawConfig.AuthInfos[authInfo].ClientCertificateData,
 							KeyData:  rawConfig.AuthInfos[authInfo].ClientKeyData,
 						}
