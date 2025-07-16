@@ -33,7 +33,7 @@
 
 		<div class="mt-4 flex justify-start">
 			<div class="pr-2">Target</div>
-			<code>{step.Target?.Name}</code>
+			<code>{step.Target?.name}</code>
 		</div>
 
 		<div class="mt-4 flex justify-start">
