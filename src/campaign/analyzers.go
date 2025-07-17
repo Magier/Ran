@@ -353,7 +353,7 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 		// "bash: wget: command not found"  on nginx pod
 		target := ev.Target
 		if p, ok := target.(domain.Pod); ok {
-			p.Binaries[ev.Procedure.GetTool()] = "❌"
+			p.SetBinary(ev.Procedure.GetTool(), "")
 			entities = append(entities, p)
 		} else {
 			panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, target.GetId()))
