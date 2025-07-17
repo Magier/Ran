@@ -404,7 +404,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			} else {
 				slog.Warn("No valid target, can't get its NS variable")
 			}
-		} else if strings.Contains(arg, "${POD_NAME}") {
+		} else if strings.Contains(arg, POD_NAME_VAR) {
 			var podName string
 			if target == nil {
 				slog.Warn("No valid target or execSystem, use 'ran' as fallback for POD_NAME variable")
@@ -412,7 +412,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			} else {
 				podName = target.GetName()
 			}
-			arg = strings.Replace(arg, "${POD_NAME}", podName, -1)
+			arg = strings.Replace(arg, POD_NAME_VAR, podName, -1)
 		} else if key == "ServiceAccount" {
 			if strings.Contains(arg, "ns/") && strings.Contains(arg, "/sa/") {
 				arg = strings.SplitN(arg, "/", 4)[3]
@@ -452,7 +452,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 				}
 			}
 		} else if strings.ToUpper(key) == "NODE" || strings.ToUpper(key) == "NODENAME" {
-			if arg == "" || arg == "${NODE_NAME}" {
+			if arg == "" || arg == NODE_NAME_VAR {
 				if pod, ok := target.(domain.Pod); ok {
 					arg = pod.NodeName
 				} else {

@@ -297,6 +297,7 @@ type System interface {
 	GetAccessLevel() AccessLevel
 	SetAccessLevel(AccessLevel)
 	SetIPs(ips []net.IPAddr)
+	SetBinary(name, path string)
 	GetMounts() []Mount
 }
 
@@ -364,6 +365,14 @@ func (s *SystemImpl) SetEnvironmentVariables(vars map[string]string) {
 
 func (s *SystemImpl) SetIPs(ips []net.IPAddr) {
 	s.IPs = ips
+}
+
+func (s *SystemImpl) SetBinary(name, path string) {
+	if path == "" {
+		path = "❌"
+	}
+
+	s.Binaries[name] = path // same name implies it's a globally available binary
 }
 
 func (s *SystemImpl) GetMounts() []Mount {

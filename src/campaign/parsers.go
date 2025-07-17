@@ -419,11 +419,11 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			} else {
 				// fallback try to extract the binary name from the source name
 				// however: knowing the location of the binary on the system is not always possible
-				dstPath = "❌"
+				dstPath = ""
 				// TODO: get the path from the SRC_PATH?
 				slog.Warn("No DST_PATH provided, and extraction from SRC_PATh is not yet implemented!")
 			}
-			sys.Binaries[binaryName] = dstPath
+			sys.SetBinary(binaryName, dstPath)
 			entities = append(entities, sys)
 		} else {
 			slog.Warn("The source of the hasBinary effect is not a Pod!")
@@ -614,16 +614,26 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 }
 
 func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]string, results ...string) (domain.Entity, error) {
-	// Extract the binary name from the effect string, e.g. "k8s.has-binary(${BINARY_NAME})"
-	// Match ${...} that is inside (...) — i.e., the outer match includes the parentheses
-	re := regexp.MustCompile(`\(\s*\$\{\s*(.*?)\s*\}\s*\)`)
+	// Extract the binary name from the effect string, e.g. "target.has-binary(${BINARY_NAME})"
+	// Match parameter within the parenthesis of `has-binary()`
+	re := regexp.MustCompile(`\(\s*\s*(.*?)\s*\)`)
 
 	match := re.FindStringSubmatch(effect)
 	if len(match) > 1 {
 		paramName := strings.ToUpper(match[1])
-		if sys, ok := source.(domain.Pod); ok {
-			if binaryName, ok := args[paramName]; ok {
-				sys.Binaries[binaryName] = binaryName // same name implies it's a globally available binary
+		if sys, ok := source.(domain.System); ok {
+			if IsTemplateVariable(paramName) {
+				paramName = strings.TrimPrefix(paramName, "${")
+				paramName = strings.TrimSuffix(paramName, "}")
+			}
+
+			if binPath, ok := args[paramName]; ok {
+				var binaryName = binPath
+				if strings.Contains(binPath, "/") {
+					parts := strings.Split(binPath, "/")
+					binaryName = parts[len(parts)-1]
+				}
+				sys.SetBinary(binaryName, binPath) // same name implies it's a globally available binary
 			} else {
 				slog.Warn(fmt.Sprintf("Effect '%s' expects a parameter '%s' but it was not provided", effect, paramName))
 			}
@@ -632,8 +642,7 @@ func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]s
 			slog.Warn("The source of the has-binary effect is not a Pod!")
 		}
 	} else {
-		// TODO: implement default parameter names, depending on the provided args
-		slog.Warn("No parameter found in the has-binary effect, expected format: k8s.has-binary(${BINARY_NAME})")
+		slog.Warn("No parameter found in the has-binary effect, expected format: target.has-binary(${BINARY_NAME})")
 	}
 	return nil, fmt.Errorf("Invalid has-binary effect: %s", effect)
 }
