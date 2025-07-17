@@ -678,6 +678,13 @@ func (p RBACPermission) IsSet() bool {
 	return false
 }
 
+func (r RBACPermission) IsInScope(scope string) bool {
+	if r.Scope == "*" {
+		return true
+	}
+	return r.Scope != "" && r.Scope == scope
+}
+
 // type RbacPermission struct {
 // 	Verbs         []string
 // 	ResourceTypes []string
@@ -689,7 +696,7 @@ func (p RBACPermission) IsSet() bool {
 type Identity interface {
 	GetId() string
 	GetToken() string
-	Can(verb, res string) bool
+	Can(verb, res string) (RBACPermission, bool)
 	GetEntitlements() []RBACPermission
 }
 
@@ -730,16 +737,16 @@ func (user User) GetToken() string {
 }
 
 // Can implements Identity.
-func (user User) Can(verb, resource string) bool {
+func (user User) Can(verb, resource string) (RBACPermission, bool) {
 	for _, perm := range user.Entitlements {
 		// for _, v := range perm.Verbs {
 		// TODO: properly filter for scope, resource name/type + wildcards
 		if perm.Verb == "*" {
-			return true
+			return perm, true
 		}
 		// }
 	}
-	return false
+	return RBACPermission{}, false
 }
 
 type Mount struct {
@@ -1135,13 +1142,13 @@ func (sa ServiceAccount) GetToken() string {
 	return sa.Token.Raw
 }
 
-func (sa ServiceAccount) Can(verb, resource string) bool {
+func (sa ServiceAccount) Can(verb, resource string) (RBACPermission, bool) {
 	for _, perm := range sa.Entitelements {
 		if perm.Verb == "*" || (perm.Verb == verb && perm.ResourceType == resource) {
-			return true
+			return perm, true
 		}
 	}
-	return false
+	return RBACPermission{}, false
 }
 
 func (sa ServiceAccount) GetEntitlements() []RBACPermission {
