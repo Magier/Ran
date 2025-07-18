@@ -347,16 +347,21 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 	relations := make([]domain.Relation, 0)
 
 	// the tool part of the procedure was not on the target system
-	toolNotFoundMsg := fmt.Sprintf("%s: not found", ev.Procedure.GetTool())
-	if strings.Contains(errMsg, toolNotFoundMsg) || (len(ev.Results) > 1 && strings.Contains(ev.Results[1], toolNotFoundMsg)) {
-		// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
-		// "bash: wget: command not found"  on nginx pod
-		target := ev.Target
-		if p, ok := target.(domain.Pod); ok {
-			p.SetBinary(ev.Procedure.GetTool(), "")
-			entities = append(entities, p)
-		} else {
-			panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, target.GetId()))
+
+	toolNotFoundMsgs := []string{
+		fmt.Sprintf("%s: not found", ev.Procedure.GetTool()),
+		"executable file not found in $PATH", // happened when using `k exec`
+	}
+
+	for _, toolNotFoundMsg := range toolNotFoundMsgs {
+		if strings.Contains(errMsg, toolNotFoundMsg) || (len(ev.Results) > 1 && strings.Contains(ev.Results[1], toolNotFoundMsg)) {
+			// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
+			// "bash: wget: command not found"  on nginx pod
+			if execSystem := ev.ExecutedOn; execSystem != nil {
+				// if p, ok := target.(domain.Pod); ok
+				execSystem.SetBinary(ev.Procedure.GetTool(), "")
+				entities = append(entities, execSystem)
+			}
 		}
 	}
 

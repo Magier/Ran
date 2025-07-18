@@ -1,6 +1,9 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"log/slog"
+)
 
 type Relation interface {
 	GetSourceId() string
@@ -120,10 +123,12 @@ func (r Created) GetRelationName() string {
 	return "created"
 }
 
+// TODO: generalize C2 channel with multiple segments
 type C2Channel interface {
 	Relation
 	GetKind() string
 	GetTarget() Entity
+	GetFinalTarget() Entity
 }
 
 type ListenesOn struct {
@@ -167,6 +172,10 @@ func (ch ImplantC2Channel) GetTargetId() string {
 func (ch ImplantC2Channel) GetTarget() Entity {
 	return ch.Target
 }
+func (ch ImplantC2Channel) GetFinalTarget() Entity {
+	slog.Warn("GetFinalTarget is not yet supported on ImplantC2Channel, using the next target instead!")
+	return ch.Target
+}
 
 func (ch ImplantC2Channel) GetRelationName() string {
 	return fmt.Sprintf("%s-c2-%s-channel", ch.Kind, ch.Protocol)
@@ -196,6 +205,13 @@ func (ch PodExecC2Channel) GetTargetId() string {
 }
 func (ch PodExecC2Channel) GetTarget() Entity {
 	return ch.Target
+}
+func (ch PodExecC2Channel) GetFinalTarget() Entity {
+	target := ch.Target
+	for next := ch.NextChannel; next != nil; next = next.NextChannel {
+		target = next.Target
+	}
+	return target
 }
 
 func (ch PodExecC2Channel) GetRelationName() string {

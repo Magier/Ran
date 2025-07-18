@@ -294,9 +294,11 @@ type System interface {
 	Entity
 	SetEnvironmentVariables(map[string]string)
 	GetEnvironmentVariables() map[string]string
+	CanExecuteProcedure(procedure Procedure) bool
 	GetAccessLevel() AccessLevel
 	SetAccessLevel(AccessLevel)
 	SetIPs(ips []net.IPAddr)
+	HasBinary(name string) ProbBool
 	SetBinary(name, path string)
 	GetMounts() []Mount
 }
@@ -352,6 +354,11 @@ func (s *SystemImpl) SetAccessLevel(level AccessLevel) {
 	s.AccessLevel = level
 }
 
+func (s *SystemImpl) CanExecuteProcedure(procedure Procedure) bool {
+	hasBin := s.HasBinary(procedure.GetTool())
+	return s.AccessLevel.Satisfies(UserExec) && hasBin >= .5 //.5 means no information, so just attempt it
+}
+
 func (s *SystemImpl) GetEnvironmentVariables() map[string]string {
 	if s.EnvVars == nil {
 		s.EnvVars = make(map[string]string)
@@ -365,6 +372,16 @@ func (s *SystemImpl) SetEnvironmentVariables(vars map[string]string) {
 
 func (s *SystemImpl) SetIPs(ips []net.IPAddr) {
 	s.IPs = ips
+}
+
+func (s *SystemImpl) HasBinary(name string) ProbBool {
+	path, exists := s.Binaries[name]
+
+	if !exists {
+		return NewProbBool() // = no information present
+	}
+	// if path is empty or "❌", then the binary is not present
+	return AsProbBool(path != "" && path != "❌")
 }
 
 func (s *SystemImpl) SetBinary(name, path string) {

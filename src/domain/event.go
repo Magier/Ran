@@ -185,6 +185,7 @@ type TTPExecuted struct {
 	Target     Entity
 	ResultType Message
 	Results    []string
+	ExecutedOn System
 }
 
 func (ttp TTPExecuted) String() string {
