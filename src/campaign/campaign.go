@@ -347,7 +347,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 
 	var execSystem domain.Entity
 	if isActionOnRemoteTarget(execCmd.TTP, execCmd.Procedure) {
-		execSystem, err = c.getSystemForExecution(ttp, target)
+		execSystem, err = c.getSystemForExecution(ttp, execCmd.Procedure, target)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to get system for execution: %s", err.Error()))
 		}
@@ -535,18 +535,18 @@ func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (doma
 	return nil, nil
 }
 
-func (c Campaign) getSystemForExecution(ttp domain.TTP, target domain.Entity) (domain.Entity, error) {
+func (c Campaign) getSystemForExecution(ttp domain.TTP, procedure domain.Procedure, target domain.Entity) (domain.Entity, error) {
 	// Find best system to execute the TTP on based on a few heuristics:
 	// 1) if the TTP targets the pod, and it's compromised, use it
 	// 2) if the TTP targets a service account, use the pod and check 1)
 	// 3) for now just pick any compromised system (Pod or Node) in the cluster
 	if pod, ok := target.(domain.Pod); ok {
-		if pod.AccessLevel.Satisfies(domain.UserExec) {
+		if pod.CanExecuteProcedure(procedure) {
 			return pod, nil
 		}
 	} else if sa, ok := target.(domain.ServiceAccount); ok {
 		if owner, ok := c.getServiceAccountOwner(sa); ok {
-			if owner.AccessLevel.Satisfies(domain.UserExec) {
+			if owner.CanExecuteProcedure(procedure) {
 				return owner, nil
 			}
 		}
@@ -556,11 +556,11 @@ func (c Campaign) getSystemForExecution(ttp domain.TTP, target domain.Entity) (d
 	for _, entity := range c.kb.GetEntities() {
 		switch system := entity.(type) {
 		case domain.Pod:
-			if system.AccessLevel.Satisfies(domain.UserExec) {
+			if system.CanExecuteProcedure(procedure) {
 				compromisedSystems = append(compromisedSystems, system)
 			}
 		case domain.K8sNode:
-			if system.AccessLevel.Satisfies(domain.UserExec) {
+			if system.CanExecuteProcedure(procedure) {
 				compromisedSystems = append(compromisedSystems, system)
 			}
 		}
@@ -717,54 +717,6 @@ func (c Campaign) GetC2(name string) (domain.C2System, bool) {
 		}
 	}
 	return domain.C2System{}, false
-}
-
-func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channel, error) {
-	if finalTarget == nil {
-		return nil, errors.New("Can't find a C2 channel if target is nil")
-	}
-
-	var c2Channel domain.PodExecC2Channel
-	var lastSegment *domain.PodExecC2Channel
-	for _, c2 := range kg.GetC2s() {
-		paths, err := kg.GetPath(c2.GetId(), finalTarget.GetId())
-		if err != nil {
-			if !strings.HasPrefix(err.Error(), "target vertex not reachable") {
-				slog.Debug(fmt.Sprintf("Failed to get path from '%s' to '%s'", c2.GetId(), finalTarget.GetId()))
-			}
-			continue
-		}
-
-		for _, rel := range paths.Relations {
-			if ch, ok := rel.(domain.C2Channel); ok {
-				return ch, nil
-			} else if canAccess, ok := rel.(domain.CanAccess); ok {
-				if relTarget, ok := kg.GetEntity(rel.GetTargetId()); ok {
-					ch := domain.PodExecC2Channel{
-						SourceId: canAccess.SourceId,
-						Target:   relTarget,
-						Identity: canAccess.Identity,
-					}
-
-					// set a pointer to the next channel, the C2 execution component can chain the channels
-					if lastSegment != nil {
-						c2Channel.NextChannel = &ch
-					} else {
-						c2Channel = ch
-					}
-					lastSegment = &ch
-				} else {
-					return nil, fmt.Errorf("Could not identify target %s", canAccess.TargetId)
-				}
-
-			}
-		}
-	}
-
-	if lastSegment == nil {
-		return c2Channel, fmt.Errorf("No channel found")
-	}
-	return c2Channel, nil
 }
 
 // GetListener returns the best suitable listener given the constraints

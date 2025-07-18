@@ -148,27 +148,44 @@ func TestAnalyzeDeployPodFailure_UnknownError(t *testing.T) {
 func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
 	toolName := "kubectl"
 	target := domain.NewPod("mypod", "default")
-	event := domain.TTPExecuted{
-		Results: []string{fmt.Sprintf("command terminated with exit code 127: 'sh: 1: %s: not found\n'", toolName)},
-		Procedure: domain.Procedure{
-			Tool: toolName,
-		},
 
-		Target: target,
+	tests := []struct {
+		name   string
+		errMsg string
+	}{
+		{
+			name:   "kubectl not found",
+			errMsg: fmt.Sprintf("command terminated with exit code 127: 'sh: 1: %s: not found\n'", toolName),
+		},
+		{
+			name:   "OCI runtime exec failed",
+			errMsg: fmt.Sprintf("error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec \"arstarst123\": OCI runtime exec failed: exec failed: unable to start container process: exec: \"%s\": executable file not found in $PATH\n", toolName),
+		},
 	}
-	newFacts, _, err := analyzeFailedTTPExecution(event)
-	if err != nil {
-		t.Errorf("Expected no error, got %v", err)
-	}
-	if len(newFacts.Entities) != 1 {
-		t.Errorf("Expected 1 entity, got %d", len(newFacts.Entities))
-	}
-	pod, ok := newFacts.Entities[0].(domain.Pod)
-	if !ok {
-		t.Fatalf("Expected entity to be Pod, got %T", newFacts.Entities[0])
-	}
-	if val, exists := pod.Binaries["kubectl"]; !exists || val != "❌" {
-		t.Errorf("Expected pod.Binaries[kubectl]=❌, got %v", pod.Binaries)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := domain.TTPExecuted{
+				Results:   []string{tt.errMsg},
+				Procedure: domain.Procedure{Tool: toolName},
+				Target:    target,
+			}
+
+			newFacts, _, err := analyzeFailedTTPExecution(event)
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+			if len(newFacts.Entities) != 1 {
+				t.Errorf("Expected 1 entity, got %d", len(newFacts.Entities))
+			}
+			pod, ok := newFacts.Entities[0].(domain.Pod)
+			if !ok {
+				t.Fatalf("Expected entity to be Pod, got %T", newFacts.Entities[0])
+			}
+			if val, exists := pod.Binaries[toolName]; !exists || val != "❌" {
+				t.Errorf("Expected pod.Binaries[%s]=❌, got %v", toolName, pod.Binaries)
+			}
+		})
 	}
 }
 

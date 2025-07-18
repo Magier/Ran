@@ -216,14 +216,20 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 		results = append(results, err.Error())
 	}
 
+	execTarget, ok := exec.C2Channel.GetFinalTarget().(domain.System)
+	if !ok {
+		slog.Warn(fmt.Sprintf("Could not get on which system TTP was executed: %T", exec.C2Channel.GetTarget()))
+	}
+
 	return domain.TTPExecuted{
-		ID:        exec.ID,
-		TTP:       exec.TTP,
-		Args:      exec.Args,
-		Procedure: exec.Procedure,
-		Success:   wasExecSuccessful(results, err),
-		Target:    exec.Target,
-		Results:   results,
+		ID:         exec.ID,
+		TTP:        exec.TTP,
+		Args:       exec.Args,
+		Procedure:  exec.Procedure,
+		Success:    wasExecSuccessful(results, err),
+		Target:     exec.Target,
+		ExecutedOn: execTarget,
+		Results:    results,
 	}, nil
 }
 
