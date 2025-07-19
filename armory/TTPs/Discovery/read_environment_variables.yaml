@@ -11,6 +11,7 @@ procedures:
     command: env
   - key: cat
     command: cat /proc/self/environ
+effects: ["sys.envVar"]
 parser: environmentVariables
 # effects:
 # defend: {}
