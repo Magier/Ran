@@ -32,9 +32,15 @@
 		</p>
 
 		<div class="mt-4 flex justify-start">
-			<div class="pr-2">Target</div>
+			<div class="pr-2">Target:</div>
 			<code>{step.Target?.name}</code>
 		</div>
+		{#if step.ExecutedOn?.name != step.Target?.name }
+		<div class="mt-4 flex justify-start">
+			<div class="pr-2">Executed On:</div>
+			<code>{step.ExecutedOn?.name}</code>
+		</div>
+		{/if}
 
 		<div class="mt-4 flex justify-start">
 			<div class="pr-2">Started</div>

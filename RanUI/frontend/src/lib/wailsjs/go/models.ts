@@ -9,6 +9,7 @@ export namespace campaign {
 	    // Go type: time
 	    StartAt: any;
 	    Target: any;
+	    ExecutedOn: any;
 	    // Go type: time
 	    CompletedAt: any;
 	    Observables: any[];
@@ -26,6 +27,7 @@ export namespace campaign {
 	        this.Results = source["Results"];
 	        this.StartAt = this.convertValues(source["StartAt"], null);
 	        this.Target = source["Target"];
+	        this.ExecutedOn = source["ExecutedOn"];
 	        this.CompletedAt = this.convertValues(source["CompletedAt"], null);
 	        this.Observables = source["Observables"];
 	    }

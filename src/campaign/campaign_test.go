@@ -67,11 +67,3 @@ func TestAddPodWhenItsWorkloadIsAlreadyKnownDoesNotGenerateExtraWorkload(t *test
 		t.Errorf("Only the new pod should've been added")
 	}
 }
-
-func TestReplaceAbstractWorkloadWhenMoreConcreteTypeIsKnown(t *testing.T) {
-	t.Fail()
-}
-
-func TestAddingSameEntityWithAdditionalInformationMergesThem(t *testing.T) {
-	t.Fail()
-}

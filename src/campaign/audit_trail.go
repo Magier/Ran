@@ -18,6 +18,7 @@ type AttackStep struct {
 	Results     []string
 	StartAt     time.Time
 	Target      domain.Entity
+	ExecutedOn  domain.System
 	CompletedAt time.Time
 	Observables []any
 }
@@ -32,12 +33,17 @@ func NewAuditTrail() AuditTrail {
 }
 
 func (a *AuditTrail) AddNewStep(action domain.ExecTTP) error {
+	var execOn domain.System
+	if action.C2Channel != nil {
+		execOn = action.C2Channel.GetFinalTarget().(domain.System)
+	}
 	a.openSteps = append(a.openSteps, AttackStep{
-		ID:      action.ID,
-		TTP:     action.TTP,
-		Target:  action.Target,
-		Command: action.Procedure.Command,
-		StartAt: time.Now(),
+		ID:         action.ID,
+		TTP:        action.TTP,
+		Target:     action.Target,
+		ExecutedOn: execOn,
+		Command:    action.Procedure.Command,
+		StartAt:    time.Now(),
 	})
 	return nil
 }
