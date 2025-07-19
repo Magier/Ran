@@ -43,8 +43,12 @@ Act 2
 
 13) create privileged container `noderoot`  (deploy container T1610)
 14) chroot onto Node    (PrivEsc Escape to Host https://attack.mitre.org/techniques/T1611/)
-15) access `admin.conf` and `super-admin.conf` 
-16) impersonate these using:
+15) get `kubelet.conf` ?
+16) discover other nodese in cluster
+    - deploy nmap?
+17) create new pod on the control-plane node with hostPath
+18) access `admin.conf` and `super-admin.conf` 
+19) impersonate these using:
     - `kubectl --kubeconfig=/etc/kubnetetes/admin.conf auth can-i --list`
     - `kubectl --kubeconfig=/etc/kubnetetes/super-admin.conf auth can-i --list`
-17) impact: full cluster admin
+20) impact: full cluster admin
