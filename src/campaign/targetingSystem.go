@@ -9,6 +9,85 @@ import (
 	"github.com/Magier/Ran/domain"
 )
 
+func (c Campaign) getSystemForExecution(ttp domain.TTP, procedure domain.Procedure, target domain.Entity) (domain.Entity, error) {
+	// Find best system to execute the TTP on based on a few heuristics:
+	// 1) if the TTP targets the pod, and it's compromised, use it
+	// 2) if the TTP targets a service account, use the pod and check 1)
+	// 3) for now just pick any compromised system (Pod or Node) in the cluster
+	if pod, ok := target.(domain.Pod); ok {
+		if pod.CanExecuteProcedure(procedure) {
+			return pod, nil
+		}
+	} else if sa, ok := target.(domain.ServiceAccount); ok {
+		if owner, ok := c.getServiceAccountOwner(sa); ok {
+			if owner.CanExecuteProcedure(procedure) {
+				return owner, nil
+			}
+		}
+	}
+
+	c2, ok := c.GetC2("Ran") // ensure the C2 is loaded
+	if !ok {
+		return nil, fmt.Errorf("C2 system 'Ran' not found in the knowledge base")
+	}
+
+	compromisedSystems := make([]domain.Entity, 0)
+	for _, entity := range c.kb.GetEntities() {
+		if sys, ok := entity.(domain.System); ok && sys.CanExecuteProcedure(procedure) {
+			compromisedSystems = append(compromisedSystems, sys)
+		}
+		// switch system := entity.(type) {
+		// case domain.Pod:
+		// 	if system.CanExecuteProcedure(procedure) {
+		// 		compromisedSystems = append(compromisedSystems, system)
+		// 	}
+		// case domain.K8sNode:
+		// 	if system.CanExecuteProcedure(procedure) {
+		// 		compromisedSystems = append(compromisedSystems, system)
+		// 	}
+		// }
+	}
+
+	// TODO generalize this
+	// look for paths from compromised systems to the target
+	if node, ok := target.(domain.K8sNode); ok {
+		paths, err := c.kb.GetAllPaths(c2.GetId(), node.GetId())
+
+		// entities, relations, err := c.kb.GetPath(c2.GetId(), node.GetId())
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get path from C2 to target node '%s': %s", node.GetName(), err.Error())
+		}
+
+		for _, path := range paths {
+			// the last node is the target entity, so check if the one before that is already compromised
+
+			for _, compromisedSys := range compromisedSystems {
+				srcBeforeTarget := path.Nodes[len(path.Nodes)-2]
+				rel := path.Relations[len(path.Relations)-1]
+
+				// possible system to execution TTP from, check if relations support it
+				if compromisedSys.GetId() == srcBeforeTarget.GetId() {
+					switch rel.(type) {
+					case domain.CanAccess:
+						return compromisedSys, nil
+					case domain.MountsHostPath:
+						return compromisedSys, nil
+					}
+				}
+			}
+		}
+	}
+
+	if len(compromisedSystems) > 0 {
+		// TODO: use heuristic to pick the best system, e.g.
+		// - preference to execute on the same system as the last TTPs (or opposite, to make detection more challenging?)
+		slog.Warn(fmt.Sprintf("No match for TTP execution found, using first best compromised system: %s", compromisedSystems[0].GetName()))
+		return compromisedSystems[0], nil
+	}
+
+	return nil, fmt.Errorf("No suitable system found for execution")
+}
+
 func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channel, error) {
 	if finalTarget == nil {
 		return nil, errors.New("Can't find a C2 channel if target is nil")
