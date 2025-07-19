@@ -7,7 +7,7 @@ parameters:
     type: string
     description: the path where the host filesystem is mounted
 preconditions:
-  "kind": Session
+  kind: Session
   "Pod.hostPath": true
 effects: []
 procedures:
