@@ -3,10 +3,11 @@
 	import EntitlementInfo from './entitlement_info.svelte';
 	import {domain} from '$lib/wailsjs/go/models';
 
-	let { selectedNode } = $props();
+	let { selectedObject } = $props();
 
 	const items = [];
 	// const tree = new Tree({ items });
+	$inspect(selectedObject)
 
 	function prettyPrint(obj: any): string {
 		if (typeof obj === 'string') {
@@ -32,8 +33,8 @@
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
 <div class="max-h-120 overflow-auto" data-popup>
-	{#if selectedNode?.entity !== null}
-		{#each Object.entries(selectedNode?.entity || {}) as [label, data]}
+	{#if selectedObject?.entity}
+		{#each Object.entries(selectedObject?.entity || {}) as [label, data]}
 			{#if label === 'volumeMounts' || label === 'mounts'}
 				<details>
 					<summary>
@@ -78,13 +79,20 @@
 				<div><span>{label}:</span> {prettyPrint(data)}</div>
 			{/if}
 		{/each}
+	{:else if selectedObject?.relation !== null}
+		{#each Object.entries(selectedObject?.relation || {}) as [label, data]}
+			<div><span>{label}:</span> {prettyPrint(data)}</div>
+		{/each}
+	{:else}
+		<h3>Unknown Object type</h3>
+		{prettyPrint(selectedObject)}
 	{/if}
 
-	{#if selectedNode?.accessLevel}
-		<div><span>AccessLevel:</span> {selectedNode?.accessLevel}</div>{/if}
-	{#if selectedNode?.entitlements}
+	{#if selectedObject?.accessLevel}
+		<div><span>AccessLevel:</span> {selectedObject?.accessLevel}</div>{/if}
+	{#if selectedObject?.entitlements}
 		<h4>Entitlements</h4>
-		{#each selectedNode.entitlements as e}
+		{#each selectedObject.entitlements as e}
 			<div><span>Can {e.verbs.join(', ')}</span>{e.resourceTypes}</div>
 		{/each}
 	{/if}

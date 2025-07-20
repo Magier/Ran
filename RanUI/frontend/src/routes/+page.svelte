@@ -55,9 +55,9 @@
 
 	let targetIsSet: boolean = $state(false);
 
-	let selectedNodeId: string = $state('');
-	let selectedNode: main.Node | undefined = $state();
-	let showDetails = $derived(selectedNodeId !== '');
+	let selectedObjectId: string = $state('');
+	let selectedObject: main.Node | undefined = $state();
+	let showDetails = $derived(selectedObjectId !== '');
 	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: Object = {};
 	let selectedTTP: domain.TTP | undefined = $state();
@@ -69,7 +69,7 @@
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
-			ExecuteAction(ttp.id, selectedNodeId, '', {});
+			ExecuteAction(ttp.id, selectedObjectId, '', {});
 		}
 	}
 
@@ -78,7 +78,7 @@
 	}
 	function deleteSelectedNode() {
 		store.sendMessage('delete_entity', {
-			target: selectedNodeId
+			target: selectedObjectId
 		});
 	}
 
@@ -113,8 +113,8 @@
 			}
 		});
 
-		console.log('Executing TTP', ttpId, selectedNodeId, procedureId, args);
-		ExecuteAction(ttpId, selectedNodeId, procedureId, args)
+		console.log('Executing TTP', ttpId, selectedObjectId, procedureId, args);
+		ExecuteAction(ttpId, selectedObjectId, procedureId, args)
 			.then((e) => {
 				let toastId = showToast('Executing TTP', ttpId, 'info');
 				ToastMapping[ttpId] = toastId;
@@ -146,7 +146,7 @@
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
 		<div>loading...</div>
 	{:then sessions}
-		<Armory class="" action={sendAction} targetId={selectedNodeId} />
+		<Armory class="" action={sendAction} targetId={selectedObjectId} />
 		<div class="flex flex-col">
 			{#if !targetIsSet}
 				<div class="flex items-center">
@@ -158,7 +158,7 @@
 					<button onclick={start} class="btn preset-filled-primary-500">Start</button>
 				</div>
 			{/if}
-			<Graph bind:selectedNodeId bind:selectedNode class="flex-1 " />
+			<Graph bind:selectedObjectId bind:selectedObject class="flex-1 " />
 		</div>
 
 		<Popover
@@ -173,7 +173,7 @@
 			{#snippet trigger()}{/snippet}
 			{#snippet content()}
 				<svelte:boundary onerror={handleError}>
-					<EntityInfo {selectedNode} />
+					<EntityInfo selectedObject={selectedObject} />
 				</svelte:boundary>
 			{/snippet}
 		</Popover>
@@ -189,7 +189,7 @@
 		>
 			{#snippet content()}
 				<ActionParamsModal
-					targetId={selectedNodeId}
+					targetId={selectedObjectId}
 					ttp={selectedTTP!}
 					onCancel={closeModal}
 					onExecute={onExecuteTTP}
