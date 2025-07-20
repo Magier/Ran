@@ -7,7 +7,6 @@
 
 	const items = [];
 	// const tree = new Tree({ items });
-	$inspect(selectedObject)
 
 	function prettyPrint(obj: any): string {
 		if (typeof obj === 'string') {
