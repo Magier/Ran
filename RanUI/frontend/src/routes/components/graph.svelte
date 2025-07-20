@@ -10,13 +10,13 @@
 
 	type GraphProps = {
 		class?: string;
-		selectedNodeId: string;
-		selectedNode?: main.Node;
+		selectedObjectId: string;
+		selectedObject?: main.Node | main.Edge | undefined;
 	};
 	let {
 		class: className = '',
-		selectedNodeId = $bindable(),
-		selectedNode = $bindable()
+		selectedObjectId = $bindable(),
+		selectedObject = $bindable()
 	}: GraphProps = $props();
 
 	let nodes = $state([]);
@@ -29,15 +29,17 @@
 
 	function handleSelection(event: cytoscape.Event) {
 		let el = event.target;
-		selectedNode = el.data();
-		selectedNodeId = el.data()['id'];
+		selectedObject = el.data();
+		selectedObjectId = el.data()['id'];
+		console.group("Selected Graph object");
 		console.log(el.data());
 		console.log(el.classes());
+		console.groupEnd();
 	}
 
 	function resetSelection(event: cytoscape.Event) {
-		selectedNode = undefined;
-		selectedNodeId = '';
+		selectedObject = undefined;
+		selectedObjectId = '';
 	}
 
 	type CyNode = {
@@ -94,11 +96,16 @@
 					toaster.create({ title: "Graph error", description: 'Error updating graph: ' + e, type: 'error' });
 				}
 
-				// update the currently selected node
-				if (selectedNode !== undefined) {
-					console.log('Selected node: ', selectedNode);
-					const el = graph.nodes.find((n) => n.id === selectedNodeId);
-					selectedNode = el;
+				// update the currently selected graph object
+				if (selectedObject !== undefined) {
+					if (selectedObject.entity !== undefined) {
+						const el = graph.nodes.find((n) => n.id === selectedObjectId);
+						selectedObject = el;
+					} else {
+						const el = graph.edges.find((n) => n.id === selectedObjectId);
+						selectedObject = el;
+					}
+
 				}
 			}
 

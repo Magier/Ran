@@ -284,6 +284,7 @@ export namespace main {
 	    id: string;
 	    name: string;
 	    weight: number;
+	    relation: any;
 	    sourceId: string;
 	    targetId: string;
 	
@@ -296,6 +297,7 @@ export namespace main {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.weight = source["weight"];
+	        this.relation = source["relation"];
 	        this.sourceId = source["sourceId"];
 	        this.targetId = source["targetId"];
 	    }

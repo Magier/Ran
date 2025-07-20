@@ -325,7 +325,7 @@ export function getGraphStyle() {
 				width: '1',
 				color: 'white',
 				'target-arrow-shape': 'triangle',
-				content: `data(name)`
+				content: 'data(name)'
 				// 'line-color': 'gray',
 				// 'target-arrow-color': 'gray'
 				// 'font-weight': 'bold'
@@ -358,12 +358,6 @@ export function getGraphStyle() {
 				'target-arrow-color': 'gray',
 				'line-style': 'dotted',
 				'font-size': 7
-			}
-		},
-		{
-			selector: 'edge[relation]',
-			style: {
-				content: `data(relation)`
 			}
 		},
 		{

@@ -40,10 +40,12 @@ type Node struct {
 }
 
 type Edge struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	SourceID string `json:"sourceId"`
-	TargetID string `json:"targetId"`
+	ID       string          `json:"id"`
+	Name     string          `json:"name"`
+	Weight   float32         `json:"weight"`
+	Relation domain.Relation `json:"relation"`
+	SourceID string          `json:"sourceId"`
+	TargetID string          `json:"targetId"`
 }
 
 type Graph struct {
@@ -181,6 +183,7 @@ func (a *App) GetGraph() Graph {
 		default:
 			edges = append(edges, Edge{
 				ID:       id,
+				Relation: relation,
 				Name:     relation.GetRelationName(),
 				SourceID: relation.GetSourceId(),
 				TargetID: relation.GetTargetId(),
