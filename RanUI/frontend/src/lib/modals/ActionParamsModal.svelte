@@ -60,6 +60,11 @@
 
 		onExecute(ttp.id, procedureId, argsDict);
 	}
+
+	function executingSystemHasTool(system: string, tool: string): boolean {
+		console.warn('Checking of available tools is not implemented yet.');
+		return false;
+	}
 </script>
 
 <form class="text-surface-50 w-full space-y-8">
@@ -77,7 +82,11 @@
 				<ul class="list-disc pl-5">
 					<select class="input mt-2" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
 						{#each ttp.procedures as procedure}
-							<option value={procedure.Key}>{procedure.Key}</option>
+							<option
+								value={procedure.Key}
+								disabled={executingSystemHasTool(targetId, procedure.Key)}
+								>{procedure.Key}
+							</option>
 						{/each}
 					</select>
 				</ul>

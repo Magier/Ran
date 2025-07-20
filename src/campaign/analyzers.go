@@ -853,3 +853,21 @@ func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
 
 	return rels
 }
+
+func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
+	// get the system on which the TTP was executed
+	newFacts := NewFacts{}
+
+	// TODO: suppert c2 channel with multiple segements
+	if ev.ExecutedOn != nil {
+		tool := ev.Procedure.GetTool()
+
+		// add the binary only, if it was not yet known, because just a successful
+		// call provides no information of the exact path (which other info sources may do)
+		if !ev.ExecutedOn.HasBinary(tool).Bool() {
+			ev.ExecutedOn.SetBinary(tool, tool)
+		}
+	}
+
+	return newFacts, RemovedFacts{}, nil
+}

@@ -40,6 +40,7 @@ func (c *Campaign) onExecuteTTP(ctx context.Context, msg domain.Message) (domain
 }
 
 func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	var err error
 	ev := msg.(domain.TTPExecuted)
 	ttp := ev.TTP
 	var results []string = ev.Results
@@ -63,7 +64,6 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	// ensure the podCfg is properly provided regardless of which procedure is executed
 	for _, technique := range ev.TTP.Techniques {
 		if technique == "T1610" || strings.ToLower(technique) == "deploy container" {
-			var err error
 			var removed RemovedFacts
 			var new NewFacts
 			if !ev.Success {
@@ -95,7 +95,15 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		removedFacts.Update(removed)
 	}
 
-	var err error
+	// generic analyzer for the successful TTP invocation
+	new, removed, err := analyzeToolSuccessfullyUsedInTTP(ev)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
+	} else {
+		newFacts.Update(new)
+		removedFacts.Update(removed)
+	}
+
 	newFacts, removedFacts, err = c.AnalyzeChanges(newFacts, removedFacts)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
