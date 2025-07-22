@@ -917,6 +917,10 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 		mounts = append(mounts, mount)
 	}
 	slog.Warn(">> Pod volumes are not fully supported yet!!")
+	mountSaToken := AsProbBool(true) // automounted by default
+	if p.Spec.AutomountServiceAccountToken != nil {
+		mountSaToken = AsProbBool(*p.Spec.AutomountServiceAccountToken)
+	}
 
 	return Pod{
 		K8sEntity: entity,
@@ -924,17 +928,19 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 			Binaries: make(map[string]string),
 			IPs:      []net.IPAddr{{IP: net.ParseIP(p.Status.PodIP)}},
 		},
-		HostPID:                AsProbBool(p.Spec.HostPID),
-		HostIPC:                AsProbBool(p.Spec.HostIPC),
-		HostNetwork:            AsProbBool(p.Spec.HostNetwork),
-		ReadOnlyRootFilesystem: readOnlyRootFS,
-		NodeName:               p.Spec.NodeName,
-		VolumeMounts:           mounts,
-		Privileged:             isPriv,
-		HostIP:                 net.IPAddr{IP: net.ParseIP(p.Status.HostIP)},
-		Containers:             p.Spec.Containers,
-		Phase:                  string(p.Status.Phase),
-		IsRunning:              p.Status.Phase == v1.PodRunning,
+		HostPID:                      AsProbBool(p.Spec.HostPID),
+		HostIPC:                      AsProbBool(p.Spec.HostIPC),
+		HostNetwork:                  AsProbBool(p.Spec.HostNetwork),
+		ServiceAccountName:           p.Spec.ServiceAccountName,
+		AutomountServiceAccountToken: mountSaToken,
+		ReadOnlyRootFilesystem:       readOnlyRootFS,
+		NodeName:                     p.Spec.NodeName,
+		VolumeMounts:                 mounts,
+		Privileged:                   isPriv,
+		HostIP:                       net.IPAddr{IP: net.ParseIP(p.Status.HostIP)},
+		Containers:                   p.Spec.Containers,
+		Phase:                        string(p.Status.Phase),
+		IsRunning:                    p.Status.Phase == v1.PodRunning,
 		// HostPaths:              []string{},
 	}
 }
