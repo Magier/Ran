@@ -48,6 +48,26 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 				queue = append(queue, node)
 			}
 
+			if e.ServiceAccountName != "" {
+				sa := domain.NewServiceAccount(e.ServiceAccountName, e.GetNamespace())
+				if prevSA, exists := entities[sa.GetId()]; exists {
+					sa = domain.UpdateEntity(prevSA, sa).(domain.ServiceAccount)
+				}
+				entities[sa.GetId()] = sa
+				if e.AutomountServiceAccountToken.Bool() {
+					saUsage := domain.Uses{
+						SubjectId: e.GetId(),
+						ObjectId:  sa.GetId(),
+					}
+					relations = append(relations, saUsage)
+				} else {
+					relations = append(relations, domain.Reference{
+						Source: e.GetId(),
+						Target: sa.GetId(),
+					})
+				}
+			}
+
 			resultingFacts, err := analyzeMountInfo(e)
 			if err != nil {
 				slog.Error("Failed to analyze SelfSubjectRulesReview", "error", err)
