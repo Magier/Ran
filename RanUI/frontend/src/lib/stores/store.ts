@@ -105,13 +105,11 @@ function connectBackend() {
 	});
 	runtime.EventsOn("facts-changed", (data) => {
 		GetGraph().then((g: main.Graph) => {
-			console.log(g)
 			graph.set(g);
 		});
 	})
 
 	GetGraph().then((g: main.Graph) => {
-		console.log(g)
 		graph.set(g);
 	})
 }

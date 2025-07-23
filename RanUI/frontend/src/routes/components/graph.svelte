@@ -7,6 +7,7 @@
 	import { getGraphStyle, layout } from './graph_style';
 	import store from '$lib/stores/store.js';
 	import type { main } from '$lib/wailsjs/go/models';
+	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
 	type GraphProps = {
 		class?: string;
@@ -23,7 +24,6 @@
 	let edges = $state([]);
 
 	let graphContainer = $state();
-	let cy: cytoscape.Core;
 
 	cytoscape.use(dagre);
 
@@ -46,14 +46,21 @@
 		id: string;
 		label: string;
 		data: main.Node;
+		position?: { x: number; y: number };
 	};
 
-	function toCyNode(n: main.Node): CyNode {
-		return {
+	function toCyNode(n: main.Node, nodePos: Record<string, any>): CyNode {
+		let cyNode: CyNode ={
 			id: n.id,
 			label: n.name,
 			data: { ...n }
-		};
+		}
+
+		if (nodePos.hasOwnProperty(n.id)) {
+			cyNode.position = nodePos[n.id];
+		}
+
+		return cyNode
 	}
 
 	function toCyEdge(e: main.Edge) {
@@ -66,52 +73,111 @@
 		};
 	}
 
-	onMount(() => {
-		cy = cytoscape({
-			container: graphContainer, // container to render in
-			elements: {
-				nodes: nodes,
-				// nodes: data.nodes,
-				// edges: edges_for_layout
-				edges: edges
-			},
-			style: getGraphStyle(),
-			layout: layout,
-			wheelSensitivity: 0.1
-		});
-		// cy.expandCollapse(expandCollapseOptions);
-		// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
-		cy.on('unselect', resetSelection);
-		cy.on('select', handleSelection);
+	let cy: cytoscape.Core = cytoscape({
+		container: graphContainer, // container to render in
+		elements: {
+			nodes: nodes,
+			// nodes: data.nodes,
+			// edges: edges_for_layout
+			edges: edges
+		},
+		style: getGraphStyle(),
+		layout: layout,
+		wheelSensitivity: 0.1
+	});
+	// cy.expandCollapse(expandCollapseOptions);
+	// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
+	cy.on('unselect', resetSelection);
+	cy.on('select', handleSelection);
 
-		store.graph((value) => {
-			cy.invalidateDimensions();
-			const graph = value as main.Graph;
-			if (Object.keys(graph).length > 0) {
-				try {
+	const campaignState = getCampaignState();
+
+	$effect(() => {
+		cy.invalidateDimensions();
+		const graph = campaignState.graph;
+		if (Object.keys(graph).length > 0) {
+			let nodePos: Record<string, any> = {};
+
+			cy.nodes().forEach((n) => {
+				nodePos[n.id()] = n.position();
+			});
+
+			try {
+				if (graph.nodes === undefined || graph.edges === undefined) {
+					console.warn('Graph data is incomplete:', graph);
+
+				} else {
+					let nodes = graph.nodes.map(n => toCyNode(n, nodePos)); 
+					let edges = graph.edges.map(toCyEdge);
+
 					cy.json({
-						elements: { nodes: graph.nodes.map(toCyNode), edges: graph.edges.map(toCyEdge) }
+						elements: {
+							nodes: nodes,
+							edges: edges
+						}
 					});
-				} catch (e) {
-					toaster.create({ title: "Graph error", description: 'Error updating graph: ' + e, type: 'error' });
 				}
-
-				// update the currently selected graph object
-				if (selectedObject !== undefined) {
-					if (selectedObject.entity !== undefined) {
-						const el = graph.nodes.find((n) => n.id === selectedObjectId);
-						selectedObject = el;
-					} else {
-						const el = graph.edges.find((n) => n.id === selectedObjectId);
-						selectedObject = el;
-					}
-
-				}
+			} catch (e) {
+				console.error('Error updating graph:', e);
+				toaster.create({ title: "Graph error", description: 'Error updating graph: ' + e, type: 'error' });
 			}
 
-			cy.layout(layout).run();
-			cy.zoom(2); // set a reasonable initial zoom
-		});
+			// update the currently selected graph object
+			if (selectedObject !== undefined) {
+				if (selectedObject.entity !== undefined) {
+					const el = graph.nodes.find((n) => n.id === selectedObjectId);
+					selectedObject = el;
+				} else {
+					const el = graph.edges.find((n) => n.id === selectedObjectId);
+					selectedObject = el;
+				}
+
+			}
+		}
+
+		cy.layout(layout).run();
+		cy.zoom(2); // set a reasonable initial zoom
+	});
+
+	onMount(() => {
+
+		// store.graph((value) => {
+		// 	cy.invalidateDimensions();
+		// 	const graph = value as main.Graph;
+		// 	if (Object.keys(graph).length > 0) {
+		// 		let nodePos: Record<string, any> = {};
+
+		// 		cy.nodes().forEach((n) => {
+		// 			nodePos[n.id()] = n.position();
+		// 		});
+
+		// 		try {
+		// 			cy.json({
+		// 				elements: {
+		// 					nodes: graph.nodes.map(n => toCyNode(n, nodePos)), 
+		// 					edges: graph.edges.map(toCyEdge),
+		// 				}
+		// 			});
+		// 		} catch (e) {
+		// 			toaster.create({ title: "Graph error", description: 'Error updating graph: ' + e, type: 'error' });
+		// 		}
+
+		// 		// update the currently selected graph object
+		// 		if (selectedObject !== undefined) {
+		// 			if (selectedObject.entity !== undefined) {
+		// 				const el = graph.nodes.find((n) => n.id === selectedObjectId);
+		// 				selectedObject = el;
+		// 			} else {
+		// 				const el = graph.edges.find((n) => n.id === selectedObjectId);
+		// 				selectedObject = el;
+		// 			}
+
+		// 		}
+		// 	}
+
+		// 	cy.layout(layout).run();
+		// 	cy.zoom(2); // set a reasonable initial zoom
+		// });
 
 		store.addSubgraph((value) => {
 			const subgraph = value as main.Graph;
