@@ -5,8 +5,10 @@
 	import IconSteps from '~icons/game-icons/footsteps';
 	import { toaster } from '$lib/components/toaster';
 	import '../app.css';
+	import { setCampaignState } from '$lib/components/CampaignState.svelte';
 	let { children } = $props();
-	let graphSelected = $state(true);
+
+	setCampaignState();
 </script>
 
 <AppBar>

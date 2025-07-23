@@ -15,6 +15,9 @@
 	import { showToast, toaster } from '$lib/components/toaster';
 	import { Combobox } from '@skeletonlabs/skeleton-svelte';
 	import EntityInfo from './components/entityInfo.svelte';
+	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+
+	const campaignState = getCampaignState();
 
 	$effect(() => {
 		runtime.EventsOn('error', (dataStr) => {
@@ -31,7 +34,7 @@
 
 		StartEmulation(selectedTarget)
 			.then((e) => {
-				targetIsSet = true;
+				campaignState.setInitialTarget(selectedTarget);
 			})
 			.catch((err) => {
 				// TODO: show prompt asking to create the pod
@@ -53,7 +56,6 @@
 		});
 	});
 
-	let targetIsSet: boolean = $state(false);
 
 	let selectedObjectId: string = $state('');
 	let selectedObject: main.Node | undefined = $state();
@@ -142,13 +144,13 @@
 </script>
 
 <div class="relative grid h-[calc(100vh-70px)] grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
-	{#await store.connect(false)}
+	{#await campaignState.connect(false)}
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
 		<div>loading...</div>
 	{:then sessions}
 		<Armory class="" action={sendAction} targetId={selectedObjectId} />
 		<div class="flex flex-col">
-			{#if !targetIsSet}
+			{#if !campaignState.isTargetSet()}
 				<div class="flex items-center">
 					<select class="select" bind:value={selectedTarget}>
 						{#each availablePods as pod}
