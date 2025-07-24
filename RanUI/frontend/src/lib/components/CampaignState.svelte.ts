@@ -31,8 +31,6 @@ class CampaignState {
         }
     }
     connectBackend() {
-        console.log("connecting backend")
-        // runtime.EventsOn("*", onMessage)
         runtime.EventsOn("*", (a) => {
             console.log(a);
         });
@@ -74,18 +72,18 @@ export const setCampaignState = (key = DEFAULT_KEY) => {
 
 
 export function parseArmory(data: domain.TTP[]): ArmoryType {
-	// this comes from the backend must be converted
-	let armoryMap = new Map<string, domain.TTP[]>();
-	for (let ttp of data) {
-		let groupName = ttp.tactic;
-		if (groupName === "") {
-			groupName = "Other";
-		}
-		if (!armoryMap.has(groupName)) {
-			armoryMap.set(groupName, []);
-		}
-		armoryMap.get(groupName)!.push(ttp);
-	}
-	// Armory contains a CmdId field; process accordingly if needed.
-	return armoryMap;
+    // this comes from the backend must be converted
+    let armoryMap = new Map<string, domain.TTP[]>();
+    for (let ttp of data) {
+        let groupName = ttp.tactic;
+        if (groupName === "") {
+            groupName = "Other";
+        }
+        if (!armoryMap.has(groupName)) {
+            armoryMap.set(groupName, []);
+        }
+        armoryMap.get(groupName)!.push(ttp);
+    }
+    // Armory contains a CmdId field; process accordingly if needed.
+    return armoryMap;
 }
