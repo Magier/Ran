@@ -168,21 +168,23 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 			for _, resource := range rule.Resources {
 				for _, apiGroup := range rule.APIGroups {
 					if len(rule.ResourceNames) == 0 {
-						entitlements = append(entitlements, domain.RBACPermission{
+						perm := domain.RBACPermission{
 							Verb:         verb,
 							ResourceType: resource,
 							APIGroup:     apiGroup,
 							Scope:        sa.GetNamespace(),
-						})
+						}
+						entitlements = append(entitlements, perm)
 					} else {
 						for _, resourceName := range rule.ResourceNames {
-							entitlements = append(entitlements, domain.RBACPermission{
+							perm := domain.RBACPermission{
 								Verb:         verb,
 								ResourceType: resource,
 								ResourceName: resourceName,
 								APIGroup:     apiGroup,
 								Scope:        sa.GetNamespace(),
-							})
+							}
+							entitlements = append(entitlements, perm)
 						}
 					}
 				}
@@ -208,6 +210,10 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 		Entities:  entities,
 		Relations: relations,
 	}, RemovedFacts{}, nil
+}
+
+func inferBuiltinRBACRole(entitlements []domain.RBACPermission) string {
+	return ""
 }
 
 // Extract interesting facts from the environment variables.

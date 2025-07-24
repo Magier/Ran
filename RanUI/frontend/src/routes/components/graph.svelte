@@ -24,6 +24,7 @@
 	let edges = $state([]);
 
 	let graphContainer = $state();
+	let cy: cytoscape.Core;
 
 	cytoscape.use(dagre);
 
@@ -73,42 +74,46 @@
 		};
 	}
 
-	let cy: cytoscape.Core = cytoscape({
-		container: graphContainer, // container to render in
-		elements: {
-			nodes: nodes,
-			// nodes: data.nodes,
-			// edges: edges_for_layout
-			edges: edges
-		},
-		style: getGraphStyle(),
-		layout: layout,
-		wheelSensitivity: 0.1
-	});
-	// cy.expandCollapse(expandCollapseOptions);
-	// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
-	cy.on('unselect', resetSelection);
-	cy.on('select', handleSelection);
 
 	const campaignState = getCampaignState();
 
 	$effect(() => {
+		if (cy === undefined) {
+			cy = cytoscape({
+				container: graphContainer, // container to render in
+				elements: {
+					nodes: nodes,
+					// nodes: data.nodes,
+					// edges: edges_for_layout
+					edges: edges
+				},
+				style: getGraphStyle(),
+				layout: layout,
+				wheelSensitivity: 0.1
+			});
+			// cy.expandCollapse(expandCollapseOptions);
+			// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
+			cy.on('unselect', resetSelection);
+			cy.on('select', handleSelection);
+		}
+
+
+
 		cy.invalidateDimensions();
 		const graph = campaignState.graph;
 		if (Object.keys(graph).length > 0) {
 			let nodePos: Record<string, any> = {};
-
 			cy.nodes().forEach((n) => {
 				nodePos[n.id()] = n.position();
 			});
 
 			try {
-				if (graph.nodes === undefined || graph.edges === undefined) {
+				if (graph.nodes === undefined) {
 					console.warn('Graph data is incomplete:', graph);
-
 				} else {
 					let nodes = graph.nodes.map(n => toCyNode(n, nodePos)); 
 					let edges = graph.edges.map(toCyEdge);
+					console.warn('Updating graph with nodes:', nodes, 'and edges:', edges);
 
 					cy.json({
 						elements: {
@@ -116,6 +121,8 @@
 							edges: edges
 						}
 					});
+					cy.layout(layout).run();
+					cy.zoom(2); // set a reasonable initial zoom
 				}
 			} catch (e) {
 				console.error('Error updating graph:', e);
@@ -131,12 +138,8 @@
 					const el = graph.edges.find((n) => n.id === selectedObjectId);
 					selectedObject = el;
 				}
-
 			}
 		}
-
-		cy.layout(layout).run();
-		cy.zoom(2); // set a reasonable initial zoom
 	});
 
 	onMount(() => {
