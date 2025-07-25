@@ -38,14 +38,10 @@ class CampaignState {
             this.armory = parseArmory(data)
         });
         runtime.EventsOn("facts-changed", (data) => {
-            GetGraph().then((g: main.Graph) => {
-                this.graph = g;
-            });
+            GetGraph().then((g: main.Graph) => { this.graph = g; });
         })
 
-        GetGraph().then((g: main.Graph) => {
-            this.graph = g;
-        })
+        GetGraph().then((g: main.Graph) => { this.graph = g; })
     }
 
     setInitialTarget(id: string) {

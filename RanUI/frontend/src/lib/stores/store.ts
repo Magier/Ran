@@ -94,7 +94,7 @@ function connectSocket() {
 
 
 function connectBackend() {
-	console.log("connecting backend")
+	console.warn("[legacy] connecting backend ")
 	// runtime.EventsOn("*", onMessage)
 	runtime.EventsOn("*", (a) => {
 		console.log(a);
