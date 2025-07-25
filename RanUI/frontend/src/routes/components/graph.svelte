@@ -23,10 +23,30 @@
 	let nodes = $state([]);
 	let edges = $state([]);
 
-	let graphContainer = $state();
-	let cy: cytoscape.Core;
-
 	cytoscape.use(dagre);
+
+	let cy: cytoscape.Core;
+	let graphContainer: HTMLElement;
+
+	onMount(() => {
+		console.warn("Setting new cy instance")
+		cy = cytoscape({
+			container: graphContainer, // container to render in
+			elements: {
+				nodes: nodes,
+				// nodes: data.nodes,
+				// edges: edges_for_layout
+				edges: edges
+			},
+			style: getGraphStyle(),
+			layout: layout,
+			wheelSensitivity: 0.1
+		});
+		// cy.expandCollapse(expandCollapseOptions);
+		// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
+		cy.on('unselect', resetSelection);
+		cy.on('select', handleSelection);
+	});
 
 	function handleSelection(event: cytoscape.Event) {
 		let el = event.target;
@@ -74,31 +94,9 @@
 		};
 	}
 
-
 	const campaignState = getCampaignState();
-
-	$effect(() => {
-		if (cy === undefined) {
-			cy = cytoscape({
-				container: graphContainer, // container to render in
-				elements: {
-					nodes: nodes,
-					// nodes: data.nodes,
-					// edges: edges_for_layout
-					edges: edges
-				},
-				style: getGraphStyle(),
-				layout: layout,
-				wheelSensitivity: 0.1
-			});
-			// cy.expandCollapse(expandCollapseOptions);
-			// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
-			cy.on('unselect', resetSelection);
-			cy.on('select', handleSelection);
-		}
-
-
-
+	$effect(async () => {
+		console.warn("graph changed updateing...")
 		cy.invalidateDimensions();
 		const graph = campaignState.graph;
 		if (Object.keys(graph).length > 0) {
@@ -123,21 +121,24 @@
 					});
 					cy.layout(layout).run();
 					cy.zoom(2); // set a reasonable initial zoom
+
+					// use timeout 0 to not track selectedObject as a dependency
+					setTimeout(() => {
+						// update the currently selected graph object
+						if (selectedObject !== undefined) {
+							if (selectedObject.entity !== undefined) {
+								const el = graph.nodes.find((n) => n.id === selectedObjectId);
+								selectedObject = el;
+							} else {
+								const el = graph.edges.find((n) => n.id === selectedObjectId);
+								selectedObject = el;
+							}
+						}
+					})
 				}
 			} catch (e) {
 				console.error('Error updating graph:', e);
 				toaster.create({ title: "Graph error", description: 'Error updating graph: ' + e, type: 'error' });
-			}
-
-			// update the currently selected graph object
-			if (selectedObject !== undefined) {
-				if (selectedObject.entity !== undefined) {
-					const el = graph.nodes.find((n) => n.id === selectedObjectId);
-					selectedObject = el;
-				} else {
-					const el = graph.edges.find((n) => n.id === selectedObjectId);
-					selectedObject = el;
-				}
 			}
 		}
 	});
