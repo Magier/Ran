@@ -1,0 +1,23 @@
+name: Release
+on:
+  push:
+    tags:
+      - v*.*.*
+
+jobs:
+    build:
+        uses: ./.github/workflows/build.yaml
+    release:
+        runs-on: ubuntu-latest
+        needs: build
+        steps: 
+          - name: Run GoReleaser
+            uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
+            with:
+                distribution: goreleaser
+                version: latest
+                args: release
+            env:
+                # KEY: ${{ secrets.COSIGN_KEY }}
+                # COSIGN_PASSWORD: ${{secrets.COSIGN_PASSWORD}}
+                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
