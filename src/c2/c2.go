@@ -169,6 +169,7 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 	// check technique to execute CMD -> kubectl exec uses API
 	// or shell listener?
 	var err error
+	var execTarget domain.System
 	results := make([]string, 0)
 
 	switch cmd := exec.CommandMsg.(type) {
@@ -205,6 +206,11 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 		results, err = execLocally(ctx, exec, exec.Procedure, c2.clients)
 	} else {
 		results, err = execRemotely(ctx, exec, exec.Procedure, c2.clients)
+		var ok bool
+		execTarget, ok = exec.C2Channel.GetFinalTarget().(domain.System)
+		if !ok {
+			slog.Warn(fmt.Sprintf("Could not get on which system TTP was executed: %T", exec.C2Channel.GetTarget()))
+		}
 
 		// TODO: properly fix this dirty hack:
 		if exec.Procedure.Key == "grep" {
@@ -214,11 +220,6 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 
 	if err != nil {
 		results = append(results, err.Error())
-	}
-
-	execTarget, ok := exec.C2Channel.GetFinalTarget().(domain.System)
-	if !ok {
-		slog.Warn(fmt.Sprintf("Could not get on which system TTP was executed: %T", exec.C2Channel.GetTarget()))
 	}
 
 	return domain.TTPExecuted{

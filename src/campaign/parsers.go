@@ -181,17 +181,18 @@ func parsePrettySelfSubjectRulesReview(data string) (k8s_types.SelfSubjectRulesR
 	}, nil
 }
 
-func HandleNewPod(args map[string]string, results ...string) (domain.Event, error) {
+func parsePod(args map[string]string, results ...string) (domain.Pod, error) {
 	var cfg domain.PodConfig
 	var nsName, podName string
 
-	numArgs := len(results)
-	if numArgs == 0 {
-		return nil, fmt.Errorf("No data")
+	numArgs := len(args)
+	if numArgs < 2 {
+		return domain.Pod{}, fmt.Errorf("Not enough arguments provided: expected at least 2, got %d", numArgs)
 	}
-	if numArgs != 3 {
-		podName = args["Name"]
-		nsName = args["Namespace"]
+	podName = args["Name"]
+	nsName = args["Namespace"]
+
+	if numArgs >= 3 {
 		cfg.NodeName = args["NodeName"]
 		cfg.ServiceAccount = args["ServiceAccount"]
 
@@ -211,16 +212,15 @@ func HandleNewPod(args map[string]string, results ...string) (domain.Event, erro
 		cfg.HostMounts = []domain.Mount{
 			{MountPoint: args["Mount"], Root: hostPath, ReadOnly: false, Flags: []string{"rw"}},
 		}
-	} else {
+	} else if len(results) >= 3 {
 		// TODO: marshal the podConfig
 		err := json.Unmarshal([]byte(results[2]), &cfg)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to unmarshal PodConfig JSON: %w", err)
+			return domain.Pod{}, fmt.Errorf("Failed to unmarshal PodConfig JSON: %w", err)
 		}
 	}
 
 	// cfgJson := args[2].(domain.PodConfig)
-	ns := domain.Namespace{Name: nsName}
 	p := domain.NewPod(podName, nsName)
 
 	p.HostIPC = domain.AsProbBool(cfg.HostIPC)
@@ -231,11 +231,12 @@ func HandleNewPod(args map[string]string, results ...string) (domain.Event, erro
 	p.NodeName = cfg.NodeName
 	p.VolumeMounts = cfg.HostMounts
 
-	slog.Error(fmt.Sprintf("Creating new pod %s in namespace %s is not yet properly implemented! FIX NEEDED!", p.Name, ns.Name))
-	return domain.NewPodDeployed{
-		Pod:       p,
-		Namespace: ns,
-	}, nil
+	slog.Error(fmt.Sprintf("Creating/deleting new pod %s in namespace %s is not yet properly implemented! FIX NEEDED!", p.Name, nsName))
+	// return domain.NewPodDeployed{
+	// 	Pod:       p,
+	// 	Namespace: ns,
+	// }, nil
+	return p, nil
 }
 
 func HandleNewCronJob(ev domain.TTPExecuted, source domain.Entity, ttpArgs map[string]string, results ...string) (domain.Event, error) {
@@ -484,10 +485,11 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		sa := domain.NewServiceAccount(name, ns)
 		entities = append(entities, sa)
 	case "k8s.pod":
-		ev, err := HandleNewPod(args)
-		newPod := ev.(domain.NewPodDeployed)
+		p, err := parsePod(args, results...)
 		if err != nil {
-			entities = append(entities, newPod.Pod, newPod.Namespace)
+			slog.Error(fmt.Sprintf("Failed to parse Pod: %v", err))
+		} else {
+			entities = append(entities, p)
 		}
 	case "k8s.deployment":
 		name := args["Name"]
