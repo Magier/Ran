@@ -31,17 +31,18 @@ func TestDontAddExtraWorkloadWhenAddingPodWithOwner(t *testing.T) {
 
 	a := armory.Armory{}
 	c := NewCampaign(&a)
+	prevNumEntities := len(c.GetEntities())
 	c.AddEntities(p) // implicitely adds Deployment because of the OwnerRef
-	pods := c.GetEntities()
-	if len(pods) != 3 { // NS + Deployment + Pod
-		t.Error("The pod has exactly 1 owner!")
+	numNewEntities := len(c.GetEntities())
+	if numNewEntities-prevNumEntities != 3 { // NS + Deployment + Pod
+		t.Error("A new pod has just the owner and the containing namespace")
 	}
 
 	// adding it again should make no difference
 	p = domain.NewPod("test", nsName)
 	c.AddEntities(depl, p)
-	if len(c.GetEntities()) != 3 { // NS + Deployment + Pod
-		t.Error("The pod has exactly 1 owner!")
+	if len(c.GetEntities()) != numNewEntities { // NS + Deployment + Pod
+		t.Error("Updating an entity mustn't introduce new entities")
 	}
 }
 
@@ -51,6 +52,7 @@ func TestMoreInformationOnPodOwner(t *testing.T) {
 	a := armory.Armory{}
 	c := NewCampaign(&a)
 
+	prevNumEntities := len(c.GetEntities())
 	// this will add the intermediary AbstractWorkload
 	c.AddEntities(p)
 
@@ -59,8 +61,8 @@ func TestMoreInformationOnPodOwner(t *testing.T) {
 	owns := domain.Owns{Owner: depl, Object: p}
 	c.AddRelations(owns)
 
-	pods := c.GetEntities()
-	if len(pods) != 3 {
+	numNewEntities := len(c.GetEntities())
+	if numNewEntities-prevNumEntities != 3 {
 		t.Error("The pod has exactly 1 owner!")
 	}
 }

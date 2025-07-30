@@ -147,7 +147,7 @@ func TestAnalyzeDeployPodFailure_UnknownError(t *testing.T) {
 }
 func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
 	toolName := "kubectl"
-	target := domain.NewPod("mypod", "default")
+	execSystem := domain.NewPod("mypod", "default")
 
 	tests := []struct {
 		name   string
@@ -166,9 +166,9 @@ func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			event := domain.TTPExecuted{
-				Results:   []string{tt.errMsg},
-				Procedure: domain.Procedure{Tool: toolName},
-				Target:    target,
+				Results:    []string{tt.errMsg},
+				Procedure:  domain.Procedure{Tool: toolName},
+				ExecutedOn: execSystem,
 			}
 
 			newFacts, _, err := analyzeFailedTTPExecution(event)
@@ -199,7 +199,7 @@ func TestAnalyzeFailedTTP_BinaryNotFoundShouldUpdateBinariesOnExecutingSystem(t 
 		Procedure: domain.Procedure{
 			Tool: toolName,
 		},
-		Target: domain.NewPod("mypod", "default"),
+		ExecutedOn: domain.NewPod("mypod", "default"),
 	}
 
 	newFacts, removedFacts, err := analyzeFailedTTPExecution(event)
