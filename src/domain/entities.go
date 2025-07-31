@@ -657,7 +657,8 @@ type RBACPermission struct {
 	ResourceName string `json:"resourceName,omitzero"`
 	ResourceType string `json:"resourceType,omitzero"`
 	APIGroup     string `json:"apiGroup,omitzero"`
-	Scope        string `json:"scope,omitzero"` // "" is invalid, "*" =cluster-wide, any string = namespaces
+	Scope        string `json:"scope,omitzero"`      // "" is invalid, "*" =cluster-wide, any string = namespaces
+	SourceRole   string `json:"sourceRole,omitzero"` // the (cluster)role which provides this permissions
 }
 
 func (p RBACPermission) String() string {
@@ -881,10 +882,12 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 		}
 	}
 
-	// TODO: handle multiple containers in the pod
 	var readOnlyRootFS ProbBool
-	if p.Spec.Containers[0].SecurityContext != nil && p.Spec.Containers[0].SecurityContext.ReadOnlyRootFilesystem != nil {
-		readOnlyRootFS = AsProbBool(*p.Spec.Containers[0].SecurityContext.ReadOnlyRootFilesystem)
+	for _, c := range p.Spec.Containers {
+		if c.SecurityContext != nil && c.SecurityContext.ReadOnlyRootFilesystem != nil {
+			readOnlyRootFS = AsProbBool(*c.SecurityContext.ReadOnlyRootFilesystem)
+			break
+		}
 	}
 
 	mounts := make([]Mount, 0, len(p.Spec.Volumes))
