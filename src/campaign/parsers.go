@@ -210,7 +210,7 @@ func parsePod(args map[string]string, results ...string) (domain.Pod, error) {
 
 		hostPath := args["HostPath"]
 		cfg.HostMounts = []domain.Mount{
-			{MountPoint: args["Mount"], Root: hostPath, ReadOnly: false, Flags: []string{"rw"}},
+			{MountPoint: args["Mount"], MountRoot: hostPath, ReadOnly: false, Flags: []string{"rw"}},
 		}
 	} else if len(results) >= 3 {
 		// TODO: marshal the podConfig
@@ -766,7 +766,7 @@ func parseMountInfoEntry(line string) (domain.Mount, error) {
 	return domain.Mount{
 		ID:         id,
 		ParentID:   parentID,
-		Root:       fields[3],
+		MountRoot:  fields[3],
 		MountPoint: fields[4],
 		Type:       fields[7],
 		ReadOnly:   isReadOnly,
@@ -813,7 +813,7 @@ func parseMountCommandEntry(line string) (domain.Mount, error) {
 
 	// fields: [device mountpoint fstype options dump pass]
 	return domain.Mount{
-		Root:       device,
+		MountRoot:  device,
 		MountPoint: mountPath,
 		Type:       fsType,
 		ReadOnly:   readOnly,

@@ -26,7 +26,7 @@
 		if (node.name) {
 			return node.name;
 		}
-		return `${node.mountPoint} => ${node.hostPath}`;
+		return `${node.mountPoint} => ${node.mountRoot}`;
 	}
 
 	let { entries = [], level = 0, node }: TreeProps = $props();

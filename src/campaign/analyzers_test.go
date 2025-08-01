@@ -276,7 +276,7 @@ func TestAnalyzeMountInfo_WithMounts(t *testing.T) {
 	// Prepare a mount with some fields
 	pod := domain.NewPod("test-pod", "default")
 	mount := domain.Mount{
-		Root:       "/host/path",
+		MountRoot:  "/host/path",
 		MountPoint: "/container/path",
 		IsHostPath: true,
 		Type:       "ext4",
@@ -294,6 +294,68 @@ func TestAnalyzeMountInfo_WithMounts(t *testing.T) {
 	}
 	if len(facts.Relations) != 0 {
 		t.Errorf("Expected no relations, got %v", facts.Relations)
+	}
+}
+
+func TestCreatePodFromKubeletMounts(t *testing.T) {
+	tests := []struct {
+		name     string
+		pathStr  string
+		uid      string
+		hostPath string
+		errMsg   string
+	}{
+		{
+			name:    "mountinfo on node itself",
+			pathStr: "1740 835 0:129 / /var/lib/kubelet/pods/%s/volumes/kubernetes.io~projected/kube-api-access-ffd8n rw,relatime shared:1070 - tmpfs tmpfs rw,seclabel,size=1993956k,uid=501,gid=1000,inode64",
+			uid:     "85986f35-1e64-46d8-b4ac-8fcee502c18f",
+			errMsg:  "",
+		},
+		{
+			name:     "mountinfo from pod via hostPath mount",
+			pathStr:  "3918 3916 0:217 / /mnt/host/var/lib/kubelet/pods/%s/volumes/kubernetes.io~projected/kube-api-access-8tnjw rw,relatime - tmpfs tmpfs rw,seclabel,size=1993956k,uid=501,gid=1000,inode64",
+			hostPath: "/mnt/host",
+			uid:      "85986f35-1e64-46d8-b4ac-8fcee502c18f",
+			errMsg:   "",
+		},
+		{
+			name:    "mountinfo with no UID should yield error",
+			pathStr: "3342 3340 0:396 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw",
+			errMsg:  "no pod UID found in mount point: /proc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var line string
+			if tt.uid != "" {
+				line = fmt.Sprintf(tt.pathStr, tt.uid)
+			} else {
+				line = tt.pathStr
+			}
+
+			mount, err := parseMountInfoEntry(line)
+			if err != nil {
+				t.Errorf("Failed to parse mount info: %v", err)
+			}
+			mount.HostPath = tt.hostPath // this information is supplemented by a more thorough analysis outside of the parser
+			pod, err := createPodFromKubeletMounts(mount)
+			if tt.errMsg == "" && err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			} else if tt.errMsg != "" && err == nil {
+				t.Errorf("Expected error '%s', got nil", tt.errMsg)
+			}
+
+			if pod.UID != tt.uid {
+				t.Errorf("Expected pod name '%s', got '%s'", tt.uid, pod.Name)
+			}
+			if pod.Name != "" {
+				t.Errorf("Expected pod name to be empty, got '%s'", pod.Name)
+			}
+			if pod.Namespace != "" {
+				t.Errorf("Expected pod namespace to be empty, got '%s'", pod.Name)
+			}
+		})
 	}
 }
 
@@ -342,23 +404,28 @@ func TestAnalyzeMountInfo_WithHostKubeletInfos(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
-	// Since the current implementation does not add entities or relations,
-	// we just check that it returns empty slices.
-	// expect 5 new pods to be found based on their UID
-	if len(facts.Entities) != numPods+1 { // +1 for the node entity
+	// +2 for the node and redundant srcPod (don't have information to merge UID and srcPod at this point)
+	if len(facts.Entities) != numPods+2 {
 		t.Errorf("Expected %d pods exposed through kubelet files , got %v", numPods, facts.Entities)
 	}
 
+	nodeFound := false
 	// the identified projected SA tokens should be listed as interesting files
-	node, ok := facts.Entities[0].(domain.K8sNode)
-	if !ok {
-		t.Fatalf("Expected first entity to be K8sNode, got %T", facts.Entities[0])
-	}
-	if len(node.SystemImpl.Files) != numPods {
-		t.Errorf("Expected the node to have the %d interesting files, got %d", numPods, len(node.SystemImpl.Files))
+	for _, e := range facts.Entities {
+		if node, ok := e.(domain.K8sNode); ok {
+			nodeFound = true
+			if len(node.SystemImpl.Files) != numPods {
+				t.Errorf("Expected the node to have the %d interesting files, got %d", numPods, len(node.SystemImpl.Files))
+			}
+			break
+		}
 	}
 
-	if len(facts.Relations) != 0 {
-		t.Errorf("Expected no relations, got %v", facts.Relations)
+	if !nodeFound {
+		t.Errorf("Expected to find a K8sNode entity in the facts, got %v", facts.Entities)
+	}
+
+	if len(facts.Relations) != numPods+1 { // +1 for the (redundant) srcPod
+		t.Errorf("Expected a runs-on relation for every pod link to a node %v", facts.Relations)
 	}
 }
