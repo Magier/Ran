@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Magier/Ran/domain"
+	"github.com/google/uuid"
 )
 
 func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (NewFacts, RemovedFacts, error) {
@@ -490,7 +491,7 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 	if val, ok := ev.Args["HostPath"]; ok {
 		mountPath := ev.Args["Mount"]
 		newPod.VolumeMounts = []domain.Mount{{
-			Root:       val,
+			MountRoot:  val,
 			MountPoint: mountPath,
 			IsHostPath: true,
 		}}
@@ -748,7 +749,9 @@ func analyzeMountInfo(system domain.System) (NewFacts, error) {
 	trackedHostPaths := map[string]bool{} // to avoid duplicates
 
 	for _, mount := range system.GetMounts() {
+		// kubelet-related paths are clearly part of the Node filesystem
 		if strings.Contains(mount.MountPoint, "/var/lib/kubelet") {
+			// one time logic to establish
 			if !foundNode {
 				foundNode = true
 				node = domain.NewK8sNode("?")
@@ -762,7 +765,6 @@ func analyzeMountInfo(system domain.System) (NewFacts, error) {
 				} else {
 					slog.Error("system is not of type domain.Pod")
 				}
-				// node is zero value, handle initialization if needed
 			}
 
 			// if the mount point doesn't start with /var/lib, then it must be a hostpath
@@ -770,18 +772,32 @@ func analyzeMountInfo(system domain.System) (NewFacts, error) {
 				if i := strings.Index(mount.MountPoint, "/var/lib/kubelet/"); i >= 0 {
 					hostPath, saTokenPath := mount.MountPoint[:i], mount.MountPoint[i:]+"/token"
 					node.SystemImpl.Files = append(node.SystemImpl.Files, saTokenPath)
+					mount.HostPath = hostPath
 					if _, exists := trackedHostPaths[hostPath]; exists {
-						slog.Debug(fmt.Sprintf("Host path %s already tracked, skipping", hostPath))
-					} else {
-						// TODO: check if srcPod is actually defined
+					} else if srcPod.Name != "" {
 						srcPod.VolumeMounts = append(srcPod.VolumeMounts, domain.Mount{
-							Root:       mount.Root,
+							MountRoot:  mount.MountRoot,
 							MountPoint: hostPath,
 							IsHostPath: true,
 						})
 						trackedHostPaths[hostPath] = true
 					}
 				}
+			}
+
+			if managedPod, err := createPodFromKubeletMounts(mount); err == nil {
+				// // if the pod is already known, update it
+				// if existingPod, ok := entities[managedPod.GetId()].(domain.Pod); ok {
+				// 	managedPod = domain.UpdateEntity(managedPod, existingPod).(domain.Pod)
+				// }
+				entities = append(entities, managedPod)
+				relations = append(relations, domain.RunsOn{
+					Pod:  managedPod,
+					Node: node,
+				})
+				slog.Debug(fmt.Sprintf("Created pod from kubelet mount: %s", managedPod.GetId()))
+			} else {
+				slog.Warn("Created pod from kubelet mount has no name")
 			}
 
 			slog.Debug(fmt.Sprintf("Host path found: %s", mount.MountPoint))
@@ -801,6 +817,30 @@ func analyzeMountInfo(system domain.System) (NewFacts, error) {
 		Entities:  entities,
 		Relations: relations,
 	}, nil
+}
+
+func createPodFromKubeletMounts(mount domain.Mount) (domain.Pod, error) {
+	p := domain.NewPod("", "")
+	// extract the UID from the mount point, which is between '/kubelet/pods/' and '/volumens'
+	// remove the prefix to make it agnostic to the hostpath
+	// as a result the UID is the first part of the string
+	path := strings.TrimPrefix(mount.MountPoint, mount.HostPath+"/var/lib/kubelet/pods/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return p, fmt.Errorf("invalid mount point format: %s", mount.MountPoint)
+	}
+	podUID := parts[0]
+	if podUID == "" {
+		return p, fmt.Errorf("no pod UID found in mount point: %s", mount.MountPoint)
+	}
+
+	if err := uuid.Validate(podUID); err != nil {
+		return p, fmt.Errorf("pod UID is not a valid UUID: %s", podUID)
+	} else {
+		p.UID = podUID
+	}
+
+	return p, nil
 }
 
 func analyzeHostPath(pod domain.Pod) (NewFacts, error) {
@@ -871,7 +911,7 @@ func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
 			rels = append(rels, domain.MountsHostPath{
 				Pod:       pod,
 				MountPath: vm.MountPoint,
-				HostPath:  vm.Root,
+				HostPath:  vm.MountRoot,
 				Node:      node,
 			})
 		}

@@ -95,7 +95,7 @@
 	}
 
 	const campaignState = getCampaignState();
-	$effect(async () => {
+	$effect(() => {
 		console.warn("graph changed updateing...")
 		cy.invalidateDimensions();
 		const graph = campaignState.graph;
@@ -144,7 +144,6 @@
 	});
 
 	onMount(() => {
-
 		// store.graph((value) => {
 		// 	cy.invalidateDimensions();
 		// 	const graph = value as main.Graph;

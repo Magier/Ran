@@ -202,12 +202,12 @@ func (a *App) GetGraph() Graph {
 		if parent == "" {
 			if nsEntity, ok := entity.(domain.Namespaced); ok {
 				ns := nsEntity.GetNamespace()
-				if ns == "" {
-					slog.Warn("Entity has no namespace, skipping it", "entity", entity.GetId())
-					continue
+				// only assign parent if the namespace is known
+				if ns != "" {
+					parent = "ns/" + ns
+				} else {
+					parent = "cluster" // the resource must be part of the cluster
 				}
-
-				parent = "ns/" + ns
 			}
 		}
 

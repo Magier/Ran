@@ -402,12 +402,12 @@ func (s *SystemImpl) UpdateMounts(mounts []Mount) {
 	// Append new mounts and deduplicate by MountPath and Root
 	existing := make(map[string]struct{})
 	for _, m := range s.Mounts {
-		key := m.MountPoint + "|" + m.Root
+		key := m.MountPoint + "|" + m.MountRoot
 		existing[key] = struct{}{}
 	}
 
 	for _, m := range mounts {
-		key := m.MountPoint + "|" + m.Root
+		key := m.MountPoint + "|" + m.MountRoot
 		if _, found := existing[key]; !found {
 			s.Mounts = append(s.Mounts, m)
 			existing[key] = struct{}{}
@@ -452,9 +452,16 @@ type EntityPlaceholder interface {
 	IsAbstract() bool
 }
 
-func GenerateId(name, kind, ns string) string {
+func GenerateId(uid, name, kind, ns string) string {
 	kindShortName := GetResourceShortName(kind)
-	id := "/" + kindShortName + "/" + name
+
+	var id string
+	if name != "" {
+		id = "/" + kindShortName + "/" + name
+	} else if uid != "" {
+		id = "/" + kindShortName + "/" + uid
+	}
+
 	// if it doesn't start with "ns/" then ID has pattern "/kind", which equate to a clusterwide resource
 	if ns != "" {
 		id = "ns/" + ns + id
@@ -547,7 +554,7 @@ func K8sEntityFromId(id string) K8sEntity {
 }
 
 func (e K8sEntity) GetId() string {
-	return GenerateId(e.Name, e.Kind, e.Namespace)
+	return GenerateId(e.UID, e.Name, e.Kind, e.Namespace)
 }
 
 func (e K8sEntity) GetName() string {
@@ -781,7 +788,8 @@ type Mount struct {
 	ParentID   int      `json:"parentId,omitzero"`   // ID of the parent mount, if any
 	Name       string   `json:"name,omitzero"`       // Name of the volume mount
 	MountPoint string   `json:"mountPoint,omitzero"` // Path in the container where the volume is mounted
-	Root       string   `json:"hostPath,omitzero"`   // Path on the host where the volume is mounted
+	MountRoot  string   `json:"mountRoot,omitzero"`  // Path on the host where the volume is mounted
+	HostPath   string   `json:"hostPath,omitzero"`   // Path on the host system if it's a hostPath mount
 	Type       string   `json:"type,omitzero"`       // Type of the volume mount (e.g. "hostPath", "emptyDir", "configMap", etc.)
 	ReadOnly   bool     `json:"readOnly,omitzero"`   // Whether the volume is mounted as read-only
 	IsHostPath bool     `json:"isHostPath,omitzero"` // Whether the source is from the host system
@@ -900,7 +908,7 @@ func NewPodFromK8sSpec(p v1.Pod) Pod {
 		}
 		if v.HostPath != nil {
 			if vm, ok := getVolumeMountsFromSpec(p, v.Name); ok {
-				mount.Root = v.HostPath.Path
+				mount.MountRoot = v.HostPath.Path
 				mount.IsHostPath = true
 				mount.MountPoint = vm.MountPath
 				mount.ReadOnly = vm.ReadOnly
