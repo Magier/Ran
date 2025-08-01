@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -297,7 +298,7 @@ func (c SliverClient) startListener(ev domain.StartListener) (domain.Event, erro
 			Port: uint32(ev.Port),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("Starting Sliver Listener failed " + err.Error())
+			return nil, errors.New("Starting Sliver Listener failed " + err.Error())
 		}
 		// there will be an event from sliver notifying about the successful creation of the listener
 		return nil, nil

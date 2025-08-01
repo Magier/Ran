@@ -318,7 +318,7 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, procedure domain.Proc
 			var _ = status
 
 			podCfgJson, err := json.Marshal(podCfg)
-			slog.Warn("‼️ Marshalled PodConfig JSON to str; please check it!!: ", string(podCfgJson))
+			slog.Warn("‼️ Marshalled PodConfig JSON to str; please check it!!: " + string(podCfgJson))
 			return []string{podName, ns, string(podCfgJson)}, err
 		} else {
 			fields := strings.Fields(procedure.Command)
