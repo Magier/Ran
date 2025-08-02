@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -55,6 +56,11 @@ func loadTTPs(dir string) ([]domain.TTP, error) {
 
 	// parse "attacks as code" in the specified dir folder
 	walkFn := func(w string, d fs.DirEntry, err error) error {
+		if err != nil {
+			slog.Error("Error walking through directory", "path", w, "error", err)
+			return err
+		}
+
 		if d.IsDir() {
 			// skip subfolder with all unsupported check details
 			// if d.Name() == SkipDir { }

@@ -58,6 +58,7 @@ func Execute() {
 
 	rootCmd.AddCommand(newAtomicTestCmd())
 	rootCmd.AddCommand(newEmulationCmd())
+	rootCmd.AddCommand(newShowArmoryCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
