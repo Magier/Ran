@@ -375,6 +375,9 @@ func (s *SystemImpl) SetIPs(ips []net.IPAddr) {
 }
 
 func (s *SystemImpl) HasBinary(name string) ProbBool {
+	if s.Binaries == nil {
+		return AsProbBool(false)
+	}
 	path, exists := s.Binaries[name]
 
 	if !exists {

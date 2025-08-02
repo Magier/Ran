@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -63,10 +64,9 @@ func InitRan(target, armoryDir string) Ran {
 	return ran
 }
 
-func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) {
+func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) error {
 	if ttpID == "" {
-		fmt.Println("No TTP ID provided")
-		return
+		return errors.New("No TTP ID provided")
 	}
 	r.Start(ctx, true, "")
 
@@ -80,7 +80,7 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) {
 
 	err := r.SetTarget(target)
 	if err != nil {
-		slog.Error(fmt.Sprintf("Couldn't set target: %s", err.Error()))
+		return fmt.Errorf("Couldn't set target: %v", err.Error())
 	}
 
 	msg, err := r.Campaign.GroundAction(ttp, target, "", args)
@@ -115,6 +115,7 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) {
 	}
 	// TODO: execute cleanup
 	wg.Wait()
+	return nil
 }
 
 func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
