@@ -84,7 +84,6 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) error 
 	}
 
 	msg, err := r.Campaign.GroundAction(ttp, target, "", args)
-	panic("Implement selection of procedure ID")
 	if err != nil {
 		panic(fmt.Sprintf("Couldn't ground action: %s", err.Error()))
 	}
@@ -96,7 +95,7 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) error 
 
 		if e, ok := msg.(domain.TTPExecuted); ok {
 			if e.Success {
-				fmt.Printf("✅ TTP '%s' executed successfully\n", ttpID)
+				fmt.Printf("✅ TTP '%s' executed successfully on %s \n", ttpID, target)
 				return nil, nil
 			}
 			if len(e.Results) > 0 {
