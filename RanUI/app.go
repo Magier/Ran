@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"slices"
 	"time"
 
 	campaign "github.com/Magier/Ran/campaign"
@@ -339,26 +338,11 @@ func (a *App) GetFlow() AttackFlow {
 }
 
 func (a *App) GetRunningPods() []string {
-	var ns string // empty NS = all namespaces
-	client, err := k8s.NewK8sClient("")
+	ids, err := k8s.GetIDsOfRunningPod(a.ctx, "")
 	if err != nil {
 		runtime.LogErrorf(a.ctx, "Could not get running pods: %v", err)
 	}
-	pods, err := client.GetPods(a.ctx, ns)
-	if err != nil {
-		runtime.LogErrorf(a.ctx, "Could not get running pods: %v", err)
-	}
-
-	podIds := []string{}
-	hiddenNamespaces := []string{"kube-system", "local-path-storage"}
-
-	for _, p := range pods {
-		if !slices.Contains(hiddenNamespaces, p.GetNamespace()) {
-			podIds = append(podIds, p.GetId())
-		}
-	}
-	// TODO: find a good way to sort the Pods
-	return podIds
+	return ids
 }
 
 func (a *App) SaveFlow() bool {

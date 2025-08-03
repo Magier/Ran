@@ -17,6 +17,9 @@ import (
 )
 
 func GetParser(parserName string) domain.ParserFn {
+	if parserName == "" {
+		return nil
+	}
 	switch parserName {
 	// case "rawServiceaccountToken":
 	// 	return HandleSaTokenRead
@@ -25,7 +28,6 @@ func GetParser(parserName string) domain.ParserFn {
 	// case "selfSubjectReview", "authCanI":
 	// return HandleSelfSubjectReviewResult
 	// case "newContainer":
-
 	case "newRole":
 		return HandleNewRole
 	case "newRoleBinding":

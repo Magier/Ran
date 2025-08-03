@@ -8,18 +8,7 @@ import (
 )
 
 func init() {
-	// rootCmd.AddCommand()
 	cobra.OnInitialize(initConfig)
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.cobra.yaml)")
-	// rootCmd.PersistentFlags().StringVarP(&projectBase, "projectbase", "b", "", "base project directory eg. github.com/spf13/")
-	// rootCmd.PersistentFlags().StringP("author", "a", "YOUR NAME", "Author name for copyright attribution")
-	// rootCmd.PersistentFlags().StringVarP(&userLicense, "license", "l", "", "Name of license for the project (can provide `licensetext` in config)")
-	// rootCmd.PersistentFlags().Bool("viper", true, "Use Viper for configuration")
-	// viper.BindPFlag("author", rootCmd.PersistentFlags().Lookup("author"))
-	// viper.BindPFlag("projectbase", rootCmd.PersistentFlags().Lookup("projectbase"))
-	// viper.BindPFlag("useViper", rootCmd.PersistentFlags().Lookup("viper"))
-	// viper.SetDefault("author", "NAME HERE <EMAIL ADDRESS>")
-	// viper.SetDefault("license", "apache")
 }
 
 func initConfig() {
@@ -51,12 +40,12 @@ func Execute() {
 		Use:   "ran",
 		Short: "Ran is an adversary emulation tool for Kubernetes",
 		Long:  ``,
-		Run: func(cmd *cobra.Command, args []string) {
-			// Do Stuff Here
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
 		},
 	}
 
-	rootCmd.AddCommand(newAtomicTestCmd())
+	rootCmd.AddCommand(newAtomicTestCmd(rootCmd))
 	rootCmd.AddCommand(newEmulationCmd())
 	rootCmd.AddCommand(newShowArmoryCmd())
 

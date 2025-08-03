@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -147,6 +148,29 @@ func NewK8sClient(kubeConfigPath string) (K8sClient, error) {
 	c.Clientset = clientset
 
 	return c, nil
+}
+
+func GetIDsOfRunningPod(ctx context.Context, ns string) ([]string, error) {
+	// empty NS = all namespaces
+	client, err := NewK8sClient("")
+	if err != nil {
+		return nil, fmt.Errorf("could not create K8s client: %v", err)
+	}
+	pods, err := client.GetPods(ctx, ns)
+	if err != nil {
+		return nil, fmt.Errorf("could not get running pods: %v", err)
+	}
+
+	podIds := []string{}
+	hiddenNamespaces := []string{"kube-system", "local-path-storage"}
+
+	for _, p := range pods {
+		if !slices.Contains(hiddenNamespaces, p.GetNamespace()) {
+			podIds = append(podIds, p.GetId())
+		}
+	}
+	// TODO: find a good way to sort the Pods
+	return podIds, nil
 }
 
 func (c K8sClient) GetPod(ctx context.Context, ns, name string) (domain.Pod, error) {

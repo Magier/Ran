@@ -97,7 +97,7 @@ type TTP struct {
 }
 
 func (ttp TTP) GetID() string {
-	return ttp.Name
+	return ttp.ID
 }
 func (ttp TTP) GetTitle() string {
 	return ttp.Name
@@ -212,7 +212,7 @@ func (t YAMLTTP) TTP() (TTP, error) {
 		ttp.Params = append(ttp.Params, param)
 	}
 	if ttp.ID == "" {
-		ttp.ID = ttp.Name
+		ttp.ID = convertNameToID(ttp.Name)
 	}
 
 	// ttp.Parser = parsers.HandleSaTokenRead
@@ -253,3 +253,26 @@ type ParserFn func(ev TTPExecuted, source Entity, args map[string]string, result
 // func (e *ParserFn) UnmarshalYAML(unmarshal func(interface{}) error) error {
 // 	return nil // TODO: explore option of lazy evaluation?
 // }
+
+func convertNameToID(name string) string {
+	// special characters and emojis are not allowed in TTP IDs
+	name = strings.Map(func(r rune) rune {
+		if r > 127 {
+			return -1
+		}
+		return r
+	}, name)
+	name = strings.TrimSpace(name)
+	name = strings.ReplaceAll(name, " ", "-")
+	name = strings.ReplaceAll(name, "_", "-")
+	name = strings.ReplaceAll(name, "/", "-")
+	name = strings.ReplaceAll(name, ".", "-")
+	name = strings.Map(func(r rune) rune {
+		if r == '(' || r == ')' {
+			return -1
+		}
+		return r
+	}, name)
+	name = strings.ToLower(name)
+	return name
+}
