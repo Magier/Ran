@@ -5,6 +5,8 @@ import (
 	"unicode"
 )
 
+//go:generate go run gen_mappings.go https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json
+
 func IsTechniqueID(id string) bool {
 	// A basic MITRE technique ID starts with "T" followed by digits.
 	// It can also include an optional dot and extra digits (e.g., T1234.005).

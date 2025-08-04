@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 
@@ -22,8 +23,12 @@ func newEmulationCmd() *cobra.Command {
 			t := tui.SetupTUI(ran)
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer cancel()
-			ran.Start(ctx, godMode, planPath)
-			tui.RunTUI(t)
+			err := ran.Start(ctx, godMode, planPath)
+			if err != nil {
+				fmt.Println("❌", err.Error())
+			} else {
+				tui.RunTUI(t)
+			}
 		},
 	}
 	cmd.Flags().BoolVar(&godMode, "godmode", false, "enable Godmode to use the local kubeconfig context to load all available resources")
