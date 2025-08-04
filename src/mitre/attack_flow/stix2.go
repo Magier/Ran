@@ -13,8 +13,6 @@ import (
 
 const MitreUUID = "fb9c968a-745b-4ade-9b25-c324172197f4"
 
-//go:generate go run gen_mappings.go https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json
-
 type StixBundle struct {
 	Type        string      `json:"type"`
 	ID          string      `json:"id"`

@@ -117,17 +117,17 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) error 
 	return nil
 }
 
-func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
+func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) error {
 	r.ctx = ctx
 	err := r.Armory.Load()
 	if err != nil {
-		panic(fmt.Sprintf("Couldn't load armory: %s", err.Error()))
+		return err
 	} else {
 		err = r.Bus.Publish(armory.Loaded{
 			TTPs: r.Armory.GetTTPs(),
 		})
 		if err != nil {
-			panic(fmt.Sprintf("Couldn't publish Armory.Loaded event: %s", err.Error()))
+			return fmt.Errorf("Couldn't publish Armory.Loaded event: %s", err.Error())
 		}
 	}
 
@@ -157,7 +157,7 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
 		} else {
 			_, err := r.Campaign.UpdateFacts(update.NewFacts, campaign.RemovedFacts{})
 			if err != nil {
-				slog.Error(fmt.Sprintf("Couldn't update facts: %s", err.Error()))
+				return fmt.Errorf("Couldn't update facts: %s", err.Error())
 			}
 		}
 	}
@@ -166,7 +166,7 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
 	if r.target != "" {
 		err = r.SetTarget(r.target)
 		if err != nil {
-			slog.Error(fmt.Sprintf("Couldn't set target: %s", err.Error()))
+			return fmt.Errorf("Couldn't set target: %s", err.Error())
 		}
 	}
 
@@ -181,6 +181,7 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) {
 			panic(err.Error())
 		}
 	}()
+	return nil
 }
 
 func (r Ran) ReplayEvents() {
