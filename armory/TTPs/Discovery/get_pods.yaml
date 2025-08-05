@@ -1,10 +1,11 @@
-name: Get Pods via API Server
-description: Get a list of pods via the API server
+id: get-pods-via-k8s-api
+name: Get Pods via K8s API
+description: Get a list of pods via the K8s API server
 tactic: Discovery
 techniques: ["Container and Resource Discovery", T1613]
 preconditions:
   # accessLevel: user-read
-  rbac: "get/list pods"
+  rbac: "list pods"
 parameters:
   TOKEN:
     type: string
