@@ -2,6 +2,7 @@ name: Install Kubectl
 description: .
 tactic: Command And Control
 techniques: ["Ingress Tool Transfer"]
+status: disabled
 parameters:
   SRC_PATH:
     type: string

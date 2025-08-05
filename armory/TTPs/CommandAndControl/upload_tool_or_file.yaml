@@ -1,3 +1,4 @@
+id: upload-tool-or-file
 name: Upload Tool or File
 description: Transfer tools or other files from an external system into a compromised environment.
 tactic: Command And Control
@@ -67,7 +68,7 @@ procedures:
   #   command: get_file ${SRC_PATH}
 preconditions:
   accessLevel: user-write
-  # kind: Pod, System
+  kind: Pod
 effects:
   - "target.hasFile"
 #  try this onliner to download a file
