@@ -473,3 +473,37 @@ func Test_parseHasBinaryEffect(t *testing.T) {
 		})
 	}
 }
+func Test_parseLinuxProcesses(t *testing.T) {
+	data := `UID   PID    PPID  C STIME TTY          TIME CMD
+root           1       0  0 Jul31 ?        00:00:00 /usr/sbin/sshd -D -p 3456 -e
+root         649       1  0 20:28 pts/0    00:00:00 /usr/bin/bash`
+
+	// Valid input: two process lines
+	procs, err := parseLinuxProcesses(data)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	if len(procs) != 2 {
+		t.Fatalf("Expected 2 processes, got %d", len(procs))
+	}
+	if procs[0].PID != 1 || procs[0].ParentPID != 0 || procs[0].Cmd != "/usr/sbin/sshd -D -p 3456 -e" {
+		t.Errorf("Unexpected first process: %+v", procs[0])
+	}
+	if procs[1].PID != 649 || procs[1].ParentPID != 1 || procs[1].Cmd != "/usr/bin/bash" {
+		t.Errorf("Unexpected second process: %+v", procs[1])
+	}
+
+	// Invalid input: missing fields
+	data = `1`
+	_, err = parseLinuxProcesses(data)
+	if err == nil {
+		t.Fatalf("Expected error for invalid process line, got nil")
+	}
+
+	// Empty input
+	data = ""
+	_, err = parseLinuxProcesses(data)
+	if err == nil {
+		t.Fatalf("Expected error for empty input")
+	}
+}

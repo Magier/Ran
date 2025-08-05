@@ -1,0 +1,24 @@
+name: List Processes
+description: Get a list of processes running in the container
+tactic: Discovery
+techniques: ["Process Discovery", T1057]
+preconditions:
+  accessLevel: user-exec
+  kind: Pod
+# parameters:
+#   TOKEN:
+#     type: string
+#     description: the ServiceAccount token used to authorize this request
+#     optional: true
+#     default: ""
+procedures:
+  - key: ps
+    tool: ps
+    command: ps -ef
+  - key: proc-
+    tool: cat
+    command: cat /proc/self/mount
+effects:
+  - sys.processes
+# defend: {}
+references:
