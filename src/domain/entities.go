@@ -301,6 +301,8 @@ type System interface {
 	HasBinary(name string) ProbBool
 	SetBinary(name, path string)
 	GetMounts() []Mount
+	GetProcesses() []Process
+	SetProcesses(procs []Process)
 }
 
 type UnknownSystem struct {
@@ -342,6 +344,7 @@ type SystemImpl struct {
 	EnvVars     map[string]string `json:"envVars,omitzero,omitempty"`
 	Binaries    map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
 	Files       []string          `json:"files,omitzero"`     // List of files on the node
+	Processes   []Process         `json:"processes,omitzero"` // List of processes running on the system
 	Mounts      []Mount           `json:"mounts,omitzero"`
 	AccessLevel AccessLevel       `json:"accessLevel,omitzero"` // Access level of the system (e.g., user, root)
 }
@@ -416,6 +419,17 @@ func (s *SystemImpl) UpdateMounts(mounts []Mount) {
 			existing[key] = struct{}{}
 		}
 	}
+}
+
+func (s *SystemImpl) GetProcesses() []Process {
+	if s.Processes == nil {
+		s.Processes = make([]Process, 0)
+	}
+	return s.Processes
+}
+
+func (s *SystemImpl) SetProcesses(procs []Process) {
+	s.Processes = procs // same name implies it's a globally available binary
 }
 
 // func (s System) GetId() string {
@@ -797,6 +811,18 @@ type Mount struct {
 	ReadOnly   bool     `json:"readOnly,omitzero"`   // Whether the volume is mounted as read-only
 	IsHostPath bool     `json:"isHostPath,omitzero"` // Whether the source is from the host system
 	Flags      []string `json:"flags,omitzero"`      // e.g. "z", "Z"
+}
+
+type Process struct {
+	UID       string `json:"uid,omitzero"`       // Unique identifier for the process
+	PID       int    `json:"pid"`                // Process ID
+	ParentPID int    `json:"ppid"`               // Parent Process ID
+	Name      string `json:"name,omitzero"`      // Name of the process
+	TTY       string `json:"tty,omitzero"`       // TTY associated with the process
+	Cmd       string `json:"cmd,omitzero"`       // Command line used to start the process
+	StartTime string `json:"startTime,omitzero"` // Start time of the process (RFC3339 format)
+	Time      string `json:"time,omitzero"`      // Time when the process was started (RFC3339 format)
+	CPU       int    `json:"cpu,omitzero"`       // CPU utilization percentage
 }
 
 type Pod struct {

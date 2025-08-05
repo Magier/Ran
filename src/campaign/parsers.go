@@ -544,6 +544,18 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				entities = append(entities, pod)
 			}
 		}
+	case "sys.processes":
+		if sys, ok := source.(domain.System); ok {
+			processes, err := parseLinuxProcesses(res)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to parse processes: %v", err))
+			} else {
+				sys.SetProcesses(processes)
+				entities = append(entities, sys)
+			}
+		} else {
+			slog.Warn("The source of the processes effect is not a System!")
+		}
 	case "files":
 		res := strings.Trim(results[0], "\n")
 		files := strings.Split(res, "\n")
@@ -847,4 +859,60 @@ func parseLinuxMounts(data string) ([]domain.Mount, error) {
 	}
 
 	return mounts, nil
+}
+
+func parseLinuxProcesses(data string) ([]domain.Process, error) {
+	lines := strings.Split(data, "\n")
+
+	if len(lines) < 2 {
+		return nil, fmt.Errorf("No process entries found in the data")
+	}
+
+	procs := make([]domain.Process, 0, len(lines))
+
+	for i := 1; i < len(lines); i++ {
+		ps, err := parseProcessStatus(lines[i])
+		if err != nil {
+			return nil, fmt.Errorf("Failed to parse process entry '%s': %w", lines[i], err)
+		} else {
+			procs = append(procs, ps)
+		}
+	}
+
+	return procs, nil
+}
+
+func parseProcessStatus(line string) (domain.Process, error) {
+	// Example line: "root         649  0.2  0.3 179420  7060 pts/0    Ss   20:28   0:00 /usr/bin/bash"
+	fields := strings.Fields(line)
+	if len(fields) < 5 {
+		return domain.Process{}, fmt.Errorf("Invalid process status line: %s", line)
+	}
+	cmd := strings.Join(fields[7:], " ") // Join the rest as command
+
+	pid, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return domain.Process{}, fmt.Errorf("Invalid PID in process status line: %s", line)
+	}
+
+	ppid, err := strconv.Atoi(fields[2])
+	if err != nil {
+		return domain.Process{}, fmt.Errorf("Invalid PPID in process status line: %s", line)
+	}
+
+	cpu, err := strconv.Atoi(fields[3])
+	if err != nil {
+		return domain.Process{}, fmt.Errorf("Invalid CPU value in process status line: %s", line)
+	}
+
+	return domain.Process{
+		UID:       fields[0],
+		PID:       pid,
+		ParentPID: ppid,
+		CPU:       cpu,
+		StartTime: fields[4],
+		TTY:       fields[5],
+		Time:      fields[6],
+		Cmd:       cmd,
+	}, nil
 }
