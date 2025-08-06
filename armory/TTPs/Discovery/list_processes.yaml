@@ -4,7 +4,7 @@ tactic: Discovery
 techniques: ["Process Discovery", T1057]
 preconditions:
   accessLevel: user-exec
-  kind: Pod
+  kind: System
 # parameters:
 #   TOKEN:
 #     type: string

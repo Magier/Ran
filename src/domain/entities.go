@@ -40,13 +40,18 @@ type Requirements struct {
 	OtherFields    map[string]interface{} `yaml:",inline"` // Inline captures untagged fields
 }
 
+const SystemKind = "System"
+
 func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state State) bool {
 	var targetKind IsOfKind
 	if target != nil {
 		targetKind = IsOfKind(target.GetKind())
 	}
 	if r.Kind != "" && r.Kind != targetKind {
-		return false
+		// System kind is abstract, so it can match multiple kinds such as Pod and Node
+		if r.Kind != SystemKind || (targetKind != IsOfKind("Pod") && targetKind != IsOfKind("Node")) {
+			return false
+		}
 	}
 	if !accessLevel.Satisfies(r.AccessLevel) {
 		return false

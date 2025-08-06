@@ -1,0 +1,17 @@
+name: Get the ID of the logged in user 🚧
+description: Get the user ID of the currently logged in user
+tactic: Discovery
+techniques:
+  ["System Owner/User Discovery", T1033]
+preconditions:
+  kind: System
+  accessLevel: user-exec
+procedures:
+  - key: id
+    command: id
+  - key: whoami
+    command: whoami
+effects: ["sys.userID"]
+# effects:
+# defend: {}
+# references:

@@ -3,7 +3,7 @@ description: Retrieve the IP address of the system
 tactic: Discovery
 techniques: ["System Network Configuration Discovery", T1016]
 preconditions:
-  kind: Pod
+  kind: System
   accessLevel: user-exec
 procedures:
   - key: hostname

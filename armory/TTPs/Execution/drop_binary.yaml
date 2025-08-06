@@ -22,7 +22,7 @@ procedures:
   - key: wget
     command: wget ${URL} -O ${DST_BIN} && chmod +x ${DST_BIN} && ${DST_BIN} &
 preconditions:
-  kind: "Pod"
+  kind: System
   accessLevel: "user-exec"
 # cmd: {}
 # defend: {}

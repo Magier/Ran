@@ -4,7 +4,7 @@ tactic: Discovery
 techniques: ["Container and Resource Discovery", T1613]
 preconditions:
   accessLevel: user-exec
-  kind: Pod
+  kind: System
 # parameters:
 #   TOKEN:
 #     type: string
