@@ -4,7 +4,7 @@ tactic: Discovery
 techniques:
   ["Container and Resource Discovery", "Network Service Discovery", T1613]
 preconditions:
-  kind: Pod
+  kind: System
   accessLevel: user-read
 procedures:
   - key: shell
