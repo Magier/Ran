@@ -60,12 +60,14 @@
 	let selectedObjectId: string = $state('');
 	let selectedObject: main.Node | undefined = $state();
 	let showDetails = $derived(selectedObjectId !== '');
+	let ttpArgContext: Record<string, any> = $state({});
 	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: Object = {};
 	let selectedTTP: domain.TTP | undefined = $state();
 
-	function sendAction(ttp: domain.TTP) {
+	function sendAction(ttp: domain.TTP, args = {}) {
 		selectedTTP = ttp;
+		ttpArgContext = { ...args, ...activeGlobalConditions };
 		if (ttp.params) {
 			showParamModal = true;
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
@@ -175,7 +177,7 @@
 			{#snippet trigger()}{/snippet}
 			{#snippet content()}
 				<svelte:boundary onerror={handleError}>
-					<EntityInfo selectedObject={selectedObject} />
+					<EntityInfo selectedObject={selectedObject} {sendAction}/>
 				</svelte:boundary>
 			{/snippet}
 		</Popover>
@@ -192,6 +194,7 @@
 			{#snippet content()}
 				<ActionParamsModal
 					targetId={selectedObjectId}
+					argContext={ttpArgContext}
 					ttp={selectedTTP!}
 					onCancel={closeModal}
 					onExecute={onExecuteTTP}

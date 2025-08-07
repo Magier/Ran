@@ -43,6 +43,10 @@
 
 - [K8spider](https://github.com/Esonhugh/k8spider): supports to scan all services installed in Kubernetes cluster and all exposed ports in service
 
+- Talk from BSidesLV 2025 [From interview questions to cluster damage: Adventures in k8s cluster shenanigans](https://youtu.be/gPEnfkFM2Hw?t=29422) hit 3rd party observability tools for discovery
+	- like kubecost metrics endpoint, that will report all pods and nodes in the cluster.
+	- the 1 API request is nearly impossible to detect, but it will give you a full list of pods and nodes in the cluster.
+
 ## Interesting tools to try to support
 
 
@@ -124,3 +128,7 @@ kubectl label --overwrite ns ${NS} pod-security.kubernetes.io/enforce=privileged
 
 
 
+### first commands after gaining access to a pod:
+- `whoami`
+- check api access
+- `capsh --print`

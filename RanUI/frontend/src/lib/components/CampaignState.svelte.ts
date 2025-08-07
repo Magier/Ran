@@ -52,6 +52,15 @@ class CampaignState {
     isTargetSet() {
         return this.targetSet;
     }   
+
+    getTtpById(id: string): domain.TTP | undefined {
+        for (const [group, ttps] of this.armory) {
+            const ttp = ttps.find(t => t.id === id);
+            if (ttp) {
+                return ttp;
+            }
+        }
+    }
 }
 
 const DEFAULT_KEY = '$_campaignState';

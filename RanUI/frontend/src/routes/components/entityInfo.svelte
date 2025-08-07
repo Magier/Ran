@@ -1,10 +1,19 @@
 <script lang="ts">
 	import Tree from '$lib/components/tree.svelte';
 	import EntitlementInfo from './entitlement_info.svelte';
-	import {domain} from '$lib/wailsjs/go/models';
+	import { domain } from '$lib/wailsjs/go/models';
+	import { showToast } from '$lib/components/toaster';
+	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
-	let { selectedObject } = $props();
 
+	type EntitlementInfoProps = {
+		selectedObject: any; //TODO: define a proper type
+		sendAction?: (ttp: domain.TTP, args: any) => void;
+	};
+
+	let { selectedObject, sendAction } = $props();
+
+	const campaignState = getCampaignState();
 	const items = [];
 	// const tree = new Tree({ items });
 
@@ -27,6 +36,15 @@
 			return JSON.stringify(obj, null, 2);
 		}
 	}
+
+	function readFile(path: string) {
+		const ttp = campaignState.getTtpById('read-file')
+		if (ttp) {
+			sendAction(ttp, {"PATH":path});
+		} else {
+			showToast("TTP 'read-file' not found", '', 'error');
+		}
+	}
 </script>
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
@@ -42,7 +60,7 @@
 							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
 						>
 					</summary>
-					<Tree entries={Array.isArray(data) ? data : []} />
+					<Tree entries={Array.isArray(data) ? data : []} onLeafClick={readFile} />
 				</details>
 			{:else if label === 'can'}
 				<details>
