@@ -20,6 +20,7 @@
 		entries?: any[];
 		node?: TreeNode;
 		level?: number;
+		onLeafClick?: (path: string) => void;
 	};
 
 	function getNodeName(node: TreeNode): string {
@@ -29,7 +30,7 @@
 		return `${node.mountPoint} => ${node.mountRoot}`;
 	}
 
-	let { entries = [], level = 0, node }: TreeProps = $props();
+	let { entries = [], level = 0, node, onLeafClick }: TreeProps = $props();
 
 	let items = $derived.by(() => {
 		if (node !== undefined) {
@@ -79,13 +80,15 @@
 					<span class="mx-2">{tree.isExpanded(item.id) ? '-' : '+'}</span>
 					<pre>{getNodeName(item)}</pre>
 				</button>
+			{:else if onLeafClick}
+				<button type="button" class="ml-4 chip preset-outline-surface-500" onclick={() => onLeafClick(item.mountPoint)}>{getNodeName(item)}</button>
 			{:else}
 				<pre class="ml-6">{getNodeName(item)}</pre>
 			{/if}
 			{#if item.children && tree.isExpanded(item.id)}
 				<div {...item.content}>
 					{#each item.children as child}
-						<Self node={child} level={level + 1} />
+						<Self node={child} level={level + 1} onLeafClick={onLeafClick} />
 					{/each}
 				</div>
 			{/if}

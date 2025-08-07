@@ -1,0 +1,16 @@
+id: read-file
+name: Read File
+description: Read a file from the target system
+tactic: Execution
+techniques: ["User Execution"]
+parameters:
+  PATH:
+    type: string
+    description: the path of the file to read
+    required: true
+procedures:
+  - key: cat
+    command: cat ${PATH}
+preconditions:
+  kind: System
+  accessLevel: "user-exec"

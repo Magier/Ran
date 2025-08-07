@@ -5,10 +5,11 @@
 	interface ParamProps {
 		targetId: string;
 		ttp: domain.TTP;
+		argContext: Record<string, any>;
 		onExecute: (ttpId: string, procedureId: string, args: Record<string, string>) => void;
 		onCancel: () => void;
 	}
-	let { targetId = $bindable(), ttp, onExecute, onCancel }: ParamProps = $props();
+	let { targetId = $bindable(), ttp, argContext, onExecute, onCancel }: ParamProps = $props();
 
 	interface Arg {
 		Name: string;
@@ -25,6 +26,10 @@
 		args =
 			ttp.params?.map((param: Param) => {
 				let value = param.Default;
+				if (argContext && param.Name in argContext) {
+					value = argContext[param.Name];
+				}
+
 				if (value === '${TARGET}') {
 					let id = parseEntityId(targetId);
 					value = id.name;
@@ -76,6 +81,7 @@
 			<span class="h5 label">Description</span>
 			{ttp.description}
 		</div>
+
 		<div class="">
 			<span class="h5 label mt-5">Procedure</span>
 			{#if ttp.procedures && ttp.procedures.length > 1}
