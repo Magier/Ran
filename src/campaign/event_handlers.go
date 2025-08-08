@@ -29,6 +29,16 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 	if ttp.Tactic == "InitialAccess" && ttp.ID == "use-kubeconfig" {
 		ns := ev.Args["namespace"]
 		name := ev.Args["TargetName"]
+
+		if strings.HasPrefix(name, "ns/") {
+			var err error
+			ns, _, name, err = UnpackResourceID(name)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to unpack resource ID '%s': %v", name, err))
+				return nil, err
+			}
+		}
+
 		return c.SetTarget(ns, name)
 	}
 

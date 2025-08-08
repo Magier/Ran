@@ -102,11 +102,11 @@ func TestUnpackResourceID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			ns, kind, name, err := UnpackResourceID(tt.input)
-			if ns != tt.wantNS || kind != tt.wantKind || name != tt.wantName {
-				t.Errorf("UnpackResourceID(%q) = (%q, %q, %q), want (%q, %q, %q)", tt.input, ns, kind, name, tt.wantNS, tt.wantKind, tt.wantName)
-			}
 			if tt.wantErr && err == nil {
 				t.Errorf("UnpackResourceID(%q) expected error, got nil", tt.input)
+			}
+			if ns != tt.wantNS || kind != tt.wantKind || name != tt.wantName {
+				t.Errorf("UnpackResourceID(%q) = (%q, %q, %q), want (%q, %q, %q)", tt.input, ns, kind, name, tt.wantNS, tt.wantKind, tt.wantName)
 			}
 			if !tt.wantErr && err != nil {
 				t.Errorf("UnpackResourceID(%q) unexpected error: %v", tt.input, err)
