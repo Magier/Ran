@@ -556,6 +556,19 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		} else {
 			slog.Warn("The source of the processes effect is not a System!")
 		}
+	case "sys.userid":
+		if sys, ok := source.(domain.System); ok {
+			uid, username, err := parseLinuxIDResult(res)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to parse user ID: %v", err))
+			} else {
+				sys.SetUserID(uid)
+				sys.SetUserName(username)
+				entities = append(entities, sys)
+			}
+		} else {
+			slog.Warn("The source of the user ID effect is not a System!")
+		}
 	case "files":
 		res := strings.Trim(results[0], "\n")
 		files := strings.Split(res, "\n")
@@ -915,4 +928,27 @@ func parseProcessStatus(line string) (domain.Process, error) {
 		Time:      fields[6],
 		Cmd:       cmd,
 	}, nil
+}
+
+func parseLinuxIDResult(line string) (int, string, error) {
+	// example: uid=0(root) gid=0(root) groups=0(root)
+	fields := strings.Fields(line)
+	for _, field := range fields {
+		if strings.HasPrefix(field, "uid=") {
+			uidStr := strings.Split(field, "=")[1]
+			username := ""
+			if strings.Contains(uidStr, "(") {
+				parts := strings.Split(uidStr, "(")
+				uidStr = parts[0]
+				username = strings.TrimSuffix(parts[1], ")")
+			}
+			uid, err := strconv.Atoi(uidStr)
+			if err != nil {
+				return 0, "", fmt.Errorf("Invalid UID in line: %s", line)
+			}
+			return uid, username, nil
+		}
+	}
+
+	return 0, "", fmt.Errorf("No UID found in line: %s", line)
 }

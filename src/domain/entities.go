@@ -308,6 +308,8 @@ type System interface {
 	GetMounts() []Mount
 	GetProcesses() []Process
 	SetProcesses(procs []Process)
+	SetUserID(uid int)
+	SetUserName(name string)
 }
 
 type UnknownSystem struct {
@@ -344,8 +346,10 @@ var _ Entity = (*UnknownSystem)(nil)
 
 type SystemImpl struct {
 	HostName    string            `json:"hostName,omitzero"` // Hostname of the system
-	OS          string            `json:"os,omitzero"`       // Operating system of the system (e.g., Linux, Windows)
-	IPs         []net.IPAddr      `json:"ips,omitzero"`      // List of IP addresses associated with the system
+	UserID      int               `json:"userId,omitempty"`
+	UserName    string            `json:"userName,omitzero"`
+	OS          string            `json:"os,omitzero"`  // Operating system of the system (e.g., Linux, Windows)
+	IPs         []net.IPAddr      `json:"ips,omitzero"` // List of IP addresses associated with the system
 	EnvVars     map[string]string `json:"envVars,omitzero,omitempty"`
 	Binaries    map[string]string `json:"binaries,omitempty"` // mapping of binary names to their paths
 	Files       []string          `json:"files,omitzero"`     // List of files on the node
@@ -435,6 +439,13 @@ func (s *SystemImpl) GetProcesses() []Process {
 
 func (s *SystemImpl) SetProcesses(procs []Process) {
 	s.Processes = procs // same name implies it's a globally available binary
+}
+
+func (s *SystemImpl) SetUserID(uid int) {
+	s.UserID = uid
+}
+func (s *SystemImpl) SetUserName(name string) {
+	s.UserName = name
 }
 
 // func (s System) GetId() string {
