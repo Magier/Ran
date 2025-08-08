@@ -1,4 +1,4 @@
-name: Get the ID of the logged in user 🚧
+name: Get the ID of the logged in user
 description: Get the user ID of the currently logged in user
 tactic: Discovery
 techniques:

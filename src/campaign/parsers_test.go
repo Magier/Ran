@@ -507,3 +507,65 @@ root         649       1  0 20:28 pts/0    00:00:00 /usr/bin/bash`
 		t.Fatalf("Expected error for empty input")
 	}
 }
+func Test_parseLinuxIDResult(t *testing.T) {
+	tests := []struct {
+		input       string
+		wantUID     int
+		wantUser    string
+		expectError bool
+	}{
+		{
+			input:       "uid=0(root) gid=0(root) groups=0(root)",
+			wantUID:     0,
+			wantUser:    "root",
+			expectError: false,
+		},
+		{
+			input:       "uid=1001(john) gid=1001(john) groups=1001(john)",
+			wantUID:     1001,
+			wantUser:    "john",
+			expectError: false,
+		},
+		{
+			input:       "uid=42 gid=42 groups=42",
+			wantUID:     42,
+			wantUser:    "",
+			expectError: false,
+		},
+		{
+			input:       "gid=0(root) groups=0(root)",
+			wantUID:     0,
+			wantUser:    "",
+			expectError: true,
+		},
+		{
+			input:       "uid=notanumber(root) gid=0(root)",
+			wantUID:     0,
+			wantUser:    "",
+			expectError: true,
+		},
+		{
+			input:       "",
+			wantUID:     0,
+			wantUser:    "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		uid, user, err := parseLinuxIDResult(tt.input)
+		if tt.expectError {
+			if err == nil {
+				t.Errorf("Expected error for input %q, got nil", tt.input)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("Unexpected error for input %q: %v", tt.input, err)
+			continue
+		}
+		if uid != tt.wantUID || user != tt.wantUser {
+			t.Errorf("For input %q, expected uid=%d user=%q, got uid=%d user=%q", tt.input, tt.wantUID, tt.wantUser, uid, user)
+		}
+	}
+}
