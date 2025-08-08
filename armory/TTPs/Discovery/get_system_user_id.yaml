@@ -12,6 +12,3 @@ procedures:
   - key: whoami
     command: whoami
 effects: ["sys.userID"]
-# effects:
-# defend: {}
-# references:
