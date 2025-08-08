@@ -3,11 +3,8 @@
 	import store from '$lib/stores/store';
 	import * as runtime from '$lib/wailsjs/runtime';
 	import { ExecuteAction, StartEmulation } from '$lib/wailsjs/go/main/App.js';
-	// import { onMount } from 'svelte';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
-	// import ExploitAppModal from '$lib/modals/ExploitAppModal';
-	import { GetRunningPods } from '$lib/wailsjs/go/main/App';
 	import { domain, main } from '$lib/wailsjs/go/models';
 	import { Modal, Popover } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
@@ -26,36 +23,10 @@
 		});
 	});
 
-	function start(): void {
-		if (selectedTarget === '') {
-			showToast('No target selected', 'Please select a target to start the emulation', 'error');
-			return;
-		}
-
-		StartEmulation(selectedTarget)
-			.then((e) => {
-				campaignState.setInitialTarget(selectedTarget);
-			})
-			.catch((err) => {
-				// TODO: show prompt asking to create the pod
-				console.error(err);
-			});
-	}
-
 	interface ComboboxData {
 		label: string;
 		value: string;
 	}
-	let selectedTarget = $state('');
-	let availablePods: ComboboxData[] = $state([{ label: 'Loading...', value: 'testing' }]);
-
-	$effect(() => {
-		GetRunningPods().then((pods) => {
-			availablePods = pods.map((pod: string) => ({ label: pod, value: pod }));
-			console.log(availablePods);
-		});
-	});
-
 
 	let selectedObjectId: string = $state('');
 	let selectedObject: main.Node | undefined = $state();
@@ -151,19 +122,7 @@
 		<div>loading...</div>
 	{:then sessions}
 		<Armory class="" action={sendAction} targetId={selectedObjectId} />
-		<div class="flex flex-col">
-			{#if !campaignState.isTargetSet()}
-				<div class="flex items-center">
-					<select class="select" bind:value={selectedTarget}>
-						{#each availablePods as pod}
-							<option value={pod.value}>{pod.label}</option>
-						{/each}
-					</select>
-					<button onclick={start} class="btn preset-filled-primary-500">Start</button>
-				</div>
-			{/if}
-			<Graph bind:selectedObjectId bind:selectedObject class="flex-1 " />
-		</div>
+		<Graph bind:selectedObjectId bind:selectedObject class="flex-1 " />
 
 		<Popover
 			open={showDetails}

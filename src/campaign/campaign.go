@@ -107,15 +107,11 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	return campaign
 }
 
-func (c *Campaign) SetTarget(target string) (domain.Event, error) {
-	ns := "default"
-	if strings.Contains(target, "/") {
-		parts := strings.SplitN(target, "/", 2)
-		ns = parts[0]
-		target = parts[1]
+func (c *Campaign) SetTarget(ns, podName string) (domain.Event, error) {
+	if ns == "" {
+		ns = "default"
 	}
-
-	initialPod := domain.NewPod(target, ns)
+	initialPod := domain.NewPod(podName, ns)
 
 	initialAccessRelation := domain.CanAccess{
 		SourceId: "c2/Ran",
@@ -714,4 +710,26 @@ func inflateListenerTemplate(listener domain.Listener, template string) string {
 
 	template = strings.Replace(template, "${LISTENER}", dst, -1)
 	return template
+}
+
+func UnpackResourceID(name string) (string, string, string, error) {
+	ns := "default"
+	kind := "pod"
+	var err error
+	if strings.Contains(name, "/") {
+		parts := strings.Split(name, "/")
+		if len(parts) == 2 {
+			ns = parts[0]
+			name = parts[1]
+		} else if parts[0] == "ns" && len(parts) == 4 {
+			// it's the ID format `ns/<ns>/<kind>/<podname>`
+			ns = parts[1]
+			kind = parts[2]
+			name = parts[3]
+		} else {
+			err = fmt.Errorf("invalid target format")
+		}
+	}
+
+	return ns, kind, name, err
 }

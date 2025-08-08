@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -204,22 +203,11 @@ func (r *Ran) SubscribeToName(name string, handler domain.MessageHandler) {
 
 func (r *Ran) SetTarget(target string) error {
 	// check if target is a valid entity
-	ns := "default"
-	kind := "pod"
-	if strings.Contains(target, "/") {
-		parts := strings.Split(target, "/")
-		if len(parts) == 2 {
-			ns = parts[0]
-			target = parts[1]
-		} else if parts[0] == "ns" && len(parts) == 4 {
-			// it's the ID format `ns/<ns>/<kind>/<podname>`
-			ns = parts[1]
-			kind = parts[2]
-			target = parts[3]
-		} else {
-			return fmt.Errorf("invalid target format")
-		}
+	ns, kind, name, err := campaign.UnpackResourceID(target)
+	if err != nil {
+		return err
 	}
+	target = name
 
 	client, err := k8s.NewK8sClient("")
 	if err != nil {
@@ -233,7 +221,7 @@ func (r *Ran) SetTarget(target string) error {
 		}
 	}
 
-	msg, err := r.Campaign.SetTarget(fmt.Sprintf("%s/%s", ns, target))
+	msg, err := r.Campaign.SetTarget(ns, target)
 	if err != nil {
 		return err
 	}

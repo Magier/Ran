@@ -248,7 +248,7 @@ func (a *App) StartEmulation(target string) error {
 		result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
 			Type:    runtime.QuestionDialog,
 			Title:   "Question",
-			Message: "Target pod not found. Create the it instead?",
+			Message: "Target pod not found. Create it instead?",
 			Buttons: []string{"Yes", "No"},
 			// DefaultButton: "No",
 		})
@@ -337,12 +337,33 @@ func (a *App) GetFlow() AttackFlow {
 	}
 }
 
-func (a *App) GetRunningPods() []string {
-	ids, err := k8s.GetIDsOfRunningPod(a.ctx, "")
+type K8sResource struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Kind      string `json:"kind"`
+}
+
+func (a *App) GetRunningPods(ns string) []K8sResource {
+	ids, err := k8s.GetIDsOfRunningPod(a.ctx, ns)
 	if err != nil {
 		runtime.LogErrorf(a.ctx, "Could not get running pods: %v", err)
 	}
-	return ids
+	resources := make([]K8sResource, 0, len(ids))
+	for _, id := range ids {
+		ns, kind, name, err := campaign.UnpackResourceID(id)
+		if err != nil {
+			runtime.LogErrorf(a.ctx, "Could not unpack resource ID: %v", err)
+		} else {
+			resources = append(resources, K8sResource{
+				ID:        id,
+				Name:      name,
+				Namespace: ns,
+				Kind:      kind,
+			})
+		}
+	}
+	return resources
 }
 
 func (a *App) SaveFlow() bool {

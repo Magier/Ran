@@ -11,7 +11,7 @@ export function GetFlow():Promise<main.AttackFlow>;
 
 export function GetGraph():Promise<main.Graph>;
 
-export function GetRunningPods():Promise<Array<string>>;
+export function GetRunningPods(arg1:string):Promise<Array<main.K8sResource>>;
 
 export function SaveFlow():Promise<boolean>;
 

@@ -18,8 +18,8 @@ export function GetGraph() {
   return window['go']['main']['App']['GetGraph']();
 }
 
-export function GetRunningPods() {
-  return window['go']['main']['App']['GetRunningPods']();
+export function GetRunningPods(arg1) {
+  return window['go']['main']['App']['GetRunningPods'](arg1);
 }
 
 export function SaveFlow() {
