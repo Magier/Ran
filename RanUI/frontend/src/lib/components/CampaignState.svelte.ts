@@ -17,7 +17,6 @@ type Entity = {
 
 
 class CampaignState {
-    targetSet: boolean = $state(false);
     activeConditions: Conditions = $state({});
     entities = $state<Entity[]>([]);
     armory = $state<ArmoryType>(new Map());
@@ -43,15 +42,6 @@ class CampaignState {
 
         GetGraph().then((g: main.Graph) => { this.graph = g; })
     }
-
-    setInitialTarget(id: string) {
-        this.targetSet = true;
-        this.entities.push({ id: id })
-     }
-
-    isTargetSet() {
-        return this.targetSet;
-    }   
 
     getTtpById(id: string): domain.TTP | undefined {
         for (const [group, ttps] of this.armory) {

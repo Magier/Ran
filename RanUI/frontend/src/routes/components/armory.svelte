@@ -46,12 +46,18 @@
 	// $: selectedConditions = { ...globalConditions, ...(selectedNode ?? {}) };
 	let armory: ArmoryType = $state(new Map());
 	let showAllTTPs: boolean = $state(false);
+	let openTactic = $state(['InitialAccess']);
 
 	let applicableTTPs: ArmoryType = $state(new Map());
 	$effect(() => {
 		GetApplicableTTPs(targetId)
 			.then((result: domain.TTP[]) => {
 				applicableTTPs = parseArmory(result);
+
+				// if there is only tactic, open it by default
+				if (applicableTTPs.size === 1) {
+					openTactic = [Array.from(applicableTTPs.keys())[0]];
+				}
 			})
 			.catch((err) => {
 				console.error('Error fetching applicable TTPs:', err);
@@ -136,7 +142,7 @@
 		/>
 	</div> -->
 	<div>
-		<Accordion collapsible>
+		<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible>
 			{#each Array.from(showAllTTPs ? armory : applicableTTPs) as [tactic, ttps]}
 				<hr class="hr" />
 				<Accordion.Item
