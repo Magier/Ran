@@ -331,7 +331,7 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, procedure domain.Proc
 			cmd.Stdout = &out
 			err := cmd.Run()
 			if err != nil {
-				return nil, fmt.Errorf("Faild to  execute procedure '%s' locally", procedure.Command)
+				return nil, fmt.Errorf("Failed to  execute procedure '%s' locally", procedure.Command)
 			}
 			res := out.String()
 			return []string{res}, nil

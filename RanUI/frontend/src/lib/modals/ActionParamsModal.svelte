@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { parseEntityId, type Param } from '$lib/model';
-	import type { domain } from '$lib/wailsjs/go/models';
+	import { GetRunningPods } from '$lib/wailsjs/go/main/App';
+	import type { domain, main } from '$lib/wailsjs/go/models';
 
 	interface ParamProps {
 		targetId: string;
@@ -11,18 +12,45 @@
 	}
 	let { targetId = $bindable(), ttp, argContext, onExecute, onCancel }: ParamProps = $props();
 
+	interface ComboboxOption {
+		label: string;
+		value: string;
+		group?: string;
+	}
 	interface Arg {
 		Name: string;
 		Value: string;
 		Description: string;
 		Type: string;
 		IsTrue: boolean;
+		Options?: ComboboxOption[];
 	}
+
 
 	let procedureId = $state(ttp.procedures?.[0]?.Key || '');
 	let args = $state<Arg[]>([]);
+	let availablePods: ComboboxOption[] = [];
 	// the args will be the final arguments used when executing the TTP
 	$effect(() => {
+		if (procedureId === 'setTarget') {
+			GetRunningPods("").then(pods => {
+				availablePods = pods.map((pod: main.K8sResource) => ({ label: pod.name, value: pod.id, group: pod.namespace }));
+
+				let targetArg = args.find(arg => arg.Name === 'TargetName');
+				if (targetArg) {
+					targetArg.Options = availablePods
+				} else {
+					console.warn("targetArg not found")
+				}
+				let nsArg = args.find(arg => arg.Name === 'Namespace');
+				if (nsArg) {
+					nsArg.Options = availablePods.map(pod => pod.group).filter((value, index, self) => self.indexOf(value) === index).map(ns => ({ label: ns, value: ns }));
+				} else {
+					console.warn("ns not found")
+				}
+			});	
+		}
+
 		args =
 			ttp.params?.map((param: Param) => {
 				let value = param.Default;
@@ -40,7 +68,7 @@
 					Value: value,
 					IsTrue: param.Default === 'true',
 					Description: param.Description,
-					Type: param.Type
+					Type: param.Type,
 				};
 			}) || [];
 	});
@@ -121,6 +149,12 @@
 									type="checkbox"
 									placeholder={arg.Description}
 								/>
+							{:else if arg.Options}
+								<select class="select" bind:value={arg.Value}>
+									{#each arg.Options as option}
+										<option value={option.value}>{option.label}</option>
+									{/each}
+								</select>
 							{:else}
 								<input
 									class="ig-input"

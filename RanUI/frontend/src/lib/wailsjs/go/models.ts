@@ -155,6 +155,7 @@ export namespace domain {
 	    resourceType: string;
 	    apiGroup: string;
 	    scope: string;
+	    sourceRole: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new RBACPermission(source);
@@ -167,6 +168,7 @@ export namespace domain {
 	        this.resourceType = source["resourceType"];
 	        this.apiGroup = source["apiGroup"];
 	        this.scope = source["scope"];
+	        this.sourceRole = source["sourceRole"];
 	    }
 	}
 	export class Requirements {
@@ -394,6 +396,24 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class K8sResource {
+	    id: string;
+	    name: string;
+	    namespace: string;
+	    kind: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new K8sResource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.namespace = source["namespace"];
+	        this.kind = source["kind"];
+	    }
 	}
 
 }
