@@ -9,13 +9,11 @@
 		Controls,
 		Background,
 		BackgroundVariant,
-		MiniMap,
 		type Node,
 		type Edge,
 		type NodeTypes
 	} from '@xyflow/svelte';
 	import dagre from '@dagrejs/dagre';
-	import { writable } from 'svelte/store';
 	import '@xyflow/svelte/dist/style.css';
 	import { Modal } from '@skeletonlabs/skeleton-svelte';
 

@@ -238,29 +238,6 @@ func (a *App) GetGraph() Graph {
 	return graph
 }
 
-// Greet returns a greeting for the given name
-func (a *App) StartEmulation(target string) error {
-	err := a.ran.SetTarget(target)
-	// a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
-
-	if err != nil {
-		runtime.EventsEmit(a.ctx, "error", err.Error())
-		result, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-			Type:    runtime.QuestionDialog,
-			Title:   "Question",
-			Message: "Target pod not found. Create it instead?",
-			Buttons: []string{"Yes", "No"},
-			// DefaultButton: "No",
-		})
-
-		runtime.LogInfo(a.ctx, "Dialog result: "+result)
-
-		return err
-	}
-
-	return err
-}
-
 func (a *App) ExecuteAction(actionID, targetID, procedureID string, args ActionArgs) { //, args map[string]string) {
 	runtime.LogInfo(a.ctx, "ActionSelected"+actionID+" target: "+targetID)
 	err := a.ran.Bus.Publish(domain.ActionSelected{

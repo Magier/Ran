@@ -9,7 +9,20 @@
 	let { step }: ActionDetailProps = $props();
 	const badgeStyle = step?.Success ? 'preset-filled-success-500' : 'preset-filled-error-500';
 	let status = step == null ? 'unknown' : step.Success ? 'Success' : 'Failed';
+
+	function handleCopy(event: MouseEvent) {
+		const button = event.currentTarget as HTMLButtonElement;
+		const codeEl = button.previousElementSibling as HTMLElement;
+		if (codeEl && codeEl.dataset.source !== undefined) {
+			const text = codeEl.textContent?.trim() ?? '';
+			if (text) {
+				navigator.clipboard.writeText(text);
+			}
+		}
+	}
+
 </script>
+
 
 {#if step != null}
 	<header class="flex-none justify-between">
@@ -65,11 +78,18 @@
 		<div class="mt-4 w-full">
 			<span class="label mb-1 flex-none">Result:</span>
 			{#each step.Results as result}
-				<div class="bg-surface-50-950">
-					<code class="w-full overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all"
-						>{result}
+				{#if result}
+				<div class="bg-surface-50-950 relative group">
+					<code class="w-full overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all" data-source>
+						{result}
 					</code>
+					<button
+						class="btn preset-filled absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity"
+						data-trigger
+						onclick={handleCopy}
+					>📋</button>
 				</div>
+				{/if}
 			{/each}
 		</div>
 	</article>

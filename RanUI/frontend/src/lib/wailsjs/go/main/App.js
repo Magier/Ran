@@ -25,7 +25,3 @@ export function GetRunningPods(arg1) {
 export function SaveFlow() {
   return window['go']['main']['App']['SaveFlow']();
 }
-
-export function StartEmulation(arg1) {
-  return window['go']['main']['App']['StartEmulation'](arg1);
-}
