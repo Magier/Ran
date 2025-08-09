@@ -14,5 +14,3 @@ export function GetGraph():Promise<main.Graph>;
 export function GetRunningPods(arg1:string):Promise<Array<main.K8sResource>>;
 
 export function SaveFlow():Promise<boolean>;
-
-export function StartEmulation(arg1:string):Promise<void>;

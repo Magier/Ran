@@ -2,7 +2,7 @@
 	import Armory from './components/armory.svelte';
 	import store from '$lib/stores/store';
 	import * as runtime from '$lib/wailsjs/runtime';
-	import { ExecuteAction, StartEmulation } from '$lib/wailsjs/go/main/App.js';
+	import { ExecuteAction } from '$lib/wailsjs/go/main/App.js';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
 	import { domain, main } from '$lib/wailsjs/go/models';
