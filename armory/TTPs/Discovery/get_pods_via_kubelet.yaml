@@ -13,7 +13,7 @@ parameters:
     default: ${TARGET}
     description: the name of the node for which the running pods will be listed
   TOKEN:
-    type: string
+    type: ServiceAccount
     description: the ServiceAccount token used to authenticate to the kubelet API
 procedures:
   - key: curl

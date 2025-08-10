@@ -26,7 +26,7 @@ type Reference struct {
 	RelationImpl
 	Source string
 	Target string
-	Medium string
+	Medium string `json:"medium,omitzero"`
 }
 
 var _ Relation = (*Reference)(nil)

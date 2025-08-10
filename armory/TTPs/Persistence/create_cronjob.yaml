@@ -22,11 +22,11 @@ parameters:
     default: "* * * * *"
     description: the token used to authenticate to the API server
   NAMESPACE:
-    type: string
+    type: Namespace
     default: ${NS}
     description: the name of the namespace in which the role will be created
   TOKEN:
-    type: string
+    type: ServiceAccount
     default: ""
     description: the token used to authenticate to the API server
 procedures:
