@@ -132,3 +132,16 @@ kubectl label --overwrite ns ${NS} pod-security.kubernetes.io/enforce=privileged
 - `whoami`
 - check api access
 - `capsh --print`
+
+
+
+### DefCon 33 K8s CTF Write-Up
+https://www.skybound.link/2025/08/defcon-33-kubernetes-ctf-writeup/
+7 challenges:
+- Challenge 1 - diomhaireachdan by Raesene (Rory McCune)
+- Challenge 2 - looking-under-rock by Rob CurtinSeufert
+- Challenge 3 - hillwalker by Raesene (Rory McCune)
+- Challenge 4 - shell-in-the-ghost by antitree
+- Challenge 5 - terminate-transfer by Adam Crompton (@3nc0d3r)
+- Challenge 6 - wizards-communicate by Jay Beale
+- Challenge 7 - loworbit-kubernoodels

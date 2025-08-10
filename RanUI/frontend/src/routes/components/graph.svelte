@@ -96,7 +96,6 @@
 
 	const campaignState = getCampaignState();
 	$effect(() => {
-		console.warn("graph changed updateing...")
 		cy.invalidateDimensions();
 		const graph = campaignState.graph;
 		if (Object.keys(graph).length > 0) {

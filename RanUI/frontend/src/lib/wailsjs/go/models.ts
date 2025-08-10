@@ -87,6 +87,34 @@ export namespace domain {
 	        this.EnvVars = source["EnvVars"];
 	    }
 	}
+	export class FactsChanged {
+	    CmdId: string;
+	    NewEntities: any[];
+	    NewRelations: any[];
+	    NewIdentities: any[];
+	    NewAssets: any[];
+	    RemovedEntities: any[];
+	    RemovedRelations: any[];
+	    RemovedIdentities: any[];
+	    RemovedAssets: any[];
+	
+	    static createFrom(source: any = {}) {
+	        return new FactsChanged(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.CmdId = source["CmdId"];
+	        this.NewEntities = source["NewEntities"];
+	        this.NewRelations = source["NewRelations"];
+	        this.NewIdentities = source["NewIdentities"];
+	        this.NewAssets = source["NewAssets"];
+	        this.RemovedEntities = source["RemovedEntities"];
+	        this.RemovedRelations = source["RemovedRelations"];
+	        this.RemovedIdentities = source["RemovedIdentities"];
+	        this.RemovedAssets = source["RemovedAssets"];
+	    }
+	}
 	export class Parameter {
 	    Name: string;
 	    Type: string;

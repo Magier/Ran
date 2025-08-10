@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { Combobox } from '@skeletonlabs/skeleton-svelte';
+
 	import { parseEntityId, type Param } from '$lib/model';
 	import { GetRunningPods } from '$lib/wailsjs/go/main/App';
 	import type { domain, main } from '$lib/wailsjs/go/models';
+	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
 	interface ParamProps {
 		targetId: string;
@@ -23,37 +26,61 @@
 		Description: string;
 		Type: string;
 		IsTrue: boolean;
+		Required?: boolean;
 		Options?: ComboboxOption[];
 	}
 
+	interface Constraint {
+		Namespace?: string;
+		Pod?: string;
+		Entitlement?: string;
+	}
+
+	const campaignState = getCampaignState();
 
 	let procedureId = $state(ttp.procedures?.[0]?.Key || '');
 	let args = $state<Arg[]>([]);
-	let availablePods: ComboboxOption[] = [];
-	// the args will be the final arguments used when executing the TTP
+	let availablePods: ComboboxOption[] = $state([]);
+
+	let selectedNamespace = $derived.by(() => {
+		const nsArg = args.find(arg => arg.Type === 'Namespace');
+		return nsArg ? nsArg.Value : '';
+	});
+	// namespace options
+	$effect(() => {
+		let nsArg = args.find(arg => arg.Name === 'Namespace');
+		if (nsArg) {
+			nsArg.Options = availablePods
+				.map(pod => pod.group)
+				.filter((ns): ns is string => typeof ns === 'string')
+				.filter((value, index, self) => self.indexOf(value) === index)
+				.map(ns => ({ label: ns, value: ns }));
+		}
+	});
+
+	// pod options
+	$effect(() => {
+		let resArg = args.find(arg => arg.Type === 'Pod');
+		if (resArg) {
+			resArg.Options = availablePods.filter(pod => selectedNamespace ? pod.group === selectedNamespace : true);
+		}
+	});
+
+	// special handling for the InitialAccess technique, because it may use information not yet inferred during the campaign
 	$effect(() => {
 		if (procedureId === 'setTarget') {
 			GetRunningPods("").then(pods => {
 				availablePods = pods.map((pod: main.K8sResource) => ({ label: pod.name, value: pod.id, group: pod.namespace }));
-
-				let targetArg = args.find(arg => arg.Name === 'TargetName');
-				if (targetArg) {
-					targetArg.Options = availablePods
-				} else {
-					console.warn("targetArg not found")
-				}
-				let nsArg = args.find(arg => arg.Name === 'Namespace');
-				if (nsArg) {
-					nsArg.Options = availablePods.map(pod => pod.group).filter((value, index, self) => self.indexOf(value) === index).map(ns => ({ label: ns, value: ns }));
-				} else {
-					console.warn("ns not found")
-				}
 			});	
+		} else {
 		}
+	})
 
-		args =
-			ttp.params?.map((param: Param) => {
+	// the args will be the final arguments used when executing the TTP
+	$effect(() => {
+		args = ttp.params?.map((param: Param) => {
 				let value = param.Default;
+				let options: ComboboxOption[] | undefined = undefined;
 				if (argContext && param.Name in argContext) {
 					value = argContext[param.Name];
 				}
@@ -62,6 +89,21 @@
 					let id = parseEntityId(targetId);
 					value = id.name;
 				}
+				if (param.Type === 'Namespace') {
+					const namespaces = campaignState.getNamespaces();
+					options = namespaces.map(ns => ({ label: ns, value: ns }));
+				} else if (param.Type === 'Pod') {
+					options = campaignState.getPods(selectedNamespace).map(pod => ({
+						label: pod.name,
+						value: pod.id,
+						group: pod.namespace
+					}));
+				} else if (param.Type === 'ServiceAccount') {
+					const serviceAccounts = campaignState.getServiceAccounts(selectedNamespace);
+					// TODO filter by entitlements (if known)
+					let os = serviceAccounts.map(sa => ({ label: sa.name, value: sa.id }));
+					options = os;
+				}
 
 				return {
 					Name: param.Name,
@@ -69,6 +111,8 @@
 					IsTrue: param.Default === 'true',
 					Description: param.Description,
 					Type: param.Type,
+					Options: options,
+					Required: param.Required
 				};
 			}) || [];
 	});
@@ -98,13 +142,19 @@
 		console.warn('Checking of available tools is not implemented yet.');
 		return false;
 	}
+
+	function est() {
+		const e = campaignState.entities;
+		debugger
+	}
 </script>
 
-<form class="text-surface-50 w-full space-y-8">
+<form class="text-surface-50 w-full space-y-8" onsubmit={onInternalExecute}>
 	<header class="flex justify-between">
 		<h4 class="h4">{ttp.name}</h4>
 	</header>
 	<article>
+		<button onclick={est}>Test</button>
 		<div class="">
 			<span class="h5 label">Description</span>
 			{ttp.description}
@@ -150,11 +200,20 @@
 									placeholder={arg.Description}
 								/>
 							{:else if arg.Options}
-								<select class="select" bind:value={arg.Value}>
-									{#each arg.Options as option}
-										<option value={option.value}>{option.label}</option>
-									{/each}
-								</select>
+								<Combobox
+									data={arg.Options}
+									value={[arg.Value]}
+									onValueChange={(e) => (arg.Value = e.value[0])}
+									placeholder={arg.Name + "..."}
+									>
+									<!-- This is optional. Combobox will render label by default -->
+									{#snippet item(item)}
+										<div class="flex w-full justify-between space-x-2">
+											<span>{item.label}</span>
+											<span>{item.group}</span>
+										</div>
+									{/snippet}
+								</Combobox>
 							{:else}
 								<input
 									class="ig-input"
@@ -177,6 +236,6 @@
 	</article>
 	<footer class="flex justify-end gap-4">
 		<button type="button" class="btn preset-tonal" onclick={onCancel}>Cancel</button>
-		<button type="button" class="btn preset-filled" onclick={onInternalExecute}>Execute</button>
+		<button type="submit" class="btn preset-filled">Execute</button>
 	</footer>
 </form>

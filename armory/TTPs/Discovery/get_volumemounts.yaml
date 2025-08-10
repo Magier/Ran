@@ -6,11 +6,6 @@ preconditions:
   accessLevel: user-exec
   kind: System
 # parameters:
-#   TOKEN:
-#     type: string
-#     description: the ServiceAccount token used to authorize this request
-#     optional: true
-#     default: ""
 procedures:
   - key: mountinfo
     tool: cat

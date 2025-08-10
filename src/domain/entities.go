@@ -523,6 +523,7 @@ type K8sEntity struct {
 
 func NewK8sEntity(name, kind, namespace string) K8sEntity {
 	return K8sEntity{
+		Id:        GenerateId("", name, kind, namespace),
 		Name:      name,
 		Kind:      kind,
 		Namespace: namespace,

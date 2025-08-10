@@ -314,6 +314,8 @@ func (a *App) GetFlow() AttackFlow {
 	}
 }
 
+func (a *App) GetFacts() domain.FactsChanged { return domain.FactsChanged{} }
+
 type K8sResource struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`

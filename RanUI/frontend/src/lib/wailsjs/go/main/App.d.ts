@@ -7,6 +7,8 @@ export function ExecuteAction(arg1:string,arg2:string,arg3:string,arg4:main.Acti
 
 export function GetApplicableTTPs(arg1:string):Promise<Array<domain.TTP>>;
 
+export function GetFacts():Promise<domain.FactsChanged>;
+
 export function GetFlow():Promise<main.AttackFlow>;
 
 export function GetGraph():Promise<main.Graph>;

@@ -6,19 +6,19 @@ techniques:
   - T1098.006
 parameters:
   SUBJECT:
-    type: string
+    type: ServiceAccount
     default: ${TARGET}
     description: the name of the serviceaccount, user or group to which the role will be bound
   NAMESPACE:
-    type: string
+    type: Namespace
     default: ${NS}
     description: the name of the namespace in which the role will be created
   TOKEN:
-    type: string
+    type: ServiceAccount
     default: ""
     description: the token used to authenticate to the API server
   ROLE_NAME:
-    type: string
+    type: Role
     default: nsadmin
     description: the name of the service account to which the role will be bound
   BINDING_NAME:

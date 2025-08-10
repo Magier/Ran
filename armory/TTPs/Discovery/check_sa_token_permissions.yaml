@@ -12,10 +12,10 @@ parameters:
     description: the path to the CA certificate to use for the request
     default: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
   NS:
-    type: string
+    type: Namespace
     description: the namespace of the service account
   TOKEN:
-    type: string
+    type: ServiceAccount
     description: the token which will be checked
 preconditions:
   kind: ServiceAccount

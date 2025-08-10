@@ -29,6 +29,9 @@ func (b ProbBool) IsZero() bool {
 	// either unknown, or known to be false
 	return b == 0.5 || b == 0
 }
+func (b ProbBool) IsUnknown() bool {
+	return b == 0.5
+}
 
 func NewProbBool() ProbBool {
 	return 0.5

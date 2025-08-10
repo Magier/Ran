@@ -924,14 +924,18 @@ func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (NewFacts, RemovedF
 	// get the system on which the TTP was executed
 	newFacts := NewFacts{}
 
-	// TODO: suppert c2 channel with multiple segements
+	// TODO: support c2 channel with multiple segements
 	if ev.ExecutedOn != nil {
 		tool := ev.Procedure.GetTool()
 
-		// add the binary only, if it was not yet known, because just a successful
+		// add the binary only, if it was not yet known, because just a successful/failed
 		// call provides no information of the exact path (which other info sources may do)
-		if !ev.ExecutedOn.HasBinary(tool).Bool() {
-			ev.ExecutedOn.SetBinary(tool, tool)
+		if ev.ExecutedOn.HasBinary(tool).IsUnknown() {
+			val := "❌"
+			if ev.Success {
+				val = tool
+			}
+			ev.ExecutedOn.SetBinary(tool, val)
 		}
 	}
 

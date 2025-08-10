@@ -10,7 +10,6 @@
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 	import { onMount } from 'svelte';
 	import { showToast, toaster } from '$lib/components/toaster';
-	import { Combobox } from '@skeletonlabs/skeleton-svelte';
 	import EntityInfo from './components/entityInfo.svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
@@ -22,11 +21,6 @@
 			showToast('Error in backend', dataStr, 'error');
 		});
 	});
-
-	interface ComboboxData {
-		label: string;
-		value: string;
-	}
 
 	let selectedObjectId: string = $state('');
 	let selectedObject: main.Node | undefined = $state();
@@ -141,9 +135,6 @@
 			{/snippet}
 		</Popover>
 
-		<!-- globalConditions={activeGlobalConditions}
-			{selectedNode}
-		/> -->
 		<Modal
 			open={showParamModal}
 			onOpenChange={(e) => (showParamModal = e.open)}
