@@ -366,6 +366,20 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class CampaignState {
+	    entities: any[];
+	    relations: any[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CampaignState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entities = source["entities"];
+	        this.relations = source["relations"];
+	    }
+	}
 	
 	export class Node {
 	    id: string;

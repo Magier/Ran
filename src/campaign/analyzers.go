@@ -159,7 +159,7 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 	relations := make([]domain.Relation, 0)
 
 	sa := ssrr.ServiceAccount
-	ns := domain.Namespace{Name: sa.Namespace}
+	ns := domain.NewNamespace(sa.Namespace)
 	sa.Namespace = ns.Name
 
 	entitlements := make([]domain.RBACPermission, 0, len(ssrr.ResourceRules)+len(ssrr.NonResourceRules))
@@ -258,7 +258,7 @@ func analyzeEnvironmentVariables(source domain.Entity, envVars map[string]string
 			Source: srcPod.GetId(),
 		}
 		if svcName == "KUBERNETES" {
-			kubeSystemNs := domain.Namespace{Name: "kube-system"}
+			kubeSystemNs := domain.NewNamespace("kube-system")
 			entities = append(entities, kubeSystemNs)
 
 			p := domain.NewPod("api-server", kubeSystemNs.Name)
@@ -322,7 +322,7 @@ func analyzeServiceAccountToken(token string) (NewFacts, error) {
 	// see: https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/#bound-service-account-tokens
 	saToken.IsBound = saToken.Kubernetes.Pod.UID != ""
 
-	ns := domain.Namespace{Name: saToken.Kubernetes.Namespace}
+	ns := domain.NewNamespace(saToken.Kubernetes.Namespace)
 	sa := domain.NewServiceAccount(saToken.Kubernetes.ServiceAccount.Name, ns.Name)
 	sa.Token = saToken
 
@@ -415,10 +415,10 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 				securityProfile, violationReason))
 
 			if target, ok := ev.Target.(domain.Namespaced); ok {
-				ns := domain.Namespace{Name: target.GetNamespace(), EnforcedPSS: securityProfile}
+				ns := domain.Namespace{Name: target.GetNamespace(), EnforcedPSS: securityProfile, Kind: "Namespace"}
 				entities = append(entities, ns)
 			} else if nsName, ok := ev.Args["Namespace"]; ok {
-				ns := domain.Namespace{Name: nsName, EnforcedPSS: securityProfile}
+				ns := domain.Namespace{Name: nsName, EnforcedPSS: securityProfile, Kind: "Namespace"}
 				entities = append(entities, ns)
 			} else {
 				slog.Error("No namespace found in event target or args")
@@ -523,13 +523,13 @@ func analyzeDeployPodFailure(event domain.TTPExecuted) (NewFacts, RemovedFacts, 
 					securityProfile, violationReason))
 
 				if target, ok := event.Target.(domain.Namespaced); ok {
-					ns := domain.Namespace{Name: target.GetNamespace(), EnforcedPSS: securityProfile}
+					ns := domain.Namespace{Name: target.GetNamespace(), EnforcedPSS: securityProfile, Kind: "Namespace"}
 					entities = append(entities, ns)
 				} else if ns, ok := event.Target.(domain.Namespace); ok {
 					ns.EnforcedPSS = securityProfile
 					entities = append(entities, ns)
 				} else if nsName, ok := event.Args["Namespace"]; ok {
-					ns := domain.Namespace{Name: nsName, EnforcedPSS: securityProfile}
+					ns := domain.Namespace{Name: nsName, EnforcedPSS: securityProfile, Kind: "Namespace"}
 					entities = append(entities, ns)
 				} else {
 					slog.Error("No namespace found in event target or args")

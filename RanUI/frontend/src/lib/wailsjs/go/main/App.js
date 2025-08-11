@@ -10,6 +10,10 @@ export function GetApplicableTTPs(arg1) {
   return window['go']['main']['App']['GetApplicableTTPs'](arg1);
 }
 
+export function GetCampaignState() {
+  return window['go']['main']['App']['GetCampaignState']();
+}
+
 export function GetFacts() {
   return window['go']['main']['App']['GetFacts']();
 }

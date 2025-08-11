@@ -460,9 +460,9 @@ func (s *SystemImpl) SetUserName(name string) {
 // }
 
 type C2System struct {
-	Kind string
-	Name string
-	IPs  []net.IP
+	Kind string   `json:"kind"`
+	Name string   `json:"name"`
+	IPs  []net.IP `json:"ips"`
 }
 
 func (s C2System) GetId() string {
@@ -645,8 +645,17 @@ func (e K8sEntity) IsNamespaced() bool {
 const TheOnlyClusterId string = "cluster"
 
 type Cluster struct {
-	Name    string
-	Address string
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	Address string `json:"address"`
+}
+
+func NewCluster(name, address string) Cluster {
+	return Cluster{
+		Name:    name,
+		Kind:    "Cluster",
+		Address: address,
+	}
 }
 
 // GetId implements Entity.
@@ -668,15 +677,23 @@ var _ Entity = (*Cluster)(nil)
 
 type ApiServer struct {
 	Pod
-	CAData     []byte
-	ExternalIP net.IPAddr
+	CAData     []byte     `json:"caData"`
+	ExternalIP net.IPAddr `json:"externalIP"`
 }
 
 type Namespace struct {
-	Name        string
-	EnforcedPSS string
-	WarnPSS     string
-	AuditPSS    string
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	EnforcedPSS string `json:"enforcedPSS"`
+	WarnPSS     string `json:"warnPSS"`
+	AuditPSS    string `json:"auditPSS"`
+}
+
+func NewNamespace(name string) Namespace {
+	return Namespace{
+		Name: name,
+		Kind: "Namespace",
+	}
 }
 
 var _ Entity = (*Namespace)(nil)
@@ -769,13 +786,13 @@ type Identity interface {
 }
 
 type User struct {
-	Name         string
-	Kind         IdentityType
-	IsAdmin      bool
-	CertData     []byte
-	KeyData      []byte
-	Entitlements []RBACPermission
-	Token        string
+	Name         string           `json:"name"`
+	Kind         IdentityType     `json:"kind"`
+	IsAdmin      bool             `json:"isAdmin"`
+	CertData     []byte           `json:"certData"`
+	KeyData      []byte           `json:"keyData"`
+	Entitlements []RBACPermission `json:"entitlements"`
+	Token        string           `json:"token"`
 }
 
 // GetId implements Entity.

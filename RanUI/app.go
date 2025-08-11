@@ -53,6 +53,11 @@ type Graph struct {
 	RootNodeID string `json:"rootNodeId"`
 }
 
+type CampaignState struct {
+	Entities  []domain.Entity   `json:"entities"`
+	Relations []domain.Relation `json:"relations"`
+}
+
 type AttackStep = campaign.AttackStep
 type AttackFlow struct {
 	Steps      []AttackStep `json:"steps"`
@@ -236,6 +241,23 @@ func (a *App) GetGraph() Graph {
 		Edges:      edges,
 	}
 	return graph
+}
+
+func (a *App) GetCampaignState() CampaignState {
+	entitiesMap := a.ran.Campaign.GetEntities()
+	entities := make([]domain.Entity, 0, len(entitiesMap))
+	for _, entity := range entitiesMap {
+		entities = append(entities, entity)
+	}
+	relationsMap := a.ran.Campaign.GetRelations()
+	relations := make([]domain.Relation, 0, len(relationsMap))
+	for _, relation := range relationsMap {
+		relations = append(relations, relation)
+	}
+	return CampaignState{
+		Entities:  entities,
+		Relations: relations,
+	}
 }
 
 func (a *App) ExecuteAction(actionID, targetID, procedureID string, args ActionArgs) { //, args map[string]string) {

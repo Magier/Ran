@@ -69,7 +69,7 @@ func TestMoreInformationOnPodOwner(t *testing.T) {
 func TestRemoveEntity_RemovesEntityAndRelations(t *testing.T) {
 	// Setup
 	kg := InitGraph()
-	ns := domain.Namespace{Name: "default"}
+	ns := domain.NewNamespace("default")
 	pod := domain.NewPod("testpod", "default")
 
 	// Add namespace and pod, which should also create a Contains relation

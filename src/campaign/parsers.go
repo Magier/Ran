@@ -256,7 +256,7 @@ func HandleNewCronJob(ev domain.TTPExecuted, source domain.Entity, ttpArgs map[s
 			return nil, fmt.Errorf("source does not have a namespace")
 		}
 	}
-	ns := domain.Namespace{Name: nsName}
+	ns := domain.NewNamespace(nsName)
 	p := domain.NewPod(podName, nsName)
 
 	if len(results) >= 3 {
@@ -595,9 +595,9 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 					currentContext := rawConfig.CurrentContext
 					ctx := rawConfig.Contexts[currentContext]
 					if ctx != nil {
-						cluster := domain.Cluster{
-							Name: ctx.Cluster,
-						}
+						cluster := domain.NewCluster(ctx.Cluster, "")
+						slog.Warn(fmt.Sprintf("Kubeconfig effect: using cluster '%s' has not implementing parsing of its address", ctx.Cluster))
+						// cluster := domain.NewCluster(ctx.Cluster, rawConfig.Clusters[ctx.Cluster].Cluster.Server)
 						entities = append(entities, cluster)
 
 						authInfo := ctx.AuthInfo

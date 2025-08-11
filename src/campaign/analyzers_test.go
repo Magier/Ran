@@ -83,7 +83,7 @@ func TestAnalyzeDeployPodFailure_PodSecurityViolation(t *testing.T) {
 		Results: []string{
 			"command terminated with exit code 1: 'Error from server (Forbidden): error when creating \"STDIN\": pods \"workstation-66549c6f86-vgqch-44183\" is forbidden: violates PodSecurity \"baseline:latest\": hostPath volumes (volume \"hostmount\")\n'",
 		},
-		Target: domain.Namespace{Name: nsName},
+		Target: domain.NewNamespace(nsName),
 	}
 	newFacts, _, err := analyzeDeployPodFailure(event)
 	if err != nil {

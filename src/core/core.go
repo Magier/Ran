@@ -251,7 +251,7 @@ func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, load
 		return
 	}
 
-	cluster := domain.Cluster{Name: client.Context.Name, Address: client.Config.Host}
+	cluster := domain.NewCluster(client.Context.Name, client.Config.Host)
 	entities := []domain.Entity{cluster}
 	identities := []domain.Identity{}
 	relations := []domain.Relation{}
