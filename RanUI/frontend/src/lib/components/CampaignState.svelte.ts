@@ -1,8 +1,8 @@
 import { getContext, setContext } from "svelte";
 import * as runtime from "$lib/wailsjs/runtime";
 import type { ArmoryType, Node, Edge, Relation } from '$lib/model';
-import { main, type domain } from '$lib/wailsjs/go/models';
-import { GetGraph } from '$lib/wailsjs/go/main/App';
+import { campaign, main, type domain } from '$lib/wailsjs/go/models';
+import { GetCampaignState, GetGraph } from '$lib/wailsjs/go/main/App';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
 
@@ -38,8 +38,9 @@ type FactsChanged = {
 class CampaignState {
     activeConditions: Conditions = $state({});
     entities = $state<Entity[]>([]);
-    namespaces = $state<string[]>([]);
-    pods = $state<string[]>([]);
+    namespaces = $state<Entity[]>([]);
+    pods = $state<Entity[]>([]);
+    serviceAccounts = $state<Entity[]>([]);
     armory = $state<ArmoryType>(new Map());
     graph = $state<main.Graph>(new main.Graph());
 
@@ -51,7 +52,7 @@ class CampaignState {
         }
     }
     connectBackend() {
-        console.warn("Connecting to backend...");
+        console.info("CampaignState connecting to backend...");
         runtime.EventsOn("*", (a) => {
             console.log(a);
         });
@@ -59,35 +60,81 @@ class CampaignState {
             this.armory = parseArmory(data)
         });
         runtime.EventsOn("facts-changed", (dataStr: string) => {
-            const data = JSON.parse(dataStr);
-            this.entities = this.updateEntities(data);
-            console.log("Facts changed: ", data);
-            console.log("Campaign now has " + this.entities.length + " entities");
             GetGraph().then((g: main.Graph) => { this.graph = g; });
+            // TODO: properly update state based on the received fact changes
+            const data = JSON.parse(dataStr);
+            GetCampaignState().then((s: main.CampaignState) => { this.#setState(s); })
         })
 
-        GetGraph().then((g: main.Graph) => { this.graph = g; })
+        GetGraph().then((g: main.Graph) => { this.graph =g; })
+        GetCampaignState().then((s: main.CampaignState) => { this.#setState(s); })
     }
+    #setState(state: main.CampaignState): void {
+        this.entities = [];
 
-    updateEntities(data: FactsChanged): Entity[] {
-        // Update the entities based on the facts changed
-        for (const entity of data.RemovedEntities || []) {
-            this.entities = this.entities.filter(e => e.id !== entity.id);
+        for (const entity of state.entities || []) {
+            if (entity.kind === 'Namespace') {
+                this.namespaces = [...this.namespaces, entity];
+            } else if (entity.kind === 'Pod') {
+                this.pods = [...this.pods, entity];
+            } else if (entity.kind === 'ServiceAccount') {
+                this.serviceAccounts = [...this.serviceAccounts, entity];
+            }
+
+            this.entities.push(entity.entity);
         }
 
-        for (const entity of data.NewEntities || []) {
+        this.entities = state.entities.map((entity: Entity) => {
+            return {
+                id: entity.id,
+                name: entity.name,
+                kind: entity.kind,
+                namespace: entity.namespace
+            };
+        });
+    }
+
+    #updateState(state: main.CampaignState): void {
+        for (const entity of state.entities || []) {
             if (!this.entities.some(e => e.id === entity.id)) {
-                console.log("Adding entity: ", entity);
                 this.entities = [...this.entities, entity];
             } else {
                 // TODO: properly update the entity
             }
             if (entity.kind === 'Namespace') {
-                this.namespaces = [...this.namespaces, entity.id];
+                this.namespaces = [...this.namespaces, entity];
             }
         }
-        return this.entities
+
+        this.entities = state.entities.map((node: Node) => {
+            return {
+                id: node.id,
+                name: node.name,
+                kind: node.kind,
+                namespace: node.entity?.namespace
+            };
+        });
     }
+
+    // updateEntities(data: FactsChanged): Entity[] {
+    //     // Update the entities based on the facts changed
+    //     for (const entity of data.RemovedEntities || []) {
+    //         this.entities = this.entities.filter(e => e.id !== entity.id);
+    //     }
+
+    //     for (const entity of data.NewEntities || []) {
+    //         if (!this.entities.some(e => e.id === entity.id)) {
+    //             console.log("Adding entity: ", entity);
+    //             this.entities = [...this.entities, entity];
+    //         } else {
+    //             // TODO: properly update the entity
+    //         }
+    //         if (entity.kind === 'Namespace') {
+    //             this.namespaces = [...this.namespaces, entity];
+    //         }
+    //     }
+    //     return this.entities
+    // }
 
     getTtpById(id: string): domain.TTP | undefined {
         for (const [group, ttps] of this.armory) {
@@ -98,8 +145,8 @@ class CampaignState {
         }
     }
 
-    getNamespaces(): string[] {
-        let ns = this.entities.filter(entity => entity.kind === 'Namespace').map(entity => entity.id);
+    getNamespaces(): Entity[] {
+        let ns = this.entities.filter(entity => entity.kind === 'Namespace')
         return ns || [];
     }
 
@@ -124,6 +171,7 @@ export const getCampaignState = (key = DEFAULT_KEY) => {
 }
 
 export const setCampaignState = (key = DEFAULT_KEY) => {
+    console.error("... setting new campaign state")
     const campaignState = new CampaignState();
     return setContext(key, campaignState);
 }

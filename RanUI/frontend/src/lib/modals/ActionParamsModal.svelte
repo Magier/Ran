@@ -2,7 +2,7 @@
 	import { Combobox } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId, type Param } from '$lib/model';
-	import { GetRunningPods } from '$lib/wailsjs/go/main/App';
+	import { GetArgOptionsForTTP, GetRunningPods } from '$lib/wailsjs/go/main/App';
 	import type { domain, main } from '$lib/wailsjs/go/models';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
@@ -73,6 +73,9 @@
 				availablePods = pods.map((pod: main.K8sResource) => ({ label: pod.name, value: pod.id, group: pod.namespace }));
 			});	
 		} else {
+			// GetArgOptionsForTTP(ttp.id).then(options => {
+			// 	console.log('Arg options for TTP', ttp.id, options);
+			// });
 		}
 	})
 
@@ -91,7 +94,7 @@
 				}
 				if (param.Type === 'Namespace') {
 					const namespaces = campaignState.getNamespaces();
-					options = namespaces.map(ns => ({ label: ns, value: ns }));
+					options = namespaces.map(ns => ({ label: ns.name, value: ns.name }));
 				} else if (param.Type === 'Pod') {
 					options = campaignState.getPods(selectedNamespace).map(pod => ({
 						label: pod.name,

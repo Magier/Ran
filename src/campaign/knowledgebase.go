@@ -397,7 +397,7 @@ func extractRelatedEntities(entities map[string]domain.Entity, entity domain.Ent
 			nsId := "ns/" + nsName
 			ns, ok := entities[nsId]
 			if !ok {
-				ns = domain.Namespace{Name: nsName}
+				ns = domain.NewNamespace(nsName)
 				newEntities = append(newEntities, ns)
 			}
 			relations = append(relations, domain.Contains{Container: ns, Object: e.(domain.Entity)})
