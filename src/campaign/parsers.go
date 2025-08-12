@@ -21,13 +21,6 @@ func GetParser(parserName string) domain.ParserFn {
 		return nil
 	}
 	switch parserName {
-	// case "rawServiceaccountToken":
-	// 	return HandleSaTokenRead
-	// case "environmentVariables":
-	// 	return HandleEnvVarResult
-	// case "selfSubjectReview", "authCanI":
-	// return HandleSelfSubjectReviewResult
-	// case "newContainer":
 	case "newRole":
 		return HandleNewRole
 	case "newRoleBinding":
