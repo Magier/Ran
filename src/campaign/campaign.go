@@ -415,7 +415,11 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			}
 		} else if key == "TOKEN" {
 			if arg != "" { // resolve the name of the identity to its token
-				if nsEntity, ok := target.(domain.Namespaced); ok && nsEntity.IsNamespaced() {
+				if entity, ok := c.kb.GetEntity(arg); ok {
+					if sa, ok := entity.(domain.ServiceAccount); ok {
+						arg = sa.Token.Raw
+					}
+				} else if nsEntity, ok := target.(domain.Namespaced); ok && nsEntity.IsNamespaced() {
 					// create dummy service account to produce valid ID
 					tmpSa := domain.NewServiceAccount(arg, nsEntity.GetNamespace())
 					saEntity, ok := c.kb.GetEntity(tmpSa.GetId())

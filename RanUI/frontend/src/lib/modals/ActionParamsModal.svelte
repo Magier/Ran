@@ -2,7 +2,7 @@
 	import { Combobox } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId, type Param } from '$lib/model';
-	import { GetArgOptionsForTTP, GetRunningPods } from '$lib/wailsjs/go/main/App';
+	import { GetRunningPods } from '$lib/wailsjs/go/main/App';
 	import type { domain, main } from '$lib/wailsjs/go/models';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
@@ -72,10 +72,6 @@
 			GetRunningPods("").then(pods => {
 				availablePods = pods.map((pod: main.K8sResource) => ({ label: pod.name, value: pod.id, group: pod.namespace }));
 			});	
-		} else {
-			// GetArgOptionsForTTP(ttp.id).then(options => {
-			// 	console.log('Arg options for TTP', ttp.id, options);
-			// });
 		}
 	})
 
@@ -93,6 +89,10 @@
 					value = id.name;
 				}
 				if (param.Type === 'Namespace') {
+					if (param.Default === "" && targetId.startsWith("ns/")) {
+						value = targetId.split("/")[1];
+						console.log("set default NS to ", value)
+					}
 					const namespaces = campaignState.getNamespaces();
 					options = namespaces.map(ns => ({ label: ns.name, value: ns.name }));
 				} else if (param.Type === 'Pod') {
@@ -104,8 +104,12 @@
 				} else if (param.Type === 'ServiceAccount') {
 					const serviceAccounts = campaignState.getServiceAccounts(selectedNamespace);
 					// TODO filter by entitlements (if known)
-					let os = serviceAccounts.map(sa => ({ label: sa.name, value: sa.id }));
-					options = os;
+					let saOptions = serviceAccounts.map(sa => {
+						const saId = sa.id || `ns/${sa.namespace}/sa/${sa.name}`;
+						return { label: sa.name, value: saId}
+					 });
+					 console.log("sa options ", saOptions)
+					options = saOptions;
 				}
 
 				return {
