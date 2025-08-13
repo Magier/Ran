@@ -471,6 +471,10 @@ func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 			owner = domain.K8sNode{
 				K8sEntity:     ownerEntity,
 				ResourceOwner: resOwner,
+				SystemImpl: &domain.SystemImpl{
+					Binaries: make(map[string]string),
+					EnvVars:  make(map[string]string),
+				},
 			}
 		} else {
 			slog.Error("Getting workload from pod not implemented for kind " + ownerRef.Kind + " for pod: " + pod.GetName())

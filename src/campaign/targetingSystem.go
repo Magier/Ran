@@ -33,19 +33,11 @@ func (c Campaign) getSystemForExecution(ttp domain.TTP, procedure domain.Procedu
 
 	compromisedSystems := make([]domain.Entity, 0)
 	for _, entity := range c.kb.GetEntities() {
-		if sys, ok := entity.(domain.System); ok && sys.CanExecuteProcedure(procedure) {
-			compromisedSystems = append(compromisedSystems, sys)
+		if sys, ok := entity.(domain.System); ok {
+			if sys.CanExecuteProcedure(procedure) {
+				compromisedSystems = append(compromisedSystems, sys)
+			}
 		}
-		// switch system := entity.(type) {
-		// case domain.Pod:
-		// 	if system.CanExecuteProcedure(procedure) {
-		// 		compromisedSystems = append(compromisedSystems, system)
-		// 	}
-		// case domain.K8sNode:
-		// 	if system.CanExecuteProcedure(procedure) {
-		// 		compromisedSystems = append(compromisedSystems, system)
-		// 	}
-		// }
 	}
 
 	// TODO generalize this

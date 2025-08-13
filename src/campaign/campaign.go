@@ -723,8 +723,9 @@ func UnpackResourceID(name string) (string, string, string, error) {
 	if strings.Contains(name, "/") {
 		parts := strings.Split(name, "/")
 		if len(parts) == 2 {
-			ns = parts[0]
-			name = parts[1]
+			ns = parts[1]
+			kind = "ns"
+			name = ns
 		} else if parts[0] == "ns" && len(parts) == 4 {
 			// it's the ID format `ns/<ns>/<kind>/<podname>`
 			ns = parts[1]
@@ -735,5 +736,6 @@ func UnpackResourceID(name string) (string, string, string, error) {
 		}
 	}
 
+	kind = domain.GetKindFromResourceShortName(kind)
 	return ns, kind, name, err
 }

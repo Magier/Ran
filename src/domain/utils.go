@@ -4,6 +4,9 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 func GetResourceShortName(kind string) string {
@@ -22,6 +25,8 @@ func GetResourceShortName(kind string) string {
 		return "svc"
 	case "serviceaccount":
 		return "sa"
+	case "namespace":
+		return "ns"
 	case "rolebinding":
 		return "rb"
 	case "clusterrolebinding":
@@ -30,6 +35,37 @@ func GetResourceShortName(kind string) string {
 		return "cr"
 	default:
 		return k
+	}
+}
+
+func GetKindFromResourceShortName(short string) string {
+	switch s := strings.ToLower(short); s {
+	case "deploy":
+		return "Deployment"
+	case "depl":
+		return "Deployment"
+	case "ds":
+		return "DaemonSet"
+	case "sts":
+		return "StatefulSet"
+	case "rs":
+		return "ReplicaSet"
+	case "ns":
+		return "Namespace"
+	case "wl":
+		return "AbstractWorkload"
+	case "svc":
+		return "Service"
+	case "sa":
+		return "ServiceAccount"
+	case "rb":
+		return "RoleBinding"
+	case "crb":
+		return "ClusterRoleBinding"
+	case "cr":
+		return "ClusterRole"
+	default:
+		return cases.Title(language.English, cases.NoLower).String(s)
 	}
 }
 
