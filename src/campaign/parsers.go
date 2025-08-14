@@ -21,8 +21,8 @@ func GetParser(parserName string) domain.ParserFn {
 		return nil
 	}
 	switch parserName {
-	case "newRole":
-		return HandleNewRole
+	// case "newRole":
+	// 	return HandleNewRole
 	case "newRoleBinding":
 		return HandleNewRoleBinding
 	case "newCronJob":
@@ -379,6 +379,9 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 
 	isRemoveEffect := strings.HasPrefix(effect, "delete")
 	effect = strings.ToLower(strings.TrimPrefix(effect, "delete "))
+	if strings.HasPrefix(effect, "create") {
+		effect = strings.ToLower(strings.TrimPrefix(effect, "create "))
+	}
 
 	res := results[0]
 	entities := []domain.Entity{}
@@ -509,6 +512,13 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				entities = append(entities, domain.NewK8sNodeFromK8sSpec(node))
 			}
 		}
+	case "k8s.role":
+		role, err := parseRBACRole(args, results...)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to parse Role: %v", err))
+		} else {
+			entities = append(entities, role)
+		}
 	case "sys.envvar":
 		envVars, err := ParseEnvVarResult(args, res)
 		if err != nil {
@@ -611,7 +621,6 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				}
 			}
 		}
-
 	default:
 		if strings.HasPrefix(effect, "target.has-binary") {
 			resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
@@ -944,4 +953,21 @@ func parseLinuxIDResult(line string) (int, string, error) {
 	}
 
 	return 0, "", fmt.Errorf("No UID found in line: %s", line)
+}
+
+func parseRBACRole(args map[string]string, results ...string) (domain.Role, error) {
+	if strings.Contains(results[0], "Error from server (Forbidden)") {
+		// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
+		if strings.Contains(results[0], "attempting to grant RBAC permissions not currently held") {
+			return domain.Role{}, errors.New(results[0])
+		}
+	}
+
+	name := args["ROLE_NAME"]
+	if strings.Contains(results[0], "already exists") {
+		slog.Info(fmt.Sprintf("Role '%s' already exists: %s", name, results[0]))
+	}
+
+	var ns string
+	return domain.NewRole(name, ns), nil
 }
