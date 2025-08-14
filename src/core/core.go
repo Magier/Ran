@@ -154,9 +154,13 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) e
 				Msg:   update.Error.Error(),
 			})
 		} else {
-			_, err := r.Campaign.UpdateFacts(update.NewFacts, campaign.RemovedFacts{})
+			ev, err := r.Campaign.UpdateFacts(update.NewFacts, campaign.RemovedFacts{})
 			if err != nil {
 				return fmt.Errorf("Couldn't update facts: %s", err.Error())
+			} else {
+				if err = r.Bus.Publish(ev); err != nil {
+					return fmt.Errorf("Couldn't publish facts changed event: %s", err.Error())
+				}
 			}
 		}
 	}
@@ -281,7 +285,7 @@ func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, load
 
 		identities = append(identities, k8sConfigUser)
 	}
-
+	slog.Info("Sending inital entities like cluster")
 	results <- MaybeNewFacts{NewFacts: campaign.NewFacts{
 		Entities:   entities,
 		Identities: identities,

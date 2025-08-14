@@ -375,6 +375,7 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 
 	// the tool part of the procedure was not on the target system
 
+	// TODO: try to parse the tool name from the errormessage
 	toolNotFoundMsgs := []string{
 		fmt.Sprintf("%s: not found", ev.Procedure.GetTool()),
 		"executable file not found in $PATH", // happened when using `k exec`
