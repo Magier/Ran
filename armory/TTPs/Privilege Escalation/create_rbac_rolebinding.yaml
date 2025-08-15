@@ -33,9 +33,10 @@ procedures:
 preconditions:
   kind: ServiceAccount
   rbac: create rolebinding
-parser: newRoleBinding
 effects:
-  - "RoleBinding(${BINDING_NAME}, Role(${ROLE_NAME}), ServiceAccount(${SERVICEACCOUNT}))"
+  - create k8s.RoleBinding
+  - k8s.Role
+  - k8s.ServiceAccount
 # cmd: {}
 # defend: {}
 refernces:

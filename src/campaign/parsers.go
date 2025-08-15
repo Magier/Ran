@@ -21,8 +21,6 @@ func GetParser(parserName string) domain.ParserFn {
 		return nil
 	}
 	switch parserName {
-	case "newRoleBinding":
-		return HandleNewRoleBinding
 	case "newCronJob":
 		return HandleNewCronJob
 	default:
@@ -274,41 +272,6 @@ func HandleNewCronJob(ev domain.TTPExecuted, source domain.Entity, ttpArgs map[s
 	}, nil
 }
 
-func HandleNewRoleBinding(ev domain.TTPExecuted, source domain.Entity, ttpArgs map[string]string, results ...string) (domain.Event, error) {
-	if strings.Contains(results[0], "Error from server (Forbidden)") {
-		// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
-		if strings.Contains(results[0], "attempting to grant RBAC permissions not currently held") {
-			return nil, errors.New(results[0])
-		}
-	}
-
-	name := ev.Args["BINDING_NAME"]
-	if strings.Contains(results[0], "already exists") {
-		slog.Info(fmt.Sprintf("RoleBinding '%s' already exists: %s", name, results[0]))
-	}
-
-	ns := ev.Args["NAMESPACE"]
-	roleID := fmt.Sprintf("ns/%s/role/%s", ns, ev.Args["ROLE_NAME"])
-	subjectID := fmt.Sprintf("ns/%s/sa/%s", ns, ev.Args["SUBJECT"])
-
-	binding := domain.RoleBinding{
-		K8sEntity: domain.K8sEntity{
-			Name:      name,
-			Namespace: ns,
-			Kind:      "RoleBinding",
-		},
-		RoleID:     roleID,
-		SubjectIDs: []string{subjectID},
-	}
-
-	// TODO infer the proper creator
-	// creatorName := fmt.Sprintf("ns/%s/sa/%s", ns, ev.Args["TOKEN"])
-	return domain.NewK8sResourceCreated{
-		Resource: binding,
-		// CreatorID: creatorName,
-	}, nil
-}
-
 func ParseSecretList(jsonStr string) ([]domain.K8sSecret, error) {
 	secretList, err := k8s.ParseSecretList(jsonStr)
 	if err != nil {
@@ -476,6 +439,13 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			slog.Error(fmt.Sprintf("Failed to parse Role: %v", err))
 		} else {
 			entities = append(entities, role)
+		}
+	case "k8s.rolebinding":
+		binding, err := parseRBACRoleBinding(args, results...)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to parse Role: %v", err))
+		} else {
+			entities = append(entities, binding)
 		}
 	case "sys.envvar":
 		envVars, err := ParseEnvVarResult(args, res)
@@ -928,4 +898,46 @@ func parseRBACRole(args map[string]string, results ...string) (domain.Role, erro
 
 	ns := args["NAMESPACE"]
 	return domain.NewRole(name, ns), nil
+}
+
+func parseRBACRoleBinding(args map[string]string, results ...string) (domain.RoleBinding, error) {
+	if strings.Contains(results[0], "Error from server (Forbidden)") {
+		// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
+		if strings.Contains(results[0], "attempting to grant RBAC permissions not currently held") {
+			return domain.RoleBinding{}, errors.New(results[0])
+		}
+	}
+
+	roleName := args["ROLE_NAME"]
+	subjectName := args["SUBJECT"]
+	ns := args["NAMESPACE"]
+
+	name := args["BINDING_NAME"]
+	if strings.Contains(results[0], "already exists") {
+		slog.Info(fmt.Sprintf("RoleBinding '%s' already exists: %s", name, results[0]))
+	}
+	maps := map[string]string{
+		"ROLE_NAME": roleName,
+		"SUBJECT":   subjectName,
+		"NAMESPACE": ns,
+	}
+	for key, val := range maps {
+		fieldVar := fmt.Sprintf("${%s}", key)
+		name = strings.Replace(name, fieldVar, val, -1)
+	}
+
+	roleID := fmt.Sprintf("ns/%s/role/%s", ns, roleName)
+	subjectID := fmt.Sprintf("ns/%s/sa/%s", ns, subjectName)
+
+	binding := domain.RoleBinding{
+		K8sEntity: domain.K8sEntity{
+			Name:      name,
+			Namespace: ns,
+			Kind:      "RoleBinding",
+		},
+		RoleID:     roleID,
+		SubjectIDs: []string{subjectID},
+	}
+
+	return binding, nil
 }
