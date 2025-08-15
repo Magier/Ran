@@ -390,7 +390,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 
 	// TODO: properly set the default values to the most plausible options
 	for key, arg := range args {
-		if key == "NS" || arg == "${NS}" {
+		if key == "NS" || key == "NAMESPACE" || arg == "${NS}" {
 			if ns, ok := target.(domain.Namespaced); ok {
 				arg = ns.GetNamespace()
 			} else if ns, ok := target.(domain.Namespace); ok {

@@ -21,8 +21,6 @@ func GetParser(parserName string) domain.ParserFn {
 		return nil
 	}
 	switch parserName {
-	// case "newRole":
-	// 	return HandleNewRole
 	case "newRoleBinding":
 		return HandleNewRoleBinding
 	case "newCronJob":
@@ -273,46 +271,6 @@ func HandleNewCronJob(ev domain.TTPExecuted, source domain.Entity, ttpArgs map[s
 	return domain.NewPodDeployed{
 		Pod:       p,
 		Namespace: ns,
-	}, nil
-}
-
-func HandleNewRole(ev domain.TTPExecuted, source domain.Entity, ttpArgs map[string]string, results ...string) (domain.Event, error) {
-	// TODO: check if the actual TTP execution failed, because the role already exists
-	// -> overall, the intended effects are met, but it may be a confiict (e.g. name collision), for downstream TTPs
-	if strings.Contains(results[0], "Error from server (Forbidden)") {
-		// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
-		if strings.Contains(results[0], "attempting to grant RBAC permissions not currently held") {
-			return nil, errors.New(results[0])
-		}
-	}
-
-	name := ev.Args["ROLE_NAME"]
-	if strings.Contains(results[0], "already exists") {
-		slog.Info(fmt.Sprintf("Role '%s' already exists: %s", name, results[0]))
-	}
-
-	var ns string
-	var creator domain.ServiceAccount
-
-	if sa, ok := ev.Target.(domain.ServiceAccount); ok {
-		ns = sa.GetNamespace()
-		creator = sa
-	}
-
-	role := domain.Role{
-		K8sEntity: domain.K8sEntity{
-			Name:      name,
-			Namespace: ns,
-			Kind:      "Role",
-		},
-	}
-
-	myId := role.GetId()
-	var _ = myId
-
-	return domain.NewK8sResourceCreated{
-		Resource:  role,
-		CreatorID: creator.GetId(),
 	}, nil
 }
 
@@ -968,6 +926,6 @@ func parseRBACRole(args map[string]string, results ...string) (domain.Role, erro
 		slog.Info(fmt.Sprintf("Role '%s' already exists: %s", name, results[0]))
 	}
 
-	var ns string
+	ns := args["NAMESPACE"]
 	return domain.NewRole(name, ns), nil
 }

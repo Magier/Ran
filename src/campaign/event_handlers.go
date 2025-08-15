@@ -104,20 +104,24 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 
 	for _, effect := range ttp.Effects {
 		new, removed := ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
-		newFacts.Update(new)
-		removedFacts.Update(removed)
 
 		if strings.HasPrefix(effect, "create") && len(new.Entities) > 0 {
 			creatorId := ev.Target.GetId()
 			if creator, ok := c.GetEntityById(creatorId); ok {
-				new.Relations = append(new.Relations, domain.Created{
-					Object:  new.Entities[0],
-					Creator: creator,
-				})
+				for _, entity := range new.Entities {
+					new.Relations = append(new.Relations, domain.Created{
+						Object:  entity,
+						Creator: creator,
+					})
+				}
+
 			} else {
 				slog.Warn(fmt.Sprintf("TTP '%s' created new entity '%s' but creator '%s' is unknown", ttp.ID, new.Entities[0].GetId(), creatorId))
 			}
 		}
+
+		newFacts.Update(new)
+		removedFacts.Update(removed)
 	}
 
 	// generic analyzer for the successful TTP invocation

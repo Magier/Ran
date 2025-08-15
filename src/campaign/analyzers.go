@@ -18,6 +18,7 @@ import (
 func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (NewFacts, RemovedFacts, error) {
 	entities := make(map[string]domain.Entity)
 	relations := make([]domain.Relation, 0)
+	relations = append(relations, newFacts.Relations...)
 	identities := make(map[string]domain.Identity)
 	assets := make([]domain.Asset, 0)
 	// assets := make(map[string]domain.Asset)
@@ -426,6 +427,15 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 			}
 		}
 	}
+
+	// // TODO: check if the actual TTP execution failed, because the role already exists
+	// // -> overall, the intended effects are met, but it may be a confiict (e.g. name collision), for downstream TTPs
+	// if strings.Contains(ev.Results[0], "Error from server (Forbidden)") {
+	// 	// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
+	// 	if strings.Contains(ev.Results[0], "attempting to grant RBAC permissions not currently held") {
+	// 		return nil, nil, errors.New(ev.Results[0])
+	// 	}
+	// }
 
 	// TTP specific error: could not transfer tool to the target system
 	if strings.Contains(errMsg, " is not writeable") {

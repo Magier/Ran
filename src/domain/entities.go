@@ -1146,6 +1146,10 @@ func (role Role) GetKind() string {
 	return "Role"
 }
 
+func NewRole(name, ns string) Role {
+	return Role{K8sEntity: NewK8sEntity(name, "Role", ns)}
+}
+
 type RoleBinding struct {
 	K8sEntity
 	RoleID     string
