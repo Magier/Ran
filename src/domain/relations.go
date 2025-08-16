@@ -366,9 +366,9 @@ func (r HasC2Session) GetRelationName() string {
 
 type BindsRole struct {
 	RelationImpl
-	// TODO: generalize this to User and Groups
-	Subject ServiceAccount
-	Role    Role
+	Subject     Identity
+	Role        Role
+	RoleBinding RoleBinding
 }
 
 var _ Relation = (*BindsRole)(nil)

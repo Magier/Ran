@@ -229,16 +229,6 @@ type PodDeployed struct {
 	Namespace string
 }
 
-type NewK8sResourceCreated struct {
-	EventImpl
-	Resource  Entity
-	CreatorID string
-}
-
-func (e NewK8sResourceCreated) String() string {
-	return "New K8s Resource created"
-}
-
 type NewRoleBindingCreated struct {
 	EventImpl
 	Binding        Entity

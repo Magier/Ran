@@ -1227,6 +1227,8 @@ func NewServiceAccount(name, ns string) ServiceAccount {
 	}
 }
 
+var _ Identity = (*ServiceAccount)(nil)
+
 func (sa ServiceAccount) GetId() string {
 	return fmt.Sprintf("ns/%s/sa/%s", sa.GetNamespace(), sa.GetName())
 }
