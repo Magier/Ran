@@ -93,17 +93,10 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 		return campaign.onSessionClosed(msg.(c2.SessionClosed))
 	})
 	mb.Subscribe(domain.ActionSelected{}, campaign.onActionSelected)
-	// mb.Subscribe(domain.ServiceAccountTokenExtracted{}, campaign.onServiceAccountTokenExtracted)
 	// mb.Subscribe(domain.TokenPermissionsRetrieved{}, campaign.parseSelfSubjectServiceReview)
-	mb.Subscribe(domain.NewK8sResourceCreated{}, campaign.onNewK8sResourceCreated)
 	mb.Subscribe(domain.PrintGraph{}, campaign.onPrintGraph)
 	mb.Subscribe(domain.SaveAttackFlow{}, campaign.onSaveAttackFlow)
 	// mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)
-
-	// err := mb.Publish(CampaignStarted{})
-	// if err != nil {
-	// 	panic(err)
-	// }
 	return campaign
 }
 

@@ -128,6 +128,19 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 				}
 				relations = append(relations, resultingFacts.Relations...)
 			}
+		case domain.RoleBinding:
+			resultingFacts, _, err := c.analyzeRoleBinding(e)
+			if err != nil {
+				slog.Error("Failed to analyze RoleBinding", "error", err)
+			} else {
+				for _, entity := range resultingFacts.Entities {
+					if existing, exists := entities[entity.GetId()]; exists {
+						entity = domain.UpdateEntity(entity, existing)
+					}
+					entities[entity.GetId()] = entity
+				}
+				relations = append(relations, resultingFacts.Relations...)
+			}
 		default:
 			entities[e.GetId()] = e
 			slog.Warn("Unknown entity type in processQueue", "entity", e)
@@ -951,4 +964,48 @@ func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (NewFacts, RemovedF
 	}
 
 	return newFacts, RemovedFacts{}, nil
+}
+
+func (c Campaign) analyzeRoleBinding(rb domain.RoleBinding) (NewFacts, RemovedFacts, error) {
+	entities := []domain.Entity{}
+	relations := make([]domain.Relation, 0)
+
+	roleEntityRaw, hasRole := c.GetEntityById(rb.RoleID)
+	if !hasRole {
+		return NewFacts{}, RemovedFacts{}, fmt.Errorf("role with ID '%s' not found in campaign", rb.RoleID)
+	}
+	roleEntity, _ := roleEntityRaw.(domain.Role)
+
+	for _, subjectID := range rb.SubjectIDs {
+		ns, kind, name, err := UnpackResourceID(subjectID)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to unpack subject ID '%s': %s", subjectID, err.Error()))
+			continue
+		}
+
+		var subject domain.Entity
+		switch kind {
+		case "ServiceAccount":
+			subject = domain.NewServiceAccount(name, ns)
+		default:
+			subject = domain.User{Name: name, Kind: domain.IdentityType(kind)}
+		}
+
+		if subj, ok := subject.(domain.Identity); ok {
+			relations = append(relations, domain.BindsRole{
+				Role:        roleEntity,
+				Subject:     subj,
+				RoleBinding: rb,
+			})
+		} else {
+			slog.Error(fmt.Sprintf("Subject is not a ServiceAccount: %v", subject))
+		}
+
+		entities = append(entities, subject)
+	}
+
+	return NewFacts{
+		Entities:  entities,
+		Relations: relations,
+	}, RemovedFacts{}, nil
 }
