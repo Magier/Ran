@@ -379,11 +379,17 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 		target = execSystem
 	}
 
-	// TODO: build a dependency graph between the args and resolve them in that order
+	// build a dependency graph between the args and resolve them in that order
+	resolver := NewDependencyResolver(args)
+	order, err := resolver.GetEvaluationOrder()
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get evaluation order to ground args: %s", err.Error())
+	}
 
 	// TODO: properly set the default values to the most plausible options
-	for key, arg := range args {
-		if key == "NS" || key == "NAMESPACE" || arg == "${NS}" {
+	for _, key := range order {
+		arg := args[key]
+		if key == "NS" || key == "NAMESPACE" || arg == NS_NAME_VAR {
 			if ns, ok := target.(domain.Namespaced); ok {
 				arg = ns.GetNamespace()
 			} else if ns, ok := target.(domain.Namespace); ok {
@@ -470,10 +476,18 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			}
 		}
 
-		if strings.Contains(arg, "${RANDOM}") {
+		if strings.Contains(arg, RANDOM_VAR) {
 			randomNum := strconv.Itoa(rand.Intn(1e5))
-			arg = strings.ReplaceAll(arg, "${RANDOM}", randomNum)
+			arg = strings.ReplaceAll(arg, RANDOM_VAR, randomNum)
 		}
+
+		// resolve any variables which referencing other args
+		// TODO: use the proper resolving order, instead of iterating over all the other variables
+		for key, value := range args {
+			templateVariable := fmt.Sprintf("${%s}", strings.ToUpper(key))
+			arg = strings.ReplaceAll(arg, templateVariable, value)
+		}
+
 		args[key] = arg
 	}
 	return args, nil
@@ -482,12 +496,6 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (domain.Command, error) {
 	switch cmd := ttp.CommandMsg.(type) {
 	case domain.StartListener:
-		// t := reflect.TypeOf(cmd)
-		// ptr := reflect.New(t)
-		// val := ptr.Elem()
-		// inf := val.Interface()
-		// var _ = inf
-
 		c := reflect.ValueOf(&cmd).Elem()
 		if c.Kind() != reflect.Struct {
 			return nil, errors.New("Can't ground PreAction, because cmd is not a struct!")
@@ -576,7 +584,7 @@ func (c Campaign) groundCmdTemplate(cmdTemplate string, variables map[string]str
 		filesharePort, ok := c.GetFileshare()
 		if ok {
 			p := fmt.Sprint(filesharePort)
-			cmdTemplate = strings.Replace(cmdTemplate, "${FILESHARE_PORT}", p, -1)
+			cmdTemplate = strings.ReplaceAll(cmdTemplate, "${FILESHARE_PORT}", p)
 		} else {
 			slog.Info("No suitable fileshare found!")
 		}
@@ -585,7 +593,7 @@ func (c Campaign) groundCmdTemplate(cmdTemplate string, variables map[string]str
 	for key, v := range variables {
 		templateVariable := fmt.Sprintf("${%s}", strings.ToUpper(key))
 		// TOOD: check if for casese where the variable is not set, and if that's a problem
-		cmdTemplate = strings.Replace(cmdTemplate, templateVariable, v, -1)
+		cmdTemplate = strings.ReplaceAll(cmdTemplate, templateVariable, v)
 	}
 
 	return cmdTemplate
