@@ -33,6 +33,7 @@ const kind_svg_map = {
 	ClusterRole: 'c-role.svg',
 	Service: 'svc.svg',
 	ConfigMap: 'cm.svg',
+	CronJob: 'cronjob.svg',
 	Group: 'group.svg',
 	RoleBinding: 'rb.svg',
 	ClusterRoleBinding: 'crb.svg',

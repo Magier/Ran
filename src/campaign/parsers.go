@@ -16,19 +16,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-func GetParser(parserName string) domain.ParserFn {
-	if parserName == "" {
-		return nil
-	}
-	switch parserName {
-	case "newCronJob":
-		return HandleNewCronJob
-	default:
-		slog.Warn(fmt.Sprintf("Parser '%s' not implemented!", parserName))
-	}
-	return nil
-}
-
 func ParseEnvVarResult(_ map[string]string, results ...string) (map[string]string, error) {
 	if len(results) == 0 {
 		return nil, errors.New("No environment variables received!")
@@ -446,6 +433,13 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			slog.Error(fmt.Sprintf("Failed to parse Role: %v", err))
 		} else {
 			entities = append(entities, binding)
+		}
+	case "k8s.cronjob":
+		cronJob, err := parseK8sCronJob(args, results...)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to parse CronJob: %v", err))
+		} else {
+			entities = append(entities, cronJob)
 		}
 	case "sys.envvar":
 		envVars, err := ParseEnvVarResult(args, res)
@@ -923,7 +917,7 @@ func parseRBACRoleBinding(args map[string]string, results ...string) (domain.Rol
 	}
 	for key, val := range maps {
 		fieldVar := fmt.Sprintf("${%s}", key)
-		name = strings.Replace(name, fieldVar, val, -1)
+		name = strings.ReplaceAll(name, fieldVar, val)
 	}
 
 	roleID := fmt.Sprintf("ns/%s/role/%s", ns, roleName)
@@ -940,4 +934,48 @@ func parseRBACRoleBinding(args map[string]string, results ...string) (domain.Rol
 	}
 
 	return binding, nil
+}
+
+func parseK8sCronJob(args map[string]string, results ...string) (domain.CronJob, error) {
+	numArgs := len(results)
+	if numArgs == 0 {
+		return domain.CronJob{}, fmt.Errorf("No data")
+	}
+
+	podName := results[0]
+
+	if strings.Contains(podName, "created") {
+		podName = strings.TrimSuffix(podName, " created")
+	}
+	podName = strings.ReplaceAll(podName, "cronjob.batch/", "")
+
+	if len(results) > 1 {
+		oldNsName := results[1]
+		slog.Warn(fmt.Sprintf("parsing CronJob, old nsName was '%s'", oldNsName))
+	}
+	nsName := args["NAMESPACE"]
+
+	ns := domain.NewNamespace(nsName)
+	p := domain.NewPod(podName, nsName)
+
+	if len(results) >= 3 {
+		// TODO: marshal the podConfig
+		var cfg domain.PodConfig
+		err := json.Unmarshal([]byte(results[2]), &cfg)
+		if err != nil {
+			return domain.CronJob{}, fmt.Errorf("Failed to unmarshal PodConfig JSON: %w", err)
+		}
+
+		p.HostIPC = domain.AsProbBool(cfg.HostIPC)
+		p.HostPID = domain.AsProbBool(cfg.HostPID)
+		p.HostNetwork = domain.AsProbBool(cfg.HostNetwork)
+		p.Privileged = domain.AsProbBool(cfg.Privileged)
+	}
+
+	// TODO: this should also add the new CronJob to the knowledge base, which owns this pod
+	slog.Error(fmt.Sprintf("Creating new pod %s in namespace %s is not yet properly implemented! FIX NEEDED!", p.Name, ns.Name))
+
+	cj := domain.NewCronJob(args["Name"], nsName)
+	cj.Pod = p
+	return cj, nil
 }
