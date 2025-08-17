@@ -1063,6 +1063,7 @@ type CronJob struct {
 	K8sEntity
 	// NamespacedResource
 	ResourceOwner
+	Pod Pod
 }
 
 func NewCronJob(name, ns string) CronJob {

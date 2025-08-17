@@ -143,7 +143,7 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 			}
 		default:
 			entities[e.GetId()] = e
-			slog.Warn("Unknown entity type in processQueue", "entity", e)
+			slog.Warn("Unknown entity type in analyzer processQueue", "entity", e)
 		}
 	}
 

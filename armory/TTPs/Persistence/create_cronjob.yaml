@@ -37,9 +37,8 @@ procedures:
 preconditions:
   # kind: ServiceAccount
   rbac: create CronJob
-parser: newCronJob
 effects:
-  - CronJob(${NAME})
+  - create k8s.CronJob
 # cmd: {}
 # defend: {}
 refernces:
