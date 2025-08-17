@@ -89,10 +89,8 @@ type TTP struct {
 	Params     []Parameter `json:"params"`
 	CommandMsg Message     // during unmarshal converted via Alias to the message
 
-	Requires Requirements `yaml:"preconditions" json:"requires"`
-	Effects  []string     `yaml:"effects" json:"effects"`
-	Parser   string       `yaml:"parser"`
-	// ParserFn      func(any) any `yaml:"parser"`
+	Requires      Requirements  `yaml:"preconditions" json:"requires"`
+	Effects       []string      `yaml:"effects" json:"effects"`
 	ResultHandler ResultHandler `json:"-" yaml:"-"`
 }
 
@@ -175,10 +173,9 @@ func (p *ParamSlice) UnmarshalYAML(value *yaml.Node) error {
 
 type TTPAlias TTP
 type YAMLTTP struct {
-	TTPAlias `yaml:",inline"` // alias is necessary to avoid infinite loop during Unmarshaling TTP -> YAMLTTP (with embedded TTP)
-	// Parser   string           `yaml:"parser"`
-	Command    string     `yaml:"command"`
-	Parameters ParamSlice `yaml:"parameters"`
+	TTPAlias   `yaml:",inline"` // alias is necessary to avoid infinite loop during Unmarshaling TTP -> YAMLTTP (with embedded TTP)
+	Command    string           `yaml:"command"`
+	Parameters ParamSlice       `yaml:"parameters"`
 	// Preconditions map[string]interface{} `yaml:"preconditions"`
 }
 
@@ -215,7 +212,6 @@ func (t YAMLTTP) TTP() (TTP, error) {
 		ttp.ID = convertNameToID(ttp.Name)
 	}
 
-	// ttp.Parser = parsers.HandleSaTokenRead
 	return ttp, nil
 }
 
@@ -247,12 +243,6 @@ func (ttp TTP) HandleResult(source Entity, args ...any) (Event, error) {
 	}
 	return ttp.ResultHandler(source, args...)
 }
-
-type ParserFn func(ev TTPExecuted, source Entity, args map[string]string, results ...string) (Event, error)
-
-// func (e *ParserFn) UnmarshalYAML(unmarshal func(interface{}) error) error {
-// 	return nil // TODO: explore option of lazy evaluation?
-// }
 
 func convertNameToID(name string) string {
 	// special characters and emojis are not allowed in TTP IDs

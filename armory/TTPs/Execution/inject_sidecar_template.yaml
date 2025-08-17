@@ -43,7 +43,6 @@ effects:
   - $p isa k8s.Pod(${TARGET})
   - $p.hasContainer($c)
   - $c.name(${NAME})
-# parser: newContainer
 defend: {}
 references:
   - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/Sidecar%20Injection/

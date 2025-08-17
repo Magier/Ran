@@ -264,7 +264,6 @@ export namespace domain {
 	    CommandMsg: any;
 	    requires: Requirements;
 	    effects: string[];
-	    Parser: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TTP(source);
@@ -284,7 +283,6 @@ export namespace domain {
 	        this.CommandMsg = source["CommandMsg"];
 	        this.requires = this.convertValues(source["requires"], Requirements);
 	        this.effects = source["effects"];
-	        this.Parser = source["Parser"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

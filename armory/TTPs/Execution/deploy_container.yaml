@@ -99,7 +99,6 @@ effects:
   - Namespace($ns)
   - ns.contains($p)
   - created(creator:$p1, target:$p2)
-parser: newContainer
 defend: {}
 references:
   - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/New%20Container/
