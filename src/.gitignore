@@ -1,2 +1,5 @@
 # Added by goreleaser init:
 dist/
+
+# artifact download to build mapping for Mitre ATT&CK TTPs to STIX
+enterprise-attack.json
