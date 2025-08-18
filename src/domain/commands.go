@@ -77,6 +77,16 @@ func (c StartC2Redirector) String() string {
 	return "Start C2 redirector"
 }
 
+type ResetCampaign struct {
+	CommandImpl
+}
+
+func (r ResetCampaign) String() string {
+	return "Reset Campaign"
+}
+
+var _ Command = (*ResetCampaign)(nil)
+
 type ExecTTP struct {
 	CommandImpl
 	TTP        TTP

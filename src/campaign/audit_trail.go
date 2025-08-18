@@ -32,6 +32,11 @@ func NewAuditTrail() AuditTrail {
 	return AuditTrail{}
 }
 
+func (a *AuditTrail) Reset() {
+	a.steps = make([]AttackStep, 0)
+	a.openSteps = make([]AttackStep, 0)
+}
+
 func (a *AuditTrail) AddNewStep(action domain.ExecTTP) error {
 	var execOn domain.System
 	if action.C2Channel != nil {

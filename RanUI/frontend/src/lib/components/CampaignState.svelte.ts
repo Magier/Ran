@@ -2,7 +2,7 @@ import { getContext, setContext } from "svelte";
 import * as runtime from "$lib/wailsjs/runtime";
 import type { ArmoryType, Node, Edge, Relation } from '$lib/model';
 import { campaign, main, type domain } from '$lib/wailsjs/go/models';
-import { GetCampaignState, GetGraph } from '$lib/wailsjs/go/main/App';
+import { GetCampaignState, GetGraph, ResetCampaign } from '$lib/wailsjs/go/main/App';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
 
@@ -69,6 +69,17 @@ class CampaignState {
         GetGraph().then((g: main.Graph) => { this.graph =g; })
         GetCampaignState().then((s: main.CampaignState) => { this.#setState(s); })
     }
+
+    reset() {
+        this.entities = [];
+        this.namespaces = [];
+        this.pods = [];
+        this.serviceAccounts = [];
+        ResetCampaign().then(() => {
+            GetGraph().then((g: main.Graph) => { this.graph = g; });
+        });
+    }
+
     #setState(state: main.CampaignState): void {
         this.entities = [];
 
@@ -171,7 +182,6 @@ export const getCampaignState = (key = DEFAULT_KEY) => {
 }
 
 export const setCampaignState = (key = DEFAULT_KEY) => {
-    console.error("... setting new campaign state")
     const campaignState = new CampaignState();
     return setContext(key, campaignState);
 }

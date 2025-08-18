@@ -29,7 +29,6 @@
 	let graphContainer: HTMLElement;
 
 	onMount(() => {
-		console.warn("Setting new cy instance")
 		cy = cytoscape({
 			container: graphContainer, // container to render in
 			elements: {
@@ -98,6 +97,7 @@
 	$effect(() => {
 		cy.invalidateDimensions();
 		const graph = campaignState.graph;
+
 		if (Object.keys(graph).length > 0) {
 			let nodePos: Record<string, any> = {};
 			cy.nodes().forEach((n) => {

@@ -144,26 +144,15 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) e
 	go r.Bus.HandleEvents(ctx)
 
 	// load initial entities from the target cluster into the campaign
-	namespaces := []string{}
-	initialFacts := make(chan MaybeNewFacts, 1)
-	go loadInitialEntities(ctx, initialFacts, loadKubeConfig, namespaces)
-	for update := range initialFacts {
-		if update.Error != nil {
-			_ = r.Bus.Publish(domain.ErrorMsg{
-				Level: domain.LevelFatal,
-				Msg:   update.Error.Error(),
-			})
-		} else {
-			ev, err := r.Campaign.UpdateFacts(update.NewFacts, campaign.RemovedFacts{})
-			if err != nil {
-				return fmt.Errorf("Couldn't update facts: %s", err.Error())
-			} else {
-				if err = r.Bus.Publish(ev); err != nil {
-					return fmt.Errorf("Couldn't publish facts changed event: %s", err.Error())
-				}
-			}
-		}
+	err = r.InitCampaign(ctx, loadKubeConfig)
+	if err != nil {
+		return fmt.Errorf("Couldn't initialize campaign: %s", err.Error())
 	}
+	r.Bus.Subscribe(&domain.ResetCampaign{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		slog.Info("Resetting campaign from Ran")
+		err := r.InitCampaign(ctx, loadKubeConfig)
+		return nil, err
+	})
 
 	// ensure target is set after the cluster, so it's properly associated with the cluster
 	if r.target != "" {
@@ -184,6 +173,30 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) e
 			panic(err.Error())
 		}
 	}()
+	return nil
+}
+
+func (r Ran) InitCampaign(ctx context.Context, loadKubeConfig bool) error {
+	namespaces := []string{}
+	initialFacts := make(chan MaybeNewFacts, 1)
+	go loadInitialEntities(ctx, initialFacts, loadKubeConfig, namespaces)
+	for update := range initialFacts {
+		if update.Error != nil {
+			_ = r.Bus.Publish(domain.ErrorMsg{
+				Level: domain.LevelFatal,
+				Msg:   update.Error.Error(),
+			})
+		} else {
+			ev, err := r.Campaign.UpdateFacts(update.NewFacts, campaign.RemovedFacts{})
+			if err != nil {
+				return fmt.Errorf("Couldn't update facts: %s", err.Error())
+			} else {
+				if err = r.Bus.Publish(ev); err != nil {
+					return fmt.Errorf("Couldn't publish facts changed event: %s", err.Error())
+				}
+			}
+		}
+	}
 	return nil
 }
 

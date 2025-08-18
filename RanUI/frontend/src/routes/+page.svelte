@@ -3,9 +3,9 @@
 	import store from '$lib/stores/store';
 	import * as runtime from '$lib/wailsjs/runtime';
 	import { ExecuteAction } from '$lib/wailsjs/go/main/App.js';
+	import { domain, main } from '$lib/wailsjs/go/models';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
-	import { domain, main } from '$lib/wailsjs/go/models';
 	import { Modal, Popover } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 	import { onMount } from 'svelte';

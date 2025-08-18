@@ -338,7 +338,7 @@ func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (d
 // }
 
 func (c *Campaign) onPrintGraph(ctx context.Context, msg domain.Message) (domain.Message, error) {
-	if kb, ok := c.kb.(BuiltInKnowledgeBase); ok {
+	if kb, ok := c.kb.(*BuiltInKnowledgeBase); ok {
 		var buf bytes.Buffer
 		err := draw.DOT(kb.graph, &buf)
 		if err != nil {
