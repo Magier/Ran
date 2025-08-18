@@ -30,6 +30,10 @@ export function GetRunningPods(arg1) {
   return window['go']['main']['App']['GetRunningPods'](arg1);
 }
 
+export function ResetCampaign() {
+  return window['go']['main']['App']['ResetCampaign']();
+}
+
 export function SaveFlow() {
   return window['go']['main']['App']['SaveFlow']();
 }

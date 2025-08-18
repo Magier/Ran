@@ -17,4 +17,6 @@ export function GetGraph():Promise<main.Graph>;
 
 export function GetRunningPods(arg1:string):Promise<Array<main.K8sResource>>;
 
+export function ResetCampaign():Promise<void>;
+
 export function SaveFlow():Promise<boolean>;

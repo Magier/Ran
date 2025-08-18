@@ -260,6 +260,14 @@ func (a *App) GetCampaignState() CampaignState {
 	}
 }
 
+func (a *App) ResetCampaign() {
+	err := a.ran.Bus.Publish(domain.ResetCampaign{})
+	if err != nil {
+		runtime.LogErrorf(a.ctx, "Failed to reset campaign: %v", err)
+		return
+	}
+}
+
 func (a *App) ExecuteAction(actionID, targetID, procedureID string, args ActionArgs) { //, args map[string]string) {
 	runtime.LogInfo(a.ctx, "ActionSelected"+actionID+" target: "+targetID)
 	err := a.ran.Bus.Publish(domain.ActionSelected{

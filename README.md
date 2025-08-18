@@ -1,5 +1,8 @@
 # Ran
 
+![Build Status](https://img.shields.io/github/actions/workflow/status/magier/ran/build.yaml)
+
+
 Ran is an experimental offensive tool for Kubernetes clusters. It has two main objectives:
 - enable quick (realistic) emulation of adversary techniques with predefined actions
 - a collection for known attack vectors in Kubernetes (i.e. the implementation of the aforementioned actions)
@@ -150,15 +153,15 @@ Ran is heavily inspired by similar tools in this domain, such as:
 
 ### 2nd Iteration
 - [ ] support cleanup logic for every TTP
-- [ ] Campaign reset functionality
+- [x] Campaign reset functionality
 - [ ] option to provide [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/) as a plan
 - [ ] Support sliver as a C2 framework 
     - add respective CmdVariants where necessary
 - [ ] Derive produced Observable from the TTP execution and link it in the Attack Flow
-- [ ] [MCP](https://www.anthropic.com/news/model-context-protocol) support for "Vibe kiddies" 🤖
 - [ ] (Optional) Generate Sigma from STIX Observables?
 - [ ] Support hierarchical TTPs: they use other TTPs as building blocks (akin to HTN)
     - e.g., `Install implant` could be -> `generate implant` + `download binary` + `execute binary`
+- [ ] provide API to interact with Ran
 - [ ] improve audit tracing
     - [ ] merge multiple (failed) attempts into 1 node? 
     - [ ] Show key value in the title, to quickly differentiate same TTPs, but different objectives
@@ -167,6 +170,7 @@ Ran is heavily inspired by similar tools in this domain, such as:
 - [ ] Map TTPs to [D3FEND](https://d3fend.mitre.org/)
 - [ ] Simple Planning for a explicit goal
 - [ ] Explore generation of attack trees
+- [ ] [MCP](https://www.anthropic.com/news/model-context-protocol) support for "Vibe kiddies" 🤖
 
 ### 4th Iteration: First basic autonomous emulation
 - [ ] Behavior Tree execution

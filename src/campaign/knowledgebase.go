@@ -21,6 +21,7 @@ type Path struct {
 }
 
 type KnowledgeBase interface {
+	Reset() error
 	GetEntity(id string) (domain.Entity, bool)
 	GetC2s() []domain.C2System
 	GetEntities() map[string]domain.Entity
@@ -50,24 +51,30 @@ func entityHash(e domain.Entity) string {
 	return e.GetId()
 }
 
-func InitGraph() BuiltInKnowledgeBase {
+func InitGraph() *BuiltInKnowledgeBase {
 	g := graph.New(entityHash, graph.Directed())
 
-	kg := BuiltInKnowledgeBase{
+	kg := &BuiltInKnowledgeBase{
 		graph:     g,
 		Entities:  make(map[string]domain.Entity),
 		Relations: make(map[string]domain.Relation),
 	}
-
 	return kg
 }
 
-func (kg BuiltInKnowledgeBase) AddEntity(entity domain.Entity) error {
+func (kg *BuiltInKnowledgeBase) Reset() error {
+	kg.Entities = make(map[string]domain.Entity)
+	kg.Relations = make(map[string]domain.Relation)
+	kg.graph = graph.New(entityHash, graph.Directed())
+	return nil
+}
+
+func (kg *BuiltInKnowledgeBase) AddEntity(entity domain.Entity) error {
 	kg.Entities[entity.GetId()] = entity
 	return kg.graph.AddVertex(entity)
 }
 
-func (kg BuiltInKnowledgeBase) RemoveEntity(entity domain.Entity) error {
+func (kg *BuiltInKnowledgeBase) RemoveEntity(entity domain.Entity) error {
 	e, ok := kg.Entities[entity.GetId()]
 	if !ok {
 		return fmt.Errorf("entity %s not found", entity.GetId())
@@ -82,7 +89,7 @@ func (kg BuiltInKnowledgeBase) RemoveEntity(entity domain.Entity) error {
 	return kg.graph.RemoveVertex(e.GetId())
 }
 
-func (kg BuiltInKnowledgeBase) DisconnectNode(nodeID string) error {
+func (kg *BuiltInKnowledgeBase) DisconnectNode(nodeID string) error {
 	for _, relation := range kg.Relations {
 		if relation.GetSourceId() == nodeID || relation.GetTargetId() == nodeID {
 			if err := kg.RemoveRelation(relation); err != nil {
@@ -93,7 +100,7 @@ func (kg BuiltInKnowledgeBase) DisconnectNode(nodeID string) error {
 	return nil
 }
 
-func (kg BuiltInKnowledgeBase) GetClusters() map[string]domain.Entity {
+func (kg *BuiltInKnowledgeBase) GetClusters() map[string]domain.Entity {
 	clusters := make(map[string]domain.Entity)
 	if cluster, ok := kg.Entities[domain.TheOnlyClusterId]; ok {
 		clusters[domain.TheOnlyClusterId] = cluster.(domain.Cluster)
@@ -101,14 +108,14 @@ func (kg BuiltInKnowledgeBase) GetClusters() map[string]domain.Entity {
 	return clusters
 }
 
-func (kg BuiltInKnowledgeBase) GetCluster() (domain.Cluster, bool) {
+func (kg *BuiltInKnowledgeBase) GetCluster() (domain.Cluster, bool) {
 	if cluster, ok := kg.Entities[domain.TheOnlyClusterId]; ok {
 		return cluster.(domain.Cluster), true
 	}
 	return domain.Cluster{}, false
 }
 
-func (kg BuiltInKnowledgeBase) GetAdjecencyList() AdjacencyList {
+func (kg *BuiltInKnowledgeBase) GetAdjecencyList() AdjacencyList {
 	m, err := kg.graph.AdjacencyMap()
 	if err != nil {
 		slog.Error(err.Error())
@@ -126,7 +133,7 @@ func (kg BuiltInKnowledgeBase) GetAdjecencyList() AdjacencyList {
 	return adjList
 }
 
-func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, error) {
+func (kg *BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, error) {
 	numChanges := 0
 	cluster, hasCluster := kg.GetCluster()
 
@@ -198,7 +205,7 @@ func (kg BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, erro
 	return numChanges, nil
 }
 
-func (kg BuiltInKnowledgeBase) RemoveEntities(entities ...domain.Entity) (int, error) {
+func (kg *BuiltInKnowledgeBase) RemoveEntities(entities ...domain.Entity) (int, error) {
 	numChanges := 0
 
 	for _, entitiy := range entities {
@@ -223,20 +230,20 @@ func (kg BuiltInKnowledgeBase) RemoveEntities(entities ...domain.Entity) (int, e
 	return numChanges, nil
 }
 
-func (kg BuiltInKnowledgeBase) GetEntity(id string) (domain.Entity, bool) {
+func (kg *BuiltInKnowledgeBase) GetEntity(id string) (domain.Entity, bool) {
 	e, ok := kg.Entities[id]
 	return e, ok
 }
 
-func (kg BuiltInKnowledgeBase) GetEntities() map[string]domain.Entity {
+func (kg *BuiltInKnowledgeBase) GetEntities() map[string]domain.Entity {
 	return kg.Entities
 }
 
-func (kg BuiltInKnowledgeBase) GetRelations() map[string]domain.Relation {
+func (kg *BuiltInKnowledgeBase) GetRelations() map[string]domain.Relation {
 	return kg.Relations
 }
 
-func (kg BuiltInKnowledgeBase) GetC2(name string) (domain.C2System, bool) {
+func (kg *BuiltInKnowledgeBase) GetC2(name string) (domain.C2System, bool) {
 	for _, entity := range kg.Entities {
 		if c2, ok := entity.(domain.C2System); ok {
 			if c2.Name == name {
@@ -246,7 +253,7 @@ func (kg BuiltInKnowledgeBase) GetC2(name string) (domain.C2System, bool) {
 	}
 	return domain.C2System{}, false
 }
-func (kg BuiltInKnowledgeBase) GetC2s() []domain.C2System {
+func (kg *BuiltInKnowledgeBase) GetC2s() []domain.C2System {
 	c2s := make([]domain.C2System, 0)
 	for _, entity := range kg.GetEntities() {
 		if c2, ok := entity.(domain.C2System); ok {
@@ -256,7 +263,7 @@ func (kg BuiltInKnowledgeBase) GetC2s() []domain.C2System {
 	return c2s
 }
 
-func (kg BuiltInKnowledgeBase) AddRelation(rel domain.Relation) error {
+func (kg *BuiltInKnowledgeBase) AddRelation(rel domain.Relation) error {
 	kg.Relations[domain.GetRelationId(rel)] = rel
 	cost := domain.GetRelationCost(rel)
 
@@ -271,12 +278,12 @@ func (kg BuiltInKnowledgeBase) AddRelation(rel domain.Relation) error {
 		graph.EdgeData(rel),
 	)
 }
-func (kg BuiltInKnowledgeBase) RemoveRelation(relation domain.Relation) error {
+func (kg *BuiltInKnowledgeBase) RemoveRelation(relation domain.Relation) error {
 	delete(kg.Relations, domain.GetRelationId(relation))
 	return kg.graph.RemoveEdge(relation.GetSourceId(), relation.GetTargetId())
 }
 
-func (kg BuiltInKnowledgeBase) AddRelations(relations ...domain.Relation) (int, error) {
+func (kg *BuiltInKnowledgeBase) AddRelations(relations ...domain.Relation) (int, error) {
 	numChanges := 0
 	for _, rel := range relations {
 		err := kg.AddRelation(rel)
@@ -307,7 +314,7 @@ func (kg BuiltInKnowledgeBase) AddRelations(relations ...domain.Relation) (int, 
 	return numChanges, nil
 }
 
-func (kg BuiltInKnowledgeBase) RemoveRelations(relations ...domain.Relation) (int, error) {
+func (kg *BuiltInKnowledgeBase) RemoveRelations(relations ...domain.Relation) (int, error) {
 	numChanges := 0
 	for _, rel := range relations {
 		err := kg.RemoveRelation(rel)
@@ -318,7 +325,7 @@ func (kg BuiltInKnowledgeBase) RemoveRelations(relations ...domain.Relation) (in
 	return numChanges, nil
 }
 
-func (kg BuiltInKnowledgeBase) GetIncomingEntities(entity domain.Entity, rel domain.Relation) ([]domain.Entity, error) {
+func (kg *BuiltInKnowledgeBase) GetIncomingEntities(entity domain.Entity, rel domain.Relation) ([]domain.Entity, error) {
 	incoming := []domain.Entity{}
 	for name, edge := range kg.Relations {
 		if strings.HasSuffix(name, fmt.Sprintf("-[%s]->%s", rel.GetRelationName(), entity.GetId())) {
@@ -331,7 +338,7 @@ func (kg BuiltInKnowledgeBase) GetIncomingEntities(entity domain.Entity, rel dom
 	return incoming, nil
 }
 
-func (kg BuiltInKnowledgeBase) GetAllPaths(source, target string) ([]Path, error) {
+func (kg *BuiltInKnowledgeBase) GetAllPaths(source, target string) ([]Path, error) {
 	paths, err := graph.AllPathsBetween(kg.graph, source, target)
 	if err != nil {
 		return nil, err
@@ -348,7 +355,7 @@ func (kg BuiltInKnowledgeBase) GetAllPaths(source, target string) ([]Path, error
 	return allPaths, nil
 }
 
-func resolvePath(kg BuiltInKnowledgeBase, path []string, source string) (Path, error) {
+func resolvePath(kg *BuiltInKnowledgeBase, path []string, source string) (Path, error) {
 	adjMatrix, err := kg.graph.AdjacencyMap()
 	if err != nil {
 		return Path{}, err
@@ -375,7 +382,7 @@ func resolvePath(kg BuiltInKnowledgeBase, path []string, source string) (Path, e
 		Nodes: nodesOnPath, Relations: relations}, nil
 }
 
-func (kg BuiltInKnowledgeBase) GetPath(source, target string) (Path, error) {
+func (kg *BuiltInKnowledgeBase) GetPath(source, target string) (Path, error) {
 	path, err := graph.ShortestPath(kg.graph, source, target)
 	if err != nil {
 		return Path{}, err
@@ -447,27 +454,28 @@ func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 			Namespace: pod.GetNamespace(),
 		}
 
-		if ownerRef.Kind == "Deployment" {
+		switch ownerRef.Kind {
+		case "Deployment":
 			owner = domain.Deployment{
 				K8sEntity:     ownerEntity,
 				ResourceOwner: resOwner,
 			}
-		} else if ownerRef.Kind == "StatefulSet" {
+		case "StatefulSet":
 			owner = domain.StatefulSet{
 				K8sEntity:     ownerEntity,
 				ResourceOwner: resOwner,
 			}
-		} else if ownerRef.Kind == "DaemonSet" {
+		case "DaemonSet":
 			owner = domain.DaemonSet{
 				K8sEntity:     ownerEntity,
 				ResourceOwner: resOwner,
 			}
-		} else if ownerRef.Kind == "AbstractWorkload" {
+		case "AbstractWorkload":
 			owner = domain.AbstractWorkload{
 				K8sEntity:     ownerEntity,
 				ResourceOwner: resOwner,
 			}
-		} else if ownerRef.Kind == "Node" {
+		case "Node":
 			owner = domain.K8sNode{
 				K8sEntity:     ownerEntity,
 				ResourceOwner: resOwner,
@@ -476,7 +484,7 @@ func getWorkloadFromPod(pod domain.Pod) (domain.Workload, domain.Relation) {
 					EnvVars:  make(map[string]string),
 				},
 			}
-		} else {
+		default:
 			slog.Error("Getting workload from pod not implemented for kind " + ownerRef.Kind + " for pod: " + pod.GetName())
 		}
 	}

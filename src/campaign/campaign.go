@@ -60,7 +60,6 @@ func NewCampaign(armory *armory.Armory) *Campaign {
 	kg := InitGraph()
 
 	_ = kg.AddEntity(domain.C2System{Name: "Ran", Kind: "Ran"})
-
 	return &Campaign{
 		kb:         kg,
 		trail:      NewAuditTrail(),
@@ -84,6 +83,10 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	mb.Subscribe(domain.C2Connected{}, campaign.onC2Connected)
 	mb.Subscribe(domain.ExecTTP{}, campaign.onExecuteTTP)
 	mb.Subscribe(domain.TTPExecuted{}, campaign.onTTPExecuted)
+	mb.Subscribe(domain.ResetCampaign{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		// reset only returns an error value, which will be propagated
+		return nil, campaign.Reset()
+	})
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.ListenerStopped{}, campaign.onListenerStopped)
 	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -166,6 +169,18 @@ func (c *Campaign) UpdateFacts(new NewFacts, removed RemovedFacts) (domain.Facts
 		RemovedRelations:  removed.Relations,
 		RemovedIdentities: removed.Identities,
 	}, nil
+}
+
+func (c *Campaign) Reset() error {
+	err := c.kb.Reset()
+	c.trail.Reset()
+	c.sessions = make(map[string]domain.Session)
+	c.listeners = make(map[string]domain.Listener)
+	c.identities = make(map[string]domain.Identity)
+
+	_ = c.kb.AddEntity(domain.C2System{Name: "Ran", Kind: "Ran"})
+
+	return err
 }
 
 func (c *Campaign) GetEntities() map[string]domain.Entity {
@@ -547,11 +562,12 @@ func (c Campaign) groundCmdTemplate(cmdTemplate string, variables map[string]str
 	// Convert string "true"/"false" to bool for template execution
 	vars := make(map[string]interface{})
 	for k, v := range variables {
-		if v == "true" {
+		switch v {
+		case "true":
 			vars[k] = true
-		} else if v == "false" {
+		case "false":
 			vars[k] = false
-		} else {
+		default:
 			vars[k] = v
 		}
 	}
