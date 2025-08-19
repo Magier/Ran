@@ -67,7 +67,10 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) error 
 	if ttpID == "" {
 		return errors.New("No TTP ID provided")
 	}
-	r.Start(ctx, true, "")
+	err := r.Start(ctx, true, "")
+	if err != nil {
+		return fmt.Errorf("Couldn't start Ran: %v", err)
+	}
 
 	var ttp domain.TTP
 	ttp, ok := r.Armory.GetTTP(ttpID)
@@ -77,7 +80,7 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) error 
 
 	args := make(map[string]string)
 
-	err := r.SetTarget(target)
+	err = r.SetTarget(target)
 	if err != nil {
 		return fmt.Errorf("Couldn't set target: %v", err.Error())
 	}
@@ -140,7 +143,6 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) e
 		}
 	}()
 	// planner.StartAPI(r.Bus)
-
 	go r.Bus.HandleEvents(ctx)
 
 	// load initial entities from the target cluster into the campaign
@@ -148,8 +150,7 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) e
 	if err != nil {
 		return fmt.Errorf("Couldn't initialize campaign: %s", err.Error())
 	}
-	r.Bus.Subscribe(&domain.ResetCampaign{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		slog.Info("Resetting campaign from Ran")
+	r.Bus.Subscribe(domain.CampaignReset{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		err := r.InitCampaign(ctx, loadKubeConfig)
 		return nil, err
 	})
