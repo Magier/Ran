@@ -173,14 +173,19 @@ func (c *Campaign) UpdateFacts(new NewFacts, removed RemovedFacts) (domain.Facts
 
 func (c *Campaign) Reset() error {
 	err := c.kb.Reset()
+	if err != nil {
+		return err
+	}
 	c.trail.Reset()
 	c.sessions = make(map[string]domain.Session)
 	c.listeners = make(map[string]domain.Listener)
 	c.identities = make(map[string]domain.Identity)
 
-	_ = c.kb.AddEntity(domain.C2System{Name: "Ran", Kind: "Ran"})
-
-	return err
+	err = c.kb.AddEntity(domain.C2System{Name: "Ran", Kind: "Ran"})
+	if err != nil {
+		return err
+	}
+	return c.bus.Publish(domain.CampaignReset{})
 }
 
 func (c *Campaign) GetEntities() map[string]domain.Entity {

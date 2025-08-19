@@ -49,6 +49,16 @@ func (e RanReady) String() string {
 	return "Ran Ready"
 }
 
+type CampaignReset struct {
+	EventImpl
+}
+
+func (r CampaignReset) String() string {
+	return "Campaign Reset"
+}
+
+var _ Event = (*CampaignReset)(nil)
+
 type UiEvent interface {
 	UiMessage() string
 }
