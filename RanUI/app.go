@@ -106,6 +106,20 @@ func NewApp() *App {
 	// forward all events directly to the frontend
 	r.Bus.SubscribeToName(domain.ALL_EVENTS, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		eventName := domain.CleanEventName(fmt.Sprintf("%T", msg))
+
+		// ensure errors are properly logged and not just propagated
+		if ev, ok := msg.(domain.ErrorMsg); ok && ev.Msg != "" {
+			switch ev.Level {
+			case domain.LevelWarn:
+				slog.Warn(ev.Msg)
+			case domain.LevelInfo:
+				slog.Info(ev.Msg)
+			case domain.LevelDebug:
+				slog.Debug(ev.Msg)
+			default:
+				slog.Error(ev.Msg)
+			}
+		}
 		runtime.LogInfo(a.ctx, ">> 🖥️: "+eventName)
 
 		jsonBytes, err := json.Marshal(msg)
@@ -163,7 +177,19 @@ func (a *App) startup(ctx context.Context) {
 	})
 
 	runtime.LogInfo(a.ctx, "RanUI starting up")
-	a.ran.Start(a.ctx, false, "")
+	if err := a.ran.Start(a.ctx, false, ""); err != nil {
+		runtime.LogError(a.ctx, "Failed to start Ran: "+err.Error())
+
+		options := runtime.MessageDialogOptions{
+			Title:   "RanUI startup error",
+			Message: err.Error(),
+			Type:    runtime.ErrorDialog,
+		}
+		if _, dlgErr := runtime.MessageDialog(a.ctx, options); dlgErr != nil {
+			runtime.LogError(a.ctx, "Failed to show error dialog: "+dlgErr.Error())
+		}
+		runtime.Quit(a.ctx)
+	}
 	// a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
 }
 

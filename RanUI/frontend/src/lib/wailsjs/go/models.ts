@@ -3,6 +3,7 @@ export namespace campaign {
 	export class AttackStep {
 	    ID: string;
 	    TTP: domain.TTP;
+	    Args: Record<string, string>;
 	    Success: boolean;
 	    Command: string;
 	    Results: string[];
@@ -22,6 +23,7 @@ export namespace campaign {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ID = source["ID"];
 	        this.TTP = this.convertValues(source["TTP"], domain.TTP);
+	        this.Args = source["Args"];
 	        this.Success = source["Success"];
 	        this.Command = source["Command"];
 	        this.Results = source["Results"];
@@ -264,6 +266,7 @@ export namespace domain {
 	    CommandMsg: any;
 	    requires: Requirements;
 	    effects: string[];
+	    cleanup: Procedure;
 	
 	    static createFrom(source: any = {}) {
 	        return new TTP(source);
@@ -283,6 +286,7 @@ export namespace domain {
 	        this.CommandMsg = source["CommandMsg"];
 	        this.requires = this.convertValues(source["requires"], Requirements);
 	        this.effects = source["effects"];
+	        this.cleanup = this.convertValues(source["cleanup"], Procedure);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
