@@ -3,6 +3,7 @@ import * as runtime from "$lib/wailsjs/runtime";
 import type { ArmoryType, Node, Edge, Relation } from '$lib/model';
 import { campaign, main, type domain } from '$lib/wailsjs/go/models';
 import { GetCampaignState, GetGraph, ResetCampaign } from '$lib/wailsjs/go/main/App';
+import { showToast, type ToastType } from '$lib/components/toaster';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
 
@@ -25,14 +26,20 @@ type FactsDelta = {
 }
 
 type FactsChanged = {
-	NewEntities:       Entity[]
-	NewRelations:      Relation[]
-	NewIdentities:     Identity[]
-	NewAssets:         Asset[]
-	RemovedEntities:   Entity[]
-	RemovedRelations:  Relation[]
-	RemovedIdentities: Identity[]
-	RemovedAssets:     Asset[]
+    NewEntities:       Entity[]
+    NewRelations:      Relation[]
+    NewIdentities:     Identity[]
+    NewAssets:         Asset[]
+    RemovedEntities:   Entity[]
+    RemovedRelations:  Relation[]
+    RemovedIdentities: Identity[]
+    RemovedAssets:     Asset[]
+}
+
+type ErrorMsg = {
+    CmdId: string;
+    Level: string;
+    Msg: string;
 }
 
 class CampaignState {
@@ -65,6 +72,25 @@ class CampaignState {
             const data = JSON.parse(dataStr);
             GetCampaignState().then((s: main.CampaignState) => { this.#setState(s); })
         })
+        runtime.EventsOn("error-msg", (rawMsg: string) => {
+            let msg: ErrorMsg = JSON.parse(rawMsg);
+
+            // Map msg.Level to ToastType
+            let toastType: ToastType;
+            switch (msg.Level) {
+                case "ERROR":
+                case "WARN":
+                case "FATAL":
+                    toastType = "error";
+                    break;
+                case "INFO":
+                case "DEBUG":
+                default:
+                    toastType = "info";
+            }
+
+            showToast("Error", msg.Msg, toastType);
+        });
 
         GetGraph().then((g: main.Graph) => { this.graph =g; })
         GetCampaignState().then((s: main.CampaignState) => { this.#setState(s); })

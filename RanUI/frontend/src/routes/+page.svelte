@@ -15,12 +15,6 @@
 
 	const campaignState = getCampaignState();
 
-	$effect(() => {
-		runtime.EventsOn('error', (dataStr) => {
-			// let data = JSON.parse(dataStr);
-			showToast('Error in backend', dataStr, 'error');
-		});
-	});
 
 	let selectedObjectId: string = $state('');
 	let selectedObject: main.Node | undefined = $state();
