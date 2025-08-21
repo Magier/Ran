@@ -196,6 +196,7 @@ type TTPExecuted struct {
 	ResultType Message
 	Results    []string
 	ExecutedOn System
+	WasCleanup bool
 }
 
 func (ttp TTPExecuted) String() string {

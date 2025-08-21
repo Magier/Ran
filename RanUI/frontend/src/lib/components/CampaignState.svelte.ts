@@ -43,6 +43,7 @@ type ErrorMsg = {
 }
 
 class CampaignState {
+    campaignId: number = $state(0);
     activeConditions: Conditions = $state({});
     entities = $state<Entity[]>([]);
     namespaces = $state<Entity[]>([]);
@@ -101,6 +102,7 @@ class CampaignState {
         this.namespaces = [];
         this.pods = [];
         this.serviceAccounts = [];
+        this.campaignId += 1; // Increment campaign ID, to trigger changes based on new campaign
         ResetCampaign().then(() => {
             GetGraph().then((g: main.Graph) => { this.graph = g; });
         });

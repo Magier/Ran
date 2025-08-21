@@ -231,6 +231,7 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 		Target:     exec.Target,
 		ExecutedOn: execTarget,
 		Results:    results,
+		WasCleanup: exec.IsCleanup,
 	}, nil
 }
 

@@ -13,6 +13,7 @@ import (
 type AttackStep struct {
 	ID          string
 	TTP         domain.TTP
+	Args        map[string]string
 	Success     bool
 	Command     string
 	Results     []string
@@ -45,6 +46,7 @@ func (a *AuditTrail) AddNewStep(action domain.ExecTTP) error {
 	a.openSteps = append(a.openSteps, AttackStep{
 		ID:         action.ID,
 		TTP:        action.TTP,
+		Args:       action.Args,
 		Target:     action.Target,
 		ExecutedOn: execOn,
 		Command:    action.Procedure.Command,
@@ -64,7 +66,7 @@ func (a *AuditTrail) popOpenStep(id string) (AttackStep, bool) {
 	return AttackStep{}, false
 }
 
-func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool, results []string) {
+func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool, results []string) bool {
 	step, ok := a.popOpenStep(id)
 
 	if ok {
@@ -77,6 +79,7 @@ func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool, resul
 	} else {
 		slog.Warn(fmt.Sprintf("Could not pop open attack step %s", id))
 	}
+	return ok
 }
 
 func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {

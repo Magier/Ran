@@ -149,11 +149,6 @@
 		console.warn('Checking of available tools is not implemented yet.');
 		return false;
 	}
-
-	function est() {
-		const e = campaignState.entities;
-		debugger
-	}
 </script>
 
 <form class="text-surface-50 w-full space-y-8" onsubmit={onInternalExecute}>
@@ -161,7 +156,6 @@
 		<h4 class="h4">{ttp.name}</h4>
 	</header>
 	<article>
-		<button onclick={est}>Test</button>
 		<div class="">
 			<span class="h5 label">Description</span>
 			{ttp.description}

@@ -95,6 +95,7 @@ type ExecTTP struct {
 	C2Channel  C2Channel
 	Target     Entity
 	CommandMsg Command
+	IsCleanup  bool
 }
 
 func (e ExecTTP) GetTarget() Entity {
