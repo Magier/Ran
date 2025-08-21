@@ -84,7 +84,6 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	mb.Subscribe(domain.ExecTTP{}, campaign.onExecuteTTP)
 	mb.Subscribe(domain.TTPExecuted{}, campaign.onTTPExecuted)
 	mb.Subscribe(domain.ResetCampaign{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		// reset only returns an error value, which will be propagated
 		return nil, campaign.Reset()
 	})
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
@@ -172,10 +171,13 @@ func (c *Campaign) UpdateFacts(new NewFacts, removed RemovedFacts) (domain.Facts
 }
 
 func (c *Campaign) Reset() error {
+	c.cleanupSteps()
+
 	err := c.kb.Reset()
 	if err != nil {
 		return err
 	}
+
 	c.trail.Reset()
 	c.sessions = make(map[string]domain.Session)
 	c.listeners = make(map[string]domain.Listener)
@@ -186,6 +188,36 @@ func (c *Campaign) Reset() error {
 		return err
 	}
 	return c.bus.Publish(domain.CampaignReset{})
+}
+
+func (c *Campaign) cleanupSteps() {
+	executedSteps := c.trail.GetSteps()
+	// cleanup after all the steps in the reverse order
+	for i := len(executedSteps) - 1; i >= 0; i-- {
+		step := executedSteps[i]
+		// maybe a bit of a workaround to turn a cleanup procedure into a dedicated TTP
+		// but it allows easy re-use of the same execution flows, to avoid dedicated handling
+		if cleanup := step.TTP.Cleanup; cleanup.Command != "" {
+			cleanupTTP := domain.TTP{
+				ID:         fmt.Sprintf("%s_cleanup", step.TTP.ID),
+				Name:       fmt.Sprintf("%s Cleanup", step.TTP.Name),
+				Tactic:     step.TTP.Tactic,
+				Techniques: step.TTP.Techniques,
+				Params:     step.TTP.Params,
+				Procedures: []domain.Procedure{step.TTP.Cleanup},
+			}
+
+			execCmd, err := c.GroundAction(cleanupTTP, step.Target.GetId(), cleanup.Key, step.Args)
+			execCmd.IsCleanup = true
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to ground cleanup action for step '%s': %v", step.ID, err))
+			}
+
+			if err = c.bus.Publish(execCmd); err != nil {
+				slog.Error(fmt.Sprintf("Failed to publish cleanup action for step '%s': %v", step.ID, err))
+			}
+		}
+	}
 }
 
 func (c *Campaign) GetEntities() map[string]domain.Entity {
@@ -322,7 +354,7 @@ func (c Campaign) selectBestCommandVariant(ttp domain.TTP, procedureID string) (
 	return ttp.Procedures[0], nil
 }
 
-func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, args map[string]string) (domain.Message, error) {
+func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, args map[string]string) (domain.ExecTTP, error) {
 	if args == nil {
 		args = make(map[string]string)
 	}
@@ -345,7 +377,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 
 	execCmd.Procedure, err = c.selectBestCommandVariant(ttp, procedureID)
 	if err != nil && cmdMsg == nil {
-		return nil, err
+		return execCmd, err
 	}
 
 	var target domain.Entity

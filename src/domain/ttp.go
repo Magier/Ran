@@ -92,6 +92,7 @@ type TTP struct {
 	Requires      Requirements  `yaml:"preconditions" json:"requires"`
 	Effects       []string      `yaml:"effects" json:"effects"`
 	ResultHandler ResultHandler `json:"-" yaml:"-"`
+	Cleanup       Procedure     `yaml:"cleanup" json:"cleanup"`
 }
 
 func (ttp TTP) GetID() string {

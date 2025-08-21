@@ -24,6 +24,15 @@
 	let activeGlobalConditions: Object = {};
 	let selectedTTP: domain.TTP | undefined = $state();
 
+
+	$effect(() => {
+		let _ = campaignState.campaignId;
+		// reset the page/graph state when the campaign resets
+		selectedObjectId = '';
+		selectedObject = undefined;
+	})
+	
+
 	function sendAction(ttp: domain.TTP, args = {}) {
 		selectedTTP = ttp;
 		ttpArgContext = { ...args, ...activeGlobalConditions };

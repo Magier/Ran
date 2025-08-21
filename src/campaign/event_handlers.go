@@ -61,7 +61,13 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	ttp := ev.TTP
 	var results []string = ev.Results
 
-	c.trail.CompleteStep(ev.ID, ev.TTP, ev.Success, results)
+	wasValidStep := c.trail.CompleteStep(ev.ID, ev.TTP, ev.Success, results)
+	if !wasValidStep && ev.WasCleanup {
+		// if cleanup is not associated with a valid step, then it must be a delayed result from a previous campaign
+		// => don't influence the current campaign
+		return nil, nil
+	}
+
 	newFacts := NewFacts{}
 	removedFacts := RemovedFacts{}
 
