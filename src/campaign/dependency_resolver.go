@@ -135,7 +135,10 @@ func (dr *DependencyResolver) GetEvaluationOrder() ([]string, error) {
 			refs := dr.extractReferences(value)
 			for _, ref := range refs {
 				if _, refExists := dr.data[ref]; refExists {
-					if err := visit(ref); err != nil {
+					// skip references to self, as these are propagated defaults
+					if ref == key {
+						continue
+					} else if err := visit(ref); err != nil {
 						return err
 					}
 				}

@@ -273,6 +273,20 @@ func ParseSecretList(jsonStr string) ([]domain.K8sSecret, error) {
 	return secrets, nil
 }
 
+func ParseConfigMapList(jsonStr string) ([]domain.ConfigMap, error) {
+	configMapList, err := k8s.ParseConfigMapList(jsonStr)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse ConfigMapList: %w", err)
+	}
+
+	configMaps := make([]domain.ConfigMap, 0, len(configMapList.Items))
+	for _, item := range configMapList.Items {
+		configMaps = append(configMaps, domain.NewConfigMapFromK8sSpec(item))
+	}
+
+	return configMaps, nil
+}
+
 func ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (NewFacts, RemovedFacts) {
 	if len(results) == 0 {
 		slog.Warn("Can't parse effect %s because there are no arguments")
@@ -409,6 +423,15 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		} else {
 			for _, secret := range secrets {
 				entities = append(entities, secret)
+			}
+		}
+	case "k8s.configmaplist":
+		configMaps, err := ParseConfigMapList(res)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not parse ConfigMapList: %v", err))
+		} else {
+			for _, configMap := range configMaps {
+				entities = append(entities, configMap)
 			}
 		}
 	case "k8s.nodelist":

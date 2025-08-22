@@ -222,6 +222,23 @@ var _ Condition = (*AccessLevel)(nil)
 
 type IdentityType string
 
+type SecretType string
+
+const (
+	KubeConfigSecret SecretType = "KubeConfig"
+	Credentials      SecretType = "credentials"
+	Token            SecretType = "token"
+	File             SecretType = "file"
+	FilePath         SecretType = "filePath"
+	Unknown          SecretType = "unknownSecret"
+)
+
+type Secret struct {
+	Name string
+	Type SecretType
+	Data map[string]string
+}
+
 type Listener struct {
 	ID         string
 	Port       uint
@@ -1334,5 +1351,40 @@ func NewSecretFromK8sSpec(s v1.Secret) K8sSecret {
 		K8sEntity: entity,
 		Type:      string(s.Type),
 		Data:      dataStr,
+	}
+}
+
+type ConfigMap struct {
+	K8sEntity
+	// NamespacedResource
+	Data      map[string]string
+	Immutable ProbBool // whether the ConfigMap is immutable or not
+}
+
+var _ Entity = (*ConfigMap)(nil)
+
+func (s ConfigMap) GetId() string {
+	return fmt.Sprintf("ns/%s/cm/%s", s.GetNamespace(), s.GetName())
+}
+func (s ConfigMap) GetName() string {
+	return s.Name
+}
+func (s ConfigMap) GetKind() string {
+	return "ConfigMap"
+}
+
+func NewConfigMapFromK8sSpec(s v1.ConfigMap) ConfigMap {
+	entity := NewK8sEntity(s.ObjectMeta.Name, "ConfigMap", s.ObjectMeta.Namespace)
+
+	// Convert map[string][]byte to map[string]string
+	dataStr := make(map[string]string, len(s.Data))
+	for k, v := range s.Data {
+		dataStr[k] = string(v)
+	}
+	return ConfigMap{
+		K8sEntity: entity,
+		// Type:      string(s.Type),
+		Data:      dataStr,
+		Immutable: AsProbBool(s.Immutable != nil && *s.Immutable),
 	}
 }

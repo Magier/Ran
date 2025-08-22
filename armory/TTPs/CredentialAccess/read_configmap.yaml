@@ -1,0 +1,37 @@
+name: List ConfigMaps
+description: Get a Kubernetes ConfigMaps via the API server
+tactic: Credential Access
+techniques: ["Unsecured Credentials: Container API", "T1552.007"]
+preconditions:
+  rbac: "get/list configmap"
+parameters:
+  TOKEN:
+    type: ServiceAccount
+    description: the ServiceAccount token used to authorize this request
+    optional: true
+    default: ""
+  NS:
+    type: Namespace
+    description: specify the namespace to get configmaps from
+    default: ${NS}
+  ALL_NS:
+    type: bool
+    description: get pods from all namespaces or just the current one
+    default: false
+procedures:
+  - key: kubectl
+    command: >-
+      kubectl get configmap --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
+  - key: curl
+    command: >-
+      curl -XGET 
+      -H "Accept: application/json;v=v1;g=meta.k8s.io,application/json;as=Table;v=v1beta1;g=meta.k8s.io,application/json"
+      -H "User-Agent: kubectl/v1.30.3 (linux/amd64) kubernetes/6fc0a69"
+      -H "Authorization: Bearer ${TOKEN}"
+      '${API_SERVER}/api/v1/namespaces/${NS}/configmaps?limit=500'
+effects:
+  - k8s.configmaplist
+references:
+  - https://attack.mitre.org/techniques/T1552/007/
+  - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/Application%20credentials%20in%20configuration%20files/
+  - https://kubenomicon.com/Credential_access/Application_credentials_in_configuration_files.html

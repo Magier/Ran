@@ -39,6 +39,8 @@ preconditions:
   rbac: create CronJob
 effects:
   - create k8s.CronJob
+cleanup: 
+  command: delete k8s.CronJob
 # cmd: {}
 # defend: {}
 refernces:
