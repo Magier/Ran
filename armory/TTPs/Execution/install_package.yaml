@@ -17,6 +17,9 @@ procedures:
   - key: ubuntu
     command: apt update && apt install -y ${PKG}
 effects: ["target.has-binary(${PKG})"]
+cleanup:
+    key: ubuntu
+    command: apt remove -y ${PKG}
 # effects: ["has-binary(${TARGET}, ${PKG}"]
 # defend: {}
 references:

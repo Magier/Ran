@@ -141,6 +141,19 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 				}
 				relations = append(relations, resultingFacts.Relations...)
 			}
+		case domain.ConfigMap:
+			resultingFacts, _, err := c.analyzeConfigMap(e)
+			if err != nil {
+				slog.Error("Failed to analyze ConfigMap", "error", err)
+			} else {
+				for _, entity := range resultingFacts.Entities {
+					if existing, exists := entities[entity.GetId()]; exists {
+						entity = domain.UpdateEntity(entity, existing)
+					}
+					entities[entity.GetId()] = entity
+				}
+				relations = append(relations, resultingFacts.Relations...)
+			}
 		default:
 			entities[e.GetId()] = e
 			slog.Warn("Unknown entity type in analyzer processQueue", "entity", e)
@@ -1008,4 +1021,41 @@ func (c Campaign) analyzeRoleBinding(rb domain.RoleBinding) (NewFacts, RemovedFa
 		Entities:  entities,
 		Relations: relations,
 	}, RemovedFacts{}, nil
+}
+
+func (c Campaign) analyzeConfigMap(cm domain.ConfigMap) (NewFacts, RemovedFacts, error) {
+	entities := []domain.Entity{cm}
+	relations := make([]domain.Relation, 0)
+
+	assets := make([]domain.Asset, 0)
+	for key, _ := range cm.Data {
+		if secret, ok := convertSecret(cm.Name, key, cm.Data[key]); ok {
+			assets = append(assets, secret)
+
+			relations = append(relations, domain.ExposesSecret{
+				Object: cm,
+				Secret: secret,
+			})
+		}
+	}
+
+	return NewFacts{
+		Entities:  entities,
+		Relations: relations,
+		Assets:    assets,
+	}, RemovedFacts{}, nil
+}
+
+func convertSecret(sourceName, name, value string) (domain.Secret, bool) {
+	secretType := domain.Unknown
+
+	secret := domain.Secret{
+		Name: name,
+		Type: secretType,
+		Data: map[string]string{
+			name: value,
+		},
+	}
+
+	return secret, true
 }

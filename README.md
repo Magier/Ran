@@ -145,7 +145,7 @@ Ran is heavily inspired by similar tools in this domain, such as:
 ## Roadmap:
 
 ### MVP
-- [ ] Support K8s-related TTPs of [Leonidas](https://github.com/WithSecureLabs/leonidas) (atomic)
+- [x] Support K8s-related TTPs of [Leonidas](https://github.com/WithSecureLabs/leonidas) (atomic)
 - [ ] Support K8s-related TTPs of [Stratus Red Team](https://stratus-red-team.cloud/attack-techniques/kubernetes/) (atomic)
 - [x] Track the executed TTPs (audit trail)
     - [x] show Flow in UI

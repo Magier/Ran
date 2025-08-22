@@ -388,6 +388,29 @@ func (r BindsRole) GetRelationName() string {
 	return "binds"
 }
 
+type ExposesSecret struct {
+	RelationImpl
+	Object Entity
+	Secret Secret
+}
+
+var _ Relation = (*ExposesSecret)(nil)
+
+func (r ExposesSecret) IsInverse() bool {
+	return false
+}
+
+func (r ExposesSecret) GetSourceId() string {
+	return r.Object.GetId()
+}
+func (r ExposesSecret) GetTargetId() string {
+	return r.Secret.Name
+}
+
+func (r ExposesSecret) GetRelationName() string {
+	return "exposes-secret"
+}
+
 type MountsHostPath struct {
 	RelationImpl
 	Pod       Pod

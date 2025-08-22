@@ -392,6 +392,12 @@ func ParseSecretList(jsonStr string) (*v1.SecretList, error) {
 	return &list, err
 }
 
+func ParseConfigMapList(jsonStr string) (*v1.ConfigMapList, error) {
+	var list v1.ConfigMapList
+	err := json.Unmarshal([]byte(jsonStr), &list)
+	return &list, err
+}
+
 func ParseNodeList(jsonStr string) (*v1.NodeList, error) {
 	var list v1.NodeList
 	err := json.Unmarshal([]byte(jsonStr), &list)
