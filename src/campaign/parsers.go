@@ -91,7 +91,7 @@ func parseSelfSubjectRulesReview(args ...string) (domain.SelfSubjectRulesReview,
 	if json.Valid([]byte(data)) {
 		err = json.Unmarshal([]byte(data), &result)
 		if err != nil {
-			return ssrr, fmt.Errorf("Failed to unmarshal JSON: %w", err)
+			return ssrr, err
 		}
 	} else {
 		slog.Warn("Input is not valid JSON, attempting to parse as pretty-printed SelfSubjectRulesReview")
@@ -287,10 +287,9 @@ func ParseConfigMapList(jsonStr string) ([]domain.ConfigMap, error) {
 	return configMaps, nil
 }
 
-func ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (NewFacts, RemovedFacts) {
+func ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (FactsUpdate, error) {
 	if len(results) == 0 {
-		slog.Warn("Can't parse effect %s because there are no arguments")
-		return NewFacts{}, RemovedFacts{}
+		return FactsUpdate{}, fmt.Errorf("Can't parse effect %s because there are no results", effect)
 	}
 
 	// alreadyExists := false
@@ -578,15 +577,11 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		}
 	}
 
-	newFacts := NewFacts{}
-	removedFacts := RemovedFacts{}
+	facts := Facts{Entities: entities, Relations: relations}
 	if isRemoveEffect {
-		removedFacts = RemovedFacts{Entities: entities, Relations: relations}
-	} else {
-		newFacts = NewFacts{Entities: entities, Relations: relations}
+		return FactsUpdate{Removed: facts}, nil
 	}
-
-	return newFacts, removedFacts
+	return FactsUpdate{New: facts}, nil
 }
 
 func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]string, results ...string) (domain.Entity, error) {

@@ -30,6 +30,31 @@ type Campaign struct {
 	identities     map[string]domain.Identity
 	bus            bus.MessageBus
 }
+
+type Facts struct {
+	Entities   []domain.Entity
+	Relations  []domain.Relation
+	Identities []domain.Identity
+	Assets     []domain.Asset
+}
+
+func (f *Facts) Update(new Facts) {
+	f.Entities = append(f.Entities, new.Entities...)
+	f.Assets = append(f.Assets, new.Assets...)
+	f.Relations = append(f.Relations, new.Relations...)
+	f.Identities = append(f.Identities, new.Identities...)
+}
+
+type FactsUpdate struct {
+	New     Facts
+	Removed Facts
+}
+
+func (f *FactsUpdate) Update(new FactsUpdate) {
+	f.New.Update(new.New)
+	f.Removed.Update(new.Removed)
+}
+
 type NewFacts struct {
 	Entities   []domain.Entity
 	Relations  []domain.Relation
