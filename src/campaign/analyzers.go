@@ -21,142 +21,51 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 	relations = append(relations, newFacts.Relations...)
 	identities := make(map[string]domain.Identity)
 	assets := make([]domain.Asset, 0)
-	// assets := make(map[string]domain.Asset)
 	queue := append([]domain.Entity{}, newFacts.Entities...)
 
-	// TODO: properly implement the integration of new facts, so they keep getting analyzed
-	// but be aware of their nature, e.g. entity vs asset/identity
+	var resultingFacts NewFacts
+	var err error
 
 	// Index-based loop to avoid issues with appending while ranging
 	for i := 0; i < len(queue); i++ {
+		if i > 100 {
+			return NewFacts{}, RemovedFacts{}, fmt.Errorf("Possible endless analysis loop detected! queue: %s", queue)
+		}
 		current := queue[i]
+
+		// ensure to always work with the latest and most complete information
+		if existing, exists := entities[current.GetId()]; exists {
+			current = domain.UpdateEntity(current, existing)
+		}
+
 		switch e := current.(type) {
 		case domain.Pod:
-			// TODO: temporary hack: update pod before analyzing, to ensure all the information is available
-			if prev, ok := c.GetEntityById(e.GetId()); ok {
-				current = domain.UpdateEntity(e, prev)
-			}
-
-			entities[queue[i].GetId()] = current
-			if e.NodeName != "" {
-				node := domain.NewK8sNode(e.NodeName)
-				if _, exists := entities[node.GetId()]; !exists {
-					entities[node.GetId()] = node
-				} else {
-					entities[node.GetId()] = domain.UpdateEntity(entities[node.GetId()], node)
-				}
-				e.RunsOn = &node
-				relations = append(relations, domain.RunsOn{Pod: e, Node: node})
-				queue = append(queue, node)
-			}
-
-			if e.ServiceAccountName != "" {
-				sa := domain.NewServiceAccount(e.ServiceAccountName, e.GetNamespace())
-				if prevSA, exists := entities[sa.GetId()]; exists {
-					sa = domain.UpdateEntity(prevSA, sa).(domain.ServiceAccount)
-				}
-				entities[sa.GetId()] = sa
-				if e.AutomountServiceAccountToken.Bool() {
-					saUsage := domain.Uses{
-						SubjectId: e.GetId(),
-						ObjectId:  sa.GetId(),
-					}
-					relations = append(relations, saUsage)
-				} else {
-					relations = append(relations, domain.Reference{
-						Source: e.GetId(),
-						Target: sa.GetId(),
-					})
-				}
-			}
-
-			resultingFacts, err := analyzeMountInfo(e)
-			if err != nil {
-				slog.Error("Failed to analyze SelfSubjectRulesReview", "error", err)
-			} else {
-				for _, entity := range resultingFacts.Entities {
-					if existing, exists := entities[entity.GetId()]; exists {
-						entity = domain.UpdateEntity(entity, existing)
-					}
-					entities[entity.GetId()] = entity
-				}
-				relations = append(relations, resultingFacts.Relations...)
-			}
-
-			// ensure to use the latest version of the pod
-			e = entities[e.GetId()].(domain.Pod)
-			newFacts1, err := analyzeHostPath(e)
-			var _ = newFacts1 // to avoid unused variable warning
-			if err != nil {
-				slog.Warn("Failed to analyze host path for pod", "error", err, "pod", e.GetId())
-			}
-
-			// ensure to use the latest version of the pod
-			e = entities[e.GetId()].(domain.Pod)
-			hostRelations := analyzePodHostRelations(e)
-			relations = append(relations, hostRelations...)
+			resultingFacts, err = c.analyzePod(e)
 		case domain.ServiceAccountToken:
-			resultingFacts, err := analyzeServiceAccountToken(e.Raw)
-			if err != nil {
-				slog.Error("Failed to analyze service account token", "error", err)
-			} else {
-				for _, entity := range resultingFacts.Entities {
-					if e, exists := entities[entity.GetId()]; exists {
-						entity = domain.UpdateEntity(entity, e)
-					}
-					entities[entity.GetId()] = entity
-					queue = append(queue, entity)
-				}
-
-				for _, i := range resultingFacts.Identities {
-					identities[i.GetId()] = i
-				}
-
-				assets = append(assets, resultingFacts.Assets...)
-				relations = append(relations, resultingFacts.Relations...)
-			}
+			resultingFacts, err = analyzeServiceAccountToken(e)
 		case domain.SelfSubjectRulesReview:
-			resultingFacts, _, err := c.analyzeSelfSubjectRulesReview(e)
-			if err != nil {
-				slog.Error("Failed to analyze SelfSubjectRulesReview", "error", err)
-			} else {
-				for _, entity := range resultingFacts.Entities {
-					if existing, exists := entities[entity.GetId()]; exists {
-						entity = domain.UpdateEntity(entity, existing)
-					}
-					entities[entity.GetId()] = entity
-				}
-				relations = append(relations, resultingFacts.Relations...)
-			}
+			resultingFacts, _, err = c.analyzeSelfSubjectRulesReview(e)
 		case domain.RoleBinding:
-			resultingFacts, _, err := c.analyzeRoleBinding(e)
-			if err != nil {
-				slog.Error("Failed to analyze RoleBinding", "error", err)
-			} else {
-				for _, entity := range resultingFacts.Entities {
-					if existing, exists := entities[entity.GetId()]; exists {
-						entity = domain.UpdateEntity(entity, existing)
-					}
-					entities[entity.GetId()] = entity
-				}
-				relations = append(relations, resultingFacts.Relations...)
-			}
+			resultingFacts, _, err = c.analyzeRoleBinding(e)
 		case domain.ConfigMap:
-			resultingFacts, _, err := c.analyzeConfigMap(e)
-			if err != nil {
-				slog.Error("Failed to analyze ConfigMap", "error", err)
-			} else {
-				for _, entity := range resultingFacts.Entities {
-					if existing, exists := entities[entity.GetId()]; exists {
-						entity = domain.UpdateEntity(entity, existing)
-					}
-					entities[entity.GetId()] = entity
-				}
-				relations = append(relations, resultingFacts.Relations...)
-			}
+			resultingFacts, _, err = c.analyzeConfigMap(e)
 		default:
+			// just add the entity to the KB and skip ahead to the next entity without analyzing it
 			entities[e.GetId()] = e
 			slog.Warn("Unknown entity type in analyzer processQueue", "entity", e)
+			continue
+		}
+
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to analyze %T", current), "error", err)
+		} else {
+			mergeAnalyzedFacts(entities, identities, &relations, &assets, resultingFacts)
+			// queue newly found entities for analysis
+			for _, entity := range resultingFacts.Entities {
+				if entity.GetId() != current.GetId() {
+					queue = append(queue, entity)
+				}
+			}
 		}
 	}
 
@@ -179,6 +88,105 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 		Assets:     assetsSlice,
 		Identities: identitySlice,
 	}, removedFacts, nil
+}
+
+func mergeAnalyzedFacts(
+	entities map[string]domain.Entity,
+	identities map[string]domain.Identity,
+	relations *[]domain.Relation,
+	assets *[]domain.Asset,
+	nf NewFacts,
+) {
+	for _, e := range nf.Entities {
+		if ex, ok := entities[e.GetId()]; ok {
+			e = domain.UpdateEntity(e, ex)
+		}
+		entities[e.GetId()] = e
+	}
+	for _, id := range nf.Identities {
+		identities[id.GetId()] = id
+	}
+	*relations = append(*relations, nf.Relations...)
+	*assets = append(*assets, nf.Assets...)
+}
+
+// analyzePod collects all per-pod facts and returns them to the caller.
+// No global mutation here; the caller merges & enqueues nf.Entities.
+func (c *Campaign) analyzePod(e domain.Pod) (NewFacts, error) {
+	entities := make(map[string]domain.Entity)
+	relations := make([]domain.Relation, 0, 8)
+
+	// 1) ensure pod is up-to-date
+	if prev, ok := c.GetEntityById(e.GetId()); ok {
+		e = domain.UpdateEntity(e, prev).(domain.Pod)
+	}
+	entities[e.GetId()] = e
+
+	// 2) node relation (+ node entity)
+	if e.NodeName != "" {
+		node := domain.NewK8sNode(e.NodeName)
+		if _, exists := entities[node.GetId()]; !exists {
+			entities[node.GetId()] = node
+		} else {
+			entities[node.GetId()] = domain.UpdateEntity(entities[node.GetId()], node)
+		}
+		e.RunsOn = &node
+		relations = append(relations, domain.RunsOn{Pod: e, Node: node})
+	}
+
+	// 3) service account relation (+ SA entity)
+	if e.ServiceAccountName != "" {
+		sa := domain.NewServiceAccount(e.ServiceAccountName, e.GetNamespace())
+		entities[sa.GetId()] = sa
+		if e.AutomountServiceAccountToken.Bool() {
+			relations = append(relations, domain.Uses{
+				SubjectId: e.GetId(),
+				ObjectId:  sa.GetId(),
+			})
+		} else {
+			relations = append(relations, domain.Reference{
+				Source: e.GetId(),
+				Target: sa.GetId(),
+			})
+		}
+	}
+
+	// 4) mounts
+	if mf, err := analyzeMountInfo(e); err != nil {
+		slog.Error("Failed to analyze MountInfo", "error", err)
+	} else {
+		for _, ent := range mf.Entities {
+			// prefer newer details if we already put something in localEntities
+			if ex, ok := entities[ent.GetId()]; ok {
+				ent = domain.UpdateEntity(ent, ex)
+			}
+			entities[ent.GetId()] = ent
+		}
+		relations = append(relations, mf.Relations...)
+	}
+
+	// 5) host path (keeps your current behavior of only warning on error)
+	if _, err := analyzeHostPath(e); err != nil {
+		slog.Warn("Failed to analyze host path for pod", "error", err, "pod", e.GetId())
+	}
+
+	// 6) host relations
+	// ensure latest pod (with possible updates above)
+	e = entities[e.GetId()].(domain.Pod)
+	hostRels := analyzePodHostRelations(e)
+	relations = append(relations, hostRels...)
+
+	// 7) pack results
+	ents := make([]domain.Entity, 0, len(entities))
+	for _, v := range entities {
+		ents = append(ents, v)
+	}
+	return NewFacts{
+		Entities:   ents,
+		Relations:  relations,
+		Assets:     nil,
+		Identities: nil,
+	}, nil
 }
 
 func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesReview) (NewFacts, RemovedFacts, error) {
@@ -323,8 +331,8 @@ func analyzeEnvironmentVariables(source domain.Entity, envVars map[string]string
 	}, RemovedFacts{}, nil
 }
 
-func analyzeServiceAccountToken(token string) (NewFacts, error) {
-	parts := strings.SplitN(token, ".", 3)
+func analyzeServiceAccountToken(token domain.ServiceAccountToken) (NewFacts, error) {
+	parts := strings.SplitN(token.Raw, ".", 3)
 	newFacts := NewFacts{}
 
 	if len(parts) != 3 {
@@ -344,7 +352,7 @@ func analyzeServiceAccountToken(token string) (NewFacts, error) {
 	if err := json.Unmarshal(payloadData, &saToken); err != nil {
 		return newFacts, err
 	}
-	saToken.Raw = token
+	saToken.Raw = token.Raw
 	// a token is bound if there is a Pod (and node) in the priveat kubernetes.io claim
 	// see: https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/#bound-service-account-tokens
 	saToken.IsBound = saToken.Kubernetes.Pod.UID != ""

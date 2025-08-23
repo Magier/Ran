@@ -359,7 +359,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	case "k8s.selfsubjectrulesreview":
 		ssrr, err := parseSelfSubjectRulesReview(results...)
 		if err != nil {
-			slog.Error(fmt.Sprintf("Could not parse PodList: %v", err))
+			slog.Error(fmt.Sprintf("Could not parse SelfSubjectRulesReview: %v", err))
 		} else {
 			sa, ok := source.(domain.ServiceAccount)
 			if !ok {
@@ -368,9 +368,9 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 				ssrr.ServiceAccount = sa
 				ssrr.TokenName = sa.GetName()
 			}
+			// TODO: temporary workaround to treat SelfSubjectRulesReview as an entity, so it's processed in the analyzer
+			entities = append(entities, ssrr)
 		}
-		// TODO: temporary workaround to treat SelfSubjectRulesReview as an entity, so it's processed in the analyzer
-		entities = append(entities, ssrr)
 	case "k8s.podlist":
 		list, err := k8s.ParsePodList(res)
 		if err != nil {
