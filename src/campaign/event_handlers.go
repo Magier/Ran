@@ -103,7 +103,13 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	}
 
 	for _, effect := range ttp.Effects {
-		new, removed := ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
+		factsUpdate, err := ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to parse effect '%s': %v", effect, err))
+
+			// TODO: check if the k8s API actually rejected the request
+			continue
+		}
 
 		// 	if strings.HasPrefix(effect, "create") && len(new.Entities) > 0 {
 		// 		creatorId := ev.Target.GetId()
@@ -120,8 +126,12 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		// 		}
 		// 	}
 
-		newFacts.Update(new)
-		removedFacts.Update(removed)
+		newFacts.Update(NewFacts(factsUpdate.New))
+		removedFacts.Update(RemovedFacts{
+			Entities:   factsUpdate.Removed.Entities,
+			Relations:  factsUpdate.Removed.Relations,
+			Identities: factsUpdate.Removed.Identities,
+		})
 	}
 
 	// generic analyzer for the successful TTP invocation
