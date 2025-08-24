@@ -2,7 +2,7 @@ import { getContext, setContext } from "svelte";
 import * as runtime from "$lib/wailsjs/runtime";
 import type { ArmoryType, Node, Edge, Relation } from '$lib/model';
 import { campaign, main, type domain } from '$lib/wailsjs/go/models';
-import { GetCampaignState, GetGraph, ResetCampaign } from '$lib/wailsjs/go/main/App';
+import { GetArmory, GetCampaignState, GetGraph, ResetCampaign } from '$lib/wailsjs/go/main/App';
 import { showToast, type ToastType } from '$lib/components/toaster';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
@@ -95,6 +95,7 @@ class CampaignState {
 
         GetGraph().then((g: main.Graph) => { this.graph =g; })
         GetCampaignState().then((s: main.CampaignState) => { this.#setState(s); })
+        GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
     }
 
     reset() {

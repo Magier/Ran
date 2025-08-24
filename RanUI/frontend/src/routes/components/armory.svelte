@@ -7,8 +7,11 @@
 
 	import ActionCard from './action_card.svelte';
 	import { Accordion } from '@skeletonlabs/skeleton-svelte';
-	import { GetApplicableTTPs } from '$lib/wailsjs/go/main/App';
+	import { GetApplicableTTPs  } from '$lib/wailsjs/go/main/App';
 	import { domain } from '$lib/wailsjs/go/models';
+	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+
+	const campaignState = getCampaignState();
 
 	type ArmoryProps = {
 		class?: string;
@@ -48,6 +51,8 @@
 	let showAllTTPs: boolean = $state(false);
 	let openTactic = $state(['InitialAccess']);
 
+	$effect(() => { armory = campaignState.armory; });
+
 	let applicableTTPs: ArmoryType = $state(new Map());
 	$effect(() => {
 		GetApplicableTTPs(targetId)
@@ -70,14 +75,6 @@
 	// function searchAbilities = () => {
 	// 	return filteredAbilities =
 	// };
-
-	onMount(() => {
-		store.armory((new_armory: Map<string, domain.TTP[]>) => {
-			armory = new_armory;
-			console.log('armory update: ', armory, ' length: ', armory.size);
-		});
-		store.sendMessage('get-armory', {});
-	});
 
 	onDestroy(() => {
 		// unsubscribe();
@@ -105,6 +102,9 @@
 	}
 
 	function isTTPApplicable(ttp: domain.TTP): boolean {
+		if (showAllTTPs) {
+			return true;
+		}
 		let procedures = applicableTTPs.get(ttp.tactic) || [];
 		for (let proc of procedures) {
 			if (proc.name === ttp.name) {
@@ -113,8 +113,6 @@
 		}
 		return false;
 	}
-
-	let tag = $state('IconInitialAccess');
 </script>
 
 <div class="bg-surface-100-800-token inset-y-0 right-0 {className}">
@@ -143,7 +141,7 @@
 	</div> -->
 	<div>
 		<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible>
-			{#each Array.from(showAllTTPs ? armory : applicableTTPs) as [tactic, ttps]}
+			{#each Array.from(showAllTTPs ? campaignState.armory : applicableTTPs) as [tactic, ttps]}
 				<hr class="hr" />
 				<Accordion.Item
 					panelClasses="px-2 mb-1"
