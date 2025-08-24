@@ -101,16 +101,24 @@ func (e ActionSelected) String() string {
 	return fmt.Sprintf("Action '%s' selected", e.ActionID)
 }
 
+type Facts struct {
+	Entities   []Entity
+	Relations  []Relation
+	Identities []Identity
+	Assets     []Asset
+}
+
+func (f *Facts) Update(new Facts) {
+	f.Entities = append(f.Entities, new.Entities...)
+	f.Assets = append(f.Assets, new.Assets...)
+	f.Relations = append(f.Relations, new.Relations...)
+	f.Identities = append(f.Identities, new.Identities...)
+}
+
 type FactsChanged struct {
 	EventImpl
-	NewEntities       []Entity
-	NewRelations      []Relation
-	NewIdentities     []Identity
-	NewAssets         []Asset
-	RemovedEntities   []Entity
-	RemovedRelations  []Relation
-	RemovedIdentities []Identity
-	RemovedAssets     []Asset
+	New     Facts
+	Removed Facts
 }
 
 func (e FactsChanged) String() string {
@@ -132,12 +140,12 @@ func (e FactsChanged) String() string {
 	}
 
 	s := "KB Update: "
-	newFacts := summarizeChanges(e.NewEntities, e.NewRelations, e.NewIdentities, e.NewAssets)
+	newFacts := summarizeChanges(e.New.Entities, e.New.Relations, e.New.Identities, e.New.Assets)
 	if newFacts != "" {
 		s += newFacts
 	}
 
-	removedFacts := summarizeChanges(e.NewEntities, e.NewRelations, e.NewIdentities, e.NewAssets)
+	removedFacts := summarizeChanges(e.Removed.Entities, e.Removed.Relations, e.Removed.Identities, e.Removed.Assets)
 	if removedFacts != "" {
 		s += removedFacts
 	}

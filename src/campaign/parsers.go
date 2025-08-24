@@ -287,9 +287,9 @@ func ParseConfigMapList(jsonStr string) ([]domain.ConfigMap, error) {
 	return configMaps, nil
 }
 
-func ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (FactsUpdate, error) {
+func ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (factsUpdate, error) {
 	if len(results) == 0 {
-		return FactsUpdate{}, fmt.Errorf("Can't parse effect %s because there are no results", effect)
+		return factsUpdate{}, fmt.Errorf("Can't parse effect %s because there are no results", effect)
 	}
 
 	// alreadyExists := false
@@ -577,11 +577,11 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		}
 	}
 
-	facts := Facts{Entities: entities, Relations: relations}
+	facts := domain.Facts{Entities: entities, Relations: relations}
 	if isRemoveEffect {
-		return FactsUpdate{Removed: facts}, nil
+		return factsUpdate{Removed: facts}, nil
 	}
-	return FactsUpdate{New: facts}, nil
+	return factsUpdate{New: facts}, nil
 }
 
 func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]string, results ...string) (domain.Entity, error) {

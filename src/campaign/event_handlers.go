@@ -58,7 +58,6 @@ func (c *Campaign) onExecuteTTP(ctx context.Context, msg domain.Message) (domain
 func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	var err error
 	ev := msg.(domain.TTPExecuted)
-	ttp := ev.TTP
 	var results []string = ev.Results
 
 	wasValidStep := c.trail.CompleteStep(ev.ID, ev.TTP, ev.Success, results)
@@ -67,9 +66,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		// => don't influence the current campaign
 		return nil, nil
 	}
-
-	newFacts := NewFacts{}
-	removedFacts := RemovedFacts{}
+	factsUpdate := factsUpdate{}
 
 	if !ev.Success {
 		new, removed, err := analyzeFailedTTPExecution(ev)
@@ -77,17 +74,15 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to analyze failed TTP execution: %v", err))
 		}
-
-		newFacts.Update(new)
-		removedFacts.Update(removed)
+		factsUpdate.Update(new, removed)
 	}
 
 	// TODO: Temporary workaround: dedicated handling for newly created pods
 	// ensure the podCfg is properly provided regardless of which procedure is executed
 	for _, technique := range ev.TTP.Techniques {
 		if technique == "T1610" || strings.ToLower(technique) == "deploy container" {
-			var removed RemovedFacts
-			var new NewFacts
+			var removed domain.Facts
+			var new domain.Facts
 			if !ev.Success {
 				new, removed, err = analyzeDeployPodFailure(ev)
 			} else {
@@ -96,14 +91,13 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to analyze deploy pod result: %v", err))
 			} else {
-				newFacts.Update(new)
-				removedFacts.Update(removed)
+				factsUpdate.Update(new, removed)
 			}
 		}
 	}
 
-	for _, effect := range ttp.Effects {
-		factsUpdate, err := ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
+	for _, effect := range ev.TTP.Effects {
+		effectUpdate, err := ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to parse effect '%s': %v", effect, err))
 
@@ -125,13 +119,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		// 			slog.Warn(fmt.Sprintf("TTP '%s' created new entity '%s' but creator '%s' is unknown", ttp.ID, new.Entities[0].GetId(), creatorId))
 		// 		}
 		// 	}
-
-		newFacts.Update(NewFacts(factsUpdate.New))
-		removedFacts.Update(RemovedFacts{
-			Entities:   factsUpdate.Removed.Entities,
-			Relations:  factsUpdate.Removed.Relations,
-			Identities: factsUpdate.Removed.Identities,
-		})
+		factsUpdate.Update(effectUpdate.New, effectUpdate.Removed)
 	}
 
 	// generic analyzer for the successful TTP invocation
@@ -139,15 +127,13 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
 	} else {
-		newFacts.Update(new)
-		removedFacts.Update(removed)
+		factsUpdate.Update(new, removed)
 	}
 
-	newFacts, removedFacts, err = c.AnalyzeChanges(newFacts, removedFacts)
+	newFacts, removedFacts, err := c.AnalyzeChanges(factsUpdate.New, factsUpdate.Removed)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
 	}
-
 	return c.UpdateFacts(newFacts, removedFacts)
 }
 
@@ -171,7 +157,7 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 		rels = append(rels, operatesRel)
 	}
 
-	return c.UpdateFacts(NewFacts{Entities: []domain.Entity{system}, Relations: rels}, RemovedFacts{})
+	return c.UpdateFacts(domain.Facts{Entities: []domain.Entity{system}, Relations: rels}, domain.Facts{})
 }
 
 func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
@@ -228,8 +214,8 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 	}
 
 	return c.UpdateFacts(
-		NewFacts{[]domain.Entity{sys, ev.Session}, []domain.Relation{c2Channel, hasSession}, nil, nil},
-		RemovedFacts{},
+		domain.Facts{[]domain.Entity{sys, ev.Session}, []domain.Relation{c2Channel, hasSession}, nil, nil},
+		domain.Facts{},
 	)
 }
 
@@ -279,7 +265,7 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 	c.listeners[listenerID] = listener
 
 	return c.UpdateFacts(
-		NewFacts{
+		domain.Facts{
 			Entities: []domain.Entity{listener},
 			Relations: []domain.Relation{
 				domain.ListenesOn{
@@ -288,7 +274,7 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 					Port:       int(ev.Port),
 				},
 			}},
-		RemovedFacts{},
+		domain.Facts{},
 	)
 }
 
