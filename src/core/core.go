@@ -188,7 +188,7 @@ func (r Ran) InitCampaign(ctx context.Context, loadKubeConfig bool) error {
 				Msg:   update.Error.Error(),
 			})
 		} else {
-			ev, err := r.Campaign.UpdateFacts(update.NewFacts, campaign.RemovedFacts{})
+			ev, err := r.Campaign.UpdateFacts(update.Facts, domain.Facts{})
 			if err != nil {
 				return fmt.Errorf("Couldn't update facts: %s", err.Error())
 			} else {
@@ -253,8 +253,8 @@ type MaybeEntity struct {
 }
 
 type MaybeNewFacts struct {
-	NewFacts campaign.NewFacts
-	Error    error
+	Facts domain.Facts
+	Error error
 }
 
 func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, loadAll bool, namespaces []string) {
@@ -300,7 +300,7 @@ func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, load
 		identities = append(identities, k8sConfigUser)
 	}
 	slog.Info("Sending inital entities like cluster")
-	results <- MaybeNewFacts{NewFacts: campaign.NewFacts{
+	results <- MaybeNewFacts{Facts: domain.Facts{
 		Entities:   entities,
 		Identities: identities,
 		Relations:  relations,
@@ -320,7 +320,7 @@ func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, load
 			}
 		}
 		if len(entities) > 0 {
-			results <- MaybeNewFacts{NewFacts: campaign.NewFacts{Entities: entities}}
+			results <- MaybeNewFacts{Facts: domain.Facts{Entities: entities}}
 		} else {
 			slog.Warn("No pods found at for initialization!")
 		}

@@ -15,21 +15,21 @@ import (
 	"github.com/google/uuid"
 )
 
-func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (NewFacts, RemovedFacts, error) {
+func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain.Facts, domain.Facts, error) {
 	entities := make(map[string]domain.Entity)
 	relations := make([]domain.Relation, 0)
-	relations = append(relations, newFacts.Relations...)
+	relations = append(relations, new.Relations...)
 	identities := make(map[string]domain.Identity)
 	assets := make([]domain.Asset, 0)
-	queue := append([]domain.Entity{}, newFacts.Entities...)
+	queue := append([]domain.Entity{}, new.Entities...)
 
-	var resultingFacts NewFacts
+	var resultingFacts domain.Facts
 	var err error
 
 	// Index-based loop to avoid issues with appending while ranging
 	for i := 0; i < len(queue); i++ {
 		if i > 100 {
-			return NewFacts{}, RemovedFacts{}, fmt.Errorf("Possible endless analysis loop detected! queue: %s", queue)
+			return domain.Facts{}, domain.Facts{}, fmt.Errorf("Possible endless analysis loop detected! queue: %s", queue)
 		}
 		current := queue[i]
 
@@ -82,12 +82,12 @@ func (c Campaign) AnalyzeChanges(newFacts NewFacts, removedFacts RemovedFacts) (
 	assetsSlice := make([]domain.Asset, 0, len(assets))
 	assetsSlice = append(assetsSlice, assets...)
 
-	return NewFacts{
+	return domain.Facts{
 		Entities:   entitiesSlice,
 		Relations:  relations,
 		Assets:     assetsSlice,
 		Identities: identitySlice,
-	}, removedFacts, nil
+	}, removed, nil
 }
 
 func mergeAnalyzedFacts(
@@ -95,24 +95,24 @@ func mergeAnalyzedFacts(
 	identities map[string]domain.Identity,
 	relations *[]domain.Relation,
 	assets *[]domain.Asset,
-	nf NewFacts,
+	new domain.Facts,
 ) {
-	for _, e := range nf.Entities {
+	for _, e := range new.Entities {
 		if ex, ok := entities[e.GetId()]; ok {
 			e = domain.UpdateEntity(e, ex)
 		}
 		entities[e.GetId()] = e
 	}
-	for _, id := range nf.Identities {
+	for _, id := range new.Identities {
 		identities[id.GetId()] = id
 	}
-	*relations = append(*relations, nf.Relations...)
-	*assets = append(*assets, nf.Assets...)
+	*relations = append(*relations, new.Relations...)
+	*assets = append(*assets, new.Assets...)
 }
 
 // analyzePod collects all per-pod facts and returns them to the caller.
 // No global mutation here; the caller merges & enqueues nf.Entities.
-func (c *Campaign) analyzePod(e domain.Pod) (NewFacts, error) {
+func (c *Campaign) analyzePod(e domain.Pod) (domain.Facts, error) {
 	entities := make(map[string]domain.Entity)
 	relations := make([]domain.Relation, 0, 8)
 
@@ -181,7 +181,7 @@ func (c *Campaign) analyzePod(e domain.Pod) (NewFacts, error) {
 	for _, v := range entities {
 		ents = append(ents, v)
 	}
-	return NewFacts{
+	return domain.Facts{
 		Entities:   ents,
 		Relations:  relations,
 		Assets:     nil,
@@ -189,7 +189,7 @@ func (c *Campaign) analyzePod(e domain.Pod) (NewFacts, error) {
 	}, nil
 }
 
-func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesReview) (NewFacts, RemovedFacts, error) {
+func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesReview) (domain.Facts, domain.Facts, error) {
 	entities := make([]domain.Entity, 0)
 	relations := make([]domain.Relation, 0)
 
@@ -242,10 +242,10 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 	sa.Entitelements = entitlements
 
 	entities = append(entities, ns, sa)
-	return NewFacts{
+	return domain.Facts{
 		Entities:  entities,
 		Relations: relations,
-	}, RemovedFacts{}, nil
+	}, domain.Facts{}, nil
 }
 
 func inferBuiltinRBACRole(entitlements []domain.RBACPermission) string {
@@ -262,7 +262,7 @@ func inferBuiltinRBACRole(entitlements []domain.RBACPermission) string {
 // See [docs: Container Environmeent](https://kubernetes.io/docs/concepts/containers/container-environment/) for more.
 // :param event: EnvironmentVariablesReceived  event with the source system and the variables
 // returns a new event with new facts, if there were any
-func analyzeEnvironmentVariables(source domain.Entity, envVars map[string]string) (NewFacts, RemovedFacts, error) {
+func analyzeEnvironmentVariables(source domain.Entity, envVars map[string]string) (domain.Facts, domain.Facts, error) {
 	entities := make([]domain.Entity, 0)
 	relations := make([]domain.Relation, 0)
 
@@ -325,15 +325,15 @@ func analyzeEnvironmentVariables(source domain.Entity, envVars map[string]string
 	// # TODO: analyze if URL is K8s DNS specific
 	// return NewFacts(entities=entities, relations=relations, assets=[])
 
-	return NewFacts{
+	return domain.Facts{
 		Entities:  entities,
 		Relations: relations,
-	}, RemovedFacts{}, nil
+	}, domain.Facts{}, nil
 }
 
-func analyzeServiceAccountToken(token domain.ServiceAccountToken) (NewFacts, error) {
+func analyzeServiceAccountToken(token domain.ServiceAccountToken) (domain.Facts, error) {
 	parts := strings.SplitN(token.Raw, ".", 3)
-	newFacts := NewFacts{}
+	newFacts := domain.Facts{}
 
 	if len(parts) != 3 {
 		return newFacts, errors.New("invalid token format")
@@ -388,7 +388,7 @@ func analyzeServiceAccountToken(token domain.ServiceAccountToken) (NewFacts, err
 		Node: node,
 	}
 
-	return NewFacts{
+	return domain.Facts{
 		Entities:  []domain.Entity{ns, sa, pod, node},
 		Assets:    []domain.Asset{saToken},
 		Relations: []domain.Relation{saUsage, nsContainsSa, nodeRunsPod, podRunsOnNode},
@@ -396,9 +396,9 @@ func analyzeServiceAccountToken(token domain.ServiceAccountToken) (NewFacts, err
 
 }
 
-func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
+func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
 	if len(ev.Results) == 0 {
-		return NewFacts{}, RemovedFacts{}, fmt.Errorf("no results found for TTP execution %s, so nothing to analyze", ev.TTP.ID)
+		return domain.Facts{}, domain.Facts{}, fmt.Errorf("no results found for TTP execution %s, so nothing to analyze", ev.TTP.ID)
 	}
 	errMsg := ev.Results[0]
 	if errMsg == "" && len(ev.Results) > 1 { // maybe the information is in stderr
@@ -488,10 +488,10 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (NewFacts, RemovedFacts, e
 	// example:
 	// "command terminated with exit code 1: 'error: error parsing STDIN: json: offset 138: invalid character '$' looking for beginning of value\n'"
 
-	return NewFacts{
+	return domain.Facts{
 		Entities:  entities,
 		Relations: relations,
-	}, RemovedFacts{}, nil
+	}, domain.Facts{}, nil
 }
 
 func parseViolatingRBACIdentity(msg string) (domain.Entity, error) {
@@ -506,7 +506,7 @@ func parseViolatingRBACIdentity(msg string) (domain.Entity, error) {
 	return domain.NewServiceAccount(saName, ns), nil
 }
 
-func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
+func analyzeDeployPodResult(ev domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
 	relations := make([]domain.Relation, 0)
 
 	newPod := domain.NewPod(
@@ -542,13 +542,13 @@ func analyzeDeployPodResult(ev domain.TTPExecuted) (NewFacts, RemovedFacts, erro
 		}}
 	}
 
-	return NewFacts{
+	return domain.Facts{
 		Entities:  []domain.Entity{newPod},
 		Relations: relations,
-	}, RemovedFacts{}, nil
+	}, domain.Facts{}, nil
 }
 
-func analyzeDeployPodFailure(event domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
+func analyzeDeployPodFailure(event domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
 	entities := make([]domain.Entity, 0)
 	if len(event.Results) == 0 {
 		slog.Error("No results found for deploy pod, so nothing to analyze :(")
@@ -585,7 +585,7 @@ func analyzeDeployPodFailure(event domain.TTPExecuted) (NewFacts, RemovedFacts, 
 		}
 	}
 
-	return NewFacts{Entities: entities}, RemovedFacts{}, nil
+	return domain.Facts{Entities: entities}, domain.Facts{}, nil
 }
 
 type ServiceInfo struct {
@@ -783,7 +783,7 @@ func extractHostPaths(mounts []domain.Mount) []domain.Mount {
 	return hostMounts
 }
 
-func analyzeMountInfo(system domain.System) (NewFacts, error) {
+func analyzeMountInfo(system domain.System) (domain.Facts, error) {
 	entities := make([]domain.Entity, 0)
 	relations := make([]domain.Relation, 0)
 
@@ -858,7 +858,7 @@ func analyzeMountInfo(system domain.System) (NewFacts, error) {
 		entities = append(entities, srcPod)
 	}
 
-	return NewFacts{
+	return domain.Facts{
 		Entities:  entities,
 		Relations: relations,
 	}, nil
@@ -888,7 +888,7 @@ func createPodFromKubeletMounts(mount domain.Mount) (domain.Pod, error) {
 	return p, nil
 }
 
-func analyzeHostPath(pod domain.Pod) (NewFacts, error) {
+func analyzeHostPath(pod domain.Pod) (domain.Facts, error) {
 	entities := make([]domain.Entity, 0)
 	relations := make([]domain.Relation, 0)
 
@@ -936,7 +936,7 @@ func analyzeHostPath(pod domain.Pod) (NewFacts, error) {
 	//   slog.Error(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, ev.Target.GetId()))
 	//  }
 
-	return NewFacts{
+	return domain.Facts{
 		Entities:  entities,
 		Relations: relations,
 	}, nil
@@ -965,9 +965,9 @@ func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
 	return rels
 }
 
-func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (NewFacts, RemovedFacts, error) {
+func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
 	// get the system on which the TTP was executed
-	newFacts := NewFacts{}
+	newFacts := domain.Facts{}
 
 	// TODO: support c2 channel with multiple segements
 	if ev.ExecutedOn != nil {
@@ -984,16 +984,16 @@ func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (NewFacts, RemovedF
 		}
 	}
 
-	return newFacts, RemovedFacts{}, nil
+	return newFacts, domain.Facts{}, nil
 }
 
-func (c Campaign) analyzeRoleBinding(rb domain.RoleBinding) (NewFacts, RemovedFacts, error) {
+func (c Campaign) analyzeRoleBinding(rb domain.RoleBinding) (domain.Facts, domain.Facts, error) {
 	entities := []domain.Entity{}
 	relations := make([]domain.Relation, 0)
 
 	roleEntityRaw, hasRole := c.GetEntityById(rb.RoleID)
 	if !hasRole {
-		return NewFacts{}, RemovedFacts{}, fmt.Errorf("role with ID '%s' not found in campaign", rb.RoleID)
+		return domain.Facts{}, domain.Facts{}, fmt.Errorf("role with ID '%s' not found in campaign", rb.RoleID)
 	}
 	roleEntity, _ := roleEntityRaw.(domain.Role)
 
@@ -1025,13 +1025,13 @@ func (c Campaign) analyzeRoleBinding(rb domain.RoleBinding) (NewFacts, RemovedFa
 		entities = append(entities, subject)
 	}
 
-	return NewFacts{
+	return domain.Facts{
 		Entities:  entities,
 		Relations: relations,
-	}, RemovedFacts{}, nil
+	}, domain.Facts{}, nil
 }
 
-func (c Campaign) analyzeConfigMap(cm domain.ConfigMap) (NewFacts, RemovedFacts, error) {
+func (c Campaign) analyzeConfigMap(cm domain.ConfigMap) (domain.Facts, domain.Facts, error) {
 	entities := []domain.Entity{cm}
 	relations := make([]domain.Relation, 0)
 
@@ -1047,11 +1047,11 @@ func (c Campaign) analyzeConfigMap(cm domain.ConfigMap) (NewFacts, RemovedFacts,
 		}
 	}
 
-	return NewFacts{
+	return domain.Facts{
 		Entities:  entities,
 		Relations: relations,
 		Assets:    assets,
-	}, RemovedFacts{}, nil
+	}, domain.Facts{}, nil
 }
 
 func convertSecret(sourceName, name, value string) (domain.Secret, bool) {

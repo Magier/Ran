@@ -31,54 +31,14 @@ type Campaign struct {
 	bus            bus.MessageBus
 }
 
-type Facts struct {
-	Entities   []domain.Entity
-	Relations  []domain.Relation
-	Identities []domain.Identity
-	Assets     []domain.Asset
+type factsUpdate struct {
+	New     domain.Facts
+	Removed domain.Facts
 }
 
-func (f *Facts) Update(new Facts) {
-	f.Entities = append(f.Entities, new.Entities...)
-	f.Assets = append(f.Assets, new.Assets...)
-	f.Relations = append(f.Relations, new.Relations...)
-	f.Identities = append(f.Identities, new.Identities...)
-}
-
-type FactsUpdate struct {
-	New     Facts
-	Removed Facts
-}
-
-func (f *FactsUpdate) Update(new FactsUpdate) {
-	f.New.Update(new.New)
-	f.Removed.Update(new.Removed)
-}
-
-type NewFacts struct {
-	Entities   []domain.Entity
-	Relations  []domain.Relation
-	Identities []domain.Identity
-	Assets     []domain.Asset
-}
-
-func (f *NewFacts) Update(new NewFacts) {
-	f.Entities = append(f.Entities, new.Entities...)
-	f.Assets = append(f.Assets, new.Assets...)
-	f.Relations = append(f.Relations, new.Relations...)
-	f.Identities = append(f.Identities, new.Identities...)
-}
-
-type RemovedFacts struct {
-	Entities   []domain.Entity
-	Relations  []domain.Relation
-	Identities []domain.Identity
-}
-
-func (f *RemovedFacts) Update(new RemovedFacts) {
-	f.Entities = append(f.Entities, new.Entities...)
-	f.Relations = append(f.Relations, new.Relations...)
-	f.Identities = append(f.Identities, new.Identities...)
+func (f *factsUpdate) Update(new domain.Facts, removed domain.Facts) {
+	f.New.Update(new)
+	f.Removed.Update(removed)
 }
 
 func NewCampaign(armory *armory.Armory) *Campaign {
@@ -160,13 +120,13 @@ func (c *Campaign) SetTarget(ns, podName string) (domain.Event, error) {
 		c.trail.CompleteStep(ev.GetID(), ev.TTP, true, []string{})
 	}
 
-	return c.UpdateFacts(NewFacts{
+	return c.UpdateFacts(domain.Facts{
 		Entities:  []domain.Entity{initialPod},
 		Relations: []domain.Relation{initialAccessRelation},
-	}, RemovedFacts{})
+	}, domain.Facts{})
 }
 
-func (c *Campaign) UpdateFacts(new NewFacts, removed RemovedFacts) (domain.FactsChanged, error) {
+func (c *Campaign) UpdateFacts(new domain.Facts, removed domain.Facts) (domain.FactsChanged, error) {
 	c.AddEntities(new.Entities...)
 	c.AddRelations(new.Relations...)
 
@@ -185,13 +145,8 @@ func (c *Campaign) UpdateFacts(new NewFacts, removed RemovedFacts) (domain.Facts
 		slog.Error(err.Error())
 	}
 	return domain.FactsChanged{
-		NewEntities:   new.Entities,
-		NewRelations:  new.Relations,
-		NewIdentities: new.Identities,
-
-		RemovedEntities:   removed.Entities,
-		RemovedRelations:  removed.Relations,
-		RemovedIdentities: removed.Identities,
+		New:     new,
+		Removed: removed,
 	}, nil
 }
 
