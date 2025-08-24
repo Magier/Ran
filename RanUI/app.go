@@ -309,6 +309,10 @@ func (a *App) ExecuteAction(actionID, targetID, procedureID string, args ActionA
 	}
 }
 
+func (a *App) GetArmory() []domain.TTP {
+	return a.ran.Armory.GetTTPs()
+}
+
 func (a *App) GetApplicableTTPs(targetId string) []domain.TTP {
 	ttps := make([]domain.TTP, 0)
 	target, _ := a.ran.Campaign.GetEntityById(targetId)
