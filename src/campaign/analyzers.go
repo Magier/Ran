@@ -130,8 +130,10 @@ func (c *Campaign) analyzePod(e domain.Pod) (domain.Facts, error) {
 		} else {
 			entities[node.GetId()] = domain.UpdateEntity(entities[node.GetId()], node)
 		}
-		e.RunsOn = &node
-		relations = append(relations, domain.RunsOn{Pod: e, Node: node})
+		if e.IsRunning {
+			e.RunsOn = &node
+			relations = append(relations, domain.RunsOn{Pod: e, Node: node})
+		}
 	}
 
 	// 3) service account relation (+ SA entity)
