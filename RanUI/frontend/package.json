@@ -61,6 +61,7 @@
 		"@zag-js/toast": "^1.12.4",
 		"cytoscape": "^3.32.0",
 		"cytoscape-dagre": "^2.5.0",
+		"cytoscape-fcose": "^2.2.0",
 		"melt": "^0.34.0"
 	}
 }
