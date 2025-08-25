@@ -17,6 +17,12 @@
 export const layout = {
 	name: 'dagre',
 	rankDir: 'LR',
+	align: 'DR',
+	nodeSep: 50,        // min distance between nodes on same rank
+	edgeSep: 15,
+	rankSep: 75,
+	padding: 30,
+	// animate: true
 };
 
 const kind_svg_map = {
@@ -90,9 +96,9 @@ export function getGraphStyle() {
 				width: '20',
 				height: '20',
 				color: textColor,
-				'background-color': surface,
 				'background-fit': 'cover',
 				'background-clip': 'none',
+				'background-opacity': 0,
 				// 'text-opacity': '0.4',
 				content: `data(name)`,
 				'font-size': '12',
@@ -108,6 +114,7 @@ export function getGraphStyle() {
 			style: {
 				shape: 'round-rectangle',
 				'border-style': 'dashed',
+				'background-color': 'steelblue',
 				'background-opacity': 0.2
 			}
 		},
@@ -188,7 +195,7 @@ export function getGraphStyle() {
 			selector: 'node[?kind]',
 			style: {
 				shape: 'heptagon',
-				'background-color': 'steelblue'
+				// 'background-color': 'steelblue'
 			}
 		},
 		{
