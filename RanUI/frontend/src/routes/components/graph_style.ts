@@ -15,14 +15,10 @@
 
 
 export const layout = {
-	name: 'dagre',
-	rankDir: 'LR',
-	align: 'DR',
-	nodeSep: 50,        // min distance between nodes on same rank
-	edgeSep: 15,
-	rankSep: 75,
-	padding: 30,
-	// animate: true
+	name: 'fcose',
+	fit: false,
+	animate: true,
+	animationDuration: 200,
 };
 
 const kind_svg_map = {
