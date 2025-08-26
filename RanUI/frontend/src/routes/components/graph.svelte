@@ -2,10 +2,8 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import cytoscape from 'cytoscape';
-	import dagre from 'cytoscape-dagre';
 	import fcose from 'cytoscape-fcose';
 	import { toaster } from '$lib/components/toaster';
-
 
 	import { getGraphStyle, layout } from './graph_style';
 	import type { main } from '$lib/wailsjs/go/models';
@@ -35,8 +33,7 @@
 	let nodes = $state([]);
 	let edges = $state([]);
 
-	// cytoscape.use(fcose);
-	cytoscape.use(dagre);
+	cytoscape.use(fcose);
 
 	let cy: cytoscape.Core;
 	let graphContainer: HTMLElement;
@@ -49,17 +46,18 @@
 	const PAN_KEY = '_pan';
 	const ZOOM_KEY = '_zoom';
 
+	// keep track of the nodes before the layouting, to ensure consistent positioning of new nodes
+	let existingNodes: cytoscape.NodeCollection = cytoscape().collection();
 
 	onMount(() => {
 		positions = loadPositions();
 		zoom = getZoomLevelOrDefault(2);
 		pan = getPanPositionOrDefault({ x: 0, y: 0 });
+
 		cy = cytoscape({
 			container: graphContainer, // container to render in
 			elements: {
 				nodes: nodes,
-				// nodes: data.nodes,
-				// edges: edges_for_layout
 				edges: edges
 			},
 			style: getGraphStyle(),
@@ -68,6 +66,15 @@
 			zoom: zoom,
 			wheelSensitivity: 0.1
 		});
+
+		layout.stop = () => {
+			existingNodes.unlock();
+			// apply previous pan and zoom, to nullify side-effects from layout
+			cy.pan(getPanPositionOrDefault({ x: 0, y: 0 }));
+			cy.zoom(getZoomLevelOrDefault(2));
+		};
+
+
 		// cy.expandCollapse(expandCollapseOptions);
 		// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
 		cy.on('unselect', resetSelection);
@@ -117,6 +124,50 @@
 		}
 	});
 
+	$effect(() => {
+		cy.invalidateDimensions();
+		const graph = campaignState.graph;
+
+		if (Object.keys(graph).length > 0) {
+			try {
+				if (graph.nodes === undefined) {
+					console.warn('Graph data is incomplete:', graph);
+				} else {
+					let nodes = graph.nodes.map(n => toCyNode(n, positions)); 
+					let edges = graph.edges.map(toCyEdge);
+
+					cy.json({
+						elements: {
+							nodes: nodes,
+							edges: edges
+						}
+					});
+
+					existingNodes = cy.nodes().filter((n) => n.id() in positions);
+					existingNodes.lock();  // layout.stop function takes care of unlocking the nodes after laying the new ones out
+					cy.layout(layout).run();
+
+					// use timeout 0 to not track selectedObject as a dependency
+					setTimeout(() => {
+						// update the currently selected graph object
+						if (selectedObject !== undefined) {
+							if (selectedObject.entity !== undefined) {
+								const el = graph.nodes.find((n) => n.id === selectedObjectId);
+								selectedObject = el;
+							} else {
+								const el = graph.edges.find((n) => n.id === selectedObjectId);
+								selectedObject = el;
+							}
+						}
+					})
+				}
+			} catch (e) {
+				console.error('Error updating graph:', e);
+				toaster.create({ title: "Graph error", description: 'Error updating graph: ' + e, type: 'error' });
+			}
+		}
+	});
+
 	function loadPositions(): PosMap {
 		if (!browser) return {};
 		try { 
@@ -156,8 +207,6 @@
 		selectedObjectId = '';
 	}
 
-
-
 	function toCyNode(n: main.Node, nodePos: Record<string, any>): CyNode {
 		let cyNode: CyNode ={
 			id: n.id,
@@ -181,116 +230,6 @@
 			}
 		};
 	}
-
-
-	$effect(() => {
-		cy.invalidateDimensions();
-		const graph = campaignState.graph;
-
-		if (Object.keys(graph).length > 0) {
-			try {
-				if (graph.nodes === undefined) {
-					console.warn('Graph data is incomplete:', graph);
-				} else {
-					let nodes = graph.nodes.map(n => toCyNode(n, positions)); 
-					let edges = graph.edges.map(toCyEdge);
-
-					let panLocation =  getPanPositionOrDefault({ x: 0, y: 0 })
-					let zoomLevel = getZoomLevelOrDefault(2)
-
-					cy.json({
-						elements: {
-							nodes: nodes,
-							edges: edges
-						}
-					});
-					const newNodes: cytoscape.NodeCollection = cy.nodes().filter((n) => !(n.id() in positions));
-					newNodes.layout(layout).run();
-					// apply previous pan and zoom, to nullify side-effects from layout
-					cy.pan(panLocation);
-					cy.zoom(zoomLevel);
-
-					// use timeout 0 to not track selectedObject as a dependency
-					setTimeout(() => {
-						// update the currently selected graph object
-						if (selectedObject !== undefined) {
-							if (selectedObject.entity !== undefined) {
-								const el = graph.nodes.find((n) => n.id === selectedObjectId);
-								selectedObject = el;
-							} else {
-								const el = graph.edges.find((n) => n.id === selectedObjectId);
-								selectedObject = el;
-							}
-						}
-					})
-				}
-			} catch (e) {
-				console.error('Error updating graph:', e);
-				toaster.create({ title: "Graph error", description: 'Error updating graph: ' + e, type: 'error' });
-			}
-		}
-	});
-
-	// onMount(() => {
-	// 	store.addSubgraph((value) => {
-	// 		const subgraph = value as main.Graph;
-	// 		if (Object.keys(subgraph).length > 0) {
-	// 			console.log(`add subgraph:`);
-	// 			console.log(subgraph);
-	// 			cy.json({
-	// 				elements: { nodes: subgraph.nodes.map(toCyNode), edges: subgraph.edges.map(toCyEdge) }
-	// 			});
-
-	// 			// for (let n of subgraph.nodes) {
-
-	// 			// 	cy.add({
-	// 			// 		group: 'nodes',
-	// 			// 		data: {
-	// 			// 			...n
-	// 			// 		}
-	// 			// 	});
-	// 			// }
-
-	// 			// for (let e of subgraph.edges) {
-	// 			// 	cy.add({
-	// 			// 		group: 'edges',
-	// 			// 		data: {
-	// 			// 			name: e.name,
-	// 			// 			source: e.source,
-	// 			// 			target: e.destination
-	// 			// 		}
-	// 			// 	});
-	// 			// }
-	// 		}
-	// 	});
-
-	// 	store.removeSubgraph((subgraph) => {
-	// 		if (Object.keys(subgraph).length > 0) {
-	// 			console.log(`removing subgraph:`);
-
-	// 			for (let n of subgraph.nodes) {
-	// 				console.log(n);
-	// 				// cy.add({
-	// 				// 	data: {
-	// 				// 		id: n['name'],
-	// 				// 		name: n['name']
-	// 				// 	}
-	// 				// });
-	// 			}
-
-	// 			for (let e of subgraph.edges) {
-	// 				// cy.add({
-	// 				// 	data: {
-	// 				// 		source: e.source,
-	// 				// 		target: e.destination
-	// 				// 	}
-	// 				// });
-	// 			}
-	// 		}
-	// 	});
-
-	// 	// GetGraph();
-	// });
 </script>
 
 <div id="graph" class={['bg-tertiary-surface-800-200', className]} bind:this={graphContainer}></div>
