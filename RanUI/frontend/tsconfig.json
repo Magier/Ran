@@ -9,8 +9,23 @@
 		"skipLibCheck": true,
 		"sourceMap": true,
 		"strict": true,
-		"moduleResolution": "bundler"
-	}
+		"moduleResolution": "bundler",
+	},
+	"include": [
+		"./src",
+		"./src/types/*.ts",
+		"./.sveltekit/ambient.d.ts",
+		"./.sveltekit/non-ambient.d.ts",
+		"./.sveltekit/types/**/$types.d.ts",
+		"./vite.config.js",
+		"./vite.config.ts",
+		"./src/**/*.js",
+		"./src/**/*.ts",
+		"./src/**/*.svelte",
+		"./tests/**/*.js",
+		"./tests/**/*.ts",
+		"./tests/**/*.svelte"
+	]
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
 	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
 	//
