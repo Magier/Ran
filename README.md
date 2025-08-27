@@ -15,7 +15,7 @@ She is symbolized by a net, which she uses to ensnare and pull the unwary into t
 <img src="./docs/Ran.svg" width="128"/>
 </p>
 
-❗ This tool is only intended for educational/demonstration purposes! Any other usage is highly discouraged.
+❗ This tool is only intended for educational/demonstration purposes! Any other usage is not endorsed.
 
 
 > ** ⚠️ Warning: This project is very early stage and highly experimental. Use at your own risk.**
@@ -119,7 +119,6 @@ Ran is heavily inspired by similar tools in this domain, such as:
 - [dopwn](https://github.com/4ARMED/dopwn)
 - [botb](https://github.com/brompwnie/botb)
 - [MTKPI](https://github.com/r0binak/MTKPI) Multi Tool Kubernetes Pentest Image 
-- [Dredge](https://github.com/grahamhelton/dredge)
 - [deepce](https://github.com/stealthcopter/deepce)
 - [ctrsploit](https://github.com/ctrsploit/ctrsploit)
 
@@ -156,7 +155,7 @@ Ran is heavily inspired by similar tools in this domain, such as:
 - [x] Campaign reset functionality
 - [ ] option to provide [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/) as a plan
 - [ ] Support sliver as a C2 framework 
-    - add respective CmdVariants where necessary
+    - add respective Procedures where necessary
 - [ ] Derive produced Observable from the TTP execution and link it in the Attack Flow
 - [ ] (Optional) Generate Sigma from STIX Observables?
 - [ ] Support hierarchical TTPs: they use other TTPs as building blocks (akin to HTN)

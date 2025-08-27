@@ -2,10 +2,10 @@ package armory
 
 import (
 	"cmp"
+	"embed"
 	"errors"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +15,9 @@ import (
 	"github.com/Magier/Ran/mitre"
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed all:builtin/*
+var builtinFS embed.FS
 
 type Armory struct {
 	SrcDir string
@@ -36,7 +39,7 @@ func (a Armory) GetTTPs() []domain.TTP {
 
 func (a *Armory) Load() error {
 	var err error
-	a.ttps, err = loadTTPs(filepath.Join(a.SrcDir, "ttps"))
+	a.ttps, err = loadTTPs(builtinFS, filepath.Join(a.SrcDir, "ttps"))
 	if err != nil {
 		return errors.New("Couldn't load armory: " + err.Error())
 	}
@@ -51,42 +54,47 @@ func (a *Armory) Load() error {
 	return nil
 }
 
-func loadTTPs(dir string) ([]domain.TTP, error) {
+// helper function to abstract the file system walking for regular and embedded FS
+// root is a slash-separated path *inside* fsys (e.g. ".", "assets", "templates").
+// visit is called for every non-directory. Return fs.SkipDir to prune a dir.
+func walkFS(fsys fs.FS, root string, visit func(path string, content []byte) error) error {
+	return fs.WalkDir(fsys, root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		f, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", path, err)
+		}
+		return visit(path, f)
+	})
+}
+
+func loadTTPs(builtinFS embed.FS, dir string) ([]domain.TTP, error) {
 	ttps := []domain.TTP{}
 
-	// parse "attacks as code" in the specified dir folder
-	walkFn := func(w string, d fs.DirEntry, err error) error {
-		if err != nil {
-			slog.Error("Error walking through directory", "path", w, "error", err)
-			return err
+	visitFn := func(path string, content []byte) error {
+		if strings.HasSuffix(path, "dummy.yaml") { // a hack to get empty embedded FS working
+			return nil
 		}
 
-		if d.IsDir() {
-			// skip subfolder with all unsupported check details
-			// if d.Name() == SkipDir { }
-			return err
+		var ttp domain.TTP
+		if err := yaml.Unmarshal(content, &ttp); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML content from file %s: %w", path, err)
 		}
-
-		if strings.HasSuffix(w, ".yaml") {
-			content, err := os.ReadFile(w)
-			if err != nil {
-				return fmt.Errorf("failed to read file %s: %w", w, err)
-			}
-
-			var ttp domain.TTP
-			err = yaml.Unmarshal(content, &ttp)
-			if err != nil {
-				return fmt.Errorf("failed to unmarshal YAML content from file %s: %w", w, err)
-			}
-			// ttp.CommandMsg = parseCommandToMessage(ttp.Command)
-			ttps = append(ttps, ttp)
-		}
-		// if strings.HasSuffix(w, ".md") {
-		// }
+		ttps = append(ttps, ttp)
 		return nil
 	}
 
-	if err := filepath.WalkDir(dir, walkFn); err != nil {
+	// read just the TTPs from the embedded filesystem
+	if err := walkFS(builtinFS, ".", visitFn); err != nil {
+		return ttps, errors.New("Couldn't load builtin TTPs: " + err.Error())
+	}
+	// read the user-defined TTPs
+	if err := walkFS(os.DirFS(dir), ".", visitFn); err != nil {
 		return ttps, errors.New("Couldn't load TTPs: " + err.Error())
 	}
 	return sortTTPs(ttps), nil
