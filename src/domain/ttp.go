@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/Magier/Ran/domain/sigma"
 	"github.com/Magier/Ran/mitre"
 	"github.com/creasty/defaults"
 	"gopkg.in/yaml.v3"
@@ -93,6 +94,7 @@ type TTP struct {
 	Effects       []string      `yaml:"effects" json:"effects"`
 	ResultHandler ResultHandler `json:"-" yaml:"-"`
 	Cleanup       Procedure     `yaml:"cleanup" json:"cleanup"`
+	Defense       Defense       `yaml:"defense" json:"defense"`
 }
 
 func (ttp TTP) GetID() string {
@@ -113,6 +115,15 @@ func (ttp TTP) GetMessage() Message {
 			// TTP:         ttp, Args: ttp.Args,
 		}
 	}
+}
+
+type Defense struct {
+	ID          string      `yaml:"id" json:"id"`
+	Name        string      `yaml:"name" json:"name"`
+	URL         string      `yaml:"url" json:"url"`
+	Description string      `yaml:"description" json:"description"`
+	Sigma       *sigma.Rule `yaml:"sigma,omitempty" json:"sigma,omitempty"`
+	D3fend      string      `yaml:"d3f" json:"d3f"`
 }
 
 type ToolFunctions []TTP
