@@ -315,6 +315,38 @@ type Extension struct {
 	Required []string `json:"required"`
 }
 
+type PatternTypeOpenVocabulary string
+
+const (
+	PatternTypeStix     PatternTypeOpenVocabulary = "stix"
+	PatternTypeSigma    PatternTypeOpenVocabulary = "sigma"
+	PatternTypeSnort    PatternTypeOpenVocabulary = "snort"
+	PatternTypeSuricata PatternTypeOpenVocabulary = "suricata"
+	PatternTypeYara     PatternTypeOpenVocabulary = "yara"
+	// PatternTypePCRE      PatternTypeOpenVocabulary = "pcre"  ... who uses Perl?!
+)
+
+type Indicator struct {
+	SDO            `json:",inline"`
+	IndicatorTypes []string                  `json:"indicator_types,omitempty"`
+	Pattern        string                    `json:"pattern"`
+	PatternType    PatternTypeOpenVocabulary `json:"pattern_type"`
+	PatternVersion string                    `json:"pattern_version,omitempty"`
+	ValidFrom      Timestamp                 `json:"valid_from"`
+	ValidUntil     Timestamp                 `json:"valid_until,omitempty"`
+}
+
+func NewIndicator(name, description, pattern string, patternType string, validFrom, validUntil time.Time) Indicator {
+	stixPatternType := PatternTypeOpenVocabulary(patternType)
+	return Indicator{
+		SDO:         NewSDO("indicator", name, description, false),
+		Pattern:     pattern,
+		PatternType: stixPatternType,
+		ValidFrom:   Timestamp(validFrom),
+		ValidUntil:  Timestamp(validUntil),
+	}
+}
+
 type IdentityClass string
 
 const (
@@ -397,9 +429,12 @@ type Relationship struct {
 	Type      string `json:"relationship_type"`
 }
 
-func Newrelationship(srcRef, targetRef, label string) Relationship {
+func NewRelationship(srcRef, targetRef, label string, time Timestamp) Relationship {
+	sro := NewSRO("relationship")
+	sro.Created = time
+	sro.Modified = time
 	return Relationship{
-		SRO:       NewSRO("relationship"),
+		SRO:       sro,
 		SourceRef: srcRef,
 		TargetRef: targetRef,
 		Type:      label,
