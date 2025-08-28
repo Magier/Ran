@@ -73,8 +73,13 @@ func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool, resul
 		step.CompletedAt = time.Now()
 		step.Success = success
 		step.Results = results
-		// # TODO: enrich observables depending on the TTP
-		// step.Observables = append(step.Observables, )
+
+		if ttp.Defense.ID != "" {
+			// TODO: see how actual IoCs, etc. can be added to the detection
+			if ttp.Defense.Sigma != nil {
+				step.Observables = append(step.Observables, *ttp.Defense.Sigma)
+			}
+		}
 		a.steps = append(a.steps, step)
 	} else {
 		slog.Warn(fmt.Sprintf("Could not pop open attack step %s", id))
@@ -110,11 +115,34 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 		obj = obj.Append(action)
 		bundle.Objects = bundle.Objects.Append(observables...)
 
+		if s.TTP.Defense.ID != "" && s.TTP.Defense.Sigma != nil {
+			rule := *s.TTP.Defense.Sigma
+			yamlStr, err := rule.ToYAMLString()
+
+			if err != nil {
+				slog.Error("Could not convert sigma rule to YAML", "error", err)
+			} else {
+				observables = append(observables, attackflow.NewIndicator(
+					rule.Title,
+					rule.Description,
+					yamlStr,
+					"sigma",
+					s.StartAt,
+					s.CompletedAt,
+				))
+			}
+		}
+
+		for _, obs := range observables {
+			// TODO: if the action produced another observable than an indicator (e.g. a process), then link to that one instead
+			bundle.Objects = bundle.Objects.Append(obs, attackflow.NewRelationship(action.ID, obs.GetID(), "indicates", action.Created))
+		}
+
 		if s.Target != nil {
 			targetID := s.Target.GetId()
 			if assetID, ok := knownAssets[s.Target.GetId()]; ok {
 				if _, ok := s.Target.(domain.C2System); ok {
-					infraRel := attackflow.Newrelationship(action.ID, assetID, attackflow.RelatedTo)
+					infraRel := attackflow.NewRelationship(action.ID, assetID, attackflow.RelatedTo, action.Created)
 					bundle.Objects = bundle.Objects.Append(infraRel)
 				} else {
 					action.AssetRefs = append(action.AssetRefs, assetID)
@@ -125,7 +153,7 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 						SDO:   attackflow.NewSDO("infrastructure", c2.Name, "", false),
 						Types: []string{attackflow.InfraTypeC2},
 					}
-					infraRel := attackflow.Newrelationship(action.ID, asset.ID, attackflow.RelatedTo)
+					infraRel := attackflow.NewRelationship(action.ID, asset.ID, attackflow.RelatedTo, action.Created)
 					bundle.Objects = bundle.Objects.Append(asset, infraRel)
 					knownAssets[targetID] = asset.ID
 				} else {
