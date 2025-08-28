@@ -16,6 +16,16 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+func parseK8sStatusResponse(str string) (k8s_types.K8sApiResponseStatus, error) {
+	status, err := k8s.ParseStatus(str)
+	return k8s_types.K8sApiResponseStatus{
+		Code:    int(status.Code),
+		Message: status.Message,
+		Reason:  string(status.Reason),
+		Status:  status.Status,
+	}, err
+}
+
 func ParseEnvVarResult(_ map[string]string, results ...string) (map[string]string, error) {
 	if len(results) == 0 {
 		return nil, errors.New("No environment variables received!")
@@ -307,6 +317,16 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	res := results[0]
 	entities := []domain.Entity{}
 	relations := []domain.Relation{}
+
+	// ensure it's not a failure response from the K8s API server
+	if strings.HasPrefix(effect, "k8s.") {
+		status, err := parseK8sStatusResponse(results[0])
+		// in this case having an error is good -> it's not an unexpected StatusResponse
+		if err == nil && status.Code >= 400 {
+			return factsUpdate{}, fmt.Errorf("K8s API returned an error status for effect '%s': %s", effect, status.Message)
+		}
+	}
+
 	switch effect {
 	case "target.ip":
 		if sys, ok := source.(domain.System); ok {
