@@ -365,6 +365,12 @@ func DeployPod(ctx context.Context, client K8sClient, podName, ns string, cfg do
 	return p.Status.String(), nil
 }
 
+func ParseStatus(jsonStr string) (*metav1.Status, error) {
+	var status metav1.Status
+	err := json.Unmarshal([]byte(jsonStr), &status)
+	return &status, err
+}
+
 // ParsePodList converts a JSON string containing a PodList into a v1.PodList object.
 func ParsePodList(jsonStr string) (*v1.PodList, error) {
 	var list v1.PodList

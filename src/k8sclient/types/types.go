@@ -72,3 +72,10 @@ type SelfSubjectRulesReview struct {
 	} `json:"details,omitempty"`
 	Code int `json:"code,omitempty"`
 }
+
+type K8sApiResponseStatus struct {
+	Code    int    `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	Status  string `json:"status,omitempty"`
+}
