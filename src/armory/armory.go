@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -50,7 +51,9 @@ func (a *Armory) Load() error {
 	// 	return errors.New("Couldn't load tools: " + err.Error())
 	// }
 	// a.ttps = append(a.ttps, toolTTPs...)
-
+	if len(a.ttps) == 0 {
+		return errors.New("Neither builtin nor user-defined TTPs loaded")
+	}
 	return nil
 }
 
@@ -73,7 +76,7 @@ func walkFS(fsys fs.FS, root string, visit func(path string, content []byte) err
 	})
 }
 
-func loadTTPs(builtinFS embed.FS, dir string) ([]domain.TTP, error) {
+func loadTTPs(builtinFS embed.FS, userDefinedDir string) ([]domain.TTP, error) {
 	ttps := []domain.TTP{}
 
 	visitFn := func(path string, content []byte) error {
@@ -94,9 +97,18 @@ func loadTTPs(builtinFS embed.FS, dir string) ([]domain.TTP, error) {
 		return ttps, errors.New("Couldn't load builtin TTPs: " + err.Error())
 	}
 	// read the user-defined TTPs
-	if err := walkFS(os.DirFS(dir), ".", visitFn); err != nil {
-		return ttps, errors.New("Couldn't load TTPs: " + err.Error())
+	if userDefinedDir != "" {
+		userDefinedFS := os.DirFS(userDefinedDir)
+		if _, err := os.Stat(userDefinedDir); os.IsNotExist(err) {
+			slog.Error(fmt.Sprintf("User-defined TTP directory '%s' does not exist, skipping\n", userDefinedDir))
+			return ttps, nil
+		}
+
+		if err := walkFS(userDefinedFS, ".", visitFn); err != nil {
+			return ttps, errors.New("Couldn't load TTPs: " + err.Error())
+		}
 	}
+
 	return sortTTPs(ttps), nil
 }
 
