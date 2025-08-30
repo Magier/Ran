@@ -137,6 +137,8 @@ jobs:
           shell: bash
         - name: Install pnpm
           uses: pnpm/action-setup@v4
+          with:
+            version: 10
         - name: Install macOS Wails deps
           if: runner.os == 'macOS'
           run: brew install mitchellh/gon/gon
