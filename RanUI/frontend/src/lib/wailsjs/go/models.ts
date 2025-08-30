@@ -89,6 +89,46 @@ export namespace domain {
 	        this.EnvVars = source["EnvVars"];
 	    }
 	}
+	export class Defense {
+	    id: string;
+	    name: string;
+	    url: string;
+	    description: string;
+	    sigma?: sigma.Rule;
+	    d3f: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Defense(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.url = source["url"];
+	        this.description = source["description"];
+	        this.sigma = this.convertValues(source["sigma"], sigma.Rule);
+	        this.d3f = source["d3f"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Facts {
 	    Entities: any[];
 	    Relations: any[];
@@ -291,6 +331,7 @@ export namespace domain {
 	    requires: Requirements;
 	    effects: string[];
 	    cleanup: Procedure;
+	    defense: Defense;
 	
 	    static createFrom(source: any = {}) {
 	        return new TTP(source);
@@ -311,6 +352,7 @@ export namespace domain {
 	        this.requires = this.convertValues(source["requires"], Requirements);
 	        this.effects = source["effects"];
 	        this.cleanup = this.convertValues(source["cleanup"], Procedure);
+	        this.defense = this.convertValues(source["defense"], Defense);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -482,6 +524,95 @@ export namespace main {
 	        this.namespace = source["namespace"];
 	        this.kind = source["kind"];
 	    }
+	}
+
+}
+
+export namespace sigma {
+	
+	export class Detection {
+	    condition: string;
+	    timeframe?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Detection(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.condition = source["condition"];
+	        this.timeframe = source["timeframe"];
+	    }
+	}
+	export class LogSource {
+	    product?: string;
+	    service?: string;
+	    category?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LogSource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.product = source["product"];
+	        this.service = source["service"];
+	        this.category = source["category"];
+	    }
+	}
+	export class Rule {
+	    title: string;
+	    id?: string;
+	    status?: string;
+	    description?: string;
+	    references?: string[];
+	    author?: string;
+	    date?: string;
+	    modified?: string;
+	    tags?: string[];
+	    logsource?: LogSource;
+	    detection: Detection;
+	    falsepositives?: string[];
+	    level?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Rule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.id = source["id"];
+	        this.status = source["status"];
+	        this.description = source["description"];
+	        this.references = source["references"];
+	        this.author = source["author"];
+	        this.date = source["date"];
+	        this.modified = source["modified"];
+	        this.tags = source["tags"];
+	        this.logsource = this.convertValues(source["logsource"], LogSource);
+	        this.detection = this.convertValues(source["detection"], Detection);
+	        this.falsepositives = source["falsepositives"];
+	        this.level = source["level"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
