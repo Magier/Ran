@@ -151,7 +151,7 @@ jobs:
           run: find frontend/build | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
         - name: Execute pre-build make
           working-directory: ${{ github.workspace }}  # use Makefile in the project roo
-          run: make copy-armor
+          run: make copy-armory
         # Building step
         - name: Build App
           env:
