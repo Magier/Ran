@@ -150,11 +150,6 @@ jobs:
           working-directory: ${{ inputs.app-working-directory }}
           run: wails build --platform ${{ matrix.build.platform }} -webview2 ${{inputs.wails-build-webview2}} -o ${{inputs.build-name}} $BUILD_OPTIONS
           shell: bash
-        - name: List content
-          run: find . | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
-        - name: List build content
-          working-directory: ${{ inputs.app-working-directory }}
-          run: find build | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
         - name: Add macOS perms
           if: runner.os == 'macOS'
           working-directory: ${{ inputs.app-working-directory }}
@@ -195,7 +190,7 @@ jobs:
           working-directory: ${{ inputs.app-working-directory }}
           shell: bash
           run: |
-            ditto -c -k --keepParent ${{ inputs.app-working-directory }}/build/bin/${{inputs.build-name}}.app ${{ inputs.app-working-directory }}/build/bin/${{inputs.build-name}}.app.zip
+            ditto -c -k --keepParent build/bin/${{inputs.build-name}}.app build/bin/${{inputs.build-name}}.app.zip
         # - name: Building Installer
         #   if: runner.os == 'macOS' && inputs.sign != 'false' && inputs.sign-macos-installer-id != '' && startsWith(github.ref, 'refs/tags/')
         #   shell: bash
@@ -208,7 +203,7 @@ jobs:
           shell: bash
           working-directory: ${{ inputs.app-working-directory }}
           run: |
-            productbuild --component ${{ inputs.app-working-directory }}/build/bin/${{inputs.build-name}}.app /Applications ${{ inputs.app-working-directory }}/build/bin/${{inputs.build-name}}.pkg
+            productbuild --component build/bin/${{inputs.build-name}}.app /Applications build/bin/${{inputs.build-name}}.pkg
         # - name: Notarising Installer and zip
         #   if: runner.os == 'macOS' && inputs.sign != 'false' && startsWith(github.ref, 'refs/tags/')
         #   shell: bash
@@ -230,7 +225,9 @@ jobs:
         #     echo "Signing our binaries"
         #     & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/signtool.exe' sign /fd sha256 /tr http://ts.ssl.com /f certificate\certificate.pfx /p '${{ inputs.sign-windows-cert-password }}' .\build\bin\${{inputs.build-name}}.exe
         #     echo "Signing Installer" & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/signtool.exe' sign /fd sha256 /tr http://ts.ssl.com /f certificate\certificate.pfx /p '${{ inputs.sign-windows-cert-password }}' .\build\bin\${{inputs.build-name}}-amd64-installer.exe
-
+        - name: List build content
+          working-directory: ${{ inputs.app-working-directory }}
+          run: find build | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
           # Upload build assets
         - uses: actions/upload-artifact@v4
           if: inputs.package == 'true'
