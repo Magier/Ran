@@ -68,7 +68,7 @@ jobs:
     build-wails:
       defaults:
           run: 
-            working-directory: ./RanUI
+            working-directory: RanUI
       strategy:
       # Failure in one platform build won't impact the others
         fail-fast: false
@@ -142,6 +142,10 @@ jobs:
           run: brew install mitchellh/gon/gon
           shell: bash
         # Building step
+        - name: Log working dir
+          working-directory: ${{ inputs.app-working-directory }}
+          run: pwd
+          shell: bash
         - name: Build App
           env:
             BUILD_OPTIONS: ${{ steps.build_options.outputs.BUILD_OPTIONS }}
