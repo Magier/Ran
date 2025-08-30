@@ -16,3 +16,5 @@ Cargo.lock
 
 # contents of 'static' folder are created during runtime
 # static  
+
+dist

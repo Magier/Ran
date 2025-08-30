@@ -10,9 +10,194 @@ permissions:
 jobs:
     build:
         uses: ./.github/workflows/build.yaml
+    build-wails:
+      env:
+        APP_NAME: RanUI
+        WAILS_VERSION: latest
+        WORKING_DIR: RanUI
+        DIST_DIR: dist
+        VERSION: ${{ github.ref_name }}
+      defaults:
+          run: 
+            working-directory: RanUI
+      strategy:
+      # Failure in one platform build won't impact the others
+        fail-fast: false
+        matrix:
+          build: 
+            - os: 'ubuntu-latest'
+              platform:  'linux/amd64'
+            - os: 'windows-latest'
+              platform:  'windows/amd64'
+            - os: 'macos-latest'
+              platform:  'darwin/universal'
+            - os: 'macos-13'
+              arch: amd64
+              platform:  'darwin/universal'
+      runs-on: ${{ matrix.build.os }}
+      steps:
+        - name: Checkout
+          uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+          with:
+            submodules: recursive
+        - name: Linux Discovery
+          if: runner.os == 'Linux'
+          id: linux_discovery
+          run: |
+            sudo apt-get -yq update
+            DISTRO=$(lsb_release -rs) # Get the distribution version (e.g., "22.04", "24.04")
+            if [[ "$DISTRO" == "20.04" ]]; then
+              sudo apt-get -yq install libgtk-3-0 libwebkit2gtk-4.0-dev gcc-aarch64-linux-gnu
+            elif [[ "$DISTRO" == "22.04" ]]; then
+              sudo apt-get -yq install libgtk-3-0 libwebkit2gtk-4.0-dev gcc-aarch64-linux-gnu
+            elif [[ "$DISTRO" == "24.04" ]]; then
+              sudo apt-get -yq install libgtk-3-0 libwebkit2gtk-4.1-dev gcc-aarch64-linux-gnu
+            else
+              echo "Unsupported Linux distribution: $DISTRO"
+              exit 1 # Fail the workflow if the distribution is not supported
+            fi
+            echo "DISTRO=$DISTRO" >> "$GITHUB_OUTPUT"
+          shell: bash
+        - name: Setup Build Options
+          id: build_options
+          shell: bash
+          env:
+            DISTRO: ${{ steps.linux_discovery.outputs.DISTRO }}
+          run: |
+            build_options=""
+            if [[ "$DISTRO" == '24.04' ]]; then
+              build_options+=" -tags webkit2_41"
+            fi
+            echo "BUILD_OPTIONS=$build_options" >> "$GITHUB_OUTPUT"
+        # Setup and configure GoLang
+        - name: Setup GoLang
+          uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+          # if: inputs.wails-dev-build == 'false'
+          with:
+            check-latest: true
+            cache: true
+            cache-dependency-path: 'RanUI/go.sum'
+            go-version-file: "RanUI/go.mod"
+        # - name: Install Garble
+        #   if: inputs.build-obfuscate == 'true'
+        #   run: go install mvdan.cc/garble@latest
+        #   shell: bash
+        - run: go version
+          shell: bash
+        - name: Install pnpm
+          uses: pnpm/action-setup@v4
+          with:
+            version: 10
+        - name: Install Wails
+          # if: inputs.build == 'true' && inputs.wails-dev-build == 'false'
+          run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+          shell: bash
+        - name: Install macOS Wails deps
+          if: runner.os == 'macOS'
+          run: brew install mitchellh/gon/gon
+          shell: bash
+        # Building step
+        - name: Build App
+          env:
+            BUILD_OPTIONS: ${{ steps.build_options.outputs.BUILD_OPTIONS }}
+          working-directory: ${{ env.WORKING_DIR }}
+          run: wails build --platform ${{ matrix.build.platform }} -webview2 ${{inputs.wails-build-webview2}} -o ${{ env.APP_NAME}} $BUILD_OPTIONS
+          shell: bash
+        - name: Add macOS perms
+          if: runner.os == 'macOS'
+          working-directory: ${{ env.WORKING_DIR }}
+          run: chmod +x build/bin/*/Contents/MacOS/*
+          shell: bash
+        - name: Add Linux perms
+          if: runner.os  == 'Linux'
+          working-directory: ${{ env.WORKING_DIR }}
+          run: chmod +x build/bin/*
+          shell: bash
+        - name: Ready Linux artifact for release
+          if: runner.os  == 'Linux'
+          working-directory: ${{ env.WORKING_DIR }}
+          run: |
+            mkdir -p ${{ env.DIST_DIR }}
+            tar -czvf ${{ env.DIST_DIR }}/${{env.APP_NAME}}_${{ env.VERSION }}_linux-${{ runner.arch }}.tar.gz -C build/bin ./${{env.APP_NAME}}
+          shell: bash          
+        # Package and Sign MacOS
+        # - name: Import Code-Signing Certificates for macOS
+        #   if: runner.os == 'macOS' && inputs.sign != 'false' && startsWith(github.ref, 'refs/tags/')
+        #   uses: Apple-Actions/import-codesign-certs@v1
+        #   with:
+        #     keychain-password: ${{ inputs.sign-macos-apple-password }}
+        #     p12-file-base64: ${{ inputs.sign-macos-app-cert }}
+        #     p12-password: ${{ inputs.sign-macos-app-cert-password }}
+        # - name: Import Code-Signing Certificates for macOS Installer
+        #   if: runner.os == 'macOS' && inputs.sign != 'false' && startsWith(github.ref, 'refs/tags/')
+        #   uses: Apple-Actions/import-codesign-certs@v1
+        #   with:
+        #     keychain-password: ${{ inputs.sign-macos-apple-password }}
+        #     p12-file-base64: ${{ inputs.sign-macos-installer-cert }}
+        #     p12-password: ${{ inputs.sign-macos-installer-cert-password }}
+        #     create-keychain: false
+        # - name: Sign our macOS binary
+        #   if: runner.os == 'macOS' && inputs.sign != 'false' && startsWith(github.ref, 'refs/tags/')
+        #   shell: bash
+        #   working-directory: ${{ env.WORKING_DIR }}
+        #   env:
+        #     APPLE_PASSWORD: ${{ inputs.sign-macos-apple-password }}
+        #   run: |
+        #     echo "Signing Package"
+        #     gon -log-level=info ./build/darwin/gon-sign.json
+        - name: Build .app zip file
+          if: runner.os == 'macOS'
+          working-directory: ${{ env.WORKING_DIR }}
+          shell: bash
+          run: |
+            ditto -c -k -v --keepParent build/bin/${{env.APP_NAME}}.app ${{ env.DIST_DIR }}/${{env.APP_NAME}}_${{ env.VERSION }}_darwin-${{ runner.arch }}.app.zip
+        # - name: Building Installer
+        #   if: runner.os == 'macOS' && inputs.sign != 'false' && inputs.sign-macos-installer-id != '' && startsWith(github.ref, 'refs/tags/')
+        #   shell: bash
+        #   working-directory: ${{ env.WORKING_DIR }}
+        #   run: |
+        #     productbuild --sign '${{inputs.sign-macos-installer-id}}' --component ${{ env.APP_NAME }}/build/bin/${{ env.APP_NAME }}}.app /Applications ${{ env.WORKING_DIR }}/build/bin/${{ env.APP_NAME }}.pkg
+        - name: Building Installer
+          if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
+          # if: runner.os == 'macOS' && inputs.sign-macos-installer-id == '' && startsWith(github.ref, 'refs/tags/')
+          shell: bash
+          working-directory: ${{ env.WORKING_DIR }}
+          run: |
+            productbuild --component build/bin/${{env.APP_NAME}}.app /Applications ${{ env.DIST_DIR }}/${{env.APP_NAME}}_${{ env.VERSION }}_darwin-${{ runner.arch }}.pkg
+        # - name: Notarising Installer and zip
+        #   if: runner.os == 'macOS' && inputs.sign != 'false' && startsWith(github.ref, 'refs/tags/')
+        #   shell: bash
+        #   working-directory: ${{ env.WORKING_DIR }}
+        #   env:
+        #     APPLE_PASSWORD: ${{ inputs.sign-macos-apple-password }}
+        #   run: |
+        #     gon -log-level=info ${{ env.WORKING_DIR }}/build/darwin/gon-notarize.json
+        # # Windows signing
+        # - name: Sign Windows binaries
+        #   shell: powershell
+        #   if: runner.os == 'Windows' && inputs.sign != 'false' && inputs.sign-windows-cert != ''
+        #   working-directory: ${{ env.WORKING_DIR }}
+        #   run: |
+        #     echo "Creating certificate file"
+        #     New-Item -ItemType directory -Path certificate
+        #     Set-Content -Path certificate\certificate.txt -Value '${{ inputs.sign-windows-cert }}'
+        #     certutil -decode certificate\certificate.txt certificate\certificate.pfx
+        #     echo "Signing our binaries"
+        #     & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/signtool.exe' sign /fd sha256 /tr http://ts.ssl.com /f certificate\certificate.pfx /p '${{ inputs.sign-windows-cert-password }}' .\build\bin\${{inputs.app-name}}.exe
+        #     echo "Signing Installer" & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/signtool.exe' sign /fd sha256 /tr http://ts.ssl.com /f certificate\certificate.pfx /p '${{ inputs.sign-windows-cert-password }}' .\build\bin\${{inputs.app-name}}-amd64-installer.exe
+        - name: List build content
+          working-directory: ${{ env.WORKING_DIR }}
+          run: find build | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
+        - name: Upload RanUI releases
+          uses: actions/upload-artifact@v4
+          with:
+            name: "RanUI-${{ matrix.build.platform }}-${{ runner.arch }}"
+            path: ${{env.WORKING_DIR}}/${{ env.DIST_DIR }}/*
     release:
         runs-on: ubuntu-latest
-        needs: build
+        needs: [build, build-wails]
+        env: 
+          RANUI_DIST_DIR: RanUI/dist  # this path must match with goreleasers `release.extra_files`
         steps: 
           - name: Checkout
             uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -20,6 +205,19 @@ jobs:
             uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
             with:
               go-version-file: "src/go.mod"
+          - name: Download RanUI artifacts
+            uses: actions/download-artifact@v4
+            with:
+              path: ranui_dist
+          - name: Move GUI into dist/gui
+            run: |
+              mkdir -p $RANUI_DIST_DIR
+              find ranui_dist -type f -maxdepth 2 -exec mv -t $RANUI_DIST_DIR {} +
+              ls -lah $RANUI_DIST_DIR
+          - name: Create RanUI checksums
+            run: |
+              cd $RANUI_DIST_DIR
+              shasum -a 256 * > checksums_gui.txt
           - name: Run GoReleaser
             uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
             with:
