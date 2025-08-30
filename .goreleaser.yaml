@@ -11,8 +11,8 @@ project_name: Ran
 
 before:
   hooks:
-    - cd src && go mod tidy
-    - cd src && go generate ./...
+    - sh -c 'cd src && go mod tidy'
+    - sh -c 'cd src && go generate ./...'
     - make copy-armory
 builds:
   - id: ran
