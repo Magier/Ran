@@ -10,5 +10,6 @@
     "name": "Markus Gierlinger",
     "email": "mataryki@gmail.com"
   },
-  "wailsjsdir": "./frontend/src/lib"
+  "wailsjsdir": "./frontend/src/lib",
+  "build.assets": "frontend/build"
 }
