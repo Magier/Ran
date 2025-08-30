@@ -267,11 +267,12 @@ jobs:
             uses: actions/download-artifact@v4
             with:
               path: ranui_dist
-          - name: Move GUI into dist/gui
+          - name: Move RanUI binaries into its dist folder
             run: |
               mkdir -p $RANUI_DIST_DIR
               find ranui_dist -type f -maxdepth 2 -exec mv -t $RANUI_DIST_DIR {} +
               ls -lah $RANUI_DIST_DIR
+              rmdir ranui_dist 
           - name: Create RanUI checksums
             run: |
               cd $RANUI_DIST_DIR
