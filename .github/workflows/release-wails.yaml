@@ -131,14 +131,14 @@ jobs:
         #   shell: bash
         - run: go version
           shell: bash
-        - name: Install Wails
-          # if: inputs.build == 'true' && inputs.wails-dev-build == 'false'
-          run: go install github.com/wailsapp/wails/v2/cmd/wails@${{inputs.wails-version}}
-          shell: bash
         - name: Install pnpm
           uses: pnpm/action-setup@v4
           with:
             version: 10
+        - name: Install Wails
+          # if: inputs.build == 'true' && inputs.wails-dev-build == 'false'
+          run: go install github.com/wailsapp/wails/v2/cmd/wails@${{inputs.wails-version}}
+          shell: bash
         - name: Install macOS Wails deps
           if: runner.os == 'macOS'
           run: brew install mitchellh/gon/gon
@@ -150,6 +150,11 @@ jobs:
           working-directory: ${{ inputs.app-working-directory }}
           run: wails build --platform ${{ matrix.build.platform }} -webview2 ${{inputs.wails-build-webview2}} -o ${{inputs.build-name}} $BUILD_OPTIONS
           shell: bash
+        - name: List content
+          run: find . | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
+        - name: List build content
+          working-directory: ${{ inputs.app-working-directory }}
+          run: find build | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
         - name: Add macOS perms
           if: runner.os == 'macOS'
           working-directory: ${{ inputs.app-working-directory }}
