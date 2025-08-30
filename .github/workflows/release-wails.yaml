@@ -20,6 +20,7 @@ on:
       #   default: "false"
       build-name:
         description: "The name of the binary file"
+        default: "RanUI"
         required: true
       # build-cache:
       #   description: "Cache the build"
@@ -52,11 +53,11 @@ on:
       node-version:
         description: "Node js version"
         required: false
-        default: "18.x"
+        default: "24.x"
       app-working-directory:
         description: "This gets run into bash, use the full command"
         required: false
-        default: "."
+        default: "RanUI"
   push:
     tags:
       - v*.*.*
@@ -73,16 +74,13 @@ jobs:
       # Failure in one platform build won't impact the others
         fail-fast: false
         matrix:
-          build:
-            - name: 'App'
+          build: 
+            - os: 'ubuntu-latest'
               platform:  'linux/amd64'
-              os: 'ubuntu-latest'
-            - name: 'App'
+            - os: 'windows-latest'
               platform:  'windows/amd64'
-              os: 'windows-latest'
-            - name: 'App'
+            - os: 'macos-latest'
               platform:  'darwin/universal'
-              os: 'macos-latest'
       runs-on: ${{ matrix.build.os }}
       steps:
         - name: Checkout
@@ -137,24 +135,18 @@ jobs:
           # if: inputs.build == 'true' && inputs.wails-dev-build == 'false'
           run: go install github.com/wailsapp/wails/v2/cmd/wails@${{inputs.wails-version}}
           shell: bash
+        - name: Install pnpm
+          uses: pnpm/action-setup@v4
         - name: Install macOS Wails deps
           if: runner.os == 'macOS'
           run: brew install mitchellh/gon/gon
           shell: bash
         # Building step
-        - name: Log working dir
-          working-directory: ${{ inputs.app-working-directory }}
-          run: pwd
-          shell: bash
-        - name: Show working dir content
-          working-directory: ${{ inputs.app-working-directory }}
-          run: ls -la
-          shell: bash
         - name: Build App
           env:
             BUILD_OPTIONS: ${{ steps.build_options.outputs.BUILD_OPTIONS }}
           working-directory: ${{ inputs.app-working-directory }}
-          run: wails build --platform ${{inputs.build-platform}} -webview2 ${{inputs.wails-build-webview2}} -o ${{inputs.build-name}} $BUILD_OPTIONS
+          run: wails build --platform ${{ matrix.build.platform }} -webview2 ${{inputs.wails-build-webview2}} -o ${{inputs.build-name}} $BUILD_OPTIONS
           shell: bash
         - name: Add macOS perms
           if: runner.os == 'macOS'
