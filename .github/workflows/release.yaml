@@ -113,6 +113,9 @@ jobs:
           working-directory: ${{ env.WORKING_DIR }}
           run: wails build --platform ${{ matrix.build.goos }}/${{ matrix.build.arch }} -webview2 ${{ env.WAILS_WEBVIEW_INSTALL }} -o ${{ env.APP_NAME}} $BUILD_OPTIONS
           shell: bash
+        - name: List build content
+          working-directory: ${{ env.WORKING_DIR }}
+          run: find build | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
         - name: Add macOS perms
           if: runner.os == 'macOS'
           working-directory: ${{ env.WORKING_DIR }}
@@ -197,7 +200,7 @@ jobs:
         #     echo "Signing Installer" & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/signtool.exe' sign /fd sha256 /tr http://ts.ssl.com /f certificate\certificate.pfx /p '${{ inputs.sign-windows-cert-password }}' .\build\bin\${{inputs.app-name}}-amd64-installer.exe
         - name: List build content
           working-directory: ${{ env.WORKING_DIR }}
-          run: find build | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
+          run: find dist | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
         - name: Upload RanUI releases
           uses: actions/upload-artifact@v4
           with:
