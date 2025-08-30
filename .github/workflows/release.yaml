@@ -47,6 +47,9 @@ jobs:
         - name: Build Vite frontend
           run: pnpm build
 
+        - name: List build content
+          run: find . | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
+
         - name: Upload dist artifact
           uses: actions/upload-artifact@v4
           with:
