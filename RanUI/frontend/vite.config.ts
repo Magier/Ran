@@ -10,6 +10,28 @@ export default defineConfig({
 		autoInstall: true,
 	})],
 
+	build: {
+		minify: 'esbuild',            // much lighter than terser
+		cssCodeSplit: true,           // ensure CSS isn’t bundled into a giant JS chunk
+		assetsInlineLimit: 0,         // avoid inlining large assets into JS (helps peak memory)
+		// Smaller, more numerous chunks are usually easier on memory than one mega vendor chunk
+		rollupOptions: {
+			output: {
+				manualChunks(id) {
+				if (id.includes('node_modules')) {
+					// group by top-level package name: node_modules/<pkg>/...
+					const match = id.toString().split('node_modules/')[1];
+					if (!match) return;
+					const pkg = match.split('/')[0].startsWith('@')
+					? match.split('/').slice(0,2).join('/')
+					: match.split('/')[0];
+					return `vendor-${pkg}`;
+				}
+				},
+			}
+		},
+	},
+
 	test: {
 		workspace: [
 			{
