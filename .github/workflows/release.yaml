@@ -287,7 +287,6 @@ jobs:
                 distribution: goreleaser
                 version: latest
                 args: release --clean
-                workdir: ./src
             env:
                 # KEY: ${{ secrets.COSIGN_KEY }}
                 # COSIGN_PASSWORD: ${{secrets.COSIGN_PASSWORD}}
