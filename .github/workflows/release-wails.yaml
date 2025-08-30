@@ -115,10 +115,6 @@ jobs:
           run: |
             build_options=""
             if [[ "$DISTRO" == '24.04' ]]; then
-              tags_string+=" webkit2_41"
-            fi
-            build_options+=" -tags $tags_string" 
-            elif [[ "$DISTRO" == '24.04' ]]; then 
               build_options+=" -tags webkit2_41"
             fi
             echo "BUILD_OPTIONS=$build_options" >> "$GITHUB_OUTPUT"
