@@ -42,9 +42,6 @@ on:
         description: "This gets run into bash, use the full command"
         required: false
         default: "RanUI"
-  push:
-    tags:
-      - v*.*.*
 
 permissions:
   contents: write
