@@ -47,14 +47,11 @@ jobs:
         - name: Build Vite frontend
           run: pnpm build
 
-        - name: List build content
-          run: find . | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
-
         - name: Upload dist artifact
           uses: actions/upload-artifact@v4
           with:
             name: frontend-dist
-            path: build
+            path: ${{ env.WORKING_DIR }}/build
             if-no-files-found: error
             retention-days: 7
     build-wails:
