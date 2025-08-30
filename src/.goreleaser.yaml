@@ -50,7 +50,4 @@ changelog:
 
 release:
   footer: >-
-
     ---
-
-    Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
