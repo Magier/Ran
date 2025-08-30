@@ -34,16 +34,16 @@ jobs:
           build: 
             - os: 'ubuntu-latest'
               arch: 'amd64'
-              platform:  'linux'
+              platform: 'linux'
             - os: 'windows-latest'
               arch: 'amd64'
-              platform:  'windows'
+              platform: 'windows'
             - os: 'macos-latest'
               arch: 'arm64'
-              goos:  'darwin'
+              platform: 'darwin'
             - os: 'macos-13'
               arch: 'amd64'
-              goos:  'darwin'
+              platform: 'darwin'
       runs-on: ${{ matrix.build.os }}
       steps:
         - name: Checkout
@@ -111,7 +111,7 @@ jobs:
           env:
             BUILD_OPTIONS: ${{ steps.build_options.outputs.BUILD_OPTIONS }}
           working-directory: ${{ env.WORKING_DIR }}
-          run: wails build --platform ${{ matrix.build.goos }}/${{ matrix.build.arch }} -webview2 ${{ env.WAILS_WEBVIEW_INSTALL }} -o ${{ env.APP_NAME}} $BUILD_OPTIONS
+          run: wails build --platform ${{ matrix.build.platform }}/${{ matrix.build.arch }} -webview2 ${{ env.WAILS_WEBVIEW_INSTALL }} -o ${{ env.APP_NAME}} $BUILD_OPTIONS
           shell: bash
         - name: List build content
           working-directory: ${{ env.WORKING_DIR }}
