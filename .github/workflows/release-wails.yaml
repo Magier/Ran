@@ -1,0 +1,44 @@
+name: Release
+on:
+  workflow_dispatch: 
+  push:
+    tags:
+      - v*.*.*
+
+permissions:
+  contents: write
+
+jobs:
+    build-wails:
+      defaults:
+          run: 
+            working-directory: ./RanUI
+      strategy:
+      # Failure in one platform build won't impact the others
+        fail-fast: false
+        matrix:
+          build:
+            - name: 'App'
+              platform:  'linux/amd64'
+              os: 'ubuntu-latest'
+            - name: 'App'
+              platform:  'windows/amd64'
+              os: 'windows-latest'
+            - name: 'App'
+              platform:  'darwin/universal'
+              os: 'macos-latest'
+      runs-on: ${{ matrix.build.os }}
+      steps:
+        - name: Checkout
+          uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+          with:
+            submodules: recursive
+
+        - name: Build wails
+          uses: dAppServer/wails-build-action@v2.2
+          id: build
+          with:
+            build-name: ${{ matrix.build.name }}
+            build-platform: ${{ matrix.build.platform }}
+            package: false
+            go-version: '1.25'
