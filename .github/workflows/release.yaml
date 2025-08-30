@@ -144,7 +144,7 @@ jobs:
         - name: Download prebuilt frontend
           uses: actions/download-artifact@v4
           with:
-            name: frontend-build
+            name: frontend-dist
             path: ${{ env.WORKING_DIR }}/frontend/build
 
         - name: List frontend build content
