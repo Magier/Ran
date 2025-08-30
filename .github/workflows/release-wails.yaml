@@ -2,10 +2,10 @@ name: Release RanUI
 on:
   workflow_dispatch: 
     inputs:
-      # build:
-      #   description: "Platform to build for"
-      #   required: false
-      #   default: "true"
+      app-name:
+        description: "The name of the binary file"
+        default: "RanUI"
+        required: true
       # sign:
       #   description: "Sign the build"
       #   required: false
@@ -14,18 +14,10 @@ on:
         description: "Uploads workflow & uploads tag builds to a release"
         required: false
         default: "true"
-      # nsis:
-      #   description: "Build a Windows Installer"
-      #   required: false
-      #   default: "false"
-      build-name:
-        description: "The name of the binary file"
-        default: "RanUI"
+      tag:
+        description: "Existing release tag (e.g. v1.2.3)"
         required: true
-      # build-cache:
-      #   description: "Cache the build"
-      #   required: false
-      #   default: "true"
+        type: string
       build-platform:
         description: "Platform to build for"
         required: false
@@ -46,14 +38,6 @@ on:
         description: "Webview2 installer method [download,embed,browser,error]"
         required: false
         default: "download"
-      # go-version:
-      #   description: "Version of Go to use"
-      #   required: false
-      #   default: "1.23"
-      node-version:
-        description: "Node js version"
-        required: false
-        default: "24.x"
       app-working-directory:
         description: "This gets run into bash, use the full command"
         required: false
@@ -148,7 +132,7 @@ jobs:
           env:
             BUILD_OPTIONS: ${{ steps.build_options.outputs.BUILD_OPTIONS }}
           working-directory: ${{ inputs.app-working-directory }}
-          run: wails build --platform ${{ matrix.build.platform }} -webview2 ${{inputs.wails-build-webview2}} -o ${{inputs.build-name}} $BUILD_OPTIONS
+          run: wails build --platform ${{ matrix.build.platform }} -webview2 ${{inputs.wails-build-webview2}} -o ${{inputs.app-name}} $BUILD_OPTIONS
           shell: bash
         - name: Add macOS perms
           if: runner.os == 'macOS'
@@ -190,20 +174,20 @@ jobs:
           working-directory: ${{ inputs.app-working-directory }}
           shell: bash
           run: |
-            ditto -c -k --keepParent build/bin/${{inputs.build-name}}.app build/bin/${{inputs.build-name}}.app.zip
+            ditto -c -k -v --keepParent build/bin/${{inputs.app-name}}.app dist/bin/${{inputs.app-name}}.app.zip
         # - name: Building Installer
         #   if: runner.os == 'macOS' && inputs.sign != 'false' && inputs.sign-macos-installer-id != '' && startsWith(github.ref, 'refs/tags/')
         #   shell: bash
         #   working-directory: ${{ inputs.app-working-directory }}
         #   run: |
-        #     productbuild --sign '${{inputs.sign-macos-installer-id}}' --component ${{ inputs.app-working-directory }}/build/bin/${{inputs.build-name}}.app /Applications ${{ inputs.app-working-directory }}/build/bin/${{inputs.build-name}}.pkg
+        #     productbuild --sign '${{inputs.sign-macos-installer-id}}' --component ${{ inputs.app-working-directory }}/build/bin/${{inputs.app-name}}.app /Applications ${{ inputs.app-working-directory }}/build/bin/${{inputs.app-name}}.pkg
         - name: Building Installer
           if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
           # if: runner.os == 'macOS' && inputs.sign-macos-installer-id == '' && startsWith(github.ref, 'refs/tags/')
           shell: bash
           working-directory: ${{ inputs.app-working-directory }}
           run: |
-            productbuild --component build/bin/${{inputs.build-name}}.app /Applications build/bin/${{inputs.build-name}}.pkg
+            productbuild --component build/bin/${{inputs.app-name}}.app /Applications build/bin/${{inputs.app-name}}.pkg
         # - name: Notarising Installer and zip
         #   if: runner.os == 'macOS' && inputs.sign != 'false' && startsWith(github.ref, 'refs/tags/')
         #   shell: bash
@@ -223,8 +207,8 @@ jobs:
         #     Set-Content -Path certificate\certificate.txt -Value '${{ inputs.sign-windows-cert }}'
         #     certutil -decode certificate\certificate.txt certificate\certificate.pfx
         #     echo "Signing our binaries"
-        #     & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/signtool.exe' sign /fd sha256 /tr http://ts.ssl.com /f certificate\certificate.pfx /p '${{ inputs.sign-windows-cert-password }}' .\build\bin\${{inputs.build-name}}.exe
-        #     echo "Signing Installer" & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/signtool.exe' sign /fd sha256 /tr http://ts.ssl.com /f certificate\certificate.pfx /p '${{ inputs.sign-windows-cert-password }}' .\build\bin\${{inputs.build-name}}-amd64-installer.exe
+        #     & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/signtool.exe' sign /fd sha256 /tr http://ts.ssl.com /f certificate\certificate.pfx /p '${{ inputs.sign-windows-cert-password }}' .\build\bin\${{inputs.app-name}}.exe
+        #     echo "Signing Installer" & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/signtool.exe' sign /fd sha256 /tr http://ts.ssl.com /f certificate\certificate.pfx /p '${{ inputs.sign-windows-cert-password }}' .\build\bin\${{inputs.app-name}}-amd64-installer.exe
         - name: List build content
           working-directory: ${{ inputs.app-working-directory }}
           run: find build | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
@@ -232,7 +216,16 @@ jobs:
         - uses: actions/upload-artifact@v4
           if: inputs.package == 'true'
           with:
-            name: Wails Build ${{runner.os}} ${{inputs.build-name}}
+            name: Wails Build ${{runner.os}} ${{inputs.app-name}}
             path: |
-              */bin/
-              *\bin\*
+              ${{ inputs.app-working-directory }}/dist/*
+              ${{ inputs.app-working-directory }}\dist\*
+
+        - name: Upload to existing release
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # provided by Actions
+          shell: bash
+          working-directory: ${{ inputs.app-working-directory }}
+          run: |
+            TAG="${{ inputs.tag }}"
+            gh release upload "$TAG" dist/* --clobber
