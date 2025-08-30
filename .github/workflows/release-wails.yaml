@@ -174,7 +174,7 @@ jobs:
           working-directory: ${{ inputs.app-working-directory }}
           shell: bash
           run: |
-            ditto -c -k -v --keepParent build/bin/${{inputs.app-name}}.app dist/bin/${{inputs.app-name}}.app.zip
+            ditto -c -k -v --keepParent build/bin/${{inputs.app-name}}.app dist/${{inputs.app-name}}.app.zip
         # - name: Building Installer
         #   if: runner.os == 'macOS' && inputs.sign != 'false' && inputs.sign-macos-installer-id != '' && startsWith(github.ref, 'refs/tags/')
         #   shell: bash
@@ -187,7 +187,7 @@ jobs:
           shell: bash
           working-directory: ${{ inputs.app-working-directory }}
           run: |
-            productbuild --component build/bin/${{inputs.app-name}}.app /Applications build/bin/${{inputs.app-name}}.pkg
+            productbuild --component build/bin/${{inputs.app-name}}.app /Applications dist/${{inputs.app-name}}.pkg
         # - name: Notarising Installer and zip
         #   if: runner.os == 'macOS' && inputs.sign != 'false' && startsWith(github.ref, 'refs/tags/')
         #   shell: bash
@@ -212,11 +212,14 @@ jobs:
         - name: List build content
           working-directory: ${{ inputs.app-working-directory }}
           run: find build | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
+        - name: List dist content
+          working-directory: ${{ inputs.app-working-directory }}
+          run: find dist | sed -e "s/[^-][^\/]*\//  |/g" -e "s/|\([^ ]\)/|-\1/"
           # Upload build assets
         - uses: actions/upload-artifact@v4
           if: inputs.package == 'true'
           with:
-            name: Wails Build ${{runner.os}} ${{inputs.app-name}}
+            name: ${{ inputs.app-name}}_${{inputs.tag}}_${{runner.os}}
             path: |
               ${{ inputs.app-working-directory }}/dist/*
               ${{ inputs.app-working-directory }}\dist\*
