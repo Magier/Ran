@@ -17,6 +17,7 @@ jobs:
         WORKING_DIR: RanUI
         DIST_DIR: dist
         VERSION: ${{ github.ref_name }}
+        WAILS_WEBVIEW_INSTALL: download
       defaults:
           run: 
             working-directory: RanUI
@@ -101,7 +102,7 @@ jobs:
           env:
             BUILD_OPTIONS: ${{ steps.build_options.outputs.BUILD_OPTIONS }}
           working-directory: ${{ env.WORKING_DIR }}
-          run: wails build --platform ${{ matrix.build.platform }} -webview2 ${{inputs.wails-build-webview2}} -o ${{ env.APP_NAME}} $BUILD_OPTIONS
+          run: wails build --platform ${{ matrix.build.platform }} -webview2 ${{ $env.WAILS_WEBVIEW_INSTALL }} -o ${{ env.APP_NAME}} $BUILD_OPTIONS
           shell: bash
         - name: Add macOS perms
           if: runner.os == 'macOS'
