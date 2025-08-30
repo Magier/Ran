@@ -33,14 +33,17 @@ jobs:
         matrix:
           build: 
             - os: 'ubuntu-latest'
-              platform:  'linux/amd64'
+              arch: 'amd64'
+              platform:  'linux'
             - os: 'windows-latest'
-              platform:  'windows/amd64'
+              arch: 'amd64'
+              platform:  'windows'
             - os: 'macos-latest'
-              platform:  'darwin/universal'
+              arch: 'arm64'
+              goos:  'darwin'
             - os: 'macos-13'
-              arch: amd64
-              platform:  'darwin/universal'
+              arch: 'amd64'
+              goos:  'darwin'
       runs-on: ${{ matrix.build.os }}
       steps:
         - name: Checkout
@@ -108,7 +111,7 @@ jobs:
           env:
             BUILD_OPTIONS: ${{ steps.build_options.outputs.BUILD_OPTIONS }}
           working-directory: ${{ env.WORKING_DIR }}
-          run: wails build --platform ${{ matrix.build.platform }} -webview2 ${{ env.WAILS_WEBVIEW_INSTALL }} -o ${{ env.APP_NAME}} $BUILD_OPTIONS
+          run: wails build --platform ${{ matrix.build.goos }}/${{ matrix.build.arch }} -webview2 ${{ env.WAILS_WEBVIEW_INSTALL }} -o ${{ env.APP_NAME}} $BUILD_OPTIONS
           shell: bash
         - name: Add macOS perms
           if: runner.os == 'macOS'
@@ -198,7 +201,7 @@ jobs:
         - name: Upload RanUI releases
           uses: actions/upload-artifact@v4
           with:
-            name: "RanUI-${{ matrix.build.platform }}-${{ runner.arch }}"
+            name: "RanUI-${{ matrix.build.goos }}-${{ runner.arch }}"
             path: ${{env.WORKING_DIR}}/${{ env.DIST_DIR }}/*
     release:
         runs-on: ubuntu-latest
