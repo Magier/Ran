@@ -1,4 +1,4 @@
-id: get-pods-via-k8s-api
+id: get-pods
 name: Get Pods via K8s API
 description: Get a list of pods via the K8s API server
 tactic: Discovery

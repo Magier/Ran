@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
 	import cytoscape from 'cytoscape';
 	import fcose from 'cytoscape-fcose';
@@ -52,8 +52,7 @@
 	onMount(() => {
 		positions = loadPositions();
 		zoom = getZoomLevelOrDefault(2);
-		pan = getPanPositionOrDefault({ x: 0, y: 0 });
-
+		const prevPan = getPanPositionOrDefault(undefined);
 		cy = cytoscape({
 			container: graphContainer, // container to render in
 			elements: {
@@ -62,15 +61,27 @@
 			},
 			style: getGraphStyle(),
 			layout: layout,
-			pan: pan,
 			zoom: zoom,
 			wheelSensitivity: 0.1
 		});
+		if (prevPan) {
+			cy.pan(prevPan);
+		}
 
 		layout.stop = () => {
 			existingNodes.unlock();
 			// apply previous pan and zoom, to nullify side-effects from layout
-			cy.pan(getPanPositionOrDefault({ x: 0, y: 0 }));
+			const origPan = cy.pan();
+			if (
+				prevPan === undefined ||
+				(origPan.x === 0 && origPan.y === 0)
+			) { 
+				console.error("No previous pan found, centering graph");
+				cy.center();
+			} else {
+				console.error("Post layout pan was: ", prevPan);
+			}
+
 			cy.zoom(getZoomLevelOrDefault(2));
 		};
 
@@ -80,27 +91,6 @@
 		cy.on('unselect', resetSelection);
 		cy.on('select', handleSelection);
 
-		const savePositions = () => {
-			const map: PosMap = {};
-			cy.nodes().forEach(n => { map[n.id()] = n.position(); });
-			positions = map;
-			sessionStorage.setItem(POS_KEY, JSON.stringify(positions));
-		};
-
-		const saveZoom = () => {
-			if (browser) {
-				sessionStorage.setItem(ZOOM_KEY, JSON.stringify(cy.zoom()));
-			}
-		};
-
-		const saveGraphLayout = () => {
-			if (browser) {
-				savePositions();
-				saveZoom();
-				sessionStorage.setItem(PAN_KEY, JSON.stringify(cy.pan()));
-			}
-		};
-
 		cy.on('dragfree', 'node', savePositions);
 		cy.on('pan', (e) => {
 			pan = e.target.pan();
@@ -109,12 +99,19 @@
 		cy.on('scrollzoom', saveZoom);
 		cy.on('pinchzoom', saveZoom);
 
+		console.info("Cytoscape graph initialized");
 		if (Object.keys(positions).length === 0) {
 			console.info("No previous positions, so using sane defaults for the layout")
 			cy.layout(layout).run();
 			cy.center();
 			saveGraphLayout();
+		} else {
+			console.info(">> Loaded previous node positions from session storage");
 		}
+	});
+
+	onDestroy(() => {
+		saveGraphLayout();
 	});
 
 	// reset any stored layouting information when the campaign is reset
@@ -167,6 +164,36 @@
 			}
 		}
 	});
+
+	function savePositions() {
+		if (cy === undefined) {
+			console.error("Cytoscape instance is undefined, cannot save positions");
+			return;
+		}
+		const map: PosMap = {};
+		cy.nodes().forEach(n => { map[n.id()] = n.position(); });
+		positions = map;
+		sessionStorage.setItem(POS_KEY, JSON.stringify(positions));
+
+	};
+	function saveZoom() {
+		if (browser) {
+			sessionStorage.setItem(ZOOM_KEY, JSON.stringify(cy.zoom()));
+		}
+	};
+
+	function saveGraphLayout() {
+		if (browser) {
+			if (cy === undefined) {
+				console.error("Cytoscape instance is undefined, cannot save graph layout");
+				return;
+			}
+			console.log("Saving graph layout");
+			savePositions();
+			saveZoom();
+			sessionStorage.setItem(PAN_KEY, JSON.stringify(cy.pan()));
+		}
+	};
 
 	function loadPositions(): PosMap {
 		if (!browser) return {};
