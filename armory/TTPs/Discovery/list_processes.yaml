@@ -10,9 +10,6 @@ procedures:
   - key: ps
     tool: ps
     command: ps -ef
-  - key: proc-
-    tool: cat
-    command: cat /proc/self/mount
 effects:
   - sys.processes
 # defend: {}
