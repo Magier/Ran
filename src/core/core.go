@@ -75,14 +75,17 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) error 
 	var ttp domain.TTP
 	ttp, ok := r.Armory.GetTTP(ttpID)
 	if !ok {
-		panic(fmt.Sprintf("Couldn't get TTP '%s'", ttpID))
+		// TODO: add suggestion of closest TTP IDs
+		return fmt.Errorf("Couldn't find TTP '%s'", ttpID)
 	}
 
 	args := make(map[string]string)
 
 	err = r.SetTarget(target)
 	if err != nil {
-		return fmt.Errorf("Couldn't set target: %v", err.Error())
+		// TODO: improve error handling depending on the TTP
+		slog.Debug("Couldn't set target", "target", target, "error", err.Error())
+		ttp.Procedures[0].IsLocalCommand = true
 	}
 
 	msg, err := r.Campaign.GroundAction(ttp, target, "", args)
@@ -299,7 +302,6 @@ func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, load
 
 		identities = append(identities, k8sConfigUser)
 	}
-	slog.Info("Sending inital entities like cluster")
 	results <- MaybeNewFacts{Facts: domain.Facts{
 		Entities:   entities,
 		Identities: identities,
