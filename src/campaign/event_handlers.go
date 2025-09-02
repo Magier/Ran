@@ -213,10 +213,16 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 		Session: ev.Session,
 	}
 
-	return c.UpdateFacts(
-		domain.Facts{[]domain.Entity{sys, ev.Session}, []domain.Relation{c2Channel, hasSession}, nil, nil},
-		domain.Facts{},
-	)
+	newFacts := domain.Facts{
+		Entities:  []domain.Entity{sys, ev.Session},
+		Relations: []domain.Relation{c2Channel, hasSession},
+	}
+	newFacts, removedFacts, err := c.AnalyzeChanges(newFacts, domain.Facts{})
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
+	}
+
+	return c.UpdateFacts(newFacts, removedFacts)
 }
 
 func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) {

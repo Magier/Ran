@@ -319,6 +319,7 @@ type System interface {
 	CanExecuteProcedure(procedure Procedure) bool
 	GetAccessLevel() AccessLevel
 	SetAccessLevel(AccessLevel)
+	GetHostName() string
 	SetIPs(ips []net.IPAddr)
 	HasBinary(name string) ProbBool
 	SetBinary(name, path string)
@@ -373,6 +374,10 @@ type SystemImpl struct {
 	Processes   []Process         `json:"processes,omitzero"` // List of processes running on the system
 	Mounts      []Mount           `json:"mounts,omitzero"`
 	AccessLevel AccessLevel       `json:"accessLevel,omitzero"` // Access level of the system (e.g., user, root)
+}
+
+func (s *SystemImpl) GetHostName() string {
+	return s.HostName
 }
 
 func (s *SystemImpl) GetAccessLevel() AccessLevel {
