@@ -429,7 +429,8 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			} else if target != nil {
 				slog.Warn(fmt.Sprintf("Target '%s' is not namespaced, can't set NS variable", target.GetName()))
 			} else {
-				slog.Warn("No valid target, can't get its NS variable")
+				slog.Warn("No valid target -> using `default` namespace")
+				arg = "default"
 			}
 		} else if strings.Contains(arg, POD_NAME_VAR) {
 			var podName string
@@ -751,6 +752,10 @@ func inflateListenerTemplate(listener domain.Listener, template string) string {
 }
 
 func UnpackResourceID(name string) (string, string, string, error) {
+	if name == "" {
+		return "", "", "", fmt.Errorf("resource ID is empty")
+	}
+
 	ns := "default"
 	kind := "pod"
 	var err error

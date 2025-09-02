@@ -49,6 +49,8 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 			resultingFacts, _, err = c.analyzeRoleBinding(e)
 		case domain.ConfigMap:
 			resultingFacts, _, err = c.analyzeConfigMap(e)
+		case domain.UnknownSystem:
+			resultingFacts, _, err = c.analyzeUnknownSystem(e)
 		default:
 			// just add the entity to the KB and skip ahead to the next entity without analyzing it
 			entities[e.GetId()] = e
@@ -1068,4 +1070,40 @@ func convertSecret(sourceName, name, value string) (domain.Secret, bool) {
 	}
 
 	return secret, true
+}
+
+func (c Campaign) analyzeUnknownSystem(sys domain.UnknownSystem) (domain.Facts, domain.Facts, error) {
+	entities := []domain.Entity{}
+	relations := make([]domain.Relation, 0)
+
+	knownEntities := c.GetEntities()
+	var matchedEntity domain.System
+
+	// check if there is a match based on the hostname?
+	for _, e := range knownEntities {
+		if knownSys, ok := e.(domain.System); ok {
+			if isSameSystem(knownSys, sys) {
+				matchedEntity = knownSys
+				break
+			}
+		}
+	}
+
+	if matchedEntity != nil {
+		updatedEntity := domain.UpdateEntity(matchedEntity, sys).(domain.System)
+		entities = append(entities, updatedEntity)
+	} else {
+		// keep the unknown system and try to match it at a later point in time
+		entities = append(entities, sys)
+	}
+
+	return domain.Facts{
+		Entities:  entities,
+		Relations: relations,
+	}, domain.Facts{}, nil
+}
+
+func isSameSystem(known, unknown domain.System) bool {
+	// TODO: incorporate further heuristics to find a matching entity
+	return known.GetHostName() == unknown.GetHostName()
 }
