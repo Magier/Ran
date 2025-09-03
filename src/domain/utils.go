@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 	"unicode"
@@ -130,11 +132,11 @@ func UpdateEntity(new, old Entity) Entity {
 		return new
 	}
 
-	if ownable, ok := new.(Ownable); ok {
+	prevOwnable, oldIsOwnable := old.(Ownable)
+	if ownable, ok := new.(Ownable); oldIsOwnable && ok {
 		hasOwner := false
 		ownerRef, _ := ownable.GetOwner()
 		if ownerRef.Name == "" {
-			prevOwnable := old.(Ownable)
 			ownerRef, hasOwner = prevOwnable.GetOwner()
 		}
 
@@ -151,14 +153,13 @@ func UpdateEntity(new, old Entity) Entity {
 	// 2) if new one has default value, use the value from the old one
 	// 3) If both have a value set, use the new one (already set)
 	// If both are zero, keep zero (already set)
-
 	new = mergeEntities(new, old)
 	return new
 }
 
-func mergeEntities(newEntity, oldEntity Entity) Entity {
-	newVal := reflect.ValueOf(newEntity)
-	oldVal := reflect.ValueOf(oldEntity)
+func mergeObjects(new, old interface{}) (interface{}, error) {
+	newVal := reflect.ValueOf(new)
+	oldVal := reflect.ValueOf(old)
 
 	if newVal.Kind() == reflect.Ptr {
 		newVal = newVal.Elem()
@@ -168,7 +169,7 @@ func mergeEntities(newEntity, oldEntity Entity) Entity {
 	}
 
 	if newVal.Type() != oldVal.Type() {
-		panic("cannot merge entities of different types")
+		return nil, fmt.Errorf("cannot merge entities of different types")
 	}
 
 	merged := reflect.New(newVal.Type()).Elem()
@@ -194,7 +195,96 @@ func mergeEntities(newEntity, oldEntity Entity) Entity {
 		}
 	}
 
-	return merged.Interface().(Entity)
+	return merged.Interface(), nil
+}
+
+func mergeEntities(newEntity, oldEntity Entity) Entity {
+	merged, err := mergeObjects(newEntity, oldEntity)
+	// happy path: if they could be merged without problems, no further action is needed
+	if err == nil {
+		return merged.(Entity)
+	}
+
+	newSys, newIsSys := newEntity.(System)
+	oldSys, oldIsSys := oldEntity.(System)
+	if newIsSys && oldIsSys {
+		sys, err := mergeSystems(newSys, oldSys)
+		if err == nil {
+			return sys
+		}
+	}
+	slog.Error(fmt.Sprintf("Can't merge entities of types %v and %v", newEntity, oldEntity))
+	return nil
+}
+
+func _mergeSystemCaster(a, b interface{}, t reflect.Type) (System, error) {
+	res, err := mergeObjects(a, b)
+	if err != nil {
+		return nil, err
+	}
+	mergedVal := reflect.ValueOf(res)
+	if mergedVal.Type() != t {
+		// If mergeObjects returns a pointer, dereference if needed
+		if mergedVal.Kind() == reflect.Ptr && mergedVal.Elem().Type() == t {
+			mergedVal = mergedVal.Elem()
+		}
+	}
+	// Convert to correct type
+	return mergedVal.Interface().(System), nil
+}
+
+func mergeSystems(a, b System) (System, error) {
+	if a == nil {
+		slog.Warn("Attempt to merge with nil system", "a", a, "b", b)
+		return b, nil
+	} else if b == nil {
+		slog.Warn("Attempt to merge with nil system", "a", a, "b", b)
+		return a, nil
+	}
+
+	aVal := reflect.ValueOf(a)
+	bVal := reflect.ValueOf(b)
+	aType := aVal.Type()
+	bType := bVal.Type()
+
+	// if it's the same types, then a regular object merge works
+	if aType == bType {
+		return _mergeSystemCaster(a, b, aType)
+	}
+
+	// special handling for divergent types: only UnknownSystem may be promoted
+	// other types can't be merged and yield an error
+
+	var unknownSystem UnknownSystem
+	var promoSys System
+
+	if u, ok := a.(UnknownSystem); ok {
+		unknownSystem = u
+		promoSys = b
+	} else if u, ok = b.(UnknownSystem); ok {
+		unknownSystem = u
+		promoSys = a
+		// continue with UnknownSystem promotion logic below
+	} else { // no UnknownSystem provided, can't promote sibling types
+		return nil, fmt.Errorf("cannot merge systems of different types: %T vs %T", a, b)
+	}
+
+	switch p := promoSys.(type) {
+	case Pod:
+		tmp, err := unknownSystem.PromoteToPod()
+		if err != nil {
+			return nil, fmt.Errorf("cannot promote UnknownSystem to Pod: %w", err)
+		}
+		return _mergeSystemCaster(tmp, promoSys, reflect.TypeOf(tmp))
+	case K8sNode:
+		tmp, err := unknownSystem.PromoteToK8sNode()
+		if err != nil {
+			return nil, fmt.Errorf("cannot promote UnknownSystem to K8sNode: %w", err)
+		}
+		return _mergeSystemCaster(tmp, promoSys, reflect.TypeOf(tmp))
+	default:
+		return nil, fmt.Errorf("Promotion of UnknownSystem to type %T is not yet supported", p)
+	}
 }
 
 func mergeValue(newField, oldField reflect.Value) reflect.Value {

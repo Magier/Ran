@@ -342,7 +342,19 @@ func (s UnknownSystem) GetName() string {
 }
 
 func (s UnknownSystem) GetKind() string {
-	return "UnknownSystem"
+	return "System"
+}
+
+func (s UnknownSystem) PromoteToPod() (Pod, error) {
+	p := NewPod(s.HostName, "")
+	p.SystemImpl = s.SystemImpl
+	return p, nil
+}
+
+func (s UnknownSystem) PromoteToK8sNode() (K8sNode, error) {
+	k := NewK8sNode(s.HostName)
+	k.SystemImpl = s.SystemImpl
+	return k, nil
 }
 
 func NewSystem(hostname, os string, accessLevel AccessLevel) UnknownSystem {

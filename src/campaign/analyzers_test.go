@@ -429,3 +429,76 @@ func TestAnalyzeMountInfo_WithHostKubeletInfos(t *testing.T) {
 		t.Errorf("Expected a runs-on relation for every pod link to a node %v", facts.Relations)
 	}
 }
+
+func TestAnalyzeUnknownSystem_MatchesToExistingPod(t *testing.T) {
+	// Create a campaign
+	c := NewCampaign(nil)
+
+	// Create a known pod with a specific hostname
+	hostName := "pod-657596d964-rp5kz"
+	namespace := "default"
+	knownPod := domain.NewPod(hostName, namespace)
+	knownPod.SystemImpl.HostName = hostName
+
+	// Create an unknown system with the same hostname but additional information
+	unknownSys := domain.NewSystem(hostName, "Linux", domain.RootExec)
+	unknownSys.Binaries = map[string]string{
+		"curl": "✓",
+		"wget": "✓",
+	}
+
+	// Set up the test with the existing pod in the campaign's known entities
+	// This would typically be done through another mechanism, but for testing
+	// we'll inject it directly
+	c.AddEntities(knownPod)
+
+	// Analyze the unknown system
+	newFacts, removedFacts, err := c.analyzeUnknownSystem(unknownSys)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Should return the matched pod with merged information
+	if len(newFacts.Entities) != 1 {
+		t.Fatalf("Expected 1 entity, got %d", len(newFacts.Entities))
+	}
+
+	// The entity should be a Pod with the same ID as our known Pod
+	updatedPod, ok := newFacts.Entities[0].(domain.Pod)
+	if !ok {
+		t.Fatalf("Expected entity to be a Pod, got %T", newFacts.Entities[0])
+	}
+
+	// Verify identity is preserved
+	if updatedPod.Name != hostName || updatedPod.Namespace != namespace {
+		t.Errorf("Expected pod name=%s namespace=%s, got name=%s namespace=%s",
+			hostName, namespace, updatedPod.Name, updatedPod.Namespace)
+	}
+
+	// Verify original data is preserved
+	if updatedPod.OS != "Linux" {
+		t.Errorf("Expected OS to remain 'Linux', got '%s'", updatedPod.OS)
+	}
+
+	if len(updatedPod.Binaries) != len(unknownSys.Binaries) {
+		t.Errorf("Expected original binaries to be preserved, got %v", updatedPod.Binaries)
+	}
+	for k, v := range unknownSys.Binaries {
+		if updatedPod.Binaries[k] != v {
+			t.Errorf("Expected original binary '%s' to be preserved, got %v", k, updatedPod.Binaries)
+		}
+	}
+
+	// Verify new data is merged
+	if updatedPod.Binaries["curl"] != "✓" || updatedPod.Binaries["wget"] != "✓" {
+		t.Errorf("Expected new binaries to be added, got %v", updatedPod.Binaries)
+	}
+	// if len(updatedPod.Files) != 1 || updatedPod.Files[0].Path != "/etc/passwd" {
+	// 	t.Errorf("Expected files to be merged, got %v", updatedPod.Files)
+	// }
+
+	// No entities should be removed
+	if len(removedFacts.Entities) != 0 {
+		t.Errorf("Expected no removed entities, got %d", len(removedFacts.Entities))
+	}
+}
