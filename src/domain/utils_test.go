@@ -237,3 +237,190 @@ func Test_mergeEntities_MergingSlicesDeduplicatesEntries(t *testing.T) {
 		t.Errorf("Expected mount paths to be '/new/path' and '/old/path', got %s and %s", merged.Mounts[0].MountPoint, merged.Mounts[1].MountPoint)
 	}
 }
+
+func Test_mergePodAndUnknownSystem(t *testing.T) {
+	hostName := "pod-123"
+	pod := NewPod(hostName, "default")
+	pod.HostName = hostName
+
+	os := "Linux"
+	unknownSys := NewSystem(hostName, os, RootExec)
+	unknownSys.EnvVars = map[string]string{
+		"VAR": "Aarst",
+	}
+
+	resEntity := mergeEntities(unknownSys, pod)
+	if resEntity == nil {
+		t.Fatal("Expected merged entity to be non-nil")
+	}
+
+	merged, isPod := resEntity.(Pod)
+	if !isPod {
+		t.Fatalf("Expected merged entity to be Pod, got %T", resEntity)
+	}
+
+	if merged.HostName != hostName {
+		t.Errorf("Expected HostName to be '%s', got %s", hostName, merged.HostName)
+	}
+	if merged.OS != os {
+		t.Errorf("Expected OS to be '%s', got %s", os, merged.OS)
+	}
+
+	if merged.EnvVars["VAR"] != "Aarst" {
+		t.Errorf("Expected EnvVars[VAR] to be 'Aarst', got %s", merged.EnvVars["VAR"])
+	}
+}
+
+func Test_mergeSystems(t *testing.T) {
+	type testCase struct {
+		name     string
+		a        System
+		b        System
+		wantType reflect.Type
+		wantErr  bool
+	}
+
+	hostName := "pod-123"
+	os := "Linux"
+	pod := NewPod(hostName, "default")
+	pod.HostName = hostName
+	pod.OS = os
+
+	// always set binaries on the first sys and envVars on 2nd; the final should have both
+	binary := "curl"
+	envVars := map[string]string{
+		"VAR": "Aarst",
+	}
+
+	node := NewK8sNode(hostName)
+	unknownSys := NewSystem(hostName, os, RootExec)
+	tests := []testCase{
+		{
+			name:     "Pod vs Pod",
+			a:        pod,
+			b:        pod,
+			wantType: reflect.TypeOf(pod),
+		},
+		{
+			name:     "K8sNode vs K8sNode",
+			a:        node,
+			b:        node,
+			wantType: reflect.TypeOf(node),
+		},
+		{
+			name:     "Pod vs K8sNode",
+			a:        pod,
+			b:        node,
+			wantType: nil,
+			wantErr:  true,
+		},
+		{
+			name:     "K8sNode vs Pod",
+			a:        node,
+			b:        pod,
+			wantType: nil,
+			wantErr:  true,
+		},
+		{
+			name:     "Pod vs UnknownSystem (promotes to Pod)",
+			a:        pod,
+			b:        unknownSys,
+			wantType: reflect.TypeOf(pod),
+		},
+		{
+			name:     "UnknownSystem (promotes to Pod) vs Pod",
+			a:        unknownSys,
+			b:        pod,
+			wantType: reflect.TypeOf(pod),
+		},
+		{
+			name:     "K8sNode vs UnknownSystem (promotes to K8sNode)",
+			a:        node,
+			b:        unknownSys,
+			wantType: reflect.TypeOf(node),
+		},
+		{
+			name:     "UnknownSystem (promotes to K8sNode) vs K8sNode",
+			a:        unknownSys,
+			b:        node,
+			wantType: reflect.TypeOf(node),
+		},
+		{
+			name:     "Pod vs nil",
+			a:        pod,
+			b:        nil,
+			wantType: reflect.TypeOf(pod),
+		},
+		{
+			name:     "nil vs Pod",
+			a:        nil,
+			b:        pod,
+			wantType: reflect.TypeOf(pod),
+		},
+		{
+			name:     "K8sNode vs nil",
+			a:        node,
+			b:        nil,
+			wantType: reflect.TypeOf(node),
+		},
+		{
+			name:     "nil vs K8sNode",
+			a:        nil,
+			b:        node,
+			wantType: reflect.TypeOf(node),
+		},
+		{
+			name:     "UnknownSystem vs nil",
+			a:        unknownSys,
+			b:        nil,
+			wantType: reflect.TypeOf(unknownSys),
+		},
+		{
+			name:     "nil vs UnknownSystem",
+			a:        nil,
+			b:        unknownSys,
+			wantType: reflect.TypeOf(unknownSys),
+		},
+		{
+			name:    "nil vs nil",
+			a:       nil,
+			b:       nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.a != nil {
+				tc.a.SetEnvironmentVariables(envVars)
+			}
+			if tc.b != nil {
+				tc.b.SetBinary(binary, binary)
+			}
+
+			got, err := mergeSystems(tc.a, tc.b)
+			if err != nil {
+				if !tc.wantErr {
+					t.Errorf("mergeSystems returned error: %v", err)
+				}
+				return
+			}
+			if got != nil {
+
+				if tc.wantType != nil && reflect.TypeOf(got) != tc.wantType {
+					t.Errorf("Expected type %v, got %v", tc.wantType, reflect.TypeOf(got))
+				}
+
+				// fields set on A are correctly merged
+				if !reflect.DeepEqual(got.GetEnvironmentVariables(), envVars) {
+					t.Errorf("Expected environment variables %v, got %v", envVars, got.GetEnvironmentVariables())
+				}
+
+				// fields set on B are correctly merged
+				if !got.HasBinary(binary).Bool() {
+					t.Errorf("Expected binary %q to be set", binary)
+				}
+			}
+		})
+	}
+}

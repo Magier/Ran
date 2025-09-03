@@ -98,12 +98,12 @@ func TestUnpackResourceID(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:     "Empty string returns default values",
+			name:     "Empty string returns error",
 			input:    "",
-			wantNS:   "default",
-			wantKind: "Pod",
+			wantNS:   "",
+			wantKind: "",
 			wantName: "",
-			wantErr:  false,
+			wantErr:  true,
 		},
 	}
 
