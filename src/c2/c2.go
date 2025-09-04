@@ -91,8 +91,12 @@ func (c2 *C2Manager) Start(ctx context.Context) error {
 	// TODO: send command after actually conncting to C2, with the right IP(s)
 	c2EventStreams := make([]<-chan domain.Event, len(c2.clients))
 	for _, client := range c2.clients {
-		go connectToC2(ctx, c2.bus, client)
-		c2EventStreams = append(c2EventStreams, client.GetEventStream())
+		err := client.Connect(ctx)
+		if err != nil {
+			slog.Error("Failed to connect to C2 server: " + err.Error())
+		} else {
+			c2EventStreams = append(c2EventStreams, client.GetEventStream())
+		}
 	}
 
 	for event := range fanIn[domain.Event](c2EventStreams...) {
@@ -129,26 +133,15 @@ func fanIn[T domain.Event](channels ...<-chan T) chan T {
 	return output
 }
 
-func connectToC2(ctx context.Context, mb bus.MessageBus, c2client C2Client) {
-	// successful C2Connect event is sent by the client itself
-	err := c2client.Connect(ctx)
-	if err != nil {
-		err = mb.Publish(C2ConnectFailed{
-			Name:   c2client.GetName(),
-			Reason: err.Error(),
-		})
-		if err != nil {
-			slog.Error(err.Error())
-		}
-	}
-}
-
 func (c2 C2Manager) StartC2Client(ctx context.Context, c2Name string) (domain.Message, error) {
 	client, ok := c2.clients[c2Name]
 	if !ok {
 		return nil, fmt.Errorf("'%s' is not a valid C2 server to connect to", c2Name)
 	}
-	go connectToC2(ctx, c2.bus, client)
+	err := client.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
 	c2EventStream := client.GetEventStream()
 
 	wg := sync.WaitGroup{}
@@ -187,14 +180,18 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 			if exec.Procedure.Tool == SliverKind {
 				cfgPath := exec.Args["CONFIG_PATH"]
 				if sliverClient, err := CreateSliverClient(cfgPath); err == nil {
-					c2.clients[SliverKind] = sliverClient
+					c2.clients[SliverKind] = &sliverClient
 				} else {
 					return nil, fmt.Errorf("Failed to create Sliver client: %w", err)
 				}
 			}
-			msg, err := c2.StartC2Client(ctx, exec.Procedure.Tool)
-			if err != nil {
-				return nil, fmt.Errorf("Failed to start C2 client: %w", err)
+			var responseMsg domain.Message
+			responseMsg, err = c2.StartC2Client(ctx, exec.Procedure.Tool)
+			if err == nil && responseMsg != nil {
+				if e := c2.bus.Publish(responseMsg); e != nil {
+					slog.Error("Failed to publish C2 client start message: " + e.Error())
+				}
+			}
 			} else {
 				c2.bus.Publish(msg)
 			}

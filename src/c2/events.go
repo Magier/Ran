@@ -51,16 +51,6 @@ func (c SessionClosed) String() string {
 	return "Session closed: " + c.Session.Id
 }
 
-type C2ConnectFailed struct {
-	domain.EventImpl
-	Name   string
-	Reason string
-}
-
-func (c C2ConnectFailed) String() string {
-	return fmt.Sprintf("Failed to connect to %s: %s", c.Name, c.Reason)
-}
-
 type BinaryDownloaded struct {
 	Name string
 	Path string

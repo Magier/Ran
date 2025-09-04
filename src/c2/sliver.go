@@ -11,6 +11,7 @@ import (
 	"net"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/Magier/Ran/domain"
 	"github.com/bishopfox/sliver/client/assets"
@@ -31,6 +32,9 @@ type SliverClient struct {
 	cmdChannel  chan domain.Command
 	eventStream chan domain.Event
 	isReady     bool
+	conn        io.Closer
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
 }
 
 func CreateSliverClient(configPath string) (SliverClient, error) {
@@ -43,19 +47,21 @@ func CreateSliverClient(configPath string) (SliverClient, error) {
 		Name:        SliverKind,
 		config:      config,
 		cmdChannel:  make(chan domain.Command, 1),
-		eventStream: make(chan domain.Event, 1),
+		eventStream: make(chan domain.Event, 100), // unsure how many jobs/sessions exist when connecting to sliver
 	}, nil
 }
 
-func (c SliverClient) Connect(ctx context.Context) error {
+func (c *SliverClient) Connect(parentCtx context.Context) error {
 	// connect to the server
-	rpc, ln, err := transport.MTLSConnect(c.config)
+	rpc, conn, err := transport.MTLSConnect(c.config)
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	c.conn = conn
 	c.rpc = rpc
-
+	// 2) derive a cancellable ctx tied to the caller’s ctx
+	ctx, cancel := context.WithCancel(parentCtx)
+	c.cancel = cancel
 	serverIp := c.GetServerIp()
 
 	c.eventStream <- domain.C2Connected{
@@ -63,78 +69,140 @@ func (c SliverClient) Connect(ctx context.Context) error {
 		IP:   serverIp,
 		Kind: SliverKind,
 	}
-	reportOpenListeners(rpc, c.eventStream, serverIp, c.config.LPort)
+	reportOpenListeners(rpc, c.eventStream, c.config.LPort)
 	reportEstablishedSessions(rpc, c.eventStream)
 
 	// Open the event stream to be able to collect all events sent by  the server
-	sliverEventStream, err := rpc.Events(context.Background(), &commonpb.Empty{})
+	sliverEventStream, err := rpc.Events(ctx, &commonpb.Empty{})
 	if err != nil {
+		// best-effort cleanup
+		_ = c.closeUnderlying()
 		slog.Error(err.Error())
 	}
 
 	// handle all incoming events in the background
-	events := make(chan *clientpb.Event)
-	go func(sliverEventStream rpcpb.SliverRPC_EventsClient) {
-		for {
-			select {
-			case <-ctx.Done():
-				break
-			default:
-				event, err := sliverEventStream.Recv()
-				if err == io.EOF || event == nil {
-					return
-				}
-				events <- event
-			}
-		}
-	}(sliverEventStream)
+	events := make(chan *clientpb.Event, 64) // small buffer to avoid "head-of-line blocking"
+	c.wg.Add(1)
+	go c.recvServerEvents(ctx, sliverEventStream, events)
 
 	// handle all commands sent to the Sliver server
+	c.wg.Add(1)
+	go c.runDispatchLoop(ctx, events)
+	return nil
+}
+
+// recvServerEvents continuously receives events from the gRPC stream and fans them into 'out'.
+// It exits when ctx is cancelled, the stream ends, or a recv error occurs.
+// It always closes 'out' on exit.
+func (c *SliverClient) recvServerEvents(
+	ctx context.Context,
+	stream rpcpb.SliverRPC_EventsClient,
+	out chan<- *clientpb.Event,
+) {
+	defer c.wg.Done()
+	defer close(out)
+
 	for {
+		evt, err := stream.Recv()
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			slog.Error("event recv failed", "err", err)
+			return
+		}
+		if evt == nil {
+			continue
+		}
 		select {
 		case <-ctx.Done():
-			break
-		case cmd, ok := <-c.cmdChannel:
-			if !ok {
-				c.cmdChannel = nil
-			}
-			event, err := c.handleCommand(cmd)
-			if err != nil {
-				slog.Error("Sliver C2", "Could not send cmd", err.Error())
-			}
-			if event != nil {
-				c.eventStream <- event
-				if err != nil {
-					slog.Error("Sliver C2", "Could not publish resulting event", err.Error())
-				}
-			}
-		case event := <-events:
-			go c.handleSliverEvent(c.eventStream, event)
+			return
+		case out <- evt:
 		}
 	}
 }
-func (c SliverClient) Shutdown() {
-	close(c.cmdChannel)
+
+// runDispatchLoop multiplexes between:
+// - ctx cancellation
+// - incoming commands (c.cmdChannel)
+// - incoming server events (events)
+// It returns when ctx is cancelled or when the server events channel closes.
+func (c *SliverClient) runDispatchLoop(
+	ctx context.Context,
+	events <-chan *clientpb.Event,
+) {
+	defer c.wg.Done()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case cmd, ok := <-c.cmdChannel:
+			if !ok {
+				c.cmdChannel = nil
+				continue
+			}
+			event, err := c.handleCommand(cmd)
+			if err != nil {
+				slog.Error("Sliver C2: could not send cmd", "err", err)
+			}
+			if event != nil {
+				select {
+				case <-ctx.Done():
+					return
+				case c.eventStream <- event:
+				}
+			}
+
+		case evt, ok := <-events:
+			if !ok {
+				// Server event stream ended; stop the loop.
+				return
+			}
+			go c.handleSliverEvent(c.eventStream, evt)
+		}
+	}
 }
 
-func (c SliverClient) GetEventStream() <-chan domain.Event {
+func (c *SliverClient) Shutdown() {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	close(c.cmdChannel)
+	c.wg.Wait()
+	_ = c.closeUnderlying()
+}
+
+func (c *SliverClient) GetEventStream() <-chan domain.Event {
 	return c.eventStream
 }
 
-func (c SliverClient) SetReady(state bool) C2Client {
+func (c *SliverClient) closeUnderlying() error {
+	var first error
+	if c.conn != nil {
+		if err := c.conn.Close(); err != nil && first == nil {
+			first = err
+		}
+		c.conn = nil
+	}
+	return first
+}
+
+func (c *SliverClient) SetReady(state bool) C2Client {
 	c.isReady = state
 	return c
 }
 
-func (c SliverClient) IsReady() bool {
+func (c *SliverClient) IsReady() bool {
 	return c.isReady
 }
 
-func (c SliverClient) GetName() string {
+func (c *SliverClient) GetName() string {
 	return c.Name
 }
 
-func (c SliverClient) GetServerIp() net.IP {
+func (c *SliverClient) GetServerIp() net.IP {
 	var ip net.IP
 	// resolve the local IP to the 'external' one, so the compromised systems can reach it
 	if slices.Contains([]string{"0.0.0.0", "localhost"}, c.config.LHost) {
@@ -145,7 +213,7 @@ func (c SliverClient) GetServerIp() net.IP {
 	return ip
 }
 
-func (c SliverClient) handleSliverEvent(results chan<- domain.Event, event *clientpb.Event) error {
+func (c *SliverClient) handleSliverEvent(results chan<- domain.Event, event *clientpb.Event) error {
 	var resultingMessage domain.Event
 	// Trigger event based on type
 	switch event.EventType {
@@ -158,14 +226,7 @@ func (c SliverClient) handleSliverEvent(results chan<- domain.Event, event *clie
 	case consts.JobStartedEvent:
 		job := event.Job
 		// resolve the local IP to the 'external' one, so the compromised systems can reach it
-		resultingMessage = ListenerReady{
-			ID:       fmt.Sprintf("%d", job.ID),
-			Name:     fmt.Sprintf("sliver_%s", job.Name),
-			C2Server: c.Name,
-			// IP:       ip,
-			Port:     uint(job.Port),
-			Protocol: domain.Protocol(strings.ToUpper(job.Protocol)),
-		}
+		resultingMessage = parseListener(job)
 
 	case consts.JobStoppedEvent:
 		job := event.Job
@@ -179,7 +240,7 @@ func (c SliverClient) handleSliverEvent(results chan<- domain.Event, event *clie
 	return nil
 }
 
-func (c SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
+func (c *SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 	switch cmd := msg.(type) {
 	case domain.StartListener:
 		return c.startListener(cmd)
@@ -249,7 +310,17 @@ func parseSession(session *clientpb.Session) domain.Session {
 	}
 }
 
-func reportOpenListeners(rpc rpcpb.SliverRPCClient, results chan<- domain.Event, serverIp net.IP, clientPort int) {
+func parseListener(job *clientpb.Job) ListenerReady {
+	return ListenerReady{
+		ID:       fmt.Sprintf("%d", job.ID),
+		Name:     fmt.Sprintf("sliver_%s", job.Name),
+		Port:     uint(job.Port),
+		C2Server: SliverKind,
+		Protocol: domain.Protocol(strings.ToUpper(job.Protocol)),
+	}
+}
+
+func reportOpenListeners(rpc rpcpb.SliverRPCClient, results chan<- domain.Event, clientPort int) {
 	jobs, err := rpc.GetJobs(context.Background(), &commonpb.Empty{})
 	if err != nil {
 		slog.Error(err.Error())
@@ -261,14 +332,7 @@ func reportOpenListeners(rpc rpcpb.SliverRPCClient, results chan<- domain.Event,
 		if job.Port == uint32(clientPort) {
 			continue
 		}
-
-		results <- ListenerReady{
-			Name:     fmt.Sprintf("sliver_%s", job.Name),
-			IP:       serverIp,
-			Port:     uint(job.Port),
-			C2Server: SliverKind,
-			Protocol: domain.Protocol(strings.ToUpper(job.Protocol)),
-		}
+		results <- parseListener(job)
 	}
 }
 
@@ -286,12 +350,12 @@ func reportEstablishedSessions(rpc rpcpb.SliverRPCClient, results chan<- domain.
 	}
 }
 
-func (c SliverClient) Execute(execTTP domain.Command) (domain.Message, error) {
+func (c *SliverClient) Execute(execTTP domain.Command) (domain.Message, error) {
 	c.cmdChannel <- execTTP
 	return nil, nil
 }
 
-func (c SliverClient) startListener(ev domain.StartListener) (domain.Event, error) {
+func (c *SliverClient) startListener(ev domain.StartListener) (domain.Event, error) {
 	switch ev.Protocol {
 	case domain.HTTP:
 		_, err := c.rpc.StartHTTPListener(context.Background(), &clientpb.HTTPListenerReq{
@@ -307,11 +371,11 @@ func (c SliverClient) startListener(ev domain.StartListener) (domain.Event, erro
 	return nil, fmt.Errorf("Starting Sliver %s Listener not yet implemented", ev.Protocol)
 }
 
-func (c SliverClient) stopListener(ev domain.StopListener) (domain.Event, error) {
+func (c *SliverClient) stopListener(ev domain.StopListener) (domain.Event, error) {
 	return nil, fmt.Errorf("Stopping Sliver Listener not yet implemented")
 }
 
-func (c SliverClient) downloadFile(sessionId, path string) ([]byte, error) {
+func (c *SliverClient) downloadFile(sessionId, path string) ([]byte, error) {
 	ctx := context.Background()
 	dl, err := c.rpc.Download(ctx, &sliverpb.DownloadReq{Path: path,
 		Request: makeRequest(sessionId)})
