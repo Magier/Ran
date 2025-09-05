@@ -33,9 +33,9 @@ func (c ListenerStopped) String() string {
 
 type SessionStarted struct {
 	domain.EventImpl
-	C2Kind  string
-	C2Name  string
-	Session domain.Session
+	C2Kind     string
+	C2Endpoint string
+	Session    domain.Session
 }
 
 func (c SessionStarted) String() string {

@@ -254,7 +254,7 @@ func (l Listener) GetKind() string {
 
 // GetName implements Entity.
 func (l Listener) GetName() string {
-	return fmt.Sprintf("listener_%d", l.Port)
+	return fmt.Sprintf("%s_%d", l.Protocol, l.Port)
 }
 
 func (l Listener) GetId() string {
@@ -386,6 +386,7 @@ type SystemImpl struct {
 	Processes   []Process         `json:"processes,omitzero"` // List of processes running on the system
 	Mounts      []Mount           `json:"mounts,omitzero"`
 	AccessLevel AccessLevel       `json:"accessLevel,omitzero"` // Access level of the system (e.g., user, root)
+	Sessions    []*Session        `json:"sessions,omitzero"`
 }
 
 func (s *SystemImpl) GetHostName() string {

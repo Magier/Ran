@@ -343,9 +343,9 @@ func reportEstablishedSessions(rpc rpcpb.SliverRPCClient, results chan<- domain.
 	}
 	for _, session := range sessions.GetSessions() {
 		results <- SessionStarted{
-			C2Kind:  SliverKind,
-			C2Name:  session.ActiveC2,
-			Session: parseSession(session),
+			C2Kind:     SliverKind,
+			C2Endpoint: session.ActiveC2,
+			Session:    parseSession(session),
 		}
 	}
 }
