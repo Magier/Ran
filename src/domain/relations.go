@@ -155,7 +155,7 @@ type ImplantC2Channel struct {
 	SessionId string
 	SourceId  string
 	Kind      string
-	Target    Entity
+	Target    Session
 	Protocol  string
 }
 
@@ -362,6 +362,9 @@ func (r HasC2Session) GetTargetId() string {
 
 func (r HasC2Session) GetRelationName() string {
 	return "has-session"
+}
+func (r HasC2Session) IsReverse() bool {
+	return true
 }
 
 type BindsRole struct {
