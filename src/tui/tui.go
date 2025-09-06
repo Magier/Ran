@@ -66,7 +66,7 @@ func SetupTUI(ran core.Ran) *tea.Program {
 	ran.Subscribe(c2.ListenerReady{}, forwardEvent)
 	ran.Subscribe(c2.ListenerStopped{}, forwardEvent)
 	ran.Subscribe(c2.SessionStarted{}, forwardEvent)
-	ran.Subscribe(c2.C2ConnectFailed{}, forwardEvent)
+	ran.Subscribe(domain.C2ConnectFailed{}, forwardEvent)
 	ran.Subscribe(domain.C2Connected{}, forwardEvent)
 	ran.Subscribe(domain.FactsChanged{}, forwardEvent)
 	ran.Subscribe(domain.GraphRendered{}, forwardEvent)

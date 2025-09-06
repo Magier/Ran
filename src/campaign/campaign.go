@@ -66,6 +66,7 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	campaign := NewCampaign(armory)
 	campaign.bus = mb
 	mb.Subscribe(domain.C2Connected{}, campaign.onC2Connected)
+	mb.Subscribe(domain.C2ConnectFailed{}, campaign.onC2ConnectFailed)
 	mb.Subscribe(domain.ExecTTP{}, campaign.onExecuteTTP)
 	mb.Subscribe(domain.TTPExecuted{}, campaign.onTTPExecuted)
 	mb.Subscribe(domain.ResetCampaign{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
@@ -562,6 +563,8 @@ func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (doma
 		// TODO populate the arguments
 		return cmd, nil
 		// default:
+	case domain.StopListener:
+		return cmd, nil
 	case nil:
 		return nil, errors.New("No CommandMsg specified for TTP: " + ttp.GetTitle())
 	}
