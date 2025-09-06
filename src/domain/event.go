@@ -193,6 +193,16 @@ func (e C2Connected) String() string {
 	return fmt.Sprintf("Connected to '%s' C2 server on %s", e.Name, e.IP)
 }
 
+type C2ConnectFailed struct {
+	EventImpl
+	Name   string
+	Reason string
+}
+
+func (c C2ConnectFailed) String() string {
+	return fmt.Sprintf("Failed to connect to %s: %s", c.Name, c.Reason)
+}
+
 type TTPExecuted struct {
 	EventImpl
 	ID         string

@@ -159,6 +159,14 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 
 	return c.UpdateFacts(domain.Facts{Entities: []domain.Entity{system}, Relations: rels}, domain.Facts{})
 }
+func (c *Campaign) onC2ConnectFailed(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	ev := msg.(domain.C2ConnectFailed)
+
+	return domain.ErrorMsg{
+		Level: domain.LevelError,
+		Msg:   ev.Name + " " + ev.Reason,
+	}, nil
+}
 
 func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 	c.sessions[ev.Session.Id] = ev.Session
@@ -204,7 +212,8 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 		SessionId: ev.Session.Id,
 		SourceId:  fmt.Sprintf("%s/%s", "c2", ev.C2Kind),
 		Kind:      ev.C2Kind,
-		Target:    sys,
+		Target:    ev.Session,
+		// Target:    sys,
 		// Protocol  string
 	}
 
