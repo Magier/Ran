@@ -155,28 +155,25 @@
 	<header class="flex justify-between">
 		<h4 class="h4">{ttp.name}</h4>
 	</header>
-	<article>
+	<article>	
 		<div class="">
 			<span class="h5 label">Description</span>
 			{ttp.description}
 		</div>
 
-		<div class="">
-			<span class="h5 label mt-5">Procedure</span>
+			<label class="h5 label mt-5" for="procedure">Procedure</label>
 			{#if ttp.procedures && ttp.procedures.length > 1}
-				<ul class="list-disc pl-5">
-					<select class="input mt-2" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
-						{#each ttp.procedures as procedure}
-							<option
-								value={procedure.Key}
-								disabled={executingSystemHasTool(targetId, procedure.Key)}
-								>{procedure.Key}
-							</option>
-						{/each}
-					</select>
-				</ul>
+				<select id="procedure" class="input mt-2" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
+					{#each ttp.procedures as procedure}
+						<option
+							value={procedure.Key}
+							disabled={executingSystemHasTool(targetId, procedure.Key)}
+							>{procedure.Key}
+						</option>
+					{/each}
+				</select>
 			{:else}
-				<code class="label mt-2">{procedureId}</code>
+				<code id="procedure" class="label mt-2">{procedureId}</code>
 			{/if}
 			<!-- <label class="label mt-5">
 				<span class="label-text">Target</span>
@@ -188,7 +185,6 @@
 				/>
 			</label> -->
 			{#if args.length > 0}
-				<fieldset class="mt-5">
 					<span class="h5">Params</span>
 					{#each args as arg}
 						<div class="input-group mt-2 grid-cols-[auto_1fr_auto]">
@@ -203,8 +199,10 @@
 							{:else if arg.Options}
 								<Combobox
 									data={arg.Options}
-									value={[arg.Value]}
-									onValueChange={(e) => (arg.Value = e.value[0])}
+									onValueChange={(e) => {
+										arg.Value = e.value[0]
+									}}
+									inputBehavior="autocomplete"
 									placeholder={arg.Name + "..."}
 									>
 									<!-- This is optional. Combobox will render label by default -->
@@ -231,9 +229,7 @@
 							/> -->
 						</div>
 					{/each}
-				</fieldset>
 			{/if}
-		</div>
 	</article>
 	<footer class="flex justify-end gap-4">
 		<button type="button" class="btn preset-tonal" onclick={onCancel}>Cancel</button>
