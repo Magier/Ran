@@ -1,0 +1,30 @@
+name: Execute in Shell
+description: Execute a command in a system shell
+tactic: Execution
+techniques: ["Command and Scripting Interpreter: Unix Shell"]
+preconditions:
+  accessLevel: user-exec
+  kind: System
+parameters:
+  NAMESPACE:
+    type: Namespace
+    default: ${TARGET}
+    description: Kubernetes namespace of the target pod
+  POD_NAME:
+    type: string
+    description: Name of the target pod
+  COMMAND:
+    type: string
+    description: the command to execute in the shell
+  ARGS:
+    type: string
+    description: the arguments to pass to the command
+  BACKGROUND:
+    type: bool
+    description: whether to run the command in the background
+    default: false
+procedures:
+  - key: bash
+    command: bash -c "${COMMAND} ${ARGS}" {{ if .BACKGROUND }} & {{ end }}
+# defend: {
+refernces:

