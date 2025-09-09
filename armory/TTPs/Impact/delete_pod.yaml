@@ -6,11 +6,11 @@ techniques:
   - T1489
 parameters:
   Name:
-    type: string
+    type: Pod
     default: ${TARGET}
     description: the name of the pod to delete
   Namespace:
-    type: string
+    type: Namespace
     default: ${NS}
     description: the name of the namespace of the pod
   Token:

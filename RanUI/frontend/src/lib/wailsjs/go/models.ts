@@ -304,7 +304,7 @@ export namespace domain {
 		}
 	}
 	export class State {
-	    entitlements?: Record<string, string[]>;
+	    entitlements?: Record<string, Array<string>>;
 	    entityCounts?: Record<string, number>;
 	
 	    static createFrom(source: any = {}) {

@@ -2,7 +2,7 @@ import { getContext, setContext } from "svelte";
 import * as runtime from "$lib/wailsjs/runtime";
 import type { ArmoryType, Node, Edge, Relation } from '$lib/model';
 import { campaign, main, type domain } from '$lib/wailsjs/go/models';
-import { GetArmory, GetCampaignState, GetGraph, ResetCampaign } from '$lib/wailsjs/go/main/App';
+import { GetArmory, GetCampaignState, GetGraph, GetRunningPods, ResetCampaign } from '$lib/wailsjs/go/main/App';
 import { showToast, type ToastType } from '$lib/components/toaster';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
@@ -11,7 +11,7 @@ import { showToast, type ToastType } from '$lib/components/toaster';
 type Conditions = {
 }
 
-type Entity = {
+export type Entity = {
     id: string;
     name: string;
     kind?: string;
@@ -51,6 +51,7 @@ class CampaignState {
     serviceAccounts = $state<Entity[]>([]);
     armory = $state<ArmoryType>(new Map());
     graph = $state<main.Graph>(new main.Graph());
+    allPods: Entity[] = $state([]);
 
     connect(useSocket: boolean) {
         if (useSocket) {
@@ -96,6 +97,7 @@ class CampaignState {
         GetGraph().then((g: main.Graph) => { this.graph =g; })
         GetCampaignState().then((s: main.CampaignState) => { this.#setState(s); })
         GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
+        GetRunningPods("").then(pods => {this.allPods = pods;});
     }
 
     reset() {
@@ -190,7 +192,11 @@ class CampaignState {
         return ns || [];
     }
 
-    getPods(ns?: string): Entity[] {
+    getPods(ns?: string, all: boolean = false): Entity[] {
+        // go beyond regular campaign state and return all pods in the cluster (regardless of exploration)
+        if (all) { 
+            return this.allPods;
+        }
         let pods = this.entities.filter(entity => entity.kind === 'Pod' && (!ns || entity.namespace === ns));
         return pods || [];
     }
