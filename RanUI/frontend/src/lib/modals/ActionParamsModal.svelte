@@ -2,9 +2,9 @@
 	import { Combobox } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId, type Param } from '$lib/model';
-	import { GetRunningPods } from '$lib/wailsjs/go/main/App';
-	import type { domain, main } from '$lib/wailsjs/go/models';
-	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+	import type { domain } from '$lib/wailsjs/go/models';
+	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
+	import { onMount } from 'svelte';
 
 	interface ParamProps {
 		targetId: string;
@@ -27,7 +27,6 @@
 		Type: string;
 		IsTrue: boolean;
 		Required?: boolean;
-		Options?: ComboboxOption[];
 	}
 
 	interface Constraint {
@@ -40,76 +39,44 @@
 
 	let procedureId = $state(ttp.procedures?.[0]?.Key || '');
 	let args = $state<Arg[]>([]);
-	let availablePods: ComboboxOption[] = $state([]);
+	let availableEntities: Entity[] = $state([]);
+	let namespaceArgName: string = "";
+
+	let argOptions: Record<string, ComboboxOption[]> = $state({});
 
 	let selectedNamespace = $derived.by(() => {
 		const nsArg = args.find(arg => arg.Type === 'Namespace');
 		return nsArg ? nsArg.Value : '';
 	});
-	// namespace options
-	$effect(() => {
-		let nsArg = args.find(arg => arg.Name === 'Namespace');
-		if (nsArg) {
-			nsArg.Options = availablePods
-				.map(pod => pod.group)
-				.filter((ns): ns is string => typeof ns === 'string')
-				.filter((value, index, self) => self.indexOf(value) === index)
-				.map(ns => ({ label: ns, value: ns }));
-		}
-	});
+	const isSetTargetTTP =  ttp.id === 'use-kubeconfig'; // special handling for the setTarget TTP
 
-	// pod options
-	$effect(() => {
-		let resArg = args.find(arg => arg.Type === 'Pod');
-		if (resArg) {
-			resArg.Options = availablePods.filter(pod => selectedNamespace ? pod.group === selectedNamespace : true);
-		}
-	});
-
-	// special handling for the InitialAccess technique, because it may use information not yet inferred during the campaign
-	$effect(() => {
-		if (procedureId === 'setTarget') {
-			GetRunningPods("").then(pods => {
-				availablePods = pods.map((pod: main.K8sResource) => ({ label: pod.name, value: pod.id, group: pod.namespace }));
-			});	
-		}
-	})
-
-	// the args will be the final arguments used when executing the TTP
-	$effect(() => {
+	onMount(() => {
 		args = ttp.params?.map((param: Param) => {
 				let value = param.Default;
-				let options: ComboboxOption[] | undefined = undefined;
 				if (argContext && param.Name in argContext) {
 					value = argContext[param.Name];
 				}
 
 				if (value === '${TARGET}') {
-					let id = parseEntityId(targetId);
-					value = id.name;
+					value = targetId;
+					if (param.Type === 'string') { 
+						// if the type is string, then only the name of ther target is relevant
+						const e = parseEntityId(targetId);
+						value = e?.name || '';
+					}
+					console.log("Setting target", param.Name, "to value", value);
 				}
 				if (param.Type === 'Namespace') {
+					namespaceArgName = param.Name;
 					if (param.Default === "" && targetId.startsWith("ns/")) {
 						value = targetId.split("/")[1];
-						console.log("set default NS to ", value)
 					}
-					const namespaces = campaignState.getNamespaces();
-					options = namespaces.map(ns => ({ label: ns.name, value: ns.name }));
 				} else if (param.Type === 'Pod') {
-					options = campaignState.getPods(selectedNamespace).map(pod => ({
-						label: pod.name,
-						value: pod.id,
-						group: pod.namespace
-					}));
+					availableEntities = campaignState.getPods("", isSetTargetTTP)
+					argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
 				} else if (param.Type === 'ServiceAccount') {
-					const serviceAccounts = campaignState.getServiceAccounts(selectedNamespace);
-					// TODO filter by entitlements (if known)
-					let saOptions = serviceAccounts.map(sa => {
-						const saId = sa.id || `ns/${sa.namespace}/sa/${sa.name}`;
-						return { label: sa.name, value: saId}
-					 });
-					 console.log("sa options ", saOptions)
-					options = saOptions;
+					availableEntities = campaignState.getServiceAccounts(selectedNamespace);
+					argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
 				}
 
 				return {
@@ -118,12 +85,25 @@
 					IsTrue: param.Default === 'true',
 					Description: param.Description,
 					Type: param.Type,
-					Options: options,
 					Required: param.Required
 				};
 			}) || [];
 	});
 
+	// namespace options
+	$effect(() => {
+		const uniqueNamespaces = availableEntities.reduce((nss: Set<string>, r) => {
+			if (r.namespace) { nss.add(r.namespace); }
+			return nss;
+		}, new Set<string>());
+		argOptions[namespaceArgName] = Array.from(uniqueNamespaces.values()).map(ns => ({ label: ns, value: ns }));
+	});
+
+	function entityToComboboxOption(e: Entity): ComboboxOption {
+		return { label: e.name, value: e.id, group: e.namespace };
+	}
+
+	// the args will be the final arguments used when executing the TTP
 	function onInternalExecute() {
 		const argsDict = args.reduce(
 			(acc: { [key: string]: string }, arg) => {
@@ -148,6 +128,14 @@
 	function executingSystemHasTool(system: string, tool: string): boolean {
 		console.warn('Checking of available tools is not implemented yet.');
 		return false;
+	}
+
+	function getArgOptions(argName: string): ComboboxOption[] {
+		let opts = argOptions[argName] ?? [];
+		if (selectedNamespace !== "" && argName !== namespaceArgName) {
+			opts = opts.filter(o => o.group === selectedNamespace);
+		}
+		return opts
 	}
 </script>
 
@@ -196,13 +184,15 @@
 									type="checkbox"
 									placeholder={arg.Description}
 								/>
-							{:else if arg.Options}
+							{:else if getArgOptions(arg.Name).length > 0}
 								<Combobox
-									data={arg.Options}
+									data={getArgOptions(arg.Name)}
 									onValueChange={(e) => {
 										arg.Value = e.value[0]
 									}}
 									inputBehavior="autocomplete"
+									allowCustomValue={true}
+									defaultValue={[arg.Value]}
 									placeholder={arg.Name + "..."}
 									>
 									<!-- This is optional. Combobox will render label by default -->

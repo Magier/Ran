@@ -11,7 +11,8 @@ parameters:
     default: ${TARGET}
     description: Kubernetes namespace of the target pod
   POD_NAME:
-    type: string
+    type: Pod
+    default: ${TARGET}
     description: Name of the target pod
   COMMAND:
     type: string
