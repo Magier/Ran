@@ -38,6 +38,9 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 			current = domain.UpdateEntity(current, existing)
 		}
 
+		sys, isSystem := current.(domain.System)
+		var isUnknown bool
+
 		switch e := current.(type) {
 		case domain.Pod:
 			resultingFacts, err = c.analyzePod(e)
@@ -50,6 +53,7 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 		case domain.ConfigMap:
 			resultingFacts, _, err = c.analyzeConfigMap(e)
 		case domain.UnknownSystem:
+			isUnknown = true
 			resultingFacts, _, err = c.analyzeUnknownSystem(e)
 		default:
 			// just add the entity to the KB and skip ahead to the next entity without analyzing it
@@ -61,6 +65,22 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to analyze %T", current), "error", err)
 		} else {
+			// if the system is known, see if it can be merged with an yet unknown systems
+			if isSystem && !isUnknown {
+				unknownSystems := c.getSystems(false, true)
+				for _, unknownSys := range unknownSystems {
+					if isSameSystem(unknownSys, sys) {
+						identifiedSystem := domain.UpdateEntity(sys, unknownSys)
+						resultingFacts.Entities = append(resultingFacts.Entities, identifiedSystem)
+						new, removedEdges := c.transplantEdges(unknownSys, identifiedSystem)
+						resultingFacts.Update(new)
+						removed.Update(removedEdges)
+						removed.Entities = append(removed.Entities, unknownSys)
+						break
+					}
+				}
+			}
+
 			mergeAnalyzedFacts(entities, identities, &relations, &assets, resultingFacts)
 			// queue newly found entities for analysis
 			for _, entity := range resultingFacts.Entities {
@@ -90,6 +110,39 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 		Assets:     assetsSlice,
 		Identities: identitySlice,
 	}, removed, nil
+}
+
+func (c *Campaign) transplantEdges(from, to domain.Entity) (domain.Facts, domain.Facts) {
+	inEdges := c.kb.GetIncomingEdges(from)
+	newRels := []domain.Relation{}
+	removeRels := []domain.Relation{}
+
+	// Update the relation to point 'from' to the old 'to' the new entity
+	for _, rel := range inEdges {
+		removeRels = append(removeRels, rel)
+
+		if relocator, ok := rel.(domain.RelationRelocator); ok {
+			newRel := relocator.WithTarget(to)
+			newRels = append(newRels, newRel)
+		} else {
+			slog.Warn("Could not relocate incoming relation", "relation", rel.GetRelationName())
+		}
+	}
+
+	for _, rel := range c.kb.GetOutgoingEdges(from) {
+		removeRels = append(removeRels, rel)
+		// newRel := domain.WithSourceOf(rel, to.GetId())
+		// newRels = append(newRels, newRel)
+
+		if relocator, ok := rel.(domain.RelationRelocator); ok {
+			newRel := relocator.WithSource(to)
+			newRels = append(newRels, newRel)
+		} else {
+			slog.Warn("Could not relocate outgoing relation", "relation", rel.GetRelationName())
+		}
+	}
+
+	return domain.Facts{Relations: newRels}, domain.Facts{Relations: removeRels}
 }
 
 func mergeAnalyzedFacts(
@@ -1076,16 +1129,14 @@ func (c Campaign) analyzeUnknownSystem(sys domain.UnknownSystem) (domain.Facts, 
 	entities := []domain.Entity{}
 	relations := make([]domain.Relation, 0)
 
-	knownEntities := c.GetEntities()
+	knownSystems := c.getSystems(true, false)
 	var matchedEntity domain.System
 
 	// check if there is a match based on the hostname?
-	for _, e := range knownEntities {
-		if knownSys, ok := e.(domain.System); ok {
-			if isSameSystem(knownSys, sys) {
-				matchedEntity = knownSys
-				break
-			}
+	for _, knownSys := range knownSystems {
+		if isSameSystem(knownSys, sys) {
+			matchedEntity = knownSys
+			break
 		}
 	}
 
@@ -1103,7 +1154,19 @@ func (c Campaign) analyzeUnknownSystem(sys domain.UnknownSystem) (domain.Facts, 
 	}, domain.Facts{}, nil
 }
 
-func isSameSystem(known, unknown domain.System) bool {
+func isSameSystem(a, b domain.System) bool {
+	// check different sources of system name against each other
+	namesA := map[string]bool{
+		a.GetName():     true,
+		a.GetHostName(): true,
+	}
+	namesB := []string{b.GetName(), b.GetHostName()}
+	for _, name := range namesB {
+		if _, exists := namesA[name]; exists && name != "" {
+			return true
+		}
+	}
+
 	// TODO: incorporate further heuristics to find a matching entity
-	return known.GetHostName() == unknown.GetHostName()
+	return false
 }

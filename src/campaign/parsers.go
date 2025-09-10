@@ -302,9 +302,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		return factsUpdate{}, fmt.Errorf("Can't parse effect %s because there are no results", effect)
 	}
 
-	// alreadyExists := false
 	if strings.Contains(results[0], "already exists") {
-		// alreadyExists = true
 		slog.Info(fmt.Sprintf("Parsing Effect: entity '%s' already exists", effect))
 	}
 

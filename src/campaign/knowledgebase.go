@@ -39,6 +39,8 @@ type KnowledgeBase interface {
 	GetAllPaths(source, target string) ([]Path, error)
 	GetIncomingEntities(entity domain.Entity, rel domain.Relation) ([]domain.Entity, error)
 	GetAdjecencyList() AdjacencyList
+	GetIncomingEdges(entity domain.Entity) []domain.Relation
+	GetOutgoingEdges(entity domain.Entity) []domain.Relation
 }
 
 type BuiltInKnowledgeBase struct {
@@ -131,6 +133,26 @@ func (kg *BuiltInKnowledgeBase) GetAdjecencyList() AdjacencyList {
 	}
 
 	return adjList
+}
+
+func (kg *BuiltInKnowledgeBase) GetIncomingEdges(entity domain.Entity) []domain.Relation {
+	incomingEdges := make([]domain.Relation, 0)
+	for _, rel := range kg.Relations {
+		if rel.GetTargetId() == entity.GetId() {
+			incomingEdges = append(incomingEdges, rel)
+		}
+	}
+	return incomingEdges
+}
+
+func (kg *BuiltInKnowledgeBase) GetOutgoingEdges(entity domain.Entity) []domain.Relation {
+	outgoingEdges := make([]domain.Relation, 0)
+	for _, rel := range kg.Relations {
+		if rel.GetSourceId() == entity.GetId() {
+			outgoingEdges = append(outgoingEdges, rel)
+		}
+	}
+	return outgoingEdges
 }
 
 func (kg *BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, error) {
