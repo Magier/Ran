@@ -781,3 +781,22 @@ func UnpackResourceID(name string) (string, string, string, error) {
 	kind = domain.GetKindFromResourceShortName(kind)
 	return ns, kind, name, err
 }
+
+func (c *Campaign) getSystems(includeKnown, includeUnknown bool) []domain.System {
+	systems := make([]domain.System, 0)
+	for _, e := range c.kb.GetEntities() {
+		if sys, ok := e.(domain.System); ok {
+			switch sys.(type) {
+			case domain.UnknownSystem:
+				if includeUnknown {
+					systems = append(systems, sys)
+				}
+			default:
+				if includeKnown {
+					systems = append(systems, sys)
+				}
+			}
+		}
+	}
+	return systems
+}

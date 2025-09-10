@@ -239,6 +239,12 @@ type Secret struct {
 	Data map[string]string
 }
 
+var _ Entity = (*Secret)(nil)
+
+func (s Secret) GetId() string   { return s.Name }
+func (s Secret) GetName() string { return s.Name }
+func (s Secret) GetKind() string { return "Secret" }
+
 type Listener struct {
 	ID         string
 	Port       uint
@@ -320,6 +326,7 @@ type System interface {
 	GetAccessLevel() AccessLevel
 	SetAccessLevel(AccessLevel)
 	GetHostName() string
+	SetHostName(name string)
 	SetIPs(ips []net.IPAddr)
 	HasBinary(name string) ProbBool
 	SetBinary(name, path string)
@@ -391,6 +398,10 @@ type SystemImpl struct {
 
 func (s *SystemImpl) GetHostName() string {
 	return s.HostName
+}
+
+func (s *SystemImpl) SetHostName(name string) {
+	s.HostName = name
 }
 
 func (s *SystemImpl) GetAccessLevel() AccessLevel {

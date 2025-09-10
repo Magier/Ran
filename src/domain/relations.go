@@ -31,15 +31,17 @@ type Reference struct {
 
 var _ Relation = (*Reference)(nil)
 
-func (r Reference) GetSourceId() string {
-	return r.Source
-}
-func (r Reference) GetTargetId() string {
-	return r.Target
-}
+func (r Reference) GetSourceId() string     { return r.Source }
+func (r Reference) GetTargetId() string     { return r.Target }
+func (r Reference) GetRelationName() string { return "references" }
 
-func (r Reference) GetRelationName() string {
-	return "references"
+func (r Reference) WithSource(e Entity) Relation {
+	r.Source = e.GetId()
+	return r
+}
+func (r Reference) WithTarget(e Entity) Relation {
+	r.Target = e.GetId()
+	return r
 }
 
 func (r Reference) String() string {
@@ -54,15 +56,25 @@ type Operates struct {
 
 var _ Relation = (*Operates)(nil)
 
-func (r Operates) GetSourceId() string {
-	return r.Operator.GetId()
-}
-func (r Operates) GetTargetId() string {
-	return r.System.GetId()
-}
+func (r Operates) GetSourceId() string     { return r.Operator.GetId() }
+func (r Operates) GetTargetId() string     { return r.System.GetId() }
+func (r Operates) GetRelationName() string { return "operates" }
 
-func (r Operates) GetRelationName() string {
-	return "operates"
+func (r Operates) WithSource(e Entity) Relation {
+	if c2, ok := e.(C2System); ok {
+		r.Operator = c2
+	} else {
+		slog.Warn("WithSource called with non-C2System entity", "entity", e.GetId())
+	}
+	return r
+}
+func (r Operates) WithTarget(e Entity) Relation {
+	if c2, ok := e.(C2System); ok {
+		r.System = c2
+	} else {
+		slog.Warn("WithTarget called with non-C2System entity", "entity", e.GetId())
+	}
+	return r
 }
 
 type Contains struct {
@@ -73,16 +85,20 @@ type Contains struct {
 
 var _ Relation = (*Contains)(nil)
 
-func (r Contains) GetSourceId() string {
-	return r.Container.GetId()
-}
+func (r Contains) GetSourceId() string     { return r.Container.GetId() }
+func (r Contains) GetTargetId() string     { return r.Object.GetId() }
+func (r Contains) GetRelationName() string { return "contains" }
 
-func (r Contains) GetTargetId() string {
-	return r.Object.GetId()
-}
+// Optional: expose ends as Entities (handy for helpers)
+func (r Contains) GetSource() Entity { return r.Container }
+func (r Contains) GetTarget() Entity { return r.Object }
 
-func (r Contains) GetRelationName() string {
-	return "contains"
+// --- copy-style modifiers (return a new value) ---
+func (r Contains) WithSource(e Entity) Relation { r.Container = e; return r }
+func (r Contains) WithTarget(e Entity) Relation { r.Object = e; return r }
+func (r Contains) WithEnds(src, tgt Entity) Relation {
+	r.Container, r.Object = src, tgt
+	return r
 }
 
 type Owns struct {
@@ -93,15 +109,18 @@ type Owns struct {
 
 var _ Relation = (*Owns)(nil)
 
-func (r Owns) GetSourceId() string {
-	return r.Owner.GetId()
-}
-func (r Owns) GetTargetId() string {
-	return r.Object.GetId()
-}
+func (r Owns) GetSourceId() string     { return r.Owner.GetId() }
+func (r Owns) GetTargetId() string     { return r.Object.GetId() }
+func (r Owns) GetRelationName() string { return "owns" }
 
-func (r Owns) GetRelationName() string {
-	return "owns"
+func (r Owns) WithSource(e Entity) Relation { r.Owner = e; return r }
+func (r Owns) WithTarget(e Entity) Relation {
+	if ownable, ok := e.(Ownable); ok {
+		r.Object = ownable
+	} else {
+		slog.Warn("WithTarget called with non-Ownable entity", "entity", e.GetId())
+	}
+	return r
 }
 
 type Created struct {
@@ -112,16 +131,11 @@ type Created struct {
 
 var _ Relation = (*Created)(nil)
 
-func (r Created) GetSourceId() string {
-	return r.Creator.GetId()
-}
-func (r Created) GetTargetId() string {
-	return r.Object.GetId()
-}
-
-func (r Created) GetRelationName() string {
-	return "created"
-}
+func (r Created) GetSourceId() string          { return r.Creator.GetId() }
+func (r Created) GetTargetId() string          { return r.Object.GetId() }
+func (r Created) GetRelationName() string      { return "created" }
+func (r Created) WithSource(e Entity) Relation { r.Creator = e; return r }
+func (r Created) WithTarget(e Entity) Relation { r.Object = e; return r }
 
 // TODO: generalize C2 channel with multiple segments
 type C2Channel interface {
@@ -139,15 +153,21 @@ type ListenesOn struct {
 	ListenerID string
 }
 
-func (ch ListenesOn) GetSourceId() string {
-	return ch.C2ID
-}
+func (ch ListenesOn) GetSourceId() string     { return ch.C2ID }
+func (ch ListenesOn) GetTargetId() string     { return ch.ListenerID }
+func (ch ListenesOn) GetRelationName() string { return "listens-on" }
 
-func (ch ListenesOn) GetTargetId() string {
-	return ch.ListenerID
+func (ch ListenesOn) WithSource(e Entity) Relation {
+	if c2, ok := e.(C2System); ok {
+		ch.C2ID = c2.GetId()
+	} else {
+		slog.Warn("WithSource called with non-C2System entity", "entity", e.GetId())
+	}
+	return ch
 }
-func (ch ListenesOn) GetRelationName() string {
-	return "listens-on"
+func (ch ListenesOn) WithTarget(e Entity) Relation {
+	ch.ListenerID = e.GetId()
+	return ch
 }
 
 type ImplantC2Channel struct {
@@ -161,29 +181,32 @@ type ImplantC2Channel struct {
 
 var _ C2Channel = (*ImplantC2Channel)(nil)
 
-func (ch ImplantC2Channel) GetSourceId() string {
-	return ch.SourceId
+func (ch ImplantC2Channel) GetSourceId() string { return ch.SourceId }
+func (ch ImplantC2Channel) GetTargetId() string { return ch.Target.GetId() }
+func (ch ImplantC2Channel) GetRelationName() string {
+	return fmt.Sprintf("%s-c2-%s-channel", ch.Kind, ch.Protocol)
 }
 
-func (ch ImplantC2Channel) GetTargetId() string {
-	return ch.Target.GetId()
+func (ch ImplantC2Channel) WithSource(e Entity) Relation {
+	ch.SourceId = e.GetId()
+	return ch
+}
+func (ch ImplantC2Channel) WithTarget(e Entity) Relation {
+	if session, ok := e.(Session); ok {
+		ch.Target = session
+	} else {
+		slog.Warn("WithTarget called with non-Session entity", "entity", e.GetId())
+	}
+	return ch
 }
 
-func (ch ImplantC2Channel) GetTarget() Entity {
-	return ch.Target
-}
+func (ch ImplantC2Channel) GetTarget() Entity { return ch.Target }
 func (ch ImplantC2Channel) GetFinalTarget() Entity {
 	slog.Warn("GetFinalTarget is not yet supported on ImplantC2Channel, using the next target instead!")
 	return ch.Target
 }
 
-func (ch ImplantC2Channel) GetRelationName() string {
-	return fmt.Sprintf("%s-c2-%s-channel", ch.Kind, ch.Protocol)
-}
-
-func (ch ImplantC2Channel) GetKind() string {
-	return ch.Kind
-}
+func (ch ImplantC2Channel) GetKind() string { return ch.Kind }
 
 type PodExecC2Channel struct {
 	RelationImpl
@@ -196,31 +219,28 @@ type PodExecC2Channel struct {
 
 var _ C2Channel = (*PodExecC2Channel)(nil)
 
-func (ch PodExecC2Channel) GetSourceId() string {
-	return ch.SourceId
+func (ch PodExecC2Channel) GetSourceId() string     { return ch.SourceId }
+func (ch PodExecC2Channel) GetTargetId() string     { return ch.Target.GetId() }
+func (ch PodExecC2Channel) GetRelationName() string { return "pod exec" }
+
+func (ch PodExecC2Channel) WithSource(e Entity) Relation {
+	ch.SourceId = e.GetId()
+	return ch
+}
+func (ch PodExecC2Channel) WithTarget(e Entity) Relation {
+	ch.Target = e
+	return ch
 }
 
-func (ch PodExecC2Channel) GetTargetId() string {
-	return ch.Target.GetId()
-}
-func (ch PodExecC2Channel) GetTarget() Entity {
-	return ch.Target
-}
+func (ch PodExecC2Channel) GetTarget() Entity { return ch.Target }
+func (ch PodExecC2Channel) GetKind() string   { return "pod/exec" }
+
 func (ch PodExecC2Channel) GetFinalTarget() Entity {
 	target := ch.Target
 	for next := ch.NextChannel; next != nil; next = next.NextChannel {
 		target = next.Target
 	}
 	return target
-}
-
-func (ch PodExecC2Channel) GetRelationName() string {
-	return "pod exec"
-}
-
-func (ch PodExecC2Channel) GetKind() string {
-	// TODO: change this to the identity to use
-	return "pod/exec"
 }
 
 type Uses struct {
@@ -231,16 +251,17 @@ type Uses struct {
 
 var _ Relation = (*Uses)(nil)
 
-func (u Uses) GetSourceId() string {
-	return u.SubjectId
-}
+func (u Uses) GetSourceId() string     { return u.SubjectId }
+func (u Uses) GetTargetId() string     { return u.ObjectId }
+func (u Uses) GetRelationName() string { return "uses" }
 
-func (u Uses) GetTargetId() string {
-	return u.ObjectId
+func (u Uses) WithSource(e Entity) Relation {
+	u.SubjectId = e.GetId()
+	return u
 }
-
-func (u Uses) GetRelationName() string {
-	return "uses"
+func (u Uses) WithTarget(e Entity) Relation {
+	u.ObjectId = e.GetId()
+	return u
 }
 
 type CanAccess struct {
@@ -254,17 +275,19 @@ type CanAccess struct {
 
 var _ Relation = (*CanAccess)(nil)
 
-func (u CanAccess) GetSourceId() string {
-	return u.SourceId
+func (u CanAccess) GetSourceId() string     { return u.SourceId }
+func (u CanAccess) GetTargetId() string     { return u.TargetId }
+func (u CanAccess) GetRelationName() string { return "can-access" }
+
+func (u CanAccess) WithSource(e Entity) Relation {
+	u.SourceId = e.GetId()
+	return u
+}
+func (u CanAccess) WithTarget(e Entity) Relation {
+	u.TargetId = e.GetId()
+	return u
 }
 
-func (u CanAccess) GetTargetId() string {
-	return u.TargetId
-}
-
-func (u CanAccess) GetRelationName() string {
-	return "can-access"
-}
 func (u CanAccess) GetCost() int {
 	return 10
 }
@@ -288,15 +311,25 @@ type ManagesNode struct {
 
 var _ Relation = (*ManagesNode)(nil)
 
-func (r ManagesNode) GetSourceId() string {
-	return r.Cluster.GetId()
-}
-func (r ManagesNode) GetTargetId() string {
-	return r.Node.GetId()
-}
+func (r ManagesNode) GetSourceId() string     { return r.Cluster.GetId() }
+func (r ManagesNode) GetTargetId() string     { return r.Node.GetId() }
+func (r ManagesNode) GetRelationName() string { return "manages-node" }
 
-func (r ManagesNode) GetRelationName() string {
-	return "manages-node"
+func (r ManagesNode) WithSource(e Entity) Relation {
+	if cluster, ok := e.(Cluster); ok {
+		r.Cluster = cluster
+	} else {
+		slog.Warn("WithSource called with non-Cluster entity", "entity", e.GetId())
+	}
+	return r
+}
+func (r ManagesNode) WithTarget(e Entity) Relation {
+	if node, ok := e.(K8sNode); ok {
+		r.Node = node
+	} else {
+		slog.Warn("WithTarget called with non-K8sNode entity", "entity", e.GetId())
+	}
+	return r
 }
 
 type Runs struct {
@@ -307,19 +340,26 @@ type Runs struct {
 
 var _ Relation = (*Runs)(nil)
 
-func (r Runs) IsInverse() bool {
-	return true
-}
+func (r Runs) IsInverse() bool         { return true }
+func (r Runs) GetSourceId() string     { return r.Node.GetId() }
+func (r Runs) GetTargetId() string     { return r.Pod.GetId() }
+func (r Runs) GetRelationName() string { return "runs" }
 
-func (r Runs) GetSourceId() string {
-	return r.Node.GetId()
+func (r Runs) WithSource(e Entity) Relation {
+	if node, ok := e.(K8sNode); ok {
+		r.Node = node
+	} else {
+		slog.Warn("WithSource called with non-K8sNode entity", "entity", e.GetId())
+	}
+	return r
 }
-func (r Runs) GetTargetId() string {
-	return r.Pod.GetId()
-}
-
-func (r Runs) GetRelationName() string {
-	return "runs"
+func (r Runs) WithTarget(e Entity) Relation {
+	if pod, ok := e.(Pod); ok {
+		r.Pod = pod
+	} else {
+		slog.Warn("WithTarget called with non-Pod entity", "entity", e.GetId())
+	}
+	return r
 }
 
 type RunsOn struct {
@@ -330,19 +370,26 @@ type RunsOn struct {
 
 var _ Relation = (*RunsOn)(nil)
 
-func (r RunsOn) IsInverse() bool {
-	return true
-}
+func (r RunsOn) IsInverse() bool         { return true }
+func (r RunsOn) GetSourceId() string     { return r.Pod.GetId() }
+func (r RunsOn) GetTargetId() string     { return r.Node.GetId() }
+func (r RunsOn) GetRelationName() string { return "runs-on" }
 
-func (r RunsOn) GetSourceId() string {
-	return r.Pod.GetId()
+func (r RunsOn) WithSource(e Entity) Relation {
+	if pod, ok := e.(Pod); ok {
+		r.Pod = pod
+	} else {
+		slog.Warn("WithSource called with non-Pod entity", "entity", e.GetId())
+	}
+	return r
 }
-func (r RunsOn) GetTargetId() string {
-	return r.Node.GetId()
-}
-
-func (r RunsOn) GetRelationName() string {
-	return "runs-on"
+func (r RunsOn) WithTarget(e Entity) Relation {
+	if node, ok := e.(K8sNode); ok {
+		r.Node = node
+	} else {
+		slog.Warn("WithTarget called with non-K8sNode entity", "entity", e.GetId())
+	}
+	return r
 }
 
 type HasC2Session struct {
@@ -353,18 +400,22 @@ type HasC2Session struct {
 
 var _ Relation = (*HasC2Session)(nil)
 
-func (r HasC2Session) GetSourceId() string {
-	return r.System.GetId()
-}
-func (r HasC2Session) GetTargetId() string {
-	return r.Session.Id
-}
+func (r HasC2Session) GetSourceId() string     { return r.System.GetId() }
+func (r HasC2Session) GetTargetId() string     { return r.Session.Id }
+func (r HasC2Session) GetRelationName() string { return "has-session" }
+func (r HasC2Session) IsReverse() bool         { return true }
 
-func (r HasC2Session) GetRelationName() string {
-	return "has-session"
+func (r HasC2Session) WithSource(e Entity) Relation {
+	r.System = e
+	return r
 }
-func (r HasC2Session) IsReverse() bool {
-	return true
+func (r HasC2Session) WithTarget(e Entity) Relation {
+	if session, ok := e.(Session); ok {
+		r.Session = session
+	} else {
+		slog.Warn("WithTarget called with non-Session entity", "entity", e.GetId())
+	}
+	return r
 }
 
 type BindsRole struct {
@@ -376,19 +427,26 @@ type BindsRole struct {
 
 var _ Relation = (*BindsRole)(nil)
 
-func (r BindsRole) IsInverse() bool {
-	return true
-}
+func (r BindsRole) IsInverse() bool         { return true }
+func (r BindsRole) GetSourceId() string     { return r.Subject.GetId() }
+func (r BindsRole) GetTargetId() string     { return r.Role.GetId() }
+func (r BindsRole) GetRelationName() string { return "binds" }
 
-func (r BindsRole) GetSourceId() string {
-	return r.Subject.GetId()
+func (r BindsRole) WithSource(e Entity) Relation {
+	if identity, ok := e.(Identity); ok {
+		r.Subject = identity
+	} else {
+		slog.Warn("WithSource called with non-Identity entity", "entity", e.GetId())
+	}
+	return r
 }
-func (r BindsRole) GetTargetId() string {
-	return r.Role.GetId()
-}
-
-func (r BindsRole) GetRelationName() string {
-	return "binds"
+func (r BindsRole) WithTarget(e Entity) Relation {
+	if role, ok := e.(Role); ok {
+		r.Role = role
+	} else {
+		slog.Warn("WithTarget called with non-Role entity", "entity", e.GetId())
+	}
+	return r
 }
 
 type ExposesSecret struct {
@@ -399,19 +457,21 @@ type ExposesSecret struct {
 
 var _ Relation = (*ExposesSecret)(nil)
 
-func (r ExposesSecret) IsInverse() bool {
-	return false
-}
+func (r ExposesSecret) GetSourceId() string     { return r.Object.GetId() }
+func (r ExposesSecret) GetTargetId() string     { return r.Secret.Name }
+func (r ExposesSecret) GetRelationName() string { return "exposes-secret" }
 
-func (r ExposesSecret) GetSourceId() string {
-	return r.Object.GetId()
+func (r ExposesSecret) WithSource(e Entity) Relation {
+	r.Object = e
+	return r
 }
-func (r ExposesSecret) GetTargetId() string {
-	return r.Secret.Name
-}
-
-func (r ExposesSecret) GetRelationName() string {
-	return "exposes-secret"
+func (r ExposesSecret) WithTarget(e Entity) Relation {
+	if secret, ok := e.(Secret); ok {
+		r.Secret = secret
+	} else {
+		slog.Warn("WithTarget called with non-Secret entity", "entity", e.GetId())
+	}
+	return r
 }
 
 type MountsHostPath struct {
@@ -424,17 +484,24 @@ type MountsHostPath struct {
 
 var _ Relation = (*MountsHostPath)(nil)
 
-func (r MountsHostPath) IsInverse() bool {
-	return true
-}
+func (r MountsHostPath) IsInverse() bool         { return true }
+func (r MountsHostPath) GetSourceId() string     { return r.Pod.GetId() }
+func (r MountsHostPath) GetTargetId() string     { return r.Node.GetId() }
+func (r MountsHostPath) GetRelationName() string { return fmt.Sprintf("mounts %s", r.HostPath) }
 
-func (r MountsHostPath) GetSourceId() string {
-	return r.Pod.GetId()
+func (r MountsHostPath) WithSource(e Entity) Relation {
+	if pod, ok := e.(Pod); ok {
+		r.Pod = pod
+	} else {
+		slog.Warn("WithSource called with non-Pod entity", "entity", e.GetId())
+	}
+	return r
 }
-func (r MountsHostPath) GetTargetId() string {
-	return r.Node.GetId()
-}
-
-func (r MountsHostPath) GetRelationName() string {
-	return fmt.Sprintf("mounts %s", r.HostPath)
+func (r MountsHostPath) WithTarget(e Entity) Relation {
+	if node, ok := e.(K8sNode); ok {
+		r.Node = node
+	} else {
+		slog.Warn("WithTarget called with non-K8sNode entity", "entity", e.GetId())
+	}
+	return r
 }
