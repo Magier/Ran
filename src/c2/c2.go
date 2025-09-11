@@ -19,6 +19,7 @@ import (
 	"github.com/Magier/Ran/core/bus"
 	"github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
+	"github.com/Magier/Ran/mitre"
 )
 
 const BuiltInC2 = "Ran"
@@ -163,55 +164,76 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 	// or shell listener?
 	var err error
 	var execTarget domain.System
+	var resMsg domain.Message
 	results := make([]string, 0)
 
-	switch cmd := exec.CommandMsg.(type) {
-	case domain.StartListener:
-		client, ok := selectClient(c2.clients, cmd)
-		if ok {
-			return client.Execute(cmd)
-		}
-		return nil, fmt.Errorf("No suitable client found to start listener")
-	}
-
-	if strings.HasPrefix(exec.Procedure.Command, "c2") {
-		switch exec.Procedure.Command {
-		case "c2.connect":
-			if exec.Procedure.Tool == SliverKind {
-				cfgPath := exec.Args["CONFIG_PATH"]
-				if sliverClient, err := CreateSliverClient(cfgPath); err == nil {
-					c2.clients[SliverKind] = &sliverClient
-				} else {
-					return nil, fmt.Errorf("Failed to create Sliver client: %w", err)
-				}
-			}
-			var responseMsg domain.Message
-			responseMsg, err = c2.StartC2Client(ctx, exec.Procedure.Tool)
-			if err == nil && responseMsg != nil {
-				if e := c2.bus.Publish(responseMsg); e != nil {
-					slog.Error("Failed to publish C2 client start message: " + e.Error())
-				}
-			}
+	if exec.CommandMsg != nil {
+		switch cmd := exec.CommandMsg.(type) {
+		case domain.StartListener:
+			client, ok := selectClient(c2.clients, cmd)
+			if ok {
+				resMsg, err = client.Execute(cmd)
 			} else {
-				c2.bus.Publish(msg)
+				err = fmt.Errorf("No suitable client found to start listener")
+			}
+		case domain.StopListener:
+			client, ok := selectClient(c2.clients, cmd)
+			if ok {
+				resMsg, err = client.Execute(cmd)
+			} else {
+				err = fmt.Errorf("No suitable client found to stop listener")
 			}
 		}
-	} else if exec.Procedure.IsLocalCommand {
-		results, err = execLocally(ctx, exec, exec.Procedure, c2.clients)
-	} else if exec.C2Channel == nil {
-		slog.Warn("No C2 channel defined - executing locally")
-		results, err = execLocally(ctx, exec, exec.Procedure, c2.clients)
-	} else {
-		results, err = execRemotely(ctx, exec, exec.Procedure, c2.clients)
-		var ok bool
-		execTarget, ok = exec.C2Channel.GetFinalTarget().(domain.System)
-		if !ok {
-			slog.Warn(fmt.Sprintf("Could not get on which system TTP was executed: %T", exec.C2Channel.GetTarget()))
-		}
 
-		// TODO: properly fix this dirty hack:
-		if exec.Procedure.Key == "grep" {
-			err = nil
+		if resMsg != nil {
+			slog.Info("Executed command: " + resMsg.String())
+			_ = c2.bus.Publish(resMsg)
+		}
+	} else {
+		if strings.HasPrefix(exec.Procedure.Command, "c2") {
+			switch exec.Procedure.Command {
+			case "c2.connect":
+				if exec.Procedure.Tool == SliverKind {
+					cfgPath := exec.Args["CONFIG_PATH"]
+					if sliverClient, err := CreateSliverClient(cfgPath); err == nil {
+						c2.clients[SliverKind] = &sliverClient
+					} else {
+						return nil, fmt.Errorf("Failed to create Sliver client: %w", err)
+					}
+				}
+				var responseMsg domain.Message
+				responseMsg, err = c2.StartC2Client(ctx, exec.Procedure.Tool)
+				if err == nil && responseMsg != nil {
+					if e := c2.bus.Publish(responseMsg); e != nil {
+						slog.Error("Failed to publish C2 client start message: " + e.Error())
+					}
+				}
+			case "c2.close":
+				client, ok := c2.clients[exec.Procedure.Tool]
+				if ok {
+					client.Shutdown()
+					delete(c2.clients, exec.Procedure.Tool)
+				} else {
+					slog.Warn(fmt.Sprintf("No client found for C2 '%s' to close", exec.Procedure.Tool))
+				}
+			}
+		} else if exec.Procedure.IsLocalCommand {
+			results, err = execLocally(ctx, exec, exec.Procedure, c2.clients)
+		} else if exec.C2Channel == nil {
+			slog.Warn("No C2 channel defined - executing locally")
+			results, err = execLocally(ctx, exec, exec.Procedure, c2.clients)
+		} else {
+			results, err = execRemotely(ctx, exec, exec.Procedure, c2.clients)
+			var ok bool
+			execTarget, ok = exec.C2Channel.GetFinalTarget().(domain.System)
+			if !ok {
+				slog.Warn(fmt.Sprintf("Could not get on which system TTP was executed: %T", exec.C2Channel.GetTarget()))
+			}
+
+			// TODO: properly fix this dirty hack:
+			if exec.Procedure.Key == "grep" {
+				err = nil
+			}
 		}
 	}
 
@@ -334,6 +356,9 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, procedure domain.Proc
 			res := out.String()
 			return []string{res}, nil
 		}
+	} else if exec.TTP.Tactic == mitre.InitialAccess {
+		// initial access TTPs should have a command to set the target
+		return []string{"ok"}, nil
 	} else {
 		return nil, errors.New("Can't Exec TTP: no channel defined and no code provided!")
 	}

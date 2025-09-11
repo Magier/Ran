@@ -59,6 +59,7 @@ var _ Command = (*StartListener)(nil)
 
 type StopListener struct {
 	CommandImpl
+	ID       string
 	Port     uint
 	Protocol Protocol
 	Server   string

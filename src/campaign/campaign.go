@@ -88,43 +88,55 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	return campaign
 }
 
-func (c *Campaign) SetTarget(ns, podName string) (domain.Event, error) {
+func (c *Campaign) SetTarget(ns, podName string) (domain.Command, error) {
 	if ns == "" {
 		ns = "default"
 	}
 	initialPod := domain.NewPod(podName, ns)
-
-	initialAccessRelation := domain.CanAccess{
-		SourceId: "c2/Ran",
-		TargetId: initialPod.GetId(),
-		// Identity:    identity,
-		AccessLevel: domain.UserExec,
-		PodsExec:    true,
-	}
+	// initialAccessRelation := domain.CanAccess{
+	// 	SourceId: "c2/Ran",
+	// 	TargetId: initialPod.GetId(),
+	// 	// Identity:    identity,
+	// 	AccessLevel: domain.UserExec,
+	// 	PodsExec:    true,
+	// }
 	initialPod.SetAccessLevel(domain.UserExec)
 
+	args := map[string]string{
+		"Name":      podName,
+		"Namespace": ns,
+	}
+	c2Id := "c2/Ran"
+
 	initialAccessTTP := domain.TTP{
-		ID:         "initial_access",
-		Name:       "Initial Access",
+		ID:         "initial-access-pod-exec",
+		Name:       "Exec into initial Pod",
 		Tactic:     mitre.InitialAccess,
 		Techniques: []string{},
+		Effects: []string{
+			"k8s.Pod",
+			fmt.Sprintf("k8s.can-exec(%s, %s)", c2Id, initialPod.GetId()),
+		},
 	}
 	ev := domain.ExecTTP{
 		CommandImpl: domain.NewCmd(""),
 		TTP:         initialAccessTTP,
 		Target:      initialPod,
+		Args:        args,
 	}
-	err := c.trail.AddNewStep(ev)
-	if err != nil {
-		slog.Error(fmt.Sprintf("Failed to add initial step to audit trail: %s", err.Error()))
-	} else {
-		c.trail.CompleteStep(ev.GetID(), ev.TTP, true, []string{})
-	}
+	// err := c.trail.AddNewStep(ev)
+	// if err != nil {
+	// 	slog.Error(fmt.Sprintf("Failed to add initial step to audit trail: %s", err.Error()))
+	// } else {
 
-	return c.UpdateFacts(domain.Facts{
-		Entities:  []domain.Entity{initialPod},
-		Relations: []domain.Relation{initialAccessRelation},
-	}, domain.Facts{})
+	// 	c.trail.CompleteStep(ev.GetID(), ev.TTP, true, []string{})
+	// }
+
+	// return c.UpdateFacts(domain.Facts{
+	// 	Entities:  []domain.Entity{initialPod},
+	// 	Relations: []domain.Relation{initialAccessRelation},
+	// }, domain.Facts{})
+	return ev, nil
 }
 
 func (c *Campaign) UpdateFacts(new domain.Facts, removed domain.Facts) (domain.FactsChanged, error) {
@@ -132,6 +144,7 @@ func (c *Campaign) UpdateFacts(new domain.Facts, removed domain.Facts) (domain.F
 	c.AddRelations(new.Relations...)
 
 	c.RemoveEntities(removed.Entities...)
+	c.RemoveRelations(removed.Relations...)
 
 	for _, identity := range new.Identities {
 		// if there is no active identity, use the first encountered Id as the active oneo
@@ -564,6 +577,11 @@ func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (doma
 		return cmd, nil
 		// default:
 	case domain.StopListener:
+		if listenerName, ok := args["ListenerID"]; ok {
+			cmd.ID = listenerName
+		} else {
+			return nil, errors.New("No listenerID specified to stop the listener")
+		}
 		return cmd, nil
 	case nil:
 		return nil, errors.New("No CommandMsg specified for TTP: " + ttp.GetTitle())

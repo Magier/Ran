@@ -271,24 +271,25 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 	}
 
 	listener := domain.Listener{
-		ID:         listenerID,
+		ID:         ev.ID,
+		Name:       ev.Name,
 		IP:         c2IP,
 		Port:       ev.Port,
 		Protocol:   ev.Protocol,
 		Redirector: "",
 	}
 	c.listeners[listenerID] = listener
+	c2.Listeners = append(c2.Listeners, listener)
 
 	return c.UpdateFacts(
-		domain.Facts{
-			Entities: []domain.Entity{listener},
-			Relations: []domain.Relation{
-				domain.ListenesOn{
-					C2ID:       c2.GetId(),
-					ListenerID: listenerID,
-					Port:       int(ev.Port),
-				},
-			}},
+		domain.Facts{Entities: []domain.Entity{c2}},
+		// Relations: []domain.Relation{
+		// 	domain.ListenesOn{
+		// 		C2ID:       c2.GetId(),
+		// 		ListenerID: listenerID,
+		// 		Port:       int(ev.Port),
+		// 	},
+		// }},
 		domain.Facts{},
 	)
 }
@@ -297,15 +298,19 @@ func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (d
 	ev := msg.(c2.ListenerStopped)
 	id := fmt.Sprintf("%s_%d", ev.Name, ev.Port)
 
-	_, ok := c.listeners[id]
+	// TODO: get C2 containing the listener and update its field as well
+
+	listener, ok := c.listeners[id]
 	delete(c.listeners, id)
 	if !ok {
 		slog.Error(fmt.Sprintf("Can't stop unknown listener '%s'", ev.Name))
-
 	}
 	// TODO: remove listener from all relations
 	slog.Error(fmt.Sprintf("Listener removal for '%s' not yet implemented", ev.Name))
-	return nil, nil
+	return c.UpdateFacts(
+		domain.Facts{},
+		domain.Facts{Entities: []domain.Entity{listener}},
+	)
 }
 
 // func (c *Campaign) onNewK8sResourceCreated(ctx context.Context, msg domain.Message) (domain.Message, error) {

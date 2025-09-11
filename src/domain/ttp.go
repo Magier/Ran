@@ -164,6 +164,7 @@ type ToolFunction struct {
 
 var CmdMapping = map[string]Message{
 	"StartListener":    StartListener{},
+	"StopListener":     StopListener{},
 	"CreateRedirector": StartC2Redirector{},
 }
 

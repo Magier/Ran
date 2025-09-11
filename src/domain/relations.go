@@ -145,30 +145,30 @@ type C2Channel interface {
 	GetFinalTarget() Entity
 }
 
-type ListenesOn struct {
-	RelationImpl
-	Port       int
-	Protocol   int
-	C2ID       string
-	ListenerID string
-}
+// type ListenesOn struct {
+// 	RelationImpl
+// 	Port       int
+// 	Protocol   int
+// 	C2ID       string
+// 	ListenerID string
+// }
 
-func (ch ListenesOn) GetSourceId() string     { return ch.C2ID }
-func (ch ListenesOn) GetTargetId() string     { return ch.ListenerID }
-func (ch ListenesOn) GetRelationName() string { return "listens-on" }
+// func (ch ListenesOn) GetSourceId() string     { return ch.C2ID }
+// func (ch ListenesOn) GetTargetId() string     { return ch.ListenerID }
+// func (ch ListenesOn) GetRelationName() string { return "listens-on" }
 
-func (ch ListenesOn) WithSource(e Entity) Relation {
-	if c2, ok := e.(C2System); ok {
-		ch.C2ID = c2.GetId()
-	} else {
-		slog.Warn("WithSource called with non-C2System entity", "entity", e.GetId())
-	}
-	return ch
-}
-func (ch ListenesOn) WithTarget(e Entity) Relation {
-	ch.ListenerID = e.GetId()
-	return ch
-}
+// func (ch ListenesOn) WithSource(e Entity) Relation {
+// 	if c2, ok := e.(C2System); ok {
+// 		ch.C2ID = c2.GetId()
+// 	} else {
+// 		slog.Warn("WithSource called with non-C2System entity", "entity", e.GetId())
+// 	}
+// 	return ch
+// }
+// func (ch ListenesOn) WithTarget(e Entity) Relation {
+// 	ch.ListenerID = e.GetId()
+// 	return ch
+// }
 
 type ImplantC2Channel struct {
 	RelationImpl

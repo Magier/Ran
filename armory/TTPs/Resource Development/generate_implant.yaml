@@ -36,7 +36,7 @@ procedures:
   - key: sliver
     tool: sliver
     command: generate --{PROTOCOL} {LHOST}:{LPORT} --OS=${OS} --arch=${ARCH}  --save=${OUTPUT_PATH}
-effects: ["operate c2"]
+effects: []
 # cmd: {}
 # defend: {}
 references:

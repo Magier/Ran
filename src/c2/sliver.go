@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -181,7 +182,7 @@ func (c *SliverClient) GetEventStream() <-chan domain.Event {
 func (c *SliverClient) closeUnderlying() error {
 	var first error
 	if c.conn != nil {
-		if err := c.conn.Close(); err != nil && first == nil {
+		if err := c.conn.Close(); err != nil {
 			first = err
 		}
 		c.conn = nil
@@ -234,6 +235,8 @@ func (c *SliverClient) handleSliverEvent(results chan<- domain.Event, event *cli
 			Name: fmt.Sprintf("sliver_%s", job.Name),
 			Port: uint(job.Port),
 		}
+	default:
+		slog.Info("Ignoring unknown sliver event", "type", event.EventType)
 	}
 
 	results <- resultingMessage
@@ -365,13 +368,22 @@ func (c *SliverClient) startListener(ev domain.StartListener) (domain.Event, err
 			return nil, errors.New("Starting Sliver Listener failed " + err.Error())
 		}
 		// there will be an event from sliver notifying about the successful creation of the listener
-		return nil, nil
+	default:
+		return nil, fmt.Errorf("Starting Sliver %s Listener not yet implemented", ev.Protocol)
 	}
-
-	return nil, fmt.Errorf("Starting Sliver %s Listener not yet implemented", ev.Protocol)
+	return nil, nil
 }
 
 func (c *SliverClient) stopListener(ev domain.StopListener) (domain.Event, error) {
+	id, err := strconv.ParseUint(ev.ID, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid listener ID: %v", err)
+	}
+	r := clientpb.KillJobReq{ID: uint32(id)}
+	_, err = c.rpc.KillJob(context.Background(), &r)
+	if err != nil {
+		return nil, errors.New("Stopping Sliver Listener failed " + err.Error())
+	}
 	return nil, fmt.Errorf("Stopping Sliver Listener not yet implemented")
 }
 
