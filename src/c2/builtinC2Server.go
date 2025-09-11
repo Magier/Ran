@@ -226,6 +226,12 @@ func (s Session) Start(ctx context.Context) {
 	defer s.End()
 	slog.Debug("C2", "", "Handling session")
 
+	_, err := s.sendCommand("unset PS1") // turn off the custom prompt
+	if err != nil {
+		slog.Error("Error unsetting PS1: " + err.Error())
+		return
+	}
+
 	hostname, err := s.sendCommand("hostname")
 	if err != nil {
 		return
@@ -256,7 +262,6 @@ func (s Session) Start(ctx context.Context) {
 			return
 		default:
 			cmd := <-s.cmdChannel
-
 			res, err := s.sendCommand(cmd)
 			if err != nil {
 				slog.Error("Coulnd't send command", "cmd", cmd, "error", err)

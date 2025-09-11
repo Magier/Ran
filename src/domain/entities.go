@@ -247,6 +247,7 @@ func (s Secret) GetKind() string { return "Secret" }
 
 type Listener struct {
 	ID         string
+	Name       string
 	Port       uint
 	Protocol   Protocol
 	Redirector string
@@ -506,9 +507,10 @@ func (s *SystemImpl) SetUserName(name string) {
 // }
 
 type C2System struct {
-	Kind string   `json:"kind"`
-	Name string   `json:"name"`
-	IPs  []net.IP `json:"ips"`
+	Kind      string     `json:"kind"`
+	Name      string     `json:"name"`
+	IPs       []net.IP   `json:"ips"`
+	Listeners []Listener `json:"listeners"`
 }
 
 func (s C2System) GetId() string {

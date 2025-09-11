@@ -91,7 +91,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.tuiHeight = msg.Height
-	case c2.C2ConnectFailed:
+	case domain.C2ConnectFailed:
 		m.selectedC2 = msg.Name
 		m.c2ServerStatus.title = "not connected to " + msg.Name
 		m.c2ServerStatus.icon = icon.LanDisconnect

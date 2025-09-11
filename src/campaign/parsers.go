@@ -585,13 +585,20 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		}
 	default:
 		if strings.HasPrefix(effect, "target.has-binary") {
+
 			resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
 			} else {
 				entities = append(entities, resultingEntity)
 			}
-
+		} else if strings.HasPrefix(effect, "target.hasfile") {
+			resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
+			} else {
+				entities = append(entities, resultingEntity)
+			}
 		}
 	}
 

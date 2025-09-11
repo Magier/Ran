@@ -13,6 +13,7 @@ parameters:
     required: false
 preconditions:
   kind: C2
+  c2.name: Ran
 procedures:
   - key: sliver
     tool: sliver

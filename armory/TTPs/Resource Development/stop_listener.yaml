@@ -1,0 +1,17 @@
+name: Stop Listener
+description: Stop an active listener to free up the bound port
+tactic: Resource Development
+techniques: ["Indicator Removal"] # this technique is from Defense Evasion, but it's the closest match
+parameters:
+  ListenerID:
+    type: Listener
+    description: the ID of the listener to stop
+    required: true
+command: "StopListener"
+preconditions:
+  kind: C2
+  c2: has-listener
+effects: ["ListenerStopped", "!c2.has-listener"]
+# cmd: {}
+# defend: {}
+references:
