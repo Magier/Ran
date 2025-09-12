@@ -507,10 +507,10 @@ func (s *SystemImpl) SetUserName(name string) {
 // }
 
 type C2System struct {
-	Kind      string     `json:"kind"`
-	Name      string     `json:"name"`
-	IPs       []net.IP   `json:"ips"`
-	Listeners []Listener `json:"listeners"`
+	Kind      string              `json:"kind"`
+	Name      string              `json:"name"`
+	IPs       []net.IP            `json:"ips"`
+	Listeners map[string]Listener `json:"listeners"`
 }
 
 func (s C2System) GetId() string {
@@ -522,6 +522,14 @@ func (s C2System) GetName() string {
 
 func (s C2System) GetKind() string {
 	return "C2"
+}
+func NewC2System(name string, kind string) C2System {
+	return C2System{
+		Name:      name,
+		Kind:      kind,
+		IPs:       []net.IP{},
+		Listeners: make(map[string]Listener),
+	}
 }
 
 type Namespaced interface {
@@ -1332,6 +1340,7 @@ type Session struct {
 	IsRoot      bool
 	UID         string
 	GID         string
+	IsAlive     bool
 }
 
 // GetId implements Entity.

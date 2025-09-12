@@ -141,11 +141,8 @@ func (c *Campaign) onC2Connected(ctx context.Context, msg domain.Message) (domai
 	ev := msg.(domain.C2Connected)
 
 	// builtin C2 is part of Ran C2
-	system := domain.C2System{
-		Kind: ev.Kind,
-		Name: ev.Name,
-		IPs:  []net.IP{ev.IP},
-	}
+	system := domain.NewC2System(ev.Name, ev.Kind)
+	system.IPs = append(system.IPs, ev.IP)
 
 	rels := []domain.Relation{}
 
@@ -257,12 +254,11 @@ func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) 
 
 func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(c2.ListenerReady)
-	listenerID := ev.Name
 
-	c.trail.CompleteStep(ev.CmdId, domain.TTP{}, true, []string{fmt.Sprintf("Listener on C2 '%s' port %d ready", ev.C2Server, ev.Port)})
-	c2, ok := c.GetC2(ev.C2Server)
+	c.trail.CompleteStep(ev.CmdId, domain.TTP{}, true, []string{fmt.Sprintf("Listener on C2 '%s' port %d ready", ev.C2Name, ev.Port)})
+	c2, ok := c.GetC2(ev.C2Name)
 	if !ok {
-		return nil, fmt.Errorf("No C2 '%s' found", ev.C2Server)
+		return nil, fmt.Errorf("No C2 '%s' found", ev.C2Name)
 	}
 
 	var c2IP net.IP
@@ -270,16 +266,19 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 		c2IP = c2.IPs[0]
 	}
 
+	// make the ID uninque across all C2s by prefixing it with the C2 name
+	listenerID := fmt.Sprintf("%s_%s", ev.C2Name, ev.ID)
 	listener := domain.Listener{
-		ID:         ev.ID,
+		ID:         listenerID,
 		Name:       ev.Name,
 		IP:         c2IP,
 		Port:       ev.Port,
 		Protocol:   ev.Protocol,
 		Redirector: "",
 	}
-	c.listeners[listenerID] = listener
-	c2.Listeners = append(c2.Listeners, listener)
+	// listenerID := ev.Name
+	c.listeners[listener.ID] = listener
+	c2.Listeners[listener.ID] = listener
 
 	return c.UpdateFacts(
 		domain.Facts{Entities: []domain.Entity{c2}},
@@ -296,19 +295,24 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 
 func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(c2.ListenerStopped)
-	id := fmt.Sprintf("%s_%d", ev.Name, ev.Port)
+	listenerID := fmt.Sprintf("%s_%s", ev.C2Name, ev.ListenerID)
 
-	// TODO: get C2 containing the listener and update its field as well
-
-	listener, ok := c.listeners[id]
-	delete(c.listeners, id)
+	listener, ok := c.listeners[listenerID]
+	delete(c.listeners, listenerID)
 	if !ok {
-		slog.Error(fmt.Sprintf("Can't stop unknown listener '%s'", ev.Name))
+		return nil, fmt.Errorf("Can't stop unknown listener '%s'", ev.Name)
 	}
-	// TODO: remove listener from all relations
-	slog.Error(fmt.Sprintf("Listener removal for '%s' not yet implemented", ev.Name))
+
+	var c2 domain.C2System
+	for _, c2 = range c.GetC2s() {
+		if c2.GetId() == fmt.Sprintf("c2/%s", ev.C2Name) {
+			delete(c2.Listeners, listener.ID)
+			break
+		}
+	}
+
 	return c.UpdateFacts(
-		domain.Facts{},
+		domain.Facts{Entities: []domain.Entity{c2}},
 		domain.Facts{Entities: []domain.Entity{listener}},
 	)
 }

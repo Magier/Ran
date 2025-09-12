@@ -150,7 +150,7 @@ func (c BuiltInC2Server) startListener(ctx context.Context, cmd domain.StartList
 		EventImpl: domain.EventImpl{CmdId: cmd.ID},
 		Name:      fmt.Sprintf("%s_%d", listenerId, cmd.Port),
 		IP:        c.GetServerIp(),
-		C2Server:  BuiltInC2,
+		C2Name:    BuiltInC2,
 		Port:      cmd.Port,
 		Protocol:  domain.TCP,
 	}

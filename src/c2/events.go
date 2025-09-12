@@ -11,7 +11,7 @@ type ListenerReady struct {
 	domain.EventImpl
 	ID       string
 	Name     string
-	C2Server string
+	C2Name   string
 	IP       net.IP
 	Port     uint
 	Protocol domain.Protocol
@@ -23,8 +23,10 @@ func (c ListenerReady) String() string {
 
 type ListenerStopped struct {
 	domain.EventImpl
-	Name string
-	Port uint
+	ListenerID string
+	C2Name     string
+	Name       string
+	Port       uint
 }
 
 func (c ListenerStopped) String() string {
