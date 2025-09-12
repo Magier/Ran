@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Magier/Ran/domain"
@@ -45,7 +46,8 @@ func TestParseEffect_TargetIP(t *testing.T) {
 	source := domain.NewPod("mypod", "myns")
 	args := map[string]string{}
 	results := []string{"10.0.0.1 10.0.0.2"}
-	updatedFacts, err := ParseEffect("target.ip", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("target.ip", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -74,7 +76,8 @@ func TestParseEffect_K8sPodList(t *testing.T) {
 	results := []string{`{"items":[{"metadata":{"name":"pod1","namespace":"ns1"}},{"metadata":{"name":"pod2","namespace":"ns2"}}]}`}
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
-	updatedFacts, err := ParseEffect("k8s.podlist", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("k8s.podlist", source, args, results...)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -91,7 +94,8 @@ func TestParseEffect_K8sDeploymentList(t *testing.T) {
 	results := []string{`{"items":[{"metadata":{"name":"dep1","namespace":"ns1"}},{"metadata":{"name":"dep2","namespace":"ns2"}}]}`}
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
-	updatedFacts, err := ParseEffect("k8s.deploymentlist", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("k8s.deploymentlist", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -109,7 +113,8 @@ func TestParseEffect_K8sServiceAccountList(t *testing.T) {
 	results := []string{`{"items":[{"metadata":{"name":"sa1","namespace":"ns1"}},{"metadata":{"name":"sa2","namespace":"ns2"}}]}`}
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
-	updatedFacts, err := ParseEffect("k8s.serviceaccountlist", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("k8s.serviceaccountlist", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -127,7 +132,8 @@ func TestParseEffect_K8sServiceAccount_Created(t *testing.T) {
 	results := []string{"serviceaccount/my-sa created"}
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{"Name": "my-sa", "Namespace": "ns1"}
-	updatedFacts, err := ParseEffect("k8s.serviceaccount", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("k8s.serviceaccount", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -152,7 +158,8 @@ func TestParseEffect_K8sServiceAccount_AlreadyExists(t *testing.T) {
 	results := []string{"Error: already exists"}
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{"Name": "my-sa", "Namespace": "ns1"}
-	updatedFacts, err := ParseEffect("k8s.serviceaccount", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("k8s.serviceaccount", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -177,7 +184,8 @@ func TestParseEffect_DeleteK8sServiceAccount(t *testing.T) {
 	results := []string{"serviceaccount/my-sa deleted"}
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{"Name": "my-sa", "Namespace": "ns1"}
-	updatedFacts, err := ParseEffect("delete k8s.serviceaccount", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("delete k8s.serviceaccount", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -204,7 +212,8 @@ func TestParseEffect_DeleteK8sPod(t *testing.T) {
 	name := "mypod"
 	source := domain.NewPod(name, ns)
 	args := map[string]string{"Name": name, "Namespace": ns}
-	updatedFacts, err := ParseEffect("delete k8s.pod", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("delete k8s.pod", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -231,7 +240,8 @@ func TestParseEffect_DeleteK8sDeployment(t *testing.T) {
 	name := "mydeployment"
 	source := domain.NewDeployment(name, ns)
 	args := map[string]string{"Name": name, "Namespace": ns}
-	updatedFacts, err := ParseEffect("delete k8s.deployment", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("delete k8s.deployment", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -257,7 +267,8 @@ func TestParseEffect_K8sSecretList(t *testing.T) {
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
 
-	updatedFacts, err := ParseEffect("k8s.secretlist", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("k8s.secretlist", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -275,7 +286,8 @@ func TestParseEffect_UnknownEffect(t *testing.T) {
 	results := []string{"irrelevant"}
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
-	updatedFacts, err := ParseEffect("unknown.effect", source, args, results...)
+	c := NewCampaign(nil)
+	updatedFacts, err := c.ParseEffect("unknown.effect", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected error for unknown effect, got nil")
@@ -292,7 +304,8 @@ func TestParseEffect_UnknownEffect(t *testing.T) {
 func TestParseEffect_NoResults(t *testing.T) {
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
-	_, err := ParseEffect("k8s.podist", source, args)
+	c := NewCampaign(nil)
+	_, err := c.ParseEffect("k8s.podist", source, args)
 
 	if err == nil {
 		t.Fatalf("Expected error when no results are provided")
@@ -620,5 +633,96 @@ func Test_parseLinuxIDResult(t *testing.T) {
 		if uid != tt.wantUID || user != tt.wantUser {
 			t.Errorf("For input %q, expected uid=%d user=%q, got uid=%d user=%q", tt.input, tt.wantUID, tt.wantUser, uid, user)
 		}
+	}
+}
+
+func Test_parseRelationEffect(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantRel     string
+		wantArgs    []string
+		expectError bool
+	}{
+		{
+			name:        "Valid relation with two vars",
+			input:       "k8s.can-exec(C2, Pod)",
+			wantRel:     "k8s.can-exec",
+			wantArgs:    []string{"C2", "Pod"},
+			expectError: false,
+		},
+		{
+			name:        "Valid relation with one var",
+			input:       "target.has-binary(${BINARY_NAME})",
+			wantRel:     "target.has-binary",
+			wantArgs:    []string{"${BINARY_NAME}"},
+			expectError: false,
+		},
+		{
+			name:        "Valid relation with arbitrary whitespaces",
+			input:       "   target.has-binary(\tsrc,         target      )",
+			wantRel:     "target.has-binary",
+			wantArgs:    []string{"src", "target"},
+			expectError: false,
+		},
+		{
+			name:        "Valid relation with no args",
+			input:       "rel.is-valid()",
+			wantRel:     "rel.is-valid",
+			wantArgs:    []string{},
+			expectError: false,
+		},
+		{
+			name:        "Valid relation with file path",
+			input:       "k8s.hasFile(system, \"/etc/kubernetes/admin.conf\")",
+			wantRel:     "k8s.hasfile",
+			wantArgs:    []string{"system", "\"/etc/kubernetes/admin.conf\""},
+			expectError: false,
+		},
+		{
+			name:        "Invalid relation format",
+			input:       "notarelation",
+			wantRel:     "",
+			wantArgs:    nil,
+			expectError: true,
+		},
+		{
+			name:        "Empty input",
+			input:       "",
+			wantRel:     "",
+			wantArgs:    nil,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rel, args, err := parseRelationEffect(tt.input)
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("Expected error for input %q, got nil", tt.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Unexpected error for input %q: %v", tt.input, err)
+			}
+			if strings.ToLower(rel) != tt.wantRel {
+				t.Errorf("For input %q, expected relation %q, got %q", tt.input, tt.wantRel, rel)
+			}
+			if len(args) != len(tt.wantArgs) {
+				t.Errorf("For input %q, expected vars %v, got %v", tt.input, tt.wantArgs, args)
+			}
+
+			// if len(tt.wantVars) == 0 && len(got) > 1 {
+			// 	t.Fatalf("For input %q, expected no vars, got %v", tt.input, got[1:])
+			// }
+
+			for i := range tt.wantArgs {
+				if args[i] != tt.wantArgs[i] {
+					t.Errorf("For input %q, expected var %q at pos %d, got %q", tt.input, tt.wantArgs[i], i, args[i])
+				}
+			}
+		})
 	}
 }

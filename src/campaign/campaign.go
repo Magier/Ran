@@ -93,13 +93,6 @@ func (c *Campaign) SetTarget(ns, podName string) (domain.Command, error) {
 		ns = "default"
 	}
 	initialPod := domain.NewPod(podName, ns)
-	// initialAccessRelation := domain.CanAccess{
-	// 	SourceId: "c2/Ran",
-	// 	TargetId: initialPod.GetId(),
-	// 	// Identity:    identity,
-	// 	AccessLevel: domain.UserExec,
-	// 	PodsExec:    true,
-	// }
 	initialPod.SetAccessLevel(domain.UserExec)
 
 	args := map[string]string{
@@ -124,18 +117,6 @@ func (c *Campaign) SetTarget(ns, podName string) (domain.Command, error) {
 		Target:      initialPod,
 		Args:        args,
 	}
-	// err := c.trail.AddNewStep(ev)
-	// if err != nil {
-	// 	slog.Error(fmt.Sprintf("Failed to add initial step to audit trail: %s", err.Error()))
-	// } else {
-
-	// 	c.trail.CompleteStep(ev.GetID(), ev.TTP, true, []string{})
-	// }
-
-	// return c.UpdateFacts(domain.Facts{
-	// 	Entities:  []domain.Entity{initialPod},
-	// 	Relations: []domain.Relation{initialAccessRelation},
-	// }, domain.Facts{})
 	return ev, nil
 }
 

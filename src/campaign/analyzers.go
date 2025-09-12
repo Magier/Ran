@@ -91,6 +91,26 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 		}
 	}
 
+	for _, r := range new.Relations {
+		switch rel := r.(type) {
+		case domain.CanAccess:
+			target, ok := entities[rel.TargetId]
+			if !ok {
+				target, ok = c.GetEntityById(rel.TargetId)
+				if !ok {
+					slog.Warn("Could not find target entity for CanAccess relation", "relation", rel)
+					continue
+				}
+			}
+			if sys, ok := target.(domain.System); ok {
+				sys.SetAccessLevel(rel.AccessLevel)
+				entities[sys.GetId()] = sys
+			}
+			// Handle CanAccess relation
+		default:
+		}
+	}
+
 	entitiesSlice := make([]domain.Entity, 0, len(entities))
 	for _, entity := range entities {
 		entitiesSlice = append(entitiesSlice, entity)

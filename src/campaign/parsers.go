@@ -297,7 +297,7 @@ func ParseConfigMapList(jsonStr string) ([]domain.ConfigMap, error) {
 	return configMaps, nil
 }
 
-func ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (factsUpdate, error) {
+func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (factsUpdate, error) {
 	if len(results) == 0 {
 		return factsUpdate{}, fmt.Errorf("Can't parse effect %s because there are no results", effect)
 	}
@@ -307,7 +307,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 	}
 
 	isRemoveEffect := strings.HasPrefix(effect, "delete")
-	effect = strings.ToLower(strings.TrimPrefix(effect, "delete "))
+	effect = strings.TrimPrefix(effect, "delete ")
 	if strings.HasPrefix(effect, "create") {
 		effect = strings.ToLower(strings.TrimPrefix(effect, "create "))
 	}
@@ -325,7 +325,7 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		}
 	}
 
-	switch effect {
+	switch strings.ToLower(effect) {
 	case "target.ip":
 		if sys, ok := source.(domain.System); ok {
 			ips := []net.IPAddr{}
@@ -584,20 +584,42 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 			}
 		}
 	default:
-		if strings.HasPrefix(effect, "target.has-binary") {
+		relationName, relationArgs, err := parseRelationEffect(effect)
+		// resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
+		} else {
+			if strings.HasPrefix(effect, "target.has-binary") {
 
-			resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
-			} else {
-				entities = append(entities, resultingEntity)
-			}
-		} else if strings.HasPrefix(effect, "target.hasfile") {
-			resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
-			} else {
-				entities = append(entities, resultingEntity)
+				resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
+				} else {
+					entities = append(entities, resultingEntity)
+				}
+			} else if strings.HasPrefix(effect, "target.hasfile") {
+				resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
+				} else {
+					entities = append(entities, resultingEntity)
+				}
+			} else if strings.HasPrefix(effect, "k8s.can-exec") {
+				if len(relationArgs) != 2 {
+					return factsUpdate{}, fmt.Errorf("k8s.can-exec effect expects exactly 2 arguments: C2 and PodName")
+				}
+				c2ID := relationArgs[0]
+				targetID := relationArgs[1]
+
+				switch relationName {
+				case "k8s.can-exec":
+					relations = append(relations, domain.CanAccess{
+						SourceId:    c2ID,
+						TargetId:    targetID,
+						AccessLevel: domain.UserExec,
+						PodsExec:    true,
+					})
+				}
 			}
 		}
 	}
@@ -607,6 +629,27 @@ func ParseEffect(effect string, source domain.Entity, args map[string]string, re
 		return factsUpdate{Removed: facts}, nil
 	}
 	return factsUpdate{New: facts}, nil
+}
+
+func parseRelationEffect(relation string) (string, []string, error) {
+	// Example "k8s.can-exec(C2, Pod)", where Pod is the class and refers to all pods, or sometimes it's direct instances
+	// like k8s.hasFile(system, "/etc/kubernetes/admin.conf")
+
+	// match the relation before the parenthesis and the varidic parameters within the parenthesis
+	re := regexp.MustCompile(`^(.*?)\(\s*(.*?)\s*\)$`)
+	match := re.FindStringSubmatch(relation)
+	if len(match) > 2 {
+		relation = strings.ToLower(match[1])
+		variables := strings.Split(match[2], ",")
+		if match[2] == "" {
+			variables = []string{}
+		}
+		for i := range variables {
+			variables[i] = strings.TrimSpace(variables[i])
+		}
+		return strings.TrimSpace(relation), variables, nil
+	}
+	return "", nil, fmt.Errorf("Invalid relation format: %s", relation)
 }
 
 func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]string, results ...string) (domain.Entity, error) {
