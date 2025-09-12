@@ -97,7 +97,7 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 	}
 
 	for _, effect := range ev.TTP.Effects {
-		effectUpdate, err := ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
+		effectUpdate, err := c.ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to parse effect '%s': %v", effect, err))
 
