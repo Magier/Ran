@@ -44,7 +44,7 @@ func (f *factsUpdate) Update(new domain.Facts, removed domain.Facts) {
 func NewCampaign(armory *armory.Armory) *Campaign {
 	kg := InitGraph()
 
-	_ = kg.AddEntity(domain.C2System{Name: "Ran", Kind: "Ran"})
+	_ = kg.AddEntity(domain.NewC2System("Ran", "Ran"))
 	return &Campaign{
 		kb:         kg,
 		trail:      NewAuditTrail(),
@@ -177,7 +177,7 @@ func (c *Campaign) Reset() error {
 	c.listeners = make(map[string]domain.Listener)
 	c.identities = make(map[string]domain.Identity)
 
-	err = c.kb.AddEntity(domain.C2System{Name: "Ran", Kind: "Ran"})
+	err = c.kb.AddEntity(domain.NewC2System("Ran", "Ran"))
 	if err != nil {
 		return err
 	}
@@ -577,8 +577,10 @@ func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (doma
 		return cmd, nil
 		// default:
 	case domain.StopListener:
-		if listenerName, ok := args["ListenerID"]; ok {
-			cmd.ID = listenerName
+		if listenerID, ok := args["ListenerID"]; ok {
+			// the ID had the C2 name prefixed to make it unique across C2s
+			parts := strings.SplitN(listenerID, "_", 2)
+			cmd.ID = parts[1]
 		} else {
 			return nil, errors.New("No listenerID specified to stop the listener")
 		}

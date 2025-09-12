@@ -232,8 +232,10 @@ func (c *SliverClient) handleSliverEvent(results chan<- domain.Event, event *cli
 	case consts.JobStoppedEvent:
 		job := event.Job
 		resultingMessage = ListenerStopped{
-			Name: fmt.Sprintf("sliver_%s", job.Name),
-			Port: uint(job.Port),
+			ListenerID: fmt.Sprintf("%d", job.ID),
+			C2Name:     c.Name,
+			Name:       fmt.Sprintf("%s_%s", SliverKind, job.Name),
+			Port:       uint(job.Port),
 		}
 	default:
 		slog.Info("Ignoring unknown sliver event", "type", event.EventType)
@@ -310,15 +312,15 @@ func parseSession(session *clientpb.Session) domain.Session {
 		UID:         session.UID,
 		GID:         session.GID,
 		RemoteAddr:  session.RemoteAddress,
+		IsAlive:     !session.IsDead,
 	}
 }
 
 func parseListener(job *clientpb.Job) ListenerReady {
 	return ListenerReady{
 		ID:       fmt.Sprintf("%d", job.ID),
-		Name:     fmt.Sprintf("sliver_%s", job.Name),
+		Name:     fmt.Sprintf("%s_%s", SliverKind, job.Name),
 		Port:     uint(job.Port),
-		C2Server: SliverKind,
 		Protocol: domain.Protocol(strings.ToUpper(job.Protocol)),
 	}
 }
@@ -335,7 +337,9 @@ func reportOpenListeners(rpc rpcpb.SliverRPCClient, results chan<- domain.Event,
 		if job.Port == uint32(clientPort) {
 			continue
 		}
-		results <- parseListener(job)
+		ev := parseListener(job)
+		ev.C2Name = SliverKind
+		results <- ev
 	}
 }
 
