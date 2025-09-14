@@ -1,0 +1,20 @@
+name: List Files
+description: Get a list of processes running in the container
+tactic: Discovery
+techniques: ["Software Discovery", T1518]
+parameters:
+  DIR:
+    type: string
+    description: the directory to list files from
+    default: "."
+preconditions:
+  accessLevel: user-exec
+  kind: System
+procedures:
+  - key: ls
+    tool: ls
+    command: ls -laF ${DIR}
+effects:
+  - sys.files
+# defend: {}
+references:
