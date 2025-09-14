@@ -204,24 +204,29 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 	// hostname != pod-name -> maybe hostPID/hostIPC etc. flags are set on pod?
 	// or maybe the system is a node
 
-	// convert the communication channel to a relationship
-	c2Channel := domain.ImplantC2Channel{
-		SessionId: ev.Session.Id,
-		SourceId:  fmt.Sprintf("%s/%s", "c2", ev.C2Kind),
-		Kind:      ev.C2Kind,
-		Target:    ev.Session,
-		// Target:    sys,
-		// Protocol  string
-	}
+	relations := make([]domain.Relation, 0)
 
-	hasSession := domain.HasC2Session{
-		System:  sys,
-		Session: ev.Session,
+	// convert the communication channel to a relationship
+	if ev.Session.IsAlive {
+		c2Channel := domain.ImplantC2Channel{
+			SessionId: ev.Session.Id,
+			SourceId:  fmt.Sprintf("%s/%s", "c2", ev.C2Kind),
+			Kind:      ev.C2Kind,
+			Target:    ev.Session,
+			// Target:    sys,
+			// Protocol  string
+		}
+		hasSession := domain.HasC2Session{
+			System:  sys,
+			Session: ev.Session,
+		}
+
+		relations = append(relations, c2Channel, hasSession)
 	}
 
 	newFacts := domain.Facts{
 		Entities:  []domain.Entity{sys, ev.Session},
-		Relations: []domain.Relation{c2Channel, hasSession},
+		Relations: relations,
 	}
 	newFacts, removedFacts, err := c.AnalyzeChanges(newFacts, domain.Facts{})
 	if err != nil {
@@ -238,9 +243,7 @@ func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) 
 	}
 	delete(c.sessions, ev.Session.Id)
 
-	// TODO: remove session from all relations
-	slog.Error(fmt.Sprintf("Session removal for '%s' not yet implemented", ev.Session.Id))
-	return nil, nil
+	return c.UpdateFacts(domain.Facts{}, domain.Facts{Entities: []domain.Entity{ev.Session}})
 }
 
 // func (c *Campaign) onEnvVarsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
