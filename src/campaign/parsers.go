@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
@@ -534,17 +536,25 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 		} else {
 			slog.Warn("The source of the user ID effect is not a System!")
 		}
-	case "files":
-		res := strings.Trim(results[0], "\n")
-		files := strings.Split(res, "\n")
-
-		switch e := source.(type) {
-		case domain.K8sNode:
-			e.Files = files
-			entities = append(entities, e)
-		case domain.Pod:
-			e.Files = files
-			entities = append(entities, e)
+	case "sys.files":
+		fsEntries, err := parseFiles(results[0])
+		srcDir := args["DIR"]
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to parse files: %v", err))
+		} else {
+			if sys, ok := source.(domain.System); ok {
+				files := []string{}
+				for _, entry := range fsEntries {
+					fullPath := fmt.Sprintf("%s/%s", srcDir, entry.Name)
+					if entry.IsExec {
+						// also explicitely track all binaries
+						sys.SetBinary(entry.Name, fullPath)
+					}
+					files = append(files, fullPath)
+				}
+				sys.AddFiles(files)
+				entities = append(entities, sys)
+			}
 		}
 	case "file:kubeconfig":
 		if len(results[0]) > 0 {
@@ -1064,4 +1074,74 @@ func parseK8sCronJob(args map[string]string, results ...string) (domain.CronJob,
 	cj := domain.NewCronJob(args["Name"], nsName)
 	cj.Pod = p
 	return cj, nil
+}
+
+type FileEntryParserFn func(string) (FileSystemEntry, error)
+
+func getFileEntryParser(data string) FileEntryParserFn {
+	if strings.HasPrefix(data, "total ") {
+		return parseLSLine
+	}
+
+	return func(line string) (FileSystemEntry, error) {
+		return FileSystemEntry{Name: line}, nil
+	}
+}
+
+func parseFiles(data string) ([]FileSystemEntry, error) {
+	// res := strings.Trim(data, "\n")
+	files := strings.Split(data, "\n")
+
+	parserFn := getFileEntryParser(data)
+
+	var entries []FileSystemEntry
+	for i, line := range files {
+		// ls -l: long flag always prints `total <size>` at the top
+		if i == 0 && strings.HasPrefix(line, "total ") {
+			continue
+		}
+		entry, err := parserFn(line)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to parse file entry '%s': %w", line, err)
+		}
+		// ignore standard navigation entries from `ls` command
+		if entry.Name != "" && entry.Name != "./" && entry.Name != "../" {
+			entries = append(entries, entry)
+		}
+	}
+	return entries, nil
+}
+
+func parseLSLine(line string) (FileSystemEntry, error) {
+	parts := strings.Fields(line)
+	if len(parts) < 9 {
+		return FileSystemEntry{}, nil
+	}
+
+	size, _ := strconv.ParseInt(parts[4], 10, 64)
+	modTime, _ := time.Parse("Jan 02 15:04", fmt.Sprintf("%s %s", parts[5], parts[6]))
+	name := parts[8]
+	isExec := parts[0][3] == 'x' && strings.Contains(parts[0], "x")
+	// part of -F flag in ls, to append '*' to executable files
+	if isExec && strings.HasSuffix(name, "*") {
+		name = strings.TrimSuffix(name, "*")
+	}
+
+	return FileSystemEntry{
+		Name: name,
+		Size: size,
+		// Mode:    parseFileMode(parts[0]),
+		ModTime: modTime,
+		IsDir:   parts[0][0] == 'd' || strings.HasSuffix(name, "/"),
+		IsExec:  isExec,
+	}, nil
+}
+
+type FileSystemEntry struct {
+	Name    string
+	Size    int64
+	Mode    os.FileMode
+	ModTime time.Time
+	IsDir   bool
+	IsExec  bool
 }
