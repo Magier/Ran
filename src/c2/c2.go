@@ -347,14 +347,14 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, procedure domain.Proc
 			}
 			cmd := osexec.Command(fields[0], fields[1:]...)
 			// cmd.Stdin = strings.NewReader("some input")
-			var out strings.Builder
-			cmd.Stdout = &out
+			var stdout, stderr strings.Builder
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
 			err := cmd.Run()
 			if err != nil {
-				return nil, fmt.Errorf("Failed to  execute procedure '%s' locally", procedure.Command)
+				return nil, fmt.Errorf("Failed to  execute procedure '%s' locally: %s", procedure.Command, stderr.String())
 			}
-			res := out.String()
-			return []string{res}, nil
+			return []string{stdout.String(), stderr.String()}, nil
 		}
 	} else if exec.TTP.Tactic == mitre.InitialAccess {
 		// initial access TTPs should have a command to set the target

@@ -115,6 +115,14 @@
 					arg.Value = parseFloat(arg.Value).toString();
 				} else if (arg.Type === 'string') {
 					arg.Value = arg.Value.toString();
+				} else {
+					// for non-primitive types ensure the value is in the expected format,
+					// i.e. if the arg is a name, it should not be a full id
+					if (arg.Name.toLowerCase().endsWith("name") && arg.Value.indexOf("/") !== -1) {
+						const parts = arg.Value.split("/");
+						// the actual name is the last part of the id
+						arg.Value = parts[parts.length - 1];
+					}
 				}
 				acc[arg.Name] = arg.Value;
 				return acc;
@@ -189,6 +197,7 @@
 									data={getArgOptions(arg.Name)}
 									onValueChange={(e) => {
 										arg.Value = e.value[0]
+										console.info(`Selected value for ${arg.Name}: ${arg.Value}`);
 									}}
 									inputBehavior="autocomplete"
 									allowCustomValue={true}
