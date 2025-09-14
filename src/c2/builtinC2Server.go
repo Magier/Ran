@@ -23,6 +23,8 @@ type BuiltInC2Server struct {
 	isReady     bool
 	eventStream chan domain.Event
 	sessions    map[string]Session
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
 }
 
 type Session struct {
@@ -48,9 +50,9 @@ func (s Session) End() {
 
 var _ C2Client = (*BuiltInC2Server)(nil)
 
-func NewBuiltInServer() BuiltInC2Server {
+func NewBuiltInServer() *BuiltInC2Server {
 	ip := GetOutboundIP()
-	return BuiltInC2Server{
+	return &BuiltInC2Server{
 		sessions:    make(map[string]Session),
 		cmdChannel:  make(chan domain.Command, 1),
 		ip:          ip,
@@ -59,58 +61,94 @@ func NewBuiltInServer() BuiltInC2Server {
 	}
 }
 
-func (c BuiltInC2Server) Connect(ctx context.Context) error {
+func (c *BuiltInC2Server) Connect(parentCtx context.Context) error {
 	c.eventStream <- domain.C2Connected{
 		Name: BuiltInC2,
 		IP:   c.GetServerIp(),
 		Kind: "C2",
 	}
+	ctx, cancel := context.WithCancel(parentCtx)
+	c.cancel = cancel
+
+	c.wg.Add(1)
+	go c.runDispatchLoop(ctx)
+	return nil
+}
+
+// runDispatchLoop multiplexes between:
+// - ctx cancellation
+// - incoming commands (c.cmdChannel)
+// It returns when ctx is cancelled or when the server events channel closes.
+func (c *BuiltInC2Server) runDispatchLoop(
+	ctx context.Context,
+) {
+	defer c.wg.Done()
+
 	for {
 		select {
 		case <-ctx.Done():
-			for _, s := range c.sessions {
-				s.End()
+			return
+
+		case cmd, ok := <-c.cmdChannel:
+			if !ok {
+				c.cmdChannel = nil
+				continue
 			}
-			break
-		case cmd := <-c.cmdChannel:
-			_, err := c.handleCommand(cmd)
+			event, err := c.handleCommand(cmd)
 			if err != nil {
-				slog.Error("BuiltinC2 command failure", "", err.Error())
+				slog.Error("Sliver C2: could not send cmd", "err", err)
 			}
+			if event != nil {
+				select {
+				case <-ctx.Done():
+					return
+				case c.eventStream <- event:
+				}
+			}
+
+			// case evt, ok := <-events:
+			// 	if !ok {
+			// 		// Server event stream ended; stop the loop.
+			// 		return
+			// 	}
+			// 	// go c.handleServerEvent(c.eventStream, evt)
 		}
 	}
 }
 
-func (c BuiltInC2Server) Shutdown() {
+func (c *BuiltInC2Server) Shutdown() {
+	if c.cancel != nil {
+		c.cancel()
+	}
 	close(c.cmdChannel)
+	c.wg.Wait()
 }
 
-func (c BuiltInC2Server) SetReady(state bool) C2Client {
+func (c *BuiltInC2Server) SetReady(state bool) C2Client {
 	c.isReady = state
 	return c
 }
 
-func (c BuiltInC2Server) GetEventStream() <-chan domain.Event {
+func (c *BuiltInC2Server) GetEventStream() <-chan domain.Event {
 	return c.eventStream
 }
 
-func (c BuiltInC2Server) IsReady() bool {
+func (c *BuiltInC2Server) IsReady() bool {
 	builtinC2Mutex.Lock()
 	defer builtinC2Mutex.Unlock()
 	return c.isReady
 }
 
-func (c BuiltInC2Server) Execute(ev domain.Command) (domain.Message, error) {
+func (c *BuiltInC2Server) Execute(ev domain.Command) (domain.Message, error) {
 	c.cmdChannel <- ev
-	// return nil, fmt.Errorf("Starting Sliver Listener not yet implemented")
 	return nil, nil
 }
 
-func (c BuiltInC2Server) GetServerIp() net.IP {
+func (c *BuiltInC2Server) GetServerIp() net.IP {
 	return c.ip
 }
 
-func (c BuiltInC2Server) handleCommand(msg domain.Command) (domain.Message, error) {
+func (c *BuiltInC2Server) handleCommand(msg domain.Command) (domain.Event, error) {
 	switch cmd := msg.(type) {
 	case domain.StartListener:
 		go func() {
@@ -134,11 +172,11 @@ func (c BuiltInC2Server) handleCommand(msg domain.Command) (domain.Message, erro
 	return nil, nil
 }
 
-func (c BuiltInC2Server) GetName() string {
+func (c *BuiltInC2Server) GetName() string {
 	return ""
 }
 
-func (c BuiltInC2Server) startListener(ctx context.Context, cmd domain.StartListener) error {
+func (c *BuiltInC2Server) startListener(ctx context.Context, cmd domain.StartListener) error {
 	listener, err := net.Listen("tcp", ":"+strconv.FormatUint(uint64(cmd.Port), 10))
 	if err != nil {
 		return fmt.Errorf("Unable to bind to port: %s", err)
@@ -198,7 +236,7 @@ func (c BuiltInC2Server) startListener(ctx context.Context, cmd domain.StartList
 		}
 	}
 }
-func (c BuiltInC2Server) stopListener(cmd domain.StopListener) error {
+func (c *BuiltInC2Server) stopListener(cmd domain.StopListener) error {
 	return fmt.Errorf("Stopping builtin listener is not yet implemented!")
 }
 
