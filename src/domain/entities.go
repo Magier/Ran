@@ -67,6 +67,44 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 			}
 		}
 	}
+	if len(r.OtherFields) > 0 {
+		for key, expectedValue := range r.OtherFields {
+			switch expectedValue.(type) {
+			case bool:
+			case string:
+			default:
+				return false
+			}
+
+			// var domain string
+			conditionName := key
+
+			// some checks may restrict the domain of the relation, e.g. `c2.<>`
+			// split the domain and the relation name
+			if strings.Contains(key, ".") {
+				// extract the actual field name from the relation "<kind>.<field>"
+				parts := strings.SplitN(key, ".", 2)
+				if len(parts) != 2 {
+					slog.Warn("Invalid field format in Requirements.OtherFields", "field", key)
+				}
+				// domain = parts[0]
+				conditionName = parts[1]
+			}
+
+			// <kind>.<field> vs `has-<field>` notation
+			if strings.Contains(conditionName, "has-") {
+				// extract the actual field name from the relation "has-<field>"
+				conditionName = strings.TrimPrefix(conditionName, "has-")
+			}
+
+			val, ok := getFieldValue(target, conditionName)
+			if !ok {
+				return false
+			} else {
+				return val == expectedValue
+			}
+		}
+	}
 
 	if len(r.Exists) > 0 {
 		if !state.Satisfies(r.Exists) {
@@ -74,6 +112,18 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 		}
 	}
 	return true
+}
+
+func getFieldValue(e Entity, fieldName string) (interface{}, bool) {
+	switch fieldName {
+	case "name":
+		return e.GetName(), true
+	case "listener":
+		if c2, ok := e.(C2System); ok {
+			return len(c2.Listeners) > 0, true
+		}
+	}
+	return nil, false
 }
 
 type IsOfKind string
@@ -336,6 +386,7 @@ type System interface {
 	SetProcesses(procs []Process)
 	SetUserID(uid int)
 	SetUserName(name string)
+	AddFiles(files []string)
 }
 
 type UnknownSystem struct {
@@ -493,6 +544,10 @@ func (s *SystemImpl) SetUserID(uid int) {
 }
 func (s *SystemImpl) SetUserName(name string) {
 	s.UserName = name
+}
+
+func (s *SystemImpl) AddFiles(files []string) {
+	s.Files = append(s.Files, files...)
 }
 
 // func (s System) GetId() string {
