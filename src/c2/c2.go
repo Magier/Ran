@@ -241,6 +241,14 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 		results = append(results, err.Error())
 	}
 
+	// Temporary work around to not return TTPExecuted, when it's an async execution
+	// and neither positive nor negative results are in
+	// TODO: this needs to be properly synced with the toast in the UI
+	// the attack step tracing works with a any other TTPExecuted call
+	if len(results) == 0 && err == nil {
+		return nil, nil
+	}
+
 	return domain.TTPExecuted{
 		ID:         exec.ID,
 		TTP:        exec.TTP,

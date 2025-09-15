@@ -282,6 +282,7 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 	// listenerID := ev.Name
 	c.listeners[listener.ID] = listener
 	c2.Listeners[listener.ID] = listener
+	// TODO: complete the TTP step, with the given CmdID
 
 	return c.UpdateFacts(
 		domain.Facts{Entities: []domain.Entity{c2}},
