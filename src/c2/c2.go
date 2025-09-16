@@ -170,14 +170,14 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 	if exec.CommandMsg != nil {
 		switch cmd := exec.CommandMsg.(type) {
 		case domain.StartListener:
-			client, ok := selectClient(c2.clients, cmd)
+			client, ok := selectClient(c2.clients, cmd.Server)
 			if ok {
 				resMsg, err = client.Execute(cmd)
 			} else {
 				err = fmt.Errorf("No suitable client found to start listener")
 			}
 		case domain.StopListener:
-			client, ok := selectClient(c2.clients, cmd)
+			client, ok := selectClient(c2.clients, cmd.Server)
 			if ok {
 				resMsg, err = client.Execute(cmd)
 			} else {
@@ -190,6 +190,8 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 			_ = c2.bus.Publish(resMsg)
 		}
 	} else {
+		c2Client, hasC2Client := selectClient(c2.clients, exec.Procedure.Tool)
+
 		if strings.HasPrefix(exec.Procedure.Command, "c2") {
 			switch exec.Procedure.Command {
 			case "c2.connect":
@@ -209,13 +211,19 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 					}
 				}
 			case "c2.close":
-				client, ok := c2.clients[exec.Procedure.Tool]
-				if ok {
-					client.Shutdown()
+				if hasC2Client {
+					c2Client.Shutdown()
 					delete(c2.clients, exec.Procedure.Tool)
 				} else {
 					slog.Warn(fmt.Sprintf("No client found for C2 '%s' to close", exec.Procedure.Tool))
 				}
+			}
+		} else if hasC2Client && c2Client.IsReady() {
+			msg, err := c2Client.Execute(exec)
+			if err != nil {
+				results = append(results, err.Error())
+			} else {
+				results = append(results, msg.String())
 			}
 		} else if exec.Procedure.IsLocalCommand {
 			results, err = execLocally(ctx, exec, exec.Procedure, c2.clients)
@@ -412,17 +420,9 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 	return results, err
 }
 
-func selectClient(clients map[string]C2Client, msg domain.Command) (C2Client, bool) {
-	var server string
-	switch cmd := msg.(type) {
-	case domain.StartListener:
-		server = cmd.Server
-	case domain.StopListener:
-		server = cmd.Server
-	}
-
+func selectClient(clients map[string]C2Client, name string) (C2Client, bool) {
 	// no server defined means the C2 will choose the best option
-	if server == "" {
+	if name == "" {
 		for _, c2Name := range []string{SliverKind, BuiltInC2} {
 			client, ok := clients[c2Name]
 			if ok && client.IsReady() {
@@ -431,7 +431,7 @@ func selectClient(clients map[string]C2Client, msg domain.Command) (C2Client, bo
 		}
 	}
 
-	client, ok := clients[server]
+	client, ok := clients[name]
 	if ok {
 		return client, true
 	}

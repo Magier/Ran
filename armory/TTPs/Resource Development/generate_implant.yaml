@@ -35,7 +35,7 @@ preconditions:
 procedures:
   - key: sliver
     tool: sliver
-    command: generate --{PROTOCOL} {LHOST}:{LPORT} --OS=${OS} --arch=${ARCH}  --save=${OUTPUT_PATH}
+    command: generate --${PROTOCOL} ${LHOST}:${LPORT} --OS=${OS} --arch=${ARCH}  --save=${OUTPUT_PATH}
 effects: []
 # cmd: {}
 # defend: {}
