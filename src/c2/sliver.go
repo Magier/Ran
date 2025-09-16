@@ -252,9 +252,14 @@ func (c *SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 	case domain.StopListener:
 		return c.stopListener(cmd)
 	case domain.ExecTTP:
-		c2Channel := cmd.C2Channel.(domain.ImplantC2Channel)
-		switch cmd.Procedure.Command {
+		cmdParts := strings.Split(cmd.Procedure.Command, " ")
+
+		switch cmdParts[0] {
 		case "get_file":
+			if cmd.C2Channel == nil {
+				return nil, fmt.Errorf("No C2 channel specified for file download")
+			}
+			c2Channel := cmd.C2Channel.(domain.ImplantC2Channel)
 			path, ok := cmd.Args["Path"]
 			if !ok {
 				return nil, fmt.Errorf("Path of file to retrieve is required as argument")
@@ -274,6 +279,20 @@ func (c *SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 			}
 			// TODO: get rid of the result handling here and return generic result
 			return cmd.TTP.HandleResult(cmd.Target, data)
+		case "generate":
+			if len(cmd.Args) != 1 {
+				var args []string
+				for k, v := range cmd.Args {
+					args = append(args, fmt.Sprintf("%s=%s", k, v))
+				}
+				argsStr := strings.Join(args, ", ")
+				slog.Warn("Received unknown arguments to generate file: " + argsStr)
+			}
+			res, err := c.generateImplant(context.Background(), cmd.Args)
+			if err != nil {
+				return nil, err
+			}
+			var _ = res
 		default:
 			slog.Warn("Sliver C2 does not support command: " + cmd.Procedure.Command)
 		}
@@ -410,6 +429,18 @@ func (c *SliverClient) downloadFile(sessionId, path string) ([]byte, error) {
 	}
 
 	return dl.GetData(), err
+}
+
+func (c *SliverClient) generateImplant(ctx context.Context, args map[string]string) (string, error) {
+	// TODO: properly implement generation of implants
+	slog.Error("Sliver implant generation not yet implemented")
+	c.rpc.Generate(ctx, &clientpb.GenerateReq{
+		Config: &clientpb.ImplantConfig{
+			GOOS:   args["GOOS"],
+			GOARCH: args["GOARCH"],
+		},
+	})
+	return "", nil
 }
 
 func makeRequest(sessionId string) *commonpb.Request {

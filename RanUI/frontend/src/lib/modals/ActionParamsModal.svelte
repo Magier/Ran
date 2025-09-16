@@ -107,12 +107,24 @@
 	function onInternalExecute() {
 		const argsDict = args.reduce(
 			(acc: { [key: string]: string }, arg) => {
-				if (arg.Type === 'bool') {
+				const isTemplateVar = arg.Value.startsWith("${") && arg.Value.endsWith("}");
+				if (isTemplateVar) {
+					// if the value is a variable, do not do any conversion
+				} else if (arg.Type === 'bool') {
 					arg.Value = arg.IsTrue ? 'true' : 'false';
 				} else if (arg.Type === 'int') {
-					arg.Value = parseInt(arg.Value).toString();
+					let v = parseInt(arg.Value);
+					// temporary workaround: accept strings as well, if parsing fails, maybe backend can recover
+					if (!isNaN(v)) { 
+						arg.Value = v.toString();
+					}
 				} else if (arg.Type === 'float') {
-					arg.Value = parseFloat(arg.Value).toString();
+					let v = parseFloat(arg.Value);
+					// temporary workaround: accept strings as well, if parsing fails, maybe backend can recover
+					if (!isNaN(v)) { 
+						arg.Value = v.toString();
+					}
+					// arg.Value = parseFloat(arg.Value).toString();
 				} else if (arg.Type === 'string') {
 					arg.Value = arg.Value.toString();
 				} else {
