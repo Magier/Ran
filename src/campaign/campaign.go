@@ -483,7 +483,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			if ok {
 				arg = strings.ReplaceAll(arg, "${LISTENER}", listener.IP.String())
 			} else {
-				slog.Info("No suitable listener found!")
+				slog.Warn("No suitable listener found!")
 			}
 		} else if strings.Contains(arg, "${LISTENER_PORT}") {
 			listener, ok := c.GetListener(domain.TCP)
@@ -491,7 +491,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 				p := fmt.Sprint(listener.Port)
 				arg = strings.ReplaceAll(arg, "${LISTENER_PORT}", p)
 			} else {
-				slog.Info("No suitable listener found!")
+				slog.Warn("No suitable listener found!")
 			}
 		} else if strings.ToUpper(key) == "NODE" || strings.ToUpper(key) == "NODENAME" {
 			if arg == "" || arg == NODE_NAME_VAR {

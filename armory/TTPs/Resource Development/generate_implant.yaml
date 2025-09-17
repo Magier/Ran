@@ -26,10 +26,10 @@ parameters:
     description: The target architecture for the implant
     options: ["amd64", "arm64"]
     default: "amd64"
-  OUTPUT_PATH:
+  OUTPUT_DIR:
     type: string
-    description: The path where the generated implant binary should be saved
-    default: "./implant"
+    description: The directory where the generated implant binary should be saved
+    default: "./static"
 preconditions:
   kind: C2
 procedures:

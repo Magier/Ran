@@ -170,14 +170,14 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 	if exec.CommandMsg != nil {
 		switch cmd := exec.CommandMsg.(type) {
 		case domain.StartListener:
-			client, ok := selectClient(c2.clients, cmd.Server)
+			client, ok := selectClient(c2.clients, cmd.Server, true)
 			if ok {
 				resMsg, err = client.Execute(cmd)
 			} else {
 				err = fmt.Errorf("No suitable client found to start listener")
 			}
 		case domain.StopListener:
-			client, ok := selectClient(c2.clients, cmd.Server)
+			client, ok := selectClient(c2.clients, cmd.Server, true)
 			if ok {
 				resMsg, err = client.Execute(cmd)
 			} else {
@@ -190,7 +190,7 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 			_ = c2.bus.Publish(resMsg)
 		}
 	} else {
-		c2Client, hasC2Client := selectClient(c2.clients, exec.Procedure.Tool)
+		c2Client, hasC2Client := selectClient(c2.clients, exec.Procedure.Tool, false)
 
 		if strings.HasPrefix(exec.Procedure.Command, "c2") {
 			switch exec.Procedure.Command {
@@ -222,8 +222,12 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 			msg, err := c2Client.Execute(exec)
 			if err != nil {
 				results = append(results, err.Error())
-			} else {
+			} else if msg != nil {
 				results = append(results, msg.String())
+			} else {
+				// ensure some signal of successful execution is returned
+				// which is relevant for later business logic
+				results = append(results, "ok")
 			}
 		} else if exec.Procedure.IsLocalCommand {
 			results, err = execLocally(ctx, exec, exec.Procedure, c2.clients)
@@ -420,9 +424,9 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 	return results, err
 }
 
-func selectClient(clients map[string]C2Client, name string) (C2Client, bool) {
+func selectClient(clients map[string]C2Client, name string, selectAny bool) (C2Client, bool) {
 	// no server defined means the C2 will choose the best option
-	if name == "" {
+	if selectAny {
 		for _, c2Name := range []string{SliverKind, BuiltInC2} {
 			client, ok := clients[c2Name]
 			if ok && client.IsReady() {
