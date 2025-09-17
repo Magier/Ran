@@ -57,3 +57,14 @@ type BinaryDownloaded struct {
 	Name string
 	Path string
 }
+
+type ImplantGenerated struct {
+	domain.EventImpl
+	C2Name string
+	Name   string
+	Path   string
+}
+
+func (e ImplantGenerated) String() string {
+	return fmt.Sprintf("Implant '%s' generated %s", e.Name, e.Path)
+}

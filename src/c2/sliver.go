@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -223,12 +225,10 @@ func (c *SliverClient) handleSliverEvent(results chan<- domain.Event, event *cli
 		resultingMessage = SessionStarted{Session: parseSession(event.Session), C2Kind: SliverKind}
 	case consts.SessionClosedEvent:
 		resultingMessage = SessionClosed{Session: parseSession(event.Session)}
-
 	case consts.JobStartedEvent:
 		job := event.Job
 		// resolve the local IP to the 'external' one, so the compromised systems can reach it
 		resultingMessage = parseListener(job)
-
 	case consts.JobStoppedEvent:
 		job := event.Job
 		resultingMessage = ListenerStopped{
@@ -237,6 +237,13 @@ func (c *SliverClient) handleSliverEvent(results chan<- domain.Event, event *cli
 			Name:       fmt.Sprintf("%s_%s", SliverKind, job.Name),
 			Port:       uint(job.Port),
 		}
+	case consts.BuildCompletedEvent: // implant was generated
+		resultingMessage = ImplantGenerated{
+			C2Name: c.Name,
+			Name:   string(event.GetData()),
+			// Path:   string(event.GetData()),
+		}
+		// resultingMessage = BuildCompleted{Job: parseJob(event.Job)}
 	default:
 		slog.Info("Ignoring unknown sliver event", "type", event.EventType)
 	}
@@ -280,15 +287,7 @@ func (c *SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 			// TODO: get rid of the result handling here and return generic result
 			return cmd.TTP.HandleResult(cmd.Target, data)
 		case "generate":
-			if len(cmd.Args) != 1 {
-				var args []string
-				for k, v := range cmd.Args {
-					args = append(args, fmt.Sprintf("%s=%s", k, v))
-				}
-				argsStr := strings.Join(args, ", ")
-				slog.Warn("Received unknown arguments to generate file: " + argsStr)
-			}
-			res, err := c.generateImplant(context.Background(), cmd.Args)
+			res, err := c.generateImplant(context.Background(), cmd.Args, cmdParts)
 			if err != nil {
 				return nil, err
 			}
@@ -431,16 +430,49 @@ func (c *SliverClient) downloadFile(sessionId, path string) ([]byte, error) {
 	return dl.GetData(), err
 }
 
-func (c *SliverClient) generateImplant(ctx context.Context, args map[string]string) (string, error) {
-	// TODO: properly implement generation of implants
-	slog.Error("Sliver implant generation not yet implemented")
-	c.rpc.Generate(ctx, &clientpb.GenerateReq{
+func (c *SliverClient) generateImplant(ctx context.Context, ttpArgs map[string]string, cmdArgs []string) (string, error) {
+	var port uint32
+	if portArg, ok := ttpArgs["LPORT"]; ok {
+		if p, err := strconv.ParseUint(portArg, 10, 32); err == nil {
+			port = uint32(p)
+		} else {
+			slog.Error("Invalid LPORT value", "LPORT", portArg, "err", err)
+		}
+	}
+	lhost := ttpArgs["LHOST"]
+
+	res, err := c.rpc.Generate(ctx, &clientpb.GenerateReq{
 		Config: &clientpb.ImplantConfig{
-			GOOS:   args["GOOS"],
-			GOARCH: args["GOARCH"],
+			GOOS:        ttpArgs["OS"],
+			GOARCH:      ttpArgs["ARCH"],
+			Name:        ttpArgs["NAME"],
+			IsSharedLib: false,
+			Format:      clientpb.OutputFormat_EXECUTABLE,
+			C2: []*clientpb.ImplantC2{{
+				URL: fmt.Sprintf("https://%s:%d", lhost, port),
+			}},
 		},
 	})
-	return "", nil
+
+	if err != nil {
+		return "", fmt.Errorf("Generating implant failed: %w", err)
+	}
+
+	outputPath := ttpArgs["OUTPUT_DIR"]
+	if outputPath != "" {
+		dst := filepath.Join(outputPath, res.File.Name)
+		dst, err = filepath.Abs(dst)
+		if err != nil {
+			slog.Error("Failed to determine absolute path for implant", "path", dst, "err", err)
+		} else {
+			if err := os.WriteFile(dst, res.File.Data, 0744); err != nil {
+				slog.Error("Failed to write implant", "path", dst, "err", err)
+			} else {
+				slog.Info("Wrote implant to " + dst)
+			}
+		}
+	}
+	return res.String(), err
 }
 
 func makeRequest(sessionId string) *commonpb.Request {

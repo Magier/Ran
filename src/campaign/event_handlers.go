@@ -261,6 +261,7 @@ func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (dom
 	c.trail.CompleteStep(ev.CmdId, domain.TTP{}, true, []string{fmt.Sprintf("Listener on C2 '%s' port %d ready", ev.C2Name, ev.Port)})
 	c2, ok := c.GetC2(ev.C2Name)
 	if !ok {
+		// TODO: need eventual consistency, in case C2 connected event arrives later
 		return nil, fmt.Errorf("No C2 '%s' found", ev.C2Name)
 	}
 
