@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, getContext } from 'svelte';
 	import { browser } from '$app/environment';
 	import cytoscape from 'cytoscape';
 	import fcose from 'cytoscape-fcose';
@@ -48,6 +48,8 @@
 
 	// keep track of the nodes before the layouting, to ensure consistent positioning of new nodes
 	let existingNodes: cytoscape.NodeCollection = cytoscape().collection();
+
+	const theme = getContext('theme');
 
 	onMount(() => {
 		positions = loadPositions();

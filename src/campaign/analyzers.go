@@ -1045,6 +1045,7 @@ func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
 func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
 	// get the system on which the TTP was executed
 	newFacts := domain.Facts{}
+	failedBecauseOfTool := false
 
 	// TODO: support c2 channel with multiple segements
 	if ev.ExecutedOn != nil {
@@ -1053,9 +1054,11 @@ func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (domain.Facts, doma
 		// add the binary only, if it was not yet known, because just a successful/failed
 		// call provides no information of the exact path (which other info sources may do)
 		if ev.ExecutedOn.HasBinary(tool).IsUnknown() {
-			val := "❌"
+			var val string
 			if ev.Success {
 				val = tool
+			} else if failedBecauseOfTool {
+				val = "❌"
 			}
 			ev.ExecutedOn.SetBinary(tool, val)
 		}
