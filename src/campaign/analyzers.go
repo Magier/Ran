@@ -470,7 +470,6 @@ func analyzeServiceAccountToken(token domain.ServiceAccountToken) (domain.Facts,
 		Assets:    []domain.Asset{saToken},
 		Relations: []domain.Relation{saUsage, nsContainsSa, nodeRunsPod, podRunsOnNode},
 	}, nil
-
 }
 
 func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
@@ -486,23 +485,11 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 	relations := make([]domain.Relation, 0)
 
 	// the tool part of the procedure was not on the target system
-
-	// TODO: try to parse the tool name from the errormessage
-	toolNotFoundMsgs := []string{
-		fmt.Sprintf("%s: not found", ev.Procedure.GetTool()),
-		"executable file not found in $PATH", // happened when using `k exec`
-	}
-
-	for _, toolNotFoundMsg := range toolNotFoundMsgs {
-		if strings.Contains(errMsg, toolNotFoundMsg) || (len(ev.Results) > 1 && strings.Contains(ev.Results[1], toolNotFoundMsg)) {
-			// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
-			// "bash: wget: command not found"  on nginx pod
-			if execSystem := ev.ExecutedOn; execSystem != nil {
-				// if p, ok := target.(domain.Pod); ok
-				execSystem.SetBinary(ev.Procedure.GetTool(), "")
-				entities = append(entities, execSystem)
-			}
-		}
+	new, _, err := analyzeToolSuccessfullyUsedInTTP(ev)
+	if err == nil {
+		entities = append(entities, new.Entities...)
+	} else {
+		return domain.Facts{}, domain.Facts{}, err
 	}
 
 	// TTP failed at the Kubernetes API server for various reasons (RBAC, admission control, etc.)
@@ -1042,26 +1029,45 @@ func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
 	return rels
 }
 
+func isToolExecutionFailure(ttpResults []string, toolName string) bool {
+	// TODO: try to parse the tool name from the errormessage
+	toolNotFoundMsgs := []string{
+		fmt.Sprintf("%s: not found", toolName),
+		"executable file not found in $PATH", // happened when using `k exec`
+	}
+	errMsg := ttpResults[0]
+	if errMsg == "" && len(ttpResults) > 1 { // maybe the information is in stderr
+		errMsg = ttpResults[1]
+	}
+
+	for _, toolNotFoundMsg := range toolNotFoundMsgs {
+		if strings.Contains(errMsg, toolNotFoundMsg) {
+			// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
+			// "bash: wget: command not found"  on nginx pod
+			return true
+		}
+	}
+	return false
+}
+
 func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
 	// get the system on which the TTP was executed
 	newFacts := domain.Facts{}
-	failedBecauseOfTool := false
 
-	// TODO: support c2 channel with multiple segements
-	if ev.ExecutedOn != nil {
-		tool := ev.Procedure.GetTool()
+	tool := ev.Procedure.GetTool()
+	isToolFailure := isToolExecutionFailure(ev.Results, tool)
 
+	if execSystem := ev.ExecutedOn; execSystem != nil {
 		// add the binary only, if it was not yet known, because just a successful/failed
 		// call provides no information of the exact path (which other info sources may do)
 		if ev.ExecutedOn.HasBinary(tool).IsUnknown() {
-			var val string
 			if ev.Success {
-				val = tool
-			} else if failedBecauseOfTool {
-				val = "❌"
+				ev.ExecutedOn.SetBinary(tool, tool)
+			} else if isToolFailure {
+				ev.ExecutedOn.SetBinary(tool, "") // empty path is a failure
 			}
-			ev.ExecutedOn.SetBinary(tool, val)
 		}
+		newFacts.Entities = append(newFacts.Entities, execSystem)
 	}
 
 	return newFacts, domain.Facts{}, nil
