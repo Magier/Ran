@@ -55,7 +55,7 @@
 			{#if label === 'volumeMounts' || label === 'mounts'}
 				<details>
 					<summary>
-						{label}
+						<span class="font-bold mr-1">{label}</span>
 						<span class="badge preset-outlined-surface-500"
 							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
 						>
@@ -65,7 +65,7 @@
 			{:else if label === 'can'}
 				<details>
 					<summary>
-						{label}
+						<span class="font-bold mr-1">{label}</span>
 						<span class="badge preset-outlined-surface-500"
 							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
 						>
@@ -76,7 +76,7 @@
 				<!-- Collapsible section for objects/arrays -->
 				<details>
 					<summary>
-						{label}
+						<span class="font-bold mr-1">{label}</span>
 						<span class="badge preset-outlined-surface-500"
 							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
 						>
@@ -87,13 +87,13 @@
 				<!-- Collapsible section for arrays -->
 				<details>
 					<summary>
-						{label}
+						<span class="font-bold mr-1">{label}</span>
 						<span class="badge preset-outlined-surface-500">({data.length} items)</span>
 					</summary>
 					<pre>{JSON.stringify(data, null, 2)}</pre>
 				</details>
 			{:else if data !== ''}
-				<div><span>{label}:</span> {prettyPrint(data)}</div>
+				<div><span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}</div>
 			{/if}
 		{/each}
 	{:else if selectedObject?.relation !== null}
