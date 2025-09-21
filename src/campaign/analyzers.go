@@ -1035,16 +1035,13 @@ func isToolExecutionFailure(ttpResults []string, toolName string) bool {
 		fmt.Sprintf("%s: not found", toolName),
 		"executable file not found in $PATH", // happened when using `k exec`
 	}
-	errMsg := ttpResults[0]
-	if errMsg == "" && len(ttpResults) > 1 { // maybe the information is in stderr
-		errMsg = ttpResults[1]
-	}
-
-	for _, toolNotFoundMsg := range toolNotFoundMsgs {
-		if strings.Contains(errMsg, toolNotFoundMsg) {
-			// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
-			// "bash: wget: command not found"  on nginx pod
-			return true
+	for _, result := range ttpResults {
+		for _, toolNotFoundMsg := range toolNotFoundMsgs {
+			if strings.Contains(result, toolNotFoundMsg) {
+				// "command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"
+				// "bash: wget: command not found"  on nginx pod
+				return true
+			}
 		}
 	}
 	return false
