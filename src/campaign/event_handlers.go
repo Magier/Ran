@@ -27,7 +27,7 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 	}
 
 	if ttp.Tactic == "InitialAccess" && ttp.ID == "use-kubeconfig" {
-		ns := ev.Args["namespace"]
+		ns := ev.Args["Namespace"]
 		name := ev.Args["TargetName"]
 
 		if strings.HasPrefix(name, "ns/") {

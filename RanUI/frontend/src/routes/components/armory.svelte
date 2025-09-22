@@ -115,7 +115,7 @@
 	}
 </script>
 
-<div class="bg-surface-100-800-token inset-y-0 right-0 {className}">
+<div class="bg-surface-100-900 inset-y-0 right-0 {className}">
 	<div class="my-2 flex items-center justify-between">
 		<span class="px-2 text-xl">Armory</span>
 		<label class="flex items-center gap-2">

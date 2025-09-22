@@ -219,7 +219,12 @@
 									<!-- This is optional. Combobox will render label by default -->
 									{#snippet item(item)}
 										<div class="flex w-full justify-between space-x-2">
-											<span>{item.label}</span>
+											<span
+												style="max-width: 15em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block;"
+												title={item.label}
+											>
+												{item.label}
+											</span>
 											<span>{item.group}</span>
 										</div>
 									{/snippet}

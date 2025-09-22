@@ -77,7 +77,7 @@
 	</header>
 	<!-- <section class="p-4" /> -->
 	{#if ttp.requires && Object.keys(ttp.requires).length > 0}
-		<footer class="card-footer flex gap-2 py-2">
+		<footer class="card-footer flex flex-wrap gap-2 py-2">
 			{#each Object.entries(ttp.requires) as [name, value]}
 				{#if !!value}
 					{#if name === 'AccessLevel'}
