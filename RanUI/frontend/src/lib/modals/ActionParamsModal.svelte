@@ -48,7 +48,27 @@
 		const nsArg = args.find(arg => arg.Type === 'Namespace');
 		return nsArg ? nsArg.Value : '';
 	});
-	const isSetTargetTTP =  ttp.id === 'use-kubeconfig'; // special handling for the setTarget TTP
+
+	function selectNamespace(ns: string) {
+		// Update args immutably so Svelte's reactivity picks up the change
+		args = args.map(a => a.Type === 'Namespace' ? { ...a, Value: ns } : a);
+	}
+
+
+	$effect(() => {
+		// if the namespace changes, and there is a namespace argument, set it as well
+		const outOfNsResources = args.find(arg => arg.Value.startsWith("ns/") && !arg.Value.startsWith(`ns/${selectedNamespace}`));
+		console.info("selectedNS changed", outOfNsResources);
+
+		if (outOfNsResources) {
+			args = args.map(a =>
+				a.Value.startsWith("ns/") && !a.Value.startsWith(`ns/${selectedNamespace}`)
+					? { ...a, Value: "" }
+					: a
+			);
+		}
+	});	
+
 
 	onMount(() => {
 		args = ttp.params?.map((param: Param) => {
@@ -72,6 +92,7 @@
 						value = targetId.split("/")[1];
 					}
 				} else if (param.Type === 'Pod') {
+					const isSetTargetTTP =  ttp.id === 'use-kubeconfig'; // special handling for the setTarget TTP, to use all available pods
 					availableEntities = campaignState.getPods("", isSetTargetTTP)
 					argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
 				} else if (param.Type === 'ServiceAccount') {
@@ -207,12 +228,30 @@
 							{:else if getArgOptions(arg.Name).length > 0}
 								<Combobox
 									data={getArgOptions(arg.Name)}
+									value={[arg.Value]}
 									onValueChange={(e) => {
-										arg.Value = e.value[0]
-										console.info(`Selected value for ${arg.Name}: ${arg.Value}`);
+										// If the chosen item carries a namespace in its group, set it
+										if (arg.Type !== 'Namespace') {
+											const ns = e.items?.[0]?.group;
+											if (ns) {selectNamespace(ns);} 
+										}
+										// IMMUTABLE UPDATE so Svelte sees it:
+										const i = args.findIndex(a => a.Name === arg.Name);
+										if (i !== -1) {
+											const newValue = e.value[0];
+											args = args.with(i, { ...args[i], Value: newValue });
+										} else {
+											console.warn("Could not find arg to update:", arg.Name);
+										}
+
+										// arg.Value = e.value[0]
+										// if (e.items.length > 0 && e.items[0].group ) {
+										// 	selectNamespace(e.items[0].group);
+										// }
 									}}
 									inputBehavior="autocomplete"
 									allowCustomValue={true}
+									openOnChange={true}
 									defaultValue={[arg.Value]}
 									placeholder={arg.Name + "..."}
 									>
