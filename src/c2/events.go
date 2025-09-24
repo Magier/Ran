@@ -68,3 +68,16 @@ type ImplantGenerated struct {
 func (e ImplantGenerated) String() string {
 	return fmt.Sprintf("Implant '%s' generated %s", e.Name, e.Path)
 }
+
+type TTPExecuted struct {
+	domain.EventImpl
+	ID         string
+	Args       map[string]string
+	ExecutedOn domain.System
+	Success    bool
+	Results    []string
+}
+
+func (ttp TTPExecuted) String() string {
+	return fmt.Sprintf("C2 executed TTP '%s'", ttp.ID)
+}

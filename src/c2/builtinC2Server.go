@@ -155,7 +155,7 @@ func (c *BuiltInC2Server) handleCommand(msg domain.Command) (domain.Event, error
 			// TODO handle disconnecting listener
 			err := c.startListener(context.Background(), cmd)
 			if err != nil {
-				c.eventStream <- domain.TTPExecuted{
+				c.eventStream <- TTPExecuted{
 					ID:      msg.GetID(),
 					Success: false,
 					Results: []string{err.Error()},
@@ -225,7 +225,7 @@ func (c *BuiltInC2Server) startListener(ctx context.Context, cmd domain.StartLis
 					switch r := result.(type) {
 					case string:
 						// TODO: fix this
-						c.eventStream <- domain.TTPExecuted{
+						c.eventStream <- TTPExecuted{
 							Results: []string{r},
 						}
 					case domain.Event:

@@ -72,14 +72,10 @@ func InitC2Manager(mb bus.MessageBus) C2Manager {
 		// ensure all errors are treated as failed TTP executions, to surface the underlying error
 		if err != nil {
 			ev := cmd.(domain.ExecTTP)
-			msg = domain.TTPExecuted{
-				ID:        ev.ID,
-				TTP:       ev.TTP,
-				Args:      ev.Args,
-				Procedure: ev.Procedure,
-				Success:   false,
-				Target:    ev.Target,
-				Results:   []string{err.Error()},
+			msg = TTPExecuted{
+				ID:      ev.ID,
+				Success: false,
+				Results: []string{err.Error()},
 			}
 		}
 		return msg, nil
@@ -261,17 +257,23 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 		return nil, nil
 	}
 
-	return domain.TTPExecuted{
+	return TTPExecuted{
 		ID:         exec.ID,
-		TTP:        exec.TTP,
-		Args:       exec.Args,
-		Procedure:  exec.Procedure,
 		Success:    wasExecSuccessful(results, err),
-		Target:     exec.Target,
 		ExecutedOn: execTarget,
 		Results:    results,
-		WasCleanup: exec.IsCleanup,
 	}, nil
+	// return domain.TTPExecuted{
+	// 	ID:         exec.ID,
+	// 	TTP:        exec.TTP,
+	// 	Args:       exec.Args,
+	// 	Procedure:  exec.Procedure,
+	// 	Success:    wasExecSuccessful(results, err),
+	// 	Target:     exec.Target,
+	// 	ExecutedOn: execTarget,
+	// 	Results:    results,
+	// 	WasCleanup: exec.IsCleanup,
+	// }, nil
 }
 
 func wasExecSuccessful(results []string, err error) bool {

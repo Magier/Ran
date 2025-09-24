@@ -211,10 +211,23 @@ type TTPExecuted struct {
 	Procedure  Procedure
 	Success    bool
 	Target     Entity
-	ResultType Message
 	Results    []string
 	ExecutedOn System
 	WasCleanup bool
+}
+
+func NewTTPExecutedWithResult(execTTP ExecTTP, success bool, results []string, executedOn System) TTPExecuted {
+	return TTPExecuted{
+		ID:         execTTP.ID,
+		TTP:        execTTP.TTP,
+		Args:       execTTP.Args,
+		Procedure:  execTTP.Procedure,
+		Target:     execTTP.Target,
+		ExecutedOn: executedOn,
+		Success:    success,
+		Results:    results,
+		WasCleanup: execTTP.IsCleanup,
+	}
 }
 
 func (ttp TTPExecuted) String() string {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
+	k8s_types "github.com/Magier/Ran/k8sclient/types"
 	"github.com/dominikbraun/graph/draw"
 	"github.com/goccy/go-graphviz"
 )
@@ -55,27 +56,20 @@ func (c *Campaign) onExecuteTTP(ctx context.Context, msg domain.Message) (domain
 	return nil, err
 }
 
-func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domain.Message, error) {
+func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	var err error
-	ev := msg.(domain.TTPExecuted)
-	var results []string = ev.Results
+	c2Ev := msg.(c2.TTPExecuted)
+	results := c2Ev.Results
 
-	wasValidStep := c.trail.CompleteStep(ev.ID, ev.TTP, ev.Success, results)
-	if !wasValidStep && ev.WasCleanup {
-		// if cleanup is not associated with a valid step, then it must be a delayed result from a previous campaign
-		// => don't influence the current campaign
-		return nil, nil
+	var ev domain.TTPExecuted
+	step, ok := c.trail.GetOpenStep(c2Ev.ID)
+	if !ok {
+		slog.Warn(fmt.Sprintf("Received TTPExecuted for unknown step ID '%s'", c2Ev.ID))
+	} else {
+		ev = domain.NewTTPExecutedWithResult(step.ExecCommand, c2Ev.Success, c2Ev.Results, c2Ev.ExecutedOn)
 	}
+
 	factsUpdate := factsUpdate{}
-
-	if !ev.Success {
-		new, removed, err := analyzeFailedTTPExecution(ev)
-
-		if err != nil {
-			slog.Error(fmt.Sprintf("Failed to analyze failed TTP execution: %v", err))
-		}
-		factsUpdate.Update(new, removed)
-	}
 
 	// TODO: Temporary workaround: dedicated handling for newly created pods
 	// ensure the podCfg is properly provided regardless of which procedure is executed
@@ -98,10 +92,14 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 
 	for _, effect := range ev.TTP.Effects {
 		effectUpdate, err := c.ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
-		if err != nil {
-			slog.Error(fmt.Sprintf("Failed to parse effect '%s': %v", effect, err))
 
-			// TODO: check if the k8s API actually rejected the request
+		if err != nil {
+			if k8sErr, ok := err.(k8s_types.K8sAPIResponseError); ok {
+				ev.Success = false
+				slog.Error(fmt.Sprintf("K8s API error: '%s': %v", effect, k8sErr))
+			} else {
+				slog.Error(fmt.Sprintf("Failed to parse effect '%s': %v", effect, err))
+			}
 			continue
 		}
 
@@ -120,6 +118,25 @@ func (c *Campaign) onTTPExecuted(ctx context.Context, msg domain.Message) (domai
 		// 		}
 		// 	}
 		factsUpdate.Update(effectUpdate.New, effectUpdate.Removed)
+	}
+
+	wasValidStep := c.trail.CompleteStep(ev.ID, ev.TTP, ev.Success, results)
+	if !wasValidStep && ev.WasCleanup {
+		// if cleanup is not associated with a valid step, then it must be a delayed result from a previous campaign
+		// => don't influence the current campaign
+		return nil, nil
+	}
+	if !ev.Success {
+		new, removed, err := analyzeFailedTTPExecution(ev)
+
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to analyze failed TTP execution: %v", err))
+		}
+		factsUpdate.Update(new, removed)
+	}
+	err = c.bus.Publish(ev)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to publish TTPExecuted event: %v", err))
 	}
 
 	// generic analyzer for the successful TTP invocation
