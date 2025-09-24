@@ -68,10 +68,10 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	mb.Subscribe(domain.C2Connected{}, campaign.onC2Connected)
 	mb.Subscribe(domain.C2ConnectFailed{}, campaign.onC2ConnectFailed)
 	mb.Subscribe(domain.ExecTTP{}, campaign.onExecuteTTP)
-	mb.Subscribe(domain.TTPExecuted{}, campaign.onTTPExecuted)
 	mb.Subscribe(domain.ResetCampaign{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		return nil, campaign.Reset()
 	})
+	mb.Subscribe(c2.TTPExecuted{}, campaign.onC2TTPExecuted)
 	mb.Subscribe(c2.ListenerReady{}, campaign.onListenerReady)
 	mb.Subscribe(c2.ListenerStopped{}, campaign.onListenerStopped)
 	mb.Subscribe(c2.SessionStarted{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {

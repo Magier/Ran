@@ -323,7 +323,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 		status, err := parseK8sStatusResponse(results[0])
 		// in this case having an error is good -> it's not an unexpected StatusResponse
 		if err == nil && status.Code >= 400 {
-			return factsUpdate{}, fmt.Errorf("K8s API returned an error status for effect '%s': %s", effect, status.Message)
+			return factsUpdate{}, k8s_types.K8sAPIResponseError{Status: status}
 		}
 	}
 

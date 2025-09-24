@@ -1,6 +1,9 @@
 package k8s_types
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Source: https://github.com/kubernetes/kubernetes/blob/2d0a4f75560154454682b193b42813159b20f284/pkg/apis/authorization/types.go#L277
 
@@ -78,4 +81,12 @@ type K8sApiResponseStatus struct {
 	Message string `json:"message,omitempty"`
 	Reason  string `json:"reason,omitempty"`
 	Status  string `json:"status,omitempty"`
+}
+
+type K8sAPIResponseError struct {
+	Status K8sApiResponseStatus `json:"status,omitempty"`
+}
+
+func (s K8sAPIResponseError) Error() string {
+	return fmt.Sprintf("K8s API error %d: %s", s.Status.Code, s.Status.Message)
 }

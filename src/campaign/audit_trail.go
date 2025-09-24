@@ -22,6 +22,7 @@ type AttackStep struct {
 	ExecutedOn  domain.System
 	CompletedAt time.Time
 	Observables []any
+	ExecCommand domain.ExecTTP
 }
 
 type AuditTrail struct {
@@ -41,18 +42,29 @@ func (a *AuditTrail) Reset() {
 func (a *AuditTrail) AddNewStep(action domain.ExecTTP) error {
 	var execOn domain.System
 	if action.C2Channel != nil {
+		// TODO: check if there is a difference between the ExecutedOn set by C2 and the terminal point of the C2 Channel set in campaign
 		execOn = action.C2Channel.GetFinalTarget().(domain.System)
 	}
 	a.openSteps = append(a.openSteps, AttackStep{
-		ID:         action.ID,
-		TTP:        action.TTP,
-		Args:       action.Args,
-		Target:     action.Target,
-		ExecutedOn: execOn,
-		Command:    action.Procedure.Command,
-		StartAt:    time.Now(),
+		ExecCommand: action,
+		ID:          action.ID,
+		TTP:         action.TTP,
+		Args:        action.Args,
+		Target:      action.Target,
+		ExecutedOn:  execOn,
+		Command:     action.Procedure.Command,
+		StartAt:     time.Now(),
 	})
 	return nil
+}
+
+func (a *AuditTrail) GetOpenStep(id string) (AttackStep, bool) {
+	for _, step := range a.openSteps {
+		if step.ID == id {
+			return step, true
+		}
+	}
+	return AttackStep{}, false
 }
 
 func (a *AuditTrail) popOpenStep(id string) (AttackStep, bool) {
