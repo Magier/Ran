@@ -186,6 +186,9 @@ func parsePod(args map[string]string, results ...string) (domain.Pod, error) {
 		cfg.NodeName = args["NodeName"]
 		cfg.ServiceAccount = args["ServiceAccount"]
 
+		isPrivileged, _ := strconv.ParseBool(args["Privileged"])
+		cfg.Privileged = isPrivileged
+
 		hostIPC, _ := strconv.ParseBool(args["HostIPC"])
 		cfg.HostIPC = hostIPC
 
@@ -198,9 +201,11 @@ func parsePod(args map[string]string, results ...string) (domain.Pod, error) {
 		priv, _ := strconv.ParseBool(args["Privileged"])
 		cfg.Privileged = priv
 
-		hostPath := args["HostPath"]
-		cfg.HostMounts = []domain.Mount{
-			{MountPoint: args["Mount"], MountRoot: hostPath, ReadOnly: false, Flags: []string{"rw"}},
+		if hostPath, ok := args["HostPath"]; ok {
+			mountPath := args["Mount"]
+			cfg.HostMounts = []domain.Mount{
+				{MountPoint: mountPath, MountRoot: hostPath, IsHostPath: true, ReadOnly: false, Flags: []string{"rw"}},
+			}
 		}
 	} else if len(results) >= 3 {
 		// TODO: marshal the podConfig
@@ -210,7 +215,6 @@ func parsePod(args map[string]string, results ...string) (domain.Pod, error) {
 		}
 	}
 
-	// cfgJson := args[2].(domain.PodConfig)
 	p := domain.NewPod(podName, nsName)
 
 	p.HostIPC = domain.AsProbBool(cfg.HostIPC)
@@ -221,7 +225,6 @@ func parsePod(args map[string]string, results ...string) (domain.Pod, error) {
 	p.NodeName = cfg.NodeName
 	p.VolumeMounts = cfg.HostMounts
 
-	slog.Error(fmt.Sprintf("Creating/deleting new pod %s in namespace %s is not yet properly implemented! FIX NEEDED!", p.Name, nsName))
 	// return domain.NewPodDeployed{
 	// 	Pod:       p,
 	// 	Namespace: ns,

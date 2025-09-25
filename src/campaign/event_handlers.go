@@ -60,6 +60,7 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 	var err error
 	c2Ev := msg.(c2.TTPExecuted)
 	results := c2Ev.Results
+	factsUpdate := factsUpdate{}
 
 	var ev domain.TTPExecuted
 	step, ok := c.trail.GetOpenStep(c2Ev.ID)
@@ -67,27 +68,6 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 		slog.Warn(fmt.Sprintf("Received TTPExecuted for unknown step ID '%s'", c2Ev.ID))
 	} else {
 		ev = domain.NewTTPExecutedWithResult(step.ExecCommand, c2Ev.Success, c2Ev.Results, c2Ev.ExecutedOn)
-	}
-
-	factsUpdate := factsUpdate{}
-
-	// TODO: Temporary workaround: dedicated handling for newly created pods
-	// ensure the podCfg is properly provided regardless of which procedure is executed
-	for _, technique := range ev.TTP.Techniques {
-		if technique == "T1610" || strings.ToLower(technique) == "deploy container" {
-			var removed domain.Facts
-			var new domain.Facts
-			if !ev.Success {
-				new, removed, err = analyzeDeployPodFailure(ev)
-			} else {
-				new, removed, err = analyzeDeployPodResult(ev)
-			}
-			if err != nil {
-				slog.Error(fmt.Sprintf("Failed to analyze deploy pod result: %v", err))
-			} else {
-				factsUpdate.Update(new, removed)
-			}
-		}
 	}
 
 	for _, effect := range ev.TTP.Effects {
