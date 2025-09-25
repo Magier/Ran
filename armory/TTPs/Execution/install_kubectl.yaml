@@ -17,7 +17,7 @@ procedures:
       mkdir -p `dirname ${PATH}`
       && curl -sL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o ${PATH}
       && chmod +x ${PATH}
-effects: ["target.has-binary(${PATH})"]
+effects: ["sys.has-binary(${PATH})"]
 # effects: ["ListenerReady"]
 # defend: {}
 references:

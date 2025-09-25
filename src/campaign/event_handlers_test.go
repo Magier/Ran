@@ -10,7 +10,7 @@ func TestParseTargetIPsReceivedEffect(t *testing.T) {
 	result := "::1 172.18.0.1"
 	pod := domain.NewPod("test", "default")
 	c := NewCampaign(nil)
-	update, err := c.ParseEffect("target.ip", pod, nil, result)
+	update, err := c.ParseEffect("sys.ip", pod, nil, result)
 
 	if err != nil {
 		t.Fatalf("Failed to parse effect: %v", err)

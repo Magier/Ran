@@ -313,7 +313,8 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 
 	isRemoveEffect := strings.HasPrefix(effect, "delete")
 	effect = strings.TrimPrefix(effect, "delete ")
-	if strings.HasPrefix(effect, "create") {
+	isCreateEffect := strings.HasPrefix(effect, "create")
+	if isCreateEffect {
 		effect = strings.ToLower(strings.TrimPrefix(effect, "create "))
 	}
 
@@ -327,57 +328,244 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 		// in this case having an error is good -> it's not an unexpected StatusResponse
 		if err == nil && status.Code >= 400 {
 			return factsUpdate{}, k8s_types.K8sAPIResponseError{Status: status}
+		} else if strings.Trim(res, " ") == "error: cannot exec into a container in a completed pod; current phase is Succeeded" {
+			p := source.(domain.Pod)
+			p.IsRunning = false
+			entities = append(entities, p)
+			facts := domain.Facts{Entities: entities, Relations: relations}
+			return factsUpdate{New: facts}, fmt.Errorf("Pod is in Succeeded phase, can't exec into it")
 		}
 	}
 
-	switch strings.ToLower(effect) {
-	case "target.ip":
-		if sys, ok := source.(domain.System); ok {
-			ips := []net.IPAddr{}
-			res := results[0]
-			for _, ip := range strings.Split(res, " ") {
-				parsedIP := net.ParseIP(ip)
-				if parsedIP == nil {
-					slog.Error("Failed to parse IP")
-					break
-				}
-				ips = append(ips, net.IPAddr{IP: parsedIP})
-			}
-			sys.SetIPs(ips)
-			entities = append(entities, sys)
-		}
-	case "target.hasbinary":
-		// TODO: merge with alternative, more generic parser for `has-binary` effect in `default` branch, after exploration
-		if sys, ok := source.(domain.Pod); ok {
-			binaryName := ""
-			dstPath := args["DST_PATH"]
-
-			if dstPath != "" {
-				parts := strings.Split(dstPath, "/")
-				binaryName = parts[len(parts)-1]
-			} else if strings.HasPrefix(results[0], "file: ") {
-				// get the information from the TTP result (explicit echo at the end of the TTP)
-				// Note: tight coupling with the TTP implementation -> brittle
-				dstPath = strings.TrimPrefix(results[0], "file: ")
-			} else {
-				// fallback try to extract the binary name from the source name
-				// however: knowing the location of the binary on the system is not always possible
-				dstPath = ""
-				// TODO: get the path from the SRC_PATH?
-				slog.Warn("No DST_PATH provided, and extraction from SRC_PATh is not yet implemented!")
-			}
-			sys.SetBinary(binaryName, dstPath)
-			entities = append(entities, sys)
-		} else {
-			slog.Warn("The source of the hasBinary effect is not a Pod!")
-		}
-	case "rawserviceaccounttoken":
-		saToken, err := parseRawServiceAccountToken(results...)
+	var facts domain.Facts
+	if strings.HasPrefix(effect, "k8s.") {
+		f, err := parseK8sEffect(effect, source, args, results)
 		if err != nil {
-			slog.Error(fmt.Sprintf("Failed to parse raw service account token: %v", err))
-		} else {
-			entities = append(entities, saToken)
+			return factsUpdate{}, fmt.Errorf("Failed to parse K8s effect: %w", err)
 		}
+		facts = f
+	} else {
+		switch strings.ToLower(effect) {
+		case "sys.ip":
+			if sys, ok := source.(domain.System); ok {
+				ips := []net.IPAddr{}
+				res := results[0]
+				for _, ip := range strings.Split(res, " ") {
+					parsedIP := net.ParseIP(ip)
+					if parsedIP == nil {
+						slog.Error("Failed to parse IP")
+						break
+					}
+					ips = append(ips, net.IPAddr{IP: parsedIP})
+				}
+				sys.SetIPs(ips)
+				entities = append(entities, sys)
+			}
+		case "sys.hasbinary":
+			// TODO: merge with alternative, more generic parser for `has-binary` effect in `default` branch, after exploration
+			if sys, ok := source.(domain.Pod); ok {
+				binaryName := ""
+				dstPath := args["DST_PATH"]
+
+				if dstPath != "" {
+					parts := strings.Split(dstPath, "/")
+					binaryName = parts[len(parts)-1]
+				} else if strings.HasPrefix(results[0], "file: ") {
+					// get the information from the TTP result (explicit echo at the end of the TTP)
+					// Note: tight coupling with the TTP implementation -> brittle
+					dstPath = strings.TrimPrefix(results[0], "file: ")
+				} else {
+					// fallback try to extract the binary name from the source name
+					// however: knowing the location of the binary on the system is not always possible
+					dstPath = ""
+					// TODO: get the path from the SRC_PATH?
+					slog.Warn("No DST_PATH provided, and extraction from SRC_PATh is not yet implemented!")
+				}
+				sys.SetBinary(binaryName, dstPath)
+				entities = append(entities, sys)
+			} else {
+				slog.Warn("The source of the hasBinary effect is not a Pod!")
+			}
+		case "rawserviceaccounttoken":
+			saToken, err := parseRawServiceAccountToken(results...)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to parse raw service account token: %v", err))
+			} else {
+				entities = append(entities, saToken)
+			}
+		case "sys.envvar":
+			envVars, err := ParseEnvVarResult(args, res)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Could not parse environment variable: %v", err))
+			}
+
+			if sys, ok := source.(domain.System); ok {
+				sys.SetEnvironmentVariables(envVars)
+				newFacts, _, err := analyzeEnvironmentVariables(source, envVars)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failure analyzing environment variables %v", err))
+				} else {
+					entities = append(entities, newFacts.Entities...)
+					relations = append(relations, newFacts.Relations...)
+				}
+			} else {
+				panic("The source should implement the System interface!")
+			}
+		case "linux.mounts":
+			if pod, ok := source.(domain.Pod); ok {
+				mounts, err := parseLinuxMounts(res)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failed to parse Linux mounts: %v", err))
+				} else {
+					pod.Mounts = append(pod.Mounts, mounts...)
+					entities = append(entities, pod)
+				}
+			}
+		case "sys.processes":
+			if sys, ok := source.(domain.System); ok {
+				processes, err := parseLinuxProcesses(res)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failed to parse processes: %v", err))
+				} else {
+					sys.SetProcesses(processes)
+					entities = append(entities, sys)
+				}
+			} else {
+				slog.Warn("The source of the processes effect is not a System!")
+			}
+		case "sys.userid":
+			if sys, ok := source.(domain.System); ok {
+				uid, username, err := parseLinuxIDResult(res)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failed to parse user ID: %v", err))
+				} else {
+					sys.SetUserID(uid)
+					sys.SetUserName(username)
+					entities = append(entities, sys)
+				}
+			} else {
+				slog.Warn("The source of the user ID effect is not a System!")
+			}
+		case "sys.files":
+			fsEntries, err := parseFiles(results[0])
+			srcDir := args["DIR"]
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to parse files: %v", err))
+			} else {
+				if sys, ok := source.(domain.System); ok {
+					files := []string{}
+					for _, entry := range fsEntries {
+						fullPath := fmt.Sprintf("%s/%s", srcDir, entry.Name)
+						if entry.IsExec {
+							// also explicitely track all binaries
+							sys.SetBinary(entry.Name, fullPath)
+						}
+						files = append(files, fullPath)
+					}
+					sys.AddFiles(files)
+					entities = append(entities, sys)
+				}
+			}
+		case "file:kubeconfig":
+			if len(results[0]) > 0 {
+				config, err := loadKubeConfigFromString(results[0])
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failed to load kubeconfig: %v", err))
+				} else {
+					// Extract AuthInfo (user) from kubeconfig
+					rawConfig, err := config.RawConfig()
+					if err != nil {
+						slog.Error(fmt.Sprintf("Failed to get raw kubeconfig: %v", err))
+					} else {
+						currentContext := rawConfig.CurrentContext
+						ctx := rawConfig.Contexts[currentContext]
+						if ctx != nil {
+							cluster := domain.NewCluster(ctx.Cluster, "")
+							slog.Warn(fmt.Sprintf("Kubeconfig effect: using cluster '%s' has not implementing parsing of its address", ctx.Cluster))
+							// cluster := domain.NewCluster(ctx.Cluster, rawConfig.Clusters[ctx.Cluster].Cluster.Server)
+							entities = append(entities, cluster)
+
+							authInfo := ctx.AuthInfo
+							user := domain.User{
+								Name:     authInfo,
+								IsAdmin:  true, // TODO: infer if the user is admin based on the kubeconfig
+								Kind:     "User",
+								CertData: rawConfig.AuthInfos[authInfo].ClientCertificateData,
+								KeyData:  rawConfig.AuthInfos[authInfo].ClientKeyData,
+							}
+							entities = append(entities, user)
+
+							relations = append(relations, domain.Contains{
+								Container: cluster,
+								Object:    user,
+							})
+						}
+					}
+				}
+			}
+		default:
+			relationName, relationArgs, err := parseRelationEffect(effect)
+			var _ = relationName
+			var _ = relationArgs
+			// resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to parse relation effect: %v", err))
+			} else {
+				if strings.HasPrefix(effect, "sys.has-binary") {
+
+					resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
+					if err != nil {
+						slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
+					} else {
+						entities = append(entities, resultingEntity)
+					}
+				} else if strings.HasPrefix(effect, "sys.hasfile") {
+					resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
+					if err != nil {
+						slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
+					} else {
+						entities = append(entities, resultingEntity)
+					}
+				}
+			}
+		}
+
+		facts = domain.Facts{Entities: entities, Relations: relations}
+	}
+
+	if isRemoveEffect {
+		return factsUpdate{Removed: facts}, nil
+	}
+	return factsUpdate{New: facts}, nil
+}
+
+func parseRelationEffect(relation string) (string, []string, error) {
+	// Example "k8s.can-exec(C2, Pod)", where Pod is the class and refers to all pods, or sometimes it's direct instances
+	// like k8s.hasFile(system, "/etc/kubernetes/admin.conf")
+
+	// match the relation before the parenthesis and the varidic parameters within the parenthesis
+	re := regexp.MustCompile(`^(.*?)\(\s*(.*?)\s*\)$`)
+	match := re.FindStringSubmatch(relation)
+	if len(match) > 2 {
+		relation = strings.ToLower(match[1])
+		variables := strings.Split(match[2], ",")
+		if match[2] == "" {
+			variables = []string{}
+		}
+		for i := range variables {
+			variables[i] = strings.TrimSpace(variables[i])
+		}
+		return strings.TrimSpace(relation), variables, nil
+	}
+	return "", nil, fmt.Errorf("Invalid relation format: %s", relation)
+}
+
+func parseK8sEffect(effect string, source domain.Entity, args map[string]string, results []string) (domain.Facts, error) {
+	entities := []domain.Entity{}
+	relations := []domain.Relation{}
+	res := results[0]
+
+	switch strings.ToLower(effect) {
 	case "k8s.selfsubjectrulesreview":
 		ssrr, err := parseSelfSubjectRulesReview(results...)
 		if err != nil {
@@ -486,183 +674,33 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 		} else {
 			entities = append(entities, cronJob)
 		}
-	case "sys.envvar":
-		envVars, err := ParseEnvVarResult(args, res)
-		if err != nil {
-			slog.Error(fmt.Sprintf("Could not parse environment variable: %v", err))
-		}
-
-		if sys, ok := source.(domain.System); ok {
-			sys.SetEnvironmentVariables(envVars)
-			newFacts, _, err := analyzeEnvironmentVariables(source, envVars)
+	default:
+		if strings.Contains(effect, "(") && strings.Contains(effect, ")") {
+			relationName, relationArgs, err := parseRelationEffect(effect)
 			if err != nil {
-				slog.Error(fmt.Sprintf("Failure analyzing environment variables %v", err))
+				slog.Error(fmt.Sprintf("Failed to parse relation effect: %v", err))
 			} else {
-				entities = append(entities, newFacts.Entities...)
-				relations = append(relations, newFacts.Relations...)
-			}
-		} else {
-			panic("The source should implement the System interface!")
-		}
-	case "linux.mounts":
-		if pod, ok := source.(domain.Pod); ok {
-			mounts, err := parseLinuxMounts(res)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Failed to parse Linux mounts: %v", err))
-			} else {
-				pod.Mounts = append(pod.Mounts, mounts...)
-				entities = append(entities, pod)
-			}
-		}
-	case "sys.processes":
-		if sys, ok := source.(domain.System); ok {
-			processes, err := parseLinuxProcesses(res)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Failed to parse processes: %v", err))
-			} else {
-				sys.SetProcesses(processes)
-				entities = append(entities, sys)
-			}
-		} else {
-			slog.Warn("The source of the processes effect is not a System!")
-		}
-	case "sys.userid":
-		if sys, ok := source.(domain.System); ok {
-			uid, username, err := parseLinuxIDResult(res)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Failed to parse user ID: %v", err))
-			} else {
-				sys.SetUserID(uid)
-				sys.SetUserName(username)
-				entities = append(entities, sys)
-			}
-		} else {
-			slog.Warn("The source of the user ID effect is not a System!")
-		}
-	case "sys.files":
-		fsEntries, err := parseFiles(results[0])
-		srcDir := args["DIR"]
-		if err != nil {
-			slog.Error(fmt.Sprintf("Failed to parse files: %v", err))
-		} else {
-			if sys, ok := source.(domain.System); ok {
-				files := []string{}
-				for _, entry := range fsEntries {
-					fullPath := fmt.Sprintf("%s/%s", srcDir, entry.Name)
-					if entry.IsExec {
-						// also explicitely track all binaries
-						sys.SetBinary(entry.Name, fullPath)
+				if strings.HasPrefix(effect, "k8s.can-exec") {
+					if len(relationArgs) != 2 {
+						return domain.Facts{}, fmt.Errorf("k8s.can-exec effect expects exactly 2 arguments: C2 and PodName")
 					}
-					files = append(files, fullPath)
-				}
-				sys.AddFiles(files)
-				entities = append(entities, sys)
-			}
-		}
-	case "file:kubeconfig":
-		if len(results[0]) > 0 {
-			config, err := loadKubeConfigFromString(results[0])
-			if err != nil {
-				slog.Error(fmt.Sprintf("Failed to load kubeconfig: %v", err))
-			} else {
-				// Extract AuthInfo (user) from kubeconfig
-				rawConfig, err := config.RawConfig()
-				if err != nil {
-					slog.Error(fmt.Sprintf("Failed to get raw kubeconfig: %v", err))
-				} else {
-					currentContext := rawConfig.CurrentContext
-					ctx := rawConfig.Contexts[currentContext]
-					if ctx != nil {
-						cluster := domain.NewCluster(ctx.Cluster, "")
-						slog.Warn(fmt.Sprintf("Kubeconfig effect: using cluster '%s' has not implementing parsing of its address", ctx.Cluster))
-						// cluster := domain.NewCluster(ctx.Cluster, rawConfig.Clusters[ctx.Cluster].Cluster.Server)
-						entities = append(entities, cluster)
+					c2ID := relationArgs[0]
+					targetID := relationArgs[1]
 
-						authInfo := ctx.AuthInfo
-						user := domain.User{
-							Name:     authInfo,
-							IsAdmin:  true, // TODO: infer if the user is admin based on the kubeconfig
-							Kind:     "User",
-							CertData: rawConfig.AuthInfos[authInfo].ClientCertificateData,
-							KeyData:  rawConfig.AuthInfos[authInfo].ClientKeyData,
-						}
-						entities = append(entities, user)
-
-						relations = append(relations, domain.Contains{
-							Container: cluster,
-							Object:    user,
+					switch relationName {
+					case "k8s.can-exec":
+						relations = append(relations, domain.CanAccess{
+							SourceId:    c2ID,
+							TargetId:    targetID,
+							AccessLevel: domain.UserExec,
+							PodsExec:    true,
 						})
 					}
 				}
 			}
 		}
-	default:
-		relationName, relationArgs, err := parseRelationEffect(effect)
-		// resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
-		if err != nil {
-			slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
-		} else {
-			if strings.HasPrefix(effect, "target.has-binary") {
-
-				resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
-				if err != nil {
-					slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
-				} else {
-					entities = append(entities, resultingEntity)
-				}
-			} else if strings.HasPrefix(effect, "target.hasfile") {
-				resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
-				if err != nil {
-					slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
-				} else {
-					entities = append(entities, resultingEntity)
-				}
-			} else if strings.HasPrefix(effect, "k8s.can-exec") {
-				if len(relationArgs) != 2 {
-					return factsUpdate{}, fmt.Errorf("k8s.can-exec effect expects exactly 2 arguments: C2 and PodName")
-				}
-				c2ID := relationArgs[0]
-				targetID := relationArgs[1]
-
-				switch relationName {
-				case "k8s.can-exec":
-					relations = append(relations, domain.CanAccess{
-						SourceId:    c2ID,
-						TargetId:    targetID,
-						AccessLevel: domain.UserExec,
-						PodsExec:    true,
-					})
-				}
-			}
-		}
 	}
-
-	facts := domain.Facts{Entities: entities, Relations: relations}
-	if isRemoveEffect {
-		return factsUpdate{Removed: facts}, nil
-	}
-	return factsUpdate{New: facts}, nil
-}
-
-func parseRelationEffect(relation string) (string, []string, error) {
-	// Example "k8s.can-exec(C2, Pod)", where Pod is the class and refers to all pods, or sometimes it's direct instances
-	// like k8s.hasFile(system, "/etc/kubernetes/admin.conf")
-
-	// match the relation before the parenthesis and the varidic parameters within the parenthesis
-	re := regexp.MustCompile(`^(.*?)\(\s*(.*?)\s*\)$`)
-	match := re.FindStringSubmatch(relation)
-	if len(match) > 2 {
-		relation = strings.ToLower(match[1])
-		variables := strings.Split(match[2], ",")
-		if match[2] == "" {
-			variables = []string{}
-		}
-		for i := range variables {
-			variables[i] = strings.TrimSpace(variables[i])
-		}
-		return strings.TrimSpace(relation), variables, nil
-	}
-	return "", nil, fmt.Errorf("Invalid relation format: %s", relation)
+	return domain.Facts{Entities: entities, Relations: relations}, nil
 }
 
 func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]string, results ...string) (domain.Entity, error) {

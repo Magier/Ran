@@ -16,7 +16,7 @@ args: # default values if none is provided
 procedures:
   - key: ubuntu
     command: apt update && apt install -y ${PKG}
-effects: ["target.has-binary(${PKG})"]
+effects: ["sys.has-binary(${PKG})"]
 cleanup:
     key: ubuntu
     command: apt remove -y ${PKG}

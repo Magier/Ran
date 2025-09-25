@@ -12,7 +12,7 @@ procedures:
       accessLevel: user-exec
     command: hostname -i
 effects:
-  - target.ip
+  - sys.ip
 # defend: {}
 references:
 

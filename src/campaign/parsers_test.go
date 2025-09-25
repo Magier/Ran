@@ -47,7 +47,7 @@ func TestParseEffect_TargetIP(t *testing.T) {
 	args := map[string]string{}
 	results := []string{"10.0.0.1 10.0.0.2"}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("target.ip", source, args, results...)
+	updatedFacts, err := c.ParseEffect("sys.ip", source, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -485,7 +485,7 @@ func Test_parseHasBinaryEffect(t *testing.T) {
 		{
 			name:        "Valid effect with binary arg",
 			source:      domain.NewPod("mypod", "ns"),
-			effect:      "target.has-binary(${BINARY_NAME})",
+			effect:      "sys.has-binary(${BINARY_NAME})",
 			args:        map[string]string{"BINARY_NAME": "bash"},
 			results:     []string{},
 			expectError: false,
@@ -495,7 +495,7 @@ func Test_parseHasBinaryEffect(t *testing.T) {
 		{
 			name:        "Missing binary arg",
 			source:      domain.NewPod("mypod", "ns"),
-			effect:      "target.has-binary(${BINARY_NAME})",
+			effect:      "sys.has-binary(${BINARY_NAME})",
 			args:        map[string]string{},
 			results:     []string{},
 			expectError: false, // function does not return error, just warns
@@ -504,7 +504,7 @@ func Test_parseHasBinaryEffect(t *testing.T) {
 		{
 			name:        "Effect string does not match pattern",
 			source:      domain.NewPod("mypod", "ns"),
-			effect:      "target.has-binary",
+			effect:      "sys.has-binary",
 			args:        map[string]string{"BINARY_NAME": "bash"},
 			results:     []string{},
 			expectError: true,
@@ -653,15 +653,15 @@ func Test_parseRelationEffect(t *testing.T) {
 		},
 		{
 			name:        "Valid relation with one var",
-			input:       "target.has-binary(${BINARY_NAME})",
-			wantRel:     "target.has-binary",
+			input:       "sys.has-binary(${BINARY_NAME})",
+			wantRel:     "sys.has-binary",
 			wantArgs:    []string{"${BINARY_NAME}"},
 			expectError: false,
 		},
 		{
 			name:        "Valid relation with arbitrary whitespaces",
-			input:       "   target.has-binary(\tsrc,         target      )",
-			wantRel:     "target.has-binary",
+			input:       "   sys.has-binary(\tsrc,         target      )",
+			wantRel:     "sys.has-binary",
 			wantArgs:    []string{"src", "target"},
 			expectError: false,
 		},
