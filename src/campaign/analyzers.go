@@ -505,24 +505,12 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 			}
 		}
 
-		// check for PSA failure
-		podSecurityViolationPattern := regexp.MustCompile(`violates PodSecurity "([^"]+)": (.+)`)
-		matches := podSecurityViolationPattern.FindStringSubmatch(errMsg)
-		if len(matches) >= 3 {
-			securityProfile := matches[1] // e.g., "baseline:latest"
-			violationReason := matches[2] // e.g., "privileged ..."
-			slog.Error(fmt.Sprintf("Pod creation failed due to security violation - Profile: %s, Reason: %s",
-				securityProfile, violationReason))
-
-			if target, ok := ev.Target.(domain.Namespaced); ok {
-				ns := domain.Namespace{Name: target.GetNamespace(), EnforcedPSS: securityProfile, Kind: "Namespace"}
-				entities = append(entities, ns)
-			} else if nsName, ok := ev.Args["Namespace"]; ok {
-				ns := domain.Namespace{Name: nsName, EnforcedPSS: securityProfile, Kind: "Namespace"}
-				entities = append(entities, ns)
-			} else {
-				slog.Error("No namespace found in event target or args")
-			}
+		new, err := parsePSSViolation(ev.Target, ev.Args, ev.Results)
+		if err == nil {
+			entities = append(entities, new.Entities...)
+			relations = append(relations, new.Relations...)
+		} else {
+			slog.Error(fmt.Sprintf("Failed to parse PodSecurity violation from error message: %s", err.Error()))
 		}
 	}
 
@@ -546,8 +534,6 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 		}
 	}
 
-	// example: violating PSA: "command terminated with exit code 1: 'Error from server (Forbidden): error when creating "STDIN": pods "bad-pod" is forbidden: violates PodSecurity "baseline:latest": hostPath volumes (volume "hostmount"), privileged (container "bad-pod" must not set securityContext.privileged=true)'"
-
 	// Malformed procedure:
 	// example:
 	// "command terminated with exit code 1: 'error: error parsing STDIN: json: offset 138: invalid character '$' looking for beginning of value\n'"
@@ -570,86 +556,36 @@ func parseViolatingRBACIdentity(msg string) (domain.Entity, error) {
 	return domain.NewServiceAccount(saName, ns), nil
 }
 
-func analyzeDeployPodResult(ev domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
-	relations := make([]domain.Relation, 0)
+func parsePSSViolation(target domain.Entity, args map[string]string, results []string) (domain.Facts, error) {
+	// example: violating PSA: "command terminated with exit code 1: 'Error from server (Forbidden): error when creating "STDIN": pods "bad-pod" is forbidden: violates PodSecurity "baseline:latest": hostPath volumes (volume "hostmount"), privileged (container "bad-pod" must not set securityContext.privileged=true)'"
 
-	newPod := domain.NewPod(
-		ev.Args["Name"],
-		ev.Args["Namespace"],
-	)
-
-	if saName, ok := ev.Args["ServiceAccount"]; ok {
-		newPod.ServiceAccountName = saName
-	}
-	if val, ok := ev.Args["Privileged"]; ok {
-		newPod.Privileged = domain.AsProbBool(strings.ToLower(val) == "true")
-	}
-	if val, ok := ev.Args["HostIPC"]; ok {
-		newPod.HostIPC = domain.AsProbBool(strings.ToLower(val) == "true")
-	}
-	if val, ok := ev.Args["HostPID"]; ok {
-		newPod.HostPID = domain.AsProbBool(strings.ToLower(val) == "true")
-	}
-	if val, ok := ev.Args["HostNetwork"]; ok {
-		newPod.HostNetwork = domain.AsProbBool(strings.ToLower(val) == "true")
-	}
-	if nodeName, ok := ev.Args["NodeName"]; ok {
-		newPod.NodeName = nodeName
-	}
-
-	if val, ok := ev.Args["HostPath"]; ok {
-		mountPath := ev.Args["Mount"]
-		newPod.VolumeMounts = []domain.Mount{{
-			MountRoot:  val,
-			MountPoint: mountPath,
-			IsHostPath: true,
-		}}
-	}
-
-	return domain.Facts{
-		Entities:  []domain.Entity{newPod},
-		Relations: relations,
-	}, domain.Facts{}, nil
-}
-
-func analyzeDeployPodFailure(event domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
 	entities := make([]domain.Entity, 0)
-	if len(event.Results) == 0 {
-		slog.Error("No results found for deploy pod, so nothing to analyze :(")
-	} else {
-		res := event.Results[0]
+	// Check if the error message contains information about pod security violations
+	podSecurityViolationPattern := regexp.MustCompile(`violates PodSecurity "([^"]+)": (.+)`)
+	for _, res := range results {
+		matches := podSecurityViolationPattern.FindStringSubmatch(res)
+		if len(matches) >= 3 {
+			securityProfile := matches[1] // e.g., "baseline:latest"
+			violationReason := matches[2] // e.g., "privileged ..."
+			slog.Error(fmt.Sprintf("Pod creation failed due to security violation - Profile: %s, Reason: %s",
+				securityProfile, violationReason))
 
-		if strings.Contains(res, "already exists") {
-			slog.Debug("Pod already exists, so nothing to analyze")
-		} else if strings.Contains(res, "Error from server (Forbidden)") {
-			// Check if the error message contains information about pod security violations
-			podSecurityViolationPattern := regexp.MustCompile(`violates PodSecurity "([^"]+)": (.+)`)
-			matches := podSecurityViolationPattern.FindStringSubmatch(res)
-			if len(matches) >= 3 {
-				securityProfile := matches[1] // e.g., "baseline:latest"
-				violationReason := matches[2] // e.g., "privileged ..."
-				slog.Error(fmt.Sprintf("Pod creation failed due to security violation - Profile: %s, Reason: %s",
-					securityProfile, violationReason))
-
-				if target, ok := event.Target.(domain.Namespaced); ok {
-					ns := domain.Namespace{Name: target.GetNamespace(), EnforcedPSS: securityProfile, Kind: "Namespace"}
-					entities = append(entities, ns)
-				} else if ns, ok := event.Target.(domain.Namespace); ok {
-					ns.EnforcedPSS = securityProfile
-					entities = append(entities, ns)
-				} else if nsName, ok := event.Args["Namespace"]; ok {
-					ns := domain.Namespace{Name: nsName, EnforcedPSS: securityProfile, Kind: "Namespace"}
-					entities = append(entities, ns)
-				} else {
-					slog.Error("No namespace found in event target or args")
-				}
+			if t, ok := target.(domain.Namespaced); ok {
+				ns := domain.Namespace{Name: t.GetNamespace(), EnforcedPSS: securityProfile, Kind: "Namespace"}
+				entities = append(entities, ns)
+			} else if ns, ok := target.(domain.Namespace); ok {
+				ns.EnforcedPSS = securityProfile
+				entities = append(entities, ns)
+			} else if nsName, ok := args["Namespace"]; ok {
+				ns := domain.Namespace{Name: nsName, EnforcedPSS: securityProfile, Kind: "Namespace"}
+				entities = append(entities, ns)
+			} else {
+				slog.Error("No namespace found in event target or args")
 			}
-		} else {
-			slog.Error("Unknown error while deploying pod: " + res)
 		}
 	}
 
-	return domain.Facts{Entities: entities}, domain.Facts{}, nil
+	return domain.Facts{Entities: entities}, nil
 }
 
 type ServiceInfo struct {

@@ -46,9 +46,9 @@ func TestAnalyzeDeployPodFailure_NoResults(t *testing.T) {
 	event := domain.TTPExecuted{
 		Results: []string{},
 	}
-	newFacts, removedFacts, err := analyzeDeployPodFailure(event)
-	if err != nil {
-		t.Errorf("Expected no error, got %v", err)
+	newFacts, removedFacts, err := analyzeFailedTTPExecution(event)
+	if err == nil {
+		t.Errorf("Expected error but got %v", err)
 	}
 	if len(newFacts.Entities) != 0 {
 		t.Errorf("Expected no entities, got %v", newFacts.Entities)
@@ -68,7 +68,7 @@ func TestAnalyzeDeployPodFailure_AlreadyExists(t *testing.T) {
 	event := domain.TTPExecuted{
 		Results: []string{"Error from server (AlreadyExists): pods \"mypod\" already exists"},
 	}
-	newFacts, _, err := analyzeDeployPodFailure(event)
+	newFacts, _, err := analyzeFailedTTPExecution(event)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -85,7 +85,7 @@ func TestAnalyzeDeployPodFailure_PodSecurityViolation(t *testing.T) {
 		},
 		Target: domain.NewNamespace(nsName),
 	}
-	newFacts, _, err := analyzeDeployPodFailure(event)
+	newFacts, _, err := analyzeFailedTTPExecution(event)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -114,7 +114,7 @@ func TestAnalyzeDeployPodFailure_PodSecurityViolation_without_target_returns_ns(
 			"command terminated with exit code 1: 'Error from server (Forbidden): error when creating \"STDIN\": pods \"workstation-66549c6f86-vgqch-44183\" is forbidden: violates PodSecurity \"baseline:latest\": hostPath volumes (volume \"hostmount\")\n'",
 		},
 	}
-	newFacts, _, err := analyzeDeployPodFailure(event)
+	newFacts, _, err := analyzeFailedTTPExecution(event)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -137,7 +137,7 @@ func TestAnalyzeDeployPodFailure_UnknownError(t *testing.T) {
 	event := domain.TTPExecuted{
 		Results: []string{"Some unknown error"},
 	}
-	newFacts, _, err := analyzeDeployPodFailure(event)
+	newFacts, _, err := analyzeFailedTTPExecution(event)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
