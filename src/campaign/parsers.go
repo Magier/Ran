@@ -687,6 +687,11 @@ func parseK8sEffect(effect string, source domain.Entity, args map[string]string,
 					c2ID := relationArgs[0]
 					targetID := relationArgs[1]
 
+					// TODO: handle variables in effects more generically
+					if targetID == "${TARGET}" {
+						targetID = source.GetId()
+					}
+
 					switch relationName {
 					case "k8s.can-exec":
 						relations = append(relations, domain.CanAccess{
