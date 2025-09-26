@@ -92,7 +92,7 @@
 						value = targetId.split("/")[1];
 					}
 				} else if (param.Type === 'Pod') {
-					const isSetTargetTTP =  ttp.id === 'use-kubeconfig'; // special handling for the setTarget TTP, to use all available pods
+					const isSetTargetTTP =  ttp.tactic === 'Initial Access'; // special handling for the setTarget TTP, to use all available pods
 					availableEntities = campaignState.getPods("", isSetTargetTTP)
 					argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
 				} else if (param.Type === 'ServiceAccount') {

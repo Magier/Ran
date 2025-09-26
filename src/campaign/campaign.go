@@ -99,25 +99,17 @@ func (c *Campaign) SetTarget(ns, podName string) (domain.Command, error) {
 		"Name":      podName,
 		"Namespace": ns,
 	}
-	c2Id := "c2/Ran"
 
-	initialAccessTTP := domain.TTP{
-		ID:         "initial-access-pod-exec",
-		Name:       "Exec into initial Pod",
-		Tactic:     mitre.InitialAccess,
-		Techniques: []string{},
-		Effects: []string{
-			"k8s.Pod",
-			fmt.Sprintf("k8s.can-exec(%s, %s)", c2Id, initialPod.GetId()),
-		},
+	if ttp, ok := c.armory.GetTTP("initial-access-pod-exec"); ok {
+		ev := domain.ExecTTP{
+			CommandImpl: domain.NewCmd(""),
+			TTP:         ttp,
+			Target:      initialPod,
+			Args:        args,
+		}
+		return ev, nil
 	}
-	ev := domain.ExecTTP{
-		CommandImpl: domain.NewCmd(""),
-		TTP:         initialAccessTTP,
-		Target:      initialPod,
-		Args:        args,
-	}
-	return ev, nil
+	return nil, fmt.Errorf("No initial access TTP found in armory")
 }
 
 func (c *Campaign) UpdateFacts(new domain.Facts, removed domain.Facts) (domain.FactsChanged, error) {

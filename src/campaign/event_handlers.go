@@ -13,6 +13,7 @@ import (
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
 	k8s_types "github.com/Magier/Ran/k8sclient/types"
+	"github.com/Magier/Ran/mitre"
 	"github.com/dominikbraun/graph/draw"
 	"github.com/goccy/go-graphviz"
 )
@@ -27,7 +28,7 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 		return nil, errors.New(msg)
 	}
 
-	if ttp.Tactic == "InitialAccess" && ttp.ID == "use-kubeconfig" {
+	if ttp.Tactic == mitre.InitialAccess && ev.TargetID == "cluster" {
 		ns := ev.Args["Namespace"]
 		name := ev.Args["TargetName"]
 
