@@ -49,7 +49,7 @@
 	// $: selectedConditions = { ...globalConditions, ...(selectedNode ?? {}) };
 	let armory: ArmoryType = $state(new Map());
 	let showAllTTPs: boolean = $state(false);
-	let openTactic = $state(['InitialAccess']);
+	let openTactic = $state(['Initial Access']);
 
 	$effect(() => { armory = campaignState.armory; });
 
