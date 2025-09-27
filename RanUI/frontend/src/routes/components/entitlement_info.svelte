@@ -56,6 +56,6 @@
 
 <pre class="max-h-80 overflow-scroll flex flex-col gap-1 pl-5 ">
     {#each entitlements as e}
-        <span class={getStyle(e)}>{e.verb} {e.resourceType}{e.resourceName}{#if e.scope} in {e.scope} {/if}</span>
+        <span class={getStyle(e)}>{e.verb} {e.resourceType}{e.resourceName}{#if e.scope} in {e.scope} {/if}{#if e.apiGroup}({e.apiGroup}){/if}</span>
     {/each}
 </pre>

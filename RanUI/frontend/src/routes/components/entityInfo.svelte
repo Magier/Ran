@@ -63,15 +63,17 @@
 					<Tree entries={Array.isArray(data) ? data : []} onLeafClick={readFile} />
 				</details>
 			{:else if label === 'can'}
-				<details>
-					<summary>
-						<span class="font-bold mr-1">{label}</span>
-						<span class="badge preset-outlined-surface-500"
-							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
-						>
-					</summary>
-					<EntitlementInfo entitlements={data as domain.RBACPermission[]} />
-				</details>
+				{#if Object.keys(data).length > 0}
+					<details>
+						<summary>
+							<span class="font-bold mr-1">{label}</span>
+							<span class="badge preset-outlined-surface-500"
+								>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
+							>
+						</summary>
+						<EntitlementInfo entitlements={data as domain.RBACPermission[]} />
+					</details>
+				{/if}
 			{:else if typeof data === 'object' && data !== null}
 				<!-- Collapsible section for objects/arrays -->
 				<details>

@@ -14,6 +14,7 @@ export namespace campaign {
 	    // Go type: time
 	    CompletedAt: any;
 	    Observables: any[];
+	    ExecCommand: domain.ExecTTP;
 	
 	    static createFrom(source: any = {}) {
 	        return new AttackStep(source);
@@ -32,6 +33,7 @@ export namespace campaign {
 	        this.ExecutedOn = source["ExecutedOn"];
 	        this.CompletedAt = this.convertValues(source["CompletedAt"], null);
 	        this.Observables = source["Observables"];
+	        this.ExecCommand = this.convertValues(source["ExecCommand"], domain.ExecTTP);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -129,38 +131,46 @@ export namespace domain {
 		    return a;
 		}
 	}
-	export class Facts {
-	    Entities: any[];
-	    Relations: any[];
-	    Identities: any[];
-	    Assets: any[];
+	export class RBACPermission {
+	    verb: string;
+	    resourceName: string;
+	    resourceType: string;
+	    apiGroup: string;
+	    scope: string;
+	    sourceRole: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new Facts(source);
+	        return new RBACPermission(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Entities = source["Entities"];
-	        this.Relations = source["Relations"];
-	        this.Identities = source["Identities"];
-	        this.Assets = source["Assets"];
+	        this.verb = source["verb"];
+	        this.resourceName = source["resourceName"];
+	        this.resourceType = source["resourceType"];
+	        this.apiGroup = source["apiGroup"];
+	        this.scope = source["scope"];
+	        this.sourceRole = source["sourceRole"];
 	    }
 	}
-	export class FactsChanged {
-	    CmdId: string;
-	    New: Facts;
-	    Removed: Facts;
+	export class Requirements {
+	    Kind: string;
+	    accessLevel: AccessLevel;
+	    rbac: RBACPermission;
+	    Exists: string[];
+	    OtherFields: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
-	        return new FactsChanged(source);
+	        return new Requirements(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.CmdId = source["CmdId"];
-	        this.New = this.convertValues(source["New"], Facts);
-	        this.Removed = this.convertValues(source["Removed"], Facts);
+	        this.Kind = source["Kind"];
+	        this.accessLevel = this.convertValues(source["accessLevel"], AccessLevel);
+	        this.rbac = this.convertValues(source["rbac"], RBACPermission);
+	        this.Exists = source["Exists"];
+	        this.OtherFields = source["OtherFields"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -243,80 +253,6 @@ export namespace domain {
 		    return a;
 		}
 	}
-	export class RBACPermission {
-	    verb: string;
-	    resourceName: string;
-	    resourceType: string;
-	    apiGroup: string;
-	    scope: string;
-	    sourceRole: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new RBACPermission(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.verb = source["verb"];
-	        this.resourceName = source["resourceName"];
-	        this.resourceType = source["resourceType"];
-	        this.apiGroup = source["apiGroup"];
-	        this.scope = source["scope"];
-	        this.sourceRole = source["sourceRole"];
-	    }
-	}
-	export class Requirements {
-	    Kind: string;
-	    accessLevel: AccessLevel;
-	    rbac: RBACPermission;
-	    Exists: string[];
-	    OtherFields: Record<string, any>;
-	
-	    static createFrom(source: any = {}) {
-	        return new Requirements(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Kind = source["Kind"];
-	        this.accessLevel = this.convertValues(source["accessLevel"], AccessLevel);
-	        this.rbac = this.convertValues(source["rbac"], RBACPermission);
-	        this.Exists = source["Exists"];
-	        this.OtherFields = source["OtherFields"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class State {
-	    entitlements?: Record<string, Array<string>>;
-	    entityCounts?: Record<string, number>;
-	
-	    static createFrom(source: any = {}) {
-	        return new State(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.entitlements = source["entitlements"];
-	        this.entityCounts = source["entityCounts"];
-	    }
-	}
 	export class TTP {
 	    id: string;
 	    name: string;
@@ -372,6 +308,120 @@ export namespace domain {
 		    }
 		    return a;
 		}
+	}
+	export class ExecTTP {
+	    ID: string;
+	    TTP: TTP;
+	    Procedure: Procedure;
+	    Args: Record<string, string>;
+	    C2Channel: any;
+	    Target: any;
+	    CommandMsg: any;
+	    IsCleanup: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExecTTP(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ID = source["ID"];
+	        this.TTP = this.convertValues(source["TTP"], TTP);
+	        this.Procedure = this.convertValues(source["Procedure"], Procedure);
+	        this.Args = source["Args"];
+	        this.C2Channel = source["C2Channel"];
+	        this.Target = source["Target"];
+	        this.CommandMsg = source["CommandMsg"];
+	        this.IsCleanup = source["IsCleanup"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Facts {
+	    Entities: any[];
+	    Relations: any[];
+	    Identities: any[];
+	    Assets: any[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Facts(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Entities = source["Entities"];
+	        this.Relations = source["Relations"];
+	        this.Identities = source["Identities"];
+	        this.Assets = source["Assets"];
+	    }
+	}
+	export class FactsChanged {
+	    CmdId: string;
+	    New: Facts;
+	    Removed: Facts;
+	
+	    static createFrom(source: any = {}) {
+	        return new FactsChanged(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.CmdId = source["CmdId"];
+	        this.New = this.convertValues(source["New"], Facts);
+	        this.Removed = this.convertValues(source["Removed"], Facts);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
+	export class State {
+	    entitlements?: Record<string, Array<string>>;
+	    entityCounts?: Record<string, number>;
+	
+	    static createFrom(source: any = {}) {
+	        return new State(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entitlements = source["entitlements"];
+	        this.entityCounts = source["entityCounts"];
+	    }
 	}
 
 }

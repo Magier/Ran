@@ -113,13 +113,13 @@
 	}
 </script>
 
-<div class="relative grid h-[calc(100vh-70px)] grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
+<div class="relative grid h-[calc(100vh-60px)] grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
 	{#await campaignState.connect(false)}
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
 		<div>loading...</div>
 	{:then sessions}
-		<Armory class="" action={sendAction} targetId={selectedObjectId} />
-		<Graph bind:selectedObjectId bind:selectedObject class="flex-1 " />
+		<Armory class="h-full min-h-0" action={sendAction} targetId={selectedObjectId} />
+		<Graph bind:selectedObjectId bind:selectedObject class="flex-1 h-full min-h-0" />
 
 		<Popover
 			open={showDetails}
