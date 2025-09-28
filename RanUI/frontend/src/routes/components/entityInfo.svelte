@@ -73,6 +73,12 @@
 						</summary>
 						<EntitlementInfo entitlements={data as domain.RBACPermission[]} />
 					</details>
+				{:else}
+					<div>
+					<span class="font-bold mr-1">{label}</span>
+					?
+					</div>
+					<!-- <button class="btn btn-sm preset-filled-primary-500" disabled>🔍</button> -->
 				{/if}
 			{:else if typeof data === 'object' && data !== null}
 				<!-- Collapsible section for objects/arrays -->

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { campaign } from '$lib/wailsjs/go/models';
+	import ObservableInfo from './observable_info.svelte';
 
 	interface ActionDetailProps {
 		step: campaign.AttackStep;
@@ -21,25 +22,6 @@
 		}
 	}
 
-	function prettyPrint(obj: any): string {
-		if (typeof obj === 'string') {
-			return obj;
-			// } else if (typeof obj === 'object') {
-			// 	if (Array.isArray(obj)) {
-			// 		return obj.map((item) => prettyPrint(item)).join(', ');
-			// 	} else if (obj === null) {
-			// 		return 'null';
-			// 	} else {
-			// 		return JSON.stringify(obj, null, 2);
-			// 	}
-			// } else if (typeof obj === 'number') {
-			// 	return obj.toString();
-			// } else if (typeof obj === 'boolean') {
-			// 	return obj ? 'true' : 'false';
-		} else {
-			return JSON.stringify(obj, null, 2);
-		}
-	}
 
 </script>
 
@@ -119,11 +101,7 @@
 			<div class="mt-4 w-full">
 				{#each step.Observables as obs}
 					{#if obs}
-						{#each Object.entries(obs || {}) as [label, data]}
-						<div class="bg-surface-50-950 ">
-							<div><span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}</div>
-						</div>
-						{/each}
+						<ObservableInfo observable={obs} />
 					{/if}
 				{/each}
 			</div>
@@ -133,8 +111,6 @@
 		</div>
 
 	</article>
-
-
 	<footer class="flex-none"></footer>
 {/if}
 

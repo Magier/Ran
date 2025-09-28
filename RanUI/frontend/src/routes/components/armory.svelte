@@ -4,6 +4,7 @@
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
 	import store, { parseArmory } from '$lib/stores/store';
 	import Icon from '@iconify/svelte';
+	import { iconMap } from '$lib/tactic_icons';
 
 	import ActionCard from './action_card.svelte';
 	import { Accordion } from '@skeletonlabs/skeleton-svelte';
@@ -17,22 +18,6 @@
 		class?: string;
 		targetId: string;
 		action: (ttp: domain.TTP) => void;
-	};
-	// import { filteredArmory, searchAbilities } from '$lib/stores/armoryStore.js';
-	const iconMap: Record<string, string> = {
-		'Resource Development': 'healthicons:entry-outline',
-		'Initial Access': 'material-symbols:door-open-outline',
-		Discovery: 'material-symbols:schema-outline',
-		Execution: 'material-symbols:settings-slow-motion',
-		Persistence: 'game-icons:life-jacket',
-		'Privilege Escalation': 'mdi:account-arrow-up',
-		'Defense Evasion': 'game-icons:hood',
-		'Credential Access': 'mdi:key-chain-variant',
-		'Command And Control': 'material-symbols:satellite-alt',
-		Collection: 'game-icons:receive-money',
-		'Lateral Movement': 'material-symbols:timeline',
-		Impact: 'game-icons:falling-bomb',
-		Other: 'game-icons:dig-dug'
 	};
 
 	// ==============================================================
@@ -102,9 +87,9 @@
 	}
 
 	function isTTPApplicable(ttp: domain.TTP): boolean {
-		if (showAllTTPs) {
-			return true;
-		}
+		// if (showAllTTPs) {
+		// 	return true;
+		// }
 		let procedures = applicableTTPs.get(ttp.tactic) || [];
 		for (let proc of procedures) {
 			if (proc.name === ttp.name) {
@@ -144,7 +129,7 @@
 			{#each Array.from(showAllTTPs ? campaignState.armory : applicableTTPs) as [tactic, ttps]}
 				<hr class="hr" />
 				<Accordion.Item
-					panelClasses="px-2 mb-1"
+					panelClasses="mb-1 bg-surface-200-800"
 					panelPadding="0"
 					value={tactic}
 					classes="text-surface-contrast-200-800"

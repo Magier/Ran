@@ -21,7 +21,7 @@ type AttackStep struct {
 	Target      domain.Entity
 	ExecutedOn  domain.System
 	CompletedAt time.Time
-	Observables []any
+	Observables []domain.Observable
 	ExecCommand domain.ExecTTP
 }
 

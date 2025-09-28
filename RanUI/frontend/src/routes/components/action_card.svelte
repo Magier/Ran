@@ -66,7 +66,7 @@
 
 <button
 	onclick={() => onclick(ttp)}
-	class=" {cardStyle}  hover:border-primary-300-700 border-surface-50-950 mt-1 w-full border-2 p-1 text-left"
+	class=" {cardStyle} hover:bg-surface-300-700 border-surface-50-950 w-full border-b-1 pl-2 pt-2 text-left"
 	role="menuitem"
 	tabindex="0"
 	disabled={!enabled}
@@ -80,21 +80,20 @@
 		<footer class="card-footer flex flex-wrap gap-2 py-2">
 			{#each Object.entries(ttp.requires) as [name, value]}
 				{#if !!value}
-					{#if name === 'AccessLevel'}
-						{#if Object.keys(value).length > 0}
-							<span class="chip variant-filled-surface mr-1 max-w-full truncate">
-								{name}: {Object.keys(value).join(' or ')}
-							</span>
-						{/if}
+					{#if name === 'Kind'}
+						<span class="badge bg-tertiary-950 text-tertiary-contrast-200-800">
+							<Icon icon={'carbon-hexagon-outline'} width="16"></Icon>
+							{value}
+						</span>
+					 {:else if name === 'accessLevel'}
+						<!-- <span class="badge bg-success-950 text-secondary-contrast-200-800">
+							<Icon icon={'carbon-user-admin'} width="16"></Icon>
+							{value}
+						</span> -->
 					{:else if name === 'rbac'}
 						<span class="badge bg-success-950 text-secondary-contrast-200-800">
 							<Icon icon={'carbon-user-admin'} width="16"></Icon>
 							{formatRbac(value)}
-						</span>
-					{:else if name === 'Kind'}
-						<span class="badge bg-tertiary-950 text-tertiary-contrast-200-800">
-							<Icon icon={'carbon-hexagon-outline'} width="16"></Icon>
-							{value}
 						</span>
 					{:else if name === 'OtherFields'}
 						{#each Object.entries(value) as [name, val]}
