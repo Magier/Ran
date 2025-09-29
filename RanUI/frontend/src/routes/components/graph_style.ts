@@ -243,14 +243,14 @@ export function getGraphStyle() {
 			}
 		},
 		{
-			selector: "node[kind='Namespace'][entity.EnforcedPSS *= 'baseline']",
+			selector: "node[kind='Namespace'][entity.enforcedPSS *= 'baseline']",
 			style: {
 				'background-color': 'orange',
 				'border-color': 'orange'
 			}
 		},
 		{
-			selector: "node[kind='Namespace'][entity.EnforcedPSS *= 'restricted']",
+			selector: "node[kind='Namespace'][entity.enforcedPSS *= 'restricted']",
 			style: {
 				'background-color': 'red',
 				'border-color': 'red'
