@@ -703,6 +703,31 @@ func parseK8sEffect(effect string, source domain.Entity, args map[string]string,
 					}
 				}
 			}
+		} else if strings.Contains(effect, ".IsRunning") {
+			// expected format: "k8s.pod.isRunning=<boolvalue>"
+			parts := strings.SplitN(effect, "=", 2)
+			if len(parts) != 2 {
+				slog.Warn(fmt.Sprintf("isRunning effect missing value: %s", effect))
+			} else {
+				val := strings.TrimSpace(parts[1])
+				isRunning, err := strconv.ParseBool(val)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failed to parse isRunning value '%s': %v", val, err))
+				} else {
+					var pod domain.Pod
+					var ok bool
+					if pod, ok = source.(domain.Pod); !ok {
+						pod = domain.NewPod(args["Name"], args["Namespace"])
+					}
+					pod.IsRunning = isRunning
+					entities = append(entities, pod)
+					// } else if len(relationArgs) >= 2 {
+					// 	// fallback: try to construct a Pod from relation args (e.g. k8s.pod.isRunning(C2, podName) style)
+					// 	pod := domain.NewPod(relationArgs[1], "")
+					// 	pod.IsRunning = isRunning
+					// 	entities = append(entities, pod)
+				}
+			}
 		}
 	}
 	return domain.Facts{Entities: entities, Relations: relations}, nil
