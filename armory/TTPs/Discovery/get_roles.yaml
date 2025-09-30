@@ -1,0 +1,40 @@
+name: Get Roles via API Server
+description: Get a list of ServiceAccounts via the API server
+tactic: Discovery
+techniques: ["Container and Resource Discovery", T1613]
+preconditions:
+  # accessLevel: user-read
+  rbac: "get roles"
+parameters:
+  TOKEN:
+    type: ServiceAccount
+    description: the ServiceAccount token used to authorize this request
+    optional: true
+    # default: ""
+  NS:
+    type: Namespace
+    description: specify the namespace to get pods from
+    default: ${NS}
+  ALL_NS:
+    type: bool
+    description: if true, get roles from all namespaces, otherwise just the current one
+    default: false
+  CLUSTER_ROLE:
+    type: bool
+    description: if the role is a cluster role
+    default: false
+procedures:
+  - key: kubectl
+    command: >-
+      kubectl get roles --token=${TOKEN} {{ if not .CLUSTER_ROLE }} -n=${NS} -A=${ALL_NS} {{ end }} --output=json
+  - key: curl
+    command: >-
+      curl -XGET -k
+      -H "Accept: application/json;v=v1;g=meta.k8s.io,application/json;v=v1beta1;g=meta.k8s.io,application/json"
+      -H "User-Agent: kubectl/v1.30.3 (linux/amd64) kubernetes/6fc0a69"
+      -H "Authorization: Bearer ${TOKEN}"
+      '${API_SERVER}/api/v1/namespaces/${NS}/roles?limit=500'
+effects:
+  - k8s.roleList
+# defend: {}
+references:
