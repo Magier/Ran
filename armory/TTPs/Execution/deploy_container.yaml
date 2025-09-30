@@ -99,7 +99,31 @@ effects:
   - Namespace($ns)
   - ns.contains($p2)
   - created(creator:$p1, target:$p2)
-defend: {}
+defend: 
+  id: D3-PM
+  name: Platform Monitoring
+  url: https://d3fend.mitre.org/technique/d3f:PlatformMonitoring/
+  sigma: 
+    title: Create
+    status: experimental
+    description: Detects creation of a new Pod
+    date: 2025/09/30
+    logsource:
+      category: application
+      product: kubernetes
+      service: audit
+    detection:
+      selection:
+        verb: 'create'
+        objectRef.resource: 'pods'
+        requestObject.spec.hostNetwork: true # TODO: conditional check only if `hostNetwork` is true
+      condition: selection
+    falsepositives:
+      - Legitimate creation of a new Pod
+    references:
+      - https://www.elastic.co/docs/reference/security/prebuilt-rules/rules/integrations/kubernetes/privilege_escalation_pod_created_with_hostnetwork
+    stp: 5A
+    level: medium
 references:
   - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/New%20Container/
   - https://kubenomicon.com/Execution/New_container.html
