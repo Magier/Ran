@@ -380,6 +380,7 @@ type System interface {
 	SetHostName(name string)
 	SetIPs(ips []net.IPAddr)
 	HasBinary(name string) ProbBool
+	GetBinary(name string) string
 	SetBinary(name, path string)
 	GetMounts() []Mount
 	GetProcesses() []Process
@@ -495,6 +496,13 @@ func (s *SystemImpl) HasBinary(name string) ProbBool {
 	}
 	// if path is empty or "❌", then the binary is not present
 	return AsProbBool(path != "" && path != "❌")
+}
+
+func (s *SystemImpl) GetBinary(name string) string {
+	if s.Binaries == nil {
+		return ""
+	}
+	return s.Binaries[name]
 }
 
 func (s *SystemImpl) SetBinary(name, path string) {
