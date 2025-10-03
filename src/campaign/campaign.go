@@ -384,12 +384,21 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 	}
 	execCmd.Procedure.Command = c.groundCmdTemplate(execCmd.Procedure.Command, args)
 
+	if sys, ok := execSystem.(domain.System); ok {
+		toolName := execCmd.Procedure.GetTool()
+		if binPath := sys.GetBinary(toolName); binPath != "" && binPath != toolName {
+			// in the command a must be is a stand-alone string, so add spaces around it to avoid partial replacements
+			execCmd.Procedure.Command = strings.ReplaceAll(execCmd.Procedure.Command, fmt.Sprintf(" %s ", toolName), fmt.Sprintf(" %s ", binPath))
+		}
+	}
+
 	// safety: warn about any variable, that was not properly grounded
 	re := regexp.MustCompile(`\$\{([^}]+)\}`)
 	vars := re.FindAllStringSubmatch(execCmd.Procedure.Command, -1)
 	for _, v := range vars {
 		slog.Warn(fmt.Sprintf("Ungrounded variable '%s' NOT found in command", v[1]))
 	}
+
 	return execCmd, nil
 }
 

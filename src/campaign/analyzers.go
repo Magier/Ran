@@ -221,10 +221,10 @@ func (c *Campaign) analyzePod(e domain.Pod) (domain.Facts, error) {
 				ObjectId:  sa.GetId(),
 			})
 		} else {
-			relations = append(relations, domain.Reference{
-				Source: e.GetId(),
-				Target: sa.GetId(),
-			})
+			// relations = append(relations, domain.Reference{
+			// 	Source: e.GetId(),
+			// 	Target: sa.GetId(),
+			// })
 		}
 	}
 
@@ -993,11 +993,11 @@ func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (domain.Facts, doma
 	if execSystem := ev.ExecutedOn; execSystem != nil {
 		// add the binary only, if it was not yet known, because just a successful/failed
 		// call provides no information of the exact path (which other info sources may do)
-		if ev.ExecutedOn.HasBinary(tool).IsUnknown() {
+		if execSystem.HasBinary(tool).IsUnknown() {
 			if ev.Success {
-				ev.ExecutedOn.SetBinary(tool, tool)
+				execSystem.SetBinary(tool, tool)
 			} else if isToolFailure {
-				ev.ExecutedOn.SetBinary(tool, "") // empty path is a failure
+				execSystem.SetBinary(tool, "") // empty path is a failure
 			}
 		}
 		newFacts.Entities = append(newFacts.Entities, execSystem)
