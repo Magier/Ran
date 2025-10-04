@@ -472,24 +472,32 @@ func analyzeServiceAccountToken(token domain.ServiceAccountToken) (domain.Facts,
 	}, nil
 }
 
-func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
+func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Facts, string, error) {
+	var failReason string
+
 	if len(ev.Results) == 0 {
-		return domain.Facts{}, domain.Facts{}, fmt.Errorf("no results found for TTP execution %s, so nothing to analyze", ev.TTP.ID)
+		return domain.Facts{}, domain.Facts{}, failReason, fmt.Errorf("no results found for TTP execution %s, so nothing to analyze", ev.TTP.ID)
 	}
-	errMsg := ev.Results[0]
-	if errMsg == "" && len(ev.Results) > 1 { // maybe the information is in stderr
-		errMsg = ev.Results[1]
+	var errMsg string
+	for _, res := range ev.Results {
+		if strings.TrimSpace(res) != "" {
+			errMsg = res
+			break
+		}
 	}
 
 	entities := make([]domain.Entity, 0)
 	relations := make([]domain.Relation, 0)
 
 	// the tool part of the procedure was not on the target system
-	new, _, err := analyzeToolSuccessfullyUsedInTTP(ev)
+	new, _, msg, err := analyzeToolSuccessfullyUsedInTTP(ev)
 	if err == nil {
 		entities = append(entities, new.Entities...)
+		if msg != "" {
+			failReason = msg
+		}
 	} else {
-		return domain.Facts{}, domain.Facts{}, err
+		return domain.Facts{}, domain.Facts{}, failReason, err
 	}
 
 	// TTP failed at the Kubernetes API server for various reasons (RBAC, admission control, etc.)
@@ -500,6 +508,7 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 		if strings.Contains(errMsg, "is forbidden: User") { // heuristic: use this as hint for RBAC issue
 			if sa, err := parseViolatingRBACIdentity(errMsg); err == nil {
 				entities = append(entities, sa)
+				failReason = fmt.Sprintf("%s has not the permissions to %s", sa.GetId(), ev.TTP.Requires.RBACPermission.String())
 			} else {
 				slog.Error(fmt.Sprintf("Failed to parse RBAC identity from error message: %s", err.Error()))
 			}
@@ -509,6 +518,7 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 		if err == nil {
 			entities = append(entities, new.Entities...)
 			relations = append(relations, new.Relations...)
+			failReason = "Namespace enforces a PSS"
 		} else {
 			slog.Error(fmt.Sprintf("Failed to parse PodSecurity violation from error message: %s", err.Error()))
 		}
@@ -523,9 +533,27 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 	// 	}
 	// }
 
-	// TTP specific error: could not transfer tool to the target system
+	var failedToWrite bool
+
+	// TODO: generalize the "failed to to write type of errors and the inferred implications"
+	if strings.Contains(errMsg, "command terminated with exit code") {
+		tool := ev.Procedure.GetTool()
+
+		switch tool {
+		case "curl":
+			failedToWrite = ev.ExitCode == 23
+			failReason = "An error occurred when writing received data to a local file"
+		}
+	}
 	if strings.Contains(errMsg, " is not writeable") {
+		failedToWrite = true
+	}
+
+	// TTP specific error: could not transfer tool to the target system
+	if failedToWrite {
+		// TODO: depending on the User ID, it can be either because it's not root, or because the FS is read-only
 		target := ev.Target
+
 		if p, ok := target.(domain.Pod); ok {
 			p.ReadOnlyRootFilesystem.Update(.3) // belief update that this flag is set
 			entities = append(entities, p)
@@ -541,7 +569,7 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 	return domain.Facts{
 		Entities:  entities,
 		Relations: relations,
-	}, domain.Facts{}, nil
+	}, domain.Facts{}, failReason, nil
 }
 
 func parseViolatingRBACIdentity(msg string) (domain.Entity, error) {
@@ -983,9 +1011,10 @@ func isToolExecutionFailure(ttpResults []string, toolName string) bool {
 	return false
 }
 
-func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (domain.Facts, domain.Facts, error) {
+func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (domain.Facts, domain.Facts, string, error) {
 	// get the system on which the TTP was executed
 	newFacts := domain.Facts{}
+	var msg string
 
 	tool := ev.Procedure.GetTool()
 	isToolFailure := isToolExecutionFailure(ev.Results, tool)
@@ -998,12 +1027,13 @@ func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (domain.Facts, doma
 				execSystem.SetBinary(tool, tool)
 			} else if isToolFailure {
 				execSystem.SetBinary(tool, "") // empty path is a failure
+				msg = fmt.Sprintf("Tool '%s' not found on system '%s'", tool, execSystem.GetName())
 			}
 		}
 		newFacts.Entities = append(newFacts.Entities, execSystem)
 	}
 
-	return newFacts, domain.Facts{}, nil
+	return newFacts, domain.Facts{}, msg, nil
 }
 
 func (c Campaign) analyzeRoleBinding(rb domain.RoleBinding) (domain.Facts, domain.Facts, error) {

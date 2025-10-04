@@ -81,6 +81,9 @@
 			} else {
 				const toastId = ToastMapping[ttpId];
 				delete ToastMapping[ttpId];
+				if (!data.success) {
+					toastConfig['description'] = data.FailReason ? data.FailReason : `Failed for unknown reason`;
+				}
 				toaster.update(toastId, toastConfig);
 			}
 		});

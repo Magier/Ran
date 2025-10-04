@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Magier/Ran/domain"
@@ -46,7 +47,7 @@ func TestAnalyzeDeployPodFailure_NoResults(t *testing.T) {
 	event := domain.TTPExecuted{
 		Results: []string{},
 	}
-	newFacts, removedFacts, err := analyzeFailedTTPExecution(event)
+	newFacts, removedFacts, _, err := analyzeFailedTTPExecution(event)
 	if err == nil {
 		t.Errorf("Expected error but got %v", err)
 	}
@@ -68,7 +69,7 @@ func TestAnalyzeDeployPodFailure_AlreadyExists(t *testing.T) {
 	event := domain.TTPExecuted{
 		Results: []string{"Error from server (AlreadyExists): pods \"mypod\" already exists"},
 	}
-	newFacts, _, err := analyzeFailedTTPExecution(event)
+	newFacts, _, _, err := analyzeFailedTTPExecution(event)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -85,7 +86,7 @@ func TestAnalyzeDeployPodFailure_PodSecurityViolation(t *testing.T) {
 		},
 		Target: domain.NewNamespace(nsName),
 	}
-	newFacts, _, err := analyzeFailedTTPExecution(event)
+	newFacts, _, failReason, err := analyzeFailedTTPExecution(event)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -102,6 +103,9 @@ func TestAnalyzeDeployPodFailure_PodSecurityViolation(t *testing.T) {
 	if ns.EnforcedPSS != "baseline:latest" {
 		t.Errorf("Expected EnforcedPSS 'baseline:latest', got %s", ns.EnforcedPSS)
 	}
+	if !strings.HasPrefix(failReason, "Namespace enforces a PSS") {
+		t.Errorf("Expected failReason to be set")
+	}
 }
 
 func TestAnalyzeDeployPodFailure_PodSecurityViolation_without_target_returns_ns(t *testing.T) {
@@ -114,7 +118,7 @@ func TestAnalyzeDeployPodFailure_PodSecurityViolation_without_target_returns_ns(
 			"command terminated with exit code 1: 'Error from server (Forbidden): error when creating \"STDIN\": pods \"workstation-66549c6f86-vgqch-44183\" is forbidden: violates PodSecurity \"baseline:latest\": hostPath volumes (volume \"hostmount\")\n'",
 		},
 	}
-	newFacts, _, err := analyzeFailedTTPExecution(event)
+	newFacts, _, failReason, err := analyzeFailedTTPExecution(event)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -131,18 +135,25 @@ func TestAnalyzeDeployPodFailure_PodSecurityViolation_without_target_returns_ns(
 	if ns.EnforcedPSS != "baseline:latest" {
 		t.Errorf("Expected EnforcedPSS 'baseline:latest', got %s", ns.EnforcedPSS)
 	}
+	if !strings.HasPrefix(failReason, "Namespace enforces a PSS") {
+		t.Errorf("Expected failReason to be set")
+	}
+
 }
 
 func TestAnalyzeDeployPodFailure_UnknownError(t *testing.T) {
 	event := domain.TTPExecuted{
 		Results: []string{"Some unknown error"},
 	}
-	newFacts, _, err := analyzeFailedTTPExecution(event)
+	newFacts, _, failReason, err := analyzeFailedTTPExecution(event)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
 	if len(newFacts.Entities) != 0 {
 		t.Errorf("Expected no entities, got %v", newFacts.Entities)
+	}
+	if failReason != "" {
+		t.Errorf("Expected failReason to be empty, got %s", failReason)
 	}
 }
 func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
@@ -171,7 +182,7 @@ func TestAnalyzeFailedTTPExecution_ToolNotFound(t *testing.T) {
 				ExecutedOn: execSystem,
 			}
 
-			newFacts, _, err := analyzeFailedTTPExecution(event)
+			newFacts, _, _, err := analyzeFailedTTPExecution(event)
 			if err != nil {
 				t.Errorf("Expected no error, got %v", err)
 			}
@@ -202,7 +213,7 @@ func TestAnalyzeFailedTTP_BinaryNotFoundShouldUpdateBinariesOnExecutingSystem(t 
 		ExecutedOn: domain.NewPod("mypod", "default"),
 	}
 
-	newFacts, removedFacts, err := analyzeFailedTTPExecution(event)
+	newFacts, removedFacts, _, err := analyzeFailedTTPExecution(event)
 
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
@@ -235,7 +246,7 @@ func TestAnalyzeFailedTTPExecution_RBAC_ForbiddenWithUser(t *testing.T) {
 		Procedure: domain.Procedure{Tool: "kubectl"},
 		Target:    domain.NewPod("mypod", ns),
 	}
-	newFacts, _, err := analyzeFailedTTPExecution(event)
+	newFacts, _, failReason, err := analyzeFailedTTPExecution(event)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -254,6 +265,10 @@ func TestAnalyzeFailedTTPExecution_RBAC_ForbiddenWithUser(t *testing.T) {
 
 	if len(newFacts.Relations) != 0 {
 		t.Errorf("Expected 0 relations, got %d", len(newFacts.Relations))
+	}
+
+	if failReason == "" {
+		t.Errorf("Expected proper failReason but it was empty")
 	}
 }
 func TestAnalyzeMountInfo_EmptyInput(t *testing.T) {

@@ -8,7 +8,7 @@ preconditions:
   accessLevel: user-exec
 parameters:
   PATH:
-    default: /usr/bin/kubectl
+    default: /tmp/kubectl
     type: string
     description: the target path where to install the binary
 procedures:

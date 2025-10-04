@@ -68,37 +68,7 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 	if !ok {
 		slog.Warn(fmt.Sprintf("Received TTPExecuted for unknown step ID '%s'", c2Ev.ID))
 	} else {
-		ev = domain.NewTTPExecutedWithResult(step.ExecCommand, c2Ev.Success, c2Ev.Results, c2Ev.ExecutedOn)
-	}
-
-	for _, effect := range ev.TTP.Effects {
-		effectUpdate, err := c.ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
-
-		if err != nil {
-			if k8sErr, ok := err.(k8s_types.K8sAPIResponseError); ok {
-				ev.Success = false
-				slog.Error(fmt.Sprintf("K8s API error: '%s': %v", effect, k8sErr))
-			} else {
-				slog.Error(fmt.Sprintf("Failed to parse effect '%s': %v", effect, err))
-			}
-			continue
-		}
-
-		// 	if strings.HasPrefix(effect, "create") && len(new.Entities) > 0 {
-		// 		creatorId := ev.Target.GetId()
-		// 		if creator, ok := c.GetEntityById(creatorId); ok {
-		// 			for _, entity := range new.Entities {
-		// 				new.Relations = append(new.Relations, domain.Created{
-		// 					Object:  entity,
-		// 					Creator: creator,
-		// 				})
-		// 			}
-
-		// 		} else {
-		// 			slog.Warn(fmt.Sprintf("TTP '%s' created new entity '%s' but creator '%s' is unknown", ttp.ID, new.Entities[0].GetId(), creatorId))
-		// 		}
-		// 	}
-		factsUpdate.Update(effectUpdate.New, effectUpdate.Removed)
+		ev = domain.NewTTPExecutedWithResult(step.ExecCommand, c2Ev.ExitCode, c2Ev.Results, c2Ev.ExecutedOn, c2Ev.FailReason)
 	}
 
 	wasValidStep := c.trail.CompleteStep(ev.ID, ev.TTP, ev.Success, results)
@@ -107,24 +77,52 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 		// => don't influence the current campaign
 		return nil, nil
 	}
-	if !ev.Success {
-		new, removed, err := analyzeFailedTTPExecution(ev)
 
+	if ev.Success {
+		for _, effect := range ev.TTP.Effects {
+			effectUpdate, err := c.ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
+
+			if err != nil {
+				if k8sErr, ok := err.(k8s_types.K8sAPIResponseError); ok {
+					ev.Success = false
+					slog.Error(fmt.Sprintf("K8s API error: '%s': %v", effect, k8sErr))
+				} else {
+					slog.Error(fmt.Sprintf("Failed to parse effect '%s': %v", effect, err))
+				}
+				continue
+			}
+
+			// 	if strings.HasPrefix(effect, "create") && len(new.Entities) > 0 {
+			// 		creatorId := ev.Target.GetId()
+			// 		if creator, ok := c.GetEntityById(creatorId); ok {
+			// 			for _, entity := range new.Entities {
+			// 				new.Relations = append(new.Relations, domain.Created{
+			// 					Object:  entity,
+			// 					Creator: creator,
+			// 				})
+			// 			}
+
+			// 		} else {
+			// 			slog.Warn(fmt.Sprintf("TTP '%s' created new entity '%s' but creator '%s' is unknown", ttp.ID, new.Entities[0].GetId(), creatorId))
+			// 		}
+			// 	}
+			factsUpdate.Update(effectUpdate.New, effectUpdate.Removed)
+		}
+
+		// generic analyzer for the successful TTP invocation
+		new, removed, _, err := analyzeToolSuccessfullyUsedInTTP(ev)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
+		} else {
+			factsUpdate.Update(new, removed)
+		}
+	} else {
+		new, removed, failReason, err := analyzeFailedTTPExecution(ev)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to analyze failed TTP execution: %v", err))
+		} else if failReason != "" {
+			ev.FailReason = failReason
 		}
-		factsUpdate.Update(new, removed)
-	}
-	err = c.bus.Publish(ev)
-	if err != nil {
-		slog.Error(fmt.Sprintf("Failed to publish TTPExecuted event: %v", err))
-	}
-
-	// generic analyzer for the successful TTP invocation
-	new, removed, err := analyzeToolSuccessfullyUsedInTTP(ev)
-	if err != nil {
-		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
-	} else {
 		factsUpdate.Update(new, removed)
 	}
 
@@ -132,6 +130,13 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
 	}
+
+	// publish the TTPExecuted event for any other component that might be interested
+	err = c.bus.Publish(ev)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to publish TTPExecuted event: %v", err))
+	}
+
 	return c.UpdateFacts(newFacts, removedFacts)
 }
 
