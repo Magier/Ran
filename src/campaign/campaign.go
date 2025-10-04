@@ -388,7 +388,8 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 		toolName := execCmd.Procedure.GetTool()
 		if binPath := sys.GetBinary(toolName); binPath != "" && binPath != toolName {
 			// in the command a must be is a stand-alone string, so add spaces around it to avoid partial replacements
-			execCmd.Procedure.Command = strings.ReplaceAll(execCmd.Procedure.Command, fmt.Sprintf(" %s ", toolName), fmt.Sprintf(" %s ", binPath))
+			re := regexp.MustCompile(fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(toolName)))
+			execCmd.Procedure.Command = re.ReplaceAllString(execCmd.Procedure.Command, binPath)
 		}
 	}
 

@@ -214,9 +214,11 @@ type TTPExecuted struct {
 	Results    []string
 	ExecutedOn System
 	WasCleanup bool
+	ExitCode   int
+	FailReason string
 }
 
-func NewTTPExecutedWithResult(execTTP ExecTTP, success bool, results []string, executedOn System) TTPExecuted {
+func NewTTPExecutedWithResult(execTTP ExecTTP, exitCode int, results []string, executedOn System, failReason string) TTPExecuted {
 	return TTPExecuted{
 		ID:         execTTP.ID,
 		TTP:        execTTP.TTP,
@@ -224,9 +226,11 @@ func NewTTPExecutedWithResult(execTTP ExecTTP, success bool, results []string, e
 		Procedure:  execTTP.Procedure,
 		Target:     execTTP.Target,
 		ExecutedOn: executedOn,
-		Success:    success,
+		Success:    exitCode == 0,
+		ExitCode:   exitCode,
 		Results:    results,
 		WasCleanup: execTTP.IsCleanup,
+		FailReason: failReason,
 	}
 }
 

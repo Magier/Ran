@@ -25,7 +25,10 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
+	k8s_exec "k8s.io/client-go/util/exec"
 )
+
+type ExecError = k8s_exec.CodeExitError
 
 type KubeContext struct {
 	Name     string
@@ -325,11 +328,7 @@ func ExecInPod(ctx context.Context, client K8sClient, podName, ns, cmd string) (
 		Stderr: &stderr,
 		Tty:    false,
 	})
-	if err != nil {
-		return stdout.String(), stderr.String(), err
-	}
-
-	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), nil
+	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), err
 }
 
 func DeployPod(ctx context.Context, client K8sClient, podName, ns string, cfg domain.PodConfig) (string, error) {

@@ -40,6 +40,15 @@ type C2Manager struct {
 	clients map[string]C2Client
 }
 
+type ExecError struct {
+	Message  string
+	ExitCode int
+}
+
+func (e ExecError) Error() string {
+	return fmt.Sprintf("(code %d): %s", e.ExitCode, e.Message)
+}
+
 func InitC2Manager(mb bus.MessageBus) C2Manager {
 	c2Clients := map[string]C2Client{
 		BuiltInC2: NewBuiltInServer(),
@@ -245,8 +254,15 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 		}
 	}
 
+	var exitCode int
+	var failReason string
 	if err != nil {
+		failReason = err.Error()
 		results = append(results, err.Error())
+		if execErr := err.(ExecError); errors.As(err, &execErr) {
+			exitCode = execErr.ExitCode
+			failReason = execErr.Message
+		}
 	}
 
 	// Temporary work around to not return TTPExecuted, when it's an async execution
@@ -262,6 +278,8 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 		Success:    wasExecSuccessful(results, err),
 		ExecutedOn: execTarget,
 		Results:    results,
+		FailReason: failReason,
+		ExitCode:   exitCode,
 	}, nil
 	// return domain.TTPExecuted{
 	// 	ID:         exec.ID,
@@ -418,7 +436,14 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 		stdout, stderr, err = execKubectl(ctx, cmd, target)
 		results = []string{stdout, stderr}
 		if err != nil {
-			err = fmt.Errorf("%w: '%s'", err, stderr)
+			if execErr, ok := err.(k8s.ExecError); ok {
+				err = ExecError{
+					Message:  execErr.Error(),
+					ExitCode: execErr.Code,
+				}
+			} else {
+				err = fmt.Errorf("%w: '%s'", err, stderr)
+			}
 		}
 	default:
 		slog.Warn(fmt.Sprintf("Can't Exec TTP: unclear how to handle channel %v", ch))

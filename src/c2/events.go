@@ -76,6 +76,8 @@ type TTPExecuted struct {
 	ExecutedOn domain.System
 	Success    bool
 	Results    []string
+	ExitCode   int
+	FailReason string
 }
 
 func (ttp TTPExecuted) String() string {
