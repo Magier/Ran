@@ -816,10 +816,15 @@ func analyzeMountInfo(system domain.System) (domain.Facts, error) {
 	relations := make([]domain.Relation, 0)
 
 	var node domain.K8sNode
+	nodeName := "?"
 	var foundNode bool
 	var srcPod domain.Pod
 
 	trackedHostPaths := map[string]bool{} // to avoid duplicates
+
+	if pod, ok := system.(domain.Pod); ok && pod.NodeName != "" {
+		nodeName = pod.NodeName
+	}
 
 	for _, mount := range system.GetMounts() {
 		// kubelet-related paths are clearly part of the Node filesystem

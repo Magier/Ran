@@ -728,6 +728,16 @@ func parseK8sEffect(effect string, source domain.Entity, args map[string]string,
 					// 	entities = append(entities, pod)
 				}
 			}
+		} else if strings.Contains(effect, ".enforcedPSS") {
+			// expected format: "k8s.pod.enforcedPSS=<PSSType>"
+			parts := strings.SplitN(effect, "=", 2)
+			if len(parts) != 2 {
+				slog.Warn(fmt.Sprintf("enforcedPSS effect missing value: %s", effect))
+			}
+			if ns, ok := source.(domain.Namespace); ok {
+				ns.EnforcedPSS = strings.TrimSpace(parts[1])
+				entities = append(entities, ns)
+			}
 		}
 	}
 	return domain.Facts{Entities: entities, Relations: relations}, nil
