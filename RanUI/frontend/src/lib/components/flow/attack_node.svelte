@@ -28,7 +28,7 @@
 
 <div class={['bg-surface-50-950 border-1 rounded-md border-solid px-2 py-2', statusBorder]}>
 		<span class="text-base">{label}</span>
-		<pre class="text-xs">{step.Target.name}</pre>
+		<pre class="text-xs">{step.Target?.name ?? 'no target'}</pre>
 
 	<div class="w-full flex items-left mt-2">
 		<div class="flex">
