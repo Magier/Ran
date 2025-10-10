@@ -128,14 +128,6 @@ class CampaignState {
             entities.push(entity);
         }
         this .entities = entities; // ensure we replace the array to trigger reactivity
-        // this.entities = state.entities.map((entity: Entity) => {
-        //     return {
-        //         id: entity.id,
-        //         name: entity.name,
-        //         kind: entity.kind,
-        //         namespace: entity.namespace
-        //     };
-        // });
     }
 
     #updateState(state: main.CampaignState): void {

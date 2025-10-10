@@ -5,7 +5,7 @@
 	import fcose from 'cytoscape-fcose';
 	import { toaster } from '$lib/components/toaster';
 
-	import { getGraphStyle, layout } from './graph_style';
+	import { getGraphStyle, layout, applyCompromisedStyle } from './graph_style';
 	import type { main } from '$lib/wailsjs/go/models';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
@@ -145,6 +145,7 @@
 					existingNodes = cy.nodes().filter((n) => n.id() in positions);
 					existingNodes.lock();  // layout.stop function takes care of unlocking the nodes after laying the new ones out
 					cy.layout(layout).run();
+					applyCompromisedStyle(cy);
 
 					// use timeout 0 to not track selectedObject as a dependency
 					setTimeout(() => {

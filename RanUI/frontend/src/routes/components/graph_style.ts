@@ -1,7 +1,4 @@
-// import IconListener from '~icons/game-icons/fishing-net';
-// import function to get icon data from iconify
-// import { getIcon } from '@iconify/svelte';
-// import { listIcons } from '@iconify/svelte';
+import type cytoscape from "cytoscape";
 
 
 // function getIconData(iconName) {
@@ -97,7 +94,7 @@ export function getGraphStyle() {
 				'background-opacity': 0,
 				// 'text-opacity': '0.4',
 				content: `data(name)`,
-				'font-size': '12',
+				'font-size': '9',
 				// 'font-weight': 'bold',
 				'text-valign': 'bottom',
 				'text-wrap': 'wrap',
@@ -158,14 +155,9 @@ export function getGraphStyle() {
 		{
 			selector: "node[?compromised]",
 			style: {
-				// 'color': '#600FED',
-				'border-color': '#600FED',
-				'border-width': 2,
 				'background-color': 'red',
-				// 'background-image': [
-				// 	'k8s/pod.svg',
-				// 	'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>'],
-				// 'background-opacity': 0.4, // Adjust for desired tint strength
+				'color': 'rgba(200, 0, 0, 0.4)', // red tint
+				'background-blend-mode': 'screen',
 			}
 		},
 		{
@@ -413,4 +405,19 @@ export function getGraphStyle() {
 		}
 	];
 	return mapKindIcons(kind_svg_map).concat(graph_style);
+}
+
+export function applyCompromisedStyle(cy: cytoscape.Core) {
+	cy.nodes("node[?compromised]").forEach(n => {
+		const img = n.style('background-image');
+		n.style({
+			'background-color': 'red',
+			'color': 'rgba(200, 0, 0, 0.4)', // red tint
+			'background-image': [
+				img,
+				'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>',
+			],
+			'background-opacity': 0.4, // Adjust for desired tint strength
+		});
+	});
 }
