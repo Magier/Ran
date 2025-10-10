@@ -112,9 +112,8 @@ class CampaignState {
     }
 
     #setState(state: main.CampaignState): void {
-        this.entities = [];
-
-        for (const entity of state.entities || []) {
+        let entities = [];
+        for (const [id, entity] of Object.entries(state.entities || {})) {
             if (entity.kind === 'Namespace') {
                 this.namespaces = [...this.namespaces, entity];
             } else if (entity.kind === 'Pod') {
@@ -123,21 +122,24 @@ class CampaignState {
                 this.serviceAccounts = [...this.serviceAccounts, entity];
             }
 
-            this.entities.push(entity.entity);
+            if (!entity.id) {
+                entity.id = id;
+            }
+            entities.push(entity);
         }
-
-        this.entities = state.entities.map((entity: Entity) => {
-            return {
-                id: entity.id,
-                name: entity.name,
-                kind: entity.kind,
-                namespace: entity.namespace
-            };
-        });
+        this .entities = entities; // ensure we replace the array to trigger reactivity
+        // this.entities = state.entities.map((entity: Entity) => {
+        //     return {
+        //         id: entity.id,
+        //         name: entity.name,
+        //         kind: entity.kind,
+        //         namespace: entity.namespace
+        //     };
+        // });
     }
 
     #updateState(state: main.CampaignState): void {
-        for (const entity of state.entities || []) {
+        for (const [id, entity] of Object.entries(state.entities || [])) {
             if (!this.entities.some(e => e.id === entity.id)) {
                 this.entities = [...this.entities, entity];
             } else {
@@ -149,11 +151,12 @@ class CampaignState {
         }
 
         this.entities = state.entities.map((node: Node) => {
+            debugger
             return {
                 id: node.id,
                 name: node.name,
                 kind: node.kind,
-                namespace: node.entity?.namespace
+                namespace: node.namespace
             };
         });
     }
