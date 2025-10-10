@@ -485,7 +485,7 @@ export namespace main {
 		}
 	}
 	export class CampaignState {
-	    entities: any[];
+	    entities: Record<string, any>;
 	    relations: any[];
 	
 	    static createFrom(source: any = {}) {

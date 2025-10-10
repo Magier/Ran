@@ -54,8 +54,8 @@ type Graph struct {
 }
 
 type CampaignState struct {
-	Entities  []domain.Entity   `json:"entities"`
-	Relations []domain.Relation `json:"relations"`
+	Entities  map[string]domain.Entity `json:"entities"`
+	Relations []domain.Relation        `json:"relations"`
 }
 
 type AttackStep = campaign.AttackStep
@@ -273,9 +273,9 @@ func (a *App) GetGraph() Graph {
 
 func (a *App) GetCampaignState() CampaignState {
 	entitiesMap := a.ran.Campaign.GetEntities()
-	entities := make([]domain.Entity, 0, len(entitiesMap))
+	entities := make(map[string]domain.Entity, len(entitiesMap))
 	for _, entity := range entitiesMap {
-		entities = append(entities, entity)
+		entities[entity.GetId()] = entity
 	}
 	relationsMap := a.ran.Campaign.GetRelations()
 	relations := make([]domain.Relation, 0, len(relationsMap))
