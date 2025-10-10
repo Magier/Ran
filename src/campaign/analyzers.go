@@ -454,21 +454,12 @@ func analyzeServiceAccountToken(token domain.ServiceAccountToken) (domain.Facts,
 	node := domain.NewK8sNode(saToken.Kubernetes.Node.Name)
 	node.UID = saToken.Kubernetes.Node.UID
 	pod.NodeName = node.Name
-
-	nodeRunsPod := domain.Runs{
-		Node: node,
-		Pod:  pod,
-	}
 	pod.RunsOn = &node
-	podRunsOnNode := domain.RunsOn{
-		Pod:  pod,
-		Node: node,
-	}
 
 	return domain.Facts{
 		Entities:  []domain.Entity{ns, sa, pod, node},
 		Assets:    []domain.Asset{saToken},
-		Relations: []domain.Relation{saUsage, nsContainsSa, nodeRunsPod, podRunsOnNode},
+		Relations: []domain.Relation{saUsage, nsContainsSa}, // nodeRunsPod, podRunsOnNode},
 	}, nil
 }
 
@@ -832,7 +823,7 @@ func analyzeMountInfo(system domain.System) (domain.Facts, error) {
 			// one time logic to establish
 			if !foundNode {
 				foundNode = true
-				node = domain.NewK8sNode("?")
+				node = domain.NewK8sNode(nodeName)
 				if pod, ok := system.(domain.Pod); ok {
 					srcPod = pod
 					srcPod.RunsOn = &node

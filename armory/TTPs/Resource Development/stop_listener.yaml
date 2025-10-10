@@ -10,7 +10,7 @@ parameters:
 command: "StopListener"
 preconditions:
   kind: C2
-  c2: has-listener
+  c2.has-listener: true
 effects: ["ListenerStopped", "!c2.has-listener"]
 # cmd: {}
 # defend: {}

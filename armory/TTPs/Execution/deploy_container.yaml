@@ -95,7 +95,7 @@ procedures:
 preconditions:
   rbac: "create Pod"
 effects:
-  - create k8s.Pod($p2)
+  - create k8s.Pod
   - Namespace($ns)
   - ns.contains($p2)
   - created(creator:$p1, target:$p2)

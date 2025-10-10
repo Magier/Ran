@@ -10,6 +10,8 @@ parameters:
 procedures:
   - key: kubectl
     command: kubectl label ns ${NAMESPACE} pod-security.kubernetes.io/enforce=privileged --overwrite
+effects:
+  - k8s.Namespace.enforcedPSS=privileged
 preconditions:
   kind: Namespace
   rbac: "update namespace"
