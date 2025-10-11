@@ -47,6 +47,10 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 	msg, err := c.GroundAction(ttp, ev.TargetID, ev.ProcedureID, ev.Args)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
+	} else {
+		cmd := msg.(domain.ExecTTP)
+		// remember the system we are executing from, to continue the attack from there
+		c.lastExecSystem = cmd.Target
 	}
 	return msg, err
 }
