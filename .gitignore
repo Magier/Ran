@@ -18,3 +18,5 @@ Cargo.lock
 # static  
 
 dist
+
+sliver_cfg.json

@@ -29,7 +29,7 @@ type Campaign struct {
 	sessions       map[string]domain.Session
 	identities     map[string]domain.Identity
 	bus            bus.MessageBus
-	lastExecSystem domain.Entity
+	lastExecSystem domain.System
 }
 
 type factsUpdate struct {

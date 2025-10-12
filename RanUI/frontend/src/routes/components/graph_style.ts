@@ -410,14 +410,16 @@ export function getGraphStyle() {
 export function applyCompromisedStyle(cy: cytoscape.Core) {
 	cy.nodes("node[?compromised]").forEach(n => {
 		const img = n.style('background-image');
-		n.style({
-			'background-color': 'red',
-			'color': 'rgba(200, 0, 0, 0.4)', // red tint
-			'background-image': [
-				img,
-				'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>',
-			],
-			'background-opacity': 0.4, // Adjust for desired tint strength
-		});
+		const redTint = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>';
+
+		// only apply the tint once
+		if (!img.includes(redTint)) {
+			n.style({
+				'background-color': 'red',
+				'color': 'rgba(200, 0, 0, 0.4)', // red tint
+				'background-image': [ img, redTint ],
+				'background-opacity': 0.4, // Adjust for desired tint strength
+			});
+		}
 	});
 }
