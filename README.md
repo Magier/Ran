@@ -85,7 +85,7 @@ _TODO: provide clear instructions_
 ### Interactive mode
 
 
-#### Exentinding with other C2 frameworks
+#### Extending with other C2 frameworks
 Currently, Ran has only a very naive built-in C2 server, and only very basic support for [Sliver](https://github.com/BishopFox/sliver).
 If [Sliver](https://github.com/BishopFox/sliver) is used as a C2 framework, Ran will act as a client. Therefore, follow the [instructions](https://sliver.sh/docs?name=Multi-player+Mode) to create a new _operator_ configuration. Ran currently expects this configuration to be called `sliver_cfg.json` in the same directory as the binary. The sliver server can either run locally or on a remote system.
 
