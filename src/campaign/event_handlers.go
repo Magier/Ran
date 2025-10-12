@@ -50,7 +50,11 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 	} else {
 		cmd := msg.(domain.ExecTTP)
 		// remember the system we are executing from, to continue the attack from there
-		c.lastExecSystem = cmd.Target
+		c.lastExecSystem, ok = cmd.Target.(domain.System)
+		if !ok {
+			slog.Warn("Executed TTP target is not a system, can't continue the attack from there")
+			c.lastExecSystem = nil
+		}
 	}
 	return msg, err
 }
@@ -253,15 +257,6 @@ func (c *Campaign) onSessionClosed(ev c2.SessionClosed) (domain.Message, error) 
 	return c.UpdateFacts(domain.Facts{}, domain.Facts{Entities: []domain.Entity{ev.Session}})
 }
 
-// func (c *Campaign) onEnvVarsExtracted(ctx context.Context, msg domain.Message) (domain.Message, error) {
-// 	newFacts, removedFacts, err := analyzeEnvironmentVariables(msg.(domain.EnvVarsExtracted))
-// 	if err != nil {
-// 		return nil, err
-// 	} else {
-// 		return c.UpdateFacts(newFacts, removedFacts)
-// 	}
-// }
-
 func (c *Campaign) onListenerReady(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	ev := msg.(c2.ListenerReady)
 
@@ -328,52 +323,6 @@ func (c *Campaign) onListenerStopped(ctx context.Context, msg domain.Message) (d
 		domain.Facts{Entities: []domain.Entity{listener}},
 	)
 }
-
-// func (c *Campaign) onNewK8sResourceCreated(ctx context.Context, msg domain.Message) (domain.Message, error) {
-// 	ev := msg.(domain.NewK8sResourceCreated)
-// 	slog.Info(fmt.Sprintf("New K8s resource created: %s", ev.Resource))
-
-// 	entities := []domain.Entity{}
-// 	relations := make([]domain.Relation, 0)
-// 	if ev.CreatorID != "" {
-// 		if creator, ok := c.GetEntityById(ev.CreatorID); ok {
-// 			relations = append(relations, domain.Created{
-// 				Creator: creator,
-// 				Object:  ev.Resource,
-// 			})
-// 		}
-// 	}
-
-// 	// TODO: handle this properly depending on the effects case where a rolebinding is created
-// 	if binding, ok := ev.Resource.(domain.RoleBinding); ok {
-// 		roleEntity, hasRole := c.GetEntityById(binding.RoleID)
-// 		role, isRole := roleEntity.(domain.Role)
-// 		if hasRole && isRole {
-// 			for _, subjectID := range binding.SubjectIDs {
-// 				subject, hasSubject := c.GetEntityById(subjectID)
-// 				sa, isSa := subject.(domain.ServiceAccount)
-
-// 				if hasSubject && isSa {
-// 					relations = append(relations, domain.BindsRole{
-// 						Role:    role,
-// 						Subject: sa,
-// 					})
-// 				}
-// 			}
-// 		} else {
-// 			return nil, fmt.Errorf("RoleBinding '%s' references unknown role '%s'", binding.GetId(), binding.RoleID)
-// 		}
-// 	} else {
-// 		entities = append(entities, ev.Resource)
-// 	}
-
-// 	return c.UpdateFacts(
-// 		NewFacts{
-// 			Entities:  entities,
-// 			Relations: relations,
-// 		}, RemovedFacts{},
-// 	)
-// }
 
 func (c *Campaign) onPrintGraph(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	if kb, ok := c.kb.(*BuiltInKnowledgeBase); ok {

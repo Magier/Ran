@@ -1,13 +1,20 @@
 # TODOs
 
-- evaluate the AccessLevel against the requirements
 - constraints like "runs-on": a pod can only run on 1 node, if there is already another node, these must be the same
+
+- make session an attribute of a system
+- model the container escape as a switch from one system to another
+- upload binary:
+    support local file picker
+- fix `grep` hack in c2.go when executing TTP
+- pivot mechanism
+    - have primary targeted system 
+
+- make sure the pod spawned by the TTP to get an SA is considered `IsRunning=false`
+- support variables in effects
 
 - mounts: how to identify if it's a directory? 
     - don't provide potion to read file, if it's a directory
-
-- create Initial Access Tactic in Armory:
-    - use kubectl to connect directly to a pod
 
 - get volumemount with hostpath -> kubelet gets more nodes, with unknown node
     - after getting proper node info, update all the other relations and entities as well (instead of pointing to unknown node)
@@ -15,33 +22,16 @@
 - [UI] decouple the `Tree` UI component from the `Mount` types
 
 - for chained execution channel, properly wrap the commands and the returned errors.
-- add option to choose execution target?!
 
-- sliver-c2-channel  should go from listener to the target, not from sliver itself
+- [Sliver] sliver-c2-channel should go from listener to the target, not from sliver itself
 
 - create callbacks for entitlement-related relations
     - identified entitlements: analyze against entities in KB
     - register callback for new entities of same type
     - when new entities are added, check if they match the entitlements (see `syncCapabilities`)
 
-- Create parser->analyzer pipeline. 
-    - infer second order entities
-        e.g. Pod from K8s Spec has nodeName -> create also K8sNode + relationship
-        - imagepullsecrets
-        - secrets linked in envs
-    - check attributes of entities 
-        e.g. Pod hostPath, hostPID, hostIPC, hostNetwork, etc. all create relationships to K8sNode
-
-- generalize the fact update mechanism
-- properly parse the 'effects' of a procedure, and turn them into facts
-
-- [UI] keep the graph consistent 
-    - when switching between `Graph` and `Flow` and when adding new 
-    - when performing actions (i.e. changing the graph nodes/relationships )
-
 - properly parse effects from
     - SideCar Injection
-    - remove special handling of Deploy Pod TTP, which adds a pod whenever this technique is part of the TTP
 
 - [Tracing] establish link between results from an executed TTP and the input for a follow-up TTP
     - maybe make this explicit as "Condition" nodes in between the actions in the UI?
@@ -66,7 +56,6 @@
 - support array of strings when parsing TTPs
     - e.g. `command`: `["a", "b"]` instead of `a b`
 
-
 - explore the `kubectl attach` command for interactive sessions
 - explore the `kubectl debug` to copy and modify a pod
 
@@ -76,18 +65,15 @@
 - using K8s-API to get resource kind should do a sync instead of just adding the resources
     - e.g. if a pod was deleted in the maintime, the `k get pods` TTP should not return it
 
-- pivot mechanism
-    - have primary targeted system 
+
 
 - rework the targeting system:
     - execute from "closest" compromised container (if any)
     - what to do with selected target depends on TTP
         - e.g. create workload to get token for a role targets the role, but is executed on the "closest" compromised container
 
-
 - make TTP based on others with pre-filled args
-
-- porperly implement loading TTPs from `tools`
+- properly implement loading TTPs from `tools`
 
 
 
