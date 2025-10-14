@@ -1,3 +1,155 @@
+export namespace api {
+	
+	export class Edge {
+	    id: string;
+	    name: string;
+	    weight: number;
+	    relation: any;
+	    sourceId: string;
+	    targetId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Edge(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.weight = source["weight"];
+	        this.relation = source["relation"];
+	        this.sourceId = source["sourceId"];
+	        this.targetId = source["targetId"];
+	    }
+	}
+	export class AttackFlow {
+	    steps: campaign.AttackStep[];
+	    edges: Edge[];
+	    rootNodeId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AttackFlow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.steps = this.convertValues(source["steps"], campaign.AttackStep);
+	        this.edges = this.convertValues(source["edges"], Edge);
+	        this.rootNodeId = source["rootNodeId"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CampaignState {
+	    entities: Record<string, any>;
+	    relations: any[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CampaignState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entities = source["entities"];
+	        this.relations = source["relations"];
+	    }
+	}
+	
+	export class Node {
+	    id: string;
+	    name: string;
+	    kind: string;
+	    parent: string;
+	    accessLevel: string;
+	    entity: any;
+	    compromised: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Node(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.parent = source["parent"];
+	        this.accessLevel = source["accessLevel"];
+	        this.entity = source["entity"];
+	        this.compromised = source["compromised"];
+	    }
+	}
+	export class Graph {
+	    nodes: Node[];
+	    edges: Edge[];
+	    rootNodeId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Graph(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodes = this.convertValues(source["nodes"], Node);
+	        this.edges = this.convertValues(source["edges"], Edge);
+	        this.rootNodeId = source["rootNodeId"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class K8sResource {
+	    id: string;
+	    name: string;
+	    namespace: string;
+	    kind: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new K8sResource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.namespace = source["namespace"];
+	        this.kind = source["kind"];
+	    }
+	}
+
+}
+
 export namespace campaign {
 	
 	export class AttackStep {
@@ -353,58 +505,6 @@ export namespace domain {
 		    return a;
 		}
 	}
-	export class Facts {
-	    Entities: any[];
-	    Relations: any[];
-	    Identities: any[];
-	    Assets: any[];
-	
-	    static createFrom(source: any = {}) {
-	        return new Facts(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Entities = source["Entities"];
-	        this.Relations = source["Relations"];
-	        this.Identities = source["Identities"];
-	        this.Assets = source["Assets"];
-	    }
-	}
-	export class FactsChanged {
-	    CmdId: string;
-	    New: Facts;
-	    Removed: Facts;
-	
-	    static createFrom(source: any = {}) {
-	        return new FactsChanged(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.CmdId = source["CmdId"];
-	        this.New = this.convertValues(source["New"], Facts);
-	        this.Removed = this.convertValues(source["Removed"], Facts);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	
 	
 	
@@ -421,158 +521,6 @@ export namespace domain {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.entitlements = source["entitlements"];
 	        this.entityCounts = source["entityCounts"];
-	    }
-	}
-
-}
-
-export namespace main {
-	
-	export class Edge {
-	    id: string;
-	    name: string;
-	    weight: number;
-	    relation: any;
-	    sourceId: string;
-	    targetId: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Edge(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.weight = source["weight"];
-	        this.relation = source["relation"];
-	        this.sourceId = source["sourceId"];
-	        this.targetId = source["targetId"];
-	    }
-	}
-	export class AttackFlow {
-	    steps: campaign.AttackStep[];
-	    edges: Edge[];
-	    rootNodeId: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new AttackFlow(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.steps = this.convertValues(source["steps"], campaign.AttackStep);
-	        this.edges = this.convertValues(source["edges"], Edge);
-	        this.rootNodeId = source["rootNodeId"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class CampaignState {
-	    entities: Record<string, any>;
-	    relations: any[];
-	
-	    static createFrom(source: any = {}) {
-	        return new CampaignState(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.entities = source["entities"];
-	        this.relations = source["relations"];
-	    }
-	}
-	
-	export class Node {
-	    id: string;
-	    name: string;
-	    kind: string;
-	    parent: string;
-	    accessLevel: string;
-	    entity: any;
-	    compromised: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new Node(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.kind = source["kind"];
-	        this.parent = source["parent"];
-	        this.accessLevel = source["accessLevel"];
-	        this.entity = source["entity"];
-	        this.compromised = source["compromised"];
-	    }
-	}
-	export class Graph {
-	    nodes: Node[];
-	    edges: Edge[];
-	    rootNodeId: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Graph(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.nodes = this.convertValues(source["nodes"], Node);
-	        this.edges = this.convertValues(source["edges"], Edge);
-	        this.rootNodeId = source["rootNodeId"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class K8sResource {
-	    id: string;
-	    name: string;
-	    namespace: string;
-	    kind: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new K8sResource(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.namespace = source["namespace"];
-	        this.kind = source["kind"];
 	    }
 	}
 
