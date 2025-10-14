@@ -18,10 +18,6 @@ export function GetCampaignState() {
   return window['go']['main']['App']['GetCampaignState']();
 }
 
-export function GetFacts() {
-  return window['go']['main']['App']['GetFacts']();
-}
-
 export function GetFlow() {
   return window['go']['main']['App']['GetFlow']();
 }
