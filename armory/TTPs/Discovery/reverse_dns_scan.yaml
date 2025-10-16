@@ -1,0 +1,28 @@
+name: Reverse DNS Scan
+description: Perform a reverse DNS scan on a specified CIDR range to identify hostnames associated with IP addresses.
+tactic: Discovery
+techniques: ["System Network Configuration Discovery", T1016]
+preconditions:
+  kind: System
+  accessLevel: user-exec
+parameters:
+  CIDR:
+    type: string
+    description: the CIDR range to scan
+    default: "10.244.2.0/16"
+  THREADS:
+    type: int
+    description: the number of concurrent threads to use
+    default: 20
+  TIMEOUT:
+    type: int
+    description: the timeout duration for each request
+    default: 3
+procedures:
+  - key: dig
+    tool: dig
+    command: |
+      sh -c 'echo "ip,ptr"; awk -v cidr="${CIDR}" "BEGIN{split(cidr,a,\"/\");split(a[1],o,\".\");m=a[2]+0;base=o[1]*16777216+o[2]*65536+o[3]*256+o[4];bits=32-m;size=1;for(i=0;i<bits;i++)size*=2;net=int(base/size)*size;end=net+size-1;for(x=net;x<=end;x++)printf \"%d.%d.%d.%d\\n\",int(x/16777216)%256,int(x/65536)%256,int(x/256)%256,x%256}" | xargs -P "${THREADS}" -n1 sh -c '\''ip="$1";T="${TIMEOUT}";r=$(dig +tries=1 +time="$T" +short +nocmd +noquestion +nocomments +nostats +noauthority +noadditional -x "$ip" 2>/dev/null | sed -e "/communications error/d" -e "/timed out/d" -e "/^;/d" | awk "NF && /^[A-Za-z0-9_.-]+\\.?$/{print;exit}" | head -n1);r=${r%.};[ -n "$r" ] && printf "%s,%s\\n" "$ip" "$r"'\'' sh' || [ $? -eq 123 ]
+effects:
+  - rDNS
+references:

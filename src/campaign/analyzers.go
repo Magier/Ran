@@ -1158,3 +1158,54 @@ func isSameSystem(a, b domain.System) bool {
 	// TODO: incorporate further heuristics to find a matching entity
 	return false
 }
+
+func analyzeDnsEntries(entries map[string]string) (domain.Facts, domain.Facts, error) {
+	entities := make([]domain.Entity, 0)
+	relations := make([]domain.Relation, 0)
+
+	for ipStr, dnsStr := range entries {
+		parts := strings.Split(dnsStr, ".")
+		ipKebab := strings.ReplaceAll(ipStr, ".", "-")
+
+		// TODO: extract the namespace from the DNS name
+		// use the 4th-to-last label as namespace (e.g. "dev" in "a.b.dev.svc.cluster.local")
+		var ns string
+		var name string
+		if len(parts) >= 4 {
+			name = parts[len(parts)-5]
+			ns = parts[len(parts)-4]
+		} else if len(parts) > 2 {
+			// fallback to previous behavior if DNS has fewer labels
+			ns = parts[2]
+		}
+
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			slog.Error(fmt.Sprintf("Invalid IP address: %s", dnsStr))
+			continue
+		}
+
+		isPod := parts[0] == ipKebab
+		if isPod {
+			pod := domain.NewPod(name, ns)
+			pod.SystemImpl.IPs = append(pod.SystemImpl.IPs, net.IPAddr{IP: ip})
+			entities = append(entities, pod)
+		} else {
+			svc := domain.Service{
+				K8sEntity: domain.K8sEntity{
+					Name: ipStr,
+					Kind: "Service",
+				},
+				Host: dnsStr,
+				IP:   net.IPAddr{IP: ip},
+			}
+			entities = append(entities, svc)
+
+		}
+	}
+
+	return domain.Facts{
+		Entities:  entities,
+		Relations: relations,
+	}, domain.Facts{}, nil
+}

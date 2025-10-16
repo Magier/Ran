@@ -517,3 +517,95 @@ func TestAnalyzeUnknownSystem_MatchesToExistingPod(t *testing.T) {
 		t.Errorf("Expected no removed entities, got %d", len(removedFacts.Entities))
 	}
 }
+
+func TestAnalyzeDnsEntriesScan(t *testing.T) {
+	tests := []struct {
+		name         string
+		ip           string
+		dns          string
+		expectedKind string
+		expectedName string
+		expectedNS   string
+		expectError  bool
+	}{
+		{
+			name:         "standard pod DNS",
+			ip:           "192.168.1.4",
+			dns:          "192-168-1-4.backend-service.dev.svc.cluster.local",
+			expectedKind: "Pod",
+			expectedName: "backend-service",
+			expectedNS:   "dev",
+			expectError:  false,
+		},
+		{
+			name:         "ClusterIP service DNS",
+			ip:           "10.96.5.1.",
+			dns:          "backend-service.dev.svc.cluster.local",
+			expectedKind: "Pod",
+			expectedName: "backend-service",
+			expectedNS:   "dev",
+			expectError:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newFacts, _, err := analyzeDnsEntries(map[string]string{tt.ip: tt.dns})
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error but got %v", err)
+					return
+				}
+			}
+
+			if len(newFacts.Entities) != 1 {
+				t.Fatalf("Expected 1 entity, got %d", len(newFacts.Entities))
+			}
+
+			entity := newFacts.Entities[0]
+
+			if k := entity.GetKind(); k != tt.expectedKind {
+				t.Errorf("Expected entity kind '%s', got '%s'", tt.expectedKind, k)
+			}
+			if name := entity.GetName(); name != tt.expectedName {
+				t.Errorf("Expected entity name '%s', got '%s'", tt.expectedName, name)
+			}
+
+			if tt.expectedKind == "Pod" {
+				_, ok := entity.(domain.Pod)
+				if !ok {
+					t.Fatalf("Expected entity to be Pod, got %T", entity)
+				}
+			} else {
+				_, ok := entity.(domain.Service)
+				if !ok {
+					t.Fatalf("Expected entity to be Service, got %T", entity)
+				}
+			}
+
+			if nsEntity, ok := entity.(domain.Namespaced); ok {
+				ns := nsEntity.GetNamespace()
+				if ns != tt.expectedNS {
+					t.Errorf("Expected entity namespace '%s', got '%s'", tt.expectedNS, ns)
+				}
+			}
+
+			// pod, ok := newFacts.Entities[0].(domain.Pod)
+			// if !ok {
+			// 	t.Fatalf("Expected entity to be Pod, got %T", newFacts.Entities[0])
+			// }
+			// if pod.Name != tt.expectedName {
+			// 	t.Errorf("Expected entity name '%s', got '%s'", tt.expectedName, pod.Name)
+			// }
+
+			// if pod.Namespace != tt.expectedNS {
+			// 	t.Errorf("Expected entity namespace '%s', got '%s'", tt.expectedNS, pod.Namespace)
+			// }
+		})
+	}
+}

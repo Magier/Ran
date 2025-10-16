@@ -726,3 +726,61 @@ func Test_parseRelationEffect(t *testing.T) {
 		})
 	}
 }
+func Test_parseReverseDnsLookup_ValidInput(t *testing.T) {
+	data := `ip,ptr
+10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local
+10.244.1.6,10-244-1-6.argocd-notifications-controller-metrics.argocd.svc.cluster.local
+192.168.0.5,host.local
+`
+	m, err := parseReverseDnsLookup(data)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if len(m) != 3 {
+		t.Fatalf("Expected 3 entries, got %d", len(m))
+	}
+
+	if m["10.244.1.4"] != "10-244-1-4.backend-service.dev.svc.cluster.local" {
+		t.Fatalf("Unexpected mapping for 10.244.1.4: %q", m["10.244.1.4"])
+	}
+	if m["192.168.0.5"] != "host.local" {
+		t.Fatalf("Unexpected mapping for 192.168.0.5: %q", m["192.168.0.5"])
+	}
+}
+
+func Test_parseReverseDnsLookup_EmptyInput(t *testing.T) {
+	data := ""
+	m, err := parseReverseDnsLookup(data)
+	if err == nil {
+		t.Fatalf("Expected error for empty input, got nil (map: %+v)", m)
+	}
+}
+
+func Test_parseReverseDnsLookup_HeaderOnly(t *testing.T) {
+	data := "ip,ptr"
+	_, err := parseReverseDnsLookup(data)
+	if err == nil {
+		t.Fatalf("Expected error when only header is provided, got nil")
+	}
+}
+
+func Test_parseReverseDnsLookup_InvalidAndValidLines(t *testing.T) {
+	data := `ip,ptr
+this-is-not-csv
+10.0.0.1,valid.example.local
+badline,noip,extrafield
+`
+	m, err := parseReverseDnsLookup(data)
+	if err != nil {
+		t.Fatalf("Expected no error for mixed valid/invalid lines, got: %v", err)
+	}
+
+	// Only the well-formed line with a valid IP should be present
+	if len(m) != 1 {
+		t.Fatalf("Expected 1 valid entry, got %d: %+v", len(m), m)
+	}
+	if m["10.0.0.1"] != "valid.example.local" {
+		t.Fatalf("Unexpected mapping for 10.0.0.1: %q", m["10.0.0.1"])
+	}
+}

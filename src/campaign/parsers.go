@@ -411,6 +411,19 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 			} else {
 				panic("The source should implement the System interface!")
 			}
+		case "rdns":
+			results, err := parseReverseDnsLookup(res)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to parse reverse DNS lookup: %v", err))
+			} else {
+				newFacts, _, err := analyzeDnsEntries(results)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failure analyzing DNS entries %v", err))
+				} else {
+					entities = append(entities, newFacts.Entities...)
+					relations = append(relations, newFacts.Relations...)
+				}
+			}
 		case "linux.mounts":
 			if pod, ok := source.(domain.Pod); ok {
 				mounts, err := parseLinuxMounts(res)
@@ -1225,4 +1238,48 @@ type FileSystemEntry struct {
 	ModTime time.Time
 	IsDir   bool
 	IsExec  bool
+}
+
+func parseReverseDnsLookup(data string) (map[string]string, error) {
+	// Example data:
+	//ip,ptr\n10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local\n10.244.1.6,10-244-1-6.argocd-notifications-controller-metrics.argocd.svc.cluster.local\n10.244.1.9,10-244-1-9.argocd-server-metrics.argocd.svc.cluster.local\n10.244.1.7,10-244-1-7.echo-server.echo-server.svc.cluster.local\n10.244.1.12,10-244-1-12.argocd-redis.argocd.svc.cluster.local\n10.244.1.11,10-244-1-11.argocd-repo-server.argocd.svc.cluster.local\n10.244.1.13,10-244-1-13.argocd-metrics.argocd.svc.cluster.local\n10.244.1.15,10-244-1-15.argocd-applicationset-controller.argocd.svc.cluster.local\n10.244.1.16,10-244-1-16.argocd-dex-server.argocd.svc.cluster.local\n10.244.1.14,10-244-1-14.ingress-nginx-controller.ingress-nginx.svc.cluster.local
+	// Expect CSV with header on first line, subsequent lines "ip,ptr"
+	data = strings.TrimSpace(data)
+	if data == "" {
+		return nil, fmt.Errorf("Empty reverse DNS data")
+	}
+
+	lines := strings.Split(data, "\n")
+	if len(lines) <= 1 {
+		return nil, errors.New("No reverse DNS entries found")
+	}
+
+	results := make(map[string]string)
+
+	for i, line := range lines {
+		if i == 0 {
+			// skip header
+			continue
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ",", 2)
+		if len(parts) != 2 {
+			slog.Warn(fmt.Sprintf("Invalid reverse DNS line (expected 2 CSV fields): %s", line))
+			continue
+		}
+		ipStr := strings.TrimSpace(parts[0])
+		dns := strings.TrimSpace(parts[1])
+
+		if ip := net.ParseIP(ipStr); ip == nil {
+			slog.Warn(fmt.Sprintf("Invalid IP in reverse DNS line: %s", ipStr))
+			continue
+		}
+		results[ipStr] = dns
+
+		slog.Info(fmt.Sprintf("Reverse DNS parsed: %s -> %s", ipStr, dns))
+	}
+	return results, nil
 }

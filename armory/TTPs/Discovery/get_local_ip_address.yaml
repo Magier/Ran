@@ -7,7 +7,7 @@ preconditions:
   accessLevel: user-exec
 procedures:
   - key: hostname
-    bin: hostname
+    tool: hostname
     precondition:
       accessLevel: user-exec
     command: hostname -i
@@ -15,32 +15,3 @@ effects:
   - sys.ip
 # defend: {}
 references:
-
----
-id: 1016
-title: Get Local IP Address
-description: This TTP retrieves the local IP address of the machine.
-author: Your Name
-tags:
-  - discovery
-  - network
-platforms:
-  - windows
-  - linux
-  - macos
-steps:
-  - action: execute_command
-    description: Retrieve local IP address on Windows
-    platforms:
-      - windows
-    command: ipconfig | findstr /i "IPv4"
-  - action: execute_command
-    description: Retrieve local IP address on Linux
-    platforms:
-      - linux
-    command: hostname -I
-  - action: execute_command
-    description: Retrieve local IP address on macOS
-    platforms:
-      - macos
-    command: ifconfig | grep "inet " | grep -v 127.0.0.1

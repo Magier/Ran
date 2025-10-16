@@ -1202,6 +1202,7 @@ type Service struct {
 	Host    string
 	FQDN    string
 	Ports   map[string]int
+	IP      net.IPAddr
 }
 
 type ReplicaSet struct {
