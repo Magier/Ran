@@ -1,7 +1,7 @@
 import { getContext, setContext } from "svelte";
 import * as runtime from "$lib/wailsjs/runtime";
 import type { ArmoryType, Node, Edge, Relation } from '$lib/model';
-import { campaign, main, type domain } from '$lib/wailsjs/go/models';
+import { campaign, api, type domain } from '$lib/wailsjs/go/models';
 import { GetArmory, GetCampaignState, GetGraph, GetRunningPods, ResetCampaign } from '$lib/wailsjs/go/main/App';
 import { showToast, type ToastType } from '$lib/components/toaster';
 
@@ -20,7 +20,7 @@ export type Entity = {
 
 type FactsDelta = {
     Entities: Entity[];
-    Relations: Relation[];
+    Relations: domain.Relation[];
     Identities: Identity[];
     Assets: Asset[];
 }
@@ -50,7 +50,7 @@ class CampaignState {
     pods = $state<Entity[]>([]);
     serviceAccounts = $state<Entity[]>([]);
     armory = $state<ArmoryType>(new Map());
-    graph = $state<main.Graph>(new main.Graph());
+    graph = $state<api.Graph>(new api.Graph());
     allPods: Entity[] = $state([]);
 
     connect(useSocket: boolean) {
@@ -69,10 +69,10 @@ class CampaignState {
             this.armory = parseArmory(data)
         });
         runtime.EventsOn("facts-changed", (dataStr: string) => {
-            GetGraph().then((g: main.Graph) => { this.graph = g; });
+            GetGraph().then((g: api.Graph) => { this.graph = g; });
             // TODO: properly update state based on the received fact changes
             const data = JSON.parse(dataStr);
-            GetCampaignState().then((s: main.CampaignState) => { this.#setState(s); })
+            GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
         })
         runtime.EventsOn("error-msg", (rawMsg: string) => {
             let msg: ErrorMsg = JSON.parse(rawMsg);
@@ -94,8 +94,8 @@ class CampaignState {
             showToast("Error", msg.Msg, toastType);
         });
 
-        GetGraph().then((g: main.Graph) => { this.graph =g; })
-        GetCampaignState().then((s: main.CampaignState) => { this.#setState(s); })
+        GetGraph().then((g: api.Graph) => { this.graph =g; })
+        GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
         GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
         GetRunningPods("").then(pods => {this.allPods = pods;});
     }
@@ -107,11 +107,11 @@ class CampaignState {
         this.serviceAccounts = [];
         this.campaignId += 1; // Increment campaign ID, to trigger changes based on new campaign
         ResetCampaign().then(() => {
-            GetGraph().then((g: main.Graph) => { this.graph = g; });
+            GetGraph().then((g: api.Graph) => { this.graph = g; });
         });
     }
 
-    #setState(state: main.CampaignState): void {
+    #setState(state: api.CampaignState): void {
         let entities = [];
         for (const [id, entity] of Object.entries(state.entities || {})) {
             if (entity.kind === 'Namespace') {
@@ -130,7 +130,7 @@ class CampaignState {
         this .entities = entities; // ensure we replace the array to trigger reactivity
     }
 
-    #updateState(state: main.CampaignState): void {
+    #updateState(state: api.CampaignState): void {
         for (const [id, entity] of Object.entries(state.entities || [])) {
             if (!this.entities.some(e => e.id === entity.id)) {
                 this.entities = [...this.entities, entity];
