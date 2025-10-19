@@ -219,7 +219,7 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 
 	// convert the communication channel to a relationship
 	if ev.Session.IsAlive {
-		c2Channel := domain.ImplantC2Channel{
+		c2Channel := &domain.ImplantC2Channel{
 			SessionId: ev.Session.Id,
 			SourceId:  fmt.Sprintf("%s/%s", "c2", ev.C2Kind),
 			Kind:      ev.C2Kind,

@@ -9,7 +9,7 @@ import (
 	"github.com/Magier/Ran/domain"
 )
 
-func (c Campaign) getSystemForExecution(ttp domain.TTP, procedure domain.Procedure, target domain.Entity) (domain.Entity, error) {
+func (c Campaign) getSystemForExecution(procedure domain.Procedure, target domain.Entity) (domain.Entity, error) {
 	// Find best system to execute the TTP on based on a few heuristics:
 	// 1) if the TTP targets the pod, and it's compromised, use it
 	// 2) if the TTP targets a service account, use the pod and check 1)
@@ -89,8 +89,8 @@ func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channe
 		return nil, errors.New("Can't find a C2 channel if target is nil")
 	}
 
-	var c2Channel domain.PodExecC2Channel
-	var lastSegment *domain.PodExecC2Channel
+	var c2Channel domain.C2Channel
+	var lastSegment domain.C2Channel
 	for _, c2 := range kg.GetC2s() {
 		paths, err := kg.GetPath(c2.GetId(), finalTarget.GetId())
 		if err != nil {
@@ -105,7 +105,7 @@ func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channe
 				return ch, nil
 			} else if canAccess, ok := rel.(domain.CanAccess); ok {
 				if relTarget, ok := kg.GetEntity(rel.GetTargetId()); ok {
-					ch := domain.PodExecC2Channel{
+					ch := &domain.PodExecC2Channel{
 						SourceId: canAccess.SourceId,
 						Target:   relTarget,
 						Identity: canAccess.Identity,
@@ -113,11 +113,11 @@ func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channe
 
 					// set a pointer to the next channel, the C2 execution component can chain the channels
 					if lastSegment != nil {
-						c2Channel.NextChannel = &ch
+						c2Channel.SetNextChannel(ch)
 					} else {
 						c2Channel = ch
 					}
-					lastSegment = &ch
+					lastSegment = ch
 				} else {
 					return nil, fmt.Errorf("Could not identify target %s", canAccess.TargetId)
 				}
@@ -130,9 +130,9 @@ func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channe
 		return c2Channel, fmt.Errorf("No channel found")
 	}
 	hops := []string{}
-	for ch := &c2Channel; ch != nil; ch = ch.NextChannel {
-		hops = append(hops, ch.Target.GetId())
+	for ch := c2Channel; ch != nil; ch = ch.GetNextChannel() {
+		hops = append(hops, ch.GetTargetId())
 	}
-	slog.Info(fmt.Sprintf("Found C2 channel %s -> %s", c2Channel.SourceId, strings.Join(hops, " -> ")))
+	slog.Info(fmt.Sprintf("Found C2 channel %s -> %s", c2Channel.GetSourceId(), strings.Join(hops, " -> ")))
 	return c2Channel, nil
 }

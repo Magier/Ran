@@ -266,7 +266,7 @@ func (c *SliverClient) handleCommand(msg domain.Command) (domain.Event, error) {
 			if cmd.C2Channel == nil {
 				return nil, fmt.Errorf("No C2 channel specified for file download")
 			}
-			c2Channel := cmd.C2Channel.(domain.ImplantC2Channel)
+			c2Channel := cmd.C2Channel.(*domain.ImplantC2Channel)
 			path, ok := cmd.Args["Path"]
 			if !ok {
 				return nil, fmt.Errorf("Path of file to retrieve is required as argument")

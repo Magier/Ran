@@ -356,7 +356,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 
 	var execSystem domain.Entity
 	if isActionOnRemoteTarget(execCmd.TTP, execCmd.Procedure) {
-		execSystem, err = c.getSystemForExecution(ttp, execCmd.Procedure, target)
+		execSystem, err = c.getSystemForExecution(execCmd.Procedure, target)
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to get system for execution: %s", err.Error()))
 		}
@@ -365,8 +365,12 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 			c2Channel, err := findC2Channel(c.kb, execSystem)
 			if err == nil {
 				execCmd.C2Channel = c2Channel
+			} else {
+				slog.Error(err.Error())
 			}
 		}
+	} else {
+		slog.Warn("action is not on remote target!")
 	}
 
 	// use the default value for all parameters, if no extra arg is specified
@@ -385,13 +389,11 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 	}
 	execCmd.Procedure.Command = c.groundCmdTemplate(execCmd.Procedure.Command, args)
 
-	if sys, ok := execSystem.(domain.System); ok {
-		toolName := execCmd.Procedure.GetTool()
-		if binPath := sys.GetBinary(toolName); binPath != "" && binPath != toolName {
-			// in the command a must be is a stand-alone string, so add spaces around it to avoid partial replacements
-			re := regexp.MustCompile(fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(toolName)))
-			execCmd.Procedure.Command = re.ReplaceAllString(execCmd.Procedure.Command, binPath)
-		}
+	// build the final command
+	if finalCmd, err := c.buildFinalCommand(execCmd.C2Channel, execCmd.Procedure); err == nil {
+		execCmd.Procedure.Command = finalCmd
+	} else {
+		slog.Error(fmt.Sprintf("Failed to build final command: %s", err.Error()))
 	}
 
 	// safety: warn about any variable, that was not properly grounded
@@ -402,6 +404,54 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 	}
 
 	return execCmd, nil
+}
+
+func groundUsedTool(proc domain.Procedure, sys domain.System) (domain.Procedure, error) {
+	toolName := proc.GetTool()
+	if binPath := sys.GetBinary(toolName); binPath != "" && binPath != toolName {
+		// in the command a must be is a stand-alone string, so add spaces around it to avoid partial replacements
+		re := regexp.MustCompile(fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(toolName)))
+		proc.Command = re.ReplaceAllString(proc.Command, binPath)
+	}
+	return proc, nil
+}
+
+func (c Campaign) buildFinalCommand(ch domain.C2Channel, proc domain.Procedure) (string, error) {
+	// if sys, ok := execSystem.(domain.System); ok {
+	// 	if execCmd.Procedure, err = groundUsedTool(execCmd.Procedure, sys); err != nil {
+	// 		slog.Error(fmt.Sprintf("Failed to ground used tool in command: %s", err.Error()))
+	// 	}
+	// }
+	if ch == nil {
+		return proc.Command, nil
+	}
+	// recursive call to get to the final channel and build the wrapping commands backwards
+	var err error
+	if ch.GetNextChannel() != nil {
+		proc.Command, err = c.buildFinalCommand(ch.GetNextChannel(), proc)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	entity, ok := c.GetEntityById(ch.GetSourceId())
+	if !ok {
+		return "", fmt.Errorf("Failed to get entity by ID: %s", ch.GetSourceId())
+	}
+
+	kind := entity.GetKind()
+	if kind != "C2" { // C2 have special logic in the C2 layer, as they are the entry into the full C2 channel
+		proc.Command = ch.GetCommandEnvelope(proc.Command)
+	}
+
+	if sys, ok := entity.(domain.System); ok {
+		proc, err = groundUsedTool(proc, sys)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return proc.Command, nil
 }
 
 func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.Entity) (map[string]string, error) {
