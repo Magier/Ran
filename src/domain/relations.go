@@ -143,6 +143,9 @@ type C2Channel interface {
 	GetKind() string
 	GetTarget() Entity
 	GetFinalTarget() Entity
+	SetNextChannel(ch C2Channel)
+	GetNextChannel() C2Channel
+	GetCommandEnvelope(cmd string) string
 }
 
 // type ListenesOn struct {
@@ -172,26 +175,27 @@ type C2Channel interface {
 
 type ImplantC2Channel struct {
 	RelationImpl
-	SessionId string
-	SourceId  string
-	Kind      string
-	Target    Session
-	Protocol  string
+	SessionId   string
+	SourceId    string
+	Kind        string
+	Target      Session
+	Protocol    string
+	NextChannel C2Channel
 }
 
 var _ C2Channel = (*ImplantC2Channel)(nil)
 
-func (ch ImplantC2Channel) GetSourceId() string { return ch.SourceId }
-func (ch ImplantC2Channel) GetTargetId() string { return ch.Target.GetId() }
-func (ch ImplantC2Channel) GetRelationName() string {
+func (ch *ImplantC2Channel) GetSourceId() string { return ch.SourceId }
+func (ch *ImplantC2Channel) GetTargetId() string { return ch.Target.GetId() }
+func (ch *ImplantC2Channel) GetRelationName() string {
 	return fmt.Sprintf("%s-c2-%s-channel", ch.Kind, ch.Protocol)
 }
 
-func (ch ImplantC2Channel) WithSource(e Entity) Relation {
+func (ch *ImplantC2Channel) WithSource(e Entity) Relation {
 	ch.SourceId = e.GetId()
 	return ch
 }
-func (ch ImplantC2Channel) WithTarget(e Entity) Relation {
+func (ch *ImplantC2Channel) WithTarget(e Entity) Relation {
 	if session, ok := e.(Session); ok {
 		ch.Target = session
 	} else {
@@ -200,13 +204,15 @@ func (ch ImplantC2Channel) WithTarget(e Entity) Relation {
 	return ch
 }
 
-func (ch ImplantC2Channel) GetTarget() Entity { return ch.Target }
-func (ch ImplantC2Channel) GetFinalTarget() Entity {
+func (ch *ImplantC2Channel) GetTarget() Entity { return ch.Target }
+func (ch *ImplantC2Channel) GetFinalTarget() Entity {
 	slog.Warn("GetFinalTarget is not yet supported on ImplantC2Channel, using the next target instead!")
 	return ch.Target
 }
-
-func (ch ImplantC2Channel) GetKind() string { return ch.Kind }
+func (ch *ImplantC2Channel) GetKind() string                      { return ch.Kind }
+func (ch *ImplantC2Channel) GetCommandEnvelope(cmd string) string { return cmd }
+func (ch *ImplantC2Channel) GetNextChannel() C2Channel            { return ch.NextChannel }
+func (ch *ImplantC2Channel) SetNextChannel(next C2Channel)        { ch.NextChannel = next }
 
 type PodExecC2Channel struct {
 	RelationImpl
@@ -214,34 +220,40 @@ type PodExecC2Channel struct {
 	// Cmd    string
 	Target      Entity
 	Identity    Identity
-	NextChannel *PodExecC2Channel // for chaining multiple pod exec channels
+	NextChannel C2Channel // for chaining multiple
 }
 
 var _ C2Channel = (*PodExecC2Channel)(nil)
 
-func (ch PodExecC2Channel) GetSourceId() string     { return ch.SourceId }
-func (ch PodExecC2Channel) GetTargetId() string     { return ch.Target.GetId() }
-func (ch PodExecC2Channel) GetRelationName() string { return "pod exec" }
+func (ch *PodExecC2Channel) GetSourceId() string     { return ch.SourceId }
+func (ch *PodExecC2Channel) GetTargetId() string     { return ch.Target.GetId() }
+func (ch *PodExecC2Channel) GetRelationName() string { return "pod exec" }
 
-func (ch PodExecC2Channel) WithSource(e Entity) Relation {
+func (ch *PodExecC2Channel) WithSource(e Entity) Relation {
 	ch.SourceId = e.GetId()
 	return ch
 }
-func (ch PodExecC2Channel) WithTarget(e Entity) Relation {
+func (ch *PodExecC2Channel) WithTarget(e Entity) Relation {
 	ch.Target = e
 	return ch
 }
 
-func (ch PodExecC2Channel) GetTarget() Entity { return ch.Target }
-func (ch PodExecC2Channel) GetKind() string   { return "pod/exec" }
+func (ch *PodExecC2Channel) GetCommandEnvelope(cmd string) string {
+	return fmt.Sprintf("kubectl exec %s -- %s", ch.Target.GetName(), cmd)
+}
 
-func (ch PodExecC2Channel) GetFinalTarget() Entity {
+func (ch *PodExecC2Channel) GetTarget() Entity { return ch.Target }
+func (ch *PodExecC2Channel) GetKind() string   { return "pod/exec" }
+
+func (ch *PodExecC2Channel) GetFinalTarget() Entity {
 	target := ch.Target
-	for next := ch.NextChannel; next != nil; next = next.NextChannel {
-		target = next.Target
+	for next := ch.GetNextChannel(); next != nil; next = next.GetNextChannel() {
+		target = next.GetTarget()
 	}
 	return target
 }
+func (ch *PodExecC2Channel) GetNextChannel() C2Channel     { return ch.NextChannel }
+func (ch *PodExecC2Channel) SetNextChannel(next C2Channel) { ch.NextChannel = next }
 
 type Uses struct {
 	RelationImpl

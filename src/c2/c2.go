@@ -416,7 +416,7 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 	results := make([]string, 0)
 
 	switch ch := exec.C2Channel.(type) {
-	case domain.ImplantC2Channel:
+	case *domain.ImplantC2Channel:
 		if c2, ok := c2Clients[exec.C2Channel.GetKind()]; ok {
 			msg, err := c2.Execute(exec)
 			if err != nil {
@@ -425,12 +425,13 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 				results = append(results, msg.String())
 			}
 		}
-	case domain.PodExecC2Channel:
+	case *domain.PodExecC2Channel:
 		var stdout, stderr string
 
 		if ch.NextChannel != nil {
 			// wrap the CMD in another pod/exec call, that will be executed from the direct target
-			cmd.Command = fmt.Sprintf("kubectl exec %s -- %s", ch.NextChannel.Target.GetName(), cmd.Command)
+			// cmd.Command = fmt.Sprintf("kubectl exec %s -- %s", ch.NextChannel.Target.GetName(), cmd.Command)
+			slog.Warn("legacy mode of wrapping kubectl channel ")
 		}
 
 		stdout, stderr, err = execKubectl(ctx, cmd, target)
