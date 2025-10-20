@@ -1191,14 +1191,9 @@ func analyzeDnsEntries(entries map[string]string) (domain.Facts, domain.Facts, e
 			pod.SystemImpl.IPs = append(pod.SystemImpl.IPs, net.IPAddr{IP: ip})
 			entities = append(entities, pod)
 		} else {
-			svc := domain.Service{
-				K8sEntity: domain.K8sEntity{
-					Name: ipStr,
-					Kind: "Service",
-				},
-				Host: dnsStr,
-				IP:   net.IPAddr{IP: ip},
-			}
+			svc := domain.NewService(name, ns)
+			svc.Host = dnsStr
+			svc.IP = net.IPAddr{IP: ip}
 			entities = append(entities, svc)
 
 		}

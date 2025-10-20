@@ -539,9 +539,9 @@ func TestAnalyzeDnsEntriesScan(t *testing.T) {
 		},
 		{
 			name:         "ClusterIP service DNS",
-			ip:           "10.96.5.1.",
+			ip:           "10.96.5.1",
 			dns:          "backend-service.dev.svc.cluster.local",
-			expectedKind: "Pod",
+			expectedKind: "Service",
 			expectedName: "backend-service",
 			expectedNS:   "dev",
 			expectError:  false,
@@ -594,18 +594,6 @@ func TestAnalyzeDnsEntriesScan(t *testing.T) {
 					t.Errorf("Expected entity namespace '%s', got '%s'", tt.expectedNS, ns)
 				}
 			}
-
-			// pod, ok := newFacts.Entities[0].(domain.Pod)
-			// if !ok {
-			// 	t.Fatalf("Expected entity to be Pod, got %T", newFacts.Entities[0])
-			// }
-			// if pod.Name != tt.expectedName {
-			// 	t.Errorf("Expected entity name '%s', got '%s'", tt.expectedName, pod.Name)
-			// }
-
-			// if pod.Namespace != tt.expectedNS {
-			// 	t.Errorf("Expected entity namespace '%s', got '%s'", tt.expectedNS, pod.Namespace)
-			// }
 		})
 	}
 }

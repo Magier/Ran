@@ -1205,6 +1205,17 @@ type Service struct {
 	IP      net.IPAddr
 }
 
+func NewService(name, ns string) Service {
+	return Service{
+		K8sEntity: K8sEntity{
+			Name:      name,
+			Namespace: ns,
+			Kind:      "Service",
+		},
+		Ports: make(map[string]int),
+	}
+}
+
 type ReplicaSet struct {
 	K8sEntity
 	ResourceOwner
