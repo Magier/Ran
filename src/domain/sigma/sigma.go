@@ -128,9 +128,7 @@ func (d *Detection) GetSelection(name string) (any, bool) {
 // MarshalJSON flattens Selections together with fixed keys for JSON output.
 func (d Detection) MarshalJSON() ([]byte, error) {
 	m := make(map[string]any, len(d.Selections)+2)
-	for k, v := range d.Selections {
-		m[k] = v
-	}
+	maps.Copy(m, d.Selections)
 	if d.Timeframe != "" {
 		m["timeframe"] = d.Timeframe
 	}

@@ -304,7 +304,7 @@ func (c *Campaign) RemoveRelations(relations ...domain.Relation) int {
 	return numChanges
 }
 
-func (c Campaign) selectBestCommandVariant(ttp domain.TTP, procedureID string) (domain.Procedure, error) {
+func (c Campaign) selectBestProcedure(ttp domain.TTP, procedureID string) (domain.Procedure, error) {
 	// TODO: select the variant to execute
 	// - keep track of tried variants
 	// - favor robust C2 over builtin one
@@ -343,7 +343,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 	}
 	execCmd.CommandMsg = cmdMsg
 
-	execCmd.Procedure, err = c.selectBestCommandVariant(ttp, procedureID)
+	execCmd.Procedure, err = c.selectBestProcedure(ttp, procedureID)
 	if err != nil && cmdMsg == nil {
 		return execCmd, err
 	}
@@ -427,24 +427,21 @@ func (c Campaign) buildFinalCommand(ch domain.C2Channel, proc domain.Procedure) 
 	}
 	// recursive call to get to the final channel and build the wrapping commands backwards
 	var err error
-	if ch.GetNextChannel() != nil {
+	if nextChannel := ch.GetNextChannel(); nextChannel != nil {
 		proc.Command, err = c.buildFinalCommand(ch.GetNextChannel(), proc)
 		if err != nil {
 			return "", err
 		}
+		// TODO: fix temporary workaround and generalize to TTPs using the right one
+		proc.Command = nextChannel.GetCommandEnvelope(proc.Command)
+		if strings.HasPrefix(proc.Command, "kubectl") {
+			// TODO: fix temporary workaround: set tool so it's properly grounded below
+			proc.Tool = "kubectl"
+		}
 	}
 
-	entity, ok := c.GetEntityById(ch.GetSourceId())
-	if !ok {
-		return "", fmt.Errorf("Failed to get entity by ID: %s", ch.GetSourceId())
-	}
-
-	kind := entity.GetKind()
-	if kind != "C2" { // C2 have special logic in the C2 layer, as they are the entry into the full C2 channel
-		proc.Command = ch.GetCommandEnvelope(proc.Command)
-	}
-
-	if sys, ok := entity.(domain.System); ok {
+	target := ch.GetTarget()
+	if sys, ok := target.(domain.System); ok {
 		proc, err = groundUsedTool(proc, sys)
 		if err != nil {
 			return "", err
