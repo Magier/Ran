@@ -228,6 +228,13 @@ func (c *Campaign) analyzePod(e domain.Pod) (domain.Facts, error) {
 		}
 	}
 
+	for _, file := range e.MissingFiles {
+		if file == "/var/run/secrets/kubernetes.io/serviceaccount/token" {
+			e.AutomountServiceAccountToken.Update(-0.3) // the SA Token is probably not automounted
+			entities[e.GetId()] = e
+		}
+	}
+
 	// 4) mounts
 	if mf, err := analyzeMountInfo(e); err != nil {
 		slog.Error("Failed to analyze MountInfo", "error", err)
@@ -550,6 +557,17 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 			entities = append(entities, p)
 		} else {
 			panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, target.GetId()))
+		}
+	}
+
+	if strings.Contains(errMsg, ": No such file or directory") {
+		if len(entities) > 0 {
+			if sys, ok := entities[0].(domain.System); ok {
+				file := strings.TrimSpace(strings.Split(errMsg, ":")[1])
+				sys.AddMissingFiles(file)
+				// replace original entity with updated information
+				entities = append(entities[:0], sys)
+			}
 		}
 	}
 
