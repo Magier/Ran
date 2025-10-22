@@ -466,16 +466,14 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 				slog.Error(fmt.Sprintf("Failed to parse files: %v", err))
 			} else {
 				if sys, ok := source.(domain.System); ok {
-					files := []string{}
 					for _, entry := range fsEntries {
 						fullPath := fmt.Sprintf("%s/%s", srcDir, entry.Name)
 						if entry.IsExec {
 							// also explicitely track all binaries
 							sys.SetBinary(entry.Name, fullPath)
 						}
-						files = append(files, fullPath)
+						sys.AddFiles(fullPath)
 					}
-					sys.AddFiles(files)
 					entities = append(entities, sys)
 				}
 			}
