@@ -48,8 +48,15 @@ func main() {
 		LogLevel: logger.INFO,
 		// BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 1},
 		OnStartup:  app.startup,
-		OnDomReady: app.domready,
-		Menu:       AppMenu,
+		OnDomReady: app.ClientReady,
+		ErrorFormatter: func(err error) any {
+			// Return whatever JSON you want the frontend to see
+			return map[string]any{
+				"message": err.Error(),
+				"code":    "GO_BOUND_METHOD_ERROR",
+			}
+		},
+		Menu: AppMenu,
 		Bind: []interface{}{
 			app,
 		},

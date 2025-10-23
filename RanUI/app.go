@@ -15,7 +15,7 @@ import (
 type App struct {
 	ctx context.Context
 	ran *ran.Ran
-	api *api.API
+	*api.API
 }
 
 // type Entitlement struct {
@@ -64,40 +64,12 @@ func (r *RuntimeWrapper) LogError(ctx context.Context, msg string) {
 func NewApp() *App {
 	var runtimeWrapper = &RuntimeWrapper{}
 	r := ran.InitRan("", "armory/")
-	a := &App{ran: &r, api: api.NewAPI(&r, runtimeWrapper)}
+	a := &App{ran: &r, API: api.NewAPI(&r, runtimeWrapper)}
 	return a
-}
-
-func (a *App) GetGraph() api.Graph {
-	return a.api.GetGraph()
-}
-
-func (a *App) GetCampaignState() api.CampaignState {
-	return a.api.GetCampaignState()
-}
-
-func (a *App) GetApplicableTTPs(targetID string) []domain.TTP {
-	return a.api.GetApplicableTTPs(targetID)
-}
-
-func (a *App) GetFlow() api.AttackFlow {
-	return a.api.GetFlow()
-}
-
-func (a *App) GetRunningPods(ns string) []api.K8sResource {
-	return a.api.GetRunningPods(ns)
-}
-
-func (a *App) ExecuteAction(actionID, targetID, procedureID string, args api.ActionArgs) {
-	a.api.ExecuteAction(actionID, targetID, procedureID, args)
 }
 
 func (a *App) GetArmory() []domain.TTP {
 	return a.ran.Armory.GetTTPs()
-}
-
-func (a *App) ResetCampaign() {
-	a.api.ResetCampaign()
 }
 
 // func ignoreNestedAttributes(groups []string, a slog.Attr) slog.Attr {
@@ -130,7 +102,7 @@ func (a *App) ResetCampaign() {
 // so we can call the runtime methods
 
 func (a *App) startup(ctx context.Context) {
-	a.api.SetContext(ctx)
+	a.SetContext(ctx)
 	// lazy workaround; plan is to remove wails, so no need to make it perfect
 	a.ctx = ctx
 
@@ -155,10 +127,6 @@ func (a *App) startup(ctx context.Context) {
 	// a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
 }
 
-func (a *App) domready(ctx context.Context) {
-	a.api.ClientReady(ctx)
-}
-
 func (a *App) SaveFlow() bool {
 	now := time.Now().Format("2006-01-02T15-04-05")
 	defaultFileName := fmt.Sprintf("campaign_%s.json", now)
@@ -176,7 +144,7 @@ func (a *App) SaveFlow() bool {
 	if err != nil {
 		runtime.LogErrorf(a.ctx, "Failed to open file dialog: %v", err)
 	} else {
-		return a.api.SaveFlow(selection)
+		return a.API.SaveFlow(selection)
 	}
 
 	return false
