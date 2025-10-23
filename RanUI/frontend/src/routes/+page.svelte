@@ -3,7 +3,7 @@
 	import store from '$lib/stores/store';
 	import * as runtime from '$lib/wailsjs/runtime';
 	import { ExecuteAction } from '$lib/wailsjs/go/main/App.js';
-	import { domain, main } from '$lib/wailsjs/go/models';
+	import { domain, api} from '$lib/wailsjs/go/models';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
 	import { Modal, Popover } from '@skeletonlabs/skeleton-svelte';
@@ -17,7 +17,7 @@
 
 
 	let selectedObjectId: string = $state('');
-	let selectedObject: main.Node | undefined = $state();
+	let selectedObject: api.Node | undefined = $state();
 	let showDetails = $derived(selectedObjectId !== '');
 	let ttpArgContext: Record<string, any> = $state({});
 	let showParamModal: boolean = $state(false);

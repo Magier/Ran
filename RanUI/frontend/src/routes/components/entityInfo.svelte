@@ -32,6 +32,8 @@
 			// 	return obj.toString();
 			// } else if (typeof obj === 'boolean') {
 			// 	return obj ? 'true' : 'false';
+		} else if (Array.isArray(obj)) {
+			return `<ul class="list-inside list-disc space-y-2">${obj.map(item => `<li>${item}</li>`).join('')}</ul>`;
 		} else {
 			return JSON.stringify(obj, null, 2);
 		}
