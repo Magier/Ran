@@ -2,6 +2,8 @@
 
 - constraints like "runs-on": a pod can only run on 1 node, if there is already another node, these must be the same
 
+- files are always interpreted as binaries?
+
 - make session an attribute of a system
 - model the container escape as a switch from one system to another
 - upload binary:
