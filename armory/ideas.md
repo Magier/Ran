@@ -53,18 +53,33 @@ https://github.com/beserkerbob/KubernetesEnumerationTool (Powershell)
 
 ## Interesting tools to try to support
 
+### SSH
+- [Dropbear](https://github.com/mkj/dropbear) 
 
-## SSH
-- [Dropbear](https://github.com/mkj/dropbear)   #lolbin
-
-## Tunnels
+### Tunnels
 - [bore](https://github.com/ekzhang/bore)  
 	- alternative to ngrok
 
-
-## Rootkits
+### Rootkits
 
 - [TripleCross](https://github.com/h3xduck/TripleCross) (2022)
+
+### LolBINS
+- [GTFOBins](https://gtfobins.github.io): list of Unix binaries that can be used to bypass local security restrictions in misconfigured systems
+- [LOTTunnels](https://lottunnels.github.io): Living Off The Land Tunnels
+- [LOLC2](https://lolc2.github.io/)
+- [LOLRMM](https://lolrmm.io/)
+
+#### Tools for potential support
+- https://github.com/vulsio/go-exploitdb
+- [PEASS-ng](https://github.com/peass-ng/PEASS-ng)
+- [go-pillage-registries](https://github.com/nccgroup/go-pillage-registries)
+- [amicontained](https://github.com/genuinetools/amicontained)
+- [dopwn](https://github.com/4ARMED/dopwn)
+- [botb](https://github.com/brompwnie/botb)
+- [MTKPI](https://github.com/r0binak/MTKPI) Multi Tool Kubernetes Pentest Image 
+- [deepce](https://github.com/stealthcopter/deepce)
+- [ctrsploit](https://github.com/ctrsploit/ctrsploit)
 
 
 ## Vulnerabilities

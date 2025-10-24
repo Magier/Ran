@@ -18,7 +18,7 @@ She is symbolized by a net, which she uses to ensnare and pull the unwary into t
 ❗ This tool is only intended for educational/demonstration purposes! Any other usage is not endorsed.
 
 
-> ** ⚠️ Warning: This project is very early stage and highly experimental. Use at your own risk.**
+> ** ⚠️ Warning: This project is very early stage and highly experimental. Use at your own risk. See [Milestones](./Milestones.md) for planned roadmap.**
 
 
 ![](./docs/ui_example.png)
@@ -73,8 +73,6 @@ The case for planning and acting (especially in unknown environments) is well mo
 
 
 
-
-
 ## Usage
 
 _TODO: provide clear instructions_
@@ -91,7 +89,6 @@ If [Sliver](https://github.com/BishopFox/sliver) is used as a C2 framework, Ran 
 
 
 ---
-
 
 ## Similar Projects
 
@@ -110,71 +107,7 @@ Ran is heavily inspired by similar tools in this domain, such as:
 - [IceKube](https://github.com/WithSecureLabs/IceKube)
 - [clusterfuck](https://bsssq.xyz/posts/kube/)
 
-
-#### Tools for potential support
-- https://github.com/vulsio/go-exploitdb
-- [PEASS-ng](https://github.com/peass-ng/PEASS-ng)
-- [go-pillage-registries](https://github.com/nccgroup/go-pillage-registries)
-- [amicontained](https://github.com/genuinetools/amicontained)
-- [dopwn](https://github.com/4ARMED/dopwn)
-- [botb](https://github.com/brompwnie/botb)
-- [MTKPI](https://github.com/r0binak/MTKPI) Multi Tool Kubernetes Pentest Image 
-- [deepce](https://github.com/stealthcopter/deepce)
-- [ctrsploit](https://github.com/ctrsploit/ctrsploit)
-
-## Armory
-
-### Container Escape
-- https://github.com/danielsagi/kube-pod-escape
-- https://github.com/aws-samples/hardeneks
-
-
-### Defense Evasion
-- https://github.com/m0nad/Diamorphine/tree/master
-
-
-## LolBINS
-- [GTFOBins](https://gtfobins.github.io): list of Unix binaries that can be used to bypass local security restrictions in misconfigured systems
-- [LOTTunnels](https://lottunnels.github.io): Living Off The Land Tunnels
-- [LOLC2](https://lolc2.github.io/)
-- [LOLRMM](https://lolrmm.io/)
-
-
-
-## Roadmap:
-
-### MVP
-- [x] Support K8s-related TTPs of [Leonidas](https://github.com/WithSecureLabs/leonidas) (atomic)
-- [ ] Support K8s-related TTPs of [Stratus Red Team](https://stratus-red-team.cloud/attack-techniques/kubernetes/) (atomic)
-- [x] Track the executed TTPs (audit trail)
-    - [x] show Flow in UI
-    - [x] Export trail of executed TTP as [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/)
-
-### 2nd Iteration
-- [ ] support cleanup logic for every TTP
-- [x] Campaign reset functionality
-- [ ] option to provide [Attack Flow](https://center-for-threat-informed-defense.github.io/attack-flow/) as a plan
-- [ ] Support sliver as a C2 framework 
-    - add respective Procedures where necessary
-- [ ] Derive produced Observable from the TTP execution and link it in the Attack Flow
-- [ ] (Optional) Generate Sigma from STIX Observables?
-- [ ] Support hierarchical TTPs: they use other TTPs as building blocks (akin to HTN)
-    - e.g., `Install implant` could be -> `generate implant` + `download binary` + `execute binary`
-- [ ] provide API to interact with Ran
-- [ ] improve audit tracing
-    - [ ] merge multiple (failed) attempts into 1 node? 
-    - [ ] Show key value in the title, to quickly differentiate same TTPs, but different objectives
-
-### 3rd Itration
-- [ ] Map TTPs to [D3FEND](https://d3fend.mitre.org/)
-- [ ] Simple Planning for a explicit goal
-- [ ] Explore generation of attack trees
-- [ ] [MCP](https://www.anthropic.com/news/model-context-protocol) support for "Vibe kiddies" 🤖
-
-### 4th Iteration: First basic autonomous emulation
-- [ ] Behavior Tree execution
-- [ ] Construct behavior tree from observed actions (trace -> Process Tree -> Behavior Tree) 
-
+For a comparison with other tools refer to the [comparison](docs/tool_comparison.md)
 
 ## References
 
@@ -183,5 +116,3 @@ BishopFox's [BadPods](https://bishopfox.com/blog/kubernetes-pod-privilege-escala
 
 
 
-## Tool comparison
-For a comparison with other tools refer to the [comparison](docs/tool_comparison.md)

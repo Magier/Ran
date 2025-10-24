@@ -32,8 +32,6 @@
 			// 	return obj.toString();
 			// } else if (typeof obj === 'boolean') {
 			// 	return obj ? 'true' : 'false';
-		} else if (Array.isArray(obj)) {
-			return `<ul class="list-inside list-disc space-y-2">${obj.map(item => `<li>${item}</li>`).join('')}</ul>`;
 		} else {
 			return JSON.stringify(obj, null, 2);
 		}
@@ -82,6 +80,18 @@
 					</div>
 					<!-- <button class="btn btn-sm preset-filled-primary-500" disabled>🔍</button> -->
 				{/if}
+			{:else if Array.isArray(data) && data.length > 0}
+				<details>
+					<summary>
+						<span class="font-bold mr-1">{label}</span>
+						<span class="badge preset-outlined-surface-500">({data.length} items)</span>
+					</summary>
+					<ul class="list-inside list-none pl-5">
+						{#each data as item}
+							<li>{prettyPrint(item)}</li>
+						{/each}
+					</ul>
+				</details>
 			{:else if typeof data === 'object' && data !== null}
 				<!-- Collapsible section for objects/arrays -->
 				<details>
@@ -92,15 +102,6 @@
 						>
 					</summary>
 					<pre class="max-h-80 overflow-scroll">{JSON.stringify(data, null, 2)}</pre>
-				</details>
-			{:else if Array.isArray(data) && data.length > 0}
-				<!-- Collapsible section for arrays -->
-				<details>
-					<summary>
-						<span class="font-bold mr-1">{label}</span>
-						<span class="badge preset-outlined-surface-500">({data.length} items)</span>
-					</summary>
-					<pre>{JSON.stringify(data, null, 2)}</pre>
 				</details>
 			{:else if data !== ''}
 				<div><span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}</div>
