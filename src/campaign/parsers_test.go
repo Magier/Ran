@@ -784,3 +784,95 @@ badline,noip,extrafield
 		t.Fatalf("Unexpected mapping for 10.0.0.1: %q", m["10.0.0.1"])
 	}
 }
+
+func TestParseFilesFromLS(t *testing.T) {
+	data := `total 12
+drwxr-xr-x.   1 root   root      57 Oct 26 19:44 ./
+drwxr-xr-x.   1 root   root      57 Oct 26 19:44 ../
+lrwxrwxrwx.   1 root   root       7 Aug 24 16:20 bin -> usr/bin/
+drwxr-xr-x.   2 root   root       6 Aug 24 16:20 boot/
+drwxr-xr-x    5 root   root     360 Oct 26 19:44 dev/
+drwxr-xr-x.   1 root   root      41 Oct 21 01:21 docker-entrypoint.d/
+-rwxr-xr-x.   1 root   root    1620 Oct 21 01:20 docker-entrypoint.sh*
+drwxr-xr-x.   1 root   root      19 Oct 26 19:44 etc/
+drwxr-xr-x.   2 root   root       6 Aug 24 16:20 home/
+lrwxrwxrwx.   1 root   root       7 Aug 24 16:20 lib -> usr/lib/
+drwxr-xr-x.   2 root   root       6 Oct 20 00:00 media/
+drwxr-xr-x.   2 root   root       6 Oct 20 00:00 mnt/
+drwxr-xr-x.   2 root   root       6 Oct 20 00:00 opt/
+dr-xr-xr-x. 386 nobody nogroup    0 Oct 26 19:44 proc/
+-rw-r--r--.   1 root   root       5 Oct 26 19:44 product_name
+-rw-r--r--.   1 root   root      37 Oct 26 19:44 product_uuid
+drwx------.   2 root   root      37 Oct 20 00:00 root/
+drwxr-xr-x.   3 root   root      18 Oct 20 00:00 run/
+lrwxrwxrwx.   1 root   root       8 Aug 24 16:20 sbin -> usr/sbin/
+drwxr-xr-x.   2 root   root       6 Oct 20 00:00 srv/
+dr-xr-xr-x.  12 nobody nogroup    0 Oct 25 05:58 sys/
+drwxrwxrwt.   2 root   root       6 Oct 20 00:00 tmp/
+drwxr-xr-x.   1 root   root      66 Oct 20 00:00 usr/
+drwxr-xr-x.   1 root   root      41 Oct 20 00:00 var/`
+
+	parsedFiles, err := parseFiles(data)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if len(parsedFiles) != 22 {
+		t.Fatalf("Expected 22 files/directories, got %d", len(parsedFiles))
+	}
+}
+
+func TestParseLSLine(t *testing.T) {
+	tests := []struct {
+		input      string
+		name       string
+		expectName string
+		expectDir  bool
+		expectExec bool
+		expectLink string
+	}{
+		{
+			input:      "lrwxrwxrwx.   1 root   root       7 Aug 24 16:20 bin -> usr/bin/",
+			name:       "symlink to bin",
+			expectName: "bin",
+			expectDir:  true,
+			expectExec: true,
+			expectLink: "usr/bin/",
+		},
+		{
+			input:      "drwxr-xr-x.   1 root   root      19 Oct 26 19:44 etc/",
+			name:       "directory  etc",
+			expectName: "etc/",
+			expectDir:  true,
+			expectExec: true,
+		},
+		{
+			input:      "-rw-r--r--.   1 root   root       5 Oct 26 19:44 product_name",
+			name:       "product name file",
+			expectName: "product_name",
+			expectDir:  false,
+			expectExec: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			file, err := parseLSLine(tt.input)
+			if err != nil {
+				t.Fatalf("Expected no error, got: %v", err)
+			}
+			if file.Name != tt.expectName {
+				t.Errorf("Expected name %q, got %q", tt.expectName, file.Name)
+			}
+			if tt.expectDir != file.IsDir {
+				t.Errorf("Parsed file IsDir = %v, expected %v", file.IsDir, tt.expectDir)
+			}
+			if tt.expectExec != file.IsExec {
+				t.Errorf("Parsed file IsExec = %v, expected %v", file.IsExec, tt.expectExec)
+			}
+			if tt.expectLink != file.SymLinkTo {
+				t.Errorf("Parsed line IsSymlink = %v, expected %v", file.SymLinkTo, tt.expectLink)
+			}
+		})
+	}
+
+}
