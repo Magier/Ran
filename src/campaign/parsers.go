@@ -468,7 +468,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 				if sys, ok := source.(domain.System); ok {
 					for _, entry := range fsEntries {
 						fullPath := fmt.Sprintf("%s/%s", srcDir, entry.Name)
-						if entry.IsExec {
+						if entry.IsExec && !entry.IsDir {
 							// also explicitely track all binaries
 							sys.SetBinary(entry.Name, fullPath)
 						}
@@ -1210,9 +1210,21 @@ func parseLSLine(line string) (FileSystemEntry, error) {
 		return FileSystemEntry{}, nil
 	}
 
+	file_type_bit := parts[0][0]
 	size, _ := strconv.ParseInt(parts[4], 10, 64)
 	modTime, _ := time.Parse("Jan 02 15:04", fmt.Sprintf("%s %s", parts[5], parts[6]))
 	name := parts[8]
+
+	isDir := file_type_bit == 'd' || strings.HasSuffix(parts[8], "/")
+	isSymLink := file_type_bit == 'l'
+	var symLink string
+	if isSymLink && len(parts) >= 11 {
+		// symlink target is in the format: name -> target
+		symLink = parts[10]
+		name = parts[8]
+		isDir = isDir || strings.HasSuffix(symLink, "/")
+	}
+
 	isExec := parts[0][3] == 'x' && strings.Contains(parts[0], "x")
 	// part of -F flag in ls, to append '*' to executable files
 	if isExec && strings.HasSuffix(name, "*") {
@@ -1223,19 +1235,21 @@ func parseLSLine(line string) (FileSystemEntry, error) {
 		Name: name,
 		Size: size,
 		// Mode:    parseFileMode(parts[0]),
-		ModTime: modTime,
-		IsDir:   parts[0][0] == 'd' || strings.HasSuffix(name, "/"),
-		IsExec:  isExec,
+		ModTime:   modTime,
+		IsDir:     isDir,
+		IsExec:    isExec,
+		SymLinkTo: symLink,
 	}, nil
 }
 
 type FileSystemEntry struct {
-	Name    string
-	Size    int64
-	Mode    os.FileMode
-	ModTime time.Time
-	IsDir   bool
-	IsExec  bool
+	Name      string
+	Size      int64
+	Mode      os.FileMode
+	ModTime   time.Time
+	IsDir     bool
+	IsExec    bool
+	SymLinkTo string
 }
 
 func parseReverseDnsLookup(data string) (map[string]string, error) {

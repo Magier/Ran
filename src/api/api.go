@@ -289,8 +289,7 @@ func (a *API) ExecuteAction(actionID, targetID, procedureID string, args ActionA
 		Args:        args,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to publish ActionSelected event: " + err.Error())
-		// runtime.LogError(a.ctx, "failed to publish ActionSelected event: "+err.Error())
+		return fmt.Errorf("failed to publish ActionSelected event: %s", err.Error())
 	}
 	return nil
 }
