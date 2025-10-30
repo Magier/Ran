@@ -125,7 +125,6 @@ func NewAPI(r *ran.Ran, rt Runtime) *API {
 
 		jsonBytes, err := json.Marshal(msg)
 		if err != nil {
-			a.runtime.LogError(a.ctx, "failed to marshal event: "+err.Error())
 			return nil, err
 		}
 		a.runtime.EventsEmit(a.ctx, eventName, string(jsonBytes))
@@ -272,12 +271,12 @@ func (a *API) GetCampaignState() CampaignState {
 	}
 }
 
-func (a *API) ResetCampaign() {
+func (a *API) ResetCampaign() error {
 	err := a.ran.Bus.Publish(domain.ResetCampaign{})
 	if err != nil {
-		a.runtime.LogErrorf(a.ctx, "Failed to reset campaign: %v", err)
-		return
+		return fmt.Errorf("failed to reset campaign: %v", err)
 	}
+	return nil
 }
 
 func (a *API) ExecuteAction(actionID, targetID, procedureID string, args ActionArgs) error { //, args map[string]string) {
@@ -298,9 +297,12 @@ func (a *API) GetArmory() []domain.TTP {
 	return a.ran.Armory.GetTTPs()
 }
 
-func (a *API) GetApplicableTTPs(targetId string) []domain.TTP {
+func (a *API) GetApplicableTTPs(targetId string) ([]domain.TTP, error) {
 	ttps := make([]domain.TTP, 0)
-	target, _ := a.ran.Campaign.GetEntityById(targetId)
+	target, ok := a.ran.Campaign.GetEntityById(targetId)
+	if !ok {
+		return ttps, fmt.Errorf("failed to get target entity: %s", targetId)
+	}
 	state := domain.State{}
 	accessLevel := domain.UserExec
 
@@ -327,7 +329,7 @@ func (a *API) GetApplicableTTPs(targetId string) []domain.TTP {
 			ttps = append(ttps, ttp)
 		}
 	}
-	return ttps
+	return ttps, nil
 }
 
 func (a *API) GetFlow() AttackFlow {
@@ -370,16 +372,16 @@ type K8sResource struct {
 	Kind      string `json:"kind"`
 }
 
-func (a *API) GetRunningPods(ns string) []K8sResource {
+func (a *API) GetRunningPods(ns string) ([]K8sResource, error) {
 	ids, err := k8s.GetIDsOfRunningPod(a.ctx, ns)
 	if err != nil {
-		a.runtime.LogErrorf(a.ctx, "Could not get running pods: %v", err)
+		return nil, err
 	}
 	resources := make([]K8sResource, 0, len(ids))
 	for _, id := range ids {
 		ns, kind, name, err := campaign.UnpackResourceID(id)
 		if err != nil {
-			a.runtime.LogErrorf(a.ctx, "Could not unpack resource ID: %v", err)
+			return nil, fmt.Errorf("Could not unpack resource ID: %v", err)
 		} else {
 			resources = append(resources, K8sResource{
 				ID:        id,
@@ -389,10 +391,10 @@ func (a *API) GetRunningPods(ns string) []K8sResource {
 			})
 		}
 	}
-	return resources
+	return resources, nil
 }
 
-func (a *API) SaveFlow(path string) bool {
+func (a *API) SaveFlow(path string) (bool, error) {
 	now := time.Now().Format("2006-01-02T15-04-05")
 	defaultFileName := fmt.Sprintf("campaign_%s.json", now)
 	var _ = defaultFileName
@@ -401,15 +403,13 @@ func (a *API) SaveFlow(path string) bool {
 		err := a.ran.Bus.Publish(domain.SaveAttackFlow{Path: path})
 
 		if err != nil {
-			a.runtime.LogErrorf(a.ctx, "Failed to save campaign flow: %v", err)
+			return false, fmt.Errorf("Failed to save campaign flow: %v", err)
 		} else {
 			a.runtime.LogInfof(a.ctx, "Campaign flow saved successfully to %s", path)
-			return true
+			return true, nil
 		}
 	} else {
-		a.runtime.LogInfof(a.ctx, "No file selected")
+		return false, fmt.Errorf("no file path provided")
 	}
 	// TODO: send toast to UI if it was successful or not
-
-	return false
 }

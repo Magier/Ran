@@ -1,6 +1,6 @@
 import { getContext, setContext } from "svelte";
 import * as runtime from "$lib/wailsjs/runtime";
-import type { ArmoryType, Node, Edge, Relation } from '$lib/model';
+import type { ArmoryType, Node, Edge } from '$lib/model';
 import { campaign, api, type domain } from '$lib/wailsjs/go/models';
 import { GetArmory, GetCampaignState, GetGraph, GetRunningPods, ResetCampaign } from '$lib/wailsjs/go/main/App';
 import { showToast, type ToastType } from '$lib/components/toaster';
@@ -18,28 +18,33 @@ export type Entity = {
     namespace?: string;
 }
 
-type FactsDelta = {
-    Entities: Entity[];
-    Relations: domain.Relation[];
-    Identities: Identity[];
-    Assets: Asset[];
-}
+// type FactsDelta = {
+//     Entities: Entity[];
+//     Relations: domain.Relation[];
+//     Identities: Identity[];
+//     Assets: Asset[];
+// }
 
-type FactsChanged = {
-    NewEntities:       Entity[]
-    NewRelations:      Relation[]
-    NewIdentities:     Identity[]
-    NewAssets:         Asset[]
-    RemovedEntities:   Entity[]
-    RemovedRelations:  Relation[]
-    RemovedIdentities: Identity[]
-    RemovedAssets:     Asset[]
-}
+// type FactsChanged = {
+//     NewEntities:       Entity[]
+//     NewRelations:      Relation[]
+//     NewIdentities:     Identity[]
+//     NewAssets:         Asset[]
+//     RemovedEntities:   Entity[]
+//     RemovedRelations:  Relation[]
+//     RemovedIdentities: Identity[]
+//     RemovedAssets:     Asset[]
+// }
 
 type ErrorMsg = {
     CmdId: string;
     Level: string;
     Msg: string;
+}
+
+type BackendError = {
+    code: string;
+    message: string;
 }
 
 class CampaignState {
@@ -94,10 +99,25 @@ class CampaignState {
             showToast("Error", msg.Msg, toastType);
         });
 
+        function showError(msg: string | object) {
+            if (typeof msg === 'object') {
+                if (msg.hasOwnProperty('code') && (msg as BackendError).code == "GO_BOUND_METHOD_ERROR") {
+                    msg = (msg as any).message;
+                } else { // fallback handling to show full object (may allow later refinement)
+                    msg = JSON.stringify(msg);
+                }
+            } else if (typeof msg !== 'string') {
+                msg = String(msg);
+            }
+
+            console.error(msg);
+            showToast("Error", JSON.stringify(msg), "error");
+        }
+
         GetGraph().then((g: api.Graph) => { this.graph =g; })
         GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
         GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
-        GetRunningPods("").then(pods => {this.allPods = pods;});
+        GetRunningPods("").then(pods => {this.allPods = pods;}).catch(showError);
     }
 
     reset() {
