@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"sync"
 
 	domain "github.com/Magier/Ran/domain"
 )
@@ -21,6 +22,7 @@ type MessageBus interface {
 type MessageBusProvider struct {
 	channel     chan domain.Message
 	subscribers map[string][]domain.MessageHandler
+	mu          sync.Mutex
 }
 
 func (b *MessageBusProvider) HandleEvents(ctx context.Context) {
@@ -31,7 +33,10 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) {
 		}
 
 		// "*" subscribers listen to all events
+		b.mu.Lock()
 		subscribers := append(b.subscribers[msgName(msg)], b.subscribers[domain.ALL_EVENTS]...)
+		b.mu.Unlock()
+
 		if len(subscribers) == 0 {
 			slog.Debug("No subscribers for event " + msgName(msg))
 		} else {
@@ -68,13 +73,14 @@ func (b *MessageBusProvider) Publish(messages ...domain.Message) error {
 }
 
 func (b *MessageBusProvider) SubscribeToName(name string, handler domain.MessageHandler) func() {
-	// h.mu.Lock()
-	// defer h.mu.Unlock()
-	// name := msgName(event)
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.subscribers[name] = append(
 		b.subscribers[name],
 		handler,
 	)
+
+	slog.Info(fmt.Sprintf("Subscribed to event %s", name))
 
 	return func() {
 		handlers := b.subscribers[name]
