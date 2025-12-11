@@ -55,6 +55,24 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 		case domain.UnknownSystem:
 			isUnknown = true
 			resultingFacts, _, err = c.analyzeUnknownSystem(e)
+		case domain.CloudEnvironment:
+			if cluster, ok := c.GetK8sCluster(); ok {
+				entities[e.GetId()] = e
+				resultingFacts = domain.Facts{
+					Relations: []domain.Relation{
+						domain.Contains{Container: e, Object: cluster},
+					},
+				}
+			}
+		case domain.GCPServiceAccountToken:
+			entities[e.GetId()] = e
+			if csp, ok := c.GetCloudServiceProvider(); ok {
+				resultingFacts = domain.Facts{
+					Relations: []domain.Relation{
+						domain.Contains{Container: csp, Object: e},
+					},
+				}
+			}
 		default:
 			// just add the entity to the KB and skip ahead to the next entity without analyzing it
 			entities[e.GetId()] = e
@@ -937,7 +955,7 @@ func analyzeHostPath(pod domain.Pod) (domain.Facts, error) {
 	hostPaths := extractHostPaths(pod.GetMounts()) // TODO: handle multiple results, if necessary
 
 	if len(hostPaths) > 0 {
-		pod.VolumeMounts = append(pod.VolumeMounts)
+		pod.VolumeMounts = append(pod.VolumeMounts, hostPaths...)
 
 		slog.Debug(fmt.Sprintf("Host path found: %s", hostPaths[0].MountPoint))
 		// pod := ev.Target.(domain.Pod)
