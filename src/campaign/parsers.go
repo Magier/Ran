@@ -338,13 +338,36 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 	}
 
 	var facts domain.Facts
-	if strings.HasPrefix(effect, "k8s.") {
+	effectParts := strings.SplitN(effect, ".", 2)
+	effectDomain := effectParts[0]
+	effectDetail := effectParts[1]
+
+	switch effectDomain {
+	case "k8s":
+		// if strings.HasPrefix(effect, "k8s") {
 		f, err := parseK8sEffect(effect, source, args, results)
 		if err != nil {
 			return factsUpdate{}, fmt.Errorf("Failed to parse K8s effect: %w", err)
 		}
 		facts = f
-	} else {
+	case "GCP":
+		switch strings.ToLower(effectDetail) {
+		case "projectid":
+			cloudEnv := domain.CloudEnvironment{
+				Provider: "GCP",
+				Name:     results[0],
+			}
+			entities = append(entities, cloudEnv)
+		case "serviceaccounttoken":
+			saToken, err := parseGCPServiceAccountToken(results[0])
+			if err != nil {
+				return factsUpdate{}, fmt.Errorf("Failed to parse %s effect: %w", effectDomain, err)
+			} else {
+				entities = append(entities, saToken)
+			}
+		}
+		facts = domain.Facts{Entities: entities, Relations: relations}
+	default:
 		switch strings.ToLower(effect) {
 		case "sys.ip":
 			if sys, ok := source.(domain.System); ok {
@@ -1294,4 +1317,13 @@ func parseReverseDnsLookup(data string) (map[string]string, error) {
 		slog.Info(fmt.Sprintf("Reverse DNS parsed: %s -> %s", ipStr, dns))
 	}
 	return results, nil
+}
+
+func parseGCPServiceAccountToken(data string) (domain.GCPServiceAccountToken, error) {
+	var gcpSA domain.GCPServiceAccountToken
+	err := json.Unmarshal([]byte(data), &gcpSA)
+	if err != nil {
+		return domain.GCPServiceAccountToken{}, fmt.Errorf("Failed to unmarshal GCP Service Account JSON: %w", err)
+	}
+	return gcpSA, nil
 }

@@ -510,6 +510,8 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			} else { // try to find a sane default
 				if sa, ok := target.(domain.ServiceAccount); ok {
 					arg = sa.Token.Raw
+				} else if gcpSa, ok := target.(domain.GCPServiceAccountToken); ok {
+					arg = gcpSa.Token
 				} else {
 					switch sys := execSystem.(type) {
 					case domain.Pod:
@@ -734,6 +736,24 @@ func isActionOnRemoteTarget(ttp domain.TTP, cmd domain.Procedure) bool {
 	default:
 		return true
 	}
+}
+
+func (c Campaign) GetK8sCluster() (domain.Cluster, bool) {
+	for _, e := range c.kb.GetEntities() {
+		if cluster, ok := e.(domain.Cluster); ok {
+			return cluster, true
+		}
+	}
+	return domain.Cluster{}, false
+}
+
+func (c Campaign) GetCloudServiceProvider() (domain.CloudEnvironment, bool) {
+	for _, e := range c.kb.GetEntities() {
+		if csp, ok := e.(domain.CloudEnvironment); ok {
+			return csp, true
+		}
+	}
+	return domain.CloudEnvironment{}, false
 }
 
 func (c Campaign) GetC2s() []domain.C2System {
