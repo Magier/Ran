@@ -7,10 +7,16 @@ preconditions:
   kind: System
   # CSP: GCP
 procedures:
+  - key: wget
+    tool: wget
+    command: >-
+      wget -qO- http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token 
+      --header="Metadata-Flavor: Google"
   - key: GCP
     tool: curl
     command: >-
-      curl http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token -H "Metadata-Flavor: Google"
+      curl http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token 
+      -H "Metadata-Flavor: Google"
 effects: ["GCP.serviceAccountToken"]
 references:
   - https://attack.mitre.org/techniques/T1552/005/

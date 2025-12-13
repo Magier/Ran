@@ -7,7 +7,12 @@ preconditions:
   kind: System
   # CSP: GCP
 procedures:
-  - key: GCP
+  - key: wget
+    tool: wget
+    command: >-
+      wget -qO- http://169.254.169.254/computeMetadata/v1/project/project-id 
+      --header="Metadata-Flavor: Google"
+  - key: curl
     tool: curl
     command: >-
       curl http://169.254.169.254/computeMetadata/v1/project/project-id 

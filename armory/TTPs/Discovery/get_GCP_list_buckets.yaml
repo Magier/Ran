@@ -1,0 +1,29 @@
+name: List Buckets in GCP Project
+description: List the buckets in the GCP project using the service account token
+tactic: Discovery
+techniques:
+  ["Cloud Storage Object Discovery ", T1619]
+preconditions:
+  kind: GCPServiceAccountToken
+parameters:
+  TOKEN:
+    type: string
+    description: The GCP service account access token
+  PROJECT_ID:
+    type: string
+    description: The GCP project ID
+    default: engineering-test-353509
+procedures:
+  - key: wget
+    tool: wget
+    command: >-
+      wget -qO- https://storage.googleapis.com/storage/v1/b?project=${PROJECT_ID}
+      --header="Authorization: Bearer ${TOKEN}"
+  - key: GCP
+    tool: curl
+    command: >-
+      curl https://storage.googleapis.com/storage/v1/b?project=${PROJECT_ID}
+      -H "Authorization: Bearer ${TOKEN}"
+effects: ["GCP.Buckets"]
+references:
+  - https://attack.mitre.org/techniques/T1619/
