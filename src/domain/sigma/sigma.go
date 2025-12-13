@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"sort"
 	"strings"
@@ -128,6 +129,7 @@ func (d *Detection) GetSelection(name string) (any, bool) {
 
 // MarshalJSON flattens Selections together with fixed keys for JSON output.
 func (d Detection) MarshalJSON() ([]byte, error) {
+	slog.Info("Marshaling Detection to JSON", "selections", d.Selections, "condition", d.Condition, "timeframe", d.Timeframe)
 	m := make(map[string]any, len(d.Selections)+2)
 	maps.Copy(m, d.Selections)
 	if d.Timeframe != "" {

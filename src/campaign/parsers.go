@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Magier/Ran/campaign/gcp"
 	"github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
 	k8s_types "github.com/Magier/Ran/k8sclient/types"
@@ -359,11 +360,21 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 			}
 			entities = append(entities, cloudEnv)
 		case "serviceaccounttoken":
-			saToken, err := parseGCPServiceAccountToken(results[0])
+			saToken, err := gcp.ParseServiceAccountToken(results[0])
 			if err != nil {
 				return factsUpdate{}, fmt.Errorf("Failed to parse %s effect: %w", effectDomain, err)
 			} else {
 				entities = append(entities, saToken)
+			}
+		case "buckets":
+			buckets, err := gcp.ParseBuckets(results[0])
+			if err != nil {
+				return factsUpdate{}, fmt.Errorf("Failed to parse %s effect: %w", effectDomain, err)
+			} else {
+				for _, bucket := range buckets {
+					bucket.Kind = "GCPBucket" // API returns storage#bucket, override kind as temporary workaround
+					entities = append(entities, bucket)
+				}
 			}
 		}
 		facts = domain.Facts{Entities: entities, Relations: relations}
@@ -1317,13 +1328,4 @@ func parseReverseDnsLookup(data string) (map[string]string, error) {
 		slog.Info(fmt.Sprintf("Reverse DNS parsed: %s -> %s", ipStr, dns))
 	}
 	return results, nil
-}
-
-func parseGCPServiceAccountToken(data string) (domain.GCPServiceAccountToken, error) {
-	var gcpSA domain.GCPServiceAccountToken
-	err := json.Unmarshal([]byte(data), &gcpSA)
-	if err != nil {
-		return domain.GCPServiceAccountToken{}, fmt.Errorf("Failed to unmarshal GCP Service Account JSON: %w", err)
-	}
-	return gcpSA, nil
 }
