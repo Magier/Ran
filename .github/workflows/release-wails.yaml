@@ -166,6 +166,12 @@ jobs:
         #   run: |
         #     echo "Signing Package"
         #     gon -log-level=info ./build/darwin/gon-sign.json
+        - name: Build .tar.gz file
+          if: runner.os == 'Linux'
+          working-directory: ${{ inputs.app-working-directory }}
+          shell: bash
+          run: |
+            tar -czvf dist/${{inputs.app-name}}_${{inputs.tag}}_linux_amd64.tar.gz -C build/bin/ ./${{inputs.app-name}}
         - name: Build .app zip file
           if: runner.os == 'macOS'
           working-directory: ${{ inputs.app-working-directory }}
