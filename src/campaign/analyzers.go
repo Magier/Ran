@@ -73,6 +73,15 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 					},
 				}
 			}
+		case domain.GCPBucket:
+			entities[e.GetId()] = e
+			if csp, ok := c.GetCloudServiceProvider(); ok {
+				resultingFacts = domain.Facts{
+					Relations: []domain.Relation{
+						domain.Contains{Container: csp, Object: e},
+					},
+				}
+			}
 		default:
 			// just add the entity to the KB and skip ahead to the next entity without analyzing it
 			entities[e.GetId()] = e

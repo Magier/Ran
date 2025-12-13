@@ -19,33 +19,36 @@ export const layout = {
 };
 
 const kind_svg_map = {
-	Ingress: 'ing.svg',
-	Pod: 'pod.svg',
-	Container: 'crio.svg',
-	Daemonset: 'daemontset.svg',
-	Deployment: 'deploy.svg',
-	AbstractWorkload: 'deploy.svg',
-	ControlPlane: 'control-plane.svg',
-	ClusterNode: 'node.svg',
-	Node: 'node.svg',
-	Role: 'role.svg',
-	ClusterRole: 'c-role.svg',
-	Service: 'svc.svg',
-	ConfigMap: 'cm.svg',
-	CronJob: 'cronjob.svg',
-	Group: 'group.svg',
-	RoleBinding: 'rb.svg',
-	ClusterRoleBinding: 'crb.svg',
-	Secret: 'secret.svg',
-	ServiceAccount: 'sa.svg',
-	Statefulset: 'sts.svg',
-	User: 'user.svg',
-	Volume: 'vol.svg',
-	KubeApiServer: 'api.svg',
-	MicroService: '{pod_unlabeled.svg',
+	Ingress: 'k8s/ing.svg',
+	Pod: 'k8s/pod.svg',
+	Container: 'k8s/crio.svg',
+	Daemonset: 'k8s/daemontset.svg',
+	Deployment: 'k8s/deploy.svg',
+	AbstractWorkload: 'k8s/deploy.svg',
+	ControlPlane: 'k8s/control-plane.svg',
+	ClusterNode: 'k8s/node.svg',
+	Node: 'k8s/node.svg',
+	Role: 'k8s/role.svg',
+	ClusterRole: 'k8s/c-role.svg',
+	Service: 'k8s/svc.svg',
+	ConfigMap: 'k8s/cm.svg',
+	CronJob: 'k8s/cronjob.svg',
+	Group: 'k8s/group.svg',
+	RoleBinding: 'k8s/rb.svg',
+	ClusterRoleBinding: 'k8s/crb.svg',
+	Secret: 'k8s/secret.svg',
+	ServiceAccount: 'k8s/sa.svg',
+	Statefulset: 'k8s/sts.svg',
+	User: 'k8s/user.svg',
+	Volume: 'k8s/vol.svg',
+	KubeApiServer: 'k8s/api.svg',
+	MicroService: '{k8s/pod_unlabeled.svg',
+	GCPBucket: 'gcp/storage.svg',
+	GCPServiceAccount: 'gcp/iam.svg',
+	GCPServiceAccountToken: 'gcp/iam.svg',
 
-	Cluster: '{k8s.svg',
-	Namespace: '{ns.svg'
+	Cluster: '{k8s/k8s.svg',
+	Namespace: '{k8s/ns.svg'
 };
 
 function mapKindIcons(obj: Object) {
@@ -58,7 +61,7 @@ function mapKindIcons(obj: Object) {
 		return {
 			selector: selector,
 			style: {
-				'background-image': [`/k8s/${icon}`]//, 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>'],
+				'background-image': [`/${icon}`]//, 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>'],
 			}
 		};
 	});

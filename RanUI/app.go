@@ -144,7 +144,11 @@ func (a *App) SaveFlow() bool {
 	if err != nil {
 		runtime.LogErrorf(a.ctx, "Failed to open file dialog: %v", err)
 	} else {
-		return a.API.SaveFlow(selection)
+		ok, err := a.API.SaveFlow(selection)
+		if err != nil {
+			runtime.LogErrorf(a.ctx, "Failed to save flow to file '%s': %v", selection, err)
+		}
+		return ok
 	}
 
 	return false
