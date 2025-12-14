@@ -80,9 +80,9 @@ jobs:
             - os: 'macos-latest'
               arch: 'arm64'
               platform: 'darwin'
-            - os: 'macos-13'
-              arch: 'amd64'
-              platform: 'darwin'
+            # - os: 'macos-13'
+            #   arch: 'amd64'
+            #   platform: 'darwin'
       runs-on: ${{ matrix.build.os }}
       steps:
         - name: Checkout
