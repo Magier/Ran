@@ -64,7 +64,7 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 					},
 				}
 			}
-		case domain.GCPServiceAccountToken:
+		case domain.GCPServiceAccount:
 			entities[e.GetId()] = e
 			if csp, ok := c.GetCloudServiceProvider(); ok {
 				resultingFacts = domain.Facts{

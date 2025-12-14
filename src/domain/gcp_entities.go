@@ -29,41 +29,41 @@ func (c CloudEnvironment) GetName() string {
 }
 
 type GCPServiceAccountToken struct {
-	Name      *string `json:"name"`
-	Kind      string  `json:"kind"`
-	Token     string  `json:"access_token"`
-	ExpiresIn int64   `json:"expires_in"`
-	Type      string  `json:"token_type"`
+	Token     string `json:"access_token"`
+	ExpiresIn int64  `json:"expires_in"`
+	Type      string `json:"token_type"`
 }
 
-var _ Entity = (*GCPServiceAccountToken)(nil)
+type GCPServiceAccount struct {
+	EMail string                 `json:"email"`
+	Token GCPServiceAccountToken `json:"token"`
+	Kind  string                 `json:"kind"`
+}
+
+var _ Entity = (*GCPServiceAccount)(nil)
 
 // GetId implements Entity.
-func (g GCPServiceAccountToken) GetId() string {
+func (g GCPServiceAccount) GetId() string {
 	name := "default"
-	if g.Name != nil {
-		name = *g.Name
+	if g.EMail != "" {
+		name = g.EMail
 	}
 	return fmt.Sprintf("gcp-sa/%s", name)
 }
 
 // GetKind implements Entity.
-func (g GCPServiceAccountToken) GetKind() string {
-	return "GCPServiceAccountToken"
+func (g GCPServiceAccount) GetKind() string {
+	return "GCPServiceAccount"
 }
 
 // GetName implements Entity.
-func (g GCPServiceAccountToken) GetName() string {
-	name := "default"
-	if g.Name != nil {
-		name = *g.Name
-	}
-	return "gcp-sa-token-" + name
+func (g GCPServiceAccount) GetName() string {
+	return g.EMail
 }
 
 // GetName implements Entity.
-func (g GCPServiceAccountToken) String() string {
-	return "GCP Service Account: " + g.Token
+func (g GCPServiceAccount) String() string {
+	return "GCP Service Account: " + g.GetName()
 }
 
 // {

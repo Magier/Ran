@@ -7,11 +7,11 @@ import (
 	"github.com/Magier/Ran/domain"
 )
 
-func ParseServiceAccountToken(data string) (domain.GCPServiceAccountToken, error) {
-	var gcpSA domain.GCPServiceAccountToken
+func ParseServiceAccount(data string) (domain.GCPServiceAccount, error) {
+	var gcpSA domain.GCPServiceAccount
 	err := json.Unmarshal([]byte(data), &gcpSA)
 	if err != nil {
-		return domain.GCPServiceAccountToken{}, fmt.Errorf("Failed to unmarshal GCP Service Account JSON: %w", err)
+		return domain.GCPServiceAccount{}, fmt.Errorf("Failed to unmarshal GCP Service Account JSON: %w", err)
 	}
 	gcpSA.Kind = gcpSA.GetKind() // API does not return kind, set it here (use GetKind method to have 1 source of truth)
 	return gcpSA, nil
