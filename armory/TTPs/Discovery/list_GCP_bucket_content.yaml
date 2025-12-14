@@ -14,7 +14,12 @@ parameters:
     description: The name of the GCP bucket
     default: ${TARGET}
 procedures:
-  - key: GCP
+  - key: wget
+    tool: wget
+    command: >-
+      wget -qO- https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o
+      --header="Authorization: Bearer ${TOKEN}"
+  - key: curl
     tool: curl
     command: >-
       curl https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o

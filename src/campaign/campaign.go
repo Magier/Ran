@@ -510,8 +510,8 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			} else { // try to find a sane default
 				if sa, ok := target.(domain.ServiceAccount); ok {
 					arg = sa.Token.Raw
-				} else if gcpSa, ok := target.(domain.GCPServiceAccountToken); ok {
-					arg = gcpSa.Token
+				} else if gcpSa, ok := target.(domain.GCPServiceAccount); ok {
+					arg = gcpSa.Token.Token
 				} else {
 					switch sys := execSystem.(type) {
 					case domain.Pod:

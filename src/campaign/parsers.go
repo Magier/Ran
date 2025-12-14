@@ -360,7 +360,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 			}
 			entities = append(entities, cloudEnv)
 		case "serviceaccounttoken":
-			saToken, err := gcp.ParseServiceAccountToken(results[0])
+			saToken, err := gcp.ParseServiceAccount(results[0])
 			if err != nil {
 				return factsUpdate{}, fmt.Errorf("Failed to parse %s effect: %w", effectDomain, err)
 			} else {
