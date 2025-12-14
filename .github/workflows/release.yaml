@@ -278,6 +278,8 @@ jobs:
               echo "remaining"
               ls -lah ranui_dist
               rm -rf ranui_dist 
+          - name: Check Git version
+            run: git --version
           - name: Create RanUI checksums
             run: |
               cd $RANUI_DIST_DIR
@@ -287,7 +289,7 @@ jobs:
             with:
                 distribution: goreleaser
                 version: latest
-                args: release --clean
+                args: release --clean --snaphsot
             env:
                 # KEY: ${{ secrets.COSIGN_KEY }}
                 # COSIGN_PASSWORD: ${{secrets.COSIGN_PASSWORD}}
