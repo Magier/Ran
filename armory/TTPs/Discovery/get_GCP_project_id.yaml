@@ -6,18 +6,23 @@ techniques:
 preconditions:
   kind: System
   # CSP: GCP
+parameters:
+  HOST:
+    type: string
+    description: The metadata service host
+    default: metadata.google.internal
 procedures:
   - key: wget
     tool: wget
     command: >-
-      wget -qO- http://169.254.169.254/computeMetadata/v1/project/project-id 
+      wget -qO- http://${HOST}/computeMetadata/v1/project/project-id 
       --header="Metadata-Flavor: Google"
   - key: curl
     tool: curl
     command: >-
-      curl http://169.254.169.254/computeMetadata/v1/project/project-id 
+      curl http://${HOST}/computeMetadata/v1/project/project-id 
       -H "Metadata-Flavor: Google"
-effects: ["GCP.projectID"]
+effects: ["GCP.projectID", "can-reach(169.254.169.254)"]
 references:
   - https://attack.mitre.org/techniques/T1552/005/
   - https://hackingthe.cloud/gcp/general-knowledge/metadata_in_google_cloud_instances

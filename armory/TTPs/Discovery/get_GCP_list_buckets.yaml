@@ -12,7 +12,7 @@ parameters:
   PROJECT_ID:
     type: string
     description: The GCP project ID
-    default: engineering-test-353509
+    default: adls-152q5v4ovh2urxs17pnkwnlwl
 procedures:
   - key: wget
     tool: wget
