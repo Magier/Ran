@@ -55,6 +55,38 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 		case domain.UnknownSystem:
 			isUnknown = true
 			resultingFacts, _, err = c.analyzeUnknownSystem(e)
+
+			// TODO: handle possible promotion of unknown system to known system properly and consistently ... see similar implementation further below
+			if len(resultingFacts.Entities) > 0 {
+				slog.Info("Analyzed Unknown system resulted in more than 1 entity - handling possible promotion only for the first one.")
+			}
+			for _, resultingSys := range resultingFacts.Entities {
+				// Unknon system was promoted, if the type changed ... assumes only 1 entity is returned
+
+				if _, ok := resultingSys.(domain.UnknownSystem); !ok {
+					// update edges in the KB
+					new, removedEdges := c.transplantEdges(e, resultingSys)
+					resultingFacts.Update(new)
+					removed.Update(removedEdges)
+					removed.Entities = append(removed.Entities, e)
+
+					for i, r := range relations {
+						if r.GetSourceId() == e.GetId() {
+							if relocator, ok := r.(domain.RelationRelocator); ok {
+								newRel := relocator.WithSource(resultingSys)
+								relations[i] = newRel
+							}
+						} else if r.GetTargetId() == e.GetId() {
+							if relocator, ok := r.(domain.RelationRelocator); ok {
+								newRel := relocator.WithTarget(resultingSys)
+								relations[i] = newRel
+							} else {
+								slog.Warn("Could not relocate incoming relation", "relation", r.GetRelationName())
+							}
+						}
+					}
+				}
+			}
 		case domain.CloudEnvironment:
 			if cluster, ok := c.GetK8sCluster(); ok {
 				entities[e.GetId()] = e
@@ -63,6 +95,16 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 						domain.Contains{Container: e, Object: cluster},
 					},
 				}
+			}
+		case domain.MetadataServer:
+			entities[e.GetId()] = e
+			if cluster, ok := c.GetK8sCluster(); ok {
+				relations = append(relations, domain.Contains{
+					Container: cluster,
+					Object:    e,
+				})
+			} else {
+				slog.Error("Metadata Server found, but no Kubernetes cluster in knowledge base")
 			}
 		case domain.GCPServiceAccount:
 			entities[e.GetId()] = e
@@ -1177,8 +1219,24 @@ func (c Campaign) analyzeUnknownSystem(sys domain.UnknownSystem) (domain.Facts, 
 		updatedEntity := domain.UpdateEntity(matchedEntity, sys).(domain.System)
 		entities = append(entities, updatedEntity)
 	} else {
-		// keep the unknown system and try to match it at a later point in time
-		entities = append(entities, sys)
+		isMetadataServer := false
+		// check if any of the IPs are the metadata server IP (169.254.169.254)
+		for _, ip := range sys.IPs {
+			if ip.IP.String() == "169.254.169.254" {
+				isMetadataServer = true
+				break
+			}
+		}
+
+		if isMetadataServer {
+			// TODO: support other cloud service providers
+			csp := "GCP"
+			metadataServer := domain.NewMetadataServer(csp)
+			entities = append(entities, metadataServer)
+		} else {
+			// keep the unknown system and try to match it at a later point in time
+			entities = append(entities, sys)
+		}
 	}
 
 	return domain.Facts{
