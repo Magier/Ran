@@ -350,6 +350,16 @@ export function getGraphStyle() {
 			}
 		},
 		{
+			selector: 'edge[name="can-reach"]',
+			style: {
+				color: 'gray',
+				'line-color': 'gray',
+				'target-arrow-color': 'gray',
+				'line-style': 'dotted',
+				'font-size': 7
+			}
+		},
+		{
 			selector: 'edge[name="runs-on"]',
 			style: {
 				color: 'gray',

@@ -517,3 +517,25 @@ func (r MountsHostPath) WithTarget(e Entity) Relation {
 	}
 	return r
 }
+
+type CanReach struct {
+	RelationImpl
+	SourceId string
+	TargetId string
+	Address  string
+}
+
+var _ Relation = (*CanReach)(nil)
+
+func (r CanReach) GetSourceId() string     { return r.SourceId }
+func (r CanReach) GetTargetId() string     { return r.TargetId }
+func (r CanReach) GetRelationName() string { return "can-reach" }
+
+func (r CanReach) WithSource(e Entity) Relation {
+	r.SourceId = e.GetId()
+	return r
+}
+func (r CanReach) WithTarget(e Entity) Relation {
+	r.TargetId = e.GetId()
+	return r
+}
