@@ -396,7 +396,7 @@ type UnknownSystem struct {
 }
 
 func (s UnknownSystem) GetId() string {
-	return "???"
+	return s.HostName
 }
 func (s UnknownSystem) GetName() string {
 	return s.HostName
@@ -419,12 +419,19 @@ func (s UnknownSystem) PromoteToK8sNode() (K8sNode, error) {
 }
 
 func NewSystem(hostname, os string, accessLevel AccessLevel) UnknownSystem {
+	ips := []net.IPAddr{}
+
+	// if the targetID is an IP, also explicitely set the IP address
+	if ip := net.ParseIP(hostname); ip != nil {
+		ips = append(ips, net.IPAddr{IP: ip})
+	}
+
 	return UnknownSystem{
 		SystemImpl: &SystemImpl{
 			HostName:    hostname,
 			OS:          os,
 			AccessLevel: accessLevel,
-			IPs:         []net.IPAddr{},
+			IPs:         ips,
 			EnvVars:     make(map[string]string),
 			Binaries:    make(map[string]string),
 			Files:       []string{},
@@ -1507,4 +1514,44 @@ func NewConfigMapFromK8sSpec(s v1.ConfigMap) ConfigMap {
 		Data:      dataStr,
 		Immutable: AsProbBool(s.Immutable != nil && *s.Immutable),
 	}
+}
+
+type MetadataServer struct {
+	Kind   string     `json:"kind"`
+	Name   string     `json:"name"`
+	IP     net.IPAddr `json:"ip"`
+	Flavor string     `json:"flavor,omitzero"`
+	// Attributes map[string]any `json:"attributes,omitzero"`
+}
+
+func NewMetadataServer(csp string) MetadataServer {
+	name := "169.254.169.254"
+	kind := "MetadataServer"
+	switch strings.ToLower(csp) {
+	case "gcp":
+		kind = "GCPMetadataServer"
+	case "aws":
+		kind = "AWSMetadataServer"
+	case "azure":
+		kind = "AzureMetadataServer"
+	}
+
+	return MetadataServer{
+		Name:   name,
+		Kind:   kind,
+		Flavor: csp,
+		IP:     net.IPAddr{IP: net.IP{169, 254, 169, 254}},
+	}
+}
+
+func (s MetadataServer) GetId() string {
+	return "metadata/" + s.Name
+}
+
+func (s MetadataServer) GetName() string {
+	return s.Name
+}
+
+func (s MetadataServer) GetKind() string {
+	return s.Kind
 }
