@@ -339,9 +339,14 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 	}
 
 	var facts domain.Facts
-	effectParts := strings.SplitN(effect, ".", 2)
-	effectDomain := effectParts[0]
-	effectDetail := effectParts[1]
+	effectDomain := ""
+	effectDetail := effect
+
+	if strings.Contains(effect, ".") {
+		effectParts := strings.SplitN(effect, ".", 2)
+		effectDomain = effectParts[0]
+		effectDetail = effectParts[1]
+	}
 
 	switch effectDomain {
 	case "k8s":
@@ -570,6 +575,14 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 						slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
 					} else {
 						entities = append(entities, resultingEntity)
+					}
+				} else if strings.HasSuffix(relationName, "can-reach") {
+					es, rels, err := parseCanReachEffect(source, relationArgs)
+					if err != nil {
+						slog.Error(fmt.Sprintf("Failed to parse can-reach effect: %v", err))
+					} else {
+						entities = append(entities, es...)
+						relations = append(relations, rels...)
 					}
 				}
 			}
@@ -1328,4 +1341,34 @@ func parseReverseDnsLookup(data string) (map[string]string, error) {
 		slog.Info(fmt.Sprintf("Reverse DNS parsed: %s -> %s", ipStr, dns))
 	}
 	return results, nil
+}
+
+func parseCanReachEffect(source domain.Entity, args []string) ([]domain.Entity, []domain.Relation, error) {
+	entities := []domain.Entity{}
+	relations := []domain.Relation{}
+
+	sourceID := source.GetId()
+	var targetID string
+
+	if len(args) == 1 {
+		targetID = args[0]
+	} else {
+		sourceID = args[0]
+		targetID = args[1]
+	}
+
+	switch relationName := "can-reach"; relationName {
+	case "can-reach":
+		sys := domain.NewSystem(targetID, "", domain.NoAccess)
+		entities = append(entities, sys)
+
+		relations = append(relations, domain.CanReach{
+			SourceId: sourceID,
+			TargetId: sys.GetId(),
+		})
+	default:
+		return nil, nil, fmt.Errorf("Unknown relation name in can-reach effect: %s", relationName)
+	}
+
+	return entities, relations, nil
 }
