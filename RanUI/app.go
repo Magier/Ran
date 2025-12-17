@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	api "github.com/Magier/Ran/api"
@@ -64,8 +65,15 @@ func (r *RuntimeWrapper) LogError(ctx context.Context, msg string) {
 func NewApp() *App {
 	var runtimeWrapper = &RuntimeWrapper{}
 	r := ran.InitRan("", "armory/")
-	a := &App{ran: &r, API: api.NewAPI(&r, runtimeWrapper)}
-	return a
+	println("Starting Ran")
+	a := api.NewAPI(&r, runtimeWrapper)
+	app := &App{ran: &r, API: a}
+	go func() {
+		if err := a.StartServer(":8080"); err != nil {
+			slog.Error("Failed to start API server", "error", err)
+		}
+	}()
+	return app
 }
 
 func (a *App) GetArmory() []domain.TTP {
