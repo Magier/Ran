@@ -60,7 +60,55 @@ class CampaignState {
 
     connect(useSocket: boolean) {
         if (useSocket) {
-            console.log("Connecting using socket is not yet supported in the new campaign context");
+            const socket = new WebSocket("ws://localhost:8080/ws"); // Adjust URL as needed
+            socket.onopen = () => {
+                console.log("WebSocket connection established");
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    const { type, data } = message;
+
+                    switch (type) {
+                        case "armory-loaded":
+                            this.armory = parseArmory(data);
+                            break;
+                        case "facts-changed":
+                            GetGraph().then((g: api.Graph) => { this.graph = g; });
+                            GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); });
+                            break;
+                        case "error-msg":
+                            const msg: ErrorMsg = typeof data === 'string' ? JSON.parse(data) : data;
+                            let toastType: ToastType;
+                            switch (msg.Level) {
+                                case "ERROR":
+                                case "WARN":
+                                case "FATAL":
+                                    toastType = "error";
+                                    break;
+                                case "INFO":
+                                case "DEBUG":
+                                default:
+                                    toastType = "info";
+                            }
+                            showToast("Error", msg.Msg, toastType);
+                            break;
+                        default:
+                            console.log("Unknown event type:", type, data);
+                    }
+                } catch (err) {
+                    console.error("Failed to parse WebSocket message:", err);
+                }
+            };
+
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+            };
+
+            socket.onclose = () => {
+                console.log("WebSocket connection closed");
+            };
         } else {
             this.connectBackend();
         }

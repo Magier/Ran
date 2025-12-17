@@ -4,6 +4,8 @@ import {context} from '../models';
 import {api} from '../models';
 import {domain} from '../models';
 
+export function BroadcastMessage(arg1:Array<number>):Promise<void>;
+
 export function ClientReady(arg1:context.Context):Promise<void>;
 
 export function ExecuteAction(arg1:string,arg2:string,arg3:string,arg4:api.ActionArgs):Promise<void>;
@@ -27,3 +29,5 @@ export function ResetCampaign():Promise<void>;
 export function SaveFlow():Promise<boolean>;
 
 export function SetContext(arg1:context.Context):Promise<void>;
+
+export function StartServer(arg1:string):Promise<void>;
