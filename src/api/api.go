@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/Magier/Ran/campaign"
@@ -14,7 +15,6 @@ import (
 	"github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
 	"github.com/go-chi/chi/v5"
-	"github.com/gorilla/websocket"
 )
 
 type CampaignState struct {
@@ -75,6 +75,14 @@ type Graph struct {
 	Edges      []Edge `json:"edges"`
 	RootNodeID string `json:"rootNodeId"`
 }
+
+type ExecuteActionCmd struct {
+	ActionID    string            `json:"actionId"`
+	TargetID    string            `json:"targetId"`
+	ProcedureID string            `json:"procedureId"`
+	Args        map[string]string `json:"args"`
+}
+
 type Runtime interface {
 	LogInfo(ctx context.Context, msg string)
 	LogInfof(ctx context.Context, format string, args ...interface{})
@@ -84,19 +92,12 @@ type Runtime interface {
 }
 
 type API struct {
-	ctx     context.Context
-	ran     *ran.Ran
-	runtime Runtime
-	clients map[*websocket.Conn]bool
-	router  chi.Router
-}
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for development
-	},
+	ctx       context.Context
+	ran       *ran.Ran
+	runtime   Runtime
+	clients   map[*WSClient]bool
+	clientsMu sync.RWMutex
+	router    chi.Router
 }
 
 func NewAPI(r *ran.Ran, rt Runtime) *API {
@@ -104,7 +105,7 @@ func NewAPI(r *ran.Ran, rt Runtime) *API {
 		// Ctx:     ctx,
 		ran:     r,
 		runtime: rt,
-		clients: make(map[*websocket.Conn]bool),
+		clients: make(map[*WSClient]bool),
 	}
 	router := chi.NewRouter()
 	router.Get("/", func(w http.ResponseWriter, req *http.Request) {
@@ -143,7 +144,11 @@ func NewAPI(r *ran.Ran, rt Runtime) *API {
 		if err != nil {
 			return nil, err
 		}
-		a.runtime.EventsEmit(a.ctx, eventName, string(jsonBytes))
+		for client := range a.clients {
+			if err := client.sendJSON(eventName, json.RawMessage(jsonBytes)); err != nil {
+				slog.Error("WebSocket send error", "error", err)
+			}
+		}
 		return nil, nil
 	})
 
@@ -166,46 +171,11 @@ func (a *API) SetContext(ctx context.Context) {
 	a.ctx = ctx
 }
 
-func (a *API) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		slog.Error("WebSocket upgrade failed", "error", err)
-		return
-	}
-	defer conn.Close()
-
-	a.clients[conn] = true
-	defer delete(a.clients, conn)
-
-	slog.Info("WebSocket client connected")
-
-	for {
-		conn.WriteMessage(websocket.TextMessage, []byte("{\"type\": \"test\", \"data\": \"Message received\"}"))
-		messageType, message, err := conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				slog.Error("WebSocket read error", "error", err)
-			}
-			break
-		}
-
-		slog.Debug("WebSocket message received", "message", string(message))
-
-		// Echo the message back (can be customized for specific message handling)
-		if err := conn.WriteMessage(messageType, message); err != nil {
-			slog.Error("WebSocket write error", "error", err)
-			break
-		}
-	}
-
-	slog.Info("WebSocket client disconnected")
-}
-
 func (a *API) BroadcastMessage(message []byte) {
 	for client := range a.clients {
-		if err := client.WriteMessage(websocket.TextMessage, message); err != nil {
+		if err := client.sendJSON("broadcast", message); err != nil {
 			slog.Error("WebSocket broadcast error", "error", err)
-			client.Close()
+			// client.Close()
 			delete(a.clients, client)
 		}
 	}
