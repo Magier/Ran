@@ -65,7 +65,6 @@ func (r *RuntimeWrapper) LogError(ctx context.Context, msg string) {
 func NewApp() *App {
 	var runtimeWrapper = &RuntimeWrapper{}
 	r := ran.InitRan("", "armory/")
-	println("Starting Ran")
 	a := api.NewAPI(&r, runtimeWrapper)
 	app := &App{ran: &r, API: a}
 	go func() {
