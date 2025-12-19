@@ -8,7 +8,6 @@ import (
 
 	api "github.com/Magier/Ran/api"
 	ran "github.com/Magier/Ran/core"
-	"github.com/Magier/Ran/domain"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -36,36 +35,10 @@ type App struct {
 // 	Parameters  string `json:"params"`
 // }
 
-type RuntimeWrapper struct{}
-
-// EventsEmit implements api.Runtime.
-func (r *RuntimeWrapper) EventsEmit(ctx context.Context, eventName string, data ...interface{}) {
-	runtime.EventsEmit(ctx, eventName, data...)
-}
-
-// LogErrorf implements api.Runtime.
-func (r *RuntimeWrapper) LogErrorf(ctx context.Context, format string, args ...interface{}) {
-	runtime.LogErrorf(ctx, format, args...)
-}
-
-// LogInfof implements api.Runtime.
-func (r *RuntimeWrapper) LogInfof(ctx context.Context, format string, args ...interface{}) {
-	runtime.LogInfof(ctx, format, args...)
-}
-
-func (r *RuntimeWrapper) LogInfo(ctx context.Context, msg string) {
-	runtime.LogInfo(ctx, msg)
-}
-
-func (r *RuntimeWrapper) LogError(ctx context.Context, msg string) {
-	runtime.LogError(ctx, msg)
-}
-
 // NewApp creates a new App application struct
 func NewApp() *App {
-	var runtimeWrapper = &RuntimeWrapper{}
 	r := ran.InitRan("", "armory/")
-	a := api.NewAPI(&r, runtimeWrapper)
+	a := api.NewAPI(&r)
 	app := &App{ran: &r, API: a}
 	go func() {
 		if err := a.StartServer(":8080"); err != nil {
@@ -73,10 +46,6 @@ func NewApp() *App {
 		}
 	}()
 	return app
-}
-
-func (a *App) GetArmory() []domain.TTP {
-	return a.ran.Armory.GetTTPs()
 }
 
 // func ignoreNestedAttributes(groups []string, a slog.Attr) slog.Attr {
@@ -113,11 +82,10 @@ func (a *App) startup(ctx context.Context) {
 	// lazy workaround; plan is to remove wails, so no need to make it perfect
 	a.ctx = ctx
 
-	runtime.EventsOn(ctx, "get-armory", func(data ...any) {
-		runtime.EventsEmit(ctx, "armory-loaded", a.ran.Armory.GetTTPs())
-	})
+	// runtime.EventsOn(ctx, "get-armory", func(data ...any) {
+	// 	runtime.EventsEmit(ctx, "armory-loaded", a.ran.Armory.GetTTPs())
+	// })
 
-	runtime.LogInfo(a.ctx, "RanUI starting up")
 	if err := a.ran.Start(ctx, false, ""); err != nil {
 		runtime.LogError(ctx, "Failed to start Ran: "+err.Error())
 
@@ -131,7 +99,6 @@ func (a *App) startup(ctx context.Context) {
 		}
 		runtime.Quit(ctx)
 	}
-	// a.ran.Start(false, "../campaign_2025-03-03T06-31-16.json")
 }
 
 func (a *App) SaveFlow() bool {

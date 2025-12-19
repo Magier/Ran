@@ -41,6 +41,13 @@ func InitRan(target, armoryDir string) Ran {
 		armoryDir = "./armory/"
 	}
 
+	// Initialize structured logging with slog.
+	// Make sure to add "os" and "log/slog" to your import list.
+	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})
+	slog.SetDefault(slog.New(h))
+
 	path, _ := os.Getwd()
 	// Temporarily fix for running from the root of the project
 	if filepath.Base(path) == "RanUI" {

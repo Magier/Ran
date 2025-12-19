@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
-	import { campaign } from '$lib/wailsjs/go/models';
+	import { campaign } from '$lib/domain/models';
 	import { iconMap } from '$lib/tactic_icons';
 	import Icon from '@iconify/svelte';
 

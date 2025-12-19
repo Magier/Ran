@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { domain } from '$lib/wailsjs/go/models';
-
 	interface Observable {
 		title: string;
 		type: string
