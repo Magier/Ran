@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { campaign } from '$lib/wailsjs/go/models';
+	import type { campaign } from '$lib/domain/models';
 	import ObservableInfo from './observable_info.svelte';
 
 	interface ActionDetailProps {

@@ -6,8 +6,8 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/Magier/Ran/api"
 	"github.com/Magier/Ran/core"
-	"github.com/Magier/Ran/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -20,14 +20,19 @@ func newEmulationCmd() *cobra.Command {
 		Short: "Emulate adversary behavior against a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
 			ran := core.InitRan(target, "../armory/")
-			t := tui.SetupTUI(ran)
+			api := api.NewAPI(&ran)
+			// t := tui.SetupTUI(ran)
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer cancel()
 			err := ran.Start(ctx, godMode, planPath)
 			if err != nil {
-				fmt.Println("❌", err.Error())
+				fmt.Println("❌ failed to start Ran", err.Error())
 			} else {
-				tui.RunTUI(t)
+				if err = api.StartServer(":8080"); err != nil {
+					fmt.Println("❌ failed to start API server", err.Error())
+				}
+				fmt.Printf("post start")
+				// tui.RunTUI(t)
 			}
 		},
 	}

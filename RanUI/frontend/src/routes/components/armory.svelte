@@ -8,11 +8,10 @@
 
 	import ActionCard from './action_card.svelte';
 	import { Accordion } from '@skeletonlabs/skeleton-svelte';
-	import { GetApplicableTTPs  } from '$lib/wailsjs/go/main/App';
-	import { domain } from '$lib/wailsjs/go/models';
+	import { domain } from '$lib/domain/models';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
-	const campaignState = getCampaignState();
+	const campaign = getCampaignState();
 
 	type ArmoryProps = {
 		class?: string;
@@ -36,11 +35,11 @@
 	let showAllTTPs: boolean = $state(false);
 	let openTactic = $state(['Initial Access']);
 
-	$effect(() => { armory = campaignState.armory; });
+	$effect(() => { armory = campaign.armory; });
 
 	let applicableTTPs: ArmoryType = $state(new Map());
 	$effect(() => {
-		GetApplicableTTPs(targetId)
+		campaign.api.GetApplicableTTPs(targetId)
 			.then((result: domain.TTP[]) => {
 				applicableTTPs = parseArmory(result);
 
@@ -126,7 +125,7 @@
 	</div> -->
 	<div>
 		<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible>
-			{#each Array.from(showAllTTPs ? campaignState.armory : applicableTTPs) as [tactic, ttps]}
+			{#each Array.from(showAllTTPs ? campaign.armory : applicableTTPs) as [tactic, ttps]}
 				<hr class="hr" />
 				<Accordion.Item
 					panelClasses="mb-1 bg-surface-200-800"

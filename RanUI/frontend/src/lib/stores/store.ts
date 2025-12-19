@@ -2,8 +2,7 @@ import { get, writable } from 'svelte/store';
 import { browser } from '$app/environment';
 import type { ArmoryType, Node, Edge } from '$lib/model';
 import * as runtime from "$lib/wailsjs/runtime";
-import { GetGraph } from '$lib/wailsjs/go/main/App';
-import type { domain, main } from '$lib/wailsjs/go/models';
+import type { domain } from '$lib/domain/models';
 
 interface Command {
 	[key: string]: any
@@ -64,12 +63,8 @@ function handleDisconnect(event: CloseEvent) {
 	}
 }
 
-function connect(useSocket: boolean = false) {
-	if (useSocket) {
-		return connectSocket()
-	} else {
-		connectBackend()
-	}
+function connect() {
+	return connectSocket()
 }
 
 function connectSocket() {
@@ -93,26 +88,26 @@ function connectSocket() {
 }
 
 
-function connectBackend() {
-	console.warn("[legacy] connecting backend ")
-	// runtime.EventsOn("*", onMessage)
-	runtime.EventsOn("*", (a) => {
-		console.log(a);
-	});
-	runtime.EventsOn("armory-loaded", (data) => {
-		let a = parseArmory(data)
-		armory.set(a);
-	});
-	runtime.EventsOn("facts-changed", (data) => {
-		GetGraph().then((g: main.Graph) => {
-			graph.set(g);
-		});
-	})
+// function connectBackend() {
+// 	console.warn("[legacy] connecting backend ")
+// 	// runtime.EventsOn("*", onMessage)
+// 	runtime.EventsOn("*", (a) => {
+// 		console.log(a);
+// 	});
+// 	runtime.EventsOn("armory-loaded", (data) => {
+// 		let a = parseArmory(data)
+// 		armory.set(a);
+// 	});
+// 	runtime.EventsOn("facts-changed", (data) => {
+// 		GetGraph().then((g: main.Graph) => {
+// 			graph.set(g);
+// 		});
+// 	})
 
-	GetGraph().then((g: main.Graph) => {
-		graph.set(g);
-	})
-}
+// 	GetGraph().then((g: main.Graph) => {
+// 		graph.set(g);
+// 	})
+// }
 
 function parse_topology(data: any): [Node[], Edge[]] {
 	let nodes = [];
@@ -187,6 +182,7 @@ export function parseArmory(data: domain.TTP[]): ArmoryType {
 }
 
 const sendMessage = (msgType: string, command: Command) => {
+	debugger
 	if (useWails) {
 		console.log(`Sending message ${msgType} to backend`)
 		runtime.EventsEmit(msgType, JSON.stringify(command));
@@ -205,6 +201,5 @@ export default {
 	removeSubgraph: removeSubgraph.subscribe,
 	armory: armory.subscribe,
 	onAlert: alerts.subscribe,
-	connectBackend: connectBackend,
 	sendMessage
 };

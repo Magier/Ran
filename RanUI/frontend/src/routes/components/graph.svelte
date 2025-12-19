@@ -6,19 +6,19 @@
 	import { toaster } from '$lib/components/toaster';
 
 	import { getGraphStyle, layout, applyCompromisedStyle } from './graph_style';
-	import type { main } from '$lib/wailsjs/go/models';
+	import type { api } from '$lib/domain/models';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
 	type GraphProps = {
 		class?: string;
 		selectedObjectId: string;
-		selectedObject?: main.Node | main.Edge | undefined;
+		selectedObject?: api.Node | api.Edge | undefined;
 	};
 
 	type CyNode = {
 		id: string;
 		label: string;
-		data: main.Node;
+		data: api.Node;
 		position?: { x: number; y: number };
 	};
 	type Pos = { x: number; y: number };
@@ -237,7 +237,7 @@
 		selectedObjectId = '';
 	}
 
-	function toCyNode(n: main.Node, nodePos: Record<string, any>): CyNode {
+	function toCyNode(n: api.Node, nodePos: Record<string, any>): CyNode {
 		let cyNode: CyNode ={
 			id: n.id,
 			label: n.name,
@@ -251,7 +251,7 @@
 		return cyNode
 	}
 
-	function toCyEdge(e: main.Edge) {
+	function toCyEdge(e: api.Edge) {
 		return {
 			data: {
 				source: e.sourceId,

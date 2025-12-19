@@ -1,5 +1,5 @@
 <script lang="ts">
-	import {domain} from '$lib/wailsjs/go/models';
+	import {domain} from '$lib/domain/models';
 
     type EntitlementsInfoProps = {
         entitlements: domain.RBACPermission[]

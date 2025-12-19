@@ -16,6 +16,13 @@ export const layout = {
 	fit: false,
 	animate: true,
 	animationDuration: 200,
+	nestingFactor: 1.2,     // Increase separation between levels
+	nodeRepulsion: 400,    // Stronger repulsion
+	idealEdgeLength: 50,
+
+	  // Compound handling
+	packComponents: true,
+	tile: false,
 };
 
 const kind_svg_map = {

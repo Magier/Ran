@@ -1,4 +1,4 @@
-import { campaign, api, type domain } from '$lib/wailsjs/go/models';
+import { campaign, api, type domain } from '$lib/domain/models';
 
 type PendingRequest = {
     resolve: (value: any) => void;
@@ -11,9 +11,11 @@ export class RanAPI {
     private messageHandlers = new Map<string, (data: any) => void>();
 
     connect(url: string = "ws://localhost:8080/ws"): Promise<void> {
-        this.socket = new WebSocket(url);
         console.info("Connecting to WebSocket at", url);
+        console.log("websocket this", this)
+        console.log("websocket this.socket", this.socket)
         return new Promise((resolve, reject) => {
+            this.socket = new WebSocket(url);
             this.socket.onopen = () => {
                 console.log("WebSocket connection established");
                 resolve();
@@ -26,6 +28,7 @@ export class RanAPI {
                 this.handleMessage(event);
             };
             this.socket.onclose = () => {
+                console.warn("❌ WebSocket connection closed");
                 // Reject all pending requests on close
                 this.pendingRequests.forEach((req) => {
                     req.reject(new Error("WebSocket closed"));
@@ -81,7 +84,6 @@ export class RanAPI {
 
     // Subscribe to push events (events not triggered by a request)
     on(type: string, handler: (data: any) => void) {
-        console.log("received", type);
         this.messageHandlers.set(type, handler);
     }
 
@@ -102,7 +104,16 @@ export class RanAPI {
     GetRunningPods(namespace: string): Promise<Array<api.K8sResource>> {
         return this.sendMessage<Array<api.K8sResource>>("get-running-pods", { namespace });
     }   
+
+    ResetCampaign(): Promise<void> {
+        return this.sendMessage<void>("reset-campaign");
+    }
+
+    GetApplicableTTPs(targetId: string): Promise<Array<domain.TTP>> {
+        return this.sendMessage<Array<domain.TTP>>("get-applicable-ttps", { targetId });
+    }
 }
+
 
 // export const ranSocket = new RanSocket(`ws://${window.location.host}/ws`);  
 
@@ -114,3 +125,24 @@ export class RanAPI {
 //     }
 //     return instance;
 // }
+
+// Singleton instance
+const ranAPI = new RanAPI();
+
+export function getRanAPI(): RanAPI {
+    return ranAPI;
+}
+
+// Export the singleton
+export { ranAPI };
+
+// Export bound functions for convenience
+export const connect = ranAPI.connect.bind(ranAPI);
+export const on = ranAPI.on.bind(ranAPI);
+export const off = ranAPI.off.bind(ranAPI);
+export const GetGraph = ranAPI.GetGraph.bind(ranAPI);
+export const GetCampaignState = ranAPI.GetCampaignState.bind(ranAPI);
+export const GetArmory = ranAPI.GetArmory.bind(ranAPI);
+export const GetRunningPods = ranAPI.GetRunningPods.bind(ranAPI);
+export const ResetCampaign = ranAPI.ResetCampaign.bind(ranAPI);
+export const GetApplicableTTPs = ranAPI.GetApplicableTTPs.bind(ranAPI);

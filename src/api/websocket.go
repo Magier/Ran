@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
@@ -29,6 +30,7 @@ var upgrader = websocket.Upgrader{
 
 type WSClient struct {
 	conn *websocket.Conn
+	mu   sync.Mutex
 }
 
 func (client *WSClient) sendJSON(name string, v interface{}) error {
@@ -41,6 +43,9 @@ func (client *WSClient) sendJSON(name string, v interface{}) error {
 		slog.Error("Failed to marshal response", "error", err)
 		return err
 	}
+
+	client.mu.Lock()
+	defer client.mu.Unlock()
 	if err := client.conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		slog.Error("Failed to write message", "error", err)
 		return err

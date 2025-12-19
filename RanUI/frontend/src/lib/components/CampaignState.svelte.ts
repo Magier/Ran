@@ -1,10 +1,8 @@
 import { getContext, setContext } from "svelte";
-import * as runtime from "$lib/wailsjs/runtime";
 import type { ArmoryType, Node, Edge } from '$lib/model';
-import { campaign, api, type domain } from '$lib/wailsjs/go/models';
-import { GetArmory, GetCampaignState, GetGraph, GetRunningPods, ResetCampaign } from '$lib/wailsjs/go/main/App';
+import { campaign, api, type domain } from '$lib/domain/models';
 import { showToast, type ToastType } from '$lib/components/toaster';
-import { RanAPI } from '$lib/ran_api';
+import { getRanAPI, RanAPI } from '$lib/ran_api';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
 
@@ -59,7 +57,7 @@ class CampaignState {
     graph = $state<api.Graph>(new api.Graph());
     allPods: Entity[] = $state([]);
     pendingMessages: string[] = [];
-    api: RanAPI = $state(new RanAPI());
+    api: RanAPI = $state(getRanAPI());
 
     init(url: string = "ws://localhost:8080/ws"): Promise<void> {
         // this.api.onmessage = this.handleMessage;
@@ -68,10 +66,9 @@ class CampaignState {
             this.armory = parseArmory(data);
         });
         this.api.on("facts-changed", (data: any) => {
-            debugger
-            GetGraph().then((g: api.Graph) => { this.graph = g; });
+            this.api.GetGraph().then((g: api.Graph) => { this.graph = g; });
             // TODO: properly update state based on the received fact changes
-            GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
+            this.api.GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
         });
         this.api.on("error-msg", (rawMsg: string) => {
             let msg: ErrorMsg = JSON.parse(rawMsg);
@@ -93,6 +90,7 @@ class CampaignState {
             showToast("Error", msg.Msg, toastType);
         });
 
+        console.log("CampaignState connecting to backend...");
         return this.api.connect(url).then((a) => {
             this.api.GetGraph().then((g: api.Graph) => { this.graph = g; })
             this.api.GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
@@ -112,8 +110,8 @@ class CampaignState {
                     this.armory = parseArmory(data);
                     break;
                 case "facts-changed":
-                    GetGraph().then((g: api.Graph) => { this.graph = g; });
-                    GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); });
+                    this.api.GetGraph().then((g: api.Graph) => { this.graph = g; });
+                    this.api.GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); });
                     break;
                 case "error-msg":
                     const msg: ErrorMsg = typeof data === 'string' ? JSON.parse(data) : data;
@@ -142,46 +140,46 @@ class CampaignState {
         }
     }
 
-    connectBackend() {
-        console.info("CampaignState connecting to backend...");
-        runtime.EventsOn("*", (a) => {
-            console.log(a);
-        });
-        runtime.EventsOn("armory-loaded", (data) => {
-            this.armory = parseArmory(data)
-        });
-        runtime.EventsOn("facts-changed", (dataStr: string) => {
-            GetGraph().then((g: api.Graph) => { this.graph = g; });
-            // TODO: properly update state based on the received fact changes
-            const data = JSON.parse(dataStr);
-            GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
-        })
-        runtime.EventsOn("error-msg", (rawMsg: string) => {
-            let msg: ErrorMsg = JSON.parse(rawMsg);
+    // connectBackend() {
+    //     console.info("CampaignState connecting to backend...");
+    //     runtime.EventsOn("*", (a) => {
+    //         console.log(a);
+    //     });
+    //     runtime.EventsOn("armory-loaded", (data) => {
+    //         this.armory = parseArmory(data)
+    //     });
+    //     runtime.EventsOn("facts-changed", (dataStr: string) => {
+    //         GetGraph().then((g: api.Graph) => { this.graph = g; });
+    //         // TODO: properly update state based on the received fact changes
+    //         const data = JSON.parse(dataStr);
+    //         GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
+    //     })
+    //     runtime.EventsOn("error-msg", (rawMsg: string) => {
+    //         let msg: ErrorMsg = JSON.parse(rawMsg);
 
-            // Map msg.Level to ToastType
-            let toastType: ToastType;
-            switch (msg.Level) {
-                case "ERROR":
-                case "WARN":
-                case "FATAL":
-                    toastType = "error";
-                    break;
-                case "INFO":
-                case "DEBUG":
-                default:
-                    toastType = "info";
-            }
+    //         // Map msg.Level to ToastType
+    //         let toastType: ToastType;
+    //         switch (msg.Level) {
+    //             case "ERROR":
+    //             case "WARN":
+    //             case "FATAL":
+    //                 toastType = "error";
+    //                 break;
+    //             case "INFO":
+    //             case "DEBUG":
+    //             default:
+    //                 toastType = "info";
+    //         }
 
-            showToast("Error", msg.Msg, toastType);
-        });
+    //         showToast("Error", msg.Msg, toastType);
+    //     });
 
 
-        GetGraph().then((g: api.Graph) => { this.graph = g; })
-        GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
-        GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
-        GetRunningPods("").then(pods => { this.allPods = pods; }).catch(this.showError);
-    }
+    //     GetGraph().then((g: api.Graph) => { this.graph = g; })
+    //     GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
+    //     GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
+    //     GetRunningPods("").then(pods => { this.allPods = pods; }).catch(this.showError);
+    // }
     showError(msg: string | object) {
         if (typeof msg === 'object') {
             if (msg.hasOwnProperty('code') && (msg as BackendError).code == "GO_BOUND_METHOD_ERROR") {
@@ -203,8 +201,8 @@ class CampaignState {
         this.pods = [];
         this.serviceAccounts = [];
         this.campaignId += 1; // Increment campaign ID, to trigger changes based on new campaign
-        ResetCampaign().then(() => {
-            GetGraph().then((g: api.Graph) => { this.graph = g; });
+        this.api.ResetCampaign().then(() => {
+            this.api.GetGraph().then((g: api.Graph) => { this.graph = g; });
         });
     }
 
@@ -240,7 +238,6 @@ class CampaignState {
         }
 
         this.entities = state.entities.map((node: Node) => {
-            debugger
             return {
                 id: node.id,
                 name: node.name,
@@ -300,6 +297,15 @@ class CampaignState {
         }
         return serviceAccounts || [];
     }
+
+    ExecuteAction(ttpId: string, targetId: string, procedure: string, parameters: Record<string, any>): Promise<void> {
+        return this.api.sendMessage<void>("execute-action", {
+            ttpId,
+            targetId,
+            procedure,
+            parameters
+        });
+    }
 }
 
 const DEFAULT_KEY = '$_campaignState';
@@ -318,7 +324,6 @@ export const setCampaignState = (key = DEFAULT_KEY) => {
 export function parseArmory(data: domain.TTP[]): ArmoryType {
     // this comes from the backend must be converted
     let armoryMap = new Map<string, domain.TTP[]>();
-    debugger
     for (let ttp of data) {
         let groupName = ttp.tactic;
         if (groupName === "") {

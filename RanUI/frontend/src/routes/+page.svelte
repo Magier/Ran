@@ -1,9 +1,8 @@
 <script lang="ts">
 	import Armory from './components/armory.svelte';
 	import store from '$lib/stores/store';
-	import * as runtime from '$lib/wailsjs/runtime';
 	import { ExecuteAction } from '$lib/wailsjs/go/main/App.js';
-	import { domain, api} from '$lib/wailsjs/go/models';
+	import { domain, api} from '$lib/domain/models';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
 	import { Modal, Popover } from '@skeletonlabs/skeleton-svelte';
@@ -12,9 +11,11 @@
 	import { showToast, toaster } from '$lib/components/toaster';
 	import EntityInfo from './components/entityInfo.svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+	import { getRanAPI } from '$lib/ran_api';
 
 	const campaignState = getCampaignState();
 
+	const ranAPI = getRanAPI();
 
 	let selectedObjectId: string = $state('');
 	let selectedObject: api.Node | undefined = $state();
@@ -41,7 +42,12 @@
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
-			ExecuteAction(ttp.id, selectedObjectId, '', {});
+			ExecuteAction(ttp.id, selectedObjectId, '', {}).then(() => {
+				showToast(`Executed TTP ${ttp.name}`, '', 'success');
+			}).catch((err) => {
+				showToast(`Error executing TTP ${ttp.name}`, err, 'error');
+			});
+			// ExecuteAction(ttp.id, selectedObjectId, '', {});
 		}
 	}
 
@@ -62,8 +68,10 @@
 
 	const ToastMapping: Record<string, string> = {};
 	function onExecuteTTP(ttpId: string, procedureId: string, args: Record<string, string>) {
-		runtime.EventsOnce('ttp-executed', (dataStr) => {
+		// TODO: cleanup, register handler only once
+		ranAPI.on('ttp-executed', (dataStr) => {
 			let data = JSON.parse(dataStr);
+			console.log('TTP Executed Event', data);
 			const toastType = data.Success ? 'success' : 'error';
 			const title = data.Success
 				? `TTP ${data.TTP.name} executed successfully`

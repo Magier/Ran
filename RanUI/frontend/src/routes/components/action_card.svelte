@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AccessLevel } from '$lib/model';
-	import { domain } from '$lib/wailsjs/go/models';
+	import { domain } from '$lib/domain/models';
 	import Icon from '@iconify/svelte';
 
 	interface ActionCardProps {

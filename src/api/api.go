@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -83,28 +82,18 @@ type ExecuteActionCmd struct {
 	Args        map[string]string `json:"args"`
 }
 
-type Runtime interface {
-	LogInfo(ctx context.Context, msg string)
-	LogInfof(ctx context.Context, format string, args ...interface{})
-	LogError(ctx context.Context, msg string)
-	LogErrorf(ctx context.Context, format string, args ...interface{})
-	EventsEmit(ctx context.Context, eventName string, data ...interface{})
-}
-
 type API struct {
 	ctx       context.Context
 	ran       *ran.Ran
-	runtime   Runtime
 	clients   map[*WSClient]bool
 	clientsMu sync.RWMutex
 	router    chi.Router
 }
 
-func NewAPI(r *ran.Ran, rt Runtime) *API {
+func NewAPI(r *ran.Ran) *API {
 	a := &API{
 		// Ctx:     ctx,
 		ran:     r,
-		runtime: rt,
 		clients: make(map[*WSClient]bool),
 	}
 	router := chi.NewRouter()
@@ -138,7 +127,7 @@ func NewAPI(r *ran.Ran, rt Runtime) *API {
 				slog.Error(ev.Msg)
 			}
 		}
-		a.runtime.LogInfo(a.ctx, ">> 🖥️: "+eventName)
+		slog.Info(">> 🖥️: " + eventName)
 
 		jsonBytes, err := json.Marshal(msg)
 		if err != nil {
@@ -152,18 +141,14 @@ func NewAPI(r *ran.Ran, rt Runtime) *API {
 		return nil, nil
 	})
 
-	// Initialize structured logging with slog.
-	// Make sure to add "os" and "log/slog" to your import list.
-	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})
-	slog.SetDefault(slog.New(h))
-
 	return a
 }
 
 func (a *API) StartServer(addr string) error {
 	slog.Info("Starting HTTP server", "port", addr)
+	// go func() {
+	// 	<-ctx.Done()
+	// }()
 	return http.ListenAndServe(addr, a.router)
 }
 
@@ -316,7 +301,6 @@ func (a *API) ResetCampaign() error {
 }
 
 func (a *API) ExecuteAction(actionID, targetID, procedureID string, args ActionArgs) error { //, args map[string]string) {
-	a.runtime.LogInfo(a.ctx, "ActionSelected"+actionID+" target: "+targetID)
 	err := a.ran.Bus.Publish(domain.ActionSelected{
 		ActionID:    actionID,
 		TargetID:    targetID,
@@ -441,7 +425,7 @@ func (a *API) SaveFlow(path string) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("Failed to save campaign flow: %v", err)
 		} else {
-			a.runtime.LogInfof(a.ctx, "Campaign flow saved successfully to %s", path)
+			slog.Info("Campaign flow saved successfully", "path", path)
 			return true, nil
 		}
 	} else {

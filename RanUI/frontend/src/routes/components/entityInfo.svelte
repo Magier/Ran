@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Tree from '$lib/components/tree.svelte';
 	import EntitlementInfo from './entitlement_info.svelte';
-	import { domain } from '$lib/wailsjs/go/models';
+	import { domain } from '$lib/domain/models';
 	import { showToast } from '$lib/components/toaster';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
