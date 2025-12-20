@@ -1,4 +1,4 @@
-import type { domain } from "./wailsjs/go/models";
+import type { domain } from "./domain/models";
 
 export enum AccessLevel {
     UserRead = 1,

@@ -32,6 +32,20 @@ func (b *MessageBusProvider) HandleEvents(ctx context.Context) {
 			continue
 		}
 
+		// ensure errors are properly logged and not just propagated
+		if ev, ok := msg.(domain.ErrorMsg); ok && ev.Msg != "" {
+			switch ev.Level {
+			case domain.LevelWarn:
+				slog.Warn(ev.Msg)
+			case domain.LevelInfo:
+				slog.Info(ev.Msg)
+			case domain.LevelDebug:
+				slog.Debug(ev.Msg)
+			default:
+				slog.Error(ev.Msg)
+			}
+		}
+
 		// "*" subscribers listen to all events
 		b.mu.Lock()
 		subscribers := append(b.subscribers[msgName(msg)], b.subscribers[domain.ALL_EVENTS]...)

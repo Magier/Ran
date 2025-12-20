@@ -39,14 +39,21 @@ export class RanAPI {
     }
 
     private handleMessage(event: MessageEvent) {
+        let msgType: string;
+        let data: any;
+        let error: any;
         try {
-            const message = JSON.parse(event.data);
-            const { type, data, error } = message;
-
+            ({ type: msgType, data, error } = JSON.parse(event.data));
+        } catch (err) {
+            console.error("Failed to parse WebSocket message:", err, event.data);
+            return;
+        }
+        
+        try {
             // Check if this is a response to a pending request
-            const pending = this.pendingRequests.get(type);
+            const pending = this.pendingRequests.get(msgType);
             if (pending) {
-                this.pendingRequests.delete(type);
+                this.pendingRequests.delete(msgType);
                 if (error) {
                     pending.reject(new Error(error));
                 } else {
@@ -56,14 +63,18 @@ export class RanAPI {
             }
 
             // Otherwise, call registered handler for push events
-            const handler = this.messageHandlers.get(type);
+            const handler = this.messageHandlers.get(msgType);
             if (handler) {
-                handler(data);
+                try {
+                    handler(data);
+                } catch (err) {
+                    console.error("Error in message handler for type:", msgType, err);
+                }
             } else {
-                console.warn("Unhandled message type:", type, data);
+                console.debug("Unhandled message type:", msgType, data);
             }
         } catch (err) {
-            console.error("Failed to parse WebSocket message:", err);
+            console.error("Failed to handle WebSocket message:", err, event.data);
         }
     }
 

@@ -1,7 +1,5 @@
 <script lang="ts">
 	import Armory from './components/armory.svelte';
-	import store from '$lib/stores/store';
-	import { ExecuteAction } from '$lib/wailsjs/go/main/App.js';
 	import { domain, api} from '$lib/domain/models';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
@@ -42,12 +40,12 @@
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
-			ExecuteAction(ttp.id, selectedObjectId, '', {}).then(() => {
+			campaignState.ExecuteAction(ttp.id, selectedObjectId, '', {}).then(() => {
 				showToast(`Executed TTP ${ttp.name}`, '', 'success');
 			}).catch((err) => {
 				showToast(`Error executing TTP ${ttp.name}`, err, 'error');
 			});
-			// ExecuteAction(ttp.id, selectedObjectId, '', {});
+			// campaignState.ExecuteAction(ttp.id, selectedObjectId, '', {});
 		}
 	}
 
@@ -55,13 +53,14 @@
 		showParamModal = false;
 	}
 	function deleteSelectedNode() {
-		store.sendMessage('delete_entity', {
+		campaignState.sendMessage('delete_entity', {
 			target: selectedObjectId
 		});
 	}
 
 	onMount(() => {
-		store.onAlert((alert) => {
+		// TODO: check if this alert handle is still useful
+		campaignState.api.on('alert', (alert) => {
 			console.log('Store Alert ', alert);
 		});
 	});
@@ -69,8 +68,7 @@
 	const ToastMapping: Record<string, string> = {};
 	function onExecuteTTP(ttpId: string, procedureId: string, args: Record<string, string>) {
 		// TODO: cleanup, register handler only once
-		ranAPI.on('ttp-executed', (dataStr) => {
-			let data = JSON.parse(dataStr);
+		ranAPI.on('ttp-executed', (data) => {
 			console.log('TTP Executed Event', data);
 			const toastType = data.Success ? 'success' : 'error';
 			const title = data.Success
@@ -99,7 +97,7 @@
 		});
 
 		console.log('Executing TTP', ttpId, selectedObjectId, procedureId, args);
-		ExecuteAction(ttpId, selectedObjectId, procedureId, args)
+		campaignState.ExecuteAction(ttpId, selectedObjectId, procedureId, args)
 			.then((e) => {
 				let toastId = showToast('Executing TTP', ttpId, 'info');
 				ToastMapping[ttpId] = toastId;

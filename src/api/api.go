@@ -98,6 +98,7 @@ func NewAPI(r *ran.Ran) *API {
 	}
 	router := chi.NewRouter()
 	router.Get("/", func(w http.ResponseWriter, req *http.Request) {
+		// TODO: serve the static frontend files
 		w.Write([]byte("Hello, World!"))
 	})
 
@@ -111,37 +112,19 @@ func NewAPI(r *ran.Ran) *API {
 	a.router = router
 
 	// forward all events directly to the frontend
-	r.Bus.SubscribeToName(domain.ALL_EVENTS, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		eventName := domain.CleanEventName(fmt.Sprintf("%T", msg))
-
-		// ensure errors are properly logged and not just propagated
-		if ev, ok := msg.(domain.ErrorMsg); ok && ev.Msg != "" {
-			switch ev.Level {
-			case domain.LevelWarn:
-				slog.Warn(ev.Msg)
-			case domain.LevelInfo:
-				slog.Info(ev.Msg)
-			case domain.LevelDebug:
-				slog.Debug(ev.Msg)
-			default:
-				slog.Error(ev.Msg)
-			}
-		}
-		slog.Info(">> 🖥️: " + eventName)
-
-		jsonBytes, err := json.Marshal(msg)
-		if err != nil {
-			return nil, err
-		}
-		for client := range a.clients {
-			if err := client.sendJSON(eventName, json.RawMessage(jsonBytes)); err != nil {
-				slog.Error("WebSocket send error", "error", err)
-			}
-		}
-		return nil, nil
-	})
-
+	r.Bus.SubscribeToName(domain.ALL_EVENTS, a.handleEvent)
 	return a
+}
+
+func (a *API) handleEvent(ctx context.Context, msg domain.Message) (domain.Message, error) {
+	eventName := domain.CleanEventName(fmt.Sprintf("%T", msg))
+	slog.Info(">> 🖥️: " + eventName)
+	for client := range a.clients {
+		if err := client.sendJSON(eventName, msg); err != nil {
+			slog.Error("WebSocket send error", "error", err)
+		}
+	}
+	return nil, nil
 }
 
 func (a *API) StartServer(addr string) error {
@@ -165,37 +148,6 @@ func (a *API) BroadcastMessage(message []byte) {
 		}
 	}
 }
-
-// func GetFlow(c *gin.Context) AttackFlow {
-// 	steps := make([]AttackStep, 0)
-// 	edges := make([]Edge, 0)
-
-// 	trail := a.ran.Campaign.GetAuditTrail()
-
-// 	var srcId string
-// 	for _, step := range trail.GetSteps() {
-// 		steps = append(steps, step)
-
-// 		if srcId != "" {
-// 			edges = append(edges, Edge{
-// 				ID:       fmt.Sprintf("%s->%s", srcId, step.ID),
-// 				Name:     "",
-// 				SourceID: srcId,
-// 				TargetID: step.ID,
-// 			})
-// 		}
-
-// 		// update the srcId for the next edge, if it was a success
-// 		if step.Success {
-// 			srcId = step.ID
-// 		}
-// 	}
-
-// 	return AttackFlow{
-// 		Steps: steps,
-// 		Edges: edges,
-// 	}
-// }
 
 func (a *API) ClientReady(ctx context.Context) {
 	a.ran.ReplayEvents()
