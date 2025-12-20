@@ -1,8 +1,5 @@
 import { get, writable } from 'svelte/store';
-import { browser } from '$app/environment';
 import type { ArmoryType, Node, Edge } from '$lib/model';
-import * as runtime from "$lib/wailsjs/runtime";
-import type { domain } from '$lib/domain/models';
 
 interface Command {
 	[key: string]: any
@@ -11,7 +8,7 @@ interface Command {
 const addSubgraph = writable({});
 const graph = writable({});
 const removeSubgraph = writable({});
-const alerts = writable("");
+// const alerts = writable("");
 
 const RETRIES: number = 3;
 
@@ -48,45 +45,13 @@ function onMessage(event: { data: string; }) {
 		case 'removesubgraph':
 			removeSubgraph.set({ nodes: data.entities, edges: data.relations });
 			break;
-		case 'error':
-			alerts.set(data)
+		// case 'error':
+			// alerts.set(data)
 		default:
 			console.log(`Received invalid message type ${msgType}: ${data}`);
 			break;
 	}
 }
-
-function handleDisconnect(event: CloseEvent) {
-	// if it's error, then the socket was never ready and case is handled outside
-	if (!hadError) {
-		alerts.set("WebSocket connection lost ...")
-	}
-}
-
-function connect() {
-	return connectSocket()
-}
-
-function connectSocket() {
-	return new Promise(async (resolve, reject) => {
-		// websocket is only available client side
-		if (browser) {
-			console.log("Prepping the socket in browser")
-			socket = new WebSocket('ws://0.0.0.0:8080/ws');
-			socket.addEventListener('open', function (event) {
-				retries = 0;
-				resolve(socket);
-			});
-			socket.onerror = (ev) => {
-				hadError = true;
-				reject(`Could not connect to websocket ${ev.target.url}`);
-			}
-			socket.onclose = handleDisconnect;
-			socket.addEventListener('message', onMessage);
-		}
-	});
-}
-
 
 // function connectBackend() {
 // 	console.warn("[legacy] connecting backend ")
@@ -164,42 +129,42 @@ function parse_topology(data: any): [Node[], Edge[]] {
 // 	return [nodes, edges];
 // }
 
-export function parseArmory(data: domain.TTP[]): ArmoryType {
-	// this comes from the backend must be converted
-	let armoryMap = new Map<string, domain.TTP[]>();
-	for (let ttp of data) {
-		let groupName = ttp.tactic;
-		if (groupName === "") {
-			groupName = "Other";
-		}
-		if (!armoryMap.has(groupName)) {
-			armoryMap.set(groupName, []);
-		}
-		armoryMap.get(groupName)!.push(ttp);
-	}
-	// Armory contains a CmdId field; process accordingly if needed.
-	return armoryMap;
-}
+// export function parseArmory(data: domain.TTP[]): ArmoryType {
+// 	// this comes from the backend must be converted
+// 	let armoryMap = new Map<string, domain.TTP[]>();
+// 	for (let ttp of data) {
+// 		let groupName = ttp.tactic;
+// 		if (groupName === "") {
+// 			groupName = "Other";
+// 		}
+// 		if (!armoryMap.has(groupName)) {
+// 			armoryMap.set(groupName, []);
+// 		}
+// 		armoryMap.get(groupName)!.push(ttp);
+// 	}
+// 	// Armory contains a CmdId field; process accordingly if needed.
+// 	return armoryMap;
+// }
 
-const sendMessage = (msgType: string, command: Command) => {
-	debugger
-	if (useWails) {
-		console.log(`Sending message ${msgType} to backend`)
-		runtime.EventsEmit(msgType, JSON.stringify(command));
-	}
-	if (socket && socket.readyState == 1) {
-		command.msg_type = msgType;
-		socket.send(JSON.stringify(command));
-	}
-};
+// const sendMessage = (msgType: string, command: Command) => {
+// 	debugger
+// 	if (useWails) {
+// 		console.log(`Sending message ${msgType} to backend`)
+// 		runtime.EventsEmit(msgType, JSON.stringify(command));
+// 	}
+// 	if (socket && socket.readyState == 1) {
+// 		command.msg_type = msgType;
+// 		socket.send(JSON.stringify(command));
+// 	}
+// };
 
-export default {
-	connect: connect,
-	// entities: entities.subscribe,
-	addSubgraph: addSubgraph.subscribe,
-	graph: graph.subscribe,
-	removeSubgraph: removeSubgraph.subscribe,
-	armory: armory.subscribe,
-	onAlert: alerts.subscribe,
-	sendMessage
-};
+// export default {
+// 	connect: connect,
+// 	// entities: entities.subscribe,
+// 	addSubgraph: addSubgraph.subscribe,
+// 	graph: graph.subscribe,
+// 	removeSubgraph: removeSubgraph.subscribe,
+// 	armory: armory.subscribe,
+// 	// onAlert: alerts.subscribe,
+// 	// sendMessage
+// };

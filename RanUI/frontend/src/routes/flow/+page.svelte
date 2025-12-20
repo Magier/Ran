@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { GetFlow } from '$lib/wailsjs/go/main/App';
     import { campaign, main } from '$lib/domain/models';
     import AttackStepDetails from '$lib/components/attack_step_details.svelte';
     import ActionNode from '$lib/components/flow/attack_node.svelte';
@@ -16,7 +15,9 @@
     import dagre from '@dagrejs/dagre';
     import '@xyflow/svelte/dist/style.css';
     import { Modal } from '@skeletonlabs/skeleton-svelte';
+	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
+    let campaignState = getCampaignState();
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
 
@@ -86,7 +87,7 @@
         return { nodes, edges };
     }
 
-    GetFlow()
+    campaignState.GetFlow()
         .then((result: main.AttackFlow) => {
             console.log('Graph:', result);
             const { steps, edges: es } = result;

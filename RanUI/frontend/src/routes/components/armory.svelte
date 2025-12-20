@@ -2,14 +2,14 @@
 	import type { ArmoryType } from '$lib/model';
 	import { onDestroy, onMount } from 'svelte';
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
-	import store, { parseArmory } from '$lib/stores/store';
+	// import store, { parseArmory } from '$lib/stores/store';
 	import Icon from '@iconify/svelte';
 	import { iconMap } from '$lib/tactic_icons';
 
 	import ActionCard from './action_card.svelte';
 	import { Accordion } from '@skeletonlabs/skeleton-svelte';
 	import { domain } from '$lib/domain/models';
-	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+	import { getCampaignState, parseArmory } from '$lib/components/CampaignState.svelte';
 
 	const campaign = getCampaignState();
 

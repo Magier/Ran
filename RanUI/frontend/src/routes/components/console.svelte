@@ -1,5 +1,5 @@
 <script lang="ts">
-	import store from '$lib/stores/store';
+	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
 	type HistoryEntry = {
 		command: string,
@@ -8,6 +8,7 @@
 	}
 	
 	let history: HistoryEntry[] = [];
+	let campaignState = getCampaignState();
 
 	function onPromptKeydown(event: KeyboardEvent): void {
 		if (['Enter'].includes(event.code)) {
@@ -18,7 +19,7 @@
 
 	function sendCommand() {
 		history = [...history, {command: cmd, result: "result", timestamp: new Date()}]
-		store.sendMessage("terminal", {data: cmd})
+		campaignState.sendMessage("terminal", {data: cmd})
 		cmd = "";
 	};
 

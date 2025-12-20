@@ -157,5 +157,7 @@ func (a *API) handleWSRequest(client *WSClient, req WSRequest) {
 		resp.Error = "unknown request type: " + req.Type
 	}
 
-	client.sendJSON(req.Type, resp.Data)
+	if err := client.sendJSON(req.Type, resp.Data); err != nil {
+		slog.Error("Failed to send response", "error", err)
+	}
 }

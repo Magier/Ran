@@ -2,7 +2,7 @@
 	import { Combobox } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId, type Param } from '$lib/model';
-	import type { domain } from '$lib/wailsjs/go/models';
+	import type { domain } from '$lib/domain/models';
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
 	import { onMount } from 'svelte';
 
@@ -71,6 +71,8 @@
 
 
 	onMount(() => {
+		console.group("ActionParamsModal: Initializing args for TTP", ttp.id);
+		console.log("TTP params:", ttp.params);
 		args = ttp.params?.map((param: Param) => {
 				let value = param.Default;
 				if (argContext && param.Name in argContext) {
@@ -79,6 +81,7 @@
 
 				if (value === '${TARGET}') {
 					value = targetId;
+					debugger
 					if (param.Type === 'string') { 
 						// if the type is string, then only the name of ther target is relevant
 						const e = parseEntityId(targetId);
@@ -109,6 +112,9 @@
 					Required: param.Required
 				};
 			}) || [];
+
+		console.log(args);
+		console.groupEnd();
 	});
 
 	// namespace options

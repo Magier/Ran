@@ -298,13 +298,21 @@ class CampaignState {
         return serviceAccounts || [];
     }
 
-    ExecuteAction(ttpId: string, targetId: string, procedure: string, parameters: Record<string, any>): Promise<void> {
+    ExecuteAction(actionId: string, targetId: string, procedureId: string, args: Record<string, any>): Promise<void> {
         return this.api.sendMessage<void>("execute-action", {
-            ttpId,
+            actionId,
             targetId,
-            procedure,
-            parameters
+            procedureId,
+            args
         });
+    }
+
+    GetFlow() : Promise<api.AttackFlow> {
+        return this.api.sendMessage<api.AttackFlow>("get-flow");
+    }
+
+    sendMessage(type: string, data?: any): Promise<any> {
+        return this.api.sendMessage<any>(type, data);
     }
 }
 
