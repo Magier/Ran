@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -35,7 +36,12 @@ type WSClient struct {
 
 func (client *WSClient) sendJSON(name string, v interface{}) error {
 	if _, ok := v.(WSResponse); !ok {
-		v = WSResponse{Type: name, Data: v}
+		switch err := v.(type) {
+		case error:
+			v = WSResponse{Type: name, Error: err.Error()}
+		default:
+			v = WSResponse{Type: name, Data: v}
+		}
 	}
 
 	data, err := json.Marshal(v)
@@ -68,6 +74,9 @@ func (a *API) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	a.clientsMu.Unlock()
 
 	defer func() {
+		if r := recover(); r != nil {
+			log.Fatal("Recovered from panic in socket handler", r)
+		}
 		a.clientsMu.Lock()
 		delete(a.clients, client)
 		a.clientsMu.Unlock()
@@ -77,7 +86,10 @@ func (a *API) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// a.ran.ReplayEvents()
 
 	// send Armory on connect
-	client.sendJSON("armory-loaded", a.ran.Armory.GetTTPs())
+	if err := client.sendJSON("armory-loaded", a.ran.Armory.GetTTPs()); err != nil {
+		slog.Error("Failed to send armory on connect", "error", err)
+		return
+	}
 
 	for {
 		_, message, err := conn.ReadMessage()

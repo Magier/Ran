@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,30 +92,50 @@ type API struct {
 	router    chi.Router
 }
 
-func NewAPI(r *ran.Ran) *API {
+func NewAPI(r *ran.Ran, ctx context.Context) *API {
 	a := &API{
-		// Ctx:     ctx,
+		ctx:     ctx,
 		ran:     r,
 		clients: make(map[*WSClient]bool),
 	}
-	router := chi.NewRouter()
-	router.Get("/", func(w http.ResponseWriter, req *http.Request) {
-		// TODO: serve the static frontend files
-		w.Write([]byte("Hello, World!"))
-	})
+	a.router = chi.NewRouter()
 
-	router.Get("/graph", func(w http.ResponseWriter, req *http.Request) {
-		graph := a.GetGraph()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(graph)
-	})
+	workDir, _ := os.Getwd()
+	frontend := http.Dir(filepath.Join(workDir, "..", "RanUI", "frontend", "build"))
+	FileServer(a.router, "/", frontend)
 
-	router.Get("/ws", a.handleWebSocket)
-	a.router = router
+	// router.Get("/graph", func(w http.ResponseWriter, req *http.Request) {
+	// 	graph := a.GetGraph()
+	// 	w.Header().Set("Content-Type", "application/json")
+	// 	json.NewEncoder(w).Encode(graph)
+	// })
+
+	a.router.Get("/ws", a.handleWebSocket)
 
 	// forward all events directly to the frontend
 	r.Bus.SubscribeToName(domain.ALL_EVENTS, a.handleEvent)
 	return a
+}
+
+// FileServer conveniently sets up a http.FileServer handler to serve
+// static files from a http.FileSystem.
+func FileServer(r chi.Router, path string, root http.FileSystem) {
+	if strings.ContainsAny(path, "{}*") {
+		panic("FileServer does not permit any URL parameters.")
+	}
+
+	if path != "/" && path[len(path)-1] != '/' {
+		r.Get(path, http.RedirectHandler(path+"/", 301).ServeHTTP)
+		path += "/"
+	}
+	path += "*"
+
+	r.Get(path, func(w http.ResponseWriter, r *http.Request) {
+		rctx := chi.RouteContext(r.Context())
+		pathPrefix := strings.TrimSuffix(rctx.RoutePattern(), "/*")
+		fs := http.StripPrefix(pathPrefix, http.FileServer(root))
+		fs.ServeHTTP(w, r)
+	})
 }
 
 func (a *API) handleEvent(ctx context.Context, msg domain.Message) (domain.Message, error) {

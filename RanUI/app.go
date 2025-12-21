@@ -38,7 +38,7 @@ type App struct {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	r := ran.InitRan("", "armory/")
-	a := api.NewAPI(&r)
+	a := api.NewAPI(&r, nil) // context will be set during `startup`
 	app := &App{ran: &r, API: a}
 	go func() {
 		if err := a.StartServer(":8080"); err != nil {
