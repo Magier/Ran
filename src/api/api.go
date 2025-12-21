@@ -101,7 +101,7 @@ func NewAPI(r *ran.Ran, ctx context.Context) *API {
 	a.router = chi.NewRouter()
 
 	workDir, _ := os.Getwd()
-	frontend := http.Dir(filepath.Join(workDir, "..", "RanUI", "frontend", "build"))
+	frontend := http.Dir(filepath.Join(workDir, "..", "frontend", "build"))
 	FileServer(a.router, "/", frontend)
 
 	// router.Get("/graph", func(w http.ResponseWriter, req *http.Request) {
