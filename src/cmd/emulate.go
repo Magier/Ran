@@ -20,9 +20,9 @@ func newEmulationCmd() *cobra.Command {
 		Short: "Emulate adversary behavior against a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
 			ran := core.InitRan(target, "../armory/")
-			api := api.NewAPI(&ran)
-			// t := tui.SetupTUI(ran)
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+			api := api.NewAPI(&ran, ctx)
+			// t := tui.SetupTUI(ran)
 			defer cancel()
 			err := ran.Start(ctx, godMode, planPath)
 			if err != nil {
