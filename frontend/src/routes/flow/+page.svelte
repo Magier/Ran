@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { campaign, main } from '$lib/domain/models';
+    import { campaign, api } from '$lib/domain/models';
     import AttackStepDetails from '$lib/components/attack_step_details.svelte';
     import ActionNode from '$lib/components/flow/attack_node.svelte';
     import {
@@ -14,7 +14,7 @@
     } from '@xyflow/svelte';
     import dagre from '@dagrejs/dagre';
     import '@xyflow/svelte/dist/style.css';
-    import { Modal } from '@skeletonlabs/skeleton-svelte';
+    import { Dialog } from '@skeletonlabs/skeleton-svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
     let campaignState = getCampaignState();
@@ -42,7 +42,7 @@
         };
     }
 
-    function convertEdge(edge: main.Edge): Edge {
+    function convertEdge(edge: api.Edge): Edge {
         return {
             id: edge.id,
             type: 'default',
@@ -88,7 +88,7 @@
     }
 
     campaignState.GetFlow()
-        .then((result: main.AttackFlow) => {
+        .then((result: api.AttackFlow) => {
             console.log('Graph:', result);
             const { steps, edges: es } = result;
             const laidOutElements = layOutElements(steps.map(convertStep), es.map(convertEdge), 'TB');
@@ -133,7 +133,7 @@
     </SvelteFlow>
 </div>
 
-<Modal
+<Dialog
     open={selectedStep !== null}
     onOpenChange={(e) => {
         console.log('Modal open:', e.open);
@@ -155,7 +155,7 @@
     {#snippet content()}
         <AttackStepDetails step={selectedStep!} />
     {/snippet}
-</Modal>
+</Dialog>
 
 <style>
     :global(.svelte-flow__node) {

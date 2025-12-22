@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { AppBar, Navigation, Toaster } from '@skeletonlabs/skeleton-svelte';
+	import { AppBar, Navigation, Toast, Menu, Portal } from '@skeletonlabs/skeleton-svelte';
 	import {setContext} from 'svelte';
 	import { page } from '$app/state';
 	import IconMap from '~icons/game-icons/treasure-map';
@@ -32,28 +32,68 @@
 			};
 		}
 	});
+
+	function onMenuClick(event) {
+	    let {value} = event;
+
+		switch (value) {
+			case 'reset':
+     			campaignState.reset()
+				break;
+			case 'save_flow':
+     			debugger
+				//campaignState.saveFlow()
+				toaster.create({ title: "Save error", description: 'Saving of flows not yet implemented: ', type: 'error' });
+				break;
+			default:
+				console.log('Unknown menu item:', value);
+				break;
+		}
+	}
 </script>
 
 <AppBar>
-	{#snippet lead()}
-		<!-- <ArrowLeft size={24} /> -->
-		<span>Ran</span>
-		<button class="reset-button" onclick={() => campaignState.reset()}>Reset</button>
-	{/snippet}
-
-	{#snippet trail()}
-		<nav>
-			<a class="{page.url.pathname === '/' ? 'selected' : ''} pr-3" href="/"
-				><IconMap class="inline-block text-xl" />Graph</a
-			>
-			<a class={page.url.pathname === '/flow' ? 'selected' : ''} href="/flow"
-				><IconSteps class="inline-block text-xl" />Flow</a
-			>
-		</nav>
-	{/snippet}
+	<AppBar.Toolbar class="grid-cols-[auto_auto]">
+		<AppBar.Lead>
+			<!-- <ArrowLeft size={24} /> -->
+			<Menu onSelect={onMenuClick}>
+				<Menu.Trigger class="btn preset-filled">Ran</Menu.Trigger>
+				<Portal>
+					<Menu.Positioner>
+						<Menu.Content>
+							<Menu.ItemGroup>
+								<Menu.ItemGroupLabel>Campaign</Menu.ItemGroupLabel>
+								<Menu.Item value="reset">
+									<Menu.ItemText>Reset</Menu.ItemText>
+								</Menu.Item>
+							</Menu.ItemGroup>
+							<Menu.Separator />
+							<Menu.ItemGroup>
+								<Menu.ItemGroupLabel>Flow</Menu.ItemGroupLabel>
+								<Menu.Item value="save_flow">
+									<!-- <Menu.ItemIndicator>💾</Menu.ItemIndicator> -->
+									<Menu.ItemText>Save</Menu.ItemText>
+								</Menu.Item>
+							</Menu.ItemGroup>
+						</Menu.Content>
+					</Menu.Positioner>
+				</Portal>
+			</Menu>
+		</AppBar.Lead>
+		<AppBar.Trail>
+			<!-- <nav> -->
+				<a class="{page.url.pathname === '/' ? 'selected' : ''} pr-3" href="/"
+					><IconMap class="inline-block text-xl" />Graph</a
+				>
+				<a class={page.url.pathname === '/flow' ? 'selected' : ''} href="/flow"
+					><IconSteps class="inline-block text-xl" />Flow</a
+				>
+			<!-- </nav> -->
+		</AppBar.Trail>
+	</AppBar.Toolbar>
 </AppBar>
 
-<Toaster {toaster}></Toaster>
+<Toast.Group {toaster}></Toast.Group>
 <main class="">
 	{@render children()}
 </main>
