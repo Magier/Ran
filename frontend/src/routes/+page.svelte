@@ -3,7 +3,7 @@
 	import { domain, api} from '$lib/domain/models';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
-	import { Modal, Popover } from '@skeletonlabs/skeleton-svelte';
+	import { Dialog, Popover, Portal } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 	import { onMount } from 'svelte';
 	import { showToast, toaster } from '$lib/components/toaster';
@@ -30,7 +30,6 @@
 		selectedObjectId = '';
 		selectedObject = undefined;
 	})
-	
 
 	function sendAction(ttp: domain.TTP, args = {}) {
 		selectedTTP = ttp;
@@ -135,36 +134,47 @@
 		<Popover
 			open={showDetails}
 			onOpenChange={(e) => e.open}
-			positioning={{ placement: 'right', fitViewport: true }}
-			triggerBase=""
-			arrow={false}
-			portalled={false} 
-			contentBase="border border-surface-600 absolute w-110 -left-110 top-0 top-0 z-10  rounded-lg bg-surface-100-900 p-4 shadow-xl "
+			positioning={{ placement: 'top-end', fitViewport: true }}
+			portalled={false}
 		>
-			{#snippet trigger()}{/snippet}
-			{#snippet content()}
-				<svelte:boundary onerror={handleError}>
-					<EntityInfo selectedObject={selectedObject} {sendAction}/>
-				</svelte:boundary>
-			{/snippet}
+		    <Popover.Anchor>
+				<div id="info-anchor" class="absolute top-10 right-50"/>
+			</Popover.Anchor>
+			<Portal>
+			<!-- {#snippet trigger()}{/snippet} -->
+			<!-- {#snippet content()} -->
+			    <Popover.Positioner>
+					<Popover.Content class="border border-surface-600 w-110 rounded-lg bg-surface-100-900 p-4 shadow-xl ">
+        				<svelte:boundary onerror={handleError}>
+           					<EntityInfo selectedObject={selectedObject} {sendAction}/>
+        				</svelte:boundary>
+					</Popover.Content>
+				</Popover.Positioner>
+			<!-- {/snippet} -->
+			</Portal>
 		</Popover>
 
-		<Modal
+		<Dialog
 			open={showParamModal}
 			onOpenChange={(e) => (showParamModal = e.open)}
-			contentBase="card min-w-modal bg-surface-100-900 p-8 space-y-4 shadow-xl"
-			backdropClasses="backdrop-blur-sm"
 		>
-			{#snippet content()}
-				<ActionParamsModal
-					targetId={selectedObjectId}
-					argContext={ttpArgContext}
-					ttp={selectedTTP!}
-					onCancel={closeModal}
-					onExecute={onExecuteTTP}
-				/>
-			{/snippet}
-		</Modal>
+           	<Portal>
+    			<Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50"/>
+    			<Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
+    				<Dialog.Content class="card min-w-modal bg-surface-100-900 p-8 space-y-4 shadow-xl">
+						{#if selectedTTP}
+							<ActionParamsModal
+								targetId={selectedObjectId}
+								argContext={ttpArgContext}
+								ttp={selectedTTP!}
+								onCancel={closeModal}
+								onExecute={onExecuteTTP}
+							/>
+						{/if}
+    				</Dialog.Content>
+    			</Dialog.Positioner>
+           	</Portal>
+		</Dialog>
 	{:catch err}
 		<div class="justify-center">
 			<figure>

@@ -1,8 +1,7 @@
 <script lang="ts">
 	import type { ArmoryType } from '$lib/model';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
-	// import store, { parseArmory } from '$lib/stores/store';
 	import Icon from '@iconify/svelte';
 	import { iconMap } from '$lib/tactic_icons';
 
@@ -102,14 +101,19 @@
 <div class="bg-surface-100-900 inset-y-0 right-0 {className}">
 	<div class="my-2 flex items-center justify-between">
 		<span class="px-2 text-xl">Armory</span>
-		<label class="flex items-center gap-2">
+		<Switch checked={showAllTTPs} onCheckedChange={(e) => {showAllTTPs = e.checked; }}>
+		    <Switch.Control class="preset-filled-secondary-50-950 data-[state=checked]:preset-filled-secondary-500"><Switch.Thumb/></Switch.Control>
+			<Switch.Label>Show All</Switch.Label>
+			<Switch.HiddenInput />
+		</Switch>
+		<!-- <label class="flex items-center gap-2">
 			Show all
 			<Switch
 				name="Show All"
 				checked={showAllTTPs}
 				onCheckedChange={(e) => (showAllTTPs = e.checked)}
 			/>
-		</label>
+		</label> -->
 	</div>
 	<!-- <div class="mx-4 mb-2">
 		<label for="search-box">Search/Filter</label>
@@ -134,18 +138,16 @@
 					classes="text-surface-contrast-200-800"
 					disabled={ttps.length === 0}
 				>
-					{#snippet lead()}
+    				<Accordion.ItemTrigger class="flex justify-between items-center">
 						<Icon icon={iconMap[tactic]} width="24"></Icon>
-					{/snippet}
-					{#snippet control()}
 						<div class="flex w-full items-center">
 							<span class="flex-1">{tactic}</span>
 							<span class="ml-2 text-xs text-gray-500"
 								>{applicableTTPs.get(tactic)?.length ?? 0}</span
 							>
 						</div>
-					{/snippet}
-					{#snippet panel()}
+    				</Accordion.ItemTrigger>
+				<Accordion.ItemContent>
 						{#each ttps as ttp}
 							<ActionCard
 								{ttp}
@@ -155,7 +157,7 @@
 								onclick={() => sendAction(ttp)}
 							/>
 						{/each}
-					{/snippet}
+					</Accordion.ItemContent>
 				</Accordion.Item>
 			{/each}
 		</Accordion>
@@ -211,7 +213,7 @@
 							/>
 						{/each}
 					</svelte:fragment>
-				</TreeViewItem> 
+				</TreeViewItem>
 			{/each}
 		{/if}
 		<!-- </TreeView>  -->

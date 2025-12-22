@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Combobox } from '@skeletonlabs/skeleton-svelte';
+	import { Combobox, Portal, type ComboboxRootProps, useListCollection, type ListCollection } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId, type Param } from '$lib/model';
 	import type { domain } from '$lib/domain/models';
@@ -37,7 +37,7 @@
 
 	const campaignState = getCampaignState();
 
-	let procedureId = $state(ttp.procedures?.[0]?.Key || '');
+	let procedureId = $state(ttp?.procedures?.[0]?.Key || '');
 	let args = $state<Arg[]>([]);
 	let availableEntities: Entity[] = $state([]);
 	let namespaceArgName: string = "";
@@ -67,11 +67,11 @@
 					: a
 			);
 		}
-	});	
+	});
 
 
 	onMount(() => {
-		console.group("ActionParamsModal: Initializing args for TTP", ttp.id);
+		console.group("ActionParamsModal: Initializing args for TTP", ttp?.id);
 		console.log("TTP params:", ttp.params);
 		args = ttp.params?.map((param: Param) => {
 				let value = param.Default;
@@ -82,7 +82,7 @@
 				if (value === '${TARGET}') {
 					value = targetId;
 					debugger
-					if (param.Type === 'string') { 
+					if (param.Type === 'string') {
 						// if the type is string, then only the name of ther target is relevant
 						const e = parseEntityId(targetId);
 						value = e?.name || '';
@@ -96,7 +96,9 @@
 					}
 				} else if (param.Type === 'Pod') {
 					const isSetTargetTTP =  ttp.tactic === 'Initial Access'; // special handling for the setTarget TTP, to use all available pods
+					console.warn("Fetching pods for Pod param", param.Name, "isSetTargetTTP=", isSetTargetTTP);
 					availableEntities = campaignState.getPods("", isSetTargetTTP)
+					console.log("Available Pods for param", param.Name, availableEntities);
 					argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
 				} else if (param.Type === 'ServiceAccount') {
 					availableEntities = campaignState.getServiceAccounts(selectedNamespace);
@@ -142,13 +144,13 @@
 				} else if (arg.Type === 'int') {
 					let v = parseInt(arg.Value);
 					// temporary workaround: accept strings as well, if parsing fails, maybe backend can recover
-					if (!isNaN(v)) { 
+					if (!isNaN(v)) {
 						arg.Value = v.toString();
 					}
 				} else if (arg.Type === 'float') {
 					let v = parseFloat(arg.Value);
 					// temporary workaround: accept strings as well, if parsing fails, maybe backend can recover
-					if (!isNaN(v)) { 
+					if (!isNaN(v)) {
 						arg.Value = v.toString();
 					}
 					// arg.Value = parseFloat(arg.Value).toString();
@@ -177,20 +179,37 @@
 		return false;
 	}
 
-	function getArgOptions(argName: string): ComboboxOption[] {
+	function getArgOptions(argName: string): ListCollection<ComboboxOption> {
 		let opts = argOptions[argName] ?? [];
 		if (selectedNamespace !== "" && argName !== namespaceArgName) {
 			opts = opts.filter(o => o.group === selectedNamespace);
 		}
-		return opts
+
+		console.log(opts)
+		return useListCollection({
+		  items: opts,
+		  itemToString: (item) => item.label,
+		  itemToValue: (item) => item.value,
+		})
 	}
+
+
+	// const onvalueChange: ComboboxRootProps['onValueChange'] = (event) => {
+	// 	const filtered = data.filter((item) => item.value.toLowerCase().includes(event.inputValue.toLowerCase()));
+	// 	if (filtered.length > 0) {
+	// 		items = filtered;
+	// 	} else {
+	// 		items = data;
+	// 	}
+	// }
+
 </script>
 
 <form class="text-surface-50 w-full space-y-8" onsubmit={onInternalExecute}>
 	<header class="flex justify-between">
 		<h4 class="h4">{ttp.name}</h4>
 	</header>
-	<article>	
+	<article>
 		<div class="">
 			<span class="h5 label">Description</span>
 			{ttp.description}
@@ -199,7 +218,7 @@
 			<label class="h5 label mt-5" for="procedure">Procedure</label>
 			{#if ttp.procedures && ttp.procedures.length > 1}
 				<select id="procedure" class="input mt-2" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
-					{#each ttp.procedures as procedure}
+					{#each ttp.procedures as procedure (procedure.Key)}
 						<option
 							value={procedure.Key}
 							disabled={executingSystemHasTool(targetId, procedure.Key)}
@@ -221,7 +240,7 @@
 			</label> -->
 			{#if args.length > 0}
 					<span class="h5">Params</span>
-					{#each args as arg}
+					{#each args as arg (arg.Name)}
 						<div class="input-group mt-2 grid-cols-[auto_1fr_auto]">
 							<div class="ig-cell preset-tonal">{arg.Name}</div>
 							{#if arg.Type === 'bool'}
@@ -233,13 +252,13 @@
 								/>
 							{:else if getArgOptions(arg.Name).length > 0}
 								<Combobox
-									data={getArgOptions(arg.Name)}
 									value={[arg.Value]}
+									collection={getArgOptions(arg.Name)}
 									onValueChange={(e) => {
 										// If the chosen item carries a namespace in its group, set it
 										if (arg.Type !== 'Namespace') {
 											const ns = e.items?.[0]?.group;
-											if (ns) {selectNamespace(ns);} 
+											if (ns) {selectNamespace(ns);}
 										}
 										// IMMUTABLE UPDATE so Svelte sees it:
 										const i = args.findIndex(a => a.Name === arg.Name);
@@ -261,18 +280,22 @@
 									defaultValue={[arg.Value]}
 									placeholder={arg.Name + "..."}
 									>
-									<!-- This is optional. Combobox will render label by default -->
-									{#snippet item(item)}
-										<div class="flex w-full justify-between space-x-2">
-											<span
-												style="max-width: 15em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block;"
-												title={item.label}
-											>
-												{item.label}
-											</span>
-											<span>{item.group}</span>
-										</div>
-									{/snippet}
+									<Combobox.Control>
+									    <Combobox.Input />
+										<Combobox.Trigger />
+									</Combobox.Control>
+									<Portal>
+									    <Combobox.Positioner>
+											<Combobox.Content>
+											    {#each getArgOptions(arg.Name) as item (item)}
+													{item}
+													<Combobox.Item {item}>
+													    <Combobox.ItemText>{item.label}</Combobox.ItemText>
+    												</Combobox.Item>
+    											{/each}
+											</Combobox.Content>
+										</Combobox.Positioner>
+									</Portal>
 								</Combobox>
 							{:else}
 								<input
