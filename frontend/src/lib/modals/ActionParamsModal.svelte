@@ -4,7 +4,7 @@
 	import { parseEntityId, type Param } from '$lib/model';
 	import type { domain } from '$lib/domain/models';
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
 
 	interface ParamProps {
 		targetId: string;
@@ -44,6 +44,9 @@
 
 	let argOptions: Record<string, ComboboxOption[]> = $state({});
 
+	// Track previous TTP ID to detect when TTP changes
+	let previousTtpId: string | undefined = undefined;
+
 	let selectedNamespace = $derived.by(() => {
 		const nsArg = args.find(arg => arg.Type === 'Namespace');
 		return nsArg ? nsArg.Value : '';
@@ -69,54 +72,78 @@
 		}
 	});
 
-
-	onMount(() => {
-		console.group("ActionParamsModal: Initializing args for TTP", ttp?.id);
-		console.log("TTP params:", ttp.params);
-		args = ttp.params?.map((param: Param) => {
-				let value = param.Default;
-				if (argContext && param.Name in argContext) {
-					value = argContext[param.Name];
-				}
-
-				if (value === '${TARGET}') {
-					value = targetId;
-					debugger
-					if (param.Type === 'string') {
-						// if the type is string, then only the name of ther target is relevant
-						const e = parseEntityId(targetId);
-						value = e?.name || '';
+	// Initialize args when TTP changes
+	$effect(() => {
+		const currentTtpId = ttp?.id;
+		
+		// Only re-initialize if TTP actually changed
+		if (currentTtpId === previousTtpId) {
+			return;
+		}
+		previousTtpId = currentTtpId;
+		
+		// Capture all reactive values we need before untrack
+		const ttpParams = ttp.params;
+		const ttpTactic = ttp.tactic;
+		const ttpProcedures = ttp?.procedures;
+		const currentTargetId = targetId;
+		const currentArgContext = argContext;
+		
+		// Derive initial namespace from targetId, not from selectedNamespace (which depends on args)
+		const initialNamespace = currentTargetId.startsWith("ns/") ? currentTargetId.split("/")[1] : "";
+		
+		untrack(() => {
+			console.group("ActionParamsModal: Initializing args for TTP", currentTtpId);
+			
+			// Reset argOptions when TTP changes
+			argOptions = {};
+			
+			args = ttpParams?.map((param: Param) => {
+					let value = param.Default;
+					if (currentArgContext && param.Name in currentArgContext) {
+						value = currentArgContext[param.Name];
 					}
-					console.log("Setting target", param.Name, "to value", value);
-				}
-				if (param.Type === 'Namespace') {
-					namespaceArgName = param.Name;
-					if (param.Default === "" && targetId.startsWith("ns/")) {
-						value = targetId.split("/")[1];
+
+					if (value === '${TARGET}') {
+						value = currentTargetId;
+						if (param.Type === 'string') {
+							// if the type is string, then only the name of ther target is relevant
+							const e = parseEntityId(currentTargetId);
+							value = e?.name || '';
+						}
+						console.log("Setting target", param.Name, "to value", value);
 					}
-				} else if (param.Type === 'Pod') {
-					const isSetTargetTTP =  ttp.tactic === 'Initial Access'; // special handling for the setTarget TTP, to use all available pods
-					console.warn("Fetching pods for Pod param", param.Name, "isSetTargetTTP=", isSetTargetTTP);
-					availableEntities = campaignState.getPods("", isSetTargetTTP)
-					console.log("Available Pods for param", param.Name, availableEntities);
-					argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
-				} else if (param.Type === 'ServiceAccount') {
-					availableEntities = campaignState.getServiceAccounts(selectedNamespace);
-					argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
-				}
+					if (param.Type === 'Namespace') {
+						namespaceArgName = param.Name;
+						if (param.Default === "" && currentTargetId.startsWith("ns/")) {
+							value = currentTargetId.split("/")[1];
+						}
+					} else if (param.Type === 'Pod') {
+						const isSetTargetTTP = ttpTactic === 'Initial Access'; // special handling for the setTarget TTP, to use all available pods
+						availableEntities = campaignState.getPods("", isSetTargetTTP)
+						argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
+					} else if (param.Type === 'ServiceAccount') {
+						// Use initialNamespace derived from targetId, not selectedNamespace
+						availableEntities = campaignState.getServiceAccounts(initialNamespace);
+						argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
+					}
 
-				return {
-					Name: param.Name,
-					Value: value,
-					IsTrue: param.Default === 'true',
-					Description: param.Description,
-					Type: param.Type,
-					Required: param.Required
-				};
-			}) || [];
+					return {
+						Name: param.Name,
+						Value: value,
+						IsTrue: param.Default === 'true',
+						Description: param.Description,
+						Type: param.Type,
+						Required: param.Required
+					};
+				}) || [];
 
-		console.log(args);
-		console.groupEnd();
+			// Also reset procedureId when TTP changes
+			procedureId = ttpProcedures?.[0]?.Key || '';
+
+			console.log(args);
+			console.groupEnd();
+		});
 	});
 
 	// namespace options
@@ -184,13 +211,37 @@
 		if (selectedNamespace !== "" && argName !== namespaceArgName) {
 			opts = opts.filter(o => o.group === selectedNamespace);
 		}
-
-		console.log(opts)
+		return opts
+	}
+	
+	function toComboBoxCollection(items: ComboboxOption[]): ListCollection<ComboboxOption> {
 		return useListCollection({
-		  items: opts,
+		  items: items,
 		  itemToString: (item) => item.label,
 		  itemToValue: (item) => item.value,
+		  groupBy: (item) => item.group || undefined
 		})
+	}
+
+	function onArgChange(arg, e) {
+		// If the chosen item carries a namespace in its group, set it
+		if (arg.Type !== 'Namespace') {
+			const ns = e.items?.[0]?.group;
+			if (ns) {selectNamespace(ns);}
+		}
+		// IMMUTABLE UPDATE so Svelte sees it:
+		const i = args.findIndex(a => a.Name === arg.Name);
+		if (i !== -1) {
+			const newValue = e.value[0];
+			args = args.with(i, { ...args[i], Value: newValue });
+		} else {
+			console.warn("Could not find arg to update:", arg.Name);
+		}
+
+		// arg.Value = e.value[0]
+		// if (e.items.length > 0 && e.items[0].group ) {
+		// 	selectNamespace(e.items[0].group);
+		// }
 	}
 
 
@@ -240,79 +291,60 @@
 			</label> -->
 			{#if args.length > 0}
 					<span class="h5">Params</span>
-					{#each args as arg (arg.Name)}
-						<div class="input-group mt-2 grid-cols-[auto_1fr_auto]">
-							<div class="ig-cell preset-tonal">{arg.Name}</div>
-							{#if arg.Type === 'bool'}
-								<input
-									class="ig-input"
-									bind:checked={arg.IsTrue}
-									type="checkbox"
-									placeholder={arg.Description}
-								/>
-							{:else if getArgOptions(arg.Name).length > 0}
-								<Combobox
-									value={[arg.Value]}
-									collection={getArgOptions(arg.Name)}
-									onValueChange={(e) => {
-										// If the chosen item carries a namespace in its group, set it
-										if (arg.Type !== 'Namespace') {
-											const ns = e.items?.[0]?.group;
-											if (ns) {selectNamespace(ns);}
-										}
-										// IMMUTABLE UPDATE so Svelte sees it:
-										const i = args.findIndex(a => a.Name === arg.Name);
-										if (i !== -1) {
-											const newValue = e.value[0];
-											args = args.with(i, { ...args[i], Value: newValue });
-										} else {
-											console.warn("Could not find arg to update:", arg.Name);
-										}
-
-										// arg.Value = e.value[0]
-										// if (e.items.length > 0 && e.items[0].group ) {
-										// 	selectNamespace(e.items[0].group);
-										// }
-									}}
-									inputBehavior="autocomplete"
-									allowCustomValue={true}
-									openOnChange={true}
-									defaultValue={[arg.Value]}
-									placeholder={arg.Name + "..."}
-									>
-									<Combobox.Control>
-									    <Combobox.Input />
-										<Combobox.Trigger />
-									</Combobox.Control>
-									<Portal>
-									    <Combobox.Positioner>
-											<Combobox.Content>
-											    {#each getArgOptions(arg.Name) as item (item)}
-													{item}
-													<Combobox.Item {item}>
-													    <Combobox.ItemText>{item.label}</Combobox.ItemText>
-    												</Combobox.Item>
-    											{/each}
-											</Combobox.Content>
-										</Combobox.Positioner>
-									</Portal>
-								</Combobox>
-							{:else}
-								<input
-									class="ig-input"
-									bind:value={arg.Value}
-									type="text"
-									placeholder={arg.Description}
-								/>
-							{/if}
-							<!-- <input
-								class="ig-input"
-								bind:value={arg.Value}
-								type={arg.Type}
-								placeholder={arg.Description}
-							/> -->
-						</div>
-					{/each}
+{#each args as arg (arg.Name)}
+	<div class="input-group mt-2 grid-cols-[auto_1fr_auto]">
+		<div class="ig-cell preset-tonal">{arg.Name}</div>
+		{#if arg.Type === 'bool'}
+			<input
+				class="ig-input"
+				bind:checked={arg.IsTrue}
+				type="checkbox"
+				placeholder={arg.Description}
+			/>
+		{:else if getArgOptions(arg.Name).length > 0}
+			<Combobox
+				value={[arg.Value]}
+				collection={toComboBoxCollection(getArgOptions(arg.Name))}
+				onValueChange={(e) => onArgChange(arg, e)}
+				inputBehavior="autocomplete"
+				allowCustomValue={true}
+				openOnChange={true}
+				defaultValue={[arg.Value]}
+				placeholder={arg.Name + "..."}
+				>
+				<Combobox.Control>
+					<Combobox.Input />
+					<Combobox.Trigger />
+				</Combobox.Control>
+				<Combobox.Positioner>
+					<Combobox.Content class="z-50">
+						{#each getArgOptions(arg.Name) as item (item)}
+							<Combobox.Item {item}>
+								<Combobox.ItemText>{item.label}</Combobox.ItemText>
+								<Combobox.ItemIndicator />
+							</Combobox.Item>
+						{/each}
+					</Combobox.Content>
+				</Combobox.Positioner>
+			</Combobox>
+		{:else}
+			<span>{arg.Value}</span>
+			<span>{getArgOptions(arg.Name)}</span>
+			<input
+				class="ig-input"
+				bind:value={arg.Value}
+				type="text"
+				placeholder={arg.Description}
+			/>
+		{/if}
+		<!-- <input
+			class="ig-input"
+			bind:value={arg.Value}
+			type={arg.Type}
+			placeholder={arg.Description}
+		/> -->
+	</div>
+{/each}
 			{/if}
 	</article>
 	<footer class="flex justify-end gap-4">

@@ -1,4 +1,4 @@
-import { getContext, setContext } from "svelte";
+import { getContext, setContext } from 'svelte';
 import type { ArmoryType, Node, Edge } from '$lib/model';
 import { campaign, api, type domain } from '$lib/domain/models';
 import { showToast, type ToastType } from '$lib/components/toaster';
@@ -6,16 +6,14 @@ import { getRanAPI, RanAPI } from '$lib/ran_api';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
 
-
-type Conditions = {
-}
+type Conditions = {};
 
 export type Entity = {
-    id: string;
-    name: string;
-    kind?: string;
-    namespace?: string;
-}
+	id: string;
+	name: string;
+	kind?: string;
+	namespace?: string;
+};
 
 // type FactsDelta = {
 //     Entities: Entity[];
@@ -36,312 +34,340 @@ export type Entity = {
 // }
 
 type ErrorMsg = {
-    CmdId: string;
-    Level: string;
-    Msg: string;
-}
+	CmdId: string;
+	Level: string;
+	Msg: string;
+};
 
 type BackendError = {
-    code: string;
-    message: string;
-}
+	code: string;
+	message: string;
+};
 
 class CampaignState {
-    campaignId: number = $state(0);
-    activeConditions: Conditions = $state({});
-    entities = $state<Entity[]>([]);
-    namespaces = $state<Entity[]>([]);
-    pods = $state<Entity[]>([]);
-    serviceAccounts = $state<Entity[]>([]);
-    armory = $state<ArmoryType>(new Map());
-    graph = $state<api.Graph>(new api.Graph());
-    allPods: Entity[] = $state([]);
-    pendingMessages: string[] = [];
-    api: RanAPI = $state(getRanAPI());
+	campaignId: number = $state(0);
+	activeConditions: Conditions = $state({});
+	entities = $state<Entity[]>([]);
+	namespaces = $state<Entity[]>([]);
+	pods = $state<Entity[]>([]);
+	serviceAccounts = $state<Entity[]>([]);
+	armory = $state<ArmoryType>(new Map());
+	graph = $state<api.Graph>(new api.Graph());
+	allPods: Entity[] = $state([]);
+	pendingMessages: string[] = [];
+	api: RanAPI = $state(getRanAPI());
 
-    init(url: string = "ws://localhost:8080/ws"): Promise<void> {
-        // this.api.onmessage = this.handleMessage;
+	init(url: string = 'ws://localhost:8080/ws'): Promise<void> {
+		// this.api.onmessage = this.handleMessage;
 
-        this.api.on("armory-loaded", (data) => {
-            this.armory = parseArmory(data);
-        });
-        this.api.on("facts-changed", (data: any) => {
-            this.api.GetGraph().then((g: api.Graph) => { this.graph = g; });
-            // TODO: properly update state based on the received fact changes
-            this.api.GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
-        });
-        this.api.on("error-msg", (rawMsg: string) => {
-            let msg: ErrorMsg = JSON.parse(rawMsg);
+		this.api.on('armory-loaded', (data) => {
+			this.armory = parseArmory(data);
+		});
+		this.api.on('facts-changed', (data: any) => {
+			this.api.GetGraph().then((g: api.Graph) => {
+				this.graph = g;
+			});
+			// TODO: properly update state based on the received fact changes
+			this.api.GetCampaignState().then((s: api.CampaignState) => {
+				this.#setState(s);
+			});
+		});
+		this.api.on('error-msg', (rawMsg: string) => {
+			let msg: ErrorMsg = JSON.parse(rawMsg);
 
-            // Map msg.Level to ToastType
-            let toastType: ToastType;
-            switch (msg.Level) {
-                case "ERROR":
-                case "WARN":
-                case "FATAL":
-                    toastType = "error";
-                    break;
-                case "INFO":
-                case "DEBUG":
-                default:
-                    toastType = "info";
-            }
+			// Map msg.Level to ToastType
+			let toastType: ToastType;
+			switch (msg.Level) {
+				case 'ERROR':
+				case 'WARN':
+				case 'FATAL':
+					toastType = 'error';
+					break;
+				case 'INFO':
+				case 'DEBUG':
+				default:
+					toastType = 'info';
+			}
 
-            showToast("Error", msg.Msg, toastType);
-        });
+			showToast('Error', msg.Msg, toastType);
+		});
 
-        console.log("CampaignState connecting to backend...");
-        return this.api.connect(url).then((a) => {
-            this.api.GetGraph().then((g: api.Graph) => { this.graph = g; })
-            this.api.GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
-            this.api.GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
-            this.api.GetRunningPods("").then(pods => { this.allPods = pods; }).catch(this.showError);
-        });
-    }
+		console.log('CampaignState connecting to backend...');
+		return this.api.connect(url).then((a) => {
+			this.api.GetGraph().then((g: api.Graph) => {
+				this.graph = g;
+			});
+			this.api.GetCampaignState().then((s: api.CampaignState) => {
+				this.#setState(s);
+			});
+			this.api.GetArmory().then((a: domain.TTP[]) => {
+				this.armory = parseArmory(a);
+			});
+			this.api
+				.GetRunningPods('')
+				.then((pods) => {
+					this.allPods = pods;
+					console.info('All pods:', pods);
+				})
+				.catch(this.showError);
+		});
+	}
 
-    handleMessage(event: MessageEvent) {
-        try {
-            const message = JSON.parse(event.data);
-            const { type, data } = message;
+	handleMessage(event: MessageEvent) {
+		try {
+			const message = JSON.parse(event.data);
+			const { type, data } = message;
 
-            console.log("Received WebSocket message:", type);
-            switch (type) {
-                case "armory-loaded":
-                    this.armory = parseArmory(data);
-                    break;
-                case "facts-changed":
-                    this.api.GetGraph().then((g: api.Graph) => { this.graph = g; });
-                    this.api.GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); });
-                    break;
-                case "error-msg":
-                    const msg: ErrorMsg = typeof data === 'string' ? JSON.parse(data) : data;
-                    let toastType: ToastType;
-                    switch (msg.Level) {
-                        case "ERROR":
-                        case "WARN":
-                        case "FATAL":
-                            toastType = "error";
-                            break;
-                        case "INFO":
-                        case "DEBUG":
-                        default:
-                            toastType = "info";
-                    }
-                    showToast("Error", msg.Msg, toastType);
-                    break;
-                case "get-graph":
-                    this.graph = data;
-                    break;
-                default:
-                    console.log("Unknown event type:", type, data);
-            }
-        } catch (err) {
-            console.error("Failed to parse WebSocket message:", err);
-        }
-    }
+			console.log('Received WebSocket message:', type);
+			switch (type) {
+				case 'armory-loaded':
+					this.armory = parseArmory(data);
+					break;
+				case 'facts-changed':
+					this.api.GetGraph().then((g: api.Graph) => {
+						this.graph = g;
+					});
+					this.api.GetCampaignState().then((s: api.CampaignState) => {
+						this.#setState(s);
+					});
+					break;
+				case 'error-msg':
+					const msg: ErrorMsg = typeof data === 'string' ? JSON.parse(data) : data;
+					let toastType: ToastType;
+					switch (msg.Level) {
+						case 'ERROR':
+						case 'WARN':
+						case 'FATAL':
+							toastType = 'error';
+							break;
+						case 'INFO':
+						case 'DEBUG':
+						default:
+							toastType = 'info';
+					}
+					showToast('Error', msg.Msg, toastType);
+					break;
+				case 'get-graph':
+					this.graph = data;
+					break;
+				default:
+					console.log('Unknown event type:', type, data);
+			}
+		} catch (err) {
+			console.error('Failed to parse WebSocket message:', err);
+		}
+	}
 
-    // connectBackend() {
-    //     console.info("CampaignState connecting to backend...");
-    //     runtime.EventsOn("*", (a) => {
-    //         console.log(a);
-    //     });
-    //     runtime.EventsOn("armory-loaded", (data) => {
-    //         this.armory = parseArmory(data)
-    //     });
-    //     runtime.EventsOn("facts-changed", (dataStr: string) => {
-    //         GetGraph().then((g: api.Graph) => { this.graph = g; });
-    //         // TODO: properly update state based on the received fact changes
-    //         const data = JSON.parse(dataStr);
-    //         GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
-    //     })
-    //     runtime.EventsOn("error-msg", (rawMsg: string) => {
-    //         let msg: ErrorMsg = JSON.parse(rawMsg);
+	// connectBackend() {
+	//     console.info("CampaignState connecting to backend...");
+	//     runtime.EventsOn("*", (a) => {
+	//         console.log(a);
+	//     });
+	//     runtime.EventsOn("armory-loaded", (data) => {
+	//         this.armory = parseArmory(data)
+	//     });
+	//     runtime.EventsOn("facts-changed", (dataStr: string) => {
+	//         GetGraph().then((g: api.Graph) => { this.graph = g; });
+	//         // TODO: properly update state based on the received fact changes
+	//         const data = JSON.parse(dataStr);
+	//         GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
+	//     })
+	//     runtime.EventsOn("error-msg", (rawMsg: string) => {
+	//         let msg: ErrorMsg = JSON.parse(rawMsg);
 
-    //         // Map msg.Level to ToastType
-    //         let toastType: ToastType;
-    //         switch (msg.Level) {
-    //             case "ERROR":
-    //             case "WARN":
-    //             case "FATAL":
-    //                 toastType = "error";
-    //                 break;
-    //             case "INFO":
-    //             case "DEBUG":
-    //             default:
-    //                 toastType = "info";
-    //         }
+	//         // Map msg.Level to ToastType
+	//         let toastType: ToastType;
+	//         switch (msg.Level) {
+	//             case "ERROR":
+	//             case "WARN":
+	//             case "FATAL":
+	//                 toastType = "error";
+	//                 break;
+	//             case "INFO":
+	//             case "DEBUG":
+	//             default:
+	//                 toastType = "info";
+	//         }
 
-    //         showToast("Error", msg.Msg, toastType);
-    //     });
+	//         showToast("Error", msg.Msg, toastType);
+	//     });
 
+	//     GetGraph().then((g: api.Graph) => { this.graph = g; })
+	//     GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
+	//     GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
+	//     GetRunningPods("").then(pods => { this.allPods = pods; }).catch(this.showError);
+	// }
+	showError(msg: string | object) {
+		if (typeof msg === 'object') {
+			if (msg.hasOwnProperty('code') && (msg as BackendError).code == 'GO_BOUND_METHOD_ERROR') {
+				msg = (msg as any).message;
+			} else {
+				// fallback handling to show full object (may allow later refinement)
+				msg = JSON.stringify(msg);
+			}
+		} else if (typeof msg !== 'string') {
+			msg = String(msg);
+		}
 
-    //     GetGraph().then((g: api.Graph) => { this.graph = g; })
-    //     GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
-    //     GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
-    //     GetRunningPods("").then(pods => { this.allPods = pods; }).catch(this.showError);
-    // }
-    showError(msg: string | object) {
-        if (typeof msg === 'object') {
-            if (msg.hasOwnProperty('code') && (msg as BackendError).code == "GO_BOUND_METHOD_ERROR") {
-                msg = (msg as any).message;
-            } else { // fallback handling to show full object (may allow later refinement)
-                msg = JSON.stringify(msg);
-            }
-        } else if (typeof msg !== 'string') {
-            msg = String(msg);
-        }
+		debugger;
+		console.error(msg);
+		showToast('Error', JSON.stringify(msg), 'error');
+	}
 
-        console.error(msg);
-        showToast("Error", JSON.stringify(msg), "error");
-    }
+	reset() {
+		this.entities = [];
+		this.namespaces = [];
+		this.pods = [];
+		this.serviceAccounts = [];
+		this.campaignId += 1; // Increment campaign ID, to trigger changes based on new campaign
+		this.api.ResetCampaign().then(() => {
+			this.api.GetGraph().then((g: api.Graph) => {
+				this.graph = g;
+			});
+		});
+	}
 
-    reset() {
-        this.entities = [];
-        this.namespaces = [];
-        this.pods = [];
-        this.serviceAccounts = [];
-        this.campaignId += 1; // Increment campaign ID, to trigger changes based on new campaign
-        this.api.ResetCampaign().then(() => {
-            this.api.GetGraph().then((g: api.Graph) => { this.graph = g; });
-        });
-    }
+	#setState(state: api.CampaignState): void {
+		let entities = [];
+		for (const [id, entity] of Object.entries(state.entities || {})) {
+			if (entity.kind === 'Namespace') {
+				this.namespaces = [...this.namespaces, entity];
+			} else if (entity.kind === 'Pod') {
+				this.pods = [...this.pods, entity];
+			} else if (entity.kind === 'ServiceAccount') {
+				this.serviceAccounts = [...this.serviceAccounts, entity];
+			}
 
-    #setState(state: api.CampaignState): void {
-        let entities = [];
-        for (const [id, entity] of Object.entries(state.entities || {})) {
-            if (entity.kind === 'Namespace') {
-                this.namespaces = [...this.namespaces, entity];
-            } else if (entity.kind === 'Pod') {
-                this.pods = [...this.pods, entity];
-            } else if (entity.kind === 'ServiceAccount') {
-                this.serviceAccounts = [...this.serviceAccounts, entity];
-            }
+			if (!entity.id) {
+				entity.id = id;
+			}
+			entities.push(entity);
+		}
+		this.entities = entities; // ensure we replace the array to trigger reactivity
+	}
 
-            if (!entity.id) {
-                entity.id = id;
-            }
-            entities.push(entity);
-        }
-        this.entities = entities; // ensure we replace the array to trigger reactivity
-    }
+	#updateState(state: api.CampaignState): void {
+		for (const [id, entity] of Object.entries(state.entities || [])) {
+			if (!this.entities.some((e) => e.id === entity.id)) {
+				this.entities = [...this.entities, entity];
+			} else {
+				// TODO: properly update the entity
+			}
+			if (entity.kind === 'Namespace') {
+				this.namespaces = [...this.namespaces, entity];
+			}
+		}
 
-    #updateState(state: api.CampaignState): void {
-        for (const [id, entity] of Object.entries(state.entities || [])) {
-            if (!this.entities.some(e => e.id === entity.id)) {
-                this.entities = [...this.entities, entity];
-            } else {
-                // TODO: properly update the entity
-            }
-            if (entity.kind === 'Namespace') {
-                this.namespaces = [...this.namespaces, entity];
-            }
-        }
+		this.entities = state.entities.map((node: Node) => {
+			return {
+				id: node.id,
+				name: node.name,
+				kind: node.kind,
+				namespace: node.namespace
+			};
+		});
+	}
 
-        this.entities = state.entities.map((node: Node) => {
-            return {
-                id: node.id,
-                name: node.name,
-                kind: node.kind,
-                namespace: node.namespace
-            };
-        });
-    }
+	// updateEntities(data: FactsChanged): Entity[] {
+	//     // Update the entities based on the facts changed
+	//     for (const entity of data.RemovedEntities || []) {
+	//         this.entities = this.entities.filter(e => e.id !== entity.id);
+	//     }
 
-    // updateEntities(data: FactsChanged): Entity[] {
-    //     // Update the entities based on the facts changed
-    //     for (const entity of data.RemovedEntities || []) {
-    //         this.entities = this.entities.filter(e => e.id !== entity.id);
-    //     }
+	//     for (const entity of data.NewEntities || []) {
+	//         if (!this.entities.some(e => e.id === entity.id)) {
+	//             console.log("Adding entity: ", entity);
+	//             this.entities = [...this.entities, entity];
+	//         } else {
+	//             // TODO: properly update the entity
+	//         }
+	//         if (entity.kind === 'Namespace') {
+	//             this.namespaces = [...this.namespaces, entity];
+	//         }
+	//     }
+	//     return this.entities
+	// }
 
-    //     for (const entity of data.NewEntities || []) {
-    //         if (!this.entities.some(e => e.id === entity.id)) {
-    //             console.log("Adding entity: ", entity);
-    //             this.entities = [...this.entities, entity];
-    //         } else {
-    //             // TODO: properly update the entity
-    //         }
-    //         if (entity.kind === 'Namespace') {
-    //             this.namespaces = [...this.namespaces, entity];
-    //         }
-    //     }
-    //     return this.entities
-    // }
+	getTtpById(id: string): domain.TTP | undefined {
+		for (const [group, ttps] of this.armory) {
+			const ttp = ttps.find((t) => t.id === id);
+			if (ttp) {
+				return ttp;
+			}
+		}
+	}
 
-    getTtpById(id: string): domain.TTP | undefined {
-        for (const [group, ttps] of this.armory) {
-            const ttp = ttps.find(t => t.id === id);
-            if (ttp) {
-                return ttp;
-            }
-        }
-    }
+	getNamespaces(): Entity[] {
+		let ns = this.entities.filter((entity) => entity.kind === 'Namespace');
+		return ns || [];
+	}
 
-    getNamespaces(): Entity[] {
-        let ns = this.entities.filter(entity => entity.kind === 'Namespace')
-        return ns || [];
-    }
+	getPods(ns?: string, all: boolean = false): Entity[] {
+		// go beyond regular campaign state and return all pods in the cluster (regardless of exploration)
+		if (all) {
+			return this.allPods;
+		}
+		let pods = this.entities.filter(
+			(entity) => entity.kind === 'Pod' && (!ns || entity.namespace === ns)
+		);
+		return pods || [];
+	}
 
-    getPods(ns?: string, all: boolean = false): Entity[] {
-        // go beyond regular campaign state and return all pods in the cluster (regardless of exploration)
-        if (all) {
-            return this.allPods;
-        }
-        let pods = this.entities.filter(entity => entity.kind === 'Pod' && (!ns || entity.namespace === ns));
-        return pods || [];
-    }
+	getServiceAccounts(ns?: string, permissions?: string[], includeUnkwnon?: boolean): Entity[] {
+		let serviceAccounts = this.entities.filter((entity) => entity.kind === 'ServiceAccount');
+		if (ns) {
+			serviceAccounts = serviceAccounts.filter((entity) => entity.namespace === ns);
+		}
+		return serviceAccounts || [];
+	}
 
-    getServiceAccounts(ns?: string, permissions?: string[], includeUnkwnon?: boolean): Entity[] {
-        let serviceAccounts = this.entities.filter(entity => entity.kind === 'ServiceAccount');
-        if (ns) {
-            serviceAccounts = serviceAccounts.filter(entity => entity.namespace === ns);
-        }
-        return serviceAccounts || [];
-    }
+	ExecuteAction(
+		actionId: string,
+		targetId: string,
+		procedureId: string,
+		args: Record<string, any>
+	): Promise<void> {
+		return this.api.sendMessage<void>('execute-action', {
+			actionId,
+			targetId,
+			procedureId,
+			args
+		});
+	}
 
-    ExecuteAction(actionId: string, targetId: string, procedureId: string, args: Record<string, any>): Promise<void> {
-        return this.api.sendMessage<void>("execute-action", {
-            actionId,
-            targetId,
-            procedureId,
-            args
-        });
-    }
+	GetFlow(): Promise<api.AttackFlow> {
+		return this.api.sendMessage<api.AttackFlow>('get-flow');
+	}
 
-    GetFlow() : Promise<api.AttackFlow> {
-        return this.api.sendMessage<api.AttackFlow>("get-flow");
-    }
-
-    sendMessage(type: string, data?: any): Promise<any> {
-        return this.api.sendMessage<any>(type, data);
-    }
+	sendMessage(type: string, data?: any): Promise<any> {
+		return this.api.sendMessage<any>(type, data);
+	}
 }
 
 const DEFAULT_KEY = '$_campaignState';
 
 export const getCampaignState = (key = DEFAULT_KEY) => {
-    return getContext<CampaignState>(key);
-}
+	return getContext<CampaignState>(key);
+};
 
 export const setCampaignState = (key = DEFAULT_KEY) => {
-    const campaignState = new CampaignState();
-    return setContext(key, campaignState);
-}
-
-
+	const campaignState = new CampaignState();
+	return setContext(key, campaignState);
+};
 
 export function parseArmory(data: domain.TTP[]): ArmoryType {
-    // this comes from the backend must be converted
-    let armoryMap = new Map<string, domain.TTP[]>();
-    for (let ttp of data) {
-        let groupName = ttp.tactic;
-        if (groupName === "") {
-            groupName = "Other";
-        }
-        if (!armoryMap.has(groupName)) {
-            armoryMap.set(groupName, []);
-        }
-        armoryMap.get(groupName)!.push(ttp);
-    }
-    // Armory contains a CmdId field; process accordingly if needed.
-    return armoryMap;
+	// this comes from the backend must be converted
+	let armoryMap = new Map<string, domain.TTP[]>();
+	for (let ttp of data) {
+		let groupName = ttp.tactic;
+		if (groupName === '') {
+			groupName = 'Other';
+		}
+		if (!armoryMap.has(groupName)) {
+			armoryMap.set(groupName, []);
+		}
+		armoryMap.get(groupName)!.push(ttp);
+	}
+	// Armory contains a CmdId field; process accordingly if needed.
+	return armoryMap;
 }
