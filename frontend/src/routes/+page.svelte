@@ -131,50 +131,47 @@
 		<Armory class="h-full min-h-0" action={sendAction} targetId={selectedObjectId} />
 		<Graph bind:selectedObjectId bind:selectedObject class="flex-1 h-full min-h-0" />
 
-		<Popover
-			open={showDetails}
-			onOpenChange={(e) => e.open}
-			positioning={{ placement: 'top-end', fitViewport: true }}
-			portalled={false}
-		>
-		    <Popover.Anchor>
-				<div id="info-anchor" class="absolute top-10 right-50"/>
-			</Popover.Anchor>
-			<Portal>
-			<!-- {#snippet trigger()}{/snippet} -->
-			<!-- {#snippet content()} -->
-			    <Popover.Positioner>
-					<Popover.Content class="border border-surface-600 w-110 rounded-lg bg-surface-100-900 p-4 shadow-xl ">
-        				<svelte:boundary onerror={handleError}>
-           					<EntityInfo selectedObject={selectedObject} {sendAction}/>
-        				</svelte:boundary>
-					</Popover.Content>
-				</Popover.Positioner>
-			<!-- {/snippet} -->
-			</Portal>
-		</Popover>
+<Popover
+	open={showDetails}
+	onOpenChange={(e) => e.open}
+	positioning={{ placement: 'top-end', fitViewport: true }}
+	portalled={false}
+>
+	<Popover.Anchor>
+		<div id="info-anchor" class="absolute top-10 right-50"/>
+	</Popover.Anchor>
+	<Portal>
+		<Popover.Positioner>
+			<Popover.Content class="border border-surface-600 w-110 rounded-lg bg-surface-100-900 p-4 shadow-xl ">
+				<svelte:boundary onerror={handleError}>
+					<EntityInfo selectedObject={selectedObject} {sendAction}/>
+				</svelte:boundary>
+			</Popover.Content>
+		</Popover.Positioner>
+	</Portal>
+</Popover>
 
-		<Dialog
-			open={showParamModal}
-			onOpenChange={(e) => (showParamModal = e.open)}
-		>
-           	<Portal>
-    			<Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50"/>
-    			<Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
-    				<Dialog.Content class="card min-w-modal bg-surface-100-900 p-8 space-y-4 shadow-xl">
-						{#if selectedTTP}
-							<ActionParamsModal
-								targetId={selectedObjectId}
-								argContext={ttpArgContext}
-								ttp={selectedTTP!}
-								onCancel={closeModal}
-								onExecute={onExecuteTTP}
-							/>
-						{/if}
-    				</Dialog.Content>
-    			</Dialog.Positioner>
-           	</Portal>
-		</Dialog>
+<Dialog
+	open={showParamModal}
+	onOpenChange={(e) => (showParamModal = e.open)}
+>
+	<Portal>
+		<Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50"/>
+		<Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
+			<Dialog.Content class="card min-w-modal bg-surface-100-900 p-8 space-y-4 shadow-xl">
+				{#if selectedTTP}
+					<ActionParamsModal
+						targetId={selectedObjectId}
+						argContext={ttpArgContext}
+						ttp={selectedTTP!}
+						onCancel={closeModal}
+						onExecute={onExecuteTTP}
+					/>
+				{/if}
+			</Dialog.Content>
+		</Dialog.Positioner>
+	</Portal>
+</Dialog>
 	{:catch err}
 		<div class="justify-center">
 			<figure>
