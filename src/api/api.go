@@ -100,9 +100,23 @@ func NewAPI(r *ran.Ran, ctx context.Context) *API {
 	}
 	a.router = chi.NewRouter()
 
-	workDir, _ := os.Getwd()
-	frontend := http.Dir(filepath.Join(workDir, "..", "frontend", "build"))
-	FileServer(a.router, "/", frontend)
+	// if Vite dev server is running, use it to serve frontend assets, otherwise serve compiled assets
+	if IsViteServerRunning() {
+		slog.Info("Vite dev server detected, using it to serve frontend assets")
+		// Proxy to Vite dev server for frontend assets and routes in non-production
+		a.router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			viteProxy := GetViteProxy()
+
+			// Proxy to Vite for frontend assets and routes
+			viteProxy.ServeHTTP(w, r)
+		})
+		a.router.Handle("/*", GetViteProxy())
+	} else {
+		workDir, _ := os.Getwd()
+		// TODO: changed this to use embedded FS
+		frontend := http.Dir(filepath.Join(workDir, "..", "frontend", "build"))
+		FileServer(a.router, "/", frontend)
+	}
 
 	// router.Get("/graph", func(w http.ResponseWriter, req *http.Request) {
 	// 	graph := a.GetGraph()
