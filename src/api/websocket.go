@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/Magier/Ran/domain"
 	"github.com/gorilla/websocket"
 )
 
@@ -114,6 +115,7 @@ func (a *API) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleWSRequest(client *WSClient, req WSRequest) {
 	var resp WSResponse
 	resp.Type = req.Type
+	slog.Info("Client requested " + req.Type)
 
 	switch req.Type {
 	case "get-graph":
@@ -132,6 +134,7 @@ func (a *API) handleWSRequest(client *WSClient, req WSRequest) {
 			resp.Error = err.Error()
 		} else if ttps, err := a.GetApplicableTTPs(params.TargetID); err != nil {
 			resp.Error = err.Error()
+			resp.Data = []domain.TTP{}
 		} else {
 			resp.Data = ttps
 		}

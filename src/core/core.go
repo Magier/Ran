@@ -19,6 +19,7 @@ import (
 	"github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
 	"github.com/Magier/Ran/planner"
+	"github.com/Marlliton/slogpretty"
 )
 
 type Ran struct {
@@ -43,9 +44,10 @@ func InitRan(target, armoryDir string) Ran {
 
 	// Initialize structured logging with slog.
 	// Make sure to add "os" and "log/slog" to your import list.
-	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})
+	// h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	// 	Level: slog.LevelInfo,
+	// })
+	h := slogpretty.New(os.Stdout, nil)
 	slog.SetDefault(slog.New(h))
 
 	path, _ := os.Getwd()
