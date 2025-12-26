@@ -93,7 +93,17 @@
 	</AppBar.Toolbar>
 </AppBar>
 
-<Toast.Group {toaster}></Toast.Group>
+<Toast.Group {toaster}>
+	{#snippet children(toast)}
+		<Toast {toast}>
+			<Toast.Message>
+				<Toast.Title>{toast.title}</Toast.Title>
+				<Toast.Description>{toast.description}</Toast.Description>
+			</Toast.Message>
+			<Toast.CloseTrigger />
+		</Toast>
+	{/snippet}
+</Toast.Group>
 <main class="">
 	{@render children()}
 </main>
