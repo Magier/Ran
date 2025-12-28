@@ -338,6 +338,9 @@ class CampaignState {
 	GetFlow(): Promise<api.AttackFlow> {
 		return this.api.sendMessage<api.AttackFlow>('get-flow');
 	}
+	ExportAttackFlow(): Promise<api.AttackFlow> {
+		return this.api.sendMessage<api.AttackFlow>('export-attack-flow');
+	}
 
 	sendMessage(type: string, data?: any): Promise<any> {
 		return this.api.sendMessage<any>(type, data);

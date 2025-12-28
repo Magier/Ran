@@ -6,9 +6,10 @@
 	import IconMap from '~icons/game-icons/treasure-map';
 	import IconSteps from '~icons/game-icons/footsteps';
 	import { browser } from '$app/environment';
-	import { toaster } from '$lib/components/toaster';
+	import { showToast, toaster } from '$lib/components/toaster';
 	import '../app.css';
 	import { getCampaignState, setCampaignState } from '$lib/components/CampaignState.svelte';
+	import { saveFile } from '$lib/io';
 	let { children } = $props();
 
 	setCampaignState();
@@ -41,9 +42,15 @@
      			campaignState.reset()
 				break;
 			case 'save_flow':
-     			debugger
-				//campaignState.saveFlow()
-				toaster.create({ title: "Save error", description: 'Saving of flows not yet implemented: ', type: 'error' });
+				campaignState.ExportAttackFlow().then((flow) => {
+					const fileName = `campaign_${new Date().toISOString()}.json`;
+					const data = JSON.stringify(flow, null, 2);
+					saveFile(data, fileName, 'application/json');
+				}).catch((error) => {
+					console.error('Error getting flow:', error);
+					showToast('Failed to save flow', `Could not get flow: ${error.message}`, 'error'
+					);
+				});
 				break;
 			default:
 				console.log('Unknown menu item:', value);
