@@ -126,6 +126,12 @@ func (a *API) handleWSRequest(client *WSClient, req WSRequest) {
 		resp.Data = a.GetCampaignState()
 	case "get-flow":
 		resp.Data = a.GetFlow()
+	case "export-attack-flow":
+		if flow, err := a.ran.Campaign.GetAuditTrail().ConvertToAttackFlow(); err != nil {
+			resp.Error = err.Error()
+		} else {
+			resp.Data = flow
+		}
 	case "get-applicable-ttps":
 		var params struct {
 			TargetID string `json:"targetId"`
