@@ -19,14 +19,15 @@
 		isConnectable = false
 	}: ActionNodeProps = $props();
 
-	const { label, step } = data;
+	const label = $derived(data.label);
+	const step = $derived(data.step);
 
-	const { statusBorder, icon: stateIcon, color } = data.step?.Success
+	const statusInfo = $derived(step?.Success
 		? { statusBorder: 'border-green-500', icon: 'lucide:check', color: 'text-success-500' }
-		: { statusBorder: 'border-red-500', icon: 'lucide:x', color: 'text-error-500' };
+		: { statusBorder: 'border-red-500', icon: 'lucide:x', color: 'text-error-500' });
 </script>
 
-<div class={['bg-surface-50-950 border-1 rounded-md border-solid px-2 py-2', statusBorder]}>
+<div class={['bg-surface-50-950 border-1 rounded-md border-solid px-2 py-2', statusInfo.statusBorder]}>
 		<span class="text-base">{label}</span>
 		<pre class="text-xs">{step.Target?.name ?? 'no target'}</pre>
 
@@ -43,8 +44,8 @@
 				<Icon icon={"humbleicons:eye"} width="16" />
 			{/if}
 			{#if step?.Success}
-				<Icon class={color} icon={stateIcon} width="16" />
-			{/if}
+					<Icon class={statusInfo.color} icon={statusInfo.icon} width="16" />
+				{/if}
 		</div>
 	</div>
 

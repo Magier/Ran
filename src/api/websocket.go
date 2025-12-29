@@ -102,7 +102,9 @@ func (a *API) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		var req WSRequest
 		if err := json.Unmarshal(message, &req); err != nil {
-			client.sendJSON("error", "invalid request")
+			if sendErr := client.sendJSON("error", "invalid request"); sendErr != nil {
+				slog.Error("Failed to send error response", "error", sendErr)
+			}
 			continue
 		}
 

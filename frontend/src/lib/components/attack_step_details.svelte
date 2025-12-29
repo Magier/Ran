@@ -8,8 +8,8 @@
 	}
 
 	let { step }: ActionDetailProps = $props();
-	const badgeStyle = step?.Success ? 'preset-filled-success-500' : 'preset-filled-error-500';
-	let status = step == null ? 'unknown' : step.Success ? 'Success' : 'Failed';
+	const badgeStyle = $derived(step?.Success ? 'preset-filled-success-500' : 'preset-filled-error-500');
+	let status = $derived(step == null ? 'unknown' : step.Success ? 'Success' : 'Failed');
 
 	function handleCopy(event: MouseEvent) {
 		const button = event.currentTarget as HTMLButtonElement;
