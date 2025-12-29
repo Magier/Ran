@@ -49,8 +49,12 @@ func GetConfig() (*restclient.Config, KubeContext, error) {
 	// use the current context in kubeconfig
 	config, err := clientcmd.BuildConfigFromFlags("", configPath)
 
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return nil, KubeContext{}, fmt.Errorf("kubeconfig file not found at %s", configPath)
+	}
+
 	var context KubeContext
-	if contextConfig := clientcmd.GetConfigFromFileOrDie(configPath); contextConfig != nil {
+	if contextConfig := clientcmd.GetConfigFromFileOrDie(configPath); contextConfig.CurrentContext != "" {
 		ctxName := contextConfig.CurrentContext
 
 		kubeCtx := contextConfig.Contexts[ctxName]
