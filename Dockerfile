@@ -10,6 +10,7 @@ WORKDIR /app
 COPY Makefile ./
 COPY frontend/ ./frontend/
 COPY src/ ./src/
+COPY armory/ ./armory/
 
 # Install frontend dependencies
 RUN pnpm --prefix frontend install --frozen-lockfile
