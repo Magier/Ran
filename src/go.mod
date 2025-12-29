@@ -1,6 +1,6 @@
 module github.com/Magier/Ran
 
-go 1.24.1
+go 1.24.3
 
 require (
 	github.com/bishopfox/sliver v1.15.16
@@ -21,6 +21,7 @@ require (
 )
 
 require (
+	github.com/Marlliton/slogpretty v0.1.3 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
