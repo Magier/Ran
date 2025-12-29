@@ -55,9 +55,9 @@ export class RanAPI {
             if (pending) {
                 this.pendingRequests.delete(msgType);
                 if (error) {
-                    pending.reject(new Error(error));
+                    pending.reject(error);
                 } else if (data === undefined) {
-                    pending.reject(new Error("No data in response"));
+                    pending.reject("No data in response");
                 } else {
                     pending.resolve(data);
                 }

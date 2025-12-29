@@ -37,7 +37,7 @@
 
 	const campaignState = getCampaignState();
 
-	let procedureId = $state(ttp?.procedures?.[0]?.Key || '');
+	let procedureId = $state('');
 	let args = $state<Arg[]>([]);
 	let availableEntities: Entity[] = $state([]);
 	let namespaceArgName: string = "";

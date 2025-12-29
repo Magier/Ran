@@ -209,7 +209,6 @@ class CampaignState {
 			msg = String(msg);
 		}
 
-		debugger;
 		console.error(msg);
 		showToast('Error', JSON.stringify(msg), 'error');
 	}

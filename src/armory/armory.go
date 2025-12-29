@@ -100,7 +100,7 @@ func loadTTPs(builtinFS embed.FS, userDefinedDir string) ([]domain.TTP, error) {
 	if userDefinedDir != "" {
 		userDefinedFS := os.DirFS(userDefinedDir)
 		if _, err := os.Stat(userDefinedDir); os.IsNotExist(err) {
-			slog.Error(fmt.Sprintf("User-defined TTP directory '%s' does not exist, skipping\n", userDefinedDir))
+			slog.Warn(fmt.Sprintf("User-defined TTP directory '%s' does not exist, skipping\n", userDefinedDir))
 			return ttps, nil
 		}
 

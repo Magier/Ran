@@ -94,7 +94,7 @@ func (b *MessageBusProvider) SubscribeToName(name string, handler domain.Message
 		handler,
 	)
 
-	slog.Info(fmt.Sprintf("Subscribed to event %s", name))
+	slog.Debug(fmt.Sprintf("Subscribed to event %s", name))
 
 	return func() {
 		handlers := b.subscribers[name]

@@ -125,13 +125,3 @@
 		{/each}
 	{/if}
 </div>
-
-<style>
-	.details-popup {
-		position: absolute;
-		display: none;
-	}
-	.details-popup.show {
-		display: block;
-	}
-</style>

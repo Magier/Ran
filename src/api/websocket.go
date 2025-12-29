@@ -170,7 +170,7 @@ func (a *API) handleWSRequest(client *WSClient, req WSRequest) {
 			slog.Warn("get-running-pods: failed to parse params", "error", err)
 		} else {
 			if pods, err := a.GetRunningPods(params.Namespace); err != nil {
-				resp.Error = err.Error()
+				resp.Data = err
 			} else {
 				resp.Data = pods
 			}

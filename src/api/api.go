@@ -114,6 +114,7 @@ func NewAPI(r *ran.Ran, ctx context.Context) *API {
 		})
 		a.router.Handle("/*", GetViteProxy())
 	} else {
+		slog.Debug("Serving static assets from embedded filesystem")
 		static, _ := fs.Sub(staticFS, "static")
 		FileServer(a.router, "/", http.FS(static))
 	}
