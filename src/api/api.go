@@ -2,11 +2,11 @@ package api
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -92,6 +92,9 @@ type API struct {
 	router    chi.Router
 }
 
+//go:embed all:static
+var staticFS embed.FS
+
 func NewAPI(r *ran.Ran, ctx context.Context) *API {
 	a := &API{
 		ctx:     ctx,
@@ -106,16 +109,13 @@ func NewAPI(r *ran.Ran, ctx context.Context) *API {
 		// Proxy to Vite dev server for frontend assets and routes in non-production
 		a.router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			viteProxy := GetViteProxy()
-
 			// Proxy to Vite for frontend assets and routes
 			viteProxy.ServeHTTP(w, r)
 		})
 		a.router.Handle("/*", GetViteProxy())
 	} else {
-		workDir, _ := os.Getwd()
-		// TODO: changed this to use embedded FS
-		frontend := http.Dir(filepath.Join(workDir, "..", "frontend", "build"))
-		FileServer(a.router, "/", frontend)
+		static, _ := fs.Sub(staticFS, "static")
+		FileServer(a.router, "/", http.FS(static))
 	}
 
 	// router.Get("/graph", func(w http.ResponseWriter, req *http.Request) {
