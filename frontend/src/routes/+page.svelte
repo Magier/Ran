@@ -97,7 +97,7 @@
 
 		console.log('Executing TTP', ttpId, selectedObjectId, procedureId, args);
 		campaignState.ExecuteAction(ttpId, selectedObjectId, procedureId, args)
-			.then((e) => {
+			.then(() => {
 				let toastId = showToast('Executing TTP', ttpId, 'info');
 				ToastMapping[ttpId] = toastId;
 			})
@@ -125,7 +125,7 @@
 
 <div class="relative grid h-[calc(100vh-60px)] grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
 	{#await campaignState.init()}
-		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-[100%]" />
+		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-100" />
 		<div>loading...</div>
 	{:then sessions}
 		<Armory class="h-full min-h-0" action={sendAction} targetId={selectedObjectId} />
@@ -137,9 +137,9 @@
 	positioning={{ placement: 'top-end', fitViewport: true }}
 	portalled={false}
 >
-	<Popover.Anchor>
-		<div id="info-anchor" class="absolute top-10 right-50"/>
-	</Popover.Anchor>
+	   <Popover.Anchor>
+      <div id="info-anchor" class="absolute top-10 right-50"></div>
+     </Popover.Anchor>
 	<Portal>
 		<Popover.Positioner>
 			<Popover.Content class="border border-surface-600 w-110 rounded-lg bg-surface-100-900 p-4 shadow-xl ">

@@ -4,7 +4,7 @@ copy-armory:
 
 
 .PHONY: build
-build: 
+build: copy-armory
 	pnpm --prefix frontend build
 	cp -r frontend/build/. src/api/static/
 	cd src && go build -o ../dist/ran .
