@@ -17,13 +17,10 @@ RUN pnpm --prefix frontend install --frozen-lockfile
 # Run the Makefile build target
 RUN CGO_ENABLED=0 GOOS=linux make build
 
-# Move binary to known location with optimizations
-RUN mv Ran /ran || mv ran /ran
-
 # Final minimal stage
 FROM scratch
 
-COPY --from=builder /dist/ran /ran
+COPY --from=builder /app/dist/ran /ran
 
 EXPOSE 8080
 
