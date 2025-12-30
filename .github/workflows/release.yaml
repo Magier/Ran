@@ -22,7 +22,7 @@ jobs:
         # Keep some headroom for large bundles
         NODE_OPTIONS: --max-old-space-size=8192
         NODE_ENV: production
-        WORKING_DIR: RanUI/frontend
+        WORKING_DIR: frontend
       defaults:
           run: 
             working-directory: ${{ env.WORKING_DIR }}

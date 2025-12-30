@@ -21,9 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux make build
 # Final minimal stage
 FROM scratch
 
-ARG TARGETARCH
-
-COPY dist/linux-${TARGETARCH}/ran /ran
+COPY --from=builder /app/dist/ran /ran
 
 EXPOSE 8080
 
