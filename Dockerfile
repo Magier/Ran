@@ -19,12 +19,12 @@ RUN pnpm --prefix frontend install --frozen-lockfile
 RUN CGO_ENABLED=0 GOOS=linux make build
 
 # Final minimal stage
-FROM golang:trixie
+FROM golang
 
 ARG TARGETARCH
 
-COPY dist/linux-${TARGETARCH}/ran /ran
-
+COPY dist/linux-${TARGETARCH}/ran /app/ran
+    
 EXPOSE 8080
 
 ENTRYPOINT ["/ran"]
