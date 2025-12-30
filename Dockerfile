@@ -22,9 +22,11 @@ RUN CGO_ENABLED=0 GOOS=linux make build
 FROM golang
 
 ARG TARGETARCH
+WORKDIR /app
+COPY dist/linux-${TARGETARCH}/ran ./ran
 
-COPY dist/linux-${TARGETARCH}/ran /app/ran
-    
+RUN chmod +x ./ran
+
 EXPOSE 8080
 
-ENTRYPOINT ["/ran"]
+ENTRYPOINT ["./ran"]
