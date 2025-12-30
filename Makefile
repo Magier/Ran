@@ -32,7 +32,9 @@ ifndef GOARCH
 	$(error GOARCH is not set)
 endif
 	mkdir -p dist/$(GOOS)-$(GOARCH)
-	cd src && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) DEST=../dist/$(GOOS)-$(GOARCH)/ran$(if $(filter windows,$(GOOS)),.exe,) go build -o $(DEST) . && chmod +x $(DEST)
+	cd src && \
+	DEST=../dist/$(GOOS)-$(GOARCH)/ran$(if $(filter windows,$(GOOS)),.exe,) && \
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $$DEST . && chmod +x $$DEST
 
 # Local development
 .PHONY: build
