@@ -22,7 +22,6 @@
     - after getting proper node info, update all the other relations and entities as well (instead of pointing to unknown node)
 
 - [UI] decouple the `Tree` UI component from the `Mount` types
-
 - for chained execution channel, properly wrap the commands and the returned errors.
 
 - [Sliver] sliver-c2-channel should go from listener to the target, not from sliver itself
@@ -66,8 +65,6 @@
 
 - using K8s-API to get resource kind should do a sync instead of just adding the resources
     - e.g. if a pod was deleted in the maintime, the `k get pods` TTP should not return it
-
-
 
 - rework the targeting system:
     - execute from "closest" compromised container (if any)

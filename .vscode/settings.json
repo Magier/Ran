@@ -1,3 +1,4 @@
 {
-    "julia.environmentPath": "/Users/me/Dev/Ran/Ran"
+    "julia.environmentPath": "/Users/me/Dev/Ran/Ran",
+    "makefile.configureOnOpen": false
 }

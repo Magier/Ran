@@ -19,7 +19,7 @@ RUN pnpm --prefix frontend install --frozen-lockfile
 RUN CGO_ENABLED=0 GOOS=linux make build
 
 # Final minimal stage
-FROM scratch
+FROM golang:trixie
 
 ARG TARGETARCH
 
