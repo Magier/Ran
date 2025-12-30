@@ -20,7 +20,7 @@ jobs:
   test-go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       
       - uses: actions/setup-go@v5
         with:
@@ -30,10 +30,15 @@ jobs:
       - name: Run Go tests
         run: make test-go
 
+      - name: Secret Scanning
+        uses: trufflesecurity/trufflehog@ef6e76c3c4023279497fab4721ffa071a722fd05 # v3.92.4
+        with:
+          extra_args: --only-verified
+
   test-and-build-frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       
       - uses: pnpm/action-setup@v2
         with:
@@ -61,6 +66,7 @@ jobs:
           path: frontend/build/
           retention-days: 1
 
+
   # ============================================
   # Stage 2: Build binaries (matrix, only on release)
   # ============================================
@@ -82,7 +88,7 @@ jobs:
           - goos: windows
             goarch: amd64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       
       - uses: actions/setup-go@v5
         with:
@@ -115,7 +121,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       
       - name: Download Linux amd64 binary
         uses: actions/download-artifact@v4
@@ -130,13 +136,13 @@ jobs:
           path: dist/linux-arm64/
       
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
       - name: Log in to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -144,15 +150,17 @@ jobs:
       
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            type=ref,event=branch
+            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
       
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           file: Dockerfile
@@ -160,6 +168,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ============================================
   # Stage 4: Release
