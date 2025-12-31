@@ -73,9 +73,15 @@
 	<article class="flex min-h-10 flex-auto flex-col overflow-auto">
 		<div class="mt-4 justify-start">
 			<div class="pr-2">Command</div>
-			<code class="h-10 w-full overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all"
-				>{step.Command}</code
-			>
+				<div class="bg-surface-50-950 relative group">
+			<code class="h-10 w-full overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all" data-source
+				>{step.Command}</code>
+			<button
+				class="btn preset-filled absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity"
+				data-trigger
+				onclick={handleCopy}
+			>📋</button>
+			</div>
 		</div>
 		<div class="mt-4 w-full">
 			<span class="label mb-1 flex-none">Result:</span>
