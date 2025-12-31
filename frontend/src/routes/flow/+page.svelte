@@ -14,7 +14,7 @@
     } from '@xyflow/svelte';
     import dagre from '@dagrejs/dagre';
     import '@xyflow/svelte/dist/style.css';
-    import { Dialog } from '@skeletonlabs/skeleton-svelte';
+    import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
     let campaignState = getCampaignState();
@@ -99,6 +99,10 @@
         .catch((err) => {
             console.error(err);
         });
+
+    const animModal =
+        'transition transition-discrete opacity-0 translate-x-full starting:data-[state=open]:opacity-0 starting:data-[state=open]:translate-x-full data-[state=open]:opacity-100 data-[state=open]:translate-x-0';
+    const animBackdrop = 'transition transition-discrete opacity-0 starting:data-[state=open]:opacity-0 data-[state=open]:opacity-100';
 </script>
 
 <div class="items-top mx-auto flex h-dvh w-full justify-center">
@@ -136,25 +140,19 @@
 <Dialog
     open={selectedStep !== null}
     onOpenChange={(e) => {
-        console.log('Modal open:', e.open);
         if (!e.open) {
             selectedStep = null;
         }
     }}
-    contentBase="bg-surface-100-900 p-4 space-y-4 shadow-xl w-[480px] h-screen flex flex-col"
-    positionerJustify="justify-end"
-    positionerAlign=""
-    positionerPadding=""
-    transitionsPositionerIn={{
-        x: 480,
-        duration: 200
-    }}
-    transitionsPositionerOut={{ x: 480, duration: 200 }}
 >
-    <!-- {#snippet trigger()}Open Drawer{/snippet} -->
-    {#snippet content()}
-        <AttackStepDetails step={selectedStep!} />
-    {/snippet}
+    <Portal>
+    <Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50 transition transition-discrete {animBackdrop}" />
+		<Dialog.Positioner class="fixed inset-0 z-50 flex justify-end">
+			<Dialog.Content class="w-xl h-screen overflow-auto bg-surface-100-900 p-4 space-y-4 shadow-xl {animModal}">
+                <AttackStepDetails step={selectedStep!} />
+			</Dialog.Content>
+		</Dialog.Positioner>
+    </Portal>
 </Dialog>
 
 <style>

@@ -42,7 +42,7 @@ type KubeContext struct {
 func GetConfig() (*restclient.Config, KubeContext, error) {
 	home, exists := os.LookupEnv("HOME")
 	if !exists {
-		home = "/root"
+		home = "/home"
 	}
 
 	configPath := filepath.Join(home, ".kube", "config")
