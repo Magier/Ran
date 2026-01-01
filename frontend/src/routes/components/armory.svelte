@@ -142,12 +142,12 @@
 						<Icon icon={iconMap[tactic]} width="24"></Icon>
 						<div class="flex w-full items-center">
 							<span class="flex-1">{tactic}</span>
-							<span class="ml-2 text-xs text-gray-500"
-								>{applicableTTPs.get(tactic)?.length ?? 0}</span
-							>
+							<span class="ml-2 text-xs text-gray-500">
+								{applicableTTPs.get(tactic)?.length ?? 0}
+							</span>
 						</div>
     				</Accordion.ItemTrigger>
-				<Accordion.ItemContent>
+				<Accordion.ItemContent class="pl-4 px-0">
 						{#each ttps as ttp}
 							<ActionCard
 								{ttp}
