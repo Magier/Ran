@@ -328,8 +328,6 @@
 				</Combobox.Positioner>
 			</Combobox>
 		{:else}
-			<span>{arg.Value}</span>
-			<span>{getArgOptions(arg.Name)}</span>
 			<input
 				class="ig-input"
 				bind:value={arg.Value}
