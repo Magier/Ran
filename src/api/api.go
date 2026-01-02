@@ -16,20 +16,10 @@ import (
 	"github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
-type CampaignState struct {
-	Entities  map[string]domain.Entity `json:"entities"`
-	Relations []domain.Relation        `json:"relations"`
-}
-
-type AttackStep = campaign.AttackStep
-type AttackFlow struct {
-	Steps      []AttackStep `json:"steps"`
-	Edges      []Edge       `json:"edges"`
-	RootNodeID string       `json:"rootNodeId"`
-}
-
+// Type aliases for backward compatibility
 type ActionArgs map[string]string
 
 type AccessLevel string
@@ -53,37 +43,6 @@ var AllAccessLevels = []struct {
 	{RootExec, "RootExec"},
 }
 
-type Node struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	Kind        string        `json:"kind"`
-	ParentID    string        `json:"parent"`
-	AccessLevel string        `json:"accessLevel"`
-	Entity      domain.Entity `json:"entity"`
-	Compromised bool          `json:"compromised"`
-}
-
-type Edge struct {
-	ID       string          `json:"id"`
-	Name     string          `json:"name"`
-	Weight   float32         `json:"weight"`
-	Relation domain.Relation `json:"relation"`
-	SourceID string          `json:"sourceId"`
-	TargetID string          `json:"targetId"`
-}
-type Graph struct {
-	Nodes      []Node `json:"nodes"`
-	Edges      []Edge `json:"edges"`
-	RootNodeID string `json:"rootNodeId"`
-}
-
-type ExecuteActionCmd struct {
-	ActionID    string            `json:"actionId"`
-	TargetID    string            `json:"targetId"`
-	ProcedureID string            `json:"procedureId"`
-	Args        map[string]string `json:"args"`
-}
-
 type API struct {
 	ctx       context.Context
 	ran       *ran.Ran
@@ -103,6 +62,24 @@ func NewAPI(r *ran.Ran, ctx context.Context) *API {
 	}
 	a.router = chi.NewRouter()
 
+	// Add logging middleware to debug requests/responses
+	a.router.Use(middleware.Logger)
+	a.router.Use(middleware.Recoverer)
+	a.router.Use(middleware.RequestID)
+
+	// Register OpenAPI REST endpoints
+	httpHandler := NewHTTPHandler(a)
+	HandlerFromMux(httpHandler, a.router)
+
+	// WebSocket endpoint for real-time updates
+	a.router.Get("/ws", a.handleWebSocket)
+
+	// Serve OpenAPI spec
+	a.router.Get("/api/openapi.yaml", serveOpenAPISpec)
+
+	// Serve Swagger UI
+	a.router.Get("/api/docs", serveSwaggerUI)
+
 	// if Vite dev server is running, use it to serve frontend assets, otherwise serve compiled assets
 	if IsViteServerRunning() {
 		slog.Info("Vite dev server detected, using it to serve frontend assets")
@@ -118,14 +95,6 @@ func NewAPI(r *ran.Ran, ctx context.Context) *API {
 		static, _ := fs.Sub(staticFS, "static")
 		FileServer(a.router, "/", http.FS(static))
 	}
-
-	// router.Get("/graph", func(w http.ResponseWriter, req *http.Request) {
-	// 	graph := a.GetGraph()
-	// 	w.Header().Set("Content-Type", "application/json")
-	// 	json.NewEncoder(w).Encode(graph)
-	// })
-
-	a.router.Get("/ws", a.handleWebSocket)
 
 	// forward all events directly to the frontend
 	r.Bus.SubscribeToName(domain.ALL_EVENTS, a.handleEvent)
@@ -207,11 +176,10 @@ func (a *API) GetGraph() Graph {
 			// skip this relation for now, because secrets are not shown in the graph
 		default:
 			edges = append(edges, Edge{
-				ID:       id,
-				Relation: relation,
+				Id:       id,
 				Name:     relation.GetRelationName(),
-				SourceID: relation.GetSourceId(),
-				TargetID: relation.GetTargetId(),
+				SourceId: relation.GetSourceId(),
+				TargetId: relation.GetTargetId(),
 			})
 		}
 	}
@@ -237,48 +205,41 @@ func (a *API) GetGraph() Graph {
 		}
 
 		node := Node{
-			ID:       entity.GetId(),
-			Name:     entity.GetName(),
-			Kind:     entity.GetKind(),
-			ParentID: parent,
-			Entity:   entity,
+			Id:   entity.GetId(),
+			Name: entity.GetName(),
+			Kind: entity.GetKind(),
+		}
+		if parent != "" {
+			node.Parent = &parent
 		}
 
 		switch e := entity.(type) {
 		case domain.Pod:
-			node.Compromised = e.AccessLevel.IsSet()
+			if e.AccessLevel.IsSet() {
+				comp := true
+				node.Compromised = &comp
+			}
 		case domain.K8sNode:
-			node.Compromised = e.AccessLevel.IsSet()
+			if e.AccessLevel.IsSet() {
+				comp := true
+				node.Compromised = &comp
+			}
 		case domain.ServiceAccount:
-			node.Compromised = (e.Token.Raw != "")
+			if e.Token.Raw != "" {
+				comp := true
+				node.Compromised = &comp
+			}
 		}
 
 		nodes = append(nodes, node)
 	}
 
 	graph := Graph{
-		RootNodeID: "c2/Ran",
+		RootNodeId: "c2/Ran",
 		Nodes:      nodes,
 		Edges:      edges,
 	}
 	return graph
-}
-
-func (a *API) GetCampaignState() CampaignState {
-	entitiesMap := a.ran.Campaign.GetEntities()
-	entities := make(map[string]domain.Entity, len(entitiesMap))
-	for _, entity := range entitiesMap {
-		entities[entity.GetId()] = entity
-	}
-	relationsMap := a.ran.Campaign.GetRelations()
-	relations := make([]domain.Relation, 0, len(relationsMap))
-	for _, relation := range relationsMap {
-		relations = append(relations, relation)
-	}
-	return CampaignState{
-		Entities:  entities,
-		Relations: relations,
-	}
 }
 
 func (a *API) ResetCampaign() error {
@@ -302,12 +263,16 @@ func (a *API) ExecuteAction(actionID, targetID, procedureID string, args ActionA
 	return nil
 }
 
-func (a *API) GetArmory() []domain.TTP {
-	return a.ran.Armory.GetTTPs()
+func (a *API) GetArmory() []TTP {
+	ttps := make([]TTP, 0)
+	for _, ttp := range a.ran.Armory.GetTTPs() {
+		ttps = append(ttps, ConvertTTP(ttp))
+	}
+	return ttps
 }
 
-func (a *API) GetApplicableTTPs(targetId string) ([]domain.TTP, error) {
-	ttps := make([]domain.TTP, 0)
+func (a *API) GetApplicableTTPs(targetId string) ([]TTP, error) {
+	ttps := make([]TTP, 0)
 	target, ok := a.ran.Campaign.GetEntityById(targetId)
 	if !ok {
 		return ttps, fmt.Errorf("failed to get target entity: %s", targetId)
@@ -335,7 +300,7 @@ func (a *API) GetApplicableTTPs(targetId string) ([]domain.TTP, error) {
 	for _, ttp := range a.ran.Armory.GetTTPs() {
 		isSatisfied := ttp.Requires.Satisfied(target, accessLevel, state)
 		if isSatisfied && ttp.Status != "disabled" {
-			ttps = append(ttps, ttp)
+			ttps = append(ttps, ConvertTTP(ttp))
 		}
 	}
 	return ttps, nil
@@ -349,14 +314,15 @@ func (a *API) GetFlow() AttackFlow {
 
 	var srcId string
 	for _, step := range trail.GetSteps() {
-		steps = append(steps, step)
+		s := ConvertAttackStep(step)
+		steps = append(steps, s)
 
 		if srcId != "" {
 			edges = append(edges, Edge{
-				ID:       fmt.Sprintf("%s->%s", srcId, step.ID),
+				Id:       fmt.Sprintf("%s->%s", srcId, step.ID),
 				Name:     "",
-				SourceID: srcId,
-				TargetID: step.ID,
+				SourceId: srcId,
+				TargetId: step.ID,
 			})
 		}
 
@@ -374,13 +340,6 @@ func (a *API) GetFlow() AttackFlow {
 
 func (a *API) GetFacts() domain.FactsChanged { return domain.FactsChanged{} }
 
-type K8sResource struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-	Kind      string `json:"kind"`
-}
-
 func (a *API) GetRunningPods(ns string) ([]K8sResource, error) {
 	ids, err := k8s.GetIDsOfRunningPod(a.ctx, ns)
 	if err != nil {
@@ -393,9 +352,9 @@ func (a *API) GetRunningPods(ns string) ([]K8sResource, error) {
 			return nil, fmt.Errorf("Could not unpack resource ID: %v", err)
 		} else {
 			resources = append(resources, K8sResource{
-				ID:        id,
+				Id:        id,
 				Name:      name,
-				Namespace: ns,
+				Namespace: &ns,
 				Kind:      kind,
 			})
 		}
@@ -421,4 +380,65 @@ func (a *API) SaveFlow(path string) (bool, error) {
 		return false, fmt.Errorf("no file path provided")
 	}
 	// TODO: send toast to UI if it was successful or not
+}
+
+func serveSwaggerUI(w http.ResponseWriter, r *http.Request) {
+	html := `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ran API Documentation</title>
+  <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css" />
+  <style>
+    html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+    *, *:before, *:after { box-sizing: inherit; }
+    body { margin:0; padding:0; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.onload = function() {
+      window.ui = SwaggerUIBundle({
+        url: "/api/openapi.yaml",
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        plugins: [
+          SwaggerUIBundle.plugins.DownloadUrl
+        ],
+        layout: "StandaloneLayout"
+      });
+    };
+  </script>
+</body>
+</html>`
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte(html)); err != nil {
+		slog.Error("Failed to write Swagger UI HTML response", "error", err)
+	}
+}
+
+func serveOpenAPISpec(w http.ResponseWriter, r *http.Request) {
+	spec, err := GetSwagger()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data, err := spec.MarshalJSON()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(data); err != nil {
+		slog.Error("Failed to write OpenAPI spec response", "error", err)
+	}
 }

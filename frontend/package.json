@@ -21,6 +21,7 @@
 		"@iconify-json/game-icons": "^1.2.3",
 		"@iconify-json/healthicons": "^1.2.12",
 		"@iconify-json/material-symbols": "^1.2.50",
+		"@iconify-json/mdi": "^1.2.3",
 		"@iconify/svelte": "^4.2.0",
 		"@skeletonlabs/skeleton": "^4.8.0",
 		"@skeletonlabs/skeleton-svelte": "^4.8.0",
@@ -37,6 +38,7 @@
 		"game-icons:treasure-map": "link:@iconify-json/game-icons:treasure-map",
 		"globals": "^16.5.0",
 		"jsdom": "^26.1.0",
+		"openapi-typescript": "^7.10.1",
 		"prettier": "^3.7.4",
 		"prettier-plugin-svelte": "^3.4.1",
 		"prettier-plugin-tailwindcss": "^0.6.14",
@@ -62,6 +64,7 @@
 		"@zag-js/toast": "^1.31.1",
 		"cytoscape": "^3.33.1",
 		"cytoscape-fcose": "^2.2.0",
-		"melt": "^0.34.0"
+		"melt": "^0.34.0",
+		"openapi-fetch": "^0.15.0"
 	}
 }

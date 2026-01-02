@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Armory from './components/armory.svelte';
-	import { domain, api} from '$lib/domain/models';
+	import type { Node, TTP } from '$lib/api/index';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
 	import { Dialog, Popover, Portal } from '@skeletonlabs/skeleton-svelte';
@@ -16,12 +16,12 @@
 	const ranAPI = getRanAPI();
 
 	let selectedObjectId: string = $state('');
-	let selectedObject: api.Node | undefined = $state();
+	let selectedObject: Node | undefined = $state();
 	let showDetails = $derived(selectedObjectId !== '');
 	let ttpArgContext: Record<string, any> = $state({});
 	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: Object = {};
-	let selectedTTP: domain.TTP | undefined = $state();
+	let selectedTTP: TTP | undefined = $state();
 
 
 	$effect(() => {
@@ -31,7 +31,7 @@
 		selectedObject = undefined;
 	})
 
-	function sendAction(ttp: domain.TTP, args = {}) {
+	function sendAction(ttp: TTP, args = {}) {
 		selectedTTP = ttp;
 		ttpArgContext = { ...args, ...activeGlobalConditions };
 		if (ttp.params) {

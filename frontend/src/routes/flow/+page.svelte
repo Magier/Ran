@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { campaign, api } from '$lib/domain/models';
+    import { type Edge as RanEdge, type AttackFlow, type AttackStep } from '$lib/api/index';
     import AttackStepDetails from '$lib/components/attack_step_details.svelte';
     import ActionNode from '$lib/components/flow/attack_node.svelte';
     import {
@@ -31,18 +31,19 @@
     // const snapGrid = [25, 25];
     const nodeWidth = 240; // values are manually read from rendered nodes
     const nodeHeight = 95;
-    let selectedStep: campaign.AttackStep | null = $state(null);
+    let selectedStep: AttackStep | null = $state(null);
 
-    function convertStep(step: campaign.AttackStep): Node {
+    function convertStep(step: AttackStep): Node {
+        debugger
         return {
-            id: step.ID,
+            id: step.id,
             type: 'actionNode',
             data: { label: step.TTP.name, step: step },
             position: { x: 0, y: 0 } // will be replaced by the layout algorithm
         };
     }
 
-    function convertEdge(edge: api.Edge): Edge {
+    function convertEdge(edge: RanEdge): Edge {
         return {
             id: edge.id,
             type: 'default',
@@ -88,7 +89,7 @@
     }
 
     campaignState.GetFlow()
-        .then((result: api.AttackFlow) => {
+        .then((result: AttackFlow) => {
             console.log('Graph:', result);
             const { steps, edges: es } = result;
             const laidOutElements = layOutElements(steps.map(convertStep), es.map(convertEdge), 'TB');
@@ -121,7 +122,7 @@
         colorMode="dark"
         onnodeclick={(event) => {
             console.log('on node click', event, event.node);
-            selectedStep = event.node.data.step as campaign.AttackStep;
+            selectedStep = event.node.data.step as AttackStep;
         }}
         onpaneclick={(event) => {
             console.log('on pane click', event);

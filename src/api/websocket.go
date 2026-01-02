@@ -150,10 +150,20 @@ func (a *API) handleWSRequest(client *WSClient, req WSRequest) {
 		var params ExecuteActionCmd
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			resp.Error = err.Error()
-		} else if err := a.ExecuteAction(params.ActionID, params.TargetID, params.ProcedureID, params.Args); err != nil {
-			resp.Error = err.Error()
 		} else {
-			resp.Data = "ok"
+			args := ActionArgs{}
+			if params.Args != nil {
+				args = *params.Args
+			}
+			procedureID := ""
+			if params.ProcedureId != nil {
+				procedureID = *params.ProcedureId
+			}
+			if err := a.ExecuteAction(params.ActionId, params.TargetId, procedureID, args); err != nil {
+				resp.Error = err.Error()
+			} else {
+				resp.Data = "ok"
+			}
 		}
 	case "reset-campaign":
 		if err := a.ResetCampaign(); err != nil {
