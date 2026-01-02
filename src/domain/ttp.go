@@ -57,12 +57,11 @@ func (c *Procedure) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 type Parameter struct {
-	Name        string   `yaml:"name"`
-	Type        string   `yaml:"type"`
-	Required    bool     `yaml:"required" default:"true"`
-	Description string   `yaml:"description"`
-	Examples    []string `yaml:"examples"`
-	Default     string   `yaml:"default"`
+	Name        string `yaml:"name"`
+	Type        string `yaml:"type"`
+	Required    bool   `yaml:"required" default:"true"`
+	Description string `yaml:"description"`
+	Default     string `yaml:"default"`
 }
 
 func (p *Parameter) UnmarshalYAML(unmarshal func(interface{}) error) error {

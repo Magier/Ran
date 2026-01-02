@@ -1,8 +1,9 @@
 import { getContext, setContext } from 'svelte';
-import type { ArmoryType, Node, Edge } from '$lib/model';
-import { campaign, api, type domain } from '$lib/domain/models';
+import type { ArmoryType, Node } from '$lib/model';
+import type { AttackFlow, CampaignState as State, Graph, TTP } from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
 import { getRanAPI, RanAPI } from '$lib/ran_api';
+import { api } from '$lib/wailsjs/go/models';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
 
@@ -52,7 +53,7 @@ class CampaignState {
 	pods = $state<Entity[]>([]);
 	serviceAccounts = $state<Entity[]>([]);
 	armory = $state<ArmoryType>(new Map());
-	graph = $state<api.Graph>(new api.Graph());
+	graph = $state<Graph>(new api.Graph());
 	allPods: Entity[] = $state([]);
 	pendingMessages: string[] = [];
 	api: RanAPI = $state(getRanAPI());
@@ -64,11 +65,11 @@ class CampaignState {
 			this.armory = parseArmory(data);
 		});
 		this.api.on('facts-changed', (data: any) => {
-			this.api.GetGraph().then((g: api.Graph) => {
+			this.api.GetGraph().then((g: Graph) => {
 				this.graph = g;
 			});
 			// TODO: properly update state based on the received fact changes
-			this.api.GetCampaignState().then((s: api.CampaignState) => {
+			this.api.GetCampaignState().then((s: State) => {
 				this.#setState(s);
 			});
 		});
@@ -94,13 +95,13 @@ class CampaignState {
 
 		console.log('CampaignState connecting to backend...');
 		return this.api.connect(url).then((a) => {
-			this.api.GetGraph().then((g: api.Graph) => {
+			this.api.GetGraph().then((g: Graph) => {
 				this.graph = g;
 			});
-			this.api.GetCampaignState().then((s: api.CampaignState) => {
+			this.api.GetCampaignState().then((s: State) => {
 				this.#setState(s);
 			});
-			this.api.GetArmory().then((a: domain.TTP[]) => {
+			this.api.GetArmory().then((a: TTP[]) => {
 				this.armory = parseArmory(a);
 			});
 			this.api
@@ -124,10 +125,10 @@ class CampaignState {
 					this.armory = parseArmory(data);
 					break;
 				case 'facts-changed':
-					this.api.GetGraph().then((g: api.Graph) => {
+					this.api.GetGraph().then((g: Graph) => {
 						this.graph = g;
 					});
-					this.api.GetCampaignState().then((s: api.CampaignState) => {
+					this.api.GetCampaignState().then((s: State) => {
 						this.#setState(s);
 					});
 					break;
@@ -167,10 +168,10 @@ class CampaignState {
 	//         this.armory = parseArmory(data)
 	//     });
 	//     runtime.EventsOn("facts-changed", (dataStr: string) => {
-	//         GetGraph().then((g: api.Graph) => { this.graph = g; });
+	//         GetGraph().then((g: Graph) => { this.graph = g; });
 	//         // TODO: properly update state based on the received fact changes
 	//         const data = JSON.parse(dataStr);
-	//         GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
+	//         GetCampaignState().then((s: State) => { this.#setState(s); })
 	//     })
 	//     runtime.EventsOn("error-msg", (rawMsg: string) => {
 	//         let msg: ErrorMsg = JSON.parse(rawMsg);
@@ -192,8 +193,8 @@ class CampaignState {
 	//         showToast("Error", msg.Msg, toastType);
 	//     });
 
-	//     GetGraph().then((g: api.Graph) => { this.graph = g; })
-	//     GetCampaignState().then((s: api.CampaignState) => { this.#setState(s); })
+	//     GetGraph().then((g: Graph) => { this.graph = g; })
+	//     GetCampaignState().then((s: State) => { this.#setState(s); })
 	//     GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
 	//     GetRunningPods("").then(pods => { this.allPods = pods; }).catch(this.showError);
 	// }
@@ -220,13 +221,13 @@ class CampaignState {
 		this.serviceAccounts = [];
 		this.campaignId += 1; // Increment campaign ID, to trigger changes based on new campaign
 		this.api.ResetCampaign().then(() => {
-			this.api.GetGraph().then((g: api.Graph) => {
+			this.api.GetGraph().then((g: Graph) => {
 				this.graph = g;
 			});
 		});
 	}
 
-	#setState(state: api.CampaignState): void {
+	#setState(state: State): void {
 		let entities = [];
 		for (const [id, entity] of Object.entries(state.entities || {})) {
 			if (entity.kind === 'Namespace') {
@@ -245,7 +246,7 @@ class CampaignState {
 		this.entities = entities; // ensure we replace the array to trigger reactivity
 	}
 
-	#updateState(state: api.CampaignState): void {
+	#updateState(state: State): void {
 		for (const [id, entity] of Object.entries(state.entities || [])) {
 			if (!this.entities.some((e) => e.id === entity.id)) {
 				this.entities = [...this.entities, entity];
@@ -287,7 +288,7 @@ class CampaignState {
 	//     return this.entities
 	// }
 
-	getTtpById(id: string): domain.TTP | undefined {
+	getTtpById(id: string): TTP | undefined {
 		for (const [group, ttps] of this.armory) {
 			const ttp = ttps.find((t) => t.id === id);
 			if (ttp) {
@@ -334,11 +335,11 @@ class CampaignState {
 		});
 	}
 
-	GetFlow(): Promise<api.AttackFlow> {
-		return this.api.sendMessage<api.AttackFlow>('get-flow');
+	GetFlow(): Promise<AttackFlow> {
+		return this.api.sendMessage<AttackFlow>('get-flow');
 	}
-	ExportAttackFlow(): Promise<api.AttackFlow> {
-		return this.api.sendMessage<api.AttackFlow>('export-attack-flow');
+	ExportAttackFlow(): Promise<AttackFlow> {
+		return this.api.sendMessage<AttackFlow>('export-attack-flow');
 	}
 
 	sendMessage(type: string, data?: any): Promise<any> {
@@ -357,9 +358,9 @@ export const setCampaignState = (key = DEFAULT_KEY) => {
 	return setContext(key, campaignState);
 };
 
-export function parseArmory(data: domain.TTP[]): ArmoryType {
+export function parseArmory(data: TTP[]): ArmoryType {
 	// this comes from the backend must be converted
-	let armoryMap = new Map<string, domain.TTP[]>();
+	let armoryMap = new Map<string, TTP[]>();
 	for (let ttp of data) {
 		let groupName = ttp.tactic;
 		if (groupName === '') {

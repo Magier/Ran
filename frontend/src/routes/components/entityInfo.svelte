@@ -1,14 +1,14 @@
 <script lang="ts">
 	import Tree from '$lib/components/tree.svelte';
 	import EntitlementInfo from './entitlement_info.svelte';
-	import { domain } from '$lib/domain/models';
+	import type {RBACPermission, TTP} from '$lib/api/index';
 	import { showToast } from '$lib/components/toaster';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
 
 	type EntitlementInfoProps = {
 		selectedObject: any; //TODO: define a proper type
-		sendAction?: (ttp: domain.TTP, args: any) => void;
+		sendAction?: (ttp: TTP, args: any) => void;
 	};
 
 	let { selectedObject, sendAction } = $props();
@@ -71,7 +71,7 @@
 								>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
 							>
 						</summary>
-						<EntitlementInfo entitlements={data as domain.RBACPermission[]} />
+						<EntitlementInfo entitlements={data as RBACPermission[]} />
 					</details>
 				{:else}
 					<div>

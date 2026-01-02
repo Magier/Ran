@@ -1,4 +1,4 @@
-import type { domain } from "./domain/models";
+import type { TTP } from "$lib/api/index";
 
 export enum AccessLevel {
     UserRead = 1,
@@ -71,4 +71,4 @@ export function parseEntityId(entityId: string): EntityId {
 
 
 
-export type ArmoryType = Map<string, domain.TTP[]>;
+export type ArmoryType = Map<string, TTP[]>;

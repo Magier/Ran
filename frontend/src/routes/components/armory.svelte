@@ -7,7 +7,7 @@
 
 	import ActionCard from './action_card.svelte';
 	import { Accordion } from '@skeletonlabs/skeleton-svelte';
-	import { domain } from '$lib/domain/models';
+	import type { TTP } from '$lib/api/index';
 	import { getCampaignState, parseArmory } from '$lib/components/CampaignState.svelte';
 
 	const campaign = getCampaignState();
@@ -15,7 +15,7 @@
 	type ArmoryProps = {
 		class?: string;
 		targetId: string;
-		action: (ttp: domain.TTP) => void;
+		action: (ttp: TTP) => void;
 	};
 
 	// ==============================================================
@@ -39,7 +39,7 @@
 	let applicableTTPs: ArmoryType = $state(new Map());
 	$effect(() => {
 		campaign.api.GetApplicableTTPs(targetId)
-			.then((result: domain.TTP[]) => {
+			.then((result: TTP[]) => {
 				applicableTTPs = parseArmory(result);
 
 				// if there is only tactic, open it by default
@@ -63,7 +63,7 @@
 		// unsubscribe();
 	});
 
-	let filteredTtps: domain.TTP[] = $state([]);
+	let filteredTtps: TTP[] = $state([]);
 	// For Search Input
 	let searchTerm: string = $state('');
 	// resets language menu if search input is used
@@ -72,7 +72,7 @@
 	const searchAbilities = () => {
 		filteredTtps = Array.from(armory.values())
 			.flat()
-			.filter((ttp: domain.TTP) => {
+			.filter((ttp: TTP) => {
 				let ttpName = ttp.name.toLowerCase();
 				return ttpName.includes(searchTerm.toLowerCase());
 			});
@@ -84,7 +84,7 @@
 		}
 	}
 
-	function isTTPApplicable(ttp: domain.TTP): boolean {
+	function isTTPApplicable(ttp: TTP): boolean {
 		// if (showAllTTPs) {
 		// 	return true;
 		// }

@@ -1,4 +1,13 @@
-import { campaign, api, type domain } from '$lib/domain/models';
+import createClient from 'openapi-fetch';
+import type { paths } from '$lib/api/gen_types';
+import type {
+	Graph,
+	CampaignState,
+	TTP,
+	AttackFlow,
+	ExecuteActionCmd,
+	K8sResource
+} from '$lib/api';
 
 type PendingRequest = {
     resolve: (value: any) => void;
@@ -9,6 +18,7 @@ export class RanAPI {
     socket!: WebSocket;
     private pendingRequests = new Map<string, PendingRequest>();
     private messageHandlers = new Map<string, (data: any) => void>();
+    private restClient = createClient<paths>({ baseUrl: 'http://localhost:8080' });
 
     connect(url: string = "ws://localhost:8080/ws"): Promise<void> {
         console.info("Connecting to WebSocket at", url);
@@ -104,26 +114,82 @@ export class RanAPI {
         this.messageHandlers.delete(type);
     }
 
-    GetGraph(): Promise<api.Graph> {
-        return this.sendMessage<api.Graph>("get-graph");
+    // REST API Methods (auto-generated from OpenAPI spec)
+    async GetGraph(): Promise<Graph> {
+        const { data, error } = await this.restClient.GET('/api/graph');
+        if (error) throw new Error('Failed to get graph');
+        return data;
     }
     
-    GetCampaignState(): Promise<api.CampaignState> {
-        return this.sendMessage<api.CampaignState>("get-campaign-state");
-    }
-    GetArmory(): Promise<Array<domain.TTP>> {
-        return this.sendMessage<Array<domain.TTP>>("get-armory");
-    }   
-    GetRunningPods(namespace: string): Promise<Array<api.K8sResource>> {
-        return this.sendMessage<Array<api.K8sResource>>("get-running-pods", { namespace });
-    }   
-
-    ResetCampaign(): Promise<void> {
-        return this.sendMessage<void>("reset-campaign");
+    async GetCampaignState(): Promise<CampaignState> {
+        const { data, error } = await this.restClient.GET('/api/campaign-state');
+        if (error) throw new Error('Failed to get campaign state');
+        return data;
     }
 
-    GetApplicableTTPs(targetId: string): Promise<Array<domain.TTP>> {
-        return this.sendMessage<Array<domain.TTP>>("get-applicable-ttps", { targetId });
+    async GetArmory(): Promise<Array<TTP>> {
+        const { data, error } = await this.restClient.GET('/api/armory');
+        if (error) throw new Error('Failed to get armory');
+        return data;
+    }
+
+    async GetApplicableTTPs(targetId: string): Promise<Array<TTP>> {
+        if (!targetId) {
+            console.warn("GetApplicableTTPs called with empty targetId");
+            return [];
+        }
+
+        const { data, error } = await this.restClient.GET('/api/applicable-ttps', {
+            params: { query: { targetId } }
+        });
+        console.log("Applicable TTPs data:", data, "error:", error, "for targetId:", targetId);
+        if (error) {
+            console.warn('Failed to get applicable TTPs', error);
+            return [];
+        }
+        return data;
+    }
+
+    async GetFlow(): Promise<AttackFlow> {
+        const { data, error } = await this.restClient.GET('/api/flow');
+        if (error) throw new Error('Failed to get flow');
+        return data;
+    }
+
+    async ExportAttackFlow(): Promise<any> {
+        const { data, error } = await this.restClient.GET('/api/flow/export');
+        if (error) throw new Error('Failed to export attack flow');
+        return data;
+    }
+
+    async SaveFlow(path: string) {
+        const { data, error } = await this.restClient.POST('/api/flow/save', {
+            body: { path }
+        });
+        if (error) throw new Error('Failed to save flow');
+        return data;
+    }
+
+    async ExecuteAction(cmd: ExecuteActionCmd) {
+        const { data, error } = await this.restClient.POST('/api/action/execute', {
+            body: cmd
+        });
+        if (error) throw new Error('Failed to execute action');
+        return data;
+    }
+
+    async ResetCampaign() {
+        const { data, error } = await this.restClient.POST('/api/campaign/reset');
+        if (error) throw new Error('Failed to reset campaign');
+        return data;
+    }
+
+    async GetRunningPods(namespace?: string): Promise<Array<K8sResource>> {
+        const { data, error } = await this.restClient.GET('/api/pods/running', {
+            params: { query: { namespace } }
+        });
+        if (error) throw new Error('Failed to get running pods');
+        return data;
     }
 }
 
@@ -156,6 +222,10 @@ export const off = ranAPI.off.bind(ranAPI);
 export const GetGraph = ranAPI.GetGraph.bind(ranAPI);
 export const GetCampaignState = ranAPI.GetCampaignState.bind(ranAPI);
 export const GetArmory = ranAPI.GetArmory.bind(ranAPI);
-export const GetRunningPods = ranAPI.GetRunningPods.bind(ranAPI);
-export const ResetCampaign = ranAPI.ResetCampaign.bind(ranAPI);
 export const GetApplicableTTPs = ranAPI.GetApplicableTTPs.bind(ranAPI);
+export const GetFlow = ranAPI.GetFlow.bind(ranAPI);
+export const ExportAttackFlow = ranAPI.ExportAttackFlow.bind(ranAPI);
+export const SaveFlow = ranAPI.SaveFlow.bind(ranAPI);
+export const ExecuteAction = ranAPI.ExecuteAction.bind(ranAPI);
+export const ResetCampaign = ranAPI.ResetCampaign.bind(ranAPI);
+export const GetRunningPods = ranAPI.GetRunningPods.bind(ranAPI);

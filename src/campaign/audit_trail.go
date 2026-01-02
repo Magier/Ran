@@ -17,9 +17,9 @@ type AttackStep struct {
 	Success     bool
 	Command     string
 	Results     []string
-	StartAt     time.Time
 	Target      domain.Entity
 	ExecutedOn  domain.System
+	StartAt     time.Time
 	CompletedAt time.Time
 	Observables []domain.Observable
 	ExecCommand domain.ExecTTP

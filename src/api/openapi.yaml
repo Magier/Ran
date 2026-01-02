@@ -1,0 +1,614 @@
+openapi: 3.0.3
+info:
+  title: Ran API
+  description: Red team automation and attack campaign management API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Development server
+
+paths:
+  /api/graph:
+    get:
+      summary: Get attack graph
+      description: Returns the current attack graph with nodes and edges
+      operationId: getGraph
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Graph'
+
+  /api/campaign-state:
+    get:
+      summary: Get campaign state
+      description: Returns the current campaign state with entities and relations
+      operationId: getCampaignState
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignState'
+
+  /api/armory:
+    get:
+      summary: Get armory
+      description: Returns all available TTPs (Tactics, Techniques, and Procedures)
+      operationId: getArmory
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TTP'
+
+  /api/applicable-ttps:
+    get:
+      summary: Get applicable TTPs for a target
+      description: Returns TTPs that can be applied to the specified target. If targetId is omitted or empty, returns TTPs for all targets.
+      operationId: getApplicableTTPs
+      parameters:
+        - name: targetId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ID of the target entity (optional, can be empty for all targets)
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TTP'
+        '404':
+          description: Target not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/flow:
+    get:
+      summary: Get attack flow
+      description: Returns the attack flow with steps and edges
+      operationId: getFlow
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttackFlow'
+
+  /api/flow/export:
+    get:
+      summary: Export attack flow
+      description: Returns the attack flow in MITRE ATT&CK Flow format
+      operationId: exportAttackFlow
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: Export failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/flow/save:
+    post:
+      summary: Save attack flow
+      description: Save the attack flow to a file
+      operationId: saveFlow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - path
+              properties:
+                path:
+                  type: string
+                  description: File path to save the flow
+      responses:
+        '200':
+          description: Successfully saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/action/execute:
+    post:
+      summary: Execute action
+      description: Execute a TTP action on a target
+      operationId: executeAction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteActionCmd'
+      responses:
+        '200':
+          description: Action executed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/campaign/reset:
+    post:
+      summary: Reset campaign
+      description: Reset the current campaign state
+      operationId: resetCampaign
+      responses:
+        '200':
+          description: Campaign reset successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        '500':
+          description: Reset failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/pods/running:
+    get:
+      summary: Get running pods
+      description: Returns list of running pods in the specified namespace
+      operationId: getRunningPods
+      parameters:
+        - name: namespace
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Kubernetes namespace (optional, defaults to all namespaces)
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/K8sResource'
+        '500':
+          description: Failed to retrieve pods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+webhooks: 
+  armory-loaded:
+    post:
+      summary: Armory loaded webhook
+      description: Triggered when the armory is successfully loaded
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                timestamp:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: Webhook received successfully
+        '400':
+          description: Invalid webhook payload
+
+components:
+  schemas:
+    Graph:
+      type: object
+      required:
+        - nodes
+        - edges
+        - rootNodeId
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Edge'
+        rootNodeId:
+          type: string
+
+    Node:
+      type: object
+      required:
+        - id
+        - name
+        - kind
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        parent:
+          type: string
+        accessLevel:
+          type: string
+        entity:
+          type: object
+          additionalProperties: true
+        compromised:
+          type: boolean
+
+    Edge:
+      type: object
+      required:
+        - id
+        - name
+        - sourceId
+        - targetId
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        weight:
+          type: number
+          format: float
+        relation:
+          type: object
+          additionalProperties: true
+        sourceId:
+          type: string
+        targetId:
+          type: string
+
+    CampaignState:
+      type: object
+      required:
+        - entities
+        - relations
+      properties:
+        entities:
+          type: object
+          additionalProperties:
+            type: object
+        relations:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    AttackFlow:
+      type: object
+      required:
+        - steps
+        - edges
+        - rootNodeId
+      properties:
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttackStep'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Edge'
+        rootNodeId:
+          type: string
+
+    AttackStep:
+      type: object
+      required:
+        - id
+        - actionId
+        - targetId
+        - command
+        - TTP
+        - procedureId
+        - executedOn
+        - args
+        - timestamp
+        - success
+        - observables
+        - results
+        - startedAt
+        - completedAt
+      properties:
+        id:
+          type: string
+        targetId:
+          type: string
+        command:
+          type: string
+        args:
+          type: object
+          additionalProperties:
+            type: string
+        procedureId:
+          type: string
+        TTP: 
+          $ref: '#/components/schemas/TTP'
+        results:
+          type: array
+          items:
+            type: string
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        executedOn:
+          type: string
+        success:
+          type: boolean
+        observables:
+          type: array
+          items:
+            type: string
+
+    TTP:
+      type: object
+      required:
+        - id
+        - name
+        - description
+        - tactic
+        - techniques
+        - requires
+        - effects
+        - procedures
+        - params
+        - status
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        tactic:
+          type: string
+        techniques:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [enabled, disabled]
+        params:
+          type: array
+          items:
+            $ref: '#/components/schemas/TTPParam'
+        requires:
+          $ref: '#/components/schemas/Requirements'
+        effects:
+          type: array
+          items:
+            type: string
+        procedures:
+          type: array
+          items:
+            $ref: '#/components/schemas/Procedure'
+        defense:
+          $ref: '#/components/schemas/TTPDefense'
+
+    Procedure:
+      type: object
+      required:
+        - id
+        - command
+      properties:
+        id:
+          type: string
+        command:
+          type: string
+        tool:
+          type: string
+        isLocalCommand:
+          type: boolean
+
+    TTPParam:
+      type: object
+      required:
+        - name
+        - type
+        - required
+        - description
+        - default
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        description:
+          type: string
+        required:
+          type: boolean
+        default:
+          type: string
+    
+    TTPDefense:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        description: 
+          type: string
+        sigma:
+          $ref: '#/components/schemas/SigmaRule'
+        d3efend:
+          type: string
+        
+    SigmaRule:
+      type: object
+      required:
+        - title
+        - tags
+        - logsource
+        - detection
+        - date
+      properties:
+        title:
+          type: string
+        id:
+          type: string
+        description:
+          type: string  
+        status:
+          type: string
+        logsource:
+          type: object
+          additionalProperties: true
+        detection:
+          type: object
+          additionalProperties: true
+        tags:
+          type: array
+          items:
+            type: string
+        references:
+          type: array
+          items:
+            type: string
+        date:
+          type: string
+          format: date-time
+
+    ExecuteActionCmd:
+      type: object
+      required:
+        - actionId
+        - targetId
+      properties:
+        actionId:
+          type: string
+        targetId:
+          type: string
+        procedureId:
+          type: string
+        args:
+          type: object
+          additionalProperties:
+            type: string
+
+    K8sResource:
+      type: object
+      required:
+        - id
+        - name
+        - kind
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        namespace:
+          type: string
+        kind:
+          type: string
+    
+    Requirements:
+      type: object
+      properties:
+        kind:
+          type: string
+        rbacPermissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RBACPermission'
+        accessLevel:
+          type: string
+        exists:
+          type: array
+          items:
+            type: string
+
+    RBACPermission:
+      type: object
+      required:
+        - apiGroup
+        - verb
+        - resource
+        - resourceName
+        - resourceType
+        - scope
+        - sourceRole
+      properties:
+        resource:
+          type: string
+        resourceName:
+          type: string
+        resourceType:
+          type: string
+        apiGroup:
+          type: string
+        verb:
+          type: string
+        scope:
+          type: string
+        sourceRole:
+          type: string
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+        details:
+          type: string

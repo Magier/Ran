@@ -1,3 +1,12 @@
+# === Code Generation ===
+.PHONY: generate-api
+generate-api:
+	cd src && go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest -package api -generate chi-server,models,embedded-spec -o api/api.gen.go api/openapi.yaml
+	cd frontend && pnpm exec openapi-typescript ../src/api/openapi.yaml -o src/lib/api/gen_types.ts
+
+.PHONY: generate
+generate: generate-api
+
 # === Testing ===
 .PHONY: test-go
 test-go:
