@@ -205,9 +205,10 @@ func (a *API) GetGraph() Graph {
 		}
 
 		node := Node{
-			Id:   entity.GetId(),
-			Name: entity.GetName(),
-			Kind: entity.GetKind(),
+			Id:       entity.GetId(),
+			Name:     entity.GetName(),
+			Kind:     entity.GetKind(),
+			EntityId: entity.GetId(),
 		}
 		if parent != "" {
 			node.Parent = &parent

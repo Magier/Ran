@@ -23,7 +23,6 @@
 	let activeGlobalConditions: Object = {};
 	let selectedTTP: TTP | undefined = $state();
 
-
 	$effect(() => {
 		let _ = campaignState.campaignId;
 		// reset the page/graph state when the campaign resets
@@ -95,7 +94,6 @@
 			}
 		});
 
-		console.log('Executing TTP', ttpId, selectedObjectId, procedureId, args);
 		campaignState.ExecuteAction(ttpId, selectedObjectId, procedureId, args)
 			.then(() => {
 				let toastId = showToast('Executing TTP', ttpId, 'info');
@@ -129,7 +127,7 @@
 		<div>loading...</div>
 	{:then sessions}
 		<Armory class="h-full min-h-0" action={sendAction} targetId={selectedObjectId} />
-		<Graph bind:selectedObjectId bind:selectedObject class="flex-1 h-full min-h-0" />
+		<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="flex-1 h-full min-h-0" />
 
 <Popover
 	open={showDetails}
@@ -144,7 +142,7 @@
 		<Popover.Positioner>
 			<Popover.Content class="border border-surface-600 w-110 rounded-lg bg-surface-100-900 p-4 shadow-xl ">
 				<svelte:boundary onerror={handleError}>
-					<EntityInfo selectedObject={selectedObject} {sendAction}/>
+					<EntityInfo objectId={selectedObjectId} {sendAction}/>
 				</svelte:boundary>
 			</Popover.Content>
 		</Popover.Positioner>
