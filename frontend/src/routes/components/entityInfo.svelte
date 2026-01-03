@@ -6,16 +6,17 @@
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
 
-	type EntitlementInfoProps = {
-		selectedObject: any; //TODO: define a proper type
+	type ObjectInfoProps = {
+		objectId: string;
 		sendAction?: (ttp: TTP, args: any) => void;
 	};
 
-	let { selectedObject, sendAction } = $props();
+	let { objectId, sendAction } : ObjectInfoProps = $props();
 
 	const campaignState = getCampaignState();
 	const items = [];
 	// const tree = new Tree({ items });
+	const obj = $derived(campaignState.getObjectById(objectId));
 
 	function prettyPrint(obj: any): string {
 		if (typeof obj === 'string') {
@@ -50,8 +51,8 @@
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
 <div class="max-h-120 overflow-auto" data-popup>
-	{#if selectedObject?.entity}
-		{#each Object.entries(selectedObject?.entity || {}) as [label, data]}
+	{#if obj}
+		{#each Object.entries(obj || {}) as [label, data]}
 			{#if label === 'volumeMounts' || label === 'mounts'}
 				<details>
 					<summary>
@@ -107,20 +108,16 @@
 				<div><span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}</div>
 			{/if}
 		{/each}
-	{:else if selectedObject?.relation !== null}
-		{#each Object.entries(selectedObject?.relation || {}) as [label, data]}
-			<div><span>{label}:</span> {prettyPrint(data)}</div>
-		{/each}
 	{:else}
 		<h3>Unknown Object type</h3>
-		{prettyPrint(selectedObject)}
+		{prettyPrint(obj)}
 	{/if}
 
-	{#if selectedObject?.accessLevel}
-		<div><span>AccessLevel:</span> {selectedObject?.accessLevel}</div>{/if}
-	{#if selectedObject?.entitlements}
+	{#if obj?.accessLevel}
+		<div><span>AccessLevel:</span> {obj?.accessLevel}</div>{/if}
+	{#if obj?.entitlements}
 		<h4>Entitlements</h4>
-		{#each selectedObject.entitlements as e}
+		{#each obj?.entitlements as e}
 			<div><span>Can {e.verbs.join(', ')}</span>{e.resourceTypes}</div>
 		{/each}
 	{/if}

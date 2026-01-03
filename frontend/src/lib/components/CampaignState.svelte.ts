@@ -16,6 +16,13 @@ export type Entity = {
 	namespace?: string;
 };
 
+export type Relation = {
+	id: string;
+	source: string;
+	destination: string;
+	kind: string;
+};
+
 // type FactsDelta = {
 //     Entities: Entity[];
 //     Relations: domain.Relation[];
@@ -313,6 +320,40 @@ class CampaignState {
 		return pods || [];
 	}
 
+	getObjectById(id: string): Entity | Relation | undefined {
+		if (isRelation(id)) {
+			return this.getRelationById(id);
+		} else {
+			return this.getEntityById(id);
+		}
+	}
+
+	getEntityById(id: string): Entity | undefined {
+		if (id ===  "") {
+			return undefined;
+		}
+		return this.entities.find((entity) => entity.id === id);
+	}
+
+	getRelationById(id: string): Relation | undefined {
+		if (id ===  "") {
+			return undefined;
+		}
+		const parts = id.match(/^(.+?)-\[(.+?)\]->(.+)$/);
+		if (parts) {
+			const [, source, label, destination] = parts;
+			return {
+				id: id,
+				source: source,
+				destination: destination,
+				kind: label
+			};
+		}
+		return undefined;
+	}
+
+
+
 	getServiceAccounts(ns?: string, permissions?: string[], includeUnkwnon?: boolean): Entity[] {
 		let serviceAccounts = this.entities.filter((entity) => entity.kind === 'ServiceAccount');
 		if (ns) {
@@ -374,3 +415,7 @@ export function parseArmory(data: TTP[]): ArmoryType {
 	// Armory contains a CmdId field; process accordingly if needed.
 	return armoryMap;
 }
+export function isRelation(id: string): boolean {
+		return id.indexOf('->') !== -1;
+	}	
+

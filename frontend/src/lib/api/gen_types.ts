@@ -271,6 +271,7 @@ export interface components {
             kind: string;
             parent?: string;
             accessLevel?: string;
+            entityId: string;
             entity?: {
                 [key: string]: unknown;
             };

@@ -8,6 +8,11 @@ import (
 func ConvertAttackStep(step campaign.AttackStep) AttackStep {
 	procID := step.ExecCommand.Procedure.Key
 
+	executedOn := ""
+	if step.ExecutedOn != nil {
+		executedOn = step.ExecutedOn.GetId()
+	}
+
 	s := AttackStep{
 		Id:          step.ID,
 		TTP:         ConvertTTP(step.TTP),
@@ -17,7 +22,7 @@ func ConvertAttackStep(step campaign.AttackStep) AttackStep {
 		Command:     step.Command,
 		ProcedureId: procID,
 		Results:     step.Results,
-		ExecutedOn:  step.ExecutedOn.GetId(),
+		ExecutedOn:  executedOn,
 		StartedAt:   step.StartAt,
 		CompletedAt: step.CompletedAt,
 		// Observables: ConvertObservables(step.Observables),
