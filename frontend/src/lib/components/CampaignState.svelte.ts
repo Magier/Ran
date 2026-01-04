@@ -3,7 +3,6 @@ import type { ArmoryType, Node } from '$lib/model';
 import type { AttackFlow, CampaignState as State, Graph, TTP } from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
 import { getRanAPI, RanAPI } from '$lib/ran_api';
-import { api } from '$lib/wailsjs/go/models';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
 
@@ -60,7 +59,7 @@ class CampaignState {
 	pods = $state<Entity[]>([]);
 	serviceAccounts = $state<Entity[]>([]);
 	armory = $state<ArmoryType>(new Map());
-	graph = $state<Graph>(new api.Graph());
+	graph = $state<Graph>({} as Graph);
 	allPods: Entity[] = $state([]);
 	pendingMessages: string[] = [];
 	api: RanAPI = $state(getRanAPI());

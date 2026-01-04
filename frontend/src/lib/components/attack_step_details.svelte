@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { campaign } from '$lib/domain/models';
+	import type { AttackStep } from '$lib/api';
 	import ObservableInfo from './observable_info.svelte';
 
 	interface ActionDetailProps {
-		step: campaign.AttackStep;
+		step: AttackStep;
 		icon?: any;
 	}
 
