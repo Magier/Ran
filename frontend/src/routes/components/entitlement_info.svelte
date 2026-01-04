@@ -1,13 +1,13 @@
 <script lang="ts">
-	import {domain} from '$lib/domain/models';
+	import type { RBACPermission } from '$lib/api';
 
     type EntitlementsInfoProps = {
-        entitlements: domain.RBACPermission[]
+        entitlements: RBACPermission[]
     };
 
     let { entitlements}: EntitlementsInfoProps = $props();
 
-    function getUtility(e: domain.RBACPermission): number {
+    function getUtility(e: RBACPermission): number {
         let utility = 0;
 
         // regular API endpoints have no real value (for now?)
@@ -41,7 +41,7 @@
         return utility; // Unknown verb
     }
 
-    function getStyle(e: domain.RBACPermission): string {
+    function getStyle(e: RBACPermission): string {
         const utility = getUtility(e);
         if (utility > 5) {
             return 'text-success-500';

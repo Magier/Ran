@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
-	import { campaign } from '$lib/domain/models';
 	import { iconMap } from '$lib/tactic_icons';
 	import Icon from '@iconify/svelte';
+	import type { AttackStep } from '$lib/api';
 
 	interface ActionNodeData extends Record<string, unknown> {
-		step: campaign.AttackStep;
+		step: AttackStep;
 		color: string;
 	}
 
