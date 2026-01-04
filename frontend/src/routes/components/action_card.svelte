@@ -1,23 +1,24 @@
 <script lang="ts">
 	import { AccessLevel } from '$lib/model';
-	import { domain } from '$lib/domain/models';
 	import Icon from '@iconify/svelte';
+	import type { TTP } from '$lib/api';
 
 	interface ActionCardProps {
-		ttp: domain.TTP;
+		ttp: TTP;
 		icon: any;
 		enabled?: boolean;
 		conditions?: Object;
-		onclick: (ttp: domain.TTP) => void;
+		onclick: (ttp: TTP) => void;
+		class?: string | undefined;
 	}
 
-	let { ttp, icon, enabled = true, onclick }: ActionCardProps = $props();
+	let { ttp, icon, enabled = true, onclick, class: className } : ActionCardProps = $props();
 
 	let cardStyle = $derived(
-		enabled ? 'card-hover bg-surface-200-800-token' : 'card-disabled bg-surface-50-900-token'
+		enabled ? 'card-hover bg-surface-200-800' : 'card-disabled bg-surface-50-900-token'
 	);
 
-	function checkConditions(ttp: domain.TTP, conditions: Object) {
+	function checkConditions(ttp: TTP, conditions: Object) {
 		// no requirements means the action is always possible
 		if (Object.keys(ttp.requires || {}).length == 0) return true;
 		if (conditions) {
@@ -61,12 +62,12 @@
 		return '';
 	}
 
-	// export let onClick = (ttp: domain.TTP) => {};
+	// export let onClick = (ttp: TTP) => {};
 </script>
 
 <button
 	onclick={() => onclick(ttp)}
-	class=" {cardStyle} hover:bg-surface-300-700 border-surface-50-950 w-full border-b-1 pl-2 pt-2 text-left"
+	class={[cardStyle + " hover:bg-surface-200-800 border-surface-50-950 p-0 pl-4 pt-2 text-left w-full", className]}
 	role="menuitem"
 	tabindex="0"
 	disabled={!enabled}
@@ -80,22 +81,24 @@
 		<footer class="card-footer flex flex-wrap gap-2 py-2">
 			{#each Object.entries(ttp.requires) as [name, value]}
 				{#if !!value}
-					{#if name === 'Kind'}
+					{#if name === 'kind'}
 						<span class="badge bg-tertiary-950 text-tertiary-contrast-200-800">
 							<Icon icon={'carbon-hexagon-outline'} width="16"></Icon>
 							{value}
 						</span>
 					 {:else if name === 'accessLevel'}
-						<!-- <span class="badge bg-success-950 text-secondary-contrast-200-800">
-							<Icon icon={'carbon-user-admin'} width="16"></Icon>
-							{value}
-						</span> -->
-					{:else if name === 'rbac'}
 						<span class="badge bg-success-950 text-secondary-contrast-200-800">
 							<Icon icon={'carbon-user-admin'} width="16"></Icon>
-							{formatRbac(value)}
+							{value}
 						</span>
-					{:else if name === 'OtherFields'}
+					{:else if name === 'rbacPermissions'}
+						{#each Array.from(value ?? []) as perms}
+							<span class="badge bg-success-950 text-secondary-contrast-200-800">
+								<Icon icon={'carbon-user-admin'} width="16"></Icon>
+								{formatRbac(perms as { verb?: string; resourceType?: string })}
+							</span>
+						{/each}
+					{:else if name === 'otherFields'}
 						{#each Object.entries(value) as [name, val]}
 							<span class="chip variant-filled-surface mr-1 max-w-full truncate">
 								{name}: {JSON.stringify(val)}

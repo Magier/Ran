@@ -43,7 +43,7 @@ func ConvertTTP(ttp domain.TTP) TTP {
 		Description: ttp.Description,
 		Tactic:      string(ttp.Tactic),
 		Techniques:  ttp.Techniques,
-		Requires:    ConveRequirements(ttp.Requires),
+		Requires:    ConvertRequirements(ttp.Requires),
 		Effects:     ttp.Effects,
 		Procedures:  ConvertProcedures(ttp.Procedures),
 		Params:      ConvertTTPParams(ttp.Params),
@@ -93,10 +93,14 @@ func ConvertProcedures(procedure []domain.Procedure) []Procedure {
 	return procedures
 }
 
-func ConveRequirements(r domain.Requirements) Requirements {
+func ConvertRequirements(r domain.Requirements) Requirements {
 	kind := string(r.Kind)
 	accessLevel := r.AccessLevel.String()
-	rbacPermissions := []RBACPermission{ConvertRBACPermission(r.RBACPermission)}
+	rbacPermissions := []RBACPermission{}
+
+	if r.RBACPermission != (domain.RBACPermission{}) {
+		rbacPermissions = append(rbacPermissions, ConvertRBACPermission(r.RBACPermission))
+	}
 
 	return Requirements{
 		Kind:            &kind,

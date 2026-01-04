@@ -132,10 +132,8 @@
 			{#each Array.from(showAllTTPs ? campaign.armory : applicableTTPs) as [tactic, ttps]}
 				<hr class="hr" />
 				<Accordion.Item
-					panelClasses="mb-1 bg-surface-200-800"
-					panelPadding="0"
 					value={tactic}
-					classes="text-surface-contrast-200-800"
+					class="text-surface-contrast-200-800"
 					disabled={ttps.length === 0}
 				>
     				<Accordion.ItemTrigger class="flex justify-between items-center">
@@ -147,7 +145,7 @@
 							</span>
 						</div>
     				</Accordion.ItemTrigger>
-				<Accordion.ItemContent class="pl-4 px-0">
+				<Accordion.ItemContent class="px-0 py-0 mb-1 bg-surface-200-800">
 						{#each ttps as ttp}
 							<ActionCard
 								{ttp}
@@ -156,6 +154,7 @@
 								enabled={isTTPApplicable(ttp)}
 								onclick={() => sendAction(ttp)}
 							/>
+							<hr class="hr h-1 bg-surface-300-700" />
 						{/each}
 					</Accordion.ItemContent>
 				</Accordion.Item>

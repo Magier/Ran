@@ -124,7 +124,7 @@
 	{#await campaignState.init()}
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-100" />
 		<div>loading...</div>
-	{:then}
+	{:then sessions}
 		<Armory class="h-full min-h-0" action={sendAction} targetId={selectedObjectId} />
 		<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="flex-1 h-full min-h-0" />
 
