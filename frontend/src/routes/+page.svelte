@@ -17,7 +17,6 @@
 
 	let selectedObjectId: string = $state('');
 	let selectedObject: Node | undefined = $state();
-	let showDetails = $derived(selectedObjectId !== '');
 	let ttpArgContext: Record<string, any> = $state({});
 	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: Object = {};
@@ -125,51 +124,37 @@
 	{#await campaignState.init()}
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-100" />
 		<div>loading...</div>
-	{:then sessions}
+	{:then}
 		<Armory class="h-full min-h-0" action={sendAction} targetId={selectedObjectId} />
 		<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="flex-1 h-full min-h-0" />
 
-<Popover
-	open={showDetails}
-	onOpenChange={(e) => e.open}
-	positioning={{ placement: 'top-end', fitViewport: true }}
-	portalled={false}
->
-	   <Popover.Anchor>
-      <div id="info-anchor" class="absolute top-10 right-50"></div>
-     </Popover.Anchor>
-	<Portal>
-		<Popover.Positioner>
-			<Popover.Content class="border border-surface-600 w-110 rounded-lg bg-surface-100-900 p-4 shadow-xl ">
-				<svelte:boundary onerror={handleError}>
-					<EntityInfo objectId={selectedObjectId} {sendAction}/>
-				</svelte:boundary>
-			</Popover.Content>
-		</Popover.Positioner>
-	</Portal>
-</Popover>
+		{#if selectedObjectId !== ''}
+			<svelte:boundary onerror={handleError}>
+				<EntityInfo class="absolute top-2 right-2" objectId={selectedObjectId} {sendAction} />
+			</svelte:boundary>
+		{/if}
 
-<Dialog
-	open={showParamModal}
-	onOpenChange={(e) => (showParamModal = e.open)}
->
-	<Portal>
-		<Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50"/>
-		<Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
-			<Dialog.Content class="card min-w-modal bg-surface-100-900 p-8 space-y-4 shadow-xl">
-				{#if selectedTTP}
-					<ActionParamsModal
-						targetId={selectedObjectId}
-						argContext={ttpArgContext}
-						ttp={selectedTTP!}
-						onCancel={closeModal}
-						onExecute={onExecuteTTP}
-					/>
-				{/if}
-			</Dialog.Content>
-		</Dialog.Positioner>
-	</Portal>
-</Dialog>
+		<Dialog
+			open={showParamModal}
+			onOpenChange={(e) => (showParamModal = e.open)}
+		>
+			<Portal>
+				<Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50"/>
+				<Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
+					<Dialog.Content class="card min-w-modal bg-surface-100-900 p-8 space-y-4 shadow-xl">
+						{#if selectedTTP}
+							<ActionParamsModal
+								targetId={selectedObjectId}
+								argContext={ttpArgContext}
+								ttp={selectedTTP!}
+								onCancel={closeModal}
+								onExecute={onExecuteTTP}
+							/>
+						{/if}
+					</Dialog.Content>
+				</Dialog.Positioner>
+			</Portal>
+		</Dialog>
 	{:catch err}
 		<div class="justify-center">
 			<figure>
