@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { Combobox, Portal, type ComboboxRootProps, useListCollection, type ListCollection } from '@skeletonlabs/skeleton-svelte';
 
-	import { parseEntityId, type Param } from '$lib/model';
-	import type { domain } from '$lib/domain/models';
+	import { parseEntityId } from '$lib/model';
+	import type { TTP, TTPParam } from '$lib/api/index';
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
 	import { untrack } from 'svelte';
 
 	interface ParamProps {
 		targetId: string;
-		ttp: domain.TTP;
+		ttp: TTP;
 		argContext: Record<string, any>;
 		onExecute: (ttpId: string, procedureId: string, args: Record<string, string>) => void;
 		onCancel: () => void;
@@ -57,7 +57,6 @@
 		args = args.map(a => a.Type === 'Namespace' ? { ...a, Value: ns } : a);
 	}
 
-
 	$effect(() => {
 		// if the namespace changes, and there is a namespace argument, set it as well
 		const outOfNsResources = args.find(arg => arg.Value.startsWith("ns/") && !arg.Value.startsWith(`ns/${selectedNamespace}`));
@@ -98,48 +97,48 @@
 			// Reset argOptions when TTP changes
 			argOptions = {};
 			
-			args = ttpParams?.map((param: Param) => {
-					let value = param.Default;
-					if (currentArgContext && param.Name in currentArgContext) {
-						value = currentArgContext[param.Name];
+			args = ttpParams?.map((param: TTPParam) => {
+					let value = param.default;
+					if (currentArgContext && param.name in currentArgContext) {
+						value = currentArgContext[param.name];
 					}
 
 					if (value === '${TARGET}') {
 						value = currentTargetId;
-						if (param.Type === 'string') {
+						if (param.type === 'string') {
 							// if the type is string, then only the name of ther target is relevant
 							const e = parseEntityId(currentTargetId);
 							value = e?.name || '';
 						}
-						console.log("Setting target", param.Name, "to value", value);
+						console.log("Setting target", param.name, "to value", value);
 					}
-					if (param.Type === 'Namespace') {
-						namespaceArgName = param.Name;
-						if (param.Default === "" && currentTargetId.startsWith("ns/")) {
+					if (param.type === 'Namespace') {
+						namespaceArgName = param.name;
+						if (param.default === "" && currentTargetId.startsWith("ns/")) {
 							value = currentTargetId.split("/")[1];
 						}
-					} else if (param.Type === 'Pod') {
+					} else if (param.type === 'Pod') {
 						const isSetTargetTTP = ttpTactic === 'Initial Access'; // special handling for the setTarget TTP, to use all available pods
 						availableEntities = campaignState.getPods("", isSetTargetTTP)
-						argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
-					} else if (param.Type === 'ServiceAccount') {
+						argOptions[param.name] = availableEntities.map(entityToComboboxOption);
+					} else if (param.type === 'ServiceAccount') {
 						// Use initialNamespace derived from targetId, not selectedNamespace
 						availableEntities = campaignState.getServiceAccounts(initialNamespace);
-						argOptions[param.Name] = availableEntities.map(entityToComboboxOption);
+						argOptions[param.name] = availableEntities.map(entityToComboboxOption);
 					}
 
 					return {
-						Name: param.Name,
+						Name: param.name,
 						Value: value,
-						IsTrue: param.Default === 'true',
-						Description: param.Description,
-						Type: param.Type,
-						Required: param.Required
+						IsTrue: param.default === 'true',
+						Description: param.description,
+						Type: param.type,
+						Required: param.required
 					};
 				}) || [];
 
 			// Also reset procedureId when TTP changes
-			procedureId = ttpProcedures?.[0]?.Key || '';
+			procedureId = ttpProcedures?.[0]?.id || '';
 
 			console.log(args);
 			console.groupEnd();
@@ -223,7 +222,7 @@
 		})
 	}
 
-	function onArgChange(arg, e) {
+	function onArgChange(arg: Arg, e) {
 		// If the chosen item carries a namespace in its group, set it
 		if (arg.Type !== 'Namespace') {
 			const ns = e.items?.[0]?.group;
@@ -269,11 +268,11 @@
 			<label class="h5 label mt-5" for="procedure">Procedure</label>
 			{#if ttp.procedures && ttp.procedures.length > 1}
 				<select id="procedure" class="input mt-2" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
-					{#each ttp.procedures as procedure (procedure.Key)}
+					{#each ttp.procedures as procedure (procedure.id)}
 						<option
-							value={procedure.Key}
-							disabled={executingSystemHasTool(targetId, procedure.Key)}
-							>{procedure.Key}
+							value={procedure.id}
+							disabled={executingSystemHasTool(targetId, procedure.id)}
+							>{procedure.id}
 						</option>
 					{/each}
 				</select>
