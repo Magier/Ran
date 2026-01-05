@@ -18,12 +18,15 @@ export class RanAPI {
     socket!: WebSocket;
     private pendingRequests = new Map<string, PendingRequest>();
     private messageHandlers = new Map<string, (data: any) => void>();
-    private restClient = createClient<paths>({ baseUrl: 'http://localhost:8080' });
+    private restClient = createClient<paths>({ baseUrl: '' }); // Use relative URLs
 
-    connect(url: string = "ws://localhost:8080/ws"): Promise<void> {
+    connect(url?: string): Promise<void> {
+        // Construct WebSocket URL from current location if not provided
+        if (!url) {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            url = `${protocol}//${window.location.host}/ws`;
+        }
         console.info("Connecting to WebSocket at", url);
-        console.log("websocket this", this)
-        console.log("websocket this.socket", this.socket)
         return new Promise((resolve, reject) => {
             this.socket = new WebSocket(url);
             this.socket.onopen = () => {
