@@ -64,8 +64,9 @@ class CampaignState {
 	pendingMessages: string[] = [];
 	api: RanAPI = $state(getRanAPI());
 
-	init(url: string = 'ws://localhost:8080/ws'): Promise<void> {
+	init(url?: string): Promise<void> {
 		// this.api.onmessage = this.handleMessage;
+		// If no URL provided, it will auto-construct from window.location
 
 		this.api.on('armory-loaded', (data) => {
 			this.armory = parseArmory(data);
