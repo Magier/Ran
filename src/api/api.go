@@ -133,12 +133,36 @@ func (a *API) handleEvent(ctx context.Context, msg domain.Message) (domain.Messa
 	return nil, nil
 }
 
-func (a *API) StartServer(addr string) error {
+func (a *API) StartServer(ctx context.Context, addr string) error {
 	slog.Info("Starting HTTP server", "port", addr)
-	// go func() {
-	// 	<-ctx.Done()
-	// }()
-	return http.ListenAndServe(addr, a.router)
+	server := &http.Server{
+		Addr:    addr,
+		Handler: a.router,
+	}
+
+	// Start server in a goroutine
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("HTTP server error", "error", err)
+		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+	slog.Info("Shutting down HTTP server...")
+
+	// Create a deadline for shutdown
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Gracefully shutdown the server
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		slog.Error("Server forced to shutdown", "error", err)
+		return err
+	}
+
+	slog.Info("Server stopped gracefully")
+	return nil
 }
 
 func (a *API) SetContext(ctx context.Context) {
