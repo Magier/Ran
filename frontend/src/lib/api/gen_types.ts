@@ -325,11 +325,10 @@ export interface components {
             description: string;
             tactic: string;
             techniques: string[];
-            /** @enum {string} */
-            status: "enabled" | "disabled";
+            status: components["schemas"]["TTPStatus"];
             params: components["schemas"]["TTPParam"][];
             requires: components["schemas"]["Requirements"];
-            effects: string[];
+            effects?: string[];
             procedures: components["schemas"]["Procedure"][];
             defense?: components["schemas"]["TTPDefense"];
         };
@@ -403,6 +402,11 @@ export interface components {
             error: string;
             details?: string;
         };
+        /**
+         * @description Status of a TTP - whether it is enabled or disabled
+         * @enum {string}
+         */
+        TTPStatus: "enabled" | "disabled";
     };
     responses: never;
     parameters: never;
