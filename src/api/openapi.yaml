@@ -405,7 +405,6 @@ components:
         - tactic
         - techniques
         - requires
-        - effects
         - procedures
         - params
         - status
@@ -423,8 +422,7 @@ components:
           items:
             type: string
         status:
-          type: string
-          enum: [enabled, disabled]
+          $ref: '#/components/schemas/TTPStatus'
         params:
           type: array
           items:
@@ -615,3 +613,10 @@ components:
           type: string
         details:
           type: string
+
+    TTPStatus:
+      type: string
+      enum:
+        - enabled
+        - disabled
+      description: Status of a TTP - whether it is enabled or disabled

@@ -37,6 +37,12 @@ func ConvertTTP(ttp domain.TTP) TTP {
 		d := ConvertTTPDefense(ttp.Defense)
 		defense = &d
 	}
+
+	var effects *[]string
+	if len(ttp.Effects) > 0 {
+		effects = &ttp.Effects
+	}
+
 	return TTP{
 		Id:          ttp.ID,
 		Name:        ttp.Name,
@@ -44,7 +50,7 @@ func ConvertTTP(ttp domain.TTP) TTP {
 		Tactic:      string(ttp.Tactic),
 		Techniques:  ttp.Techniques,
 		Requires:    ConvertRequirements(ttp.Requires),
-		Effects:     ttp.Effects,
+		Effects:     effects,
 		Procedures:  ConvertProcedures(ttp.Procedures),
 		Params:      ConvertTTPParams(ttp.Params),
 		Status:      TTPStatus(ttp.Status),
@@ -102,10 +108,15 @@ func ConvertRequirements(r domain.Requirements) Requirements {
 		rbacPermissions = append(rbacPermissions, ConvertRBACPermission(r.RBACPermission))
 	}
 
+	var exists *[]string
+	if len(r.Exists) > 0 {
+		exists = (*[]string)(&r.Exists)
+	}
+
 	return Requirements{
 		Kind:            &kind,
 		AccessLevel:     &accessLevel,
-		Exists:          (*[]string)(&r.Exists),
+		Exists:          exists,
 		RbacPermissions: &rbacPermissions,
 	}
 }

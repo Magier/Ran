@@ -88,6 +88,9 @@ func loadTTPs(builtinFS embed.FS, userDefinedDir string) ([]domain.TTP, error) {
 		if err := yaml.Unmarshal(content, &ttp); err != nil {
 			return fmt.Errorf("failed to unmarshal YAML content from file %s: %w", path, err)
 		}
+		if ttp.Status == "" {
+			ttp.Status = "enabled"
+		}
 		ttps = append(ttps, ttp)
 		return nil
 	}
