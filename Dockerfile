@@ -30,3 +30,4 @@ RUN chmod +x ./ran
 EXPOSE 8080
 
 ENTRYPOINT ["./ran"]
+CMD [ "emulate", "--port", "8080" ]
