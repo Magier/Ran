@@ -38,13 +38,9 @@ type App struct {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	r := ran.InitRan("", "armory/")
-	a := api.NewAPI(&r, nil) // context will be set during `startup`
+	a := api.NewAPI(&r, context.Background()) // context will be updated during `startup`
 	app := &App{ran: &r, API: a}
-	go func() {
-		if err := a.StartServer(":8080"); err != nil {
-			slog.Error("Failed to start API server", "error", err)
-		}
-	}()
+	// Server will be started in startup with proper context
 	return app
 }
 
@@ -98,7 +94,15 @@ func (a *App) startup(ctx context.Context) {
 			runtime.LogError(ctx, "Failed to show error dialog: "+dlgErr.Error())
 		}
 		runtime.Quit(ctx)
+		return
 	}
+
+	// Start API server in background
+	go func() {
+		if err := a.API.StartServer(ctx, ":8080"); err != nil {
+			slog.Error("Failed to start API server", "error", err)
+		}
+	}()
 }
 
 func (a *App) SaveFlow() bool {
