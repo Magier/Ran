@@ -276,7 +276,7 @@ func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, load
 	if err != nil {
 		results <- MaybeNewFacts{Error: fmt.Errorf("Couldn't create K8s client for context %s (%v)", client.Context.Name, err)}
 		return
-	} else if !client.TestConnection() {
+	} else if err = client.TestConnection(); err != nil {
 		results <- MaybeNewFacts{Error: fmt.Errorf("Can't connect to %s (%v)", client.Context.Name, err)}
 		return
 	}

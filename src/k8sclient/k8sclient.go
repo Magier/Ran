@@ -3,11 +3,9 @@ package k8s
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -98,23 +96,6 @@ func (c K8sClient) Valid() bool {
 	return c.Clientset != nil
 }
 
-func (c K8sClient) TestConnection() bool {
-	var timeout time.Duration = time.Second * 2
-	url := c.RESTClient().Get().AbsPath("/livez").URL()
-	client := http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-	}
-	res, err := client.Get(url.String())
-	if err != nil {
-		return false
-	}
-	res.Body.Close()
-	return true
-}
-
 func (client K8sClient) GetApiServer() (domain.ApiServer, error) {
 	// extract the HOST of the url which is an ip address
 	apiServerIP := strings.Split(client.Config.Host, ":")[1][2:]
@@ -158,6 +139,21 @@ func NewK8sClient(kubeConfigPath string) (K8sClient, error) {
 	c.Clientset = clientset
 
 	return c, nil
+}
+
+func (c K8sClient) TestConnection() error {
+	timeout := time.Second * 2
+	ctxWithTimeout, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	res := c.Discovery().RESTClient().Get().AbsPath("/readyz").Do(ctxWithTimeout)
+	if res.Error() != nil {
+		return res.Error()
+	}
+
+	slog.Debug("Target cluster is readyz")
+
+	return nil
 }
 
 func GetIDsOfRunningPod(ctx context.Context, ns string) ([]string, error) {
