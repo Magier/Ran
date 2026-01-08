@@ -191,7 +191,7 @@ export class RanAPI {
         const { data, error } = await this.restClient.GET('/api/pods/running', {
             params: { query: { namespace } }
         });
-        if (error) throw new Error('Failed to get running pods');
+        if (error) throw new Error(error.error);
         return data;
     }
 }

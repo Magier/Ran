@@ -207,7 +207,7 @@ class CampaignState {
 	// }
 	showError(msg: string | object) {
 		if (typeof msg === 'object') {
-			if (msg.hasOwnProperty('code') && (msg as BackendError).code == 'GO_BOUND_METHOD_ERROR') {
+			if (msg.hasOwnProperty('message')) {
 				msg = (msg as any).message;
 			} else {
 				// fallback handling to show full object (may allow later refinement)
