@@ -22,14 +22,14 @@
 	const label = $derived(data.label);
 	const step = $derived(data.step);
 
-	const statusInfo = $derived(step?.Success
+	const statusInfo = $derived(step?.success
 		? { statusBorder: 'border-green-500', icon: 'lucide:check', color: 'text-success-500' }
 		: { statusBorder: 'border-red-500', icon: 'lucide:x', color: 'text-error-500' });
 </script>
 
 <div class={['bg-surface-50-950 border-1 rounded-md border-solid px-2 py-2', statusInfo.statusBorder]}>
 		<span class="text-base">{label}</span>
-		<pre class="text-xs">{step.Target?.name ?? 'no target'}</pre>
+		<pre class="text-xs">{step.targetId ?? 'no target'}</pre>
 
 	<div class="w-full flex items-left mt-2">
 		<div class="flex">
@@ -40,10 +40,10 @@
 		</div>
 		<div class="flex-1"></div>
 		<div class="flex items-center space-x-1">
-			{#if step.Observables?.length > 0}
+			{#if step.observables?.length > 0}
 				<Icon icon={"humbleicons:eye"} width="16" />
 			{/if}
-			{#if step?.Success}
+			{#if step?.success}
 					<Icon class={statusInfo.color} icon={statusInfo.icon} width="16" />
 				{/if}
 		</div>
