@@ -6,7 +6,7 @@
 	import { toaster } from '$lib/components/toaster';
 
 	import { getGraphStyle, layout, applyCompromisedStyle } from './graph_style';
-	import type { api } from '$lib/domain/models';
+	import type { Node, Edge } from '$lib/api/index';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 
 	type GraphProps = {
@@ -237,7 +237,7 @@
 		selectedObjectId = '';
 	}
 
-	function toCyNode(n: api.Node, nodePos: Record<string, any>): CyNode {
+	function toCyNode(n: Node, nodePos: Record<string, any>): CyNode {
 		let cyNode: CyNode ={
 			id: n.id,
 			label: n.name,
@@ -251,7 +251,7 @@
 		return cyNode
 	}
 
-	function toCyEdge(e: api.Edge) {
+	function toCyEdge(e: Edge) {
 		return {
 			data: {
 				source: e.sourceId,
