@@ -155,7 +155,7 @@ export interface paths {
         put?: never;
         /**
          * Execute action
-         * @description Execute a TTP action on a target
+         * @description Execute a TTP action on a target. The action will be queued and executed asynchronously. The final execution status will be sent via SSE.
          */
         post: operations["executeAction"];
         delete?: never;
@@ -610,6 +610,17 @@ export interface operations {
         responses: {
             /** @description Action executed successfully */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status?: string;
+                    };
+                };
+            };
+            /** @description Action queued for execution, pending asynchronous processing */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -146,7 +146,7 @@ paths:
   /api/action/execute:
     post:
       summary: Execute action
-      description: Execute a TTP action on a target
+      description: Execute a TTP action on a target. The action will be queued and executed asynchronously. The final execution status will be sent via SSE.
       operationId: executeAction
       requestBody:
         required: true
@@ -157,6 +157,15 @@ paths:
       responses:
         '200':
           description: Action executed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        '202':
+          description: Action queued for execution, pending asynchronous processing
           content:
             application/json:
               schema:
