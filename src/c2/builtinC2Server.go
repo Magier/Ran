@@ -156,6 +156,9 @@ func (c *BuiltInC2Server) handleCommand(msg domain.Command) (domain.Event, error
 			err := c.startListener(context.Background(), cmd)
 			if err != nil {
 				c.eventStream <- TTPExecuted{
+					EventImpl: domain.EventImpl{
+						CmdId: cmd.ID,
+					},
 					ID:      msg.GetID(),
 					Success: false,
 					Results: []string{err.Error()},

@@ -619,7 +619,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Action queued for execution, pending asynchronous processing */
+            /** @description Action queued for execution, pending asynchronous processing. The final status will be sent via SSE. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -627,11 +627,21 @@ export interface operations {
                 content: {
                     "application/json": {
                         status?: string;
+                        taskId?: string;
                     };
                 };
             };
             /** @description Invalid request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The action was executed, but failed for some reason */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
