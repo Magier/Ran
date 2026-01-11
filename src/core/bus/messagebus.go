@@ -17,6 +17,10 @@ type MessageBus interface {
 	// Publish(ctx context.Context, events ...domain.Event) error
 	Subscribe(event domain.Message, handler domain.MessageHandler) func()
 	SubscribeToName(name string, handler domain.MessageHandler) func()
+	SubscribeOnce(event domain.Message, handler domain.MessageHandler) func()
+	SubscribeOnceToName(name string, handler domain.MessageHandler) func()
+	SubscribeUntil(event domain.Message, shouldUnsubscribe func(domain.Message) bool, handler domain.MessageHandler) func()
+	SubscribeUntilToName(name string, shouldUnsubscribe func(domain.Message) bool, handler domain.MessageHandler) func()
 }
 
 type MessageBusProvider struct {
@@ -97,6 +101,7 @@ func (b *MessageBusProvider) SubscribeToName(name string, handler domain.Message
 	slog.Debug(fmt.Sprintf("Subscribed to event %s", name))
 
 	return func() {
+		slog.Debug("Unsubscribing from event " + name)
 		handlers := b.subscribers[name]
 		currentHandlerPtr := reflect.ValueOf(handler).Pointer()
 
@@ -109,9 +114,51 @@ func (b *MessageBusProvider) SubscribeToName(name string, handler domain.Message
 		b.subscribers[name] = newHandlers
 	}
 }
+
 func (b *MessageBusProvider) Subscribe(event domain.Message, handler domain.MessageHandler) func() {
 	name := msgName(event)
 	return b.SubscribeToName(name, handler)
+}
+
+// SubscribeOnceToName subscribes to an event by name and automatically unsubscribes after the first message
+func (b *MessageBusProvider) SubscribeOnceToName(name string, handler domain.MessageHandler) func() {
+	var unsubFn func()
+	wrappedHandler := func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		defer func() {
+			if unsubFn != nil {
+				unsubFn()
+			}
+		}()
+		return handler(ctx, msg)
+	}
+	unsubFn = b.SubscribeToName(name, wrappedHandler)
+	return unsubFn
+}
+
+// SubscribeOnce subscribes to an event and automatically unsubscribes after the first message
+func (b *MessageBusProvider) SubscribeOnce(event domain.Message, handler domain.MessageHandler) func() {
+	name := msgName(event)
+	return b.SubscribeOnceToName(name, handler)
+}
+
+// SubscribeUntilToName subscribes to an event by name and unsubscribes when the condition returns true
+func (b *MessageBusProvider) SubscribeUntilToName(name string, shouldUnsubscribe func(domain.Message) bool, handler domain.MessageHandler) func() {
+	var unsubFn func()
+	wrappedHandler := func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		result, err := handler(ctx, msg)
+		if shouldUnsubscribe(msg) && unsubFn != nil {
+			unsubFn()
+		}
+		return result, err
+	}
+	unsubFn = b.SubscribeToName(name, wrappedHandler)
+	return unsubFn
+}
+
+// SubscribeUntil subscribes to an event and unsubscribes when the condition returns true
+func (b *MessageBusProvider) SubscribeUntil(event domain.Message, shouldUnsubscribe func(domain.Message) bool, handler domain.MessageHandler) func() {
+	name := msgName(event)
+	return b.SubscribeUntilToName(name, shouldUnsubscribe, handler)
 }
 
 func CreateMessageBus() *MessageBusProvider {

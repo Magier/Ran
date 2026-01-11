@@ -41,7 +41,15 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 			}
 		}
 
-		return c.SetTarget(ns, name)
+		msg, err := c.SetTarget(ns, name)
+		if err != nil {
+			return msg, err
+		}
+		if execCmd, ok := msg.(domain.ExecTTP); ok {
+			execCmd.ID = ev.CmdId
+			return execCmd, err
+		}
+		return msg, err
 	}
 
 	msg, err := c.GroundAction(ttp, ev.TargetID, ev.ProcedureID, ev.Args)
@@ -51,6 +59,7 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 		cmd := msg.(domain.ExecTTP)
 		// remember the system we are executing from, to continue the attack from there
 		c.lastExecSystem, ok = cmd.Target.(domain.System)
+		cmd.ID = ev.CmdId
 		if !ok {
 			slog.Warn("Executed TTP target is not a system, can't continue the attack from there")
 			c.lastExecSystem = nil

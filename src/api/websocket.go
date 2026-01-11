@@ -159,7 +159,7 @@ func (a *API) handleWSRequest(client *WSClient, req WSRequest) {
 			if params.ProcedureId != nil {
 				procedureID = *params.ProcedureId
 			}
-			if err := a.ExecuteAction(params.ActionId, params.TargetId, procedureID, args); err != nil {
+			if err := a.ExecuteAction("", params.ActionId, params.TargetId, procedureID, args); err != nil {
 				resp.Error = err.Error()
 			} else {
 				resp.Data = "ok"

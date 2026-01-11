@@ -1,8 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
+
+	"github.com/Magier/Ran/c2"
+	"github.com/Magier/Ran/domain"
+	"github.com/google/uuid"
 )
 
 // HTTPHandler wraps the existing API methods to implement ServerInterface
@@ -39,7 +45,7 @@ func (h *HTTPHandler) GetApplicableTTPs(w http.ResponseWriter, r *http.Request, 
 	if params.TargetId != nil {
 		targetId = *params.TargetId
 	}
-	
+
 	ttps, err := h.api.GetApplicableTTPs(targetId)
 	if err != nil {
 		respondError(w, http.StatusNotFound, err.Error())
@@ -85,7 +91,7 @@ func (h *HTTPHandler) SaveFlow(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 	var req ExecuteActionJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body")
+		respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
 
@@ -99,12 +105,57 @@ func (h *HTTPHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 		procedureID = *req.ProcedureId
 	}
 
-	if err := h.api.ExecuteAction(req.ActionId, req.TargetId, procedureID, args); err != nil {
+	// Create a channel to signal completion
+	done := make(chan domain.Event, 1)
+
+	cmdID := uuid.New().String()
+	h.api.ran.Bus.SubscribeUntil(c2.TTPExecuted{},
+		func(msg domain.Message) bool {
+			// Unsubscribe when we receive the event matching our cmdID
+			if event, ok := msg.(c2.TTPExecuted); ok {
+				return event.CmdId == cmdID || event.ID == cmdID
+			}
+			return false
+		},
+		func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+			event, ok := msg.(c2.TTPExecuted)
+			if !ok {
+				return nil, nil
+			}
+			if event.CmdId == cmdID || event.ID == cmdID {
+				done <- event
+			}
+			return nil, nil
+		},
+	)
+
+	// handle error or status depending on execution time
+	if err := h.api.ExecuteAction(cmdID, req.ActionId, req.TargetId, procedureID, args); err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
-	}
+	} else {
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
 
-	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		select {
+		case event := <-done:
+			// Action completed within 15 seconds
+			execEvent, ok := event.(c2.TTPExecuted)
+			if !ok {
+				respondError(w, http.StatusInternalServerError, "invalid event type received")
+			} else if !execEvent.Success {
+				respondError(w, http.StatusConflict, "action execution failed: "+execEvent.Results[0])
+			} else {
+				respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			}
+		case <-ctx.Done():
+			// Action taking longer than 15 seconds, return 202 Accepted
+			respondJSON(w, http.StatusAccepted, map[string]string{
+				"status": "action is still executing",
+				"taskId": cmdID,
+			})
+		}
+	}
 }
 
 // ResetCampaign implements ServerInterface

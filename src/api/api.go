@@ -275,8 +275,9 @@ func (a *API) ResetCampaign() error {
 	return nil
 }
 
-func (a *API) ExecuteAction(actionID, targetID, procedureID string, args ActionArgs) error { //, args map[string]string) {
+func (a *API) ExecuteAction(cmdID, actionID, targetID, procedureID string, args ActionArgs) error { //, args map[string]string) {
 	err := a.ran.Bus.Publish(domain.ActionSelected{
+		EventImpl:   domain.EventImpl{CmdId: cmdID},
 		ActionID:    actionID,
 		TargetID:    targetID,
 		ProcedureID: procedureID,

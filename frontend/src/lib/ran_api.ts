@@ -104,6 +104,7 @@ export class RanAPI {
             this.pendingRequests.set(type, { resolve, reject });
 
             const message = { type, params };
+            console.info("Sending WebSocket message:", message);
             this.socket.send(JSON.stringify(message));
         });
     }

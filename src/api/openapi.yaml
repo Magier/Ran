@@ -165,7 +165,7 @@ paths:
                   status:
                     type: string
         '202':
-          description: Action queued for execution, pending asynchronous processing
+          description: Action queued for execution, pending asynchronous processing. The final status will be sent via SSE.
           content:
             application/json:
               schema:
@@ -173,8 +173,16 @@ paths:
                 properties:
                   status:
                     type: string
+                  taskId:
+                    type: string
         '400':
           description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The action was executed, but failed for some reason
           content:
             application/json:
               schema:
