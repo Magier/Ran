@@ -1,3 +1,29 @@
+/**
+ * RanAPI - Client library for Ran API
+ * 
+ * Supports two transport modes for real-time events:
+ * - SSE (Server-Sent Events) - Default, simpler, auto-reconnects, read-only
+ * - WebSocket - Bidirectional, for legacy support
+ * 
+ * Usage:
+ * ```typescript
+ * import { ranAPI, connect, on } from '$lib/ran_api';
+ * 
+ * // Connect with SSE (default, recommended)
+ * await connect();
+ * 
+ * // Or connect with WebSocket
+ * await connect('websocket');
+ * 
+ * // Subscribe to events
+ * on('armory-loaded', (data) => console.log('Armory:', data));
+ * on('ttp-executed', (data) => console.log('TTP executed:', data));
+ * 
+ * // Use REST API methods
+ * const graph = await ranAPI.GetGraph();
+ * await ranAPI.ExecuteAction({ actionId: '...', targetId: '...' });
+ * ```
+ */
 import createClient from 'openapi-fetch';
 import type { paths } from '$lib/api/gen_types';
 import type {
@@ -14,13 +40,27 @@ type PendingRequest = {
     reject: (reason: any) => void;
 };
 
+type TransportMode = 'websocket' | 'sse';
+
 export class RanAPI {
-    socket!: WebSocket;
+    socket?: WebSocket;
+    eventSource?: EventSource;
+    private mode: TransportMode = 'sse'; // Default to SSE
     private pendingRequests = new Map<string, PendingRequest>();
     private messageHandlers = new Map<string, (data: any) => void>();
+    private sseEventListeners = new Set<string>(); // Track registered SSE event types
     private restClient = createClient<paths>({ baseUrl: '' }); // Use relative URLs
 
-    connect(url?: string): Promise<void> {
+    connect(mode: TransportMode = 'sse', url?: string): Promise<void> {
+        this.mode = mode;
+        if (mode === 'websocket') {
+            return this.connectWebSocket(url);
+        } else {
+            return this.connectSSE(url);
+        }
+    }
+
+    private connectWebSocket(url?: string): Promise<void> {
         // Construct WebSocket URL from current location if not provided
         if (!url) {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -49,6 +89,58 @@ export class RanAPI {
                 this.pendingRequests.clear();
             };
         });
+    }
+
+    private connectSSE(url?: string): Promise<void> {
+        // Construct SSE URL from current location if not provided
+        if (!url) {
+            url = `/events`;
+        }
+        console.info("Connecting to SSE at", url);
+        return new Promise((resolve, reject) => {
+            this.eventSource = new EventSource(url);
+            
+            this.eventSource.onopen = () => {
+                console.log("SSE connection established");
+                resolve();
+            };
+            
+            this.eventSource.onerror = (err) => {
+                console.error("SSE error:", err);
+                // SSE automatically reconnects, so only reject if not yet connected
+                if (this.eventSource?.readyState === EventSource.CONNECTING) {
+                    reject(err);
+                }
+            };
+            
+            // Note: We don't set onmessage here because SSE events from the backend
+            // use named events (event: <type>), which only trigger addEventListener
+            // Event listeners are registered dynamically in the on() method
+        });
+    }
+
+    private handleSSEMessage(event: MessageEvent) {
+        let msgType: string;
+        let data: any;
+        let error: any;
+        try {
+            ({ type: msgType, data, error } = JSON.parse(event.data));
+        } catch (err) {
+            console.error("Failed to parse SSE message:", err, event.data);
+            return;
+        }
+        
+        // Call registered handler for events
+        const handler = this.messageHandlers.get(msgType);
+        if (handler) {
+            try {
+                handler(data);
+            } catch (err) {
+                console.error("Error in SSE message handler for type:", msgType, err);
+            }
+        } else {
+            console.debug("Unhandled SSE event type:", msgType);
+        }
     }
 
     private handleMessage(event: MessageEvent) {
@@ -94,6 +186,10 @@ export class RanAPI {
     }
 
     sendMessage<T = any>(type: string, params?: any): Promise<T> {
+        if (this.mode === 'sse') {
+            return Promise.reject(new Error("Cannot send messages with SSE transport. Use REST API methods instead."));
+        }
+        
         return new Promise((resolve, reject) => {
             if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
                 reject(new Error("WebSocket not connected"));
@@ -112,10 +208,35 @@ export class RanAPI {
     // Subscribe to push events (events not triggered by a request)
     on(type: string, handler: (data: any) => void) {
         this.messageHandlers.set(type, handler);
+        
+        // For SSE, register event listener only once per event type
+        if (this.eventSource && this.mode === 'sse' && !this.sseEventListeners.has(type)) {
+            this.sseEventListeners.add(type);
+            this.eventSource.addEventListener(type, (event: MessageEvent) => {
+                this.handleSSEMessage(event);
+            });
+        }
     }
 
     off(type: string) {
         this.messageHandlers.delete(type);
+        
+        // Note: EventSource doesn't provide a way to remove specific event listeners
+        // The handler just won't be called anymore since we removed it from messageHandlers
+    }
+
+    disconnect() {
+        if (this.socket) {
+            this.socket.close();
+            this.socket = undefined;
+        }
+        if (this.eventSource) {
+            this.eventSource.close();
+            this.eventSource = undefined;
+        }
+        this.pendingRequests.clear();
+        this.messageHandlers.clear();
+        this.sseEventListeners.clear();
     }
 
     // REST API Methods (auto-generated from OpenAPI spec)
@@ -221,6 +342,7 @@ export { ranAPI };
 
 // Export bound functions for convenience
 export const connect = ranAPI.connect.bind(ranAPI);
+export const disconnect = ranAPI.disconnect.bind(ranAPI);
 export const on = ranAPI.on.bind(ranAPI);
 export const off = ranAPI.off.bind(ranAPI);
 export const GetGraph = ranAPI.GetGraph.bind(ranAPI);

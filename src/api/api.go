@@ -43,10 +43,15 @@ var AllAccessLevels = []struct {
 	{RootExec, "RootExec"},
 }
 
+type Client interface {
+	sendJSON(name string, v interface{}) error
+	Close() error
+}
+
 type API struct {
 	ctx       context.Context
 	ran       *ran.Ran
-	clients   map[*WSClient]bool
+	clients   map[Client]bool
 	clientsMu sync.RWMutex
 	router    chi.Router
 }
@@ -58,7 +63,7 @@ func NewAPI(r *ran.Ran, ctx context.Context) *API {
 	a := &API{
 		ctx:     ctx,
 		ran:     r,
-		clients: make(map[*WSClient]bool),
+		clients: make(map[Client]bool),
 	}
 	a.router = chi.NewRouter()
 
@@ -73,6 +78,9 @@ func NewAPI(r *ran.Ran, ctx context.Context) *API {
 
 	// WebSocket endpoint for real-time updates
 	a.router.Get("/ws", a.handleWebSocket)
+
+	// SSE endpoint for real-time updates
+	a.router.Get("/events", a.handleSSE)
 
 	// Serve OpenAPI spec
 	a.router.Get("/api/openapi.yaml", serveOpenAPISpec)
