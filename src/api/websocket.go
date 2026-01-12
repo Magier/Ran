@@ -35,6 +35,10 @@ type WSClient struct {
 	mu   sync.Mutex
 }
 
+func (client *WSClient) Close() error {
+	return client.conn.Close()
+}
+
 func (client *WSClient) sendJSON(name string, v interface{}) error {
 	if _, ok := v.(WSResponse); !ok {
 		switch err := v.(type) {
