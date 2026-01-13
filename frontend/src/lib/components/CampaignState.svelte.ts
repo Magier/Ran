@@ -1,6 +1,6 @@
 import { getContext, setContext } from 'svelte';
 import type { ArmoryType, Node } from '$lib/model';
-import type { AttackFlow, CampaignState as State, Graph, TTP } from '$lib/api/index';
+import type { AttackFlow, CampaignState as State, Graph, TTP, ExecuteActionRequest } from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
 import { getRanAPI, RanAPI } from '$lib/ran_api';
 
@@ -362,19 +362,16 @@ class CampaignState {
 		return serviceAccounts || [];
 	}
 
-	ExecuteAction(
-		actionId: string,
-		targetId: string,
-		procedureId: string,
-		args: Record<string, any>
-	): Promise<void> {
-		return this.api.sendMessage<void>('execute-action', {
-			actionId,
-			targetId,
-			procedureId,
-			args
-		});
-	}
+	// ExecuteAction(
+	// 	actionId: string,
+	// 	targetId: string,
+	// 	procedureId: string,
+	// 	args: Record<string, any>
+	// ): Promise<void> {
+	// 	const cmd: ExecuteActionRequest = {actionId, targetId, procedureId, args};
+	// 	debugger
+	// 	return this.api.ExecuteAction(cmd).then(() => {});
+	// }
 
 	GetFlow(): Promise<AttackFlow> {
 		return this.api.sendMessage<AttackFlow>('get-flow');

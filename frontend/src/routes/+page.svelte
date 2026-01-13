@@ -9,7 +9,7 @@
 	import { showToast, toaster } from '$lib/components/toaster';
 	import EntityInfo from './components/entityInfo.svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
-	import { getRanAPI } from '$lib/ran_api';
+	import { ExecuteAction, getRanAPI } from '$lib/ran_api';
 
 	const campaignState = getCampaignState();
 
@@ -37,7 +37,7 @@
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
-			campaignState.ExecuteAction(ttp.id, selectedObjectId, '', {}).then(() => {
+			ExecuteAction({actionId: ttp.id, targetId: selectedObjectId, procedureId: '', args: {}}).then(() => {
 				showToast(`Executed TTP ${ttp.name}`, '', 'success');
 			}).catch((err) => {
 				showToast(`Error executing TTP ${ttp.name}`, err, 'error');
@@ -93,7 +93,7 @@
 			}
 		});
 
-		campaignState.ExecuteAction(ttpId, selectedObjectId, procedureId, args)
+		ExecuteAction({actionId: ttpId, targetId: selectedObjectId, procedureId, args})
 			.then(() => {
 				let toastId = showToast('Executing TTP', ttpId, 'info');
 				ToastMapping[ttpId] = toastId;
