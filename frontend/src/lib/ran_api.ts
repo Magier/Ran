@@ -49,6 +49,7 @@ export class RanAPI {
     private pendingRequests = new Map<string, PendingRequest>();
     private messageHandlers = new Map<string, (data: any) => void>();
     private sseEventListeners = new Set<string>(); // Track registered SSE event types
+    private pendingSSEEventTypes = new Set<string>(); // Event types waiting for SSE connection
     private restClient = createClient<paths>({ baseUrl: '' }); // Use relative URLs
 
     connect(mode: TransportMode = 'sse', url?: string): Promise<void> {
@@ -102,8 +103,25 @@ export class RanAPI {
             
             this.eventSource.onopen = () => {
                 console.log("SSE connection established");
+                
+                // Register any event listeners that were added before connection was ready
+                this.pendingSSEEventTypes.forEach(type => {
+                    if (!this.sseEventListeners.has(type) && this.eventSource) {
+                        this.sseEventListeners.add(type);
+                        this.eventSource.addEventListener(type, (event: MessageEvent) => {
+                            this.handleSSEMessage(event);
+                        });
+                    }
+                });
+                this.pendingSSEEventTypes.clear();
+                
                 resolve();
             };
+
+            this.eventSource.onmessage = (event) => {
+                console.info("Received SSE message:", event.data);
+                this.handleSSEMessage(event);
+            }
             
             this.eventSource.onerror = (err) => {
                 console.error("SSE error:", err);
@@ -208,13 +226,23 @@ export class RanAPI {
     // Subscribe to push events (events not triggered by a request)
     on(type: string, handler: (data: any) => void) {
         this.messageHandlers.set(type, handler);
+        console.log(`Registered handler for event type: ${type}`);
         
-        // For SSE, register event listener only once per event type
-        if (this.eventSource && this.mode === 'sse' && !this.sseEventListeners.has(type)) {
-            this.sseEventListeners.add(type);
-            this.eventSource.addEventListener(type, (event: MessageEvent) => {
-                this.handleSSEMessage(event);
-            });
+        // For SSE mode, register event listener
+        if (this.mode === 'sse') {
+            if (this.eventSource && this.eventSource.readyState === EventSource.OPEN && !this.sseEventListeners.has(type)) {
+                // Connection is ready and open, register immediately
+                this.sseEventListeners.add(type);
+                this.eventSource.addEventListener(type, (event: MessageEvent) => {
+                    this.handleSSEMessage(event);
+                });
+            } else {
+                // Connection not ready yet or already registered, add to pending to ensure it gets registered
+                if (!this.sseEventListeners.has(type)) {
+                    this.pendingSSEEventTypes.add(type);
+                    console.log(`SSE event listener queued for type: ${type} (will register on connection)`);
+                }
+            }
         }
     }
 
@@ -237,6 +265,7 @@ export class RanAPI {
         this.pendingRequests.clear();
         this.messageHandlers.clear();
         this.sseEventListeners.clear();
+        this.pendingSSEEventTypes.clear();
     }
 
     // REST API Methods (auto-generated from OpenAPI spec)
