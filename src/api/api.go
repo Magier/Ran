@@ -68,7 +68,7 @@ func NewAPI(r *ran.Ran, ctx context.Context) *API {
 	a.router = chi.NewRouter()
 
 	// Add logging middleware to debug requests/responses
-	a.router.Use(middleware.Logger)
+	// a.router.Use(middleware.Logger)
 	a.router.Use(middleware.Recoverer)
 	a.router.Use(middleware.RequestID)
 
