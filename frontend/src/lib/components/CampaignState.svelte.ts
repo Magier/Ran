@@ -22,24 +22,6 @@ export type Relation = {
 	kind: string;
 };
 
-// type FactsDelta = {
-//     Entities: Entity[];
-//     Relations: domain.Relation[];
-//     Identities: Identity[];
-//     Assets: Asset[];
-// }
-
-// type FactsChanged = {
-//     NewEntities:       Entity[]
-//     NewRelations:      Relation[]
-//     NewIdentities:     Identity[]
-//     NewAssets:         Asset[]
-//     RemovedEntities:   Entity[]
-//     RemovedRelations:  Relation[]
-//     RemovedIdentities: Identity[]
-//     RemovedAssets:     Asset[]
-// }
-
 type ErrorMsg = {
 	CmdId: string;
 	Level: string;
@@ -101,7 +83,7 @@ class CampaignState {
 		});
 
 		console.log('CampaignState connecting to backend...');
-		return this.api.connect(url).then((a) => {
+		return this.api.connect().then((a) => {
 			this.api.GetGraph().then((g: Graph) => {
 				this.graph = g;
 			});
@@ -237,18 +219,19 @@ class CampaignState {
 	#setState(state: State): void {
 		let entities = [];
 		for (const [id, entity] of Object.entries(state.entities || {})) {
-			if (entity.kind === 'Namespace') {
-				this.namespaces = [...this.namespaces, entity];
-			} else if (entity.kind === 'Pod') {
-				this.pods = [...this.pods, entity];
-			} else if (entity.kind === 'ServiceAccount') {
-				this.serviceAccounts = [...this.serviceAccounts, entity];
+			const typedEntity = entity as Entity;
+			if (typedEntity.kind === 'Namespace') {
+				this.namespaces = [...this.namespaces, typedEntity];
+			} else if (typedEntity.kind === 'Pod') {
+				this.pods = [...this.pods, typedEntity];
+			} else if (typedEntity.kind === 'ServiceAccount') {
+				this.serviceAccounts = [...this.serviceAccounts, typedEntity];
 			}
 
-			if (!entity.id) {
-				entity.id = id;
+			if (!typedEntity.id) {
+				typedEntity.id = id;
 			}
-			entities.push(entity);
+			entities.push(typedEntity);
 		}
 		this.entities = entities; // ensure we replace the array to trigger reactivity
 	}
@@ -369,12 +352,12 @@ class CampaignState {
 	// 	args: Record<string, any>
 	// ): Promise<void> {
 	// 	const cmd: ExecuteActionRequest = {actionId, targetId, procedureId, args};
-	// 	debugger
 	// 	return this.api.ExecuteAction(cmd).then(() => {});
 	// }
 
 	GetFlow(): Promise<AttackFlow> {
-		return this.api.sendMessage<AttackFlow>('get-flow');
+		// return this.api.sendMessage<AttackFlow>('get-flow');
+		return this.api.GetFlow();
 	}
 	ExportAttackFlow(): Promise<AttackFlow> {
 		return this.api.sendMessage<AttackFlow>('export-attack-flow');
