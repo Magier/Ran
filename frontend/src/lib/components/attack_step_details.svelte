@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { AttackStep } from '$lib/api';
+	import { getCampaignState } from './CampaignState.svelte';
 	import ObservableInfo from './observable_info.svelte';
 
 	interface ActionDetailProps {
@@ -8,8 +9,11 @@
 	}
 
 	let { step }: ActionDetailProps = $props();
-	const badgeStyle = $derived(step?.Success ? 'preset-filled-success-500' : 'preset-filled-error-500');
-	let status = $derived(step == null ? 'unknown' : step.Success ? 'Success' : 'Failed');
+	const badgeStyle = $derived(step?.success ? 'preset-filled-success-500' : 'preset-filled-error-500');
+	let status = $derived(step == null ? 'unknown' : step.success ? 'Success' : 'Failed');
+
+	const campaignState = getCampaignState();
+	const target = $derived(step?.targetId ? campaignState.getEntityById(step.targetId) : "?");
 
 	function handleCopy(event: MouseEvent) {
 		const button = event.currentTarget as HTMLButtonElement;
@@ -21,8 +25,6 @@
 			}
 		}
 	}
-
-
 </script>
 
 
@@ -48,22 +50,22 @@
 
 		<div class="mt-4 flex justify-start">
 			<div class="pr-2">Target:</div>
-			<code>{step.Target?.name}</code>
+			<code>{target?.name}</code>
 		</div>
-		{#if step.ExecutedOn?.name != step.Target?.name }
+		{#if step.executedOn != target?.name }
 		<div class="mt-4 flex justify-start">
 			<div class="pr-2">Executed On:</div>
-			<code>{step.ExecutedOn?.name}</code>
+			<code>{step.executedOn}</code>
 		</div>
 		{/if}
 
 		<div class="mt-4 flex justify-start">
 			<div class="pr-2">Started</div>
-			<div class="badge">{step.StartAt}</div>
+			<div class="badge">{step.startedAt}</div>
 		</div>
 		<div class=" flex justify-start">
 			<div class="pr-2">Completed</div>
-			<div class="badge">{step.CompletedAt}</div>
+			<div class="badge">{step.completedAt}</div>
 		</div>
 		<div class="mt-4 flex justify-start">
 			<div class="pr-2">Status</div>
@@ -75,7 +77,7 @@
 			<div class="pr-2">Command</div>
 				<div class="bg-surface-50-950 relative group">
 			<code class="h-10 w-full overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all" data-source
-				>{step.Command}</code>
+				>{step.command}</code>
 			<button
 				class="btn preset-filled absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity"
 				data-trigger
@@ -85,7 +87,7 @@
 		</div>
 		<div class="mt-4 w-full">
 			<span class="label mb-1 flex-none">Result:</span>
-			{#each step.Results as result}
+			{#each step.results as result}
 				{#if result}
 				<div class="bg-surface-50-950 relative group">
 					<code class="w-full overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all" data-source>
@@ -103,9 +105,9 @@
 
 		<div class="mt-4 w-full">
 			<span class="label mb-1 flex-none">Observables:</span>
-		{#if step.Observables?.length > 0}
+		{#if step.observables?.length > 0}
 			<div class="mt-4 w-full">
-				{#each step.Observables as obs}
+				{#each step.observables as obs}
 					{#if obs}
 						<ObservableInfo observable={obs} />
 					{/if}

@@ -16,6 +16,7 @@
     import '@xyflow/svelte/dist/style.css';
     import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+	import { ranAPI } from '$lib/ran_api';
 
     let campaignState = getCampaignState();
     const dagreGraph = new dagre.graphlib.Graph();
@@ -34,7 +35,6 @@
     let selectedStep: AttackStep | null = $state(null);
 
     function convertStep(step: AttackStep): Node {
-        debugger
         return {
             id: step.id,
             type: 'actionNode',
@@ -88,9 +88,9 @@
         return { nodes, edges };
     }
 
-    campaignState.GetFlow()
+    ranAPI.GetFlow()
         .then((result: AttackFlow) => {
-            console.log('Graph:', result);
+            console.log('Attack Flow:', result);
             const { steps, edges: es } = result;
             const laidOutElements = layOutElements(steps.map(convertStep), es.map(convertEdge), 'TB');
 
