@@ -8,17 +8,19 @@
 	import { getGraphStyle, layout, applyCompromisedStyle } from './graph_style';
 	import type { Node, Edge } from '$lib/api/index';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
+	// import { hierarchyLayout } from './hierachical_layout';
+	// import 	{ K8sAttackGraphLayout } from './layout_claude';
 
 	type GraphProps = {
 		class?: string;
 		selectedObjectId: string;
-		selectedObject?: api.Node | api.Edge | undefined;
+		selectedObject?: Node | Edge | undefined;
 	};
 
 	type CyNode = {
 		id: string;
 		label: string;
-		data: api.Node;
+		data: Node;
 		position?: { x: number; y: number };
 	};
 	type Pos = { x: number; y: number };
@@ -32,8 +34,14 @@
 
 	let nodes = $state([]);
 	let edges = $state([]);
+	let searchOpen = $state(false);
+	let searchQuery = $state('');
+	let searchResults = $state<CyNode[]>([]);
+	let selectedSearchIndex = $state(0);
 
 	cytoscape.use(fcose);
+	// cytoscape("layout", "hierarchyFlow", hierarchyLayout);
+    // cytoscape('layout', 'claude', K8sAttackGraphLayout);
 
 	let cy: cytoscape.Core;
 	let graphContainer: HTMLElement;
@@ -52,6 +60,9 @@
 	const theme = getContext('theme');
 
 	onMount(() => {
+		if (browser) {
+			window.addEventListener('keydown', handleKeyPress);
+		}
 		positions = loadPositions();
 		zoom = getZoomLevelOrDefault(2);
 		const prevPan = getPanPositionOrDefault(undefined);
@@ -114,6 +125,9 @@
 
 	onDestroy(() => {
 		saveGraphLayout();
+		if (browser) {
+			window.removeEventListener('keydown', handleKeyPress);
+		}
 	});
 
 	// reset any stored layouting information when the campaign is reset
@@ -260,9 +274,160 @@
 			}
 		};
 	}
+
+	function handleKeyPress(event: KeyboardEvent) {
+		// Only trigger if not typing in an input/textarea and search is not already open
+		if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+			return;
+		}
+
+		if (event.key === 'f' && !searchOpen) {
+			event.preventDefault();
+			openSearch();
+		}
+	}
+
+	function openSearch() {
+		searchOpen = true;
+		searchQuery = '';
+		searchResults = [];
+		selectedSearchIndex = 0;
+		// Focus search input after dialog opens
+		setTimeout(() => {
+			document.getElementById('node-search-input')?.focus();
+		}, 100);
+	}
+
+	function performSearch() {
+		if (!cy || searchQuery.trim() === '') {
+			searchResults = [];
+			return;
+		}
+
+		const query = searchQuery.toLowerCase();
+		const allNodes = cy.nodes().map(n => ({
+			id: n.id(),
+			label: n.data('name') || n.data('label') || n.id(),
+			data: n.data()
+		}));
+
+		// Filter nodes by matching query in label or id
+		searchResults = allNodes.filter(n => 
+			n.label.toLowerCase().includes(query) || 
+			n.id.toLowerCase().includes(query)
+		);
+		selectedSearchIndex = 0;
+	}
+
+	function selectSearchResult(index: number) {
+		if (searchResults.length === 0 || !cy) return;
+
+		const result = searchResults[index];
+		const node = cy.getElementById(result.id);
+		
+		if (node) {
+			// Unselect all nodes first
+			cy.elements().unselect();
+			// Select the node
+			node.select();
+			// Center on the node
+			cy.animate({
+				center: { eles: node },
+				zoom: 2,
+				duration: 300
+			});
+			// Close search
+			searchOpen = false;
+		}
+	}
+
+	function handleSearchKeydown(event: KeyboardEvent) {
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			selectedSearchIndex = Math.min(selectedSearchIndex + 1, searchResults.length - 1);
+		} else if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			selectedSearchIndex = Math.max(selectedSearchIndex - 1, 0);
+		} else if (event.key === 'Enter') {
+			event.preventDefault();
+			selectSearchResult(selectedSearchIndex);
+		} else if (event.key === 'Escape') {
+			searchOpen = false;
+		}
+	}
+
+	// Reactive search - update results when query changes
+	$effect(() => {
+		if (searchOpen) {
+			performSearch();
+		}
+	});
 </script>
 
 <div id="graph" class={['bg-tertiary-surface-800-200', className]} bind:this={graphContainer}></div>
+
+{#if searchOpen}
+	<div class="fixed inset-0 z-50 flex items-start justify-center pt-20">
+		<div class="fixed inset-0 bg-black/50" onclick={() => (searchOpen = false)}></div>
+		<div
+			class="relative w-full max-w-lg bg-gray-900 border border-gray-700 rounded-lg shadow-lg p-6"
+		>
+			<h2 class="text-xl font-semibold mb-2 text-white">Search Nodes</h2>
+			<p class="text-sm text-gray-400 mb-4">
+				Search for nodes by name or ID. Use arrow keys to navigate, Enter to select.
+			</p>
+
+			<input
+				id="node-search-input"
+				type="text"
+				bind:value={searchQuery}
+				onkeydown={handleSearchKeydown}
+				placeholder="Type to search..."
+				class="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+			/>
+
+			{#if searchResults.length > 0}
+				<div class="mt-4 max-h-64 overflow-y-auto border border-gray-700 rounded-md">
+					{#each searchResults as result, index}
+						<button
+							type="button"
+							class="w-full px-4 py-2 text-left hover:bg-gray-700 transition-colors {index ===
+							selectedSearchIndex
+								? 'bg-gray-700'
+								: 'bg-gray-800'}"
+							onclick={() => selectSearchResult(index)}
+							onmouseenter={() => (selectedSearchIndex = index)}
+						>
+							<div class="font-medium text-white">{result.label}</div>
+							<div class="text-sm text-gray-400">{result.id}</div>
+						</button>
+					{/each}
+				</div>
+			{:else if searchQuery.trim() !== ''}
+				<div class="mt-4 text-center text-gray-500 py-4">No nodes found</div>
+			{/if}
+
+			<div class="mt-4 text-xs text-gray-500">
+				Press
+				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300"
+					>↑</kbd
+				>
+				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300"
+					>↓</kbd
+				>
+				to navigate,
+				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300"
+					>Enter</kbd
+				>
+				to select,
+				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300"
+					>Esc</kbd
+				>
+				to close
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	#graph {
