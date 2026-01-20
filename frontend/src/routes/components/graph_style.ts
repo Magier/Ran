@@ -300,6 +300,15 @@ export function getGraphStyle() {
 				shape: 'heptagon'
 			}
 		},
+		{
+			selector: 'node[?highlighted]',
+			style: {
+				'border-width': 3,
+				'border-color': 'green',
+				width: '40',
+				height: '40',
+			}
+		},
 		// {
 		// 	selector: 'node[?hidden]',
 		// 	style: { display: 'none' }

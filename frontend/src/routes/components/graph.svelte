@@ -362,13 +362,43 @@
 			performSearch();
 		}
 	});
+
+	// Highlight the node in the graph when navigating search results
+	$effect(() => {
+		if (!cy || searchResults.length === 0) return;
+
+		// Clear all highlighted nodes
+		cy.nodes().data('highlighted', false);
+
+		// Highlight the current search result node
+		if (selectedSearchIndex >= 0 && selectedSearchIndex < searchResults.length) {
+			const result = searchResults[selectedSearchIndex];
+			const node = cy.getElementById(result.id);
+			if (node) {
+				node.data('highlighted', true);
+			}
+		}
+	});
+
+	// Clear highlighted state when search closes
+	$effect(() => {
+		if (!searchOpen && cy) {
+			cy.nodes().data('highlighted', false);
+		}
+	});
 </script>
 
 <div id="graph" class={['bg-tertiary-surface-800-200', className]} bind:this={graphContainer}></div>
 
 {#if searchOpen}
 	<div class="fixed inset-0 z-50 flex items-start justify-center pt-20">
-		<div class="fixed inset-0 bg-black/50" onclick={() => (searchOpen = false)}></div>
+		<div 
+			class="fixed inset-0 bg-black/50" 
+			role="button" 
+			tabindex="0"
+			onclick={() => (searchOpen = false)}
+			onkeydown={(e) => e.key === 'Enter' && (searchOpen = false)}
+		></div>
 		<div
 			class="relative w-full max-w-lg bg-gray-900 border border-gray-700 rounded-lg shadow-lg p-6"
 		>
@@ -398,7 +428,12 @@
 							onclick={() => selectSearchResult(index)}
 							onmouseenter={() => (selectedSearchIndex = index)}
 						>
-							<div class="font-medium text-white">{result.label}</div>
+							<div class="flex items-center justify-between">
+								<div class="font-medium text-white">{result.label}</div>
+								{#if index === selectedSearchIndex}
+									<span class="text-xs px-2 py-0.5 bg-blue-600 text-white rounded">highlighted</span>
+								{/if}
+							</div>
 							<div class="text-sm text-gray-400">{result.id}</div>
 						</button>
 					{/each}
