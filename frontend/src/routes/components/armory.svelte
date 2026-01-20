@@ -16,25 +16,31 @@
 		class?: string;
 		targetId: string;
 		action: (ttp: TTP) => void;
+		focusSearch?: () => void;
 	};
 
-	// ==============================================================
+	let { class: className = '', targetId, action: sendAction, focusSearch = $bindable(() => {}) }: ArmoryProps = $props();
 
-	// TODO: implement filtered armory, so it can work with selectedNode
-	// -maybe: store the search term in the store?
-	// 				similar to: https://www.youtube.com/watch?v=lrzHaTcpRh8
-	// ==============================================================
+	let searchInputElement: HTMLInputElement | undefined = $state();
 
-	let { class: className = '', targetId, action: sendAction }: ArmoryProps = $props();
-
-	// export let selectedNode: Object | null = null;
-	// export let globalConditions: Object = {};
 	// $: selectedConditions = { ...globalConditions, ...(selectedNode ?? {}) };
 	let armory: ArmoryType = $state(new Map());
 	let showAllTTPs: boolean = $state(false);
+	let filteredTtps: TTP[] = $state([]);
+	let searchTerm: string = $state('');
 	let openTactic = $state(['Initial Access']);
 
 	$effect(() => { armory = campaign.armory; });
+
+	let shownTTPs: ArmoryType = $derived.by(() => {
+		if (searchTerm) {
+			return filteredTtps;
+		} else if (showAllTTPs) {
+			return Array.from(armory.entries());
+		} else {
+			return Array.from(applicableTTPs.entries());
+		}
+	});
 
 	let applicableTTPs: ArmoryType = $state(new Map());
 	$effect(() => {
@@ -52,42 +58,37 @@
 			});
 	});
 
-	// const filteredArmoryStore = createSearchStore(armory);
-	// const unsubscribe = filteredArmory.subscribe((ttp) => searchAbilities(ttp));
+	const searchAbilities = () => {
+		filteredTtps = Array.from(armory.entries())
+			.filter(([tactic, ttps]) => 
+				ttps.some((ttp: TTP) => 
+					ttp.name.toLowerCase().includes(searchTerm.toLowerCase())
+				)
+			)
+			.map(([tactic, ttps]) => [
+				tactic,
+				ttps.filter((ttp: TTP) => 
+					ttp.name.toLowerCase().includes(searchTerm.toLowerCase())
+				)
+			]);
+		console.log("filteredTtps", filteredTtps);
+	};
 
-	// function searchAbilities = () => {
-	// 	return filteredAbilities =
-	// };
-
-	onDestroy(() => {
-		// unsubscribe();
+	$effect(() => {
+		focusSearch = () => {
+			searchInputElement?.focus();
+		};
 	});
 
-	let filteredTtps: TTP[] = $state([]);
-	// For Search Input
-	let searchTerm: string = $state('');
-	// resets language menu if search input is used
-	// $: if (searchTerm) selectedLang = '';
-
-	const searchAbilities = () => {
-		filteredTtps = Array.from(armory.values())
-			.flat()
-			.filter((ttp: TTP) => {
-				let ttpName = ttp.name.toLowerCase();
-				return ttpName.includes(searchTerm.toLowerCase());
-			});
-	};
 
 	function handleClearWithEscape(event: KeyboardEvent) {
 		if (event.key == 'Escape') {
 			searchTerm = '';
+			searchInputElement?.blur();
 		}
 	}
 
 	function isTTPApplicable(ttp: TTP): boolean {
-		// if (showAllTTPs) {
-		// 	return true;
-		// }
 		let procedures = applicableTTPs.get(ttp.tactic) || [];
 		for (let proc of procedures) {
 			if (proc.name === ttp.name) {
@@ -103,38 +104,31 @@
 		<span class="px-2 text-xl">Armory</span>
 		<Switch checked={showAllTTPs} onCheckedChange={(e) => {showAllTTPs = e.checked; }}>
 		    <Switch.Control class="preset-filled-secondary-50-950 data-[state=checked]:preset-filled-secondary-500"><Switch.Thumb/></Switch.Control>
-			<Switch.Label>Show All</Switch.Label>
+			<Switch.Label class="mr-2">Show All</Switch.Label>
 			<Switch.HiddenInput />
 		</Switch>
-		<!-- <label class="flex items-center gap-2">
-			Show all
-			<Switch
-				name="Show All"
-				checked={showAllTTPs}
-				onCheckedChange={(e) => (showAllTTPs = e.checked)}
-			/>
-		</label> -->
 	</div>
-	<!-- <div class="mx-4 mb-2">
-		<label for="search-box">Search/Filter</label>
+	<div class="mx-4 mb-2">
 		<input
 			id="search-box"
 			type="search"
-			placeholder="Search..."
+			placeholder="Search... (Press 'a')"
 			class="input rounded-container-token"
+			bind:this={searchInputElement}
 			bind:value={searchTerm}
 			onkeydown={handleClearWithEscape}
 			oninput={searchAbilities}
 		/>
-	</div> -->
+	</div>
+
 	<div>
 		<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible>
-			{#each Array.from(showAllTTPs ? campaign.armory : applicableTTPs) as [tactic, ttps]}
+			{#each Array.from(shownTTPs) as [tactic, ttps]}
 				<hr class="hr" />
 				<Accordion.Item
 					value={tactic}
 					class="text-surface-contrast-200-800"
-					disabled={ttps.length === 0}
+					disabled={ttps?.length === 0}
 				>
     				<Accordion.ItemTrigger class="flex justify-between items-center">
 						<Icon icon={iconMap[tactic]} width="24"></Icon>
