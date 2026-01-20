@@ -5,11 +5,12 @@
 	import Graph from './components/graph.svelte';
 	import { Dialog, Popover, Portal } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { showToast, toaster } from '$lib/components/toaster';
 	import EntityInfo from './components/entityInfo.svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { ExecuteAction, getRanAPI } from '$lib/ran_api';
+	import { browser } from '$app/environment';
 
 	const campaignState = getCampaignState();
 
@@ -21,6 +22,7 @@
 	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: Object = {};
 	let selectedTTP: TTP | undefined = $state();
+	let focusArmorySearch: () => void = () => {};
 
 	$effect(() => {
 		let _ = campaignState.campaignId;
@@ -55,11 +57,32 @@
 		});
 	}
 
+	function handleKeyPress(event: KeyboardEvent) {
+		// Only trigger if not typing in an input/textarea
+		if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+			return;
+		}
+
+		if (event.key === 'a') {
+			event.preventDefault();
+			focusArmorySearch();
+		}
+	}
+
 	onMount(() => {
+		if (browser) {
+			window.addEventListener('keydown', handleKeyPress);
+		}
 		// TODO: check if this alert handle is still useful
 		campaignState.api.on('alert', (alert) => {
 			console.log('Store Alert ', alert);
 		});
+	});
+
+	onDestroy(() => {
+		if (browser) {
+			window.removeEventListener('keydown', handleKeyPress);
+		}
 	});
 
 	const ToastMapping: Record<string, string> = {};
@@ -125,7 +148,12 @@
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-100" />
 		<div>loading...</div>
 	{:then sessions}
-		<Armory class="h-full min-h-0" action={sendAction} targetId={selectedObjectId} />
+		<Armory 
+			class="h-full min-h-0" 
+			action={sendAction} 
+			targetId={selectedObjectId}
+			bind:focusSearch={focusArmorySearch}
+		/>
 		<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="flex-1 h-full min-h-0" />
 
 		{#if selectedObjectId !== ''}
