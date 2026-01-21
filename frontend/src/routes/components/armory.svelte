@@ -26,6 +26,7 @@
 	// $: selectedConditions = { ...globalConditions, ...(selectedNode ?? {}) };
 	let armory: ArmoryType = $state(new Map());
 	let showAllTTPs: boolean = $state(false);
+	let applicableTTPs: ArmoryType = $state(new Map());
 	let filteredTtps: TTP[] = $state([]);
 	let searchTerm: string = $state('');
 	let openTactic = $state(['Initial Access']);
@@ -42,7 +43,6 @@
 		}
 	});
 
-	let applicableTTPs: ArmoryType = $state(new Map());
 	$effect(() => {
 		campaign.api.GetApplicableTTPs(targetId)
 			.then((result: TTP[]) => {
@@ -59,7 +59,9 @@
 	});
 
 	const searchAbilities = () => {
-		filteredTtps = Array.from(armory.entries())
+		const src = showAllTTPs ? armory : applicableTTPs;
+
+		filteredTtps = Array.from(src.entries())
 			.filter(([tactic, ttps]) => 
 				ttps.some((ttp: TTP) => 
 					ttp.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -97,9 +99,15 @@
 		}
 		return false;
 	}
+
+	function onActionSelected(ttp: TTP) {
+		searchTerm = ''; // reset the filter again to show all TTPs 
+		sendAction(ttp);
+	}
 </script>
 
 <div class="bg-surface-100-900 inset-y-0 right-0 {className}">
+		
 	<div class="my-2 flex items-center justify-between">
 		<span class="px-2 text-xl">Armory</span>
 		<Switch checked={showAllTTPs} onCheckedChange={(e) => {showAllTTPs = e.checked; }}>
@@ -120,8 +128,12 @@
 			oninput={searchAbilities}
 		/>
 	</div>
-
-	<div>
+	{#if shownTTPs.length === 0}
+		<div class="flex h-full items-center justify-center text-center text-gray-500">
+			No TTPs available. <br>
+			Please select an entity in the graph.
+		</div>
+	{:else}
 		<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible>
 			{#each Array.from(shownTTPs) as [tactic, ttps]}
 				<hr class="hr" />
@@ -130,7 +142,7 @@
 					class="text-surface-contrast-200-800"
 					disabled={ttps?.length === 0}
 				>
-    				<Accordion.ItemTrigger class="flex justify-between items-center">
+					<Accordion.ItemTrigger class="flex justify-between items-center">
 						<Icon icon={iconMap[tactic]} width="24"></Icon>
 						<div class="flex w-full items-center">
 							<span class="flex-1">{tactic}</span>
@@ -138,7 +150,7 @@
 								{applicableTTPs.get(tactic)?.length ?? 0}
 							</span>
 						</div>
-    				</Accordion.ItemTrigger>
+					</Accordion.ItemTrigger>
 				<Accordion.ItemContent class="px-0 py-0 mb-1 bg-surface-200-800">
 						{#each ttps as ttp}
 							<ActionCard
@@ -146,7 +158,7 @@
 								conditions={ttp.requires}
 								icon={iconMap[ttp.tactic]}
 								enabled={isTTPApplicable(ttp)}
-								onclick={() => sendAction(ttp)}
+								onclick={() => onActionSelected(ttp)}
 							/>
 							<hr class="hr h-1 bg-surface-300-700" />
 						{/each}
@@ -154,61 +166,5 @@
 				</Accordion.Item>
 			{/each}
 		</Accordion>
-
-		<!-- <TreeView open class=" space-y-2 overflow-y-auto overflow-x-hidden">
-
-		{#if searchTerm && filteredTtps.length === 0}
-			Nothing to see :(
-		{:else if filteredTtps.length > 0}
-			{#each filteredTtps as ttp}
-				{#each ttps as ttp}
-					<ActionCard {ttp} icon={iconMap[ttp.tactic]} onclick={() => sendAction(ttp)} />
-				{/each}
-			{:else}
-				{#each Object.entries(armory) as [id, ttp]}
-					<ActionCard
-						{ttp}
-						icon={iconMap[ttp.tactic]}
-						conditions={selectedConditions}
-						onclick={() => sendAction(ttp)}
-					/>
-				{/each}
-				 <TreeViewItem disabled={ttps.length === 0}>
-					<svelte:fragment slot="lead">
-						<svelte:component this={iconMap[tactic]} />
-					</svelte:fragment>
-					{tactic}
-					<svelte:fragment slot="children">
-						{#each ttps as ttp}
-							<ActionCard
-								{ttp}
-								icon={iconMap[tactic]}
-								onClick={sendAction}
-								on:click={() => sendAction(ttp)}
-							/>
-						{/each}
-					</svelte:fragment>
-				</TreeViewItem> -->
-		<!-- {/each} -->
-		<!-- {#each Object.entries($filteredArmory.filtered) as [tactic, ttps]}
-				<TreeViewItem disabled={ttps.length === 0}>
-					<svelte:fragment slot="lead">
-						<svelte:component this={iconMap[tactic]} />
-					</svelte:fragment>
-					{tactic}
-					<svelte:fragment slot="children">
-						{#each ttps as ttp}
-							<ActionCard
-								{ttp}
-								icon={iconMap[tactic]}
-								onClick={sendAction}
-								on:click={() => sendAction(ttp)}
-							/>
-						{/each}
-					</svelte:fragment>
-				</TreeViewItem>
-			{/each}
-		{/if}
-		<!-- </TreeView>  -->
-	</div>
+	{/if}
 </div>
