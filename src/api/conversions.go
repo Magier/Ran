@@ -1,6 +1,9 @@
 package api
 
 import (
+	"fmt"
+	"log/slog"
+
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 )
@@ -13,11 +16,18 @@ func ConvertAttackStep(step campaign.AttackStep) AttackStep {
 		executedOn = step.ExecutedOn.GetId()
 	}
 
+	var targetId string
+	if step.Target != nil {
+		targetId = step.Target.GetId()
+	} else {
+		slog.Error(fmt.Sprintf("The target of attack step %s was nil :O", step.ID))
+	}
+
 	s := AttackStep{
 		Id:          step.ID,
 		TTP:         ConvertTTP(step.TTP),
 		Args:        step.Args,
-		TargetId:    step.Target.GetId(),
+		TargetId:    targetId,
 		Success:     step.Success,
 		Command:     step.Command,
 		ProcedureId: procID,
