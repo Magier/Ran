@@ -62,6 +62,7 @@ class CampaignState {
 				this.#setState(s);
 			});
 		});
+		this.api.on('reset-campaign', () => this.onReset());
 		this.api.on('error-msg', (rawMsg: string) => {
 			let msg: ErrorMsg = JSON.parse(rawMsg);
 
@@ -104,6 +105,7 @@ class CampaignState {
 	}
 
 	handleMessage(event: MessageEvent) {
+		console.warn('Received legacy WebSocket message:', event.data);
 		try {
 			const message = JSON.parse(event.data);
 			const { type, data } = message;
@@ -213,6 +215,13 @@ class CampaignState {
 			this.api.GetGraph().then((g: Graph) => {
 				this.graph = g;
 			});
+		});
+	}
+
+	async onReset(): Promise<void> {
+		console.log('Received reset-campaign event from backend');
+		return this.api.GetGraph().then((g: Graph) => {
+			this.graph = g;
 		});
 	}
 
