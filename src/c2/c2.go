@@ -259,7 +259,8 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 	if err != nil {
 		failReason = err.Error()
 		results = append(results, err.Error())
-		if execErr := err.(ExecError); errors.As(err, &execErr) {
+		var execErr ExecError
+		if errors.As(err, &execErr) {
 			exitCode = execErr.ExitCode
 			failReason = execErr.Message
 		}

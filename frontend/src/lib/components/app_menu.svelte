@@ -1,5 +1,6 @@
 <script lang="ts">
     import { showToast, toaster } from '$lib/components/toaster';
+	import Icon from '@iconify/svelte';
     import { saveFile } from '$lib/io';
 	import { Menu, Portal } from '@skeletonlabs/skeleton-svelte';
     import { getCampaignState } from '$lib/components/CampaignState.svelte';
@@ -34,7 +35,10 @@
 
 
 <Menu onSelect={onMenuClick}>
-    <Menu.Trigger class="btn hover:preset-tonal text-xl">Ran</Menu.Trigger>
+    <Menu.Trigger class="btn hover:preset-tonal text-xl">
+		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-6 w-6 -scale-x-100" />
+        Ran
+    </Menu.Trigger>
     <Portal>
         <Menu.Positioner>
             <Menu.Content>
