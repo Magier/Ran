@@ -220,21 +220,29 @@ class CampaignState {
 
 	async onReset(): Promise<void> {
 		console.log('Received reset-campaign event from backend');
-		return this.api.GetGraph().then((g: Graph) => {
+		await this.api.GetGraph().then((g: Graph) => {
 			this.graph = g;
+		});
+		await this.api.GetCampaignState().then((s: State) => {
+			this.#setState(s);
 		});
 	}
 
 	#setState(state: State): void {
 		let entities = [];
+		let namespaces = [];
+		let pods = [];
+		let serviceAccounts = [];
+		
+		console.info("Setting campaign state with entities:", state.entities);
 		for (const [id, entity] of Object.entries(state.entities || {})) {
 			const typedEntity = entity as Entity;
 			if (typedEntity.kind === 'Namespace') {
-				this.namespaces = [...this.namespaces, typedEntity];
+				namespaces.push(typedEntity);
 			} else if (typedEntity.kind === 'Pod') {
-				this.pods = [...this.pods, typedEntity];
+				pods.push(typedEntity);
 			} else if (typedEntity.kind === 'ServiceAccount') {
-				this.serviceAccounts = [...this.serviceAccounts, typedEntity];
+				serviceAccounts.push(typedEntity);
 			}
 
 			if (!typedEntity.id) {
@@ -242,7 +250,11 @@ class CampaignState {
 			}
 			entities.push(typedEntity);
 		}
-		this.entities = entities; // ensure we replace the array to trigger reactivity
+		
+		this.entities = entities;
+		this.namespaces = namespaces;
+		this.pods = pods;
+		this.serviceAccounts = serviceAccounts;
 	}
 
 	#updateState(state: State): void {
