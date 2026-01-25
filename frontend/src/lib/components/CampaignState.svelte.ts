@@ -98,7 +98,6 @@ class CampaignState {
 				.GetRunningPods('')
 				.then((pods) => {
 					this.allPods = pods;
-					console.info('All pods:', pods);
 				})
 				.catch(this.showError);
 		});

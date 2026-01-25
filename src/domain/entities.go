@@ -621,14 +621,14 @@ func GenerateId(uid, name, kind, ns string) string {
 
 	var id string
 	if name != "" {
-		id = "/" + kindShortName + "/" + name
+		id = kindShortName + "/" + name
 	} else if uid != "" {
-		id = "/" + kindShortName + "/" + uid
+		id = kindShortName + "/" + uid
 	}
 
 	// if it doesn't start with "ns/" then ID has pattern "/kind", which equate to a clusterwide resource
 	if ns != "" {
-		id = "ns/" + ns + id
+		id = "ns/" + ns + "/" + id
 	}
 	return id
 }
