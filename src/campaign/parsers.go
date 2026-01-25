@@ -308,6 +308,10 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 		return factsUpdate{}, fmt.Errorf("Can't parse effect %s because there are no results", effect)
 	}
 
+	if source == nil {
+		slog.Warn("No source entity provided for effect parsing")
+	}
+
 	if strings.Contains(results[0], "already exists") {
 		slog.Info(fmt.Sprintf("Parsing Effect: entity '%s' already exists", effect))
 	}
@@ -447,6 +451,8 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 					entities = append(entities, newFacts.Entities...)
 					relations = append(relations, newFacts.Relations...)
 				}
+			} else if source == nil {
+				slog.Error("No source provided for envvar effect")
 			} else {
 				panic("The source should implement the System interface!")
 			}

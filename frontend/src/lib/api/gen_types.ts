@@ -53,7 +53,7 @@ export interface paths {
         };
         /**
          * Get armory
-         * @description Returns all available TTPs (Tactics, Techniques, and Procedures)
+         * @description Returns all available TTPs (Tactics, Techniques, and Procedures). Optionally filter by tactic.
          */
         get: operations["getArmory"];
         put?: never;
@@ -318,6 +318,7 @@ export interface components {
             executedOn: string;
             success: boolean;
             observables: string[];
+            defense?: components["schemas"]["TTPDefense"];
         };
         TTP: {
             id: string;
@@ -330,7 +331,6 @@ export interface components {
             requires: components["schemas"]["Requirements"];
             effects?: string[];
             procedures: components["schemas"]["Procedure"][];
-            defense?: components["schemas"]["TTPDefense"];
         };
         Procedure: {
             id: string;
@@ -458,7 +458,10 @@ export interface operations {
     };
     getArmory: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Optional tactic to filter by (e.g., "Execution", "CredentialAccess") */
+                tactic?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;

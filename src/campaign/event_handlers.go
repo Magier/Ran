@@ -28,9 +28,14 @@ func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (do
 		return nil, errors.New(msg)
 	}
 
-	if ttp.Tactic == mitre.InitialAccess && ev.TargetID == "cluster" {
+	if ttp.Tactic == mitre.InitialAccess {
 		ns := ev.Args["Namespace"]
 		name := ev.Args["TargetName"]
+
+		// fallback to targetID if no explicit targetname is provided
+		if name == "" && ev.TargetID != "cluster" {
+			name = ev.TargetID
+		}
 
 		if strings.HasPrefix(name, "ns/") {
 			var err error
@@ -87,6 +92,7 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 	} else {
 		ev = domain.NewTTPExecutedWithResult(step.ExecCommand, c2Ev.ExitCode, c2Ev.Results, c2Ev.ExecutedOn, c2Ev.FailReason)
 	}
+	ev.Success = c2Ev.Success
 
 	wasValidStep := c.trail.CompleteStep(ev.ID, ev.TTP, ev.Success, results)
 	if !wasValidStep && ev.WasCleanup {
@@ -97,6 +103,9 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 
 	if ev.Success {
 		for _, effect := range ev.TTP.Effects {
+			if c2Ev.ExecutedLocally {
+				slog.Info(fmt.Sprintf("Effect executed locally: %s", c2Ev.ID))
+			}
 			effectUpdate, err := c.ParseEffect(effect, ev.Target, ev.Args, ev.Results...)
 
 			if err != nil {
