@@ -297,10 +297,12 @@ func (a *API) ExecuteAction(cmdID, actionID, targetID, procedureID string, args 
 	return nil
 }
 
-func (a *API) GetArmory() []TTP {
+func (a *API) GetArmory(tactic string) []TTP {
 	ttps := make([]TTP, 0)
 	for _, ttp := range a.ran.Armory.GetTTPs() {
-		ttps = append(ttps, ConvertTTP(ttp))
+		if tactic == "" || string(ttp.Tactic) == tactic {
+			ttps = append(ttps, ConvertTTP(ttp))
+		}
 	}
 	return ttps
 }
