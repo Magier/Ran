@@ -274,13 +274,18 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 		return nil, nil
 	}
 
+	if execTarget == nil && !exec.Procedure.IsLocalCommand {
+		slog.Warn("Could not determine executedOn for executed TTP")
+	}
+
 	return TTPExecuted{
-		ID:         exec.ID,
-		Success:    wasExecSuccessful(results, err),
-		ExecutedOn: execTarget,
-		Results:    results,
-		FailReason: failReason,
-		ExitCode:   exitCode,
+		ID:              exec.ID,
+		Success:         wasExecSuccessful(results, err),
+		ExecutedOn:      execTarget,
+		ExecutedLocally: exec.Procedure.IsLocalCommand,
+		Results:         results,
+		FailReason:      failReason,
+		ExitCode:        exitCode,
 	}, nil
 	// return domain.TTPExecuted{
 	// 	ID:         exec.ID,

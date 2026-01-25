@@ -419,6 +419,8 @@ components:
           type: array
           items:
             type: string
+        defense:
+          $ref: '#/components/schemas/TTPDefense'
 
     TTP:
       type: object
@@ -461,8 +463,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Procedure'
-        defense:
-          $ref: '#/components/schemas/TTPDefense'
+        # defense:
+        #   $ref: '#/components/schemas/TTPDefense'
 
     Procedure:
       type: object

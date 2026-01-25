@@ -20,7 +20,13 @@ func ConvertAttackStep(step campaign.AttackStep) AttackStep {
 	if step.Target != nil {
 		targetId = step.Target.GetId()
 	} else {
-		slog.Error(fmt.Sprintf("The target of attack step %s was nil :O", step.ID))
+		slog.Error(fmt.Sprintf("The target of attack step %s was nil :O", step.TTP.Name))
+	}
+
+	var defense *TTPDefense
+	if step.TTP.Defense.ID != "" {
+		d := ConvertTTPDefense(step.TTP.Defense)
+		defense = &d
 	}
 
 	s := AttackStep{
@@ -35,6 +41,7 @@ func ConvertAttackStep(step campaign.AttackStep) AttackStep {
 		ExecutedOn:  executedOn,
 		StartedAt:   step.StartAt,
 		CompletedAt: step.CompletedAt,
+		Defense:     defense,
 		// Observables: ConvertObservables(step.Observables),
 		// ExecCommand: ConvertExecTTP(step.ExecCommand),
 	}
@@ -42,12 +49,6 @@ func ConvertAttackStep(step campaign.AttackStep) AttackStep {
 }
 
 func ConvertTTP(ttp domain.TTP) TTP {
-	var defense *TTPDefense
-	if ttp.Defense.ID != "" {
-		d := ConvertTTPDefense(ttp.Defense)
-		defense = &d
-	}
-
 	var effects *[]string
 	if len(ttp.Effects) > 0 {
 		effects = &ttp.Effects
@@ -64,7 +65,6 @@ func ConvertTTP(ttp domain.TTP) TTP {
 		Procedures:  ConvertProcedures(ttp.Procedures),
 		Params:      ConvertTTPParams(ttp.Params),
 		Status:      TTPStatus(ttp.Status),
-		Defense:     defense,
 	}
 }
 
