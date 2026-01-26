@@ -2,7 +2,7 @@ name: List Buckets in GCP Project
 description: List the buckets in the GCP project using the service account token
 tactic: Discovery
 techniques:
-  ["Cloud Storage Object Discovery ", T1619]
+  ["Cloud Storage Object Discovery", T1619]
 preconditions:
   kind: GCPServiceAccount
 parameters:
