@@ -54,14 +54,14 @@ func (client *SSEClient) sendJSON(name string, v interface{}) error {
 		}
 	}
 
+	client.mu.Lock()
+	defer client.mu.Unlock()
+
 	data, err := json.Marshal(v)
 	if err != nil {
 		slog.Error("Failed to marshal SSE message", "error", err)
 		return err
 	}
-
-	client.mu.Lock()
-	defer client.mu.Unlock()
 
 	// SSE format: event: <name>\ndata: <json>\n\n
 	_, err = fmt.Fprintf(client.w, "event: %s\ndata: %s\n\n", name, string(data))

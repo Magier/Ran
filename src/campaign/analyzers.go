@@ -955,8 +955,6 @@ func analyzeMountInfo(system domain.System) (domain.Facts, error) {
 			} else {
 				slog.Warn("Created pod from kubelet mount has no name")
 			}
-
-			slog.Debug(fmt.Sprintf("Host path found: %s", mount.MountPoint))
 		}
 	}
 

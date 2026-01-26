@@ -37,8 +37,15 @@ paths:
   /api/armory:
     get:
       summary: Get armory
-      description: Returns all available TTPs (Tactics, Techniques, and Procedures)
+      description: Returns all available TTPs (Tactics, Techniques, and Procedures). Optionally filter by tactic.
       operationId: getArmory
+      parameters:
+        - name: tactic
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional tactic to filter by (e.g., "Execution", "CredentialAccess")
       responses:
         '200':
           description: Successful response
@@ -412,6 +419,8 @@ components:
           type: array
           items:
             type: string
+        defense:
+          $ref: '#/components/schemas/TTPDefense'
 
     TTP:
       type: object
@@ -454,8 +463,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Procedure'
-        defense:
-          $ref: '#/components/schemas/TTPDefense'
+        # defense:
+        #   $ref: '#/components/schemas/TTPDefense'
 
     Procedure:
       type: object

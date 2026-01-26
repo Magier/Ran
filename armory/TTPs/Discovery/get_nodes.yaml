@@ -18,10 +18,11 @@ procedures:
   - key: curl
     command: >-
       curl -XGET 
-      -H "Accept: application/json;as=Table;v=v1;g=meta.k8s.io,application/json;as=Table;v=v1beta1;g=meta.k8s.io,application/json"
-      -H "User-Agent: kubectl/v1.30.3 (linux/amd64) kubernetes/6fc0a69"
+      -H "Accept: application/json"
+      -H "User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69"
       -H "Authorization: Bearer ${TOKEN}"
-      '${API_SERVER}/api/v1/nodes?limit=500
+      --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      '${API_SERVER}/api/v1/nodes?limit=500'
 effects:
   - k8s.nodeList
 # defend: {}

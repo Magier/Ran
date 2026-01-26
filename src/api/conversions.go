@@ -1,6 +1,9 @@
 package api
 
 import (
+	"fmt"
+	"log/slog"
+
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 )
@@ -13,11 +16,24 @@ func ConvertAttackStep(step campaign.AttackStep) AttackStep {
 		executedOn = step.ExecutedOn.GetId()
 	}
 
+	var targetId string
+	if step.Target != nil {
+		targetId = step.Target.GetId()
+	} else {
+		slog.Error(fmt.Sprintf("The target of attack step %s was nil :O", step.TTP.Name))
+	}
+
+	var defense *TTPDefense
+	if step.TTP.Defense.ID != "" {
+		d := ConvertTTPDefense(step.TTP.Defense)
+		defense = &d
+	}
+
 	s := AttackStep{
 		Id:          step.ID,
 		TTP:         ConvertTTP(step.TTP),
 		Args:        step.Args,
-		TargetId:    step.Target.GetId(),
+		TargetId:    targetId,
 		Success:     step.Success,
 		Command:     step.Command,
 		ProcedureId: procID,
@@ -25,6 +41,7 @@ func ConvertAttackStep(step campaign.AttackStep) AttackStep {
 		ExecutedOn:  executedOn,
 		StartedAt:   step.StartAt,
 		CompletedAt: step.CompletedAt,
+		Defense:     defense,
 		// Observables: ConvertObservables(step.Observables),
 		// ExecCommand: ConvertExecTTP(step.ExecCommand),
 	}
@@ -32,12 +49,6 @@ func ConvertAttackStep(step campaign.AttackStep) AttackStep {
 }
 
 func ConvertTTP(ttp domain.TTP) TTP {
-	var defense *TTPDefense
-	if ttp.Defense.ID != "" {
-		d := ConvertTTPDefense(ttp.Defense)
-		defense = &d
-	}
-
 	var effects *[]string
 	if len(ttp.Effects) > 0 {
 		effects = &ttp.Effects
@@ -54,7 +65,6 @@ func ConvertTTP(ttp domain.TTP) TTP {
 		Procedures:  ConvertProcedures(ttp.Procedures),
 		Params:      ConvertTTPParams(ttp.Params),
 		Status:      TTPStatus(ttp.Status),
-		Defense:     defense,
 	}
 }
 

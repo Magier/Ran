@@ -127,7 +127,7 @@ func (a *API) handleWSRequest(client *WSClient, req WSRequest) {
 	case "get-graph":
 		resp.Data = a.GetGraph()
 	case "get-armory":
-		resp.Data = a.GetArmory()
+		resp.Data = a.GetArmory("")
 	case "get-campaign-state":
 		resp.Data = a.GetCampaignState()
 	case "get-flow":
