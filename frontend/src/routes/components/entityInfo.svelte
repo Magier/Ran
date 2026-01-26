@@ -111,6 +111,10 @@
 		{/each}
 	{:else}
 		<h3>Unknown Object type</h3>
+		<div>
+			<span class="font-bold mr-1">ID</span>
+			{objectId}
+		</div>
 		{prettyPrint(obj)}
 	{/if}
 

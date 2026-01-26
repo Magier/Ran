@@ -34,8 +34,13 @@ func (h *HTTPHandler) GetCampaignState(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetArmory implements ServerInterface
-func (h *HTTPHandler) GetArmory(w http.ResponseWriter, r *http.Request) {
-	armory := h.api.GetArmory()
+func (h *HTTPHandler) GetArmory(w http.ResponseWriter, r *http.Request, params GetArmoryParams) {
+	tactic := ""
+	if params.Tactic != nil {
+		tactic = *params.Tactic
+	}
+
+	armory := h.api.GetArmory(tactic)
 	respondJSON(w, http.StatusOK, armory)
 }
 

@@ -3,6 +3,9 @@
 	import { iconMap } from '$lib/tactic_icons';
 	import Icon from '@iconify/svelte';
 	import type { AttackStep } from '$lib/api';
+	import {getCampaignState, type Entity} from '$lib/components/CampaignState.svelte';
+
+	const campaignState = getCampaignState();
 
 	interface ActionNodeData extends Record<string, unknown> {
 		step: AttackStep;
@@ -21,6 +24,11 @@
 
 	const label = $derived(data.label);
 	const step = $derived(data.step);
+	const target: Entity = $derived.by(() => {
+		const e = campaignState.getEntityById(step.targetId) ?? { id: "?", name: 'Unknown' };
+		console.info("Fetching target for targetId:", step?.targetId, e);
+		return e
+	});
 
 	const statusInfo = $derived(step?.success
 		? { statusBorder: 'border-green-500', icon: 'lucide:check', color: 'text-success-500' }
@@ -29,9 +37,11 @@
 
 <div class={['bg-surface-50-950 border-1 rounded-md border-solid px-2 py-2', statusInfo.statusBorder]}>
 		<span class="text-base">{label}</span>
-		<pre class="text-xs">{step.targetId ?? 'no target'}</pre>
-
-	<div class="w-full flex items-left mt-2">
+		<div class="flex items-center space-x-1">
+		<Icon icon={"game-icons:bullseye"} width="16" />
+		<pre class="max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap" title={target.name ?? 'no target'}>{target.name ?? 'no target'}</pre>
+		</div>
+		<div class="w-full flex items-left mt-2">
 		<div class="flex">
 			<span class="badge bg-surface-100-900 text-tertiary-contrast-200-800">
 				<Icon icon={iconMap[step.TTP.tactic]} width="16"/>

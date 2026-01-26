@@ -71,13 +71,14 @@ func (e ImplantGenerated) String() string {
 
 type TTPExecuted struct {
 	domain.EventImpl
-	ID         string
-	Args       map[string]string
-	ExecutedOn domain.System
-	Success    bool
-	Results    []string
-	ExitCode   int
-	FailReason string
+	ID              string
+	Args            map[string]string
+	ExecutedOn      domain.System
+	ExecutedLocally bool
+	Success         bool
+	Results         []string
+	ExitCode        int
+	FailReason      string
 }
 
 func (ttp TTPExecuted) String() string {
