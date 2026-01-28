@@ -13,65 +13,9 @@ import (
 	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/domain"
 	k8s_types "github.com/Magier/Ran/k8sclient/types"
-	"github.com/Magier/Ran/mitre"
 	"github.com/dominikbraun/graph/draw"
 	"github.com/goccy/go-graphviz"
 )
-
-func (c *Campaign) onActionSelected(ctx context.Context, msg domain.Message) (domain.Message, error) {
-	ev := msg.(domain.ActionSelected)
-
-	ttp, ok := c.armory.GetTTP(ev.ActionID)
-	if !ok {
-		msg := fmt.Sprintf("No TTP with ID '%s' found!", ev.ActionID)
-		slog.Error(msg)
-		return nil, errors.New(msg)
-	}
-
-	if ttp.Tactic == mitre.InitialAccess {
-		ns := ev.Args["Namespace"]
-		name := ev.Args["TargetName"]
-
-		// fallback to targetID if no explicit targetname is provided
-		if name == "" && ev.TargetID != "cluster" {
-			name = ev.TargetID
-		}
-
-		if strings.HasPrefix(name, "ns/") {
-			var err error
-			ns, _, name, err = UnpackResourceID(name)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Failed to unpack resource ID '%s': %v", name, err))
-				return nil, err
-			}
-		}
-
-		msg, err := c.SetTarget(ns, name)
-		if err != nil {
-			return msg, err
-		}
-		if execCmd, ok := msg.(domain.ExecTTP); ok {
-			execCmd.ID = ev.CmdId
-			return execCmd, err
-		}
-		return msg, err
-	}
-
-	msg, err := c.GroundAction(ttp, ev.TargetID, ev.ProcedureID, ev.Args)
-	if err != nil {
-		slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
-	} else {
-		cmd := msg.(domain.ExecTTP)
-		// remember the system we are executing from, to continue the attack from there
-		c.lastExecSystem, ok = cmd.Target.(domain.System)
-		cmd.ID = ev.CmdId
-		if !ok {
-			slog.Warn("Executed TTP target is not a system, can't continue the attack from there")
-			c.lastExecSystem = nil
-		}
-	}
-	return msg, err
-}
 
 func (c *Campaign) onExecuteTTP(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	cmd := msg.(domain.ExecTTP)

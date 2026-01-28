@@ -284,17 +284,14 @@ func (a *API) ResetCampaign() error {
 }
 
 func (a *API) ExecuteAction(cmdID, actionID, targetID, procedureID string, args ActionArgs) error { //, args map[string]string) {
-	err := a.ran.Bus.Publish(domain.ActionSelected{
+	err := a.ran.Campaign.ExecuteAction(a.ctx, domain.ActionSelected{
 		EventImpl:   domain.EventImpl{CmdId: cmdID},
 		ActionID:    actionID,
 		TargetID:    targetID,
 		ProcedureID: procedureID,
 		Args:        args,
 	})
-	if err != nil {
-		return fmt.Errorf("failed to publish ActionSelected event: %s", err.Error())
-	}
-	return nil
+	return err
 }
 
 func (a *API) GetArmory(tactic string) []TTP {
