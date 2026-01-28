@@ -81,7 +81,7 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	mb.Subscribe(c2.SessionClosed{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		return campaign.onSessionClosed(msg.(c2.SessionClosed))
 	})
-	mb.Subscribe(domain.ActionSelected{}, campaign.onActionSelected)
+	// mb.Subscribe(domain.ActionSelected{}, campaign.onActionSelected)
 	// mb.Subscribe(domain.TokenPermissionsRetrieved{}, campaign.parseSelfSubjectServiceReview)
 	mb.Subscribe(domain.PrintGraph{}, campaign.onPrintGraph)
 	mb.Subscribe(domain.SaveAttackFlow{}, campaign.onSaveAttackFlow)
@@ -89,7 +89,7 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	return campaign
 }
 
-func (c *Campaign) SetTarget(ns, podName string) (domain.Command, error) {
+func (c *Campaign) SetTarget(ns, podName string) (domain.ExecTTP, error) {
 	if ns == "" {
 		ns = "default"
 	}
@@ -110,7 +110,62 @@ func (c *Campaign) SetTarget(ns, podName string) (domain.Command, error) {
 		}
 		return ev, nil
 	}
-	return nil, fmt.Errorf("No initial access TTP found in armory")
+	return domain.ExecTTP{}, fmt.Errorf("No initial access TTP found in armory")
+}
+
+func (c *Campaign) ExecuteAction(ctx context.Context, ev domain.ActionSelected) error {
+	ttp, ok := c.armory.GetTTP(ev.ActionID)
+	if !ok {
+		slog.Error(fmt.Sprintf("No TTP with ID '%s' found!", ev.ActionID))
+		return NewTTPNotFoundError(ev.ActionID)
+	}
+
+	var execCmd domain.ExecTTP
+	var err error
+
+	if ttp.Tactic == mitre.InitialAccess {
+		ns := ev.Args["Namespace"]
+		name := ev.Args["TargetName"]
+
+		// fallback to targetID if no explicit targetname is provided
+		if name == "" && ev.TargetID != "cluster" {
+			name = ev.TargetID
+		}
+
+		if strings.HasPrefix(name, "ns/") {
+			var err error
+			ns, _, name, err = UnpackResourceID(name)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to unpack resource ID '%s': %v", name, err))
+				return err
+			}
+		}
+
+		execCmd, err = c.SetTarget(ns, name)
+		if err == nil {
+			execCmd.ID = ev.CmdId
+		}
+	} else {
+		execCmd, err = c.GroundAction(ttp, ev.TargetID, ev.ProcedureID, ev.Args)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
+			return err
+		} else {
+			// remember the system we are executing from, to continue the attack from there
+			c.lastExecSystem, ok = execCmd.Target.(domain.System)
+			execCmd.ID = ev.CmdId
+			if !ok {
+				slog.Warn("Executed TTP target is not a system, can't continue the attack from there")
+				c.lastExecSystem = nil
+			}
+		}
+	}
+
+	if err = c.bus.Publish(execCmd); err != nil {
+		slog.Error(fmt.Sprintf("Failed to publish command: %v", err))
+		return err
+	}
+	return err
 }
 
 func (c *Campaign) UpdateFacts(new domain.Facts, removed domain.Facts) (domain.FactsChanged, error) {
@@ -324,6 +379,21 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 	if args == nil {
 		args = make(map[string]string)
 	}
+
+	// sanity check: ensure all params are known
+	for argName := range args {
+		found := false
+		for _, param := range ttp.Params {
+			if param.Name == argName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			slog.Warn(fmt.Sprintf("TTP '%s' has no parameter named '%s'", ttp.Name, argName))
+		}
+	}
+
 	execCmd := domain.ExecTTP{
 		CommandImpl: domain.NewCmd(""),
 		TTP:         ttp,
@@ -347,8 +417,12 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 	}
 
 	var target domain.Entity
-	target, ok := c.kb.GetEntity(targetId)
-	if ok {
+	if targetId != "" && targetId != "cluster" {
+		var ok bool
+		target, ok = c.kb.GetEntity(targetId)
+		if !ok {
+			return execCmd, NewTargetNotFoundError(targetId)
+		}
 		execCmd.Target = target
 	}
 

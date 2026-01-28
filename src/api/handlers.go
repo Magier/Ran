@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/Magier/Ran/c2"
+	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	"github.com/google/uuid"
 )
@@ -136,7 +138,13 @@ func (h *HTTPHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 
 	// handle error or status depending on execution time
 	if err := h.api.ExecuteAction(cmdID, req.ActionId, req.TargetId, procedureID, args); err != nil {
-		respondError(w, http.StatusBadRequest, err.Error())
+		// Check if it's a NotFoundError and return 404
+		var notFoundErr *campaign.NotFoundError
+		if errors.As(err, &notFoundErr) {
+			respondError(w, http.StatusNotFound, err.Error())
+		} else {
+			respondError(w, http.StatusBadRequest, err.Error())
+		}
 		return
 	} else {
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)

@@ -110,7 +110,7 @@ func (e ExecTTP) String() string {
 	} else if e.Target != nil {
 		target = e.Target.GetId()
 	} else {
-		slog.Error(fmt.Sprintf("Could not find target for ExecTTP '%s'", e.GetID()))
+		slog.Error(fmt.Sprintf("Could not find target for ExecTTP '%s'", e.TTP.Name))
 	}
 
 	return fmt.Sprintf("Executing '%s' on %s", e.TTP.Name, target)
