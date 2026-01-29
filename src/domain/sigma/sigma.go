@@ -129,11 +129,16 @@ func (d *Detection) GetSelection(name string) (any, bool) {
 // MarshalJSON flattens Selections together with fixed keys for JSON output.
 func (d Detection) MarshalJSON() ([]byte, error) {
 	m := make(map[string]any, len(d.Selections)+2)
-	maps.Copy(m, d.Selections)
+	if d.Selections != nil {
+		maps.Copy(m, d.Selections)
+	}
 	if d.Timeframe != "" {
 		m["timeframe"] = d.Timeframe
 	}
-	m["condition"] = d.Condition
+	// Only include condition if it's a valid string
+	if d.Condition != "" {
+		m["condition"] = d.Condition
+	}
 	return json.Marshal(m)
 }
 
@@ -149,11 +154,27 @@ func (d *Detection) UnmarshalJSON(b []byte) error {
 	for k, v := range m {
 		switch k {
 		case "condition":
-			str, ok := v.(string)
-			if !ok {
-				return fmt.Errorf("detection.condition must be string, got %T", v)
+			// Handle both string and array/list conditions from YAML
+			switch cv := v.(type) {
+			case string:
+				d.Condition = cv
+			case []any:
+				// If condition is an array, join it with "or"
+				condParts := make([]string, len(cv))
+				for i, part := range cv {
+					if s, ok := part.(string); ok {
+						condParts[i] = s
+					} else {
+						condParts[i] = fmt.Sprintf("%v", part)
+					}
+				}
+				d.Condition = strings.Join(condParts, " or ")
+			case nil:
+				// Skip nil conditions
+				continue
+			default:
+				return fmt.Errorf("detection.condition must be string or array, got %T", v)
 			}
-			d.Condition = str
 		case "timeframe":
 			if v == nil {
 				continue
@@ -205,11 +226,27 @@ func (d *Detection) UnmarshalYAML(node *yaml.Node) error {
 	for k, v := range m {
 		switch k {
 		case "condition":
-			str, ok := v.(string)
-			if !ok {
-				return fmt.Errorf("detection.condition must be string, got %T", v)
+			// Handle both string and array/list conditions from YAML
+			switch cv := v.(type) {
+			case string:
+				d.Condition = cv
+			case []any:
+				// If condition is an array, join it with "or"
+				condParts := make([]string, len(cv))
+				for i, part := range cv {
+					if s, ok := part.(string); ok {
+						condParts[i] = s
+					} else {
+						condParts[i] = fmt.Sprintf("%v", part)
+					}
+				}
+				d.Condition = strings.Join(condParts, " or ")
+			case nil:
+				// Skip nil conditions
+				continue
+			default:
+				return fmt.Errorf("detection.condition must be string or array, got %T", v)
 			}
-			d.Condition = str
 		case "timeframe":
 			if v == nil {
 				continue

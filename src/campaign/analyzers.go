@@ -545,13 +545,6 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 	if len(ev.Results) == 0 {
 		return domain.Facts{}, domain.Facts{}, failReason, fmt.Errorf("no results found for TTP execution %s, so nothing to analyze", ev.TTP.ID)
 	}
-	var errMsg string
-	for _, res := range ev.Results {
-		if strings.TrimSpace(res) != "" {
-			errMsg = res
-			break
-		}
-	}
 
 	entities := make([]domain.Entity, 0)
 	relations := make([]domain.Relation, 0)
@@ -567,75 +560,82 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 		return domain.Facts{}, domain.Facts{}, failReason, err
 	}
 
-	// TTP failed at the Kubernetes API server for various reasons (RBAC, admission control, etc.)
-	// find out which type of error it was
-	if strings.Contains(errMsg, "Error from server (Forbidden)") {
-		// examples:
-		// "command terminated with exit code 1: 'Error from server (Forbidden): pods is forbidden: User \"system:serviceaccount:dev:default\" cannot list resource \"pods\" in API group \"\" in the namespace \"dev\"\n'"
-		if strings.Contains(errMsg, "is forbidden: User") { // heuristic: use this as hint for RBAC issue
-			if sa, err := parseViolatingRBACIdentity(errMsg); err == nil {
-				entities = append(entities, sa)
-				failReason = fmt.Sprintf("%s has not the permissions to %s", sa.GetId(), ev.TTP.Requires.RBACPermission.String())
+	new, err = parsePSSViolation(ev.Target, ev.Args, ev.Results)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Failed to parse PodSecurity violation from error message: %s", err.Error()))
+	} else if len(new.Entities) > 0 {
+		entities = append(entities, new.Entities...)
+		relations = append(relations, new.Relations...)
+		failReason = "Namespace enforces a PSS"
+	}
+
+	for _, errMsg := range ev.Results {
+		if strings.TrimSpace(errMsg) == "" {
+			continue
+		}
+
+		// TTP failed at the Kubernetes API server for various reasons (RBAC, admission control, etc.)
+		// find out which type of error it was
+		if strings.Contains(errMsg, "Error from server (Forbidden)") {
+			// examples:
+			// "command terminated with exit code 1: 'Error from server (Forbidden): pods is forbidden: User \"system:serviceaccount:dev:default\" cannot list resource \"pods\" in API group \"\" in the namespace \"dev\"\n'"
+			if strings.Contains(errMsg, "is forbidden: User") { // heuristic: use this as hint for RBAC issue
+				if sa, err := parseViolatingRBACIdentity(errMsg); err == nil {
+					entities = append(entities, sa)
+					failReason = fmt.Sprintf("%s has not the permissions to %s", sa.GetId(), ev.TTP.Requires.RBACPermission.String())
+				} else {
+					slog.Error(fmt.Sprintf("Failed to parse RBAC identity from error message: %s", err.Error()))
+				}
+			}
+
+		}
+
+		// // TODO: check if the actual TTP execution failed, because the role already exists
+		// // -> overall, the intended effects are met, but it may be a confiict (e.g. name collision), for downstream TTPs
+		// if strings.Contains(ev.Results[0], "Error from server (Forbidden)") {
+		// 	// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
+		// 	if strings.Contains(ev.Results[0], "attempting to grant RBAC permissions not currently held") {
+		// 		return nil, nil, errors.New(ev.Results[0])
+		// 	}
+		// }
+
+		var failedToWrite bool
+
+		// TODO: generalize the "failed to to write type of errors and the inferred implications"
+		if strings.Contains(errMsg, "command terminated with exit code") {
+			tool := ev.Procedure.GetTool()
+
+			switch tool {
+			case "curl":
+				failedToWrite = ev.ExitCode == 23
+				failReason = "An error occurred when writing received data to a local file"
+			}
+		}
+		if strings.Contains(errMsg, " is not writeable") {
+			failedToWrite = true
+		}
+
+		// TTP specific error: could not transfer tool to the target system
+		if failedToWrite {
+			// TODO: depending on the User ID, it can be either because it's not root, or because the FS is read-only
+			target := ev.Target
+
+			if p, ok := target.(domain.Pod); ok {
+				p.ReadOnlyRootFilesystem.Update(.3) // belief update that this flag is set
+				entities = append(entities, p)
 			} else {
-				slog.Error(fmt.Sprintf("Failed to parse RBAC identity from error message: %s", err.Error()))
+				panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, target.GetId()))
 			}
 		}
 
-		new, err := parsePSSViolation(ev.Target, ev.Args, ev.Results)
-		if err == nil {
-			entities = append(entities, new.Entities...)
-			relations = append(relations, new.Relations...)
-			failReason = "Namespace enforces a PSS"
-		} else {
-			slog.Error(fmt.Sprintf("Failed to parse PodSecurity violation from error message: %s", err.Error()))
-		}
-	}
-
-	// // TODO: check if the actual TTP execution failed, because the role already exists
-	// // -> overall, the intended effects are met, but it may be a confiict (e.g. name collision), for downstream TTPs
-	// if strings.Contains(ev.Results[0], "Error from server (Forbidden)") {
-	// 	// "command terminated with exit code 1: 'Error from server (Forbidden): roles.rbac.authorization.k8s.io \"nsadmin\" is forbidden: user \"system:serviceaccount:dev:developer\" (groups=[\"system:serviceaccounts\" \"system:serviceaccounts:dev\" \"system:authenticated\"]) is attempting to grant RBAC permissions not currently held:\n{APIGroups:[\"\"], Resources:[\"*\"], Verbs:[\"*\"]}\n'"
-	// 	if strings.Contains(ev.Results[0], "attempting to grant RBAC permissions not currently held") {
-	// 		return nil, nil, errors.New(ev.Results[0])
-	// 	}
-	// }
-
-	var failedToWrite bool
-
-	// TODO: generalize the "failed to to write type of errors and the inferred implications"
-	if strings.Contains(errMsg, "command terminated with exit code") {
-		tool := ev.Procedure.GetTool()
-
-		switch tool {
-		case "curl":
-			failedToWrite = ev.ExitCode == 23
-			failReason = "An error occurred when writing received data to a local file"
-		}
-	}
-	if strings.Contains(errMsg, " is not writeable") {
-		failedToWrite = true
-	}
-
-	// TTP specific error: could not transfer tool to the target system
-	if failedToWrite {
-		// TODO: depending on the User ID, it can be either because it's not root, or because the FS is read-only
-		target := ev.Target
-
-		if p, ok := target.(domain.Pod); ok {
-			p.ReadOnlyRootFilesystem.Update(.3) // belief update that this flag is set
-			entities = append(entities, p)
-		} else {
-			panic(fmt.Sprintf("TTP '%s' executed on non-pod target '%s'", ev.TTP.ID, target.GetId()))
-		}
-	}
-
-	if strings.Contains(errMsg, ": No such file or directory") {
-		if len(entities) > 0 {
-			if sys, ok := entities[0].(domain.System); ok {
-				file := strings.TrimSpace(strings.Split(errMsg, ":")[1])
-				sys.AddMissingFiles(file)
-				// replace original entity with updated information
-				entities = append(entities[:0], sys)
+		if strings.Contains(errMsg, ": No such file or directory") {
+			if len(entities) > 0 {
+				if sys, ok := entities[0].(domain.System); ok {
+					file := strings.TrimSpace(strings.Split(errMsg, ":")[1])
+					sys.AddMissingFiles(file)
+					// replace original entity with updated information
+					entities = append(entities[:0], sys)
+				}
 			}
 		}
 	}

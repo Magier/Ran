@@ -271,6 +271,45 @@ func TestAnalyzeFailedTTPExecution_RBAC_ForbiddenWithUser(t *testing.T) {
 		t.Errorf("Expected proper failReason but it was empty")
 	}
 }
+
+func TestAnalyzeFailedTTPExecution_RBAC_ForbiddenWithUser_Multiple_Results(t *testing.T) {
+	saName := "test-sa"
+	ns := "test-ns"
+	event := domain.TTPExecuted{
+		Results: []string{
+			"{\n    \"apiVersion\": \"v1\",\n    \"items\": [],\n    \"kind\": \"List\",\n    \"metadata\": {\n        \"resourceVersion\": \"\"\n    }\n}",
+			fmt.Sprintf("Error from server (Forbidden): roles.rbac.authorization.k8s.io is forbidden: User \"system:serviceaccount:%s:%s\" cannot list resource \"roles\" in API group \"rbac.authorization.k8s.io\" in the namespace \"default\"", ns, saName),
+			"(code 1): command terminated with exit code 1",
+		},
+		Procedure: domain.Procedure{Tool: "kubectl"},
+		Target:    domain.NewPod("mypod", ns),
+	}
+	newFacts, _, failReason, err := analyzeFailedTTPExecution(event)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// expect the returned entity is a service account
+	if len(newFacts.Entities) != 1 {
+		t.Fatalf("Expected 1 entity, got %d", len(newFacts.Entities))
+	}
+	sa, ok := newFacts.Entities[0].(domain.ServiceAccount)
+	if !ok {
+		t.Fatalf("Expected entity to be ServiceAccount, got %T", newFacts.Entities[0])
+	}
+	if sa.Name != saName || sa.Namespace != ns {
+		t.Errorf("Expected ServiceAccount name 'default' in namespace '%s', got name '%s' in namespace '%s'", ns, sa.Name, sa.Namespace)
+	}
+
+	if len(newFacts.Relations) != 0 {
+		t.Errorf("Expected 0 relations, got %d", len(newFacts.Relations))
+	}
+
+	if failReason == "" {
+		t.Errorf("Expected proper failReason but it was empty")
+	}
+}
+
 func TestAnalyzeMountInfo_EmptyInput(t *testing.T) {
 	pod := domain.NewPod("test-pod", "default")
 	pod.Mounts = []domain.Mount{}

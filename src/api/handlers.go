@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Magier/Ran/c2"
 	"github.com/Magier/Ran/campaign"
 	"github.com/Magier/Ran/domain"
 	"github.com/google/uuid"
@@ -116,16 +115,16 @@ func (h *HTTPHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 	done := make(chan domain.Event, 1)
 
 	cmdID := uuid.New().String()
-	h.api.ran.Bus.SubscribeUntil(c2.TTPExecuted{},
+	h.api.ran.Bus.SubscribeUntil(domain.TTPExecuted{},
 		func(msg domain.Message) bool {
 			// Unsubscribe when we receive the event matching our cmdID
-			if event, ok := msg.(c2.TTPExecuted); ok {
+			if event, ok := msg.(domain.TTPExecuted); ok {
 				return event.CmdId == cmdID || event.ID == cmdID
 			}
 			return false
 		},
 		func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-			event, ok := msg.(c2.TTPExecuted)
+			event, ok := msg.(domain.TTPExecuted)
 			if !ok {
 				return nil, nil
 			}
@@ -153,11 +152,15 @@ func (h *HTTPHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 		select {
 		case event := <-done:
 			// Action completed within 15 seconds
-			execEvent, ok := event.(c2.TTPExecuted)
+			execEvent, ok := event.(domain.TTPExecuted)
 			if !ok {
 				respondError(w, http.StatusInternalServerError, "invalid event type received")
 			} else if !execEvent.Success {
-				respondError(w, http.StatusConflict, "action execution failed: "+execEvent.Results[0])
+				failReason := execEvent.FailReason
+				if failReason == "" && len(execEvent.Results) > 0 {
+					failReason = execEvent.Results[0]
+				}
+				respondError(w, http.StatusConflict, "action execution failed: "+failReason)
 			} else {
 				respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 			}
