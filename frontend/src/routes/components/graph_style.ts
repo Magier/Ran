@@ -11,19 +11,129 @@ import type cytoscape from "cytoscape";
 // }
 
 
-export const layout = {
-	name: 'fcose',
-	fit: false,
-	animate: true,
-	animationDuration: 200,
-	nestingFactor: 1.2,     // Increase separation between levels
-	nodeRepulsion: 400,    // Stronger repulsion
-	idealEdgeLength: 50,
+//   export const layout= {
+//     name: 'claude',
+//     springLength: 250,
+//     horizontalBias: 0.4,  // Stronger = more left-to-right
+//     verticalGravity: 0.3, // Stronger = more adherence to stack levels
+//     animate: true
+//   }
 
-	  // Compound handling
-	packComponents: true,
-	tile: false,
-};
+/**
+ * Creates an enhanced fcose layout configuration with constraints
+ * @param nodes - Collection of cytoscape nodes
+ * @param existingPositions - Map of node IDs to their saved positions
+ */
+export function createLayout(nodes?: cytoscape.NodeCollection, existingPositions: Record<string, any> = {}) {
+	const constraints: any = {
+		alignment: [],
+		fixedNodeConstraint: [],
+		relativePlacementConstraint: []
+	};
+
+	if (nodes && nodes.length > 0) {
+		// Find the Ran node and fix its position if it exists in saved positions
+		const ranNode = nodes.filter('[name="Ran"]');
+		if (ranNode.length > 0) {
+			const ranId = ranNode.id();
+			const ranPos = existingPositions[ranId];
+			// Validate position values before adding constraint
+			if (ranPos &&
+				typeof ranPos.x === 'number' &&
+				typeof ranPos.y === 'number' &&
+				isFinite(ranPos.x) &&
+				isFinite(ranPos.y)) {
+				constraints.fixedNodeConstraint.push({
+					nodeId: ranId,
+					position: { x: ranPos.x, y: ranPos.y }
+				});
+			}
+		}
+
+		// Collect Node kind nodes for bottom alignment
+		const nodeKindNodes = nodes.filter('[kind="Node"], [kind="ClusterNode"]').map(n => n.id()).filter(id => id != null);
+		if (nodeKindNodes.length > 0) {
+			constraints.alignment.push({
+				vertical: nodeKindNodes,
+				horizontal: []
+			});
+		}
+
+		// Add relative placement: Node kind should be below others
+		const nonNodeKindNodes = nodes.filter('[kind][kind!="Node"][kind!="ClusterNode"]').map(n => n.id()).filter(id => id != null);
+		if (nodeKindNodes.length > 0 && nonNodeKindNodes.length > 0) {
+			// For each non-Node kind, add constraint that Node kinds should be below
+			nonNodeKindNodes.slice(0, 5).forEach(topNodeId => {
+				nodeKindNodes.slice(0, 3).forEach(bottomNodeId => {
+					// Only add valid constraints
+					if (topNodeId && bottomNodeId && topNodeId !== bottomNodeId) {
+						constraints.relativePlacementConstraint.push({
+							top: topNodeId,
+							bottom: bottomNodeId,
+							gap: 100
+						});
+					}
+				});
+			});
+		}
+	}
+
+	// Only include constraint properties that have actual data
+	const constraintProps: any = {};
+	if (constraints.fixedNodeConstraint.length > 0) {
+		constraintProps.fixedNodeConstraint = constraints.fixedNodeConstraint;
+	}
+	if (constraints.alignment.length > 0) {
+		constraintProps.alignment = constraints.alignment;
+	}
+	if (constraints.relativePlacementConstraint.length > 0) {
+		constraintProps.relativePlacementConstraint = constraints.relativePlacementConstraint;
+	}
+
+	return {
+		name: 'fcose',
+		fit: false,
+		animate: true,
+		animationDuration: 200,
+
+		// Quality and performance
+		quality: 'default',
+		randomize: false,
+
+		// Directional flow (left-to-right)
+		nodeRepulsion: 4500,
+		idealEdgeLength: 100,
+		edgeElasticity: 0.45,
+		nestingFactor: 0.1,
+
+		// Gravity and alignment
+		gravity: 0.25,
+		gravityRange: 3.8,
+		gravityCompound: 1.0,
+		gravityRangeCompound: 1.5,
+
+		// Compound handling
+		packComponents: true,
+		tile: false,
+		tilingPaddingVertical: 10,
+		tilingPaddingHorizontal: 10,
+
+		// Incremental mode
+		initialEnergyOnIncremental: 0.3,
+
+		// Constraints
+		...constraintProps
+	};
+}
+
+// Default layout for backwards compatibility
+export const layout = createLayout();
+// export const layout = {
+// 	name: 'hierarchyFlow',
+// 	spacing: 120,
+// 	animate: true,
+// 	animationDuration: 250,
+// };
 
 const kind_svg_map = {
 	Ingress: 'k8s/ing.svg',
@@ -435,7 +545,7 @@ export function getGraphStyle() {
 			}
 		}
 	];
-	return mapKindIcons(kind_svg_map).concat(graph_style);
+	return [...mapKindIcons(kind_svg_map), ...graph_style] as any;
 }
 
 export function applyCompromisedStyle(cy: cytoscape.Core) {

@@ -5,7 +5,7 @@
 	import fcose from 'cytoscape-fcose';
 	import { toaster } from '$lib/components/toaster';
 
-	import { getGraphStyle, layout, applyCompromisedStyle } from './graph_style';
+	import { getGraphStyle, layout, createLayout, applyCompromisedStyle } from './graph_style';
 	import type { Node, Edge } from '$lib/api/index';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import GraphNodeSelector from './graph_node_selector.svelte';
@@ -54,6 +54,7 @@
 
 	// keep track of the nodes before the layouting, to ensure consistent positioning of new nodes
 	let existingNodes: cytoscape.NodeCollection = cytoscape().collection();
+	let previousNodeIds: Set<string> = new Set();
 
 	const theme = getContext('theme');
 
@@ -79,24 +80,6 @@
 			cy.pan(prevPan);
 		}
 
-		layout.stop = () => {
-			existingNodes.unlock();
-			// apply previous pan and zoom, to nullify side-effects from layout
-			const origPan = cy.pan();
-			if (
-				prevPan === undefined ||
-				(origPan.x === 0 && origPan.y === 0)
-			) { 
-				console.error("No previous pan found, centering graph");
-				cy.center();
-			} else {
-				console.error("Post layout pan was: ", prevPan);
-			}
-
-			cy.zoom(getZoomLevelOrDefault(2));
-		};
-
-
 		// cy.expandCollapse(expandCollapseOptions);
 		// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
 		cy.on('unselect', resetSelection);
@@ -113,9 +96,22 @@
 		console.info("Cytoscape graph initialized");
 		if (Object.keys(positions).length === 0) {
 			console.info("No previous positions, so using sane defaults for the layout")
-			cy.layout(layout).run();
-			cy.center();
-			saveGraphLayout();
+			try {
+				const initialLayout = createLayout(cy.nodes(), positions);
+				console.log('Initial layout config:', initialLayout);
+				const originalStop = initialLayout.stop;
+				initialLayout.stop = () => {
+					console.log('Initial layout complete');
+					if (originalStop) originalStop();
+				};
+				cy.layout(initialLayout).run();
+				cy.center();
+				saveGraphLayout();
+			} catch (layoutError) {
+				console.error('Initial layout error:', layoutError);
+				console.error('Node count:', cy.nodes().length);
+				toaster.create({ title: "Layout error", description: 'Error during initial layout: ' + layoutError, type: 'error' });
+			}
 		} else {
 			console.info(">> Loaded previous node positions from session storage");
 		}
@@ -132,6 +128,8 @@
 	$effect(() => {
 		if (campaignState.campaignId > 0) {
 			sessionStorage.clear();
+			positions = {};
+			previousNodeIds.clear();
 		}
 	});
 
@@ -144,8 +142,13 @@
 				if (graph.nodes === undefined) {
 					console.warn('Graph data is incomplete:', graph);
 				} else {
-					let nodes = graph.nodes.map(n => toCyNode(n, positions)); 
+					let nodes = graph.nodes.map(n => toCyNode(n, positions));
 					let edges = graph.edges.map(toCyEdge);
+
+					// Check if there are new nodes
+					const currentNodeIds = new Set(graph.nodes.map(n => n.id));
+					const hasNewNodes = graph.nodes.some(n => !previousNodeIds.has(n.id));
+					const hasFewerNodes = previousNodeIds.size > currentNodeIds.size;
 
 					cy.json({
 						elements: {
@@ -154,9 +157,54 @@
 						}
 					});
 
-					existingNodes = cy.nodes().filter((n) => n.id() in positions);
-					existingNodes.lock();  // layout.stop function takes care of unlocking the nodes after laying the new ones out
-					cy.layout(layout).run();
+					// Only re-layout if there are new nodes or nodes were removed
+					if (hasNewNodes || hasFewerNodes || previousNodeIds.size === 0) {
+						console.log(`Graph changed: ${hasNewNodes ? 'new nodes added' : hasFewerNodes ? 'nodes removed' : 'initial load'}`);
+
+						// Lock nodes that have saved positions (they shouldn't move)
+						existingNodes = cy.nodes().filter((n) => positions.hasOwnProperty(n.id()));
+						existingNodes.lock();
+
+						// Save current pan/zoom before layout
+						const currentPan = cy.pan();
+						const currentZoom = cy.zoom();
+
+						try {
+							// Create layout with constraints and add stop callback to unlock nodes
+							const enhancedLayout = createLayout(cy.nodes(), positions);
+
+							// Validate layout configuration
+							console.log('Layout config:', enhancedLayout);
+
+							const originalStop = enhancedLayout.stop;
+							enhancedLayout.stop = () => {
+								existingNodes.unlock();
+
+								// Restore pan and zoom to prevent layout side-effects
+								if (currentPan && (currentPan.x !== 0 || currentPan.y !== 0)) {
+									cy.pan(currentPan);
+								}
+								cy.zoom(currentZoom);
+
+								console.log('Layout complete, nodes unlocked');
+								if (originalStop) originalStop();
+							};
+
+							cy.layout(enhancedLayout).run();
+
+							// Update tracking
+							previousNodeIds = currentNodeIds;
+						} catch (layoutError) {
+							console.error('Layout error:', layoutError);
+							console.error('Node count:', cy.nodes().length);
+							console.error('Positions:', positions);
+							existingNodes.unlock();
+							throw layoutError;
+						}
+					} else {
+						console.log('No new nodes, skipping layout');
+					}
+
 					applyCompromisedStyle(cy);
 
 					// use timeout 0 to not track selectedObject as a dependency

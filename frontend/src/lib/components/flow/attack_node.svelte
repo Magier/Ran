@@ -25,8 +25,8 @@
 	const label = $derived(data.label);
 	const step = $derived(data.step);
 	const target: Entity = $derived.by(() => {
-		const e = campaignState.getEntityById(step.targetId) ?? { id: "?", name: 'Unknown' };
-		console.info("Fetching target for targetId:", step?.targetId, e);
+		const id = (step?.targetId || step?.executedOn);
+		const e = campaignState.getEntityById(id) ?? { id: "?", name: 'Unknown' };
 		return e
 	});
 
