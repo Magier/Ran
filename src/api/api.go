@@ -200,8 +200,13 @@ func (a *API) GetGraph() Graph {
 	for id, relation := range relations {
 		switch relation.(type) {
 		// convert specific "hierarchical" relations to parent relationships.
-		case domain.Contains, domain.ManagesNode:
+		case domain.ManagesNode, domain.Owns:
 			parentNodes[relation.GetTargetId()] = relation.GetSourceId()
+		case domain.Contains:
+			// Contains relation has the lowest priority, any other more explicit relation wins
+			if parentNodes[relation.GetTargetId()] == "" {
+				parentNodes[relation.GetTargetId()] = relation.GetSourceId()
+			}
 		case domain.Runs:
 			// skip this relation for now, as it's the inverse of RunsOn and adds no uX improvements
 		case domain.ExposesSecret:

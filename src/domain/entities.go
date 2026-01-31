@@ -1240,10 +1240,30 @@ type StatefulSet struct {
 	// NamespacedResource
 }
 
+func NewStatefulSet(name, ns string) StatefulSet {
+	return StatefulSet{
+		K8sEntity: K8sEntity{
+			Name:      name,
+			Namespace: ns,
+			Kind:      "StatefulSet",
+		},
+	}
+}
+
 type DaemonSet struct {
 	K8sEntity
 	ResourceOwner
 	// NamespacedResource
+}
+
+func NewDaemonSet(name, ns string) DaemonSet {
+	return DaemonSet{
+		K8sEntity: K8sEntity{
+			Name:      name,
+			Namespace: ns,
+			Kind:      "DaemonSet",
+		},
+	}
 }
 
 type K8sNode struct {

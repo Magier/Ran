@@ -133,7 +133,6 @@ func (c *Campaign) ExecuteAction(ctx context.Context, ev domain.ActionSelected) 
 		}
 
 		if strings.HasPrefix(name, "ns/") {
-			var err error
 			ns, _, name, err = UnpackResourceID(name)
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to unpack resource ID '%s': %v", name, err))
