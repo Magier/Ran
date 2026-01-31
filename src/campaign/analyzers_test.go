@@ -636,3 +636,281 @@ func TestAnalyzeDnsEntriesScan(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkloadsOwnNewPod(t *testing.T) {
+	tests := []struct {
+		testName     string
+		workloadName string
+		workloadCtor func(name, namespace string) domain.Workload
+		errMsg       string
+	}{
+		{
+			testName:     "Deployment owns new pod",
+			workloadName: "my-fancy-deployment",
+			workloadCtor: func(name, namespace string) domain.Workload { // Go ... 🙄🤮
+				return domain.NewDeployment(name, namespace)
+			},
+			errMsg: "",
+		},
+		{
+			testName:     "Deployment owns new pod",
+			workloadName: "tha-database",
+			workloadCtor: func(name, namespace string) domain.Workload { // Go ... 🙄🤮
+				return domain.NewDeployment(name, namespace)
+			},
+			errMsg: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.testName, func(t *testing.T) {
+			// prep workload to exist in the campaign before the analysis
+			c := NewCampaign(nil)
+			wl := tt.workloadCtor(tt.workloadName, "default")
+			c.AddEntities(wl)
+
+			newPod := domain.NewPod(tt.workloadName+"-5c77d846b4-h2ccn", "default")
+			facts, err := c.analyzePod(newPod)
+			if tt.errMsg == "" && err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			} else if tt.errMsg != "" && err == nil {
+				t.Errorf("Expected error '%s', got nil", tt.errMsg)
+			}
+
+			// expect the returned facts to include a "owned-by" relation
+			foundRelation := false
+			for _, rel := range facts.Relations {
+				if owns, ok := rel.(domain.Owns); ok {
+					foundRelation = true
+					if owns.GetSourceId() != wl.GetId() {
+						t.Errorf("Expected source ID to be workload ID '%s', got '%s'", wl.GetId(), owns.GetSourceId())
+					}
+					if owns.GetTargetId() != newPod.GetId() {
+						t.Errorf("Expected target ID to be pod ID '%s', got '%s'", newPod.GetId(), owns.GetTargetId())
+					}
+					break
+				}
+			}
+
+			if !foundRelation {
+				t.Errorf("Expected to find 'owns' relation from workload to pod, but did not. Relations: %v", facts.Relations)
+			}
+		})
+	}
+}
+func TestNewWorkloadOwnsExistingPods(t *testing.T) {
+	tests := []struct {
+		testName     string
+		workloadName string
+		workloadCtor func(name, namespace string) domain.Entity
+		podsToCreate []string
+	}{
+		{
+			testName:     "Deployment owns multiple existing pods",
+			workloadName: "nginx",
+			workloadCtor: func(name, namespace string) domain.Entity {
+				return domain.NewDeployment(name, namespace)
+			},
+			podsToCreate: []string{
+				"nginx-5c77d846b4-h2ccn",
+				"nginx-5c77d846b4-k9xyz",
+				"nginx-5c77d846b4-m3abc",
+			},
+		},
+		{
+			testName:     "StatefulSet owns multiple existing pods",
+			workloadName: "postgres",
+			workloadCtor: func(name, namespace string) domain.Entity {
+				return domain.NewStatefulSet(name, namespace)
+			},
+			podsToCreate: []string{
+				"postgres-0",
+				"postgres-1",
+				"postgres-2",
+			},
+		},
+		{
+			testName:     "DaemonSet owns multiple existing pods",
+			workloadName: "filebeat",
+			workloadCtor: func(name, namespace string) domain.Entity {
+				return domain.NewDaemonSet(name, namespace)
+			},
+			podsToCreate: []string{
+				"filebeat-worker1",
+				"filebeat-worker2",
+			},
+		},
+		{
+			testName:     "CronJob owns multiple existing pods",
+			workloadName: "backup-job",
+			workloadCtor: func(name, namespace string) domain.Entity {
+				return domain.NewCronJob(name, namespace)
+			},
+			podsToCreate: []string{
+				"backup-job-27482020-abc12",
+				"backup-job-27482021-xyz78",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.testName, func(t *testing.T) {
+			c := NewCampaign(nil)
+			namespace := "default"
+
+			// Create and add existing pods to the campaign
+			existingPods := make([]domain.Pod, len(tt.podsToCreate))
+			for i, podName := range tt.podsToCreate {
+				pod := domain.NewPod(podName, namespace)
+				existingPods[i] = pod
+				c.AddEntities(pod)
+			}
+
+			// Create and analyze the workload
+			workload := tt.workloadCtor(tt.workloadName, namespace)
+			facts, err := c.analyzeWorkloadOwnership(workload)
+
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+
+			// Verify workload is included in facts
+			if len(facts.Entities) != 1 {
+				t.Errorf("Expected 1 entity (workload), got %d", len(facts.Entities))
+			}
+
+			// Verify relations are created for all owned pods
+			expectedRelations := len(tt.podsToCreate)
+			if len(facts.Relations) != expectedRelations {
+				t.Errorf("Expected %d relations, got %d", expectedRelations, len(facts.Relations))
+			}
+
+			// Verify all relations are 'Owns' type
+			for _, rel := range facts.Relations {
+				if _, ok := rel.(domain.Owns); !ok {
+					t.Errorf("Expected relation to be 'Owns', got %T", rel)
+				}
+			}
+
+			// Verify each pod is owned by the workload
+			ownedPodIds := make(map[string]bool)
+			for _, rel := range facts.Relations {
+				owns := rel.(domain.Owns)
+				if owns.GetSourceId() != workload.GetId() {
+					t.Errorf("Expected source to be workload '%s', got '%s'", workload.GetId(), owns.GetSourceId())
+				}
+				ownedPodIds[owns.GetTargetId()] = true
+			}
+
+			for _, pod := range existingPods {
+				if !ownedPodIds[pod.GetId()] {
+					t.Errorf("Pod '%s' should be owned by workload, but was not found in relations", pod.GetId())
+				}
+			}
+		})
+	}
+}
+
+func TestWorkloadAnalysisPartialMatch(t *testing.T) {
+	c := NewCampaign(nil)
+	namespace := "default"
+	workloadName := "api-server"
+
+	// Create pods with different naming patterns
+	c.AddEntities(domain.NewPod("api-server-5c77d846b4-h2ccn", namespace))
+	c.AddEntities(domain.NewPod("api-server-5c77d846b4-k9xyz", namespace))
+	c.AddEntities(domain.NewPod("api-gateway-5c77d846b4-m3abc", namespace)) // different workload
+	c.AddEntities(domain.NewPod("unrelated-pod-xyz123", namespace))         // completely unrelated
+
+	// Create and analyze the workload
+	workload := domain.NewDeployment(workloadName, namespace)
+	facts, err := c.analyzeWorkloadOwnership(workload)
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Only 2 pods should match the api-server workload
+	expectedRelations := 2
+	if len(facts.Relations) != expectedRelations {
+		t.Errorf("Expected %d relations, got %d", expectedRelations, len(facts.Relations))
+	}
+
+	// Verify no false matches
+	for _, rel := range facts.Relations {
+		owns := rel.(domain.Owns)
+		targetId := owns.GetTargetId()
+		if !contains([]string{
+			"api-server-5c77d846b4-h2ccn",
+			"api-server-5c77d846b4-k9xyz",
+		}, extractPodNameFromId(targetId)) {
+			t.Errorf("Unexpected pod matched: %s", targetId)
+		}
+	}
+}
+
+func TestWorkloadAnalysisNoMatchingPods(t *testing.T) {
+	c := NewCampaign(nil)
+	namespace := "default"
+	workloadName := "nginx"
+
+	// Create pods that don't match the workload
+	c.AddEntities(domain.NewPod("apache-xyz123", namespace))
+	c.AddEntities(domain.NewPod("httpd-abc456", namespace))
+
+	// Create and analyze the workload
+	workload := domain.NewDeployment(workloadName, namespace)
+	facts, err := c.analyzeWorkloadOwnership(workload)
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// No relations should be created
+	if len(facts.Relations) != 0 {
+		t.Errorf("Expected 0 relations, got %d", len(facts.Relations))
+	}
+
+	// Workload should still be in entities
+	if len(facts.Entities) != 1 {
+		t.Errorf("Expected 1 entity, got %d", len(facts.Entities))
+	}
+}
+
+func TestWorkloadAnalysisDifferentNamespace(t *testing.T) {
+	c := NewCampaign(nil)
+	workloadName := "my-app"
+
+	// Create pods in different namespaces
+	c.AddEntities(domain.NewPod("my-app-xyz123", "default"))
+	c.AddEntities(domain.NewPod("my-app-abc456", "kube-system"))
+
+	// Analyze workload in default namespace
+	workload := domain.NewDeployment(workloadName, "default")
+	facts, err := c.analyzeWorkloadOwnership(workload)
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Only the pod in the same namespace should be owned
+	expectedRelations := 1
+	if len(facts.Relations) != expectedRelations {
+		t.Errorf("Expected %d relations, got %d", expectedRelations, len(facts.Relations))
+	}
+}
+
+// Helper function to extract pod name from entity ID
+func extractPodNameFromId(id string) string {
+	// Assuming ID format contains the pod name
+	return id
+}
+
+// Helper function to check if string is in slice
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}

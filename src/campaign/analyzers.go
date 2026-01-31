@@ -52,6 +52,17 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 			resultingFacts, _, err = c.analyzeRoleBinding(e)
 		case domain.ConfigMap:
 			resultingFacts, _, err = c.analyzeConfigMap(e)
+		case domain.Deployment:
+			resultingFacts, err = c.analyzeWorkloadOwnership(e)
+		case domain.StatefulSet:
+			resultingFacts, err = c.analyzeWorkloadOwnership(e)
+		case domain.DaemonSet:
+			resultingFacts, err = c.analyzeWorkloadOwnership(e)
+		case domain.ReplicaSet:
+			resultingFacts, err = c.analyzeWorkloadOwnership(e)
+		case domain.CronJob:
+			resultingFacts, err = c.analyzeWorkloadOwnership(e)
+			entities[e.GetId()] = e
 		case domain.UnknownSystem:
 			isUnknown = true
 			resultingFacts, _, err = c.analyzeUnknownSystem(e)
@@ -329,7 +340,14 @@ func (c *Campaign) analyzePod(e domain.Pod) (domain.Facts, error) {
 	hostRels := analyzePodHostRelations(e)
 	relations = append(relations, hostRels...)
 
-	// 7) pack results
+	// 7) workload ownership - match this pod against all existing workloads
+	workloads := c.getWorkloads()
+	for _, workload := range workloads {
+		workloadRels := matchWorkloadToPods(workload, []domain.Pod{e})
+		relations = append(relations, workloadRels...)
+	}
+
+	// 8) pack results
 	ents := make([]domain.Entity, 0, len(entities))
 	for _, v := range entities {
 		ents = append(ents, v)
@@ -1304,4 +1322,64 @@ func analyzeDnsEntries(entries map[string]string) (domain.Facts, domain.Facts, e
 		Entities:  entities,
 		Relations: relations,
 	}, domain.Facts{}, nil
+}
+
+// matchWorkloadToPods is the core heuristic function that matches a workload with its pods.
+// A pod is considered owned by a workload if:
+// - The pod's name begins with the workload's full name
+// - The pod is in the same namespace as the workload
+// This works because Kubernetes workload controllers generate pod names by appending suffixes
+// to the workload name (e.g., "nginx" deployment creates pods like "nginx-7d8f4c9b5-abc12").
+func matchWorkloadToPods(workload domain.Entity, pods []domain.Pod) []domain.Relation {
+	relations := make([]domain.Relation, 0)
+
+	// Get workload name and namespace
+	workloadName := workload.GetName()
+	var workloadNamespace string
+	if ns, ok := workload.(domain.Namespaced); ok {
+		workloadNamespace = ns.GetNamespace()
+	}
+
+	// Match pods whose name starts with the workload name and are in the same namespace
+	for _, pod := range pods {
+		if pod.GetNamespace() == workloadNamespace && strings.HasPrefix(pod.GetName(), workloadName) {
+			// Create Owns relation
+			if ownable, ok := any(pod).(domain.Ownable); ok {
+				relations = append(relations, domain.Owns{
+					Owner:  workload,
+					Object: ownable,
+				})
+			}
+		}
+	}
+
+	return relations
+}
+
+// getWorkloads returns all Kubernetes workloads (Deployments, StatefulSets, DaemonSets, ReplicaSets, CronJobs)
+// from the campaign's knowledge base.
+func (c *Campaign) getWorkloads() []domain.Entity {
+	workloads := make([]domain.Entity, 0)
+	for _, e := range c.GetEntities() {
+		switch e.(type) {
+		case domain.Deployment, domain.StatefulSet, domain.DaemonSet, domain.ReplicaSet, domain.CronJob:
+			workloads = append(workloads, e)
+		}
+	}
+	return workloads
+}
+
+// analyzeWorkloadOwnership is called when a new workload is discovered.
+// It matches the workload against all existing pods in the campaign.
+func (c *Campaign) analyzeWorkloadOwnership(workload domain.Entity) (domain.Facts, error) {
+	// Get all pods from the campaign
+	allPods := c.GetPods()
+
+	// Match the workload against all existing pods
+	relations := matchWorkloadToPods(workload, allPods)
+
+	return domain.Facts{
+		Entities:  []domain.Entity{workload},
+		Relations: relations,
+	}, nil
 }

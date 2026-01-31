@@ -135,12 +135,14 @@ export const layout = createLayout();
 // 	animationDuration: 250,
 // };
 
+
+// the '{' prefix indicates a compound node that should not have an icon, if it's expanded
 const kind_svg_map = {
 	Ingress: 'k8s/ing.svg',
 	Pod: 'k8s/pod.svg',
 	Container: 'k8s/crio.svg',
-	Daemonset: 'k8s/daemontset.svg',
-	Deployment: 'k8s/deploy.svg',
+	Daemonset: '{k8s/daemontset.svg',
+	Deployment: '{k8s/deploy.svg',
 	AbstractWorkload: 'k8s/deploy.svg',
 	ControlPlane: 'k8s/control-plane.svg',
 	ClusterNode: 'k8s/node.svg',
@@ -149,13 +151,14 @@ const kind_svg_map = {
 	ClusterRole: 'k8s/c-role.svg',
 	Service: 'k8s/svc.svg',
 	ConfigMap: 'k8s/cm.svg',
-	CronJob: 'k8s/cronjob.svg',
+	CronJob: '{k8s/cronjob.svg',
+	Job: '{k8s/job.svg',
 	Group: 'k8s/group.svg',
 	RoleBinding: 'k8s/rb.svg',
 	ClusterRoleBinding: 'k8s/crb.svg',
 	Secret: 'k8s/secret.svg',
 	ServiceAccount: 'k8s/sa.svg',
-	Statefulset: 'k8s/sts.svg',
+	Statefulset: '{k8s/sts.svg',
 	User: 'k8s/user.svg',
 	Volume: 'k8s/vol.svg',
 	KubeApiServer: 'k8s/api.svg',
