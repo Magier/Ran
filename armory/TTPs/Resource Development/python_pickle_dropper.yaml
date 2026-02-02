@@ -1,7 +1,6 @@
 name: Build Python Pickle Dropper
 tactic: Resource Development
-technique: [Stage Capabilities]
-technique_id: T1608
+techniques: [Stage Capabilities, T1608]
 status: disabled
 execute:
   parameters:

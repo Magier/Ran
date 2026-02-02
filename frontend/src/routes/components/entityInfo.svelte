@@ -42,7 +42,11 @@
 	function readFile(path: string) {
 		const ttp = campaignState.getTtpById('read-file')
 		if (ttp) {
-			sendAction(ttp, {"PATH":path});
+			if (sendAction) {
+				sendAction(ttp, {"PATH":path});
+			} else {
+				showToast("No sendAction function provided", '', 'error');
+			}
 		} else {
 			showToast("TTP 'read-file' not found", '', 'error');
 		}

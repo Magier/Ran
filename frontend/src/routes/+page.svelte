@@ -22,7 +22,7 @@
 	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: Object = {};
 	let selectedTTP: TTP | undefined = $state();
-	let focusArmorySearch: () => void = () => {};
+	let focusArmorySearch: () => void = $state(() => {});
 
 	$effect(() => {
 		let _ = campaignState.campaignId;
