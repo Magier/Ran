@@ -29,7 +29,7 @@ procedures:
       -H "Accept: application/json"
       -H "Authorization: Bearer ${TOKEN}" 
       --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-      '${API_SERVER}/api/v1/namespaces/${NS}/deployments?limit=500'
+      '${API_SERVER}/apis/apps/v1/namespaces/${NS}/deployments?limit=500'
 effects:
   - k8s.deploymentList
 # defend: {}

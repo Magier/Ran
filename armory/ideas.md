@@ -7,9 +7,17 @@
 
 https://github.com/beserkerbob/KubernetesEnumerationTool (Powershell)
 
+- [Kubernetes DNS-Based Service Discovery](https://github.com/kubernetes/dns/blob/master/docs/specification.md)
+
+- [Demystifying The First Few Minutes After Compromising A Container - Stuart McMurray](https://www.youtube.com/watch?v=j4757Q06ev8)
+
+
 ## Privilege Escalation
 - SentinelOne [Climbing The Ladder | Kubernetes Privilege Escalation (Part 1)](https://www.sentinelone.com/blog/climbing-the-ladder-kubernetes-privilege-escalation-part-1)  
 - SentinelOne [Climbing The Ladder | Kubernetes Privilege Escalation (Part 2)](https://www.sentinelone.com/blog/climbing-the-ladder-kubernetes-privilege-escalation-part-2/)
+
+- [Sudo: Local Privilege Escalation via host option](https://www.sudo.ws/security/advisories/host_any/)
+	- Sudo versions 1.8.8 to 1.9.17 inclusive are affected. (CVE-2025-32462)
 
 - [CVE-2024-45310](https://github.com/advisories/GHSA-jfvp-7x6p-h2pv)
 	- from talk ["containers / security / a fun time -- pick two" - Aleksa (purplecon 2024)](https://www.youtube.com/watch?v=cY4ko-KhDGU)
@@ -46,6 +54,9 @@ https://github.com/beserkerbob/KubernetesEnumerationTool (Powershell)
 ## Discovery
 
 - [K8spider](https://github.com/Esonhugh/k8spider): supports to scan all services installed in Kubernetes cluster and all exposed ports in service
+- Use [RBAC-Atlas](https://rbac-atlas.github.io/) to quickly learn about the permissions of 3rd Party software in the cluster
+
+- [CoreDNS Enum](https://github.com/jpts/coredns-enum)
 
 - Talk from BSidesLV 2025 [From interview questions to cluster damage: Adventures in k8s cluster shenanigans](https://youtu.be/gPEnfkFM2Hw?t=29422) hit 3rd party observability tools for discovery
 	- like kubecost metrics endpoint, that will report all pods and nodes in the cluster.
@@ -63,6 +74,10 @@ https://github.com/beserkerbob/KubernetesEnumerationTool (Powershell)
 ### Rootkits
 
 - [TripleCross](https://github.com/h3xduck/TripleCross) (2022)
+
+### Sniffer
+
+- [k8s-sniff-https](https://github.com/ofirc/k8s-sniff-https)
 
 ### LolBINS
 - [GTFOBins](https://gtfobins.github.io): list of Unix binaries that can be used to bypass local security restrictions in misconfigured systems
@@ -82,6 +97,11 @@ https://github.com/beserkerbob/KubernetesEnumerationTool (Powershell)
 - [ctrsploit](https://github.com/ctrsploit/ctrsploit)
 
 
+## Catalog of interesting TTPs
+
+-[Unprotect Project](https://unprotect.it/map/)
+
+
 ## Vulnerabilities
 
 ### Vulns supported by ctrsploit 
@@ -96,7 +116,7 @@ https://github.com/beserkerbob/KubernetesEnumerationTool (Powershell)
 - [Elastic Deteciton Rules](https://github.com/elastic/detection-rules/tree/main/rules/linux)
 - [Falco Rules](https://falcosecurity.github.io/rules/)
 
-
+- [K8s Custom Detections](https://github.com/heilancoos/k8s-custom-detections/) repo with a collection of detections + attack scripts to test them
 
 ## LLM Planner
 
