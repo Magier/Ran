@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -20,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
@@ -410,4 +412,102 @@ func ParseNodeList(jsonStr string) (*v1.NodeList, error) {
 	var list v1.NodeList
 	err := json.Unmarshal([]byte(jsonStr), &list)
 	return &list, err
+}
+
+// func StreamToPod(k8sClient *kubernetes.Clientset, config *rest.Config, commandChan <-chan string) {
+// 	// 1. Create a pipe to act as Stdin
+// 	reader, writer := io.Pipe()
+
+// 	// 2. Set up the Exec Request
+// 	req := k8sClient.CoreV1().RESTClient().Post().
+// 		Resource("pods").
+// 		Name("my-pod-name").
+// 		Namespace("default").
+// 		SubResource("exec")
+
+// 	option := &v1.PodExecOptions{
+// 		Command: []string{"/bin/sh"}, // Start a persistent shell
+// 		Stdin:   true,
+// 		Stdout:  true,
+// 		Stderr:  true,
+// 		TTY:     true,
+// 	}
+// 	req.VersionedParams(option, scheme.ParameterCodec)
+
+// 	// 3. Initialize the Executor
+// 	exec, _ := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
+
+// 	// 4. Run the stream in a goroutine
+// 	go func() {
+// 		err := exec.Stream(remotecommand.StreamOptions{
+// 			Stdin:  reader,
+// 			Stdout: os.Stdout,
+// 			Stderr: os.Stderr,
+// 			Tty:    true,
+// 		})
+// 		if err != nil {
+// 			fmt.Printf("Stream failed: %v\n", err)
+// 		}
+// 	}()
+
+// 	// 5. The "Control Loop"
+// 	// This listens to your channel and pushes data into the shell's Stdin
+// 	for cmd := range commandChan {
+// 		fmt.Fprintf(writer, "%s\n", cmd)
+// 	}
+// }
+
+func PersistentExec(ctx context.Context, clientset *kubernetes.Clientset, config *rest.Config, podName, namespace string, cmdChan <-chan string) error {
+	// 1. Prepare the API request
+	req := clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("exec")
+
+	option := &v1.PodExecOptions{
+		Command: []string{"/bin/sh"}, // The persistent shell
+		Stdin:   true,
+		Stdout:  true,
+		Stderr:  true,
+		TTY:     false, // Usually false for programmatic handling (no escape codes)
+	}
+	req.VersionedParams(option, scheme.ParameterCodec)
+
+	// 2. Create the SPDY executor
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
+	if err != nil {
+		return err
+	}
+
+	// 3. Set up the pipes
+	stdinReader, stdinWriter := io.Pipe()
+
+	// Optional: Create a custom writer to capture output programmatically
+	stdoutWriter := os.Stdout
+
+	// 4. Bridge the Go channel to the Stdin pipe
+	go func() {
+		defer stdinWriter.Close()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case cmd, ok := <-cmdChan:
+				if !ok {
+					return
+				}
+				// Append newline so the shell executes the command
+				fmt.Fprintln(stdinWriter, cmd)
+			}
+		}
+	}()
+
+	// 5. Start the stream (this blocks until the shell exits)
+	return exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdin:  stdinReader,
+		Stdout: stdoutWriter,
+		Stderr: os.Stderr,
+		Tty:    false,
+	})
 }
