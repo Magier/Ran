@@ -1,10 +1,12 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { AppBar, Toast } from '@skeletonlabs/skeleton-svelte';
+    import { AppBar, Toast, Switch } from '@skeletonlabs/skeleton-svelte';
     import {setContext} from 'svelte';
     import { page } from '$app/state';
     import IconMap from '~icons/game-icons/treasure-map';
     import IconSteps from '~icons/game-icons/footsteps';
+    import IconSun from '~icons/material-symbols/light-mode';
+    import IconMoon from '~icons/material-symbols/dark-mode';
     import { browser } from '$app/environment';
     import { toaster } from '$lib/components/toaster';
     import '../app.css';
@@ -15,18 +17,47 @@
     setCampaignState();
 
     let isDark: boolean = $state(false)
-    function toggle() { isDark = !isDark; }
+
+    function toggle(details: { checked: boolean }) {
+        isDark = details.checked;
+        if (browser) {
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            updateBodyTheme();
+        }
+    }
+
+    function updateBodyTheme() {
+        if (browser) {
+            document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+        }
+    }
+
     setContext('theme', { get isDark() { return isDark }, toggle });
 
     let mediaQuery: MediaQueryList | null = $state(null);
     onMount(() => {
         if (browser) {
-            mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-            isDark = mediaQuery.matches;
-            const handler = (event: MediaQueryListEvent) => {
-                isDark = event.matches;
-            };
-            mediaQuery.addEventListener("change", handler);
+            // Priority: localStorage > system preference
+            const stored = localStorage.getItem('theme');
+
+            if (stored) {
+                isDark = stored === 'dark';
+            } else {
+                mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+                isDark = mediaQuery.matches;
+
+                const handler = (event: MediaQueryListEvent) => {
+                    // Only update from system preference if user hasn't set explicit preference
+                    if (!localStorage.getItem('theme')) {
+                        isDark = event.matches;
+                        updateBodyTheme();
+                    }
+                };
+                mediaQuery.addEventListener("change", handler);
+            }
+
+            updateBodyTheme();
+
             return () => {
                 mediaQuery?.removeEventListener("change", handler);
             };
@@ -42,7 +73,7 @@
              <AppMenu></AppMenu>
         </AppBar.Lead>
         <AppBar.Trail>
-            <nav class="btn-group preset-outlined-surface-200-800 flex-col md:flex-row p-0"> 
+            <nav class="btn-group preset-outlined-surface-200-800 flex-col md:flex-row p-0">
                 <a class="btn hover:preset-tonal" class:selected={page.url.pathname === '/' || page.url.pathname === ''} href="/">
                     <IconMap class="inline-block text-xl" />
                     Graph
@@ -52,6 +83,24 @@
                     Flow
                 </a>
             </nav>
+        <Switch checked={isDark} onCheckedChange={toggle}>
+            <Switch.Control>
+                <Switch.Thumb>
+                    <Switch.Context>
+                        {#snippet children(switch_)}
+                            {#if switch_().checked}
+                                <IconMoon class="inline-block  size-3" />
+                            {:else}
+                                <IconSun class="inline-block  size-3" />
+                            {/if}
+                        {/snippet}
+                    </Switch.Context>
+                </Switch.Thumb>
+            </Switch.Control>
+            <!-- <Switch.Label>
+            </Switch.Label> -->
+            <Switch.HiddenInput />
+        </Switch>
         </AppBar.Trail>
     </AppBar.Toolbar>
 </AppBar>
