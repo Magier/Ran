@@ -29,6 +29,7 @@
     function updateBodyTheme() {
         if (browser) {
             document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+            document.documentElement.classList.toggle('dark', isDark);
         }
     }
 
@@ -89,9 +90,9 @@
                     <Switch.Context>
                         {#snippet children(switch_)}
                             {#if switch_().checked}
-                                <IconMoon class="inline-block  size-3" />
+                                <IconMoon class="inline-block size-3" />
                             {:else}
-                                <IconSun class="inline-block  size-3" />
+                                <IconSun class="inline-block size-3" />
                             {/if}
                         {/snippet}
                     </Switch.Context>

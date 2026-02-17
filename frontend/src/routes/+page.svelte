@@ -199,8 +199,3 @@
 	{/await}
 </div>
 
-<style>
-	* {
-		color: white;
-	}
-</style>
