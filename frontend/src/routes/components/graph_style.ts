@@ -192,7 +192,7 @@ function mapKindIcons(obj: Object) {
 };
 
 
-export function getGraphStyle() {
+export function getGraphStyle(isDark: boolean = false) {
 	const style = getComputedStyle(document.body)
 	function css(name: string) {
 		if (name[0] != '-') name = '--' + name //allow passing with or without --
@@ -200,10 +200,8 @@ export function getGraphStyle() {
 		return `rgb(${rgb})`;
 	}
 	const primary = css('color-primary-500')
-	// const textColor = css('white')
-	const textColor = 'white'
-	// const textColor = css('text-primary-contrast-200-800')
-	const selectedTextColor = css('white')
+	const textColor = isDark ? 'white' : 'black';
+	const selectedTextColor = textColor;
 	const surface = css('color-surface-500');
 
 
@@ -453,7 +451,7 @@ export function getGraphStyle() {
 				'font-size': '10',
 				'text-margin-y': '-10px',
 				width: '1',
-				color: 'white',
+				color: textColor,
 				'target-arrow-shape': 'triangle',
 				content: 'data(name)'
 				// 'line-color': 'gray',

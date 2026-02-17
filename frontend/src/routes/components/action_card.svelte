@@ -82,18 +82,18 @@
 			{#each Object.entries(ttp.requires) as [name, value]}
 				{#if !!value}
 					{#if name === 'kind'}
-						<span class="badge bg-tertiary-950 text-tertiary-contrast-200-800">
+						<span class="badge bg-tertiary-100-900 text-tertiary-contrast-200-800">
 							<Icon icon={'carbon-hexagon-outline'} width="16"></Icon>
 							{value}
 						</span>
 					 {:else if name === 'accessLevel'}
-						<span class="badge bg-success-950 text-secondary-contrast-200-800">
+						<span class="badge bg-success-100-900 text-secondary-contrast-200-800">
 							<Icon icon={'carbon-user-admin'} width="16"></Icon>
 							{value}
 						</span>
 					{:else if name === 'rbacPermissions'}
 						{#each Array.from(value ?? []) as perms}
-							<span class="badge bg-success-950 text-secondary-contrast-200-800">
+							<span class="badge bg-success-100-900 text-secondary-contrast-200-800">
 								<Icon icon={'carbon-user-admin'} width="16"></Icon>
 								{formatRbac(perms as { verb?: string; resourceType?: string })}
 							</span>
@@ -106,7 +106,7 @@
 						{/each}
 					{:else}
 						<!-- adjust chip style if the condition is fullfilled or not -->
-						<span class="badge bg-surface-950 text-secondary-contrast-200-800">
+						<span class="badge bg-surface-100-900 text-secondary-contrast-200-800">
 							<!-- <span class="chip variant-filled-surface mr-1 max-w-full truncate"> -->
 							{name}: {JSON.stringify(value)}
 						</span>

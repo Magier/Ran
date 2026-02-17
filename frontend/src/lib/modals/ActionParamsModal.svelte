@@ -295,7 +295,7 @@
 		<div class="ig-cell preset-tonal">{arg.Name}</div>
 		{#if arg.Type === 'bool'}
 			<input
-				class="ig-input"
+				class="checkbox ml-8"
 				bind:checked={arg.IsTrue}
 				type="checkbox"
 				placeholder={arg.Description}

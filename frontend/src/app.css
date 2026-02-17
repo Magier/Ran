@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @plugin "@tailwindcss/forms";
 
+@custom-variant dark (&:where(.dark, .dark *));
 
 @import '@skeletonlabs/skeleton';
 @import '@skeletonlabs/skeleton/themes/cerberus';

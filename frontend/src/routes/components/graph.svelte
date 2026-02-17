@@ -56,7 +56,17 @@
 	let existingNodes: cytoscape.NodeCollection = cytoscape().collection();
 	let previousNodeIds: Set<string> = new Set();
 
-	const theme = getContext('theme');
+	const theme: { isDark: boolean } = getContext('theme');
+
+	// Re-apply cytoscape styles when theme changes
+	$effect(() => {
+		const isDark = theme.isDark;
+		if (cy) {
+			const textColor = isDark ? 'white' : 'black';
+			cy.nodes().style('color', textColor);
+			cy.edges().style('color', textColor);
+		}
+	});
 
 	onMount(() => {
 		if (browser) {
@@ -71,7 +81,7 @@
 				nodes: nodes,
 				edges: edges
 			},
-			style: getGraphStyle(),
+			style: getGraphStyle(theme.isDark),
 			layout: layout,
 			zoom: zoom,
 			wheelSensitivity: 0.1
