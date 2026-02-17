@@ -901,8 +901,8 @@ func TestWorkloadAnalysisDifferentNamespace(t *testing.T) {
 
 // Helper function to extract pod name from entity ID
 func extractPodNameFromId(id string) string {
-	// Assuming ID format contains the pod name
-	return id
+	parts := strings.Split(id, "/")
+	return parts[len(parts)-1]
 }
 
 // Helper function to check if string is in slice

@@ -211,7 +211,7 @@ func TestParseEffect_DeleteK8sPod(t *testing.T) {
 	ns := "test-ns"
 	name := "mypod"
 	source := domain.NewPod(name, ns)
-	args := map[string]string{"Name": name, "Namespace": ns}
+	args := map[string]string{"PodName": name, "Namespace": ns}
 	c := NewCampaign(nil)
 	updatedFacts, err := c.ParseEffect("delete k8s.pod", source, args, results...)
 
