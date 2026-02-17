@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"net"
 	"strconv"
@@ -12,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/Magier/Ran/domain"
-	k8s "github.com/Magier/Ran/k8sclient"
 )
 
 var builtinC2Mutex sync.Mutex
@@ -350,10 +348,10 @@ func (s PodExecSession) Start(ctx context.Context, namespace, podName string) {
 
 	// Implement the logic to start the Pod Exec session
 	fmt.Printf("--- Opening shell to %s/%s ---\n", namespace, podName)
-	err := k8s.PersistentExec(ctx, clientset, config, podName, namespace, cmdChan)
-	if err != nil {
-		log.Fatalf("Shell session failed: %v", err)
-	}
+	// err := k8s.PersistentExec(ctx, clientset, config, podName, namespace, cmdChan)
+	// if err != nil {
+	// 	log.Fatalf("Shell session failed: %v", err)
+	// }
 	fmt.Println("--- Shell session closed ---")
 }
 
@@ -372,4 +370,5 @@ func (c *BuiltInC2Server) EstablishPodExecShell(ctx context.Context, namespace, 
 	// 4. Run the persistent shell in a goroutine
 	go func() {
 	}()
+	return nil
 }

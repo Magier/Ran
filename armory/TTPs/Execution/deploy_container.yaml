@@ -3,7 +3,7 @@ description: Deploy a container into an environment to facilitate execution or e
 tactic: Execution
 techniques: ["Deploy Container", T1610]
 parameters:
-  Name:
+  PodName:
     type: string
     description: the name of the resulting workload. The name must be RFC 1123 compliant.
     default: ${POD_NAME}-${RANDOM}
@@ -62,7 +62,7 @@ procedures:
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {
-          "name": "{{.Name}}",
+          "name": "{{.PodName}}",
           "namespace": "{{.Namespace}}"
         },
         "spec": {
@@ -72,7 +72,7 @@ procedures:
           "serviceAccountName": "{{.ServiceAccount }}",
           "nodeName": "{{.NodeName}}",
           "containers": [{
-              "name": "{{.Name}}",
+              "name": "{{.PodName}}",
               "image": "{{.Image}}",
               "command": ["sleep", "infinity"],
                 "securityContext": {
@@ -91,7 +91,7 @@ procedures:
         }
       }' | kubectl apply -f -  
       && 
-      kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/{{.Name}}
+      kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/{{.PodName}}
 preconditions:
   rbac: "create Pod"
 effects:
