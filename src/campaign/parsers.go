@@ -180,7 +180,7 @@ func parsePod(args map[string]string, results ...string) (domain.Pod, error) {
 	if numArgs < 2 {
 		return domain.Pod{}, fmt.Errorf("Not enough arguments provided: expected at least 2, got %d", numArgs)
 	}
-	podName = args["Name"]
+	podName = args["PodName"]
 	nsName = args["Namespace"]
 
 	if numArgs >= 3 {

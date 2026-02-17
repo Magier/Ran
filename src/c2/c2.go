@@ -223,6 +223,16 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 					slog.Warn(fmt.Sprintf("No client found for C2 '%s' to close", exec.Procedure.Tool))
 				}
 			}
+		} else if strings.HasPrefix(exec.Procedure.Command, "setTarget") {
+			if createSession, ok := exec.Args["Session"]; ok && createSession == "true" {
+				ranC2 := c2.clients[BuiltInC2].(*BuiltInC2Server)
+				// ranC2.SetTarget(exec.C2Channel.GetTarget())
+				ranC2.EstablishPodExecShell(ctx, exec.Args["Namespace"], exec.Args["PodName"])
+				results = append(results, "ok")
+			} else {
+				// this is a special case, as it does not execute a command, but sets the target for the next commands on the same channel
+				results = append(results, "ok")
+			}
 		} else if hasC2Client && c2Client.IsReady() {
 			msg, err := c2Client.Execute(exec)
 			if err != nil {
@@ -398,7 +408,7 @@ func execLocally(ctx context.Context, exec domain.ExecTTP, procedure domain.Proc
 			cmd.Stderr = &stderr
 			err := cmd.Run()
 			if err != nil {
-				return nil, fmt.Errorf("Failed to  execute procedure '%s' locally: %s", procedure.Command, stderr.String())
+				return nil, fmt.Errorf("Failed to execute procedure '%s' locally: %s", procedure.Command, stderr.String())
 			}
 			return []string{stdout.String(), stderr.String()}, nil
 		}
@@ -518,36 +528,43 @@ func GetOutboundIP() net.IP {
 	return localAddr.IP
 }
 
-func execKubectl(ctx context.Context, cmd domain.Procedure, target domain.Entity) (string, string, error) {
-	client, err := k8s.NewK8sClient("")
-	if err != nil {
-		return "", "", err
-	}
-
-	var targetName string
+func getPodNameAndNamespace(target domain.Entity) (string, string, error) {
+	// TODO: handle case of multiple containers
+	var podName string
 	var targetNs string
 	// ensure target is actually a pod
 	if pod, ok := target.(domain.Pod); ok {
-		targetName = target.GetName()
+		podName = target.GetName()
 		targetNs = pod.Namespace
 	} else if workload, ok := target.(domain.Workload); ok {
 		pods := workload.GetPods()
 		if len(pods) > 0 {
 			pod = pods[0]
-			targetName = pod.Name
+			podName = pod.Name
 			targetNs = pod.Namespace
 		} else {
 			return "", "", fmt.Errorf("No target pod found in workload '%s'", target.GetName())
 		}
 	} else if e, ok := target.(domain.K8sEntity); ok {
 		if e.Kind == "Pod" {
-			targetName = e.Name
+			podName = e.Name
 			targetNs = e.Namespace
 		}
 	}
+	return targetNs, podName, nil
+}
 
-	// TODO: handle case of multiple containers
-	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, targetName, targetNs, cmd.Command)
+func execKubectl(ctx context.Context, cmd domain.Procedure, target domain.Entity) (string, string, error) {
+	client, err := k8s.NewK8sClient("")
+	if err != nil {
+		return "", "", err
+	}
+
+	targetNs, podName, err := getPodNameAndNamespace(target)
+	if err != nil {
+		return "", "", err
+	}
+	stdOut, stdErr, err := k8s.ExecInPod(ctx, client, podName, targetNs, cmd.Command)
 	return stdOut, stdErr, err
 }
 

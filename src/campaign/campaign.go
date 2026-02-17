@@ -123,40 +123,17 @@ func (c *Campaign) ExecuteAction(ctx context.Context, ev domain.ActionSelected) 
 	var execCmd domain.ExecTTP
 	var err error
 
-	if ttp.Tactic == mitre.InitialAccess {
-		ns := ev.Args["Namespace"]
-		name := ev.Args["TargetName"]
-
-		// fallback to targetID if no explicit targetname is provided
-		if name == "" && ev.TargetID != "cluster" {
-			name = ev.TargetID
-		}
-
-		if strings.HasPrefix(name, "ns/") {
-			ns, _, name, err = UnpackResourceID(name)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Failed to unpack resource ID '%s': %v", name, err))
-				return err
-			}
-		}
-
-		execCmd, err = c.SetTarget(ns, name)
-		if err == nil {
-			execCmd.ID = ev.CmdId
-		}
+	execCmd, err = c.GroundAction(ttp, ev.TargetID, ev.ProcedureID, ev.Args)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
+		return err
 	} else {
-		execCmd, err = c.GroundAction(ttp, ev.TargetID, ev.ProcedureID, ev.Args)
-		if err != nil {
-			slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
-			return err
-		} else {
-			// remember the system we are executing from, to continue the attack from there
-			c.lastExecSystem, ok = execCmd.Target.(domain.System)
-			execCmd.ID = ev.CmdId
-			if !ok {
-				slog.Warn("Executed TTP target is not a system, can't continue the attack from there")
-				c.lastExecSystem = nil
-			}
+		// remember the system we are executing from, to continue the attack from there
+		c.lastExecSystem, ok = execCmd.Target.(domain.System)
+		execCmd.ID = ev.CmdId
+		if !ok {
+			slog.Warn("Executed TTP target is not a system, can't continue the attack from there")
+			c.lastExecSystem = nil
 		}
 	}
 
@@ -459,6 +436,9 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 		execCmd.Procedure.Execute.Parameters = args
 	}
 	execCmd.Procedure.Command = c.groundCmdTemplate(execCmd.Procedure.Command, args)
+	for i, effect := range execCmd.TTP.Effects {
+		execCmd.TTP.Effects[i] = c.groundCmdTemplate(effect, args)
+	}
 
 	// build the final command
 	if finalCmd, err := c.buildFinalCommand(execCmd.C2Channel, execCmd.Procedure); err == nil {
