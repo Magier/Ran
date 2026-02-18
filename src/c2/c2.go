@@ -36,8 +36,10 @@ type C2Client interface {
 }
 
 type C2Manager struct {
-	bus     bus.MessageBus
-	clients map[string]C2Client
+	bus          bus.MessageBus
+	clients      map[string]C2Client
+	clientsMutex sync.RWMutex
+	newClientCh  chan C2Client
 }
 
 type ExecError struct {
@@ -49,18 +51,20 @@ func (e ExecError) Error() string {
 	return fmt.Sprintf("(code %d): %s", e.ExitCode, e.Message)
 }
 
-func InitC2Manager(mb bus.MessageBus) C2Manager {
+func InitC2Manager(mb bus.MessageBus) *C2Manager {
 	c2Clients := map[string]C2Client{
 		BuiltInC2: NewBuiltInServer(),
 	}
 
-	manager := C2Manager{
-		bus:     mb,
-		clients: c2Clients,
+	manager := &C2Manager{
+		bus:         mb,
+		clients:     c2Clients,
+		newClientCh: make(chan C2Client, 5), // Buffered to prevent blocking
 	}
 
 	mb.Subscribe(domain.C2Connected{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		ev := msg.(domain.C2Connected)
+		manager.clientsMutex.Lock()
 		client, ok := manager.clients[ev.Name]
 		var err error
 		if ok {
@@ -68,6 +72,7 @@ func InitC2Manager(mb bus.MessageBus) C2Manager {
 		} else {
 			err = fmt.Errorf("No suitable client found to update C2 state")
 		}
+		manager.clientsMutex.Unlock()
 		return nil, err
 	})
 
@@ -94,23 +99,124 @@ func InitC2Manager(mb bus.MessageBus) C2Manager {
 }
 
 func (c2 *C2Manager) Start(ctx context.Context) error {
-	// TODO: send command after actually conncting to C2, with the right IP(s)
-	c2EventStreams := make([]<-chan domain.Event, len(c2.clients))
+	// Connect to all initial clients and collect their event streams
+	c2.clientsMutex.RLock()
+	initialClients := make([]C2Client, 0, len(c2.clients))
 	for _, client := range c2.clients {
+		initialClients = append(initialClients, client)
+	}
+	c2.clientsMutex.RUnlock()
+
+	for _, client := range initialClients {
 		err := client.Connect(ctx)
 		if err != nil {
-			slog.Error("Failed to connect to C2 server: " + err.Error())
-		} else {
-			c2EventStreams = append(c2EventStreams, client.GetEventStream())
+			slog.Error("Failed to connect to C2 server", "error", err)
 		}
 	}
 
-	for event := range fanIn[domain.Event](c2EventStreams...) {
-		err := c2.bus.Publish(event)
-		if err != nil {
-			slog.Error("Failed to publish C2 event: " + err.Error())
+	// Create a dynamic event multiplexer that can handle new clients
+	eventChan := make(chan domain.Event, 100)
+	wg := sync.WaitGroup{}
+
+	// Track active event stream goroutines
+	activeStreams := make(map[string]context.CancelFunc)
+	streamsMutex := sync.Mutex{}
+
+	// Helper to start monitoring a client's event stream
+	startEventStream := func(client C2Client) {
+		stream := client.GetEventStream()
+		if stream == nil {
+			return
 		}
+
+		streamsMutex.Lock()
+		// Check if already monitoring this client
+		if _, exists := activeStreams[client.GetName()]; exists {
+			streamsMutex.Unlock()
+			return
+		}
+
+		// Create a cancellable context for this stream
+		streamCtx, streamCancel := context.WithCancel(ctx)
+		activeStreams[client.GetName()] = streamCancel
+		streamsMutex.Unlock()
+
+		wg.Add(1)
+		go func(clientName string) {
+			defer wg.Done()
+			defer func() {
+				streamsMutex.Lock()
+				delete(activeStreams, clientName)
+				streamsMutex.Unlock()
+			}()
+
+			for {
+				select {
+				case <-streamCtx.Done():
+					return
+				case event, ok := <-stream:
+					if !ok {
+						return
+					}
+					select {
+					case eventChan <- event:
+					case <-streamCtx.Done():
+						return
+					}
+				}
+			}
+		}(client.GetName())
 	}
+
+	// Start monitoring initial clients
+	for _, client := range initialClients {
+		startEventStream(client)
+	}
+
+	// Main event loop: handle events and new clients
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				slog.Debug("C2 Manager context cancelled")
+				return
+
+			case client, ok := <-c2.newClientCh:
+				if !ok {
+					slog.Debug("New client channel closed")
+					return
+				}
+				slog.Info("Adding event stream for new C2 client", "client", client.GetName())
+				startEventStream(client)
+
+			case event, ok := <-eventChan:
+				if !ok {
+					slog.Debug("Event channel closed")
+					return
+				}
+				if err := c2.bus.Publish(event); err != nil {
+					slog.Error("Failed to publish C2 event", "error", err)
+				}
+			}
+		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+
+	// Cancel all active streams
+	streamsMutex.Lock()
+	for _, cancel := range activeStreams {
+		cancel()
+	}
+	streamsMutex.Unlock()
+
+	// Close channels and wait for goroutines
+	close(c2.newClientCh)
+	close(eventChan)
+	wg.Wait()
 
 	slog.Debug("Stopping C2 layer")
 	return nil
@@ -139,31 +245,66 @@ func fanIn[T domain.Event](channels ...<-chan T) chan T {
 	return output
 }
 
-func (c2 C2Manager) StartC2Client(ctx context.Context, c2Name string) (domain.Message, error) {
+func (c2 *C2Manager) StartC2Client(ctx context.Context, c2Name string) (domain.Message, error) {
+	c2.clientsMutex.RLock()
 	client, ok := c2.clients[c2Name]
+	c2.clientsMutex.RUnlock()
+
 	if !ok {
 		return nil, fmt.Errorf("'%s' is not a valid C2 server to connect to", c2Name)
 	}
+
 	err := client.Connect(ctx)
 	if err != nil {
 		return nil, err
 	}
-	c2EventStream := client.GetEventStream()
 
-	wg := sync.WaitGroup{}
-	go func() {
-		defer wg.Done()
-		for ev := range c2EventStream {
-			err := c2.bus.Publish(ev)
-			if err != nil {
-				slog.Error("Failed to publish C2 event: " + err.Error())
+	// Notify the Start function about the new client so it can monitor its event stream
+	select {
+	case c2.newClientCh <- client:
+		slog.Info("Notified C2 Manager about new client", "client", c2Name)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		slog.Warn("Could not notify about new client (channel full)", "client", c2Name)
 			}
-		}
-	}()
+
 	return nil, nil
 }
 
-func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.Message, error) {
+// AddClient adds a new C2 client at runtime and integrates it with the event system
+func (c2 *C2Manager) AddClient(ctx context.Context, name string, client C2Client) error {
+	c2.clientsMutex.Lock()
+	if _, exists := c2.clients[name]; exists {
+		c2.clientsMutex.Unlock()
+		return fmt.Errorf("client '%s' already exists", name)
+	}
+	c2.clients[name] = client
+	c2.clientsMutex.Unlock()
+
+	// Connect the client
+	if err := client.Connect(ctx); err != nil {
+		// Remove the client if connection fails
+		c2.clientsMutex.Lock()
+		delete(c2.clients, name)
+		c2.clientsMutex.Unlock()
+		return fmt.Errorf("failed to connect client '%s': %w", name, err)
+	}
+
+	// Notify the Start function about the new client so it can monitor its event stream
+	select {
+	case c2.newClientCh <- client:
+		slog.Info("Added and connected new C2 client", "client", name)
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		slog.Warn("Could not notify about new client (channel full), events may be delayed", "client", name)
+	}
+
+	return nil
+}
+
+func (c2 *C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	exec := msg.(domain.ExecTTP)
 	// check technique to execute CMD -> kubectl exec uses API
 	// or shell listener?
@@ -175,14 +316,18 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 	if exec.CommandMsg != nil {
 		switch cmd := exec.CommandMsg.(type) {
 		case domain.StartListener:
+			c2.clientsMutex.RLock()
 			client, ok := selectClient(c2.clients, cmd.Server, true)
+			c2.clientsMutex.RUnlock()
 			if ok {
 				resMsg, err = client.Execute(cmd)
 			} else {
 				err = fmt.Errorf("No suitable client found to start listener")
 			}
 		case domain.StopListener:
+			c2.clientsMutex.RLock()
 			client, ok := selectClient(c2.clients, cmd.Server, true)
+			c2.clientsMutex.RUnlock()
 			if ok {
 				resMsg, err = client.Execute(cmd)
 			} else {
@@ -195,7 +340,9 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 			_ = c2.bus.Publish(resMsg)
 		}
 	} else {
+		c2.clientsMutex.RLock()
 		c2Client, hasC2Client := selectClient(c2.clients, exec.Procedure.Tool, false)
+		c2.clientsMutex.RUnlock()
 
 		if strings.HasPrefix(exec.Procedure.Command, "c2") {
 			switch exec.Procedure.Command {
@@ -203,7 +350,9 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 				if exec.Procedure.Tool == SliverKind {
 					cfgPath := exec.Args["CONFIG_PATH"]
 					if sliverClient, err := CreateSliverClient(cfgPath); err == nil {
+						c2.clientsMutex.Lock()
 						c2.clients[SliverKind] = &sliverClient
+						c2.clientsMutex.Unlock()
 					} else {
 						return nil, fmt.Errorf("Failed to create Sliver client: %w", err)
 					}
@@ -218,17 +367,26 @@ func (c2 C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain.
 			case "c2.close":
 				if hasC2Client {
 					c2Client.Shutdown()
+					c2.clientsMutex.Lock()
 					delete(c2.clients, exec.Procedure.Tool)
+					c2.clientsMutex.Unlock()
 				} else {
 					slog.Warn(fmt.Sprintf("No client found for C2 '%s' to close", exec.Procedure.Tool))
 				}
 			}
 		} else if strings.HasPrefix(exec.Procedure.Command, "setTarget") {
 			if createSession, ok := exec.Args["Session"]; ok && createSession == "true" {
+				c2.clientsMutex.RLock()
 				ranC2 := c2.clients[BuiltInC2].(*BuiltInC2Server)
+				c2.clientsMutex.RUnlock()
 				// ranC2.SetTarget(exec.C2Channel.GetTarget())
-				ranC2.EstablishPodExecShell(ctx, exec.Args["Namespace"], exec.Args["PodName"])
+				err := ranC2.EstablishPodExecShell(ctx, exec.Args["Namespace"], exec.Args["PodName"])
+				if err != nil {
+					slog.Error("Failed to set target for session: " + err.Error())
+					results = append(results, "Failed to set target for session: "+err.Error())
+				} else {
 				results = append(results, "ok")
+				}
 			} else {
 				// this is a special case, as it does not execute a command, but sets the target for the next commands on the same channel
 				results = append(results, "ok")
