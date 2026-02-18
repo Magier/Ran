@@ -26,7 +26,7 @@ type Ran struct {
 	Bus      bus.MessageBus
 	Armory   *armory.Armory
 	Campaign *campaign.Campaign
-	C2       c2.C2Manager
+	C2       *c2.C2Manager
 	target   string
 	ctx      context.Context
 }
