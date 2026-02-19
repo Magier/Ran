@@ -6,9 +6,6 @@ parameters:
   URL:
     type: string
     description: the url from where to download the binary
-  SRC_BIN:
-    type: string
-    description: the name of the binary on the fileshare
   DST_BIN:
     type: string
     description: the destination path of the binary at the remote system
@@ -18,9 +15,9 @@ args:
   DST_BIN: "/tmp/pause"
 procedures:
   - key: curl
-    command: curl -L ${URL} -o ${DST_BIN}  && chmod +x ${DST_BIN} && ${DST_BIN} &
+    command: curl -L ${URL} -o ${DST_BIN}  && chmod +x ${DST_BIN} 
   - key: wget
-    command: wget ${URL} -O ${DST_BIN} && chmod +x ${DST_BIN} && ${DST_BIN} &
+    command: wget ${URL} -O ${DST_BIN} && chmod +x ${DST_BIN} 
 preconditions:
   kind: System
   accessLevel: "user-exec"
