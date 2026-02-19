@@ -40,33 +40,45 @@ export type EntityId = {
 }
 
 export function parseEntityId(entityId: string): EntityId {
-    // example id is "ns/<namespace>/<kind>/<name>"
-    // Check if the string starts with "ns/"
-    if (!entityId.startsWith('ns/')) {
-        throw new Error('Entity ID must start with "ns/"');
-    }
+    // Namespaced resource: "ns/<namespace>/<kind>/<name>"
+    // Cluster-wide resource: "<kind>/<name>"
+    
+    // Check if the string starts with "ns/" (namespaced resource)
+    if (entityId.startsWith('ns/')) {
+        // Split the string by '/'
+        const parts = entityId.split('/');
 
-    // Split the string by '/'
-    const parts = entityId.split('/');
-
-    // We expect at least 4 parts: ["ns", "<namespace>", "<kind>", "<name>"]
-    if (parts.length == 2) {
-        return {
-            name: parts[1],
-            namespace: '',
-            kind: 'namespace'
+        // We expect at least 4 parts: ["ns", "<namespace>", "<kind>", "<name>"]
+        if (parts.length == 2) {
+            return {
+                name: parts[1],
+                namespace: '',
+                kind: 'namespace'
+            }
         }
-    }
-    if (parts.length < 4) {
-        throw new Error('Invalid entity ID format');
-    }
+        if (parts.length < 4) {
+            throw new Error('Invalid namespaced entity ID format');
+        }
 
-    // Extract the components
-    const ns = parts[1];
-    const kind = parts[2];
-    const name = parts[3];
+        // Extract the components
+        const ns = parts[1];
+        const kind = parts[2];
+        const name = parts[3];
 
-    return { name, namespace: ns, kind };
+        return { name, namespace: ns, kind };
+    } else {
+        // Cluster-wide resource: <kind>/<name>
+        const parts = entityId.split('/');
+        
+        if (parts.length < 2) {
+            throw new Error('Invalid cluster-wide entity ID format');
+        }
+        
+        const kind = parts[0];
+        const name = parts[1];
+        
+        return { name, namespace: '', kind };
+    }
 }
 
 
