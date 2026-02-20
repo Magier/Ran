@@ -5,11 +5,12 @@ techniques: ["Container and Resource Discovery", T1613]
 preconditions:
   kind: Node
   rbac:
-    verb: get
-    resource: ["nodes", "nodes/pods"]
+  - verb: get
+    resource: "nodes"
+  - verb: get
+    resource: "nodes/pods"
   #rbac: system:authenticated
   # accessLevel: user-read
-  # SA can-read node/proxy
 parameters:
   NODE:
     type: string

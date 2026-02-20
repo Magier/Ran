@@ -48,7 +48,9 @@ procedures:
       kubectl debug ${KIND}/${TARGET} -n=${NAMESPACE} --image=${IMAGE} --container=${NAME} --profile=${PROFILE} -- ${COMMAND}
 preconditions:
   kind: Pod
-  rbac: "patch pod"
+  rbac: 
+    - verb: patch
+      resource: pods
 effects:
   - $d isa k8s.Deployment(${TARGET})
   - $d.hasPod($p)

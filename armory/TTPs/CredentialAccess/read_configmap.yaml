@@ -3,7 +3,11 @@ description: Get a Kubernetes ConfigMaps via the API server
 tactic: Credential Access
 techniques: ["Unsecured Credentials: Container API", "T1552.007"]
 preconditions:
-  rbac: "get/list configmap"
+  rbac: 
+    - verb: "get"
+      resource: "configmap"
+    - verb: "list"
+      resource: "configmap"
 parameters:
   TOKEN:
     type: ServiceAccount

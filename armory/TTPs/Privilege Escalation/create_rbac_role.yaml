@@ -24,7 +24,9 @@ procedures:
       kubectl create role ${ROLE_NAME} --verb=* --resource=* --token=${TOKEN} --namespace=${NAMESPACE}
 preconditions:
   kind: ServiceAccount
-  rbac: create role
+  rbac: 
+    - verb: create
+      resource: roles
 effects:
   - create k8s.Role
 # cmd: {}

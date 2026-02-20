@@ -36,7 +36,9 @@ procedures:
         -n ${NAMESPACE}
 preconditions:
   kind: Deployment
-  rbac: "patch deployment"
+  rbac: 
+    - verb: patch
+      resource: deployments
 effects:
   - $d isa k8s.Deployment(${TARGET})
   - $d.hasPod($p)

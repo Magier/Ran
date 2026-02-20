@@ -18,6 +18,8 @@ procedures:
 preconditions:
   kind: ServiceAccount
   accessLevel: user-read
-  rbac: "create serviceaccount/token"
+  rbac: 
+    - verb: create 
+      resource: serviceaccount/token
 effects:
   - rawServiceaccountToken

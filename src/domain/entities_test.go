@@ -92,7 +92,7 @@ func TestRequirements_Satisfied(t *testing.T) {
 		},
 		{
 			name: "RBACPermission required but not present returns false",
-			req:  Requirements{Kind: "Pod", AccessLevel: UserRead, RBACPermission: RBACPermission{Verb: "get", ResourceType: "pods"}},
+			req:  Requirements{Kind: "Pod", AccessLevel: UserRead, RBACPermissions: []RBACPermission{{Verb: "get", ResourceType: "pods"}}},
 			args: args{
 				target:      K8sEntity{Name: "nginx", Kind: "Pod"},
 				accessLevel: UserRead,
@@ -102,7 +102,7 @@ func TestRequirements_Satisfied(t *testing.T) {
 		},
 		{
 			name: "RBACPermission required and wildcard present returns true",
-			req:  Requirements{Kind: "Pod", AccessLevel: UserRead, RBACPermission: RBACPermission{Verb: "get", ResourceType: "pods"}},
+			req:  Requirements{Kind: "Pod", AccessLevel: UserRead, RBACPermissions: []RBACPermission{{Verb: "get", ResourceType: "pods"}}},
 			args: args{
 				target:      K8sEntity{Name: "nginx", Kind: "Pod"},
 				accessLevel: UserRead,
