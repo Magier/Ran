@@ -32,12 +32,12 @@ type Condition interface {
 }
 
 type Requirements struct {
-	Kind           IsOfKind               `yaml:"kind"`
-	AccessLevel    AccessLevel            `yaml:"accessLevel" json:"accessLevel"`
-	RBACPermission RBACPermission         `yaml:"rbac" json:"rbac,omitzero"`
-	State          State                  `yaml:"-" json:"-"` // check for existing entities
-	Exists         EntitiesExists         // relates to the state
-	OtherFields    map[string]interface{} `yaml:",inline"` // Inline captures untagged fields
+	Kind            IsOfKind               `yaml:"kind"`
+	AccessLevel     AccessLevel            `yaml:"accessLevel" json:"accessLevel"`
+	RBACPermissions []RBACPermission       `yaml:"rbac" json:"rbac,omitzero"`
+	State           State                  `yaml:"-" json:"-"`          // check for existing entities
+	Exists          EntitiesExists         `yaml:"exists,omitempty"`    // relates to the state
+	OtherFields     map[string]interface{} `yaml:",inline,omitempty"` // Inline captures untagged fields
 }
 
 const SystemKind = "System"
@@ -57,13 +57,15 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 		return false
 	}
 
-	if r.RBACPermission.Verb != "" {
-		_, ok := state.Entitlements[r.RBACPermission.String()]
-		if !ok {
-			// TODO: temporary workaround to check for wildcard permissions
-			nsAdmin := RBACPermission{Verb: "*", ResourceType: "*"}
-			if _, ok := state.Entitlements[nsAdmin.String()]; !ok {
-				return false
+	if len(r.RBACPermissions) > 0 {
+		for _, perm := range r.RBACPermissions {
+			_, ok := state.Entitlements[perm.String()]
+			if !ok {
+				// TODO: temporary workaround to check for wildcard permissions
+				nsAdmin := RBACPermission{Verb: "*", ResourceType: "*"}
+				if _, ok := state.Entitlements[nsAdmin.String()]; !ok {
+					return false
+				}
 			}
 		}
 	}
@@ -842,12 +844,12 @@ func (ns Namespace) GetKind() string {
 }
 
 type RBACPermission struct {
-	Verb         string `json:"verb,omitzero"`
-	ResourceName string `json:"resourceName,omitzero"`
-	ResourceType string `json:"resourceType,omitzero"`
-	APIGroup     string `json:"apiGroup,omitzero"`
-	Scope        string `json:"scope,omitzero"`      // "" is invalid, "*" =cluster-wide, any string = namespaces
-	SourceRole   string `json:"sourceRole,omitzero"` // the (cluster)role which provides this permissions
+	Verb         string `yaml:"verb" json:"verb,omitzero"`
+	ResourceName string `yaml:"resourceName" json:"resourceName,omitzero"`
+	ResourceType string `yaml:"resource" json:"resource,omitzero"`
+	APIGroup     string `yaml:"apiGroup" json:"apiGroup,omitzero"`
+	Scope        string `yaml:"scope" json:"scope,omitzero"`           // "" is invalid, "*" =cluster-wide, any string = namespaces
+	SourceRole   string `yaml:"sourceRole" json:"sourceRole,omitzero"` // the (cluster)role which provides this permissions
 }
 
 func (p RBACPermission) String() string {
@@ -864,6 +866,30 @@ func (p RBACPermission) String() string {
 
 // Implements the Unmarshaler interface of the yaml pkg.
 func (p *RBACPermission) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try to unmarshal as a struct first (new format with fields)
+	var data struct {
+		Verb         string `yaml:"verb"`
+		ResourceName string `yaml:"resourceName"`
+		ResourceType string `yaml:"resource"`
+		APIGroup     string `yaml:"apiGroup"`
+		Scope        string `yaml:"scope"`
+		SourceRole   string `yaml:"sourceRole"`
+	}
+
+	if err := unmarshal(&data); err == nil && (data.Verb != "" || data.ResourceType != "") {
+		// Successfully unmarshaled as struct
+		*p = RBACPermission{
+			Verb:         data.Verb,
+			ResourceName: data.ResourceName,
+			ResourceType: data.ResourceType,
+			APIGroup:     data.APIGroup,
+			Scope:        data.Scope,
+			SourceRole:   data.SourceRole,
+		}
+		return nil
+	}
+
+	// Fall back to string format (old format like "create pods")
 	var s string
 	if err := unmarshal(&s); err != nil {
 		return err

@@ -145,6 +145,34 @@ func renderRequirementBadges(r domain.Requirements, cond domain.Requirements, s 
 	p := s.GetPaddingLeft()
 	badgeStyle := s.PaddingLeft(0).Foreground(theme.NegativeColor)
 
+	// Format RBAC permissions for display
+	rbacLabel := ""
+	rbacEnforce := len(r.RBACPermissions) > 0
+	rbacSatisfied := false
+	if rbacEnforce {
+		// Check if all required permissions are satisfied
+		rbacSatisfied = true
+		for _, reqPerm := range r.RBACPermissions {
+			permSatisfied := false
+			for _, condPerm := range cond.RBACPermissions {
+				if reqPerm == condPerm {
+					permSatisfied = true
+					break
+				}
+			}
+			if !permSatisfied {
+				rbacSatisfied = false
+				break
+			}
+		}
+		// Create label from all permissions
+		permLabels := []string{}
+		for _, perm := range r.RBACPermissions {
+			permLabels = append(permLabels, perm.String())
+		}
+		rbacLabel = "can " + strings.Join(permLabels, ", ")
+	}
+
 	checks := []struct {
 		enforce   bool
 		satisfied bool
@@ -152,7 +180,7 @@ func renderRequirementBadges(r domain.Requirements, cond domain.Requirements, s 
 	}{
 		{r.AccessLevel.IsSet(), cond.AccessLevel.Satisfies(r.AccessLevel), r.AccessLevel.String()},
 		{r.Kind.IsSet(), cond.Kind.Satisfies(r.Kind), "is " + string(r.Kind)},
-		{r.RBACPermission.IsSet(), cond.RBACPermission == r.RBACPermission, "can " + string(r.RBACPermission.Verb)},
+		{rbacEnforce, rbacSatisfied, rbacLabel},
 		{r.Exists.IsSet(), len(r.Exists) > 0 && cond.State.Satisfies(r.Exists), r.Exists.String()},
 	}
 

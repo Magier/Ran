@@ -93,7 +93,9 @@ procedures:
       && 
       kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/{{.PodName}}
 preconditions:
-  rbac: "create Pod"
+  rbac: 
+    - verb: create
+      resource: pods
 effects:
   - create k8s.Pod
   - Namespace($ns)

@@ -600,7 +600,7 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 			if strings.Contains(errMsg, "is forbidden: User") { // heuristic: use this as hint for RBAC issue
 				if sa, err := parseViolatingRBACIdentity(errMsg); err == nil {
 					entities = append(entities, sa)
-					failReason = fmt.Sprintf("%s has not the permissions to %s", sa.GetId(), ev.TTP.Requires.RBACPermission.String())
+					failReason = fmt.Sprintf("%s has not the permissions to %s", sa.GetId(), formatRBACPermissions(ev.TTP.Requires.RBACPermissions))
 				} else {
 					slog.Error(fmt.Sprintf("Failed to parse RBAC identity from error message: %s", err.Error()))
 				}
@@ -1276,6 +1276,19 @@ func isSameSystem(a, b domain.System) bool {
 
 	// TODO: incorporate further heuristics to find a matching entity
 	return false
+}
+
+// formatRBACPermissions returns a string representation of a slice of RBACPermission.
+func formatRBACPermissions(perms []domain.RBACPermission) string {
+	if len(perms) == 0 {
+		return "no permissions"
+	}
+	parts := make([]string, 0, len(perms))
+	for _, perm := range perms {
+		// Adjust the formatting as needed for your RBACPermission struct
+		parts = append(parts, fmt.Sprintf("%s %s %s %s %s", perm.Verb, perm.ResourceType, perm.ResourceName, perm.APIGroup, perm.Scope))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func analyzeDnsEntries(entries map[string]string) (domain.Facts, domain.Facts, error) {

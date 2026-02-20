@@ -114,8 +114,10 @@ func ConvertRequirements(r domain.Requirements) Requirements {
 	accessLevel := r.AccessLevel.String()
 	rbacPermissions := []RBACPermission{}
 
-	if r.RBACPermission != (domain.RBACPermission{}) {
-		rbacPermissions = append(rbacPermissions, ConvertRBACPermission(r.RBACPermission))
+	if len(r.RBACPermissions) > 0 {
+		for _, perm := range r.RBACPermissions {
+			rbacPermissions = append(rbacPermissions, ConvertRBACPermission(perm))
+		}
 	}
 
 	var exists *[]string

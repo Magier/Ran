@@ -14,5 +14,7 @@ effects:
   - k8s.Namespace.enforcedPSS=privileged
 preconditions:
   kind: Namespace
-  rbac: "update namespace"
+  rbac: 
+    - verb: update
+      resource: namespace
 # effects: []

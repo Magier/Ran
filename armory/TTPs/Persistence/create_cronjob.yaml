@@ -36,7 +36,9 @@ procedures:
       kubectl create cronjob ${NAME} --image=${IMAGE} --schedule="${SCHEDULE}" --token=${TOKEN} --namespace=${NAMESPACE} -- ${COMMAND}
 preconditions:
   # kind: ServiceAccount
-  rbac: create CronJob
+  rbac: 
+    - verb: create
+      resource: cronjobs
 effects:
   - create k8s.CronJob
 cleanup: 
