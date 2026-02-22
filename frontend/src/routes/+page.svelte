@@ -6,7 +6,7 @@
 	import { Dialog, Popover, Portal } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 	import { onMount, onDestroy } from 'svelte';
-	import { showToast, toaster } from '$lib/components/toaster';
+	import { toaster } from '$lib/components/toaster';
 	import EntityInfo from './components/entityInfo.svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { ExecuteAction, getRanAPI } from '$lib/ran_api';
@@ -39,12 +39,26 @@
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
-			ExecuteAction({actionId: ttp.id, targetId: selectedObjectId, procedureId: '', args: {}}).then(() => {
-				showToast(`Executed TTP ${ttp.name}`, '', 'success');
-			}).catch((err) => {
-				showToast(`Error executing TTP ${ttp.name}`, err, 'error');
+			const toastId = toaster.create({
+				title: `Executing "${ttp.id}"`,
+				type: 'info',
+				duration: Infinity,
+				meta: { spinner: true }
 			});
-			// campaignState.ExecuteAction(ttp.id, selectedObjectId, '', {});
+			ToastMapping[ttp.id] = toastId;
+
+			ExecuteAction({actionId: ttp.id, targetId: selectedObjectId, procedureId: '', args: {}})
+				.catch((err) => {
+					const id = ToastMapping[ttp.id];
+					delete ToastMapping[ttp.id];
+					toaster.dismiss(id);
+					toaster.create({
+						title: `Error executing "${ttp.id}"`,
+						description: typeof err === 'string' ? err : (err?.message ?? 'Unknown error'),
+						type: 'error',
+						duration: 5000
+					});
+				});
 		}
 	}
 
@@ -77,6 +91,32 @@
 		campaignState.api.on('alert', (alert) => {
 			console.log('Store Alert ', alert);
 		});
+
+		ranAPI.on('ttp-executed', (data) => {
+			console.log('TTP Executed Event', data);
+			const key = data.TTP?.id;
+			const toastId = ToastMapping[key];
+			if (!toastId) return;
+			delete ToastMapping[key];
+
+			toaster.dismiss(toastId);
+
+			if (data.Success) {
+				toaster.create({
+					title: `"${data.TTP.name}" executed successfully`,
+					description: 'Executed successfully',
+					type: 'success',
+					duration: 5000
+				});
+			} else {
+				toaster.create({
+					title: `"${data.TTP.name}" failed`,
+					description: data.FailReason ?? 'Failed for unknown reason',
+					type: 'error',
+					duration: 5000
+				});
+			}
+		});
 	});
 
 	onDestroy(() => {
@@ -87,44 +127,28 @@
 
 	const ToastMapping: Record<string, string> = {};
 	function onExecuteTTP(ttpId: string, procedureId: string, args: Record<string, string>) {
-		// TODO: cleanup, register handler only once
-		ranAPI.on('ttp-executed', (data) => {
-			console.log('TTP Executed Event', data);
-			const toastType = data.Success ? 'success' : 'error';
-			const title = data.Success
-				? `TTP ${data.TTP.name} executed successfully`
-				: `TTP ${data.TTP.name} failed`;
-
-			const toastConfig = {
-				title: title,
-				description: data.TTP.name,
-				type: toastType,
-				duration: 5000
-			};
-
-			if (!(ttpId in ToastMapping)) {
-				toaster.create(toastConfig);
-			} else {
-				const toastId = ToastMapping[ttpId];
-				delete ToastMapping[ttpId];
-				if (!data.Success) {
-					toastConfig['description'] = data.FailReason ? data.FailReason : `Failed for unknown reason`;
-				} else {
-					toastConfig['description'] = `Executed successfully`;
-				}
-				toaster.update(toastId, toastConfig);
-			}
+		const toastId = toaster.create({
+			title: `Executing "${ttpId}"`,
+			type: 'info',
+			duration: Infinity,
+			meta: { spinner: true }
 		});
+		ToastMapping[ttpId] = toastId;
+
+		closeModal();
 
 		ExecuteAction({actionId: ttpId, targetId: selectedObjectId, procedureId, args})
-			.then(() => {
-				let toastId = showToast('Executing TTP', ttpId, 'info');
-				ToastMapping[ttpId] = toastId;
-			})
 			.catch((err) => {
-				showToast('Error executing TTP', err, 'error');
+				const id = ToastMapping[ttpId];
+				delete ToastMapping[ttpId];
+				toaster.dismiss(id);
+				toaster.create({
+					title: `Error executing "${ttpId}"`,
+					description: typeof err === 'string' ? err : (err?.message ?? 'Unknown error'),
+					type: 'error',
+					duration: 5000
+				});
 			});
-		closeModal();
 	}
 
 	function handleError(e: unknown) {
