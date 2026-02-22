@@ -1,0 +1,34 @@
+name: Get Pods via Node/Proxy
+description: Get a list of pods on the node via the kubelet API
+tactic: Discovery
+techniques: ["Container and Resource Discovery", T1613]
+preconditions:
+  kind: Node
+  rbac:
+  - verb: get
+    resource: "nodes/proxy"
+  # accessLevel: user-read
+parameters:
+  NODE:
+    type: string
+    default: ${TARGET}
+    description: the name of the node for which the running pods will be listed
+  TOKEN:
+    type: ServiceAccount
+    description: the ServiceAccount token used to authenticate to the kubelet API
+procedures:
+  - key: curl
+    command: >-
+      curl -k -s -H "Authorization: Bearer ${TOKEN}" "${API_SERVER}/v1/nodes/${NODE}/proxy/pods"
+  - key: wget
+    command: >-
+      wget -qO --header="Authorization: Bearer ${TOKEN}" "${API_SERVER}/v1/nodes/${NODE}/proxy/pods" 
+
+effects:
+  - k8s.podList
+# defend: {}
+references:
+  - https://www.aquasec.com/blog/privilege-escalation-kubernetes-rbac/
+  - https://kubenomicon.com/Discovery/Access_kubelet_API.html
+  - https://gist.github.com/lizrice/c32740fac51db2a5518f06c3dae4944f
+  - https://microsoft.github.io/Threat-Matrix-for-Kubernetes/techniques/Access%20Kubelet%20API/

