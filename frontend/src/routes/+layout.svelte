@@ -9,6 +9,7 @@
     import IconMoon from '~icons/material-symbols/dark-mode';
     import { browser } from '$app/environment';
     import { toaster } from '$lib/components/toaster';
+    import Icon from '@iconify/svelte';
     import '../app.css';
     import { setCampaignState } from '$lib/components/CampaignState.svelte';
 	import AppMenu from '$lib/components/app_menu.svelte';
@@ -110,7 +111,12 @@
     {#snippet children(toast)}
         <Toast {toast}>
             <Toast.Message>
-                <Toast.Title>{toast.title}</Toast.Title>
+                <Toast.Title class="flex items-center gap-2">
+                    {#if toast.meta?.spinner}
+                        <Icon icon="svg-spinners:90-ring-with-bg" class="inline-block size-4" />
+                    {/if}
+                    {toast.title}
+                </Toast.Title>
                 <Toast.Description>{toast.description}</Toast.Description>
             </Toast.Message>
             <Toast.CloseTrigger />
