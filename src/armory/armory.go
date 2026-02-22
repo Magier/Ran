@@ -40,7 +40,7 @@ func (a Armory) GetTTPs() []domain.TTP {
 
 func (a *Armory) Load() error {
 	var err error
-	a.ttps, err = loadTTPs(builtinFS, filepath.Join(a.SrcDir, "ttps"))
+	a.ttps, err = loadTTPs(builtinFS, a.SrcDir)
 	if err != nil {
 		return errors.New("Couldn't load armory: " + err.Error())
 	}

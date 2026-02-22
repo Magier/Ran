@@ -15,12 +15,13 @@ func newEmulationCmd() *cobra.Command {
 	var target string
 	var godMode bool
 	var planPath string
+	var armoryPath string
 	var port int
 	cmd := &cobra.Command{
 		Use:   "emulate",
 		Short: "Emulate adversary behavior against a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			ran := core.InitRan(target, "../armory/")
+			ran := core.InitRan(target, armoryPath)
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 			api := api.NewAPI(&ran, ctx)
 			// t := tui.SetupTUI(ran)
@@ -43,6 +44,7 @@ func newEmulationCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&target, "target", "t", "", `set the initial target for the emulation. In the pattern "<ns>/<service or pod>" or a URL`)
 	cmd.Flags().StringVarP(&planPath, "path", "f", "", `path to the file of the plan`)
 	cmd.Flags().IntVarP(&port, "port", "p", 8080, "port to run the server on")
+	cmd.Flags().StringVarP(&armoryPath, "armory", "a", "", `path to the armory containing TTPs`)
 
 	return cmd
 }
