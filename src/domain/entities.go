@@ -35,8 +35,8 @@ type Requirements struct {
 	Kind            IsOfKind               `yaml:"kind"`
 	AccessLevel     AccessLevel            `yaml:"accessLevel" json:"accessLevel"`
 	RBACPermissions []RBACPermission       `yaml:"rbac" json:"rbac,omitzero"`
-	State           State                  `yaml:"-" json:"-"`          // check for existing entities
-	Exists          EntitiesExists         `yaml:"exists,omitempty"`    // relates to the state
+	State           State                  `yaml:"-" json:"-"`        // check for existing entities
+	Exists          EntitiesExists         `yaml:"exists,omitempty"`  // relates to the state
 	OtherFields     map[string]interface{} `yaml:",inline,omitempty"` // Inline captures untagged fields
 }
 
@@ -99,11 +99,9 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 				conditionName = strings.TrimPrefix(conditionName, "has-")
 			}
 
-			val, ok := getFieldValue(target, conditionName)
+			ok := hasFieldValue(target, conditionName, expectedValue.(string))
 			if !ok {
 				return false
-			} else {
-				return val == expectedValue
 			}
 		}
 	}
@@ -116,16 +114,25 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 	return true
 }
 
-func getFieldValue(e Entity, fieldName string) (interface{}, bool) {
+func hasFieldValue(e Entity, fieldName string, value string) bool {
 	switch fieldName {
 	case "name":
-		return e.GetName(), true
+		return e.GetName() == value
 	case "listener":
 		if c2, ok := e.(C2System); ok {
-			return len(c2.Listeners) > 0, true
+			if value == "any" {
+				return len(c2.Listeners) > 0
+			} else {
+				_, exists := c2.Listeners[value]
+				return exists
+			}
+		}
+	case "binary":
+		if sys, ok := e.(System); ok {
+			return sys.HasBinary(value).Bool()
 		}
 	}
-	return nil, false
+	return false
 }
 
 type IsOfKind string
@@ -846,7 +853,7 @@ func (ns Namespace) GetKind() string {
 type RBACPermission struct {
 	Verb         string `yaml:"verb" json:"verb,omitzero"`
 	ResourceName string `yaml:"resourceName" json:"resourceName,omitzero"`
-	ResourceType string `yaml:"resource" json:"resource,omitzero"`
+	ResourceType string `yaml:"resource" json:"resourceType,omitzero"`
 	APIGroup     string `yaml:"apiGroup" json:"apiGroup,omitzero"`
 	Scope        string `yaml:"scope" json:"scope,omitzero"`           // "" is invalid, "*" =cluster-wide, any string = namespaces
 	SourceRole   string `yaml:"sourceRole" json:"sourceRole,omitzero"` // the (cluster)role which provides this permissions
@@ -867,25 +874,12 @@ func (p RBACPermission) String() string {
 // Implements the Unmarshaler interface of the yaml pkg.
 func (p *RBACPermission) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	// Try to unmarshal as a struct first (new format with fields)
-	var data struct {
-		Verb         string `yaml:"verb"`
-		ResourceName string `yaml:"resourceName"`
-		ResourceType string `yaml:"resource"`
-		APIGroup     string `yaml:"apiGroup"`
-		Scope        string `yaml:"scope"`
-		SourceRole   string `yaml:"sourceRole"`
-	}
+	type rbacPermAlias RBACPermission
+	var perm rbacPermAlias
 
-	if err := unmarshal(&data); err == nil && (data.Verb != "" || data.ResourceType != "") {
+	if err := unmarshal(&perm); err == nil && (perm.Verb != "" || perm.ResourceType != "") {
 		// Successfully unmarshaled as struct
-		*p = RBACPermission{
-			Verb:         data.Verb,
-			ResourceName: data.ResourceName,
-			ResourceType: data.ResourceType,
-			APIGroup:     data.APIGroup,
-			Scope:        data.Scope,
-			SourceRole:   data.SourceRole,
-		}
+		*p = RBACPermission(perm)
 		return nil
 	}
 
