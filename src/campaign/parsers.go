@@ -404,31 +404,31 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 				sys.SetIPs(ips)
 				entities = append(entities, sys)
 			}
-		case "sys.hasbinary":
-			// TODO: merge with alternative, more generic parser for `has-binary` effect in `default` branch, after exploration
-			if sys, ok := source.(domain.Pod); ok {
-				binaryName := ""
-				dstPath := args["DST_PATH"]
+		// case "sys.has-binary":
+		// 	// TODO: merge with alternative, more generic parser for `has-binary` effect in `default` branch, after exploration
+		// 	if sys, ok := source.(domain.Pod); ok {
+		// 		binaryName := ""
+		// 		dstPath := args["DST_PATH"]
 
-				if dstPath != "" {
-					parts := strings.Split(dstPath, "/")
-					binaryName = parts[len(parts)-1]
-				} else if strings.HasPrefix(results[0], "file: ") {
-					// get the information from the TTP result (explicit echo at the end of the TTP)
-					// Note: tight coupling with the TTP implementation -> brittle
-					dstPath = strings.TrimPrefix(results[0], "file: ")
-				} else {
-					// fallback try to extract the binary name from the source name
-					// however: knowing the location of the binary on the system is not always possible
-					dstPath = ""
-					// TODO: get the path from the SRC_PATH?
-					slog.Warn("No DST_PATH provided, and extraction from SRC_PATh is not yet implemented!")
-				}
-				sys.SetBinary(binaryName, dstPath)
-				entities = append(entities, sys)
-			} else {
-				slog.Warn("The source of the hasBinary effect is not a Pod!")
-			}
+		// 		if dstPath != "" {
+		// 			parts := strings.Split(dstPath, "/")
+		// 			binaryName = parts[len(parts)-1]
+		// 		} else if strings.HasPrefix(results[0], "file: ") {
+		// 			// get the information from the TTP result (explicit echo at the end of the TTP)
+		// 			// Note: tight coupling with the TTP implementation -> brittle
+		// 			dstPath = strings.TrimPrefix(results[0], "file: ")
+		// 		} else {
+		// 			// fallback try to extract the binary name from the source name
+		// 			// however: knowing the location of the binary on the system is not always possible
+		// 			dstPath = ""
+		// 			// TODO: get the path from the SRC_PATH?
+		// 			slog.Warn("No DST_PATH provided, and extraction from SRC_PATh is not yet implemented!")
+		// 		}
+		// 		sys.SetBinary(binaryName, dstPath)
+		// 		entities = append(entities, sys)
+		// 	} else {
+		// 		slog.Warn("The source of the hasBinary effect is not a Pod!")
+		// 	}
 		case "rawserviceaccounttoken":
 			saToken, err := parseRawServiceAccountToken(results...)
 			if err != nil {
@@ -727,7 +727,7 @@ func parseK8sEffect(effect string, source domain.Entity, args map[string]string,
 	case "k8s.rolebinding":
 		binding, err := parseRBACRoleBinding(args, results...)
 		if err != nil {
-			slog.Error(fmt.Sprintf("Failed to parse Role: %v", err))
+			slog.Error(fmt.Sprintf("Failed to parse RoleBinding: %v", err))
 		} else {
 			entities = append(entities, binding)
 		}
@@ -816,12 +816,17 @@ func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]s
 	if len(match) > 1 {
 		paramName := strings.ToUpper(match[1])
 		if sys, ok := source.(domain.System); ok {
+			binPath := match[1]
 			if IsTemplateVariable(paramName) {
 				paramName = strings.TrimPrefix(paramName, "${")
 				paramName = strings.TrimSuffix(paramName, "}")
+
+				if p, ok := args[paramName]; ok {
+					binPath = p
+				}
 			}
 
-			if binPath, ok := args[paramName]; ok {
+			if binPath != "" {
 				var binaryName = binPath
 				if strings.Contains(binPath, "/") {
 					parts := strings.Split(binPath, "/")
@@ -833,7 +838,7 @@ func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]s
 			}
 			return sys, nil
 		} else {
-			slog.Warn("The source of the has-binary effect is not a Pod!")
+			slog.Warn("The source of the has-binary effect is not a System!")
 		}
 	} else {
 		slog.Warn("No parameter found in the has-binary effect, expected format: target.has-binary(${BINARY_NAME})")
