@@ -1,6 +1,7 @@
 name: List Content of a GCP Bucket
 description: List the Contents of a GCP Storage Bucket using the GCP service account token and project ID
 tactic: Discovery
+status: disabled
 techniques:
   ["Cloud Infrastructure Discovery", T1580]
 preconditions:

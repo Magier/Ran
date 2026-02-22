@@ -1,6 +1,7 @@
 name: Get GCP Service Account Token
 description: Get the GCP service account token from the metadata service
 tactic: Credential Access
+status: disabled
 techniques:
   ["Unsecured Credentials: Cloud Instance Metadata API ", T1552.005]
 preconditions:

@@ -1,6 +1,7 @@
 name: Get GCP Project ID
 description: Get the GCP project ID from the metadata service
 tactic: Discovery
+status: disabled
 techniques:
   ["Unsecured Credentials: Cloud Instance Metadata API ", T1552.005]
 preconditions:
