@@ -43,6 +43,13 @@
 	let namespaceArgName: string = "";
 
 	let argOptions: Record<string, ComboboxOption[]> = $state({});
+	// Incremented when a combobox value is set programmatically (external update),
+	// used as a {#key} to force remount so defaultValue is re-applied.
+	let argExternalVersions: Record<string, number> = $state({});
+
+	function bumpArgVersion(name: string) {
+		argExternalVersions = { ...argExternalVersions, [name]: (argExternalVersions[name] ?? 0) + 1 };
+	}
 
 	// Track previous TTP ID to detect when TTP changes
 	let previousTtpId: string | undefined = undefined;
@@ -54,20 +61,27 @@
 
 	function selectNamespace(ns: string) {
 		// Update args immutably so Svelte's reactivity picks up the change
-		args = args.map(a => a.Type === 'Namespace' ? { ...a, Value: ns } : a);
+		args = args.map(a => {
+			if (a.Type === 'Namespace') {
+				bumpArgVersion(a.Name);
+				return { ...a, Value: ns };
+			}
+			return a;
+		});
 	}
 
 	$effect(() => {
 		// if the namespace changes, and there is a namespace argument, set it as well
 		const outOfNsResources = args.find(arg => arg.Value.startsWith("ns/") && !arg.Value.startsWith(`ns/${selectedNamespace}`));
-		console.info("selectedNS changed", outOfNsResources);
 
 		if (outOfNsResources) {
-			args = args.map(a =>
-				a.Value.startsWith("ns/") && !a.Value.startsWith(`ns/${selectedNamespace}`)
-					? { ...a, Value: "" }
-					: a
-			);
+			args = args.map(a => {
+				if (a.Value.startsWith("ns/") && !a.Value.startsWith(`ns/${selectedNamespace}`)) {
+					bumpArgVersion(a.Name);
+					return { ...a, Value: "" };
+				}
+				return a;
+			});
 		}
 	});
 
@@ -93,10 +107,11 @@
 		
 		untrack(() => {
 			console.group("ActionParamsModal: Initializing args for TTP", currentTtpId);
-			
-			// Reset argOptions when TTP changes
+
+			// Reset argOptions and external versions when TTP changes
 			argOptions = {};
-			
+			argExternalVersions = {};
+
 			args = ttpParams?.map((param: TTPParam) => {
 					let value = param.default;
 					if (currentArgContext && param.name in currentArgContext) {
@@ -302,7 +317,6 @@
 			/>
 		{:else if getArgOptions(arg.Name).length > 0}
 			<Combobox
-				value={[arg.Value]}
 				collection={toComboBoxCollection(getArgOptions(arg.Name))}
 				onValueChange={(e) => onArgChange(arg, e)}
 				inputBehavior="autocomplete"
@@ -312,7 +326,11 @@
 				placeholder={arg.Name + "..."}
 				>
 				<Combobox.Control>
-					<Combobox.Input />
+					<Combobox.Input onblur={(e) => {
+						console.log("Custom value entered:", e.currentTarget.value);
+						const i = args.findIndex(a => a.Name === arg.Name);
+						if (i !== -1) args = args.with(i, { ...args[i], Value: e.currentTarget.value });
+					}} />
 					<Combobox.Trigger />
 				</Combobox.Control>
 				<Combobox.Positioner>
