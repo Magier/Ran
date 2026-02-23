@@ -33,7 +33,11 @@ procedures:
       -H "User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69"
       -H "Authorization: Bearer ${TOKEN}"
       --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      {{ if .ALL_NS }}
+      '${API_SERVER}/api/v1/pods?limit=500'
+      {{ else }}
       '${API_SERVER}/api/v1/namespaces/${NS}/pods?limit=500'
+      {{ end }}
 effects:
   - k8s.podList
 # defend: {}
