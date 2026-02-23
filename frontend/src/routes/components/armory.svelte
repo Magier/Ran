@@ -30,6 +30,7 @@
 	let filteredTtps: TTP[] = $state([]);
 	let searchTerm: string = $state('');
 	let openTactic = $state(['Initial Access']);
+	let isShiftPressed: boolean = $state(false);
 
 	$effect(() => { armory = campaign.armory; });
 
@@ -89,6 +90,28 @@
 			searchInputElement?.blur();
 		}
 	}
+
+	function handleKeyDown(event: KeyboardEvent) {
+		if (event.key === 'Shift') {
+			isShiftPressed = true;
+		}
+	}
+
+	function handleKeyUp(event: KeyboardEvent) {
+		if (event.key === 'Shift') {
+			isShiftPressed = false;
+		}
+	}
+
+	$effect(() => {
+		window.addEventListener('keydown', handleKeyDown);
+		window.addEventListener('keyup', handleKeyUp);
+
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown);
+			window.removeEventListener('keyup', handleKeyUp);
+		};
+	});
 
 	function isTTPApplicable(ttp: TTP): boolean {
 		let procedures = applicableTTPs.get(ttp.tactic) || [];
@@ -151,13 +174,13 @@
 							</span>
 						</div>
 					</Accordion.ItemTrigger>
-				<Accordion.ItemContent class="px-0 py-0 mb-1 bg-surface-200-800">
+					<Accordion.ItemContent class="px-0 py-0 mb-1 bg-surface-200-800">
 						{#each ttps as ttp}
 							<ActionCard
 								{ttp}
 								conditions={ttp.requires}
 								icon={iconMap[ttp.tactic]}
-								enabled={isTTPApplicable(ttp)}
+								enabled={isShiftPressed || isTTPApplicable(ttp)}
 								onclick={() => onActionSelected(ttp)}
 							/>
 							<hr class="hr h-1 bg-surface-300-700" />
