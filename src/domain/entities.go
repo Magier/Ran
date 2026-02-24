@@ -99,9 +99,11 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 				conditionName = strings.TrimPrefix(conditionName, "has-")
 			}
 
-			ok := hasFieldValue(target, conditionName, expectedValue.(string))
-			if !ok {
-				return false
+			if v, ok := expectedValue.(string); ok && v != "" {
+				ok := hasFieldValue(target, conditionName, v)
+				if !ok {
+					return false
+				}
 			}
 		}
 	}

@@ -397,6 +397,8 @@ export interface components {
             verb: string;
             scope: string;
             sourceRole: string;
+            /** @default false */
+            isNamespaced: boolean;
         };
         Error: {
             error: string;

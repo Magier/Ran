@@ -620,6 +620,7 @@ components:
         - resourceType
         - scope
         - sourceRole
+        - isNamespaced
       properties:
         resource:
           type: string
@@ -635,7 +636,9 @@ components:
           type: string
         sourceRole:
           type: string
-
+        isNamespaced:
+          type: boolean
+          default: true
     Error:
       type: object
       required:
