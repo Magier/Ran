@@ -557,6 +557,8 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 							arg = sa.Token.Raw
 						}
 					}
+				} else {
+					slog.Warn(fmt.Sprintf("No valid ServiceAccount with ID '%s' found to extract the token from", arg))
 				}
 			} else { // try to find a sane default
 				if sa, ok := target.(domain.ServiceAccount); ok {
@@ -603,6 +605,10 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 				} else {
 					// variable will be set to empty string, K8s decides where to place the pod
 					arg = ""
+				}
+			} else if strings.ToUpper(arg) == "${TARGET}" {
+				if target != nil {
+					arg = target.GetName()
 				}
 			} else {
 				// ensure the node kind prefis is removed

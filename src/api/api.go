@@ -316,7 +316,11 @@ func (a *API) GetApplicableTTPs(targetId string) ([]TTP, error) {
 		return ttps, fmt.Errorf("failed to get target entity: %s", targetId)
 	}
 	state := domain.State{}
-	accessLevel := domain.UserExec
+	accessLevel := domain.NoAccess
+
+	if sys, ok := target.(domain.System); ok {
+		accessLevel = sys.GetAccessLevel()
+	}
 
 	// TODO: this uses RBACPerm.String() to check for equality, however, it does not consider the scope of the permission
 	// Implement a more robust way to check "satisfaction" of permissions, that supports scope and wildcards
@@ -336,6 +340,10 @@ func (a *API) GetApplicableTTPs(targetId string) ([]TTP, error) {
 	state.Entitlements = entitlements
 
 	for _, ttp := range a.ran.Armory.GetTTPs() {
+		if strings.Contains(ttp.Name, "Execute via Node/Proxy") {
+			slog.Debug("Checking TTP applicability", "ttp", ttp.Name, "target", target.GetId(), "accessLevel", accessLevel, "state", state)
+		}
+
 		isSatisfied := ttp.Requires.Satisfied(target, accessLevel, state)
 		if isSatisfied && ttp.Status != "disabled" {
 			ttps = append(ttps, ConvertTTP(ttp))
