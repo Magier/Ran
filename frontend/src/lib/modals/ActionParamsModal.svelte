@@ -71,12 +71,16 @@
 	}
 
 	$effect(() => {
-		// if the namespace changes, and there is a namespace argument, set it as well
-		const outOfNsResources = args.find(arg => arg.Value.startsWith("ns/") && !arg.Value.startsWith(`ns/${selectedNamespace}`));
+		// if the namespace changes, clear out-of-namespace resources (except TOKEN which can be cross-namespace)
+		const outOfNsResources = args.find(arg => 
+			arg.Name !== "TOKEN" && 
+			arg.Value.startsWith("ns/") && 
+			!arg.Value.startsWith(`ns/${selectedNamespace}`)
+		);
 
 		if (outOfNsResources) {
 			args = args.map(a => {
-				if (a.Value.startsWith("ns/") && !a.Value.startsWith(`ns/${selectedNamespace}`)) {
+				if (a.Name !== "TOKEN" && a.Value.startsWith("ns/") && !a.Value.startsWith(`ns/${selectedNamespace}`)) {
 					bumpArgVersion(a.Name);
 					return { ...a, Value: "" };
 				}
@@ -138,8 +142,9 @@
 						argOptions[param.name] = availableEntities.map(entityToComboboxOption);
 					} else if (param.type === 'ServiceAccount') {
 						// Use initialNamespace derived from targetId, not selectedNamespace
-						availableEntities = campaignState.getServiceAccounts(initialNamespace);
+						availableEntities = campaignState.getServiceAccounts();
 						argOptions[param.name] = availableEntities.map(entityToComboboxOption);
+						console.info("Initialized ServiceAccount", argOptions[param.name]);
 					}
 
 					return {
@@ -198,13 +203,30 @@
 				} else if (arg.Type === 'string') {
 					arg.Value = arg.Value.toString();
 				} else {
-					// for non-primitive types ensure the value is in the expected format,
-					// i.e. if the arg is a name, it should not be a full id
-					if (arg.Name.toLowerCase().endsWith("name") && arg.Value.indexOf("/") !== -1) {
+					// for non-primitive types ensure the value is in the expected format
+					console.group("Processing arg", arg.Name);
+					console.info("Processing arg", arg.Name, "of type", arg.Type, "with value", arg.Value);
+					
+					// Entity types should use the full ID (not just the name)
+					const entityTypes = [
+						'Pod', 'Namespace', 'ServiceAccount', 'Service', 'Deployment', 'Container',
+						'ConfigMap', 'Secret', 'Role', 'ClusterRole', 'RoleBinding', 'ClusterRoleBinding',
+						'Node', 'ClusterNode', 'Ingress', 'Daemonset', 'CronJob', 'Job', 'Statefulset',
+						'Volume', 'User', 'Group', 'KubeApiServer', 'ControlPlane',
+						// GCP resources
+						'GCPBucket', 'GCPServiceAccount', 'GCPServiceAccountToken', 'MetadataServer', 'GCPMetadataServer'
+					];
+					const isEntityType = entityTypes.includes(arg.Type);
+					
+					if (!isEntityType && arg.Name.toLowerCase().endsWith("name") && arg.Value.indexOf("/") !== -1) {
+						// For non-entity types, if the arg is a name, extract just the name part
 						const parts = arg.Value.split("/");
-						// the actual name is the last part of the id
 						arg.Value = parts[parts.length - 1];
 					}
+					// Otherwise keep the full value (ID for entities, or whatever was provided)
+					
+					console.info("Post Processed arg", arg.Name, "final value", arg.Value);
+					console.groupEnd();
 				}
 				acc[arg.Name] = arg.Value;
 				return acc;
@@ -222,7 +244,7 @@
 
 	function getArgOptions(argName: string): ListCollection<ComboboxOption> {
 		let opts = argOptions[argName] ?? [];
-		if (selectedNamespace !== "" && argName !== namespaceArgName) {
+		if (selectedNamespace !== "" && argName !== namespaceArgName && argName !== "TOKEN") {
 			opts = opts.filter(o => o.group === selectedNamespace);
 		}
 		return opts
@@ -243,6 +265,7 @@
 			const ns = e.items?.[0]?.group;
 			if (ns) {selectNamespace(ns);}
 		}
+		console.info("Arg change event for", arg.Name, "new value", e.value[0], "selected item", e.items?.[0]);
 		// IMMUTABLE UPDATE so Svelte sees it:
 		const i = args.findIndex(a => a.Name === arg.Name);
 		if (i !== -1) {
@@ -252,10 +275,38 @@
 			console.warn("Could not find arg to update:", arg.Name);
 		}
 
+		console.info("Updated args after change:", args);
+
 		// arg.Value = e.value[0]
 		// if (e.items.length > 0 && e.items[0].group ) {
 		// 	selectNamespace(e.items[0].group);
 		// }
+	}
+
+	function handleInputBlur(arg: Arg, inputValue: string) {
+		const i = args.findIndex(a => a.Name === arg.Name);
+		if (i === -1) return;
+
+		const currentArg = args[i];
+		
+		// Get available options for this arg
+		let options = argOptions[arg.Name] ?? [];
+		if (selectedNamespace !== "" && arg.Name !== namespaceArgName && arg.Name !== "TOKEN") {
+			options = options.filter(o => o.group === selectedNamespace);
+		}
+		
+		// Check if the input matches an option's label or value
+		const matchingOption = options.find((opt: ComboboxOption) => 
+			opt.label === inputValue || opt.value === inputValue
+		);
+		
+		if (matchingOption) {
+			// Use the full value (ID) from the matching option
+			args = args.with(i, { ...currentArg, Value: matchingOption.value });
+		} else if (inputValue !== currentArg.Value) {
+			// Custom value typed, not from dropdown
+			args = args.with(i, { ...currentArg, Value: inputValue });
+		}
 	}
 
 
@@ -270,7 +321,7 @@
 
 </script>
 
-<form class="text-surface-50 w-full space-y-8" onsubmit={onInternalExecute}>
+<form class="w-full space-y-8" onsubmit={onInternalExecute}>
 	<header class="flex justify-between">
 		<h4 class="h4">{ttp.name}</h4>
 	</header>
@@ -326,11 +377,7 @@
 				placeholder={arg.Name + "..."}
 				>
 				<Combobox.Control>
-					<Combobox.Input onblur={(e) => {
-						console.log("Custom value entered:", e.currentTarget.value);
-						const i = args.findIndex(a => a.Name === arg.Name);
-						if (i !== -1) args = args.with(i, { ...args[i], Value: e.currentTarget.value });
-					}} />
+					<Combobox.Input onblur={(e) => handleInputBlur(arg, e.currentTarget.value)} />
 					<Combobox.Trigger />
 				</Combobox.Control>
 				<Combobox.Positioner>
