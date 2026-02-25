@@ -20,11 +20,33 @@ import type cytoscape from "cytoscape";
 //   }
 
 /**
+ * Validates if a position object has valid numeric coordinates
+ */
+function isValidPosition(pos: any): boolean {
+	if (!pos || typeof pos !== 'object') return false;
+	const { x, y } = pos;
+	return typeof x === 'number' && typeof y === 'number' &&
+		isFinite(x) && isFinite(y) &&
+		!isNaN(x) && !isNaN(y) &&
+		Math.abs(x) < 1e6 && Math.abs(y) < 1e6; // Prevent extreme values
+}
+
+/**
  * Creates an enhanced fcose layout configuration with constraints
  * @param nodes - Collection of cytoscape nodes
  * @param existingPositions - Map of node IDs to their saved positions
  */
 export function createLayout(nodes?: cytoscape.NodeCollection, existingPositions: Record<string, any> = {}) {
+	// Validate and sanitize existing positions
+	const validPositions: Record<string, any> = {};
+	for (const [id, pos] of Object.entries(existingPositions)) {
+		if (isValidPosition(pos)) {
+			validPositions[id] = pos;
+		} else {
+			console.warn(`Invalid position for node ${id}:`, pos);
+		}
+	}
+
 	const constraints: any = {
 		alignment: [],
 		fixedNodeConstraint: [],
@@ -36,13 +58,9 @@ export function createLayout(nodes?: cytoscape.NodeCollection, existingPositions
 		const ranNode = nodes.filter('[name="Ran"]');
 		if (ranNode.length > 0) {
 			const ranId = ranNode.id();
-			const ranPos = existingPositions[ranId];
-			// Validate position values before adding constraint
-			if (ranPos &&
-				typeof ranPos.x === 'number' &&
-				typeof ranPos.y === 'number' &&
-				isFinite(ranPos.x) &&
-				isFinite(ranPos.y)) {
+			const ranPos = validPositions[ranId];
+			// Use validated positions
+			if (ranPos) {
 				constraints.fixedNodeConstraint.push({
 					nodeId: ranId,
 					position: { x: ranPos.x, y: ranPos.y }
@@ -90,6 +108,12 @@ export function createLayout(nodes?: cytoscape.NodeCollection, existingPositions
 		constraintProps.relativePlacementConstraint = constraints.relativePlacementConstraint;
 	}
 
+	// Validate node count to prevent edge cases
+	const nodeCount = nodes ? nodes.length : 0;
+	if (nodeCount === 0) {
+		console.warn('Creating layout with no nodes');
+	}
+
 	return {
 		name: 'fcose',
 		fit: false,
@@ -100,26 +124,26 @@ export function createLayout(nodes?: cytoscape.NodeCollection, existingPositions
 		quality: 'default',
 		randomize: false,
 
-		// Directional flow (left-to-right)
-		nodeRepulsion: 4500,
-		idealEdgeLength: 100,
-		edgeElasticity: 0.45,
-		nestingFactor: 0.1,
+		// Directional flow (left-to-right) - with safe defaults
+		nodeRepulsion: Math.max(100, Math.min(10000, 4500)),
+		idealEdgeLength: Math.max(10, Math.min(500, 100)),
+		edgeElasticity: Math.max(0.1, Math.min(1, 0.45)),
+		nestingFactor: Math.max(0.1, Math.min(1.5, 0.1)),
 
-		// Gravity and alignment
-		gravity: 0.25,
-		gravityRange: 3.8,
-		gravityCompound: 1.0,
-		gravityRangeCompound: 1.5,
+		// Gravity and alignment - clamped to safe ranges
+		gravity: Math.max(0, Math.min(1, 0.25)),
+		gravityRange: Math.max(0.1, Math.min(10, 3.8)),
+		gravityCompound: Math.max(0, Math.min(2, 1.0)),
+		gravityRangeCompound: Math.max(0.1, Math.min(10, 1.5)),
 
 		// Compound handling
 		packComponents: true,
 		tile: false,
-		tilingPaddingVertical: 10,
-		tilingPaddingHorizontal: 10,
+		tilingPaddingVertical: Math.max(0, Math.min(100, 10)),
+		tilingPaddingHorizontal: Math.max(0, Math.min(100, 10)),
 
 		// Incremental mode
-		initialEnergyOnIncremental: 0.3,
+		initialEnergyOnIncremental: Math.max(0, Math.min(1, 0.3)),
 
 		// Constraints
 		...constraintProps

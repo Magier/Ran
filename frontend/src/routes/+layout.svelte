@@ -68,7 +68,7 @@
 
 </script>
 
-<AppBar class="top-0 p-0 border-b border-surface-200-800 bg-surface-50-950/75 h-[calc(var(--header-height))] flex ">
+<AppBar class="top-0 p-0 border-b border-surface-200-800 h-[calc(var(--header-height))] flex ">
     <AppBar.Toolbar class="grid-cols-[auto_auto]">
         <AppBar.Lead>
             <!-- <ArrowLeft size={24} /> -->

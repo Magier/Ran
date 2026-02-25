@@ -129,65 +129,71 @@
 	}
 </script>
 
-<div class="bg-surface-100-900 inset-y-0 right-0 {className}">
-		
-	<div class="my-2 flex items-center justify-between">
-		<span class="px-2 text-xl">Armory</span>
-		<Switch checked={showAllTTPs} onCheckedChange={(e) => {showAllTTPs = e.checked; }}>
-		    <Switch.Control class="preset-filled-secondary-50-950 data-[state=checked]:preset-filled-secondary-500"><Switch.Thumb/></Switch.Control>
-			<Switch.Label class="mr-2">Show All</Switch.Label>
-			<Switch.HiddenInput />
-		</Switch>
-	</div>
-	<div class="mx-4 mb-2">
-		<input
-			id="search-box"
-			type="search"
-			placeholder="Search... (Press 'a')"
-			class="input rounded-container-token"
-			bind:this={searchInputElement}
-			bind:value={searchTerm}
-			onkeydown={handleClearWithEscape}
-			oninput={searchAbilities}
-		/>
-	</div>
-	{#if shownTTPs.length === 0}
-		<div class="flex h-full items-center justify-center text-center text-gray-500">
-			No TTPs available. <br>
-			Please select an entity in the graph.
+<div class="bg-surface-100-900 inset-y-0 right-0 flex flex-col {className}">
+	<!-- Fixed header section -->
+	<div class="flex-shrink-0">
+		<div class="my-2 flex items-center justify-between">
+			<span class="px-2 text-xl">Armory</span>
+			<Switch checked={showAllTTPs} onCheckedChange={(e) => {showAllTTPs = e.checked; }}>
+				<Switch.Control class=""><Switch.Thumb/></Switch.Control>
+				<Switch.Label class="mr-2">Show All</Switch.Label>
+				<Switch.HiddenInput />
+			</Switch>
 		</div>
-	{:else}
-		<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible>
-			{#each Array.from(shownTTPs) as [tactic, ttps]}
-				<hr class="hr" />
-				<Accordion.Item
-					value={tactic}
-					class="text-surface-contrast-200-800"
-					disabled={ttps?.length === 0}
-				>
-					<Accordion.ItemTrigger class="flex justify-between items-center">
-						<Icon icon={iconMap[tactic]} width="24"></Icon>
-						<div class="flex w-full items-center">
-							<span class="flex-1">{tactic}</span>
-							<span class="ml-2 text-xs text-gray-500">
-								{applicableTTPs.get(tactic)?.length ?? 0}
-							</span>
-						</div>
-					</Accordion.ItemTrigger>
-					<Accordion.ItemContent class="px-0 py-0 mb-1 bg-surface-200-800">
-						{#each ttps as ttp}
-							<ActionCard
-								{ttp}
-								conditions={ttp.requires}
-								icon={iconMap[ttp.tactic]}
-								enabled={isShiftPressed || isTTPApplicable(ttp)}
-								onclick={() => onActionSelected(ttp)}
-							/>
-							<hr class="hr h-1 bg-surface-300-700" />
-						{/each}
-					</Accordion.ItemContent>
-				</Accordion.Item>
-			{/each}
-		</Accordion>
-	{/if}
+		<div class="mx-4 mb-2">
+			<input
+				id="search-box"
+				type="search"
+				placeholder="Search... (Press 'a')"
+				class="input rounded-container-token"
+				bind:this={searchInputElement}
+				bind:value={searchTerm}
+				onkeydown={handleClearWithEscape}
+				oninput={searchAbilities}
+			/>
+		</div>
+	</div>
+
+	<!-- Scrollable content section -->
+	<div class="flex-1 overflow-y-auto min-h-0">
+		{#if shownTTPs.length === 0}
+			<div class="flex h-full items-center justify-center text-center text-gray-500">
+				No TTPs available. <br>
+				Please select an entity in the graph.
+			</div>
+		{:else}
+			<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible>
+				{#each Array.from(shownTTPs) as [tactic, ttps]}
+					<hr class="hr" />
+					<Accordion.Item
+						value={tactic}
+						class="text-surface-contrast-200-800"
+						disabled={ttps?.length === 0}
+					>
+						<Accordion.ItemTrigger class="flex justify-between items-center">
+							<Icon icon={iconMap[tactic]} width="24"></Icon>
+							<div class="flex w-full items-center">
+								<span class="flex-1">{tactic}</span>
+								<span class="ml-2 text-xs text-gray-500">
+									{applicableTTPs.get(tactic)?.length ?? 0}
+								</span>
+							</div>
+						</Accordion.ItemTrigger>
+						<Accordion.ItemContent class="px-0 py-0 mb-1 bg-surface-200-800">
+							{#each ttps as ttp}
+								<ActionCard
+									{ttp}
+									conditions={ttp.requires}
+									icon={iconMap[ttp.tactic]}
+									enabled={isShiftPressed || isTTPApplicable(ttp)}
+									onclick={() => onActionSelected(ttp)}
+								/>
+								<hr class="hr h-1 bg-surface-300-700" />
+							{/each}
+						</Accordion.ItemContent>
+					</Accordion.Item>
+				{/each}
+			</Accordion>
+		{/if}
+	</div>
 </div>
