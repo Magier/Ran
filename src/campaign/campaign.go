@@ -81,7 +81,6 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 	mb.Subscribe(c2.SessionClosed{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
 		return campaign.onSessionClosed(msg.(c2.SessionClosed))
 	})
-	// mb.Subscribe(domain.ActionSelected{}, campaign.onActionSelected)
 	// mb.Subscribe(domain.TokenPermissionsRetrieved{}, campaign.parseSelfSubjectServiceReview)
 	mb.Subscribe(domain.PrintGraph{}, campaign.onPrintGraph)
 	mb.Subscribe(domain.SaveAttackFlow{}, campaign.onSaveAttackFlow)
@@ -459,7 +458,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 
 func groundUsedTool(proc domain.Procedure, sys domain.System) (domain.Procedure, error) {
 	toolName := proc.GetTool()
-	if binPath := sys.GetBinary(toolName); binPath != "" && binPath != toolName {
+	if binPath := sys.GetBinary(toolName); binPath != "" && binPath != "❌" && binPath != toolName {
 		// in the command a must be is a stand-alone string, so add spaces around it to avoid partial replacements
 		re := regexp.MustCompile(fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(toolName)))
 		proc.Command = re.ReplaceAllString(proc.Command, binPath)
