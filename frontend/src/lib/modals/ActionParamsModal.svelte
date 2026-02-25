@@ -207,23 +207,35 @@
 					console.group("Processing arg", arg.Name);
 					console.info("Processing arg", arg.Name, "of type", arg.Type, "with value", arg.Value);
 					
-					// Entity types should use the full ID (not just the name)
-					const entityTypes = [
-						'Pod', 'Namespace', 'ServiceAccount', 'Service', 'Deployment', 'Container',
-						'ConfigMap', 'Secret', 'Role', 'ClusterRole', 'RoleBinding', 'ClusterRoleBinding',
-						'Node', 'ClusterNode', 'Ingress', 'Daemonset', 'CronJob', 'Job', 'Statefulset',
-						'Volume', 'User', 'Group', 'KubeApiServer', 'ControlPlane',
-						// GCP resources
-						'GCPBucket', 'GCPServiceAccount', 'GCPServiceAccountToken', 'MetadataServer', 'GCPMetadataServer'
-					];
-					const isEntityType = entityTypes.includes(arg.Type);
-					
-					if (!isEntityType && arg.Name.toLowerCase().endsWith("name") && arg.Value.indexOf("/") !== -1) {
-						// For non-entity types, if the arg is a name, extract just the name part
-						const parts = arg.Value.split("/");
-						arg.Value = parts[parts.length - 1];
+					// If parameter name ends with "Name", send the label (name) instead of the ID
+					if (arg.Name.endsWith("Name")) {
+						const options = argOptions[arg.Name];
+						if (options) {
+							const matchingOption = options.find(opt => opt.value === arg.Value);
+							if (matchingOption) {
+								arg.Value = matchingOption.label;
+								console.info("Parameter ends with 'Name': using label instead of ID:", matchingOption.label);
+							}
+						}
+					} else {
+						// Entity types should use the full ID (not just the name)
+						const entityTypes = [
+							'Pod', 'Namespace', 'ServiceAccount', 'Service', 'Deployment', 'Container',
+							'ConfigMap', 'Secret', 'Role', 'ClusterRole', 'RoleBinding', 'ClusterRoleBinding',
+							'Node', 'ClusterNode', 'Ingress', 'Daemonset', 'CronJob', 'Job', 'Statefulset',
+							'Volume', 'User', 'Group', 'KubeApiServer', 'ControlPlane',
+							// GCP resources
+							'GCPBucket', 'GCPServiceAccount', 'GCPServiceAccountToken', 'MetadataServer', 'GCPMetadataServer'
+						];
+						const isEntityType = entityTypes.includes(arg.Type);
+						
+						if (!isEntityType && arg.Name.toLowerCase().endsWith("name") && arg.Value.indexOf("/") !== -1) {
+							// For non-entity types, if the arg is a name, extract just the name part
+							const parts = arg.Value.split("/");
+							arg.Value = parts[parts.length - 1];
+						}
+						// Otherwise keep the full value (ID for entities, or whatever was provided)
 					}
-					// Otherwise keep the full value (ID for entities, or whatever was provided)
 					
 					console.info("Post Processed arg", arg.Name, "final value", arg.Value);
 					console.groupEnd();
