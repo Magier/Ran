@@ -104,27 +104,7 @@
 		cy.on('pinchzoom', saveZoom);
 
 		console.info("Cytoscape graph initialized");
-		if (Object.keys(positions).length === 0) {
-			console.info("No previous positions, so using sane defaults for the layout")
-			try {
-				const initialLayout = createLayout(cy.nodes(), positions);
-				console.log('Initial layout config:', initialLayout);
-				const originalStop = initialLayout.stop;
-				initialLayout.stop = () => {
-					console.log('Initial layout complete');
-					if (originalStop) originalStop();
-				};
-				cy.layout(initialLayout).run();
-				cy.center();
-				saveGraphLayout();
-			} catch (layoutError) {
-				console.error('Initial layout error:', layoutError);
-				console.error('Node count:', cy.nodes().length);
-				toaster.create({ title: "Layout error", description: 'Error during initial layout: ' + layoutError, type: 'error' });
-			}
-		} else {
-			console.info(">> Loaded previous node positions from session storage");
-		}
+		// Note: Initial centering and layout will happen when graph data loads in the $effect
 	});
 
 	onDestroy(() => {
@@ -180,22 +160,44 @@
 						const currentZoom = cy.zoom();
 
 						try {
-							// Create layout with constraints and add stop callback to unlock nodes
-							const enhancedLayout = createLayout(cy.nodes(), positions);
+						// Validate graph state before layout
+						const nodeCount = cy.nodes().length;
+						const edgeCount = cy.edges().length;
+						
+						if (nodeCount === 0) {
+							console.warn('Skipping layout: no nodes in graph');
+							return;
+						}
 
-							// Validate layout configuration
-							console.log('Layout config:', enhancedLayout);
+						// Create layout with constraints and add stop callback to unlock nodes
+						const enhancedLayout = createLayout(cy.nodes(), positions);
 
+						// Validate layout configuration
+						console.log('Layout config:', enhancedLayout);
+						console.log('Graph state:', { nodes: nodeCount, edges: edgeCount });
 							const originalStop = enhancedLayout.stop;
-							enhancedLayout.stop = () => {
-								existingNodes.unlock();
+					const isInitialLoad = previousNodeIds.size === 0;
+					enhancedLayout.stop = () => {
+						existingNodes.unlock();
 
-								// Restore pan and zoom to prevent layout side-effects
-								if (currentPan && (currentPan.x !== 0 || currentPan.y !== 0)) {
-									cy.pan(currentPan);
-								}
-								cy.zoom(currentZoom);
-
+						if (isInitialLoad) {
+							// Center and fit on initial load with reasonable zoom cap
+							console.log('Initial load: centering graph');
+							cy.fit(undefined, 50); // 50px padding to fit all nodes
+							
+							// Cap zoom to avoid being too zoomed in
+							const maxZoom = 2;
+							if (cy.zoom() > maxZoom) {
+								cy.zoom(maxZoom);
+							}
+							cy.center();
+						} else {
+							// Restore pan and zoom for subsequent updates
+							if (currentPan && (currentPan.x !== 0 || currentPan.y !== 0)) {
+								cy.pan(currentPan);
+							}
+							cy.zoom(currentZoom);
+						}
 								console.log('Layout complete, nodes unlocked');
 								if (originalStop) originalStop();
 							};
@@ -207,9 +209,23 @@
 						} catch (layoutError) {
 							console.error('Layout error:', layoutError);
 							console.error('Node count:', cy.nodes().length);
-							console.error('Positions:', positions);
-							existingNodes.unlock();
-							throw layoutError;
+						console.error('Edge count:', cy.edges().length);
+						console.error('Positions:', positions);
+						existingNodes.unlock();
+						
+						// Clear invalid positions on error to allow fresh layout
+						const errorMsg = layoutError instanceof Error ? layoutError.message : String(layoutError);
+						if (errorMsg.includes('invalid array length')) {
+							console.warn('Clearing invalid positions due to array length error');
+							sessionStorage.removeItem(POS_KEY);
+							positions = {};
+						}
+						
+						toaster.create({ 
+							title: "Layout error", 
+							description: 'Error during layout: ' + errorMsg, 
+							type: 'error' 
+						});
 						}
 					} else {
 						console.log('No new nodes, skipping layout');
@@ -271,9 +287,28 @@
 	function loadPositions(): PosMap {
 		if (!browser) return {};
 		try { 
-			return JSON.parse(sessionStorage.getItem(POS_KEY) ?? '{}') 
+			const stored = JSON.parse(sessionStorage.getItem(POS_KEY) ?? '{}');
+			// Validate loaded positions
+			const validated: PosMap = {};
+			for (const [id, pos] of Object.entries(stored)) {
+				if (pos && typeof pos === 'object') {
+					const { x, y } = pos as Pos;
+					if (typeof x === 'number' && typeof y === 'number' &&
+						isFinite(x) && isFinite(y) &&
+						!isNaN(x) && !isNaN(y) &&
+						Math.abs(x) < 1e6 && Math.abs(y) < 1e6) {
+						validated[id] = { x, y };
+					} else {
+						console.warn(`Invalid position for node ${id}, skipping`);
+					}
+				}
+			}
+			return validated;
 		}
-		catch { return {}; }
+		catch (e) { 
+			console.error('Error loading positions:', e);
+			return {}; 
+		}
 	}	
 
 	function getZoomLevelOrDefault(defaultValue: number) {
