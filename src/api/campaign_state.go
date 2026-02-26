@@ -18,11 +18,17 @@ func (a *API) GetCampaignState() CampaignState {
 
 	relationsMap := a.ran.Campaign.GetRelations()
 	relations := make([]map[string]interface{}, 0, len(relationsMap))
-	for _, relation := range relationsMap {
+	for id, relation := range relationsMap {
 		// Convert relation to map for JSON compatibility
 		data, _ := json.Marshal(relation)
 		var relationMap map[string]interface{}
 		json.Unmarshal(data, &relationMap)
+		// Add the relation ID to ensure frontend can look it up
+		relationMap["id"] = id
+		// Add source and target IDs for convenience
+		relationMap["source"] = relation.GetSourceId()
+		relationMap["target"] = relation.GetTargetId()
+		relationMap["kind"] = relation.GetRelationName()
 		relations = append(relations, relationMap)
 	}
 

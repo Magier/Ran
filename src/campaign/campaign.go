@@ -30,6 +30,7 @@ type Campaign struct {
 	identities     map[string]domain.Identity
 	bus            bus.MessageBus
 	lastExecSystem domain.System
+	ruleEngine     *RuleEngine
 }
 
 type factsUpdate struct {
@@ -46,7 +47,7 @@ func NewCampaign(armory *armory.Armory) *Campaign {
 	kg := InitGraph()
 
 	_ = kg.AddEntity(domain.NewC2System("Ran", "Ran"))
-	return &Campaign{
+	c := &Campaign{
 		kb:         kg,
 		trail:      NewAuditTrail(),
 		armory:     armory,
@@ -54,6 +55,10 @@ func NewCampaign(armory *armory.Armory) *Campaign {
 		listeners:  make(map[string]domain.Listener),
 		identities: make(map[string]domain.Identity),
 	}
+	c.ruleEngine = NewRuleEngine(kg, func() map[string]domain.Identity {
+		return c.identities
+	}, DefaultRules()...)
+	return c
 }
 
 // type CampaignStarted struct {
@@ -162,6 +167,16 @@ func (c *Campaign) UpdateFacts(new domain.Facts, removed domain.Facts) (domain.F
 	if err != nil {
 		slog.Error(err.Error())
 	}
+
+	// Evaluate declarative rules for implied relations
+	impliedAdd, impliedRemove := c.ruleEngine.EvaluateDelta(new, removed)
+	if len(impliedAdd) > 0 {
+		c.AddRelations(impliedAdd...)
+	}
+	if len(impliedRemove) > 0 {
+		c.RemoveRelations(impliedRemove...)
+	}
+
 	return domain.FactsChanged{
 		New:     new,
 		Removed: removed,
@@ -180,6 +195,7 @@ func (c *Campaign) Reset() error {
 	c.sessions = make(map[string]domain.Session)
 	c.listeners = make(map[string]domain.Listener)
 	c.identities = make(map[string]domain.Identity)
+	c.ruleEngine.Reset()
 
 	err = c.kb.AddEntity(domain.NewC2System("Ran", "Ran"))
 	if err != nil {
