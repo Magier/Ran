@@ -59,6 +59,11 @@
 		return nsArg ? nsArg.Value : '';
 	});
 
+	let isAllNamespaces = $derived.by(() => {
+		const allNsArg = args.find(arg => arg.Name === 'ALL_NS');
+		return allNsArg ? allNsArg.IsTrue : false;
+	});
+
 	function selectNamespace(ns: string) {
 		// Update args immutably so Svelte's reactivity picks up the change
 		args = args.map(a => {
@@ -315,8 +320,8 @@
 	}
 
 	function executingSystemHasTool(system: string, tool: string): boolean {
-		console.warn('Checking of available tools is not implemented yet.');
-		return false;
+		console.warn('Checking of available tools is not implemented yet.', system);
+		return true;
 	}
 
 	function getArgOptions(argName: string): ComboboxOption[] {
@@ -353,7 +358,6 @@
 			const selectedItem = e.items?.[0];
 			const ns = selectedItem?.group;
 			if (ns && ns !== selectedNamespace) {
-				console.info("Auto-selecting namespace", ns, "from selected", arg.Type);
 				selectNamespace(ns);
 			}
 		}
@@ -391,17 +395,6 @@
 			args = args.with(i, { ...currentArg, Value: inputValue });
 		}
 	}
-
-
-	// const onvalueChange: ComboboxRootProps['onValueChange'] = (event) => {
-	// 	const filtered = data.filter((item) => item.value.toLowerCase().includes(event.inputValue.toLowerCase()));
-	// 	if (filtered.length > 0) {
-	// 		items = filtered;
-	// 	} else {
-	// 		items = data;
-	// 	}
-	// }
-
 </script>
 
 <form class="w-full space-y-8" onsubmit={onInternalExecute}>
@@ -420,7 +413,7 @@
 					{#each ttp.procedures as procedure (procedure.id)}
 						<option
 							value={procedure.id}
-							disabled={executingSystemHasTool(targetId, procedure.id)}
+							disabled={!executingSystemHasTool(targetId, procedure.id)}
 							>{procedure.id}
 						</option>
 					{/each}
@@ -440,7 +433,10 @@
 			{#if args.length > 0}
 					<span class="h5">Params</span>
 {#each args as arg (arg.Name)}
-	<div class="input-group mt-2 grid-cols-[auto_1fr_auto]">
+	<div class="input-group mt-2 grid-cols-[auto_1fr_auto]"
+		class:opacity-50={arg.Type === 'Namespace' && isAllNamespaces}
+		class:pointer-events-none={arg.Type === 'Namespace' && isAllNamespaces}
+	>
 		<div class="ig-cell preset-tonal">{arg.Name}</div>
 		{#if arg.Type === 'bool'}
 			<input
