@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Combobox, Portal, type ComboboxRootProps, useListCollection, type ListCollection } from '@skeletonlabs/skeleton-svelte';
+	import { Combobox, Portal, type ComboboxRootProps, useListCollection } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId } from '$lib/model';
 	import type { TTP, TTPParam } from '$lib/api/index';
@@ -72,17 +72,82 @@
 
 	$effect(() => {
 		// if the namespace changes, clear out-of-namespace resources (except TOKEN which can be cross-namespace)
-		const outOfNsResources = args.find(arg => 
-			arg.Name !== "TOKEN" && 
-			arg.Value.startsWith("ns/") && 
-			!arg.Value.startsWith(`ns/${selectedNamespace}`)
-		);
+		let hasOutOfNsResources = false;
+		
+		for (const arg of args) {
+			// Skip namespace arg itself and TOKEN (which can be cross-namespace)
+			if (arg.Type === 'Namespace' || arg.Name === 'TOKEN') continue;
+			
+			// Only check args that have a value
+			if (!arg.Value) continue;
+			
+			// Check if this arg has options (meaning it's an entity selector)
+			const options = argOptions[arg.Name];
+			if (options && options.length > 0) {
+				// Find the selected option to get its namespace (group)
+				const selectedOption = options.find(opt => opt.value === arg.Value);
+				if (selectedOption && selectedOption.group && selectedOption.group !== selectedNamespace) {
+					hasOutOfNsResources = true;
+					break;
+				}
+			} else if (arg.Value.startsWith("ns/") && !arg.Value.startsWith(`ns/${selectedNamespace}`)) {
+				// Fallback: check ID-based resources
+				hasOutOfNsResources = true;
+				break;
+			}
+		}
 
-		if (outOfNsResources) {
+		if (hasOutOfNsResources) {
 			args = args.map(a => {
-				if (a.Name !== "TOKEN" && a.Value.startsWith("ns/") && !a.Value.startsWith(`ns/${selectedNamespace}`)) {
+				// Skip namespace arg itself and TOKEN
+				if (a.Type === 'Namespace' || a.Name === 'TOKEN') return a;
+				if (!a.Value) return a;
+				
+				// Check if this arg has options
+				const options = argOptions[a.Name];
+				if (options && options.length > 0) {
+					const selectedOption = options.find(opt => opt.value === a.Value);
+					if (selectedOption && selectedOption.group && selectedOption.group !== selectedNamespace) {
+						bumpArgVersion(a.Name);
+						return { ...a, Value: "" };
+					}
+				} else if (a.Value.startsWith("ns/") && !a.Value.startsWith(`ns/${selectedNamespace}`)) {
+					// Fallback: clear ID-based resources
 					bumpArgVersion(a.Name);
 					return { ...a, Value: "" };
+				}
+				
+				return a;
+			});
+		}
+	});
+
+	// Auto-select when only one option is available
+	$effect(() => {
+		// Check each arg to see if it has exactly one option
+		let needsUpdate = false;
+		const updates: Array<{ index: number; value: string; name: string }> = [];
+		
+		args.forEach((arg, i) => {
+			// Skip if it's a boolean or doesn't have options
+			if (arg.Type === 'bool') return;
+			
+			const options = getArgOptions(arg.Name);
+			
+			// If there's exactly one option and current value doesn't match it
+			if (options.length === 1 && arg.Value !== options[0].value) {
+				updates.push({ index: i, value: options[0].value, name: arg.Name });
+				needsUpdate = true;
+			}
+		});
+		
+		if (needsUpdate) {
+			args = args.map((a, i) => {
+				const update = updates.find(u => u.index === i);
+				if (update) {
+					console.info("Auto-selecting single option for", update.name, ":", update.value);
+					bumpArgVersion(update.name);
+					return { ...a, Value: update.value };
 				}
 				return a;
 			});
@@ -254,7 +319,7 @@
 		return false;
 	}
 
-	function getArgOptions(argName: string): ListCollection<ComboboxOption> {
+	function getArgOptions(argName: string): ComboboxOption[] {
 		let opts = argOptions[argName] ?? [];
 		if (selectedNamespace !== "" && argName !== namespaceArgName && argName !== "TOKEN") {
 			opts = opts.filter(o => o.group === selectedNamespace);
@@ -262,22 +327,18 @@
 		return opts
 	}
 	
-	function toComboBoxCollection(items: ComboboxOption[]): ListCollection<ComboboxOption> {
+	function toComboBoxCollection(items: ComboboxOption[]) {
 		return useListCollection({
 		  items: items,
 		  itemToString: (item) => item.label,
 		  itemToValue: (item) => item.value,
-		  groupBy: (item) => item.group || undefined
+		  groupBy: (item) => item.group || ''
 		})
 	}
 
-	function onArgChange(arg: Arg, e) {
-		// If the chosen item carries a namespace in its group, set it
-		if (arg.Type !== 'Namespace') {
-			const ns = e.items?.[0]?.group;
-			if (ns) {selectNamespace(ns);}
-		}
+	function onArgChange(arg: Arg, e: any) {
 		console.info("Arg change event for", arg.Name, "new value", e.value[0], "selected item", e.items?.[0]);
+		
 		// IMMUTABLE UPDATE so Svelte sees it:
 		const i = args.findIndex(a => a.Name === arg.Name);
 		if (i !== -1) {
@@ -285,6 +346,16 @@
 			args = args.with(i, { ...args[i], Value: newValue });
 		} else {
 			console.warn("Could not find arg to update:", arg.Name);
+		}
+		
+		// If the chosen item carries a namespace in its group, and this is not the Namespace field itself, auto-select that namespace
+		if (arg.Type !== 'Namespace') {
+			const selectedItem = e.items?.[0];
+			const ns = selectedItem?.group;
+			if (ns && ns !== selectedNamespace) {
+				console.info("Auto-selecting namespace", ns, "from selected", arg.Type);
+				selectNamespace(ns);
+			}
 		}
 
 		console.info("Updated args after change:", args);
@@ -379,30 +450,32 @@
 				placeholder={arg.Description}
 			/>
 		{:else if getArgOptions(arg.Name).length > 0}
-			<Combobox
-				collection={toComboBoxCollection(getArgOptions(arg.Name))}
-				onValueChange={(e) => onArgChange(arg, e)}
-				inputBehavior="autocomplete"
-				allowCustomValue={true}
-				openOnChange={true}
-				defaultValue={[arg.Value]}
-				placeholder={arg.Name + "..."}
-				>
-				<Combobox.Control>
-					<Combobox.Input onblur={(e) => handleInputBlur(arg, e.currentTarget.value)} />
-					<Combobox.Trigger />
-				</Combobox.Control>
-				<Combobox.Positioner>
-					<Combobox.Content class="z-50">
-						{#each getArgOptions(arg.Name) as item (item)}
-							<Combobox.Item {item}>
-								<Combobox.ItemText>{item.label}</Combobox.ItemText>
-								<Combobox.ItemIndicator />
-							</Combobox.Item>
-						{/each}
-					</Combobox.Content>
-				</Combobox.Positioner>
-			</Combobox>
+			{#key argExternalVersions[arg.Name] ?? 0}
+				<Combobox
+					collection={toComboBoxCollection(getArgOptions(arg.Name))}
+					onValueChange={(e) => onArgChange(arg, e)}
+					inputBehavior="autocomplete"
+					allowCustomValue={true}
+					openOnChange={true}
+					defaultValue={[arg.Value]}
+					placeholder={arg.Name + "..."}
+					>
+					<Combobox.Control>
+						<Combobox.Input onblur={(e) => handleInputBlur(arg, e.currentTarget.value)} />
+						<Combobox.Trigger />
+					</Combobox.Control>
+					<Combobox.Positioner>
+						<Combobox.Content class="z-50">
+							{#each getArgOptions(arg.Name) as item (item)}
+								<Combobox.Item {item}>
+									<Combobox.ItemText>{item.label}</Combobox.ItemText>
+									<Combobox.ItemIndicator />
+								</Combobox.Item>
+							{/each}
+						</Combobox.Content>
+					</Combobox.Positioner>
+				</Combobox>
+			{/key}
 		{:else}
 			<input
 				class="ig-input"
