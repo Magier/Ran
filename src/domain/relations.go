@@ -559,3 +559,32 @@ func (r CanReach) WithTarget(e Entity) Relation {
 	r.TargetId = e.GetId()
 	return r
 }
+
+type KubeletExec struct {
+	RelationImpl
+	Pod  Pod
+	Node K8sNode
+}
+
+var _ Relation = (*KubeletExec)(nil)
+
+func (r KubeletExec) GetSourceId() string     { return r.Pod.GetId() }
+func (r KubeletExec) GetTargetId() string     { return r.Node.GetId() }
+func (r KubeletExec) GetRelationName() string { return "kubelet-exec" }
+
+func (r KubeletExec) WithSource(e Entity) Relation {
+	if pod, ok := e.(Pod); ok {
+		r.Pod = pod
+	} else {
+		slog.Warn("WithSource called with non-Pod entity", "entity", e.GetId())
+	}
+	return r
+}
+func (r KubeletExec) WithTarget(e Entity) Relation {
+	if node, ok := e.(K8sNode); ok {
+		r.Node = node
+	} else {
+		slog.Warn("WithTarget called with non-K8sNode entity", "entity", e.GetId())
+	}
+	return r
+}

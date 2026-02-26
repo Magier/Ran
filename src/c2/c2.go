@@ -608,6 +608,9 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 			slog.Warn("legacy mode of wrapping kubectl channel ")
 		}
 
+		if ch.IsInteractive {
+			slog.Debug("Establishing interactive shell for channel  is not yet implemented!")
+		} else {
 		stdout, stderr, err = execKubectl(ctx, cmd, target)
 		results = []string{stdout, stderr}
 		if err != nil {
@@ -618,6 +621,7 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 				}
 			} else {
 				err = fmt.Errorf("%w: '%s'", err, stderr)
+				}
 			}
 		}
 	default:
