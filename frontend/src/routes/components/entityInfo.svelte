@@ -18,6 +18,84 @@
 	const items = [];
 	// const tree = new Tree({ items });
 	const obj = $derived(campaignState.getObjectById(objectId));
+	
+	// Track previous values and highlighted fields
+	let previousObjectId: string | null = null;
+	let previousValues: Record<string, any> = {};
+	let highlightedFields = $state<Record<string, boolean>>({});
+	let timeouts: Map<string, number> = new Map();
+
+	// Track changes in object fields
+	$effect(() => {
+		if (!obj) return;
+		
+		// Check if the objectId changed (user selected a different entity)
+		if (previousObjectId !== objectId) {
+			// Different entity selected - reset without highlighting
+			previousObjectId = objectId;
+			previousValues = {};
+			for (const [key, value] of Object.entries(obj)) {
+				previousValues[key] = value;
+			}
+			// Clear all highlights
+			highlightedFields = {};
+			timeouts.forEach(timeout => clearTimeout(timeout));
+			timeouts.clear();
+			return;
+		}
+		
+		// Same entity - check each field for changes
+		for (const [key, value] of Object.entries(obj)) {
+			const isNewField = !(key in previousValues);
+			let shouldHighlight = false;
+			
+			if (isNewField) {
+				// New field added - highlight it
+				shouldHighlight = true;
+			} else {
+				// Check if existing field value changed
+				try {
+					const prevStr = JSON.stringify(previousValues[key]);
+					const currStr = JSON.stringify(value);
+					
+					if (prevStr !== currStr) {
+						shouldHighlight = true;
+					}
+				} catch (e) {
+					// Ignore JSON.stringify errors (e.g., circular references)
+					console.warn('Error comparing values for key:', key, e);
+				}
+			}
+			
+			if (shouldHighlight) {
+				// Clear any existing timeout for this field
+				const existingTimeout = timeouts.get(key);
+				if (existingTimeout) {
+					clearTimeout(existingTimeout);
+				}
+				
+				// Highlight the field
+				highlightedFields[key] = true;
+				
+				// Remove highlight after animation completes (2 seconds)
+				const timeoutId = setTimeout(() => {
+					highlightedFields[key] = false;
+					timeouts.delete(key);
+				}, 2000) as unknown as number;
+				
+				timeouts.set(key, timeoutId);
+			}
+			
+			// Update previous value
+			previousValues[key] = value;
+		}
+		
+		// Cleanup function - clear all timeouts when effect re-runs or component unmounts
+		return () => {
+			timeouts.forEach(timeout => clearTimeout(timeout));
+			timeouts.clear();
+		};
+	});
 
 	function prettyPrint(obj: any): string {
 		if (typeof obj === 'string') {
@@ -59,18 +137,18 @@
 	{#if obj}
 		{#each Object.entries(obj || {}) as [label, data]}
 			{#if label === 'volumeMounts' || label === 'mounts'}
-				<details>
+				<details class:field-changed={highlightedFields[label]}>
 					<summary>
 						<span class="font-bold mr-1">{label}</span>
 						<span class="badge preset-outlined-surface-500"
-							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
+							>({Array.isArray(data) ? data.length : (typeof data === 'object' && data !== null ? Object.keys(data).length : 0)} items)</span
 						>
 					</summary>
 					<Tree entries={Array.isArray(data) ? data : []} onLeafClick={readFile} />
 				</details>
 			{:else if label === 'can'}
-				{#if Object.keys(data).length > 0}
-					<details>
+				{#if typeof data === 'object' && data !== null && Object.keys(data).length > 0}
+					<details class:field-changed={highlightedFields[label]}>
 						<summary>
 							<span class="font-bold mr-1">{label}</span>
 							<span class="badge preset-outlined-surface-500"
@@ -80,14 +158,14 @@
 						<EntitlementInfo entitlements={data as RBACPermission[]} />
 					</details>
 				{:else}
-					<div>
+					<div class:field-changed={highlightedFields[label]}>
 					<span class="font-bold mr-1">{label}</span>
 					?
 					</div>
 					<!-- <button class="btn btn-sm preset-filled-primary-500" disabled>🔍</button> -->
 				{/if}
 			{:else if Array.isArray(data) && data.length > 0}
-				<details>
+				<details class:field-changed={highlightedFields[label]}>
 					<summary>
 						<span class="font-bold mr-1">{label}</span>
 						<span class="badge preset-outlined-surface-500">({data.length} items)</span>
@@ -100,7 +178,7 @@
 				</details>
 			{:else if typeof data === 'object' && data !== null}
 				<!-- Collapsible section for objects/arrays -->
-				<details>
+				<details class:field-changed={highlightedFields[label]}>
 					<summary>
 						<span class="font-bold mr-1">{label}</span>
 						<span class="badge preset-outlined-surface-500"
@@ -110,7 +188,7 @@
 					<pre class="max-h-80 overflow-scroll">{JSON.stringify(data, null, 2)}</pre>
 				</details>
 			{:else if data !== ''}
-				<div><span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}</div>
+				<div class:field-changed={highlightedFields[label]}><span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}</div>
 			{/if}
 		{/each}
 	{:else}
@@ -131,3 +209,20 @@
 		{/each}
 	{/if}
 </div>
+
+<style>
+	@keyframes highlight-fade {
+		0% {
+			background-color: var(--color-primary-500);
+			transform: scale(1.02);
+		}
+		100% {
+			background-color: transparent;
+			transform: scale(1);
+		}
+	}
+
+	.field-changed {
+		animation: highlight-fade 2s ease-out;
+	}
+</style>
