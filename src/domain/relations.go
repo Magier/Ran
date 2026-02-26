@@ -309,7 +309,7 @@ func GetRelationCost(relation Relation) int {
 	switch r := relation.(type) {
 	case CanAccess:
 		return r.GetCost()
-	case MountsHostPath:
+	case MountsHostPaths:
 		return 10
 	}
 	return 1000
@@ -486,22 +486,42 @@ func (r ExposesSecret) WithTarget(e Entity) Relation {
 	return r
 }
 
-type MountsHostPath struct {
+type MountsHostPaths struct {
 	RelationImpl
 	Pod       Pod
 	Node      K8sNode
-	HostPath  string
-	MountPath string
+	HostPaths map[string]string
 }
 
-var _ Relation = (*MountsHostPath)(nil)
+var _ Relation = (*MountsHostPaths)(nil)
 
-func (r MountsHostPath) IsInverse() bool         { return true }
-func (r MountsHostPath) GetSourceId() string     { return r.Pod.GetId() }
-func (r MountsHostPath) GetTargetId() string     { return r.Node.GetId() }
-func (r MountsHostPath) GetRelationName() string { return fmt.Sprintf("mounts %s", r.HostPath) }
+func NewMountsHostPathsRelation(pod Pod, node K8sNode) MountsHostPaths {
+	mounts := make(map[string]string)
 
-func (r MountsHostPath) WithSource(e Entity) Relation {
+	return MountsHostPaths{
+		Pod:       pod,
+		Node:      node,
+		HostPaths: mounts,
+	}
+}
+
+func (r *MountsHostPaths) AddMount(mountPath, hostPath string) {
+	r.HostPaths[mountPath] = hostPath
+}
+
+func (r MountsHostPaths) IsInverse() bool     { return true }
+func (r MountsHostPaths) GetSourceId() string { return r.Pod.GetId() }
+func (r MountsHostPaths) GetTargetId() string { return r.Node.GetId() }
+func (r MountsHostPaths) GetRelationName() string {
+	if len(r.HostPaths) == 1 {
+		for _, hostPath := range r.HostPaths {
+			return fmt.Sprintf("mounts %s", hostPath)
+		}
+	}
+	return fmt.Sprintf("%d hostPaths", len(r.HostPaths))
+}
+
+func (r MountsHostPaths) WithSource(e Entity) Relation {
 	if pod, ok := e.(Pod); ok {
 		r.Pod = pod
 	} else {
@@ -509,7 +529,7 @@ func (r MountsHostPath) WithSource(e Entity) Relation {
 	}
 	return r
 }
-func (r MountsHostPath) WithTarget(e Entity) Relation {
+func (r MountsHostPaths) WithTarget(e Entity) Relation {
 	if node, ok := e.(K8sNode); ok {
 		r.Node = node
 	} else {

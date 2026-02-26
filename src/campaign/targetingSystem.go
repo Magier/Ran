@@ -62,7 +62,7 @@ func (c Campaign) getSystemForExecution(procedure domain.Procedure, target domai
 					switch rel.(type) {
 					case domain.CanAccess:
 						return compromisedSys, nil
-					case domain.MountsHostPath:
+					case domain.MountsHostPaths:
 						return compromisedSys, nil
 					}
 				}
