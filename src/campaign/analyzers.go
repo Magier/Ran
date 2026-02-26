@@ -1072,20 +1072,24 @@ func analyzeHostPath(pod domain.Pod) (domain.Facts, error) {
 func analyzePodHostRelations(pod domain.Pod) []domain.Relation {
 	rels := make([]domain.Relation, 0)
 
-	for _, vm := range pod.VolumeMounts {
-		if vm.IsHostPath {
-			var node domain.K8sNode
-			if pod.RunsOn == nil {
-				node = domain.NewK8sNode(pod.NodeName)
-			} else {
-				node = *pod.RunsOn
+	if len(pod.VolumeMounts) > 0 {
+		var node domain.K8sNode
+
+		if pod.RunsOn == nil {
+			node = domain.NewK8sNode(pod.NodeName)
+		} else {
+			node = *pod.RunsOn
+		}
+		rel := domain.NewMountsHostPathsRelation(pod, node)
+
+		for _, vm := range pod.VolumeMounts {
+			if vm.IsHostPath {
+				rel.AddMount(vm.MountPoint, vm.MountRoot)
 			}
-			rels = append(rels, domain.MountsHostPath{
-				Pod:       pod,
-				MountPath: vm.MountPoint,
-				HostPath:  vm.MountRoot,
-				Node:      node,
-			})
+		}
+
+		if len(rel.HostPaths) > 0 {
+			rels = append(rels, rel)
 		}
 	}
 
