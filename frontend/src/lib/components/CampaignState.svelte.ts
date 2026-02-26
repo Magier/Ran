@@ -20,6 +20,7 @@ export type Relation = {
 	source: string;
 	destination: string;
 	kind: string;
+	[key: string]: any; // Allow additional fields from specific relation types
 };
 
 type ErrorMsg = {
@@ -37,6 +38,7 @@ class CampaignState {
 	campaignId: number = $state(0);
 	activeConditions: Conditions = $state({});
 	entities = $state<Entity[]>([]);
+	relations = $state<Map<string, Relation>>(new Map());
 	namespaces = $state<Entity[]>([]);
 	pods = $state<Entity[]>([]);
 	serviceAccounts = $state<Entity[]>([]);
@@ -235,7 +237,7 @@ class CampaignState {
 		
 		console.info("Setting campaign state with entities:", state.entities);
 		for (const [id, entity] of Object.entries(state.entities || {})) {
-			const typedEntity = entity as Entity;
+			const typedEntity = entity as unknown as Entity;
 			if (typedEntity.kind === 'Namespace') {
 				namespaces.push(typedEntity);
 			} else if (typedEntity.kind === 'Pod') {
@@ -254,29 +256,35 @@ class CampaignState {
 		this.namespaces = namespaces;
 		this.pods = pods;
 		this.serviceAccounts = serviceAccounts;
-	}
 
-	#updateState(state: State): void {
-		for (const [id, entity] of Object.entries(state.entities || [])) {
-			if (!this.entities.some((e) => e.id === entity.id)) {
-				this.entities = [...this.entities, entity];
-			} else {
-				// TODO: properly update the entity
-			}
-			if (entity.kind === 'Namespace') {
-				this.namespaces = [...this.namespaces, entity];
+		// Process relations
+		console.info("Setting campaign state with relations:", state.relations);
+		const relationsMap = new Map<string, Relation>();
+		for (const relation of state.relations || []) {
+			// Extract source and target from the relation
+			// The backend sends relations with all their fields
+			const id = relation.id as string;
+			if (id) {
+				relationsMap.set(id, relation as Relation);
 			}
 		}
-
-		this.entities = state.entities.map((node: Node) => {
-			return {
-				id: node.id,
-				name: node.name,
-				kind: node.kind,
-				namespace: node.namespace
-			};
-		});
+		this.relations = relationsMap;
 	}
+
+	// #updateState is currently unused but kept for potential future use
+	// #updateState(state: State): void {
+	// 	for (const [id, entity] of Object.entries(state.entities || {})) {
+	// 		const typedEntity = entity as any as Entity;
+	// 		if (!this.entities.some((e) => e.id === typedEntity.id)) {
+	// 			this.entities = [...this.entities, typedEntity];
+	// 		} else {
+	// 			// TODO: properly update the entity
+	// 		}
+	// 		if (typedEntity.kind === 'Namespace') {
+	// 			this.namespaces = [...this.namespaces, typedEntity];
+	// 		}
+	// 	}
+	// }
 
 	// updateEntities(data: FactsChanged): Entity[] {
 	//     // Update the entities based on the facts changed
@@ -339,9 +347,17 @@ class CampaignState {
 	}
 
 	getRelationById(id: string): Relation | undefined {
-		if (id ===  "") {
+		if (id === "") {
 			return undefined;
 		}
+		
+		// First check if we have the full relation data stored
+		const storedRelation = this.relations.get(id);
+		if (storedRelation) {
+			return storedRelation;
+		}
+		
+		// Fallback: parse the ID to create a basic relation object
 		const parts = id.match(/^(.+?)-\[(.+?)\]->(.+)$/);
 		if (parts) {
 			const [, source, label, destination] = parts;
