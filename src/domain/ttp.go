@@ -44,6 +44,34 @@ func (p Procedure) GetTool() string {
 	return p.Key
 }
 
+// Copy creates a deep copy of the Procedure
+func (p Procedure) Copy() Procedure {
+	copy := p
+	// CodeSnippet fields are copied by value (strings and maps are already value types in this context)
+	// The Parameters map in Execute needs to be deep copied
+	if p.Execute.Parameters != nil {
+		copy.Execute.Parameters = make(map[string]string, len(p.Execute.Parameters))
+		for k, v := range p.Execute.Parameters {
+			copy.Execute.Parameters[k] = v
+		}
+	}
+	if p.Execute.EnvVars != nil {
+		copy.Execute.EnvVars = make([]string, len(p.Execute.EnvVars))
+		copy.Execute.EnvVars = append([]string{}, p.Execute.EnvVars...)
+	}
+	if p.Cleanup.Parameters != nil {
+		copy.Cleanup.Parameters = make(map[string]string, len(p.Cleanup.Parameters))
+		for k, v := range p.Cleanup.Parameters {
+			copy.Cleanup.Parameters[k] = v
+		}
+	}
+	if p.Cleanup.EnvVars != nil {
+		copy.Cleanup.EnvVars = make([]string, len(p.Cleanup.EnvVars))
+		copy.Cleanup.EnvVars = append([]string{}, p.Cleanup.EnvVars...)
+	}
+	return copy
+}
+
 func (c *Procedure) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type tmpVVariant Procedure
 	if err := unmarshal((*tmpVVariant)(c)); err != nil {
@@ -114,6 +142,47 @@ func (ttp TTP) GetMessage() Message {
 			// TTP:         ttp, Args: ttp.Args,
 		}
 	}
+}
+
+// Copy creates a deep copy of the TTP to ensure immutability
+func (ttp TTP) Copy() TTP {
+	copy := ttp
+
+	// Deep copy slices
+	if ttp.Techniques != nil {
+		copy.Techniques = make([]string, len(ttp.Techniques))
+		copy.Techniques = append([]string{}, ttp.Techniques...)
+	}
+
+	if ttp.References != nil {
+		copy.References = make([]string, len(ttp.References))
+		copy.References = append([]string{}, ttp.References...)
+	}
+
+	if ttp.Procedures != nil {
+		copy.Procedures = make([]Procedure, len(ttp.Procedures))
+		for i, proc := range ttp.Procedures {
+			copy.Procedures[i] = proc.Copy()
+		}
+	}
+
+	if ttp.Params != nil {
+		copy.Params = make([]Parameter, len(ttp.Params))
+		copy.Params = append([]Parameter{}, ttp.Params...)
+	}
+
+	if ttp.Effects != nil {
+		copy.Effects = make([]string, len(ttp.Effects))
+		copy.Effects = append([]string{}, ttp.Effects...)
+	}
+
+	// Deep copy Cleanup procedure
+	copy.Cleanup = ttp.Cleanup.Copy()
+
+	// Note: CommandMsg and ResultHandler are intentionally not deep copied
+	// as they contain function pointers that should be shared
+
+	return copy
 }
 
 type Defense struct {
