@@ -87,6 +87,8 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) error 
 		// TODO: add suggestion of closest TTP IDs
 		return fmt.Errorf("Couldn't find TTP '%s'", ttpID)
 	}
+	// Create a copy to ensure we don't mutate the armory TTP
+	ttp = ttp.Copy()
 
 	args := make(map[string]string)
 

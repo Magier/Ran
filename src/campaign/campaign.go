@@ -103,7 +103,7 @@ func (c *Campaign) SetTarget(ns, podName string) (domain.ExecTTP, error) {
 	if ttp, ok := c.armory.GetTTP("initial-access-pod-exec"); ok {
 		ev := domain.ExecTTP{
 			CommandImpl: domain.NewCmd(""),
-			TTP:         ttp,
+			TTP:         ttp.Copy(), // Create a deep copy to ensure immutability
 			Target:      initialPod,
 			Args:        args,
 		}
@@ -371,7 +371,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 
 	execCmd := domain.ExecTTP{
 		CommandImpl: domain.NewCmd(""),
-		TTP:         ttp,
+		TTP:         ttp.Copy(), // Create a deep copy to ensure immutability of armory TTPs
 		Args:        args,
 	}
 
