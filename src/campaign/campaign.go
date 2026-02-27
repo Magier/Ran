@@ -168,13 +168,21 @@ func (c *Campaign) UpdateFacts(new domain.Facts, removed domain.Facts) (domain.F
 		slog.Error(err.Error())
 	}
 
-	// Evaluate declarative rules for implied relations
-	impliedAdd, impliedRemove := c.ruleEngine.EvaluateDelta(new, removed)
-	if len(impliedAdd) > 0 {
+	// Evaluate declarative rules for implied relations.
+	// Loop to handle chained rules: rule A produces a relation that triggers rule B.
+	delta := domain.Facts{Entities: new.Entities, Relations: new.Relations}
+	removedDelta := domain.Facts{Entities: removed.Entities, Relations: removed.Relations}
+	for i := 0; i < 10; i++ { // cap iterations to prevent infinite loops
+		impliedAdd, impliedRemove := c.ruleEngine.EvaluateDelta(delta, removedDelta)
+		if len(impliedAdd) == 0 && len(impliedRemove) == 0 {
+			break
+		}
 		c.AddRelations(impliedAdd...)
-	}
-	if len(impliedRemove) > 0 {
 		c.RemoveRelations(impliedRemove...)
+
+		// Feed the newly implied relations as the next delta for chained rules
+		delta = domain.Facts{Relations: impliedAdd}
+		removedDelta = domain.Facts{Relations: impliedRemove}
 	}
 
 	return domain.FactsChanged{

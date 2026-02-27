@@ -195,6 +195,10 @@ func (re *RuleEngine) evaluateEntityAgainstRules(
 }
 
 // evaluateRelationTrigger handles relation-based triggers (e.g., CanReach added/removed).
+// When a trigger fires, each endpoint that matches SourceType or TargetType is
+// evaluated against ALL counterpart entities — not just the other endpoint.
+// This is necessary for chained rules (e.g., KubeletPodExec depends on KubeletExec,
+// where the relation's endpoints don't directly map to the rule's source/target).
 func (re *RuleEngine) evaluateRelationTrigger(
 	rel domain.Relation,
 	evaluated map[string]bool,
@@ -211,29 +215,64 @@ func (re *RuleEngine) evaluateRelationTrigger(
 				continue
 			}
 
-			// The relation's endpoints might match the rule's source/target types.
-			// Try both orderings.
-			source, srcOk := re.kb.GetEntity(srcId)
-			target, tgtOk := re.kb.GetEntity(tgtId)
-
-			if srcOk && tgtOk {
-				// Try source→target
-				if entityType(source) == rule.SourceType && entityType(target) == rule.TargetType {
-					key := fmt.Sprintf("%s:%s:%s", rule.Name, srcId, tgtId)
-					if !evaluated[key] {
-						evaluated[key] = true
-						re.evaluatePair(rule, source, target, toAdd, toRemove)
-					}
+			// For each endpoint of the relation, if it matches one side of the rule,
+			// fan out and evaluate it against ALL entities of the other side.
+			endpoints := []string{srcId, tgtId}
+			for _, eid := range endpoints {
+				entity, ok := re.kb.GetEntity(eid)
+				if !ok {
+					continue
 				}
-				// Try target→source (the relation might be in reverse direction relative to the rule)
-				if entityType(target) == rule.SourceType && entityType(source) == rule.TargetType {
-					key := fmt.Sprintf("%s:%s:%s", rule.Name, tgtId, srcId)
-					if !evaluated[key] {
-						evaluated[key] = true
-						re.evaluatePair(rule, target, source, toAdd, toRemove)
-					}
-				}
+				re.evaluateEntityAgainstRule(rule, entity, evaluated, toAdd, toRemove)
 			}
+		}
+	}
+}
+
+// evaluateEntityAgainstRule checks a single rule for a given entity,
+// pairing it with all counterpart entities of the matching type.
+func (re *RuleEngine) evaluateEntityAgainstRule(
+	rule Rule,
+	e domain.Entity,
+	evaluated map[string]bool,
+	toAdd *[]domain.Relation,
+	toRemove *[]domain.Relation,
+) {
+	eType := entityType(e)
+
+	if eType == rule.SourceType {
+		for _, targetId := range re.getEntitiesOfType(rule.TargetType) {
+			if targetId == e.GetId() {
+				continue
+			}
+			key := fmt.Sprintf("%s:%s:%s", rule.Name, e.GetId(), targetId)
+			if evaluated[key] {
+				continue
+			}
+			evaluated[key] = true
+			target, ok := re.kb.GetEntity(targetId)
+			if !ok {
+				continue
+			}
+			re.evaluatePair(rule, e, target, toAdd, toRemove)
+		}
+	}
+
+	if eType == rule.TargetType {
+		for _, sourceId := range re.getEntitiesOfType(rule.SourceType) {
+			if sourceId == e.GetId() {
+				continue
+			}
+			key := fmt.Sprintf("%s:%s:%s", rule.Name, sourceId, e.GetId())
+			if evaluated[key] {
+				continue
+			}
+			evaluated[key] = true
+			source, ok := re.kb.GetEntity(sourceId)
+			if !ok {
+				continue
+			}
+			re.evaluatePair(rule, source, e, toAdd, toRemove)
 		}
 	}
 }

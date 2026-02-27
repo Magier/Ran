@@ -218,9 +218,10 @@ type PodExecC2Channel struct {
 	RelationImpl
 	SourceId string
 	// Cmd    string
-	Target      Entity
-	Identity    Identity
-	NextChannel C2Channel // for chaining multiple
+	Target        Entity
+	Identity      Identity
+	IsInteractive bool
+	NextChannel   C2Channel // for chaining multiple
 }
 
 var _ C2Channel = (*PodExecC2Channel)(nil)
@@ -585,6 +586,37 @@ func (r KubeletExec) WithTarget(e Entity) Relation {
 		r.Node = node
 	} else {
 		slog.Warn("WithTarget called with non-K8sNode entity", "entity", e.GetId())
+	}
+	return r
+}
+
+// KubeletPodExec represents the ability to exec into a pod on a node via the kubelet API.
+// Direction: Node → Pod (from the node, you can exec into this pod).
+type KubeletPodExec struct {
+	RelationImpl
+	Node K8sNode
+	Pod  Pod
+}
+
+var _ Relation = (*KubeletPodExec)(nil)
+
+func (r KubeletPodExec) GetSourceId() string     { return r.Node.GetId() }
+func (r KubeletPodExec) GetTargetId() string     { return r.Pod.GetId() }
+func (r KubeletPodExec) GetRelationName() string { return "kubelet-pod-exec" }
+
+func (r KubeletPodExec) WithSource(e Entity) Relation {
+	if node, ok := e.(K8sNode); ok {
+		r.Node = node
+	} else {
+		slog.Warn("WithSource called with non-K8sNode entity", "entity", e.GetId())
+	}
+	return r
+}
+func (r KubeletPodExec) WithTarget(e Entity) Relation {
+	if pod, ok := e.(Pod); ok {
+		r.Pod = pod
+	} else {
+		slog.Warn("WithTarget called with non-Pod entity", "entity", e.GetId())
 	}
 	return r
 }

@@ -419,10 +419,6 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 	}, domain.Facts{}, nil
 }
 
-func inferBuiltinRBACRole(entitlements []domain.RBACPermission) string {
-	return ""
-}
-
 // Extract interesting facts from the environment variables.
 // Kubernetes provides useful information as environment variables by default, such as:
 // - the name of the pod
