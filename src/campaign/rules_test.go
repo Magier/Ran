@@ -338,3 +338,207 @@ func TestCustomRule_SimpleMatch(t *testing.T) {
 		t.Errorf("Expected 0 relations for different-namespace pod, got %d", len(toAdd))
 	}
 }
+
+// --- KubeletPodExec chained rule tests ---
+
+// setupKubeletPodExecEngine creates a rule engine with both KubeletExec and KubeletPodExec rules.
+func setupKubeletPodExecEngine() (*BuiltInKnowledgeBase, *RuleEngine) {
+	kb := InitGraph()
+	re := NewRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule, KubeletPodExecRule)
+	return kb, re
+}
+
+func TestKubeletPodExecRule_KubeletExecTriggersFanOut(t *testing.T) {
+	kb, re := setupKubeletPodExecEngine()
+
+	node := domain.NewK8sNode("worker-1")
+	victim1 := domain.NewPod("victim-1", "default")
+	victim2 := domain.NewPod("victim-2", "default")
+	attacker := newTestPodWithBinary("attacker", "default", "ran-ws")
+
+	// Add all entities
+	for _, e := range []domain.Entity{node, victim1, victim2, attacker} {
+		_ = kb.AddEntity(e)
+	}
+
+	// Establish runs-on relations (victims run on the node)
+	runsOn1 := domain.RunsOn{Pod: victim1, Node: node}
+	runsOn2 := domain.RunsOn{Pod: victim2, Node: node}
+	_ = kb.AddRelation(runsOn1)
+	_ = kb.AddRelation(runsOn2)
+
+	// Step 1: Add all entities — should create KubeletExec (attacker→node)
+	added := domain.Facts{
+		Entities:  []domain.Entity{node, victim1, victim2, attacker},
+		Relations: []domain.Relation{runsOn1, runsOn2},
+	}
+	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+
+	// Should have KubeletExec(attacker→node)
+	var kubeletExecFound bool
+	for _, rel := range toAdd {
+		if rel.GetRelationName() == "kubelet-exec" {
+			kubeletExecFound = true
+			_ = kb.AddRelation(rel)
+		}
+	}
+	if !kubeletExecFound {
+		t.Fatal("Expected KubeletExec relation to be created")
+	}
+
+	// Step 2: Feed the KubeletExec relation as a trigger for the next pass
+	triggerDelta := domain.Facts{Relations: toAdd}
+	toAdd2, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
+
+	// Should have KubeletPodExec(node→victim1) and KubeletPodExec(node→victim2)
+	podExecCount := 0
+	for _, rel := range toAdd2 {
+		if rel.GetRelationName() == "kubelet-pod-exec" {
+			podExecCount++
+			if rel.GetSourceId() != node.GetId() {
+				t.Errorf("Expected source to be node, got %s", rel.GetSourceId())
+			}
+		}
+	}
+	if podExecCount != 2 {
+		t.Errorf("Expected 2 kubelet-pod-exec relations, got %d", podExecCount)
+	}
+}
+
+func TestKubeletPodExecRule_NewPodOnNodeWithKubeletExec(t *testing.T) {
+	kb, re := setupKubeletPodExecEngine()
+
+	node := domain.NewK8sNode("worker-1")
+	attacker := newTestPodWithBinary("attacker", "default", "ran-ws")
+	_ = kb.AddEntity(node)
+	_ = kb.AddEntity(attacker)
+
+	// Create KubeletExec first
+	added := domain.Facts{Entities: []domain.Entity{node, attacker}}
+	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	for _, rel := range toAdd {
+		_ = kb.AddRelation(rel)
+	}
+	// Feed the kubelet-exec trigger
+	triggerDelta := domain.Facts{Relations: toAdd}
+	re.EvaluateDelta(triggerDelta, domain.Facts{}) // no pods on node yet, nothing to create
+
+	// Now add a new pod that runs on the node
+	newPod := domain.NewPod("new-victim", "default")
+	_ = kb.AddEntity(newPod)
+	runsOn := domain.RunsOn{Pod: newPod, Node: node}
+	_ = kb.AddRelation(runsOn)
+
+	added = domain.Facts{
+		Entities:  []domain.Entity{newPod},
+		Relations: []domain.Relation{runsOn},
+	}
+	toAdd, _ = re.EvaluateDelta(added, domain.Facts{})
+
+	// The runs-on trigger should cause KubeletPodExec(node→newPod) to be created
+	var found bool
+	for _, rel := range toAdd {
+		if rel.GetRelationName() == "kubelet-pod-exec" && rel.GetTargetId() == newPod.GetId() {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Expected kubelet-pod-exec for new pod, got %v", toAdd)
+	}
+}
+
+func TestKubeletPodExecRule_NoKubeletExec_NoRelation(t *testing.T) {
+	kb, re := setupKubeletPodExecEngine()
+
+	node := domain.NewK8sNode("worker-1")
+	pod := domain.NewPod("victim", "default")
+	_ = kb.AddEntity(node)
+	_ = kb.AddEntity(pod)
+
+	runsOn := domain.RunsOn{Pod: pod, Node: node}
+	_ = kb.AddRelation(runsOn)
+
+	added := domain.Facts{
+		Entities:  []domain.Entity{node, pod},
+		Relations: []domain.Relation{runsOn},
+	}
+	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+
+	// No KubeletExec on this node, so no KubeletPodExec
+	for _, rel := range toAdd {
+		if rel.GetRelationName() == "kubelet-pod-exec" {
+			t.Error("Did not expect kubelet-pod-exec without kubelet-exec on node")
+		}
+	}
+}
+
+func TestKubeletPodExecRule_PodNotOnNode_NoRelation(t *testing.T) {
+	kb, re := setupKubeletPodExecEngine()
+
+	node1 := domain.NewK8sNode("worker-1")
+	node2 := domain.NewK8sNode("worker-2")
+	attacker := newTestPodWithBinary("attacker", "default", "ran-ws")
+	pod := domain.NewPod("victim", "default")
+
+	for _, e := range []domain.Entity{node1, node2, attacker, pod} {
+		_ = kb.AddEntity(e)
+	}
+
+	// victim runs on node2 (no kubelet-exec will target node2 since we'll only add kubelet-exec for node1)
+	runsOn := domain.RunsOn{Pod: pod, Node: node2}
+	_ = kb.AddRelation(runsOn)
+
+	// Manually add KubeletExec only for node1 (not node2)
+	kubeletExec := domain.KubeletExec{Pod: attacker, Node: node1}
+	_ = kb.AddRelation(kubeletExec)
+	re.IndexEntity(node1)
+	re.IndexEntity(node2)
+	re.IndexEntity(attacker)
+	re.IndexEntity(pod)
+
+	// Feed kubelet-exec trigger
+	triggerDelta := domain.Facts{Relations: []domain.Relation{kubeletExec, runsOn}}
+	toAdd, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
+
+	// node2 has no incoming kubelet-exec → no kubelet-pod-exec for victim on node2
+	for _, rel := range toAdd {
+		if rel.GetRelationName() == "kubelet-pod-exec" && rel.GetTargetId() == pod.GetId() && rel.GetSourceId() == node2.GetId() {
+			t.Error("Did not expect kubelet-pod-exec for pod on node without kubelet-exec")
+		}
+	}
+}
+
+func TestKubeletPodExecRule_NoCycleWithAttackerPod(t *testing.T) {
+	kb, re := setupKubeletPodExecEngine()
+
+	node := domain.NewK8sNode("worker-1")
+	attacker := newTestPodWithBinary("attacker", "default", "ran-ws")
+
+	_ = kb.AddEntity(node)
+	_ = kb.AddEntity(attacker)
+
+	// Attacker runs on the same node it has kubelet-exec to
+	runsOn := domain.RunsOn{Pod: attacker, Node: node}
+	_ = kb.AddRelation(runsOn)
+
+	// Step 1: create KubeletExec(attacker→node)
+	added := domain.Facts{
+		Entities:  []domain.Entity{node, attacker},
+		Relations: []domain.Relation{runsOn},
+	}
+	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	for _, rel := range toAdd {
+		_ = kb.AddRelation(rel)
+	}
+
+	// Step 2: trigger chained rules
+	triggerDelta := domain.Facts{Relations: toAdd}
+	toAdd2, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
+
+	// Should NOT create KubeletPodExec(node→attacker) since attacker already has KubeletExec→node
+	for _, rel := range toAdd2 {
+		if rel.GetRelationName() == "kubelet-pod-exec" && rel.GetTargetId() == attacker.GetId() {
+			t.Error("Did not expect kubelet-pod-exec back to the attacker pod (would create a cycle)")
+		}
+	}
+}

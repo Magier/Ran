@@ -85,9 +85,75 @@ func checkReachability(kb KnowledgeBase, source, target domain.Entity) Condition
 	return ConditionUnknown
 }
 
+// KubeletPodExecRule creates KubeletPodExec relations (Node → Pod) for every pod
+// running on a node that has an incoming KubeletExec relation.
+// Triggers:
+//   - "kubelet-exec": when a KubeletExec is added/removed, fan out to all pods on that node
+//   - "runs-on": when a pod is placed on a node, check if that node has KubeletExec
+var KubeletPodExecRule = Rule{
+	Name:       "KubeletPodExec",
+	SourceType: reflect.TypeOf(domain.K8sNode{}),
+	TargetType: reflect.TypeOf(domain.Pod{}),
+	Match: func(source, target domain.Entity, re *RuleEngine) ConditionState {
+		node := source.(domain.K8sNode)
+		pod := target.(domain.Pod)
+
+		// Required: node has at least one incoming kubelet-exec relation
+		if !hasIncomingKubeletExec(re.kb, node) {
+			return ConditionFalse
+		}
+
+		// Required: pod runs on this node (runs-on relation exists)
+		if !podRunsOnNode(re.kb, pod, node) {
+			return ConditionFalse
+		}
+
+		// Exclude: don't create Node→Pod if this pod already has KubeletExec→Node (avoid cycles)
+		if hasKubeletExecToNode(re.kb, pod, node) {
+			return ConditionFalse
+		}
+
+		return ConditionTrue
+	},
+	Build: func(source, target domain.Entity) []domain.Relation {
+		return []domain.Relation{
+			domain.KubeletPodExec{
+				Node: source.(domain.K8sNode),
+				Pod:  target.(domain.Pod),
+			},
+		}
+	},
+	RelationTriggers: []string{"kubelet-exec", "runs-on"},
+}
+
+// hasIncomingKubeletExec checks if any kubelet-exec relation targets this node.
+func hasIncomingKubeletExec(kb KnowledgeBase, node domain.K8sNode) bool {
+	for _, rel := range kb.GetIncomingEdges(node) {
+		if rel.GetRelationName() == "kubelet-exec" {
+			return true
+		}
+	}
+	return false
+}
+
+// hasKubeletExecToNode checks if a kubelet-exec relation exists from pod to node.
+func hasKubeletExecToNode(kb KnowledgeBase, pod domain.Pod, node domain.K8sNode) bool {
+	kubeletExecId := domain.GetRelationId(domain.KubeletExec{Pod: pod, Node: node})
+	_, exists := kb.GetRelations()[kubeletExecId]
+	return exists
+}
+
+// podRunsOnNode checks if a runs-on relation exists from pod to node.
+func podRunsOnNode(kb KnowledgeBase, pod domain.Pod, node domain.K8sNode) bool {
+	runsOnId := domain.GetRelationId(domain.RunsOn{Pod: pod, Node: node})
+	_, exists := kb.GetRelations()[runsOnId]
+	return exists
+}
+
 // DefaultRules returns the standard set of rules for the rule engine.
 func DefaultRules() []Rule {
 	return []Rule{
 		KubeletExecRule,
+		KubeletPodExecRule,
 	}
 }
