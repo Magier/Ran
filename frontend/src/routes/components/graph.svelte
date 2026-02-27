@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import cytoscape from 'cytoscape';
 	import fcose from 'cytoscape-fcose';
+	import expandCollapse from 'cytoscape-expand-collapse';
 	import { toaster } from '$lib/components/toaster';
 
 	import { getGraphStyle, layout, createLayout, applyCompromisedStyle } from './graph_style';
@@ -38,6 +39,8 @@
 	let searchOpen = $state(false);
 
 	cytoscape.use(fcose);
+	cytoscape.use(expandCollapse);
+
 	// cytoscape("layout", "hierarchyFlow", hierarchyLayout);
     // cytoscape('layout', 'claude', K8sAttackGraphLayout);
 
@@ -90,7 +93,25 @@
 			cy.pan(prevPan);
 		}
 
-		// cy.expandCollapse(expandCollapseOptions);
+		// Initialize expand-collapse extension
+		const api = cy.expandCollapse({
+			layoutBy: null, // Don't run layout after expand/collapse
+			fisheye: false,
+			animate: true,
+			animationDuration: 300,
+			undoable: false,
+			cueEnabled: true, // Show expand/collapse cues
+			expandCollapseCuePosition: 'top-left',
+			expandCollapseCueSize: 12,
+			expandCollapseCueLineSize: 8,
+			expandCueImage: undefined,
+			collapseCueImage: undefined,
+			expandCollapseCueSensitivity: 1,
+			// Edge handling options
+			allowNestedEdgeCollapse: true, // Collapse edges to nested nodes
+			zIndex: 999
+		});
+
 		// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
 		cy.on('unselect', resetSelection);
 		cy.on('select', handleSelection);

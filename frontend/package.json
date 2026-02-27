@@ -63,6 +63,7 @@
 		"@xyflow/svelte": "^1.5.0",
 		"@zag-js/toast": "^1.31.1",
 		"cytoscape": "^3.33.1",
+		"cytoscape-expand-collapse": "^4.1.1",
 		"cytoscape-fcose": "^2.2.0",
 		"melt": "^0.34.0",
 		"openapi-fetch": "^0.15.0"
