@@ -61,22 +61,23 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 				}
 				continue
 			}
-
-			// 	if strings.HasPrefix(effect, "create") && len(new.Entities) > 0 {
-			// 		creatorId := ev.Target.GetId()
-			// 		if creator, ok := c.GetEntityById(creatorId); ok {
-			// 			for _, entity := range new.Entities {
-			// 				new.Relations = append(new.Relations, domain.Created{
-			// 					Object:  entity,
-			// 					Creator: creator,
-			// 				})
-			// 			}
-
-			// 		} else {
-			// 			slog.Warn(fmt.Sprintf("TTP '%s' created new entity '%s' but creator '%s' is unknown", ttp.ID, new.Entities[0].GetId(), creatorId))
-			// 		}
-			// 	}
 			factsUpdate.Update(effectUpdate.New, effectUpdate.Removed)
+		}
+
+		if factsUpdate.IsEmpty() {
+			// try to extract the actually used tool from the TTP arguments and apply some generic heuristics based on that
+			new, removed, tool, err := analyzeInvokedTool(ev)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to analyze invoked tool: %v", err))
+			} else {
+				effectUpdate, err := c.ParseEffect(tool, ev.Target, ev.Args, ev.Results...)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failed to parse tool effect '%s': %v", tool, err))
+				} else {
+					factsUpdate.Update(effectUpdate.New, effectUpdate.Removed)
+					factsUpdate.Update(new, removed)
+				}
+			}
 		}
 
 		// generic analyzer for the successful TTP invocation

