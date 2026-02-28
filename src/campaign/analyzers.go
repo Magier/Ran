@@ -1135,6 +1135,195 @@ func analyzeToolSuccessfullyUsedInTTP(ev domain.TTPExecuted) (domain.Facts, doma
 	return newFacts, domain.Facts{}, msg, nil
 }
 
+// shells is the set of common shell interpreters that wrap the actual tool invocation.
+var shells = map[string]bool{
+	"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true, "ash": true,
+}
+
+// getInvokedTool extracts the actual tool name from a TTPExecuted event.
+// It first checks Args for an explicit "TOOL" key, then parses the Procedure.Command
+// to find the real binary being invoked, unwrapping shell wrappers like `bash -c "nmap ..."`.
+// Falls back to Procedure.GetTool() if no tool can be extracted from the command.
+func getInvokedTool(ev domain.TTPExecuted) string {
+	if tool, ok := ev.Args["TOOL"]; ok && tool != "" {
+		return tool
+	}
+
+	cmd := strings.TrimSpace(ev.Procedure.Command)
+	if cmd == "" {
+		return ev.Procedure.GetTool()
+	}
+
+	tool := extractToolFromCommand(cmd)
+	if tool == "" {
+		return ev.Procedure.GetTool()
+	}
+	return tool
+}
+
+// extractToolFromCommand parses a shell command string and returns the name of the
+// actual tool being invoked. It handles:
+//   - shell wrappers: `bash -c "nmap -sn 10.0.0.0/24"` → "nmap"
+//   - env prefixes: `ENV_VAR=value kubectl get pods` → "kubectl"
+//   - command chains: `curl -sS url && chmod +x file` → "curl"
+//   - pipes: `cat file | grep pattern` → "cat"
+//   - simple commands: `kubectl get pods -n default` → "kubectl"
+func extractToolFromCommand(cmd string) string {
+	// strip leading env var assignments (e.g. "FOO=bar BAZ=1 kubectl ...")
+	for {
+		token, rest := nextToken(cmd)
+		if token == "" {
+			return ""
+		}
+		if strings.Contains(token, "=") && !strings.HasPrefix(token, "-") {
+			cmd = rest
+			continue
+		}
+		break
+	}
+
+	first, rest := nextToken(cmd)
+	if first == "" {
+		return ""
+	}
+
+	// strip path prefix: /usr/bin/bash → bash
+	base := baseName(first)
+
+	// if it's a shell with -c flag, extract the tool from the inner command
+	if shells[base] {
+		inner := extractInnerCommand(rest)
+		if inner != "" {
+			innerTool := extractToolFromCommand(inner)
+			if innerTool != "" {
+				return innerTool
+			}
+		}
+		// shell used directly (e.g. `sh -i >& /dev/tcp/...`)
+		return base
+	}
+
+	return base
+}
+
+// extractInnerCommand extracts the command string after a -c flag, handling quoting.
+// Given `-c "nmap -sn 10.0.0.0/24"`, returns `nmap -sn 10.0.0.0/24`.
+// Given `-c 'ls -la'`, returns `ls -la`.
+func extractInnerCommand(args string) string {
+	args = strings.TrimSpace(args)
+	// find -c flag (could be combined like in `bash -xc "cmd"`)
+	for {
+		token, rest := nextToken(args)
+		if token == "" {
+			return ""
+		}
+		if token == "-c" {
+			return stripOuterQuotes(strings.TrimSpace(rest))
+		}
+		// handle combined flags like -xc, -ec
+		if strings.HasPrefix(token, "-") && strings.HasSuffix(token, "c") && !strings.HasPrefix(token, "--") {
+			return stripOuterQuotes(strings.TrimSpace(rest))
+		}
+		args = rest
+	}
+}
+
+// stripOuterQuotes removes a matching pair of outer quotes (single or double) and
+// handles escaped quotes within. Returns the inner content.
+func stripOuterQuotes(s string) string {
+	if len(s) < 2 {
+		return s
+	}
+	if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
+		return s[1 : len(s)-1]
+	}
+	// if the string starts with a quote but doesn't end with one, find the matching close
+	if s[0] == '"' || s[0] == '\'' {
+		quote := s[0]
+		for i := 1; i < len(s); i++ {
+			if s[i] == '\\' {
+				i++ // skip escaped char
+				continue
+			}
+			if s[i] == quote {
+				return s[1:i]
+			}
+		}
+		// unmatched quote, strip the opening one
+		return s[1:]
+	}
+	return s
+}
+
+// nextToken returns the first whitespace-delimited token from s, respecting quotes,
+// and the remainder of the string.
+func nextToken(s string) (token, rest string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", ""
+	}
+
+	// handle command chains - stop at && || ; |
+	// but process them as delimiters, not part of the token
+	i := 0
+	inQuote := byte(0)
+	for i < len(s) {
+		ch := s[i]
+		if inQuote != 0 {
+			if ch == '\\' && i+1 < len(s) {
+				i += 2
+				continue
+			}
+			if ch == inQuote {
+				inQuote = 0
+			}
+			i++
+			continue
+		}
+		if ch == '"' || ch == '\'' {
+			inQuote = ch
+			i++
+			continue
+		}
+		if ch == ' ' || ch == '\t' {
+			return s[:i], s[i:]
+		}
+		i++
+	}
+	return s, ""
+}
+
+// baseName returns the last path component, like filepath.Base but without importing path.
+func baseName(s string) string {
+	idx := strings.LastIndex(s, "/")
+	if idx >= 0 {
+		return s[idx+1:]
+	}
+	return s
+}
+
+// analyzeInvokedTool extracts the actually used tool from the TTP execution and applies
+// generic heuristics based on what tool was invoked.
+func analyzeInvokedTool(ev domain.TTPExecuted) (domain.Facts, domain.Facts, string, error) {
+	tool := getInvokedTool(ev)
+	if tool == "" {
+		return domain.Facts{}, domain.Facts{}, "", nil
+	}
+
+	newFacts := domain.Facts{}
+
+	if execSystem := ev.ExecutedOn; execSystem != nil {
+		if execSystem.HasBinary(tool).IsUnknown() {
+			if ev.Success {
+				execSystem.SetBinary(tool, tool)
+			}
+		}
+		newFacts.Entities = append(newFacts.Entities, execSystem)
+	}
+
+	return newFacts, domain.Facts{}, tool, nil
+}
+
 func (c Campaign) analyzeRoleBinding(rb domain.RoleBinding) (domain.Facts, domain.Facts, error) {
 	entities := []domain.Entity{}
 	relations := make([]domain.Relation, 0)

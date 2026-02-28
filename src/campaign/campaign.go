@@ -43,6 +43,10 @@ func (f *factsUpdate) Update(new domain.Facts, removed domain.Facts) {
 	f.Removed.Update(removed)
 }
 
+func (f factsUpdate) IsEmpty() bool {
+	return len(f.New.Entities) == 0 && len(f.New.Relations) == 0 && len(f.Removed.Entities) == 0 && len(f.Removed.Relations) == 0
+}
+
 func NewCampaign(armory *armory.Armory) *Campaign {
 	kg := InitGraph()
 
