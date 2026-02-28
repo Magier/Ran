@@ -469,6 +469,38 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 					relations = append(relations, newFacts.Relations...)
 				}
 			}
+		case "nmap":
+			nmapHosts, err := parseNmapOutput(res)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to parse nmap output: %v", err))
+			} else {
+				// All found nmap hosts are considered pods and at least within the cluster
+				for _, host := range nmapHosts {
+					if !host.HostUp {
+						continue
+					}
+					ip := net.ParseIP(host.IP)
+					if ip == nil {
+						slog.Warn(fmt.Sprintf("Nmap: invalid IP address '%s', skipping", host.IP))
+						continue
+					}
+					// Use DNS if available, otherwise fallback to IP-based pod name
+					podName := host.DNS
+					namespace := "default"
+					if podName == "" {
+						podName = fmt.Sprintf("pod-%s", strings.ReplaceAll(host.IP, ".", "-"))
+					} else {
+						// Try to extract namespace from DNS if possible
+						parts := strings.Split(podName, ".")
+						if len(parts) >= 3 {
+							namespace = parts[len(parts)-4]
+						}
+					}
+					pod := domain.NewPod(podName, namespace)
+					pod.SystemImpl.IPs = append(pod.SystemImpl.IPs, net.IPAddr{IP: ip})
+					entities = append(entities, pod)
+				}
+			}
 		case "linux.mounts":
 			if pod, ok := source.(domain.Pod); ok {
 				mounts, err := parseLinuxMounts(res)
@@ -1352,6 +1384,170 @@ func parseReverseDnsLookup(data string) (map[string]string, error) {
 		slog.Info(fmt.Sprintf("Reverse DNS parsed: %s -> %s", ipStr, dns))
 	}
 	return results, nil
+}
+
+// NmapHost represents a single host discovered by nmap, with its IP, optional DNS name, and open ports.
+type NmapHost struct {
+	IP      string
+	DNS     string         // full DNS name, e.g. "10-0-0-29.argocd-server.argocd.svc.cluster.local"
+	Ports   map[int]string // port number -> service name
+	HostUp  bool
+	MACAddr string
+}
+
+// parseNmapOutput parses the text output of an nmap scan and returns a slice of NmapHost entries.
+// It handles hosts with open ports, hosts with all ports closed/ignored, and MAC address lines.
+func parseNmapOutput(data string) ([]NmapHost, error) {
+	data = strings.TrimSpace(data)
+	if data == "" {
+		return nil, fmt.Errorf("empty nmap output")
+	}
+
+	var hosts []NmapHost
+	lines := strings.Split(data, "\n")
+
+	var current *NmapHost
+	inPortTable := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		if strings.HasPrefix(line, "Nmap scan report for ") {
+			// Flush previous host
+			if current != nil {
+				hosts = append(hosts, *current)
+			}
+			current = &NmapHost{
+				Ports: make(map[int]string),
+			}
+			inPortTable = false
+
+			// Parse the host line. Two formats:
+			// 1) "Nmap scan report for <dns> (<ip>)"
+			// 2) "Nmap scan report for <ip>"
+			reportStr := strings.TrimPrefix(line, "Nmap scan report for ")
+			if idx := strings.LastIndex(reportStr, "("); idx != -1 && strings.HasSuffix(reportStr, ")") {
+				current.DNS = strings.TrimSpace(reportStr[:idx])
+				current.IP = reportStr[idx+1 : len(reportStr)-1]
+			} else {
+				current.IP = reportStr
+			}
+
+		} else if current != nil && strings.HasPrefix(line, "Host is up") {
+			current.HostUp = true
+
+		} else if current != nil && strings.HasPrefix(line, "PORT") && strings.Contains(line, "STATE") {
+			inPortTable = true
+
+		} else if current != nil && strings.HasPrefix(line, "MAC Address:") {
+			inPortTable = false
+			// "MAC Address: 96:FF:87:5A:FA:D0 (Unknown)"
+			macStr := strings.TrimPrefix(line, "MAC Address: ")
+			if spaceIdx := strings.Index(macStr, " "); spaceIdx != -1 {
+				current.MACAddr = macStr[:spaceIdx]
+			} else {
+				current.MACAddr = macStr
+			}
+
+		} else if current != nil && inPortTable && line != "" {
+			// Parse port lines like "8080/tcp open  http-proxy"
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				portProto := strings.SplitN(fields[0], "/", 2)
+				if len(portProto) == 2 {
+					port, err := strconv.Atoi(portProto[0])
+					if err == nil && fields[1] == "open" {
+						serviceName := ""
+						if len(fields) >= 3 {
+							serviceName = fields[2]
+						}
+						current.Ports[port] = serviceName
+					}
+				}
+			}
+
+		} else if current != nil && (strings.HasPrefix(line, "All ") || strings.HasPrefix(line, "Not shown:")) {
+			// Lines like "All 1000 scanned ports ... are in ignored states." — host is up but no open ports
+			inPortTable = false
+		}
+	}
+
+	// Flush last host
+	if current != nil {
+		hosts = append(hosts, *current)
+	}
+
+	return hosts, nil
+}
+
+// analyzeNmapResults converts parsed nmap hosts into domain entities.
+// If a host has a Kubernetes-style DNS name (e.g. "10-0-0-29.argocd-server.argocd.svc.cluster.local"),
+// it is created as a Pod. The pod name is derived as "<service-name>_<ip-dashed>" and the namespace
+// is extracted from the DNS name. Otherwise, an UnknownSystem is created.
+func analyzeNmapResults(hosts []NmapHost) (domain.Facts, error) {
+	entities := make([]domain.Entity, 0, len(hosts))
+	relations := make([]domain.Relation, 0)
+
+	k8sDNSPattern := regexp.MustCompile(`^(.+)\.svc\.cluster\.local$`)
+
+	for _, host := range hosts {
+		if !host.HostUp {
+			continue
+		}
+
+		ip := net.ParseIP(host.IP)
+		if ip == nil {
+			slog.Warn(fmt.Sprintf("Nmap: invalid IP address '%s', skipping", host.IP))
+			continue
+		}
+
+		ipKebab := strings.ReplaceAll(host.IP, ".", "-")
+
+		// Check if the DNS name matches a Kubernetes pod DNS pattern:
+		// <ip-dashed>.<service-name>.<namespace>.svc.cluster.local
+		if host.DNS != "" {
+			if match := k8sDNSPattern.FindStringSubmatch(host.DNS); len(match) == 2 {
+				prefix := match[1] // everything before .svc.cluster.local
+				parts := strings.SplitN(prefix, ".", 3)
+				// parts[0] = ip-dashed or pod-name, parts[1] = service-name, parts[2] = namespace
+				if len(parts) >= 3 {
+					firstLabel := parts[0]
+					serviceName := parts[1]
+					namespace := parts[2]
+
+					if firstLabel == ipKebab {
+						// Pod DNS: <ip-dashed>.<service>.<ns>.svc.cluster.local
+						podName := fmt.Sprintf("%s_%s", serviceName, ipKebab)
+						pod := domain.NewPod(podName, namespace)
+						pod.SystemImpl.IPs = append(pod.SystemImpl.IPs, net.IPAddr{IP: ip})
+						entities = append(entities, pod)
+						continue
+					}
+
+					// Pod name like "noob-5d79464bdb-sn4f5" — treat as a Pod
+					podName := firstLabel
+					pod := domain.NewPod(podName, namespace)
+					pod.SystemImpl.IPs = append(pod.SystemImpl.IPs, net.IPAddr{IP: ip})
+					entities = append(entities, pod)
+					continue
+				}
+			}
+
+			// DNS name exists but doesn't match K8s pod pattern — also check for
+			// non-FQDN names like "noob-5d79464bdb-sn4f5 (10.0.0.214)"
+			// which nmap reports as just the pod hostname
+		}
+
+		// No K8s DNS match — create an UnknownSystem
+		sys := domain.NewSystem(host.IP, "", domain.NoAccess)
+		sys.IPs = []net.IPAddr{{IP: ip}}
+		entities = append(entities, sys)
+	}
+
+	return domain.Facts{
+		Entities:  entities,
+		Relations: relations,
+	}, nil
 }
 
 func parseCanReachEffect(source domain.Entity, args []string) ([]domain.Entity, []domain.Relation, error) {

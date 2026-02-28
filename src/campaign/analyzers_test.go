@@ -915,6 +915,209 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
+func TestParseNmapOutput(t *testing.T) {
+	nmapOutput := `Starting Nmap 7.95 ( https://nmap.org ) at 2026-02-27 14:58 UTC
+Nmap scan report for 10-0-0-29.argocd-server.argocd.svc.cluster.local (10.0.0.29)
+Host is up (0.000085s latency).
+Not shown: 998 closed tcp ports (reset)
+PORT     STATE SERVICE
+8080/tcp open  http-proxy
+8083/tcp open  us-srv
+
+Nmap scan report for 10-0-0-196.kube-dns.kube-system.svc.cluster.local (10.0.0.196)
+Host is up (0.000048s latency).
+Not shown: 997 closed tcp ports (reset)
+PORT     STATE SERVICE
+53/tcp   open  domain
+8080/tcp open  http-proxy
+8181/tcp open  intermapper
+
+Nmap scan report for 10.0.0.198
+Host is up (0.000051s latency).
+All 1000 scanned ports on 10.0.0.198 are in ignored states.
+Not shown: 1000 closed tcp ports (reset)
+
+Nmap scan report for 10-0-0-223.kube-dns.kube-system.svc.cluster.local (10.0.0.223)
+Host is up (0.000063s latency).
+Not shown: 997 closed tcp ports (reset)
+PORT     STATE SERVICE
+53/tcp   open  domain
+8080/tcp open  http-proxy
+8181/tcp open  intermapper
+
+Nmap scan report for 10.0.0.187
+Host is up (0.000056s latency).
+Not shown: 999 closed tcp ports (reset)
+PORT   STATE SERVICE
+22/tcp open  ssh
+MAC Address: 96:FF:87:5A:FA:D0 (Unknown)
+
+Nmap scan report for noob-5d79464bdb-sn4f5 (10.0.0.214)
+Host is up (0.0000040s latency).
+All 1000 scanned ports on noob-5d79464bdb-sn4f5 (10.0.0.214) are in ignored states.
+Not shown: 1000 closed tcp ports (reset)
+
+Nmap done: 256 IP addresses (6 hosts up) scanned in 5.10 seconds`
+
+	hosts, err := parseNmapOutput(nmapOutput)
+	if err != nil {
+		t.Fatalf("parseNmapOutput returned error: %v", err)
+	}
+
+	if len(hosts) != 6 {
+		t.Fatalf("Expected 6 hosts, got %d", len(hosts))
+	}
+
+	// First host: K8s pod with DNS
+	h := hosts[0]
+	if h.IP != "10.0.0.29" {
+		t.Errorf("Host 0: expected IP '10.0.0.29', got '%s'", h.IP)
+	}
+	if h.DNS != "10-0-0-29.argocd-server.argocd.svc.cluster.local" {
+		t.Errorf("Host 0: expected DNS name, got '%s'", h.DNS)
+	}
+	if len(h.Ports) != 2 {
+		t.Errorf("Host 0: expected 2 open ports, got %d", len(h.Ports))
+	}
+	if h.Ports[8080] != "http-proxy" {
+		t.Errorf("Host 0: expected port 8080 service 'http-proxy', got '%s'", h.Ports[8080])
+	}
+
+	// Third host: bare IP, no open ports
+	h = hosts[2]
+	if h.IP != "10.0.0.198" {
+		t.Errorf("Host 2: expected IP '10.0.0.198', got '%s'", h.IP)
+	}
+	if h.DNS != "" {
+		t.Errorf("Host 2: expected empty DNS, got '%s'", h.DNS)
+	}
+	if len(h.Ports) != 0 {
+		t.Errorf("Host 2: expected 0 open ports, got %d", len(h.Ports))
+	}
+
+	// Fifth host: bare IP with MAC address
+	h = hosts[4]
+	if h.IP != "10.0.0.187" {
+		t.Errorf("Host 4: expected IP '10.0.0.187', got '%s'", h.IP)
+	}
+	if h.MACAddr != "96:FF:87:5A:FA:D0" {
+		t.Errorf("Host 4: expected MAC '96:FF:87:5A:FA:D0', got '%s'", h.MACAddr)
+	}
+	if h.Ports[22] != "ssh" {
+		t.Errorf("Host 4: expected port 22 service 'ssh', got '%s'", h.Ports[22])
+	}
+
+	// Sixth host: pod hostname without K8s DNS
+	h = hosts[5]
+	if h.IP != "10.0.0.214" {
+		t.Errorf("Host 5: expected IP '10.0.0.214', got '%s'", h.IP)
+	}
+	if h.DNS != "noob-5d79464bdb-sn4f5" {
+		t.Errorf("Host 5: expected DNS 'noob-5d79464bdb-sn4f5', got '%s'", h.DNS)
+	}
+}
+
+func TestAnalyzeNmapResults(t *testing.T) {
+	tests := []struct {
+		name         string
+		hosts        []NmapHost
+		expectCount  int
+		expectPodIdx map[int]struct{ name, ns string } // index -> expected pod name & namespace
+		expectSysIdx []int                              // indices that should be UnknownSystem
+	}{
+		{
+			name: "K8s pod DNS produces Pod entity",
+			hosts: []NmapHost{
+				{
+					IP:     "10.0.0.29",
+					DNS:    "10-0-0-29.argocd-server.argocd.svc.cluster.local",
+					Ports:  map[int]string{8080: "http-proxy"},
+					HostUp: true,
+				},
+			},
+			expectCount: 1,
+			expectPodIdx: map[int]struct{ name, ns string }{
+				0: {name: "argocd-server_10-0-0-29", ns: "argocd"},
+			},
+		},
+		{
+			name: "Bare IP produces UnknownSystem",
+			hosts: []NmapHost{
+				{
+					IP:     "10.0.0.198",
+					DNS:    "",
+					Ports:  map[int]string{},
+					HostUp: true,
+				},
+			},
+			expectCount:  1,
+			expectSysIdx: []int{0},
+		},
+		{
+			name: "Host down is skipped",
+			hosts: []NmapHost{
+				{
+					IP:     "10.0.0.50",
+					DNS:    "",
+					Ports:  map[int]string{},
+					HostUp: false,
+				},
+			},
+			expectCount: 0,
+		},
+		{
+			name: "redisinsight-service naming",
+			hosts: []NmapHost{
+				{
+					IP:     "10.0.0.179",
+					DNS:    "10-0-0-179.redisinsight-service.default.svc.cluster.local",
+					Ports:  map[int]string{8001: "vcom-tunnel"},
+					HostUp: true,
+				},
+			},
+			expectCount: 1,
+			expectPodIdx: map[int]struct{ name, ns string }{
+				0: {name: "redisinsight-service_10-0-0-179", ns: "default"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			facts, err := analyzeNmapResults(tt.hosts)
+			if err != nil {
+				t.Fatalf("analyzeNmapResults returned error: %v", err)
+			}
+
+			if len(facts.Entities) != tt.expectCount {
+				t.Fatalf("Expected %d entities, got %d", tt.expectCount, len(facts.Entities))
+			}
+
+			for idx, expected := range tt.expectPodIdx {
+				entity := facts.Entities[idx]
+				pod, ok := entity.(domain.Pod)
+				if !ok {
+					t.Errorf("Entity %d: expected Pod, got %T", idx, entity)
+					continue
+				}
+				if pod.GetName() != expected.name {
+					t.Errorf("Entity %d: expected name '%s', got '%s'", idx, expected.name, pod.GetName())
+				}
+				if pod.GetNamespace() != expected.ns {
+					t.Errorf("Entity %d: expected namespace '%s', got '%s'", idx, expected.ns, pod.GetNamespace())
+				}
+			}
+
+			for _, idx := range tt.expectSysIdx {
+				entity := facts.Entities[idx]
+				if _, ok := entity.(domain.UnknownSystem); !ok {
+					t.Errorf("Entity %d: expected UnknownSystem, got %T", idx, entity)
+				}
+			}
+		})
+	}
+}
+
 func TestExtractToolFromCommand(t *testing.T) {
 	tests := []struct {
 		command  string
