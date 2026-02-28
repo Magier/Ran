@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 )
 
 type SSEClient struct {
@@ -105,7 +106,25 @@ func (a *API) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("SSE client connected")
 
-	// Keep connection alive until client disconnects
-	<-r.Context().Done()
-	slog.Info("SSE client disconnected")
+	// Send periodic keepalive pings to prevent idle timeout
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			client.mu.Lock()
+			_, err := fmt.Fprintf(client.w, ": ping\n\n")
+			if err != nil {
+				client.mu.Unlock()
+				slog.Info("SSE client disconnected (write error)")
+				return
+			}
+			client.flusher.Flush()
+			client.mu.Unlock()
+		case <-r.Context().Done():
+			slog.Info("SSE client disconnected")
+			return
+		}
+	}
 }
