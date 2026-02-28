@@ -876,3 +876,56 @@ func TestParseLSLine(t *testing.T) {
 	}
 
 }
+
+func Test_NmapPingOnlyScanOutputParsing(t *testing.T) {
+	nmapOutput := `Starting Nmap 7.95 ( https://nmap.org ) at 2026-02-28 22:22 UTC
+Nmap scan report for 10-244-1-2.n8n-service.n8n.svc.cluster.local (10.244.1.2)
+Host is up (0.00082s latency).
+Nmap scan report for 10-244-1-3.vuln-web-app.vuln-ingress-to-root.svc.cluster.local (10.244.1.3)
+Host is up (0.000086s latency).
+Nmap scan report for 10-244-1-5.vuln-web-app.vuln-ingress-to-root.svc.cluster.local (10.244.1.5)
+Host is up (0.000078s latency).
+Nmap scan report for 10.244.1.1
+Host is up (0.000030s latency).
+MAC Address: BA:BC:0D:C1:A0:85 (Unknown)
+Nmap scan report for noob-5d79464bdb-f96rl (10.244.1.4)
+Host is up.
+Nmap done: 256 IP addresses (5 hosts up) scanned in 18.28 seconds`
+
+	scanResults, err := parseNmapOutput(nmapOutput)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	if len(scanResults) != 5 {
+		t.Fatalf("Expected 5 scan results, got %d", len(scanResults))
+	}
+
+	// Build a map for expected results for order-independent comparison
+	expectedMap := map[string]string{
+		"10.244.1.1": "",
+		"10.244.1.2": "10-244-1-2.n8n-service.n8n.svc.cluster.local",
+		"10.244.1.3": "10-244-1-3.vuln-web-app.vuln-ingress-to-root.svc.cluster.local",
+		"10.244.1.4": "noob-5d79464bdb-f96rl",
+		"10.244.1.5": "10-244-1-5.vuln-web-app.vuln-ingress-to-root.svc.cluster.local",
+	}
+
+	seen := make(map[string]bool)
+	for _, res := range scanResults {
+		dns, ok := expectedMap[res.IP]
+		if !ok {
+			t.Errorf("Unexpected IP in results: %q", res.IP)
+			continue
+		}
+		if res.DNS != dns {
+			t.Errorf("For IP %q: expected DNS %q, got %q", res.IP, dns, res.DNS)
+		}
+		seen[res.IP] = true
+	}
+	// Check for missing expected IPs
+	for ip := range expectedMap {
+		if !seen[ip] {
+			t.Errorf("Expected IP %q not found in results", ip)
+		}
+	}
+}
