@@ -123,6 +123,14 @@ var KubeletPodExecRule = Rule{
 			},
 		}
 	},
+	Apply: func(source, target domain.Entity) []domain.Entity {
+		pod := target.(domain.Pod)
+		if pod.SystemImpl != nil {
+			pod.AccessLevel = domain.UserExec
+			return []domain.Entity{pod}
+		}
+		return nil
+	},
 	RelationTriggers: []string{"kubelet-exec", "runs-on"},
 }
 

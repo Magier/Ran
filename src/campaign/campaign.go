@@ -177,12 +177,13 @@ func (c *Campaign) UpdateFacts(new domain.Facts, removed domain.Facts) (domain.F
 	delta := domain.Facts{Entities: new.Entities, Relations: new.Relations}
 	removedDelta := domain.Facts{Entities: removed.Entities, Relations: removed.Relations}
 	for i := 0; i < 10; i++ { // cap iterations to prevent infinite loops
-		impliedAdd, impliedRemove := c.ruleEngine.EvaluateDelta(delta, removedDelta)
-		if len(impliedAdd) == 0 && len(impliedRemove) == 0 {
+		impliedAdd, impliedRemove, entityUpdates := c.ruleEngine.EvaluateDelta(delta, removedDelta)
+		if len(impliedAdd) == 0 && len(impliedRemove) == 0 && len(entityUpdates) == 0 {
 			break
 		}
 		c.AddRelations(impliedAdd...)
 		c.RemoveRelations(impliedRemove...)
+		c.AddEntities(entityUpdates...)
 
 		// Feed the newly implied relations as the next delta for chained rules
 		delta = domain.Facts{Relations: impliedAdd}

@@ -48,7 +48,7 @@ func TestKubeletExecRule_PodAddedFirst_NodeLater(t *testing.T) {
 	_ = kb.AddEntity(pod)
 
 	added := domain.Facts{Entities: []domain.Entity{pod}}
-	toAdd, toRemove := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, toRemove, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	// No nodes yet → no relations
 	if len(toAdd) != 0 {
@@ -63,7 +63,7 @@ func TestKubeletExecRule_PodAddedFirst_NodeLater(t *testing.T) {
 	_ = kb.AddEntity(node)
 
 	added = domain.Facts{Entities: []domain.Entity{node}}
-	toAdd, toRemove = re.EvaluateDelta(added, domain.Facts{})
+	toAdd, toRemove, _ = re.EvaluateDelta(added, domain.Facts{})
 
 	// KubeletExec should now be created
 	if len(toAdd) != 1 {
@@ -91,7 +91,7 @@ func TestKubeletExecRule_NodeAddedFirst_PodLater(t *testing.T) {
 	node := domain.NewK8sNode("worker-1")
 	_ = kb.AddEntity(node)
 	added := domain.Facts{Entities: []domain.Entity{node}}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	if len(toAdd) != 0 {
 		t.Errorf("Expected no relations (no pods yet), got %d", len(toAdd))
@@ -101,7 +101,7 @@ func TestKubeletExecRule_NodeAddedFirst_PodLater(t *testing.T) {
 	pod := newTestPodWithBinary("attacker", "default", "ran-ws")
 	_ = kb.AddEntity(pod)
 	added = domain.Facts{Entities: []domain.Entity{pod}}
-	toAdd, _ = re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ = re.EvaluateDelta(added, domain.Facts{})
 
 	if len(toAdd) != 1 {
 		t.Fatalf("Expected 1 kubelet-exec relation, got %d", len(toAdd))
@@ -124,7 +124,7 @@ func TestKubeletExecRule_PodWithoutBinary_NoRelation(t *testing.T) {
 	_ = kb.AddEntity(pod)
 
 	added := domain.Facts{Entities: []domain.Entity{pod}}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	if len(toAdd) != 0 {
 		t.Errorf("Expected no relations (no ran-ws binary), got %d", len(toAdd))
@@ -141,7 +141,7 @@ func TestKubeletExecRule_NoIdentityWithPermission_NoRelation(t *testing.T) {
 	_ = kb.AddEntity(node)
 
 	added := domain.Facts{Entities: []domain.Entity{pod, node}}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	if len(toAdd) != 0 {
 		t.Errorf("Expected no relations (no identity with GET nodes/proxy), got %d", len(toAdd))
@@ -172,7 +172,7 @@ func TestKubeletExecRule_IdentityWithoutToken_NoRelation(t *testing.T) {
 	_ = kb.AddEntity(node)
 
 	added := domain.Facts{Entities: []domain.Entity{pod, node}}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	if len(toAdd) != 0 {
 		t.Errorf("Expected no relations (identity has no token), got %d", len(toAdd))
@@ -199,7 +199,7 @@ func TestKubeletExecRule_MultipleNodes(t *testing.T) {
 	_ = kb.AddEntity(pod)
 
 	added := domain.Facts{Entities: []domain.Entity{pod}}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	if len(toAdd) != 3 {
 		t.Errorf("Expected 3 kubelet-exec relations (one per node), got %d", len(toAdd))
@@ -217,7 +217,7 @@ func TestKubeletExecRule_CanReachTrigger_RemovesOnUnreachable(t *testing.T) {
 
 	// Initial: both added, should create kubelet-exec
 	added := domain.Facts{Entities: []domain.Entity{pod, node}}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 	if len(toAdd) != 1 {
 		t.Fatalf("Expected 1 kubelet-exec, got %d", len(toAdd))
 	}
@@ -230,7 +230,7 @@ func TestKubeletExecRule_CanReachTrigger_RemovesOnUnreachable(t *testing.T) {
 	_ = kb.AddRelation(canReach)
 
 	added = domain.Facts{Relations: []domain.Relation{canReach}}
-	toAdd, toRemove := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, toRemove, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	// Relation already exists and condition is still true → no new add, no remove
 	if len(toAdd) != 0 {
@@ -252,7 +252,7 @@ func TestKubeletExecRule_EntityRemoved_CleansUpRelation(t *testing.T) {
 
 	// Create the relation
 	added := domain.Facts{Entities: []domain.Entity{pod, node}}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 	if len(toAdd) != 1 {
 		t.Fatalf("Expected 1 kubelet-exec, got %d", len(toAdd))
 	}
@@ -260,7 +260,7 @@ func TestKubeletExecRule_EntityRemoved_CleansUpRelation(t *testing.T) {
 
 	// Remove the node
 	removed := domain.Facts{Entities: []domain.Entity{node}}
-	_, toRemove := re.EvaluateDelta(domain.Facts{}, removed)
+	_, toRemove, _ := re.EvaluateDelta(domain.Facts{}, removed)
 
 	if len(toRemove) != 1 {
 		t.Errorf("Expected 1 relation removed on node removal, got %d", len(toRemove))
@@ -277,7 +277,7 @@ func TestRuleEngine_Reset(t *testing.T) {
 	_ = kb.AddEntity(node)
 
 	added := domain.Facts{Entities: []domain.Entity{pod, node}}
-	re.EvaluateDelta(added, domain.Facts{})
+	_, _, _ = re.EvaluateDelta(added, domain.Facts{})
 
 	re.Reset()
 
@@ -321,7 +321,7 @@ func TestCustomRule_SimpleMatch(t *testing.T) {
 
 	// Add pod1 and pod2 in the same namespace
 	added := domain.Facts{Entities: []domain.Entity{pod1, pod2}}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	// pod1→pod2 and pod2→pod1
 	if len(toAdd) != 2 {
@@ -331,7 +331,7 @@ func TestCustomRule_SimpleMatch(t *testing.T) {
 	// Add pod3 in different namespace
 	_ = kb.AddEntity(pod3)
 	added = domain.Facts{Entities: []domain.Entity{pod3}}
-	toAdd, _ = re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ = re.EvaluateDelta(added, domain.Facts{})
 
 	// pod3 is in a different namespace, so no new relations
 	if len(toAdd) != 0 {
@@ -372,7 +372,7 @@ func TestKubeletPodExecRule_KubeletExecTriggersFanOut(t *testing.T) {
 		Entities:  []domain.Entity{node, victim1, victim2, attacker},
 		Relations: []domain.Relation{runsOn1, runsOn2},
 	}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	// Should have KubeletExec(attacker→node)
 	var kubeletExecFound bool
@@ -388,7 +388,7 @@ func TestKubeletPodExecRule_KubeletExecTriggersFanOut(t *testing.T) {
 
 	// Step 2: Feed the KubeletExec relation as a trigger for the next pass
 	triggerDelta := domain.Facts{Relations: toAdd}
-	toAdd2, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
+	toAdd2, _, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
 
 	// Should have KubeletPodExec(node→victim1) and KubeletPodExec(node→victim2)
 	podExecCount := 0
@@ -415,13 +415,13 @@ func TestKubeletPodExecRule_NewPodOnNodeWithKubeletExec(t *testing.T) {
 
 	// Create KubeletExec first
 	added := domain.Facts{Entities: []domain.Entity{node, attacker}}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 	for _, rel := range toAdd {
 		_ = kb.AddRelation(rel)
 	}
 	// Feed the kubelet-exec trigger
 	triggerDelta := domain.Facts{Relations: toAdd}
-	re.EvaluateDelta(triggerDelta, domain.Facts{}) // no pods on node yet, nothing to create
+	_, _, _ = re.EvaluateDelta(triggerDelta, domain.Facts{}) // no pods on node yet, nothing to create
 
 	// Now add a new pod that runs on the node
 	newPod := domain.NewPod("new-victim", "default")
@@ -433,7 +433,7 @@ func TestKubeletPodExecRule_NewPodOnNodeWithKubeletExec(t *testing.T) {
 		Entities:  []domain.Entity{newPod},
 		Relations: []domain.Relation{runsOn},
 	}
-	toAdd, _ = re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ = re.EvaluateDelta(added, domain.Facts{})
 
 	// The runs-on trigger should cause KubeletPodExec(node→newPod) to be created
 	var found bool
@@ -462,7 +462,7 @@ func TestKubeletPodExecRule_NoKubeletExec_NoRelation(t *testing.T) {
 		Entities:  []domain.Entity{node, pod},
 		Relations: []domain.Relation{runsOn},
 	}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	// No KubeletExec on this node, so no KubeletPodExec
 	for _, rel := range toAdd {
@@ -498,7 +498,7 @@ func TestKubeletPodExecRule_PodNotOnNode_NoRelation(t *testing.T) {
 
 	// Feed kubelet-exec trigger
 	triggerDelta := domain.Facts{Relations: []domain.Relation{kubeletExec, runsOn}}
-	toAdd, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
 
 	// node2 has no incoming kubelet-exec → no kubelet-pod-exec for victim on node2
 	for _, rel := range toAdd {
@@ -526,14 +526,14 @@ func TestKubeletPodExecRule_NoCycleWithAttackerPod(t *testing.T) {
 		Entities:  []domain.Entity{node, attacker},
 		Relations: []domain.Relation{runsOn},
 	}
-	toAdd, _ := re.EvaluateDelta(added, domain.Facts{})
+	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 	for _, rel := range toAdd {
 		_ = kb.AddRelation(rel)
 	}
 
 	// Step 2: trigger chained rules
 	triggerDelta := domain.Facts{Relations: toAdd}
-	toAdd2, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
+	toAdd2, _, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
 
 	// Should NOT create KubeletPodExec(node→attacker) since attacker already has KubeletExec→node
 	for _, rel := range toAdd2 {
