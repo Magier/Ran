@@ -49,7 +49,7 @@ func (client *WSClient) sendJSON(name string, v interface{}) error {
 		}
 	}
 
-	data, err := json.Marshal(v)
+	data, err := safeJSONMarshal(v)
 	if err != nil {
 		slog.Error("Failed to marshal response", "error", err)
 		return err

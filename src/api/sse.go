@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -58,9 +57,9 @@ func (client *SSEClient) sendJSON(name string, v interface{}) error {
 	client.mu.Lock()
 	defer client.mu.Unlock()
 
-	data, err := json.Marshal(v)
+	data, err := safeJSONMarshal(v)
 	if err != nil {
-		slog.Error("Failed to marshal SSE message", "error", err)
+		slog.Error("Failed to marshal SSE message", "event", name, "error", err)
 		return err
 	}
 
