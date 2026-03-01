@@ -39,6 +39,11 @@ type Rule struct {
 	// Build creates the relation(s) to add when Match passes.
 	Build func(source, target domain.Entity) []domain.Relation
 
+	// Apply returns entity updates to apply when the rule fires (optional).
+	// Use this when a rule needs to mutate entities (e.g., set AccessLevel)
+	// in addition to creating relations.
+	Apply func(source, target domain.Entity) []domain.Entity
+
 	// RelationTriggers are relation names (e.g. "can-reach") that, when added or removed,
 	// should cause this rule to re-evaluate the affected (source, target) pair.
 	RelationTriggers []string
@@ -112,8 +117,8 @@ func (re *RuleEngine) getEntitiesOfType(t reflect.Type) []string {
 }
 
 // EvaluateDelta processes added/removed/updated entities and relations,
-// returning new implied relations to add and stale ones to remove.
-func (re *RuleEngine) EvaluateDelta(added, removed domain.Facts) (toAdd []domain.Relation, toRemove []domain.Relation) {
+// returning new implied relations to add, stale ones to remove, and entity updates to apply.
+func (re *RuleEngine) EvaluateDelta(added, removed domain.Facts) (toAdd []domain.Relation, toRemove []domain.Relation, entityUpdates []domain.Entity) {
 	// 1. Remove index entries for removed entities and clean up their managed relations
 	for _, e := range removed.Entities {
 		re.cleanupEntityRelations(e, &toRemove)
@@ -128,18 +133,18 @@ func (re *RuleEngine) EvaluateDelta(added, removed domain.Facts) (toAdd []domain
 	// 3. Evaluate rules for added/updated entities (new entities + entities that may have changed)
 	evaluated := make(map[string]bool) // avoid duplicate evaluations: "ruleName:srcId:tgtId"
 	for _, e := range added.Entities {
-		re.evaluateEntityAgainstRules(e, evaluated, &toAdd, &toRemove)
+		re.evaluateEntityAgainstRules(e, evaluated, &toAdd, &toRemove, &entityUpdates)
 	}
 
 	// 4. Evaluate relation triggers (e.g., a CanReach was added/removed)
 	for _, rel := range added.Relations {
-		re.evaluateRelationTrigger(rel, evaluated, &toAdd, &toRemove)
+		re.evaluateRelationTrigger(rel, evaluated, &toAdd, &toRemove, &entityUpdates)
 	}
 	for _, rel := range removed.Relations {
-		re.evaluateRelationTrigger(rel, evaluated, &toAdd, &toRemove)
+		re.evaluateRelationTrigger(rel, evaluated, &toAdd, &toRemove, &entityUpdates)
 	}
 
-	return toAdd, toRemove
+	return toAdd, toRemove, entityUpdates
 }
 
 // evaluateEntityAgainstRules checks all rules where the entity matches either SourceType or TargetType.
@@ -148,6 +153,7 @@ func (re *RuleEngine) evaluateEntityAgainstRules(
 	evaluated map[string]bool,
 	toAdd *[]domain.Relation,
 	toRemove *[]domain.Relation,
+	entityUpdates *[]domain.Entity,
 ) {
 	eType := entityType(e)
 
@@ -168,7 +174,7 @@ func (re *RuleEngine) evaluateEntityAgainstRules(
 				if !ok {
 					continue
 				}
-				re.evaluatePair(rule, e, target, toAdd, toRemove)
+				re.evaluatePair(rule, e, target, toAdd, toRemove, entityUpdates)
 			}
 		}
 
@@ -188,7 +194,7 @@ func (re *RuleEngine) evaluateEntityAgainstRules(
 				if !ok {
 					continue
 				}
-				re.evaluatePair(rule, source, e, toAdd, toRemove)
+				re.evaluatePair(rule, source, e, toAdd, toRemove, entityUpdates)
 			}
 		}
 	}
@@ -204,6 +210,7 @@ func (re *RuleEngine) evaluateRelationTrigger(
 	evaluated map[string]bool,
 	toAdd *[]domain.Relation,
 	toRemove *[]domain.Relation,
+	entityUpdates *[]domain.Entity,
 ) {
 	relName := rel.GetRelationName()
 	srcId := rel.GetSourceId()
@@ -223,7 +230,7 @@ func (re *RuleEngine) evaluateRelationTrigger(
 				if !ok {
 					continue
 				}
-				re.evaluateEntityAgainstRule(rule, entity, evaluated, toAdd, toRemove)
+				re.evaluateEntityAgainstRule(rule, entity, evaluated, toAdd, toRemove, entityUpdates)
 			}
 		}
 	}
@@ -237,6 +244,7 @@ func (re *RuleEngine) evaluateEntityAgainstRule(
 	evaluated map[string]bool,
 	toAdd *[]domain.Relation,
 	toRemove *[]domain.Relation,
+	entityUpdates *[]domain.Entity,
 ) {
 	eType := entityType(e)
 
@@ -254,7 +262,7 @@ func (re *RuleEngine) evaluateEntityAgainstRule(
 			if !ok {
 				continue
 			}
-			re.evaluatePair(rule, e, target, toAdd, toRemove)
+			re.evaluatePair(rule, e, target, toAdd, toRemove, entityUpdates)
 		}
 	}
 
@@ -272,7 +280,7 @@ func (re *RuleEngine) evaluateEntityAgainstRule(
 			if !ok {
 				continue
 			}
-			re.evaluatePair(rule, source, e, toAdd, toRemove)
+			re.evaluatePair(rule, source, e, toAdd, toRemove, entityUpdates)
 		}
 	}
 }
@@ -284,6 +292,7 @@ func (re *RuleEngine) evaluatePair(
 	source, target domain.Entity,
 	toAdd *[]domain.Relation,
 	toRemove *[]domain.Relation,
+	entityUpdates *[]domain.Entity,
 ) {
 	result := rule.Match(source, target, re)
 
@@ -292,6 +301,7 @@ func (re *RuleEngine) evaluatePair(
 
 	switch result {
 	case ConditionTrue, ConditionUnknown:
+		newRelation := false
 		for _, rel := range rels {
 			relId := domain.GetRelationId(rel)
 			if _, alreadyManaged := re.managedRelations[relId]; !alreadyManaged {
@@ -300,12 +310,19 @@ func (re *RuleEngine) evaluatePair(
 				if _, exists := existingRels[relId]; !exists {
 					*toAdd = append(*toAdd, rel)
 					re.managedRelations[relId] = rule.Name
+					newRelation = true
 					slog.Debug("Rule engine: adding relation", "rule", rule.Name, "relation", relId)
 				} else {
 					// Already in KB, just track it
 					re.managedRelations[relId] = rule.Name
 				}
 			}
+		}
+
+		// Apply entity updates when a new relation is produced
+		if newRelation && rule.Apply != nil {
+			updates := rule.Apply(source, target)
+			*entityUpdates = append(*entityUpdates, updates...)
 		}
 
 	case ConditionFalse:
