@@ -484,6 +484,19 @@ export function getGraphStyle(isDark: boolean = false) {
 			}
 		},
 		{
+			// Style for meta-edges (grouped edges from collapsed nodes)
+			selector: 'edge[?isMetaEdge]',
+			style: {
+				'width': '3',
+				'font-weight': 'bold',
+				'font-size': '11',
+				'line-color': primary,
+				'target-arrow-color': primary,
+				'line-style': 'solid',
+				'curve-style': 'bezier'
+			}
+		},
+		{
 			selector: 'edge[name="controls"]',
 			style: {
 				color: textColor,
@@ -493,27 +506,8 @@ export function getGraphStyle(isDark: boolean = false) {
 			}
 		},
 		{
-			selector: 'edge[name="references"]',
-			style: {
-				color: 'gray',
-				'line-color': 'gray',
-				'target-arrow-color': 'gray',
-				'line-style': 'dotted',
-				'font-size': 7
-			}
-		},
-		{
-			selector: 'edge[name="can-reach"]',
-			style: {
-				color: 'gray',
-				'line-color': 'gray',
-				'target-arrow-color': 'gray',
-				'line-style': 'dotted',
-				'font-size': 7
-			}
-		},
-		{
-			selector: 'edge[name="runs-on"]',
+			// Informational edges: subdued dotted style (driven by data attribute set in graph.svelte)
+			selector: 'edge[?informational]',
 			style: {
 				color: 'gray',
 				'line-color': 'gray',
@@ -526,16 +520,6 @@ export function getGraphStyle(isDark: boolean = false) {
 			selector: "edge[relation='routes']",
 			style: {
 				content: `data(port)`
-			}
-		},
-		{
-			selector: "edge[relation='can-reach']",
-			style: {
-				width: 0.5,
-				'line-style': 'dashed',
-				color: 'gray',
-				'line-color': 'gray',
-				'target-arrow-color': 'gray'
 			}
 		},
 		{
