@@ -304,7 +304,7 @@ func TestCustomRule_SimpleMatch(t *testing.T) {
 			}
 			return ConditionFalse
 		},
-		Build: func(source, target domain.Entity) []domain.Relation {
+		Build: func(source, target domain.Entity, re *RuleEngine) []domain.Relation {
 			return []domain.Relation{
 				domain.CanReach{SourceId: source.GetId(), TargetId: target.GetId()},
 			}

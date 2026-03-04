@@ -27,7 +27,7 @@ var KubeletExecRule = Rule{
 		}
 
 		// Required: any identity with GET nodes/proxy permission and a usable token
-		if !hasKubeletProxyIdentity(re) {
+		if _, ok := getKubeletProxyIdentity(re); !ok {
 			return ConditionFalse
 		}
 
@@ -39,32 +39,34 @@ var KubeletExecRule = Rule{
 
 		return ConditionTrue
 	},
-	Build: func(source, target domain.Entity) []domain.Relation {
+	Build: func(source, target domain.Entity, re *RuleEngine) []domain.Relation {
+		identity, _ := getKubeletProxyIdentity(re)
 		return []domain.Relation{
-			domain.KubeletExec{
-				Pod:  source.(domain.Pod),
-				Node: target.(domain.K8sNode),
+			&domain.KubeletExec{
+				Pod:      source.(domain.Pod),
+				Node:     target.(domain.K8sNode),
+				Identity: identity,
 			},
 		}
 	},
 	RelationTriggers: []string{"can-reach"},
 }
 
-// hasKubeletProxyIdentity checks if any known identity has GET nodes/proxy
+// getKubeletProxyIdentity checks if any known identity has GET nodes/proxy
 // permission and a token that Ran can use.
-func hasKubeletProxyIdentity(re *RuleEngine) bool {
+func getKubeletProxyIdentity(re *RuleEngine) (domain.Identity, bool) {
 	if re.Identities == nil {
-		return false
+		return nil, false
 	}
 	for _, identity := range re.Identities() {
 		if identity.GetToken() == "" {
 			continue
 		}
 		if _, ok := identity.Can("get", "nodes/proxy"); ok {
-			return true
+			return identity, true
 		}
 	}
-	return false
+	return nil, false
 }
 
 // checkReachability returns the reachability state between two entities.
@@ -115,9 +117,9 @@ var KubeletPodExecRule = Rule{
 
 		return ConditionTrue
 	},
-	Build: func(source, target domain.Entity) []domain.Relation {
+	Build: func(source, target domain.Entity, re *RuleEngine) []domain.Relation {
 		return []domain.Relation{
-			domain.KubeletPodExec{
+			&domain.KubeletPodExec{
 				Node: source.(domain.K8sNode),
 				Pod:  target.(domain.Pod),
 			},
@@ -146,7 +148,7 @@ func hasIncomingKubeletExec(kb KnowledgeBase, node domain.K8sNode) bool {
 
 // hasKubeletExecToNode checks if a kubelet-exec relation exists from pod to node.
 func hasKubeletExecToNode(kb KnowledgeBase, pod domain.Pod, node domain.K8sNode) bool {
-	kubeletExecId := domain.GetRelationId(domain.KubeletExec{Pod: pod, Node: node})
+	kubeletExecId := domain.GetRelationId(&domain.KubeletExec{Pod: pod, Node: node})
 	_, exists := kb.GetRelations()[kubeletExecId]
 	return exists
 }
