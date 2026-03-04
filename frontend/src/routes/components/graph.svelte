@@ -3,10 +3,12 @@
 	import { browser } from '$app/environment';
 	import cytoscape from 'cytoscape';
 	import fcose from 'cytoscape-fcose';
+	// @ts-ignore
 	import expandCollapse from 'cytoscape-expand-collapse';
 	import { toaster } from '$lib/components/toaster';
 
 	import { getGraphStyle, layout, createLayout, applyCompromisedStyle } from './graph_style';
+	import { isInformational } from './edge_categories';
 	import type { Node, Edge } from '$lib/api/index';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import GraphNodeSelector from './graph_node_selector.svelte';
@@ -39,7 +41,11 @@
 	let searchOpen = $state(false);
 
 	cytoscape.use(fcose);
-	cytoscape.use(expandCollapse);
+	if (typeof expandCollapse === 'function') {
+		cytoscape.use(expandCollapse);
+	} else if (expandCollapse?.default) {
+		cytoscape.use(expandCollapse.default);
+	}
 
 	// cytoscape("layout", "hierarchyFlow", hierarchyLayout);
     // cytoscape('layout', 'claude', K8sAttackGraphLayout);
@@ -94,22 +100,40 @@
 		}
 
 		// Initialize expand-collapse extension
-		const api = cy.expandCollapse({
-			layoutBy: null, // Don't run layout after expand/collapse
-			fisheye: false,
-			animate: true,
-			animationDuration: 300,
-			undoable: false,
-			cueEnabled: true, // Show expand/collapse cues
-			expandCollapseCuePosition: 'top-left',
-			expandCollapseCueSize: 12,
-			expandCollapseCueLineSize: 8,
-			expandCueImage: undefined,
-			collapseCueImage: undefined,
-			expandCollapseCueSensitivity: 1,
-			// Edge handling options
-			allowNestedEdgeCollapse: true, // Collapse edges to nested nodes
-			zIndex: 999
+		let api;
+		try {
+			api = cy.expandCollapse({
+				layoutBy: null,
+				fisheye: false,
+				animate: true,
+				animationDuration: 300,
+				undoable: false,
+				cueEnabled: true,
+				expandCollapseCuePosition: 'top-left',
+				expandCollapseCueSize: 12,
+				expandCollapseCueLineSize: 8,
+				expandCollapseCueSensitivity: 1,
+				allowNestedEdgeCollapse: true,
+				edgeTypeInfo: "name",
+				groupEdgesOfSameTypeOnCollapse: true,
+				zIndex: 999
+			});
+		} catch (error) {
+			console.error('Error initializing expand-collapse:', error);
+			api = null;
+		}
+
+		// Make API available for the graph update effect (expand/re-collapse on update)
+		if (browser) {
+			(window as any).cyExpandCollapseAPI = api;
+		}
+
+		cy.on('expandcollapse.aftercollapse', (event) => {
+			handleAfterCollapse(event.target);
+		});
+
+		cy.on('expandcollapse.afterexpand', (event) => {
+			handleAfterExpand(event.target);
 		});
 
 		// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
@@ -123,9 +147,6 @@
 		});
 		cy.on('scrollzoom', saveZoom);
 		cy.on('pinchzoom', saveZoom);
-
-		console.info("Cytoscape graph initialized");
-		// Note: Initial centering and layout will happen when graph data loads in the $effect
 	});
 
 	onDestroy(() => {
@@ -161,12 +182,34 @@
 					const hasNewNodes = graph.nodes.some(n => !previousNodeIds.has(n.id));
 					const hasFewerNodes = previousNodeIds.size > currentNodeIds.size;
 
+					// Expand all collapsed nodes before updating to avoid duplicate node errors.
+					// The expand-collapse plugin hides children internally, and cy.json()
+					// would try to re-add them, causing duplicates.
+					const collapsedNodes: string[] = [];
+					const ecApi = (window as any).cyExpandCollapseAPI;
+					if (ecApi) {
+						cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => {
+							collapsedNodes.push(n.id());
+							try { ecApi.expand(n); } catch (_) {}
+						});
+					}
+
 					cy.json({
 						elements: {
 							nodes: nodes,
 							edges: edges
 						}
 					});
+
+					// Re-collapse nodes that were previously collapsed
+					if (ecApi && collapsedNodes.length > 0) {
+						collapsedNodes.forEach(id => {
+							const node = cy.getElementById(id);
+							if (node.length > 0 && node.isParent()) {
+								try { ecApi.collapse(node); } catch (_) {}
+							}
+						});
+					}
 
 					// Only re-layout if there are new nodes or nodes were removed
 					if (hasNewNodes || hasFewerNodes || previousNodeIds.size === 0) {
@@ -184,10 +227,29 @@
 						// Validate graph state before layout
 						const nodeCount = cy.nodes().length;
 						const edgeCount = cy.edges().length;
-						
+
 						if (nodeCount === 0) {
 							console.warn('Skipping layout: no nodes in graph');
 							return;
+						}
+
+						// Assert: all edges must reference existing nodes
+						const nodeIdSet = new Set(cy.nodes().map(n => n.id()));
+						cy.edges().forEach(e => {
+							const src = e.source().id();
+							const tgt = e.target().id();
+							if (!nodeIdSet.has(src)) {
+								throw new Error(`Edge "${e.id()}" references non-existent source node "${src}"`);
+							}
+							if (!nodeIdSet.has(tgt)) {
+								throw new Error(`Edge "${e.id()}" references non-existent target node "${tgt}"`);
+							}
+						});
+
+						// Assert: container must have non-zero dimensions
+						const containerRect = graphContainer.getBoundingClientRect();
+						if (containerRect.width === 0 || containerRect.height === 0) {
+							throw new Error(`Graph container has zero dimensions (${containerRect.width}x${containerRect.height})`);
 						}
 
 						// Create layout with constraints and add stop callback to unlock nodes
@@ -253,6 +315,7 @@
 					}
 
 					applyCompromisedStyle(cy);
+					hideRedundantInformationalEdges(cy);
 
 					// use timeout 0 to not track selectedObject as a dependency
 					setTimeout(() => {
@@ -370,6 +433,11 @@
 			data: { ...n }
 		};
 
+		// Add parent relationship if exists (required for expand-collapse)
+		if (n.parent) {
+			cyNode.data.parent = n.parent;
+		}
+
 		if (nodePos.hasOwnProperty(n.id)) {
 			cyNode.position = nodePos[n.id];
 		}
@@ -382,7 +450,8 @@
 			data: {
 				source: e.sourceId,
 				target: e.targetId,
-				...e
+				...e,
+				informational: isInformational(e.name)
 			}
 		};
 	}
@@ -401,6 +470,124 @@
 
 	function openSearch() {
 		searchOpen = true;
+	}
+
+	function handleAfterCollapse(node: any) {
+		// Get all descendant nodes (children/grandchildren) of the collapsed node
+		const descendants = node.descendants();
+		// Group edges between the collapsed node and external nodes
+		const edgeGroups = new Map(); // Key: "sourceId-targetId", Value: array of edges
+		
+		// Find all edges that connect descendants to external nodes
+		descendants.forEach((desc: any) => {
+			// Outgoing edges from descendants to external nodes
+			desc.connectedEdges().forEach((edge: any) => {
+				const source = edge.source();
+				const target = edge.target();
+				
+				// Check if this is an edge going out of the collapsed group
+				if (descendants.contains(source) && !descendants.contains(target) && target.id() !== node.id()) {
+					const key = `${node.id()}->${target.id()}`;
+					if (!edgeGroups.has(key)) {
+						edgeGroups.set(key, []);
+					}
+					edgeGroups.get(key).push(edge);
+				}
+				// Check if this is an edge coming into the collapsed group
+				else if (!descendants.contains(source) && descendants.contains(target) && source.id() !== node.id()) {
+					const key = `${source.id()}->${node.id()}`;
+					if (!edgeGroups.has(key)) {
+						edgeGroups.set(key, []);
+					}
+					edgeGroups.get(key).push(edge);
+				}
+			});
+		});
+		
+		// Create or update meta-edges for each group
+		edgeGroups.forEach((edges, key) => {
+			if (edges.length === 0) return;
+			
+			// Key format is "sourceId->targetId" to handle IDs with dashes
+			const separator = '->';
+			const sepIndex = key.indexOf(separator);
+			const sourceId = key.substring(0, sepIndex);
+			const targetId = key.substring(sepIndex + separator.length);
+			const metaEdgeId = `meta-${sourceId}-to-${targetId}`;
+			
+			// Remove existing meta-edge if it exists
+			const existingMetaEdge = cy.getElementById(metaEdgeId);
+			if (existingMetaEdge.length > 0) {
+				existingMetaEdge.remove();
+			}
+			
+			// Hide the original edges
+			edges.forEach((e: any) => e.hide());
+			
+			// Create a new meta-edge
+			cy.add({
+				group: 'edges',
+				data: {
+					id: metaEdgeId,
+					source: sourceId,
+					target: targetId,
+					name: edges.length > 1 ? `${edges.length} relations` : edges[0].data('name'),
+					collapsedEdges: edges.map((e: any) => e.id()),
+					isMetaEdge: true
+				}
+			});
+			
+		});
+	}
+
+	/**
+	 * Hide informational edges between a node pair when a non-informational
+	 * (actionable/factual) edge already exists for that same pair.
+	 */
+	function hideRedundantInformationalEdges(cy: cytoscape.Core) {
+		// Collect node-pairs that have at least one non-informational edge
+		const hasActionableEdge = new Set<string>();
+		cy.edges().forEach(e => {
+			if (!e.data('informational')) {
+				// Use an unordered key so A->B and B->A share the same pair
+				const pair = [e.source().id(), e.target().id()].sort().join('||');
+				hasActionableEdge.add(pair);
+			}
+		});
+
+		// Hide informational edges whose pair has an actionable edge
+		cy.edges('[?informational]').forEach(e => {
+			const pair = [e.source().id(), e.target().id()].sort().join('||');
+			if (hasActionableEdge.has(pair)) {
+				e.hide();
+			} else {
+				e.show();
+			}
+		});
+	}
+
+	function handleAfterExpand(node: any) {
+		// Remove all meta-edges related to this node and restore original edges
+		cy.edges('[isMetaEdge]').forEach((metaEdge: any) => {
+			const source = metaEdge.source().id();
+			const target = metaEdge.target().id();
+			
+			// Check if this meta-edge is related to the expanded node
+			if (source === node.id() || target === node.id()) {
+				const collapsedEdgeIds = metaEdge.data('collapsedEdges') || [];
+				
+				// Show the original edges
+				collapsedEdgeIds.forEach((edgeId: string) => {
+					const originalEdge = cy.getElementById(edgeId);
+					if (originalEdge.length > 0) {
+						originalEdge.show();
+					}
+				});
+				
+				// Remove the meta-edge
+				metaEdge.remove();
+			}
+		});
 	}
 
 </script>
