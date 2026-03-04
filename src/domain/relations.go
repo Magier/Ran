@@ -563,17 +563,20 @@ func (r CanReach) WithTarget(e Entity) Relation {
 
 type KubeletExec struct {
 	RelationImpl
-	Pod  Pod
-	Node K8sNode
+	Pod         Pod
+	Node        K8sNode
+	Identity    Identity
+	NextChannel C2Channel
 }
 
 var _ Relation = (*KubeletExec)(nil)
+var _ C2Channel = (*KubeletExec)(nil)
 
-func (r KubeletExec) GetSourceId() string     { return r.Pod.GetId() }
-func (r KubeletExec) GetTargetId() string     { return r.Node.GetId() }
-func (r KubeletExec) GetRelationName() string { return "kubelet-exec" }
+func (r *KubeletExec) GetSourceId() string     { return r.Pod.GetId() }
+func (r *KubeletExec) GetTargetId() string     { return r.Node.GetId() }
+func (r *KubeletExec) GetRelationName() string { return "kubelet-exec" }
 
-func (r KubeletExec) WithSource(e Entity) Relation {
+func (r *KubeletExec) WithSource(e Entity) Relation {
 	if pod, ok := e.(Pod); ok {
 		r.Pod = pod
 	} else {
@@ -581,7 +584,7 @@ func (r KubeletExec) WithSource(e Entity) Relation {
 	}
 	return r
 }
-func (r KubeletExec) WithTarget(e Entity) Relation {
+func (r *KubeletExec) WithTarget(e Entity) Relation {
 	if node, ok := e.(K8sNode); ok {
 		r.Node = node
 	} else {
@@ -590,21 +593,39 @@ func (r KubeletExec) WithTarget(e Entity) Relation {
 	return r
 }
 
+func (r *KubeletExec) GetKind() string   { return "kubelet/exec" }
+func (r *KubeletExec) GetTarget() Entity { return r.Node }
+func (r *KubeletExec) GetFinalTarget() Entity {
+	target := Entity(r.Node)
+	for next := r.GetNextChannel(); next != nil; next = next.GetNextChannel() {
+		target = next.GetTarget()
+	}
+	return target
+}
+func (r *KubeletExec) GetNextChannel() C2Channel     { return r.NextChannel }
+func (r *KubeletExec) SetNextChannel(next C2Channel) { r.NextChannel = next }
+func (r *KubeletExec) GetCommandEnvelope(cmd string) string {
+	// the proper parameters are set in the complementary KubeletPodExec edge, which points to the target
+	return cmd + " --token " + r.Identity.GetToken()
+}
+
 // KubeletPodExec represents the ability to exec into a pod on a node via the kubelet API.
 // Direction: Node → Pod (from the node, you can exec into this pod).
 type KubeletPodExec struct {
 	RelationImpl
-	Node K8sNode
-	Pod  Pod
+	Node        K8sNode
+	Pod         Pod
+	NextChannel C2Channel
 }
 
 var _ Relation = (*KubeletPodExec)(nil)
+var _ C2Channel = (*KubeletPodExec)(nil)
 
-func (r KubeletPodExec) GetSourceId() string     { return r.Node.GetId() }
-func (r KubeletPodExec) GetTargetId() string     { return r.Pod.GetId() }
-func (r KubeletPodExec) GetRelationName() string { return "kubelet-pod-exec" }
+func (r *KubeletPodExec) GetSourceId() string     { return r.Node.GetId() }
+func (r *KubeletPodExec) GetTargetId() string     { return r.Pod.GetId() }
+func (r *KubeletPodExec) GetRelationName() string { return "kubelet-pod-exec" }
 
-func (r KubeletPodExec) WithSource(e Entity) Relation {
+func (r *KubeletPodExec) WithSource(e Entity) Relation {
 	if node, ok := e.(K8sNode); ok {
 		r.Node = node
 	} else {
@@ -612,11 +633,34 @@ func (r KubeletPodExec) WithSource(e Entity) Relation {
 	}
 	return r
 }
-func (r KubeletPodExec) WithTarget(e Entity) Relation {
+func (r *KubeletPodExec) WithTarget(e Entity) Relation {
 	if pod, ok := e.(Pod); ok {
 		r.Pod = pod
 	} else {
 		slog.Warn("WithTarget called with non-Pod entity", "entity", e.GetId())
 	}
 	return r
+}
+
+func (r *KubeletPodExec) GetKind() string   { return "kubelet/pod-exec" }
+func (r *KubeletPodExec) GetTarget() Entity { return r.Pod }
+func (r *KubeletPodExec) GetFinalTarget() Entity {
+	target := Entity(r.Pod)
+	for next := r.GetNextChannel(); next != nil; next = next.GetNextChannel() {
+		target = next.GetTarget()
+	}
+	return target
+}
+func (r *KubeletPodExec) GetNextChannel() C2Channel     { return r.NextChannel }
+func (r *KubeletPodExec) SetNextChannel(next C2Channel) { r.NextChannel = next }
+func (r *KubeletPodExec) GetCommandEnvelope(cmd string) string {
+	container := r.Pod.Containers[0].Name // TODO find out how to select the right container if there are multiple
+
+	// the command and all args and their flags have to be assed as `command=` parameters
+	parts := strings.Split(cmd, " ")
+	cmdParams := strings.Join(parts, "&command=")
+
+	// Note: the `ran-ws` will be grounded in the complementary KubeletExec edge, which knows where the actual binary is located
+	return fmt.Sprintf("ran-ws --url \"wss://%s:10250/exec/%s/%s/%s?output=1&error=1&command=%s\"",
+		r.Node.GetName(), r.Pod.GetNamespace(), r.Pod.GetName(), container, cmdParams)
 }

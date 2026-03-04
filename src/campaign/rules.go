@@ -37,7 +37,8 @@ type Rule struct {
 	Match func(source, target domain.Entity, re *RuleEngine) ConditionState
 
 	// Build creates the relation(s) to add when Match passes.
-	Build func(source, target domain.Entity) []domain.Relation
+	// The RuleEngine is passed so rules can access context (e.g., identities).
+	Build func(source, target domain.Entity, re *RuleEngine) []domain.Relation
 
 	// Apply returns entity updates to apply when the rule fires (optional).
 	// Use this when a rule needs to mutate entities (e.g., set AccessLevel)
@@ -297,7 +298,7 @@ func (re *RuleEngine) evaluatePair(
 	result := rule.Match(source, target, re)
 
 	// Build the relations to figure out their IDs
-	rels := rule.Build(source, target)
+	rels := rule.Build(source, target, re)
 
 	switch result {
 	case ConditionTrue, ConditionUnknown:

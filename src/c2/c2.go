@@ -602,12 +602,6 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 	case *domain.PodExecC2Channel:
 		var stdout, stderr string
 
-		if ch.NextChannel != nil {
-			// wrap the CMD in another pod/exec call, that will be executed from the direct target
-			// cmd.Command = fmt.Sprintf("kubectl exec %s -- %s", ch.NextChannel.Target.GetName(), cmd.Command)
-			slog.Warn("legacy mode of wrapping kubectl channel ")
-		}
-
 		if ch.IsInteractive {
 			slog.Debug("Establishing interactive shell for channel  is not yet implemented!")
 		} else {

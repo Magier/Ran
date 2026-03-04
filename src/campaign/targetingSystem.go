@@ -102,7 +102,13 @@ func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channe
 
 		for _, rel := range paths.Relations {
 			if ch, ok := rel.(domain.C2Channel); ok {
-				return ch, nil
+				// set a pointer to the next channel, the C2 execution component can chain the channels
+				if lastSegment != nil {
+					lastSegment.SetNextChannel(ch)
+				} else {
+					c2Channel = ch
+				}
+				lastSegment = ch
 			} else if canAccess, ok := rel.(domain.CanAccess); ok {
 				if relTarget, ok := kg.GetEntity(rel.GetTargetId()); ok {
 					ch := &domain.PodExecC2Channel{
@@ -113,7 +119,7 @@ func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channe
 
 					// set a pointer to the next channel, the C2 execution component can chain the channels
 					if lastSegment != nil {
-						c2Channel.SetNextChannel(ch)
+						lastSegment.SetNextChannel(ch)
 					} else {
 						c2Channel = ch
 					}
@@ -121,7 +127,6 @@ func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channe
 				} else {
 					return nil, fmt.Errorf("Could not identify target %s", canAccess.TargetId)
 				}
-
 			}
 		}
 	}

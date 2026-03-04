@@ -485,14 +485,15 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 	return execCmd, nil
 }
 
-func groundUsedTool(proc domain.Procedure, sys domain.System) (domain.Procedure, error) {
-	toolName := proc.GetTool()
+func groundUsedTool(toolName, cmd string, sys domain.System) (string, error) {
 	if binPath := sys.GetBinary(toolName); binPath != "" && binPath != "❌" && binPath != toolName {
 		// in the command a must be is a stand-alone string, so add spaces around it to avoid partial replacements
 		re := regexp.MustCompile(fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(toolName)))
-		proc.Command = re.ReplaceAllString(proc.Command, binPath)
+		cmd = re.ReplaceAllString(cmd, binPath)
+	} else {
+		slog.Info(fmt.Sprintf("Failed to ground used tool '%s' in command, because it was not found on the system '%s'", toolName, sys.GetName()))
 	}
-	return proc, nil
+	return cmd, nil
 }
 
 func (c Campaign) buildFinalCommand(ch domain.C2Channel, proc domain.Procedure) (string, error) {
@@ -513,17 +514,19 @@ func (c Campaign) buildFinalCommand(ch domain.C2Channel, proc domain.Procedure) 
 		}
 		// TODO: fix temporary workaround and generalize to TTPs using the right one
 		proc.Command = nextChannel.GetCommandEnvelope(proc.Command)
-		if strings.HasPrefix(proc.Command, "kubectl") {
-			// TODO: fix temporary workaround: set tool so it's properly grounded below
-			proc.Tool = "kubectl"
-		}
 	}
 
 	target := ch.GetTarget()
 	if sys, ok := target.(domain.System); ok {
-		proc, err = groundUsedTool(proc, sys)
+		// Extract the first part before " " from proc.Command
+		cmdParts := strings.SplitN(proc.Command, " ", 2)
+		channelTool := cmdParts[0]
+
+		groundedCmd, err := groundUsedTool(channelTool, proc.Command, sys)
 		if err != nil {
 			return "", err
+		} else {
+			proc.Command = groundedCmd
 		}
 	}
 
