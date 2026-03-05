@@ -602,5 +602,7 @@
 		/* height: 1000px; */
 		display: block;
 		/* background-color: #1a1a1a; */
+		position: relative;
+		z-index: 0;
 	}
 </style>
