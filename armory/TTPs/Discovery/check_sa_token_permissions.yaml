@@ -23,6 +23,7 @@ parameters:
     description: the token which will be checked
 preconditions:
   kind: ServiceAccount
+  has-token: true
 procedures:
   - key: curl
     command: >-
