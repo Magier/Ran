@@ -3,6 +3,10 @@ package domain
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
+	"strings"
+
+	"github.com/google/shlex"
 )
 
 type Relation interface {
@@ -305,13 +309,34 @@ func (u CanAccess) GetCost() int {
 	return 10
 }
 
-// Utility function to provide default cost 0 for all informative relations or call the respective cost function
+// GetRelationCost returns a cost for path-finding. Actionable relations
+// (ones that represent real attack primitives) get low costs so the
+// shortest-path algorithm prefers them over purely informational edges.
 func GetRelationCost(relation Relation) int {
 	switch r := relation.(type) {
 	case CanAccess:
 		return r.GetCost()
+	case *PodExecC2Channel:
+		return 5
+	case *ImplantC2Channel:
+		return 5
+	case *KubeletExecSource:
+		return 10
+	case *KubeletExecSink:
+		return 10
 	case MountsHostPaths:
 		return 10
+	case CanReach:
+		return 20
+	case ExposesSecret:
+		return 15
+	case BindsRole:
+		return 20
+	// Informational / structural relations — high cost so they are
+	// only used when no actionable path exists.
+	case RunsOn, Runs, Contains, Owns, Created, ManagesNode, Uses,
+		HasC2Session, Operates, Reference:
+		return 1000
 	}
 	return 1000
 }
