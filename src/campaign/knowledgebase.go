@@ -287,18 +287,38 @@ func (kg *BuiltInKnowledgeBase) GetC2s() []domain.C2System {
 
 func (kg *BuiltInKnowledgeBase) AddRelation(rel domain.Relation) error {
 	kg.Relations[domain.GetRelationId(rel)] = rel
-	cost := domain.GetRelationCost(rel)
+	newCost := domain.GetRelationCost(rel)
 
 	dir := "forward"
 	if rel.IsReverse() {
 		dir = "back"
 	}
-	return kg.graph.AddEdge(rel.GetSourceId(), rel.GetTargetId(),
+	err := kg.graph.AddEdge(rel.GetSourceId(), rel.GetTargetId(),
 		graph.EdgeAttribute("label", rel.GetRelationName()),
 		graph.EdgeAttribute("dir", dir),
-		graph.EdgeWeight(cost),
+		graph.EdgeWeight(newCost),
 		graph.EdgeData(rel),
 	)
+	if err != nil && err.Error() == "edge already exists" {
+		// Graph only supports one edge per (src, tgt). Replace it if the
+		// new relation has a lower cost (i.e. is more actionable).
+		edge, edgeErr := kg.graph.Edge(rel.GetSourceId(), rel.GetTargetId())
+		if edgeErr != nil {
+			return err
+		}
+		if newCost < int(edge.Properties.Weight) {
+			_ = kg.graph.RemoveEdge(rel.GetSourceId(), rel.GetTargetId())
+			return kg.graph.AddEdge(rel.GetSourceId(), rel.GetTargetId(),
+				graph.EdgeAttribute("label", rel.GetRelationName()),
+				graph.EdgeAttribute("dir", dir),
+				graph.EdgeWeight(newCost),
+				graph.EdgeData(rel),
+			)
+		}
+		// Relation stored in Relations map but graph edge kept as-is.
+		return nil
+	}
+	return err
 }
 
 func (kg *BuiltInKnowledgeBase) RemoveRelation(relation domain.Relation) error {
