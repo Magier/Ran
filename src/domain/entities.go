@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"reflect"
 	"strings"
 
 	"encoding/json"
@@ -99,9 +100,16 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 				conditionName = strings.TrimPrefix(conditionName, "has-")
 			}
 
-			if v, ok := expectedValue.(string); ok && v != "" {
-				ok := hasFieldValue(target, conditionName, v)
-				if !ok {
+			switch v := expectedValue.(type) {
+			case string:
+				if v != "" && !hasFieldValue(target, conditionName, v) {
+					return false
+				}
+			case bool:
+				if v && !hasFieldTruthy(target, conditionName) {
+					return false
+				}
+				if !v && hasFieldTruthy(target, conditionName) {
 					return false
 				}
 			}
@@ -114,6 +122,34 @@ func (r Requirements) Satisfied(target Entity, accessLevel AccessLevel, state St
 		}
 	}
 	return true
+}
+
+func hasFieldTruthy(e Entity, fieldName string) bool {
+	v := reflect.ValueOf(e)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return false
+	}
+	f := v.FieldByNameFunc(func(name string) bool {
+		return strings.EqualFold(name, fieldName)
+	})
+	if !f.IsValid() {
+		return false
+	}
+	switch f.Kind() {
+	case reflect.String:
+		return f.String() != ""
+	case reflect.Bool:
+		return f.Bool()
+	case reflect.Slice, reflect.Map:
+		return f.Len() > 0
+	case reflect.Ptr, reflect.Interface:
+		return !f.IsNil()
+	default:
+		return !f.IsZero()
+	}
 }
 
 func hasFieldValue(e Entity, fieldName string, value string) bool {
