@@ -133,7 +133,7 @@
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
-<div class={[className, "max-h-120 overflow-auto border border-surface-600 w-110 rounded-lg bg-surface-100-900 p-4 shadow-xl"]} data-popup>
+<div class="{className} pointer-events-auto z-[100] max-h-120 overflow-auto border border-surface-600 w-110 rounded-lg bg-surface-100-900 p-4 shadow-xl" >
 	{#if obj}
 		{#each Object.entries(obj || {}) as [label, data]}
 			{#if label === 'volumeMounts' || label === 'mounts'}

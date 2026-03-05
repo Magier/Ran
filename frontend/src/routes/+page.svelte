@@ -167,7 +167,7 @@
 	}
 </script>
 
-<div class="relative grid h-[calc(100vh-60px)] grid-cols-[300px_minmax(0,1fr)_auto] gap-x-1">
+<div class="relative grid h-[calc(100vh-60px)] grid-cols-[300px_minmax(0,1fr)] gap-x-1">
 	{#await campaignState.init()}
 		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-100" />
 		<div>loading...</div>
