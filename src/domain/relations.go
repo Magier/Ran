@@ -561,22 +561,25 @@ func (r CanReach) WithTarget(e Entity) Relation {
 	return r
 }
 
-type KubeletExec struct {
+// KubeletExecSource represents a pod's ability to execute commands on its hosting node via the kubelet API.
+// Direction: Pod → Node (source of the C2 channel, holds the identity/token).
+type KubeletExecSource struct {
 	RelationImpl
 	Pod         Pod
 	Node        K8sNode
 	Identity    Identity
+	Procedure   Procedure
 	NextChannel C2Channel
 }
 
-var _ Relation = (*KubeletExec)(nil)
-var _ C2Channel = (*KubeletExec)(nil)
+var _ Relation = (*KubeletExecSource)(nil)
+var _ C2Channel = (*KubeletExecSource)(nil)
 
-func (r *KubeletExec) GetSourceId() string     { return r.Pod.GetId() }
-func (r *KubeletExec) GetTargetId() string     { return r.Node.GetId() }
-func (r *KubeletExec) GetRelationName() string { return "kubelet-exec" }
+func (r *KubeletExecSource) GetSourceId() string     { return r.Pod.GetId() }
+func (r *KubeletExecSource) GetTargetId() string     { return r.Node.GetId() }
+func (r *KubeletExecSource) GetRelationName() string { return "kubelet-exec" }
 
-func (r *KubeletExec) WithSource(e Entity) Relation {
+func (r *KubeletExecSource) WithSource(e Entity) Relation {
 	if pod, ok := e.(Pod); ok {
 		r.Pod = pod
 	} else {
@@ -584,7 +587,7 @@ func (r *KubeletExec) WithSource(e Entity) Relation {
 	}
 	return r
 }
-func (r *KubeletExec) WithTarget(e Entity) Relation {
+func (r *KubeletExecSource) WithTarget(e Entity) Relation {
 	if node, ok := e.(K8sNode); ok {
 		r.Node = node
 	} else {
@@ -593,39 +596,40 @@ func (r *KubeletExec) WithTarget(e Entity) Relation {
 	return r
 }
 
-func (r *KubeletExec) GetKind() string   { return "kubelet/exec" }
-func (r *KubeletExec) GetTarget() Entity { return r.Node }
-func (r *KubeletExec) GetFinalTarget() Entity {
+func (r *KubeletExecSource) GetKind() string   { return "kubelet/exec" }
+func (r *KubeletExecSource) GetTarget() Entity { return r.Node }
+func (r *KubeletExecSource) GetFinalTarget() Entity {
 	target := Entity(r.Node)
 	for next := r.GetNextChannel(); next != nil; next = next.GetNextChannel() {
 		target = next.GetTarget()
 	}
 	return target
 }
-func (r *KubeletExec) GetNextChannel() C2Channel     { return r.NextChannel }
-func (r *KubeletExec) SetNextChannel(next C2Channel) { r.NextChannel = next }
-func (r *KubeletExec) GetCommandEnvelope(cmd string) string {
-	// the proper parameters are set in the complementary KubeletPodExec edge, which points to the target
-	return cmd + " --token " + r.Identity.GetToken()
+func (r *KubeletExecSource) GetNextChannel() C2Channel     { return r.NextChannel }
+func (r *KubeletExecSource) SetNextChannel(next C2Channel) { r.NextChannel = next }
+func (r *KubeletExecSource) GetCommandEnvelope(cmd string) string {
+	// Substitute the ${TOKEN} placeholder in the command produced by the sink
+	return strings.ReplaceAll(cmd, "${TOKEN}", r.Identity.GetToken())
 }
 
-// KubeletPodExec represents the ability to exec into a pod on a node via the kubelet API.
-// Direction: Node → Pod (from the node, you can exec into this pod).
-type KubeletPodExec struct {
+// KubeletExecSink represents the ability to exec into a pod on a node via the kubelet API.
+// Direction: Node → Pod (sink of the C2 channel, holds the target pod/node info).
+type KubeletExecSink struct {
 	RelationImpl
 	Node        K8sNode
 	Pod         Pod
+	Procedure   Procedure
 	NextChannel C2Channel
 }
 
-var _ Relation = (*KubeletPodExec)(nil)
-var _ C2Channel = (*KubeletPodExec)(nil)
+var _ Relation = (*KubeletExecSink)(nil)
+var _ C2Channel = (*KubeletExecSink)(nil)
 
-func (r *KubeletPodExec) GetSourceId() string     { return r.Node.GetId() }
-func (r *KubeletPodExec) GetTargetId() string     { return r.Pod.GetId() }
-func (r *KubeletPodExec) GetRelationName() string { return "kubelet-pod-exec" }
+func (r *KubeletExecSink) GetSourceId() string     { return r.Node.GetId() }
+func (r *KubeletExecSink) GetTargetId() string     { return r.Pod.GetId() }
+func (r *KubeletExecSink) GetRelationName() string { return "kubelet-pod-exec" }
 
-func (r *KubeletPodExec) WithSource(e Entity) Relation {
+func (r *KubeletExecSink) WithSource(e Entity) Relation {
 	if node, ok := e.(K8sNode); ok {
 		r.Node = node
 	} else {
@@ -633,7 +637,7 @@ func (r *KubeletPodExec) WithSource(e Entity) Relation {
 	}
 	return r
 }
-func (r *KubeletPodExec) WithTarget(e Entity) Relation {
+func (r *KubeletExecSink) WithTarget(e Entity) Relation {
 	if pod, ok := e.(Pod); ok {
 		r.Pod = pod
 	} else {
@@ -642,25 +646,42 @@ func (r *KubeletPodExec) WithTarget(e Entity) Relation {
 	return r
 }
 
-func (r *KubeletPodExec) GetKind() string   { return "kubelet/pod-exec" }
-func (r *KubeletPodExec) GetTarget() Entity { return r.Pod }
-func (r *KubeletPodExec) GetFinalTarget() Entity {
+func (r *KubeletExecSink) GetKind() string   { return "kubelet/pod-exec" }
+func (r *KubeletExecSink) GetTarget() Entity { return r.Pod }
+func (r *KubeletExecSink) GetFinalTarget() Entity {
 	target := Entity(r.Pod)
 	for next := r.GetNextChannel(); next != nil; next = next.GetNextChannel() {
 		target = next.GetTarget()
 	}
 	return target
 }
-func (r *KubeletPodExec) GetNextChannel() C2Channel     { return r.NextChannel }
-func (r *KubeletPodExec) SetNextChannel(next C2Channel) { r.NextChannel = next }
-func (r *KubeletPodExec) GetCommandEnvelope(cmd string) string {
+func (r *KubeletExecSink) GetNextChannel() C2Channel     { return r.NextChannel }
+func (r *KubeletExecSink) SetNextChannel(next C2Channel) { r.NextChannel = next }
+func (r *KubeletExecSink) GetCommandEnvelope(cmd string) string {
 	container := r.Pod.Containers[0].Name // TODO find out how to select the right container if there are multiple
 
-	// the command and all args and their flags have to be assed as `command=` parameters
-	parts := strings.Split(cmd, " ")
-	cmdParams := strings.Join(parts, "&command=")
+	// Tokenize with shell semantics (respects quotes, escapes) and join as
+	// separate &command= query params for the kubelet exec API.
+	tokens, _ := shlex.Split(cmd)
+	for i, t := range tokens {
+		tokens[i] = url.QueryEscape(t)
+	}
+	cmdParams := strings.Join(tokens, "&command=")
+	var node string
+	if len(r.Node.IPs) > 0 {
+		node = r.Node.IPs[0].String()
+	} else {
+		node = r.Node.GetName()
+	}
 
-	// Note: the `ran-ws` will be grounded in the complementary KubeletExec edge, which knows where the actual binary is located
-	return fmt.Sprintf("ran-ws --url \"wss://%s:10250/exec/%s/%s/%s?output=1&error=1&command=%s\"",
-		r.Node.GetName(), r.Pod.GetNamespace(), r.Pod.GetName(), container, cmdParams)
+	// Substitute parameters into the Procedure's command template
+	// TODO: the grounding should be done in the campaign alongside the other arguments
+	// these are practically nested arguments -> needs support for TTP nesting
+	result := r.Procedure.Command
+	result = strings.ReplaceAll(result, "${NODE}", node)
+	result = strings.ReplaceAll(result, "${NAMESPACE}", r.Pod.GetNamespace())
+	result = strings.ReplaceAll(result, "${POD_NAME}", r.Pod.GetName())
+	result = strings.ReplaceAll(result, "${CONTAINER}", container)
+	result = strings.ReplaceAll(result, "${COMMAND}", cmdParams)
+	return result
 }

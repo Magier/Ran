@@ -415,6 +415,16 @@ func (c2 *C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain
 				slog.Warn(fmt.Sprintf("Could not get on which system TTP was executed: %T", exec.C2Channel.GetTarget()))
 			}
 
+			// Kubelet exec channels return a JSON envelope from the websocket tool;
+			// unwrap it to extract the actual command output and detect failures.
+			if hasKubeletExecSink(exec.C2Channel) && len(results) > 0 && err == nil {
+				unwrapped, parseErr := parseJSONResponse(results[0])
+				results[0] = unwrapped
+				if parseErr != nil {
+					err = parseErr
+				}
+			}
+
 			// TODO: properly fix this dirty hack:
 			if exec.Procedure.Key == "grep" {
 				err = nil
@@ -500,6 +510,42 @@ func wasExecSuccessful(results []string, err error) bool {
 	}
 
 	return true
+}
+
+// hasKubeletExecSink checks if the C2 channel chain contains a KubeletExecSink,
+// indicating the response will be a JSON envelope from a websocket tool.
+func hasKubeletExecSink(ch domain.C2Channel) bool {
+	for c := ch; c != nil; c = c.GetNextChannel() {
+		if _, ok := c.(*domain.KubeletExecSink); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// jsonExecResponse represents the JSON output from websocket-based tools (ran-ws, ws.py).
+type jsonExecResponse struct {
+	Result  string `json:"result"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// parseJSONResponse parses a JSON-formatted tool response and extracts the result.
+// Returns the unwrapped result string and an error if the tool failed.
+// If stdout is not valid JSON, it means the binary execution itself failed.
+func parseJSONResponse(stdout string) (string, error) {
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return "", fmt.Errorf("empty response from tool (binary may have failed)")
+	}
+	var resp jsonExecResponse
+	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+		return stdout, fmt.Errorf("tool output is not valid JSON (binary may have failed): %s", stdout)
+	}
+	if resp.Status == "Failure" {
+		return resp.Result, fmt.Errorf("command failed: %s", resp.Message)
+	}
+	return resp.Result, nil
 }
 
 func execLocally(ctx context.Context, exec domain.ExecTTP, procedure domain.Procedure, _ map[string]C2Client) ([]string, error) {
