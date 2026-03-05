@@ -6,9 +6,8 @@ import (
 	"github.com/Magier/Ran/domain"
 )
 
-// KubeletExecRule creates KubeletExec relations between pods (with ran-ws binary)
-// and nodes, when:
-//  1. Required: pod has the ran-ws binary
+// KubeletExecRule creates KubeletExecSource relations between pods and nodes, when:
+//  1. Required: pod has a binary matching any of the KubeletExecProcedures
 //  2. Required: any known identity has GET nodes/proxy permission (with a token Ran can use)
 //  3. Optional (open-world): pod can reach the node (unknown = assume reachable)
 var KubeletExecRule = Rule{
@@ -21,8 +20,8 @@ var KubeletExecRule = Rule{
 			return ConditionFalse
 		}
 
-		// Required: pod has the ran-ws websocket binary
-		if _, hasRanWs := pod.Binaries["ran-ws"]; !hasRanWs {
+		// Required: pod has a binary for at least one kubelet exec procedure
+		if _, ok := findMatchingKubeletProcedure(re, pod); !ok {
 			return ConditionFalse
 		}
 
@@ -41,15 +40,27 @@ var KubeletExecRule = Rule{
 	},
 	Build: func(source, target domain.Entity, re *RuleEngine) []domain.Relation {
 		identity, _ := getKubeletProxyIdentity(re)
+		proc, _ := findMatchingKubeletProcedure(re, source.(domain.Pod))
 		return []domain.Relation{
-			&domain.KubeletExec{
-				Pod:      source.(domain.Pod),
-				Node:     target.(domain.K8sNode),
-				Identity: identity,
+			&domain.KubeletExecSource{
+				Pod:       source.(domain.Pod),
+				Node:      target.(domain.K8sNode),
+				Identity:  identity,
+				Procedure: proc,
 			},
 		}
 	},
 	RelationTriggers: []string{"can-reach"},
+}
+
+// findMatchingKubeletProcedure returns the first procedure whose tool is available on the pod.
+func findMatchingKubeletProcedure(re *RuleEngine, pod domain.Pod) (domain.Procedure, bool) {
+	for _, proc := range re.Procedures {
+		if pod.HasBinary(proc.GetTool()).Bool() {
+			return proc, true
+		}
+	}
+	return domain.Procedure{}, false
 }
 
 // getKubeletProxyIdentity checks if any known identity has GET nodes/proxy
@@ -87,11 +98,11 @@ func checkReachability(kb KnowledgeBase, source, target domain.Entity) Condition
 	return ConditionUnknown
 }
 
-// KubeletPodExecRule creates KubeletPodExec relations (Node → Pod) for every pod
-// running on a node that has an incoming KubeletExec relation.
+// KubeletPodExecRule creates KubeletExecSink relations (Node → Pod) for every pod
+// running on a node that has an incoming KubeletExecSource relation.
 // Triggers:
-//   - "kubelet-exec": when a KubeletExec is added/removed, fan out to all pods on that node
-//   - "runs-on": when a pod is placed on a node, check if that node has KubeletExec
+//   - "kubelet-exec": when a KubeletExecSource is added/removed, fan out to all pods on that node
+//   - "runs-on": when a pod is placed on a node, check if that node has KubeletExecSource
 var KubeletPodExecRule = Rule{
 	Name:       "KubeletPodExec",
 	SourceType: reflect.TypeOf(domain.K8sNode{}),
@@ -110,7 +121,7 @@ var KubeletPodExecRule = Rule{
 			return ConditionFalse
 		}
 
-		// Exclude: don't create Node→Pod if this pod already has KubeletExec→Node (avoid cycles)
+		// Exclude: don't create Node→Pod if this pod already has KubeletExecSource→Node (avoid cycles)
 		if hasKubeletExecToNode(re.kb, pod, node) {
 			return ConditionFalse
 		}
@@ -118,10 +129,13 @@ var KubeletPodExecRule = Rule{
 		return ConditionTrue
 	},
 	Build: func(source, target domain.Entity, re *RuleEngine) []domain.Relation {
+		// Propagate the procedure from the KubeletExecSource relation on this node
+		proc := getKubeletExecProcedure(re.kb, source.(domain.K8sNode))
 		return []domain.Relation{
-			&domain.KubeletPodExec{
-				Node: source.(domain.K8sNode),
-				Pod:  target.(domain.Pod),
+			&domain.KubeletExecSink{
+				Node:      source.(domain.K8sNode),
+				Pod:       target.(domain.Pod),
+				Procedure: proc,
 			},
 		}
 	},
@@ -136,6 +150,16 @@ var KubeletPodExecRule = Rule{
 	RelationTriggers: []string{"kubelet-exec", "runs-on"},
 }
 
+// getKubeletExecProcedure extracts the Procedure from the KubeletExecSource relation targeting this node.
+func getKubeletExecProcedure(kb KnowledgeBase, node domain.K8sNode) domain.Procedure {
+	for _, rel := range kb.GetIncomingEdges(node) {
+		if src, ok := rel.(*domain.KubeletExecSource); ok {
+			return src.Procedure
+		}
+	}
+	return domain.Procedure{}
+}
+
 // hasIncomingKubeletExec checks if any kubelet-exec relation targets this node.
 func hasIncomingKubeletExec(kb KnowledgeBase, node domain.K8sNode) bool {
 	for _, rel := range kb.GetIncomingEdges(node) {
@@ -148,7 +172,7 @@ func hasIncomingKubeletExec(kb KnowledgeBase, node domain.K8sNode) bool {
 
 // hasKubeletExecToNode checks if a kubelet-exec relation exists from pod to node.
 func hasKubeletExecToNode(kb KnowledgeBase, pod domain.Pod, node domain.K8sNode) bool {
-	kubeletExecId := domain.GetRelationId(&domain.KubeletExec{Pod: pod, Node: node})
+	kubeletExecId := domain.GetRelationId(&domain.KubeletExecSource{Pod: pod, Node: node})
 	_, exists := kb.GetRelations()[kubeletExecId]
 	return exists
 }

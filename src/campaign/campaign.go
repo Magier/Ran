@@ -47,14 +47,14 @@ func (f factsUpdate) IsEmpty() bool {
 	return len(f.New.Entities) == 0 && len(f.New.Relations) == 0 && len(f.Removed.Entities) == 0 && len(f.Removed.Relations) == 0
 }
 
-func NewCampaign(armory *armory.Armory) *Campaign {
+func NewCampaign(a *armory.Armory) *Campaign {
 	kg := InitGraph()
 
 	_ = kg.AddEntity(domain.NewC2System("Ran", "Ran"))
 	c := &Campaign{
 		kb:         kg,
 		trail:      NewAuditTrail(),
-		armory:     armory,
+		armory:     a,
 		sessions:   make(map[string]domain.Session),
 		listeners:  make(map[string]domain.Listener),
 		identities: make(map[string]domain.Identity),
@@ -72,8 +72,8 @@ func NewCampaign(armory *armory.Armory) *Campaign {
 // 	return "campaign started"
 // }
 
-func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
-	campaign := NewCampaign(armory)
+func StartCampaign(mb bus.MessageBus, a *armory.Armory) *Campaign {
+	campaign := NewCampaign(a)
 	campaign.bus = mb
 	mb.Subscribe(domain.C2Connected{}, campaign.onC2Connected)
 	mb.Subscribe(domain.C2ConnectFailed{}, campaign.onC2ConnectFailed)
@@ -91,6 +91,17 @@ func StartCampaign(mb bus.MessageBus, armory *armory.Armory) *Campaign {
 		return campaign.onSessionClosed(msg.(c2.SessionClosed))
 	})
 	// mb.Subscribe(domain.TokenPermissionsRetrieved{}, campaign.parseSelfSubjectServiceReview)
+	mb.Subscribe(armory.Loaded{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
+		loaded := msg.(armory.Loaded)
+		for _, ttp := range loaded.TTPs {
+			if ttp.GetID() == "execute-via-get-node-proxy" {
+				campaign.ruleEngine.Procedures = ttp.Procedures
+				slog.Debug("Loaded kubelet exec procedures from armory", "count", len(ttp.Procedures))
+				break
+			}
+		}
+		return nil, nil
+	})
 	mb.Subscribe(domain.PrintGraph{}, campaign.onPrintGraph)
 	mb.Subscribe(domain.SaveAttackFlow{}, campaign.onSaveAttackFlow)
 	// mb.Subscribe(domain.EnvVarsExtracted{}, campaign.onEnvVarsExtracted)
@@ -463,6 +474,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 		// forward the TTP args to the code snippet
 		execCmd.Procedure.Execute.Parameters = args
 	}
+
 	execCmd.Procedure.Command = c.groundCmdTemplate(execCmd.Procedure.Command, args)
 	for i, effect := range execCmd.TTP.Effects {
 		execCmd.TTP.Effects[i] = c.groundCmdTemplate(effect, args)
@@ -491,7 +503,7 @@ func groundUsedTool(toolName, cmd string, sys domain.System) (string, error) {
 		re := regexp.MustCompile(fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(toolName)))
 		cmd = re.ReplaceAllString(cmd, binPath)
 	} else {
-		slog.Info(fmt.Sprintf("Failed to ground used tool '%s' in command, because it was not found on the system '%s'", toolName, sys.GetName()))
+		slog.Debug(fmt.Sprintf("Failed to ground used tool '%s' in command, because it was not found on the system '%s'", toolName, sys.GetName()))
 	}
 	return cmd, nil
 }

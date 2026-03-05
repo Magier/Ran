@@ -7,6 +7,17 @@ import (
 	"github.com/Magier/Ran/domain"
 )
 
+// ranWsProcedures returns a set of kubelet exec procedures for testing.
+func ranWsProcedures() []domain.Procedure {
+	return []domain.Procedure{
+		{
+			Key:     "ran-ws",
+			Tool:    "ran-ws",
+			Command: `ran-ws --url "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=${COMMAND}" --token ${TOKEN}`,
+		},
+	}
+}
+
 func newTestPodWithBinary(name, ns, binary string) domain.Pod {
 	pod := domain.NewPod(name, ns)
 	if binary != "" {
@@ -39,9 +50,16 @@ func noIdentities() IdentityProvider {
 	return func() map[string]domain.Identity { return map[string]domain.Identity{} }
 }
 
+// newKubeletRuleEngine creates a rule engine with Procedures set.
+func newKubeletRuleEngine(kb KnowledgeBase, identities IdentityProvider, rules ...Rule) *RuleEngine {
+	re := NewRuleEngine(kb, identities, rules...)
+	re.Procedures = ranWsProcedures()
+	return re
+}
+
 func TestKubeletExecRule_PodAddedFirst_NodeLater(t *testing.T) {
 	kb := InitGraph()
-	re := NewRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
+	re := newKubeletRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
 
 	// Add a pod with ran-ws binary
 	pod := newTestPodWithBinary("attacker", "default", "ran-ws")
@@ -65,7 +83,7 @@ func TestKubeletExecRule_PodAddedFirst_NodeLater(t *testing.T) {
 	added = domain.Facts{Entities: []domain.Entity{node}}
 	toAdd, toRemove, _ = re.EvaluateDelta(added, domain.Facts{})
 
-	// KubeletExec should now be created
+	// KubeletExecSource should now be created
 	if len(toAdd) != 1 {
 		t.Fatalf("Expected 1 relation, got %d: %v", len(toAdd), toAdd)
 	}
@@ -81,11 +99,20 @@ func TestKubeletExecRule_PodAddedFirst_NodeLater(t *testing.T) {
 	if len(toRemove) != 0 {
 		t.Errorf("Expected no removals, got %d", len(toRemove))
 	}
+
+	// Verify the procedure was propagated
+	src, ok := toAdd[0].(*domain.KubeletExecSource)
+	if !ok {
+		t.Fatal("Expected KubeletExecSource relation type")
+	}
+	if src.Procedure.Key != "ran-ws" {
+		t.Errorf("Expected procedure key 'ran-ws', got '%s'", src.Procedure.Key)
+	}
 }
 
 func TestKubeletExecRule_NodeAddedFirst_PodLater(t *testing.T) {
 	kb := InitGraph()
-	re := NewRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
+	re := newKubeletRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
 
 	// Add node first
 	node := domain.NewK8sNode("worker-1")
@@ -113,7 +140,7 @@ func TestKubeletExecRule_NodeAddedFirst_PodLater(t *testing.T) {
 
 func TestKubeletExecRule_PodWithoutBinary_NoRelation(t *testing.T) {
 	kb := InitGraph()
-	re := NewRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
+	re := newKubeletRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
 
 	node := domain.NewK8sNode("worker-1")
 	_ = kb.AddEntity(node)
@@ -127,13 +154,13 @@ func TestKubeletExecRule_PodWithoutBinary_NoRelation(t *testing.T) {
 	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
 	if len(toAdd) != 0 {
-		t.Errorf("Expected no relations (no ran-ws binary), got %d", len(toAdd))
+		t.Errorf("Expected no relations (no matching binary), got %d", len(toAdd))
 	}
 }
 
 func TestKubeletExecRule_NoIdentityWithPermission_NoRelation(t *testing.T) {
 	kb := InitGraph()
-	re := NewRuleEngine(kb, noIdentities(), KubeletExecRule)
+	re := newKubeletRuleEngine(kb, noIdentities(), KubeletExecRule)
 
 	pod := newTestPodWithBinary("attacker", "default", "ran-ws")
 	node := domain.NewK8sNode("worker-1")
@@ -164,7 +191,7 @@ func TestKubeletExecRule_IdentityWithoutToken_NoRelation(t *testing.T) {
 			},
 		},
 	}
-	re := NewRuleEngine(kb, func() map[string]domain.Identity { return ids }, KubeletExecRule)
+	re := newKubeletRuleEngine(kb, func() map[string]domain.Identity { return ids }, KubeletExecRule)
 
 	pod := newTestPodWithBinary("attacker", "default", "ran-ws")
 	node := domain.NewK8sNode("worker-1")
@@ -181,7 +208,7 @@ func TestKubeletExecRule_IdentityWithoutToken_NoRelation(t *testing.T) {
 
 func TestKubeletExecRule_MultipleNodes(t *testing.T) {
 	kb := InitGraph()
-	re := NewRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
+	re := newKubeletRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
 
 	// Add 3 nodes
 	nodes := []domain.K8sNode{
@@ -208,7 +235,7 @@ func TestKubeletExecRule_MultipleNodes(t *testing.T) {
 
 func TestKubeletExecRule_CanReachTrigger_RemovesOnUnreachable(t *testing.T) {
 	kb := InitGraph()
-	re := NewRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
+	re := newKubeletRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
 
 	pod := newTestPodWithBinary("attacker", "default", "ran-ws")
 	node := domain.NewK8sNode("worker-1")
@@ -243,7 +270,7 @@ func TestKubeletExecRule_CanReachTrigger_RemovesOnUnreachable(t *testing.T) {
 
 func TestKubeletExecRule_EntityRemoved_CleansUpRelation(t *testing.T) {
 	kb := InitGraph()
-	re := NewRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
+	re := newKubeletRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
 
 	pod := newTestPodWithBinary("attacker", "default", "ran-ws")
 	node := domain.NewK8sNode("worker-1")
@@ -269,7 +296,7 @@ func TestKubeletExecRule_EntityRemoved_CleansUpRelation(t *testing.T) {
 
 func TestRuleEngine_Reset(t *testing.T) {
 	kb := InitGraph()
-	re := NewRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
+	re := newKubeletRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule)
 
 	pod := newTestPodWithBinary("attacker", "default", "ran-ws")
 	node := domain.NewK8sNode("worker-1")
@@ -339,17 +366,17 @@ func TestCustomRule_SimpleMatch(t *testing.T) {
 	}
 }
 
-// --- KubeletPodExec chained rule tests ---
+// --- KubeletExecSink chained rule tests ---
 
-// setupKubeletPodExecEngine creates a rule engine with both KubeletExec and KubeletPodExec rules.
-func setupKubeletPodExecEngine() (*BuiltInKnowledgeBase, *RuleEngine) {
+// setupKubeletExecSinkEngine creates a rule engine with both KubeletExec and KubeletPodExec rules.
+func setupKubeletExecSinkEngine() (*BuiltInKnowledgeBase, *RuleEngine) {
 	kb := InitGraph()
-	re := NewRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule, KubeletPodExecRule)
+	re := newKubeletRuleEngine(kb, identityWithKubeletProxy(), KubeletExecRule, KubeletPodExecRule)
 	return kb, re
 }
 
-func TestKubeletPodExecRule_KubeletExecTriggersFanOut(t *testing.T) {
-	kb, re := setupKubeletPodExecEngine()
+func TestKubeletExecSinkRule_KubeletExecTriggersFanOut(t *testing.T) {
+	kb, re := setupKubeletExecSinkEngine()
 
 	node := domain.NewK8sNode("worker-1")
 	victim1 := domain.NewPod("victim-1", "default")
@@ -367,14 +394,14 @@ func TestKubeletPodExecRule_KubeletExecTriggersFanOut(t *testing.T) {
 	_ = kb.AddRelation(runsOn1)
 	_ = kb.AddRelation(runsOn2)
 
-	// Step 1: Add all entities — should create KubeletExec (attacker→node)
+	// Step 1: Add all entities — should create KubeletExecSource (attacker→node)
 	added := domain.Facts{
 		Entities:  []domain.Entity{node, victim1, victim2, attacker},
 		Relations: []domain.Relation{runsOn1, runsOn2},
 	}
 	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
-	// Should have KubeletExec(attacker→node)
+	// Should have KubeletExecSource(attacker→node)
 	var kubeletExecFound bool
 	for _, rel := range toAdd {
 		if rel.GetRelationName() == "kubelet-exec" {
@@ -383,20 +410,28 @@ func TestKubeletPodExecRule_KubeletExecTriggersFanOut(t *testing.T) {
 		}
 	}
 	if !kubeletExecFound {
-		t.Fatal("Expected KubeletExec relation to be created")
+		t.Fatal("Expected KubeletExecSource relation to be created")
 	}
 
-	// Step 2: Feed the KubeletExec relation as a trigger for the next pass
+	// Step 2: Feed the KubeletExecSource relation as a trigger for the next pass
 	triggerDelta := domain.Facts{Relations: toAdd}
 	toAdd2, _, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
 
-	// Should have KubeletPodExec(node→victim1) and KubeletPodExec(node→victim2)
+	// Should have KubeletExecSink(node→victim1) and KubeletExecSink(node→victim2)
 	podExecCount := 0
 	for _, rel := range toAdd2 {
 		if rel.GetRelationName() == "kubelet-pod-exec" {
 			podExecCount++
 			if rel.GetSourceId() != node.GetId() {
 				t.Errorf("Expected source to be node, got %s", rel.GetSourceId())
+			}
+			// Verify procedure was propagated to the sink
+			sink, ok := rel.(*domain.KubeletExecSink)
+			if !ok {
+				t.Fatal("Expected KubeletExecSink relation type")
+			}
+			if sink.Procedure.Key != "ran-ws" {
+				t.Errorf("Expected procedure key 'ran-ws' on sink, got '%s'", sink.Procedure.Key)
 			}
 		}
 	}
@@ -405,15 +440,15 @@ func TestKubeletPodExecRule_KubeletExecTriggersFanOut(t *testing.T) {
 	}
 }
 
-func TestKubeletPodExecRule_NewPodOnNodeWithKubeletExec(t *testing.T) {
-	kb, re := setupKubeletPodExecEngine()
+func TestKubeletExecSinkRule_NewPodOnNodeWithKubeletExec(t *testing.T) {
+	kb, re := setupKubeletExecSinkEngine()
 
 	node := domain.NewK8sNode("worker-1")
 	attacker := newTestPodWithBinary("attacker", "default", "ran-ws")
 	_ = kb.AddEntity(node)
 	_ = kb.AddEntity(attacker)
 
-	// Create KubeletExec first
+	// Create KubeletExecSource first
 	added := domain.Facts{Entities: []domain.Entity{node, attacker}}
 	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 	for _, rel := range toAdd {
@@ -435,7 +470,7 @@ func TestKubeletPodExecRule_NewPodOnNodeWithKubeletExec(t *testing.T) {
 	}
 	toAdd, _, _ = re.EvaluateDelta(added, domain.Facts{})
 
-	// The runs-on trigger should cause KubeletPodExec(node→newPod) to be created
+	// The runs-on trigger should cause KubeletExecSink(node→newPod) to be created
 	var found bool
 	for _, rel := range toAdd {
 		if rel.GetRelationName() == "kubelet-pod-exec" && rel.GetTargetId() == newPod.GetId() {
@@ -447,8 +482,8 @@ func TestKubeletPodExecRule_NewPodOnNodeWithKubeletExec(t *testing.T) {
 	}
 }
 
-func TestKubeletPodExecRule_NoKubeletExec_NoRelation(t *testing.T) {
-	kb, re := setupKubeletPodExecEngine()
+func TestKubeletExecSinkRule_NoKubeletExec_NoRelation(t *testing.T) {
+	kb, re := setupKubeletExecSinkEngine()
 
 	node := domain.NewK8sNode("worker-1")
 	pod := domain.NewPod("victim", "default")
@@ -464,7 +499,7 @@ func TestKubeletPodExecRule_NoKubeletExec_NoRelation(t *testing.T) {
 	}
 	toAdd, _, _ := re.EvaluateDelta(added, domain.Facts{})
 
-	// No KubeletExec on this node, so no KubeletPodExec
+	// No KubeletExecSource on this node, so no KubeletExecSink
 	for _, rel := range toAdd {
 		if rel.GetRelationName() == "kubelet-pod-exec" {
 			t.Error("Did not expect kubelet-pod-exec without kubelet-exec on node")
@@ -472,8 +507,8 @@ func TestKubeletPodExecRule_NoKubeletExec_NoRelation(t *testing.T) {
 	}
 }
 
-func TestKubeletPodExecRule_PodNotOnNode_NoRelation(t *testing.T) {
-	kb, re := setupKubeletPodExecEngine()
+func TestKubeletExecSinkRule_PodNotOnNode_NoRelation(t *testing.T) {
+	kb, re := setupKubeletExecSinkEngine()
 
 	node1 := domain.NewK8sNode("worker-1")
 	node2 := domain.NewK8sNode("worker-2")
@@ -488,8 +523,8 @@ func TestKubeletPodExecRule_PodNotOnNode_NoRelation(t *testing.T) {
 	runsOn := domain.RunsOn{Pod: pod, Node: node2}
 	_ = kb.AddRelation(runsOn)
 
-	// Manually add KubeletExec only for node1 (not node2)
-	kubeletExec := domain.KubeletExec{Pod: attacker, Node: node1}
+	// Manually add KubeletExecSource only for node1 (not node2)
+	kubeletExec := &domain.KubeletExecSource{Pod: attacker, Node: node1}
 	_ = kb.AddRelation(kubeletExec)
 	re.IndexEntity(node1)
 	re.IndexEntity(node2)
@@ -508,8 +543,8 @@ func TestKubeletPodExecRule_PodNotOnNode_NoRelation(t *testing.T) {
 	}
 }
 
-func TestKubeletPodExecRule_NoCycleWithAttackerPod(t *testing.T) {
-	kb, re := setupKubeletPodExecEngine()
+func TestKubeletExecSinkRule_NoCycleWithAttackerPod(t *testing.T) {
+	kb, re := setupKubeletExecSinkEngine()
 
 	node := domain.NewK8sNode("worker-1")
 	attacker := newTestPodWithBinary("attacker", "default", "ran-ws")
@@ -521,7 +556,7 @@ func TestKubeletPodExecRule_NoCycleWithAttackerPod(t *testing.T) {
 	runsOn := domain.RunsOn{Pod: attacker, Node: node}
 	_ = kb.AddRelation(runsOn)
 
-	// Step 1: create KubeletExec(attacker→node)
+	// Step 1: create KubeletExecSource(attacker→node)
 	added := domain.Facts{
 		Entities:  []domain.Entity{node, attacker},
 		Relations: []domain.Relation{runsOn},
@@ -535,7 +570,7 @@ func TestKubeletPodExecRule_NoCycleWithAttackerPod(t *testing.T) {
 	triggerDelta := domain.Facts{Relations: toAdd}
 	toAdd2, _, _ := re.EvaluateDelta(triggerDelta, domain.Facts{})
 
-	// Should NOT create KubeletPodExec(node→attacker) since attacker already has KubeletExec→node
+	// Should NOT create KubeletExecSink(node→attacker) since attacker already has KubeletExecSource→node
 	for _, rel := range toAdd2 {
 		if rel.GetRelationName() == "kubelet-pod-exec" && rel.GetTargetId() == attacker.GetId() {
 			t.Error("Did not expect kubelet-pod-exec back to the attacker pod (would create a cycle)")

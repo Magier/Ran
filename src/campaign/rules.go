@@ -70,6 +70,11 @@ type RuleEngine struct {
 
 	// Identities provides access to RBAC identities (until they're graph entities).
 	Identities IdentityProvider
+
+	// Procedures holds the candidate procedures for kubelet exec channels,
+	// loaded from the execute_node-proxy-exec TTP. The rule engine iterates these
+	// to find which tool is available on a given pod.
+	Procedures []domain.Procedure
 }
 
 func NewRuleEngine(kb KnowledgeBase, identities IdentityProvider, rules ...Rule) *RuleEngine {
@@ -204,7 +209,7 @@ func (re *RuleEngine) evaluateEntityAgainstRules(
 // evaluateRelationTrigger handles relation-based triggers (e.g., CanReach added/removed).
 // When a trigger fires, each endpoint that matches SourceType or TargetType is
 // evaluated against ALL counterpart entities — not just the other endpoint.
-// This is necessary for chained rules (e.g., KubeletPodExec depends on KubeletExec,
+// This is necessary for chained rules (e.g., KubeletExecSink depends on KubeletExecSource,
 // where the relation's endpoints don't directly map to the rule's source/target).
 func (re *RuleEngine) evaluateRelationTrigger(
 	rel domain.Relation,
