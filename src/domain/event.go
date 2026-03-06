@@ -63,6 +63,15 @@ type UiEvent interface {
 	UiMessage() string
 }
 
+type StepStatus string
+
+const (
+	StepStatusUnknown StepStatus = "Unknown"
+	StepStatusFailed  StepStatus = "Failed"
+	StepStatusSuccess StepStatus = "Success"
+	StepStatusOngoing StepStatus = "Ongoing"
+)
+
 type MsgLevel string
 
 var (

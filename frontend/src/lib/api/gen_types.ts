@@ -316,7 +316,7 @@ export interface components {
             /** Format: date-time */
             completedAt: string;
             executedOn: string;
-            success: boolean;
+            status: "Unknown" | "Failed" | "Success" | "Ongoing";
             observables: string[];
             defense?: components["schemas"]["TTPDefense"];
         };

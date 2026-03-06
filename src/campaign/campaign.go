@@ -229,7 +229,7 @@ func (c *Campaign) Reset() error {
 }
 
 func (c *Campaign) cleanupSteps() {
-	executedSteps := c.trail.GetSteps()
+	executedSteps := c.trail.GetSteps(true)
 	// cleanup after all the steps in the reverse order
 	for i := len(executedSteps) - 1; i >= 0; i-- {
 		step := executedSteps[i]

@@ -32,6 +32,15 @@ type AttackFlow struct {
 	Steps      []AttackStep `json:"steps"`
 }
 
+type AttackStepStatus string
+
+const (
+	Unknown AttackStepStatus = "Unknown"
+	Failed  AttackStepStatus = "Failed"
+	Success AttackStepStatus = "Success"
+	Ongoing AttackStepStatus = "Ongoing"
+)
+
 // AttackStep defines model for AttackStep.
 type AttackStep struct {
 	TTP         TTP               `json:"TTP"`
@@ -44,9 +53,9 @@ type AttackStep struct {
 	Observables []string          `json:"observables"`
 	ProcedureId string            `json:"procedureId"`
 	Results     []string          `json:"results"`
-	StartedAt   time.Time         `json:"startedAt"`
-	Success     bool              `json:"success"`
-	TargetId    string            `json:"targetId"`
+	StartedAt   time.Time        `json:"startedAt"`
+	Status      AttackStepStatus `json:"status"`
+	TargetId    string           `json:"targetId"`
 }
 
 // CampaignState defines model for CampaignState.
