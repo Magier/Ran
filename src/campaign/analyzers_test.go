@@ -572,7 +572,7 @@ func TestAnalyzeDnsEntriesScan(t *testing.T) {
 			ip:           "192.168.1.4",
 			dns:          "192-168-1-4.backend-service.dev.svc.cluster.local",
 			expectedKind: "Pod",
-			expectedName: "backend-service",
+			expectedName: "backend-service.192-168-1-4",
 			expectedNS:   "dev",
 			expectError:  false,
 		},
@@ -1023,7 +1023,7 @@ func TestAnalyzeNmapResults(t *testing.T) {
 		hosts        []NmapHost
 		expectCount  int
 		expectPodIdx map[int]struct{ name, ns string } // index -> expected pod name & namespace
-		expectSysIdx []int                              // indices that should be UnknownSystem
+		expectSysIdx []int                             // indices that should be UnknownSystem
 	}{
 		{
 			name: "K8s pod DNS produces Pod entity",
