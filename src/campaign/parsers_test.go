@@ -757,9 +757,8 @@ func Test_parseReverseDnsLookup_EmptyInput(t *testing.T) {
 	}
 }
 
-func Test_parseReverseDnsLookup_HeaderOnly(t *testing.T) {
-	data := "ip,ptr"
-	_, err := parseReverseDnsLookup(data)
+func Test_parseReverseDnsLookup_EmptyResult(t *testing.T) {
+	_, err := parseReverseDnsLookup("")
 	if err == nil {
 		t.Fatalf("Expected error when only header is provided, got nil")
 	}

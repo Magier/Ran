@@ -1502,7 +1502,11 @@ func analyzeDnsEntries(entries map[string]string) (domain.Facts, domain.Facts, e
 			// Kube-DNS versions: <pod-IPv4-address>.<namespace>.pod.<cluster-domain>
 			name = parts[0]
 			ns = parts[len(parts)-4]
-		} else if len(parts) > 4 {
+		} else if len(parts) == 5 {
+			// CoreDNS version: <pod-ipv4-address>.<service-name>.<namespace>.svc.<cluster-domain>
+			name = parts[0]
+			ns = parts[len(parts)-4]
+		} else if len(parts) == 6 {
 			// CoreDNS version: <pod-ipv4-address>.<service-name>.<namespace>.svc.<cluster-domain>
 			name = parts[1] + "." + parts[0]
 			ns = parts[len(parts)-4]
