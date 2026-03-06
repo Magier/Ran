@@ -14,7 +14,7 @@ type AttackStep struct {
 	ID          string
 	TTP         domain.TTP
 	Args        map[string]string
-	Success     bool
+	Status      domain.StepStatus
 	Command     string
 	Results     []string
 	Target      domain.Entity
@@ -53,6 +53,7 @@ func (a *AuditTrail) AddNewStep(action domain.ExecTTP) error {
 		Target:      action.Target,
 		ExecutedOn:  execOn,
 		Command:     action.Procedure.Command,
+		Status:      domain.StepStatusOngoing,
 		StartAt:     time.Now(),
 	})
 	return nil
@@ -83,7 +84,11 @@ func (a *AuditTrail) CompleteStep(id string, ttp domain.TTP, success bool, resul
 
 	if ok {
 		step.CompletedAt = time.Now()
-		step.Success = success
+		if success {
+			step.Status = domain.StepStatusSuccess
+		} else {
+			step.Status = domain.StepStatusFailed
+		}
 		step.Results = results
 
 		if ttp.Defense.ID != "" {
@@ -177,7 +182,7 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 			}
 		}
 
-		if s.Success {
+		if s.Status == domain.StepStatusSuccess {
 			// no more descendants expected, add it to the final list of objects
 			bundle.Objects = bundle.Objects.Append(obj)
 			obj = action
@@ -192,6 +197,12 @@ func (a AuditTrail) ConvertToAttackFlow() (attackflow.StixBundle, error) {
 	return bundle, nil
 }
 
-func (a AuditTrail) GetSteps() []AttackStep {
-	return a.steps
+func (a AuditTrail) GetSteps(includeIncompleteSteps bool) []AttackStep {
+	steps := make([]AttackStep, 0)
+	steps = append(steps, a.steps...)
+	if includeIncompleteSteps {
+		steps = append(steps, a.openSteps...)
+	}
+
+	return steps
 }

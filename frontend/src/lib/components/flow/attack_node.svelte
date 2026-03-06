@@ -30,9 +30,13 @@
 		return e
 	});
 
-	const statusInfo = $derived(step?.success
-		? { statusBorder: 'border-green-500', icon: 'lucide:check', color: 'text-success-500' }
-		: { statusBorder: 'border-red-500', icon: 'lucide:x', color: 'text-error-500' });
+	const statusMap = {
+		Success: { statusBorder: 'border-green-500', icon: 'lucide:check', color: 'text-success-500' },
+		Failed: { statusBorder: 'border-red-500', icon: 'lucide:x', color: 'text-error-500' },
+		Ongoing: { statusBorder: 'border-yellow-500', icon: 'lucide:loader', color: 'text-warning-500' },
+		Unknown: { statusBorder: 'border-surface-500', icon: 'lucide:help-circle', color: 'text-surface-500' },
+	};
+	const statusInfo = $derived(statusMap[step?.status] ?? statusMap.Unknown);
 </script>
 
 <div class={['bg-surface-50-950 border-1 rounded-md border-solid px-2 py-2', statusInfo.statusBorder]}>
@@ -53,7 +57,7 @@
 			{#if step.observables?.length > 0}
 				<Icon icon={"humbleicons:eye"} width="16" />
 			{/if}
-			{#if step?.success}
+			{#if step?.status && step.status !== 'Unknown'}
 					<Icon class={statusInfo.color} icon={statusInfo.icon} width="16" />
 				{/if}
 		</div>

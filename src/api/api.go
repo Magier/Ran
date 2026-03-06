@@ -340,10 +340,6 @@ func (a *API) GetApplicableTTPs(targetId string) ([]TTP, error) {
 	state.Entitlements = entitlements
 
 	for _, ttp := range a.ran.Armory.GetTTPs() {
-		if strings.Contains(ttp.Name, "Execute via Node/Proxy") {
-			slog.Debug("Checking TTP applicability", "ttp", ttp.Name, "target", target.GetId(), "accessLevel", accessLevel, "state", state)
-		}
-
 		isSatisfied := ttp.Requires.Satisfied(target, accessLevel, state)
 		if isSatisfied && ttp.Status != "disabled" {
 			ttps = append(ttps, ConvertTTP(ttp))
@@ -359,7 +355,7 @@ func (a *API) GetFlow() AttackFlow {
 	trail := a.ran.Campaign.GetAuditTrail()
 
 	var srcId string
-	for _, step := range trail.GetSteps() {
+	for _, step := range trail.GetSteps(true) {
 		s := ConvertAttackStep(step)
 		steps = append(steps, s)
 
@@ -373,7 +369,7 @@ func (a *API) GetFlow() AttackFlow {
 		}
 
 		// update the srcId for the next edge, if it was a success
-		if step.Success {
+		if step.Status == domain.StepStatusSuccess {
 			srcId = step.ID
 		}
 	}

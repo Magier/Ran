@@ -9,8 +9,19 @@
 	}
 
 	let { step }: ActionDetailProps = $props();
-	const badgeStyle = $derived(step?.success ? 'preset-filled-success-500' : 'preset-filled-error-500');
-	let status = $derived(step == null ? 'unknown' : step.success ? 'Success' : 'Failed');
+	const badgeStyle = $derived.by(() => {
+		switch (step?.status) {
+			case 'Success':
+				return 'preset-filled-success-500';
+			case 'Failed':
+				return 'preset-filled-error-500';
+			case 'Ongoing':
+				return 'preset-filled-warning-500';
+			default:
+				return 'preset-filled-default-500';
+		}
+	});
+	let status = $derived(step?.status ?? 'Unknown');
 
 	const campaignState = getCampaignState();
 	const target = $derived(step?.targetId ? campaignState.getEntityById(step.targetId) : "?");

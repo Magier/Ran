@@ -34,7 +34,7 @@ func ConvertAttackStep(step campaign.AttackStep) AttackStep {
 		TTP:         ConvertTTP(step.TTP),
 		Args:        step.Args,
 		TargetId:    targetId,
-		Success:     step.Success,
+		Status:      AttackStepStatus(step.Status),
 		Command:     step.Command,
 		ProcedureId: procID,
 		Results:     step.Results,

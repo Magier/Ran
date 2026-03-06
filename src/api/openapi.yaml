@@ -387,7 +387,7 @@ components:
         - executedOn
         - args
         - timestamp
-        - success
+        - status
         - observables
         - results
         - startedAt
@@ -419,8 +419,13 @@ components:
           format: date-time
         executedOn:
           type: string
-        success:
-          type: boolean
+        status:
+          type: string
+          enum:
+            - Unknown
+            - Failed
+            - Success
+            - Ongoing
         observables:
           type: array
           items:

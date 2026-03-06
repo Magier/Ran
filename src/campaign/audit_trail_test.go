@@ -37,7 +37,7 @@ func TestCompleteStep(t *testing.T) {
 	assert.Empty(t, auditTrail.openSteps)
 	assert.Equal(t, "step1", auditTrail.steps[0].ID)
 	assert.Equal(t, ttp, auditTrail.steps[0].TTP)
-	assert.True(t, auditTrail.steps[0].Success)
+	assert.Equal(t, domain.StepStatusSuccess, auditTrail.steps[0].Status)
 	assert.NotZero(t, auditTrail.steps[0].CompletedAt)
 }
 
@@ -47,18 +47,18 @@ func TestConvertToAttackFlow(t *testing.T) {
 	steps := []AttackStep{{
 		ID:      "initial access",
 		TTP:     ttp,
-		Success: true,
+		Status: domain.StepStatusSuccess,
 	}, {
 		ID:      "lateral movement",
 		TTP:     ttp,
-		Success: true,
+		Status: domain.StepStatusSuccess,
 	},
 	}
 
 	for _, s := range steps {
 		err := auditTrail.AddNewStep(domain.ExecTTP{CommandImpl: domain.NewCmd(s.ID), TTP: s.TTP})
 		assert.NoError(t, err)
-		auditTrail.CompleteStep(s.ID, s.TTP, s.Success, []string{"result"})
+		auditTrail.CompleteStep(s.ID, s.TTP, s.Status == domain.StepStatusSuccess, []string{"result"})
 	}
 
 	af, err := auditTrail.ConvertToAttackFlow()
