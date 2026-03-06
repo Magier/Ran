@@ -35,6 +35,7 @@ type Procedure struct {
 	IsLocalCommand bool        `yaml:"isLocal"`
 	Execute        CodeSnippet `yaml:"execute"`
 	Cleanup        CodeSnippet `yaml:"cleanup"`
+	Parser         string      `yaml:"parser"` // optional name of a parser to process the output of this procedure
 }
 
 func (p Procedure) GetTool() string {

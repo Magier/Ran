@@ -1096,6 +1096,7 @@ func isToolExecutionFailure(ttpResults []string, toolName string) bool {
 	// TODO: try to parse the tool name from the errormessage
 	toolNotFoundMsgs := []string{
 		fmt.Sprintf("%s: not found", toolName),
+		fmt.Sprintf("%s: command not found", toolName),
 		"executable file not found in $PATH", // happened when using `k exec`
 	}
 	for _, result := range ttpResults {
@@ -1490,10 +1491,20 @@ func analyzeDnsEntries(entries map[string]string) (domain.Facts, domain.Facts, e
 
 		// TODO: extract the namespace from the DNS name
 		// use the 4th-to-last label as namespace (e.g. "dev" in "a.b.dev.svc.cluster.local")
+		// source: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#services
 		var ns string
 		var name string
-		if len(parts) >= 4 {
-			name = parts[len(parts)-5]
+
+		// TODO: support pods hostname/subdomain fields in spec: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-hostname-and-subdomain-field
+
+		// Source: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pods
+		if len(parts) == 4 {
+			// Kube-DNS versions: <pod-IPv4-address>.<namespace>.pod.<cluster-domain>
+			name = parts[0]
+			ns = parts[len(parts)-4]
+		} else if len(parts) > 4 {
+			// CoreDNS version: <pod-ipv4-address>.<service-name>.<namespace>.svc.<cluster-domain>
+			name = parts[1] + "." + parts[0]
 			ns = parts[len(parts)-4]
 		} else if len(parts) > 2 {
 			// fallback to previous behavior if DNS has fewer labels

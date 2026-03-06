@@ -222,29 +222,6 @@ func (c2 *C2Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-func fanIn[T domain.Event](channels ...<-chan T) chan T {
-	wg := sync.WaitGroup{}
-	wg.Add(len(channels))
-	output := make(chan T)
-	for _, c := range channels {
-		go func(channel <-chan T) {
-			defer wg.Done()
-			for i := range channel {
-				output <- i
-				// select {
-				// case output <- i:
-				// 	return
-				// }
-			}
-		}(c)
-	}
-	go func() {
-		wg.Wait()
-		close(output)
-	}()
-	return output
-}
-
 func (c2 *C2Manager) StartC2Client(ctx context.Context, c2Name string) (domain.Message, error) {
 	c2.clientsMutex.RLock()
 	client, ok := c2.clients[c2Name]
