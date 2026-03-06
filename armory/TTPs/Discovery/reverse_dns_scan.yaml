@@ -9,11 +9,11 @@ parameters:
   CIDR:
     type: string
     description: the CIDR range to scan
-    default: "10.244.0.0/16"
+    default: "10.244.1.0/25"
   THREADS:
     type: int
     description: the number of concurrent threads to use
-    default: 20
+    default: 10
   TIMEOUT:
     type: int
     description: the timeout duration for each request
@@ -22,8 +22,60 @@ procedures:
   - key: dig
     tool: dig
     command: |
-      sh -c 'echo "ip,ptr"; awk -v cidr="${CIDR}" "BEGIN{split(cidr,a,\"/\");split(a[1],o,\".\");m=a[2]+0;base=o[1]*16777216+o[2]*65536+o[3]*256+o[4];bits=32-m;size=1;for(i=0;i<bits;i++)size*=2;net=int(base/size)*size;end=net+size-1;for(x=net;x<=end;x++)printf \"%d.%d.%d.%d\\n\",int(x/16777216)%256,int(x/65536)%256,int(x/256)%256,x%256}" | xargs -P "${THREADS}" -n1 sh -c '\''ip="$1";T="${TIMEOUT}";r=$(dig +tries=1 +time="$T" +short +nocmd +noquestion +nocomments +nostats +noauthority +noadditional -x "$ip" 2>/dev/null | sed -e "/communications error/d" -e "/timed out/d" -e "/^;/d" | awk "NF && /^[A-Za-z0-9_.-]+\\.?$/{print;exit}" | head -n1);r=${r%.};[ -n "$r" ] && printf "%s,%s\\n" "$ip" "$r"'\'' sh' || [ $? -eq 123 ]
-    description:  Exit code 123 indicates no PTR records found, so this is filtered out from dig results.
+      command -v dig >/dev/null 2>&1 || { echo "dig: command not found"; exit 1; }; 
+      awk -v cidr="${CIDR}" 'BEGIN{split(cidr,a,"/");split(a[1],o,".");base=o[1]*16777216+o[2]*65536+o[3]*256+o[4];bits=32-a[2]+0;size=1;for(i=0;i<bits;i++)size*=2;net=int(base/size)*size;end=net+size-1;for(x=net+1;x<end;x++)printf "%d.%d.%d.%d\n",int(x/16777216)%256,int(x/65536)%256,int(x/256)%256,x%256}' \
+      | xargs -P "${THREADS}" -n1 sh -c 'ip="$1"; r=$(dig +tries=1 +time="'"$TIMEOUT"'" +short +nocmd +noquestion +nocomments +nostats +noauthority +noadditional -x "$ip" 2>/dev/null | sed -e "/communications error/d" -e "/timed out/d" -e "/^;/d" | awk "NF && /^[A-Za-z0-9_.-]+\\.?$/{print;exit}" | head -n1); r=${r%.}; [ -n "$r" ] && printf "%s,%s\n" "$ip" "$r"' sh
+
+  - key: getent
+    tool: getent
+    command: |
+      command -v getent >/dev/null 2>&1 || { echo "getent: command not found"; exit 1; };
+      awk -v cidr="${CIDR}" 'BEGIN{
+        n=split(cidr,a,"/");
+        if(n!=2){print "invalid CIDR: "cidr > "/dev/stderr"; exit 1}
+        split(a[1],o,".");
+        base=o[1]*16777216+o[2]*65536+o[3]*256+o[4]+0;
+        bits=(a[2]+0);
+        if(bits<0||bits>32){print "invalid prefix" > "/dev/stderr"; exit 1}
+        size=2^(32-bits);
+        net=int(base/size)*size;
+        end=net+size-1;
+        for(x=net+1;x<end;x++)
+          printf "%d.%d.%d.%d\n",int(x/16777216)%256,int(x/65536)%256,int(x/256)%256,x%256
+      }' | xargs -P "${THREADS}" -n1 sh -c '
+        ip="$1"; 
+        r=$(getent hosts "$ip" 2>/dev/null | awk "{print \$NF}" | head -n1); 
+        if [ -n "$r" ]; then printf "%s,%s\n" "$ip" "$r"; fi
+      ' sh
+  - key: nslookup
+    tool: nslookup
+    command: |
+      command -v nslookup >/dev/null 2>&1 || { echo "nslookup: command not found"; exit 1; }; 
+      awk -v cidr="${CIDR}" 'BEGIN{split(cidr,a,"/");split(a[1],o,".");base=o[1]*16777216+o[2]*65536+o[3]*256+o[4];bits=32-a[2]+0;size=1;for(i=0;i<bits;i++)size*=2;net=int(base/size)*size;end=net+size-1;for(x=net+1;x<end;x++)printf "%d.%d.%d.%d\n",int(x/16777216)%256,int(x/65536)%256,int(x/256)%256,x%256}' \
+      | xargs -P "${THREADS}" -n1 sh -c 'ip="$1"; r=$(nslookup "$ip" 2>/dev/null | awk "/name =/{print \$NF}" | sed "s/\.$//"); [ -n "$r" ] && printf "%s,%s\n" "$ip" "$r"' sh
+  # - key: dig
+  #   tool: dig
+  #   command: |
+  #     command -v dig >/dev/null 2>&1 || { echo "dig: command not found"; exit 1; };
+  #     sh -c 'echo "ip,ptr"; awk -v cidr="${CIDR}" "BEGIN{split(cidr,a,\"/\");split(a[1],o,\".\");m=a[2]+0;base=o[1]*16777216+o[2]*65536+o[3]*256+o[4];bits=32-m;size=1;for(i=0;i<bits;i++)size*=2;net=int(base/size)*size;end=net+size-1;for(x=net;x<=end;x++)printf \"%d.%d.%d.%d\\n\",int(x/16777216)%256,int(x/65536)%256,int(x/256)%256,x%256}" | xargs -P "${THREADS}" -n1 sh -c '\''ip="$1";T="${TIMEOUT}";r=$(dig +tries=1 +time="$T" +short +nocmd +noquestion +nocomments +nostats +noauthority +noadditional -x "$ip" 2>/dev/null | sed -e "/communications error/d" -e "/timed out/d" -e "/^;/d" | awk "NF && /^[A-Za-z0-9_.-]+\\.?$/{print;exit}" | head -n1);r=${r%.};[ -n "$r" ] && printf "%s,%s\\n" "$ip" "$r"'\'' sh' || [ $? -eq 123 ]
+  #   description:  Exit code 123 indicates no PTR records found, so this is filtered out from dig results.
+  # - key: getent
+  #   tool: getent
+  #   command: |
+  #     command -v getent >/dev/null 2>&1 || { echo "getent: command not found"; exit 1; };
+  #     echo "ip,ptr"; \
+  #     awk -v cidr="$CIDR" 'BEGIN{split(cidr,a,"/");split(a[1],o,".");base=o[1]*16777216+o[2]*65536+o[3]*256+o[4];bits=32-a[2]+0;size=1;for(i=0;i<bits;i++)size*=2;net=int(base/size)*size;end=net+size-1;for(x=net+1;x<end;x++)printf "%d.%d.%d.%d\n",int(x/16777216)%256,int(x/65536)%256,int(x/256)%256,x%256}' | \
+  #     xargs -P "$THREADS" -n1 sh -c 'r=$(getent hosts "$1" 2>/dev/null | awk "{print \$2}"); [ -n "$r" ] && printf "%s,%s\n" "$1" "$r"' sh
+  # - key: nslookup
+  #   tool: nslookup
+  #   command: |
+  #     command -v nslookup >/dev/null 2>&1 || { echo "nslookup: command not found"; exit 1; };
+  #     prefix=${CIDR#*/}; ip=${CIDR%/*}; THREADS=20; \
+  #     a=$(echo $ip | cut -d. -f1); b=$(echo $ip | cut -d. -f2); c=$(echo $ip | cut -d. -f3); d=$(echo $ip | cut -d. -f4); \
+  #     base=$(( (a<<24)+(b<<16)+(c<<8)+d )); \
+  #     size=$((1<<(32-prefix))); \
+  #     seq 1 $((size-2)) | xargs -P "$THREADS" -I{} sh -c \
+  #       'n=$(( '"$base"' + {} )); addr=$(printf "%d.%d.%d.%d" $(((n>>24)&255)) $(((n>>16)&255)) $(((n>>8)&255)) $((n&255))); result=$(nslookup "$addr" 2>/dev/null | awk "/name =/{print \$NF}" | sed "s/\.$//"); [ -n "$result" ] && printf "%-18s → %s\n" "$addr" "$result"'
 effects:
   - rDNS
 references:

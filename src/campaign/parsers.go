@@ -1344,25 +1344,20 @@ type FileSystemEntry struct {
 
 func parseReverseDnsLookup(data string) (map[string]string, error) {
 	// Example data:
-	//ip,ptr\n10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local\n10.244.1.6,10-244-1-6.argocd-notifications-controller-metrics.argocd.svc.cluster.local\n10.244.1.9,10-244-1-9.argocd-server-metrics.argocd.svc.cluster.local\n10.244.1.7,10-244-1-7.echo-server.echo-server.svc.cluster.local\n10.244.1.12,10-244-1-12.argocd-redis.argocd.svc.cluster.local\n10.244.1.11,10-244-1-11.argocd-repo-server.argocd.svc.cluster.local\n10.244.1.13,10-244-1-13.argocd-metrics.argocd.svc.cluster.local\n10.244.1.15,10-244-1-15.argocd-applicationset-controller.argocd.svc.cluster.local\n10.244.1.16,10-244-1-16.argocd-dex-server.argocd.svc.cluster.local\n10.244.1.14,10-244-1-14.ingress-nginx-controller.ingress-nginx.svc.cluster.local
-	// Expect CSV with header on first line, subsequent lines "ip,ptr"
+	//10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local\n10.244.1.6,10-244-1-6.argocd-notifications-controller-metrics.argocd.svc.cluster.local\n10.244.1.9,10-244-1-9.argocd-server-metrics.argocd.svc.cluster.local\n10.244.1.7,10-244-1-7.echo-server.echo-server.svc.cluster.local\n10.244.1.12,10-244-1-12.argocd-redis.argocd.svc.cluster.local\n10.244.1.11,10-244-1-11.argocd-repo-server.argocd.svc.cluster.local\n10.244.1.13,10-244-1-13.argocd-metrics.argocd.svc.cluster.local\n10.244.1.15,10-244-1-15.argocd-applicationset-controller.argocd.svc.cluster.local\n10.244.1.16,10-244-1-16.argocd-dex-server.argocd.svc.cluster.local\n10.244.1.14,10-244-1-14.ingress-nginx-controller.ingress-nginx.svc.cluster.local
 	data = strings.TrimSpace(data)
 	if data == "" {
 		return nil, fmt.Errorf("Empty reverse DNS data")
 	}
 
 	lines := strings.Split(data, "\n")
-	if len(lines) <= 1 {
+	if len(lines) == 0 {
 		return nil, errors.New("No reverse DNS entries found")
 	}
 
 	results := make(map[string]string)
 
-	for i, line := range lines {
-		if i == 0 {
-			// skip header
-			continue
-		}
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
