@@ -62,7 +62,7 @@ procedures:
   # - key: sliver
   #   command: get_file ${SRC_PATH}
 preconditions:
-  accessLevel: user-write
+  accessLevel: user-exec
   kind: Pod
 effects:
   - "sys.hasFile"
