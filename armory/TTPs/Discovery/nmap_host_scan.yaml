@@ -1,0 +1,27 @@
+name: NMap Host Scan
+description: Perform a host scan with namp on a specified CIDR range to identify reachable systems
+tactic: Discovery
+techniques: ["Network Service Discovery", T1046]
+preconditions:
+  kind: System
+  accessLevel: user-exec
+parameters:
+  CIDR:
+    type: string
+    description: the CIDR range to scan
+    default: "10.244.1.0/25"
+  THREADS:
+    type: int
+    description: the number of concurrent threads to use
+    default: 10
+  TIMEOUT:
+    type: int
+    description: the timeout duration for each request
+    default: 3
+procedures:
+  - key: nmap
+    tool: nmap
+    command: nmap -sn ${CIDR}
+effects:
+  - rDNS
+references:
