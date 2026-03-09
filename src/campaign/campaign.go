@@ -340,6 +340,11 @@ func (c *Campaign) AddEntities(entities ...domain.Entity) int {
 		slog.Error(fmt.Sprintf("Failed to insert %d entities: %v", len(entities), err))
 	}
 
+	// Index entities in the rule engine for rule evaluation
+	for _, entity := range entities {
+		c.ruleEngine.IndexEntity(entity)
+	}
+
 	// silly workaraound to ensure that all identities are kept up to date
 	for _, entity := range entities {
 		if identity, ok := entity.(domain.Identity); ok {

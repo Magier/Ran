@@ -325,8 +325,10 @@ func (re *RuleEngine) evaluatePair(
 			}
 		}
 
-		// Apply entity updates when a new relation is produced
-		if newRelation && rule.Apply != nil {
+		// Apply entity updates when:
+		// 1. A new relation is produced, OR
+		// 2. Match succeeded but Build returned no/empty relations (entity-only side effects)
+		if rule.Apply != nil && (newRelation || len(rels) == 0) {
 			updates := rule.Apply(source, target)
 			*entityUpdates = append(*entityUpdates, updates...)
 		}

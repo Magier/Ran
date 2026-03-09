@@ -184,10 +184,157 @@ func podRunsOnNode(kb KnowledgeBase, pod domain.Pod, node domain.K8sNode) bool {
 	return exists
 }
 
+// CanExecAccessRule updates the AccessLevel of any system (Pod, K8sNode, or UnknownSystem)
+// that has an incoming CanExecChannel relation. This is a pure entity-update rule that
+// doesn't create new relations.
+var CanExecAccessRule = Rule{
+	Name:       "CanExecAccess",
+	SourceType: reflect.TypeOf(domain.Pod{}), // Dummy - any source
+	TargetType: reflect.TypeOf(domain.Pod{}), // Will match Pods
+	Match: func(source, target domain.Entity, re *RuleEngine) ConditionState {
+		// Check if target is a System with incoming can-exec relation
+		sys, isSystem := target.(domain.System)
+		if !isSystem {
+			return ConditionFalse
+		}
+
+		// Already has UserExec? No update needed
+		if sys.GetAccessLevel() == domain.UserExec {
+			return ConditionFalse
+		}
+
+		// Check for incoming can-exec relation
+		for _, rel := range re.kb.GetIncomingEdges(target) {
+			if rel.GetRelationName() == "can-exec" {
+				return ConditionTrue
+			}
+		}
+		return ConditionFalse
+	},
+	Build: func(source, target domain.Entity, re *RuleEngine) []domain.Relation {
+		// Entity-only side effect rule - no relations created
+		return nil
+	},
+	Apply: func(source, target domain.Entity) []domain.Entity {
+		// Update AccessLevel based on entity type
+		switch sys := target.(type) {
+		case domain.Pod:
+			if sys.SystemImpl != nil {
+				sys.AccessLevel = domain.UserExec
+				return []domain.Entity{sys}
+			}
+		case domain.K8sNode:
+			if sys.SystemImpl != nil {
+				sys.AccessLevel = domain.UserExec
+				return []domain.Entity{sys}
+			}
+		case domain.UnknownSystem:
+			if sys.SystemImpl != nil {
+				sys.AccessLevel = domain.UserExec
+				return []domain.Entity{sys}
+			}
+		}
+		return nil
+	},
+	RelationTriggers: []string{"can-exec"},
+}
+
+// Cross-type rules for other system type combinations targeting Pods
+var CanExecAccessNodeToPodRule = Rule{
+	Name:             "CanExecAccessNodeToPod",
+	SourceType:       reflect.TypeOf(domain.K8sNode{}),
+	TargetType:       reflect.TypeOf(domain.Pod{}),
+	Match:            CanExecAccessRule.Match,
+	Build:            CanExecAccessRule.Build,
+	Apply:            CanExecAccessRule.Apply,
+	RelationTriggers: []string{"can-exec"},
+}
+
+var CanExecAccessUnknownToPodRule = Rule{
+	Name:             "CanExecAccessUnknownToPod",
+	SourceType:       reflect.TypeOf(domain.UnknownSystem{}),
+	TargetType:       reflect.TypeOf(domain.Pod{}),
+	Match:            CanExecAccessRule.Match,
+	Build:            CanExecAccessRule.Build,
+	Apply:            CanExecAccessRule.Apply,
+	RelationTriggers: []string{"can-exec"},
+}
+
+// Cross-type rules for other system type combinations targeting K8sNodes
+var CanExecAccessNodeRule = Rule{
+	Name:             "CanExecAccessNode",
+	SourceType:       reflect.TypeOf(domain.K8sNode{}),
+	TargetType:       reflect.TypeOf(domain.K8sNode{}),
+	Match:            CanExecAccessRule.Match,
+	Build:            CanExecAccessRule.Build,
+	Apply:            CanExecAccessRule.Apply,
+	RelationTriggers: []string{"can-exec"},
+}
+
+var CanExecAccessPodToNodeRule = Rule{
+	Name:             "CanExecAccessPodToNode",
+	SourceType:       reflect.TypeOf(domain.Pod{}),
+	TargetType:       reflect.TypeOf(domain.K8sNode{}),
+	Match:            CanExecAccessRule.Match,
+	Build:            CanExecAccessRule.Build,
+	Apply:            CanExecAccessRule.Apply,
+	RelationTriggers: []string{"can-exec"},
+}
+
+var CanExecAccessUnknownToNodeRule = Rule{
+	Name:             "CanExecAccessUnknownToNode",
+	SourceType:       reflect.TypeOf(domain.UnknownSystem{}),
+	TargetType:       reflect.TypeOf(domain.K8sNode{}),
+	Match:            CanExecAccessRule.Match,
+	Build:            CanExecAccessRule.Build,
+	Apply:            CanExecAccessRule.Apply,
+	RelationTriggers: []string{"can-exec"},
+}
+
+// Cross-type rules for other system type combinations targeting UnknownSystems
+var CanExecAccessUnknownSystemRule = Rule{
+	Name:             "CanExecAccessUnknownSystem",
+	SourceType:       reflect.TypeOf(domain.UnknownSystem{}),
+	TargetType:       reflect.TypeOf(domain.UnknownSystem{}),
+	Match:            CanExecAccessRule.Match,
+	Build:            CanExecAccessRule.Build,
+	Apply:            CanExecAccessRule.Apply,
+	RelationTriggers: []string{"can-exec"},
+}
+
+var CanExecAccessPodToUnknownRule = Rule{
+	Name:             "CanExecAccessPodToUnknown",
+	SourceType:       reflect.TypeOf(domain.Pod{}),
+	TargetType:       reflect.TypeOf(domain.UnknownSystem{}),
+	Match:            CanExecAccessRule.Match,
+	Build:            CanExecAccessRule.Build,
+	Apply:            CanExecAccessRule.Apply,
+	RelationTriggers: []string{"can-exec"},
+}
+
+var CanExecAccessNodeToUnknownRule = Rule{
+	Name:             "CanExecAccessNodeToUnknown",
+	SourceType:       reflect.TypeOf(domain.K8sNode{}),
+	TargetType:       reflect.TypeOf(domain.UnknownSystem{}),
+	Match:            CanExecAccessRule.Match,
+	Build:            CanExecAccessRule.Build,
+	Apply:            CanExecAccessRule.Apply,
+	RelationTriggers: []string{"can-exec"},
+}
+
 // DefaultRules returns the standard set of rules for the rule engine.
 func DefaultRules() []Rule {
 	return []Rule{
 		KubeletExecRule,
 		KubeletPodExecRule,
+		CanExecAccessRule,
+		CanExecAccessNodeToPodRule,
+		CanExecAccessUnknownToPodRule,
+		CanExecAccessNodeRule,
+		CanExecAccessPodToNodeRule,
+		CanExecAccessUnknownToNodeRule,
+		CanExecAccessUnknownSystemRule,
+		CanExecAccessPodToUnknownRule,
+		CanExecAccessNodeToUnknownRule,
 	}
 }

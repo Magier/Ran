@@ -577,3 +577,38 @@ func TestKubeletExecSinkRule_NoCycleWithAttackerPod(t *testing.T) {
 		}
 	}
 }
+
+func TestCanExecChannelUpdatesAccessLevel(t *testing.T) {
+	// Test that adding a CanExecChannel relation automatically updates the target's AccessLevel
+	c := NewCampaign(nil)
+
+	// Create a pod with NoAccess
+	pod := domain.NewPod("target-pod", "default")
+	pod.AccessLevel = domain.NoAccess
+	c.AddEntities(pod)
+
+	// Create a can-exec relation to the pod
+	sourceSys := domain.NewSystem("attacker", "linux", domain.UserExec)
+	c.AddEntities(sourceSys)
+
+	canExec := &domain.CanExecChannel{
+		Source: sourceSys,
+		Target: pod,
+	}
+
+	facts := domain.Facts{Relations: []domain.Relation{canExec}}
+	_, err := c.UpdateFacts(facts, domain.Facts{})
+	if err != nil {
+		t.Fatalf("UpdateFacts failed: %v", err)
+	}
+
+	// Verify the pod's AccessLevel was updated to UserExec
+	updatedPod, ok := c.kb.GetEntity(pod.GetId())
+	if !ok {
+		t.Fatal("Pod not found in KB")
+	}
+
+	if updatedPod.(domain.Pod).AccessLevel != domain.UserExec {
+		t.Errorf("Expected AccessLevel UserExec, got %v", updatedPod.(domain.Pod).AccessLevel)
+	}
+}
