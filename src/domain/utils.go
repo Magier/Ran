@@ -217,8 +217,8 @@ func mergeEntities(newEntity, oldEntity Entity) Entity {
 	return nil
 }
 
-func _mergeSystemCaster(a, b interface{}, t reflect.Type) (System, error) {
-	res, err := mergeObjects(a, b)
+func _mergeSystemCaster(new, old interface{}, t reflect.Type) (System, error) {
+	res, err := mergeObjects(new, old)
 	if err != nil {
 		return nil, err
 	}
@@ -233,23 +233,28 @@ func _mergeSystemCaster(a, b interface{}, t reflect.Type) (System, error) {
 	return mergedVal.Interface().(System), nil
 }
 
-func mergeSystems(a, b System) (System, error) {
-	if a == nil {
-		slog.Warn("Attempt to merge with nil system", "a", a, "b", b)
-		return b, nil
-	} else if b == nil {
-		slog.Warn("Attempt to merge with nil system", "a", a, "b", b)
-		return a, nil
+// Merge two systems of the same type, or promote an UnknownSystem to the type of the other system if one of them is unknown.
+// If both systems are of different types and neither is unknown, an error is returned.
+// The merging logic is as follows: if one of the systems has a zero value for a field and the other has a non-zero value, the non-zero value is used.
+// If both have non-zero values, the new system's value is used.
+// If both have zero values, the result is zero (already set).
+func mergeSystems(new, old System) (System, error) {
+	if new == nil {
+		slog.Warn("Attempt to merge with nil system", "a", new, "b", old)
+		return old, nil
+	} else if old == nil {
+		slog.Warn("Attempt to merge with nil system", "a", new, "b", old)
+		return new, nil
 	}
 
-	aVal := reflect.ValueOf(a)
-	bVal := reflect.ValueOf(b)
+	aVal := reflect.ValueOf(new)
+	bVal := reflect.ValueOf(old)
 	aType := aVal.Type()
 	bType := bVal.Type()
 
 	// if it's the same types, then a regular object merge works
 	if aType == bType {
-		return _mergeSystemCaster(a, b, aType)
+		return _mergeSystemCaster(new, old, aType)
 	}
 
 	// special handling for divergent types: only UnknownSystem may be promoted
@@ -258,15 +263,15 @@ func mergeSystems(a, b System) (System, error) {
 	var unknownSystem UnknownSystem
 	var promoSys System
 
-	if u, ok := a.(UnknownSystem); ok {
+	if u, ok := new.(UnknownSystem); ok {
 		unknownSystem = u
-		promoSys = b
-	} else if u, ok = b.(UnknownSystem); ok {
+		promoSys = old
+	} else if u, ok = old.(UnknownSystem); ok {
 		unknownSystem = u
-		promoSys = a
+		promoSys = new
 		// continue with UnknownSystem promotion logic below
 	} else { // no UnknownSystem provided, can't promote sibling types
-		return nil, fmt.Errorf("cannot merge systems of different types: %T vs %T", a, b)
+		return nil, fmt.Errorf("cannot merge systems of different types: %T vs %T", new, old)
 	}
 
 	switch p := promoSys.(type) {
@@ -275,13 +280,13 @@ func mergeSystems(a, b System) (System, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot promote UnknownSystem to Pod: %w", err)
 		}
-		return _mergeSystemCaster(tmp, promoSys, reflect.TypeOf(tmp))
+		return _mergeSystemCaster(promoSys, tmp, reflect.TypeOf(tmp))
 	case K8sNode:
 		tmp, err := unknownSystem.PromoteToK8sNode()
 		if err != nil {
 			return nil, fmt.Errorf("cannot promote UnknownSystem to K8sNode: %w", err)
 		}
-		return _mergeSystemCaster(tmp, promoSys, reflect.TypeOf(tmp))
+		return _mergeSystemCaster(promoSys, tmp, reflect.TypeOf(tmp))
 	default:
 		return nil, fmt.Errorf("Promotion of UnknownSystem to type %T is not yet supported", p)
 	}

@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 
@@ -1221,6 +1222,192 @@ func TestGetInvokedTool(t *testing.T) {
 			result := getInvokedTool(tt.ev)
 			if result != tt.expected {
 				t.Errorf("getInvokedTool() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsSameSystem(t *testing.T) {
+	tests := []struct {
+		name     string
+		systemA  domain.System
+		systemB  domain.System
+		expected bool
+	}{
+		// Hostname matching tests
+		{
+			name: "match by hostname",
+			systemA: domain.UnknownSystem{
+				SystemImpl: &domain.SystemImpl{
+					HostName: "test-host",
+				},
+			},
+			systemB: func() domain.Pod {
+				p := domain.NewPod("test-pod", "default")
+				p.SystemImpl.HostName = "test-host"
+				return p
+			}(),
+			expected: true,
+		},
+		{
+			name: "no match by hostname",
+			systemA: domain.UnknownSystem{
+				SystemImpl: &domain.SystemImpl{
+					HostName: "host-a",
+				},
+			},
+			systemB: func() domain.Pod {
+				p := domain.NewPod("test-pod", "default")
+				p.SystemImpl.HostName = "host-b"
+				return p
+			}(),
+			expected: false,
+		},
+		// IP-based matching tests: UnknownSystem (a) with IP -> Known system (b)
+		{
+			name:    "match by IP - UnknownSystem with IP ID matches Pod with same IP",
+			systemA: domain.NewSystem("192.168.1.10", "linux", domain.UserExec),
+			systemB: func() domain.Pod {
+				p := domain.NewPod("test-pod", "default")
+				p.SystemImpl.HostName = "test-host"
+				p.SystemImpl.IPs = []net.IPAddr{
+					{IP: net.ParseIP("192.168.1.10")},
+					{IP: net.ParseIP("10.0.0.5")},
+				}
+				return p
+			}(),
+			expected: true,
+		},
+		{
+			name:    "no match by IP - UnknownSystem IP not in Pod IPs",
+			systemA: domain.NewSystem("192.168.1.99", "linux", domain.UserExec),
+			systemB: func() domain.Pod {
+				p := domain.NewPod("test-pod", "default")
+				p.SystemImpl.HostName = "test-host"
+				p.SystemImpl.IPs = []net.IPAddr{
+					{IP: net.ParseIP("192.168.1.10")},
+					{IP: net.ParseIP("10.0.0.5")},
+				}
+				return p
+			}(),
+			expected: false,
+		},
+		{
+			name:    "match by IP - UnknownSystem with IPv6 ID matches K8sNode with same IPv6",
+			systemA: domain.NewSystem("2001:db8::1", "linux", domain.UserExec),
+			systemB: func() domain.K8sNode {
+				n := domain.NewK8sNode("test-node")
+				n.SystemImpl.HostName = "test-node"
+				n.SystemImpl.IPs = []net.IPAddr{
+					{IP: net.ParseIP("2001:db8::1")},
+					{IP: net.ParseIP("192.168.1.1")},
+				}
+				return n
+			}(),
+			expected: true,
+		},
+		// IP-based matching tests: Known system (a) -> UnknownSystem (b) with IP
+		{
+			name: "match by IP - Pod with IP matches UnknownSystem with same IP ID",
+			systemA: func() domain.Pod {
+				p := domain.NewPod("test-pod", "default")
+				p.SystemImpl.HostName = "test-host"
+				p.SystemImpl.IPs = []net.IPAddr{
+					{IP: net.ParseIP("10.244.0.5")},
+					{IP: net.ParseIP("192.168.1.10")},
+				}
+				return p
+			}(),
+			systemB:  domain.NewSystem("192.168.1.10", "linux", domain.UserExec),
+			expected: true,
+		},
+		{
+			name: "no match by IP - K8sNode IP not in UnknownSystem ID",
+			systemA: func() domain.K8sNode {
+				n := domain.NewK8sNode("test-node")
+				n.SystemImpl.HostName = "test-node"
+				n.SystemImpl.IPs = []net.IPAddr{
+					{IP: net.ParseIP("10.0.0.1")},
+					{IP: net.ParseIP("192.168.1.1")},
+				}
+				return n
+			}(),
+			systemB:  domain.NewSystem("192.168.1.99", "linux", domain.UserExec),
+			expected: false,
+		},
+		// Edge cases
+		{
+			name: "UnknownSystem with path (slash) in ID - no IP matching",
+			systemA: domain.UnknownSystem{
+				SystemImpl: &domain.SystemImpl{
+					HostName: "namespace/pod-name",
+				},
+			},
+			systemB: func() domain.Pod {
+				p := domain.NewPod("test-pod", "default")
+				p.SystemImpl.HostName = "different-host"
+				p.SystemImpl.IPs = []net.IPAddr{
+					{IP: net.ParseIP("192.168.1.10")},
+				}
+				return p
+			}(),
+			expected: false,
+		},
+		{
+			name: "UnknownSystem with domain name - no IP matching",
+			systemA: domain.UnknownSystem{
+				SystemImpl: &domain.SystemImpl{
+					HostName: "example.com",
+				},
+			},
+			systemB: func() domain.Pod {
+				p := domain.NewPod("test-pod", "default")
+				p.SystemImpl.HostName = "different-host"
+				p.SystemImpl.IPs = []net.IPAddr{
+					{IP: net.ParseIP("192.168.1.10")},
+				}
+				return p
+			}(),
+			expected: false,
+		},
+		{
+			name:     "both UnknownSystems - no IP matching logic applied",
+			systemA:  domain.NewSystem("192.168.1.10", "linux", domain.UserExec),
+			systemB:  domain.NewSystem("192.168.1.10", "linux", domain.UserExec),
+			expected: true, // Matches by hostname since ID == HostName
+		},
+		{
+			name: "empty hostname - no match",
+			systemA: domain.UnknownSystem{
+				SystemImpl: &domain.SystemImpl{
+					HostName: "",
+				},
+			},
+			systemB: func() domain.Pod {
+				p := domain.NewPod("test-pod", "default")
+				p.SystemImpl.HostName = ""
+				return p
+			}(),
+			expected: false,
+		},
+		{
+			name:    "system with no IPs - no IP match possible",
+			systemA: domain.NewSystem("192.168.1.10", "linux", domain.UserExec),
+			systemB: func() domain.Pod {
+				p := domain.NewPod("test-pod", "default")
+				p.SystemImpl.HostName = "test-host"
+				p.SystemImpl.IPs = []net.IPAddr{} // empty IPs
+				return p
+			}(),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isSameSystem(tt.systemA, tt.systemB)
+			if result != tt.expected {
+				t.Errorf("isSameSystem() = %v, want %v", result, tt.expected)
 			}
 		})
 	}
