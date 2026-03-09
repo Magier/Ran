@@ -43,11 +43,11 @@ func TestSelfSubjectReviewResult_ForbiddenStatus(t *testing.T) {
 	//	}
 }
 func TestParseEffect_TargetIP(t *testing.T) {
-	source := domain.NewPod("mypod", "myns")
+	target := domain.NewPod("mypod", "myns")
 	args := map[string]string{}
 	results := []string{"10.0.0.1 10.0.0.2"}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("sys.ip", source, args, results...)
+	updatedFacts, err := c.ParseEffect("sys.ip", target, nil, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -77,7 +77,7 @@ func TestParseEffect_K8sPodList(t *testing.T) {
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("k8s.podlist", source, args, results...)
+	updatedFacts, err := c.ParseEffect("k8s.podlist", source, nil, args, results...)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestParseEffect_K8sDeploymentList(t *testing.T) {
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("k8s.deploymentlist", source, args, results...)
+	updatedFacts, err := c.ParseEffect("k8s.deploymentlist", source, nil, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -114,7 +114,7 @@ func TestParseEffect_K8sServiceAccountList(t *testing.T) {
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("k8s.serviceaccountlist", source, args, results...)
+	updatedFacts, err := c.ParseEffect("k8s.serviceaccountlist", source, nil, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -133,7 +133,7 @@ func TestParseEffect_K8sServiceAccount_Created(t *testing.T) {
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{"Name": "my-sa", "Namespace": "ns1"}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("k8s.serviceaccount", source, args, results...)
+	updatedFacts, err := c.ParseEffect("k8s.serviceaccount", source, nil, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -159,7 +159,7 @@ func TestParseEffect_K8sServiceAccount_AlreadyExists(t *testing.T) {
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{"Name": "my-sa", "Namespace": "ns1"}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("k8s.serviceaccount", source, args, results...)
+	updatedFacts, err := c.ParseEffect("k8s.serviceaccount", source, nil, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -185,7 +185,7 @@ func TestParseEffect_DeleteK8sServiceAccount(t *testing.T) {
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{"Name": "my-sa", "Namespace": "ns1"}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("delete k8s.serviceaccount", source, args, results...)
+	updatedFacts, err := c.ParseEffect("delete k8s.serviceaccount", source, nil, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -213,7 +213,7 @@ func TestParseEffect_DeleteK8sPod(t *testing.T) {
 	source := domain.NewPod(name, ns)
 	args := map[string]string{"PodName": name, "Namespace": ns}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("delete k8s.pod", source, args, results...)
+	updatedFacts, err := c.ParseEffect("delete k8s.pod", source, nil, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -241,7 +241,7 @@ func TestParseEffect_DeleteK8sDeployment(t *testing.T) {
 	source := domain.NewDeployment(name, ns)
 	args := map[string]string{"Name": name, "Namespace": ns}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("delete k8s.deployment", source, args, results...)
+	updatedFacts, err := c.ParseEffect("delete k8s.deployment", source, nil, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -268,7 +268,7 @@ func TestParseEffect_K8sSecretList(t *testing.T) {
 	args := map[string]string{}
 
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("k8s.secretlist", source, args, results...)
+	updatedFacts, err := c.ParseEffect("k8s.secretlist", source, nil, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
@@ -287,7 +287,7 @@ func TestParseEffect_UnknownEffect(t *testing.T) {
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
 	c := NewCampaign(nil)
-	updatedFacts, err := c.ParseEffect("unknown.effect", source, args, results...)
+	updatedFacts, err := c.ParseEffect("unknown.effect", source, nil, args, results...)
 
 	if err != nil {
 		t.Fatalf("Expected error for unknown effect, got nil")
@@ -305,7 +305,7 @@ func TestParseEffect_NoResults(t *testing.T) {
 	source := domain.NewPod("irrelevant", "irrelevant")
 	args := map[string]string{}
 	c := NewCampaign(nil)
-	_, err := c.ParseEffect("k8s.podist", source, args)
+	_, err := c.ParseEffect("k8s.podist", source, nil, args)
 
 	if err == nil {
 		t.Fatalf("Expected error when no results are provided")

@@ -309,6 +309,42 @@ func (u CanAccess) GetCost() int {
 	return 10
 }
 
+type CanExecChannel struct {
+	RelationImpl
+	Source Entity
+	Target Entity
+	// ExecLevel ExecLevel
+	Identity    Identity
+	PodsExec    bool
+	NextChannel C2Channel // for chaining multiple
+}
+
+var _ Relation = (*CanExecChannel)(nil)
+var _ C2Channel = (*CanExecChannel)(nil)
+
+func (u *CanExecChannel) GetSourceId() string     { return u.Source.GetId() }
+func (u *CanExecChannel) GetTargetId() string     { return u.Target.GetId() }
+func (u *CanExecChannel) GetRelationName() string { return "can-exec" }
+
+func (u *CanExecChannel) WithSource(e Entity) Relation {
+	u.Source = e
+	return u
+}
+func (u *CanExecChannel) WithTarget(e Entity) Relation {
+	u.Target = e
+	return u
+}
+
+func (u *CanExecChannel) GetCost() int {
+	return 10
+}
+func (ch *CanExecChannel) GetKind() string                      { return "RCE/exec" }
+func (ch *CanExecChannel) GetCommandEnvelope(cmd string) string { return cmd }
+func (ch *CanExecChannel) GetNextChannel() C2Channel            { return ch.NextChannel }
+func (ch *CanExecChannel) SetNextChannel(next C2Channel)        { ch.NextChannel = next }
+func (ch *CanExecChannel) GetFinalTarget() Entity               { return ch.Target }
+func (ch *CanExecChannel) GetTarget() Entity                    { return ch.Target }
+
 // GetRelationCost returns a cost for path-finding. Actionable relations
 // (ones that represent real attack primitives) get low costs so the
 // shortest-path algorithm prefers them over purely informational edges.
@@ -317,6 +353,8 @@ func GetRelationCost(relation Relation) int {
 	case CanAccess:
 		return r.GetCost()
 	case *PodExecC2Channel:
+		return 5
+	case *CanExecChannel:
 		return 5
 	case *ImplantC2Channel:
 		return 5

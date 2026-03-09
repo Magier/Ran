@@ -303,13 +303,13 @@ func ParseConfigMapList(jsonStr string) ([]domain.ConfigMap, error) {
 	return configMaps, nil
 }
 
-func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[string]string, results ...string) (factsUpdate, error) {
+func (c *Campaign) ParseEffect(effect string, target domain.Entity, execSystem domain.System, args map[string]string, results ...string) (factsUpdate, error) {
 	if len(results) == 0 {
 		return factsUpdate{}, fmt.Errorf("Can't parse effect %s because there are no results", effect)
 	}
 
-	if source == nil {
-		slog.Warn("No source entity provided for effect parsing")
+	if target == nil {
+		slog.Warn("No target entity provided for effect parsing")
 	}
 
 	if strings.Contains(results[0], "already exists") {
@@ -334,7 +334,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 		if err == nil && status.Code >= 400 {
 			return factsUpdate{}, k8s_types.K8sAPIResponseError{Status: status}
 		} else if strings.Trim(res, " ") == "error: cannot exec into a container in a completed pod; current phase is Succeeded" {
-			p := source.(domain.Pod)
+			p := target.(domain.Pod)
 			p.IsRunning = false
 			entities = append(entities, p)
 			facts := domain.Facts{Entities: entities, Relations: relations}
@@ -355,7 +355,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 	switch effectDomain {
 	case "k8s":
 		// if strings.HasPrefix(effect, "k8s") {
-		f, err := parseK8sEffect(effect, source, args, results)
+		f, err := parseK8sEffect(effect, target, args, results)
 		if err != nil {
 			return factsUpdate{}, fmt.Errorf("Failed to parse K8s effect: %w", err)
 		}
@@ -390,7 +390,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 	default:
 		switch strings.ToLower(effect) {
 		case "sys.ip":
-			if sys, ok := source.(domain.System); ok {
+			if sys, ok := target.(domain.System); ok {
 				ips := []net.IPAddr{}
 				res := results[0]
 				for _, ip := range strings.Split(res, " ") {
@@ -442,16 +442,16 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 				slog.Error(fmt.Sprintf("Could not parse environment variable: %v", err))
 			}
 
-			if sys, ok := source.(domain.System); ok {
+			if sys, ok := target.(domain.System); ok {
 				sys.SetEnvironmentVariables(envVars)
-				newFacts, _, err := analyzeEnvironmentVariables(source, envVars)
+				newFacts, _, err := analyzeEnvironmentVariables(target, envVars)
 				if err != nil {
 					slog.Error(fmt.Sprintf("Failure analyzing environment variables %v", err))
 				} else {
 					entities = append(entities, newFacts.Entities...)
 					relations = append(relations, newFacts.Relations...)
 				}
-			} else if source == nil {
+			} else if target == nil {
 				slog.Error("No source provided for envvar effect")
 			} else {
 				panic("The source should implement the System interface!")
@@ -486,7 +486,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 					}
 					// Use DNS if available, otherwise fallback to IP-based pod name
 					podName := host.DNS
-					namespace := "default"
+					namespace := "?" // TODO: find a way to properly handle unknown namespaces
 					if podName == "" {
 						podName = fmt.Sprintf("pod-%s", strings.ReplaceAll(host.IP, ".", "-"))
 					} else {
@@ -502,7 +502,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 				}
 			}
 		case "linux.mounts":
-			if pod, ok := source.(domain.Pod); ok {
+			if pod, ok := target.(domain.Pod); ok {
 				mounts, err := parseLinuxMounts(res)
 				if err != nil {
 					slog.Error(fmt.Sprintf("Failed to parse Linux mounts: %v", err))
@@ -512,7 +512,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 				}
 			}
 		case "sys.processes":
-			if sys, ok := source.(domain.System); ok {
+			if sys, ok := target.(domain.System); ok {
 				processes, err := parseLinuxProcesses(res)
 				if err != nil {
 					slog.Error(fmt.Sprintf("Failed to parse processes: %v", err))
@@ -524,7 +524,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 				slog.Warn("The source of the processes effect is not a System!")
 			}
 		case "sys.userid":
-			if sys, ok := source.(domain.System); ok {
+			if sys, ok := target.(domain.System); ok {
 				uid, username, err := parseLinuxIDResult(res)
 				if err != nil {
 					slog.Error(fmt.Sprintf("Failed to parse user ID: %v", err))
@@ -542,7 +542,7 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to parse files: %v", err))
 			} else {
-				if sys, ok := source.(domain.System); ok {
+				if sys, ok := target.(domain.System); ok {
 					for _, entry := range fsEntries {
 						fullPath := fmt.Sprintf("%s/%s", srcDir, entry.Name)
 						if entry.IsExec && !entry.IsDir {
@@ -601,23 +601,31 @@ func (c *Campaign) ParseEffect(effect string, source domain.Entity, args map[str
 			} else {
 				if strings.HasPrefix(effect, "sys.has-binary") {
 
-					resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
+					resultingEntity, err := parseHasBinaryEffect(target, effect, args, results...)
 					if err != nil {
 						slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
 					} else {
 						entities = append(entities, resultingEntity)
 					}
 				} else if strings.HasPrefix(effect, "sys.hasfile") {
-					resultingEntity, err := parseHasBinaryEffect(source, effect, args, results...)
+					resultingEntity, err := parseHasBinaryEffect(target, effect, args, results...)
 					if err != nil {
 						slog.Error(fmt.Sprintf("Failed to parse has-binary effect: %v", err))
 					} else {
 						entities = append(entities, resultingEntity)
 					}
 				} else if strings.HasSuffix(relationName, "can-reach") {
-					es, rels, err := parseCanReachEffect(source, relationArgs)
+					es, rels, err := parseCanReachEffect(target, relationArgs)
 					if err != nil {
 						slog.Error(fmt.Sprintf("Failed to parse can-reach effect: %v", err))
+					} else {
+						entities = append(entities, es...)
+						relations = append(relations, rels...)
+					}
+				} else if relationName == "rce.can-exec" {
+					es, rels, err := parseCanExecEffect(execSystem, target, relationArgs)
+					if err != nil {
+						slog.Error(fmt.Sprintf("Failed to parse can-exec effect: %v", err))
 					} else {
 						entities = append(entities, es...)
 						relations = append(relations, rels...)
@@ -1571,6 +1579,31 @@ func parseCanReachEffect(source domain.Entity, args []string) ([]domain.Entity, 
 	default:
 		return nil, nil, fmt.Errorf("Unknown relation name in can-reach effect: %s", relationName)
 	}
+
+	return entities, relations, nil
+}
+
+func parseCanExecEffect(execSystem domain.System, target domain.Entity, args []string) ([]domain.Entity, []domain.Relation, error) {
+	entities := []domain.Entity{}
+	relations := []domain.Relation{}
+
+	var targetID string
+
+	if len(args) == 1 {
+		targetID = args[0]
+	} else if len(args) == 2 {
+		targetID = args[1]
+	}
+
+	if target == nil {
+		target = domain.NewSystem(targetID, "", domain.UserExec)
+	}
+	entities = append(entities, target)
+
+	relations = append(relations, &domain.CanExecChannel{
+		Source: execSystem,
+		Target: target,
+	})
 
 	return entities, relations, nil
 }

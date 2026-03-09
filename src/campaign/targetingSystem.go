@@ -72,9 +72,16 @@ func (c Campaign) getSystemForExecution(procedure domain.Procedure, target domai
 
 	// simply heuristic: continue attacking from the previous foothold
 	if c.lastExecSystem != nil {
-		slog.Info(fmt.Sprintf("Continuing from last execution system: %s", c.lastExecSystem.GetName()))
-		return c.lastExecSystem, nil
-	} else if len(compromisedSystems) > 0 {
+		// Check if lastExecSystem is still compromised and can execute the procedure
+		for _, sys := range compromisedSystems {
+			if sys.GetId() == c.lastExecSystem.GetId() {
+				slog.Info(fmt.Sprintf("Continuing from last execution system: %s", c.lastExecSystem.GetName()))
+				return c.lastExecSystem, nil
+			}
+		}
+		slog.Warn(fmt.Sprintf("Last execution system '%s' is no longer available, selecting new system", c.lastExecSystem.GetName()))
+	}
+	if len(compromisedSystems) > 0 {
 		// TODO: use heuristic to pick the best system, e.g.
 		// - preference to execute on the same system as the last TTPs (or opposite, to make detection more challenging?)
 		slog.Warn(fmt.Sprintf("No match for TTP execution found, using first best compromised system: %s", compromisedSystems[0].GetName()))

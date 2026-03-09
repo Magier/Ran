@@ -148,7 +148,13 @@ func (c *Campaign) ExecuteAction(ctx context.Context, ev domain.ActionSelected) 
 		return err
 	} else {
 		// remember the system we are executing from, to continue the attack from there
-		c.lastExecSystem, ok = execCmd.Target.(domain.System)
+		if execCmd.C2Channel != nil {
+			if sys, ok := execCmd.C2Channel.GetFinalTarget().(domain.System); ok {
+				c.lastExecSystem = sys
+			}
+		} else {
+			c.lastExecSystem, ok = execCmd.Target.(domain.System)
+		}
 		execCmd.ID = ev.CmdId
 		if !ok {
 			slog.Warn("Executed TTP target is not a system, can't continue the attack from there")
@@ -475,9 +481,15 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 		execCmd.Procedure.Execute.Parameters = args
 	}
 
-	execCmd.Procedure.Command = c.groundCmdTemplate(execCmd.Procedure.Command, args)
+	execCmd.Procedure.Command, err = c.groundCmdTemplate(execCmd.Procedure.Command, args)
+	if err != nil {
+		return domain.ExecTTP{}, err
+	}
 	for i, effect := range execCmd.TTP.Effects {
-		execCmd.TTP.Effects[i] = c.groundCmdTemplate(effect, args)
+		execCmd.TTP.Effects[i], err = c.groundCmdTemplate(effect, args)
+		if err != nil {
+			return domain.ExecTTP{}, err
+		}
 	}
 
 	// build the final command
@@ -740,11 +752,12 @@ func hydrateCommand(ttp domain.TTP, execID string, args map[string]string) (doma
 	return nil, nil
 }
 
-func (c Campaign) groundCmdTemplate(cmdTemplate string, variables map[string]string) string {
+func (c Campaign) groundCmdTemplate(cmdTemplate string, variables map[string]string) (string, error) {
 	tmpl, err := template.New("cmd").Parse(cmdTemplate)
 	if err != nil {
-		slog.Error("Ground Template", "", err.Error())
-		return cmdTemplate
+		e := fmt.Errorf("Failed to parse command template: %s", err.Error())
+		slog.Error(e.Error())
+		return cmdTemplate, e
 	}
 	var buf strings.Builder
 
@@ -763,7 +776,7 @@ func (c Campaign) groundCmdTemplate(cmdTemplate string, variables map[string]str
 	err = tmpl.Execute(&buf, vars)
 	if err != nil {
 		slog.Error("Ground Template", "", err.Error())
-		return cmdTemplate
+		return cmdTemplate, err
 	}
 	cmdTemplate = buf.String()
 
@@ -801,7 +814,7 @@ func (c Campaign) groundCmdTemplate(cmdTemplate string, variables map[string]str
 		cmdTemplate = strings.ReplaceAll(cmdTemplate, templateVariable, v)
 	}
 
-	return cmdTemplate
+	return cmdTemplate, nil
 }
 
 func (c Campaign) getServiceAccountOwner(sa domain.ServiceAccount) (domain.Pod, bool) {

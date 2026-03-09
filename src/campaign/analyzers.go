@@ -149,7 +149,7 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 			if isSystem && !isUnknown {
 				unknownSystems := c.getSystems(false, true)
 				for _, unknownSys := range unknownSystems {
-					if isSameSystem(unknownSys, sys) {
+					if isSameSystem(sys, unknownSys) {
 						identifiedSystem := domain.UpdateEntity(sys, unknownSys)
 						resultingFacts.Entities = append(resultingFacts.Entities, identifiedSystem)
 						new, removedEdges := c.transplantEdges(unknownSys, identifiedSystem)
@@ -1461,6 +1461,60 @@ func isSameSystem(a, b domain.System) bool {
 	for _, name := range namesB {
 		if _, exists := namesA[name]; exists && name != "" {
 			return true
+		}
+	}
+
+	// IP-based matching: if one system is UnknownSystem with an IP/domain ID,
+	// compare it against the IPs of the other system
+	aUnknown, aIsUnknown := a.(domain.UnknownSystem)
+	bUnknown, bIsUnknown := b.(domain.UnknownSystem)
+
+	// Helper function to get IPs from a system
+	getSystemIPs := func(sys domain.System) []net.IPAddr {
+		// Try to access IPs field via type assertion to implementations
+		if pod, ok := sys.(domain.Pod); ok {
+			return pod.IPs
+		}
+		if node, ok := sys.(domain.K8sNode); ok {
+			return node.IPs
+		}
+		if unknown, ok := sys.(domain.UnknownSystem); ok {
+			return unknown.IPs
+		}
+		return nil
+	}
+
+	// Case 1: a is UnknownSystem with IP/domain, b is known system
+	if aIsUnknown && !bIsUnknown {
+		aID := aUnknown.GetId()
+		// Check if ID looks like IP or domain (no '/' in the ID)
+		if !strings.Contains(aID, "/") {
+			// Try to parse as IP
+			if ip := net.ParseIP(aID); ip != nil {
+				bIPs := getSystemIPs(b)
+				for _, bIP := range bIPs {
+					if bIP.IP.Equal(ip) {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	// Case 2: b is UnknownSystem with IP/domain, a is known system
+	if bIsUnknown && !aIsUnknown {
+		bID := bUnknown.GetId()
+		// Check if ID looks like IP or domain (no '/' in the ID)
+		if !strings.Contains(bID, "/") {
+			// Try to parse as IP
+			if ip := net.ParseIP(bID); ip != nil {
+				aIPs := getSystemIPs(a)
+				for _, aIP := range aIPs {
+					if aIP.IP.Equal(ip) {
+						return true
+					}
+				}
+			}
 		}
 	}
 
