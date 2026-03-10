@@ -677,7 +677,15 @@ func parseK8sEffect(effect string, source domain.Entity, args map[string]string,
 		} else {
 			sa, ok := source.(domain.ServiceAccount)
 			if !ok {
-				slog.Warn("the source of the SubjectReviewResult is not a valid ServiceAccount!")
+				pod, ok := source.(domain.Pod)
+				if ok {
+					sa = domain.NewServiceAccount(pod.ServiceAccountName, pod.Namespace)
+					sa.Token = domain.ServiceAccountToken{Raw: args["TOKEN"]}
+					ssrr.ServiceAccount = sa
+					ssrr.TokenName = sa.GetName()
+				} else {
+					slog.Warn("the source of the SubjectReviewResult is neither a valid ServiceAccount or a Pod!")
+				}
 			} else {
 				ssrr.ServiceAccount = sa
 				ssrr.TokenName = sa.GetName()
