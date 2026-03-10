@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Combobox, Portal, type ComboboxRootProps, useListCollection } from '@skeletonlabs/skeleton-svelte';
+	import { Combobox, useListCollection } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId } from '$lib/model';
 	import type { TTP, TTPParam } from '$lib/api/index';
@@ -10,7 +10,7 @@
 		targetId: string;
 		ttp: TTP;
 		argContext: Record<string, any>;
-		onExecute: (ttpId: string, procedureId: string, args: Record<string, string>) => void;
+		onExecute: (ttpId: string, execSystemId: string, procedureId: string, args: Record<string, string>) => void;
 		onCancel: () => void;
 	}
 	let { targetId = $bindable(), ttp, argContext, onExecute, onCancel }: ParamProps = $props();
@@ -41,6 +41,17 @@
 	let args = $state<Arg[]>([]);
 	let availableEntities: Entity[] = $state([]);
 	let namespaceArgName: string = "";
+	let selectedExecSystemId = $state('');
+
+	const compromisedSystems = $derived(campaignState.getCompromisedSystems());
+	const execSystemOptions = $derived<ComboboxOption[]>(
+		compromisedSystems.map(e => ({ label: e.name, value: e.id, group: e.namespace }))
+	);
+	const selectedExecSystem = $derived(
+		compromisedSystems.find(e => e.id === selectedExecSystemId)
+	);
+
+	const target = $derived.by(() => { return campaignState.getObjectById(targetId); });
 
 	let argOptions: Record<string, ComboboxOption[]> = $state({});
 	// Incremented when a combobox value is set programmatically (external update),
@@ -200,7 +211,10 @@
 							value = e?.name || '';
 						}
 						console.log("Setting target", param.name, "to value", value);
+					} else if (value.indexOf('${TARGET.IP}') >= 0 && target?.ips?.length > 0) {
+						value = value.replace("${TARGET.IP}", target.ips[0].IP);
 					}
+
 					if (param.type === 'Namespace') {
 						namespaceArgName = param.name;
 						if (param.default === "" && currentTargetId.startsWith("ns/")) {
@@ -230,6 +244,16 @@
 			// Also reset procedureId when TTP changes
 			procedureId = ttpProcedures?.[0]?.id || '';
 
+			// Default execution system: prefer target if compromised, else first available
+			const systems = campaignState.getCompromisedSystems();
+			if (systems.some(s => s.id === currentTargetId)) {
+				selectedExecSystemId = currentTargetId;
+			} else if (systems.length > 0) {
+				selectedExecSystemId = systems[0].id;
+			} else {
+				selectedExecSystemId = '';
+			}
+
 			console.log(args);
 			console.groupEnd();
 		});
@@ -242,6 +266,24 @@
 			return nss;
 		}, new Set<string>());
 		argOptions[namespaceArgName] = Array.from(uniqueNamespaces.values()).map(ns => ({ label: ns, value: ns }));
+	});
+
+	// When the execution system changes, auto-switch to first available procedure if current is disabled
+	$effect(() => {
+		// track selectedExecSystemId to re-evaluate
+		const _sys = selectedExecSystemId;
+		const procedures = ttp?.procedures;
+		if (!procedures || procedures.length <= 1) return;
+
+		const currentOk = executingSystemHasTool(procedureToolName(
+			procedures.find(p => p.id === procedureId) ?? procedures[0]
+		));
+		if (!currentOk) {
+			const first = procedures.find(p => executingSystemHasTool(procedureToolName(p)));
+			if (first) {
+				procedureId = first.id;
+			}
+		}
 	});
 
 	function entityToComboboxOption(e: Entity): ComboboxOption {
@@ -316,12 +358,18 @@
 			{} as { [key: string]: string }
 		);
 
-		onExecute(ttp.id, procedureId, argsDict);
+		onExecute(ttp.id, selectedExecSystemId, procedureId, argsDict);
 	}
 
-	function executingSystemHasTool(system: string, tool: string): boolean {
-		console.warn('Checking of available tools is not implemented yet.', system);
-		return true;
+	function executingSystemHasTool(tool: string): boolean {
+		if (!selectedExecSystem?.binaries) return true; // no info, assume available
+		const path = selectedExecSystem.binaries[tool];
+		if (path === undefined) return true; // binary not tracked, assume available
+		return path !== '' && path !== '❌';
+	}
+
+	function procedureToolName(procedure: { id: string; tool?: string }): string {
+		return procedure.tool || procedure.id;
 	}
 
 	function getArgOptions(argName: string): ComboboxOption[] {
@@ -407,14 +455,22 @@
 			{ttp.description}
 		</div>
 
+			<label class="h5 label mt-5" for="execSystem">Execution System</label>
+			<select id="execSystem" class="input mt-2" bind:value={selectedExecSystemId}>
+				<option value="">— select —</option>
+				{#each execSystemOptions as sys (sys.value)}
+					<option value={sys.value}>{sys.group}/{sys.label}</option>
+				{/each}
+			</select>
+
 			<label class="h5 label mt-5" for="procedure">Procedure</label>
 			{#if ttp.procedures && ttp.procedures.length > 1}
 				<select id="procedure" class="input mt-2" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
 					{#each ttp.procedures as procedure (procedure.id)}
 						<option
 							value={procedure.id}
-							disabled={!executingSystemHasTool(targetId, procedure.id)}
-							>{procedure.id}
+							disabled={!executingSystemHasTool(procedureToolName(procedure))}
+							>{procedure.id}{!executingSystemHasTool(procedureToolName(procedure)) ? ' ❌' : ''}
 						</option>
 					{/each}
 				</select>

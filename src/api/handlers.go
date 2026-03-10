@@ -111,6 +111,11 @@ func (h *HTTPHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 		procedureID = *req.ProcedureId
 	}
 
+	execSystemId := ""
+	if req.ExecSystemId != nil {
+		execSystemId = *req.ExecSystemId
+	}
+
 	// Create a channel to signal completion
 	done := make(chan domain.Event, 1)
 
@@ -135,8 +140,7 @@ func (h *HTTPHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 		},
 	)
 
-	// handle error or status depending on execution time
-	if err := h.api.ExecuteAction(cmdID, req.ActionId, req.TargetId, procedureID, args); err != nil {
+	if err := h.api.ExecuteAction(cmdID, req.ActionId, execSystemId, req.TargetId, procedureID, args); err != nil {
 		// Check if it's a NotFoundError and return 404
 		var notFoundErr *campaign.NotFoundError
 		if errors.As(err, &notFoundErr) {

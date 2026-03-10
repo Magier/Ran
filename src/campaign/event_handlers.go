@@ -106,7 +106,7 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 		factsUpdate.Update(new, removed)
 	}
 
-	newFacts, removedFacts, err := c.AnalyzeChanges(factsUpdate.New, factsUpdate.Removed)
+	newFacts, removedFacts, err := c.AnalyzeChanges(factsUpdate.New, factsUpdate.Removed, ev.ExecutedOn)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
 	}
@@ -211,7 +211,7 @@ func (c *Campaign) onNewSession(ev c2.SessionStarted) (domain.Message, error) {
 		Entities:  []domain.Entity{sys, ev.Session},
 		Relations: relations,
 	}
-	newFacts, removedFacts, err := c.AnalyzeChanges(newFacts, domain.Facts{})
+	newFacts, removedFacts, err := c.AnalyzeChanges(newFacts, domain.Facts{}, nil)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Failed to analyze changes after TTP execution: %v", err))
 	}

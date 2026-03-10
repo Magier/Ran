@@ -97,11 +97,12 @@ func (e ErrorMsg) UiMessage() string {
 
 type ActionSelected struct {
 	EventImpl
-	ActionID    string
-	TargetID    string
-	ProcedureID string
-	Variant     string
-	Args        map[string]string
+	ActionID     string
+	ExecSystemID string
+	TargetID     string
+	ProcedureID  string
+	Variant      string
+	Args         map[string]string
 }
 
 var _ Event = (*ActionSelected)(nil)

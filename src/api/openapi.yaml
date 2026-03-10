@@ -574,6 +574,8 @@ components:
       properties:
         actionId:
           type: string
+        execSystemId:
+          type: string
         targetId:
           type: string
         procedureId:

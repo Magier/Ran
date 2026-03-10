@@ -99,7 +99,7 @@ func (r *Ran) ExecuteAtomicTTP(ctx context.Context, ttpID, target string) error 
 		ttp.Procedures[0].IsLocalCommand = true
 	}
 
-	msg, err := r.Campaign.GroundAction(ttp, target, "", args)
+	msg, err := r.Campaign.GroundAction(ttp, "", target, "", args)
 	if err != nil {
 		panic(fmt.Sprintf("Couldn't ground action: %s", err.Error()))
 	}

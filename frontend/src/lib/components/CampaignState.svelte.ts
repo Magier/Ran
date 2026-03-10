@@ -13,6 +13,8 @@ export type Entity = {
 	name: string;
 	kind?: string;
 	namespace?: string;
+	accessLevel?: { User: number; Level: number };
+	binaries?: Record<string, string>;
 };
 
 export type Relation = {
@@ -372,6 +374,16 @@ class CampaignState {
 	}
 
 
+
+	getCompromisedSystems(): Entity[] {
+		const systemKinds = ['Pod', 'K8sNode', 'UnknownSystem'];
+		const a =  this.entities.filter(
+			(entity) => systemKinds.includes(entity.kind ?? '') &&
+				 entity.accessLevel != null &&
+				(entity.accessLevel === "user-exec" || entity.accessLevel.User > 0 || entity.accessLevel.Level > 0)
+		);
+		return a || [];
+	}
 
 	getServiceAccounts(ns?: string, permissions?: string[], includeUnkwnon?: boolean): Entity[] {
 		let serviceAccounts = this.entities.filter((entity) => entity.kind === 'ServiceAccount');

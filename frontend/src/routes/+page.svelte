@@ -126,7 +126,7 @@
 	});
 
 	const ToastMapping: Record<string, string> = {};
-	function onExecuteTTP(ttpId: string, procedureId: string, args: Record<string, string>) {
+	function onExecuteTTP(ttpId: string, execSystemId: string, procedureId: string, args: Record<string, string>) {
 		const toastId = toaster.create({
 			title: `Executing "${ttpId}"`,
 			type: 'info',
@@ -137,7 +137,7 @@
 
 		closeModal();
 
-		ExecuteAction({actionId: ttpId, targetId: selectedObjectId, procedureId, args})
+		ExecuteAction({actionId: ttpId, execSystemId, targetId: selectedObjectId, procedureId, args})
 			.catch((err) => {
 				const id = ToastMapping[ttpId];
 				delete ToastMapping[ttpId];
@@ -158,6 +158,8 @@
 		} else if (typeof e === 'string') {
 			description = e;
 		}
+
+		console.error(e)
 
 		toaster.create({
 			title: 'Error',
