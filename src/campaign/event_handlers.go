@@ -46,11 +46,20 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 	}
 
 	if ev.Success {
+		// use the ungrounded procedure for parsing the effect, to have access to the original arguments
+		var procedure domain.Procedure
+		for _, p := range ev.TTP.Procedures {
+			if p.Key == ev.Procedure.Key {
+				procedure = p
+				break
+			}
+		}
+
 		for _, effect := range ev.TTP.Effects {
 			if c2Ev.ExecutedLocally {
 				slog.Info(fmt.Sprintf("Effect executed locally: %s", c2Ev.ID))
 			}
-			effectUpdate, err := c.ParseEffect(effect, ev.Target, c2Ev.ExecutedOn, ev.Args, ev.Results...)
+			effectUpdate, err := c.ParseEffect(effect, ev.Target, c2Ev.ExecutedOn, procedure, ev.Args, ev.Results...)
 
 			if err != nil {
 				if k8sErr, ok := err.(k8s_types.K8sAPIResponseError); ok {
@@ -70,7 +79,7 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to analyze invoked tool: %v", err))
 			} else {
-				effectUpdate, err := c.ParseEffect(tool, ev.Target, c2Ev.ExecutedOn, ev.Args, ev.Results...)
+				effectUpdate, err := c.ParseEffect(tool, ev.Target, c2Ev.ExecutedOn, procedure, ev.Args, ev.Results...)
 				if err != nil {
 					slog.Error(fmt.Sprintf("Failed to parse tool effect '%s': %v", tool, err))
 				} else {
