@@ -303,7 +303,7 @@ func ParseConfigMapList(jsonStr string) ([]domain.ConfigMap, error) {
 	return configMaps, nil
 }
 
-func (c *Campaign) ParseEffect(effect string, target domain.Entity, execSystem domain.System, args map[string]string, results ...string) (factsUpdate, error) {
+func (c *Campaign) ParseEffect(effect string, target domain.Entity, execSystem domain.System, procedure domain.Procedure, args map[string]string, results ...string) (factsUpdate, error) {
 	if len(results) == 0 {
 		return factsUpdate{}, fmt.Errorf("Can't parse effect %s because there are no results", effect)
 	}
@@ -623,7 +623,7 @@ func (c *Campaign) ParseEffect(effect string, target domain.Entity, execSystem d
 						relations = append(relations, rels...)
 					}
 				} else if relationName == "rce.can-exec" {
-					es, rels, err := parseCanExecEffect(execSystem, target, relationArgs)
+					es, rels, err := parseCanExecEffect(execSystem, target, procedure, args, relationArgs)
 					if err != nil {
 						slog.Error(fmt.Sprintf("Failed to parse can-exec effect: %v", err))
 					} else {
@@ -1591,16 +1591,16 @@ func parseCanReachEffect(source domain.Entity, args []string) ([]domain.Entity, 
 	return entities, relations, nil
 }
 
-func parseCanExecEffect(execSystem domain.System, target domain.Entity, args []string) ([]domain.Entity, []domain.Relation, error) {
+func parseCanExecEffect(execSystem domain.System, target domain.Entity, procedure domain.Procedure, args map[string]string, relationArgs []string) ([]domain.Entity, []domain.Relation, error) {
 	entities := []domain.Entity{}
 	relations := []domain.Relation{}
 
 	var targetID string
 
-	if len(args) == 1 {
-		targetID = args[0]
-	} else if len(args) == 2 {
-		targetID = args[1]
+	if len(relationArgs) == 1 {
+		targetID = relationArgs[0]
+	} else if len(relationArgs) == 2 {
+		targetID = relationArgs[1]
 	}
 
 	if target == nil {
@@ -1608,9 +1608,19 @@ func parseCanExecEffect(execSystem domain.System, target domain.Entity, args []s
 	}
 	entities = append(entities, target)
 
+	for key, v := range args {
+		if key == "CMD" {
+			continue
+		}
+		templateVariable := fmt.Sprintf("${%s}", strings.ToUpper(key))
+		// TOOD: check if for casese where the variable is not set, and if that's a problem
+		procedure.Command = strings.ReplaceAll(procedure.Command, templateVariable, v)
+	}
+
 	relations = append(relations, &domain.CanExecChannel{
-		Source: execSystem,
-		Target: target,
+		Source:    execSystem,
+		Target:    target,
+		Procedure: procedure,
 	})
 
 	return entities, relations, nil

@@ -317,6 +317,7 @@ type CanExecChannel struct {
 	Identity    Identity
 	PodsExec    bool
 	NextChannel C2Channel // for chaining multiple
+	Procedure   Procedure
 }
 
 var _ Relation = (*CanExecChannel)(nil)
@@ -338,9 +339,16 @@ func (u *CanExecChannel) WithTarget(e Entity) Relation {
 func (u *CanExecChannel) GetCost() int {
 	return 10
 }
-func (ch *CanExecChannel) GetKind() string                      { return "RCE/exec" }
-func (ch *CanExecChannel) GetCommandEnvelope(cmd string) string { return cmd }
-func (ch *CanExecChannel) GetNextChannel() C2Channel            { return ch.NextChannel }
+func (ch *CanExecChannel) GetKind() string { return "RCE/exec" }
+func (ch *CanExecChannel) GetCommandEnvelope(cmd string) string {
+	// If the Procedure has a command template, substitute ${CMD} with the actual command
+	if ch.Procedure.Command != "" {
+		return strings.ReplaceAll(ch.Procedure.Command, "${CMD}", cmd)
+	}
+	// Otherwise passthrough (backward compatibility)
+	return cmd
+}
+func (ch *CanExecChannel) GetNextChannel() C2Channel { return ch.NextChannel }
 func (ch *CanExecChannel) SetNextChannel(next C2Channel)        { ch.NextChannel = next }
 func (ch *CanExecChannel) GetFinalTarget() Entity               { return ch.Target }
 func (ch *CanExecChannel) GetTarget() Entity                    { return ch.Target }

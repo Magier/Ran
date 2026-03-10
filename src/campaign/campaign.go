@@ -764,8 +764,8 @@ func (c Campaign) groundCmdTemplate(cmdTemplate string, variables map[string]str
 		slog.Error(e.Error())
 		return cmdTemplate, e
 	}
-	var buf strings.Builder
 
+	var buf strings.Builder
 	// Convert string "true"/"false" to bool for template execution
 	vars := make(map[string]interface{})
 	for k, v := range variables {
