@@ -142,7 +142,7 @@ func (c *Campaign) ExecuteAction(ctx context.Context, ev domain.ActionSelected) 
 	var execCmd domain.ExecTTP
 	var err error
 
-	execCmd, err = c.GroundAction(ttp, ev.TargetID, ev.ProcedureID, ev.Args)
+	execCmd, err = c.GroundAction(ttp, ev.ExecSystemID, ev.TargetID, ev.ProcedureID, ev.Args)
 	if err != nil {
 		slog.Error(fmt.Sprintf("Could not ground action: %v\n", err))
 		return err
@@ -251,7 +251,7 @@ func (c *Campaign) cleanupSteps() {
 				Procedures: []domain.Procedure{step.TTP.Cleanup},
 			}
 
-			execCmd, err := c.GroundAction(cleanupTTP, step.Target.GetId(), cleanup.Key, step.Args)
+			execCmd, err := c.GroundAction(cleanupTTP, "", step.Target.GetId(), cleanup.Key, step.Args)
 			execCmd.IsCleanup = true
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to ground cleanup action for step '%s': %v", step.ID, err))
@@ -401,7 +401,7 @@ func (c Campaign) selectBestProcedure(ttp domain.TTP, procedureID string) (domai
 	return ttp.Procedures[0], nil
 }
 
-func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, args map[string]string) (domain.ExecTTP, error) {
+func (c Campaign) GroundAction(ttp domain.TTP, execSystemID, targetId, procedureID string, args map[string]string) (domain.ExecTTP, error) {
 	if args == nil {
 		args = make(map[string]string)
 	}
@@ -454,9 +454,16 @@ func (c Campaign) GroundAction(ttp domain.TTP, targetId, procedureID string, arg
 
 	var execSystem domain.Entity
 	if isActionOnRemoteTarget(execCmd.TTP, execCmd.Procedure) {
-		execSystem, err = c.getSystemForExecution(execCmd.Procedure, target)
-		if err != nil {
-			slog.Error(fmt.Sprintf("Failed to get system for execution: %s", err.Error()))
+		var execSystem domain.Entity
+		if execSystemID != "" {
+			var ok bool
+			execSystem, ok = c.kb.GetEntity(execSystemID)
+			if !ok {
+				execSystem, err = c.getSystemForExecution(execCmd.Procedure, target)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failed to get system for execution: %s", err.Error()))
+				}
+			}
 		}
 
 		if execSystem != nil {

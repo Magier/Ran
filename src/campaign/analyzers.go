@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain.Facts, domain.Facts, error) {
+func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts, execSystem domain.System) (domain.Facts, domain.Facts, error) {
 	entities := make(map[string]domain.Entity)
 	relations := make([]domain.Relation, 0)
 	relations = append(relations, new.Relations...)
@@ -46,6 +46,24 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 			resultingFacts, err = c.analyzePod(e)
 		case domain.ServiceAccountToken:
 			resultingFacts, err = analyzeServiceAccountToken(e)
+			if err == nil {
+				// the resulting token in the Assets contains the resolved entities from the raw token
+				if len(resultingFacts.Assets) > 0 {
+					e = resultingFacts.Assets[0].(domain.ServiceAccountToken)
+				}
+
+				if mergedPod, stalePod, ok := c.reconcileTokenPodWithSource(e, execSystem, resultingFacts.Entities); ok {
+					resultingFacts.Entities = removeEntityByID(resultingFacts.Entities, stalePod.GetId())
+					resultingFacts.Entities = append(resultingFacts.Entities, mergedPod)
+
+					if _, exists := c.GetEntityById(stalePod.GetId()); exists {
+						newFacts, removedEdges := c.transplantEdges(stalePod, mergedPod)
+						resultingFacts.Update(newFacts)
+						removed.Update(removedEdges)
+						removed.Entities = append(removed.Entities, stalePod)
+					}
+				}
+			}
 		case domain.SelfSubjectRulesReview:
 			resultingFacts, _, err = c.analyzeSelfSubjectRulesReview(e)
 		case domain.RoleBinding:
@@ -145,6 +163,33 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts) (domain
 		if err != nil {
 			slog.Error(fmt.Sprintf("Failed to analyze %T", current), "error", err)
 		} else {
+			if pod, ok := sys.(domain.Pod); ok && !isUnknown {
+				knownSystems := c.getSystems(true, false)
+				for _, knownSystem := range knownSystems {
+					knownPod, isPod := knownSystem.(domain.Pod)
+					if !isPod || knownPod.GetId() == pod.GetId() {
+						continue
+					}
+
+					if !isSameSystem(pod, knownPod) && !podsShareIP(pod, knownPod) {
+						continue
+					}
+
+					preferred, stale := choosePreferredPodIdentity(pod, knownPod)
+					if stale.GetId() == pod.GetId() {
+						resultingFacts.Entities = removeEntityByID(resultingFacts.Entities, stale.GetId())
+					}
+					identifiedPod := domain.UpdateEntity(preferred, stale).(domain.Pod)
+					resultingFacts.Entities = append(resultingFacts.Entities, identifiedPod)
+
+					newFacts, removedEdges := c.transplantEdges(stale, identifiedPod)
+					resultingFacts.Update(newFacts)
+					removed.Update(removedEdges)
+					removed.Entities = append(removed.Entities, stale)
+					break
+				}
+			}
+
 			// if the system is known, see if it can be merged with an yet unknown systems
 			if isSystem && !isUnknown {
 				unknownSystems := c.getSystems(false, true)
@@ -1520,6 +1565,116 @@ func isSameSystem(a, b domain.System) bool {
 
 	// TODO: incorporate further heuristics to find a matching entity
 	return false
+}
+
+func choosePreferredPodIdentity(current, existing domain.Pod) (domain.Pod, domain.Pod) {
+	currentScore := podIdentityConfidence(current)
+	existingScore := podIdentityConfidence(existing)
+
+	if currentScore > existingScore {
+		return current, existing
+	}
+
+	// Keep the existing pod when confidence is equal to avoid flapping IDs.
+	return existing, current
+}
+
+func podIdentityConfidence(p domain.Pod) int {
+	score := 0
+	if p.UID != "" {
+		score += 4
+	}
+	if p.GetNamespace() != "" && p.GetNamespace() != "?" {
+		score += 2
+	}
+	if p.GetName() != "" && !looksLikeGuessedPodName(p.GetName(), p.IPs) {
+		score += 2
+	}
+	if p.ServiceAccountName != "" {
+		score += 1
+	}
+	return score
+}
+
+func looksLikeGuessedPodName(name string, ips []net.IPAddr) bool {
+	for _, ipAddr := range ips {
+		if ipAddr.IP == nil {
+			continue
+		}
+		ipKebab := strings.ReplaceAll(ipAddr.IP.String(), ".", "-")
+		if name == "pod-"+ipKebab || name == ipKebab || strings.Contains(name, ipKebab) {
+			return true
+		}
+	}
+	return false
+}
+
+func podsShareIP(a, b domain.Pod) bool {
+	for _, aIP := range a.IPs {
+		if aIP.IP == nil {
+			continue
+		}
+		for _, bIP := range b.IPs {
+			if bIP.IP == nil {
+				continue
+			}
+			if aIP.IP.Equal(bIP.IP) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func removeEntityByID(entities []domain.Entity, id string) []domain.Entity {
+	filtered := make([]domain.Entity, 0, len(entities))
+	for _, entity := range entities {
+		if entity.GetId() == id {
+			continue
+		}
+		filtered = append(filtered, entity)
+	}
+	return filtered
+}
+
+func (c *Campaign) reconcileTokenPodWithSource(token domain.ServiceAccountToken, sourceSystem domain.System, entities []domain.Entity) (domain.Pod, domain.Pod, bool) {
+	sourcePod, ok := sourceSystem.(domain.Pod)
+	if !ok {
+		return domain.Pod{}, domain.Pod{}, false
+	}
+
+	tokenPod, found := findTokenPodEntity(entities, token)
+	if !found {
+		return domain.Pod{}, domain.Pod{}, false
+	}
+
+	if sourcePod.GetId() == tokenPod.GetId() {
+		return domain.Pod{}, domain.Pod{}, false
+	}
+
+	preferred, stale := choosePreferredPodIdentity(tokenPod, sourcePod)
+	merged := domain.UpdateEntity(preferred, stale).(domain.Pod)
+	return merged, stale, true
+}
+
+func findTokenPodEntity(entities []domain.Entity, token domain.ServiceAccountToken) (domain.Pod, bool) {
+	for _, entity := range entities {
+		pod, ok := entity.(domain.Pod)
+		if !ok {
+			continue
+		}
+
+		if token.Kubernetes.Pod.UID != "" && pod.UID == token.Kubernetes.Pod.UID {
+			return pod, true
+		}
+
+		if token.Kubernetes.Pod.Name != "" && token.Kubernetes.Namespace != "" {
+			if pod.GetName() == token.Kubernetes.Pod.Name && pod.GetNamespace() == token.Kubernetes.Namespace {
+				return pod, true
+			}
+		}
+	}
+	return domain.Pod{}, false
 }
 
 // formatRBACPermissions returns a string representation of a slice of RBACPermission.

@@ -112,6 +112,9 @@
 			// 	return obj.toString();
 			// } else if (typeof obj === 'boolean') {
 			// 	return obj ? 'true' : 'false';
+		} else if (obj?.hasOwnProperty('IP')) {
+			// Handle special case for objects with 'IP' property
+			return obj.IP;
 		} else {
 			return JSON.stringify(obj, null, 2);
 		}
@@ -165,6 +168,9 @@
 					<!-- <button class="btn btn-sm preset-filled-primary-500" disabled>🔍</button> -->
 				{/if}
 			{:else if Array.isArray(data) && data.length > 0}
+				{#if data.length === 1}
+					<div class:field-changed={highlightedFields[label]}><span class="font-bold mr-1">{label}:</span>{prettyPrint(data[0])}</div>
+				{:else}
 				<details class:field-changed={highlightedFields[label]}>
 					<summary>
 						<span class="font-bold mr-1">{label}</span>
@@ -176,6 +182,7 @@
 						{/each}
 					</ul>
 				</details>
+				{/if }
 			{:else if typeof data === 'object' && data !== null}
 				<!-- Collapsible section for objects/arrays -->
 				<details class:field-changed={highlightedFields[label]}>

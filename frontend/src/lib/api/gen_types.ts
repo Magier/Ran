@@ -316,6 +316,7 @@ export interface components {
             /** Format: date-time */
             completedAt: string;
             executedOn: string;
+            /** @enum {string} */
             status: "Unknown" | "Failed" | "Success" | "Ongoing";
             observables: string[];
             defense?: components["schemas"]["TTPDefense"];
@@ -371,6 +372,7 @@ export interface components {
         };
         ExecuteActionCmd: {
             actionId: string;
+            execSystemId?: string;
             targetId: string;
             procedureId?: string;
             args?: {
@@ -397,7 +399,7 @@ export interface components {
             verb: string;
             scope: string;
             sourceRole: string;
-            /** @default false */
+            /** @default true */
             isNamespaced: boolean;
         };
         Error: {
