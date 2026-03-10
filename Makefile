@@ -17,6 +17,10 @@ test-frontend:
 	pnpm --prefix frontend test
 
 # === Asset Preparation ===
+.PHONY: build-frontend
+build-frontend:
+	cd frontend && pnpm run build
+
 .PHONY: copy-armory
 copy-armory:
 	mkdir -p src/armory/builtin
@@ -32,8 +36,10 @@ copy-frontend:
 prepare-assets: copy-armory copy-frontend
 
 # === Building ===
+
+
 .PHONY: build-binary
-build-binary:
+build-binary: prepare-assets
 ifndef GOOS
 	$(error GOOS is not set)
 endif
@@ -46,6 +52,8 @@ endif
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $$DEST . && chmod +x $$DEST
 
 # Local development
+
+
 .PHONY: build
 build: prepare-assets
 	cd src && go build -o ../dist/ran . && chmod +x ../dist/ran
