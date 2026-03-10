@@ -593,7 +593,6 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 				slog.Warn(fmt.Sprintf("Target '%s' is not namespaced, can't set NS variable", target.GetName()))
 			} else {
 				slog.Warn("No valid target -> using `default` namespace")
-				arg = "default"
 			}
 		} else if strings.Contains(arg, POD_NAME_VAR) {
 			var podName string

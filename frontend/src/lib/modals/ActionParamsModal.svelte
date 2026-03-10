@@ -456,12 +456,16 @@
 		</div>
 
 			<label class="h5 label mt-5" for="execSystem">Execution System</label>
-			<select id="execSystem" class="input mt-2" bind:value={selectedExecSystemId}>
-				<option value="">— select —</option>
-				{#each execSystemOptions as sys (sys.value)}
-					<option value={sys.value}>{sys.group}/{sys.label}</option>
-				{/each}
-			</select>
+
+			{#if execSystemOptions.length === 1}
+				<code class="input mt-2">{execSystemOptions[0].group}/{execSystemOptions[0].label}</code>
+			{:else if execSystemOptions.length > 1}
+				<select id="execSystem" class="input mt-2" bind:value={selectedExecSystemId}>
+					{#each execSystemOptions as sys (sys.value)}
+						<option value={sys.value}>{sys.group}/{sys.label}</option>
+					{/each}
+				</select>
+			{/if}
 
 			<label class="h5 label mt-5" for="procedure">Procedure</label>
 			{#if ttp.procedures && ttp.procedures.length > 1}

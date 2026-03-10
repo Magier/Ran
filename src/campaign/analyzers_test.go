@@ -1412,3 +1412,148 @@ func TestIsSameSystem(t *testing.T) {
 		})
 	}
 }
+
+func TestChoosePreferredPodIdentity(t *testing.T) {
+	confirmed := domain.NewPod("api-7fdb6f57cd-v6k2r", "prod")
+	confirmed.UID = "pod-uid-1"
+	confirmed.ServiceAccountName = "default"
+	confirmed.IPs = []net.IPAddr{{IP: net.ParseIP("10.244.1.4")}}
+
+	guessed := domain.NewPod("pod-10-244-1-4", "?")
+	guessed.IPs = []net.IPAddr{{IP: net.ParseIP("10.244.1.4")}}
+
+	preferred, stale := choosePreferredPodIdentity(guessed, confirmed)
+	if preferred.GetId() != confirmed.GetId() {
+		t.Fatalf("expected confirmed pod to be preferred, got %s", preferred.GetId())
+	}
+	if stale.GetId() != guessed.GetId() {
+		t.Fatalf("expected guessed pod to be stale, got %s", stale.GetId())
+	}
+}
+
+func TestChoosePreferredPodIdentity_TieKeepsExisting(t *testing.T) {
+	current := domain.NewPod("pod-a", "default")
+	existing := domain.NewPod("pod-b", "default")
+	current.IPs = []net.IPAddr{{IP: net.ParseIP("10.1.1.1")}}
+	existing.IPs = []net.IPAddr{{IP: net.ParseIP("10.1.1.1")}}
+
+	preferred, stale := choosePreferredPodIdentity(current, existing)
+	if preferred.GetId() != existing.GetId() {
+		t.Fatalf("expected existing pod to be preferred on tie, got %s", preferred.GetId())
+	}
+	if stale.GetId() != current.GetId() {
+		t.Fatalf("expected current pod to be stale on tie, got %s", stale.GetId())
+	}
+}
+
+func TestLooksLikeGuessedPodName(t *testing.T) {
+	ips := []net.IPAddr{{IP: net.ParseIP("10.244.1.4")}}
+	if !looksLikeGuessedPodName("pod-10-244-1-4", ips) {
+		t.Fatal("expected ip-derived pod name to be guessed")
+	}
+	if looksLikeGuessedPodName("api-server", ips) {
+		t.Fatal("expected regular pod name not to be guessed")
+	}
+}
+
+func TestPodsShareIP(t *testing.T) {
+	a := domain.NewPod("a", "default")
+	b := domain.NewPod("b", "default")
+	a.IPs = []net.IPAddr{{IP: net.ParseIP("10.244.1.4")}}
+	b.IPs = []net.IPAddr{{IP: net.ParseIP("10.244.1.4")}}
+
+	if !podsShareIP(a, b) {
+		t.Fatal("expected pods with same IP to match")
+	}
+
+	b.IPs = []net.IPAddr{{IP: net.ParseIP("10.244.1.5")}}
+	if podsShareIP(a, b) {
+		t.Fatal("expected pods with different IPs not to match")
+	}
+}
+
+func TestAnalyzeChanges_ReconcilesDnsGuessedPodToConfirmedPod(t *testing.T) {
+	c := NewCampaign(nil)
+
+	ns := domain.NewNamespace("dev")
+	guessed := domain.NewPod("pod-10-244-1-4", "?")
+	guessed.IPs = []net.IPAddr{{IP: net.ParseIP("10.244.1.4")}}
+
+	c.AddEntities(ns, guessed)
+	oldRel := domain.Contains{Container: ns, Object: guessed}
+	c.AddRelations(oldRel)
+
+	confirmed := domain.NewPod("backend-5c77d846b4-h2ccn", "dev")
+	confirmed.UID = "pod-uid-123"
+	confirmed.ServiceAccountName = "default"
+	confirmed.IPs = []net.IPAddr{{IP: net.ParseIP("10.244.1.4")}}
+
+	newFacts, removed, err := c.AnalyzeChanges(domain.Facts{Entities: []domain.Entity{confirmed}}, domain.Facts{}, nil)
+	if err != nil {
+		t.Fatalf("AnalyzeChanges() error = %v", err)
+	}
+
+	if !entityIDExists(newFacts.Entities, confirmed.GetId()) {
+		t.Fatalf("expected confirmed pod %q in new facts", confirmed.GetId())
+	}
+	if entityIDExists(newFacts.Entities, guessed.GetId()) {
+		t.Fatalf("did not expect guessed pod %q in new facts", guessed.GetId())
+	}
+
+	if !entityIDExists(removed.Entities, guessed.GetId()) {
+		t.Fatalf("expected guessed pod %q in removed entities", guessed.GetId())
+	}
+
+	if !relationExists(newFacts.Relations, ns.GetId(), confirmed.GetId()) {
+		t.Fatalf("expected transplanted relation %q -> %q in new facts", ns.GetId(), confirmed.GetId())
+	}
+	if !relationExists(removed.Relations, ns.GetId(), guessed.GetId()) {
+		t.Fatalf("expected old relation %q -> %q in removed facts", ns.GetId(), guessed.GetId())
+	}
+}
+
+func TestAnalyzeChanges_DnsRediscoveryDoesNotOverrideConfirmedPod(t *testing.T) {
+	c := NewCampaign(nil)
+
+	ns := domain.NewNamespace("dev")
+	confirmed := domain.NewPod("backend-5c77d846b4-h2ccn", "dev")
+	confirmed.UID = "pod-uid-123"
+	confirmed.ServiceAccountName = "default"
+	confirmed.IPs = []net.IPAddr{{IP: net.ParseIP("10.244.1.4")}}
+
+	c.AddEntities(ns, confirmed)
+	c.AddRelations(domain.Contains{Container: ns, Object: confirmed})
+
+	guessed := domain.NewPod("pod-10-244-1-4", "?")
+	guessed.IPs = []net.IPAddr{{IP: net.ParseIP("10.244.1.4")}}
+
+	newFacts, _, err := c.AnalyzeChanges(domain.Facts{Entities: []domain.Entity{guessed}}, domain.Facts{}, nil)
+	if err != nil {
+		t.Fatalf("AnalyzeChanges() error = %v", err)
+	}
+
+	if !entityIDExists(newFacts.Entities, confirmed.GetId()) {
+		t.Fatalf("expected confirmed pod %q to remain preferred", confirmed.GetId())
+	}
+	if entityIDExists(newFacts.Entities, guessed.GetId()) {
+		t.Fatalf("did not expect guessed pod %q to override confirmed identity", guessed.GetId())
+	}
+}
+
+func entityIDExists(entities []domain.Entity, id string) bool {
+	for _, entity := range entities {
+		if entity.GetId() == id {
+			return true
+		}
+	}
+	return false
+}
+
+func relationExists(relations []domain.Relation, srcID, tgtID string) bool {
+	for _, relation := range relations {
+		if relation.GetSourceId() == srcID && relation.GetTargetId() == tgtID {
+			return true
+		}
+	}
+	return false
+}

@@ -244,7 +244,7 @@ func (c2 *C2Manager) StartC2Client(ctx context.Context, c2Name string) (domain.M
 		return nil, ctx.Err()
 	default:
 		slog.Warn("Could not notify about new client (channel full)", "client", c2Name)
-			}
+	}
 
 	return nil, nil
 }
@@ -362,7 +362,7 @@ func (c2 *C2Manager) ExecuteTTP(ctx context.Context, msg domain.Message) (domain
 					slog.Error("Failed to set target for session: " + err.Error())
 					results = append(results, "Failed to set target for session: "+err.Error())
 				} else {
-				results = append(results, "ok")
+					results = append(results, "ok")
 				}
 			} else {
 				// this is a special case, as it does not execute a command, but sets the target for the next commands on the same channel
@@ -628,16 +628,16 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 		if ch.IsInteractive {
 			slog.Debug("Establishing interactive shell for channel  is not yet implemented!")
 		} else {
-		stdout, stderr, err = execKubectl(ctx, cmd, target)
-		results = []string{stdout, stderr}
-		if err != nil {
-			if execErr, ok := err.(k8s.ExecError); ok {
-				err = ExecError{
-					Message:  execErr.Error(),
-					ExitCode: execErr.Code,
-				}
-			} else {
-				err = fmt.Errorf("%w: '%s'", err, stderr)
+			stdout, stderr, err = execKubectl(ctx, cmd, target)
+			results = []string{stdout, stderr}
+			if err != nil {
+				if execErr, ok := err.(k8s.ExecError); ok {
+					err = ExecError{
+						Message:  execErr.Error(),
+						ExitCode: execErr.Code,
+					}
+				} else {
+					err = fmt.Errorf("%w: '%s'", err, stderr)
 				}
 			}
 		}
