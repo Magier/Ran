@@ -454,15 +454,17 @@ func (c Campaign) GroundAction(ttp domain.TTP, execSystemID, targetId, procedure
 
 	var execSystem domain.Entity
 	if isActionOnRemoteTarget(execCmd.TTP, execCmd.Procedure) {
-		var execSystem domain.Entity
 		if execSystemID != "" {
 			var ok bool
 			execSystem, ok = c.kb.GetEntity(execSystemID)
 			if !ok {
-				execSystem, err = c.getSystemForExecution(execCmd.Procedure, target)
-				if err != nil {
-					slog.Error(fmt.Sprintf("Failed to get system for execution: %s", err.Error()))
-				}
+				slog.Warn(fmt.Sprintf("No entity with ID '%s' found for execution system", execSystemID))
+			}
+		}
+		if execSystem == nil {
+			execSystem, err = c.getSystemForExecution(execCmd.Procedure, target)
+			if err != nil {
+				slog.Error(fmt.Sprintf("Failed to get system for execution: %s", err.Error()))
 			}
 		}
 

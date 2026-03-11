@@ -322,6 +322,61 @@ var CanExecAccessNodeToUnknownRule = Rule{
 	RelationTriggers: []string{"can-exec"},
 }
 
+// PropagateHostIPRule propagates the HostIP from a Pod to the K8sNode it runs on.
+// When a Pod has a RunsOn relation to a K8sNode and the Pod has a HostIP filled,
+// this rule adds that IP to the node's IPs list if it's not already there.
+var PropagateHostIPRule = Rule{
+	Name:       "PropagateHostIP",
+	SourceType: reflect.TypeOf(domain.Pod{}),
+	TargetType: reflect.TypeOf(domain.K8sNode{}),
+	Match: func(source, target domain.Entity, re *RuleEngine) ConditionState {
+		pod, ok := source.(domain.Pod)
+		if !ok {
+			return ConditionFalse
+		}
+
+		node, ok := target.(domain.K8sNode)
+		if !ok || node.SystemImpl == nil {
+			return ConditionFalse
+		}
+
+		// Required: pod has a runs-on relation to this node
+		if !podRunsOnNode(re.kb, pod, node) {
+			return ConditionFalse
+		}
+
+		// Required: pod has a non-empty HostIP
+		if len(pod.HostIP.IP) == 0 {
+			return ConditionFalse
+		}
+
+		// Check if the node already has this IP
+		for _, ip := range node.IPs {
+			if ip.IP.Equal(pod.HostIP.IP) {
+				return ConditionFalse // IP already present, no update needed
+			}
+		}
+
+		return ConditionTrue
+	},
+	Build: func(source, target domain.Entity, re *RuleEngine) []domain.Relation {
+		// Entity-only side effect rule - no relations created
+		return nil
+	},
+	Apply: func(source, target domain.Entity) []domain.Entity {
+		pod := source.(domain.Pod)
+		node := target.(domain.K8sNode)
+
+		// Add the pod's HostIP to the node's IPs
+		if node.SystemImpl != nil {
+			node.IPs = append(node.IPs, pod.HostIP)
+			return []domain.Entity{node}
+		}
+		return nil
+	},
+	RelationTriggers: []string{"runs-on"},
+}
+
 // DefaultRules returns the standard set of rules for the rule engine.
 func DefaultRules() []Rule {
 	return []Rule{
@@ -336,5 +391,6 @@ func DefaultRules() []Rule {
 		CanExecAccessUnknownSystemRule,
 		CanExecAccessPodToUnknownRule,
 		CanExecAccessNodeToUnknownRule,
+		PropagateHostIPRule,
 	}
 }
