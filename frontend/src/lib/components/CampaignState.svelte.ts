@@ -13,7 +13,7 @@ export type Entity = {
 	name: string;
 	kind?: string;
 	namespace?: string;
-	accessLevel?: { User: number; Level: number };
+	accessLevel?: { User: number; Level: number } | string;
 	binaries?: Record<string, string>;
 };
 
@@ -377,12 +377,11 @@ class CampaignState {
 
 	getCompromisedSystems(): Entity[] {
 		const systemKinds = ['Pod', 'K8sNode', 'UnknownSystem'];
-		const a =  this.entities.filter(
+		return this.entities.filter(
 			(entity) => systemKinds.includes(entity.kind ?? '') &&
-				 entity.accessLevel != null &&
-				(entity.accessLevel === "user-exec" || entity.accessLevel.User > 0 || entity.accessLevel.Level > 0)
+				entity.accessLevel != null &&
+				(entity.accessLevel === "user-exec" || (typeof entity.accessLevel === "object" && (entity.accessLevel.User > 0 || entity.accessLevel.Level > 0)))
 		);
-		return a || [];
 	}
 
 	getServiceAccounts(ns?: string, permissions?: string[], includeUnkwnon?: boolean): Entity[] {
@@ -390,6 +389,31 @@ class CampaignState {
 		if (ns) {
 			serviceAccounts = serviceAccounts.filter((entity) => entity.namespace === ns);
 		}
+		return serviceAccounts || [];
+	}
+
+	getServiceAccountsWithTokens(ns?: string): Entity[] {
+		// Get all service account tokens
+		const tokens = this.entities.filter((entity) => entity.kind === 'ServiceAccountToken');
+		
+		// Extract the ServiceAccount IDs from tokens (tokens have ID format: ns/{namespace}/sa/{saName}/token)
+		const saIdsWithTokens = new Set(
+			tokens.map(token => {
+				// Extract SA ID from token ID by removing the /token suffix
+				const tokenId = token.id;
+				return tokenId.replace(/\/token$/, '');
+			})
+		);
+		
+		// Filter ServiceAccounts to only those that have tokens
+		let serviceAccounts = this.entities.filter(
+			(entity) => entity.kind === 'ServiceAccount' && saIdsWithTokens.has(entity.id)
+		);
+		
+		if (ns) {
+			serviceAccounts = serviceAccounts.filter((entity) => entity.namespace === ns);
+		}
+		
 		return serviceAccounts || [];
 	}
 
