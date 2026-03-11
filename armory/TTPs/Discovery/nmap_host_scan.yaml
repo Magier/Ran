@@ -5,11 +5,12 @@ techniques: ["Network Service Discovery", T1046]
 preconditions:
   kind: System
   accessLevel: user-exec
+  sys.has-binary: nmap
 parameters:
   CIDR:
     type: string
     description: the CIDR range to scan
-    default: "10.244.1.0/25"
+    default: "${TARGET.IP}/25"
   THREADS:
     type: int
     description: the number of concurrent threads to use
