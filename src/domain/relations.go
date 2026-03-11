@@ -348,10 +348,10 @@ func (ch *CanExecChannel) GetCommandEnvelope(cmd string) string {
 	// Otherwise passthrough (backward compatibility)
 	return cmd
 }
-func (ch *CanExecChannel) GetNextChannel() C2Channel { return ch.NextChannel }
-func (ch *CanExecChannel) SetNextChannel(next C2Channel)        { ch.NextChannel = next }
-func (ch *CanExecChannel) GetFinalTarget() Entity               { return ch.Target }
-func (ch *CanExecChannel) GetTarget() Entity                    { return ch.Target }
+func (ch *CanExecChannel) GetNextChannel() C2Channel     { return ch.NextChannel }
+func (ch *CanExecChannel) SetNextChannel(next C2Channel) { ch.NextChannel = next }
+func (ch *CanExecChannel) GetFinalTarget() Entity        { return ch.Target }
+func (ch *CanExecChannel) GetTarget() Entity             { return ch.Target }
 
 // GetRelationCost returns a cost for path-finding. Actionable relations
 // (ones that represent real attack primitives) get low costs so the
@@ -585,12 +585,13 @@ func (r MountsHostPaths) IsInverse() bool     { return true }
 func (r MountsHostPaths) GetSourceId() string { return r.Pod.GetId() }
 func (r MountsHostPaths) GetTargetId() string { return r.Node.GetId() }
 func (r MountsHostPaths) GetRelationName() string {
-	if len(r.HostPaths) == 1 {
-		for _, hostPath := range r.HostPaths {
-			return fmt.Sprintf("mounts %s", hostPath)
-		}
-	}
-	return fmt.Sprintf("%d hostPaths", len(r.HostPaths))
+	return "mounts-host-paths"
+	// if len(r.HostPaths) == 1 {
+	// 	for _, hostPath := range r.HostPaths {
+	// 		return fmt.Sprintf("mounts %s", hostPath)
+	// 	}
+	// }
+	// return fmt.Sprintf("%d hostPaths", len(r.HostPaths))
 }
 
 func (r MountsHostPaths) WithSource(e Entity) Relation {

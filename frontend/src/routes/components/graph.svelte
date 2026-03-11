@@ -12,6 +12,7 @@
 	import type { Node, Edge } from '$lib/api/index';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import GraphNodeSelector from './graph_node_selector.svelte';
+	import GraphFilter from './graph_filter.svelte';
 	// import { hierarchyLayout } from './hierachical_layout';
 	// import 	{ K8sAttackGraphLayout } from './layout_claude';
 
@@ -40,6 +41,21 @@
 	let edges = $state([]);
 	let searchOpen = $state(false);
 
+	const FILTER_NS_KEY = '_hiddenNamespaces';
+	const DEFAULT_HIDDEN_NAMESPACES = ['kube-system', 'local-path-storage'];
+
+	function loadHiddenNamespaces(): Set<string> {
+		if (!browser) return new Set(DEFAULT_HIDDEN_NAMESPACES);
+		try {
+			const stored = sessionStorage.getItem(FILTER_NS_KEY);
+			return stored ? new Set(JSON.parse(stored)) : new Set(DEFAULT_HIDDEN_NAMESPACES);
+		} catch {
+			return new Set(DEFAULT_HIDDEN_NAMESPACES);
+		}
+	}
+
+	let hiddenNamespaces: Set<string> = $state(loadHiddenNamespaces());
+
 	cytoscape.use(fcose);
 	if (typeof expandCollapse === 'function') {
 		cytoscape.use(expandCollapse);
@@ -58,6 +74,14 @@
 	const campaignState = getCampaignState();
 	// let positions: PosMap = $state({});
 	const POS_KEY = 'nodePositions';
+
+	// Derive available namespaces (compound nodes that have children) from graph data
+	const availableNamespaces = $derived.by(() => {
+		const graph = campaignState.graph;
+		if (!graph?.nodes) return [];
+		const parentIds = new Set(graph.nodes.filter((n) => n.parent).map((n) => n.parent!));
+		return graph.nodes.filter((n) => parentIds.has(n.id)).map((n) => n.name);
+	});
 	const PAN_KEY = '_pan';
 	const ZOOM_KEY = '_zoom';
 
@@ -162,6 +186,18 @@
 			sessionStorage.clear();
 			positions = {};
 			previousNodeIds.clear();
+			hiddenNamespaces = new Set(DEFAULT_HIDDEN_NAMESPACES);
+		}
+	});
+
+	// Persist hidden namespaces to sessionStorage
+	$effect(() => {
+		if (browser) {
+			sessionStorage.setItem(FILTER_NS_KEY, JSON.stringify([...hiddenNamespaces]));
+		}
+		// Re-apply filter whenever hidden namespaces change
+		if (cy) {
+			applyNamespaceFilters(cy, hiddenNamespaces);
 		}
 	});
 
@@ -315,7 +351,7 @@
 					}
 
 					applyCompromisedStyle(cy);
-					hideRedundantInformationalEdges(cy);
+					applyNamespaceFilters(cy, hiddenNamespaces);
 
 					// use timeout 0 to not track selectedObject as a dependency
 					setTimeout(() => {
@@ -543,12 +579,13 @@
 	/**
 	 * Hide informational edges between a node pair when a non-informational
 	 * (actionable/factual) edge already exists for that same pair.
+	 * Skips edges that are already hidden by the namespace filter.
 	 */
 	function hideRedundantInformationalEdges(cy: cytoscape.Core) {
-		// Collect node-pairs that have at least one non-informational edge
+		// Collect node-pairs that have at least one non-informational, non-filtered edge
 		const hasActionableEdge = new Set<string>();
 		cy.edges().forEach(e => {
-			if (!e.data('informational')) {
+			if (!e.data('informational') && !e.hasClass('namespace-filtered')) {
 				// Use an unordered key so A->B and B->A share the same pair
 				const pair = [e.source().id(), e.target().id()].sort().join('||');
 				hasActionableEdge.add(pair);
@@ -557,6 +594,7 @@
 
 		// Hide informational edges whose pair has an actionable edge
 		cy.edges('[?informational]').forEach(e => {
+			if (e.hasClass('namespace-filtered')) return; // don't touch namespace-filtered edges
 			const pair = [e.source().id(), e.target().id()].sort().join('||');
 			if (hasActionableEdge.has(pair)) {
 				e.hide();
@@ -564,6 +602,67 @@
 				e.show();
 			}
 		});
+	}
+
+	/**
+	 * Hide nodes (and their edges) belonging to the specified namespaces.
+	 * Uses the 'namespace-filtered' class to track which elements were hidden
+	 * by this filter, so other hide/show logic isn't affected.
+	 */
+	function applyNamespaceFilters(cy: cytoscape.Core, hidden: Set<string>) {
+		// Step 1: restore elements previously hidden by this filter
+		cy.elements('.namespace-filtered').forEach((el: any) => {
+			el.removeClass('namespace-filtered');
+			if (el.isNode()) {
+				// Don't re-show if it's a child of a collapsed compound node
+				const parent = el.parent();
+				const isCollapsedChild =
+					parent.length > 0 && parent.hasClass('cy-expand-collapse-collapsed-node');
+				if (!isCollapsedChild) {
+					el.show();
+				}
+			} else if (!el.data('isMetaEdge')) {
+				el.show();
+			}
+		});
+
+		if (hidden.size === 0) {
+			// No filter — re-apply informational edge logic and return
+			hideRedundantInformationalEdges(cy);
+			return;
+		}
+
+		// Step 2: collect node IDs that belong to filtered namespaces
+		const filteredNodeIds = new Set<string>();
+		hidden.forEach((nsName) => {
+			cy.nodes().forEach((n: any) => {
+				if (n.data('name') === nsName && n.isParent()) {
+					filteredNodeIds.add(n.id());
+					n.descendants().forEach((d: any) => filteredNodeIds.add(d.id()));
+				}
+			});
+		});
+
+		// Step 3: hide filtered nodes
+		filteredNodeIds.forEach((id) => {
+			const n = cy.getElementById(id);
+			if (n.length > 0) {
+				n.addClass('namespace-filtered');
+				n.hide();
+			}
+		});
+
+		// Step 4: hide edges touching filtered nodes
+		cy.edges().forEach((e: any) => {
+			if (e.data('isMetaEdge')) return;
+			if (filteredNodeIds.has(e.source().id()) || filteredNodeIds.has(e.target().id())) {
+				e.addClass('namespace-filtered');
+				e.hide();
+			}
+		});
+
+		// Step 5: re-apply informational edge hiding on the remaining visible elements
+		hideRedundantInformationalEdges(cy);
 	}
 
 	function handleAfterExpand(node: any) {
@@ -592,17 +691,27 @@
 
 </script>
 
-<div id="graph" class={['bg-tertiary-surface-800-200', className]} bind:this={graphContainer}></div>
+<div class={['graph-wrapper', className]}>
+	<div id="graph" bind:this={graphContainer}></div>
+	<GraphFilter {availableNamespaces} bind:hiddenNamespaces />
+</div>
 
 <GraphNodeSelector {cy} bind:isOpen={searchOpen} />
 
 <style>
+	.graph-wrapper {
+		position: relative;
+		width: 100%;
+		height: 100%;
+	}
+
 	#graph {
 		width: 100%;
-		/* height: 1000px; */
+		height: 100%;
 		display: block;
-		/* background-color: #1a1a1a; */
-		position: relative;
+		position: absolute;
+		inset: 0;
+		background-color: var(--color-tertiary-surface-800-200, transparent);
 		z-index: 0;
 	}
 </style>
