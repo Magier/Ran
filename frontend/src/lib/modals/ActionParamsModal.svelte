@@ -225,8 +225,12 @@
 						availableEntities = campaignState.getPods("", isSetTargetTTP)
 						argOptions[param.name] = availableEntities.map(entityToComboboxOption);
 					} else if (param.type === 'ServiceAccount') {
-						// Use initialNamespace derived from targetId, not selectedNamespace
-						availableEntities = campaignState.getServiceAccounts();
+						// For TOKEN params, only show ServiceAccounts that have extracted tokens (compromised)
+						if (param.name === 'TOKEN') {
+							availableEntities = campaignState.getServiceAccountsWithTokens();
+						} else {
+							availableEntities = campaignState.getServiceAccounts();
+						}
 						argOptions[param.name] = availableEntities.map(entityToComboboxOption);
 						console.info("Initialized ServiceAccount", argOptions[param.name]);
 					}
@@ -451,23 +455,25 @@
 	</header>
 	<article>
 		<div class="">
-			<span class="h5 label">Description</span>
+			<span class="h6 label">Description</span>
 			{ttp.description}
 		</div>
-
-			<label class="h5 label mt-5" for="execSystem">Execution System</label>
-
-			{#if execSystemOptions.length === 1}
-				<code class="input mt-2">{execSystemOptions[0].group}/{execSystemOptions[0].label}</code>
-			{:else if execSystemOptions.length > 1}
-				<select id="execSystem" class="input mt-2" bind:value={selectedExecSystemId}>
-					{#each execSystemOptions as sys (sys.value)}
-						<option value={sys.value}>{sys.group}/{sys.label}</option>
-					{/each}
-				</select>
+			{#if execSystemOptions.length > 0}
+				<label class="label mt-5">
+					<span class="h6 label-text">Execute On</span>
+				{#if execSystemOptions.length === 1}
+					<input id="execSystem" class="input mt-2" value="{execSystemOptions[0].group}/{execSystemOptions[0].label}" readonly />
+				{:else if execSystemOptions.length > 1}
+					<select id="execSystem" class="input mt-2" bind:value={selectedExecSystemId}>
+						{#each execSystemOptions as sys (sys.value)}
+							<option value={sys.value}>{sys.group}/{sys.label}</option>
+						{/each}
+					</select>
+				{/if}
+			</label>
 			{/if}
 
-			<label class="h5 label mt-5" for="procedure">Procedure</label>
+			<label class="h6 label mt-5" for="procedure">Procedure</label>
 			{#if ttp.procedures && ttp.procedures.length > 1}
 				<select id="procedure" class="input mt-2" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
 					{#each ttp.procedures as procedure (procedure.id)}

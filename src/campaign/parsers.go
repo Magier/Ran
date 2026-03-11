@@ -1617,11 +1617,13 @@ func parseCanExecEffect(execSystem domain.System, target domain.Entity, procedur
 		procedure.Command = strings.ReplaceAll(procedure.Command, templateVariable, v)
 	}
 
-	relations = append(relations, &domain.CanExecChannel{
-		Source:    execSystem,
-		Target:    target,
-		Procedure: procedure,
-	})
+	if execSystem.GetId() != target.GetId() {
+		relations = append(relations, &domain.CanExecChannel{
+			Source:    execSystem,
+			Target:    target,
+			Procedure: procedure,
+		})
+	}
 
 	return entities, relations, nil
 }
