@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -9,19 +10,18 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
 	"encoding/json"
 
+	ranconfig "github.com/Magier/Ran/config"
 	"github.com/Magier/Ran/domain"
 	appsV1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
@@ -90,8 +90,9 @@ func GetConfig() (*restclient.Config, KubeContext, error) {
 
 type K8sClient struct {
 	*kubernetes.Clientset
-	Config  *restclient.Config
-	Context KubeContext
+	Config     *restclient.Config
+	Context    KubeContext
+	RanConfig  *ranconfig.Config
 }
 
 func (c K8sClient) Valid() bool {
@@ -129,9 +130,17 @@ func NewK8sClient(kubeConfigPath string) (K8sClient, error) {
 		return K8sClient{}, err
 	}
 
+	// Load Ran configuration (namespace filtering, etc.)
+	ranCfg, configErr := ranconfig.Load("")
+	if configErr != nil {
+		slog.Warn("Failed to load Ran config, using defaults", "error", configErr)
+		ranCfg, _ = ranconfig.Load("") // This will return default config
+	}
+
 	c := K8sClient{
-		Config:  config,
-		Context: context,
+		Config:    config,
+		Context:   context,
+		RanConfig: ranCfg,
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
@@ -170,10 +179,10 @@ func GetIDsOfRunningPods(ctx context.Context, ns string) ([]string, error) {
 	}
 
 	podIds := []string{}
-	hiddenNamespaces := []string{"kube-system", "local-path-storage"}
+	nsFilter := &client.RanConfig.Namespaces
 
 	for _, p := range pods {
-		if !slices.Contains(hiddenNamespaces, p.GetNamespace()) {
+		if nsFilter.ShouldIncludeNamespace(p.GetNamespace()) {
 			podIds = append(podIds, p.GetId())
 		}
 	}
@@ -457,9 +466,9 @@ func ParseNodeList(jsonStr string) (*v1.NodeList, error) {
 // 	}
 // }
 
-func PersistentExec(ctx context.Context, clientset *kubernetes.Clientset, config *rest.Config, podName, namespace string, cmdChan <-chan string) error {
+func PersistentExec(ctx context.Context, client K8sClient, podName, namespace string, cmdChan <-chan string, outputChan chan<- string) error {
 	// 1. Prepare the API request
-	req := clientset.CoreV1().RESTClient().Post().
+	req := client.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(podName).
 		Namespace(namespace).
@@ -474,7 +483,14 @@ func PersistentExec(ctx context.Context, clientset *kubernetes.Clientset, config
 	}
 	req.VersionedParams(option, scheme.ParameterCodec)
 
-	// 2. Create the SPDY executor
+	kubeCfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{},
+	)
+	config, err := kubeCfg.ClientConfig()
+	if err != nil {
+		return err
+	}
 	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
 	if err != nil {
 		return err
@@ -482,11 +498,9 @@ func PersistentExec(ctx context.Context, clientset *kubernetes.Clientset, config
 
 	// 3. Set up the pipes
 	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
 
-	// Optional: Create a custom writer to capture output programmatically
-	stdoutWriter := os.Stdout
-
-	// 4. Bridge the Go channel to the Stdin pipe
+	// 4. Bridge the Go channel to the Stdin pipe (non-blocking)
 	go func() {
 		defer stdinWriter.Close()
 		for {
@@ -503,11 +517,29 @@ func PersistentExec(ctx context.Context, clientset *kubernetes.Clientset, config
 		}
 	}()
 
-	// 5. Start the stream (this blocks until the shell exits)
+	// 5. Capture stdout and send to output channel (non-blocking)
+	go func() {
+		defer close(outputChan)
+		scanner := bufio.NewScanner(stdoutReader)
+		for scanner.Scan() {
+			line := scanner.Text()
+			select {
+			case <-ctx.Done():
+				return
+			case outputChan <- line:
+				// Successfully sent output
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			slog.Error("Error reading stdout", "error", err)
+		}
+	}()
+
+	// 6. Start the stream (this blocks until the shell exits)
 	return exec.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:  stdinReader,
 		Stdout: stdoutWriter,
-		Stderr: os.Stderr,
+		Stderr: os.Stderr, // Can also capture stderr if needed
 		Tty:    false,
 	})
 }
