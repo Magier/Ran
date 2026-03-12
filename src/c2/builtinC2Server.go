@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/Magier/Ran/domain"
+	k8s "github.com/Magier/Ran/k8sclient"
 )
 
 var builtinC2Mutex sync.Mutex
@@ -330,8 +331,13 @@ func (c *BuiltInC2Server) stopListener(cmd domain.StopListener) error {
 }
 
 type PodExecSession struct {
-	ID      string
-	CmdChan chan string
+	ID         string
+	Namespace  string
+	PodName    string
+	CmdChan    chan string
+	OutputChan chan string
+	results    chan any
+	client     *k8s.K8sClient
 }
 
 func (s PodExecSession) GetID() string {
@@ -339,36 +345,119 @@ func (s PodExecSession) GetID() string {
 }
 
 func (s PodExecSession) SendCommand(cmd string) (string, error) {
-	s.CmdChan <- cmd
-	return "", nil
+	select {
+	case s.CmdChan <- cmd:
+		return "", nil
+	default:
+		return "", fmt.Errorf("command channel is full or closed")
+	}
 }
 
-func (s PodExecSession) Start(ctx context.Context, namespace, podName string) {
+func (s PodExecSession) Start(ctx context.Context) {
 	defer s.End()
 
-	// Implement the logic to start the Pod Exec session
-	fmt.Printf("--- Opening shell to %s/%s ---\n", namespace, podName)
-	// err := k8s.PersistentExec(ctx, clientset, config, podName, namespace, cmdChan)
-	// if err != nil {
-	// 	log.Fatalf("Shell session failed: %v", err)
-	// }
-	fmt.Println("--- Shell session closed ---")
+	slog.Info("Opening persistent shell session", "namespace", s.Namespace, "pod", s.PodName)
+
+	// Send initial session info
+	hostname := s.PodName
+	user := "unknown"
+	os := "kubernetes"
+
+	s.results <- SessionStarted{
+		C2Kind: builtinKind,
+		Session: domain.Session{
+			Id:       s.ID,
+			Hostname: hostname,
+			Os:       os,
+			User:     user,
+		},
+	}
+
+	// Start output processing goroutine
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case output, ok := <-s.OutputChan:
+				if !ok {
+					return
+				}
+				slog.Debug("Received output from pod", "output", output)
+				// Send output to results channel (non-blocking)
+				select {
+				case s.results <- output:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	// Start the persistent shell session (blocks until session ends)
+	err := k8s.PersistentExec(ctx, *s.client, s.PodName, s.Namespace, s.CmdChan, s.OutputChan)
+	if err != nil {
+		slog.Error("Shell session failed", "error", err)
+		s.results <- fmt.Sprintf("Session error: %v", err)
+	}
+	slog.Info("Shell session closed", "session", s.ID)
 }
 
 func (s PodExecSession) End() {
 	close(s.CmdChan)
+	close(s.results)
 }
 
 func (c *BuiltInC2Server) EstablishPodExecShell(ctx context.Context, namespace, podName string) error {
 	id := "podexec_" + podName + "_" + namespace
-	s := PodExecSession{
-		ID:      id,
-		CmdChan: make(chan string),
-	}
-	go s.Start(ctx, namespace, podName)
 
-	// 4. Run the persistent shell in a goroutine
+	client, err := k8s.NewK8sClient("")
+	if err != nil {
+		slog.Error("Failed to create K8s client", "error", err)
+		return err
+	}
+
+	s := PodExecSession{
+		ID:         id,
+		Namespace:  namespace,
+		PodName:    podName,
+		CmdChan:    make(chan string, 10),   // Buffered to prevent blocking
+		OutputChan: make(chan string, 100),  // Buffered for output
+		results:    make(chan any, 10),      // Buffered for results
+		client:     &client,
+	}
+
+	// Register session
+	c.sessions[id] = s
+
+	// Start the session in a goroutine
+	go s.Start(ctx)
+
+	// Process results and forward to event stream
 	go func() {
+		for result := range s.results {
+			switch r := result.(type) {
+			case string:
+				// Forward command output
+				select {
+				case c.eventStream <- TTPExecuted{
+					ID:      id,
+					Success: true,
+					Results: []string{r},
+				}:
+				case <-ctx.Done():
+					return
+				}
+			case domain.Event:
+				// Forward session events (like SessionStarted)
+				select {
+				case c.eventStream <- r:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
 	}()
+
 	return nil
 }
