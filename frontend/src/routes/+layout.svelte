@@ -76,7 +76,7 @@
         </AppBar.Lead>
         <AppBar.Trail>
             <nav class="btn-group preset-outlined-surface-200-800 flex-col md:flex-row p-0">
-                <a class="btn hover:preset-tonal" class:selected={page.url.pathname === '/' || page.url.pathname === ''} href="/">
+                <a class="btn preset-filled-primary  hover:preset-tonal" class:selected={page.url.pathname === '/' || page.url.pathname === ''} href="/">
                     <IconMap class="inline-block text-xl" />
                     Graph
                 </a>
@@ -85,7 +85,7 @@
                     Flow
                 </a>
             </nav>
-        <Switch checked={isDark} onCheckedChange={toggle}>
+        <Switch checked={isDark} onCheckedChange={toggle} class="mx-2">
             <Switch.Control>
                 <Switch.Thumb>
                     <Switch.Context>
@@ -130,7 +130,7 @@
 <style>
     
 	.btn.selected {
-        background-color: var(--color-primary-50-950);
-        color: var(--color-primary-contrast-50-950);
+        background-color: var(--color-surface-200-800);
+        color: var(--color-surface-contrast-200-800);
 	}
 </style>

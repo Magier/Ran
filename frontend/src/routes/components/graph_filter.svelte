@@ -63,13 +63,6 @@
 	>
 		<!-- Funnel icon -->
 		<Icon icon="mdi:funnel" class="inline-block text-surface-400-600" />
-		{#if activeFilterCount > 0}
-			<span
-				class="badge-icon preset-filled-surface-500"
-			>
-				{activeFilterCount}
-			</span>
-		{/if}
 	</button>
 
 	<!-- Filter panel -->

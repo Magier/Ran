@@ -56,7 +56,7 @@ func newAtomicTestCmd(rootCmd *cobra.Command) *cobra.Command {
 	cmd.Flags().StringVarP(&target, "target", "t", "", `set the initial target for the emulation. In the pattern "<ns>/<service or pod>" or a URL`)
 	cmd.RegisterFlagCompletionFunc("target", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		// Dynamically compute suggestions based on toComplete or context
-		podIDs, err := k8s.GetIDsOfRunningPod(context.Background(), "")
+		podIDs, err := k8s.GetIDsOfRunningPods(context.Background(), "")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error getting running pods:", err)
 		}

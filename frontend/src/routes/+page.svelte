@@ -87,6 +87,12 @@
 		if (browser) {
 			window.addEventListener('keydown', handleKeyPress);
 		}
+
+		// Initialize campaign if not already done
+		if (campaignState.armory.size === 0) {
+			campaignState.init();
+		}
+
 		// TODO: check if this alert handle is still useful
 		campaignState.api.on('alert', (alert) => {
 			console.log('Store Alert ', alert);
@@ -170,13 +176,10 @@
 </script>
 
 <div class="relative grid h-[calc(100vh-60px)] grid-cols-[300px_minmax(0,1fr)] gap-x-1">
-	{#await campaignState.init()}
-		<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-100" />
-		<div>loading...</div>
-	{:then sessions}
-		<Armory 
-			class="h-full min-h-0" 
-			action={sendAction} 
+	{#if campaignState.armory.size > 0}
+		<Armory
+			class="h-full min-h-0"
+			action={sendAction}
 			targetId={selectedObjectId}
 			bind:focusSearch={focusArmorySearch}
 		/>
@@ -209,19 +212,13 @@
 				</Dialog.Positioner>
 			</Portal>
 		</Dialog>
-	{:catch err}
-		<div class="justify-center">
-			<figure>
-				<section class="img-bg"></section>
-				<Icon
-					icon="game-icons:fishing-net"
-					rotate={90}
-					class="fill-token h-64 w-64 -scale-x-[100%]"
-				/>
-			</figure>
-			<h2 class="h2 text-center">Ran</h2>
-			{err}
+	{:else}
+		<div class="flex items-center justify-center w-full h-full">
+			<div class="text-center">
+				<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-100 mx-auto" />
+				<div class="mt-4 text-surface-600-400">Loading campaign...</div>
+			</div>
 		</div>
-	{/await}
+	{/if}
 </div>
 
