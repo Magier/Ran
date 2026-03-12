@@ -394,7 +394,7 @@ class CampaignState {
 
 	getServiceAccountsWithTokens(ns?: string): Entity[] {
 		// Get all service account tokens
-		const tokens = this.entities.filter((entity) => entity.kind === 'ServiceAccountToken');
+		const tokens = this.entities.filter((entity) => entity.kind === 'ServiceAccountToken' || (entity.kind === 'ServiceAccount' && entity.hasOwnProperty('token'))); // Include ServiceAccounts that have token binaries
 		
 		// Extract the ServiceAccount IDs from tokens (tokens have ID format: ns/{namespace}/sa/{saName}/token)
 		const saIdsWithTokens = new Set(

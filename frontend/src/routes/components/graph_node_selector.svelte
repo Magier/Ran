@@ -165,12 +165,12 @@
 			onkeydown={(e) => e.key === 'Enter' && (isOpen = false)}
 		></div>
 		<div
-			class="relative w-full max-w-lg bg-gray-900 border border-gray-700 rounded-lg shadow-lg p-6"
+			class="relative w-full max-w-lg bg-surface-200-800 border border-gray-700 rounded-lg shadow-lg p-6"
 			role="dialog"
 			aria-modal="true"
 		>
-			<h2 class="text-xl font-semibold mb-2 text-white">Search Nodes</h2>
-			<p class="text-sm text-gray-400 mb-4">
+			<h2 class="text-xl font-semibold mb-2 text-surface-contract-400">Search Nodes</h2>
+			<p class="text-sm text-surface-contract-300 mb-4">
 				Search for nodes by name or ID. Use arrow keys to navigate, Enter to select.
 			</p>
 
@@ -180,7 +180,7 @@
 				bind:value={searchQuery}
 				onkeydown={handleSearchKeydown}
 				placeholder="Type to search..."
-				class="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+				class="input"
 			/>
 
 			{#if searchResults.length > 0}
@@ -196,10 +196,7 @@
 							onmouseenter={() => (selectedSearchIndex = index)}
 						>
 							<div class="flex items-center justify-between">
-								<div class="font-medium text-white">{result.label}</div>
-								{#if index === selectedSearchIndex}
-									<span class="text-xs px-2 py-0.5 bg-blue-600 text-white rounded">highlighted</span>
-								{/if}
+								<div class="font-medium text-surfacecontract">{result.label}</div>
 							</div>
 							<div class="text-sm text-gray-400">{result.id}</div>
 						</button>
@@ -209,7 +206,7 @@
 				<div class="mt-4 text-center text-gray-500 py-4">No nodes found</div>
 			{/if}
 
-			<div class="mt-4 text-xs text-gray-500">
+			<div class="mt-4 text-xs text-surface-contrast-800">
 				Press
 				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300">↑</kbd>
 				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300">↓</kbd>

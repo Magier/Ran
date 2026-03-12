@@ -232,7 +232,6 @@
 							availableEntities = campaignState.getServiceAccounts();
 						}
 						argOptions[param.name] = availableEntities.map(entityToComboboxOption);
-						console.info("Initialized ServiceAccount", argOptions[param.name]);
 					}
 
 					return {
@@ -527,10 +526,10 @@
 						<Combobox.Trigger />
 					</Combobox.Control>
 					<Combobox.Positioner>
-						<Combobox.Content class="z-50">
+						<Combobox.Content class="z-50 bg-surface-100-900">
 							{#each getArgOptions(arg.Name) as item (item)}
-								<Combobox.Item {item}>
-									<Combobox.ItemText>{item.label}</Combobox.ItemText>
+								<Combobox.Item {item} class="text-surface-contrast-100-900">
+									<Combobox.ItemText >{item.label}</Combobox.ItemText>
 									<Combobox.ItemIndicator />
 								</Combobox.Item>
 							{/each}
@@ -558,6 +557,6 @@
 	</article>
 	<footer class="flex justify-end gap-4">
 		<button type="button" class="btn preset-tonal" onclick={onCancel}>Cancel</button>
-		<button type="submit" class="btn preset-filled">Execute</button>
+		<button type="submit" class="btn preset-filled-primary-300-700">Execute</button>
 	</footer>
 </form>

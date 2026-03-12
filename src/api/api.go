@@ -384,7 +384,7 @@ func (a *API) GetFlow() AttackFlow {
 func (a *API) GetFacts() domain.FactsChanged { return domain.FactsChanged{} }
 
 func (a *API) GetRunningPods(ns string) ([]K8sResource, error) {
-	ids, err := k8s.GetIDsOfRunningPod(a.ctx, ns)
+	ids, err := k8s.GetIDsOfRunningPods(a.ctx, ns)
 	if err != nil {
 		return nil, err
 	}

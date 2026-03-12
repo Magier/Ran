@@ -210,11 +210,25 @@
 				if (graph.nodes === undefined) {
 					console.warn('Graph data is incomplete:', graph);
 				} else {
+					// Clean up stale position entries before processing
+					const currentNodeIds = new Set(graph.nodes.map(n => n.id));
+					let positionsChanged = false;
+					Object.keys(positions).forEach(id => {
+						if (!currentNodeIds.has(id)) {
+							delete positions[id];
+							positionsChanged = true;
+						}
+					});
+
+					// Persist cleaned positions immediately to avoid re-loading stale data
+					if (positionsChanged && browser) {
+						sessionStorage.setItem(POS_KEY, JSON.stringify(positions));
+					}
+
 					let nodes = graph.nodes.map(n => toCyNode(n, positions));
 					let edges = graph.edges.map(toCyEdge);
 
 					// Check if there are new nodes
-					const currentNodeIds = new Set(graph.nodes.map(n => n.id));
 					const hasNewNodes = graph.nodes.some(n => !previousNodeIds.has(n.id));
 					const hasFewerNodes = previousNodeIds.size > currentNodeIds.size;
 
@@ -476,6 +490,12 @@
 
 		if (nodePos.hasOwnProperty(n.id)) {
 			cyNode.position = nodePos[n.id];
+		} else {
+			// Set default positions for initial nodes and save them to positions
+			if (n.name === 'Ran' || n.id === 'c2/Ran') {
+				cyNode.position = { x: -100, y: 0 };
+				nodePos[n.id] = cyNode.position;
+			}
 		}
 
 		return cyNode;

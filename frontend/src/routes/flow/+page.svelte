@@ -17,8 +17,10 @@
     import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { ranAPI } from '$lib/ran_api';
+    import { getContext } from 'svelte';
 
     let campaignState = getCampaignState();
+    const theme = getContext<{ isDark: boolean }>('theme');
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
 
@@ -119,7 +121,7 @@
         bind:edges
         {nodeTypes}
         fitView
-        colorMode="dark"
+        colorMode={theme.isDark ? 'dark' : 'light'}
         onnodeclick={(event) => {
             console.log('on node click', event, event.node);
             selectedStep = event.node.data.step as AttackStep;

@@ -1,0 +1,22 @@
+# Ran Configuration
+# Place this file as ran.yaml in your current working directory
+
+# Namespace filtering configuration
+namespaces:
+  # Excluded namespaces (blacklist mode - hide these namespaces)
+  # If 'included' is empty, all namespaces except these will be shown
+  excluded:
+    - kube-system
+    - local-path-storage
+    - kube-public
+    - kube-node-lease
+
+# Example for whitelist mode (show only specific namespaces):
+# namespaces:
+#   included:
+#     - default
+#     - production
+#     - staging
+#
+# Note: If 'included' has items, it takes precedence over 'excluded'
+# (only included namespaces will be shown, excluded list is ignored)

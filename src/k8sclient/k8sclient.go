@@ -158,7 +158,7 @@ func (c K8sClient) TestConnection() error {
 	return nil
 }
 
-func GetIDsOfRunningPod(ctx context.Context, ns string) ([]string, error) {
+func GetIDsOfRunningPods(ctx context.Context, ns string) ([]string, error) {
 	// empty NS = all namespaces
 	client, err := NewK8sClient("")
 	if err != nil {
