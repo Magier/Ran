@@ -15,7 +15,6 @@ import (
 
 	"encoding/json"
 
-	ranconfig "github.com/Magier/Ran/config"
 	"github.com/Magier/Ran/domain"
 	appsV1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -27,6 +26,43 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	k8s_exec "k8s.io/client-go/util/exec"
 )
+
+// NamespaceFilter controls which namespaces are visible in discovery
+type NamespaceFilter struct {
+	Excluded []string
+	Included []string
+}
+
+// ShouldIncludeNamespace returns true if the namespace should be included based on the filter
+func (nf *NamespaceFilter) ShouldIncludeNamespace(ns string) bool {
+	// Whitelist mode: if Included is non-empty, only include if in the list
+	if len(nf.Included) > 0 {
+		for _, allowed := range nf.Included {
+			if allowed == ns {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Blacklist mode: exclude if in the Excluded list
+	for _, excluded := range nf.Excluded {
+		if excluded == ns {
+			return false
+		}
+	}
+	return true
+}
+
+// Global namespace filter set once at startup
+var globalNamespaceFilter = NamespaceFilter{
+	Excluded: []string{"kube-system", "local-path-storage"},
+}
+
+// SetNamespaceFilter sets the global namespace filter
+func SetNamespaceFilter(filter NamespaceFilter) {
+	globalNamespaceFilter = filter
+}
 
 type ExecError = k8s_exec.CodeExitError
 
@@ -90,9 +126,8 @@ func GetConfig() (*restclient.Config, KubeContext, error) {
 
 type K8sClient struct {
 	*kubernetes.Clientset
-	Config     *restclient.Config
-	Context    KubeContext
-	RanConfig  *ranconfig.Config
+	Config  *restclient.Config
+	Context KubeContext
 }
 
 func (c K8sClient) Valid() bool {
@@ -130,17 +165,9 @@ func NewK8sClient(kubeConfigPath string) (K8sClient, error) {
 		return K8sClient{}, err
 	}
 
-	// Load Ran configuration (namespace filtering, etc.)
-	ranCfg, configErr := ranconfig.Load("")
-	if configErr != nil {
-		slog.Warn("Failed to load Ran config, using defaults", "error", configErr)
-		ranCfg, _ = ranconfig.Load("") // This will return default config
-	}
-
 	c := K8sClient{
-		Config:    config,
-		Context:   context,
-		RanConfig: ranCfg,
+		Config:  config,
+		Context: context,
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
@@ -179,7 +206,7 @@ func GetIDsOfRunningPods(ctx context.Context, ns string) ([]string, error) {
 	}
 
 	podIds := []string{}
-	nsFilter := &client.RanConfig.Namespaces
+	nsFilter := &globalNamespaceFilter
 
 	for _, p := range pods {
 		if nsFilter.ShouldIncludeNamespace(p.GetNamespace()) {

@@ -2,37 +2,34 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
+	"github.com/Magier/Ran/config"
+	k8s "github.com/Magier/Ran/k8sclient"
 	"github.com/spf13/cobra"
 )
+
+var cfgFile string
 
 func init() {
 	cobra.OnInitialize(initConfig)
 }
 
 func initConfig() {
-	// Don't forget to read config either from cfgFile or from home directory!
-	// if cfgFile != "" {
-	// 	// Use config file from the flag.
-	// 	viper.SetConfigFile(cfgFile)
-	// } else {
-	// 	// Find home directory.
-	// 	home, err := homedir.Dir()
-	// 	if err != nil {
-	// 		fmt.Println(err)
-	// 		os.Exit(1)
-	// 	}
+	// Load the Ran config once at startup
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		slog.Warn("Failed to load Ran config, using defaults", "error", err)
+		// Use default config
+		cfg, _ = config.Load(cfgFile) // This will return default config
+	}
 
-	// 	// Search config in home directory with name ".cobra" (without extension).
-	// 	viper.AddConfigPath(home)
-	// 	viper.SetConfigName(".cobra")
-	// }
-
-	// if err := viper.ReadInConfig(); err != nil {
-	// 	fmt.Println("Can't read config:", err)
-	// 	os.Exit(1)
-	// }
+	// Set the namespace filter for k8s client components to use
+	k8s.SetNamespaceFilter(k8s.NamespaceFilter{
+		Excluded: cfg.Namespaces.Excluded,
+		Included: cfg.Namespaces.Included,
+	})
 }
 
 func Execute() {
@@ -44,6 +41,9 @@ func Execute() {
 			return cmd.Help()
 		},
 	}
+
+	// Global flag for config file path
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ran.yaml)")
 
 	rootCmd.AddCommand(newAtomicTestCmd(rootCmd))
 	rootCmd.AddCommand(newEmulationCmd())

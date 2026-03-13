@@ -1,5 +1,6 @@
 # Ran Configuration
 # Place this file as ran.yaml in your current working directory
+# Or specify a custom location with: ran emulate --config /path/to/config.yaml
 
 # Namespace filtering configuration
 namespaces:
@@ -12,7 +13,6 @@ namespaces:
     - kube-node-lease
 
 # Example for whitelist mode (show only specific namespaces):
-# namespaces:
 #   included:
 #     - default
 #     - production
