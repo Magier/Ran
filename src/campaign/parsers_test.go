@@ -7,6 +7,77 @@ import (
 	"github.com/Magier/Ran/domain"
 )
 
+func TestParseBinaryPathsFromOutput(t *testing.T) {
+	output := `Hit:1 http://deb.debian.org/debian trixie InRelease
+Hit:2 http://deb.debian.org/debian trixie-updates InRelease
+Reading package lists...
+Building dependency tree...
+The following NEW packages will be installed:
+  libatomic1 libjemalloc2 liblzf1 redis-tools
+Unpacking redis-tools (5:8.0.2-3+deb13u1) ...
+Setting up redis-tools (5:8.0.2-3+deb13u1) ...
+/usr/bin/redis-benchmark
+/usr/bin/redis-check-aof
+/usr/bin/redis-check-rdb
+/usr/bin/redis-cli
+debconf: unable to initialize frontend: Dialog
+debconf: falling back to frontend: Teletype`
+
+	paths := parseBinaryPathsFromOutput(output)
+
+	expectedPaths := []string{
+		"/usr/bin/redis-benchmark",
+		"/usr/bin/redis-check-aof",
+		"/usr/bin/redis-check-rdb",
+		"/usr/bin/redis-cli",
+	}
+
+	if len(paths) != len(expectedPaths) {
+		t.Fatalf("Expected %d paths, got %d: %v", len(expectedPaths), len(paths), paths)
+	}
+
+	for i, expected := range expectedPaths {
+		if paths[i] != expected {
+			t.Errorf("Path %d: expected %s, got %s", i, expected, paths[i])
+		}
+	}
+}
+
+func TestParseHasBinaryEffect_FromOutput(t *testing.T) {
+	source := domain.NewPod("test-pod", "default")
+	effect := "target.has-binary(${OUTPUT})"
+	args := map[string]string{}
+	results := []string{`/usr/bin/redis-benchmark
+/usr/bin/redis-check-aof
+/usr/bin/redis-cli`}
+
+	entity, err := parseHasBinaryEffect(source, effect, args, results...)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	sys, ok := entity.(domain.System)
+	if !ok {
+		t.Fatalf("Expected entity to be a System")
+	}
+
+	// Check that all binaries were set
+	expectedBinaries := map[string]string{
+		"redis-benchmark": "/usr/bin/redis-benchmark",
+		"redis-check-aof": "/usr/bin/redis-check-aof",
+		"redis-cli":       "/usr/bin/redis-cli",
+	}
+
+	for name, expectedPath := range expectedBinaries {
+		actualPath := sys.GetBinary(name)
+		if actualPath == "" {
+			t.Errorf("Expected binary %s to be set", name)
+		} else if actualPath != expectedPath {
+			t.Errorf("Binary %s: expected path %s, got %s", name, expectedPath, actualPath)
+		}
+	}
+}
+
 func TestSelfSubjectReviewResult_ForbiddenStatus(t *testing.T) {
 	res := `{
 		"kind": "Status",

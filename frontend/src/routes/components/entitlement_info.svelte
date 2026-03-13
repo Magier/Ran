@@ -35,7 +35,7 @@
             } else if (e.resourceType.includes('role')) {
                 utility += 8;
             } else if (e.resourceType.startsWith('selfsubject')) {
-                return 1;
+                return 0;
             }
         }
         return utility; // Unknown verb
