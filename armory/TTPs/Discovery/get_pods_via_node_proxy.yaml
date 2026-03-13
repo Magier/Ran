@@ -7,7 +7,6 @@ preconditions:
   rbac:
   - verb: get
     resource: "nodes/proxy"
-  # accessLevel: user-read
 parameters:
   NODE:
     type: string
@@ -19,10 +18,10 @@ parameters:
 procedures:
   - key: curl
     command: >-
-      curl -k -s -H "Authorization: Bearer ${TOKEN}" "${API_SERVER}/v1/nodes/${NODE}/proxy/pods"
+      curl -k -s -H "Authorization: Bearer ${TOKEN}" "${API_SERVER}/api/v1/nodes/${NODE}/proxy/pods"
   - key: wget
     command: >-
-      wget -qO --header="Authorization: Bearer ${TOKEN}" "${API_SERVER}/v1/nodes/${NODE}/proxy/pods" 
+      wget -qO --header="Authorization: Bearer ${TOKEN}" "${API_SERVER}/api/v1/nodes/${NODE}/proxy/pods" 
 
 effects:
   - k8s.podList
