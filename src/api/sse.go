@@ -57,9 +57,11 @@ func (client *SSEClient) sendJSON(name string, v interface{}) error {
 	client.mu.Lock()
 	defer client.mu.Unlock()
 
+	// safeJSONMarshal creates a snapshot to prevent concurrent map access panics
 	data, err := safeJSONMarshal(v)
 	if err != nil {
 		slog.Error("Failed to marshal SSE message", "event", name, "error", err)
+		// Don't fail silently - this indicates a data race or marshaling issue
 		return err
 	}
 
