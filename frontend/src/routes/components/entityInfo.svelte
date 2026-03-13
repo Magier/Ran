@@ -139,7 +139,112 @@
 <div class="{className} pointer-events-auto z-[100] max-h-120 overflow-auto border border-surface-600 w-110 rounded-lg bg-surface-100-900 p-4 shadow-xl" >
 	{#if obj}
 		{#each Object.entries(obj || {}) as [label, data]}
-			{#if label === 'volumeMounts' || label === 'mounts'}
+			{#if label === 'containers' && Array.isArray(data) && data.length > 0}
+				<!-- Special drill-down view for containers -->
+				<details open class:field-changed={highlightedFields[label]}>
+					<summary>
+						<span class="font-bold mr-1">{label}</span>
+						<span class="badge preset-outlined-surface-500">({data.length} items)</span>
+					</summary>
+					<div class="pl-4 space-y-4">
+						{#each data as container, idx}
+							<div class="border-l-2 border-surface-500 pl-3 py-2">
+								<!-- Top: name and command -->
+								<div class="font-bold text-primary-500">{container.name}</div>
+								{#if container.command && container.command.length > 0}
+									<div class="mt-1">
+										<span class="text-surface-600 dark:text-surface-400 text-sm">Command:</span>
+										<code class="text-xs ml-1">{container.command.join(' ')}</code>
+									</div>
+								{/if}
+								{#if container.args && container.args.length > 0}
+									<div class="mt-1">
+										<span class="text-surface-600 dark:text-surface-400 text-sm">Args:</span>
+										<code class="text-xs ml-1">{container.args.join(' ')}</code>
+									</div>
+								{/if}
+
+								<!-- Second level: volumeMounts and ports -->
+								{#if container.volumeMounts && container.volumeMounts.length > 0}
+									<details class="mt-2">
+										<summary class="text-sm text-surface-600 dark:text-surface-400 cursor-pointer">
+											Volume Mounts ({container.volumeMounts.length})
+										</summary>
+										<ul class="list-inside list-disc pl-4 text-sm mt-1">
+											{#each container.volumeMounts as vm}
+												<li>
+													<span class="font-mono">{vm.name}</span> →
+													<span class="font-mono">{vm.mountPath}</span>
+													{#if vm.readOnly}<span class="text-xs text-warning-500">(ro)</span>{/if}
+													{#if vm.subPath}<span class="text-xs text-surface-500">[{vm.subPath}]</span>{/if}
+												</li>
+											{/each}
+										</ul>
+									</details>
+								{/if}
+
+								{#if container.ports && container.ports.length > 0}
+									<details class="mt-2">
+										<summary class="text-sm text-surface-600 dark:text-surface-400 cursor-pointer">
+											Ports ({container.ports.length})
+										</summary>
+										<ul class="list-inside list-disc pl-4 text-sm mt-1">
+											{#each container.ports as port}
+												<li>
+													{#if port.name}<span class="font-mono">{port.name}:</span> {/if}
+													<span class="font-mono">{port.containerPort}/{port.protocol || 'TCP'}</span>
+													{#if port.hostPort} → <span class="font-mono">{port.hostPort}</span>{/if}
+												</li>
+											{/each}
+										</ul>
+									</details>
+								{/if}
+
+								<!-- Rest of properties -->
+								{#if container.image}
+									<div class="mt-2 text-sm">
+										<span class="text-surface-600 dark:text-surface-400">Image:</span>
+										<span class="font-mono text-xs ml-1">{container.image}</span>
+									</div>
+								{/if}
+
+								{#if container.env && container.env.length > 0}
+									<details class="mt-2">
+										<summary class="text-sm text-surface-600 dark:text-surface-400 cursor-pointer">
+											Environment ({container.env.length})
+										</summary>
+										<ul class="list-inside list-none pl-4 text-xs mt-1 font-mono">
+											{#each container.env as env}
+												<li>
+													{env.name}={env.value || JSON.stringify(env.valueFrom)}
+												</li>
+											{/each}
+										</ul>
+									</details>
+								{/if}
+
+								{#if container.securityContext}
+									<details class="mt-2">
+										<summary class="text-sm text-surface-600 dark:text-surface-400 cursor-pointer">
+											Security Context
+										</summary>
+										<pre class="text-xs mt-1 pl-4 overflow-auto">{JSON.stringify(container.securityContext, null, 2)}</pre>
+									</details>
+								{/if}
+
+								{#if container.resources}
+									<details class="mt-2">
+										<summary class="text-sm text-surface-600 dark:text-surface-400 cursor-pointer">
+											Resources
+										</summary>
+										<pre class="text-xs mt-1 pl-4 overflow-auto">{JSON.stringify(container.resources, null, 2)}</pre>
+									</details>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				</details>
+			{:else if label === 'volumeMounts' || label === 'mounts'}
 				<details class:field-changed={highlightedFields[label]}>
 					<summary>
 						<span class="font-bold mr-1">{label}</span>
