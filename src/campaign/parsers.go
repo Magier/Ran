@@ -865,6 +865,28 @@ func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]s
 		paramName := strings.ToUpper(match[1])
 		if sys, ok := source.(domain.System); ok {
 			binPath := match[1]
+
+			// Check if paramName is ${OUTPUT}, indicating we should parse binary paths from stdout
+			if paramName == "${OUTPUT}" || paramName == "OUTPUT" {
+				if len(results) > 0 {
+					stdout := results[0]
+					binaryPaths := parseBinaryPathsFromOutput(stdout)
+					if len(binaryPaths) == 0 {
+						slog.Warn("No binary paths found in output for has-binary effect")
+					}
+					for _, binPath := range binaryPaths {
+						parts := strings.Split(binPath, "/")
+						binaryName := parts[len(parts)-1]
+						sys.SetBinary(binaryName, binPath)
+						slog.Debug("Extracted binary from output", "name", binaryName, "path", binPath)
+					}
+					return sys, nil
+				} else {
+					return nil, fmt.Errorf("has-binary effect expects OUTPUT but no results provided")
+				}
+			}
+
+			// Original behavior: extract from template variable
 			if IsTemplateVariable(paramName) {
 				paramName = strings.TrimPrefix(paramName, "${")
 				paramName = strings.TrimSuffix(paramName, "}")
@@ -892,6 +914,46 @@ func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]s
 		slog.Warn("No parameter found in the has-binary effect, expected format: target.has-binary(${BINARY_NAME})")
 	}
 	return nil, fmt.Errorf("Invalid has-binary effect: %s", effect)
+}
+
+// parseBinaryPathsFromOutput extracts binary executable paths from command output
+// It looks for lines that are absolute paths (starting with /) and filters out noise
+func parseBinaryPathsFromOutput(output string) []string {
+	var binaryPaths []string
+	lines := strings.Split(output, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Skip empty lines
+		if line == "" {
+			continue
+		}
+
+		// Must start with / (absolute path)
+		if !strings.HasPrefix(line, "/") {
+			continue
+		}
+
+		// Must not contain spaces (simple filter for non-path lines)
+		if strings.Contains(line, " ") {
+			continue
+		}
+
+		// Must not contain common apt/dpkg output indicators
+		if strings.Contains(line, "...") {
+			continue
+		}
+
+		// Should look like a reasonable path (contain at least 2 slashes)
+		if strings.Count(line, "/") < 2 {
+			continue
+		}
+
+		binaryPaths = append(binaryPaths, line)
+	}
+
+	return binaryPaths
 }
 
 func loadKubeConfigFromString(configStr string) (clientcmd.ClientConfig, error) {
