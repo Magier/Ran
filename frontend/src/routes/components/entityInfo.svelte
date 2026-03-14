@@ -150,7 +150,8 @@
 						{#each data as container, idx}
 							<div class="border-l-2 border-surface-500 pl-3 py-2">
 								<!-- Top: name and command -->
-								<div class="font-bold text-primary-500">{container.name}</div>
+								 <span>Name: </span>
+								<div class="font-bold">{container.name}</div>
 								{#if container.command && container.command.length > 0}
 									<div class="mt-1">
 										<span class="text-surface-600 dark:text-surface-400 text-sm">Command:</span>

@@ -7,7 +7,7 @@
 
 	import ActionCard from './action_card.svelte';
 	import { Accordion } from '@skeletonlabs/skeleton-svelte';
-	import type { TTP } from '$lib/api/index';
+	import type { TTP, Node } from '$lib/api/index';
 	import { getCampaignState, parseArmory } from '$lib/components/CampaignState.svelte';
 
 	const campaign = getCampaignState();
@@ -15,11 +15,12 @@
 	type ArmoryProps = {
 		class?: string;
 		targetId: string;
+		target?: Node;
 		action: (ttp: TTP) => void;
 		focusSearch?: () => void;
 	};
 
-	let { class: className = '', targetId, action: sendAction, focusSearch = $bindable(() => {}) }: ArmoryProps = $props();
+	let { class: className = '', targetId, target, action: sendAction, focusSearch = $bindable(() => {}) }: ArmoryProps = $props();
 
 	let searchInputElement: HTMLInputElement | undefined = $state();
 
@@ -43,8 +44,21 @@
 			return Array.from(applicableTTPs.entries());
 		}
 	});
-
+ 
+	// Fetch applicable TTPs whenever the target node changes or its state updates
 	$effect(() => {
+		// Track targetId and node state properties that affect applicable TTPs
+		const nodeState = target ? {
+			compromised: target.compromised,
+			accessLevel: target.accessLevel,
+			entity: target.entity
+		} : null;
+		
+		if (!targetId) {
+			applicableTTPs = new Map();
+			return;
+		}
+		
 		campaign.api.GetApplicableTTPs(targetId)
 			.then((result: TTP[]) => {
 				applicableTTPs = parseArmory(result);

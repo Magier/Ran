@@ -54,13 +54,16 @@ export function createLayout(nodes?: cytoscape.NodeCollection, existingPositions
 	};
 
 	if (nodes && nodes.length > 0) {
+		// Build a set of valid node IDs for validation
+		const validNodeIds = new Set(nodes.map(n => n.id()));
+
 		// Find the Ran node and fix its position if it exists in saved positions
 		const ranNode = nodes.filter('[name="Ran"]');
 		if (ranNode.length > 0) {
 			const ranId = ranNode.id();
 			const ranPos = validPositions[ranId];
 			// Use validated positions
-			if (ranPos) {
+			if (ranPos && validNodeIds.has(ranId)) {
 				constraints.fixedNodeConstraint.push({
 					nodeId: ranId,
 					position: { x: ranPos.x, y: ranPos.y }
@@ -69,7 +72,7 @@ export function createLayout(nodes?: cytoscape.NodeCollection, existingPositions
 		}
 
 		// Collect Node kind nodes for bottom alignment
-		const nodeKindNodes = nodes.filter('[kind="Node"], [kind="ClusterNode"]').map(n => n.id()).filter(id => id != null);
+		const nodeKindNodes = nodes.filter('[kind="Node"], [kind="ClusterNode"]').map(n => n.id()).filter(id => id != null && validNodeIds.has(id));
 		if (nodeKindNodes.length > 0) {
 			constraints.alignment.push({
 				vertical: nodeKindNodes,
@@ -78,13 +81,14 @@ export function createLayout(nodes?: cytoscape.NodeCollection, existingPositions
 		}
 
 		// Add relative placement: Node kind should be below others
-		const nonNodeKindNodes = nodes.filter('[kind][kind!="Node"][kind!="ClusterNode"]').map(n => n.id()).filter(id => id != null);
+		const nonNodeKindNodes = nodes.filter('[kind][kind!="Node"][kind!="ClusterNode"]').map(n => n.id()).filter(id => id != null && validNodeIds.has(id));
 		if (nodeKindNodes.length > 0 && nonNodeKindNodes.length > 0) {
 			// For each non-Node kind, add constraint that Node kinds should be below
 			nonNodeKindNodes.slice(0, 5).forEach(topNodeId => {
 				nodeKindNodes.slice(0, 3).forEach(bottomNodeId => {
-					// Only add valid constraints
-					if (topNodeId && bottomNodeId && topNodeId !== bottomNodeId) {
+					// Only add valid constraints with nodes that exist
+					if (topNodeId && bottomNodeId && topNodeId !== bottomNodeId &&
+						validNodeIds.has(topNodeId) && validNodeIds.has(bottomNodeId)) {
 						constraints.relativePlacementConstraint.push({
 							top: topNodeId,
 							bottom: bottomNodeId,

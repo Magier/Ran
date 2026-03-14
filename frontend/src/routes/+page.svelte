@@ -181,6 +181,7 @@
 			class="h-full min-h-0"
 			action={sendAction}
 			targetId={selectedObjectId}
+			target={selectedObject}
 			bind:focusSearch={focusArmorySearch}
 		/>
 		<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="flex-1 h-full min-h-0" />

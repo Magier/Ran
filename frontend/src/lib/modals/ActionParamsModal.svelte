@@ -57,6 +57,9 @@
 	// Incremented when a combobox value is set programmatically (external update),
 	// used as a {#key} to force remount so defaultValue is re-applied.
 	let argExternalVersions: Record<string, number> = $state({});
+	
+	// Track which args have been auto-selected to prevent infinite loops
+	let autoSelectedArgs: Set<string> = new Set();
 
 	function bumpArgVersion(name: string) {
 		argExternalVersions = { ...argExternalVersions, [name]: (argExternalVersions[name] ?? 0) + 1 };
@@ -69,6 +72,9 @@
 		const nsArg = args.find(arg => arg.Type === 'Namespace');
 		return nsArg ? nsArg.Value : '';
 	});
+	
+	// Track the last namespace we cleared for to prevent repeated clears
+	let lastClearedNamespace = $state('');
 
 	let isAllNamespaces = $derived.by(() => {
 		const allNsArg = args.find(arg => arg.Name === 'ALL_NS');
@@ -87,6 +93,14 @@
 	}
 
 	$effect(() => {
+		// Only run when namespace actually changes
+		if (selectedNamespace === lastClearedNamespace) {
+			return;
+		}
+		
+		// Update tracking before processing
+		lastClearedNamespace = selectedNamespace;
+		
 		// if the namespace changes, clear out-of-namespace resources (except TOKEN which can be cross-namespace)
 		let hasOutOfNsResources = false;
 		
@@ -125,11 +139,15 @@
 					const selectedOption = options.find(opt => opt.value === a.Value);
 					if (selectedOption && selectedOption.group && selectedOption.group !== selectedNamespace) {
 						bumpArgVersion(a.Name);
+						// Reset auto-select tracking so it can re-select in the new namespace
+						autoSelectedArgs.delete(a.Name);
 						return { ...a, Value: "" };
 					}
 				} else if (a.Value.startsWith("ns/") && !a.Value.startsWith(`ns/${selectedNamespace}`)) {
 					// Fallback: clear ID-based resources
 					bumpArgVersion(a.Name);
+					// Reset auto-select tracking so it can re-select in the new namespace
+					autoSelectedArgs.delete(a.Name);
 					return { ...a, Value: "" };
 				}
 				
@@ -140,34 +158,49 @@
 
 	// Auto-select when only one option is available
 	$effect(() => {
-		// Check each arg to see if it has exactly one option
-		let needsUpdate = false;
-		const updates: Array<{ index: number; value: string; name: string }> = [];
+		// Only track args array changes, not derived values
+		const currentArgs = args;
 		
-		args.forEach((arg, i) => {
-			// Skip if it's a boolean or doesn't have options
-			if (arg.Type === 'bool') return;
+		// Use untrack to avoid circular dependencies with selectedNamespace
+		untrack(() => {
+			// Check each arg to see if it has exactly one option
+			let needsUpdate = false;
+			const updates: Array<{ index: number; value: string; name: string }> = [];
 			
-			const options = getArgOptions(arg.Name);
+			currentArgs.forEach((arg, i) => {
+				// Skip if it's a boolean or doesn't have options
+				if (arg.Type === 'bool') return;
+				
+				// Skip if we've already auto-selected this arg
+				if (autoSelectedArgs.has(arg.Name)) return;
+				
+				// Skip if already has a value
+				if (arg.Value && arg.Value !== '') return;
+				
+				const options = getArgOptions(arg.Name);
+				
+				// If there's exactly one option and current value doesn't match it
+				if (options.length === 1 && arg.Value !== options[0].value) {
+					updates.push({ index: i, value: options[0].value, name: arg.Name });
+					needsUpdate = true;
+				}
+			});
 			
-			// If there's exactly one option and current value doesn't match it
-			if (options.length === 1 && arg.Value !== options[0].value) {
-				updates.push({ index: i, value: options[0].value, name: arg.Name });
-				needsUpdate = true;
+			if (needsUpdate) {
+				// Mark these args as auto-selected before updating
+				updates.forEach(u => autoSelectedArgs.add(u.name));
+				
+				args = currentArgs.map((a, i) => {
+					const update = updates.find(u => u.index === i);
+					if (update) {
+						console.info("Auto-selecting single option for", update.name, ":", update.value);
+						bumpArgVersion(update.name);
+						return { ...a, Value: update.value };
+					}
+					return a;
+				});
 			}
 		});
-		
-		if (needsUpdate) {
-			args = args.map((a, i) => {
-				const update = updates.find(u => u.index === i);
-				if (update) {
-					console.info("Auto-selecting single option for", update.name, ":", update.value);
-					bumpArgVersion(update.name);
-					return { ...a, Value: update.value };
-				}
-				return a;
-			});
-		}
 	});
 
 	// Initialize args when TTP changes
@@ -193,9 +226,11 @@
 		untrack(() => {
 			console.group("ActionParamsModal: Initializing args for TTP", currentTtpId);
 
-			// Reset argOptions and external versions when TTP changes
+			// Reset argOptions, external versions, auto-select tracking, and namespace tracking when TTP changes
 			argOptions = {};
 			argExternalVersions = {};
+			autoSelectedArgs = new Set();
+			lastClearedNamespace = '';
 
 			args = ttpParams?.map((param: TTPParam) => {
 					let value = param.default;
