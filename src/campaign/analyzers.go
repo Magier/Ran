@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,9 +29,6 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts, execSys
 
 	// Index-based loop to avoid issues with appending while ranging
 	for i := 0; i < len(queue); i++ {
-		if i > 100 {
-			return domain.Facts{}, domain.Facts{}, fmt.Errorf("Possible endless analysis loop detected! queue: %s", queue)
-		}
 		current := queue[i]
 
 		// ensure to always work with the latest and most complete information
@@ -206,13 +204,17 @@ func (c Campaign) AnalyzeChanges(new domain.Facts, removed domain.Facts, execSys
 				}
 			}
 
-			mergeAnalyzedFacts(entities, identities, &relations, &assets, resultingFacts)
-			// queue newly found entities for analysis
+			// queue newly found entities for analysis, but only if they bring new information
 			for _, entity := range resultingFacts.Entities {
-				if entity.GetId() != current.GetId() {
-					queue = append(queue, entity)
+				if entity.GetId() == current.GetId() {
+					continue
 				}
+				if existing, alreadySeen := entities[entity.GetId()]; alreadySeen && reflect.DeepEqual(entity, existing) {
+					continue
+				}
+				queue = append(queue, entity)
 			}
+			mergeAnalyzedFacts(entities, identities, &relations, &assets, resultingFacts)
 		}
 	}
 
