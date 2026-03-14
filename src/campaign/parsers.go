@@ -236,10 +236,6 @@ func parsePod(args map[string]string, results ...string) (domain.Pod, error) {
 
 	p.Containers = append(p.Containers, domain.NewContainer(cfg.ContainerName, cfg.Image))
 
-	// return domain.NewPodDeployed{
-	// 	Pod:       p,
-	// 	Namespace: ns,
-	// }, nil
 	return p, nil
 }
 
@@ -553,8 +549,12 @@ func (c *Campaign) ParseEffect(effect string, target domain.Entity, execSystem d
 				slog.Error(fmt.Sprintf("Failed to parse files: %v", err))
 			} else {
 				if sys, ok := target.(domain.System); ok {
+					// avoid double slashes in the path
+					srcDir = strings.TrimSuffix(srcDir, "/")
+
 					for _, entry := range fsEntries {
-						fullPath := fmt.Sprintf("%s/%s", srcDir, entry.Name)
+						n := strings.TrimPrefix(entry.Name, "/")
+						fullPath := fmt.Sprintf("%s/%s", srcDir, n)
 						if entry.IsExec && !entry.IsDir {
 							// also explicitely track all binaries
 							sys.SetBinary(entry.Name, fullPath)

@@ -238,6 +238,26 @@ func Test_mergeEntities_MergingSlicesDeduplicatesEntries(t *testing.T) {
 	}
 }
 
+func Test_mergeEntities_NewFilesAreMergedWithExisting(t *testing.T) {
+	oldNode := NewK8sNode("node-1")
+	oldNode.Files = []string{"/etc/passwd", "/etc/shadow"}
+
+	newNode := NewK8sNode("node-1")
+	newNode.Files = []string{"/etc/hosts", "/etc/passwd"}
+
+	merged := mergeEntities(newNode, oldNode).(K8sNode)
+
+	if len(merged.Files) != 3 {
+		t.Fatalf("Expected 3 files after merging, got %d: %v", len(merged.Files), merged.Files)
+	}
+	expected := map[string]bool{"/etc/hosts": true, "/etc/passwd": true, "/etc/shadow": true}
+	for _, f := range merged.Files {
+		if !expected[f] {
+			t.Errorf("Unexpected file in merged list: %s", f)
+		}
+	}
+}
+
 func Test_mergePodAndUnknownSystem(t *testing.T) {
 	hostName := "pod-123"
 	pod := NewPod(hostName, "default")
