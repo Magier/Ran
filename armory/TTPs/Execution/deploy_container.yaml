@@ -52,12 +52,14 @@ parameters:
     type: string
     default: "${NODE_NAME}"
     description: the name of the node where the pod should be deployed
-  Identity:
-    type: string
+  TOKEN:
+    type: ServiceAccount
     description: the identity used to deploy the container
 procedures:
   - key: kubectl
+    tool: kubectl
     command: |+
+      export TOKEN=${TOKEN}; 
       echo '{
         "apiVersion": "v1",
         "kind": "Pod",
@@ -89,9 +91,9 @@ procedures:
           }] 
           {{ end }}
         }
-      }' | kubectl apply -f -  
+      }' | kubectl apply --token=$TOKEN -f -  
       && 
-      kubectl wait --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/{{.PodName}}
+      kubectl wait --token=$TOKEN --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/{{.PodName}}
 preconditions:
   rbac: 
     - verb: create

@@ -506,6 +506,16 @@ func (c Campaign) GroundAction(ttp domain.TTP, execSystemID, targetId, procedure
 		}
 	}
 
+	// first ground the original command using the tool from the procedure
+	if sys, ok := execSystem.(domain.System); ok {
+		groundedCmd, err := groundUsedTool(execCmd.Procedure.Tool, execCmd.Procedure.Command, sys)
+		if err != nil {
+			slog.Error(fmt.Sprintf("Failed to ground used tool: %s", err.Error()))
+		} else {
+			execCmd.Procedure.Command = groundedCmd
+		}
+	}
+
 	// build the final command
 	if finalCmd, err := c.buildFinalCommand(execCmd.C2Channel, execCmd.Procedure); err == nil {
 		execCmd.Procedure.Command = finalCmd
@@ -586,7 +596,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 	// TODO: properly set the default values to the most plausible options
 	for _, key := range order {
 		arg := args[key]
-		if (key == "NS" || key == "NAMESPACE") && (arg == "" || arg == NS_NAME_VAR) {
+		if (key == "NS" || strings.ToUpper(key) == "NAMESPACE") && (arg == "" || arg == NS_NAME_VAR) {
 			if ns, ok := target.(domain.Namespaced); ok {
 				arg = ns.GetNamespace()
 			} else if ns, ok := target.(domain.Namespace); ok {
