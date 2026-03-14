@@ -319,18 +319,58 @@ func mergeValue(newField, oldField reflect.Value) reflect.Value {
 		if newField.Len() == 0 && oldField.Len() > 0 {
 			return oldField
 		}
-		return newField
+		if oldField.Len() == 0 {
+			return newField
+		}
+		return mergeSlices(newField, oldField)
 	case reflect.Map:
 		if newField.Len() == 0 && oldField.Len() > 0 {
 			return oldField
 		}
-		return newField
+		if oldField.Len() == 0 {
+			return newField
+		}
+		return mergeMaps(newField, oldField)
 	default:
 		if isZeroValue(newField) {
 			return oldField
 		}
 		return newField
 	}
+}
+
+// mergeSlices appends items from oldSlice that are not already present in
+// newSlice, using reflect.DeepEqual for comparison.
+func mergeSlices(newSlice, oldSlice reflect.Value) reflect.Value {
+	merged := reflect.MakeSlice(newSlice.Type(), newSlice.Len(), newSlice.Len()+oldSlice.Len())
+	reflect.Copy(merged, newSlice)
+
+	for i := 0; i < oldSlice.Len(); i++ {
+		oldItem := oldSlice.Index(i)
+		found := false
+		for j := 0; j < newSlice.Len(); j++ {
+			if reflect.DeepEqual(oldItem.Interface(), newSlice.Index(j).Interface()) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			merged = reflect.Append(merged, oldItem)
+		}
+	}
+	return merged
+}
+
+// mergeMaps merges two maps, with new values taking precedence for duplicate keys.
+func mergeMaps(newMap, oldMap reflect.Value) reflect.Value {
+	merged := reflect.MakeMap(newMap.Type())
+	for _, key := range oldMap.MapKeys() {
+		merged.SetMapIndex(key, oldMap.MapIndex(key))
+	}
+	for _, key := range newMap.MapKeys() {
+		merged.SetMapIndex(key, newMap.MapIndex(key))
+	}
+	return merged
 }
 
 func mergeStruct(newVal, oldVal reflect.Value) reflect.Value {
