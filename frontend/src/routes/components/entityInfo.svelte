@@ -141,7 +141,7 @@
 		{#each Object.entries(obj || {}) as [label, data]}
 			{#if label === 'containers' && Array.isArray(data) && data.length > 0}
 				<!-- Special drill-down view for containers -->
-				<details open class:field-changed={highlightedFields[label]}>
+				<details class:field-changed={highlightedFields[label]}>
 					<summary>
 						<span class="font-bold mr-1">{label}</span>
 						<span class="badge preset-outlined-surface-500">({data.length} items)</span>

@@ -681,6 +681,7 @@ func (r *KubeletExecSource) GetNextChannel() C2Channel     { return r.NextChanne
 func (r *KubeletExecSource) SetNextChannel(next C2Channel) { r.NextChannel = next }
 func (r *KubeletExecSource) GetCommandEnvelope(cmd string) string {
 	// Substitute the ${TOKEN} placeholder in the command produced by the sink
+	slog.Info("Grounding kubelet exec command with token", "originalCmd", cmd, "id", r.Identity.GetId())
 	return strings.ReplaceAll(cmd, "${TOKEN}", r.Identity.GetToken())
 }
 
@@ -730,6 +731,11 @@ func (r *KubeletExecSink) GetFinalTarget() Entity {
 func (r *KubeletExecSink) GetNextChannel() C2Channel     { return r.NextChannel }
 func (r *KubeletExecSink) SetNextChannel(next C2Channel) { r.NextChannel = next }
 func (r *KubeletExecSink) GetCommandEnvelope(cmd string) string {
+	if len(r.Pod.Containers) == 0 {
+		slog.Error("Pod has no containers, cannot build kubelet exec command", "pod", r.Pod.GetId())
+		return cmd
+	}
+
 	container := r.Pod.Containers[0].Name // TODO find out how to select the right container if there are multiple
 
 	// Tokenize with shell semantics (respects quotes, escapes) and join as
