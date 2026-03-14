@@ -14,3 +14,5 @@ procedures:
 preconditions:
   kind: System
   accessLevel: "user-exec"
+effects:
+  - file:content
