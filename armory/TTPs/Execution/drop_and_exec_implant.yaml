@@ -2,6 +2,7 @@ name: Drop & Exec Implant
 description: Command to download a prepared C2 implant and execute it to establish a session
 tactic: Execution
 techniques: ["User Execution"]
+status: disabled
 parameters:
   LISTENER:
     type: string

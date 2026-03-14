@@ -10,7 +10,7 @@ parameters:
   CIDR:
     type: string
     description: the CIDR range to scan
-    default: "${TARGET.IP}/25"
+    default: "${TARGET.IP}/24"
   THREADS:
     type: int
     description: the number of concurrent threads to use
