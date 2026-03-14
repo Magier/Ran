@@ -5,7 +5,6 @@ techniques: ["Network Service Discovery", T1046]
 preconditions:
   kind: System
   accessLevel: user-exec
-  sys.has-binary: redis-cli
 parameters:
   CIDR:
     type: string
