@@ -18,7 +18,6 @@ procedures:
   - key: sliver
     command: get_file ${MOUNT_PATH}${PATH}
 preconditions:
-  accessLevel: user-read
   kind: Node
 effects:
   - file:kubeconfig
