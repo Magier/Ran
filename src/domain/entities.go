@@ -1048,6 +1048,13 @@ type Process struct {
 	CPU       int    `json:"cpu,omitzero"`       // CPU utilization percentage
 }
 
+func NewContainer(name, image string) v1.Container {
+	return v1.Container{
+		Name:  name,
+		Image: image,
+	}
+}
+
 type Pod struct {
 	K8sEntity
 	*SystemImpl // SystemImpl contains system-level information like OS, IPs, environment variables, etc.
@@ -1098,6 +1105,7 @@ type PodConfig struct {
 	NodeName       string
 	HostMounts     []Mount
 	ServiceAccount string
+	ContainerName  string
 }
 
 func NewPod(name, ns string) Pod {

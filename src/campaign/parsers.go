@@ -184,8 +184,16 @@ func parsePod(args map[string]string, results ...string) (domain.Pod, error) {
 	nsName = args["Namespace"]
 
 	if numArgs >= 3 {
+		var ok bool
 		cfg.NodeName = args["NodeName"]
 		cfg.ServiceAccount = args["ServiceAccount"]
+
+		cfg.ContainerName, ok = args["ContainerName"]
+		if !ok {
+			cfg.ContainerName = podName
+		}
+
+		cfg.Image = args["Image"]
 
 		isPrivileged, _ := strconv.ParseBool(args["Privileged"])
 		cfg.Privileged = isPrivileged
@@ -225,6 +233,8 @@ func parsePod(args map[string]string, results ...string) (domain.Pod, error) {
 	p.ServiceAccountName = cfg.ServiceAccount
 	p.NodeName = cfg.NodeName
 	p.VolumeMounts = cfg.HostMounts
+
+	p.Containers = append(p.Containers, domain.NewContainer(cfg.ContainerName, cfg.Image))
 
 	// return domain.NewPodDeployed{
 	// 	Pod:       p,
