@@ -14,8 +14,7 @@ parameters:
     default: ${NS}
     description: the name of the namespace of the pod
   Token:
-    type: string
-    default: ""
+    type: ServiceAccount
     description: the token used to authenticate to the API server
 procedures:
   - key: kubectl
