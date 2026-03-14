@@ -180,14 +180,23 @@
 		}
 	});
 
-	// reset any stored layouting information when the campaign is reset
+	// Track campaign ID changes and reset layout when campaign changes
+	let previousCampaignId = $state(campaignState.campaignId);
 	$effect(() => {
-		if (campaignState.campaignId > 0) {
-			sessionStorage.clear();
+		const currentCampaignId = campaignState.campaignId;
+		// Only reset if campaign actually changed (not just on mount)
+		if (previousCampaignId !== currentCampaignId && previousCampaignId !== undefined) {
+			console.log(`Campaign changed from ${previousCampaignId} to ${currentCampaignId}, resetting layout`);
+			// Clear only graph-specific keys, not all sessionStorage
+			sessionStorage.removeItem(POS_KEY);
+			sessionStorage.removeItem(PAN_KEY);
+			sessionStorage.removeItem(ZOOM_KEY);
+			// Don't clear FILTER_NS_KEY - preserve namespace filter across campaigns
 			positions = {};
 			previousNodeIds.clear();
-			hiddenNamespaces = new Set(DEFAULT_HIDDEN_NAMESPACES);
+			// Don't reset hiddenNamespaces - user preferences should persist
 		}
+		previousCampaignId = currentCampaignId;
 	});
 
 	// Persist hidden namespaces to sessionStorage
@@ -284,17 +293,26 @@
 						}
 
 						// Assert: all edges must reference existing nodes
-						const nodeIdSet = new Set(cy.nodes().map(n => n.id()));
+						// Use only visible nodes (not filtered or hidden by collapse)
+						const visibleNodes = cy.nodes(':visible');
+						const nodeIdSet = new Set(visibleNodes.map(n => n.id()));
+						
+						// Validate all edges reference visible nodes
+						let hasInvalidEdges = false;
 						cy.edges().forEach(e => {
 							const src = e.source().id();
 							const tgt = e.target().id();
-							if (!nodeIdSet.has(src)) {
-								throw new Error(`Edge "${e.id()}" references non-existent source node "${src}"`);
-							}
-							if (!nodeIdSet.has(tgt)) {
-								throw new Error(`Edge "${e.id()}" references non-existent target node "${tgt}"`);
+							if (!nodeIdSet.has(src) || !nodeIdSet.has(tgt)) {
+								console.warn(`Edge "${e.id()}" references hidden or non-existent node (${src} -> ${tgt})`);
+								hasInvalidEdges = true;
 							}
 						});
+
+						if (hasInvalidEdges) {
+							console.warn('Skipping layout due to invalid edges');
+							existingNodes.unlock();
+							return;
+						}
 
 						// Assert: container must have non-zero dimensions
 						const containerRect = graphContainer.getBoundingClientRect();
@@ -302,8 +320,9 @@
 							throw new Error(`Graph container has zero dimensions (${containerRect.width}x${containerRect.height})`);
 						}
 
-						// Create layout with constraints and add stop callback to unlock nodes
-						const enhancedLayout = createLayout(cy.nodes(), positions);
+						// Create layout with constraints using only visible nodes
+						// This prevents the layout from trying to process collapsed/filtered nodes
+						const enhancedLayout = createLayout(visibleNodes, positions);
 
 						// Validate layout configuration
 						console.log('Layout config:', enhancedLayout);
