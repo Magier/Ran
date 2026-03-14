@@ -10,14 +10,18 @@ import (
 	"github.com/dominikbraun/graph"
 )
 
-var WorkloadNamePattern = regexp.MustCompile(`^(?P<workload>.*)-[a-z0-9]{9}-[a-z0-9]{5}$`)
+var WorkloadNamePattern = regexp.MustCompile(`^(?P<workload>.*)-[a-z0-9]{9,10}-[a-z0-9]{5}$`)
 
 type KnowledgeGraph = graph.Graph[string, domain.Entity]
 type AdjacencyList = map[string]map[string]string
 
+// Path represents a resolved graph path. Each hop may have multiple
+// relations between the same node pair (the graph only stores one edge,
+// but the KB's Relations map keeps them all). RelationsPerHop[i] holds
+// every relation from Nodes[i] to Nodes[i+1].
 type Path struct {
-	Nodes     []domain.Entity
-	Relations []domain.Relation
+	Nodes           []domain.Entity
+	RelationsPerHop [][]domain.Relation
 }
 
 type KnowledgeBase interface {
@@ -435,30 +439,27 @@ func (kg *BuiltInKnowledgeBase) GetAllPaths(source, target string) ([]Path, erro
 }
 
 func resolvePath(kg *BuiltInKnowledgeBase, path []string, source string) (Path, error) {
-	adjMatrix, err := kg.graph.AdjacencyMap()
-	if err != nil {
-		return Path{}, err
-	}
-
-	nodesOnPath := make([]domain.Entity, 0)
-	nodesOnPath = append(nodesOnPath, kg.Entities[source])
-	relations := make([]domain.Relation, 0)
+	nodesOnPath := []domain.Entity{kg.Entities[source]}
+	relationsPerHop := make([][]domain.Relation, 0, len(path)-1)
 
 	for i := 0; i < len(path)-1; i++ {
 		srcId := path[i]
 		targetId := path[i+1]
 
-		if adjMap, ok := adjMatrix[srcId]; ok {
-			if edge, ok := adjMap[targetId]; ok {
-				rel := edge.Properties.Data.(domain.Relation)
-				relations = append(relations, rel)
-				nodesOnPath = append(nodesOnPath, kg.Entities[targetId])
+		// Collect all relations between this node pair from the full
+		// relation set, not just the single graph edge.
+		hopRels := make([]domain.Relation, 0)
+		for _, rel := range kg.Relations {
+			if rel.GetSourceId() == srcId && rel.GetTargetId() == targetId {
+				hopRels = append(hopRels, rel)
 			}
 		}
+
+		relationsPerHop = append(relationsPerHop, hopRels)
+		nodesOnPath = append(nodesOnPath, kg.Entities[targetId])
 	}
 
-	return Path{
-		Nodes: nodesOnPath, Relations: relations}, nil
+	return Path{Nodes: nodesOnPath, RelationsPerHop: relationsPerHop}, nil
 }
 
 func (kg *BuiltInKnowledgeBase) GetPath(source, target string) (Path, error) {

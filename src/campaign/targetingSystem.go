@@ -55,15 +55,17 @@ func (c Campaign) getSystemForExecution(procedure domain.Procedure, target domai
 
 			for _, compromisedSys := range compromisedSystems {
 				srcBeforeTarget := path.Nodes[len(path.Nodes)-2]
-				rel := path.Relations[len(path.Relations)-1]
+				lastHopRels := path.RelationsPerHop[len(path.RelationsPerHop)-1]
 
 				// possible system to execution TTP from, check if relations support it
 				if compromisedSys.GetId() == srcBeforeTarget.GetId() {
-					switch rel.(type) {
-					case domain.CanAccess:
-						return compromisedSys, nil
-					case domain.MountsHostPaths:
-						return compromisedSys, nil
+					for _, rel := range lastHopRels {
+						switch rel.(type) {
+						case domain.CanAccess:
+							return compromisedSys, nil
+						case domain.MountsHostPaths:
+							return compromisedSys, nil
+						}
 					}
 				}
 			}
@@ -107,34 +109,50 @@ func findC2Channel(kg KnowledgeBase, finalTarget domain.Entity) (domain.C2Channe
 			continue
 		}
 
-		for _, rel := range paths.Relations {
-			if ch, ok := rel.(domain.C2Channel); ok {
-				// set a pointer to the next channel, the C2 execution component can chain the channels
-				if lastSegment != nil {
-					lastSegment.SetNextChannel(ch)
-				} else {
-					c2Channel = ch
-				}
-				lastSegment = ch
-			} else if canAccess, ok := rel.(domain.CanAccess); ok {
-				if relTarget, ok := kg.GetEntity(rel.GetTargetId()); ok {
-					ch := &domain.PodExecC2Channel{
-						SourceId: canAccess.SourceId,
-						Target:   relTarget,
-						Identity: canAccess.Identity,
-					}
+		for hopIdx, hopRels := range paths.RelationsPerHop {
+			// Find the best C2-capable relation for this hop.
+			// Prefer a direct C2Channel; fall back to CanAccess (converted to PodExecC2Channel).
+			var bestChannel domain.C2Channel
+			var bestCanAccess *domain.CanAccess
 
-					// set a pointer to the next channel, the C2 execution component can chain the channels
-					if lastSegment != nil {
-						lastSegment.SetNextChannel(ch)
-					} else {
-						c2Channel = ch
-					}
-					lastSegment = ch
-				} else {
-					return nil, fmt.Errorf("Could not identify target %s", canAccess.TargetId)
+			for _, rel := range hopRels {
+				if ch, ok := rel.(domain.C2Channel); ok {
+					bestChannel = ch
+					break // direct C2Channel is ideal
+				}
+				if ca, ok := rel.(domain.CanAccess); ok && bestCanAccess == nil {
+					bestCanAccess = &ca
 				}
 			}
+
+			var ch domain.C2Channel
+			if bestChannel != nil {
+				ch = bestChannel
+			} else if bestCanAccess != nil {
+				targetId := paths.Nodes[hopIdx+1].GetId()
+				if relTarget, ok := kg.GetEntity(targetId); ok {
+					ch = &domain.PodExecC2Channel{
+						SourceId: bestCanAccess.SourceId,
+						Target:   relTarget,
+						Identity: bestCanAccess.Identity,
+					}
+				} else {
+					return nil, fmt.Errorf("Could not identify target %s", bestCanAccess.TargetId)
+				}
+			} else {
+				slog.Error("No C2-capable relation found for hop in C2 path",
+					"from", paths.Nodes[hopIdx].GetId(),
+					"to", paths.Nodes[hopIdx+1].GetId(),
+					"relations", hopRels)
+				continue
+			}
+
+			if lastSegment != nil {
+				lastSegment.SetNextChannel(ch)
+			} else {
+				c2Channel = ch
+			}
+			lastSegment = ch
 		}
 	}
 
