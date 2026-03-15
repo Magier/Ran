@@ -912,9 +912,20 @@ func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]s
 
 	match := re.FindStringSubmatch(effect)
 	if len(match) > 1 {
-		paramName := strings.ToUpper(match[1])
+		rawArgs := match[1]
+
+		// Support two-argument form: has-binary(<Name>, <Param>)
+		// If comma-separated, first part is the explicit binary name, second is the parameter.
+		var explicitName string
+		paramStr := rawArgs
+		if parts := strings.SplitN(rawArgs, ",", 2); len(parts) == 2 {
+			explicitName = strings.Trim(strings.TrimSpace(parts[0]), "'\"")
+			paramStr = strings.TrimSpace(parts[1])
+		}
+
+		paramName := strings.ToUpper(paramStr)
 		if sys, ok := source.(domain.System); ok {
-			binPath := match[1]
+			binPath := paramStr
 
 			// Check if paramName is ${OUTPUT}, indicating we should parse binary paths from stdout
 			if paramName == "${OUTPUT}" || paramName == "OUTPUT" {
@@ -925,8 +936,11 @@ func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]s
 						slog.Warn("No binary paths found in output for has-binary effect")
 					}
 					for _, binPath := range binaryPaths {
-						parts := strings.Split(binPath, "/")
-						binaryName := parts[len(parts)-1]
+						binaryName := explicitName
+						if binaryName == "" {
+							parts := strings.Split(binPath, "/")
+							binaryName = parts[len(parts)-1]
+						}
 						sys.SetBinary(binaryName, binPath)
 						slog.Debug("Extracted binary from output", "name", binaryName, "path", binPath)
 					}
@@ -947,10 +961,13 @@ func parseHasBinaryEffect(source domain.Entity, effect string, args map[string]s
 			}
 
 			if binPath != "" {
-				var binaryName = binPath
-				if strings.Contains(binPath, "/") {
-					parts := strings.Split(binPath, "/")
-					binaryName = parts[len(parts)-1]
+				binaryName := explicitName
+				if binaryName == "" {
+					binaryName = binPath
+					if strings.Contains(binPath, "/") {
+						pathParts := strings.Split(binPath, "/")
+						binaryName = pathParts[len(pathParts)-1]
+					}
 				}
 				sys.SetBinary(binaryName, binPath) // same name implies it's a globally available binary
 			} else {
