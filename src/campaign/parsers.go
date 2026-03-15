@@ -564,6 +564,46 @@ func (c *Campaign) ParseEffect(effect string, target domain.Entity, execSystem d
 					entities = append(entities, sys)
 				}
 			}
+		case "file:content":
+			path := args["PATH"]
+			content := results[0]
+			if path != "" && len(content) > 0 {
+				c.StoreFileContent(path, content)
+				slog.Info(fmt.Sprintf("Stored file content for path: %s (%d bytes)", path, len(content)))
+
+				// Classify: check if the content is a kubeconfig
+				config, err := loadKubeConfigFromString(content)
+				if err == nil {
+					slog.Info(fmt.Sprintf("File %s classified as kubeconfig", path))
+					rawConfig, err := config.RawConfig()
+					if err != nil {
+						slog.Error(fmt.Sprintf("Failed to get raw kubeconfig: %v", err))
+					} else {
+						currentContext := rawConfig.CurrentContext
+						ctx := rawConfig.Contexts[currentContext]
+						if ctx != nil {
+							cluster := domain.NewCluster(ctx.Cluster, "")
+							slog.Warn(fmt.Sprintf("Kubeconfig effect: using cluster '%s' has not implementing parsing of its address", ctx.Cluster))
+							entities = append(entities, cluster)
+
+							authInfo := ctx.AuthInfo
+							user := domain.User{
+								Name:     authInfo,
+								IsAdmin:  true,
+								Kind:     "User",
+								CertData: rawConfig.AuthInfos[authInfo].ClientCertificateData,
+								KeyData:  rawConfig.AuthInfos[authInfo].ClientKeyData,
+							}
+							entities = append(entities, user)
+
+							relations = append(relations, domain.Contains{
+								Container: cluster,
+								Object:    user,
+							})
+						}
+					}
+				}
+			}
 		case "file:kubeconfig":
 			if len(results[0]) > 0 {
 				config, err := loadKubeConfigFromString(results[0])

@@ -204,6 +204,20 @@ func (h *HTTPHandler) GetRunningPods(w http.ResponseWriter, r *http.Request, par
 	respondJSON(w, http.StatusOK, pods)
 }
 
+// GetFileContent implements ServerInterface
+func (h *HTTPHandler) GetFileContent(w http.ResponseWriter, r *http.Request, params GetFileContentParams) {
+	content, ok := h.api.ran.Campaign.GetFileContent(params.Path)
+	if !ok {
+		respondError(w, http.StatusNotFound, "file content not found for path: "+params.Path)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"path":    params.Path,
+		"content": content,
+	})
+}
+
 // Helper functions
 
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {

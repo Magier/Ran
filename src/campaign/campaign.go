@@ -31,6 +31,7 @@ type Campaign struct {
 	bus            bus.MessageBus
 	lastExecSystem domain.System
 	ruleEngine     *RuleEngine
+	fileContents   map[string]string // path -> content of read files
 }
 
 type factsUpdate struct {
@@ -52,12 +53,13 @@ func NewCampaign(a *armory.Armory) *Campaign {
 
 	_ = kg.AddEntity(domain.NewC2System("Ran", "Ran"))
 	c := &Campaign{
-		kb:         kg,
-		trail:      NewAuditTrail(),
-		armory:     a,
-		sessions:   make(map[string]domain.Session),
-		listeners:  make(map[string]domain.Listener),
-		identities: make(map[string]domain.Identity),
+		kb:           kg,
+		trail:        NewAuditTrail(),
+		armory:       a,
+		sessions:     make(map[string]domain.Session),
+		listeners:    make(map[string]domain.Listener),
+		identities:   make(map[string]domain.Identity),
+		fileContents: make(map[string]string),
 	}
 	c.ruleEngine = NewRuleEngine(kg, func() map[string]domain.Identity {
 		return c.identities
@@ -332,6 +334,15 @@ func (c *Campaign) GetGraph() AdjacencyList {
 }
 func (c *Campaign) GetAuditTrail() AuditTrail {
 	return c.trail
+}
+
+func (c *Campaign) StoreFileContent(path, content string) {
+	c.fileContents[path] = content
+}
+
+func (c *Campaign) GetFileContent(path string) (string, bool) {
+	content, ok := c.fileContents[path]
+	return content, ok
 }
 
 func (c *Campaign) AddEntities(entities ...domain.Entity) int {
