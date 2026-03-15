@@ -21,6 +21,5 @@ effects: ["sys.has-binary(${PKG})", "sys.has-binary(${OUTPUT})"]
 cleanup:
     key: ubuntu
     command: apt remove -y ${PKG}
-# effects: ["has-binary(${TARGET}, ${PKG}"]
 # defend: {}
 references:

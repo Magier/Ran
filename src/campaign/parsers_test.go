@@ -78,6 +78,131 @@ func TestParseHasBinaryEffect_FromOutput(t *testing.T) {
 	}
 }
 
+func TestParseHasBinaryEffect_SingleArgLiteralPath(t *testing.T) {
+	source := domain.NewPod("test-pod", "default")
+	effect := "target.has-binary(/usr/bin/curl)"
+	args := map[string]string{}
+
+	entity, err := parseHasBinaryEffect(source, effect, args)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	sys := entity.(domain.System)
+	if path := sys.GetBinary("curl"); path != "/usr/bin/curl" {
+		t.Errorf("Expected binary curl at /usr/bin/curl, got %q", path)
+	}
+}
+
+func TestParseHasBinaryEffect_SingleArgTemplateVar(t *testing.T) {
+	source := domain.NewPod("test-pod", "default")
+	effect := "target.has-binary(${BIN_PATH})"
+	args := map[string]string{"BIN_PATH": "/opt/tools/nmap"}
+
+	entity, err := parseHasBinaryEffect(source, effect, args)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	sys := entity.(domain.System)
+	if path := sys.GetBinary("nmap"); path != "/opt/tools/nmap" {
+		t.Errorf("Expected binary nmap at /opt/tools/nmap, got %q", path)
+	}
+}
+
+func TestParseHasBinaryEffect_TwoArgWithExplicitName(t *testing.T) {
+	source := domain.NewPod("test-pod", "default")
+	effect := "target.has-binary(my-tool, ${BIN_PATH})"
+	args := map[string]string{"BIN_PATH": "/usr/local/bin/my-tool-v2"}
+
+	entity, err := parseHasBinaryEffect(source, effect, args)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	sys := entity.(domain.System)
+	if path := sys.GetBinary("my-tool"); path != "/usr/local/bin/my-tool-v2" {
+		t.Errorf("Expected binary my-tool at /usr/local/bin/my-tool-v2, got %q", path)
+	}
+}
+
+func TestParseHasBinaryEffect_TwoArgQuotedName(t *testing.T) {
+	source := domain.NewPod("test-pod", "default")
+	effect := "target.has-binary('ran-ws', ${BIN_PATH})"
+	args := map[string]string{"BIN_PATH": "/tmp/ran-ws"}
+
+	entity, err := parseHasBinaryEffect(source, effect, args)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	sys := entity.(domain.System)
+	if path := sys.GetBinary("ran-ws"); path != "/tmp/ran-ws" {
+		t.Errorf("Expected binary ran-ws at /tmp/ran-ws, got %q", path)
+	}
+}
+
+func TestParseHasBinaryEffect_TwoArgWithOutputPlaceholder(t *testing.T) {
+	source := domain.NewPod("test-pod", "default")
+	effect := "target.has-binary('ran-ws', ${OUTPUT})"
+	args := map[string]string{}
+	results := []string{"/usr/bin/some-binary\n/opt/ran-ws"}
+
+	entity, err := parseHasBinaryEffect(source, effect, args, results...)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	sys := entity.(domain.System)
+	// Both binaries should use the explicit name "ran-ws"
+	for _, binPath := range []string{"/usr/bin/some-binary", "/opt/ran-ws"} {
+		if path := sys.GetBinary("ran-ws"); path == "" {
+			t.Errorf("Expected binary ran-ws to be set, but it was not")
+		} else if path != binPath {
+			// The last SetBinary call wins, so the final path should be /opt/ran-ws
+			continue
+		}
+	}
+	// Final value should be the last binary path set
+	if path := sys.GetBinary("ran-ws"); path != "/opt/ran-ws" {
+		t.Errorf("Expected final binary ran-ws at /opt/ran-ws, got %q", path)
+	}
+}
+
+func TestParseHasBinaryEffect_TwoArgEmptyNameFallsBack(t *testing.T) {
+	source := domain.NewPod("test-pod", "default")
+	effect := "target.has-binary(, ${BIN_PATH})"
+	args := map[string]string{"BIN_PATH": "/usr/sbin/iptables"}
+
+	entity, err := parseHasBinaryEffect(source, effect, args)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	sys := entity.(domain.System)
+	// Empty first arg → derive name from path
+	if path := sys.GetBinary("iptables"); path != "/usr/sbin/iptables" {
+		t.Errorf("Expected binary iptables at /usr/sbin/iptables, got %q", path)
+	}
+}
+
+func TestParseHasBinaryEffect_SingleArgNoSlash(t *testing.T) {
+	source := domain.NewPod("test-pod", "default")
+	effect := "target.has-binary(curl)"
+	args := map[string]string{}
+
+	entity, err := parseHasBinaryEffect(source, effect, args)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	sys := entity.(domain.System)
+	// No slash in path → binaryName == binPath
+	if path := sys.GetBinary("curl"); path != "curl" {
+		t.Errorf("Expected binary curl with path curl, got %q", path)
+	}
+}
+
 func TestSelfSubjectReviewResult_ForbiddenStatus(t *testing.T) {
 	res := `{
 		"kind": "Status",

