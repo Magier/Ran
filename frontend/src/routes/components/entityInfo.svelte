@@ -273,6 +273,22 @@
 					</div>
 					<!-- <button class="btn btn-sm preset-filled-primary-500" disabled>🔍</button> -->
 				{/if}
+			{:else if label === 'files' && Array.isArray(data) && data.length > 0}
+				<details class:field-changed={highlightedFields[label]}>
+					<summary>
+						<span class="font-bold mr-1">{label}</span>
+						<span class="badge preset-outlined-surface-500">({data.length} items)</span>
+					</summary>
+					<ul class="list-inside list-none pl-5">
+						{#each data as item}
+							<li>
+								<button class="text-left hover:underline cursor-pointer" onclick={() => readFile(item)}>
+									{prettyPrint(item)}
+								</button>
+							</li>
+						{/each}
+					</ul>
+				</details>
 			{:else if Array.isArray(data) && data.length > 0}
 				{#if data.length === 1}
 					<div class:field-changed={highlightedFields[label]}><span class="font-bold mr-1">{label}:</span>{prettyPrint(data[0])}</div>

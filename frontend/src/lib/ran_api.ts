@@ -345,6 +345,14 @@ export class RanAPI {
         if (error) throw new Error(error.error);
         return data;
     }
+
+    async GetFileContent(path: string): Promise<{ path?: string; content?: string }> {
+        const { data, error } = await this.restClient.GET('/api/files', {
+            params: { query: { path } }
+        });
+        if (error) throw new Error(error.error);
+        return data;
+    }
 }
 
 

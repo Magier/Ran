@@ -5,6 +5,7 @@
 	import Graph from './components/graph.svelte';
 	import { Dialog, Popover, Portal } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
+	import FileViewerModal from '$lib/modals/FileViewerModal.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { toaster } from '$lib/components/toaster';
 	import EntityInfo from './components/entityInfo.svelte';
@@ -23,6 +24,9 @@
 	let activeGlobalConditions: Object = {};
 	let selectedTTP: TTP | undefined = $state();
 	let focusArmorySearch: () => void = $state(() => {});
+	let showFileViewer: boolean = $state(false);
+	let fileViewerPath: string = $state('');
+	let fileViewerContent: string = $state('');
 
 	$effect(() => {
 		let _ = campaignState.campaignId;
@@ -114,6 +118,14 @@
 					type: 'success',
 					duration: 5000
 				});
+
+				if (data.TTP?.id === 'read-file' && data.Args?.PATH) {
+					ranAPI.GetFileContent(data.Args.PATH).then((file) => {
+						fileViewerPath = file.path ?? data.Args.PATH;
+						fileViewerContent = file.content ?? '';
+						showFileViewer = true;
+					}).catch(() => {});
+				}
 			} else {
 				toaster.create({
 					title: `"${data.TTP.name}" failed`,
@@ -209,6 +221,24 @@
 								onExecute={onExecuteTTP}
 							/>
 						{/if}
+					</Dialog.Content>
+				</Dialog.Positioner>
+			</Portal>
+		</Dialog>
+
+		<Dialog
+			open={showFileViewer}
+			onOpenChange={(e) => (showFileViewer = e.open)}
+		>
+			<Portal>
+				<Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50"/>
+				<Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
+					<Dialog.Content class="card bg-surface-100-900 p-8 space-y-4 shadow-xl max-w-3xl w-full">
+						<FileViewerModal
+							path={fileViewerPath}
+							content={fileViewerContent}
+							onClose={() => (showFileViewer = false)}
+						/>
 					</Dialog.Content>
 				</Dialog.Positioner>
 			</Portal>

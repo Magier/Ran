@@ -251,6 +251,37 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/files:
+    get:
+      summary: Get file content
+      description: Returns the content of a previously read file
+      operationId: getFileContent
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The file path to retrieve content for
+      responses:
+        '200':
+          description: File content retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  content:
+                    type: string
+        '404':
+          description: File content not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 webhooks: 
   armory-loaded:
     post:

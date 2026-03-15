@@ -204,6 +204,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get file content
+         * @description Returns the content of a previously read file
+         */
+        get: operations["getFileContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export interface webhooks {
     "armory-loaded": {
@@ -721,6 +741,41 @@ export interface operations {
             };
             /** @description Failed to retrieve pods */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getFileContent: {
+        parameters: {
+            query: {
+                /** @description The file path to retrieve content for */
+                path: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File content retrieved successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        path?: string;
+                        content?: string;
+                    };
+                };
+            };
+            /** @description File content not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
