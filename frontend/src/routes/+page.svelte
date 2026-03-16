@@ -308,7 +308,7 @@
 	}
 </script>
 
-<div class="relative flex h-[calc(100vh-60px)] gap-x-1">
+<div class="relative flex h-[calc(100vh-60px)] gap-x-0">
 	{#if campaignState.armory.size > 0}
 		<!-- Armory panel -->
 		<div
@@ -360,14 +360,11 @@
 			</svelte:boundary>
 		{/if}
 
-		<Dialog
-			open={showParamModal}
-			onOpenChange={(e) => (showParamModal = e.open)}
-		>
+		<Dialog open={showParamModal} onOpenChange={(e) => (showParamModal = e.open)}>
 			<Portal>
-				<Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50"/>
-				<Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
-					<Dialog.Content class="card min-w-modal bg-surface-100-900 p-8 space-y-4 shadow-xl">
+				<Dialog.Backdrop class="fixed inset-0 z-[100] bg-surface-50-950/50" />
+				<Dialog.Positioner class="fixed inset-0 z-[100] flex justify-center items-center ">
+					<Dialog.Content class="card min-w-modal bg-surface-100-900 p-4 space-y-2 shadow-xl max-h-[90vh] flex flex-col border border-surface-600 ">
 						{#if selectedTTP}
 							<ActionParamsModal
 								targetId={selectedObjectId}
@@ -389,7 +386,7 @@
 			<Portal>
 				<Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50"/>
 				<Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
-					<Dialog.Content class="card bg-surface-100-900 p-8 space-y-4 shadow-xl max-w-3xl w-full">
+					<Dialog.Content class="card bg-surface-100-900 p-4 space-y-2 shadow-xl max-w-3xl w-full">
 						<FileViewerModal
 							path={fileViewerPath}
 							content={fileViewerContent}
