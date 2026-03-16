@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Tree from '$lib/components/tree.svelte';
 	import EntitlementInfo from './entitlement_info.svelte';
+	import Icon from '@iconify/svelte';
 	import type {RBACPermission, TTP} from '$lib/api/index';
 	import { showToast } from '$lib/components/toaster';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
@@ -120,6 +121,19 @@
 		}
 	}
 
+	// Fields handled explicitly in the header — skip from the generic loop
+	const HEADER_FIELDS = new Set(['id', 'name', 'namespace', 'kind', 'entityId', 'parent', 'entity', 'compromised']);
+
+	let idCopied = $state(false);
+
+	function copyId() {
+		if (!obj) return;
+		navigator.clipboard.writeText(obj.id).then(() => {
+			idCopied = true;
+			setTimeout(() => { idCopied = false; }, 1500);
+		});
+	}
+
 	function readFile(path: string) {
 		const ttp = campaignState.getTtpById('read-file')
 		if (ttp) {
@@ -136,9 +150,33 @@
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
-<div class="{className} pointer-events-auto z-[100] max-h-120 overflow-auto border border-surface-600 w-110 rounded-lg bg-surface-100-900 p-4 shadow-xl" >
+<div class="{className} pointer-events-auto z-[100] max-h-120 overflow-auto border border-surface-600 min-w-64 max-w-2xl w-fit rounded-lg bg-surface-100-900 p-4 shadow-xl" >
 	{#if obj}
-		{#each Object.entries(obj || {}) as [label, data]}
+		<!-- Header: name + kind badge + copy-ID button -->
+		<div class="flex items-center gap-2 mb-1">
+			<span class=" font-bold truncate" class:field-changed={highlightedFields['name']}>{obj.name}</span>
+			{#if obj.kind}
+				<span class="badge preset-filled-tertiary-500 text-xs shrink-0">{obj.kind}</span>
+			{/if}
+			<button
+				class="shrink-0 cursor-pointer rounded p-0.5 hover:bg-surface-300 dark:hover:bg-surface-700 transition-colors"
+				title={obj.id}
+				onclick={copyId}
+			>
+				{#if idCopied}
+					<Icon icon="mdi:check" width="16" class="text-success-500" />
+				{:else}
+					<Icon icon="mdi:content-copy" width="16" class="text-surface-500" />
+				{/if}
+			</button>
+		</div>
+		{#if obj.namespace}
+			<div class="text-sm mb-2" class:field-changed={highlightedFields['namespace']}>
+				<span class="font-semibold mr-1">Namespace:</span>{obj.namespace}
+			</div>
+		{/if}
+
+		{#each Object.entries(obj || {}).filter(([label]) => !HEADER_FIELDS.has(label)) as [label, data]}
 			{#if label === 'containers' && Array.isArray(data) && data.length > 0}
 				<!-- Special drill-down view for containers -->
 				<details class:field-changed={highlightedFields[label]}>

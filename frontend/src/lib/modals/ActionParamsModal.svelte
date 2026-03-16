@@ -483,22 +483,22 @@
 	}
 </script>
 
-<form class="w-full space-y-8" onsubmit={onInternalExecute}>
-	<header class="flex justify-between">
-		<h4 class="h4">{ttp.name}</h4>
+<form class="w-full flex flex-col text-xs md:text-sm lg:text-base min-h-0" onsubmit={onInternalExecute}>
+	<header class="flex justify-between flex-shrink-0">
+		<h4 class="h4 text-sm md:text-base lg:text-lg">{ttp.name}</h4>
 	</header>
-	<article>
+	<article class="overflow-y-auto flex-1 min-h-0 space-y-4 pr-2">
 		<div class="">
-			<span class="h6 label">Description</span>
+			<span class="h6 label text-xs md:text-sm lg:text-base">Description</span>
 			{ttp.description}
 		</div>
 			{#if execSystemOptions.length > 0}
 				<label class="label mt-5">
-					<span class="h6 label-text">Execute On</span>
+					<span class="h6 label-text text-xs md:text-sm lg:text-base">Execute On</span>
 				{#if execSystemOptions.length === 1}
-					<input id="execSystem" class="input mt-2" value="{execSystemOptions[0].group}/{execSystemOptions[0].label}" readonly />
+					<input id="execSystem" class="input mt-2 text-xs md:text-sm lg:text-base" value="{execSystemOptions[0].group}/{execSystemOptions[0].label}" readonly />
 				{:else if execSystemOptions.length > 1}
-					<select id="execSystem" class="input mt-2" bind:value={selectedExecSystemId}>
+					<select id="execSystem" class="input mt-2 text-xs md:text-sm lg:text-base" bind:value={selectedExecSystemId}>
 						{#each execSystemOptions as sys (sys.value)}
 							<option value={sys.value}>{sys.group}/{sys.label}</option>
 						{/each}
@@ -507,9 +507,9 @@
 			</label>
 			{/if}
 
-			<label class="h6 label mt-5" for="procedure">Procedure</label>
+			<label class="h6 label mt-5 text-xs md:text-sm lg:text-base" for="procedure">Procedure</label>
 			{#if ttp.procedures && ttp.procedures.length > 1}
-				<select id="procedure" class="input mt-2" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
+				<select id="procedure" class="input mt-2 text-xs md:text-sm lg:text-base" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
 					{#each ttp.procedures as procedure (procedure.id)}
 						<option
 							value={procedure.id}
@@ -519,7 +519,7 @@
 					{/each}
 				</select>
 			{:else}
-				<code id="procedure" class="label mt-2">{procedureId}</code>
+				<code id="procedure" class="label mt-2 text-xs md:text-sm lg:text-base">{procedureId}</code>
 			{/if}
 			<!-- <label class="label mt-5">
 				<span class="label-text">Target</span>
@@ -531,9 +531,9 @@
 				/>
 			</label> -->
 			{#if args.length > 0}
-					<span class="h5">Params</span>
+					<span class="h5 text-xs md:text-sm lg:text-base">Params</span>
 {#each args as arg (arg.Name)}
-	<div class="input-group mt-2 grid-cols-[auto_1fr_auto]"
+	<div class="input-group mt-2 grid-cols-[auto_1fr_auto] text-xs md:text-sm lg:text-base"
 		class:opacity-50={arg.Type === 'Namespace' && isAllNamespaces}
 		class:pointer-events-none={arg.Type === 'Namespace' && isAllNamespaces}
 	>
@@ -561,7 +561,7 @@
 						<Combobox.Trigger />
 					</Combobox.Control>
 					<Combobox.Positioner>
-						<Combobox.Content class="z-50 bg-surface-100-900">
+						<Combobox.Content class="z-50 bg-surface-100-900 text-xs md:text-sm lg:text-base">
 							{#each getArgOptions(arg.Name) as item (item)}
 								<Combobox.Item {item} class="text-surface-contrast-100-900">
 									<Combobox.ItemText >{item.label}</Combobox.ItemText>
@@ -590,8 +590,8 @@
 {/each}
 			{/if}
 	</article>
-	<footer class="flex justify-end gap-4">
-		<button type="button" class="btn preset-tonal" onclick={onCancel}>Cancel</button>
-		<button type="submit" class="btn preset-filled-primary-300-700">Execute</button>
+	<footer class="flex justify-end gap-4 flex-shrink-0 pt-4">
+		<button type="button" class="btn preset-tonal text-xs md:text-sm lg:text-base" onclick={onCancel}>Cancel</button>
+		<button type="submit" class="btn preset-filled-primary-300-700 text-xs md:text-sm lg:text-base">Execute</button>
 	</footer>
 </form>

@@ -67,7 +67,7 @@
 
 <button
 	onclick={() => onclick(ttp)}
-	class={[cardStyle + " hover:bg-surface-200-800 border-surface-50-950 p-0 pl-4 pt-2 text-left w-full", className]}
+	class={[cardStyle + " hover:bg-surface-200-800 text-xs md:text-sm lg:text-base border-surface-50-950 p-0 pl-4 pt-2 text-left w-full", className]}
 	role="menuitem"
 	tabindex="0"
 	disabled={!enabled}
@@ -82,10 +82,10 @@
 			{#each Object.entries(ttp.requires) as [name, value]}
 				{#if !!value}
 					{#if name === 'kind'}
-						<span class="badge bg-tertiary-100-900 text-tertiary-contrast-200-800">
+						<!-- <span class="badge bg-tertiary-100-900 text-tertiary-contrast-200-800">
 							<Icon icon={'carbon-hexagon-outline'} width="16"></Icon>
 							{value}
-						</span>
+						</span> -->
 					 {:else if name === 'accessLevel'}
 						<span class="badge bg-success-100-900 text-secondary-contrast-200-800">
 							<Icon icon={'carbon-user-admin'} width="16"></Icon>
