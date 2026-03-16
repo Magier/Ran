@@ -25,6 +25,8 @@ preconditions:
   kind: ServiceAccount
   has-token: true
 procedures:
+  - key: kubectl
+    command: kubectl auth can-i --list
   - key: curl
     command: >-
       curl -XPOST
@@ -54,8 +56,6 @@ procedures:
         --no-check-certificate
         {{ end }}
         ${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews
-  - key: kubectl
-    command: kubectl auth can-i --list
 effects:
   - k8s.SelfSubjectRulesReview
 # effects:
