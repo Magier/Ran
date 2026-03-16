@@ -28,6 +28,121 @@
 	let fileViewerPath: string = $state('');
 	let fileViewerContent: string = $state('');
 
+	// Armory resize and collapse state
+	const ARMORY_WIDTH_KEY = '_armoryWidth';
+	const ARMORY_COLLAPSED_KEY = '_armoryCollapsed';
+	let armoryWidth = $state(300); // default width
+	let armoryCollapsed = $state(false);
+	let isResizing = $state(false);
+	let rafId: number | null = null;
+
+	// Get responsive default armory width based on screen size
+	function getResponsiveDefaultWidth(): number {
+		if (!browser) return 300;
+		const width = window.innerWidth;
+		if (width < 768) return 250; // mobile
+		if (width < 1024) return 280; // tablet
+		if (width < 1440) return 300; // small desktop
+		return 350; // large desktop
+	}
+
+	// Get responsive min/max constraints based on screen size
+	function getResponsiveConstraints(): { min: number; max: number } {
+		if (!browser) return { min: 200, max: 600 };
+		const width = window.innerWidth;
+		if (width < 768) return { min: 200, max: 400 }; // mobile
+		if (width < 1024) return { min: 250, max: 500 }; // tablet
+		return { min: 250, max: 650 }; // desktop
+	}
+
+	function loadArmoryPreferences() {
+		if (!browser) return;
+		try {
+			const savedWidth = sessionStorage.getItem(ARMORY_WIDTH_KEY);
+			const savedCollapsed = sessionStorage.getItem(ARMORY_COLLAPSED_KEY);
+			
+			const { min, max } = getResponsiveConstraints();
+			const defaultWidth = getResponsiveDefaultWidth();
+			
+			if (savedWidth) {
+				armoryWidth = Math.max(min, Math.min(max, parseInt(savedWidth)));
+			} else {
+				armoryWidth = defaultWidth;
+			}
+			
+			if (savedCollapsed) armoryCollapsed = savedCollapsed === 'true';
+		} catch (e) {
+			console.warn('Failed to load armory preferences:', e);
+		}
+	}
+
+	function saveArmoryPreferences() {
+		if (!browser) return;
+		try {
+			sessionStorage.setItem(ARMORY_WIDTH_KEY, armoryWidth.toString());
+			sessionStorage.setItem(ARMORY_COLLAPSED_KEY, armoryCollapsed.toString());
+		} catch (e) {
+			console.warn('Failed to save armory preferences:', e);
+		}
+	}
+
+	function startResize(e: MouseEvent) {
+		isResizing = true;
+		e.preventDefault();
+		// Prevent text selection during drag
+		document.body.style.userSelect = 'none';
+		document.body.style.cursor = 'col-resize';
+	}
+
+	function handleMouseMove(e: MouseEvent) {
+		if (!isResizing) return;
+		
+		// Cancel any pending animation frame
+		if (rafId !== null) {
+			cancelAnimationFrame(rafId);
+		}
+		
+		// Use requestAnimationFrame for smooth updates
+		rafId = requestAnimationFrame(() => {
+			const { min, max } = getResponsiveConstraints();
+			const newWidth = Math.max(min, Math.min(max, e.clientX));
+			armoryWidth = newWidth;
+			rafId = null;
+		});
+	}
+
+	function stopResize() {
+		if (isResizing) {
+			isResizing = false;
+			// Restore default cursor and text selection
+			document.body.style.userSelect = '';
+			document.body.style.cursor = '';
+			// Cancel any pending animation frame
+			if (rafId !== null) {
+				cancelAnimationFrame(rafId);
+				rafId = null;
+			}
+			saveArmoryPreferences();
+		}
+	}
+
+	function toggleArmoryCollapse() {
+		armoryCollapsed = !armoryCollapsed;
+		saveArmoryPreferences();
+	}
+
+	function handleWindowResize() {
+		if (armoryCollapsed || isResizing) return;
+		// Adjust armory width to stay within responsive constraints
+		const { min, max } = getResponsiveConstraints();
+		if (armoryWidth < min) armoryWidth = min;
+		if (armoryWidth > max) armoryWidth = max;
+	}
+
+	$effect(() => {
+		loadArmoryPreferences();
+	});
+
 	$effect(() => {
 		let _ = campaignState.campaignId;
 		// reset the page/graph state when the campaign resets
@@ -90,6 +205,9 @@
 	onMount(() => {
 		if (browser) {
 			window.addEventListener('keydown', handleKeyPress);
+			window.addEventListener('mousemove', handleMouseMove);
+			window.addEventListener('mouseup', stopResize);
+			window.addEventListener('resize', handleWindowResize);
 		}
 
 		// Initialize campaign if not already done
@@ -140,6 +258,9 @@
 	onDestroy(() => {
 		if (browser) {
 			window.removeEventListener('keydown', handleKeyPress);
+			window.removeEventListener('mousemove', handleMouseMove);
+			window.removeEventListener('mouseup', stopResize);
+			window.removeEventListener('resize', handleWindowResize);
 		}
 	});
 
@@ -187,16 +308,51 @@
 	}
 </script>
 
-<div class="relative grid h-[calc(100vh-60px)] grid-cols-[300px_minmax(0,1fr)] gap-x-1">
+<div class="relative flex h-[calc(100vh-60px)] gap-x-1">
 	{#if campaignState.armory.size > 0}
-		<Armory
-			class="h-full min-h-0"
-			action={sendAction}
-			targetId={selectedObjectId}
-			target={selectedObject}
-			bind:focusSearch={focusArmorySearch}
-		/>
-		<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="flex-1 h-full min-h-0" />
+		<!-- Armory panel -->
+		<div
+			class="bg-surface-100-900 flex-shrink-0"
+			class:armory-transition={!isResizing}
+			style="width: {armoryCollapsed ? '0px' : `${armoryWidth}px`}; overflow: hidden;"
+		>
+			<Armory
+				class="h-full min-h-0 w-full"
+				action={sendAction}
+				targetId={selectedObjectId}
+				target={selectedObject}
+				bind:focusSearch={focusArmorySearch}
+			/>
+		</div>
+
+		<!-- Resize handle -->
+		{#if !armoryCollapsed}
+			<button
+				class="resize-handle w-2 cursor-col-resize flex-shrink-0 border-0 p-0"
+				onmousedown={startResize}
+				aria-label="Resize armory panel"
+			></button>
+		{/if}
+
+		<!-- Collapse/Expand button -->
+		<button
+			class="collapse-button absolute left-0 bottom-2 z-50 rounded-r-md px-0.5 py-2"
+			class:armory-transition={!isResizing}
+			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`};"
+			onclick={toggleArmoryCollapse}
+			title={armoryCollapsed ? 'Expand armory' : 'Collapse armory'}
+		>
+			<Icon
+				icon={armoryCollapsed ? 'mdi:chevron-right' : 'mdi:chevron-left'}
+				width="16"
+				class="text-surface-500"
+			/>
+		</button>
+
+		<!-- Graph area -->
+		<div class="flex-1 min-w-0">
+			<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="h-full" />
+		</div>
 
 		{#if selectedObjectId !== ''}
 			<svelte:boundary onerror={handleError}>
@@ -252,4 +408,35 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	.armory-transition {
+		transition: width 0.3s ease-in-out;
+	}
+
+	.resize-handle {
+		background-color: transparent;
+		border-left: 1px solid rgba(128, 128, 128, 0.2);
+		transition: opacity 0.2s ease, border-color 0.2s ease;
+		opacity: 0.6;
+	}
+
+	.resize-handle:hover {
+		opacity: 1;
+		border-color: rgba(128, 128, 128, 0.5);
+	}
+
+	.collapse-button {
+		background-color: rgba(0, 0, 0, 0.1);
+		border: 1px solid rgba(128, 128, 128, 0.1);
+		transition: all 0.2s ease;
+		opacity: 0.3;
+	}
+
+	.collapse-button:hover {
+		background-color: rgba(0, 0, 0, 0.2);
+		border-color: rgba(128, 128, 128, 0.3);
+		opacity: 1;
+	}
+</style>
 
