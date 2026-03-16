@@ -53,7 +53,7 @@
 	></div>
 {/if}
 
-<div class="absolute top-1 right-3 z-50  text-surface-700-300">
+<div class="absolute bottom-1 right-3 z-50  text-surface-700-300">
 	<!-- Filter toggle button -->
 	<button
 		class="chip preset-outlined-surface-100-900 border-surface-400-600"
@@ -68,7 +68,7 @@
 	<!-- Filter panel -->
 	{#if panelOpen}
 		<div
-			class="absolute top-full right-0 mt-1 w-64 bg-surface-50-950 border border-gray-200 rounded-lg shadow-xl p-4 z-50"
+			class="absolute bottom-full right-0 mb-1 w-64 bg-surface-50-950 border border-gray-200 rounded-lg shadow-xl p-4 z-50"
 			role="dialog"
 			aria-label="Namespace filter options"
 		>

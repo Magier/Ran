@@ -350,9 +350,13 @@
 							}
 							cy.zoom(currentZoom);
 						}
-								console.log('Layout complete, nodes unlocked');
-								if (originalStop) originalStop();
-							};
+						
+						// Save positions after layout completes to preserve them for future updates
+						savePositions();
+						
+						console.log('Layout complete, nodes unlocked');
+						if (originalStop) originalStop();
+					};
 
 							cy.layout(enhancedLayout).run();
 
@@ -548,93 +552,82 @@
 	}
 
 	function handleAfterCollapse(node: any) {
-		// Get all descendant nodes (children/grandchildren) of the collapsed node
-		const descendants = node.descendants();
-		// Group edges between the collapsed node and external nodes
-		const edgeGroups = new Map(); // Key: "sourceId-targetId", Value: array of edges
-		
-		// Find all edges that connect descendants to external nodes
-		descendants.forEach((desc: any) => {
-			// Outgoing edges from descendants to external nodes
-			desc.connectedEdges().forEach((edge: any) => {
-				const source = edge.source();
-				const target = edge.target();
-				
-				// Check if this is an edge going out of the collapsed group
-				if (descendants.contains(source) && !descendants.contains(target) && target.id() !== node.id()) {
-					const key = `${node.id()}->${target.id()}`;
-					if (!edgeGroups.has(key)) {
-						edgeGroups.set(key, []);
-					}
-					edgeGroups.get(key).push(edge);
-				}
-				// Check if this is an edge coming into the collapsed group
-				else if (!descendants.contains(source) && descendants.contains(target) && source.id() !== node.id()) {
-					const key = `${source.id()}->${node.id()}`;
-					if (!edgeGroups.has(key)) {
-						edgeGroups.set(key, []);
-					}
-					edgeGroups.get(key).push(edge);
-				}
-			});
+		// After the expand-collapse plugin has collapsed this node, consolidate
+		// all visible edges between the same directed pair (compound node <-> external node)
+		// into a single meta-edge. The plugin may have created per-type meta-edges;
+		// we merge those further so only one edge per direction per external node remains.
+
+		const connectedEdges = node.connectedEdges().filter((e: any) => e.visible());
+
+		// Group by directed source->target pair
+		const edgeGroups = new Map<string, any[]>();
+
+		connectedEdges.forEach((edge: any) => {
+			const sourceId = edge.source().id();
+			const targetId = edge.target().id();
+			if (sourceId === targetId) return; // skip self-loops
+			const key = `${sourceId}->${targetId}`;
+			if (!edgeGroups.has(key)) {
+				edgeGroups.set(key, []);
+			}
+			edgeGroups.get(key)!.push(edge);
 		});
-		
-		// Create or update meta-edges for each group
+
+		// Consolidate groups with multiple edges into a single meta-edge
 		edgeGroups.forEach((edges, key) => {
-			if (edges.length === 0) return;
-			
-			// Key format is "sourceId->targetId" to handle IDs with dashes
+			if (edges.length <= 1) return; // single edge, nothing to consolidate
+
 			const separator = '->';
 			const sepIndex = key.indexOf(separator);
 			const sourceId = key.substring(0, sepIndex);
 			const targetId = key.substring(sepIndex + separator.length);
 			const metaEdgeId = `meta-${sourceId}-to-${targetId}`;
-			
-			// Remove existing meta-edge if it exists
-			const existingMetaEdge = cy.getElementById(metaEdgeId);
-			if (existingMetaEdge.length > 0) {
-				existingMetaEdge.remove();
-			}
-			
-			// Hide the original edges
+
+			// Remove a prior meta-edge for this pair if it exists
+			const existing = cy.getElementById(metaEdgeId);
+			if (existing.length > 0) existing.remove();
+
+			// Hide all edges in this group
 			edges.forEach((e: any) => e.hide());
-			
-			// Create a new meta-edge
+
+			// Build a descriptive label from unique edge names
+			const uniqueNames = [...new Set(edges.map((e: any) => e.data('name')))].filter(Boolean);
+			const label = uniqueNames.length === 1 ? uniqueNames[0] : `${edges.length} relations`;
+
 			cy.add({
 				group: 'edges',
 				data: {
 					id: metaEdgeId,
 					source: sourceId,
 					target: targetId,
-					name: edges.length > 1 ? `${edges.length} relations` : edges[0].data('name'),
+					name: label,
 					collapsedEdges: edges.map((e: any) => e.id()),
 					isMetaEdge: true
 				}
 			});
-			
 		});
 	}
 
 	/**
 	 * Hide informational edges between a node pair when a non-informational
-	 * (actionable/factual) edge already exists for that same pair.
+	 * (actionable/factual) edge already exists for that same pair in the same direction.
 	 * Skips edges that are already hidden by the namespace filter.
 	 */
 	function hideRedundantInformationalEdges(cy: cytoscape.Core) {
-		// Collect node-pairs that have at least one non-informational, non-filtered edge
+		// Collect directed node-pairs that have at least one non-informational, non-filtered edge
 		const hasActionableEdge = new Set<string>();
 		cy.edges().forEach(e => {
 			if (!e.data('informational') && !e.hasClass('namespace-filtered')) {
-				// Use an unordered key so A->B and B->A share the same pair
-				const pair = [e.source().id(), e.target().id()].sort().join('||');
+				// Use a directed key: source->target (order matters)
+				const pair = `${e.source().id()}->${e.target().id()}`;
 				hasActionableEdge.add(pair);
 			}
 		});
 
-		// Hide informational edges whose pair has an actionable edge
+		// Hide informational edges whose directed pair has an actionable edge
 		cy.edges('[?informational]').forEach(e => {
 			if (e.hasClass('namespace-filtered')) return; // don't touch namespace-filtered edges
-			const pair = [e.source().id(), e.target().id()].sort().join('||');
+			const pair = `${e.source().id()}->${e.target().id()}`;
 			if (hasActionableEdge.has(pair)) {
 				e.hide();
 			} else {
@@ -705,24 +698,21 @@
 	}
 
 	function handleAfterExpand(node: any) {
-		// Remove all meta-edges related to this node and restore original edges
-		cy.edges('[isMetaEdge]').forEach((metaEdge: any) => {
+		// Remove all our custom meta-edges related to this node and restore
+		// the edges we hid (the plugin restores its own internal state).
+		cy.edges('[?isMetaEdge]').forEach((metaEdge: any) => {
 			const source = metaEdge.source().id();
 			const target = metaEdge.target().id();
-			
-			// Check if this meta-edge is related to the expanded node
+
 			if (source === node.id() || target === node.id()) {
-				const collapsedEdgeIds = metaEdge.data('collapsedEdges') || [];
-				
-				// Show the original edges
+				const collapsedEdgeIds: string[] = metaEdge.data('collapsedEdges') || [];
+
+				// Show back the edges we hid
 				collapsedEdgeIds.forEach((edgeId: string) => {
-					const originalEdge = cy.getElementById(edgeId);
-					if (originalEdge.length > 0) {
-						originalEdge.show();
-					}
+					const edge = cy.getElementById(edgeId);
+					if (edge.length > 0) edge.show();
 				});
-				
-				// Remove the meta-edge
+
 				metaEdge.remove();
 			}
 		});
