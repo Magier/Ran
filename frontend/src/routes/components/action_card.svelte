@@ -62,12 +62,28 @@
 		return '';
 	}
 
+	// Check if there are meaningful requirements (excluding kind and accessLevel)
+	const hasVisibleRequirements = $derived(() => {
+		if (!ttp.requires) return false;
+		const filteredEntries = Object.entries(ttp.requires).filter(
+			([name, value]) => {
+				// Exclude kind and accessLevel
+				if (name === 'kind' || name === 'accessLevel') return false;
+				// Exclude rbacPermissions if it's an empty array
+				if (name === 'rbacPermissions' && Array.isArray(value) && value.length === 0) return false;
+				return true;
+			}
+		);
+		console.log('Visible requirements for', ttp.name, ':', filteredEntries);
+		return filteredEntries.length > 0;
+	});
+
 	// export let onClick = (ttp: TTP) => {};
 </script>
 
 <button
 	onclick={() => onclick(ttp)}
-	class={[cardStyle + " hover:bg-surface-200-800 text-xs md:text-sm lg:text-base border-surface-50-950 p-0 pl-4 pt-2 text-left w-full", className]}
+	class={[cardStyle + " hover:bg-surface-200-800 text-xs md:text-sm lg:text-base border-surface-50-950 p-0 pl-4 pt-2 text-left w-full pb-2", className]}
 	role="menuitem"
 	tabindex="0"
 	disabled={!enabled}
@@ -77,7 +93,7 @@
 		<span>{ttp.name}</span>
 	</header>
 	<!-- <section class="p-4" /> -->
-	{#if ttp.requires && Object.keys(ttp.requires).length > 0}
+	{#if hasVisibleRequirements()}
 		<footer class="card-footer flex flex-wrap gap-2 py-2">
 			{#each Object.entries(ttp.requires) as [name, value]}
 				{#if !!value}
@@ -87,10 +103,10 @@
 							{value}
 						</span> -->
 					 {:else if name === 'accessLevel'}
-						<span class="badge bg-success-100-900 text-secondary-contrast-200-800">
+						<!-- <span class="badge bg-success-100-900 text-secondary-contrast-200-800">
 							<Icon icon={'carbon-user-admin'} width="16"></Icon>
 							{value}
-						</span>
+						</span> -->
 					{:else if name === 'rbacPermissions'}
 						{#each Array.from(value ?? []) as perms}
 							<span class="badge bg-success-100-900 text-secondary-contrast-200-800">

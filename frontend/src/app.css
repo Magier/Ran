@@ -13,6 +13,7 @@
 
 /* custom definition of the color pairing, as the Skeleton theme doesn't seem to define them correctly (or possibly an incorrect setup int his project?) */
 * {
+	--text-scaling: 0.9;
 	/* Backgrounds */
 	--body-background-color: var(--color-surface-50);
 	--body-background-color-dark: var(--color-surface-950);
