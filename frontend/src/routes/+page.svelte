@@ -36,6 +36,14 @@
 	let isResizing = $state(false);
 	let rafId: number | null = null;
 
+	// EntityInfo resize state
+	const ENTITYINFO_WIDTH_KEY = '_entityInfoWidth';
+	const ENTITYINFO_HEIGHT_KEY = '_entityInfoHeight';
+	let entityInfoWidth = $state(400);
+	let entityInfoHeight = $state(600);
+	let isResizingEntityInfo = $state(false);
+	let entityInfoRafId: number | null = null;
+
 	// Get responsive default armory width based on screen size
 	function getResponsiveDefaultWidth(): number {
 		if (!browser) return 300;
@@ -86,6 +94,33 @@
 		}
 	}
 
+	function loadEntityInfoPreferences() {
+		if (!browser) return;
+		try {
+			const savedWidth = sessionStorage.getItem(ENTITYINFO_WIDTH_KEY);
+			const savedHeight = sessionStorage.getItem(ENTITYINFO_HEIGHT_KEY);
+			
+			if (savedWidth) {
+				entityInfoWidth = Math.max(250, Math.min(800, parseInt(savedWidth)));
+			}
+			if (savedHeight) {
+				entityInfoHeight = Math.max(300, Math.min(1000, parseInt(savedHeight)));
+			}
+		} catch (e) {
+			console.warn('Failed to load entityInfo preferences:', e);
+		}
+	}
+
+	function saveEntityInfoPreferences() {
+		if (!browser) return;
+		try {
+			sessionStorage.setItem(ENTITYINFO_WIDTH_KEY, entityInfoWidth.toString());
+			sessionStorage.setItem(ENTITYINFO_HEIGHT_KEY, entityInfoHeight.toString());
+		} catch (e) {
+			console.warn('Failed to save entityInfo preferences:', e);
+		}
+	}
+
 	function startResize(e: MouseEvent) {
 		isResizing = true;
 		e.preventDefault();
@@ -131,6 +166,50 @@
 		saveArmoryPreferences();
 	}
 
+	function startResizeEntityInfo(e: MouseEvent) {
+		isResizingEntityInfo = true;
+		e.preventDefault();
+		e.stopPropagation();
+		document.body.style.userSelect = 'none';
+		document.body.style.cursor = 'nwse-resize';
+	}
+
+	function handleMouseMoveEntityInfo(e: MouseEvent) {
+		if (!isResizingEntityInfo) return;
+		
+		if (entityInfoRafId !== null) {
+			cancelAnimationFrame(entityInfoRafId);
+		}
+		
+		entityInfoRafId = requestAnimationFrame(() => {
+			// EntityInfo is anchored at top-right with: top-2 (8px) + navbar (60px) = 68px from top, right-2 (8px) from right
+			// Calculate width from mouse X to right edge (minus the 8px offset)
+			const rightEdge = window.innerWidth - 8;
+			const newWidth = Math.max(250, Math.min(800, rightEdge - e.clientX));
+			
+			// Calculate height from top anchor (68px) to mouse Y
+			const topOffset = 68; // navbar (60px) + top-2 (8px)
+			const newHeight = Math.max(300, Math.min(1000, e.clientY - topOffset));
+			
+			entityInfoWidth = newWidth;
+			entityInfoHeight = newHeight;
+			entityInfoRafId = null;
+		});
+	}
+
+	function stopResizeEntityInfo() {
+		if (isResizingEntityInfo) {
+			isResizingEntityInfo = false;
+			document.body.style.userSelect = '';
+			document.body.style.cursor = '';
+			if (entityInfoRafId !== null) {
+				cancelAnimationFrame(entityInfoRafId);
+				entityInfoRafId = null;
+			}
+			saveEntityInfoPreferences();
+		}
+	}
+
 	function handleWindowResize() {
 		if (armoryCollapsed || isResizing) return;
 		// Adjust armory width to stay within responsive constraints
@@ -141,6 +220,7 @@
 
 	$effect(() => {
 		loadArmoryPreferences();
+		loadEntityInfoPreferences();
 	});
 
 	$effect(() => {
@@ -208,6 +288,10 @@
 			window.addEventListener('mousemove', handleMouseMove);
 			window.addEventListener('mouseup', stopResize);
 			window.addEventListener('resize', handleWindowResize);
+			
+			// EntityInfo resize listeners
+			window.addEventListener('mousemove', handleMouseMoveEntityInfo);
+			window.addEventListener('mouseup', stopResizeEntityInfo);
 		}
 
 		// Initialize campaign if not already done
@@ -261,6 +345,10 @@
 			window.removeEventListener('mousemove', handleMouseMove);
 			window.removeEventListener('mouseup', stopResize);
 			window.removeEventListener('resize', handleWindowResize);
+			
+			// EntityInfo resize listeners
+			window.removeEventListener('mousemove', handleMouseMoveEntityInfo);
+			window.removeEventListener('mouseup', stopResizeEntityInfo);
 		}
 	});
 
@@ -356,7 +444,16 @@
 
 		{#if selectedObjectId !== ''}
 			<svelte:boundary onerror={handleError}>
-				<EntityInfo class="absolute top-2 right-2" objectId={selectedObjectId} {sendAction} />
+				<div class="absolute top-2 right-2 flex flex-col" style="width: {entityInfoWidth}px; height: {entityInfoHeight}px;">
+					<EntityInfo class="flex-1 overflow-auto" objectId={selectedObjectId} {sendAction} />
+					<!-- Resize handle at bottom-left corner -->
+					<button
+						class="absolute bottom-0 left-0 w-4 h-4 cursor-nwse-resize opacity-30 hover:opacity-100 transition-opacity"
+						style="background: linear-gradient(135deg, transparent 50%, currentColor 50%);"
+						onmousedown={startResizeEntityInfo}
+						aria-label="Resize entity info panel"
+					></button>
+				</div>
 			</svelte:boundary>
 		{/if}
 

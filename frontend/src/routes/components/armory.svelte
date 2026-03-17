@@ -202,7 +202,7 @@
 									enabled={isShiftPressed || isTTPApplicable(ttp)}
 									onclick={() => onActionSelected(ttp)}
 								/>
-								<hr class="hr h-1 bg-surface-300-700" />
+								<hr class="hr border-surface-100-900" />
 							{/each}
 						</Accordion.ItemContent>
 					</Accordion.Item>

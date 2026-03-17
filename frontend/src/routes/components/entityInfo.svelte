@@ -150,13 +150,13 @@
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
-<div class="{className} pointer-events-auto z-[100] max-h-120 overflow-auto border border-surface-600 min-w-64 max-w-2xl w-fit rounded-lg bg-surface-100-900 p-4 shadow-xl" >
+<div class="{className} pointer-events-auto z-[100] overflow-auto border border-surface-600 rounded-lg bg-surface-100-900 p-4 shadow-xl text-xs md:text-sm h-full w-full" >
 	{#if obj}
 		<!-- Header: name + kind badge + copy-ID button -->
 		<div class="flex items-center gap-2 mb-1">
-			<span class=" font-bold truncate" class:field-changed={highlightedFields['name']}>{obj.name}</span>
+			<span class="font-bold truncate text-sm md:text-base lg:text-lg" class:field-changed={highlightedFields['name']}>{obj.name}</span>
 			{#if obj.kind}
-				<span class="badge preset-filled-tertiary-500 text-xs shrink-0">{obj.kind}</span>
+				<span class="badge preset-filled-tertiary-500 text-xs md:text-xs lg:text-sm shrink-0">{obj.kind}</span>
 			{/if}
 			<button
 				class="shrink-0 cursor-pointer rounded p-0.5 hover:bg-surface-300 dark:hover:bg-surface-700 transition-colors"
@@ -171,7 +171,7 @@
 			</button>
 		</div>
 		{#if obj.namespace}
-			<div class="text-sm mb-2" class:field-changed={highlightedFields['namespace']}>
+			<div class="mb-2" class:field-changed={highlightedFields['namespace']}>
 				<span class="font-semibold mr-1">Namespace:</span>{obj.namespace}
 			</div>
 		{/if}
@@ -283,12 +283,13 @@
 						{/each}
 					</div>
 				</details>
-			{:else if label === 'volumeMounts' || label === 'mounts'}
+			{:else if (label === 'volumeMounts' || label === 'mounts') && Array.isArray(data) && data.length > 0}
+			<span>{ Array.isArray(data) && data.length > 0 }</span>
 				<details class:field-changed={highlightedFields[label]}>
 					<summary>
 						<span class="font-bold mr-1">{label}</span>
 						<span class="badge preset-outlined-surface-500"
-							>({Array.isArray(data) ? data.length : (typeof data === 'object' && data !== null ? Object.keys(data).length : 0)} items)</span
+							>({Array.isArray(data) ? data.length : (typeof data === 'object' && data !== null ? Object.keys(data).length : 0)} items2)</span
 						>
 					</summary>
 					<Tree entries={Array.isArray(data) ? data : []} onLeafClick={readFile} />
