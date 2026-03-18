@@ -437,25 +437,24 @@
 			/>
 		</button>
 
-		<!-- Graph area -->
-		<div class="flex-1 min-w-0">
-			<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="h-full" />
-		</div>
-
+<!-- Graph area with EntityInfo overlay -->
+	<div class="flex-1 min-w-0 relative">
+		<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="h-full" />
+		
 		{#if selectedObjectId !== ''}
 			<svelte:boundary onerror={handleError}>
-				<div class="absolute top-2 right-2 flex flex-col" style="width: {entityInfoWidth}px; max-height: {entityInfoHeight}px;">
-					<EntityInfo class="overflow-auto" objectId={selectedObjectId} {sendAction} />
+				<div class="absolute top-2 right-2 flex flex-col z-50" style="width: {entityInfoWidth}px; height: {entityInfoHeight}px;">
+					<EntityInfo class="overflow-auto flex-1" objectId={selectedObjectId} {sendAction} />
 					<!-- Resize handle at bottom-left corner -->
 					<button
-						class="absolute bottom-0 left-0 w-4 h-4 cursor-nwse-resize opacity-30 hover:opacity-100 transition-opacity"
-						style="background: linear-gradient(135deg, transparent 50%, currentColor 50%);"
+					class="absolute bottom-0 left-0 w-4 h-4 cursor-nwse-resize opacity-30 hover:opacity-100 transition-opacity bg-gradient-to-bl from-transparent from-50% to-current to-50% rounded-bl-lg"
 						onmousedown={startResizeEntityInfo}
 						aria-label="Resize entity info panel"
 					></button>
 				</div>
 			</svelte:boundary>
 		{/if}
+	</div>
 
 		<Dialog open={showParamModal} onOpenChange={(e) => (showParamModal = e.open)}>
 			<Portal>
