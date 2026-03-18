@@ -133,7 +133,15 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 func (a *API) handleEvent(ctx context.Context, msg domain.Message) (domain.Message, error) {
 	eventName := domain.CleanEventName(fmt.Sprintf("%T", msg))
 	slog.Info(">> 🖥️: " + eventName)
+
+	a.clientsMu.RLock()
+	clients := make([]Client, 0, len(a.clients))
 	for client := range a.clients {
+		clients = append(clients, client)
+	}
+	a.clientsMu.RUnlock()
+
+	for _, client := range clients {
 		if err := client.sendJSON(eventName, msg); err != nil {
 			slog.Error("WebSocket send error", "error", err)
 		}
@@ -178,12 +186,27 @@ func (a *API) SetContext(ctx context.Context) {
 }
 
 func (a *API) BroadcastMessage(message []byte) {
+	a.clientsMu.RLock()
+	clients := make([]Client, 0, len(a.clients))
 	for client := range a.clients {
+		clients = append(clients, client)
+	}
+	a.clientsMu.RUnlock()
+
+	var failedClients []Client
+	for _, client := range clients {
 		if err := client.sendJSON("broadcast", message); err != nil {
 			slog.Error("WebSocket broadcast error", "error", err)
-			// client.Close()
+			failedClients = append(failedClients, client)
+		}
+	}
+
+	if len(failedClients) > 0 {
+		a.clientsMu.Lock()
+		for _, client := range failedClients {
 			delete(a.clients, client)
 		}
+		a.clientsMu.Unlock()
 	}
 }
 

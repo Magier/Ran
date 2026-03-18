@@ -176,33 +176,33 @@
 				Please select an entity in the graph.
 			</div>
 		{:else}
-			<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible>
+			<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible class="!gap-0 !space-y-0 bg-surface-200-800">
 				{#each Array.from(shownTTPs) as [tactic, ttps]}
-					<hr class="hr" />
 					<Accordion.Item
 						value={tactic}
-						class="text-surface-contrast-200-800"
+						class="text-surface-contrast-200-800 !p-0 mb-0 !gap-0"
 						disabled={ttps?.length === 0}
 					>
-						<Accordion.ItemTrigger class="flex justify-between items-center">
-							<Icon icon={iconMap[tactic]} width="24"></Icon>
-							<div class="flex w-full items-center">
+						<Accordion.ItemTrigger class="flex justify-between items-center bg-surface-200-800 hover:bg-surface-300-700 hover:text-primary-800-200 text-m lg:text-l border-t border-surface-300-700 p-3 !m-0">
+							<Icon icon={iconMap[tactic]} width="26" class="flex-shrink-0"></Icon>
+							<div class="flex w-full items-center ml-2">
 								<span class="flex-1">{tactic}</span>
-								<span class="ml-2 text-xs text-gray-500">
+								<span class="ml-2 px-2 py-0.5 rounded text-xs bg-surface-200-800 text-surface-contrast-200-800">
 									{applicableTTPs.get(tactic)?.length ?? 0}
 								</span>
 							</div>
 						</Accordion.ItemTrigger>
-						<Accordion.ItemContent class="px-0 py-0 mb-1 bg-surface-200-800">
+						<Accordion.ItemContent class="!p-0 !m-0 !gap-0 bg-surface-100-900">
 							{#each ttps as ttp}
-								<ActionCard
-									{ttp}
-									conditions={ttp.requires}
-									icon={iconMap[ttp.tactic]}
-									enabled={isShiftPressed || isTTPApplicable(ttp)}
-									onclick={() => onActionSelected(ttp)}
-								/>
-								<hr class="hr border-surface-100-900" />
+								<div class="ml-3 border-t-1 border-surface-400-600 bg-surface-200-800 hover:text-primary-800-200">
+									<ActionCard
+										{ttp}
+										conditions={ttp.requires}
+										icon={iconMap[ttp.tactic]}
+										enabled={isShiftPressed || isTTPApplicable(ttp)}
+										onclick={() => onActionSelected(ttp)}
+									/>
+								</div>
 							{/each}
 						</Accordion.ItemContent>
 					</Accordion.Item>
