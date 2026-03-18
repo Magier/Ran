@@ -122,54 +122,78 @@
 	role="menuitem"
 	tabindex="0"
 	disabled={!enabled}
+	style="overflow: visible;"
 >
-	<header class="card-header">
+	<header class="card-header flex items-center gap-2" style="overflow: visible;">
 		<Icon icon={displayIcon()} class="inline-block" />
 		<span>{ttp.name}</span>
-	</header>
-	<!-- <section class="p-4" /> -->
-	{#if hasVisibleRequirements()}
-		<footer class="card-footer flex flex-wrap gap-2 py-2">
+		{#if hasVisibleRequirements()}
 			{#each Object.entries(ttp.requires) as [name, value]}
 				{#if !!value}
 					{#if name === 'kind'}
-						<!-- <span class="badge bg-tertiary-100-900 text-tertiary-contrast-200-800">
-							<Icon icon={'carbon-hexagon-outline'} width="16"></Icon>
-							{value}
-						</span> -->
-					 {:else if name === 'accessLevel'}
-						<!-- <span class="badge bg-success-100-900 text-secondary-contrast-200-800">
-							<Icon icon={'carbon-user-admin'} width="16"></Icon>
-							{value}
-						</span> -->
+						<!-- Skip kind -->
+					{:else if name === 'accessLevel'}
+						<!-- Skip accessLevel -->
 					{:else if name === 'rbacPermissions'}
-						{#each Array.from(value ?? []) as perms}
-							<span class="badge bg-success-100-900 text-secondary-contrast-200-800">
-								<Icon icon={'carbon-user-admin'} width="16"></Icon>
-								{formatRbac(perms as { verb?: string; resourceType?: string })}
-							</span>
-						{/each}
+						{#if Array.isArray(value)}
+							{#each value as perms}
+								<span class="req-badge badge bg-success-100-900 text-secondary-contrast-200-800 cursor-help text-xs">
+									<Icon icon={'carbon-user-admin'} width="12" class="inline-block flex-shrink-0"></Icon>
+									<span class="req-text">{formatRbac(perms as { verb?: string; resourceType?: string })}</span>
+								</span>
+							{/each}
+						{/if}
 					{:else if name === 'otherFields'}
-						{#each Object.entries(value) as [name, val]}
-							<span class="chip variant-filled-surface mr-1 max-w-full truncate">
-								{name}: {JSON.stringify(val)}
+						{#each Object.entries(value) as [fieldName, val]}
+							<span class="req-badge badge bg-surface-100-900 text-secondary-contrast-200-800 cursor-help text-xs">
+								<Icon icon={'mdi:dots-horizontal'} width="12" class="inline-block flex-shrink-0"></Icon>
+								<span class="req-text">{fieldName}: {JSON.stringify(val)}</span>
 							</span>
 						{/each}
 					{:else}
-						<!-- adjust chip style if the condition is fullfilled or not -->
-						<span class="badge bg-surface-100-900 text-secondary-contrast-200-800">
-							<!-- <span class="chip variant-filled-surface mr-1 max-w-full truncate"> -->
-							{name}: {JSON.stringify(value)}
+						<span class="req-badge badge bg-surface-100-900 text-secondary-contrast-200-800 cursor-help text-xs">
+							<Icon icon={'mdi:information-outline'} width="12" class="inline-block flex-shrink-0"></Icon>
+							<span class="req-text">{name}: {JSON.stringify(value)}</span>
 						</span>
 					{/if}
 				{/if}
 			{/each}
-		</footer>
-	{/if}
+		{/if}
+	</header>
 </button>
 
 <style>
 	.card-disabled {
 		color: #888;
+	}
+
+	.req-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.125rem;
+		position: relative;
+		white-space: nowrap;
+		width: 22px;
+		overflow: visible;
+		transition: width 0.3s ease-in-out;
+		z-index: 10;
+		padding: 0.125rem 0.25rem;
+	}
+
+	.req-badge:hover {
+		width: auto;
+		min-width: 22px;
+	}
+
+	.req-text {
+		opacity: 0;
+		max-width: 0;
+		overflow: hidden;
+		transition: opacity 0.2s ease-in-out, max-width 0.3s ease-in-out;
+	}
+
+	.req-badge:hover .req-text {
+		opacity: 1;
+		max-width: 200px;
 	}
 </style>
