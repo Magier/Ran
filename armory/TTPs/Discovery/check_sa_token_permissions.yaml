@@ -1,4 +1,4 @@
-name: Check Token permissions
+name: Check Token Permissions
 description: Query the K8s API server for the permissions of this provided token
 tactic: Discovery
 techniques: ["Permission Groups Discovery", "T1069.003"]
