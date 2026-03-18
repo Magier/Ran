@@ -206,7 +206,7 @@
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
-<div class="{className} pointer-events-auto z-[100] overflow-auto border border-surface-600 rounded-lg bg-surface-100-900 p-4 shadow-xl text-xs md:text-sm w-full" >
+<div class="{className} pointer-events-auto overflow-auto border border-surface-600 rounded-lg bg-surface-100-900 p-4 shadow-xl text-xs md:text-sm w-full" >
 	{#if obj}
 		<!-- Header: name + kind badge + copy-ID button -->
 		<div class="flex items-center gap-2 mb-1">
