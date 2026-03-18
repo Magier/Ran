@@ -14,8 +14,43 @@
 
 	let { ttp, icon, enabled = true, onclick, class: className } : ActionCardProps = $props();
 
+	// Determine the icon to use based on TTP name, with specific overrides
+	const displayIcon = $derived(() => {
+		if (ttp.name.startsWith('Drop ') || ttp.name.startsWith('Install ')) {
+			return 'mdi:tray-arrow-down';
+		}
+		if (ttp.name.startsWith('Execute')) {
+			return 'mdi:terminal';
+		}
+		if (ttp.name.startsWith('Read')) {
+			return 'mdi:file-eye';
+		}
+		if (ttp.name.indexOf('User ID') !== -1) {
+			return 'mdi:id-card-outline';
+		}
+		if (ttp.name.indexOf('IP address') !== -1) {
+			return 'mdi:ip-network';
+		}
+		if (ttp.name.indexOf('Scan') !== -1) {
+			return 'mdi:access-point';
+		}
+		if (ttp.name.indexOf('permissions') !== -1) {
+			return 'mdi:key-variant';
+		}
+		if (ttp.name.indexOf('List Process') !== -1) {
+			return 'mdi:application-cog-outline';
+		}
+		if (ttp.name.indexOf('Files') !== -1) {
+			return 'mdi:files';
+		}
+		if (ttp.name.indexOf('VolumeMount') !== -1) {
+			return 'mdi:harddisk';
+		}
+		return icon;
+	});
+
 	let cardStyle = $derived(
-		enabled ? 'card-hover bg-surface-200-800' : 'card-disabled bg-surface-50-900-token'
+		enabled ? 'card-hover bg-surface-300-700' : 'card-disabled bg-surface-50-900-token'
 	);
 
 	function checkConditions(ttp: TTP, conditions: Object) {
@@ -83,13 +118,13 @@
 
 <button
 	onclick={() => onclick(ttp)}
-	class={[cardStyle + " hover:bg-surface-200-800 text-xs md:text-sm lg:text-base border-surface-50-950 p-0 pl-4 pt-2 text-left w-full pb-2", className]}
+	class={[cardStyle + " hover:bg-surface-400-600 text-xs md:text-sm lg:text-base border-surface-50-950 p-0 pl-4 pt-2 text-left w-full pb-2", className]}
 	role="menuitem"
 	tabindex="0"
 	disabled={!enabled}
 >
 	<header class="card-header">
-		<Icon {icon} class="inline-block" />
+		<Icon icon={displayIcon()} class="inline-block" />
 		<span>{ttp.name}</span>
 	</header>
 	<!-- <section class="p-4" /> -->

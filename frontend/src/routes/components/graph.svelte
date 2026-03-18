@@ -97,7 +97,7 @@
 		if (cy) {
 			const textColor = isDark ? 'white' : 'black';
 			cy.nodes().style('color', textColor);
-			cy.edges().style('color', textColor);
+			cy.edges('[!informational]').style('color', textColor);
 		}
 	});
 
@@ -393,7 +393,7 @@
 					// Reapply text color based on current theme
 					const textColor = theme.isDark ? 'white' : 'black';
 					cy.nodes().style('color', textColor);
-					cy.edges().style('color', textColor);
+					cy.edges('[!informational]').style('color', textColor);
 
 					// use timeout 0 to not track selectedObject as a dependency
 					setTimeout(() => {

@@ -39,8 +39,8 @@
 	// EntityInfo resize state
 	const ENTITYINFO_WIDTH_KEY = '_entityInfoWidth';
 	const ENTITYINFO_HEIGHT_KEY = '_entityInfoHeight';
-	let entityInfoWidth = $state(400);
-	let entityInfoHeight = $state(600);
+	let entityInfoWidth = $state(300);
+	let entityInfoHeight = $state(400);
 	let isResizingEntityInfo = $state(false);
 	let entityInfoRafId: number | null = null;
 
@@ -101,7 +101,7 @@
 			const savedHeight = sessionStorage.getItem(ENTITYINFO_HEIGHT_KEY);
 			
 			if (savedWidth) {
-				entityInfoWidth = Math.max(250, Math.min(800, parseInt(savedWidth)));
+				entityInfoWidth = Math.max(200, Math.min(800, parseInt(savedWidth)));
 			}
 			if (savedHeight) {
 				entityInfoHeight = Math.max(300, Math.min(1000, parseInt(savedHeight)));
@@ -185,7 +185,7 @@
 			// EntityInfo is anchored at top-right with: top-2 (8px) + navbar (60px) = 68px from top, right-2 (8px) from right
 			// Calculate width from mouse X to right edge (minus the 8px offset)
 			const rightEdge = window.innerWidth - 8;
-			const newWidth = Math.max(250, Math.min(800, rightEdge - e.clientX));
+			const newWidth = Math.max(200, Math.min(800, rightEdge - e.clientX));
 			
 			// Calculate height from top anchor (68px) to mouse Y
 			const topOffset = 68; // navbar (60px) + top-2 (8px)
@@ -444,8 +444,8 @@
 
 		{#if selectedObjectId !== ''}
 			<svelte:boundary onerror={handleError}>
-				<div class="absolute top-2 right-2 flex flex-col" style="width: {entityInfoWidth}px; height: {entityInfoHeight}px;">
-					<EntityInfo class="flex-1 overflow-auto" objectId={selectedObjectId} {sendAction} />
+				<div class="absolute top-2 right-2 flex flex-col" style="width: {entityInfoWidth}px; max-height: {entityInfoHeight}px;">
+					<EntityInfo class="overflow-auto" objectId={selectedObjectId} {sendAction} />
 					<!-- Resize handle at bottom-left corner -->
 					<button
 						class="absolute bottom-0 left-0 w-4 h-4 cursor-nwse-resize opacity-30 hover:opacity-100 transition-opacity"

@@ -124,13 +124,29 @@
 	// Fields handled explicitly in the header — skip from the generic loop
 	const HEADER_FIELDS = new Set(['id', 'name', 'namespace', 'kind', 'entityId', 'parent', 'entity', 'compromised']);
 
+	function shouldShowField(label: string, data: any): boolean {
+		if (HEADER_FIELDS.has(label)) return false;
+		if (label === 'isRunning' && data !== false) return false;
+		if (label === 'mounts' && (!data || (Array.isArray(data) && data.length === 0))) return false;
+		return true;
+	}
+
 	let idCopied = $state(false);
+	let tokenCopied = $state(false);
 
 	function copyId() {
 		if (!obj) return;
 		navigator.clipboard.writeText(obj.id).then(() => {
 			idCopied = true;
 			setTimeout(() => { idCopied = false; }, 1500);
+		});
+	}
+
+	function copyToken() {
+		if (!obj || !obj.token || !obj.token.Raw) return;
+		navigator.clipboard.writeText(obj.token.Raw).then(() => {
+			tokenCopied = true;
+			setTimeout(() => { tokenCopied = false; }, 1500);
 		});
 	}
 
@@ -150,13 +166,13 @@
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
-<div class="{className} pointer-events-auto z-[100] overflow-auto border border-surface-600 rounded-lg bg-surface-100-900 p-4 shadow-xl text-xs md:text-sm h-full w-full" >
+<div class="{className} pointer-events-auto z-[100] overflow-auto border border-surface-600 rounded-lg bg-surface-100-900 p-4 shadow-xl text-xs md:text-sm w-full" >
 	{#if obj}
 		<!-- Header: name + kind badge + copy-ID button -->
 		<div class="flex items-center gap-2 mb-1">
-			<span class="font-bold truncate text-sm md:text-base lg:text-lg" class:field-changed={highlightedFields['name']}>{obj.name}</span>
+			<span class="font-bold truncate text-sm md:text-base" class:field-changed={highlightedFields['name']}>{obj.name}</span>
 			{#if obj.kind}
-				<span class="badge preset-filled-tertiary-500 text-xs md:text-xs lg:text-sm shrink-0">{obj.kind}</span>
+				<span class="badge bg-indigo-200 text-indigo-800 text-xs shrink-0">{obj.kind}</span>
 			{/if}
 			<button
 				class="shrink-0 cursor-pointer rounded p-0.5 hover:bg-surface-300 dark:hover:bg-surface-700 transition-colors"
@@ -171,18 +187,18 @@
 			</button>
 		</div>
 		{#if obj.namespace}
-			<div class="mb-2" class:field-changed={highlightedFields['namespace']}>
+			<div class="mb-1" class:field-changed={highlightedFields['namespace']}>
 				<span class="font-semibold mr-1">Namespace:</span>{obj.namespace}
 			</div>
 		{/if}
 
-		{#each Object.entries(obj || {}).filter(([label]) => !HEADER_FIELDS.has(label)) as [label, data]}
+		{#each Object.entries(obj || {}).filter(([label, data]) => shouldShowField(label, data)) as [label, data]}
 			{#if label === 'containers' && Array.isArray(data) && data.length > 0}
 				<!-- Special drill-down view for containers -->
-				<details class:field-changed={highlightedFields[label]}>
+				<details class="mb-1" class:field-changed={highlightedFields[label]}>
 					<summary>
-						<span class="font-bold mr-1">{label}</span>
-						<span class="badge preset-outlined-surface-500">({data.length} items)</span>
+						<span class="font-bold">{label}</span>
+						<span class="text-xs text-surface-500">({data.length})</span>
 					</summary>
 					<div class="pl-4 space-y-4">
 						{#each data as container, idx}
@@ -285,38 +301,35 @@
 				</details>
 			{:else if (label === 'volumeMounts' || label === 'mounts') && Array.isArray(data) && data.length > 0}
 			<span>{ Array.isArray(data) && data.length > 0 }</span>
-				<details class:field-changed={highlightedFields[label]}>
+				<details class="mb-1" class:field-changed={highlightedFields[label]}>
 					<summary>
-						<span class="font-bold mr-1">{label}</span>
-						<span class="badge preset-outlined-surface-500"
-							>({Array.isArray(data) ? data.length : (typeof data === 'object' && data !== null ? Object.keys(data).length : 0)} items2)</span
-						>
+						<span class="font-bold">{label}</span>
+						<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : (typeof data === 'object' && data !== null ? Object.keys(data).length : 0)})</span>
+					>
 					</summary>
 					<Tree entries={Array.isArray(data) ? data : []} onLeafClick={readFile} />
 				</details>
 			{:else if label === 'can'}
 				{#if typeof data === 'object' && data !== null && Object.keys(data).length > 0}
-					<details class:field-changed={highlightedFields[label]}>
+					<details class="mb-1" class:field-changed={highlightedFields[label]}>
 						<summary>
-							<span class="font-bold mr-1">{label}</span>
-							<span class="badge preset-outlined-surface-500"
-								>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
-							>
+							<span class="font-bold">{label}</span>
+							<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : Object.keys(data).length})</span>
 						</summary>
 						<EntitlementInfo entitlements={data as RBACPermission[]} />
 					</details>
 				{:else}
-					<div class:field-changed={highlightedFields[label]}>
+					<div class="mb-1" class:field-changed={highlightedFields[label]}>
 					<span class="font-bold mr-1">{label}</span>
 					?
 					</div>
 					<!-- <button class="btn btn-sm preset-filled-primary-500" disabled>🔍</button> -->
 				{/if}
 			{:else if label === 'files' && Array.isArray(data) && data.length > 0}
-				<details class:field-changed={highlightedFields[label]}>
+				<details class="mb-1" class:field-changed={highlightedFields[label]}>
 					<summary>
-						<span class="font-bold mr-1">{label}</span>
-						<span class="badge preset-outlined-surface-500">({data.length} items)</span>
+						<span class="font-bold">{label}</span>
+						<span class="text-xs text-surface-500">({data.length})</span>
 					</summary>
 					<ul class="list-inside list-none pl-5">
 						{#each data as item}
@@ -330,12 +343,12 @@
 				</details>
 			{:else if Array.isArray(data) && data.length > 0}
 				{#if data.length === 1}
-					<div class:field-changed={highlightedFields[label]}><span class="font-bold mr-1">{label}:</span>{prettyPrint(data[0])}</div>
+					<div class="mb-1" class:field-changed={highlightedFields[label]}><span class="font-bold mr-1">{label}:</span>{prettyPrint(data[0])}</div>
 				{:else}
-				<details class:field-changed={highlightedFields[label]}>
+				<details class="mb-1" class:field-changed={highlightedFields[label]}>
 					<summary>
-						<span class="font-bold mr-1">{label}</span>
-						<span class="badge preset-outlined-surface-500">({data.length} items)</span>
+						<span class="font-bold">{label}</span>
+						<span class="text-xs text-surface-500">({data.length})</span>
 					</summary>
 					<ul class="list-inside list-none pl-5">
 						{#each data as item}
@@ -344,19 +357,56 @@
 					</ul>
 				</details>
 				{/if }
+			{:else if label === 'binaries' && typeof data === 'object' && data !== null}
+				<!-- Special formatting for binaries dictionary -->
+				<details class="mb-1" class:field-changed={highlightedFields[label]}>
+					<summary>
+						<span class="font-bold">{label}</span>
+						<span class="text-xs text-surface-500">({Object.keys(data).length})</span>
+					</summary>
+					<ul class="list-inside list-none pl-5">
+						{#each Object.entries(data).sort(([a], [b]) => a.localeCompare(b)) as [binary, path]}
+							<li class="font-mono text-sm">
+								<span class="font-semibold">{binary}:</span> {path}
+							</li>
+						{/each}
+					</ul>
+				</details>
+			{:else if label === 'token' && obj.kind === 'ServiceAccount' && typeof data === 'object' && data !== null && data.Raw}
+				<!-- Special handling for ServiceAccount token with copy button -->
+				<div class="mb-1 flex items-center gap-2" class:field-changed={highlightedFields[label]}>
+					<details class="mb-1" class:field-changed={highlightedFields[label]}>
+						<summary>
+							<span class="font-bold">{label}</span>
+							<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : Object.keys(data).length})</span>
+						</summary>
+						<pre class="max-h-80 overflow-scroll">{JSON.stringify(data, null, 2)}</pre>
+					</details>
+						<button
+							class="shrink-0 cursor-pointer rounded p-0.5 hover:bg-surface-300 dark:hover:bg-surface-700 transition-colors"
+							title="Copy token"
+							onclick={copyToken}
+						>
+							{#if tokenCopied}
+								<Icon icon="mdi:check" width="16" class="text-success-500" />
+							{:else}
+								<Icon icon="mdi:content-copy" width="16" class="text-surface-500" />
+							{/if}
+						</button>
+				</div>
 			{:else if typeof data === 'object' && data !== null}
 				<!-- Collapsible section for objects/arrays -->
-				<details class:field-changed={highlightedFields[label]}>
+				<details class="mb-1" class:field-changed={highlightedFields[label]}>
 					<summary>
-						<span class="font-bold mr-1">{label}</span>
-						<span class="badge preset-outlined-surface-500"
-							>({Array.isArray(data) ? data.length : Object.keys(data).length} items)</span
-						>
+						<span class="font-bold">{label}</span>
+						<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : Object.keys(data).length})</span>
 					</summary>
 					<pre class="max-h-80 overflow-scroll">{JSON.stringify(data, null, 2)}</pre>
 				</details>
 			{:else if data !== ''}
-				<div class:field-changed={highlightedFields[label]}><span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}</div>
+				<div class="mb-1" class:field-changed={highlightedFields[label]}>
+					<span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}
+				</div>
 			{/if}
 		{/each}
 	{:else}
@@ -368,8 +418,6 @@
 		{prettyPrint(obj)}
 	{/if}
 
-	{#if obj?.accessLevel}
-		<div><span>AccessLevel:</span> {obj?.accessLevel}</div>{/if}
 	{#if obj?.entitlements}
 		<h4>Entitlements</h4>
 		{#each obj?.entitlements as e}
