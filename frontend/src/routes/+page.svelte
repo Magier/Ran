@@ -39,6 +39,10 @@
 	// EntityInfo resize state
 	const ENTITYINFO_WIDTH_KEY = '_entityInfoWidth';
 	const ENTITYINFO_HEIGHT_KEY = '_entityInfoHeight';
+	const MIN_ENTITYINFO_WIDTH = 200;
+	const MAX_ENTITYINFO_WIDTH = 800;
+	const MIN_ENTITYINFO_HEIGHT = 100;
+	const MAX_ENTITYINFO_HEIGHT = 1000;
 	let entityInfoWidth = $state(300);
 	let entityInfoHeight = $state(400);
 	let isResizingEntityInfo = $state(false);
@@ -101,10 +105,10 @@
 			const savedHeight = sessionStorage.getItem(ENTITYINFO_HEIGHT_KEY);
 			
 			if (savedWidth) {
-				entityInfoWidth = Math.max(200, Math.min(800, parseInt(savedWidth)));
+				entityInfoWidth = Math.max(MIN_ENTITYINFO_WIDTH, Math.min(MAX_ENTITYINFO_WIDTH, parseInt(savedWidth)));
 			}
 			if (savedHeight) {
-				entityInfoHeight = Math.max(300, Math.min(1000, parseInt(savedHeight)));
+				entityInfoHeight = Math.max(MIN_ENTITYINFO_HEIGHT, Math.min(MAX_ENTITYINFO_HEIGHT, parseInt(savedHeight)));
 			}
 		} catch (e) {
 			console.warn('Failed to load entityInfo preferences:', e);
@@ -185,11 +189,11 @@
 			// EntityInfo is anchored at top-right with: top-2 (8px) + navbar (60px) = 68px from top, right-2 (8px) from right
 			// Calculate width from mouse X to right edge (minus the 8px offset)
 			const rightEdge = window.innerWidth - 8;
-			const newWidth = Math.max(200, Math.min(800, rightEdge - e.clientX));
+			const newWidth = Math.max(MIN_ENTITYINFO_WIDTH, Math.min(MAX_ENTITYINFO_WIDTH, rightEdge - e.clientX));
 			
 			// Calculate height from top anchor (68px) to mouse Y
 			const topOffset = 68; // navbar (60px) + top-2 (8px)
-			const newHeight = Math.max(300, Math.min(1000, e.clientY - topOffset));
+			const newHeight = Math.max(MIN_ENTITYINFO_HEIGHT, Math.min(MAX_ENTITYINFO_HEIGHT, e.clientY - topOffset));
 			
 			entityInfoWidth = newWidth;
 			entityInfoHeight = newHeight;
