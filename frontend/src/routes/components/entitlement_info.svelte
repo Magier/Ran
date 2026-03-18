@@ -2,51 +2,20 @@
 	import type { RBACPermission } from '$lib/api';
 
     type EntitlementsInfoProps = {
-        entitlements: RBACPermission[]
+        entitlements: RBACPermission[];
+        getUtility: (e: RBACPermission) => number;
     };
 
-    let { entitlements}: EntitlementsInfoProps = $props();
-
-    function getUtility(e: RBACPermission): number {
-        let utility = 0;
-
-        // regular API endpoints have no real value (for now?)
-        if (e.resourceName && e.resourceName.startsWith('/') && !e.resourceType) {
-            return 0;
-        }
-
-        if (e.verb === 'get' || e.verb === 'list') {
-            utility += 1;
-        } else if (e.verb === 'create' || e.verb === 'update' || e.verb === 'patch') {
-            utility += 2;
-        } else if (e.verb === 'delete') {
-            utility += 2;
-        } else if (e.verb === '*') {
-            utility += 10;
-        }
-
-        if (e.resourceType) {
-            if (e.resourceType.startsWith('pod') || e.resourceType === 'deployment') {
-                utility += 5;
-            } else if (e.resourceType === 'node' || e.resourceType === 'namespace') {
-                utility += 6;
-            } else if (e.resourceType === 'secret' || e.resourceType === 'configmap' || e.resourceType.startsWith('serviceaccount')) {
-                utility += 8;
-            } else if (e.resourceType.includes('role')) {
-                utility += 8;
-            } else if (e.resourceType.startsWith('selfsubject')) {
-                return 0;
-            }
-        }
-        return utility; // Unknown verb
-    }
+    let { entitlements, getUtility }: EntitlementsInfoProps = $props();
 
     function getStyle(e: RBACPermission): string {
         const utility = getUtility(e);
-        if (utility > 5) {
-            return 'text-success-500';
+        if (utility >= 10) {
+            return 'text-error-700-300 font-bold';
+        }else if (utility > 5) {
+            return 'text-success-800-200';
         } else if (utility > 0) {
-            return 'text-success-700';
+            return 'text-secondary-700-300';
         } else {
             return 'text-surface-500';
         }

@@ -162,6 +162,46 @@
 			showToast("TTP 'read-file' not found", '', 'error');
 		}
 	}
+
+	function getUtility(e: RBACPermission): number {
+		let utility = 0;
+
+		// regular API endpoints have no real value (for now?)
+		if (e.resourceName && e.resourceName.startsWith('/') && !e.resourceType) {
+			return 0;
+		}
+
+		if (e.verb === 'get' || e.verb === 'list') {
+			utility += 1;
+		} else if (e.verb === 'create' || e.verb === 'update' || e.verb === 'patch') {
+			utility += 3;
+		} else if (e.verb === 'delete') {
+			utility += 2;
+		} else if (e.verb === '*') {
+			utility += 10;
+		}
+
+		if (e.resourceType) {
+			if (e.resourceType.startsWith('pod') || e.resourceType === 'deployments') {
+				utility += 5;
+			} else if (e.resourceType === 'nodes' || e.resourceType === 'namespaces') {
+				utility += 6;
+			} else if (e.resourceType === 'secrets' || e.resourceType === 'configmaps' || e.resourceType.startsWith('serviceaccount')) {
+				utility += 8;
+			} else if (e.resourceType.includes('role')) {
+				utility += 8;
+			} else if (e.resourceType.includes('*')) {
+				utility += 10;
+			} else if (e.resourceType.startsWith('selfsubject')) {
+				return 0;
+			}
+		}
+		return utility;
+	}
+
+	function getSortedEntitlements(entitlements: RBACPermission[]): RBACPermission[] {
+		return [...entitlements].sort((a, b) => getUtility(b) - getUtility(a));
+	}
 </script>
 
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
@@ -305,7 +345,6 @@
 					<summary>
 						<span class="font-bold">{label}</span>
 						<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : (typeof data === 'object' && data !== null ? Object.keys(data).length : 0)})</span>
-					>
 					</summary>
 					<Tree entries={Array.isArray(data) ? data : []} onLeafClick={readFile} />
 				</details>
@@ -316,7 +355,7 @@
 							<span class="font-bold">{label}</span>
 							<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : Object.keys(data).length})</span>
 						</summary>
-						<EntitlementInfo entitlements={data as RBACPermission[]} />
+					<EntitlementInfo entitlements={getSortedEntitlements(data as RBACPermission[])} getUtility={getUtility} />
 					</details>
 				{:else}
 					<div class="mb-1" class:field-changed={highlightedFields[label]}>
