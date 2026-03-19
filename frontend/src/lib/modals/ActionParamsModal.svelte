@@ -42,6 +42,7 @@
 	let availableEntities: Entity[] = $state([]);
 	let namespaceArgName: string = "";
 	let selectedExecSystemId = $state('');
+	let formElement: HTMLFormElement | undefined = $state();
 
 	const compromisedSystems = $derived(campaignState.getCompromisedSystems());
 	const execSystemOptions = $derived<ComboboxOption[]>(
@@ -67,6 +68,9 @@
 
 	// Track previous TTP ID to detect when TTP changes
 	let previousTtpId: string | undefined = undefined;
+
+	// Track the last TTP ID we focused for, to only focus once per TTP
+	let lastFocusedTTPId = $state<string | undefined>(undefined);
 
 	let selectedNamespace = $derived.by(() => {
 		const nsArg = args.find(arg => arg.Type === 'Namespace');
@@ -297,6 +301,22 @@
 		});
 	});
 
+	// Focus first input once when TTP changes (modal opens with new TTP)
+	$effect(() => {
+		// Only focus if this is a new TTP
+		if (ttp.id !== lastFocusedTTPId && args.length > 0 && formElement) {
+			lastFocusedTTPId = ttp.id;
+			// Use a small timeout to ensure DOM has updated
+			setTimeout(() => {
+				// Find the first input, checkbox, or combobox input within the params section
+				const firstInput = formElement?.querySelector<HTMLInputElement | HTMLSelectElement>(
+					'.input-group input:not([readonly]), .input-group input[type="checkbox"]'
+				);
+				firstInput?.focus();
+			}, 50);
+		}
+	});
+
 	// namespace options
 	$effect(() => {
 		const uniqueNamespaces = availableEntities.reduce((nss: Set<string>, r) => {
@@ -483,7 +503,7 @@
 	}
 </script>
 
-<form class="w-full flex flex-col text-xs md:text-sm lg:text-base min-h-0" onsubmit={onInternalExecute}>
+<form bind:this={formElement} class="w-full flex flex-col text-xs md:text-sm lg:text-base min-h-0" onsubmit={onInternalExecute}>
 	<header class="flex justify-between flex-shrink-0">
 		<h4 class="h4 text-sm md:text-base lg:text-lg">{ttp.name}</h4>
 	</header>
@@ -532,7 +552,7 @@
 			</label> -->
 			{#if args.length > 0}
 					<span class="h5 text-xs md:text-sm lg:text-base">Params</span>
-{#each args as arg (arg.Name)}
+{#each args as arg, index (arg.Name)}
 	<div class="input-group mt-2 grid-cols-[auto_1fr_auto] text-xs md:text-sm lg:text-base"
 		class:opacity-50={arg.Type === 'Namespace' && isAllNamespaces}
 		class:pointer-events-none={arg.Type === 'Namespace' && isAllNamespaces}

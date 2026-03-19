@@ -132,7 +132,7 @@ export function createLayout(nodes?: cytoscape.NodeCollection, existingPositions
 		nodeRepulsion: Math.max(100, Math.min(10000, 4500)),
 		idealEdgeLength: Math.max(10, Math.min(500, 100)),
 		edgeElasticity: Math.max(0.1, Math.min(1, 0.45)),
-		nestingFactor: Math.max(0.1, Math.min(1.5, 0.1)),
+		nestingFactor: Math.max(0.1, Math.min(1.5, 1.2)),
 
 		// Gravity and alignment - clamped to safe ranges
 		gravity: Math.max(0, Math.min(1, 0.25)),

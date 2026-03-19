@@ -274,13 +274,29 @@
 					if (hasNewNodes || hasFewerNodes || previousNodeIds.size === 0) {
 						console.log(`Graph changed: ${hasNewNodes ? 'new nodes added' : hasFewerNodes ? 'nodes removed' : 'initial load'}`);
 
-						// Lock nodes that have saved positions (they shouldn't move)
-						existingNodes = cy.nodes().filter((n) => positions.hasOwnProperty(n.id()));
-						existingNodes.lock();
+					// Lock nodes that have saved positions, but exclude compound nodes with new children
+					// to allow their children to be properly laid out
+					existingNodes = cy.nodes().filter((n) => {
+						if (!positions.hasOwnProperty(n.id())) return false;
+						
+						// If this is a compound node (has children), check if it has new children
+						if (n.isParent()) {
+							const children = n.children();
+							const hasNewChild = children.some((child: any) => !previousNodeIds.has(child.id()));
+							// Don't lock compound nodes with new children
+							if (hasNewChild) {
+								console.log(`Not locking compound node ${n.id()} - has new children`);
+								return false;
+							}
+						}
+						
+						return true;
+					});
+					existingNodes.lock();
 
-						// Save current pan/zoom before layout
-						const currentPan = cy.pan();
-						const currentZoom = cy.zoom();
+					// Save current pan/zoom before layout
+					const currentPan = cy.pan();
+					const currentZoom = cy.zoom();
 
 						try {
 						// Validate graph state before layout

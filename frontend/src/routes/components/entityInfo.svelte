@@ -396,17 +396,17 @@
 					</ul>
 				</details>
 				{/if }
-			{:else if label === 'binaries' && typeof data === 'object' && data !== null}
-				<!-- Special formatting for binaries dictionary -->
+			{:else if (label === 'binaries' || label === 'envVars') && typeof data === 'object' && data !== null}
+				<!-- Special formatting for binaries and envVars dictionary -->
 				<details class="mb-1" class:field-changed={highlightedFields[label]}>
 					<summary>
 						<span class="font-bold">{label}</span>
 						<span class="text-xs text-surface-500">({Object.keys(data).length})</span>
 					</summary>
 					<ul class="list-inside list-none pl-5">
-						{#each Object.entries(data).sort(([a], [b]) => a.localeCompare(b)) as [binary, path]}
+						{#each Object.entries(data).sort(([a], [b]) => a.localeCompare(b)) as [key, value]}
 							<li class="font-mono text-sm">
-								<span class="font-semibold">{binary}:</span> {path}
+								<span class="font-semibold">{key}:</span> {value}
 							</li>
 						{/each}
 					</ul>
