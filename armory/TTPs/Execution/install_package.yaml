@@ -16,7 +16,11 @@ args: # default values if none is provided
 procedures:
   - key: ubuntu
     tool: apt
-    command: apt-get update  && apt-get install -y  ${PKG}; results=$(dpkg -L ${PKG} 2>/dev/null | while read f; do [ -f "$f" ] && [ -x "$f" ] && echo "$f"; done); echo "$results"; [ -n "$results" ]
+    command: apt-get update && apt-get install -y ${PKG}; results=$(dpkg -L ${PKG} 2>/dev/null | while read f; do [ -f "$f" ] && [ -x "$f" ] && echo "$f"; done); echo "$results"; [ -n "$results" ]
+  - key: alpine
+    tool: apk
+    command: apk update -q && apk add -q ${PKG}; results=$(apk info -L ${PKG} 2>/dev/null | while read f; do [ -f "$f" ] && [ -x "$f" ] && echo "$f"; done); echo "$results"; [ -n "$results" ]
+    # cleanup: apk del ${PKG}
 effects: ["sys.has-binary(${PKG})", "sys.has-binary(${OUTPUT})"]
 cleanup:
     key: ubuntu
