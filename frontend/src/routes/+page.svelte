@@ -43,10 +43,14 @@
 	const MAX_ENTITYINFO_WIDTH = 800;
 	const MIN_ENTITYINFO_HEIGHT = 100;
 	const MAX_ENTITYINFO_HEIGHT = 1000;
-	let entityInfoWidth = $state(300);
-	let entityInfoHeight = $state(400);
+	const DEFAULT_ENTITYINFO_WIDTH = 300;
+	const DEFAULT_ENTITYINFO_HEIGHT = 400;
+	let entityInfoWidth = $state(DEFAULT_ENTITYINFO_WIDTH);
+	let entityInfoHeight = $state(DEFAULT_ENTITYINFO_HEIGHT);
+	let hasManuallyResizedEntityInfo = $state(false);
 	let isResizingEntityInfo = $state(false);
 	let entityInfoRafId: number | null = null;
+	let entityInfoContainer: HTMLDivElement | undefined = $state();
 
 	// Get responsive default armory width based on screen size
 	function getResponsiveDefaultWidth(): number {
@@ -104,11 +108,11 @@
 			const savedWidth = sessionStorage.getItem(ENTITYINFO_WIDTH_KEY);
 			const savedHeight = sessionStorage.getItem(ENTITYINFO_HEIGHT_KEY);
 			
-			if (savedWidth) {
+			if (savedWidth && savedHeight) {
+				// Only load and apply saved dimensions if both exist (indicating user manually resized)
 				entityInfoWidth = Math.max(MIN_ENTITYINFO_WIDTH, Math.min(MAX_ENTITYINFO_WIDTH, parseInt(savedWidth)));
-			}
-			if (savedHeight) {
 				entityInfoHeight = Math.max(MIN_ENTITYINFO_HEIGHT, Math.min(MAX_ENTITYINFO_HEIGHT, parseInt(savedHeight)));
+				hasManuallyResizedEntityInfo = true;
 			}
 		} catch (e) {
 			console.warn('Failed to load entityInfo preferences:', e);
@@ -171,7 +175,13 @@
 	}
 
 	function startResizeEntityInfo(e: MouseEvent) {
+		// Measure current dimensions before switching to fixed sizing
+		if (entityInfoContainer && !hasManuallyResizedEntityInfo) {
+			entityInfoWidth = entityInfoContainer.offsetWidth;
+			entityInfoHeight = entityInfoContainer.offsetHeight;
+		}
 		isResizingEntityInfo = true;
+		hasManuallyResizedEntityInfo = true;
 		e.preventDefault();
 		e.stopPropagation();
 		document.body.style.userSelect = 'none';
@@ -233,6 +243,13 @@
 		selectedObjectId = '';
 		selectedObject = undefined;
 	})
+
+	// Reset entity info to content-fit when a new node is selected
+	$effect(() => {
+		if (selectedObjectId !== '') {
+			hasManuallyResizedEntityInfo = false;
+		}
+	});
 
 	function sendAction(ttp: TTP, args = {}) {
 		selectedTTP = ttp;
@@ -447,8 +464,14 @@
 		
 		{#if selectedObjectId !== ''}
 			<svelte:boundary onerror={handleError}>
-				<div class="absolute top-2 right-2 flex flex-col z-50" style="width: {entityInfoWidth}px; height: {entityInfoHeight}px;">
-					<EntityInfo class="overflow-auto flex-1" objectId={selectedObjectId} {sendAction} />
+				<div 
+					bind:this={entityInfoContainer}
+					class="absolute top-2 right-2 flex flex-col z-50"
+					class:max-w-[800px]={!hasManuallyResizedEntityInfo}
+					class:max-h-[calc(100vh-80px)]={!hasManuallyResizedEntityInfo}
+					style={hasManuallyResizedEntityInfo ? `width: ${entityInfoWidth}px; height: ${entityInfoHeight}px;` : 'width: fit-content; height: fit-content;'}
+				>
+					<EntityInfo class={hasManuallyResizedEntityInfo ? "overflow-auto flex-1" : "overflow-auto"} objectId={selectedObjectId} {sendAction} />
 					<!-- Resize handle at bottom-left corner -->
 					<button
 					class="absolute bottom-0 left-0 w-4 h-4 cursor-nwse-resize opacity-30 hover:opacity-100 transition-opacity bg-gradient-to-bl from-transparent from-50% to-current to-50% rounded-bl-lg"
