@@ -477,9 +477,22 @@ func (c *Campaign) ParseEffect(effect string, target domain.Entity, execSystem d
 			}
 		case "nmap":
 			nmapHosts, err := parseNmapOutput(res)
+
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to parse nmap output: %v", err))
 			} else {
+				dnsEntries := make(map[string]string)
+				for _, h := range nmapHosts {
+					dnsEntries[h.IP] = h.DNS
+				}
+				newFacts, _, err := analyzeDnsEntries(dnsEntries)
+				if err != nil {
+					slog.Error(fmt.Sprintf("Failure analyzing DNS entries %v", err))
+				} else {
+					entities = append(entities, newFacts.Entities...)
+					relations = append(relations, newFacts.Relations...)
+				}
+
 				// All found nmap hosts are considered pods and at least within the cluster
 				for _, host := range nmapHosts {
 					if !host.HostUp {

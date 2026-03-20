@@ -487,7 +487,7 @@ func (c Campaign) GroundAction(ttp domain.TTP, execSystemID, targetId, procedure
 				slog.Error(err.Error())
 			}
 		}
-	} else {
+	} else if ttp.Tactic != mitre.InitialAccess {
 		slog.Warn("action is not on remote target!")
 	}
 

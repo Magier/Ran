@@ -39,9 +39,10 @@ func (c *Campaign) onC2TTPExecuted(ctx context.Context, msg domain.Message) (dom
 	ev.Success = c2Ev.Success
 
 	wasValidStep := c.trail.CompleteStep(ev.ID, ev.TTP, ev.Success, results)
-	if !wasValidStep && ev.WasCleanup {
-		// if cleanup is not associated with a valid step, then it must be a delayed result from a previous campaign
+	if !wasValidStep {
+		// if the step is not associated with a valid trail entry, it must be a delayed result from a previous campaign
 		// => don't influence the current campaign
+		slog.Debug(fmt.Sprintf("Ignoring TTPExecuted result for step ID '%s' from previous campaign", c2Ev.ID))
 		return nil, nil
 	}
 
