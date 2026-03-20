@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -275,10 +276,19 @@ func (a *API) GetGraph() Graph {
 			node.Parent = &parent
 		}
 
+		// Serialize the full entity so the frontend can access all fields.
+		if b, err := json.Marshal(entity); err == nil {
+			var m map[string]interface{}
+			if err := json.Unmarshal(b, &m); err == nil {
+				node.Entity = &m
+			}
+		}
+
 		switch e := entity.(type) {
 		case domain.Pod:
 			comp := e.AccessLevel.IsSet()
 			node.Compromised = &comp
+			node.IsRunning = &e.IsRunning
 		case domain.K8sNode:
 			comp := e.AccessLevel.IsSet()
 			node.Compromised = &comp

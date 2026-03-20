@@ -150,6 +150,7 @@ type Node struct {
 	Entity      *map[string]interface{} `json:"entity,omitempty"`
 	EntityId    string                  `json:"entityId"`
 	Id          string                  `json:"id"`
+	IsRunning   *bool                   `json:"isRunning,omitempty"`
 	Kind        string                  `json:"kind"`
 	Name        string                  `json:"name"`
 	Parent      *string                 `json:"parent,omitempty"`

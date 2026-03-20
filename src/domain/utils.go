@@ -144,7 +144,7 @@ func UpdateEntity(new, old Entity) Entity {
 		newIsPod = true
 		if newPod.SystemImpl != nil {
 			newAccessLevel = newPod.SystemImpl.AccessLevel
-			hasIncomingAccessLevel = true
+			hasIncomingAccessLevel = newPod.SystemImpl.accessLevelExplicit
 		}
 	}
 

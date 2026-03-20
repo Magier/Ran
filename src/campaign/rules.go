@@ -389,7 +389,7 @@ func (re *RuleEngine) retireCanAccessForPod(pod domain.Pod, toRemove *[]domain.R
 		}
 	}
 	if retired && pod.SystemImpl != nil {
-		pod.AccessLevel = domain.NoAccess
+		pod.SetAccessLevel(domain.NoAccess)
 		*entityUpdates = append(*entityUpdates, pod)
 	}
 }

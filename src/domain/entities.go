@@ -490,19 +490,20 @@ func NewSystem(hostname, os string, accessLevel AccessLevel) UnknownSystem {
 var _ Entity = (*UnknownSystem)(nil)
 
 type SystemImpl struct {
-	HostName     string            `json:"hostName,omitzero"` // Hostname of the system
-	UserID       int               `json:"userId,omitempty"`
-	UserName     string            `json:"userName,omitzero"`
-	OS           string            `json:"os,omitzero"`  // Operating system of the system (e.g., Linux, Windows)
-	IPs          []net.IPAddr      `json:"ips,omitzero"` // List of IP addresses associated with the system
-	EnvVars      map[string]string `json:"envVars,omitzero,omitempty"`
-	Binaries     map[string]string `json:"binaries,omitempty"`        // mapping of binary names to their paths
-	Files        []string          `json:"files,omitzero"`            // List of files on the node
-	MissingFiles []string          `json:"unavailableFiles,omitzero"` // List of files known to be missing on the node
-	Processes    []Process         `json:"processes,omitzero"`        // List of processes running on the system
-	Mounts       []Mount           `json:"mounts,omitzero"`
-	AccessLevel  AccessLevel       `json:"accessLevel,omitzero"` // Access level of the system (e.g., user, root)
-	Sessions     []*Session        `json:"sessions,omitzero"`
+	HostName            string            `json:"hostName,omitzero"` // Hostname of the system
+	UserID              int               `json:"userId,omitempty"`
+	UserName            string            `json:"userName,omitzero"`
+	OS                  string            `json:"os,omitzero"`  // Operating system of the system (e.g., Linux, Windows)
+	IPs                 []net.IPAddr      `json:"ips,omitzero"` // List of IP addresses associated with the system
+	EnvVars             map[string]string `json:"envVars,omitzero,omitempty"`
+	Binaries            map[string]string `json:"binaries,omitempty"`        // mapping of binary names to their paths
+	Files               []string          `json:"files,omitzero"`            // List of files on the node
+	MissingFiles        []string          `json:"unavailableFiles,omitzero"` // List of files known to be missing on the node
+	Processes           []Process         `json:"processes,omitzero"`        // List of processes running on the system
+	Mounts              []Mount           `json:"mounts,omitzero"`
+	AccessLevel         AccessLevel       `json:"accessLevel,omitzero"` // Access level of the system (e.g., user, root)
+	accessLevelExplicit bool              // set to true when AccessLevel was explicitly assigned via SetAccessLevel
+	Sessions            []*Session        `json:"sessions,omitzero"`
 }
 
 func (s *SystemImpl) GetHostName() string {
@@ -519,6 +520,7 @@ func (s *SystemImpl) GetAccessLevel() AccessLevel {
 
 func (s *SystemImpl) SetAccessLevel(level AccessLevel) {
 	s.AccessLevel = level
+	s.accessLevelExplicit = true
 }
 
 func (s *SystemImpl) CanExecuteProcedure(procedure Procedure) bool {
