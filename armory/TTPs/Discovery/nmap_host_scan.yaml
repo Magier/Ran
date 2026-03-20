@@ -11,6 +11,10 @@ parameters:
     type: string
     description: the CIDR range to scan
     default: "${TARGET.IP}/24"
+  # PingScan:
+  #   type: bool
+  #   description: whether to perform just a ping scan
+  #   default: false
   THREADS:
     type: int
     description: the number of concurrent threads to use
@@ -22,7 +26,8 @@ parameters:
 procedures:
   - key: nmap
     tool: nmap
-    command: nmap -sn ${CIDR}
+    command: nmap -sT -sV -F ${CIDR}
+    # command: nmap {{if .PingScan}} -sn {{ else }} -sT -sV -F {{end}} ${CIDR}
 effects:
   - rDNS
 references:

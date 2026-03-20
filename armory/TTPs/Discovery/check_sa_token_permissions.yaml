@@ -26,7 +26,7 @@ preconditions:
   has-token: true
 procedures:
   - key: kubectl
-    command: kubectl auth can-i --list
+    command: kubectl auth can-i --list --token=${TOKEN}
   - key: curl
     command: >-
       curl -XPOST
