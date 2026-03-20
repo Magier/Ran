@@ -5,14 +5,14 @@ techniques:
   - Service Stop
   - T1489
 parameters:
-  Name:
-    type: Pod
-    default: ${TARGET}
-    description: the name of the pod to delete
   Namespace:
     type: Namespace
     default: ${NS}
     description: the name of the namespace of the pod
+  Name:
+    type: Pod
+    default: ${TARGET}
+    description: the name of the pod to delete
   Token:
     type: ServiceAccount
     description: the token used to authenticate to the API server
