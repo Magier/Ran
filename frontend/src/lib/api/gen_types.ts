@@ -204,6 +204,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pods/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start watching pods
+         * @description Starts a real-time watch on pods. Pod state changes will be pushed via SSE as 'pods-changed' events.
+         */
+        post: operations["startPodWatch"];
+        /**
+         * Stop watching pods
+         * @description Stops the current pod watch. No more 'pods-changed' SSE events will be sent.
+         */
+        delete: operations["stopPodWatch"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/files": {
         parameters: {
             query?: never;
@@ -404,6 +428,10 @@ export interface components {
             name: string;
             namespace?: string;
             kind: string;
+            /** @description Pod phase (Running, Pending, Succeeded, Failed, Unknown) */
+            phase?: string;
+            /** @description Whether all containers in the pod are ready */
+            ready?: boolean;
         };
         Requirements: {
             kind?: string;
@@ -746,6 +774,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    startPodWatch: {
+        parameters: {
+            query?: {
+                /** @description Kubernetes namespace to watch (optional, defaults to all namespaces) */
+                namespace?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Watch started successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status?: string;
+                    };
+                };
+            };
+            /** @description Failed to start watch */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    stopPodWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Watch stopped successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status?: string;
+                    };
                 };
             };
         };

@@ -204,6 +204,27 @@ func (h *HTTPHandler) GetRunningPods(w http.ResponseWriter, r *http.Request, par
 	respondJSON(w, http.StatusOK, pods)
 }
 
+// StartPodWatch implements ServerInterface
+func (h *HTTPHandler) StartPodWatch(w http.ResponseWriter, r *http.Request, params StartPodWatchParams) {
+	namespace := ""
+	if params.Namespace != nil {
+		namespace = *params.Namespace
+	}
+
+	if err := h.api.StartPodWatch(namespace); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "watching"})
+}
+
+// StopPodWatch implements ServerInterface
+func (h *HTTPHandler) StopPodWatch(w http.ResponseWriter, r *http.Request) {
+	h.api.StopPodWatch()
+	respondJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
 // GetFileContent implements ServerInterface
 func (h *HTTPHandler) GetFileContent(w http.ResponseWriter, r *http.Request, params GetFileContentParams) {
 	content, ok := h.api.ran.Campaign.GetFileContent(params.Path)

@@ -4,6 +4,7 @@
 	import { parseEntityId } from '$lib/model';
 	import type { TTP, TTPParam } from '$lib/api/index';
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
+	import { getRanAPI } from '$lib/ran_api';
 	import { untrack } from 'svelte';
 
 	interface ParamProps {
@@ -19,6 +20,7 @@
 		label: string;
 		value: string;
 		group?: string;
+		disabled?: boolean;
 	}
 	interface Arg {
 		Name: string;
@@ -36,6 +38,7 @@
 	}
 
 	const campaignState = getCampaignState();
+	const ranAPI = getRanAPI();
 
 	let procedureId = $state('');
 	let args = $state<Arg[]>([]);
@@ -68,6 +71,9 @@
 
 	// Track previous TTP ID to detect when TTP changes
 	let previousTtpId: string | undefined = undefined;
+
+	// Whether this is an Initial Access TTP that needs live pod updates
+	const isSetTargetTTP = $derived(ttp?.tactic === 'Initial Access');
 
 	// Track the last TTP ID we focused for, to only focus once per TTP
 	let lastFocusedTTPId = $state<string | undefined>(undefined);
@@ -251,7 +257,7 @@
 						}
 						console.log("Setting target", param.name, "to value", value);
 					} else if (value.indexOf('${TARGET.IP}') >= 0 && target?.ips?.length > 0) {
-						value = value.replace("${TARGET.IP}", target.ips[0].IP);
+						value = value.replace("${TARGET.IP}", target?.ips[0].IP);
 					}
 
 					if (param.type === 'Namespace') {
@@ -326,6 +332,32 @@
 		argOptions[namespaceArgName] = Array.from(uniqueNamespaces.values()).map(ns => ({ label: ns, value: ns }));
 	});
 
+	// Start/stop live pod watch when the modal shows an Initial Access TTP
+	$effect(() => {
+		if (isSetTargetTTP) {
+			ranAPI.StartPodWatch(selectedNamespace || undefined).catch((err) => {
+				console.error('Failed to start pod watch:', err);
+			});
+			return () => {
+				ranAPI.StopPodWatch().catch((err) => {
+					console.error('Failed to stop pod watch:', err);
+				});
+			};
+		}
+	});
+
+	// Update pod arg options when allPods changes (from SSE events)
+	$effect(() => {
+		if (!isSetTargetTTP) return;
+		const pods = campaignState.allPods;
+		// Find the Pod param and update its options
+		for (const arg of args) {
+			if (arg.Type === 'Pod') {
+				argOptions[arg.Name] = pods.map(entityToComboboxOption);
+			}
+		}
+	});
+
 	// When the execution system changes, auto-switch to first available procedure if current is disabled
 	$effect(() => {
 		// track selectedExecSystemId to re-evaluate
@@ -345,7 +377,14 @@
 	});
 
 	function entityToComboboxOption(e: Entity): ComboboxOption {
-		return { label: e.name, value: e.id, group: e.namespace };
+		const isUnavailable = e.phase !== undefined && (e.phase !== 'Running' || e.ready === false);
+		const phaseLabel = isUnavailable ? ` (${e.phase})` : '';
+		return {
+			label: e.name + phaseLabel,
+			value: e.id,
+			group: e.namespace,
+			disabled: isUnavailable
+		};
 	}
 
 	// the args will be the final arguments used when executing the TTP
@@ -443,6 +482,7 @@
 		  items: items,
 		  itemToString: (item) => item.label,
 		  itemToValue: (item) => item.value,
+		  isItemDisabled: (item) => !!item.disabled,
 		  groupBy: (item) => item.group || ''
 		})
 	}
@@ -584,8 +624,8 @@
 					<Combobox.Positioner>
 						<Combobox.Content class="z-50 bg-surface-100-900 text-xs md:text-sm lg:text-base">
 							{#each getArgOptions(arg.Name) as item (item)}
-								<Combobox.Item {item} class="text-surface-contrast-100-900">
-									<Combobox.ItemText >{item.label}</Combobox.ItemText>
+								<Combobox.Item {item} class="text-surface-contrast-100-900 data-[highlighted]:preset-tonal-surface data-[selected]:preset-tonal {item.disabled ? 'opacity-40 line-through' : ''}">
+									<Combobox.ItemText>{item.label}</Combobox.ItemText>
 									<Combobox.ItemIndicator />
 								</Combobox.Item>
 							{/each}
