@@ -319,8 +319,14 @@ func (c *Campaign) analyzePod(e domain.Pod) (domain.Facts, error) {
 	relations := make([]domain.Relation, 0, 8)
 
 	// 1) ensure pod is up-to-date
+	// Capture IsRunning before the merge: false is a meaningful value but
+	// UpdateEntity's merge treats it as zero/unset and would restore the old true.
+	incomingIsRunning := e.IsRunning
 	if prev, ok := c.GetEntityById(e.GetId()); ok {
 		e = domain.UpdateEntity(e, prev).(domain.Pod)
+		if !incomingIsRunning && e.IsRunning {
+			e.IsRunning = false
+		}
 	}
 	entities[e.GetId()] = e
 
@@ -649,6 +655,16 @@ func analyzeFailedTTPExecution(ev domain.TTPExecuted) (domain.Facts, domain.Fact
 				}
 			}
 
+		}
+
+		// Target pod was deleted — the k8s API returns 404 "pods \"<name>\" not found".
+		// Mark it as no longer running so syncCapabilities removes the can-access relation.
+		if strings.Contains(errMsg, "Status 404: pods ") && strings.Contains(errMsg, "not found") {
+			if pod, ok := ev.Target.(domain.Pod); ok {
+				pod.IsRunning = false
+				entities = append(entities, pod)
+				failReason = fmt.Sprintf("Target pod '%s' no longer exists", pod.GetName())
+			}
 		}
 
 		// // TODO: check if the actual TTP execution failed, because the role already exists

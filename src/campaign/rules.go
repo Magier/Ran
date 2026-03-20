@@ -142,6 +142,16 @@ func (re *RuleEngine) EvaluateDelta(added, removed domain.Facts) (toAdd []domain
 		re.evaluateEntityAgainstRules(e, evaluated, &toAdd, &toRemove, &entityUpdates)
 	}
 
+	// 3.5 Retire can-access relations for pods that are no longer running.
+	// This covers relations created externally (e.g. k8s.can-exec TTP effects)
+	// that are not tracked in managedRelations and therefore won't be caught by
+	// the normal ConditionFalse path.
+	for _, e := range added.Entities {
+		if pod, ok := e.(domain.Pod); ok && !pod.IsRunning {
+			re.retireCanAccessForPod(pod, &toRemove, &entityUpdates)
+		}
+	}
+
 	// 4. Evaluate relation triggers (e.g., a CanReach was added/removed)
 	for _, rel := range added.Relations {
 		re.evaluateRelationTrigger(rel, evaluated, &toAdd, &toRemove, &entityUpdates)
@@ -360,6 +370,27 @@ func (re *RuleEngine) cleanupEntityRelations(e domain.Entity, toRemove *[]domain
 			delete(re.managedRelations, relId)
 			slog.Debug("Rule engine: cleanup relation for removed entity", "rule", ruleName, "relation", relId, "entity", eId)
 		}
+	}
+}
+
+// retireCanAccessForPod removes all can-access relations targeting a pod that is
+// no longer running, regardless of whether the rule engine created them.
+// It also resets the pod's AccessLevel to NoAccess when at least one such relation
+// is removed.
+func (re *RuleEngine) retireCanAccessForPod(pod domain.Pod, toRemove *[]domain.Relation, entityUpdates *[]domain.Entity) {
+	podId := pod.GetId()
+	retired := false
+	for relId, rel := range re.kb.GetRelations() {
+		if rel.GetRelationName() == "can-access" && rel.GetTargetId() == podId {
+			*toRemove = append(*toRemove, rel)
+			delete(re.managedRelations, relId)
+			retired = true
+			slog.Debug("Rule engine: retiring can-access for stopped pod", "relation", relId, "pod", podId)
+		}
+	}
+	if retired && pod.SystemImpl != nil {
+		pod.AccessLevel = domain.NoAccess
+		*entityUpdates = append(*entityUpdates, pod)
 	}
 }
 

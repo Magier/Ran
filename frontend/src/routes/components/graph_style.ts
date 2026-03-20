@@ -296,21 +296,14 @@ export function getGraphStyle(isDark: boolean = false) {
 			}
 		},
 		{
-			selector: "node[kind='Pod'][!entity.isRunning]",
+			selector: "node[kind='Pod'][!isRunning]",
 			style: {
 				width: '20',
 				height: '20',
 				'background-image': '/k8s/pod_transparent.svg',
 			}
 		},
-		{
-			selector: "node[?compromised]",
-			style: {
-				'background-color': 'red',
-				'color': 'rgba(200, 0, 0, 0.4)', // red tint
-				'background-blend-mode': 'screen',
-			}
-		},
+
 		{
 			selector: "node[kind='Node']",
 			style: {
@@ -563,19 +556,33 @@ export function getGraphStyle(isDark: boolean = false) {
 	return [...mapKindIcons(kind_svg_map), ...graph_style] as any;
 }
 
-export function applyCompromisedStyle(cy: cytoscape.Core) {
-	cy.nodes("node[?compromised]").forEach(n => {
-		const img = n.style('background-image');
-		const redTint = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>';
+const redTintSvg = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>';
 
-		// only apply the tint once
-		if (!img.includes(redTint)) {
+export function applyCompromisedStyle(cy: cytoscape.Core) {
+	// Remove tint from nodes that are no longer compromised
+	cy.nodes('node[!compromised]').forEach(n => {
+		const img = n.style('background-image');
+		if (typeof img === 'string' && img.includes(redTintSvg)) {
+			const layers = img.split(',').map((l: string) => l.trim()).filter((l: string) => l !== redTintSvg);
+			n.removeStyle('background-color');
+			n.removeStyle('background-opacity');
+			n.style({
+				'color': '',
+				'background-image': layers.length > 0 ? layers.join(', ') : 'none',
+			});
+		}
+	});
+
+	// Apply tint to compromised nodes
+	cy.nodes('node[?compromised]').forEach(n => {
+		const img = n.style('background-image');
+		if (typeof img !== 'string' || !img.includes(redTintSvg)) {
 			n.style({
 				'background-color': 'red',
-				'color': 'rgba(200, 0, 0, 0.4)', // red tint
-				'background-image': [ img, redTint ],
-				'background-opacity': 0.4, // Adjust for desired tint strength
+				'background-image': [img, redTintSvg],
+				'background-opacity': 0.4,
 			});
 		}
 	});
 }
+

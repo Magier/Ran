@@ -132,6 +132,22 @@ func UpdateEntity(new, old Entity) Entity {
 		return new
 	}
 
+	// Capture Pod-specific fields where false is a meaningful value (not just
+	// the zero value) before merging, so they are not silently overwritten by
+	// the old entity's non-zero value during the merge.
+	var newPodIsRunning bool
+	var newIsPod bool
+	var newAccessLevel AccessLevel
+	var hasIncomingAccessLevel bool
+	if newPod, ok := new.(Pod); ok {
+		newPodIsRunning = newPod.IsRunning
+		newIsPod = true
+		if newPod.SystemImpl != nil {
+			newAccessLevel = newPod.SystemImpl.AccessLevel
+			hasIncomingAccessLevel = true
+		}
+	}
+
 	prevOwnable, oldIsOwnable := old.(Ownable)
 	if ownable, ok := new.(Ownable); oldIsOwnable && ok {
 		hasOwner := false
@@ -154,6 +170,28 @@ func UpdateEntity(new, old Entity) Entity {
 	// 3) If both have a value set, use the new one (already set)
 	// If both are zero, keep zero (already set)
 	new = mergeEntities(new, old)
+
+	// Restore IsRunning=false if the incoming pod explicitly signalled the pod
+	// is no longer running. mergeValue treats false as a zero value and would
+	// otherwise keep the old entity's true, losing the "pod stopped" signal.
+	if newIsPod && !newPodIsRunning {
+		if mergedPod, ok := new.(Pod); ok && mergedPod.IsRunning {
+			mergedPod.IsRunning = false
+			new = mergedPod
+		}
+	}
+
+	// Restore AccessLevel=NoAccess if the incoming system explicitly cleared it.
+	// NoAccess == {0,0} is the struct zero value, so mergeStruct would silently
+	// restore the old (non-zero) level. We treat an explicit NoAccess from a
+	// System that has a SystemImpl as a meaningful "revoke access" signal.
+	if hasIncomingAccessLevel && newAccessLevel == NoAccess {
+		if sys, ok := new.(System); ok && sys.GetAccessLevel() != NoAccess {
+			sys.SetAccessLevel(NoAccess)
+			new = sys.(Entity)
+		}
+	}
+
 	return new
 }
 
