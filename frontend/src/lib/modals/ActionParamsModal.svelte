@@ -459,8 +459,9 @@
 			console.warn("Could not find arg to update:", arg.Name);
 		}
 		
-		// If the chosen item carries a namespace in its group, and this is not the Namespace field itself, auto-select that namespace
-		if (arg.Type !== 'Namespace') {
+		// If the chosen item carries a namespace in its group, and this is not the Namespace field itself,
+		// auto-select that namespace (but skip TOKEN which can be cross-namespace)
+		if (arg.Type !== 'Namespace' && arg.Name !== 'TOKEN') {
 			const selectedItem = e.items?.[0];
 			const ns = selectedItem?.group;
 			if (ns && ns !== selectedNamespace) {

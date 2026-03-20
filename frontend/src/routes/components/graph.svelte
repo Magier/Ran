@@ -637,7 +637,7 @@
 	function hideRedundantInformationalEdges(cy: cytoscape.Core) {
 		// Collect directed node-pairs that have at least one non-informational, non-filtered edge
 		const hasActionableEdge = new Set<string>();
-		cy.edges().forEach(e => {
+		cy.edges().forEach((e: any) => {
 			if (!e.data('informational') && !e.hasClass('namespace-filtered')) {
 				// Use a directed key: source->target (order matters)
 				const pair = `${e.source().id()}->${e.target().id()}`;
@@ -646,7 +646,7 @@
 		});
 
 		// Hide informational edges whose directed pair has an actionable edge
-		cy.edges('[?informational]').forEach(e => {
+		cy.edges('[?informational]').forEach((e: any) => {
 			if (e.hasClass('namespace-filtered')) return; // don't touch namespace-filtered edges
 			const pair = `${e.source().id()}->${e.target().id()}`;
 			if (hasActionableEdge.has(pair)) {
@@ -731,12 +731,15 @@
 				// Show back the edges we hid
 				collapsedEdgeIds.forEach((edgeId: string) => {
 					const edge = cy.getElementById(edgeId);
-					if (edge.length > 0) edge.show();
+					if (edge.length > 0) (edge as any).show();
 				});
 
 				metaEdge.remove();
 			}
 		});
+
+		// Re-apply informational edge filtering after expanding
+		hideRedundantInformationalEdges(cy);
 	}
 
 </script>

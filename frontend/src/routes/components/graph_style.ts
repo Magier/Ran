@@ -471,7 +471,6 @@ export function getGraphStyle(isDark: boolean = false) {
 			style: {
 				'curve-style': 'bezier',
 				// 'curve-style': 'taxi',
-				// color: 'gray',
 				'edge-text-rotation': 'autorotate',
 				// 'text-background-color': 'none',
 				'text-background-opacity': '0',
@@ -481,9 +480,9 @@ export function getGraphStyle(isDark: boolean = false) {
 				width: '1',
 				color: textColor,
 				'target-arrow-shape': 'triangle',
-				content: 'data(name)'
-				// 'line-color': 'gray',
-				// 'target-arrow-color': 'gray'
+				content: 'data(name)',
+				'line-color': textColor,
+				'target-arrow-color': textColor
 				// 'font-weight': 'bold'
 			}
 		},
@@ -494,6 +493,7 @@ export function getGraphStyle(isDark: boolean = false) {
 				'width': '3',
 				'font-weight': 'bold',
 				'font-size': '11',
+				color: primary,
 				'line-color': primary,
 				'target-arrow-color': primary,
 				'line-style': 'solid',
@@ -503,7 +503,7 @@ export function getGraphStyle(isDark: boolean = false) {
 		{
 			selector: 'edge[name="controls"]',
 			style: {
-				color: textColor,
+				color: primary,
 				'line-color': primary,
 				'target-arrow-color': primary,
 				width: '2'
@@ -529,7 +529,9 @@ export function getGraphStyle(isDark: boolean = false) {
 		{
 			selector: 'edge[?proxyEdge]',
 			style: {
+				color: 'green',
 				'line-color': 'green',
+				'target-arrow-color': 'green',
 				'line-style': 'dashed'
 			}
 		},
