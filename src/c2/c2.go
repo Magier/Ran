@@ -51,6 +51,15 @@ func (e ExecError) Error() string {
 	return fmt.Sprintf("(code %d): %s", e.ExitCode, e.Message)
 }
 
+type StatusError struct {
+	Message    string
+	StatusCode int
+}
+
+func (e StatusError) Error() string {
+	return fmt.Sprintf("Status %d: %s", e.StatusCode, e.Message)
+}
+
 func InitC2Manager(mb bus.MessageBus) *C2Manager {
 	c2Clients := map[string]C2Client{
 		BuiltInC2: NewBuiltInServer(),
@@ -635,6 +644,11 @@ func execRemotely(ctx context.Context, exec domain.ExecTTP, cmd domain.Procedure
 					err = ExecError{
 						Message:  execErr.Error(),
 						ExitCode: execErr.Code,
+					}
+				} else if statusErr, ok := err.(*k8s.StatusError); ok {
+					err = StatusError{
+						Message:    statusErr.Error(),
+						StatusCode: int(statusErr.ErrStatus.Code),
 					}
 				} else {
 					err = fmt.Errorf("%w: '%s'", err, stderr)

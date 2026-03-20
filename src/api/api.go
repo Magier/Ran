@@ -277,15 +277,11 @@ func (a *API) GetGraph() Graph {
 
 		switch e := entity.(type) {
 		case domain.Pod:
-			if e.AccessLevel.IsSet() {
-				comp := true
-				node.Compromised = &comp
-			}
+			comp := e.AccessLevel.IsSet()
+			node.Compromised = &comp
 		case domain.K8sNode:
-			if e.AccessLevel.IsSet() {
-				comp := true
-				node.Compromised = &comp
-			}
+			comp := e.AccessLevel.IsSet()
+			node.Compromised = &comp
 		case domain.ServiceAccount:
 			if e.Token.Raw != "" {
 				comp := true

@@ -945,7 +945,6 @@ func (c Campaign) syncCapabilities() error {
 	for _, identity := range c.identities {
 		if perm, ok := identity.Can("create", "pods/exec"); ok {
 			for _, p := range pods {
-				// can't access any pods that are no longer running
 				ns := p.GetNamespace()
 
 				if !p.IsRunning || !perm.IsInScope(ns) {

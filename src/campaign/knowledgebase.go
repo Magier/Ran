@@ -165,7 +165,17 @@ func (kg *BuiltInKnowledgeBase) AddEntities(entities ...domain.Entity) (int, err
 
 	for _, entity := range entities {
 		if prevEntity, exists := kg.GetEntity(entity.GetId()); exists {
+			// Preserve explicitly-set boolean state before the merge, because
+			// UpdateEntity treats false as "zero/unset" and would restore the old value.
+			incomingPod, isIncomingPod := entity.(domain.Pod)
 			entity = domain.UpdateEntity(entity, prevEntity)
+			if isIncomingPod {
+				merged := entity.(domain.Pod)
+				if !incomingPod.IsRunning && merged.IsRunning {
+					merged.IsRunning = false
+					entity = merged
+				}
+			}
 			_ = kg.AddEntity(entity)
 		} else {
 			_ = kg.AddEntity(entity) // entity has to be added before the relation

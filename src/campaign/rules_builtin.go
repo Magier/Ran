@@ -16,7 +16,7 @@ var KubeletExecRule = Rule{
 	TargetType: reflect.TypeOf(domain.K8sNode{}),
 	Match: func(source, target domain.Entity, re *RuleEngine) ConditionState {
 		pod, ok := source.(domain.Pod)
-		if !ok || pod.SystemImpl == nil {
+		if !ok || pod.SystemImpl == nil || !pod.IsRunning {
 			return ConditionFalse
 		}
 
@@ -110,6 +110,11 @@ var KubeletPodExecRule = Rule{
 	Match: func(source, target domain.Entity, re *RuleEngine) ConditionState {
 		node := source.(domain.K8sNode)
 		pod := target.(domain.Pod)
+
+		// Required: target pod must be running
+		if !pod.IsRunning {
+			return ConditionFalse
+		}
 
 		// Required: node has at least one incoming kubelet-exec relation
 		if !hasIncomingKubeletExec(re.kb, node) {

@@ -53,6 +53,8 @@ class CampaignState {
 	allPods: Entity[] = $state([]);
 	pendingMessages: string[] = [];
 	api: RanAPI = $state(getRanAPI());
+	private factsChangedCounter = 0;
+	private getCampaignStateCounter = 0;
 
 	init(url?: string): Promise<void> {
 		// this.api.onmessage = this.handleMessage;
@@ -62,6 +64,7 @@ class CampaignState {
 			this.armory = parseArmory(data);
 		});
 		this.api.on('facts-changed', (data: any) => {
+			const eventId = ++this.factsChangedCounter;
 			this.api.GetGraph().then((g: Graph) => {
 				this.graph = g;
 			});
@@ -368,7 +371,7 @@ class CampaignState {
 	}
 
 	getEntityById(id: string): Entity | undefined {
-		if (id ===  "") {
+		if (id === "") {
 			return undefined;
 		}
 		return this.entities.find((entity) => entity.id === id);
