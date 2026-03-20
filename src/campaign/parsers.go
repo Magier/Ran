@@ -481,18 +481,6 @@ func (c *Campaign) ParseEffect(effect string, target domain.Entity, execSystem d
 			if err != nil {
 				slog.Error(fmt.Sprintf("Failed to parse nmap output: %v", err))
 			} else {
-				dnsEntries := make(map[string]string)
-				for _, h := range nmapHosts {
-					dnsEntries[h.IP] = h.DNS
-				}
-				newFacts, _, err := analyzeDnsEntries(dnsEntries)
-				if err != nil {
-					slog.Error(fmt.Sprintf("Failure analyzing DNS entries %v", err))
-				} else {
-					entities = append(entities, newFacts.Entities...)
-					relations = append(relations, newFacts.Relations...)
-				}
-
 				// All found nmap hosts are considered pods and at least within the cluster
 				for _, host := range nmapHosts {
 					if !host.HostUp {
@@ -503,7 +491,14 @@ func (c *Campaign) ParseEffect(effect string, target domain.Entity, execSystem d
 						slog.Warn(fmt.Sprintf("Nmap: invalid IP address '%s', skipping", host.IP))
 						continue
 					}
-					// Use DNS if available, otherwise fallback to IP-based pod name
+
+					// Validate that the IP can be properly marshaled to JSON
+					// This catches malformed IPs that ParseIP accepts but can't be serialized
+					if _, err := ip.MarshalText(); err != nil {
+						slog.Warn(fmt.Sprintf("Nmap: IP address '%s' cannot be marshaled: %v, skipping", host.IP, err))
+						continue
+					}
+
 					podName := host.DNS
 					namespace := "?" // TODO: find a way to properly handle unknown namespaces
 					if podName == "" {
@@ -1516,27 +1511,34 @@ func parseReverseDnsLookup(data string) (map[string]string, error) {
 	results := make(map[string]string)
 
 	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+		ip, dns, err := parseDNSResult(line)
+		if err != nil {
+			slog.Warn(err.Error())
+		} else if ip != "" {
+			// empty lines will be skipped
+			results[ip] = dns
 		}
-		parts := strings.SplitN(line, ",", 2)
-		if len(parts) != 2 {
-			slog.Warn(fmt.Sprintf("Invalid reverse DNS line (expected 2 CSV fields): %s", line))
-			continue
-		}
-		ipStr := strings.TrimSpace(parts[0])
-		dns := strings.TrimSpace(parts[1])
-
-		if ip := net.ParseIP(ipStr); ip == nil {
-			slog.Warn(fmt.Sprintf("Invalid IP in reverse DNS line: %s", ipStr))
-			continue
-		}
-		results[ipStr] = dns
-
-		slog.Info(fmt.Sprintf("Reverse DNS parsed: %s -> %s", ipStr, dns))
 	}
 	return results, nil
+}
+
+func parseDNSResult(line string) (string, string, error) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return "", "", nil
+	}
+	parts := strings.SplitN(line, ",", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("Invalid reverse DNS line (expected 2 CSV fields): %s", line)
+	}
+	ipStr := strings.TrimSpace(parts[0])
+	dns := strings.TrimSpace(parts[1])
+
+	if ip := net.ParseIP(ipStr); ip == nil {
+		return "", "", fmt.Errorf("Invalid IP in reverse DNS line: %s", ipStr)
+	}
+	slog.Info(fmt.Sprintf("Reverse DNS parsed: %s -> %s", ipStr, dns))
+	return ipStr, dns, nil
 }
 
 // NmapHost represents a single host discovered by nmap, with its IP, optional DNS name, and open ports.
@@ -1581,9 +1583,9 @@ func parseNmapOutput(data string) ([]NmapHost, error) {
 			reportStr := strings.TrimPrefix(line, "Nmap scan report for ")
 			if idx := strings.LastIndex(reportStr, "("); idx != -1 && strings.HasSuffix(reportStr, ")") {
 				current.DNS = strings.TrimSpace(reportStr[:idx])
-				current.IP = reportStr[idx+1 : len(reportStr)-1]
+				current.IP = strings.TrimSpace(reportStr[idx+1 : len(reportStr)-1])
 			} else {
-				current.IP = reportStr
+				current.IP = strings.TrimSpace(reportStr)
 			}
 
 		} else if current != nil && strings.HasPrefix(line, "Host is up") {

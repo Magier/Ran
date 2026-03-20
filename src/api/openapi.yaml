@@ -391,6 +391,8 @@ components:
           additionalProperties: true
         compromised:
           type: boolean
+        isRunning:
+          type: boolean
 
     Edge:
       type: object

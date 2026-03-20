@@ -1753,6 +1753,10 @@ func analyzeDnsEntries(entries map[string]string) (domain.Facts, domain.Facts, e
 			pod := domain.NewPod(name, ns)
 			pod.SystemImpl.IPs = append(pod.SystemImpl.IPs, net.IPAddr{IP: ip})
 			entities = append(entities, pod)
+			// } else if dnsStr == "" {
+			// 	sys := domain.NewSystem(ipStr, "", domain.NoAccess)
+			// 	sys.IPs = append(sys.IPs, net.IPAddr{IP: ip})
+			// 	entities = append(entities, sys)
 		} else {
 			svc := domain.NewService(name, ns)
 			svc.Host = dnsStr
