@@ -346,6 +346,17 @@ export class RanAPI {
         return data;
     }
 
+    async StartPodWatch(namespace?: string): Promise<void> {
+        const { error } = await this.restClient.POST('/api/pods/watch', {
+            params: { query: { namespace } }
+        });
+        if (error) throw new Error(error.error);
+    }
+
+    async StopPodWatch(): Promise<void> {
+        await this.restClient.DELETE('/api/pods/watch');
+    }
+
     async GetFileContent(path: string): Promise<{ path?: string; content?: string }> {
         const { data, error } = await this.restClient.GET('/api/files', {
             params: { query: { path } }
@@ -392,3 +403,5 @@ export const SaveFlow = ranAPI.SaveFlow.bind(ranAPI);
 export const ExecuteAction = ranAPI.ExecuteAction.bind(ranAPI);
 export const ResetCampaign = ranAPI.ResetCampaign.bind(ranAPI);
 export const GetRunningPods = ranAPI.GetRunningPods.bind(ranAPI);
+export const StartPodWatch = ranAPI.StartPodWatch.bind(ranAPI);
+export const StopPodWatch = ranAPI.StopPodWatch.bind(ranAPI);

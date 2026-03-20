@@ -49,11 +49,13 @@ type Client interface {
 }
 
 type API struct {
-	ctx       context.Context
-	ran       *ran.Ran
-	clients   map[Client]bool
-	clientsMu sync.RWMutex
-	router    chi.Router
+	ctx            context.Context
+	ran            *ran.Ran
+	clients        map[Client]bool
+	clientsMu      sync.RWMutex
+	router         chi.Router
+	podWatchCancel context.CancelFunc
+	podWatchMu     sync.Mutex
 }
 
 //go:embed all:static
@@ -426,6 +428,49 @@ func (a *API) GetRunningPods(ns string) ([]K8sResource, error) {
 		}
 	}
 	return resources, nil
+}
+
+func (a *API) StartPodWatch(namespace string) error {
+	a.podWatchMu.Lock()
+	defer a.podWatchMu.Unlock()
+
+	// Stop any existing watch first
+	if a.podWatchCancel != nil {
+		a.podWatchCancel()
+		a.podWatchCancel = nil
+	}
+
+	watchCtx, cancel := context.WithCancel(a.ctx)
+	a.podWatchCancel = cancel
+
+	go func() {
+		defer func() {
+			a.podWatchMu.Lock()
+			a.podWatchCancel = nil
+			a.podWatchMu.Unlock()
+		}()
+
+		err := k8s.WatchPods(watchCtx, namespace, func(pods []domain.PodStatus) {
+			a.ran.Bus.Publish(domain.PodsChanged{Pods: pods})
+		})
+		if err != nil && err != context.Canceled {
+			slog.Error("Pod watch ended with error", "error", err)
+		}
+	}()
+
+	slog.Info("Started pod watch", "namespace", namespace)
+	return nil
+}
+
+func (a *API) StopPodWatch() {
+	a.podWatchMu.Lock()
+	defer a.podWatchMu.Unlock()
+
+	if a.podWatchCancel != nil {
+		a.podWatchCancel()
+		a.podWatchCancel = nil
+		slog.Info("Stopped pod watch")
+	}
 }
 
 func (a *API) SaveFlow(path string) (bool, error) {

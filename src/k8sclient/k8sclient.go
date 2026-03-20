@@ -217,6 +217,82 @@ func GetIDsOfRunningPods(ctx context.Context, ns string) ([]string, error) {
 	return podIds, nil
 }
 
+// WatchPods opens a raw Watch on pods and calls onEvent with the full pod list
+// whenever a pod is added, modified, or deleted. It blocks until ctx is canceled.
+// On watch errors, it retries with a short backoff.
+func WatchPods(ctx context.Context, namespace string, onEvent func([]domain.PodStatus)) error {
+	client, err := NewK8sClient("")
+	if err != nil {
+		return fmt.Errorf("could not create K8s client: %v", err)
+	}
+	nsFilter := &globalNamespaceFilter
+
+	listAndNotify := func() {
+		pods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			slog.Error("WatchPods: failed to list pods", "error", err)
+			return
+		}
+		statuses := make([]domain.PodStatus, 0, len(pods.Items))
+		for _, pod := range pods.Items {
+			if !nsFilter.ShouldIncludeNamespace(pod.Namespace) {
+				continue
+			}
+			ready := true
+			for _, cs := range pod.Status.ContainerStatuses {
+				if !cs.Ready {
+					ready = false
+					break
+				}
+			}
+			phase := string(pod.Status.Phase)
+			if pod.DeletionTimestamp != nil {
+				phase = "Terminating"
+			}
+			statuses = append(statuses, domain.PodStatus{
+				Id:        fmt.Sprintf("ns/%s/pod/%s", pod.Namespace, pod.Name),
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+				Phase:     phase,
+				Ready:     ready,
+			})
+		}
+		onEvent(statuses)
+	}
+
+	// Send initial state
+	listAndNotify()
+
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		watcher, err := client.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{})
+		if err != nil {
+			slog.Error("WatchPods: failed to open watch", "error", err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(2 * time.Second):
+				continue
+			}
+		}
+
+		for event := range watcher.ResultChan() {
+			if ctx.Err() != nil {
+				watcher.Stop()
+				return ctx.Err()
+			}
+			_ = event // We re-list on any change for simplicity
+			listAndNotify()
+		}
+
+		// Watch channel closed (server timeout or error), retry
+		slog.Debug("WatchPods: watch channel closed, reconnecting...")
+	}
+}
+
 func (c K8sClient) GetPod(ctx context.Context, ns, name string) (domain.Pod, error) {
 	k8sPod, err := c.CoreV1().Pods(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
