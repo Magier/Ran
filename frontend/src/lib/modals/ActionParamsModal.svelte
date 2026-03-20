@@ -378,7 +378,11 @@
 
 	function entityToComboboxOption(e: Entity): ComboboxOption {
 		const isUnavailable = e.phase !== undefined && (e.phase !== 'Running' || e.ready === false);
-		const phaseLabel = isUnavailable ? ` (${e.phase})` : '';
+		let phaseLabel = '';
+		if (isUnavailable) {
+			const reason = e.stateReason || (e.phase !== 'Running' ? e.phase : 'Not Ready');
+			phaseLabel = ` (${reason})`;
+		}
 		return {
 			label: e.name + phaseLabel,
 			value: e.id,

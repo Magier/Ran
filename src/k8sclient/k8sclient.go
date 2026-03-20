@@ -18,6 +18,7 @@ import (
 	"github.com/Magier/Ran/domain"
 	appsV1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -65,6 +66,7 @@ func SetNamespaceFilter(filter NamespaceFilter) {
 }
 
 type ExecError = k8s_exec.CodeExitError
+type StatusError = errors.StatusError
 
 type KubeContext struct {
 	Name     string
@@ -195,26 +197,70 @@ func (c K8sClient) TestConnection() error {
 }
 
 func GetIDsOfRunningPods(ctx context.Context, ns string) ([]string, error) {
-	// empty NS = all namespaces
+	statuses, err := GetPodStatuses(ctx, ns)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(statuses))
+	for _, s := range statuses {
+		ids = append(ids, s.Id)
+	}
+	return ids, nil
+}
+
+// GetPodStatuses returns the current status of all pods in the given namespace,
+// including phase, readiness, and container-level error reasons.
+func GetPodStatuses(ctx context.Context, ns string) ([]domain.PodStatus, error) {
 	client, err := NewK8sClient("")
 	if err != nil {
 		return nil, fmt.Errorf("could not create K8s client: %v", err)
 	}
-	pods, err := client.GetPods(ctx, ns)
+	k8sPods, err := client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("could not get running pods: %v", err)
+		return nil, fmt.Errorf("could not list pods: %v", err)
 	}
-
-	podIds := []string{}
 	nsFilter := &globalNamespaceFilter
-
-	for _, p := range pods {
-		if nsFilter.ShouldIncludeNamespace(p.GetNamespace()) {
-			podIds = append(podIds, p.GetId())
+	statuses := make([]domain.PodStatus, 0, len(k8sPods.Items))
+	for _, pod := range k8sPods.Items {
+		if !nsFilter.ShouldIncludeNamespace(pod.Namespace) {
+			continue
 		}
+		ready := true
+		for _, cs := range pod.Status.ContainerStatuses {
+			if !cs.Ready {
+				ready = false
+				break
+			}
+		}
+		phase := string(pod.Status.Phase)
+		var stateReason string
+		if pod.DeletionTimestamp != nil {
+			phase = "Terminating"
+		} else if !ready {
+			for _, cs := range pod.Status.ContainerStatuses {
+				if cs.Ready {
+					continue
+				}
+				if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+					stateReason = cs.State.Waiting.Reason
+					break
+				}
+				if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" {
+					stateReason = cs.State.Terminated.Reason
+					break
+				}
+			}
+		}
+		statuses = append(statuses, domain.PodStatus{
+			Id:          fmt.Sprintf("ns/%s/pod/%s", pod.Namespace, pod.Name),
+			Name:        pod.Name,
+			Namespace:   pod.Namespace,
+			Phase:       phase,
+			Ready:       ready,
+			StateReason: stateReason,
+		})
 	}
-	// TODO: find a good way to sort the Pods
-	return podIds, nil
+	return statuses, nil
 }
 
 // WatchPods opens a raw Watch on pods and calls onEvent with the full pod list
@@ -225,37 +271,12 @@ func WatchPods(ctx context.Context, namespace string, onEvent func([]domain.PodS
 	if err != nil {
 		return fmt.Errorf("could not create K8s client: %v", err)
 	}
-	nsFilter := &globalNamespaceFilter
 
 	listAndNotify := func() {
-		pods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+		statuses, err := GetPodStatuses(ctx, namespace)
 		if err != nil {
 			slog.Error("WatchPods: failed to list pods", "error", err)
 			return
-		}
-		statuses := make([]domain.PodStatus, 0, len(pods.Items))
-		for _, pod := range pods.Items {
-			if !nsFilter.ShouldIncludeNamespace(pod.Namespace) {
-				continue
-			}
-			ready := true
-			for _, cs := range pod.Status.ContainerStatuses {
-				if !cs.Ready {
-					ready = false
-					break
-				}
-			}
-			phase := string(pod.Status.Phase)
-			if pod.DeletionTimestamp != nil {
-				phase = "Terminating"
-			}
-			statuses = append(statuses, domain.PodStatus{
-				Id:        fmt.Sprintf("ns/%s/pod/%s", pod.Namespace, pod.Name),
-				Name:      pod.Name,
-				Namespace: pod.Namespace,
-				Phase:     phase,
-				Ready:     ready,
-			})
 		}
 		onEvent(statuses)
 	}

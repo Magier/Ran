@@ -432,6 +432,8 @@ export interface components {
             phase?: string;
             /** @description Whether all containers in the pod are ready */
             ready?: boolean;
+            /** @description Container-level state reason (e.g. CrashLoopBackOff, ImagePullBackOff) */
+            stateReason?: string;
         };
         Requirements: {
             kind?: string;
