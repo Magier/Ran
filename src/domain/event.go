@@ -248,6 +248,27 @@ func (ttp TTPExecuted) String() string {
 	return fmt.Sprintf("TTP '%s' executed (%s)", ttp.ID, ttp.TTP.Name)
 }
 
+// PodStatus is a lightweight representation of a pod's current state,
+// used in the PodsChanged event payload.
+type PodStatus struct {
+	Id          string `json:"id"`
+	Name        string `json:"name"`
+	Namespace   string `json:"namespace"`
+	Phase       string `json:"phase"`
+	Ready       bool   `json:"ready"`
+	StateReason string `json:"stateReason,omitempty"`
+}
+
+// PodsChanged is published when the set of watched pods changes.
+type PodsChanged struct {
+	EventImpl
+	Pods []PodStatus `json:"pods"`
+}
+
+func (e PodsChanged) String() string {
+	return fmt.Sprintf("Pods changed (%d pods)", len(e.Pods))
+}
+
 // type TokenPermissionsRetrieved struct {
 // 	EventImpl
 // 	TokenName        string

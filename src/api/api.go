@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Magier/Ran/campaign"
 	ran "github.com/Magier/Ran/core"
 	"github.com/Magier/Ran/domain"
 	k8s "github.com/Magier/Ran/k8sclient"
@@ -409,23 +408,23 @@ func (a *API) GetFlow() AttackFlow {
 func (a *API) GetFacts() domain.FactsChanged { return domain.FactsChanged{} }
 
 func (a *API) GetRunningPods(ns string) ([]K8sResource, error) {
-	ids, err := k8s.GetIDsOfRunningPods(a.ctx, ns)
+	statuses, err := k8s.GetPodStatuses(a.ctx, ns)
 	if err != nil {
 		return nil, err
 	}
-	resources := make([]K8sResource, 0, len(ids))
-	for _, id := range ids {
-		ns, kind, name, err := campaign.UnpackResourceID(id)
-		if err != nil {
-			return nil, fmt.Errorf("Could not unpack resource ID: %v", err)
-		} else {
-			resources = append(resources, K8sResource{
-				Id:        id,
-				Name:      name,
-				Namespace: &ns,
-				Kind:      kind,
-			})
-		}
+	resources := make([]K8sResource, 0, len(statuses))
+	for _, s := range statuses {
+		ns := s.Namespace
+		stateReason := s.StateReason
+		resources = append(resources, K8sResource{
+			Id:          s.Id,
+			Name:        s.Name,
+			Namespace:   &ns,
+			Kind:        "pod",
+			Phase:       &s.Phase,
+			Ready:       &s.Ready,
+			StateReason: &stateReason,
+		})
 	}
 	return resources, nil
 }

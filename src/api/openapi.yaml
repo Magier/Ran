@@ -680,6 +680,9 @@ components:
         ready:
           type: boolean
           description: Whether all containers in the pod are ready
+        stateReason:
+          type: string
+          description: Container-level state reason (e.g. CrashLoopBackOff, ImagePullBackOff)
     
     Requirements:
       type: object

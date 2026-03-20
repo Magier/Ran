@@ -15,6 +15,10 @@ export type Entity = {
 	namespace?: string;
 	accessLevel?: { User: number; Level: number } | string;
 	binaries?: Record<string, string>;
+	phase?: string;
+	ready?: boolean;
+	stateReason?: string;
+	ips?: string[];
 };
 
 export type Relation = {
@@ -61,9 +65,12 @@ class CampaignState {
 			this.api.GetGraph().then((g: Graph) => {
 				this.graph = g;
 			});
-			// TODO: properly update state based on the received fact changes
+			
+			const stateCallId = ++this.getCampaignStateCounter;
 			this.api.GetCampaignState().then((s: State) => {
 				this.#setState(s);
+			}).catch((err) => {
+				console.error(`❌ [Event ${eventId}->Call ${stateCallId}] GetCampaignState failed:`, err);
 			});
 		});
 		this.api.on('reset-campaign', () => this.onReset());
@@ -85,6 +92,18 @@ class CampaignState {
 			}
 
 			showToast('Error', msg.Msg, toastType);
+		});
+		this.api.on('pods-changed', (data: any) => {
+			const pods = data?.Pods ?? data?.pods ?? [];
+			this.allPods = pods.map((p: any) => ({
+				id: p.id ?? p.Id,
+				name: p.name ?? p.Name,
+				namespace: p.namespace ?? p.Namespace,
+				kind: 'Pod',
+				phase: p.phase ?? p.Phase,
+				ready: p.ready ?? p.Ready,
+				stateReason: p.stateReason ?? p.StateReason
+			}));
 		});
 
 		console.log('CampaignState connecting to backend...');
@@ -237,9 +256,16 @@ class CampaignState {
 		let pods = [];
 		let serviceAccounts = [];
 		
-		console.info("Setting campaign state with entities:", state.entities);
+		const timestamp = new Date().toISOString();
 		for (const [id, entity] of Object.entries(state.entities || {})) {
 			const typedEntity = entity as unknown as Entity;
+			if (typedEntity === null) {
+				console.warn(`⚠️ Skipping entity with id ${id} because it is null`);
+				console.log(state.entities)
+				continue;
+			}
+
+
 			if (typedEntity.kind === 'Namespace') {
 				namespaces.push(typedEntity);
 			} else if (typedEntity.kind === 'Pod') {
