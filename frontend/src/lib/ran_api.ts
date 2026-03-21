@@ -328,7 +328,7 @@ export class RanAPI {
         const { data, error } = await this.restClient.POST('/api/action/execute', {
             body: cmd
         });
-        if (error) throw new Error('Failed to execute action');
+        if (error) throw new Error(error.error || 'Failed to execute action');
         return data;
     }
 

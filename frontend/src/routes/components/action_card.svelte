@@ -109,7 +109,6 @@
 				return true;
 			}
 		);
-		console.log('Visible requirements for', ttp.name, ':', filteredEntries);
 		return filteredEntries.length > 0;
 	});
 

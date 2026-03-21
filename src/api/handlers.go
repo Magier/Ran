@@ -164,7 +164,7 @@ func (h *HTTPHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 				if failReason == "" && len(execEvent.Results) > 0 {
 					failReason = execEvent.Results[0]
 				}
-				respondError(w, http.StatusConflict, "action execution failed: "+failReason)
+				respondError(w, http.StatusConflict, failReason)
 			} else {
 				respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 			}

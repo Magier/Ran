@@ -374,7 +374,11 @@ class CampaignState {
 		if (id === "") {
 			return undefined;
 		}
-		return this.entities.find((entity) => entity.id === id);
+		const found = this.entities.find((entity) => entity.id === id);
+		if (!found) {
+			console.warn(`❌ Entity not found for id: ${id}, available entities:`);
+		}
+		return found;
 	}
 
 	getRelationById(id: string): Relation | undefined {
