@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+const (
+	marshalMaxRetries = 3
+	marshalRetryDelay = 10 * time.Millisecond
+)
+
 type SSEClient struct {
 	w       http.ResponseWriter
 	flusher http.Flusher
@@ -57,11 +62,21 @@ func (client *SSEClient) sendJSON(name string, v interface{}) error {
 	client.mu.Lock()
 	defer client.mu.Unlock()
 
-	// safeJSONMarshal creates a snapshot to prevent concurrent map access panics
-	data, err := safeJSONMarshal(v)
+	// safeJSONMarshal creates a snapshot to prevent concurrent map access panics.
+	// Retry on failure since the root cause is usually a transient race window
+	// between snapshotValue and a concurrent map write in another goroutine.
+	var data []byte
+	var err error
+	for attempt := 1; attempt <= marshalMaxRetries; attempt++ {
+		data, err = safeJSONMarshal(v)
+		if err == nil {
+			break
+		}
+		slog.Warn("Failed to marshal SSE message, retrying", "event", name, "attempt", attempt, "error", err)
+		time.Sleep(marshalRetryDelay)
+	}
 	if err != nil {
-		slog.Error("Failed to marshal SSE message", "event", name, "error", err)
-		// Don't fail silently - this indicates a data race or marshaling issue
+		slog.Error("Failed to marshal SSE message after retries", "event", name, "attempts", marshalMaxRetries, "error", err)
 		return err
 	}
 

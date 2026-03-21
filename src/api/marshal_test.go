@@ -117,3 +117,49 @@ func TestSafeJSONMarshal_WithSnapshot(t *testing.T) {
 		t.Errorf("Expected ID %s, got %s", event.ID, result.ID)
 	}
 }
+
+func TestSnapshotValue_InterfaceField(t *testing.T) {
+	// Simulate the real crash: a struct with an interface field whose concrete
+	// value contains a map. Without the reflect.Interface case in
+	// snapshotReflectValue the map is NOT deep-copied and a concurrent write
+	// during marshal causes a fatal error.
+	type Inner struct {
+		Labels map[string]string
+	}
+	type Wrapper struct {
+		Name   string
+		Target interface{} // mirrors domain.Entity being an interface
+	}
+
+	original := Wrapper{
+		Name: "test",
+		Target: Inner{
+			Labels: map[string]string{"env": "prod"},
+		},
+	}
+
+	snapshot := snapshotValue(original).(Wrapper)
+
+	// Mutate the original map — snapshot must be isolated
+	original.Target.(Inner).Labels["env"] = "MUTATED"
+	original.Target.(Inner).Labels["new"] = "key"
+
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var result Wrapper
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	inner := result.Target.(map[string]interface{})
+	labels := inner["Labels"].(map[string]interface{})
+	if labels["env"] != "prod" {
+		t.Errorf("Expected env=prod, got %v", labels["env"])
+	}
+	if _, exists := labels["new"]; exists {
+		t.Error("Snapshot should not contain key 'new' added after snapshot")
+	}
+}

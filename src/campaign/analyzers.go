@@ -1716,6 +1716,11 @@ func analyzeDnsEntries(entries map[string]string) (domain.Facts, domain.Facts, e
 		parts := strings.Split(dnsStr, ".")
 		ipKebab := strings.ReplaceAll(ipStr, ".", "-")
 
+		if dnsStr != "" && !strings.HasSuffix(dnsStr, "cluster.local") {
+			slog.Info(fmt.Sprintf("Skipping unknown DNS %s", dnsStr))
+			continue
+		}
+
 		// TODO: extract the namespace from the DNS name
 		// use the 4th-to-last label as namespace (e.g. "dev" in "a.b.dev.svc.cluster.local")
 		// source: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#services
