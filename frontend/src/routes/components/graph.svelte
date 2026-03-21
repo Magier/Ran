@@ -97,7 +97,11 @@
 		if (cy) {
 			const textColor = isDark ? 'white' : 'black';
 			cy.nodes().style('color', textColor);
-			cy.edges('[!informational]').style('color', textColor);
+			cy.edges('[!informational]').style({
+				'color': textColor,
+				'line-color': textColor,
+				'target-arrow-color': textColor
+			});
 		}
 	});
 
