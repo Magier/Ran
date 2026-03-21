@@ -241,9 +241,10 @@
 					const hasNewNodes = graph.nodes.some(n => !previousNodeIds.has(n.id));
 					const hasFewerNodes = previousNodeIds.size > currentNodeIds.size;
 
-					// Expand all collapsed nodes before updating to avoid duplicate node errors.
-					// The expand-collapse plugin hides children internally, and cy.json()
-					// would try to re-add them, causing duplicates.
+					// Expand collapsed nodes FIRST so their children are restored into the graph
+					// before we snapshot element IDs. If we snapshot before expand, the children
+					// would not be in cyNodeIdSet and cy.add() would try to re-add them, causing
+					// "element already exists" or "invalid ID" errors from the plugin's meta-nodes.
 					const collapsedNodes: string[] = [];
 					const ecApi = (window as any).cyExpandCollapseAPI;
 					if (ecApi) {
@@ -253,12 +254,77 @@
 						});
 					}
 
-					cy.json({
-						elements: {
-							nodes: nodes,
-							edges: edges
-						}
+					// Snapshot element IDs AFTER expansion so restored children are included
+					const cyNodeIdSet = new Set<string>();
+					cy.nodes().forEach((n: any) => { cyNodeIdSet.add(n.id()); });
+					const cyEdgeIdSet = new Set<string>();
+					cy.edges().forEach((e: any) => { cyEdgeIdSet.add(e.id()); });
+
+					// Compute diffs: what to add, what to remove (guard against empty IDs)
+					const newEdgeIds = new Set<string>(edges.filter((e: any) => e.data.id).map((e: any) => e.data.id as string));
+					const nodesToAdd = nodes.filter((n: any) => n.data.id && !cyNodeIdSet.has(n.data.id as string));
+					const edgesToAdd = edges.filter((e: any) => e.data.id && !cyEdgeIdSet.has(e.data.id as string));
+
+					// Remove elements no longer in the graph
+					cy.nodes().filter((n: any) => n.id() && !currentNodeIds.has(n.id())).remove();
+					cy.edges().filter((e: any) => e.id() && !newEdgeIds.has(e.id())).remove();
+
+					// Update data for existing nodes (e.g. compromised/isRunning status changes)
+					nodes.filter((n: any) => n.data.id && cyNodeIdSet.has(n.data.id as string)).forEach((n: any) => {
+						cy.getElementById(n.data.id).data(n.data);
 					});
+
+					// Pre-position new nodes near their connected existing nodes so they don't spawn randomly
+					if (nodesToAdd.length > 0) {
+						const addingIds = new Set<string>(nodesToAdd.map((n: any) => n.data.id as string));
+						nodesToAdd.forEach((newNode: any) => {
+							if (newNode.position) return; // already has a saved position
+							const nodeId = newNode.data.id as string;
+							const neighborPositions: { x: number; y: number }[] = [];
+							edges.forEach((edge: any) => {
+								const src = edge.data.source as string;
+								const tgt = edge.data.target as string;
+								const neighborId = src === nodeId ? tgt : tgt === nodeId ? src : null;
+								if (neighborId && !addingIds.has(neighborId)) {
+									const neighbor = cy.getElementById(neighborId);
+									if (neighbor.length > 0) neighborPositions.push(neighbor.position());
+								}
+							});
+							if (neighborPositions.length > 0) {
+								const avgX = neighborPositions.reduce((s, p) => s + p.x, 0) / neighborPositions.length;
+								const avgY = neighborPositions.reduce((s, p) => s + p.y, 0) / neighborPositions.length;
+								// Place near neighbor centroid with a small offset to avoid exact overlap
+								const angle = Math.random() * 2 * Math.PI;
+								const r = 80 + Math.random() * 40;
+								newNode.position = { x: avgX + Math.cos(angle) * r, y: avgY + Math.sin(angle) * r };
+							}
+						});
+						// Ensure compound/parent nodes are added before their children
+						nodesToAdd.sort((a: any, b: any) => {
+							const aIsParent = nodes.some((n: any) => n.data.parent === a.data.id);
+							const bIsParent = nodes.some((n: any) => n.data.parent === b.data.id);
+							if (aIsParent && !bIsParent) return -1;
+							if (!aIsParent && bIsParent) return 1;
+							return 0;
+						});
+						cy.add(nodesToAdd);
+
+						// Sync pre-computed positions into the positions map so the upcoming
+						// existingNodes.lock() call will lock these nodes too. Without this,
+						// fcose's spring forces will fling them away from their intended spot.
+						nodesToAdd.forEach((newNode: any) => {
+							if (newNode.position) {
+								const id = newNode.data.id as string;
+								positions[id] = newNode.position;
+								// Also explicitly set the position on the live cy element (belt-and-suspenders).
+								cy.getElementById(id).position(newNode.position);
+							}
+						});
+					}
+
+					if (edgesToAdd.length > 0) {
+						cy.add(edgesToAdd);
+					}
 
 					// Re-collapse nodes that were previously collapsed
 					if (ecApi && collapsedNodes.length > 0) {
@@ -632,24 +698,43 @@
 	/**
 	 * Hide informational edges between a node pair when a non-informational
 	 * (actionable/factual) edge already exists for that same pair in the same direction.
+	 * Additionally, always hide "runs-on" edges when ANY other edge (informational
+	 * or not) exists for that pair, since runs-on is purely structural noise.
 	 * Skips edges that are already hidden by the namespace filter.
 	 */
 	function hideRedundantInformationalEdges(cy: cytoscape.Core) {
 		// Collect directed node-pairs that have at least one non-informational, non-filtered edge
 		const hasActionableEdge = new Set<string>();
+		// Collect directed node-pairs that have any non-filtered edge (keyed by pair + edge name)
+		const pairEdgeNames = new Map<string, Set<string>>();
+
 		cy.edges().forEach((e: any) => {
-			if (!e.data('informational') && !e.hasClass('namespace-filtered')) {
-				// Use a directed key: source->target (order matters)
-				const pair = `${e.source().id()}->${e.target().id()}`;
+			if (e.hasClass('namespace-filtered')) return;
+			const pair = `${e.source().id()}->${e.target().id()}`;
+			if (!e.data('informational')) {
 				hasActionableEdge.add(pair);
 			}
+			// Track all edge names per directed pair
+			if (!pairEdgeNames.has(pair)) pairEdgeNames.set(pair, new Set());
+			pairEdgeNames.get(pair)!.add(e.data('name'));
 		});
 
-		// Hide informational edges whose directed pair has an actionable edge
+		// Hide informational edges whose directed pair has an actionable edge.
+		// For "runs-on", hide when ANY other edge exists for the same pair.
 		cy.edges('[?informational]').forEach((e: any) => {
 			if (e.hasClass('namespace-filtered')) return; // don't touch namespace-filtered edges
 			const pair = `${e.source().id()}->${e.target().id()}`;
-			if (hasActionableEdge.has(pair)) {
+			const name = e.data('name');
+
+			if (name === 'runs-on') {
+				// Hide runs-on if any other relation exists for this pair
+				const names = pairEdgeNames.get(pair);
+				if (names && names.size > 1) {
+					e.hide();
+				} else {
+					e.show();
+				}
+			} else if (hasActionableEdge.has(pair)) {
 				e.hide();
 			} else {
 				e.show();

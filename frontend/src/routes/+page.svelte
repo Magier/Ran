@@ -417,7 +417,7 @@
 	}
 </script>
 
-<div class="relative flex h-[calc(100vh-60px)] gap-x-0">
+<div class="relative flex h-[calc(100vh-35px)] gap-x-0">
 	{#if campaignState.armory.size > 0}
 		<!-- Armory panel -->
 		<div

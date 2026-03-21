@@ -145,27 +145,13 @@
 
 <div class="bg-surface-100-900 inset-y-0 right-0 flex flex-col {className}">
 	<!-- Fixed header section -->
-	<div class="flex-shrink-0">
-		<div class="my-2 flex items-center justify-between">
-			<span class="px-2 text-xl">Armory</span>
-			<Switch checked={showAllTTPs} onCheckedChange={(e) => {showAllTTPs = e.checked; }}>
-				<Switch.Control class=""><Switch.Thumb/></Switch.Control>
-				<Switch.Label class="mr-2">Show All</Switch.Label>
-				<Switch.HiddenInput />
-			</Switch>
-		</div>
-		<div class="mx-4 mb-2">
-			<input
-				id="search-box"
-				type="search"
-				placeholder="Search... (Press 'a')"
-				class="input rounded-container-token"
-				bind:this={searchInputElement}
-				bind:value={searchTerm}
-				onkeydown={handleClearWithEscape}
-				oninput={searchAbilities}
-			/>
-		</div>
+	<div class="flex-shrink-0 my-2 flex items-center justify-between">
+		<span class="px-2 text-xl">Armory</span>
+		<Switch checked={showAllTTPs} onCheckedChange={e => showAllTTPs = e.checked}>
+			<Switch.Control><Switch.Thumb/></Switch.Control>
+			<Switch.Label class="mr-2">Show All</Switch.Label>
+			<Switch.HiddenInput />
+		</Switch>
 	</div>
 
 	<!-- Scrollable content section -->
@@ -176,6 +162,19 @@
 				Please select an entity in the graph.
 			</div>
 		{:else}
+			<div class="mx-4 mb-2">
+				<input
+					id="search-box"
+					type="search"
+					placeholder="Search... (Press 'a')"
+					class="input rounded-container-token"
+					bind:this={searchInputElement}
+					bind:value={searchTerm}
+					onkeydown={handleClearWithEscape}
+					oninput={searchAbilities}
+				/>
+			</div>
+
 			<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible class="!gap-0 !space-y-0 bg-surface-200-800">
 				{#each Array.from(shownTTPs) as [tactic, ttps]}
 					<Accordion.Item

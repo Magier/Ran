@@ -320,6 +320,7 @@ export interface components {
                 [key: string]: unknown;
             };
             compromised?: boolean;
+            isRunning?: boolean;
         };
         Edge: {
             id: string;
