@@ -427,12 +427,18 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 		for _, verb := range rule.Verbs {
 			for _, resource := range rule.Resources {
 				for _, apiGroup := range rule.APIGroups {
+					nsName := ""
+
+					if IsNamespacedResource(resource, apiGroup) {
+						nsName = sa.Namespace
+					}
+
 					if len(rule.ResourceNames) == 0 {
 						perm := domain.RBACPermission{
 							Verb:         verb,
 							ResourceType: resource,
 							APIGroup:     apiGroup,
-							Scope:        sa.GetNamespace(),
+							Scope:        nsName,
 						}
 						entitlements = append(entitlements, perm)
 					} else {
@@ -442,7 +448,7 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 								ResourceType: resource,
 								ResourceName: resourceName,
 								APIGroup:     apiGroup,
-								Scope:        sa.GetNamespace(),
+								Scope:        nsName,
 							}
 							entitlements = append(entitlements, perm)
 						}
@@ -470,6 +476,124 @@ func (c Campaign) analyzeSelfSubjectRulesReview(ssrr domain.SelfSubjectRulesRevi
 		Entities:  entities,
 		Relations: relations,
 	}, domain.Facts{}, nil
+}
+
+// IsNamespacedResource returns true if the given Kubernetes resource name is namespaced.
+// If the resource is unknown, it defaults to true (namespaced).
+// Wildcards ("*") cover both namespaced and cluster-scoped resources, so they
+// are treated as cluster-scoped (returns false) to avoid restricting scope.
+func IsNamespacedResource(resourceName string, apiGroup string) bool {
+	// Wildcards span both namespaced and cluster-scoped resources
+	if resourceName == "*" || apiGroup == "*" {
+		return false
+	}
+
+	// Cluster-scoped resources keyed by apiGroup ("" = core/v1).
+	// Derived from: kubectl api-resources --namespaced=false -o json
+	nonNamespaced := map[string]map[string]struct{}{
+		"": { // core group
+			"componentstatuses": {},
+			"componentstatus":   {},
+			"namespaces":        {},
+			"namespace":         {},
+			"nodes":             {},
+			"node":              {},
+			"persistentvolumes": {},
+			"persistentvolume":  {},
+		},
+		"admissionregistration.k8s.io": {
+			"mutatingwebhookconfigurations":     {},
+			"mutatingwebhookconfiguration":      {},
+			"validatingadmissionpolicies":       {},
+			"validatingadmissionpolicy":         {},
+			"validatingadmissionpolicybindings": {},
+			"validatingadmissionpolicybinding":  {},
+			"validatingwebhookconfigurations":   {},
+			"validatingwebhookconfiguration":    {},
+		},
+		"apiextensions.k8s.io": {
+			"customresourcedefinitions": {},
+			"customresourcedefinition":  {},
+		},
+		"apiregistration.k8s.io": {
+			"apiservices": {},
+			"apiservice":  {},
+		},
+		"authentication.k8s.io": {
+			"selfsubjectreviews": {},
+			"selfsubjectreview":  {},
+			"tokenreviews":       {},
+			"tokenreview":        {},
+		},
+		"authorization.k8s.io": {
+			"selfsubjectaccessreviews": {},
+			"selfsubjectaccessreview":  {},
+			"selfsubjectrulesreviews":  {},
+			"selfsubjectrulesreview":   {},
+			"subjectaccessreviews":     {},
+			"subjectaccessreview":      {},
+		},
+		"certificates.k8s.io": {
+			"certificatesigningrequests": {},
+			"certificatesigningrequest":  {},
+		},
+		"flowcontrol.apiserver.k8s.io": {
+			"flowschemas":                 {},
+			"flowschema":                  {},
+			"prioritylevelconfigurations": {},
+			"prioritylevelconfiguration":  {},
+		},
+		"networking.k8s.io": {
+			"ingressclasses": {},
+			"ingressclass":   {},
+			"ipaddresses":    {},
+			"ipaddress":      {},
+			"servicecidrs":   {},
+			"servicecidr":    {},
+		},
+		"node.k8s.io": {
+			"runtimeclasses": {},
+			"runtimeclass":   {},
+		},
+		"rbac.authorization.k8s.io": {
+			"clusterrolebindings": {},
+			"clusterrolebinding":  {},
+			"clusterroles":        {},
+			"clusterrole":         {},
+		},
+		"resource.k8s.io": {
+			"deviceclasses":  {},
+			"deviceclass":    {},
+			"resourceslices": {},
+			"resourceslice":  {},
+		},
+		"scheduling.k8s.io": {
+			"priorityclasses": {},
+			"priorityclass":   {},
+		},
+		"storage.k8s.io": {
+			"csidrivers":              {},
+			"csidriver":               {},
+			"csinodes":                {},
+			"csinode":                 {},
+			"storageclasses":          {},
+			"storageclass":            {},
+			"volumeattachments":       {},
+			"volumeattachment":        {},
+			"volumeattributesclasses": {},
+			"volumeattributesclass":   {},
+		},
+	}
+
+	name := strings.ToLower(resourceName)
+	group := strings.ToLower(apiGroup)
+
+	if groupMap, ok := nonNamespaced[group]; ok {
+		if _, found := groupMap[name]; found {
+			return false
+		}
+	}
+	return true
 }
 
 // Extract interesting facts from the environment variables.
