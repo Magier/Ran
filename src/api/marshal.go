@@ -35,6 +35,18 @@ func snapshotReflectValue(val reflect.Value) reflect.Value {
 		newPtr.Elem().Set(snapshotReflectValue(elem))
 		return newPtr
 
+	case reflect.Interface:
+		if val.IsNil() {
+			return val
+		}
+		// Unwrap the interface, snapshot the underlying concrete value, and re-wrap
+		elem := val.Elem()
+		snapped := snapshotReflectValue(elem)
+		// Re-wrap into an interface value of the original interface type
+		wrapper := reflect.New(val.Type()).Elem()
+		wrapper.Set(snapped)
+		return wrapper
+
 	case reflect.Map:
 		if val.IsNil() {
 			return val
