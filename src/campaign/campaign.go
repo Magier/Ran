@@ -711,7 +711,7 @@ func (c Campaign) groundArgs(args map[string]string, target, execSystem domain.E
 			}
 			for _, vm := range sys.VolumeMounts {
 				if vm.IsHostPath {
-					arg = vm.MountPoint
+					arg = strings.Replace(arg, "${SRC.MOUNT_PATH}", vm.MountPoint, -1)
 					break
 				}
 			}

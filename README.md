@@ -1,118 +1,295 @@
-# Ran
-
-![Build Status](https://img.shields.io/github/actions/workflow/status/magier/ran/build.yaml)
-
-
-Ran is an experimental offensive tool for Kubernetes clusters. It has two main objectives:
-- enable quick (realistic) emulation of adversary techniques with predefined actions
-- a collection for known attack vectors in Kubernetes (i.e. the implementation of the aforementioned actions)
-
-
-The name is inspired by Rán, the Norse goddess of the sea (meaning 'plundering', 'theft' or 'robbery' in old Norse), who is associated with sea storms and drowned death.
-She is symbolized by a net, which she uses to ensnare and pull the unwary into the depths of the ocean.
-
 <p align="center">
-<img src="./docs/Ran.svg" width="128"/>
+  <img src="./docs/Ran.svg" width="110" alt="Ran"/>
 </p>
 
-❗ This tool is only intended for educational/demonstration purposes! Any other usage is not endorsed.
+<h1 align="center">Ran</h1>
 
+<p align="center">
+  <strong>Adversary emulation tool for Kubernetes clusters</strong><br/>
+  <sub>Named after Rán — Norse goddess of the sea, whose net ensnares the unwary into the depths</sub>
+</p>
 
-> ** ⚠️ Warning: This project is very early stage and highly experimental. Use at your own risk. See [Milestones](./Milestones.md) for planned roadmap.**
+<p align="center">
+  <a href="https://github.com/magier/ran/actions/workflows/build.yaml"><img src="https://img.shields.io/github/actions/workflow/status/magier/ran/build.yaml?label=build&logo=github" alt="Build Status"/></a>
+  <a href="https://github.com/magier/ran/releases/latest"><img src="https://img.shields.io/github/v/release/magier/ran?logo=github" alt="Latest Release"/></a>
+  <a href="https://github.com/magier/ran/pkgs/container/ran"><img src="https://img.shields.io/badge/container-ghcr.io-blue?logo=github" alt="Container Registry"/></a>
+  <img src="https://img.shields.io/badge/go-1.24-00ADD8?logo=go" alt="Go 1.24"/>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License"/></a>
+</p>
 
+> [!CAUTION]
+> This tool is intended for **educational and authorized demonstration purposes only**. Any other usage is not endorsed by the authors.
 
-![](./docs/ui_example.png)
+> [!WARNING]
+> Ran is early-stage and highly experimental. Use at your own risk. See [Milestones](./Milestones.md) for the planned roadmap.
 
-## Motivation
-
-In security, the cliche of the "attacker's advantage" is often cited: 
-> an attacker has to be right once, but a defender has to be right all the time
-
-This statement may be true for the `initial access` (IA) of an attack, but the script flips after the IA: defenders (theoretically) have full knowledge/visibility of the environment, while an attacker has to explore and learn about the environment first.
-This asymmetry is a huge advantage for the defender, which is often overlooked.
-The focus on just [atomic detections](https://medium.com/mitre-engenuity/ahhh-this-emulation-is-just-right-introducing-micro-emulation-plans-7bf4c26451d3) of TTPs amplifies this misconception.
-Instead, when using at least micro emulations, where an adversary has to explore the environment, the [defenders have more tools at their disposal](https://d3fend.mitre.org).
+<p align="center">
+  <img src="./docs/ui_example.png" alt="Ran UI" width="800"/>
+</p>
 
 ---
 
-### For Defenders
+## What is Ran?
 
-Creating detections for environments is always very challenging. Maintaing these over time even more so. By viewing an environment through the lens of an adversary, different gaps or opportinities may arise.
-Using Ran, practicioners can explore the threats on their own environments and record all steps.
-Ran can export these tracked attacker steps into an [AttackFlow](https://ctid.mitre.org/projects/attack-flow), which is based on STIX 2. Some of the captured steps have observables linked, which can inform the managed detection rules.
+Ran is an adversary emulation platform for modern Kubernetes environments with two core objectives:
 
+- **Realistic TTP emulation** — execute predefined adversary techniques mapped to the MITRE ATT&CK framework against your own cluster
+- **Living knowledge base** — a curated armory of known Kubernetes attack vectors, ready to run
 
-## Concept
+Ran covers the full MITRE ATT&CK tactic spectrum for Kubernetes: from *Initial Access* and *Discovery* through *Privilege Escalation*, *Lateral Movement*, and *Impact*.
 
-Ran consists of 2 major components:
-1) **Actuator**: responsible for executing or delegating the actions to C2 a framework
-2) **Planner**/**Reasoner**: responsible for deciding what actions to execute and in what order
+### Why Ran?
 
-### Actuator
-The actuator is responsible for executing the actions. It can be a simple command line tool, or a more complex C2 framework (e.g. Sliver, Caldera, etc.). The actuator is responsible for executing the actions and reporting the results back to the planner.
-The actuator is also responsible for tracking the executed actions and their results. This information is used to create an audit trail of the executed actions.
+A common security cliché:
+> *an attacker only has to be right once, but a defender has to be right every time*
 
+This holds for Initial Access — but the dynamic flips afterwards. Post-IA, defenders have full environmental visibility while the attacker must explore. This is a major defensive advantage that purely atomic, single-event detections fail to leverage.
 
-### Planner/Reasoner
+Ran encourages **micro-emulation**: multi-step sequences where a simulated adversary discovers and adapts to your environment, surfacing detection gaps that atomic tests miss entirely.
 
-There are various approaches to planning and reasoning about actions. As this is an educational project, various approaches will explored:
+#### For defenders
 
-1) No planner: the human operator decides on single tasks (classic atomic red teaming tool)
-2) Imperative Plan: execute pre-defined plan/runbook (e.g. Mitre's [Attack Flow](https://ctid.mitre.org/projects/attack-flow))
-3) "Classic" AI: commonly used in games and robotics
-    - Behavior Trees
-    - Classical planning
-    - Hierarchical Task Network (HTN)
-    - Goal-Oriented Action Planning (GOAP)
-5) Modern AI: Reinforcement learning, Active Inference, Hybrid systems
+- View your cluster through an adversary's lens to find gaps in visibility and detection coverage
+- Record and replay attacker step sequences to validate detection logic
+- Export full attack trails as [MITRE Attack Flow](https://ctid.mitre.org/projects/attack-flow) (STIX 2) for documentation and threat-informed defense
 
-_Note: the evolutions are heavily inspired by book [📖 Artificial Intelligence: A Modern Approach](https://aima.cs.berkeley.edu/)_
+---
 
+## Installation
 
-The case for planning and acting (especially in unknown environments) is well motivated in Mitre's [📄 Automated Adversary Emulation: A Case for Planning and Acting with Unknowns](https://www.mitre.org/sites/default/files/2021-11/prs-18-0944-1-automated-adversary-emulation-planning-acting.pdf) paper
+### Download a release binary (recommended)
 
+Pre-built binaries for Linux, macOS (Intel & Apple Silicon), and Windows are available on the [Releases page](https://github.com/magier/ran/releases/latest).
 
+```sh
+# macOS (Apple Silicon)
+curl -sL https://github.com/magier/ran/releases/latest/download/ran-darwin-arm64.tar.gz | tar xz
+chmod +x ran && sudo mv ran /usr/local/bin/
 
-## Usage
+# macOS (Intel)
+curl -sL https://github.com/magier/ran/releases/latest/download/ran-darwin-amd64.tar.gz | tar xz
+chmod +x ran && sudo mv ran /usr/local/bin/
 
-_TODO: provide clear instructions_
+# Linux (amd64)
+curl -sL https://github.com/magier/ran/releases/latest/download/ran-linux-amd64.tar.gz | tar xz
+chmod +x ran && sudo mv ran /usr/local/bin/
+```
 
-### Atomic Testing Tool
+Verify:
+```sh
+ran --help
+```
 
+### Docker
 
-### Interactive mode
+```sh
+docker pull ghcr.io/magier/ran:latest
+```
 
+Run against your local kubeconfig:
+```sh
+docker run --rm -it \
+  -v ~/.kube:/root/.kube:ro \
+  -p 8080:8080 \
+  ghcr.io/magier/ran:latest emulate --port 8080
+```
 
-#### Extending with other C2 frameworks
-Currently, Ran has only a very naive built-in C2 server, and only very basic support for [Sliver](https://github.com/BishopFox/sliver).
-If [Sliver](https://github.com/BishopFox/sliver) is used as a C2 framework, Ran will act as a client. Therefore, follow the [instructions](https://sliver.sh/docs?name=Multi-player+Mode) to create a new _operator_ configuration. Ran currently expects this configuration to be called `sliver_cfg.json` in the same directory as the binary. The sliver server can either run locally or on a remote system.
+Then open `http://localhost:8080` in your browser.
 
+### Build from source
+
+**Prerequisites:** Go 1.24+, Node.js 20+, pnpm
+
+```sh
+git clone https://github.com/magier/ran.git
+cd ran
+make build
+./dist/ran --help
+```
+
+---
+
+## Quick Start
+
+Ran reads your local `~/.kube/config` to discover and target cluster resources. Ensure your kubeconfig is configured and points at the cluster you want to emulate against.
+
+> [!IMPORTANT]
+> Only run Ran against clusters you own or have explicit written permission to test.
+
+### Interactive emulation mode
+
+Start the Ran server and open the web UI to run TTPs interactively:
+
+```sh
+ran emulate
+# 🚀 Server started on :8080
+```
+
+Open `http://localhost:8080` to explore and execute techniques from the armory.
+
+**Key flags:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--port, -p` | `8080` | Port to listen on |
+| `--target, -t` | — | Initial target: `<namespace>/<pod-or-service>` |
+| `--godmode` | `false` | Use local kubeconfig to load all cluster resources |
+| `--armory, -a` | — | Path to a custom armory directory |
+| `--config` | `ran.yaml` | Path to a custom config file |
+
+### Atomic testing (single TTP)
+
+Run a single TTP directly from the command line without the UI:
+
+```sh
+# List all available TTPs in the armory
+ran armory
+
+# Execute a specific TTP by ID
+ran invoke <ttp-id> --target <namespace>/<pod>
+
+# Example: list pods from within a compromised pod
+ran invoke get-pods --target default/my-pod
+```
+
+### Configuration
+
+Ran looks for `ran.yaml` in the current working directory. Copy the example to get started:
+
+```sh
+cp ran.yaml.example ran.yaml
+```
+
+```yaml
+namespaces:
+  # Blacklist mode: hide noisy system namespaces
+  excluded:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+
+  # Whitelist mode: show only specific namespaces (takes precedence over excluded)
+  # included:
+  #   - default
+  #   - production
+```
+
+---
+
+## Architecture
+
+Ran is built around two major components:
+
+| Component | Responsibility |
+|---|---|
+| **Actuator** | Executes TTPs against the cluster, tracks results, and builds the audit trail |
+| **Planner / Reasoner** | Decides which actions to run and in what order |
+
+### Armory
+
+The armory is Ran's library of executable TTPs. Each TTP is a YAML file describing the technique, its MITRE mapping, required preconditions (RBAC, access level), and one or more execution procedures.
+
+```yaml
+id: get-pods
+name: Get Pods via K8s API
+tactic: Discovery
+techniques: ["Container and Resource Discovery", T1613]
+preconditions:
+  rbac:
+    - verb: list
+      resource: pods
+procedures:
+  - key: kubectl
+    command: kubectl get pods --token=${TOKEN} -n=${NS}
+  - key: curl
+    command: >-
+      curl -H "Authorization: Bearer ${TOKEN}"
+      "${API_SERVER}/api/v1/namespaces/${NS}/pods"
+```
+
+TTPs are organized by MITRE tactic:
+
+```
+armory/TTPs/
+├── CommandAndControl/
+├── CredentialAccess/
+├── Defense Evasion/
+├── Discovery/
+├── Execution/
+├── Impact/
+├── InitialAccess/
+├── Lateral Movement/
+├── Persistence/
+├── Privilege Escalation/
+└── Resource Development/
+```
+
+### Planner approaches
+
+Ran is designed to support progressively more autonomous planning:
+
+| Mode | Status | Description |
+|---|---|---|
+| **Human operator** | ✅ Available | Manually select and invoke individual TTPs |
+| **Imperative plan** | 🔄 In progress | Follow a pre-defined [Attack Flow](https://ctid.mitre.org/projects/attack-flow) runbook |
+| **Classical AI** | 🗺️ Planned | Behavior Trees, HTN, GOAP |
+| **Modern AI** | 🔭 Future | Reinforcement learning, Active Inference |
+
+*Planning approaches are inspired by [📖 Artificial Intelligence: A Modern Approach](https://aima.cs.berkeley.edu/) and motivated by MITRE's [📄 Automated Adversary Emulation: A Case for Planning and Acting with Unknowns](https://www.mitre.org/sites/default/files/2021-11/prs-18-0944-1-automated-adversary-emulation-planning-acting.pdf).*
+
+---
+
+## Roadmap
+
+See [Milestones.md](./Milestones.md) for the full roadmap. Key upcoming work:
+
+- [ ] Cleanup logic for every TTP
+- [ ] Attack Flow as an executable plan input
+- [ ] Derive STIX Observables from TTP execution
+- [ ] HTTP API for programmatic interaction
+- [ ] [D3FEND](https://d3fend.mitre.org/) mapping
+- [ ] [MCP](https://modelcontextprotocol.io) server support 🤖
+- [ ] Autonomous emulation via Behavior Trees
 
 ---
 
 ## Similar Projects
 
-Ran is heavily inspired by similar tools in this domain, such as:
-- [Caldera](https://github.com/mitre/caldera)
-- [Peirates](https://github.com/inguardians/peirates)
-- [Kubesploit](https://github.com/cyberark/kubesploit)
-- [kube-hunter](https://github.com/aquasecurity/kube-hunter)
-- [kdigger](https://github.com/quarkslab/kdigger)
-- [MKAT](https://github.com/DataDog/managed-kubernetes-auditing-toolkit/)
-- [kubeletmein](https://github.com/4ARMED/kubeletmein)
-- [CDK - Zero Dependency Container Penetration Toolkit](https://github.com/cdk-team/CDK/)
-- [red-kube](https://github.com/lightspin-tech/red-kube)
-- [kubestroyer](https://github.com/Rolix44/Kubestroyer)
-- [Leonidas](https://github.com/WithSecureLabs/leonidas)
-- [IceKube](https://github.com/WithSecureLabs/IceKube)
-- [clusterfuck](https://bsssq.xyz/posts/kube/)
+| Tool | Focus |
+|---|---|
+| [Caldera](https://github.com/mitre/caldera) | General adversary emulation platform |
+| [Peirates](https://github.com/inguardians/peirates) | Kubernetes penetration testing |
+| [Kubesploit](https://github.com/cyberark/kubesploit) | Kubernetes post-exploitation |
+| [kube-hunter](https://github.com/aquasecurity/kube-hunter) | Kubernetes weakness discovery |
+| [Leonidas](https://github.com/WithSecureLabs/leonidas) | AWS/K8s attack simulation |
+| [IceKube](https://github.com/WithSecureLabs/IceKube) | Kubernetes attack path analysis |
+| [Stratus Red Team](https://stratus-red-team.cloud) | Cloud-native attack techniques |
+| [CDK](https://github.com/cdk-team/CDK/) | Container/K8s penetration toolkit |
+| [kdigger](https://github.com/quarkslab/kdigger) | In-cluster context discovery |
+| [red-kube](https://github.com/lightspin-tech/red-kube) | Kubernetes red team scripts |
+| [MKAT](https://github.com/DataDog/managed-kubernetes-auditing-toolkit/) | Managed Kubernetes auditing |
+| [clusterfuck](https://bsssq.xyz/posts/kube/) | Kubernetes exploitation |
 
-For a comparison with other tools refer to the [comparison](docs/tool_comparison.md)
+For a detailed feature comparison see [docs/tool_comparison.md](docs/tool_comparison.md).
+
+---
 
 ## References
 
-[Raesene KubeSecurity Lab](https://github.com/raesene/kube_security_lab/tree/main)  
-BishopFox's [BadPods](https://bishopfox.com/blog/kubernetes-pod-privilege-escalation)
+- [MITRE ATT&CK for Containers](https://attack.mitre.org/matrices/enterprise/containers/)
+- [MITRE — Automated Adversary Emulation: A Case for Planning and Acting with Unknowns](https://www.mitre.org/sites/default/files/2021-11/prs-18-0944-1-automated-adversary-emulation-planning-acting.pdf)
+- [Raesene's Kubernetes Security Lab](https://github.com/raesene/kube_security_lab)
+- [BishopFox — BadPods: Kubernetes Pod Privilege Escalation](https://bishopfox.com/blog/kubernetes-pod-privilege-escalation)
+- [D3FEND](https://d3fend.mitre.org)
 
+---
+
+## Contributing
+
+Contributions are welcome — especially new TTPs in the armory, bug reports, and documentation improvements. Please open an issue or pull request on [GitHub](https://github.com/magier/ran).
+
+## License
+
+Ran is released under the [Apache 2.0 License](LICENSE).
 
 
