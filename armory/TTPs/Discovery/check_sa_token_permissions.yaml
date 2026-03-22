@@ -4,6 +4,12 @@ tactic: Discovery
 techniques: ["Permission Groups Discovery", "T1069.003"]
 # preconditions:
 parameters:
+  NS:
+    type: Namespace
+    description: the namespace of the service account
+  TOKEN:
+    type: ServiceAccount
+    description: the token which will be checked
   API_SERVER:
     type: string
     description: the URL of the API server
@@ -15,12 +21,6 @@ parameters:
     type: bool
     description: whether to use the CA certificate for the request (true) or skip certificate verification (false)
     default: true
-  NS:
-    type: Namespace
-    description: the namespace of the service account
-  TOKEN:
-    type: ServiceAccount
-    description: the token which will be checked
 preconditions:
   kind: ServiceAccount
   has-token: true
