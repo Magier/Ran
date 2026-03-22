@@ -4,12 +4,16 @@ The namespace filtering feature allows you to control which Kubernetes namespace
 
 ## Configuration Location
 
-Place your configuration file at `ran.yaml` in the current working directory or parent directory.
+The configuration file can be specified in two ways:
 
-The config loader will:
-1. First check the current working directory for `ran.yaml`
-2. If not found, check the parent directory for `ran.yaml`
-3. If still not found, use default configuration
+1. **Command-line flag**: Use `--config` flag when running Ran
+   ```bash
+   ran emulate --config /path/to/your/ran.yaml
+   ```
+
+2. **Default location**: Place `ran.yaml` in the current working directory
+
+If no `--config` flag is provided, Ran will look for `ran.yaml` in the current working directory. If not found, it will use default configuration.
 
 ## Configuration Format
 
