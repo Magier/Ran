@@ -2,6 +2,7 @@
 	import type { AttackStep } from '$lib/api';
 	import { getCampaignState } from './CampaignState.svelte';
 	import ObservableInfo from './observable_info.svelte';
+	import Icon from '@iconify/svelte';
 
 	interface ActionDetailProps {
 		step: AttackStep;
@@ -59,24 +60,24 @@
 			{step.TTP.description}
 		</p>
 
-		<div class="mt-4 flex justify-start">
+		<div class="mt-4 flex items-center justify-start">
 			<div class="pr-2">Target:</div>
-			<code>{target?.name}</code>
+			<code class="text-base inline">{target?.name}</code>
 		</div>
 		{#if step.executedOn != target?.name }
-		<div class="mt-4 flex justify-start">
+		<div class="mt-4 flex items-center justify-start">
 			<div class="pr-2">Executed On:</div>
-			<code>{step.executedOn}</code>
+			<code class="text-base inline">{step.executedOn}</code>
 		</div>
 		{/if}
 
-		<div class="mt-4 flex justify-start">
-			<div class="pr-2">Started</div>
-			<div class="badge">{step.startedAt}</div>
+		<div class="mt-4 flex justify-start items-center">
+			<div class="pr-2">Started: </div>
+			<code class="text-base inline">{step.startedAt}</code>
 		</div>
-		<div class=" flex justify-start">
-			<div class="pr-2">Completed</div>
-			<div class="badge">{step.completedAt}</div>
+		<div class=" flex justify-start items-center">
+			<div class="pr-2">Completed: </div>
+			<code class="text-base inline">{step.completedAt}</code>
 		</div>
 		<div class="mt-4 flex justify-start">
 			<div class="pr-2">Status</div>
@@ -87,13 +88,13 @@
 		<div class="mt-4 justify-start">
 			<div class="pr-2">Command</div>
 				<div class="bg-surface-50-950 relative group">
-			<code class="h-10 w-full overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all" data-source
+			<code class="h-10 w-full overflow-y-auto text-base overflow-x-hidden whitespace-pre-wrap break-all" data-source
 				>{step.command}</code>
 			<button
-				class="btn preset-filled absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity"
+				class="btn absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity px-1 py-0.5 bg-surface-200-800/40 hover:bg-surface-200-800/70"
 				data-trigger
 				onclick={handleCopy}
-			>📋</button>
+				><Icon icon="material-symbols:content-copy" width="16" /></button>
 			</div>
 		</div>
 		<div class="mt-4 w-full">
@@ -101,14 +102,14 @@
 			{#each step.results as result}
 				{#if result}
 				<div class="bg-surface-50-950 relative group">
-					<code class="w-full overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all" data-source>
+					<code class="w-full text-sm overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all" data-source>
 						{result}
 					</code>
 					<button
-						class="btn preset-filled absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity"
+						class="btn absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity px-1 py-0.5 bg-surface-200-800/40 hover:bg-surface-200-800/70"
 						data-trigger
 						onclick={handleCopy}
-					>📋</button>
+					><Icon icon="material-symbols:content-copy" width="16" /></button>
 				</div>
 				{/if}
 			{/each}
