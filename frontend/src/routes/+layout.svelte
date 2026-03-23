@@ -75,12 +75,12 @@
              <AppMenu></AppMenu>
         </AppBar.Lead>
         <AppBar.Trail>
-            <nav class="btn-group preset-outlined-surface-200-800 flex-col md:flex-row p-0">
-                <a class="btn preset-filled-primary  hover:preset-tonal" class:selected={page.url.pathname === '/' || page.url.pathname === ''} href="/">
+            <nav class="btn-group preset-outlined-surface-200-800 flex-row p-0 shrink-0">
+                <a class="btn preset-filled-primary hover:preset-tonal whitespace-nowrap" class:selected={page.url.pathname === '/' || page.url.pathname === ''} href="/">
                     <IconMap class="inline-block text-xl" />
                     Graph
                 </a>
-                <a class="btn hover:preset-tonal" class:selected={page.url.pathname === '/flow'} href="/flow">
+                <a class="btn hover:preset-tonal whitespace-nowrap" class:selected={page.url.pathname === '/flow'} href="/flow">
                     <IconSteps class="inline-block text-xl" />
                     Flow
                 </a>

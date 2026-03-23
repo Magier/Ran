@@ -445,7 +445,7 @@
 
 		<!-- Collapse/Expand button -->
 		<button
-			class="collapse-button absolute left-0 bottom-2 z-50 rounded-r-md px-0.5 py-2"
+			class="absolute left-0 bottom-2 z-50 bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-r-md px-0.5 py-2 opacity-30 hover:opacity-100 transition-all duration-200"
 			class:armory-transition={!isResizing}
 			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`};"
 			onclick={toggleArmoryCollapse}
@@ -454,7 +454,7 @@
 			<Icon
 				icon={armoryCollapsed ? 'mdi:chevron-right' : 'mdi:chevron-left'}
 				width="16"
-				class="text-surface-500"
+				class="text-surface-contrast-200-800"
 			/>
 		</button>
 
@@ -546,17 +546,6 @@
 		border-color: rgba(128, 128, 128, 0.5);
 	}
 
-	.collapse-button {
-		background-color: rgba(0, 0, 0, 0.1);
-		border: 1px solid rgba(128, 128, 128, 0.1);
-		transition: all 0.2s ease;
-		opacity: 0.3;
-	}
 
-	.collapse-button:hover {
-		background-color: rgba(0, 0, 0, 0.2);
-		border-color: rgba(128, 128, 128, 0.3);
-		opacity: 1;
-	}
 </style>
 
