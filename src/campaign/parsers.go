@@ -155,9 +155,17 @@ func parsePrettySelfSubjectRulesReview(data string) (k8s_types.SelfSubjectRulesR
 				Verbs:           row[3],
 			})
 		} else {
+			apiGroup := row[0]
+			res := row[0]
+
+			if len(row[0]) == 1 && row[0][0] == "*.*" {
+				apiGroup = []string{"*"}
+				res = []string{"*"}
+			}
+
 			resRules = append(resRules, k8s_types.ResourceRule{
-				APIGroups:     row[0], // assuming default API group
-				Resources:     row[0],
+				APIGroups:     apiGroup,
+				Resources:     res,
 				ResourceNames: row[2],
 				Verbs:         row[3],
 			})
