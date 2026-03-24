@@ -84,6 +84,7 @@
 	});
 	const PAN_KEY = '_pan';
 	const ZOOM_KEY = '_zoom';
+	const COLLAPSED_KEY = '_collapsedNodes';
 
 	// keep track of the nodes before the layouting, to ensure consistent positioning of new nodes
 	let existingNodes: cytoscape.NodeCollection = cytoscape().collection();
@@ -158,10 +159,12 @@
 
 		cy.on('expandcollapse.aftercollapse', (event) => {
 			handleAfterCollapse(event.target);
+			saveCollapsedNodes();
 		});
 
 		cy.on('expandcollapse.afterexpand', (event) => {
 			handleAfterExpand(event.target);
+			saveCollapsedNodes();
 		});
 
 		// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
@@ -194,8 +197,7 @@
 			// Clear only graph-specific keys, not all sessionStorage
 			sessionStorage.removeItem(POS_KEY);
 			sessionStorage.removeItem(PAN_KEY);
-			sessionStorage.removeItem(ZOOM_KEY);
-			// Don't clear FILTER_NS_KEY - preserve namespace filter across campaigns
+			sessionStorage.removeItem(ZOOM_KEY);				sessionStorage.removeItem(COLLAPSED_KEY);			// Don't clear FILTER_NS_KEY - preserve namespace filter across campaigns
 			positions = {};
 			previousNodeIds.clear();
 			// Don't reset hiddenNamespaces - user preferences should persist
@@ -251,6 +253,13 @@
 					// "element already exists" or "invalid ID" errors from the plugin's meta-nodes.
 					const collapsedNodes: string[] = [];
 					const ecApi = (window as any).cyExpandCollapseAPI;
+					// On initial mount, seed with IDs persisted from the previous navigation
+					if (previousNodeIds.size === 0 && browser) {
+						try {
+							const stored = sessionStorage.getItem(COLLAPSED_KEY);
+							if (stored) (JSON.parse(stored) as string[]).forEach(id => collapsedNodes.push(id));
+						} catch (_) {}
+					}
 					if (ecApi) {
 						cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => {
 							collapsedNodes.push(n.id());
@@ -501,6 +510,13 @@
 			}
 		}
 	});
+
+	function saveCollapsedNodes() {
+		if (!browser || !cy) return;
+		const ids: string[] = [];
+		cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => ids.push(n.id()));
+		sessionStorage.setItem(COLLAPSED_KEY, JSON.stringify(ids));
+	}
 
 	function savePositions() {
 		if (cy === undefined) {
@@ -778,8 +794,17 @@
 		const filteredNodeIds = new Set<string>();
 		hidden.forEach((nsName) => {
 			cy.nodes().forEach((n: any) => {
-				if (n.data('name') === nsName && n.isParent()) {
+				// Match both expanded compound nodes (isParent) and collapsed ones
+				// (cy-expand-collapse-collapsed-node class). When collapsed, isParent()
+				// returns false because the plugin has removed children from the graph.
+				const isNamespaceNode =
+					n.data('name') === nsName &&
+					(n.isParent() || n.hasClass('cy-expand-collapse-collapsed-node'));
+				if (isNamespaceNode) {
 					filteredNodeIds.add(n.id());
+					// descendants() is empty for collapsed nodes (children are removed by the
+					// plugin), so this is a no-op for them — which is correct: hiding the
+					// collapsed compound already hides everything inside it.
 					n.descendants().forEach((d: any) => filteredNodeIds.add(d.id()));
 				}
 			});
