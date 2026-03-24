@@ -188,7 +188,7 @@
 					{#each searchResults as result, index}
 						<button
 							type="button"
-							class="w-full px-4 py-2 text-left hover:bg-gray-700 transition-colors {index ===
+							class="w-full px-4 py-2 text-left bg-surface-300-700 hover:bg-surface-100-900 transition-colors {index ===
 							selectedSearchIndex
 								? 'bg-gray-700'
 								: 'bg-gray-800'}"
@@ -196,9 +196,9 @@
 							onmouseenter={() => (selectedSearchIndex = index)}
 						>
 							<div class="flex items-center justify-between">
-								<div class="font-medium text-surfacecontract">{result.label}</div>
+								<div class="font-medium text-surface-contrast-400-600">{result.label}</div>
 							</div>
-							<div class="text-sm text-gray-400">{result.id}</div>
+							<div class="text-sm text-surface-contrast-300-700">{result.id}</div>
 						</button>
 					{/each}
 				</div>
@@ -206,7 +206,7 @@
 				<div class="mt-4 text-center text-gray-500 py-4">No nodes found</div>
 			{/if}
 
-			<div class="mt-4 text-xs text-surface-contrast-800">
+			<div class="mt-4 text-xs text-surface-contrast-200-800">
 				Press
 				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300">↑</kbd>
 				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300">↓</kbd>
