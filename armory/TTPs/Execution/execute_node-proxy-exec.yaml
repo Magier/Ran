@@ -3,6 +3,7 @@ name: Execute via Node/Proxy
 description: Execute a command on a target node via the kubelet API proxy
 tactic: Execution
 techniques: ["Command and Scripting Interpreter: Unix Shell"]
+status: disabled
 preconditions:
   accessLevel: user-exec
   kind: System

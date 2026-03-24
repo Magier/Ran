@@ -2,6 +2,7 @@ name: Generate Implant
 description: Create an implant connecting to a preconfigured listener upon execution
 tactic: Resource Development
 techniques: ["Stage Capabilities"]
+status: disabled
 parameters:
   PROTOCOL:
     type: string
