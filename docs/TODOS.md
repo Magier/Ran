@@ -1,6 +1,12 @@
 # TODOs
 
-- constraints like "runs-on": a pod can only run on 1 node, if there is already another node, these must be the same
+
+- entity info entitlement -> cluster-scoped perms shouldn't show NS 
+- campaign reset doesn't work properly when the pod name changes in the meantime
+    - it tries to add an edge for an outdated pod??
+
+- cmd fail due to RBAC 403 shows `success` in the attack flow, but is a failure 
+
 
 - files are always interpreted as binaries?
 
