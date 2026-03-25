@@ -246,7 +246,6 @@ See [Milestones.md](./Milestones.md) for the full roadmap. Key upcoming work:
 - [ ] Cleanup logic for every TTP
 - [ ] Attack Flow as an executable plan input
 - [ ] Derive STIX Observables from TTP execution
-- [ ] HTTP API for programmatic interaction
 - [ ] [D3FEND](https://d3fend.mitre.org/) mapping
 - [ ] [MCP](https://modelcontextprotocol.io) server support 🤖
 - [ ] Autonomous emulation via Behavior Trees
