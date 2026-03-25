@@ -2,7 +2,7 @@
 	import { Combobox, useListCollection } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId } from '$lib/model';
-	import type { TTP, TTPParam } from '$lib/api/index';
+	import type { TTP, TTPParam, RBACPermission } from '$lib/api/index';
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
 	import { getRanAPI } from '$lib/ran_api';
 	import { untrack } from 'svelte';
@@ -77,6 +77,77 @@
 
 	// Track the last TTP ID we focused for, to only focus once per TTP
 	let lastFocusedTTPId = $state<string | undefined>(undefined);
+
+	// Track how TOKEN was auto-selected: 'rbac' | 'proximity' | 'manual' | null
+	let tokenAutoSelectSource: 'rbac' | 'proximity' | 'manual' | null = null;
+
+	/**
+	 * Find the best ServiceAccount token for a TTP based on RBAC requirements or exec system proximity.
+	 * Tier 1: If TTP has RBAC requirements, find SA whose `can` satisfies all of them (least privilege preferred).
+	 * Tier 2: If only 1 SA available, return it.
+	 * Tier 3: Find SA closest to exec system (via `uses` relation or `serviceAccountName` field).
+	 */
+	function findBestTokenForTTP(
+		availableSAs: Entity[],
+		ttpRequires: TTP['requires'] | undefined,
+		execSystemId: string
+	): { entity: Entity; source: 'rbac' | 'proximity' } | undefined {
+		if (availableSAs.length === 0) return undefined;
+		if (availableSAs.length === 1) return { entity: availableSAs[0], source: 'proximity' };
+
+		const requiredPerms: RBACPermission[] = ttpRequires?.rbacPermissions ?? [];
+
+		// Tier 1: RBAC-based matching
+		if (requiredPerms.length > 0) {
+			const matching = availableSAs.filter(sa => {
+				const saPerms: any[] = (sa as any).can ?? [];
+				return requiredPerms.every(req => saPermSatisfies(saPerms, req));
+			});
+			if (matching.length === 1) return { entity: matching[0], source: 'rbac' };
+			if (matching.length > 1) {
+				// Prefer least privilege (fewest permissions)
+				matching.sort((a, b) => ((a as any).can?.length ?? 0) - ((b as any).can?.length ?? 0));
+				return { entity: matching[0], source: 'rbac' };
+			}
+		}
+
+		// Tier 3: Proximity to exec system
+		return findClosestToken(availableSAs, execSystemId);
+	}
+
+	function saPermSatisfies(saPerms: any[], required: RBACPermission): boolean {
+		return saPerms.some((p: any) => {
+			const verbOk = p.verb === '*' || p.verb === required.verb;
+			const typeOk = p.resourceType === '*' || p.resourceType === required.resourceType;
+			return verbOk && typeOk;
+		});
+	}
+
+	function findClosestToken(
+		availableSAs: Entity[],
+		execSystemId: string
+	): { entity: Entity; source: 'proximity' } | undefined {
+		if (!execSystemId) return undefined;
+		const saIds = new Set(availableSAs.map(sa => sa.id));
+
+		// Check `uses` relation from exec system to a SA
+		for (const rel of campaignState.relations.values()) {
+			if (rel.source === execSystemId && rel.kind === 'uses' && saIds.has(rel.destination)) {
+				const sa = availableSAs.find(s => s.id === rel.destination);
+				if (sa) return { entity: sa, source: 'proximity' };
+			}
+		}
+
+		// Fallback: match by serviceAccountName field on the exec system entity
+		const execEntity = campaignState.getObjectById(execSystemId);
+		const saName = (execEntity as any)?.serviceAccountName;
+		if (saName) {
+			const sa = availableSAs.find(s => s.name === saName);
+			if (sa) return { entity: sa, source: 'proximity' };
+		}
+
+		return undefined;
+	}
 
 	let selectedNamespace = $derived.by(() => {
 		const nsArg = args.find(arg => arg.Type === 'Namespace');
@@ -241,6 +312,7 @@
 			argExternalVersions = {};
 			autoSelectedArgs = new Set();
 			lastClearedNamespace = '';
+			tokenAutoSelectSource = null;
 
 			args = ttpParams?.map((param: TTPParam) => {
 					let value = param.default;
@@ -289,6 +361,19 @@
 					};
 				}) || [];
 
+			// Auto-select TOKEN based on RBAC requirements or exec system proximity
+			const tokenArg = args.find(a => a.Name === 'TOKEN');
+			if (tokenArg && !tokenArg.Value) {
+				const tokenSAs = campaignState.getServiceAccountsWithTokens();
+				const best = findBestTokenForTTP(tokenSAs, ttp.requires, selectedExecSystemId);
+				if (best) {
+					tokenArg.Value = best.entity.id;
+					tokenAutoSelectSource = best.source;
+					bumpArgVersion('TOKEN');
+					console.info('Auto-selected TOKEN:', best.entity.name, '(source:', best.source + ')');
+				}
+			}
+
 			// Also reset procedureId when TTP changes
 			procedureId = ttpProcedures?.[0]?.id || '';
 
@@ -304,6 +389,27 @@
 
 			console.log(args);
 			console.groupEnd();
+		});
+	});
+
+	// Re-evaluate TOKEN when execution system changes (proximity-based only)
+	$effect(() => {
+		const execId = selectedExecSystemId;
+		untrack(() => {
+			// Only re-evaluate if TOKEN was set via proximity (not RBAC or manual)
+			if (tokenAutoSelectSource !== 'proximity') return;
+
+			const tokenArgIdx = args.findIndex(a => a.Name === 'TOKEN');
+			if (tokenArgIdx === -1) return;
+
+			const tokenSAs = campaignState.getServiceAccountsWithTokens();
+			const best = findClosestToken(tokenSAs, execId);
+			if (best && best.entity.id !== args[tokenArgIdx].Value) {
+				args[tokenArgIdx] = { ...args[tokenArgIdx], Value: best.entity.id };
+				args = [...args];
+				bumpArgVersion('TOKEN');
+				console.info('Re-selected TOKEN on exec system change:', best.entity.name);
+			}
 		});
 	});
 
@@ -494,6 +600,11 @@
 	function onArgChange(arg: Arg, e: any) {
 		console.info("Arg change event for", arg.Name, "new value", e.value[0], "selected item", e.items?.[0]);
 		
+		// Mark TOKEN as manually selected so auto-select doesn't override
+		if (arg.Name === 'TOKEN') {
+			tokenAutoSelectSource = 'manual';
+		}
+
 		// IMMUTABLE UPDATE so Svelte sees it:
 		const i = args.findIndex(a => a.Name === arg.Name);
 		if (i !== -1) {
