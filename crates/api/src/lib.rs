@@ -31,12 +31,33 @@ use rust_embed::RustEmbed;
 
 include!(concat!(env!("OUT_DIR"), "/openapi_generated.rs"));
 
+#[derive(Debug, Clone, serde::Deserialize)]
+struct GetApplicableTtpsParams {
+    #[serde(rename = "targetId")]
+    target_id: Option<String>,
+}
+
 pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
+    let events_service = service.clone();
     let campaign_service = service.clone();
     let graph_service = service.clone();
+    let armory_service = service.clone();
+    let applicable_ttps_service = service.clone();
 
     router(service)
-        .route("/events", axum::routing::get(events_handler))
+        .route(
+            "/events",
+            axum::routing::get(move || {
+                let service = events_service.clone();
+                async move {
+                    let armory = service
+                        .get_armory(GetArmoryParams { tactic: None })
+                        .await
+                        .unwrap_or_default();
+                    events_handler(armory).await
+                }
+            }),
+        )
         .route(
             "/api/graph",
             axum::routing::get(move || {
@@ -48,7 +69,62 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
                 }
             }),
         )
-        .route("/api/armory", axum::routing::get(armory_handler))
+        .route(
+            "/api/armory",
+            axum::routing::get(move |axum::extract::Query(params): axum::extract::Query<GetArmoryParams>| {
+                let service = armory_service.clone();
+                async move {
+                    let ttps = service.get_armory(params).await?;
+                    Ok::<_, ApiError>(axum::Json(ttps))
+                }
+            }),
+        )
+        .route(
+            "/api/applicable-ttps",
+            axum::routing::get(move |axum::extract::Query(params): axum::extract::Query<GetApplicableTtpsParams>| {
+                let service = applicable_ttps_service.clone();
+                async move {
+                    let all_ttps = service
+                        .get_armory(GetArmoryParams { tactic: None })
+                        .await?;
+
+                    let target_id = params
+                        .target_id
+                        .as_deref()
+                        .map(str::trim)
+                        .unwrap_or_default();
+
+                    if target_id.is_empty() {
+                        let ttps = all_ttps
+                            .into_iter()
+                            .filter(|ttp| !ttp.status.eq_ignore_ascii_case("disabled"))
+                            .collect::<Vec<_>>();
+                        return Ok::<_, ApiError>(axum::Json(ttps));
+                    }
+
+                    let campaign = service.get_campaign().await?;
+                    let target_kind = campaign
+                        .get_entities()
+                        .into_iter()
+                        .find(|entity| entity.entity_id().0 == target_id)
+                        .map(|entity| entity.entity_kind().to_string())
+                        .ok_or_else(|| ApiError {
+                            status: axum::http::StatusCode::NOT_FOUND,
+                            body: ErrorResponse {
+                                error: format!("failed to get target entity: {}", target_id),
+                                details: None,
+                            },
+                        })?;
+
+                    let ttps = all_ttps
+                        .into_iter()
+                        .filter(|ttp| ttp_is_applicable_for_target_kind(ttp, &target_kind))
+                        .collect::<Vec<_>>();
+
+                    Ok::<_, ApiError>(axum::Json(ttps))
+                }
+            }),
+        )
         .route(
             "/api/campaign-state",
             axum::routing::get(move || {
@@ -60,6 +136,26 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
                 }
             }),
         )
+}
+
+fn ttp_is_applicable_for_target_kind(ttp: &armory::Ttp, target_kind: &str) -> bool {
+    if ttp.status.eq_ignore_ascii_case("disabled") {
+        return false;
+    }
+
+    let Some(kind_req) = ttp.requires.get("kind") else {
+        return true;
+    };
+
+    match kind_req {
+        Value::String(kind) => kind.eq_ignore_ascii_case(target_kind),
+        Value::Array(kinds) => kinds.iter().any(|k| {
+            k.as_str()
+                .map(|s| s.eq_ignore_ascii_case(target_kind))
+                .unwrap_or(false)
+        }),
+        _ => true,
+    }
 }
 
 fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignStatePayload {
@@ -167,15 +263,17 @@ fn serialize_campaign_entity_map(entity: &CampaignEntityRef<'_>) -> Option<HashM
     }
 }
 
-async fn armory_handler() -> impl axum::response::IntoResponse {
-    axum::Json(Vec::<std::collections::HashMap<String, String>>::new())
-}
+async fn events_handler(armory: Vec<armory::Ttp>) -> impl axum::response::IntoResponse {
+    let initial_payload = serde_json::json!({
+        "type": "armory-loaded",
+        "data": armory,
+    })
+    .to_string();
 
-async fn events_handler() -> impl axum::response::IntoResponse {
     let event_stream = stream! {
         // Keep compatibility with frontend listener registration and message parser.
         yield Ok::<Event, Infallible>(
-            Event::default().event("armory-loaded").data(r#"{"type":"armory-loaded","data":[]}"#),
+            Event::default().event("armory-loaded").data(initial_payload),
         );
 
         loop {
