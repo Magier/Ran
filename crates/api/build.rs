@@ -84,6 +84,11 @@ pub struct GetRunningPodsParams {
     pub namespace: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetArmoryParams {
+    pub tactic: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CampaignStatePayload {
     pub entities: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
@@ -151,6 +156,8 @@ pub trait ApiService: Clone + Send + Sync + 'static {
         &self,
         params: GetRunningPodsParams,
     ) -> Result<Vec<K8sResource>, ApiError>;
+
+    async fn get_armory(&self, params: GetArmoryParams) -> Result<Vec<armory::Ttp>, ApiError>;
 
     async fn get_campaign(&self) -> Result<campaign::Campaign, ApiError>;
 }

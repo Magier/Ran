@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, path::PathBuf};
 
 use anyhow::Result;
+use armory::Armory;
 use axum::Router;
 use clap::{Parser, Subcommand};
 use tokio::signal;
@@ -29,6 +30,9 @@ struct EmulateArgs {
     #[arg(long = "kubeconfig")]
     kubeconfig: Option<PathBuf>,
 
+    #[arg(long = "armory")]
+    armory: Option<PathBuf>,
+
     #[arg(long = "namespace")]
     namespace: Option<String>,
 
@@ -40,6 +44,7 @@ struct EmulateArgs {
 struct AppState {
     k8s: K8sService,
     campaign: Campaign,
+    armory: Armory,
     default_namespace: Option<String>,
 }
 
@@ -77,6 +82,10 @@ impl ApiService for AppState {
     async fn get_campaign(&self) -> Result<Campaign, ApiError> {
         Ok(self.campaign.clone())
     }
+
+    async fn get_armory(&self, params: api::GetArmoryParams) -> Result<Vec<armory::Ttp>, ApiError> {
+        Ok(self.armory.ttps_for_tactic(params.tactic.as_deref()))
+    }
 }
 
 #[tokio::main]
@@ -93,6 +102,8 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(args.kubeconfig)?;
     let k8s = K8sService::from_kubeconfig(Some(kubeconfig_path.clone())).await?;
     let target_cluster = target_cluster_from_kubeconfig(Some(kubeconfig_path.clone()))?;
+    let armory_dir = resolve_armory_dir(args.armory)?;
+    let armory = Armory::load_from_dir(&armory_dir)?;
     let campaign = Campaign::bootstrap(
         "Ran",
         K8sCluster::new(target_cluster.name)
@@ -103,15 +114,18 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
     let state = AppState {
         k8s,
         campaign,
+        armory,
         default_namespace: args.namespace.clone(),
     };
     let campaign_entity_count = state.campaign.entity_count();
+    let armory_count = state.armory.ttps().len();
 
     let app: Router = api::router_with_sse(state).fallback(api::frontend_handler);
     let addr = SocketAddr::from(([127, 0, 0, 1], args.port));
 
     info!("starting emulate API server");
     info!(kubeconfig = %kubeconfig_path.display(), "using kubeconfig");
+    info!(armory_dir = %armory_dir.display(), armory_ttps = armory_count, "armory loaded");
     info!(campaign_entities = campaign_entity_count, "campaign initialized");
     info!(%addr, namespace = ?args.namespace, "listening");
 
@@ -135,4 +149,14 @@ fn init_tracing() {
 async fn shutdown_signal() {
     let _ = signal::ctrl_c().await;
     info!("received shutdown signal");
+}
+
+fn resolve_armory_dir(arg: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(path) = arg {
+        return Ok(path);
+    }
+
+    let cwd = std::env::current_dir()?;
+    let default = cwd.join("armory").join("TTPs");
+    Ok(default)
 }

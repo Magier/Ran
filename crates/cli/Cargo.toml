@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+armory = { path = "../armory" }
 async-trait = "0.1"
 api = { path = "../api" }
 axum = "0.7"
