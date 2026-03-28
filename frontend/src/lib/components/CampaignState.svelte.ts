@@ -129,6 +129,10 @@ class CampaignState {
 		});
 	}
 
+	isReady(): boolean {
+		return this.graph && this.entities.length > 0;
+	}
+
 	handleMessage(event: MessageEvent) {
 		console.warn('Received legacy WebSocket message:', event.data);
 		try {

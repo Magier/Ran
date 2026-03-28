@@ -37,6 +37,7 @@
     setContext('theme', { get isDark() { return isDark }, toggle });
 
     let mediaQuery: MediaQueryList | null = $state(null);
+	let mediaQueryHandler: ((event: MediaQueryListEvent) => void) | null = null;
     onMount(() => {
         if (browser) {
             // Priority: localStorage > system preference
@@ -48,20 +49,22 @@
                 mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
                 isDark = mediaQuery.matches;
 
-                const handler = (event: MediaQueryListEvent) => {
+                mediaQueryHandler = (event: MediaQueryListEvent) => {
                     // Only update from system preference if user hasn't set explicit preference
                     if (!localStorage.getItem('theme')) {
                         isDark = event.matches;
                         updateBodyTheme();
                     }
                 };
-                mediaQuery.addEventListener("change", handler);
+                mediaQuery.addEventListener("change", mediaQueryHandler);
             }
 
             updateBodyTheme();
 
             return () => {
-                mediaQuery?.removeEventListener("change", handler);
+				if (mediaQuery && mediaQueryHandler) {
+					mediaQuery.removeEventListener("change", mediaQueryHandler);
+				}
             };
         }
     });
