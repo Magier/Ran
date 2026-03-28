@@ -1,0 +1,8 @@
+[package]
+name = "campaign"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ran-domain = { path = "../domain" }
+serde = { workspace = true }

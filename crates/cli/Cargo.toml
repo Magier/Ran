@@ -1,0 +1,21 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ran"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+api = { path = "../api" }
+axum = "0.7"
+campaign = { path = "../campaign" }
+clap = { version = "4", features = ["derive"] }
+k8s = { path = "../k8s" }
+ran-domain = { path = "../domain" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

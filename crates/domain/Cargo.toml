@@ -1,0 +1,11 @@
+[package]
+name    = "ran-domain"
+version = "0.1.0"
+edition = "2021"
+
+# The crate root is mod.rs (files are at crate root, not under src/)
+[lib]
+path = "mod.rs"
+
+[dependencies]
+serde = { workspace = true }
