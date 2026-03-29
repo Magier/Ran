@@ -13,10 +13,12 @@ armory = { path = "../armory" }
 async-trait = "0.1"
 api = { path = "../api" }
 axum = "0.7"
+c2 = { path = "../c2" }
 campaign = { path = "../campaign" }
 clap = { version = "4", features = ["derive"] }
 k8s = { path = "../k8s" }
 ran-domain = { path = "../domain" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
