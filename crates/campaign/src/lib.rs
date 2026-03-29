@@ -1,14 +1,49 @@
 use std::collections::HashMap;
 
-use ran_domain::{C2Server, Entity, EntityId, K8sCluster, Namespace, Pod, ServiceAccount};
+use armory::{Armory, Procedure, Ttp};
+use c2::{ExecTtp, TtpExecuted};
+use ran_domain::{C2Server, Entity, EntityId, K8sCluster, Namespace, Pod, RelationSummary, ServiceAccount};
 use serde::{Deserialize, Serialize};
 
+pub mod analyzers;
+pub mod effects;
+pub mod runtime;
+pub use analyzers::{default_analyzers, run_analyzers, Analyzer};
+pub use effects::FactsUpdate;
+pub use runtime::{spawn_c2_event_processor, CampaignEvent, CampaignEventBus, EntitySummary};
+use analyzers::default_analyzers as make_analyzers;
+use effects::{ground_template, parse_effect};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CampaignRelation {
-    pub id: String,
-    pub name: String,
-    pub source_id: String,
+pub struct ExecuteActionRequest {
+    pub action_id: String,
+    pub exec_system_id: Option<String>,
     pub target_id: String,
+    pub procedure_id: Option<String>,
+    pub args: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutedActionEvent {
+    pub id: String,
+    pub cmd_id: String,
+    pub ttp: Ttp,
+    pub args: HashMap<String, String>,
+    pub exec_system_id: String,
+    pub success: bool,
+    pub fail_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteActionResult {
+    pub cmd_id: String,
+    pub event: ExecutedActionEvent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ExecuteActionError {
+    InvalidInput(String),
+    NotFound(String),
 }
 
 pub enum CampaignEntityRef<'a> {
@@ -66,7 +101,7 @@ pub struct Campaign {
     pub namespaces: HashMap<EntityId, Namespace>,
     pub pods: HashMap<EntityId, Pod>,
     pub service_accounts: HashMap<EntityId, ServiceAccount>,
-    pub relations: Vec<CampaignRelation>,
+    pub relations: Vec<RelationSummary>,
 }
 
 impl Campaign {
@@ -113,9 +148,173 @@ impl Campaign {
         entities
     }
 
-    pub fn get_relations(&self) -> &[CampaignRelation] {
+    pub fn get_relations(&self) -> &[RelationSummary] {
         &self.relations
     }
+
+    pub fn prepare_action(
+        &mut self,
+        request: ExecuteActionRequest,
+        armory: &Armory,
+    ) -> Result<ExecTtp, ExecuteActionError> {
+        if request.action_id.trim().is_empty() || request.target_id.trim().is_empty() {
+            return Err(ExecuteActionError::InvalidInput(
+                "actionId and targetId are required".to_string(),
+            ));
+        }
+
+        let target_exists = self
+            .get_entities()
+            .into_iter()
+            .any(|entity| entity.entity_id().0 == request.target_id);
+        if !target_exists {
+            return Err(ExecuteActionError::NotFound(format!(
+                "failed to get target entity: {}",
+                request.target_id
+            )));
+        }
+
+        let mut ttp = armory
+            .get_ttp(&request.action_id)
+            .cloned()
+            .ok_or_else(|| {
+                ExecuteActionError::NotFound(format!(
+                    "No TTP with ID '{}' found",
+                    request.action_id
+                ))
+            })?;
+
+        let mut args = request.args;
+        for p in &ttp.params {
+            if !args.contains_key(&p.name) && !p.default.is_empty() {
+                args.insert(p.name.clone(), p.default.clone());
+            }
+        }
+
+        let mut procedure = self.select_procedure(&ttp, request.procedure_id.as_deref())?;
+        procedure.command = ground_template(&procedure.command, &args);
+
+        for effect in &mut ttp.effects {
+            *effect = ground_template(effect, &args);
+        }
+
+        Ok(ExecTtp {
+            id: generate_cmd_id(),
+            ttp,
+            procedure,
+            args,
+            target_id: request.target_id,
+            exec_system_id: request.exec_system_id.unwrap_or_default(),
+        })
+    }
+
+    pub fn on_ttp_executed(
+        &mut self,
+        cmd: &ExecTtp,
+        event: &TtpExecuted,
+    ) -> Result<FactsUpdate, ExecuteActionError> {
+        let mut updates = FactsUpdate::default();
+
+        if !event.success {
+            return Ok(updates);
+        }
+
+        for effect in &cmd.ttp.effects {
+            let parsed = parse_effect(effect, &cmd.args).map_err(ExecuteActionError::InvalidInput)?;
+            updates.merge(parsed);
+        }
+
+        let analyzers = make_analyzers();
+        run_analyzers(self, &analyzers, &mut updates);
+
+        self.apply_facts(&updates);
+        Ok(updates)
+    }
+
+    fn apply_facts(&mut self, updates: &FactsUpdate) {
+        for entity in &updates.new_entities {
+            self.insert_entity(entity.as_ref());
+        }
+
+        for rel in &updates.new_relations {
+            let summary = RelationSummary::from_relation(rel.as_ref());
+            let exists = self.relations.iter().any(|r| {
+                r.name == summary.name
+                    && r.source_id == summary.source_id
+                    && r.target_id == summary.target_id
+            });
+            if !exists {
+                self.relations.push(summary);
+            }
+        }
+    }
+
+    fn insert_entity(&mut self, entity: &dyn Entity) {
+        let any = entity.as_any();
+        if let Some(e) = any.downcast_ref::<Pod>() {
+            self.pods.insert(e.entity_id(), e.clone());
+        } else if let Some(e) = any.downcast_ref::<Namespace>() {
+            self.namespaces.insert(e.entity_id(), e.clone());
+        } else if let Some(e) = any.downcast_ref::<K8sCluster>() {
+            self.clusters.insert(e.entity_id(), e.clone());
+        } else if let Some(e) = any.downcast_ref::<C2Server>() {
+            self.c2_servers.insert(e.entity_id(), e.clone());
+        } else if let Some(e) = any.downcast_ref::<ServiceAccount>() {
+            self.service_accounts.insert(e.entity_id(), e.clone());
+        }
+    }
+
+    fn select_procedure(
+        &self,
+        ttp: &Ttp,
+        procedure_id: Option<&str>,
+    ) -> Result<Procedure, ExecuteActionError> {
+        if let Some(proc_id) = procedure_id {
+            return ttp
+                .procedures
+                .iter()
+                .find(|p| p.id == proc_id)
+                .cloned()
+                .ok_or_else(|| {
+                    ExecuteActionError::InvalidInput(format!(
+                        "procedure '{}' not found for action '{}'",
+                        proc_id, ttp.id
+                    ))
+                });
+        }
+
+        ttp.procedures.first().cloned().ok_or_else(|| {
+            ExecuteActionError::InvalidInput(format!("No procedure found for action '{}'", ttp.id))
+        })
+    }
+
+    pub fn execute_action(
+        &mut self,
+        request: ExecuteActionRequest,
+        armory: &Armory,
+    ) -> Result<ExecuteActionResult, ExecuteActionError> {
+        let exec = self.prepare_action(request, armory)?;
+        Ok(ExecuteActionResult {
+            cmd_id: exec.id.clone(),
+            event: ExecutedActionEvent {
+                id: exec.id.clone(),
+                cmd_id: exec.id,
+                ttp: exec.ttp,
+                args: exec.args,
+                exec_system_id: exec.exec_system_id,
+                success: true,
+                fail_reason: String::new(),
+            },
+        })
+    }
+}
+
+fn generate_cmd_id() -> String {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    format!("cmd-{}", millis)
 }
 
 #[cfg(test)]

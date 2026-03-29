@@ -58,6 +58,10 @@ impl Entity for C2Server {
     fn entity_kind(&self) -> &str {
         "C2"
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +108,10 @@ impl Entity for K8sCluster {
     fn entity_kind(&self) -> &str {
         "Cluster"
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +157,10 @@ impl Entity for GraphEntity {
             GraphEntity::Pod(e) => e.entity_kind(),
             GraphEntity::ServiceAccount(e) => e.entity_kind(),
         }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -200,6 +212,9 @@ impl Entity for Namespace {
     }
     fn entity_kind(&self) -> &str {
         "Namespace"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -302,6 +317,9 @@ impl Entity for Pod {
     fn entity_kind(&self) -> &str {
         "Pod"
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -363,5 +381,8 @@ impl Entity for ServiceAccount {
     }
     fn entity_kind(&self) -> &str {
         "ServiceAccount"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }

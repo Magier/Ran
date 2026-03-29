@@ -1,12 +1,10 @@
 [package]
-name = "campaign"
+name = "c2"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 armory = { path = "../armory" }
-c2 = { path = "../c2" }
-ran-domain = { path = "../domain" }
 serde = { workspace = true }
-tokio = { version = "1", features = ["sync", "rt"] }
+tokio = { version = "1", features = ["sync"] }
 tracing = "0.1"

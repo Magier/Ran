@@ -65,6 +65,10 @@ impl Armory {
         &self.ttps
     }
 
+    pub fn get_ttp(&self, id: &str) -> Option<&Ttp> {
+        self.ttps.iter().find(|ttp| ttp.id == id)
+    }
+
     pub fn ttps_for_tactic(&self, tactic: Option<&str>) -> Vec<Ttp> {
         let Some(tactic) = tactic.and_then(|t| {
             let trimmed = t.trim();

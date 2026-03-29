@@ -5,7 +5,9 @@ use campaign::{Campaign, CampaignEntityRef};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 use std::{convert::Infallible, time::Duration};
+use tokio::sync::broadcast;
 
 #[cfg(not(debug_assertions))]
 use axum::http::Uri;
@@ -37,12 +39,56 @@ struct GetApplicableTtpsParams {
     target_id: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ExecuteActionCmdPayload {
+    #[serde(rename = "actionId")]
+    action_id: String,
+    #[serde(rename = "execSystemId")]
+    exec_system_id: Option<String>,
+    #[serde(rename = "targetId")]
+    target_id: String,
+    #[serde(rename = "procedureId")]
+    procedure_id: Option<String>,
+    args: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct ExecuteActionAck {
+    success: bool,
+    queued: bool,
+    #[serde(rename = "cmdId")]
+    cmd_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct SseEnvelope {
+    event: String,
+    data: String,
+}
+
+static SSE_EVENT_BUS: OnceLock<broadcast::Sender<SseEnvelope>> = OnceLock::new();
+
+fn sse_event_bus() -> &'static broadcast::Sender<SseEnvelope> {
+    SSE_EVENT_BUS.get_or_init(|| {
+        let (tx, _rx) = broadcast::channel(256);
+        tx
+    })
+}
+
+pub fn publish_sse_event(event: impl Into<String>, data: impl Into<String>) {
+    let _ = sse_event_bus().send(SseEnvelope {
+        event: event.into(),
+        data: data.into(),
+    });
+}
+
 pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
     let events_service = service.clone();
     let campaign_service = service.clone();
     let graph_service = service.clone();
     let armory_service = service.clone();
     let applicable_ttps_service = service.clone();
+    let execute_action_service = service.clone();
 
     router(service)
         .route(
@@ -126,6 +172,29 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             }),
         )
         .route(
+            "/api/action/execute",
+            axum::routing::post(move |axum::Json(cmd): axum::Json<ExecuteActionCmdPayload>| {
+                let service = execute_action_service.clone();
+                async move {
+                let execution = service
+                    .execute_action(campaign::ExecuteActionRequest {
+                        action_id: cmd.action_id,
+                        exec_system_id: cmd.exec_system_id,
+                        target_id: cmd.target_id,
+                        procedure_id: cmd.procedure_id,
+                        args: cmd.args.unwrap_or_default(),
+                    })
+                    .await?;
+
+                Ok::<_, ApiError>(axum::Json(ExecuteActionAck {
+                    success: true,
+                    queued: true,
+                    cmd_id: execution.cmd_id,
+                }))
+            }
+            }),
+        )
+        .route(
             "/api/campaign-state",
             axum::routing::get(move || {
                 let service = campaign_service.clone();
@@ -142,6 +211,9 @@ fn ttp_is_applicable_for_target_kind(ttp: &armory::Ttp, target_kind: &str) -> bo
     if ttp.status.eq_ignore_ascii_case("disabled") {
         return false;
     }
+
+    // TODO(migration): extend applicability with RBAC/access-level/entitlement checks,
+    // matching legacy Go Requires.Satisfied behavior.
 
     let Some(kind_req) = ttp.requires.get("kind") else {
         return true;
@@ -180,7 +252,7 @@ fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignStatePayload {
             .iter()
             .map(|r| {
                 let mut m = HashMap::new();
-                m.insert("id".to_string(), r.id.clone());
+                m.insert("id".to_string(), format!("rel/{}/{}->{}", r.name, r.source_id, r.target_id));
                 m.insert("name".to_string(), r.name.clone());
                 m.insert("sourceId".to_string(), r.source_id.clone());
                 m.insert("targetId".to_string(), r.target_id.clone());
@@ -237,7 +309,7 @@ fn campaign_to_graph(campaign: &Campaign) -> GraphPayload {
             .get_relations()
             .iter()
             .map(|r| GraphEdgePayload {
-                id: r.id.clone(),
+                id: format!("rel/{}/{}->{}", r.name, r.source_id, r.target_id),
                 source_id: r.source_id.clone(),
                 target_id: r.target_id.clone(),
                 name: r.name.clone(),
@@ -270,6 +342,8 @@ async fn events_handler(armory: Vec<armory::Ttp>) -> impl axum::response::IntoRe
     })
     .to_string();
 
+    let mut rx = sse_event_bus().subscribe();
+
     let event_stream = stream! {
         // Keep compatibility with frontend listener registration and message parser.
         yield Ok::<Event, Infallible>(
@@ -277,10 +351,28 @@ async fn events_handler(armory: Vec<armory::Ttp>) -> impl axum::response::IntoRe
         );
 
         loop {
-            tokio::time::sleep(Duration::from_secs(15)).await;
-            yield Ok::<Event, Infallible>(
-                Event::default().event("ping").data(r#"{"type":"ping","data":"keepalive"}"#),
-            );
+            tokio::select! {
+                received = rx.recv() => {
+                    match received {
+                        Ok(msg) => {
+                            yield Ok::<Event, Infallible>(
+                                Event::default().event(msg.event).data(msg.data),
+                            );
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            continue;
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            break;
+                        }
+                    }
+                }
+                _ = tokio::time::sleep(Duration::from_secs(15)) => {
+                    yield Ok::<Event, Infallible>(
+                        Event::default().event("ping").data(r#"{"type":"ping","data":"keepalive"}"#),
+                    );
+                }
+            }
         }
     };
 

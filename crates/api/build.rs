@@ -159,6 +159,11 @@ pub trait ApiService: Clone + Send + Sync + 'static {
 
     async fn get_armory(&self, params: GetArmoryParams) -> Result<Vec<armory::Ttp>, ApiError>;
 
+    async fn execute_action(
+        &self,
+        cmd: campaign::ExecuteActionRequest,
+    ) -> Result<campaign::ExecuteActionResult, ApiError>;
+
     async fn get_campaign(&self) -> Result<campaign::Campaign, ApiError>;
 }
 
