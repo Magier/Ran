@@ -18,6 +18,8 @@ Cargo.lock
 # static  
 
 dist
+RanUI/frontend/.svelte-kit/*
+RanUI/frontend/src/lib/*
 
 sliver_cfg.json
 ran.yaml
