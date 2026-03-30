@@ -37,7 +37,9 @@ type App struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	r := ran.InitRan("", "armory/")
+	// Load only the TTP content directory. Pointing at the whole armory tree
+	// makes the loader try to parse markdown, images, and scripts as YAML.
+	r := ran.InitRan("", "armory/TTPs/")
 	a := api.NewAPI(&r, context.Background()) // context will be updated during `startup`
 	app := &App{ran: &r, API: a}
 	// Server will be started in startup with proper context
@@ -130,4 +132,16 @@ func (a *App) SaveFlow() bool {
 	}
 
 	return false
+}
+
+// GetArmory preserves compatibility with the currently built frontend bundle,
+// which calls this method with no arguments.
+func (a *App) GetArmory() []api.TTP {
+	return a.API.GetArmory("")
+}
+
+// ExecuteAction preserves compatibility with the currently built frontend bundle,
+// which calls this method as (ttpID, targetID, procedureID, args).
+func (a *App) ExecuteAction(ttpID, targetID, procedureID string, args api.ActionArgs) error {
+	return a.API.ExecuteAction("", ttpID, "", targetID, procedureID, args)
 }
