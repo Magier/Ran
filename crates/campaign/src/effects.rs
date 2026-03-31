@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ran_domain::{CanExec, Entity, Pod, Relation};
+use ran_domain::{PodExec, Entity, Pod, Relation};
 
 #[derive(Default)]
 pub struct FactsUpdate {
@@ -65,7 +65,7 @@ fn parse_relation_effect(effect: &str) -> Result<FactsUpdate, String> {
             return Err("k8s.can-exec effect expects exactly 2 args".to_string());
         }
 
-        let rel = CanExec::new(args[0], args[1]);
+        let rel = PodExec::new(args[0], args[1]);
 
         return Ok(FactsUpdate {
             new_entities: Vec::new(),
