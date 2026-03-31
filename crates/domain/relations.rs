@@ -43,19 +43,19 @@ impl Relation for Contains {
 }
 
 // ---------------------------------------------------------------------------
-// CanExec
+// KubectlExec
 // ---------------------------------------------------------------------------
 
 /// An execution-capability edge: `executor` can exec into `target`.
 ///
 /// Example: Pod "attacker" → can-exec → Pod "victim"
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CanExec {
+pub struct PodExec {
     pub executor_id: EntityId,
     pub target_id: EntityId,
 }
 
-impl CanExec {
+impl PodExec {
     pub fn new(executor_id: impl Into<String>, target_id: impl Into<String>) -> Self {
         Self {
             executor_id: EntityId::new(executor_id),
@@ -64,9 +64,9 @@ impl CanExec {
     }
 }
 
-impl Relation for CanExec {
+impl Relation for PodExec {
     fn relation_name(&self) -> &str {
-        "can-exec"
+        "pod-exec"
     }
 
     fn source_id(&self) -> &EntityId {

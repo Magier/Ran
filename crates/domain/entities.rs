@@ -5,7 +5,27 @@ use serde::{Deserialize, Serialize};
 use crate::identity::ServiceAccountToken;
 use crate::rbac::RbacPermission;
 use crate::types::{Confidence, Container, EntityId, K8sMeta, Mount, SystemInfo};
-use crate::Entity;
+
+// ---------------------------------------------------------------------------
+// Entity trait
+// ---------------------------------------------------------------------------
+
+/// Core trait implemented by every object that can live in the knowledge graph.
+///
+/// Unlike Go's `Entity` interface (which was satisfied via duck typing with
+/// `GetId`/`GetName`/`GetKind` by any struct), Rust traits are explicit
+/// opt-in. Every domain type that implements `Entity` is intentionally
+/// expressing that it belongs in the graph.
+pub trait Entity: std::any::Any + std::fmt::Debug + Send + Sync {
+    /// Stable, unique identifier used as the graph node key.
+    fn entity_id(&self) -> EntityId;
+    /// Human-readable name for display.
+    fn entity_name(&self) -> &str;
+    /// Kind string (e.g. `"Pod"`, `"Namespace"`, `"ServiceAccount"`).
+    fn entity_kind(&self) -> &str;
+    /// Returns the entity as `&dyn Any` for downcasting to concrete types.
+    fn as_any(&self) -> &dyn std::any::Any;
+}
 
 fn slugify(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
