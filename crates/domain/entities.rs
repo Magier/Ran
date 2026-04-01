@@ -143,6 +143,7 @@ impl Entity for K8sCluster {
 pub enum GraphEntity {
     C2(C2Server),
     Cluster(K8sCluster),
+    Node(K8sNode),
     Namespace(Namespace),
     Pod(Pod),
     ServiceAccount(ServiceAccount),
@@ -153,6 +154,7 @@ impl Entity for GraphEntity {
         match self {
             GraphEntity::C2(e) => e.entity_id(),
             GraphEntity::Cluster(e) => e.entity_id(),
+            GraphEntity::Node(e) => e.entity_id(),
             GraphEntity::Namespace(e) => e.entity_id(),
             GraphEntity::Pod(e) => e.entity_id(),
             GraphEntity::ServiceAccount(e) => e.entity_id(),
@@ -163,6 +165,7 @@ impl Entity for GraphEntity {
         match self {
             GraphEntity::C2(e) => e.entity_name(),
             GraphEntity::Cluster(e) => e.entity_name(),
+            GraphEntity::Node(e) => e.entity_name(),
             GraphEntity::Namespace(e) => e.entity_name(),
             GraphEntity::Pod(e) => e.entity_name(),
             GraphEntity::ServiceAccount(e) => e.entity_name(),
@@ -173,10 +176,45 @@ impl Entity for GraphEntity {
         match self {
             GraphEntity::C2(e) => e.entity_kind(),
             GraphEntity::Cluster(e) => e.entity_kind(),
+            GraphEntity::Node(e) => e.entity_kind(),
             GraphEntity::Namespace(e) => e.entity_kind(),
             GraphEntity::Pod(e) => e.entity_kind(),
             GraphEntity::ServiceAccount(e) => e.entity_kind(),
         }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Kubernetes Node
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes worker/control-plane node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sNode {
+    pub name: String,
+}
+
+impl K8sNode {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
+    }
+}
+
+impl Entity for K8sNode {
+    fn entity_id(&self) -> EntityId {
+        EntityId::new(format!("node/{}", self.name))
+    }
+
+    fn entity_name(&self) -> &str {
+        &self.name
+    }
+
+    fn entity_kind(&self) -> &str {
+        "Node"
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

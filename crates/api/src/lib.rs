@@ -230,39 +230,48 @@ fn ttp_is_applicable_for_target_kind(ttp: &armory::Ttp, target_kind: &str) -> bo
     }
 }
 
-fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignStatePayload {
+fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
     let mut entities = HashMap::new();
 
     for entity in campaign.get_entities() {
         let id = entity.entity_id().0;
         let mut data = HashMap::new();
-        data.insert("id".to_string(), id.clone());
-        data.insert("name".to_string(), entity.entity_name().to_string());
-        data.insert("kind".to_string(), entity.entity_kind().to_string());
+        data.insert("id".to_string(), Value::String(id.clone()));
+        data.insert(
+            "name".to_string(),
+            Value::String(entity.entity_name().to_string()),
+        );
+        data.insert(
+            "kind".to_string(),
+            Value::String(entity.entity_kind().to_string()),
+        );
         if let Some(namespace) = entity.namespace() {
-            data.insert("namespace".to_string(), namespace.to_string());
+            data.insert("namespace".to_string(), Value::String(namespace.to_string()));
         }
         entities.insert(id, data);
     }
 
-    CampaignStatePayload {
+    CampaignState {
         entities,
         relations: campaign
             .get_relations()
             .iter()
             .map(|r| {
                 let mut m = HashMap::new();
-                m.insert("id".to_string(), format!("rel/{}/{}->{}", r.name, r.source_id, r.target_id));
-                m.insert("name".to_string(), r.name.clone());
-                m.insert("sourceId".to_string(), r.source_id.clone());
-                m.insert("targetId".to_string(), r.target_id.clone());
+                m.insert(
+                    "id".to_string(),
+                    Value::String(format!("rel/{}/{}->{}", r.name, r.source_id, r.target_id)),
+                );
+                m.insert("name".to_string(), Value::String(r.name.clone()));
+                m.insert("sourceId".to_string(), Value::String(r.source_id.clone()));
+                m.insert("targetId".to_string(), Value::String(r.target_id.clone()));
                 m
             })
             .collect(),
     }
 }
 
-fn campaign_to_graph(campaign: &Campaign) -> GraphPayload {
+fn campaign_to_graph(campaign: &Campaign) -> Graph {
     let entities = campaign.get_entities();
     let namespace_ids: HashSet<String> = entities
         .iter()
@@ -292,30 +301,29 @@ fn campaign_to_graph(campaign: &Campaign) -> GraphPayload {
             _ => None,
         };
 
-        nodes.push(GraphNodePayload {
+        nodes.push(GraphNode {
             id: id.clone(),
             entity_id: id,
             kind,
             name: entity.entity_name().to_string(),
             parent,
+            access_level: None,
+            compromised: None,
+            is_running: None,
             entity: serialize_campaign_entity_map(&entity),
         });
     }
 
-    GraphPayload {
-        root_node_id,
-        nodes,
-        edges: campaign
-            .get_relations()
-            .iter()
-            .map(|r| GraphEdgePayload {
-                id: format!("rel/{}/{}->{}", r.name, r.source_id, r.target_id),
-                source_id: r.source_id.clone(),
-                target_id: r.target_id.clone(),
-                name: r.name.clone(),
-            })
-            .collect(),
-    }
+    let edges: Vec<GraphEdge> = campaign.get_relations().iter().map(|r| GraphEdge {
+        id: format!("{}-[{}]->{}", r.source_id, r.name, r.target_id),
+        source_id: r.source_id.clone(),
+        target_id: r.target_id.clone(),
+        name: r.name.clone(),
+        weight: None,
+        relation: None,
+    }).collect();   
+
+    Graph { root_node_id, nodes, edges }
 }
 
 fn serialize_entity_map<T: serde::Serialize>(entity: &T) -> Option<HashMap<String, Value>> {
@@ -329,6 +337,7 @@ fn serialize_campaign_entity_map(entity: &CampaignEntityRef<'_>) -> Option<HashM
     match entity {
         CampaignEntityRef::C2Server(e) => serialize_entity_map(e),
         CampaignEntityRef::Cluster(e) => serialize_entity_map(e),
+        CampaignEntityRef::Node(e) => serialize_entity_map(e),
         CampaignEntityRef::Namespace(e) => serialize_entity_map(e),
         CampaignEntityRef::Pod(e) => serialize_entity_map(e),
         CampaignEntityRef::ServiceAccount(e) => serialize_entity_map(e),

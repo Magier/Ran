@@ -66,7 +66,7 @@ impl PodExec {
 
 impl Relation for PodExec {
     fn relation_name(&self) -> &str {
-        "pod-exec"
+        "k8s.can-exec"
     }
 
     fn source_id(&self) -> &EntityId {
@@ -75,6 +75,116 @@ impl Relation for PodExec {
 
     fn target_id(&self) -> &EntityId {
         &self.target_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RunsOn
+// ---------------------------------------------------------------------------
+
+/// Scheduling relation from Pod to Node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunsOn {
+    pub pod_id: EntityId,
+    pub node_id: EntityId,
+}
+
+impl RunsOn {
+    pub fn new(pod_id: impl Into<String>, node_id: impl Into<String>) -> Self {
+        Self {
+            pod_id: EntityId::new(pod_id),
+            node_id: EntityId::new(node_id),
+        }
+    }
+}
+
+impl Relation for RunsOn {
+    fn relation_name(&self) -> &str {
+        "runs-on"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.pod_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.node_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// KubeletExecSource / KubeletExecSink
+// ---------------------------------------------------------------------------
+
+/// Pod→Node relation indicating source pod can invoke kubelet exec on node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KubeletExecSource {
+    pub pod_id: EntityId,
+    pub node_id: EntityId,
+}
+
+impl KubeletExecSource {
+    pub fn new(pod_id: impl Into<String>, node_id: impl Into<String>) -> Self {
+        Self {
+            pod_id: EntityId::new(pod_id),
+            node_id: EntityId::new(node_id),
+        }
+    }
+}
+
+impl Relation for KubeletExecSource {
+    fn relation_name(&self) -> &str {
+        "kubelet-exec"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.pod_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.node_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Node→Pod relation indicating kubelet exec sink path to a target pod.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KubeletExecSink {
+    pub node_id: EntityId,
+    pub pod_id: EntityId,
+}
+
+impl KubeletExecSink {
+    pub fn new(node_id: impl Into<String>, pod_id: impl Into<String>) -> Self {
+        Self {
+            node_id: EntityId::new(node_id),
+            pod_id: EntityId::new(pod_id),
+        }
+    }
+}
+
+impl Relation for KubeletExecSink {
+    fn relation_name(&self) -> &str {
+        "kubelet-pod-exec"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.node_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.pod_id
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

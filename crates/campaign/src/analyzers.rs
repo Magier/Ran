@@ -1,4 +1,9 @@
-use ran_domain::{Contains, Entity, EntityId, Namespace, Pod, ServiceAccount};
+use ran_domain::{
+    Contains, Entity, EntityId, K8sNode, KubeletExecSink, Pod, PodExec, RelationSummary, RunsOn,
+    ServiceAccount,
+};
+
+use ran_domain::Namespace;
 
 use crate::{Campaign, FactsUpdate};
 
@@ -146,6 +151,145 @@ impl Analyzer for NamespaceClusterAnalyzer {
     }
 }
 
+/// For every running `Pod` with a known `node_name`, ensure the node entity
+/// exists and infer a `runs-on` relation (Pod -> Node).
+pub struct PodNodeAnalyzer;
+
+impl Analyzer for PodNodeAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
+                continue;
+            };
+
+            if !pod.is_running {
+                continue;
+            }
+
+            let Some(node_name) = pod.node_name.as_deref() else {
+                continue;
+            };
+            if node_name.trim().is_empty() {
+                continue;
+            }
+
+            let node = K8sNode::new(node_name);
+            let node_id = node.entity_id();
+            let node_exists = campaign.nodes.contains_key(&node_id)
+                || update.new_entities.iter().any(|e| {
+                    e.as_any()
+                        .downcast_ref::<K8sNode>()
+                        .map(|n| n.entity_id() == node_id)
+                        .unwrap_or(false)
+                });
+
+            if !node_exists {
+                inferred.new_entities.push(Box::new(node));
+            }
+            inferred.new_relations.push(Box::new(RunsOn::new(
+                pod.entity_id().0.clone(),
+                node_id.0,
+            )));
+        }
+
+        inferred
+    }
+}
+
+/// Infer `k8s.can-exec` when an SA has create pods/exec permission in scope
+/// and the target pod is running.
+pub struct ServiceAccountCanExecAnalyzer;
+
+impl Analyzer for ServiceAccountCanExecAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let service_accounts = collect_service_accounts(campaign, update);
+        let pods = collect_pods(campaign, update);
+
+        for sa in service_accounts {
+            for pod in &pods {
+                if !pod.is_running {
+                    continue;
+                }
+
+                let Some(ns) = pod.namespace() else {
+                    continue;
+                };
+
+                let can_exec = sa.entitlements.iter().any(|perm| {
+                    perm.satisfies("create", "pods/exec") && perm.is_in_scope(ns)
+                });
+
+                if can_exec {
+                    inferred.new_relations.push(Box::new(PodExec::new(
+                        sa.entity_id().0.clone(),
+                        pod.entity_id().0.clone(),
+                    )));
+                }
+            }
+        }
+
+        inferred
+    }
+}
+
+/// Infer `kubelet-pod-exec` (Node -> Pod) from existing `kubelet-exec`
+/// (source pod -> node) and `runs-on` (pod -> node) relations.
+pub struct KubeletExecSinkAnalyzer;
+
+impl Analyzer for KubeletExecSinkAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let pods = collect_pods(campaign, update)
+            .into_iter()
+            .map(|p| (p.entity_id().0.clone(), p))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        let relations = collect_relation_summaries(campaign, update);
+        let runs_on = relations
+            .iter()
+            .filter(|r| r.name == "runs-on")
+            .collect::<Vec<_>>();
+        let kubelet_sources = relations
+            .iter()
+            .filter(|r| r.name == "kubelet-exec")
+            .collect::<Vec<_>>();
+
+        for source_rel in kubelet_sources {
+            let source_pod_id = &source_rel.source_id;
+            let node_id = &source_rel.target_id;
+
+            for runs_on_rel in &runs_on {
+                if &runs_on_rel.target_id != node_id {
+                    continue;
+                }
+
+                let target_pod_id = &runs_on_rel.source_id;
+                if target_pod_id == source_pod_id {
+                    continue;
+                }
+
+                let Some(target_pod) = pods.get(target_pod_id) else {
+                    continue;
+                };
+                if !target_pod.is_running {
+                    continue;
+                }
+
+                inferred
+                    .new_relations
+                    .push(Box::new(KubeletExecSink::new(node_id.clone(), target_pod_id.clone())));
+            }
+        }
+
+        inferred
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Default analyzer pipeline
 // ---------------------------------------------------------------------------
@@ -156,6 +300,9 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(NamespaceClusterAnalyzer),
         Box::new(PodNamespaceAnalyzer),
         Box::new(ServiceAccountNamespaceAnalyzer),
+        Box::new(PodNodeAnalyzer),
+        Box::new(ServiceAccountCanExecAnalyzer),
+        Box::new(KubeletExecSinkAnalyzer),
     ]
 }
 
@@ -169,13 +316,59 @@ pub fn run_analyzers(campaign: &Campaign, analyzers: &[Box<dyn Analyzer>], base:
     }
 }
 
+fn collect_pods(campaign: &Campaign, update: &FactsUpdate) -> Vec<Pod> {
+    let mut pods = campaign.pods.values().cloned().collect::<Vec<_>>();
+    for entity in &update.new_entities {
+        if let Some(pod) = entity.as_any().downcast_ref::<Pod>() {
+            if let Some(existing) = pods.iter_mut().find(|p| p.entity_id() == pod.entity_id()) {
+                *existing = pod.clone();
+            } else {
+                pods.push(pod.clone());
+            }
+        }
+    }
+    pods
+}
+
+fn collect_service_accounts(campaign: &Campaign, update: &FactsUpdate) -> Vec<ServiceAccount> {
+    let mut sas = campaign.service_accounts.values().cloned().collect::<Vec<_>>();
+    for entity in &update.new_entities {
+        if let Some(sa) = entity.as_any().downcast_ref::<ServiceAccount>() {
+            if let Some(existing) = sas.iter_mut().find(|s| s.entity_id() == sa.entity_id()) {
+                *existing = sa.clone();
+            } else {
+                sas.push(sa.clone());
+            }
+        }
+    }
+    sas
+}
+
+fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<RelationSummary> {
+    let mut rels = campaign.relations.clone();
+    for rel in &update.new_relations {
+        let summary = RelationSummary::from_relation(rel.as_ref());
+        let exists = rels.iter().any(|r| {
+            r.name == summary.name
+                && r.source_id == summary.source_id
+                && r.target_id == summary.target_id
+        });
+        if !exists {
+            rels.push(summary);
+        }
+    }
+    rels
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use ran_domain::{K8sCluster, Namespace, Pod};
+    use ran_domain::{
+        K8sCluster, KubeletExecSource, Namespace, Pod, RbacPermission, RunsOn, ServiceAccount,
+    };
 
     use super::*;
     use crate::Campaign;
@@ -274,6 +467,7 @@ mod tests {
         let campaign = Campaign {
             c2_servers: Default::default(),
             clusters: Default::default(),
+            nodes: Default::default(),
             namespaces: Default::default(),
             pods: Default::default(),
             service_accounts: Default::default(),
@@ -288,5 +482,105 @@ mod tests {
         run_analyzers(&campaign, &analyzers, &mut update);
 
         assert!(update.new_relations.is_empty());
+    }
+
+    #[test]
+    fn running_pod_with_node_infers_runs_on_and_node_entity() {
+        let campaign = test_campaign();
+
+        let mut pod = Pod::new("api", "default");
+        pod.is_running = true;
+        pod.node_name = Some("worker-1".to_string());
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod.clone()));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(update
+            .new_entities
+            .iter()
+            .any(|e| e.entity_kind() == "Node" && e.entity_name() == "worker-1"));
+        assert!(update.new_relations.iter().any(|r| {
+            r.relation_name() == "runs-on"
+                && r.source_id().0 == pod.entity_id().0
+                && r.target_id().0 == "node/worker-1"
+        }));
+    }
+
+    #[test]
+    fn service_account_with_pod_exec_permission_inferrs_can_exec() {
+        let mut campaign = test_campaign();
+
+        let mut pod = Pod::new("target", "default");
+        pod.is_running = true;
+        campaign.pods.insert(pod.entity_id(), pod.clone());
+
+        let mut sa = ServiceAccount::new("operator", "default");
+        let mut perm = RbacPermission::new("create", "pods/exec");
+        perm.scope = Some("default".to_string());
+        sa.entitlements.push(perm);
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(sa.clone()));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(update.new_relations.iter().any(|r| {
+            r.relation_name() == "k8s.can-exec"
+                && r.source_id().0 == sa.entity_id().0
+                && r.target_id().0 == pod.entity_id().0
+        }));
+    }
+
+    #[test]
+    fn kubelet_source_and_runs_on_infer_kubelet_sink_for_other_running_pods() {
+        let mut campaign = test_campaign();
+
+        let mut src = Pod::new("src", "default");
+        src.is_running = true;
+        let src_id = src.entity_id().0.clone();
+        campaign.pods.insert(src.entity_id(), src.clone());
+
+        let mut target = Pod::new("target", "default");
+        target.is_running = true;
+        let target_id = target.entity_id().0.clone();
+        campaign.pods.insert(target.entity_id(), target.clone());
+
+        campaign
+            .relations
+            .push(ran_domain::RelationSummary::from_relation(&RunsOn::new(
+                src_id.clone(),
+                "node/worker-1",
+            )));
+        campaign
+            .relations
+            .push(ran_domain::RelationSummary::from_relation(&RunsOn::new(
+                target_id.clone(),
+                "node/worker-1",
+            )));
+        campaign
+            .relations
+            .push(ran_domain::RelationSummary::from_relation(&KubeletExecSource::new(
+                src_id.clone(),
+                "node/worker-1",
+            )));
+
+        let mut update = FactsUpdate::default();
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(update.new_relations.iter().any(|r| {
+            r.relation_name() == "kubelet-pod-exec"
+                && r.source_id().0 == "node/worker-1"
+                && r.target_id().0 == target_id
+        }));
+        assert!(!update.new_relations.iter().any(|r| {
+            r.relation_name() == "kubelet-pod-exec"
+                && r.source_id().0 == "node/worker-1"
+                && r.target_id().0 == src_id
+        }));
     }
 }
