@@ -2,17 +2,22 @@ use std::collections::HashMap;
 
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted};
-use ran_domain::{C2Server, Entity, EntityId, K8sCluster, Namespace, Pod, RelationSummary, ServiceAccount};
+use ran_domain::{
+    C2Server, Entity, EntityId, K8sCluster, K8sNode, Namespace, Pod, RelationSummary,
+    ServiceAccount,
+};
 use serde::{Deserialize, Serialize};
 
-pub mod analyzers;
+#[cfg(test)]
+mod analyzers;
 pub mod effects;
+pub mod rules;
 pub mod runtime;
-pub use analyzers::{default_analyzers, run_analyzers, Analyzer};
 pub use effects::FactsUpdate;
+pub use rules::{default_rules, run_rules_fixpoint, InferenceRule, RuleTrigger};
 pub use runtime::{spawn_c2_event_processor, CampaignEvent, CampaignEventBus, EntitySummary};
-use analyzers::default_analyzers as make_analyzers;
 use effects::{ground_template, parse_effect};
+use rules::default_rules as make_rules;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecuteActionRequest {
@@ -49,6 +54,7 @@ pub enum ExecuteActionError {
 pub enum CampaignEntityRef<'a> {
     C2Server(&'a C2Server),
     Cluster(&'a K8sCluster),
+    Node(&'a K8sNode),
     Namespace(&'a Namespace),
     Pod(&'a Pod),
     ServiceAccount(&'a ServiceAccount),
@@ -59,6 +65,7 @@ impl<'a> CampaignEntityRef<'a> {
         match self {
             CampaignEntityRef::C2Server(e) => e.entity_id(),
             CampaignEntityRef::Cluster(e) => e.entity_id(),
+            CampaignEntityRef::Node(e) => e.entity_id(),
             CampaignEntityRef::Namespace(e) => e.entity_id(),
             CampaignEntityRef::Pod(e) => e.entity_id(),
             CampaignEntityRef::ServiceAccount(e) => e.entity_id(),
@@ -69,6 +76,7 @@ impl<'a> CampaignEntityRef<'a> {
         match self {
             CampaignEntityRef::C2Server(e) => e.entity_name(),
             CampaignEntityRef::Cluster(e) => e.entity_name(),
+            CampaignEntityRef::Node(e) => e.entity_name(),
             CampaignEntityRef::Namespace(e) => e.entity_name(),
             CampaignEntityRef::Pod(e) => e.entity_name(),
             CampaignEntityRef::ServiceAccount(e) => e.entity_name(),
@@ -79,6 +87,7 @@ impl<'a> CampaignEntityRef<'a> {
         match self {
             CampaignEntityRef::C2Server(e) => e.entity_kind(),
             CampaignEntityRef::Cluster(e) => e.entity_kind(),
+            CampaignEntityRef::Node(e) => e.entity_kind(),
             CampaignEntityRef::Namespace(e) => e.entity_kind(),
             CampaignEntityRef::Pod(e) => e.entity_kind(),
             CampaignEntityRef::ServiceAccount(e) => e.entity_kind(),
@@ -98,6 +107,7 @@ impl<'a> CampaignEntityRef<'a> {
 pub struct Campaign {
     pub c2_servers: HashMap<EntityId, C2Server>,
     pub clusters: HashMap<EntityId, K8sCluster>,
+    pub nodes: HashMap<EntityId, K8sNode>,
     pub namespaces: HashMap<EntityId, Namespace>,
     pub pods: HashMap<EntityId, Pod>,
     pub service_accounts: HashMap<EntityId, ServiceAccount>,
@@ -117,6 +127,7 @@ impl Campaign {
         Campaign {
             c2_servers,
             clusters,
+            nodes: HashMap::new(),
             namespaces: HashMap::new(),
             pods: HashMap::new(),
             service_accounts: HashMap::new(),
@@ -127,6 +138,7 @@ impl Campaign {
     pub fn entity_count(&self) -> usize {
         self.c2_servers.len()
             + self.clusters.len()
+            + self.nodes.len()
             + self.namespaces.len()
             + self.pods.len()
             + self.service_accounts.len()
@@ -137,6 +149,7 @@ impl Campaign {
 
         entities.extend(self.c2_servers.values().map(CampaignEntityRef::C2Server));
         entities.extend(self.clusters.values().map(CampaignEntityRef::Cluster));
+        entities.extend(self.nodes.values().map(CampaignEntityRef::Node));
         entities.extend(self.namespaces.values().map(CampaignEntityRef::Namespace));
         entities.extend(self.pods.values().map(CampaignEntityRef::Pod));
         entities.extend(
@@ -224,8 +237,8 @@ impl Campaign {
             updates.merge(parsed);
         }
 
-        let analyzers = make_analyzers();
-        run_analyzers(self, &analyzers, &mut updates);
+        let rules = make_rules();
+        updates = run_rules_fixpoint(self, &rules, updates);
 
         self.apply_facts(&updates);
         Ok(updates)
@@ -238,6 +251,15 @@ impl Campaign {
 
         for rel in &updates.new_relations {
             let summary = RelationSummary::from_relation(rel.as_ref());
+
+            // Invariant: a pod can run on only one node at a time.
+            // If another runs-on arrives, reconcile by preferring a concrete
+            // node name over placeholders and rewrite stale node references.
+            if summary.name == "runs-on" {
+                self.apply_runs_on_with_invariant(summary);
+                continue;
+            }
+
             let exists = self.relations.iter().any(|r| {
                 r.name == summary.name
                     && r.source_id == summary.source_id
@@ -249,6 +271,74 @@ impl Campaign {
         }
     }
 
+    fn apply_runs_on_with_invariant(&mut self, incoming: RelationSummary) {
+        let existing_idx = self
+            .relations
+            .iter()
+            .position(|r| r.name == "runs-on" && r.source_id == incoming.source_id);
+
+        let Some(idx) = existing_idx else {
+            self.relations.push(incoming);
+            return;
+        };
+
+        let existing = self.relations[idx].clone();
+        if existing.target_id == incoming.target_id {
+            return;
+        }
+
+        let preferred = choose_preferred_node_id(&existing.target_id, &incoming.target_id);
+        let stale = if preferred == existing.target_id {
+            incoming.target_id
+        } else {
+            existing.target_id
+        };
+
+        self.relations[idx].target_id = preferred.clone();
+        self.rewrite_relation_entity_id(&stale, &preferred);
+        self.merge_node_entities(&preferred, &stale);
+    }
+
+    fn rewrite_relation_entity_id(&mut self, stale_id: &str, preferred_id: &str) {
+        for rel in &mut self.relations {
+            if rel.source_id == stale_id {
+                rel.source_id = preferred_id.to_string();
+            }
+            if rel.target_id == stale_id {
+                rel.target_id = preferred_id.to_string();
+            }
+        }
+
+        // Deduplicate summaries that became identical after rewrite.
+        let mut deduped = Vec::with_capacity(self.relations.len());
+        for rel in self.relations.drain(..) {
+            let exists = deduped.iter().any(|r: &RelationSummary| {
+                r.name == rel.name && r.source_id == rel.source_id && r.target_id == rel.target_id
+            });
+            if !exists {
+                deduped.push(rel);
+            }
+        }
+        self.relations = deduped;
+    }
+
+    fn merge_node_entities(&mut self, preferred_id: &str, stale_id: &str) {
+        if preferred_id == stale_id {
+            return;
+        }
+
+        let preferred = EntityId::new(preferred_id);
+        let stale = EntityId::new(stale_id);
+
+        if !self.nodes.contains_key(&preferred) {
+            if let Some(stale_node) = self.nodes.get(&stale).cloned() {
+                self.nodes.insert(preferred.clone(), stale_node);
+            }
+        }
+
+        self.nodes.remove(&stale);
+    }
+
     fn insert_entity(&mut self, entity: &dyn Entity) {
         let any = entity.as_any();
         if let Some(e) = any.downcast_ref::<Pod>() {
@@ -257,6 +347,8 @@ impl Campaign {
             self.namespaces.insert(e.entity_id(), e.clone());
         } else if let Some(e) = any.downcast_ref::<K8sCluster>() {
             self.clusters.insert(e.entity_id(), e.clone());
+        } else if let Some(e) = any.downcast_ref::<K8sNode>() {
+            self.nodes.insert(e.entity_id(), e.clone());
         } else if let Some(e) = any.downcast_ref::<C2Server>() {
             self.c2_servers.insert(e.entity_id(), e.clone());
         } else if let Some(e) = any.downcast_ref::<ServiceAccount>() {
@@ -306,6 +398,27 @@ impl Campaign {
                 fail_reason: String::new(),
             },
         })
+    }
+}
+
+fn choose_preferred_node_id(a: &str, b: &str) -> String {
+    let a_unknown = is_placeholder_node_id(a);
+    let b_unknown = is_placeholder_node_id(b);
+
+    match (a_unknown, b_unknown) {
+        (true, false) => b.to_string(),
+        (false, true) => a.to_string(),
+        _ => a.to_string(),
+    }
+}
+
+fn is_placeholder_node_id(node_id: &str) -> bool {
+    match node_id.strip_prefix("node/") {
+        Some(name) => {
+            let n = name.trim();
+            n.is_empty() || n == "?" || n.eq_ignore_ascii_case("unknown")
+        }
+        None => node_id.trim().is_empty(),
     }
 }
 

@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use ran_domain::{PodExec, Entity, Pod, Relation};
+use ran_domain::{Entity, KubeletExecSource, Pod, PodExec, Relation, RunsOn};
+
+type SimpleEffectHandler = fn(&HashMap<String, String>) -> Result<FactsUpdate, String>;
+type RelationEffectHandler = fn(&[&str]) -> Result<FactsUpdate, String>;
 
 #[derive(Default)]
 pub struct FactsUpdate {
@@ -10,8 +13,28 @@ pub struct FactsUpdate {
 
 impl FactsUpdate {
     pub fn merge(&mut self, other: Self) {
-        self.new_entities.extend(other.new_entities);
-        self.new_relations.extend(other.new_relations);
+        for entity in other.new_entities {
+            let id = entity.entity_id();
+            let exists = self.new_entities.iter().any(|e| e.entity_id() == id);
+            if !exists {
+                self.new_entities.push(entity);
+            }
+        }
+
+        for rel in other.new_relations {
+            let name = rel.relation_name().to_string();
+            let source_id = rel.source_id().0.clone();
+            let target_id = rel.target_id().0.clone();
+
+            let exists = self.new_relations.iter().any(|r| {
+                r.relation_name() == name
+                    && r.source_id().0 == source_id
+                    && r.target_id().0 == target_id
+            });
+            if !exists {
+                self.new_relations.push(rel);
+            }
+        }
     }
 }
 
@@ -29,8 +52,8 @@ pub fn ground_template(template: &str, args: &HashMap<String, String>) -> String
 pub fn parse_effect(effect: &str, args: &HashMap<String, String>) -> Result<FactsUpdate, String> {
     let normalized = effect.trim();
 
-    if normalized.eq_ignore_ascii_case("k8s.pod") {
-        return parse_k8s_pod(args);
+    if let Some(handler) = resolve_simple_effect_handler(normalized) {
+        return handler(args);
     }
 
     if normalized.contains('(') && normalized.ends_with(')') {
@@ -49,7 +72,34 @@ fn parse_k8s_pod(args: &HashMap<String, String>) -> Result<FactsUpdate, String> 
         "k8s.Pod effect requires PodName argument".to_string()
     })?;
 
-    let pod = Pod::new(pod_name, namespace);
+    let mut pod = Pod::new(pod_name, namespace);
+
+    if let Some(node_name) = get_arg(args, &[
+        "NodeName",
+        "NODENAME",
+        "NODE_NAME",
+        "Node",
+        "NODE",
+    ]) {
+        if !node_name.trim().is_empty() {
+            pod.node_name = Some(node_name.to_string());
+        }
+    }
+
+    if let Some(sa_name) = get_arg(args, &[
+        "ServiceAccount",
+        "SERVICEACCOUNT",
+        "SERVICE_ACCOUNT",
+        "ServiceAccountName",
+    ]) {
+        if !sa_name.trim().is_empty() {
+            pod.service_account_name = Some(sa_name.to_string());
+        }
+    }
+
+    if let Some(is_running) = get_arg(args, &["IsRunning", "ISRUNNING", "IS_RUNNING"]) {
+        pod.is_running = parse_bool_like(is_running);
+    }
 
     Ok(FactsUpdate {
         new_entities: vec![Box::new(pod)],
@@ -60,20 +110,64 @@ fn parse_k8s_pod(args: &HashMap<String, String>) -> Result<FactsUpdate, String> 
 fn parse_relation_effect(effect: &str) -> Result<FactsUpdate, String> {
     let (name, args) = split_relation(effect)?;
 
-    if name.eq_ignore_ascii_case("k8s.can-exec") {
-        if args.len() != 2 {
-            return Err("k8s.can-exec effect expects exactly 2 args".to_string());
-        }
-
-        let rel = PodExec::new(args[0], args[1]);
-
-        return Ok(FactsUpdate {
-            new_entities: Vec::new(),
-            new_relations: vec![Box::new(rel)],
-        });
+    if let Some(handler) = resolve_relation_effect_handler(name) {
+        return handler(&args);
     }
 
     Ok(FactsUpdate::default())
+}
+
+fn resolve_simple_effect_handler(effect_name: &str) -> Option<SimpleEffectHandler> {
+    match normalize_effect_name(effect_name).as_str() {
+        "k8s.pod" => Some(parse_k8s_pod),
+        _ => None,
+    }
+}
+
+fn resolve_relation_effect_handler(effect_name: &str) -> Option<RelationEffectHandler> {
+    match normalize_effect_name(effect_name).as_str() {
+        "k8s.can-exec" => Some(parse_k8s_can_exec_relation),
+        "k8s.runs-on" | "runs-on" => Some(parse_runs_on_relation),
+        "k8s.kubelet-exec-source" | "kubelet-exec" => Some(parse_kubelet_exec_source_relation),
+        _ => None,
+    }
+}
+
+fn parse_k8s_can_exec_relation(args: &[&str]) -> Result<FactsUpdate, String> {
+    if args.len() != 2 {
+        return Err("k8s.can-exec effect expects exactly 2 args".to_string());
+    }
+
+    let rel = PodExec::new(args[0], args[1]);
+
+    Ok(FactsUpdate {
+        new_entities: Vec::new(),
+        new_relations: vec![Box::new(rel)],
+    })
+}
+
+fn parse_runs_on_relation(args: &[&str]) -> Result<FactsUpdate, String> {
+    if args.len() != 2 {
+        return Err("runs-on effect expects exactly 2 args".to_string());
+    }
+
+    let rel = RunsOn::new(args[0], args[1]);
+    Ok(FactsUpdate {
+        new_entities: Vec::new(),
+        new_relations: vec![Box::new(rel)],
+    })
+}
+
+fn parse_kubelet_exec_source_relation(args: &[&str]) -> Result<FactsUpdate, String> {
+    if args.len() != 2 {
+        return Err("kubelet-exec effect expects exactly 2 args".to_string());
+    }
+
+    let rel = KubeletExecSource::new(args[0], args[1]);
+    Ok(FactsUpdate {
+        new_entities: Vec::new(),
+        new_relations: vec![Box::new(rel)],
+    })
 }
 
 fn split_relation(effect: &str) -> Result<(&str, Vec<&str>), String> {
@@ -108,4 +202,12 @@ fn get_arg<'a>(args: &'a HashMap<String, String>, keys: &[&str]) -> Option<&'a s
     }
 
     None
+}
+
+fn normalize_effect_name(name: &str) -> String {
+    name.trim().to_ascii_lowercase()
+}
+
+fn parse_bool_like(v: &str) -> bool {
+    matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "running")
 }
