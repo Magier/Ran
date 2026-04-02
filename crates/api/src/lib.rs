@@ -83,128 +83,114 @@ pub fn publish_sse_event(event: impl Into<String>, data: impl Into<String>) {
 }
 
 pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
-    let events_service = service.clone();
-    let campaign_service = service.clone();
-    let graph_service = service.clone();
-    let armory_service = service.clone();
-    let applicable_ttps_service = service.clone();
-    let execute_action_service = service.clone();
+    axum::Router::new()
+        .route("/events", axum::routing::get(events_sse_handler::<S>))
+        .route("/api/graph", axum::routing::get(graph_handler::<S>))
+        .route("/api/armory", axum::routing::get(armory_handler::<S>))
+        .route("/api/applicable-ttps", axum::routing::get(applicable_ttps_handler::<S>))
+        .route("/api/action/execute", axum::routing::post(execute_action_handler::<S>))
+        .route("/api/campaign-state", axum::routing::get(campaign_state_handler::<S>))
+        .with_state(service.clone())
+        .merge(router(service))
+}
 
-    router(service)
-        .route(
-            "/events",
-            axum::routing::get(move || {
-                let service = events_service.clone();
-                async move {
-                    let armory = service
-                        .get_armory(GetArmoryParams { tactic: None })
-                        .await
-                        .unwrap_or_default();
-                    events_handler(armory).await
-                }
-            }),
-        )
-        .route(
-            "/api/graph",
-            axum::routing::get(move || {
-                let service = graph_service.clone();
-                async move {
-                    let campaign = service.get_campaign().await?;
-                    let graph = campaign_to_graph(&campaign);
-                    Ok::<_, ApiError>(axum::Json(graph))
-                }
-            }),
-        )
-        .route(
-            "/api/armory",
-            axum::routing::get(move |axum::extract::Query(params): axum::extract::Query<GetArmoryParams>| {
-                let service = armory_service.clone();
-                async move {
-                    let ttps = service.get_armory(params).await?;
-                    Ok::<_, ApiError>(axum::Json(ttps))
-                }
-            }),
-        )
-        .route(
-            "/api/applicable-ttps",
-            axum::routing::get(move |axum::extract::Query(params): axum::extract::Query<GetApplicableTtpsParams>| {
-                let service = applicable_ttps_service.clone();
-                async move {
-                    let all_ttps = service
-                        .get_armory(GetArmoryParams { tactic: None })
-                        .await?;
+async fn events_sse_handler<S: ApiService>(
+    State(service): State<S>,
+) -> impl axum::response::IntoResponse {
+    let armory = service
+        .get_armory(GetArmoryParams { tactic: None })
+        .await
+        .unwrap_or_default();
+    events_handler(armory).await
+}
 
-                    let target_id = params
-                        .target_id
-                        .as_deref()
-                        .map(str::trim)
-                        .unwrap_or_default();
+async fn graph_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<Graph>, ApiError> {
+    let campaign = service.get_campaign().await?;
+    let graph = campaign_to_graph(&campaign);
+    Ok(axum::Json(graph))
+}
 
-                    if target_id.is_empty() {
-                        let ttps = all_ttps
-                            .into_iter()
-                            .filter(|ttp| !ttp.status.eq_ignore_ascii_case("disabled"))
-                            .collect::<Vec<_>>();
-                        return Ok::<_, ApiError>(axum::Json(ttps));
-                    }
+async fn armory_handler<S: ApiService>(
+    State(service): State<S>,
+    Query(params): Query<GetArmoryParams>,
+) -> Result<axum::Json<Vec<armory::Ttp>>, ApiError> {
+    let ttps = service.get_armory(params).await?;
+    Ok(axum::Json(ttps))
+}
 
-                    let campaign = service.get_campaign().await?;
-                    let target_kind = campaign
-                        .get_entities()
-                        .into_iter()
-                        .find(|entity| entity.entity_id().0 == target_id)
-                        .map(|entity| entity.entity_kind().to_string())
-                        .ok_or_else(|| ApiError {
-                            status: axum::http::StatusCode::NOT_FOUND,
-                            body: ErrorResponse {
-                                error: format!("failed to get target entity: {}", target_id),
-                                details: None,
-                            },
-                        })?;
+async fn applicable_ttps_handler<S: ApiService>(
+    State(service): State<S>,
+    Query(params): Query<GetApplicableTtpsParams>,
+) -> Result<axum::Json<Vec<armory::Ttp>>, ApiError> {
+    let all_ttps = service
+        .get_armory(GetArmoryParams { tactic: None })
+        .await?;
 
-                    let ttps = all_ttps
-                        .into_iter()
-                        .filter(|ttp| ttp_is_applicable_for_target_kind(ttp, &target_kind))
-                        .collect::<Vec<_>>();
+    let target_id = params
+        .target_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default();
 
-                    Ok::<_, ApiError>(axum::Json(ttps))
-                }
-            }),
-        )
-        .route(
-            "/api/action/execute",
-            axum::routing::post(move |axum::Json(cmd): axum::Json<ExecuteActionCmdPayload>| {
-                let service = execute_action_service.clone();
-                async move {
-                let execution = service
-                    .execute_action(campaign::ExecuteActionRequest {
-                        action_id: cmd.action_id,
-                        exec_system_id: cmd.exec_system_id,
-                        target_id: cmd.target_id,
-                        procedure_id: cmd.procedure_id,
-                        args: cmd.args.unwrap_or_default(),
-                    })
-                    .await?;
+    if target_id.is_empty() {
+        let ttps = all_ttps
+            .into_iter()
+            .filter(|ttp| !ttp.status.eq_ignore_ascii_case("disabled"))
+            .collect::<Vec<_>>();
+        return Ok(axum::Json(ttps));
+    }
 
-                Ok::<_, ApiError>(axum::Json(ExecuteActionAck {
-                    success: true,
-                    queued: true,
-                    cmd_id: execution.cmd_id,
-                }))
-            }
-            }),
-        )
-        .route(
-            "/api/campaign-state",
-            axum::routing::get(move || {
-                let service = campaign_service.clone();
-                async move {
-                    let campaign = service.get_campaign().await?;
-                    let state = campaign_to_campaign_state(&campaign);
-                    Ok::<_, ApiError>(axum::Json(state))
-                }
-            }),
-        )
+    let campaign = service.get_campaign().await?;
+    let target_kind = campaign
+        .get_entities()
+        .into_iter()
+        .find(|entity| entity.entity_id().0 == target_id)
+        .map(|entity| entity.entity_kind().to_string())
+        .ok_or_else(|| ApiError {
+            status: axum::http::StatusCode::NOT_FOUND,
+            body: ErrorResponse {
+                error: format!("failed to get target entity: {}", target_id),
+                details: None,
+            },
+        })?;
+
+    let ttps = all_ttps
+        .into_iter()
+        .filter(|ttp| ttp_is_applicable_for_target_kind(ttp, &target_kind))
+        .collect::<Vec<_>>();
+
+    Ok(axum::Json(ttps))
+}
+
+async fn execute_action_handler<S: ApiService>(
+    State(service): State<S>,
+    axum::Json(cmd): axum::Json<ExecuteActionCmdPayload>,
+) -> Result<axum::Json<ExecuteActionAck>, ApiError> {
+    let execution = service
+        .execute_action(campaign::ExecuteActionRequest {
+            action_id: cmd.action_id,
+            exec_system_id: cmd.exec_system_id,
+            target_id: cmd.target_id,
+            procedure_id: cmd.procedure_id,
+            args: cmd.args.unwrap_or_default(),
+        })
+        .await?;
+
+    Ok(axum::Json(ExecuteActionAck {
+        success: true,
+        queued: true,
+        cmd_id: execution.cmd_id,
+    }))
+}
+
+async fn campaign_state_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<CampaignState>, ApiError> {
+    let campaign = service.get_campaign().await?;
+    let state = campaign_to_campaign_state(&campaign);
+    Ok(axum::Json(state))
 }
 
 fn ttp_is_applicable_for_target_kind(ttp: &armory::Ttp, target_kind: &str) -> bool {
@@ -285,20 +271,54 @@ fn campaign_to_graph(campaign: &Campaign) -> Graph {
         .map(|e| e.entity_id().0)
         .unwrap_or_default();
 
+    // Single pass over relations: hierarchical ones become compound-node parent
+    // pointers (not edges); everything else becomes a GraphEdge.
+    // "manages-node" / "owns" always override (high priority);
+    // "contains" only fills in if no parent has been set yet (low priority).
+    let mut parent_nodes: HashMap<String, String> = HashMap::new();
+    let mut edges: Vec<GraphEdge> = Vec::new();
+    for r in campaign.get_relations() {
+        match r.name.as_str() {
+            "manages-node" | "owns" => {
+                parent_nodes.insert(r.target_id.clone(), r.source_id.clone());
+            }
+            "contains" => {
+                parent_nodes
+                    .entry(r.target_id.clone())
+                    .or_insert_with(|| r.source_id.clone());
+            }
+            _ => {
+                edges.push(GraphEdge {
+                    id: format!("{}-[{}]->{}", r.source_id, r.name, r.target_id),
+                    source_id: r.source_id.clone(),
+                    target_id: r.target_id.clone(),
+                    name: r.name.clone(),
+                    weight: None,
+                    relation: None,
+                });
+            }
+        }
+    }
+
     let mut nodes = Vec::with_capacity(campaign.entity_count());
 
     for entity in entities {
         let id = entity.entity_id().0;
         let kind = entity.entity_kind().to_string();
-        // Only namespaced resources (pods, service accounts) get a compound parent.
+        // Determine compound-node parent. Explicit relation-based parents take
+        // precedence; namespaced resources fall back to their namespace node.
         // C2, Cluster, and Namespace nodes are top-level to avoid nested compound
         // nodes, which fcose cannot handle and will crash with invalid array length.
-        let parent = match &entity {
-            CampaignEntityRef::Pod(_) | CampaignEntityRef::ServiceAccount(_) => entity
-                .namespace()
-                .map(|ns| format!("ns/{}", ns))
-                .filter(|ns_id| namespace_ids.contains(ns_id)),
-            _ => None,
+        let parent = if let Some(p) = parent_nodes.get(&id) {
+            Some(p.clone())
+        } else {
+            match &entity {
+                CampaignEntityRef::Pod(_) | CampaignEntityRef::ServiceAccount(_) => entity
+                    .namespace()
+                    .map(|ns| format!("ns/{}", ns))
+                    .filter(|ns_id| namespace_ids.contains(ns_id)),
+                _ => None,
+            }
         };
 
         nodes.push(GraphNode {
@@ -313,15 +333,6 @@ fn campaign_to_graph(campaign: &Campaign) -> Graph {
             entity: serialize_campaign_entity_map(&entity),
         });
     }
-
-    let edges: Vec<GraphEdge> = campaign.get_relations().iter().map(|r| GraphEdge {
-        id: format!("{}-[{}]->{}", r.source_id, r.name, r.target_id),
-        source_id: r.source_id.clone(),
-        target_id: r.target_id.clone(),
-        name: r.name.clone(),
-        weight: None,
-        relation: None,
-    }).collect();   
 
     Graph { root_node_id, nodes, edges }
 }
