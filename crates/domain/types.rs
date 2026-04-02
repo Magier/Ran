@@ -11,12 +11,13 @@ use serde::{Deserialize, Serialize};
 /// A stable, unique identifier for every entity in the knowledge graph.
 ///
 /// Newtype over `String` to prevent accidental mixing of IDs with other strings
+/// and to ensure case-insensitive comparisons.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EntityId(pub String);
 
 impl EntityId {
     pub fn new(s: impl Into<String>) -> Self {
-        EntityId(s.into())
+        EntityId(s.into().to_lowercase())
     }
 }
 
