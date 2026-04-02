@@ -4,7 +4,7 @@ use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted};
 use ran_domain::{
     C2Server, Entity, EntityId, K8sCluster, K8sNode, Namespace, Pod, RelationSummary,
-    ServiceAccount,
+    ServiceAccount, SystemEntity,
 };
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +58,34 @@ pub enum CampaignEntityRef<'a> {
     Namespace(&'a Namespace),
     Pod(&'a Pod),
     ServiceAccount(&'a ServiceAccount),
+}
+
+pub enum CampaignSystemEntityRef<'a> {
+    Node(&'a K8sNode),
+    Pod(&'a Pod),
+}
+
+impl<'a> CampaignSystemEntityRef<'a> {
+    pub fn entity(&self) -> &'a dyn SystemEntity {
+        match self {
+            CampaignSystemEntityRef::Node(e) => *e,
+            CampaignSystemEntityRef::Pod(e) => *e,
+        }
+    }
+}
+
+pub enum CampaignSystemEntityMut<'a> {
+    Node(&'a mut K8sNode),
+    Pod(&'a mut Pod),
+}
+
+impl<'a> CampaignSystemEntityMut<'a> {
+    pub fn entity_mut(&mut self) -> &mut dyn SystemEntity {
+        match self {
+            CampaignSystemEntityMut::Node(e) => *e,
+            CampaignSystemEntityMut::Pod(e) => *e,
+        }
+    }
 }
 
 impl<'a> CampaignEntityRef<'a> {
@@ -163,6 +191,30 @@ impl Campaign {
 
     pub fn get_relations(&self) -> &[RelationSummary] {
         &self.relations
+    }
+
+    pub fn get_system_entity(&self, id: &str) -> Option<CampaignSystemEntityRef<'_>> {
+        let entity_id = EntityId::new(id);
+
+        if let Some(node) = self.nodes.get(&entity_id) {
+            return Some(CampaignSystemEntityRef::Node(node));
+        }
+
+        self.pods
+            .get(&entity_id)
+            .map(CampaignSystemEntityRef::Pod)
+    }
+
+    pub fn get_system_entity_mut(&mut self, id: &str) -> Option<CampaignSystemEntityMut<'_>> {
+        let entity_id = EntityId::new(id);
+
+        if let Some(node) = self.nodes.get_mut(&entity_id) {
+            return Some(CampaignSystemEntityMut::Node(node));
+        }
+
+        self.pods
+            .get_mut(&entity_id)
+            .map(CampaignSystemEntityMut::Pod)
     }
 
     pub fn prepare_action(

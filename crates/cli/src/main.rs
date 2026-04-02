@@ -8,8 +8,8 @@ use c2::{C2Handle, C2Manager};
 use clap::{Parser, Subcommand};
 use tokio::signal;
 use tokio::sync::broadcast;
-use tracing::{error, info, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing::{error, info};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use api::{ApiError, ApiService, GetRunningPodsParams, K8sResource};
 use campaign::{
@@ -201,7 +201,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
             .with_server(target_cluster.server),
     )));
 
-    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256);
+    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s.clone());
     let campaign_events = CampaignEventBus::new(256);
 
     tokio::spawn(c2_manager.run());
@@ -241,8 +241,11 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
 }
 
 fn init_tracing() {
+    let filter = EnvFilter::try_from_env("RAN_LOG")
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
+        .with_env_filter(filter)
         .with_target(false)
         .finish();
     let _ = tracing::subscriber::set_global_default(subscriber);

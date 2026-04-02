@@ -3,11 +3,12 @@ use std::{env, path::PathBuf};
 use anyhow::{anyhow, Context, Result};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
-    api::ListParams,
+    api::{AttachParams, ListParams},
     config::{KubeConfigOptions, Kubeconfig},
     Api, Client, Config,
 };
 use serde::{Deserialize, Serialize};
+use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunningPod {
@@ -113,6 +114,76 @@ impl K8sService {
         }
 
         Ok(out)
+    }
+
+    pub async fn exec_pod_command(
+        &self,
+        namespace: &str,
+        pod_name: &str,
+        command: &str,
+    ) -> Result<String> {
+        let command = command.trim();
+        if command.is_empty() {
+            return Err(anyhow!("pod exec command is empty"));
+        }
+
+        let api: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
+        let command_vec = vec!["/bin/sh", "-lc", command];
+        let attach_params = AttachParams::default()
+            .stdout(true)
+            .stderr(true)
+            .stdin(false)
+            .tty(false);
+
+        let mut attached = api
+            .exec(pod_name, command_vec, &attach_params)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to exec command in pod '{}/{}'",
+                    namespace, pod_name
+                )
+            })?;
+
+        let mut stdout = String::new();
+        if let Some(mut reader) = attached.stdout().take() {
+            reader
+                .read_to_string(&mut stdout)
+                .await
+                .context("failed reading pod exec stdout")?;
+        }
+
+        let mut stderr = String::new();
+        if let Some(mut reader) = attached.stderr().take() {
+            reader
+                .read_to_string(&mut stderr)
+                .await
+                .context("failed reading pod exec stderr")?;
+        }
+
+        let status = attached
+            .take_status()
+            .ok_or_else(|| anyhow!("missing pod exec status stream"))?
+            .await
+            .context("failed to receive pod exec status")?;
+
+        if status.status != Some("Success".to_string()) {
+            let details = status
+                .message
+                .clone()
+                .or_else(|| (!stderr.trim().is_empty()).then(|| stderr.clone()))
+                .unwrap_or_else(|| "pod exec command failed".to_string());
+
+            return Err(anyhow!(details));
+        }
+
+        if stderr.trim().is_empty() {
+            Ok(stdout)
+        } else if stdout.trim().is_empty() {
+            Ok(stderr)
+        } else {
+            Ok(format!("{}\n{}", stdout.trim_end(), stderr.trim_end()))
+        }
     }
 }
 

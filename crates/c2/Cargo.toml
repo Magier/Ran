@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1"
 armory = { path = "../armory" }
+k8s = { path = "../k8s" }
+async-trait = "0.1"
 serde = { workspace = true }
 tokio = { version = "1", features = ["sync"] }
 tracing = "0.1"

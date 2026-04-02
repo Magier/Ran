@@ -9,7 +9,7 @@ pub mod types;
 // `use ran_domain::{Pod, Namespace, ServiceAccount}` without long paths.
 pub use entities::{
     C2Server, Entity, GraphEntity, K8sCluster, K8sNode, Namespace, Pod, PodPhase,
-    PodSecurityAdmission, PssLevel, ServiceAccount,
+    PodSecurityAdmission, PssLevel, ServiceAccount, SystemEntity,
 };
 pub use identity::{JwToken, ServiceAccountToken};
 pub use relation::Relation;

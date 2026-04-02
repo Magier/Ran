@@ -10,6 +10,8 @@ pub use sse::publish_sse_event;
 pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
     axum::Router::new()
         .route("/events", axum::routing::get(api_handlers::events_sse_handler::<S>))
+        .route("/api/pods/watch", axum::routing::post(api_handlers::start_pod_watch_handler))
+        .route("/api/pods/watch", axum::routing::delete(api_handlers::stop_pod_watch_handler))
         .route("/api/graph", axum::routing::get(api_handlers::graph_handler::<S>))
         .route("/api/armory", axum::routing::get(api_handlers::armory_handler::<S>))
         .route("/api/applicable-ttps", axum::routing::get(api_handlers::applicable_ttps_handler::<S>))

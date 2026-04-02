@@ -2,6 +2,9 @@ use std::collections::HashMap;
 
 use axum::extract::{Query, State};
 use serde_json::Value;
+use tracing::debug;
+
+use campaign::CampaignEntityRef;
 
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
 use crate::sse::events_handler;
@@ -61,6 +64,11 @@ pub(crate) struct ExecuteActionAck {
     cmd_id: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct PodWatchStatus {
+    status: String,
+}
+
 // --- Handlers ----------------------------------------------------------------
 
 pub(crate) async fn events_sse_handler<S: ApiService>(
@@ -112,22 +120,32 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
     }
 
     let campaign = service.get_campaign().await?;
-    let target_kind = campaign
-        .get_entities()
-        .into_iter()
-        .find(|entity| entity.entity_id().0 == target_id)
-        .map(|entity| entity.entity_kind().to_string())
-        .ok_or_else(|| ApiError {
-            status: axum::http::StatusCode::NOT_FOUND,
-            body: ErrorResponse {
-                error: format!("failed to get target entity: {}", target_id),
-                details: None,
-            },
-        })?;
+
+    // Resolve the target entity – we need both its kind string (for exact-kind
+    // matching) and whether it is a SystemEntity (for abstract "System" matching).
+    let (target_kind, is_system_target) = {
+        let entities = campaign.get_entities();
+        let entity = entities
+            .into_iter()
+            .find(|e| e.entity_id().0 == target_id)
+            .ok_or_else(|| ApiError {
+                status: axum::http::StatusCode::NOT_FOUND,
+                body: ErrorResponse {
+                    error: format!("failed to get target entity: {}", target_id),
+                    details: None,
+                },
+            })?;
+        let kind = entity.entity_kind().to_string();
+        let is_system = match &entity {
+            CampaignEntityRef::Pod(_) | CampaignEntityRef::Node(_) => true,
+            _ => false,
+        };
+        (kind, is_system)
+    };
 
     let ttps = all_ttps
         .into_iter()
-        .filter(|ttp| ttp_is_applicable_for_target_kind(ttp, &target_kind))
+        .filter(|ttp| ttp_is_applicable_for_target_kind(ttp, &target_kind, is_system_target))
         .collect::<Vec<_>>();
 
     Ok(axum::Json(ttps))
@@ -162,7 +180,36 @@ pub(crate) async fn campaign_state_handler<S: ApiService>(
     Ok(axum::Json(state))
 }
 
-fn ttp_is_applicable_for_target_kind(ttp: &armory::Ttp, target_kind: &str) -> bool {
+pub(crate) async fn start_pod_watch_handler(
+    query: Query<HashMap<String, String>>,
+) -> axum::Json<PodWatchStatus> {
+    let namespace = query
+        .0
+        .get("namespace")
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("*");
+
+    debug!(namespace, "received StartPodWatch request (compat no-op)");
+
+    axum::Json(PodWatchStatus {
+        status: "pod watch start accepted (compat no-op)".to_string(),
+    })
+}
+
+pub(crate) async fn stop_pod_watch_handler() -> axum::Json<PodWatchStatus> {
+    debug!("received StopPodWatch request (compat no-op)");
+
+    axum::Json(PodWatchStatus {
+        status: "pod watch stop accepted (compat no-op)".to_string(),
+    })
+}
+
+fn ttp_is_applicable_for_target_kind(
+    ttp: &armory::Ttp,
+    target_kind: &str,
+    is_system_target: bool,
+) -> bool {
     if ttp.status.eq_ignore_ascii_case("disabled") {
         return false;
     }
@@ -175,13 +222,61 @@ fn ttp_is_applicable_for_target_kind(ttp: &armory::Ttp, target_kind: &str) -> bo
     };
 
     match kind_req {
-        Value::String(kind) => kind.eq_ignore_ascii_case(target_kind),
+        Value::String(kind) => kind_matches_target_kind(kind, target_kind, is_system_target),
         Value::Array(kinds) => kinds.iter().any(|k| {
             k.as_str()
-                .map(|s| s.eq_ignore_ascii_case(target_kind))
-                .unwrap_or(false)
+                .map(|s| kind_matches_target_kind(s, target_kind, is_system_target))
+                .unwrap_or(true)
         }),
         _ => true,
+    }
+}
+
+/// Returns `true` if `required_kind` (from a TTP's `requires.kind`) is satisfied
+/// by the target entity.
+///
+/// `required_kind == "System"` is an abstract requirement satisfied by any entity
+/// that implements [`SystemEntity`] – i.e. wherever `is_system_target` is `true`.
+/// This is driven by the trait rather than a hardcoded list of kind strings, so
+/// future `SystemEntity` implementors (e.g. `UnknownSystem`) are picked up
+/// automatically without touching this function.
+fn kind_matches_target_kind(
+    required_kind: &str,
+    target_kind: &str,
+    is_system_target: bool,
+) -> bool {
+    if required_kind.eq_ignore_ascii_case(target_kind) {
+        return true;
+    }
+
+    required_kind.eq_ignore_ascii_case("System") && is_system_target
+}
+
+#[cfg(test)]
+mod tests {
+    use super::kind_matches_target_kind;
+
+    #[test]
+    fn system_kind_matches_any_system_entity_target() {
+        // is_system_target=true represents anything implementing SystemEntity
+        assert!(kind_matches_target_kind("System", "Pod", true));
+        assert!(kind_matches_target_kind("System", "Node", true));
+        // A hypothetical future type also matches as long as it is a SystemEntity
+        assert!(kind_matches_target_kind("System", "UnknownSystem", true));
+    }
+
+    #[test]
+    fn system_kind_does_not_match_non_system_entities() {
+        assert!(!kind_matches_target_kind("System", "ServiceAccount", false));
+        assert!(!kind_matches_target_kind("System", "Namespace", false));
+    }
+
+    #[test]
+    fn exact_kind_matching_still_works() {
+        assert!(kind_matches_target_kind("Pod", "Pod", false));
+        assert!(!kind_matches_target_kind("Pod", "Node", false));
+        // is_system_target flag is irrelevant for non-System requirements
+        assert!(!kind_matches_target_kind("Pod", "Node", true));
     }
 }
 

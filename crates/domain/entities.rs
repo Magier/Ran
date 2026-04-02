@@ -27,6 +27,13 @@ pub trait Entity: std::any::Any + std::fmt::Debug + Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
+/// Behavior shared by graph entities that represent an executable system
+/// (for example, a Pod or Node with runtime access/capability state).
+pub trait SystemEntity: Entity {
+    fn system(&self) -> &SystemInfo;
+    fn system_mut(&mut self) -> &mut SystemInfo;
+}
+
 fn slugify(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut last_was_dash = false;
@@ -196,11 +203,15 @@ impl Entity for GraphEntity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct K8sNode {
     pub name: String,
+    pub system: SystemInfo,
 }
 
 impl K8sNode {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
+        Self {
+            name: name.into(),
+            system: SystemInfo::default(),
+        }
     }
 }
 
@@ -219,6 +230,16 @@ impl Entity for K8sNode {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+impl SystemEntity for K8sNode {
+    fn system(&self) -> &SystemInfo {
+        &self.system
+    }
+
+    fn system_mut(&mut self) -> &mut SystemInfo {
+        &mut self.system
     }
 }
 
@@ -377,6 +398,16 @@ impl Entity for Pod {
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+impl SystemEntity for Pod {
+    fn system(&self) -> &SystemInfo {
+        &self.system
+    }
+
+    fn system_mut(&mut self) -> &mut SystemInfo {
+        &mut self.system
     }
 }
 
