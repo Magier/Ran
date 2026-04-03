@@ -472,6 +472,7 @@ mod tests {
             pods: Default::default(),
             service_accounts: Default::default(),
             relations: Default::default(),
+            parse_audits: Default::default(),
         };
 
         let ns = Namespace::new("default");

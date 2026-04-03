@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, path::PathBuf};
+use std::{net::SocketAddr, path::PathBuf, time::Duration};
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
@@ -6,15 +6,17 @@ use armory::Armory;
 use axum::Router;
 use c2::{C2Handle, C2Manager};
 use clap::{Parser, Subcommand};
+use reqwest::Url;
 use tokio::signal;
 use tokio::sync::broadcast;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use api::{ApiError, ApiService, GetRunningPodsParams, K8sResource};
 use campaign::{
-    spawn_c2_event_processor, Campaign, CampaignEvent, CampaignEventBus, ExecuteActionError,
-    ExecuteActionRequest, ExecuteActionResult,
+    spawn_c2_event_processor_with_external_parser, Campaign, CampaignEvent, CampaignEventBus,
+    ExecuteActionError, ExecuteActionRequest, ExecuteActionResult,
+    ExternalParseRequest, ExternalParseResponse, ExternalParser,
 };
 use k8s::{kubeconfig_path_or_err, target_cluster_from_kubeconfig, K8sService};
 use ran_domain::K8sCluster;
@@ -188,12 +190,286 @@ async fn main() -> Result<()> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ScriptParserRunner — external parser backed by executable scripts
+// ---------------------------------------------------------------------------
+
+/// Looks for scripts in `{parsers_dir}/{effect_name}.{ext}` and executes them
+/// with JSON context on stdin.  Scripts must print a JSON response to stdout.
+///
+/// Supported extensions, tried in order: `.py`, `.sh`.
+struct ScriptParserRunner {
+    parsers_dir: PathBuf,
+    generator_webhook: Option<Url>,
+    webhook_explicit: bool,
+    webhook_client: reqwest::Client,
+}
+
+impl ScriptParserRunner {
+    fn new(parsers_dir: PathBuf) -> Self {
+        let configured_webhook = std::env::var("RAN_PARSER_GENERATOR_WEBHOOK").ok();
+        let webhook_explicit = configured_webhook.is_some();
+
+        let generator_webhook = configured_webhook
+            .as_deref()
+            .and_then(|raw| {
+                if matches!(raw, "off" | "none" | "disabled") {
+                    return None;
+                }
+
+                match Url::parse(raw) {
+                    Ok(url) if is_loopback_url(&url) => Some(url),
+                    Ok(url) => {
+                        warn!(
+                            webhook = %url,
+                            "Ignoring parser-gap webhook because only localhost/loopback endpoints are allowed"
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        warn!(error = %e, value = %raw, "Invalid RAN_PARSER_GENERATOR_WEBHOOK URL");
+                        None
+                    }
+                }
+            });
+
+        if let Some(url) = &generator_webhook {
+            info!(webhook = %url, "parser-gap generator webhook enabled");
+        }
+
+        let webhook_client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(1500))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        Self {
+            parsers_dir,
+            generator_webhook,
+            webhook_explicit,
+            webhook_client,
+        }
+    }
+
+    /// Find the first matching script for the given effect id.
+    fn find_script(&self, effect_id: &str) -> Option<PathBuf> {
+        // Normalise effect id: "sys.ip" → "sys.ip", "Sys.IP" → "sys.ip"
+        let name = effect_id.trim().to_ascii_lowercase();
+
+        for ext in &["py", "sh"] {
+            let candidate = self.parsers_dir.join(format!("{}.{}", name, ext));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    async fn run_script(
+        &self,
+        script_path: &PathBuf,
+        request: &ExternalParseRequest,
+    ) -> Option<ExternalParseResponse> {
+        let input_json = match serde_json::to_string(request) {
+            Ok(j) => j,
+            Err(e) => {
+                warn!(error = %e, "failed to serialise external parse request");
+                return None;
+            }
+        };
+
+        let interpreter = match script_path.extension().and_then(|e| e.to_str()) {
+            Some("py") => "python3",
+            Some("sh") => "sh",
+            _ => return None,
+        };
+
+        info!(
+            effect_id = %request.effect_id,
+            script = %script_path.display(),
+            "invoking external script parser"
+        );
+
+        let result = tokio::process::Command::new(interpreter)
+            .arg(script_path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn();
+
+        let mut child = match result {
+            Ok(c) => c,
+            Err(e) => {
+                warn!(
+                    script = %script_path.display(),
+                    error = %e,
+                    "failed to spawn external parser script"
+                );
+                return None;
+            }
+        };
+
+        if let Some(mut stdin) = child.stdin.take() {
+            use tokio::io::AsyncWriteExt;
+            if let Err(e) = stdin.write_all(input_json.as_bytes()).await {
+                warn!(error = %e, "failed to write to script stdin");
+                return None;
+            }
+            drop(stdin);
+        }
+
+        let output = match child.wait_with_output().await {
+            Ok(o) => o,
+            Err(e) => {
+                warn!(error = %e, "external parser script failed");
+                return None;
+            }
+        };
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            warn!(
+                exit_code = output.status.code().unwrap_or(-1),
+                stderr = %stderr,
+                "external parser script exited with error"
+            );
+            return None;
+        }
+
+        match serde_json::from_slice::<ExternalParseResponse>(&output.stdout) {
+            Ok(response) => Some(response),
+            Err(e) => {
+                let stdout_preview = String::from_utf8_lossy(
+                    &output.stdout[..output.stdout.len().min(512)],
+                );
+                warn!(
+                    error = %e,
+                    stdout_preview = %stdout_preview,
+                    "external parser script produced invalid JSON"
+                );
+                None
+            }
+        }
+    }
+
+    async fn notify_generator(
+        &self,
+        request: &ExternalParseRequest,
+    ) -> Option<ExternalParseResponse> {
+        let Some(url) = &self.generator_webhook else {
+            return None;
+        };
+
+        let response = match self
+            .webhook_client
+            .post(url.clone())
+            .json(request)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                if self.webhook_explicit {
+                    warn!(
+                        webhook = %url,
+                        error = %e,
+                        "parser-gap webhook unavailable; continuing without generator"
+                    );
+                }
+                return None;
+            }
+        };
+
+        if !response.status().is_success() {
+            if self.webhook_explicit {
+                warn!(
+                    webhook = %url,
+                    status = %response.status(),
+                    "parser-gap webhook returned non-success"
+                );
+            }
+            return None;
+        }
+
+        let body: serde_json::Value = match response.json().await {
+            Ok(v) => v,
+            Err(_) => {
+                // Empty/non-JSON body is valid for "generated parser written".
+                return None;
+            }
+        };
+
+        if body.get("system").is_some() {
+            match serde_json::from_value::<ExternalParseResponse>(body.clone()) {
+                Ok(parsed) => return Some(parsed),
+                Err(e) => {
+                    warn!(error = %e, "webhook returned invalid ExternalParseResponse JSON");
+                }
+            }
+        }
+
+        if let Some(parse_value) = body.get("parse") {
+            match serde_json::from_value::<ExternalParseResponse>(parse_value.clone()) {
+                Ok(parsed) => return Some(parsed),
+                Err(e) => {
+                    warn!(error = %e, "webhook 'parse' field has invalid shape");
+                }
+            }
+        }
+
+        None
+    }
+}
+
+#[async_trait::async_trait]
+impl ExternalParser for ScriptParserRunner {
+    async fn try_parse(&self, request: ExternalParseRequest) -> Option<ExternalParseResponse> {
+        if let Some(script_path) = self.find_script(&request.effect_id) {
+            if let Some(parsed) = self.run_script(&script_path, &request).await {
+                return Some(parsed);
+            }
+        }
+
+        // Give an optional external generator process a chance to react to the
+        // parser gap. It can either return parsed facts directly, or create a
+        // script on disk that we'll discover in the retry below.
+        if let Some(parsed) = self.notify_generator(&request).await {
+            return Some(parsed);
+        }
+
+        // Retry once in case the webhook generated a new script.
+        if let Some(script_path) = self.find_script(&request.effect_id) {
+            return self.run_script(&script_path, &request).await;
+        }
+
+        None
+    }
+}
+
+fn is_loopback_url(url: &Url) -> bool {
+    match url.host_str() {
+        Some("localhost") | Some("127.0.0.1") | Some("::1") => true,
+        _ => false,
+    }
+}
+
 async fn run_emulate(args: EmulateArgs) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(args.kubeconfig)?;
     let k8s = K8sService::from_kubeconfig(Some(kubeconfig_path.clone())).await?;
     let target_cluster = target_cluster_from_kubeconfig(Some(kubeconfig_path.clone()))?;
     let armory_dir = resolve_armory_dir(args.armory)?;
     let armory = Armory::load_from_dir(&armory_dir)?;
+
+    // External script parsers live in armory/parsers/ (sibling to TTPs/).
+    let parsers_dir = armory_dir.parent().unwrap_or(&armory_dir).join("parsers");
+    let external_parser: Option<Arc<dyn ExternalParser>> = if parsers_dir.is_dir() {
+        info!(dir = %parsers_dir.display(), "script parser directory found");
+        Some(Arc::new(ScriptParserRunner::new(parsers_dir)))
+    } else {
+        info!(dir = %parsers_dir.display(), "no script parser directory; external parsers disabled");
+        None
+    };
+
     let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
         "Ran",
         K8sCluster::new(target_cluster.name)
@@ -205,7 +481,12 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
     let campaign_events = CampaignEventBus::new(256);
 
     tokio::spawn(c2_manager.run());
-    spawn_c2_event_processor(campaign.clone(), c2_events, campaign_events.clone());
+    spawn_c2_event_processor_with_external_parser(
+        campaign.clone(),
+        c2_events,
+        campaign_events.clone(),
+        external_parser,
+    );
     tokio::spawn(bridge_campaign_events_to_sse(campaign_events.subscribe()));
 
     let state = AppState {
@@ -241,8 +522,23 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
 }
 
 fn init_tracing() {
-    let filter = EnvFilter::try_from_env("RAN_LOG")
+    let mut filter = EnvFilter::try_from_env("RAN_LOG")
         .unwrap_or_else(|_| EnvFilter::new("info"));
+
+    // Keep Ran logs configurable via RAN_LOG while muting very chatty HTTP internals.
+    // This prevents flooding from lines like "connecting to 127.0.0.1:5173".
+    for directive in [
+        "hyper=info",
+        "hyper_util=info",
+        "h2=info",
+        "reqwest=info",
+        "tower=info",
+        "tower_http=info",
+    ] {
+        if let Ok(parsed) = directive.parse() {
+            filter = filter.add_directive(parsed);
+        }
+    }
 
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(filter)
@@ -315,6 +611,18 @@ async fn bridge_campaign_events_to_sse(
                         "data": {
                             "newEntities": new_entities,
                             "newRelations": new_relations,
+                        },
+                    })
+                    .to_string(),
+                );
+            }
+            Ok(CampaignEvent::ParseAudited { audits, .. }) => {
+                api::publish_sse_event(
+                    "parse-audited",
+                    serde_json::json!({
+                        "type": "parse-audited",
+                        "data": {
+                            "audits": audits,
                         },
                     })
                     .to_string(),

@@ -8,15 +8,24 @@ use ran_domain::{
 };
 use serde::{Deserialize, Serialize};
 
+use external_parser::SystemFieldUpdates;
+
 #[cfg(test)]
 mod analyzers;
 pub mod effects;
+pub mod external_parser;
+pub mod failure_analyzers;
+pub mod output_parsers;
 pub mod rules;
 pub mod runtime;
 pub use effects::FactsUpdate;
+pub use external_parser::{ExternalParseRequest, ExternalParseResponse, ExternalParser};
+pub use output_parsers::{ParseAudit, ParseResult};
 pub use rules::{default_rules, run_rules_fixpoint, InferenceRule, RuleTrigger};
-pub use runtime::{spawn_c2_event_processor, CampaignEvent, CampaignEventBus, EntitySummary};
-use effects::{ground_template, parse_effect};
+pub use runtime::{spawn_c2_event_processor, spawn_c2_event_processor_with_external_parser, CampaignEvent, CampaignEventBus, EntitySummary};
+use effects::{ground_template, parse_effect_with_status};
+use failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
+use output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
 use rules::default_rules as make_rules;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +149,13 @@ pub struct Campaign {
     pub pods: HashMap<EntityId, Pod>,
     pub service_accounts: HashMap<EntityId, ServiceAccount>,
     pub relations: Vec<RelationSummary>,
+    pub parse_audits: Vec<ParseAudit>,
+}
+
+#[derive(Default)]
+pub struct TtpExecutionProcessing {
+    pub updates: FactsUpdate,
+    pub parse_audits: Vec<ParseAudit>,
 }
 
 impl Campaign {
@@ -160,6 +176,7 @@ impl Campaign {
             pods: HashMap::new(),
             service_accounts: HashMap::new(),
             relations: Vec::new(),
+            parse_audits: Vec::new(),
         }
     }
 
@@ -193,6 +210,10 @@ impl Campaign {
         &self.relations
     }
 
+    pub fn get_parse_audits(&self) -> &[ParseAudit] {
+        &self.parse_audits
+    }
+
     pub fn get_system_entity(&self, id: &str) -> Option<CampaignSystemEntityRef<'_>> {
         let entity_id = EntityId::new(id);
 
@@ -215,6 +236,24 @@ impl Campaign {
         self.pods
             .get_mut(&entity_id)
             .map(CampaignSystemEntityMut::Pod)
+    }
+
+    /// Apply partial system-info updates from an external parser to a target
+    /// entity.  Returns the number of new facts written, or an error if the
+    /// target is not a system entity.
+    pub fn apply_system_update(
+        &mut self,
+        target_id: &str,
+        updates: &SystemFieldUpdates,
+    ) -> Result<usize, String> {
+        let Some(mut target) = self.get_system_entity_mut(target_id) else {
+            return Err(format!(
+                "target '{}' is not a system entity",
+                target_id
+            ));
+        };
+        let sys = target.entity_mut().system_mut();
+        Ok(external_parser::apply_system_field_updates(sys, updates))
     }
 
     pub fn prepare_action(
@@ -277,23 +316,73 @@ impl Campaign {
         &mut self,
         cmd: &ExecTtp,
         event: &TtpExecuted,
-    ) -> Result<FactsUpdate, ExecuteActionError> {
+    ) -> Result<TtpExecutionProcessing, ExecuteActionError> {
         let mut updates = FactsUpdate::default();
+        let mut parse_audits = Vec::new();
 
         if !event.success {
-            return Ok(updates);
+            let classified = classify_failure(cmd, event);
+            parse_audits.push(build_parse_audit(
+                FAILURE_ANALYZER_EFFECT_ID,
+                cmd,
+                event,
+                classified.parse_result,
+                &classified.detail,
+                0,
+            ));
+
+            self.parse_audits.extend(parse_audits.clone());
+            return Ok(TtpExecutionProcessing {
+                updates,
+                parse_audits,
+            });
         }
 
         for effect in &cmd.ttp.effects {
-            let parsed = parse_effect(effect, &cmd.args).map_err(ExecuteActionError::InvalidInput)?;
-            updates.merge(parsed);
+            if let Some(parsed_output) = parse_output_effect(self, effect, cmd, event) {
+                updates.merge(parsed_output.updates);
+                parse_audits.push(parsed_output.audit);
+                continue;
+            }
+
+            match parse_effect_with_status(effect, &cmd.args) {
+                Ok(parsed_structural) if parsed_structural.handled => {
+                    updates.merge(parsed_structural.updates);
+                    parse_audits.push(build_parse_audit(
+                        effect,
+                        cmd,
+                        event,
+                        ParseResult::Parsed,
+                        "parsed by structural effect handler",
+                        0,
+                    ));
+                }
+                Ok(_) => {
+                    parse_audits.push(build_no_parser_audit(effect, cmd, event));
+                }
+                Err(err) => {
+                    parse_audits.push(build_parse_audit(
+                        effect,
+                        cmd,
+                        event,
+                        ParseResult::ParserBug,
+                        &err,
+                        0,
+                    ));
+                }
+            }
         }
 
         let rules = make_rules();
         updates = run_rules_fixpoint(self, &rules, updates);
 
         self.apply_facts(&updates);
-        Ok(updates)
+        self.parse_audits.extend(parse_audits.clone());
+
+        Ok(TtpExecutionProcessing {
+            updates,
+            parse_audits,
+        })
     }
 
     fn apply_facts(&mut self, updates: &FactsUpdate) {
@@ -484,7 +573,65 @@ fn generate_cmd_id() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use armory::{Procedure, Ttp};
+    use c2::{ExecTtp, TtpExecuted};
+
     use super::*;
+
+    fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
+        ExecTtp {
+            id: "cmd-1".to_string(),
+            ttp: Ttp {
+                id: "ttp-test".to_string(),
+                name: "Test TTP".to_string(),
+                description: "test".to_string(),
+                tactic: "Discovery".to_string(),
+                techniques: vec![],
+                status: "stable".to_string(),
+                params: vec![],
+                requires: Default::default(),
+                effects: effects.into_iter().map(str::to_string).collect(),
+                procedures: vec![Procedure {
+                    id: "shell".to_string(),
+                    command: "env".to_string(),
+                    tool: None,
+                    is_local_command: None,
+                }],
+                references: vec![],
+            },
+            procedure: Procedure {
+                id: "shell".to_string(),
+                command: "env".to_string(),
+                tool: None,
+                is_local_command: None,
+            },
+            args: HashMap::new(),
+            target_id: target_id.to_string(),
+            exec_system_id: String::new(),
+        }
+    }
+
+    fn sample_event(stdout: &str) -> TtpExecuted {
+        TtpExecuted {
+            id: "evt-1".to_string(),
+            success: true,
+            results: vec![stdout.to_string(), String::new()],
+            exit_code: 0,
+            fail_reason: String::new(),
+        }
+    }
+
+    fn sample_failed_event(fail_reason: &str) -> TtpExecuted {
+        TtpExecuted {
+            id: "evt-1".to_string(),
+            success: false,
+            results: vec![fail_reason.to_string()],
+            exit_code: 1,
+            fail_reason: fail_reason.to_string(),
+        }
+    }
 
     #[test]
     fn bootstrap_contains_c2_and_cluster_entities() {
@@ -500,5 +647,88 @@ mod tests {
         assert!(campaign
             .clusters
             .contains_key(&EntityId::new("k8s/cluster/dev-cluster")));
+    }
+
+    #[test]
+    fn on_ttp_executed_records_no_parser_audit_for_unknown_effect() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+        let pod = Pod::new("demo", "default");
+        let target_id = pod.entity_id().0;
+        campaign.pods.insert(pod.entity_id(), pod);
+
+        let cmd = sample_exec_ttp(&target_id, vec!["sys.unknown"]);
+        let event = sample_event("X=1\n");
+
+        let processed = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+        assert_eq!(processed.parse_audits.len(), 1);
+        assert!(matches!(
+            processed.parse_audits[0].parse_result,
+            ParseResult::NoParser
+        ));
+    }
+
+    #[test]
+    fn on_ttp_executed_parses_sys_envvar_into_target_system_info() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+        let pod = Pod::new("demo", "default");
+        let target_id = pod.entity_id().0;
+        campaign.pods.insert(pod.entity_id(), pod);
+
+        let cmd = sample_exec_ttp(&target_id, vec!["sys.envvar"]);
+        let event = sample_event("HOME=/root\nPATH=/usr/bin\n");
+
+        let processed = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+        assert_eq!(processed.parse_audits.len(), 1);
+        assert!(matches!(
+            processed.parse_audits[0].parse_result,
+            ParseResult::Parsed
+        ));
+
+        let target = campaign.get_system_entity(&target_id).unwrap();
+        let env_vars = &target.entity().system().env_vars;
+        assert_eq!(env_vars.get("HOME"), Some(&"/root".to_string()));
+        assert_eq!(env_vars.get("PATH"), Some(&"/usr/bin".to_string()));
+    }
+
+    #[test]
+    fn on_ttp_executed_failure_records_known_failure_audit() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+        let cmd = sample_exec_ttp("ns/default/pod", vec!["sys.envvar"]);
+        let event = sample_failed_event(
+            "invalid pod target id 'ns/default/pod': expected format ns/<namespace>/pod/<pod-name>",
+        );
+
+        let processed = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+        assert_eq!(processed.parse_audits.len(), 1);
+        assert!(matches!(
+            processed.parse_audits[0].parse_result,
+            ParseResult::KnownFailure
+        ));
+        assert_eq!(
+            processed.parse_audits[0].effect_id,
+            FAILURE_ANALYZER_EFFECT_ID
+        );
+    }
+
+    #[test]
+    fn on_ttp_executed_failure_records_unknown_format_when_unclassified() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+        let cmd = sample_exec_ttp("ns/default/pod/demo", vec!["sys.envvar"]);
+        let event = sample_failed_event("something odd happened");
+
+        let processed = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+        assert_eq!(processed.parse_audits.len(), 1);
+        assert!(matches!(
+            processed.parse_audits[0].parse_result,
+            ParseResult::UnknownFormat
+        ));
+        assert_eq!(
+            processed.parse_audits[0].effect_id,
+            FAILURE_ANALYZER_EFFECT_ID
+        );
     }
 }

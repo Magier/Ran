@@ -5,6 +5,11 @@ use ran_domain::{Entity, KubeletExecSource, Pod, PodExec, Relation, RunsOn};
 type SimpleEffectHandler = fn(&HashMap<String, String>) -> Result<FactsUpdate, String>;
 type RelationEffectHandler = fn(&[&str]) -> Result<FactsUpdate, String>;
 
+pub struct ParsedStructuralEffect {
+    pub updates: FactsUpdate,
+    pub handled: bool,
+}
+
 #[derive(Default)]
 pub struct FactsUpdate {
     pub new_entities: Vec<Box<dyn Entity + Send + Sync>>,
@@ -50,17 +55,30 @@ pub fn ground_template(template: &str, args: &HashMap<String, String>) -> String
 }
 
 pub fn parse_effect(effect: &str, args: &HashMap<String, String>) -> Result<FactsUpdate, String> {
+    Ok(parse_effect_with_status(effect, args)?.updates)
+}
+
+pub fn parse_effect_with_status(
+    effect: &str,
+    args: &HashMap<String, String>,
+) -> Result<ParsedStructuralEffect, String> {
     let normalized = effect.trim();
 
     if let Some(handler) = resolve_simple_effect_handler(normalized) {
-        return handler(args);
+        return Ok(ParsedStructuralEffect {
+            updates: handler(args)?,
+            handled: true,
+        });
     }
 
     if normalized.contains('(') && normalized.ends_with(')') {
         return parse_relation_effect(normalized);
     }
 
-    Ok(FactsUpdate::default())
+    Ok(ParsedStructuralEffect {
+        updates: FactsUpdate::default(),
+        handled: false,
+    })
 }
 
 fn parse_k8s_pod(args: &HashMap<String, String>) -> Result<FactsUpdate, String> {
@@ -107,14 +125,20 @@ fn parse_k8s_pod(args: &HashMap<String, String>) -> Result<FactsUpdate, String> 
     })
 }
 
-fn parse_relation_effect(effect: &str) -> Result<FactsUpdate, String> {
+fn parse_relation_effect(effect: &str) -> Result<ParsedStructuralEffect, String> {
     let (name, args) = split_relation(effect)?;
 
     if let Some(handler) = resolve_relation_effect_handler(name) {
-        return handler(&args);
+        return Ok(ParsedStructuralEffect {
+            updates: handler(&args)?,
+            handled: true,
+        });
     }
 
-    Ok(FactsUpdate::default())
+    Ok(ParsedStructuralEffect {
+        updates: FactsUpdate::default(),
+        handled: false,
+    })
 }
 
 fn resolve_simple_effect_handler(effect_name: &str) -> Option<SimpleEffectHandler> {

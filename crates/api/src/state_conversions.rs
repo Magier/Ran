@@ -23,6 +23,15 @@ pub(crate) fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
         if let Some(namespace) = entity.namespace() {
             data.insert("namespace".to_string(), Value::String(namespace.to_string()));
         }
+
+        if let Some(mut full_entity) = serialize_campaign_entity_map(&entity) {
+            prune_entity_payload_for_ui(entity.entity_kind(), &mut full_entity);
+            for (k, v) in full_entity {
+                data.entry(k).or_insert(v);
+            }
+            add_ui_system_field_aliases(&mut data);
+        }
+
         entities.insert(id, data);
     }
 
@@ -144,4 +153,94 @@ pub(crate) fn serialize_campaign_entity_map(
         CampaignEntityRef::Pod(e) => serialize_entity_map(e),
         CampaignEntityRef::ServiceAccount(e) => serialize_entity_map(e),
     }
+}
+
+fn add_ui_system_field_aliases(data: &mut HashMap<String, Value>) {
+    let Some(system) = data.get("system").and_then(|v| v.as_object()) else {
+        return;
+    };
+
+    let env_vars = system.get("env_vars").cloned();
+    let binaries = system.get("binaries").cloned();
+    let ips = system.get("ips").cloned();
+    let access_level = system.get("access_level").cloned();
+
+    if let Some(env_vars) = env_vars.filter(|v| !v.is_null()) {
+        data.insert("envVars".to_string(), env_vars);
+    }
+    if let Some(binaries) = binaries.filter(|v| !v.is_null()) {
+        data.insert("binaries".to_string(), binaries);
+    }
+    if let Some(ips) = ips.filter(|v| !v.is_null()) {
+        data.insert("ips".to_string(), ips);
+    }
+    if let Some(access_level) = access_level.filter(|v| !is_access_level_none(v)) {
+        data.insert("accessLevel".to_string(), access_level);
+    }
+}
+
+fn prune_entity_payload_for_ui(kind: &str, data: &mut HashMap<String, Value>) {
+    prune_null_entries(data);
+
+    if kind == "Pod" {
+        for key in [
+            "privileged",
+            "host_pid",
+            "host_ipc",
+            "host_network",
+            "read_only_root_fs",
+            "automount_service_account_token",
+        ] {
+            if data.get(key).is_some_and(is_confidence_unknown) {
+                data.remove(key);
+            }
+        }
+
+        let phase_missing_or_unknown = data
+            .get("phase")
+            .is_none_or(|v| v.is_null() || is_unknown_enum_value(v));
+        if phase_missing_or_unknown {
+            data.remove("phase");
+            data.remove("is_running");
+        }
+    }
+
+    if let Some(Value::Object(system)) = data.get_mut("system") {
+        prune_null_entries_json_map(system);
+        if system.get("access_level").is_some_and(is_access_level_none) {
+            system.remove("access_level");
+        }
+    }
+}
+
+fn prune_null_entries(data: &mut HashMap<String, Value>) {
+    let keys_to_remove: Vec<String> = data
+        .iter()
+        .filter_map(|(k, v)| if v.is_null() { Some(k.clone()) } else { None })
+        .collect();
+    for key in keys_to_remove {
+        data.remove(&key);
+    }
+}
+
+fn prune_null_entries_json_map(data: &mut serde_json::Map<String, Value>) {
+    let keys_to_remove: Vec<String> = data
+        .iter()
+        .filter_map(|(k, v)| if v.is_null() { Some(k.clone()) } else { None })
+        .collect();
+    for key in keys_to_remove {
+        data.remove(&key);
+    }
+}
+
+fn is_confidence_unknown(value: &Value) -> bool {
+    matches!(value, Value::String(s) if s == "Unknown")
+}
+
+fn is_unknown_enum_value(value: &Value) -> bool {
+    matches!(value, Value::String(s) if s == "Unknown")
+}
+
+fn is_access_level_none(value: &Value) -> bool {
+    matches!(value, Value::String(s) if s == "none")
 }
