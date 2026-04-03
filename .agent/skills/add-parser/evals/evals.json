@@ -1,0 +1,23 @@
+{
+  "skill_name": "add-parser",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "TTP: armory/TTPs/Discovery/get_pods.yaml\nArgs: TOKEN=\"\", NS=\"kube-system\", ALL_NS=\"false\"\nResult[0] (stdout):\n{\n  \"apiVersion\": \"v1\",\n  \"kind\": \"PodList\",\n  \"items\": [\n    {\n      \"metadata\": {\n        \"name\": \"coredns-76f75df574-8xk9t\",\n        \"namespace\": \"kube-system\",\n        \"uid\": \"a1b2c3d4-0001-0001-0001-000000000001\",\n        \"labels\": {\"k8s-app\": \"kube-dns\"},\n        \"ownerReferences\": [{\"kind\": \"ReplicaSet\", \"name\": \"coredns-76f75df574\", \"uid\": \"r1\"}]\n      },\n      \"spec\": {\n        \"nodeName\": \"node-1\",\n        \"serviceAccountName\": \"coredns\",\n        \"containers\": [{\"name\": \"coredns\", \"image\": \"registry.k8s.io/coredns/coredns:v1.11.1\"}]\n      },\n      \"status\": {\"phase\": \"Running\"}\n    },\n    {\n      \"metadata\": {\n        \"name\": \"kube-proxy-xzt22\",\n        \"namespace\": \"kube-system\",\n        \"uid\": \"a1b2c3d4-0002-0002-0002-000000000002\",\n        \"labels\": {\"k8s-app\": \"kube-proxy\"},\n        \"ownerReferences\": [{\"kind\": \"DaemonSet\", \"name\": \"kube-proxy\", \"uid\": \"d1\"}]\n      },\n      \"spec\": {\n        \"nodeName\": \"node-1\",\n        \"serviceAccountName\": \"kube-proxy\",\n        \"containers\": [{\"name\": \"kube-proxy\", \"image\": \"registry.k8s.io/kube-proxy:v1.29.0\"}]\n      },\n      \"status\": {\"phase\": \"Running\"}\n    }\n  ]\n}\nResult[1] (stderr): \"\"\nAdd a parser for this TTP output.",
+      "expected_output": "A new parse_k8s_pod_list function registered under 'k8s.podlist' in resolve_output_parser, that parses kubectl JSON PodList output and creates Pod entities with namespace, name, uid, nodeName, serviceAccountName, containers, phase, and labels. At least 3 unit tests. cargo test -p campaign passes.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "TTP: armory/TTPs/Discovery/get_system_user_id.yaml\nArgs: (none)\nResult[0] (stdout): \"uid=0(root) gid=0(root) groups=0(root)\"\nResult[1] (stderr): \"\"\nAdd a parser for this TTP output.",
+      "expected_output": "A new parse_sys_user_id function registered under 'sys.userid' in resolve_output_parser, that parses `id` command output and writes user_id (u32) and username (String) into the target system's SystemInfo. At least 3 unit tests. cargo test -p campaign passes.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "TTP: armory/TTPs/Discovery/list_processes.yaml\nArgs: (none)\nResult[0] (stdout): \"UID          PID    PPID  C STIME TTY          TIME CMD\\nroot           1       0  0 08:01 ?        00:00:00 /pause\\nroot           7       0  0 08:01 ?        00:00:01 /usr/local/bin/python3 -m http.server 8080\\nroot          42       7  0 08:05 ?        00:00:00 sh -c id\\nroot          43      42  0 08:05 ?        00:00:00 id\"\nResult[1] (stderr): \"\"\nAdd a parser for this TTP output.",
+      "expected_output": "A new parse_sys_processes function registered under 'sys.processes' in resolve_output_parser, that parses ps -ef output (skipping the header line) into Vec<Process> entries with pid, parent_pid, username, and cmd fields, and writes them into the target system's SystemInfo.processes. At least 3 unit tests. cargo test -p campaign passes.",
+      "files": []
+    }
+  ]
+}
