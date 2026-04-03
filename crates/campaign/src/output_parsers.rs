@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::net::IpAddr;
 
 use c2::{ExecTtp, TtpExecuted};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::external_parser::SystemFieldUpdates;
 use crate::{Campaign, FactsUpdate};
 
 pub const PARSER_VERSION: &str = "v1";
@@ -36,12 +38,14 @@ pub struct ParsedEffect {
     pub audit: ParseAudit,
 }
 
-type OutputParserHandler = fn(
-    campaign: &mut Campaign,
-    effect_id: &str,
-    cmd: &ExecTtp,
-    event: &TtpExecuted,
-) -> ParsedEffect;
+#[allow(dead_code)]
+enum ParserOutput {
+    Success(SystemFieldUpdates, String),
+    KnownFailure(String),
+    UnknownFormat(String),
+}
+
+type InternalParserFn = fn(stdout: &str, stderr: &str) -> ParserOutput;
 
 pub fn parse_output_effect(
     campaign: &mut Campaign,
@@ -49,7 +53,66 @@ pub fn parse_output_effect(
     cmd: &ExecTtp,
     event: &TtpExecuted,
 ) -> Option<ParsedEffect> {
-    resolve_output_parser(effect_id).map(|handler| handler(campaign, effect_id, cmd, event))
+    let parser = resolve_output_parser(effect_id)?;
+
+    let stdout = match event.results.first() {
+        Some(s) => s.as_str(),
+        None => {
+            return Some(ParsedEffect {
+                updates: FactsUpdate::default(),
+                audit: build_audit(
+                    effect_id,
+                    cmd,
+                    event,
+                    ParseResult::KnownFailure,
+                    "missing stdout payload",
+                    0,
+                ),
+            });
+        }
+    };
+    let stderr = event.results.get(1).map(String::as_str).unwrap_or("");
+
+    match parser(stdout, stderr) {
+        ParserOutput::KnownFailure(detail) => Some(ParsedEffect {
+            updates: FactsUpdate::default(),
+            audit: build_audit(effect_id, cmd, event, ParseResult::KnownFailure, &detail, 0),
+        }),
+        ParserOutput::UnknownFormat(detail) => Some(ParsedEffect {
+            updates: FactsUpdate::default(),
+            audit: build_audit(effect_id, cmd, event, ParseResult::UnknownFormat, &detail, 0),
+        }),
+        ParserOutput::Success(updates, detail) => {
+            let target_id = resolve_target_id(campaign, cmd);
+            let Some(target_id) = target_id else {
+                return Some(ParsedEffect {
+                    updates: FactsUpdate::default(),
+                    audit: build_audit(
+                        effect_id,
+                        cmd,
+                        event,
+                        ParseResult::KnownFailure,
+                        "target is not a system entity (checked target_id and exec_system_id)",
+                        0,
+                    ),
+                });
+            };
+            let facts_written = campaign
+                .apply_system_update(&target_id, &updates)
+                .unwrap_or(0);
+            Some(ParsedEffect {
+                updates: FactsUpdate::default(),
+                audit: build_audit(
+                    effect_id,
+                    cmd,
+                    event,
+                    ParseResult::Parsed,
+                    &detail,
+                    facts_written,
+                ),
+            })
+        }
+    }
 }
 
 pub fn build_no_parser_audit(effect_id: &str, cmd: &ExecTtp, event: &TtpExecuted) -> ParseAudit {
@@ -81,101 +144,77 @@ pub fn build_parse_audit(
     )
 }
 
-fn resolve_output_parser(effect_name: &str) -> Option<OutputParserHandler> {
+fn resolve_output_parser(effect_name: &str) -> Option<InternalParserFn> {
     match effect_name.trim().to_ascii_lowercase().as_str() {
         "sys.envvar" => Some(parse_sys_envvar),
+        "sys.ip" => Some(parse_sys_ip),
         _ => None,
     }
 }
 
-fn parse_sys_envvar(
-    campaign: &mut Campaign,
-    effect_id: &str,
-    cmd: &ExecTtp,
-    event: &TtpExecuted,
-) -> ParsedEffect {
-    let stderr = event.results.get(1).cloned().unwrap_or_default();
-
-    let Some(stdout) = event.results.first() else {
-        return ParsedEffect {
-            updates: FactsUpdate::default(),
-            audit: build_audit(
-                effect_id,
-                cmd,
-                event,
-                ParseResult::KnownFailure,
-                "missing stdout payload",
-                0,
-            ),
-        };
-    };
-
+fn parse_sys_envvar(stdout: &str, stderr: &str) -> ParserOutput {
     let vars = parse_env_vars(stdout);
     if vars.is_empty() && !stdout.trim().is_empty() {
-        return ParsedEffect {
-            updates: FactsUpdate::default(),
-            audit: build_audit(
-                effect_id,
-                cmd,
-                event,
-                ParseResult::UnknownFormat,
-                "stdout did not contain parseable KEY=VALUE lines",
-                0,
-            ),
-        };
+        return ParserOutput::UnknownFormat(
+            "stdout did not contain parseable KEY=VALUE lines".to_string(),
+        );
     }
 
-    let Some(mut target) = get_parse_target_system(campaign, cmd) else {
-        return ParsedEffect {
-            updates: FactsUpdate::default(),
-            audit: build_audit(
-                effect_id,
-                cmd,
-                event,
-                ParseResult::KnownFailure,
-                "target is not a system entity (checked target_id and exec_system_id)",
-                0,
-            ),
-        };
+    let detail = if stderr.trim().is_empty() {
+        "parsed and merged environment variables".to_string()
+    } else {
+        "parsed and merged environment variables (stderr had non-fatal content)".to_string()
     };
 
-    let sys = target.entity_mut().system_mut();
-    let before = sys.env_vars.len();
-    sys.env_vars.extend(vars);
-    let after = sys.env_vars.len();
-
-    ParsedEffect {
-        updates: FactsUpdate::default(),
-        audit: build_audit(
-            effect_id,
-            cmd,
-            event,
-            ParseResult::Parsed,
-            if stderr.trim().is_empty() {
-                "parsed and merged environment variables"
-            } else {
-                "parsed and merged environment variables (stderr had non-fatal content)"
-            },
-            after.saturating_sub(before),
-        ),
-    }
+    ParserOutput::Success(
+        SystemFieldUpdates {
+            env_vars: vars,
+            ..Default::default()
+        },
+        detail,
+    )
 }
 
-fn get_parse_target_system<'a>(
-    campaign: &'a mut Campaign,
-    cmd: &ExecTtp,
-) -> Option<crate::CampaignSystemEntityMut<'a>> {
-    let target_id = if campaign.get_system_entity(&cmd.target_id).is_some() {
-        Some(cmd.target_id.as_str())
-    } else if !cmd.exec_system_id.trim().is_empty()
+fn parse_sys_ip(stdout: &str, _stderr: &str) -> ParserOutput {
+    let ips = parse_ip_addrs(stdout);
+    if ips.is_empty() && !stdout.trim().is_empty() {
+        return ParserOutput::UnknownFormat(
+            "stdout did not contain parseable IP addresses".to_string(),
+        );
+    }
+
+    let detail = format!("parsed {} IP address(es)", ips.len());
+    ParserOutput::Success(
+        SystemFieldUpdates {
+            ips: ips.into_iter().map(|ip| ip.to_string()).collect(),
+            ..Default::default()
+        },
+        detail,
+    )
+}
+
+fn resolve_target_id(campaign: &Campaign, cmd: &ExecTtp) -> Option<String> {
+    if campaign.get_system_entity(&cmd.target_id).is_some() {
+        return Some(cmd.target_id.clone());
+    }
+    if !cmd.exec_system_id.trim().is_empty()
         && campaign.get_system_entity(&cmd.exec_system_id).is_some()
     {
-        Some(cmd.exec_system_id.as_str())
-    } else {
-        None
-    }?;
+        return Some(cmd.exec_system_id.clone());
+    }
+    None
+}
 
-    campaign.get_system_entity_mut(target_id)
+fn parse_ip_addrs(stdout: &str) -> Vec<IpAddr> {
+    let mut ips = Vec::new();
+    for token in stdout.split_whitespace() {
+        match token.parse::<IpAddr>() {
+            Ok(ip) if !ips.contains(&ip) => ips.push(ip),
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    ips
 }
 
 fn parse_env_vars(stdout: &str) -> HashMap<String, String> {
@@ -391,5 +430,63 @@ mod tests {
             .system();
         assert_eq!(sys.env_vars.get("HOME"), Some(&"/root".to_string()));
         assert_eq!(sys.env_vars.get("PATH"), Some(&"/usr/bin".to_string()));
+    }
+
+    // --- sys.ip tests ---
+
+    #[test]
+    fn parse_ip_addrs_parses_mixed_ipv4_and_ipv6() {
+        let ips = parse_ip_addrs("10.0.0.1 192.168.1.5 ::1");
+        assert_eq!(ips.len(), 3);
+        assert!(ips.iter().any(|ip| ip.to_string() == "10.0.0.1"));
+        assert!(ips.iter().any(|ip| ip.to_string() == "192.168.1.5"));
+        assert!(ips.iter().any(|ip| ip.to_string() == "::1"));
+    }
+
+    #[test]
+    fn parse_output_effect_sys_ip_missing_stdout_returns_known_failure() {
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let mut cmd = sample_cmd();
+        cmd.ttp.effects = vec!["sys.ip".to_string()];
+        let event = sample_event(vec![]);
+
+        let parsed = parse_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
+
+        assert!(matches!(parsed.audit.parse_result, ParseResult::KnownFailure));
+    }
+
+    #[test]
+    fn parse_output_effect_sys_ip_malformed_returns_unknown_format() {
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let mut cmd = sample_cmd();
+        cmd.ttp.effects = vec!["sys.ip".to_string()];
+        let event = sample_event(vec!["not-an-ip-at-all".to_string()]);
+
+        let parsed = parse_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
+
+        assert!(matches!(parsed.audit.parse_result, ParseResult::UnknownFormat));
+    }
+
+    #[test]
+    fn parse_output_effect_sys_ip_writes_ips_to_entity() {
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let pod = Pod::new("demo", "default");
+        campaign.pods.insert(pod.entity_id(), pod);
+
+        let mut cmd = sample_cmd();
+        cmd.ttp.effects = vec!["sys.ip".to_string()];
+        let event = sample_event(vec!["10.0.0.1 172.16.0.5".to_string()]);
+
+        let parsed = parse_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
+
+        assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
+
+        let sys = campaign
+            .get_system_entity("ns/default/pod/demo")
+            .expect("pod should exist")
+            .entity()
+            .system();
+        assert!(sys.ips.iter().any(|ip| ip.to_string() == "10.0.0.1"));
+        assert!(sys.ips.iter().any(|ip| ip.to_string() == "172.16.0.5"));
     }
 }
