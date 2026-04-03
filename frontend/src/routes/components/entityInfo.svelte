@@ -126,8 +126,8 @@
 
 	function shouldShowField(label: string, data: any): boolean {
 		if (HEADER_FIELDS.has(label)) return false;
+		if (data === undefined) return false;
 		if (label === 'isRunning' && data !== false) return false;
-		if (label === 'mounts' && (!data || (Array.isArray(data) && data.length === 0))) return false;
 		return true;
 	}
 
@@ -403,7 +403,7 @@
 					</summary>
 					<pre class="max-h-80 overflow-scroll">{JSON.stringify(data, null, 2)}</pre>
 				</details>
-			{:else if data !== ''}
+			{:else if data !== undefined}
 				<div class="mb-1" class:field-changed={highlightedFields[label]}>
 					<span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}
 				</div>
