@@ -205,9 +205,9 @@ impl Analyzer for PodNodeAnalyzer {
 /// when the SA was not independently discovered through K8s API enumeration.
 /// The automount_service_account_token field is respected: if it is
 /// explicitly `No`, no `uses` relation is emitted.
-pub struct PodServiceAccountAnalyzer;
+pub struct ServiceAccountAnalyzer;
 
-impl Analyzer for PodServiceAccountAnalyzer {
+impl Analyzer for ServiceAccountAnalyzer {
     fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
@@ -251,6 +251,65 @@ impl Analyzer for PodServiceAccountAnalyzer {
             inferred
                 .new_relations
                 .push(Box::new(Uses::new(pod.entity_id().0.clone(), sa_id.0.clone())));
+        }
+
+        inferred
+    }
+}
+
+/// For every new `ServiceAccount` whose token carries pod claims, ensure the
+/// referenced `Pod` entity exists with the correct `service_account_name` and
+/// wire a `uses` relation (Pod → SA).
+///
+/// This is the token-driven counterpart of `ServiceAccountAnalyzer`: while
+/// `ServiceAccountAnalyzer` propagates an SA from a pod's spec field,
+/// `ServiceAccountTokenAnalyzer` propagates a pod from the SA token's claims.
+/// Bound tokens also contain a node name, which is used to emit a `runs-on`
+/// relation when the pod is not yet scheduled.
+pub struct ServiceAccountTokenAnalyzer;
+
+impl Analyzer for ServiceAccountTokenAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(sa) = entity.as_any().downcast_ref::<ServiceAccount>() else {
+                continue;
+            };
+            let Some(token) = &sa.token else {
+                continue;
+            };
+            let Some(pod_name) = &token.pod_name else {
+                continue;
+            };
+            if pod_name.is_empty() {
+                continue;
+            }
+
+            let ns_name = &token.namespace;
+            if ns_name.is_empty() {
+                continue;
+            }
+
+            // Ensure a Pod entity exists for the token's pod claim.
+            let mut pod = Pod::new(pod_name.as_str(), ns_name.as_str());
+            pod.service_account_name = Some(token.service_account_name.clone());
+            // Mark the pod as running — the token was read from it, so it was alive.
+            pod.is_running = true;
+
+            let pod_id = pod.entity_id();
+            let sa_id = sa.entity_id();
+
+            let pod_known = campaign.pods.contains_key(&pod_id)
+                || update.new_entities.iter().any(|e| e.entity_id() == pod_id);
+            if !pod_known {
+                inferred.new_entities.push(Box::new(pod));
+            }
+
+            // Wire pod → SA uses relation.
+            inferred
+                .new_relations
+                .push(Box::new(Uses::new(pod_id.0.clone(), sa_id.0.clone())));
         }
 
         inferred
@@ -426,7 +485,8 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(PodNamespaceAnalyzer),
         Box::new(ServiceAccountNamespaceAnalyzer),
         Box::new(PodNodeAnalyzer),
-        Box::new(PodServiceAccountAnalyzer),
+        Box::new(ServiceAccountAnalyzer),
+        Box::new(ServiceAccountTokenAnalyzer),
         Box::new(HostPathAnalyzer),
         Box::new(ServiceAccountCanExecAnalyzer),
         Box::new(KubeletExecSinkAnalyzer),
@@ -736,6 +796,93 @@ mod tests {
                 && r.source_id().0 == sa.entity_id().0
                 && r.target_id().0 == pod.entity_id().0
         }));
+    }
+
+    #[test]
+    fn sa_with_token_creates_pod_entity_and_uses_relation() {
+        use ran_domain::{JwToken, ServiceAccountToken};
+
+        let campaign = test_campaign();
+
+        let token = ServiceAccountToken {
+            jwt: JwToken { raw: "raw.jwt.here".to_string(), ..Default::default() },
+            namespace: "default".to_string(),
+            service_account_name: "web-sa".to_string(),
+            pod_name: Some("web-pod".to_string()),
+            pod_uid: Some("pod-uid".to_string()),
+            is_bound: true,
+            ..Default::default()
+        };
+        let mut sa = ServiceAccount::new("web-sa", "default");
+        sa.token = Some(token);
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(sa.clone()));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(
+            update.new_entities.iter().any(|e| e.entity_kind() == "Pod" && e.entity_name() == "web-pod"),
+            "expected Pod entity to be inferred from token"
+        );
+        assert!(
+            update.new_relations.iter().any(|r| r.relation_name() == "uses"),
+            "expected uses relation from pod to SA"
+        );
+    }
+
+    #[test]
+    fn sa_with_token_does_not_duplicate_existing_pod() {
+        use ran_domain::{JwToken, ServiceAccountToken};
+
+        let mut campaign = test_campaign();
+        let existing_pod = Pod::new("web-pod", "default");
+        campaign.pods.insert(existing_pod.entity_id(), existing_pod);
+
+        let token = ServiceAccountToken {
+            jwt: JwToken { raw: "raw.jwt.token".to_string(), ..Default::default() },
+            namespace: "default".to_string(),
+            service_account_name: "web-sa".to_string(),
+            pod_name: Some("web-pod".to_string()),
+            pod_uid: Some("uid".to_string()),
+            is_bound: true,
+            ..Default::default()
+        };
+        let mut sa = ServiceAccount::new("web-sa", "default");
+        sa.token = Some(token);
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(sa));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        let pod_entities: Vec<_> = update
+            .new_entities
+            .iter()
+            .filter(|e| e.entity_kind() == "Pod" && e.entity_name() == "web-pod")
+            .collect();
+        assert!(pod_entities.is_empty(), "should not duplicate pod already in campaign");
+        assert!(
+            update.new_relations.iter().any(|r| r.relation_name() == "uses"),
+            "uses relation should still be emitted"
+        );
+    }
+
+    #[test]
+    fn sa_without_token_is_ignored_by_token_analyzer() {
+        let campaign = test_campaign();
+
+        let sa = ServiceAccount::new("bare-sa", "default");
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(sa));
+
+        let analyzer = super::ServiceAccountTokenAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        assert!(inferred.new_entities.is_empty());
+        assert!(inferred.new_relations.is_empty());
     }
 
     #[test]
