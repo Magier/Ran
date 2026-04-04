@@ -48,6 +48,10 @@ pub struct ExecChannel {
     /// `None` = reach target directly. `Some(id)` = route via a compromised
     /// intermediate system (reserved for future agent-based backends).
     pub via: Option<String>,
+    /// Overrides the exec target entity ID when the requested target (e.g. a
+    /// service account) was resolved to a concrete pod that should receive the
+    /// command. `None` means use the original `request.target_id`.
+    pub exec_target_id: Option<String>,
 }
 
 impl ExecChannel {
@@ -55,6 +59,7 @@ impl ExecChannel {
         Self {
             backend_id: backend_id.into(),
             via: None,
+            exec_target_id: None,
         }
     }
 
@@ -62,6 +67,7 @@ impl ExecChannel {
         Self {
             backend_id: backend_id.into(),
             via: Some(intermediate_id.into()),
+            exec_target_id: None,
         }
     }
 }
