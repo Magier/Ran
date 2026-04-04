@@ -12,7 +12,7 @@ pub struct ParsedStructuralEffect {
     pub handled: bool,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct FactsUpdate {
     pub new_entities: Vec<Box<dyn Entity + Send + Sync>>,
     pub new_relations: Vec<Box<dyn Relation + Send + Sync>>,

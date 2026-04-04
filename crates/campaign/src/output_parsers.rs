@@ -1,8 +1,13 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use c2::{ExecTtp, TtpExecuted};
-use ran_domain::{AccessLevel, Mount, Process};
+use ran_domain::{
+    AccessLevel, Contains, Entity, JwToken, K8sNode, Mount, Namespace, Pod, Process, RunsOn,
+    ServiceAccount, ServiceAccountToken, Uses,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -42,7 +47,10 @@ pub struct ParsedEffect {
 #[allow(dead_code)]
 #[derive(Debug)]
 enum ParserOutput {
+    /// Parser updated system-level fields on the target entity.
     Success(SystemFieldUpdates, String),
+    /// Parser produced new entities and relations (not tied to a system target).
+    SuccessWithFacts(FactsUpdate, String),
     KnownFailure(String),
     UnknownFormat(String),
 }
@@ -101,6 +109,20 @@ pub fn parse_output_effect(
             updates: FactsUpdate::default(),
             audit: build_audit(effect_id, cmd, event, ParseResult::UnknownFormat, &detail, 0),
         }),
+        ParserOutput::SuccessWithFacts(facts, detail) => {
+            let facts_written = facts.new_entities.len() + facts.new_relations.len();
+            Some(ParsedEffect {
+                updates: facts,
+                audit: build_audit(
+                    effect_id,
+                    cmd,
+                    event,
+                    ParseResult::Parsed,
+                    &detail,
+                    facts_written,
+                ),
+            })
+        }
         ParserOutput::Success(updates, detail) => {
             let target_id = resolve_target_id(campaign, cmd);
             let Some(target_id) = target_id else {
@@ -170,6 +192,7 @@ fn resolve_output_parser(effect_name: &str) -> Option<InternalParserFn> {
         "sys.processes" => Some(parse_sys_processes),
         "sys.userid" => Some(parse_sys_userid),
         "linux.mounts" => Some(parse_linux_mounts),
+        "rawserviceaccounttoken" => Some(parse_raw_service_account_token),
         _ => None,
     }
 }
@@ -447,6 +470,255 @@ fn parse_mount_cmd_line(line: &str) -> Option<Mount> {
 /// indicating the pod has visibility into the node's filesystem.
 fn is_kubelet_host_path(mount_point: &str) -> bool {
     mount_point.contains("/var/lib/kubelet")
+}
+
+// ---------------------------------------------------------------------------
+// rawServiceAccountToken
+// ---------------------------------------------------------------------------
+
+/// Internal structs for deserializing the Kubernetes JWT payload.
+#[derive(Debug, Deserialize)]
+struct JwtPayload {
+    sub: Option<String>,
+    #[serde(default)]
+    aud: serde_json::Value,
+    iss: Option<String>,
+    exp: Option<i64>,
+    iat: Option<i64>,
+    #[serde(rename = "kubernetes.io")]
+    kubernetes: Option<KubernetesPayload>,
+    // Legacy (non-projected) SA token fields.
+    #[serde(rename = "kubernetes.io/serviceaccount/namespace")]
+    legacy_namespace: Option<String>,
+    #[serde(rename = "kubernetes.io/serviceaccount/service-account.name")]
+    legacy_sa_name: Option<String>,
+    #[serde(rename = "kubernetes.io/serviceaccount/service-account.uid")]
+    legacy_sa_uid: Option<String>,
+    #[serde(rename = "kubernetes.io/serviceaccount/pod.name")]
+    legacy_pod_name: Option<String>,
+    #[serde(rename = "kubernetes.io/serviceaccount/pod.uid")]
+    legacy_pod_uid: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct KubernetesPayload {
+    namespace: Option<String>,
+    pod: Option<ResourceRef>,
+    node: Option<ResourceRef>,
+    serviceaccount: Option<ResourceRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResourceRef {
+    name: Option<String>,
+    uid: Option<String>,
+}
+
+/// Parse a raw Kubernetes ServiceAccount JWT from stdout and produce new
+/// entities (ServiceAccount, Namespace, Pod, Node) and relations.
+///
+/// Mirrors Go's `parseRawServiceAccountToken` + `analyzeServiceAccountToken`.
+///
+/// Handles multi-line stdout: searches for the first line containing `ey`
+/// and `.`, which is the hallmark of a base64url-encoded JWT.
+fn parse_raw_service_account_token(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty output — no token provided".to_string());
+    }
+
+    // Find the JWT within possibly multi-line output.
+    let token_str = find_jwt_in_output(stdout);
+    if token_str.is_empty() {
+        return ParserOutput::KnownFailure(
+            "could not locate a JWT token in output".to_string(),
+        );
+    }
+
+    // Decode the JWT payload (second of three dot-separated segments).
+    let parts: Vec<&str> = token_str.splitn(3, '.').collect();
+    if parts.len() != 3 {
+        return ParserOutput::UnknownFormat(format!(
+            "expected 3 JWT segments, got {}",
+            parts.len()
+        ));
+    }
+
+    let payload_bytes = match URL_SAFE_NO_PAD.decode(parts[1]) {
+        Ok(b) => b,
+        Err(e) => {
+            return ParserOutput::UnknownFormat(format!(
+                "failed to base64-decode JWT payload: {e}"
+            ))
+        }
+    };
+
+    let payload: JwtPayload = match serde_json::from_slice(&payload_bytes) {
+        Ok(p) => p,
+        Err(e) => {
+            return ParserOutput::UnknownFormat(format!(
+                "failed to parse JWT payload JSON: {e}"
+            ))
+        }
+    };
+
+    // Resolve namespace and SA name from either projected or legacy claims.
+    let (namespace, sa_name, sa_uid, pod_name, pod_uid, node_name) =
+        resolve_k8s_claims(&payload);
+
+    if namespace.is_empty() || sa_name.is_empty() {
+        return ParserOutput::UnknownFormat(
+            "JWT payload missing required kubernetes namespace or serviceaccount claims"
+                .to_string(),
+        );
+    }
+
+    // Build the audience list for JwToken.
+    let audience = match &payload.aud {
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        serde_json::Value::String(s) => vec![s.clone()],
+        _ => vec![],
+    };
+
+    let jwt = JwToken {
+        raw: token_str.to_string(),
+        subject: payload.sub.clone(),
+        audience,
+        issuer: payload.iss.clone(),
+        expires_at: payload.exp,
+        issued_at: payload.iat,
+    };
+
+    let is_bound = pod_uid.as_deref().map(|u| !u.is_empty()).unwrap_or(false);
+
+    let token = ServiceAccountToken {
+        jwt,
+        namespace: namespace.clone(),
+        service_account_name: sa_name.clone(),
+        service_account_uid: sa_uid,
+        pod_name: pod_name.clone(),
+        pod_uid,
+        is_bound,
+    };
+
+    // Assemble FactsUpdate.
+    let mut facts = FactsUpdate::default();
+
+    // Namespace.
+    let ns = Namespace::new(&namespace);
+    let ns_id = ns.entity_id();
+    facts.new_entities.push(Box::new(ns));
+
+    // ServiceAccount (with token).
+    let mut sa = ServiceAccount::new(&sa_name, &namespace);
+    sa.token = Some(token);
+    let sa_id = sa.entity_id();
+    facts.new_entities.push(Box::new(sa));
+
+    // Contains: namespace → SA.
+    facts
+        .new_relations
+        .push(Box::new(Contains::new(ns_id.0.clone(), sa_id.0.clone())));
+
+    // Pod (if the token carries pod claims — always true for bound tokens and
+    // most legacy tokens that include pod info).
+    if let Some(pod_name) = &pod_name {
+        if !pod_name.is_empty() {
+            let mut pod = Pod::new(pod_name.as_str(), namespace.as_str());
+            pod.service_account_name = Some(sa_name.clone());
+            pod.is_running = true;
+            let pod_id = pod.entity_id();
+
+            // If bound, attach the node name.
+            if let Some(node_name) = &node_name {
+                if !node_name.is_empty() {
+                    pod.node_name = Some(node_name.clone());
+
+                    let node = K8sNode::new(node_name.as_str());
+                    let node_id = node.entity_id();
+                    facts.new_entities.push(Box::new(node));
+                    facts.new_relations.push(Box::new(RunsOn::new(
+                        pod_id.0.clone(),
+                        node_id.0.clone(),
+                    )));
+                }
+            }
+
+            facts.new_entities.push(Box::new(pod));
+
+            // Uses: pod → SA.
+            facts
+                .new_relations
+                .push(Box::new(Uses::new(pod_id.0.clone(), sa_id.0.clone())));
+        }
+    }
+
+    let entity_count = facts.new_entities.len();
+    let relation_count = facts.new_relations.len();
+    let detail = format!(
+        "decoded SA token for {}/{}: {} entities, {} relations",
+        namespace, sa_name, entity_count, relation_count
+    );
+
+    ParserOutput::SuccessWithFacts(facts, detail)
+}
+
+/// Extract the JWT string from possibly multi-line output.
+///
+/// A JWT starts with a base64url-encoded header, so the first segment always
+/// starts with `ey` (base64 of `{"`).  The token must also contain at least
+/// two `.` separators.
+fn find_jwt_in_output(stdout: &str) -> &str {
+    // Single-line (common case): the whole trimmed output is the token.
+    let trimmed = stdout.trim();
+    if !trimmed.contains('\n') {
+        return trimmed;
+    }
+
+    // Multi-line: search for the JWT line.
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.contains("ey") && line.contains('.') {
+            return line;
+        }
+    }
+
+    ""
+}
+
+/// Resolve Kubernetes claims from a JWT payload, supporting both projected
+/// (new-style `kubernetes.io` claim) and legacy flat claim formats.
+///
+/// Returns `(namespace, sa_name, sa_uid, pod_name, pod_uid, node_name)`.
+fn resolve_k8s_claims(
+    payload: &JwtPayload,
+) -> (String, String, Option<String>, Option<String>, Option<String>, Option<String>) {
+    if let Some(k8s) = &payload.kubernetes {
+        let namespace = k8s.namespace.clone().unwrap_or_default();
+        let sa_name = k8s
+            .serviceaccount
+            .as_ref()
+            .and_then(|sa| sa.name.clone())
+            .unwrap_or_default();
+        let sa_uid = k8s
+            .serviceaccount
+            .as_ref()
+            .and_then(|sa| sa.uid.clone());
+        let pod_name = k8s.pod.as_ref().and_then(|p| p.name.clone());
+        let pod_uid = k8s.pod.as_ref().and_then(|p| p.uid.clone());
+        let node_name = k8s.node.as_ref().and_then(|n| n.name.clone());
+        (namespace, sa_name, sa_uid, pod_name, pod_uid, node_name)
+    } else {
+        // Legacy flat claims.
+        let namespace = payload.legacy_namespace.clone().unwrap_or_default();
+        let sa_name = payload.legacy_sa_name.clone().unwrap_or_default();
+        let sa_uid = payload.legacy_sa_uid.clone();
+        let pod_name = payload.legacy_pod_name.clone();
+        let pod_uid = payload.legacy_pod_uid.clone();
+        (namespace, sa_name, sa_uid, pod_name, pod_uid, None)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1148,5 +1420,141 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
             .system();
         use ran_domain::BinaryPresence;
         assert_eq!(sys.has_binary("curl"), BinaryPresence::Present("/usr/bin/curl".to_string()));
+    }
+
+    // --- rawServiceAccountToken tests ---
+
+    /// Build a minimal JWT string with the given JSON payload (no real signature).
+    fn make_jwt(payload_json: &str) -> String {
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"RS256","typ":"JWT"}"#);
+        let payload = URL_SAFE_NO_PAD.encode(payload_json);
+        format!("{}.{}.fakesig", header, payload)
+    }
+
+    #[test]
+    fn parse_raw_sa_token_projected_creates_entities_and_relations() {
+        let payload = r#"{
+            "aud": ["https://kubernetes.default.svc.cluster.local"],
+            "exp": 9999999999,
+            "iat": 1000000000,
+            "iss": "https://kubernetes.default.svc.cluster.local",
+            "kubernetes.io": {
+                "namespace": "prod",
+                "node": {"name": "worker-1", "uid": "node-uid-1"},
+                "pod": {"name": "api-pod", "uid": "pod-uid-1"},
+                "serviceaccount": {"name": "api-sa", "uid": "sa-uid-1"}
+            },
+            "sub": "system:serviceaccount:prod:api-sa"
+        }"#;
+        let jwt = make_jwt(payload);
+        let result = parse_raw_service_account_token(&jwt, "");
+
+        let ParserOutput::SuccessWithFacts(facts, detail) = result else {
+            panic!("expected SuccessWithFacts, got {:?}", result);
+        };
+
+        assert!(detail.contains("prod/api-sa"));
+
+        // Namespace, ServiceAccount, Pod, K8sNode
+        assert_eq!(facts.new_entities.len(), 4);
+        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "Namespace" && e.entity_name() == "prod"));
+        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "ServiceAccount" && e.entity_name() == "api-sa"));
+        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "Pod" && e.entity_name() == "api-pod"));
+        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "Node" && e.entity_name() == "worker-1"));
+
+        // Contains (ns→sa), Uses (pod→sa), RunsOn (pod→node)
+        assert_eq!(facts.new_relations.len(), 3);
+        assert!(facts.new_relations.iter().any(|r| r.relation_name() == "contains"));
+        assert!(facts.new_relations.iter().any(|r| r.relation_name() == "uses"));
+        assert!(facts.new_relations.iter().any(|r| r.relation_name() == "runs-on"));
+    }
+
+    #[test]
+    fn parse_raw_sa_token_legacy_creates_entities_without_node() {
+        let payload = r#"{
+            "iss": "kubernetes/serviceaccount",
+            "kubernetes.io/serviceaccount/namespace": "default",
+            "kubernetes.io/serviceaccount/service-account.name": "default-sa",
+            "kubernetes.io/serviceaccount/service-account.uid": "abc123",
+            "sub": "system:serviceaccount:default:default-sa"
+        }"#;
+        let jwt = make_jwt(payload);
+        let result = parse_raw_service_account_token(&jwt, "");
+
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected SuccessWithFacts");
+        };
+
+        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "ServiceAccount" && e.entity_name() == "default-sa"));
+        // No node entity since legacy tokens don't carry node info.
+        assert!(!facts.new_entities.iter().any(|e| e.entity_kind() == "Node"));
+        // No RunsOn relation.
+        assert!(!facts.new_relations.iter().any(|r| r.relation_name() == "runs-on"));
+    }
+
+    #[test]
+    fn parse_raw_sa_token_token_is_set_on_sa_entity() {
+        let payload = r#"{
+            "kubernetes.io": {
+                "namespace": "kube-system",
+                "pod": {"name": "coredns", "uid": "uid-1"},
+                "serviceaccount": {"name": "coredns"}
+            },
+            "sub": "system:serviceaccount:kube-system:coredns"
+        }"#;
+        let jwt = make_jwt(payload);
+        let result = parse_raw_service_account_token(&jwt, "");
+
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected SuccessWithFacts");
+        };
+
+        let sa_entity = facts
+            .new_entities
+            .iter()
+            .find(|e| e.entity_kind() == "ServiceAccount")
+            .expect("SA entity must be present");
+
+        let sa = sa_entity
+            .as_any()
+            .downcast_ref::<ran_domain::ServiceAccount>()
+            .expect("must downcast to ServiceAccount");
+
+        let token = sa.token.as_ref().expect("token must be set on SA");
+        assert!(!token.raw().is_empty(), "raw JWT must be stored in token");
+        assert_eq!(token.service_account_name, "coredns");
+        assert_eq!(token.namespace, "kube-system");
+        assert!(token.is_bound, "pod uid present → token is bound");
+    }
+
+    #[test]
+    fn parse_raw_sa_token_multiline_output_finds_jwt() {
+        let payload = r#"{"kubernetes.io":{"namespace":"test","serviceaccount":{"name":"test-sa"}},"sub":"system:serviceaccount:test:test-sa"}"#;
+        let jwt = make_jwt(payload);
+        // Wrap the token in noisy multi-line output.
+        let stdout = format!("some noise\n{jwt}\nmore noise\n");
+        let result = parse_raw_service_account_token(&stdout, "");
+        assert!(matches!(result, ParserOutput::SuccessWithFacts(_, _)));
+    }
+
+    #[test]
+    fn parse_raw_sa_token_empty_input_returns_known_failure() {
+        let result = parse_raw_service_account_token("", "");
+        assert!(matches!(result, ParserOutput::KnownFailure(_)));
+    }
+
+    #[test]
+    fn parse_raw_sa_token_invalid_base64_returns_unknown_format() {
+        let result = parse_raw_service_account_token("eyXXX.!!!.sig", "");
+        assert!(matches!(result, ParserOutput::UnknownFormat(_)));
+    }
+
+    #[test]
+    fn parse_raw_sa_token_missing_k8s_claims_returns_unknown_format() {
+        // Valid JWT but payload has no kubernetes claims.
+        let payload = r#"{"sub": "some-subject", "exp": 99999}"#;
+        let jwt = make_jwt(payload);
+        let result = parse_raw_service_account_token(&jwt, "");
+        assert!(matches!(result, ParserOutput::UnknownFormat(_)));
     }
 }
