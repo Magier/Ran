@@ -19,6 +19,8 @@
 
 use std::collections::HashMap;
 
+use ran_domain::EntityId;
+
 use crate::campaign::{CampaignEntityRef, Campaign};
 
 // ---------------------------------------------------------------------------
@@ -32,6 +34,8 @@ use crate::campaign::{CampaignEntityRef, Campaign};
 /// | `NS` / `NAMESPACE`           | Target entity's namespace. Only replaced when the current value is empty or exactly `"${NS}"` / `"${NAMESPACE}"`. |
 /// | `POD_NAME` / `PODNAME`       | Target entity's name. Replaces the `${POD_NAME}` token wherever it appears in the value. |
 /// | `NODE` / `NODENAME` / `NODE_NAME` | The pod's scheduled node name. Only replaced when the current value is empty or exactly `"${NODE_NAME}"`. |
+/// | `TOKEN`                      | SA entity ID → raw JWT. Looks up the SA in the campaign by ID and extracts its token. |
+/// | `API_SERVER`                 | Empty or template-var → `https://kubernetes.default.svc`. |
 /// | *(any)*                      | Any value containing `${RANDOM}` is replaced with a 5-digit pseudo-random number. |
 ///
 /// Call this **before** [`crate::effects::ground_template`] so that
@@ -67,6 +71,26 @@ pub fn ground_args_from_context(
             "NODE" | "NODENAME" | "NODE_NAME" => {
                 if value.is_empty() || value == "${NODE_NAME}" {
                     *value = target_node.clone().unwrap_or_default();
+                }
+            }
+            "TOKEN" => {
+                if !value.is_empty() {
+                    // Value is a SA entity ID — resolve it to the raw JWT.
+                    let sa_id = EntityId::new(value.as_str());
+                    if let Some(sa) = campaign.service_accounts.get(&sa_id) {
+                        if let Some(raw) = sa.raw_token() {
+                            *value = raw.to_string();
+                        } else {
+                            tracing::warn!(sa_id = %sa_id.0, "TOKEN arg references SA with no extracted token");
+                        }
+                    } else {
+                        tracing::warn!(sa_id = %value, "TOKEN arg references unknown SA entity");
+                    }
+                }
+            }
+            "API_SERVER" => {
+                if value.is_empty() || value == "${API_SERVER}" {
+                    *value = "https://kubernetes.default.svc".to_string();
                 }
             }
             _ => {}
