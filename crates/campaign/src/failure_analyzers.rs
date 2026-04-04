@@ -81,6 +81,14 @@ impl FailureAnalyzer for ConnectivityFailureAnalyzer {
 
 impl FailureAnalyzer for CommandNotFoundFailureAnalyzer {
     fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
+        // Exit code 127 is the POSIX shell standard for "command not found".
+        if event.exit_code == 127 {
+            return Some(FailureClassification {
+                parse_result: ParseResult::KnownFailure,
+                detail: "command or binary was not found in execution environment".to_string(),
+            });
+        }
+
         let haystack = failure_haystack(event);
         if contains_any(
             &haystack,
@@ -204,6 +212,21 @@ mod tests {
 
         assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
         assert!(classified.detail.contains("RBAC"));
+    }
+
+    #[test]
+    fn classify_failure_detects_exit_code_127_as_command_not_found() {
+        let cmd = sample_cmd();
+        let mut event = sample_failed_event(
+            "command terminated with non-zero exit code: error executing command [/bin/sh -lc ps -ef], exit code 127",
+            "",
+        );
+        event.exit_code = 127;
+
+        let classified = classify_failure(&cmd, &event);
+
+        assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
+        assert!(classified.detail.contains("not found"));
     }
 
     #[test]

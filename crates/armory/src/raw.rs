@@ -109,7 +109,7 @@ impl RawTtp {
             self.references_typo
         };
 
-        let requires = match self.preconditions.or(self.requires) {
+        let mut requires = match self.preconditions.or(self.requires) {
             Some(JsonValue::Object(map)) => map,
             Some(other) => {
                 let mut map = JsonMap::new();
@@ -118,6 +118,7 @@ impl RawTtp {
             }
             None => JsonMap::new(),
         };
+        normalize_requires(&mut requires);
 
         let tactic = self
             .tactic
@@ -146,6 +147,35 @@ impl RawTtp {
             procedures,
             references,
         })
+    }
+}
+
+/// Normalise the `requires` map so it matches the OpenAPI `Requirements` schema
+/// the frontend expects.
+///
+/// - Renames `"rbac"` → `"rbacPermissions"` so the frontend badge renderer fires.
+/// - Within each RBAC entry, renames `"resource"` → `"resourceType"` to match the
+///   `RBACPermission` schema field used by `formatRbac`.
+fn normalize_requires(map: &mut JsonMap<String, JsonValue>) {
+    if let Some(rbac) = map.remove("rbac") {
+        let normalized = if let JsonValue::Array(entries) = rbac {
+            let entries = entries
+                .into_iter()
+                .map(|entry| {
+                    let JsonValue::Object(mut obj) = entry else {
+                        return entry;
+                    };
+                    if let Some(resource) = obj.remove("resource") {
+                        obj.insert("resourceType".to_string(), resource);
+                    }
+                    JsonValue::Object(obj)
+                })
+                .collect();
+            JsonValue::Array(entries)
+        } else {
+            rbac
+        };
+        map.insert("rbacPermissions".to_string(), normalized);
     }
 }
 
@@ -180,5 +210,38 @@ procedures:
         assert_eq!(ttp.params[0].param_type, "string");
         assert_eq!(ttp.requires.get("kind").and_then(|v| v.as_str()), Some("Deployment"));
         assert_eq!(ttp.procedures[0].id, "kubectl");
+    }
+
+    #[test]
+    fn rbac_field_is_normalised_to_rbac_permissions() {
+        let yaml = r#"
+name: Delete Events
+tactic: Defense Evasion
+preconditions:
+  rbac:
+    - verb: delete
+      resource: events
+procedures:
+  - command: kubectl delete events --all
+"#;
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw.into_ttp(Path::new("Defense Evasion/delete_events.yaml")).unwrap();
+
+        assert!(
+            ttp.requires.get("rbac").is_none(),
+            "raw 'rbac' key should be removed"
+        );
+        let rbac_perms = ttp.requires
+            .get("rbacPermissions")
+            .expect("rbacPermissions should exist")
+            .as_array()
+            .expect("should be array");
+        assert_eq!(rbac_perms.len(), 1);
+
+        let entry = rbac_perms[0].as_object().unwrap();
+        assert!(entry.contains_key("resourceType"), "resource should be renamed to resourceType");
+        assert!(!entry.contains_key("resource"), "original 'resource' key should be gone");
+        assert_eq!(entry["verb"].as_str(), Some("delete"));
+        assert_eq!(entry["resourceType"].as_str(), Some("events"));
     }
 }

@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use ran_domain::{Entity, KubeletExecSource, Pod, PodExec, Relation, RunsOn};
 
+use crate::grounding::resolve_go_template;
+
 type SimpleEffectHandler = fn(&HashMap<String, String>) -> Result<FactsUpdate, String>;
 type RelationEffectHandler = fn(&[&str]) -> Result<FactsUpdate, String>;
 
@@ -44,8 +46,10 @@ impl FactsUpdate {
 }
 
 pub fn ground_template(template: &str, args: &HashMap<String, String>) -> String {
-    let mut grounded = template.to_string();
+    // Pass 1: evaluate Go-style {{ if/else/end }} blocks and {{.Var}} substitutions.
+    let mut grounded = resolve_go_template(template, args);
 
+    // Pass 2: replace ${KEY} placeholders (case-insensitive key matching).
     for (k, v) in args {
         let key = format!("${{{}}}", k.to_uppercase());
         grounded = grounded.replace(&key, v);

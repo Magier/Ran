@@ -193,6 +193,47 @@ impl Relation for KubeletExecSink {
 }
 
 // ---------------------------------------------------------------------------
+// Uses
+// ---------------------------------------------------------------------------
+
+/// Workload-identity relation: the subject (pod) uses the object (service account).
+///
+/// Created when a pod has `service_account_name` set and automounting is not
+/// explicitly disabled, indicating the pod's containers receive the SA token.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Uses {
+    pub subject_id: EntityId,
+    pub object_id: EntityId,
+}
+
+impl Uses {
+    pub fn new(subject_id: impl Into<String>, object_id: impl Into<String>) -> Self {
+        Self {
+            subject_id: EntityId::new(subject_id),
+            object_id: EntityId::new(object_id),
+        }
+    }
+}
+
+impl Relation for Uses {
+    fn relation_name(&self) -> &str {
+        "uses"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.subject_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.object_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
 // RelationSummary
 // ---------------------------------------------------------------------------
 

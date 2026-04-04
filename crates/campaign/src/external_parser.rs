@@ -39,6 +39,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
+use ran_domain::BinaryPresence;
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -90,6 +91,19 @@ pub struct SystemFieldUpdates {
 
     #[serde(default)]
     pub user_id: Option<u32>,
+
+    #[serde(default)]
+    pub processes: Vec<ran_domain::Process>,
+
+    #[serde(default)]
+    pub mounts: Vec<ran_domain::Mount>,
+
+    #[serde(default)]
+    pub access_level: Option<ran_domain::AccessLevel>,
+
+    /// Binary name → path on the system. Empty path means the binary is known to be absent.
+    #[serde(default)]
+    pub binaries: HashMap<String, String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +170,36 @@ pub fn apply_system_field_updates(
     if let Some(uid) = updates.user_id {
         if sys.user_id != Some(uid) {
             sys.user_id = Some(uid);
+            count += 1;
+        }
+    }
+
+    for proc in &updates.processes {
+        if !sys.processes.iter().any(|p| p.pid == proc.pid) {
+            sys.processes.push(proc.clone());
+            count += 1;
+        }
+    }
+
+    for mount in &updates.mounts {
+        if !sys.mounts.iter().any(|m| m.mount_point == mount.mount_point) {
+            sys.mounts.push(mount.clone());
+            count += 1;
+        }
+    }
+
+    if let Some(level) = &updates.access_level {
+        if &sys.access_level != level {
+            sys.access_level = *level;
+            count += 1;
+        }
+    }
+
+    for (name, path) in &updates.binaries {
+        // Only record if currently unknown — the parser has definitive data, but we
+        // don't want to silently overwrite a more precise path already recorded.
+        if sys.has_binary(name) == BinaryPresence::Unknown {
+            sys.set_binary(name.clone(), path.clone());
             count += 1;
         }
     }

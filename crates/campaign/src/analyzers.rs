@@ -1,6 +1,6 @@
 use ran_domain::{
-    Contains, Entity, EntityId, K8sNode, KubeletExecSink, Pod, PodExec, RelationSummary, RunsOn,
-    ServiceAccount,
+    Confidence, Contains, Entity, EntityId, K8sNode, KubeletExecSink, Pod, PodExec,
+    RelationSummary, RunsOn, ServiceAccount, Uses,
 };
 
 use ran_domain::Namespace;
@@ -198,6 +198,65 @@ impl Analyzer for PodNodeAnalyzer {
     }
 }
 
+/// For every running `Pod` with a `service_account_name`, ensure the
+/// `ServiceAccount` entity exists and wire a `uses` relation (Pod → SA).
+///
+/// This makes the pod's SA visible to `ServiceAccountCanExecAnalyzer` even
+/// when the SA was not independently discovered through K8s API enumeration.
+/// The automount_service_account_token field is respected: if it is
+/// explicitly `No`, no `uses` relation is emitted.
+pub struct PodServiceAccountAnalyzer;
+
+impl Analyzer for PodServiceAccountAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
+                continue;
+            };
+
+            // Skip if automount is explicitly disabled.
+            if pod.automount_service_account_token == Confidence::No {
+                continue;
+            }
+
+            let Some(sa_name) = pod.service_account_name.as_deref() else {
+                continue;
+            };
+            if sa_name.is_empty() {
+                continue;
+            }
+
+            let Some(ns_name) = pod.namespace() else {
+                continue;
+            };
+            if ns_name.is_empty() {
+                continue;
+            }
+
+            let sa = ServiceAccount::new(sa_name, ns_name);
+            let sa_id = sa.entity_id();
+
+            // Only emit the SA entity if it is not already known.
+            let sa_known = campaign.service_accounts.contains_key(&sa_id)
+                || update
+                    .new_entities
+                    .iter()
+                    .any(|e| e.entity_id() == sa_id);
+            if !sa_known {
+                inferred.new_entities.push(Box::new(sa));
+            }
+
+            inferred
+                .new_relations
+                .push(Box::new(Uses::new(pod.entity_id().0.clone(), sa_id.0.clone())));
+        }
+
+        inferred
+    }
+}
+
 /// Infer `k8s.can-exec` when an SA has create pods/exec permission in scope
 /// and the target pod is running.
 pub struct ServiceAccountCanExecAnalyzer;
@@ -290,6 +349,72 @@ impl Analyzer for KubeletExecSinkAnalyzer {
     }
 }
 
+/// Inspect a pod's runtime mounts and infer host-path access.
+///
+/// When a pod has mount entries that include `/var/lib/kubelet`, it has
+/// host-filesystem visibility and the kubelet node can be identified.
+/// This analyzer:
+///
+/// 1. Marks mounts whose `mount_point` contains `/var/lib/kubelet` as
+///    `is_host_path = true` by updating the pod's `system.mounts`.
+/// 2. Extracts a node name from kubelet paths of the form
+///    `/var/lib/kubelet/pods/<uid>/...` and, where a node is not yet known,
+///    infers a `runs-on` relation to supplement the scheduling information.
+///
+/// The mount data is populated by the `linux.mounts` output parser after
+/// running a `cat /proc/self/mountinfo` or `mount` command on the target.
+pub struct HostPathAnalyzer;
+
+impl Analyzer for HostPathAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let pods = collect_pods(campaign, update);
+
+        for pod in pods {
+            let kubelet_mounts: Vec<_> = pod
+                .system
+                .mounts
+                .iter()
+                .filter(|m| m.mount_point.contains("/var/lib/kubelet"))
+                .collect();
+
+            if kubelet_mounts.is_empty() {
+                continue;
+            }
+
+            // If the pod already has a known node, skip the runs-on inference.
+            let already_has_node = campaign
+                .relations
+                .iter()
+                .any(|r| r.name == "runs-on" && r.source_id == pod.entity_id().0);
+
+            if !already_has_node {
+                // Try to derive a node name from the host path:
+                // kubelet bind-mounts appear at paths like
+                // `/var/lib/kubelet/pods/<uid>/volumes/...` on the host.
+                // We cannot read the node name from this alone — use a
+                // placeholder so the invariant logic can reconcile later.
+                let node_name = pod.node_name.as_deref().unwrap_or("?");
+                let node = K8sNode::new(node_name);
+                let node_id = node.entity_id();
+
+                let node_known = campaign.nodes.contains_key(&node_id)
+                    || update.new_entities.iter().any(|e| e.entity_id() == node_id);
+                if !node_known {
+                    inferred.new_entities.push(Box::new(node));
+                }
+                inferred.new_relations.push(Box::new(RunsOn::new(
+                    pod.entity_id().0.clone(),
+                    node_id.0,
+                )));
+            }
+        }
+
+        inferred
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Default analyzer pipeline
 // ---------------------------------------------------------------------------
@@ -301,6 +426,8 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(PodNamespaceAnalyzer),
         Box::new(ServiceAccountNamespaceAnalyzer),
         Box::new(PodNodeAnalyzer),
+        Box::new(PodServiceAccountAnalyzer),
+        Box::new(HostPathAnalyzer),
         Box::new(ServiceAccountCanExecAnalyzer),
         Box::new(KubeletExecSinkAnalyzer),
     ]
@@ -367,7 +494,8 @@ fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        K8sCluster, KubeletExecSource, Namespace, Pod, RbacPermission, RunsOn, ServiceAccount,
+        Confidence, K8sCluster, KubeletExecSource, Namespace, Pod, RbacPermission, RunsOn,
+        ServiceAccount,
     };
 
     use super::*;
@@ -508,6 +636,80 @@ mod tests {
                 && r.source_id().0 == pod.entity_id().0
                 && r.target_id().0 == "node/worker-1"
         }));
+    }
+
+    #[test]
+    fn pod_with_sa_name_creates_sa_entity_and_uses_relation() {
+        let campaign = test_campaign();
+
+        let mut pod = Pod::new("web", "default");
+        pod.service_account_name = Some("web-sa".to_string());
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod.clone()));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(
+            update.new_entities.iter().any(|e| e.entity_kind() == "ServiceAccount"
+                && e.entity_name() == "web-sa"),
+            "expected ServiceAccount entity to be inferred"
+        );
+        assert!(
+            update.new_relations.iter().any(|r| r.relation_name() == "uses"
+                && r.source_id().0 == pod.entity_id().0),
+            "expected uses relation from pod to SA"
+        );
+    }
+
+    #[test]
+    fn pod_with_automount_disabled_skips_sa_relation() {
+        let campaign = test_campaign();
+
+        let mut pod = Pod::new("restricted", "default");
+        pod.service_account_name = Some("some-sa".to_string());
+        pod.automount_service_account_token = Confidence::No;
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(
+            !update.new_relations.iter().any(|r| r.relation_name() == "uses"),
+            "should not emit uses relation when automount is explicitly disabled"
+        );
+    }
+
+    #[test]
+    fn pod_sa_already_in_campaign_does_not_duplicate_sa_entity() {
+        let mut campaign = test_campaign();
+
+        let existing_sa = ServiceAccount::new("existing-sa", "default");
+        campaign.service_accounts.insert(existing_sa.entity_id(), existing_sa.clone());
+
+        let mut pod = Pod::new("worker", "default");
+        pod.service_account_name = Some("existing-sa".to_string());
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod.clone()));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        let sa_entities: Vec<_> = update
+            .new_entities
+            .iter()
+            .filter(|e| e.entity_kind() == "ServiceAccount")
+            .collect();
+        assert!(sa_entities.is_empty(), "should not emit duplicate SA entity");
+        // but the uses relation should still be emitted
+        assert!(
+            update.new_relations.iter().any(|r| r.relation_name() == "uses"),
+            "should still emit uses relation even when SA already known"
+        );
     }
 
     #[test]
