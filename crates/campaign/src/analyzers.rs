@@ -478,10 +478,38 @@ impl Analyzer for HostPathAnalyzer {
 // Default analyzer pipeline
 // ---------------------------------------------------------------------------
 
+/// For every new `K8sNode`, wire a `contains` relation from the campaign's
+/// cluster — nodes always belong to the cluster they were discovered in.
+pub struct NodeClusterAnalyzer;
+
+impl Analyzer for NodeClusterAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let Some(cluster) = campaign.clusters.values().next() else {
+            return inferred;
+        };
+        let cluster_id = cluster.entity_id();
+
+        for entity in &update.new_entities {
+            let Some(node) = entity.as_any().downcast_ref::<K8sNode>() else {
+                continue;
+            };
+
+            inferred
+                .new_relations
+                .push(Box::new(Contains::new(cluster_id.0.clone(), node.entity_id().0.clone())));
+        }
+
+        inferred
+    }
+}
+
 /// Returns the default set of analyzers that run after every effect parse.
 pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
     vec![
         Box::new(NamespaceClusterAnalyzer),
+        Box::new(NodeClusterAnalyzer),
         Box::new(PodNamespaceAnalyzer),
         Box::new(ServiceAccountNamespaceAnalyzer),
         Box::new(PodNodeAnalyzer),
@@ -554,7 +582,7 @@ fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        Confidence, K8sCluster, KubeletExecSource, Namespace, Pod, RbacPermission, RunsOn,
+        Confidence, K8sCluster, K8sNode, KubeletExecSource, Namespace, Pod, RbacPermission, RunsOn,
         ServiceAccount,
     };
 
@@ -563,6 +591,27 @@ mod tests {
 
     fn test_campaign() -> Campaign {
         Campaign::bootstrap("ran", K8sCluster::new("test-cluster"))
+    }
+
+    #[test]
+    fn node_gets_contains_relation_from_cluster() {
+        let campaign = test_campaign();
+        let cluster_id = campaign.clusters.values().next().unwrap().entity_id();
+
+        let node = K8sNode::new("node-1");
+        let node_id = node.entity_id();
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(node));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        let rel = update.new_relations.iter().find(|r| {
+            r.relation_name() == "contains"
+                && r.source_id().0 == cluster_id.0
+                && r.target_id().0 == node_id.0
+        });
+        assert!(rel.is_some(), "expected cluster→node contains relation");
     }
 
     #[test]
