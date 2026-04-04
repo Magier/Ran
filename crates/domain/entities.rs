@@ -65,11 +65,18 @@ fn slugify(input: &str) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct C2Server {
     pub name: String,
+    /// Active listeners on this C2. Populated when listener mechanics are ported;
+    /// empty by default so `exists: [Listener]` TTP pre-conditions fail safely.
+    #[serde(default)]
+    pub listeners: Vec<String>,
 }
 
 impl C2Server {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
+        Self {
+            name: name.into(),
+            listeners: Vec::new(),
+        }
     }
 }
 
@@ -203,6 +210,7 @@ impl Entity for GraphEntity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct K8sNode {
     pub name: String,
+    #[serde(flatten)]
     pub system: SystemInfo,
 }
 
@@ -321,6 +329,7 @@ pub enum PodPhase {
 pub struct Pod {
     pub meta: K8sMeta,
     /// Runtime capabilities collected from this pod (binaries, env vars, etc.)
+    #[serde(flatten)]
     pub system: SystemInfo,
 
     // --- Scheduling ---
