@@ -35,6 +35,35 @@ pub struct ExecuteActionResult {
 pub enum ExecuteActionError {
     InvalidInput(String),
     NotFound(String),
+    /// No viable execution channel was found in the knowledge graph for the target.
+    NoExecChannel(String),
+}
+
+/// A resolved execution channel for a TTP.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecChannel {
+    /// C2 backend ID forwarded to the C2Manager (e.g. `"c2/ran"`).
+    pub backend_id: String,
+    /// Intermediate entity to proxy through, if any.
+    /// `None` = reach target directly. `Some(id)` = route via a compromised
+    /// intermediate system (reserved for future agent-based backends).
+    pub via: Option<String>,
+}
+
+impl ExecChannel {
+    pub fn direct(backend_id: impl Into<String>) -> Self {
+        Self {
+            backend_id: backend_id.into(),
+            via: None,
+        }
+    }
+
+    pub fn via(backend_id: impl Into<String>, intermediate_id: impl Into<String>) -> Self {
+        Self {
+            backend_id: backend_id.into(),
+            via: Some(intermediate_id.into()),
+        }
+    }
 }
 
 #[derive(Default)]

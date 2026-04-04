@@ -65,6 +65,14 @@ impl Armory {
         &self.ttps
     }
 
+    /// Construct an `Armory` directly from a list of TTPs (useful in tests).
+    pub fn from_ttps(ttps: Vec<Ttp>) -> Self {
+        Self {
+            source_dir: std::path::PathBuf::new(),
+            ttps,
+        }
+    }
+
     pub fn get_ttp(&self, id: &str) -> Option<&Ttp> {
         self.ttps.iter().find(|ttp| ttp.id == id)
     }

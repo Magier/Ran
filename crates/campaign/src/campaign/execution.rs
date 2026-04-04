@@ -1,9 +1,11 @@
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted};
-use ran_domain::{EntityId, RelationSummary};
+use ran_domain::{BinaryPresence, EntityId, RelationSummary};
 
 use crate::effects::{ground_template, parse_effect_with_status};
+use crate::external_parser::SystemFieldUpdates;
 use crate::failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
+use crate::grounding::{detect_ungrounded_vars, ground_args_from_context};
 use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
 use crate::rules::{default_rules as make_rules, run_rules_fixpoint};
 use crate::{FactsUpdate, ParseResult};
@@ -53,6 +55,11 @@ impl Campaign {
             }
         }
 
+        // Resolve context-aware variables (NS, POD_NAME, NODE, RANDOM) from
+        // the target entity before template substitution so that cross-param
+        // references like `${NS}` in other arg defaults resolve correctly.
+        ground_args_from_context(&mut args, &request.target_id, self);
+
         let mut procedure = self.select_procedure(&ttp, request.procedure_id.as_deref())?;
         procedure.command = ground_template(&procedure.command, &args);
 
@@ -60,13 +67,27 @@ impl Campaign {
             *effect = ground_template(effect, &args);
         }
 
+        // Warn about any variables that were not resolved.
+        for var in detect_ungrounded_vars(&procedure.command) {
+            tracing::warn!(var, "ungrounded variable remaining in command after grounding");
+        }
+
+        let exec_system_id = match request.exec_system_id {
+            Some(id) if !id.trim().is_empty() => id,
+            _ if needs_remote_channel(&procedure, &ttp.tactic) => self
+                .resolve_exec_channel(&request.target_id)
+                .map(|ch| ch.backend_id)
+                .map_err(ExecuteActionError::NoExecChannel)?,
+            _ => String::new(),
+        };
+
         Ok(ExecTtp {
             id: generate_cmd_id(),
             ttp,
             procedure,
             args,
             target_id: request.target_id,
-            exec_system_id: request.exec_system_id.unwrap_or_default(),
+            exec_system_id,
         })
     }
 
@@ -133,6 +154,36 @@ impl Campaign {
 
         let rules = make_rules();
         updates = run_rules_fixpoint(self, &rules, updates);
+
+        // Infer binary presence from the tool used in this procedure.
+        // Only records if currently Unknown — preserves more precise paths set by
+        // sys.has-binary(${OUTPUT}) or from a real parser.
+        if let Some(tool) = procedure_tool(&cmd.procedure) {
+            let system_id = if self.get_system_entity(&cmd.exec_system_id).is_some() {
+                Some(cmd.exec_system_id.as_str())
+            } else if self.get_system_entity(&cmd.target_id).is_some() {
+                Some(cmd.target_id.as_str())
+            } else {
+                None
+            };
+
+            if let Some(id) = system_id {
+                let already_known = self
+                    .get_system_entity(id)
+                    .map(|e| e.entity().system().has_binary(tool) != BinaryPresence::Unknown)
+                    .unwrap_or(false);
+
+                if !already_known {
+                    let binary_updates = SystemFieldUpdates {
+                        binaries: std::collections::HashMap::from([
+                            (tool.to_string(), tool.to_string()),
+                        ]),
+                        ..Default::default()
+                    };
+                    let _ = self.apply_system_update(id, &binary_updates);
+                }
+            }
+        }
 
         self.apply_facts(&updates);
         self.parse_audits.extend(parse_audits.clone());
@@ -304,10 +355,34 @@ fn is_placeholder_node_id(node_id: &str) -> bool {
     }
 }
 
+/// Returns `true` when the procedure requires a remote execution channel.
+///
+/// Local commands (`is_local_command = true`) and operator-side tactics
+/// (Reconnaissance, Resource Development) run on the C2 side and do not
+/// need a channel to a target system.
+fn needs_remote_channel(procedure: &Procedure, tactic: &str) -> bool {
+    if procedure.is_local_command == Some(true) {
+        return false;
+    }
+    !matches!(
+        tactic.trim().to_ascii_lowercase().as_str(),
+        "reconnaissance" | "resource development" | "resource-development"
+    )
+}
+
 fn generate_cmd_id() -> String {
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or_default();
     format!("cmd-{}", millis)
+}
+
+/// Return the tool name for a procedure, if one is set and non-empty.
+/// Matches Go's `Procedure.GetTool()`.
+fn procedure_tool(procedure: &Procedure) -> Option<&str> {
+    procedure
+        .tool
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
 }

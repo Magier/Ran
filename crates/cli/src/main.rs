@@ -149,6 +149,16 @@ impl ApiService for AppState {
                             },
                         }
                     }
+                    ExecuteActionError::NoExecChannel(message) => {
+                        error!("execute_action no exec channel: {}", message);
+                        ApiError {
+                            status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                            body: api::ErrorResponse {
+                                error: message,
+                                details: None,
+                            },
+                        }
+                    }
                 }
             })?
         };

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::external_parser::SystemFieldUpdates;
 use crate::{external_parser, ParseAudit};
 
-use super::{CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef};
+use super::{CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef, ExecChannel};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Campaign {
@@ -114,6 +114,55 @@ impl Campaign {
         };
         let sys = target.entity_mut().system_mut();
         Ok(external_parser::apply_system_field_updates(sys, updates))
+    }
+
+    /// Query the knowledge graph and return the best execution channel for `target_id`.
+    ///
+    /// Priority (first match wins — no silent fallbacks):
+    ///
+    /// 1. **Direct builtin**: any `k8s.can-exec` or `kubelet-pod-exec` relation
+    ///    whose `target_id` matches → reach the target directly via kubectl exec.
+    ///
+    /// 2. **Via compromised intermediate**: a pod with `system.can_exec()` has a
+    ///    `k8s.can-exec` or `kubelet-pod-exec` edge to the target.  Returns the
+    ///    pod's entity ID in `ExecChannel.via` for future agent routing; the
+    ///    C2Manager will fall back to builtin until agent backends are registered.
+    ///
+    /// Returns `Err` if neither condition is satisfied — the caller must not proceed.
+    pub fn resolve_exec_channel(&self, target_id: &str) -> Result<ExecChannel, String> {
+        const EXEC_RELS: [&str; 2] = ["k8s.can-exec", "kubelet-pod-exec"];
+
+        // Priority 1: a non-pod entity (service account, node) has an exec
+        // relation to the target → the in-cluster C2 server can reach it directly
+        // via kubectl exec.
+        let direct = self.relations.iter().any(|r| {
+            EXEC_RELS.contains(&r.name.as_str())
+                && r.target_id == target_id
+                && !self.pods.contains_key(&EntityId::new(&r.source_id))
+        });
+        if direct {
+            return Ok(ExecChannel::direct("c2/ran"));
+        }
+
+        // Priority 2: route via a compromised intermediate pod.
+        let intermediate = self.pods.values().find(|pod| {
+            let pod_id = pod.entity_id().0.clone();
+            pod.system.can_exec()
+                && self.relations.iter().any(|r| {
+                    EXEC_RELS.contains(&r.name.as_str())
+                        && r.source_id == pod_id
+                        && r.target_id == target_id
+                })
+        });
+        if let Some(pod) = intermediate {
+            return Ok(ExecChannel::via("c2/ran", pod.entity_id().0.clone()));
+        }
+
+        Err(format!(
+            "no viable execution channel to '{}' found in the knowledge graph \
+             (no k8s.can-exec or kubelet-pod-exec relation reaches this target)",
+            target_id
+        ))
     }
 
     pub(crate) fn insert_entity(&mut self, entity: &dyn Entity) {
