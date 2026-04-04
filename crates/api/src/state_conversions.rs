@@ -156,25 +156,12 @@ pub(crate) fn serialize_campaign_entity_map(
 }
 
 fn add_ui_system_field_aliases(data: &mut HashMap<String, Value>) {
-    let Some(system) = data.get("system").and_then(|v| v.as_object()) else {
-        return;
-    };
-
-    let env_vars = system.get("env_vars").cloned();
-    let binaries = system.get("binaries").cloned();
-    let ips = system.get("ips").cloned();
-    let access_level = system.get("access_level").cloned();
-
-    if let Some(env_vars) = env_vars.filter(|v| !v.is_null()) {
+    // SystemInfo fields are flattened directly into the entity map.
+    // Create camelCase aliases for the fields the frontend expects.
+    if let Some(env_vars) = data.get("env_vars").cloned().filter(|v| !v.is_null()) {
         data.insert("envVars".to_string(), env_vars);
     }
-    if let Some(binaries) = binaries.filter(|v| !v.is_null()) {
-        data.insert("binaries".to_string(), binaries);
-    }
-    if let Some(ips) = ips.filter(|v| !v.is_null()) {
-        data.insert("ips".to_string(), ips);
-    }
-    if let Some(access_level) = access_level.filter(|v| !is_access_level_none(v)) {
+    if let Some(access_level) = data.get("access_level").cloned().filter(|v| !is_access_level_none(v)) {
         data.insert("accessLevel".to_string(), access_level);
     }
 }
@@ -205,25 +192,13 @@ fn prune_entity_payload_for_ui(kind: &str, data: &mut HashMap<String, Value>) {
         }
     }
 
-    if let Some(Value::Object(system)) = data.get_mut("system") {
-        prune_null_entries_json_map(system);
-        if system.get("access_level").is_some_and(is_access_level_none) {
-            system.remove("access_level");
-        }
+    // Remove access_level when it carries no information (flattened from SystemInfo).
+    if data.get("access_level").is_some_and(is_access_level_none) {
+        data.remove("access_level");
     }
 }
 
 fn prune_null_entries(data: &mut HashMap<String, Value>) {
-    let keys_to_remove: Vec<String> = data
-        .iter()
-        .filter_map(|(k, v)| if v.is_null() { Some(k.clone()) } else { None })
-        .collect();
-    for key in keys_to_remove {
-        data.remove(&key);
-    }
-}
-
-fn prune_null_entries_json_map(data: &mut serde_json::Map<String, Value>) {
     let keys_to_remove: Vec<String> = data
         .iter()
         .filter_map(|(k, v)| if v.is_null() { Some(k.clone()) } else { None })

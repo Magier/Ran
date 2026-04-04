@@ -4,9 +4,11 @@ mod campaign;
 pub mod effects;
 pub mod external_parser;
 pub mod failure_analyzers;
+pub mod grounding;
 pub mod output_parsers;
 pub mod rules;
 pub mod runtime;
+pub mod ttp_applicability;
 pub use campaign::{
     Campaign, CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef,
     ExecuteActionError, ExecuteActionRequest, ExecuteActionResult, ExecutedActionEvent,
