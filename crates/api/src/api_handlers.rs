@@ -4,6 +4,7 @@ use axum::extract::{Query, State};
 use serde_json::Value;
 use tracing::debug;
 
+use campaign::ttp_applicability::{ttp_exists_satisfied, ttp_rbac_satisfied};
 use campaign::CampaignEntityRef;
 
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
@@ -145,7 +146,11 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
 
     let ttps = all_ttps
         .into_iter()
-        .filter(|ttp| ttp_is_applicable_for_target_kind(ttp, &target_kind, is_system_target))
+        .filter(|ttp| {
+            ttp_is_applicable_for_target_kind(ttp, &target_kind, is_system_target)
+                && ttp_rbac_satisfied(ttp, &campaign)
+                && ttp_exists_satisfied(ttp, &campaign)
+        })
         .collect::<Vec<_>>();
 
     Ok(axum::Json(ttps))
@@ -213,9 +218,6 @@ fn ttp_is_applicable_for_target_kind(
     if ttp.status.eq_ignore_ascii_case("disabled") {
         return false;
     }
-
-    // TODO(migration): extend applicability with RBAC/access-level/entitlement checks,
-    // matching legacy Go Requires.Satisfied behavior.
 
     let Some(kind_req) = ttp.requires.get("kind") else {
         return true;
