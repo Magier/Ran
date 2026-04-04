@@ -72,13 +72,16 @@ impl Campaign {
             tracing::warn!(var, "ungrounded variable remaining in command after grounding");
         }
 
-        let exec_system_id = match request.exec_system_id {
-            Some(id) if !id.trim().is_empty() => id,
-            _ if needs_remote_channel(&procedure, &ttp.tactic) => self
-                .resolve_exec_channel(&request.target_id)
-                .map(|ch| ch.backend_id)
-                .map_err(ExecuteActionError::NoExecChannel)?,
-            _ => String::new(),
+        let (exec_system_id, resolved_target_id) = match request.exec_system_id {
+            Some(id) if !id.trim().is_empty() => (id, request.target_id),
+            _ if needs_remote_channel(&procedure, &ttp.tactic) => {
+                let ch = self
+                    .resolve_exec_channel(&request.target_id)
+                    .map_err(ExecuteActionError::NoExecChannel)?;
+                let exec_target = ch.exec_target_id.unwrap_or(request.target_id);
+                (ch.backend_id, exec_target)
+            }
+            _ => (String::new(), request.target_id),
         };
 
         Ok(ExecTtp {
@@ -86,7 +89,7 @@ impl Campaign {
             ttp,
             procedure,
             args,
-            target_id: request.target_id,
+            target_id: resolved_target_id,
             exec_system_id,
         })
     }

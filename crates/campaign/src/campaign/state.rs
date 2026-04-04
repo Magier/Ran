@@ -158,6 +158,21 @@ impl Campaign {
             return Ok(ExecChannel::via("c2/ran", pod.entity_id().0.clone()));
         }
 
+        // Priority 3: target is a service account — find a pod that `uses` it,
+        // resolve the exec channel for that pod, and stamp the pod ID as the
+        // concrete exec target so the C2 backend can kubectl-exec into it.
+        let sa_pod_id = self
+            .relations
+            .iter()
+            .find(|r| r.name == "uses" && r.target_id == target_id)
+            .map(|r| r.source_id.clone());
+        if let Some(pod_id) = sa_pod_id {
+            return self.resolve_exec_channel(&pod_id).map(|mut ch| {
+                ch.exec_target_id = Some(pod_id);
+                ch
+            });
+        }
+
         Err(format!(
             "no viable execution channel to '{}' found in the knowledge graph \
              (no k8s.can-exec or kubelet-pod-exec relation reaches this target)",

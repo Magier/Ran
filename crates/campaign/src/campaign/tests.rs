@@ -221,6 +221,28 @@ fn resolve_exec_channel_returns_via_compromised_intermediate() {
 }
 
 #[test]
+fn resolve_exec_channel_resolves_via_service_account_uses_relation() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    // Pod that uses the SA and has a direct exec channel
+    let pod = Pod::new("player-pod", "dungeon");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.pods.insert(pod.entity_id(), pod);
+
+    let sa_id = "ns/dungeon/sa/player";
+    campaign.relations.push(can_exec_relation("sa/default/ran", &pod_id));
+    campaign.relations.push(RelationSummary {
+        name: "uses".to_string(),
+        source_id: pod_id.clone(),
+        target_id: sa_id.to_string(),
+    });
+
+    let ch = campaign.resolve_exec_channel(sa_id).expect("should resolve via pod uses SA");
+    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.exec_target_id.as_deref(), Some(pod_id.as_str()), "exec_target_id must be the pod, not the SA");
+}
+
+#[test]
 fn resolve_exec_channel_errors_when_no_path_in_graph() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("orphan", "default");
