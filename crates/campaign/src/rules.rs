@@ -1,5 +1,5 @@
 use ran_domain::{
-    Contains, Entity, EntityId, K8sNode, KubeletExecSink, Namespace, Pod, PodExec,
+    Contains, Entity, EntityId, K8sNode, KubeletExecSink, ManagesNode, Namespace, Pod, PodExec,
     RelationSummary, RunsOn, ServiceAccount,
 };
 
@@ -19,6 +19,7 @@ pub trait InferenceRule: Send + Sync {
 }
 
 pub struct NamespaceClusterRule;
+pub struct NodeClusterRule;
 pub struct PodNamespaceRule;
 pub struct ServiceAccountNamespaceRule;
 pub struct PodNodeRule;
@@ -49,6 +50,37 @@ impl InferenceRule for NamespaceClusterRule {
             inferred.new_relations.push(Box::new(Contains::new(
                 cluster_id.0.clone(),
                 ns.entity_id().0.clone(),
+            )));
+        }
+
+        inferred
+    }
+}
+
+impl InferenceRule for NodeClusterRule {
+    fn name(&self) -> &'static str {
+        "node.cluster"
+    }
+
+    fn triggers(&self) -> Vec<RuleTrigger> {
+        vec![RuleTrigger::EntityKind("Node".to_string())]
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+        let Some(cluster) = campaign.clusters.values().next() else {
+            return inferred;
+        };
+        let cluster_id = cluster.entity_id();
+
+        for entity in &update.new_entities {
+            let Some(node) = entity.as_any().downcast_ref::<K8sNode>() else {
+                continue;
+            };
+
+            inferred.new_relations.push(Box::new(ManagesNode::new(
+                cluster_id.0.clone(),
+                node.entity_id().0.clone(),
             )));
         }
 
@@ -308,6 +340,7 @@ impl InferenceRule for KubeletExecSinkRule {
 pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
     vec![
         Box::new(NamespaceClusterRule),
+        Box::new(NodeClusterRule),
         Box::new(PodNamespaceRule),
         Box::new(ServiceAccountNamespaceRule),
         Box::new(PodNodeRule),
@@ -398,10 +431,31 @@ fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<
 
 #[cfg(test)]
 mod tests {
-    use ran_domain::{K8sCluster, KubeletExecSource, Pod, RbacPermission, ServiceAccount};
+    use ran_domain::{K8sCluster, K8sNode, KubeletExecSource, Pod, RbacPermission, ServiceAccount};
 
     use super::*;
     use crate::Campaign;
+
+    #[test]
+    fn node_cluster_rule_infers_manages_node_relation() {
+        let campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+        let cluster_id = campaign.clusters.values().next().unwrap().entity_id();
+
+        let node = K8sNode::new("node-1");
+        let node_id = node.entity_id();
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(node));
+
+        let rules = default_rules();
+        let all = run_rules_fixpoint(&campaign, &rules, update);
+
+        let rel = all.new_relations.iter().find(|r| {
+            r.relation_name() == "manages-node"
+                && r.source_id().0 == cluster_id.0
+                && r.target_id().0 == node_id.0
+        });
+        assert!(rel.is_some(), "expected manages-node relation from cluster to node");
+    }
 
     #[test]
     fn fixpoint_runner_infers_runs_on_and_kubelet_sink_chain() {
