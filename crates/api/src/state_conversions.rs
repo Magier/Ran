@@ -196,6 +196,50 @@ fn prune_entity_payload_for_ui(kind: &str, data: &mut HashMap<String, Value>) {
     if data.get("access_level").is_some_and(is_access_level_none) {
         data.remove("access_level");
     }
+
+    if kind == "ServiceAccount" {
+        // Rename `entitlements` → `can` and convert each permission's snake_case
+        // field names to the camelCase names the frontend EntitlementInfo component expects.
+        if let Some(entitlements) = data.remove("entitlements") {
+            let can = rbac_permissions_to_ui(entitlements);
+            if let Value::Array(ref arr) = can {
+                if !arr.is_empty() {
+                    data.insert("can".to_string(), can);
+                }
+            }
+        }
+    }
+}
+
+/// Convert a serialized `Vec<RbacPermission>` (snake_case keys) into the
+/// camelCase shape the frontend `EntitlementInfo` component expects.
+fn rbac_permissions_to_ui(value: Value) -> Value {
+    let Value::Array(perms) = value else {
+        return value;
+    };
+    Value::Array(
+        perms
+            .into_iter()
+            .map(|p| {
+                let Value::Object(map) = p else { return p };
+                let mut out = serde_json::Map::with_capacity(map.len());
+                for (k, v) in map {
+                    let key = match k.as_str() {
+                        "resource_type" => "resourceType",
+                        "resource_name" => "resourceName",
+                        "api_group"     => "apiGroup",
+                        "source_role"   => "sourceRole",
+                        other           => {
+                            out.insert(other.to_string(), v);
+                            continue;
+                        }
+                    };
+                    out.insert(key.to_string(), v);
+                }
+                Value::Object(out)
+            })
+            .collect(),
+    )
 }
 
 fn prune_null_entries(data: &mut HashMap<String, Value>) {
