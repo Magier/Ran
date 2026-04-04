@@ -1464,9 +1464,9 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
 
         // Contains (ns→sa), Uses (pod→sa), RunsOn (pod→node)
         assert_eq!(facts.new_relations.len(), 3);
-        assert!(facts.new_relations.iter().any(|r| r.relation_name() == "contains"));
-        assert!(facts.new_relations.iter().any(|r| r.relation_name() == "uses"));
-        assert!(facts.new_relations.iter().any(|r| r.relation_name() == "runs-on"));
+        assert!(facts.new_relations.iter().any(|r| r.is::<Contains>()));
+        assert!(facts.new_relations.iter().any(|r| r.is::<Uses>()));
+        assert!(facts.new_relations.iter().any(|r| r.is::<RunsOn>()));
     }
 
     #[test]
@@ -1489,7 +1489,7 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
         // No node entity since legacy tokens don't carry node info.
         assert!(!facts.new_entities.iter().any(|e| e.entity_kind() == "Node"));
         // No RunsOn relation.
-        assert!(!facts.new_relations.iter().any(|r| r.relation_name() == "runs-on"));
+        assert!(!facts.new_relations.iter().any(|r| r.is::<RunsOn>()));
     }
 
     #[test]

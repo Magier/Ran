@@ -582,8 +582,8 @@ fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        Confidence, K8sCluster, K8sNode, KubeletExecSource, Namespace, Pod, RbacPermission, RunsOn,
-        ServiceAccount,
+        Confidence, Contains, K8sCluster, K8sNode, KubeletExecSink, KubeletExecSource, ManagesNode,
+        Namespace, Pod, PodExec, RbacPermission, RunsOn, ServiceAccount, Uses,
     };
 
     use super::*;
@@ -607,7 +607,7 @@ mod tests {
         run_analyzers(&campaign, &analyzers, &mut update);
 
         let rel = update.new_relations.iter().find(|r| {
-            r.relation_name() == "contains"
+            r.is::<Contains>()
                 && r.source_id().0 == cluster_id.0
                 && r.target_id().0 == node_id.0
         });
@@ -630,7 +630,7 @@ mod tests {
         let rel = update
             .new_relations
             .iter()
-            .find(|r| r.relation_name() == "contains" && r.target_id().0 == pod.entity_id().0);
+            .find(|r| r.is::<Contains>() && r.target_id().0 == pod.entity_id().0);
         assert!(rel.is_some(), "expected contains relation for pod");
         // namespace was already known – should not be duplicated in new_entities
         assert!(
@@ -659,7 +659,7 @@ mod tests {
         let rel = update
             .new_relations
             .iter()
-            .find(|r| r.relation_name() == "contains" && r.source_id().0 == "ns/kube-system");
+            .find(|r| r.is::<Contains>() && r.source_id().0 == "ns/kube-system");
         assert!(rel.is_some(), "expected contains relation from namespace");
     }
 
@@ -691,7 +691,7 @@ mod tests {
         run_analyzers(&campaign, &analyzers, &mut update);
 
         let rel = update.new_relations.iter().find(|r| {
-            r.relation_name() == "contains"
+            r.is::<Contains>()
                 && r.source_id().0 == "k8s/cluster/test-cluster"
                 && r.target_id().0 == ns.entity_id().0
         });
@@ -741,7 +741,7 @@ mod tests {
             .iter()
             .any(|e| e.entity_kind() == "Node" && e.entity_name() == "worker-1"));
         assert!(update.new_relations.iter().any(|r| {
-            r.relation_name() == "runs-on"
+            r.is::<RunsOn>()
                 && r.source_id().0 == pod.entity_id().0
                 && r.target_id().0 == "node/worker-1"
         }));
@@ -766,7 +766,7 @@ mod tests {
             "expected ServiceAccount entity to be inferred"
         );
         assert!(
-            update.new_relations.iter().any(|r| r.relation_name() == "uses"
+            update.new_relations.iter().any(|r| r.is::<Uses>()
                 && r.source_id().0 == pod.entity_id().0),
             "expected uses relation from pod to SA"
         );
@@ -787,7 +787,7 @@ mod tests {
         run_analyzers(&campaign, &analyzers, &mut update);
 
         assert!(
-            !update.new_relations.iter().any(|r| r.relation_name() == "uses"),
+            !update.new_relations.iter().any(|r| r.is::<Uses>()),
             "should not emit uses relation when automount is explicitly disabled"
         );
     }
@@ -816,7 +816,7 @@ mod tests {
         assert!(sa_entities.is_empty(), "should not emit duplicate SA entity");
         // but the uses relation should still be emitted
         assert!(
-            update.new_relations.iter().any(|r| r.relation_name() == "uses"),
+            update.new_relations.iter().any(|r| r.is::<Uses>()),
             "should still emit uses relation even when SA already known"
         );
     }
@@ -841,7 +841,7 @@ mod tests {
         run_analyzers(&campaign, &analyzers, &mut update);
 
         assert!(update.new_relations.iter().any(|r| {
-            r.relation_name() == "k8s.can-exec"
+            r.is::<PodExec>()
                 && r.source_id().0 == sa.entity_id().0
                 && r.target_id().0 == pod.entity_id().0
         }));
@@ -876,7 +876,7 @@ mod tests {
             "expected Pod entity to be inferred from token"
         );
         assert!(
-            update.new_relations.iter().any(|r| r.relation_name() == "uses"),
+            update.new_relations.iter().any(|r| r.is::<Uses>()),
             "expected uses relation from pod to SA"
         );
     }
@@ -914,7 +914,7 @@ mod tests {
             .collect();
         assert!(pod_entities.is_empty(), "should not duplicate pod already in campaign");
         assert!(
-            update.new_relations.iter().any(|r| r.relation_name() == "uses"),
+            update.new_relations.iter().any(|r| r.is::<Uses>()),
             "uses relation should still be emitted"
         );
     }
@@ -972,12 +972,12 @@ mod tests {
         run_analyzers(&campaign, &analyzers, &mut update);
 
         assert!(update.new_relations.iter().any(|r| {
-            r.relation_name() == "kubelet-pod-exec"
+            r.is::<KubeletExecSink>()
                 && r.source_id().0 == "node/worker-1"
                 && r.target_id().0 == target_id
         }));
         assert!(!update.new_relations.iter().any(|r| {
-            r.relation_name() == "kubelet-pod-exec"
+            r.is::<KubeletExecSink>()
                 && r.source_id().0 == "node/worker-1"
                 && r.target_id().0 == src_id
         }));

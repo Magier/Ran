@@ -431,7 +431,10 @@ fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<
 
 #[cfg(test)]
 mod tests {
-    use ran_domain::{K8sCluster, K8sNode, KubeletExecSource, Pod, RbacPermission, ServiceAccount};
+    use ran_domain::{
+        K8sCluster, K8sNode, KubeletExecSink, KubeletExecSource, ManagesNode, Pod, PodExec,
+        RbacPermission, RunsOn, ServiceAccount,
+    };
 
     use super::*;
     use crate::Campaign;
@@ -450,7 +453,7 @@ mod tests {
         let all = run_rules_fixpoint(&campaign, &rules, update);
 
         let rel = all.new_relations.iter().find(|r| {
-            r.relation_name() == "manages-node"
+            r.is::<ManagesNode>()
                 && r.source_id().0 == cluster_id.0
                 && r.target_id().0 == node_id.0
         });
@@ -478,12 +481,12 @@ mod tests {
         let all = run_rules_fixpoint(&campaign, &rules, update);
 
         let has_runs_on = all.new_relations.iter().any(|r| {
-            r.relation_name() == "runs-on"
+            r.is::<RunsOn>()
                 && r.source_id() == &target_pod_id
                 && r.target_id().0 == "node/node-a"
         });
         let has_sink = all.new_relations.iter().any(|r| {
-            r.relation_name() == "kubelet-pod-exec"
+            r.is::<KubeletExecSink>()
                 && r.source_id().0 == "node/node-a"
                 && r.target_id() == &target_pod_id
         });
@@ -517,7 +520,7 @@ mod tests {
         let all = run_rules_fixpoint(&campaign, &rules, update);
 
         let has_can_exec = all.new_relations.iter().any(|r| {
-            r.relation_name() == "k8s.can-exec"
+            r.is::<PodExec>()
                 && r.source_id().0 == sa_id.0
                 && r.target_id() == &target_pod_id
         });
