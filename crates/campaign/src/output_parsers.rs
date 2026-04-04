@@ -5,8 +5,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use c2::{ExecTtp, TtpExecuted};
 use ran_domain::{
-    AccessLevel, Contains, Entity, JwToken, K8sNode, Mount, Namespace, Pod, Process, RunsOn,
-    ServiceAccount, ServiceAccountToken, Uses,
+    AccessLevel, Contains, Entity, EntityId, JwToken, K8sNode, Mount, Namespace, Pod, Process,
+    RbacPermission, RunsOn, ServiceAccount, ServiceAccountToken, Uses,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -73,6 +73,7 @@ pub fn parse_output_effect(
         None => {
             // Only return early if there is actually a registered/known parser.
             let is_known = normalized.starts_with("sys.has-binary(")
+                || normalized == "k8s.selfsubjectrulesreview"
                 || resolve_output_parser(&normalized).is_some();
             if !is_known {
                 return None;
@@ -95,6 +96,8 @@ pub fn parse_output_effect(
     let parser_output: ParserOutput = if normalized.starts_with("sys.has-binary(") {
         let inner = extract_effect_args(effect_id).unwrap_or("");
         parse_sys_has_binary(stdout, inner)
+    } else if normalized == "k8s.selfsubjectrulesreview" {
+        parse_self_subject_rules_review(stdout, stderr, &cmd.target_id, campaign)
     } else {
         let parser = resolve_output_parser(&normalized)?;
         parser(stdout, stderr)
@@ -922,6 +925,380 @@ fn truncate_preview(payload: &str) -> String {
     }
 
     format!("{}...", &payload[..RAW_PREVIEW_MAX_LEN])
+}
+
+// ---------------------------------------------------------------------------
+// k8s.SelfSubjectRulesReview
+// ---------------------------------------------------------------------------
+
+/// Deserializable form of the Kubernetes `SelfSubjectRulesReview` API response.
+#[derive(Debug, Deserialize)]
+struct SsrrResponse {
+    status: Option<SsrrStatus>,
+    code: Option<u32>,
+    message: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct SsrrStatus {
+    #[serde(rename = "resourceRules", default)]
+    resource_rules: Vec<SsrrResourceRule>,
+    #[serde(rename = "nonResourceRules", default)]
+    non_resource_rules: Vec<SsrrNonResourceRule>,
+    #[serde(default)]
+    incomplete: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct SsrrResourceRule {
+    #[serde(default)]
+    verbs: Vec<String>,
+    #[serde(rename = "apiGroups", default)]
+    api_groups: Vec<String>,
+    #[serde(default)]
+    resources: Vec<String>,
+    #[serde(rename = "resourceNames", default)]
+    resource_names: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SsrrNonResourceRule {
+    #[serde(default)]
+    verbs: Vec<String>,
+    #[serde(rename = "nonResourceURLs", default)]
+    non_resource_urls: Vec<String>,
+}
+
+/// Parse a `k8s.SelfSubjectRulesReview` effect output into RBAC entitlements
+/// on the target ServiceAccount.
+///
+/// Supports two output formats:
+/// - JSON: the raw Kubernetes API response from `curl … /selfsubjectrulesreviews`
+/// - Pretty: the tabular output of `kubectl auth can-i --list`
+///
+/// The resulting `RbacPermission` entries are attached to the SA. The existing SA
+/// is cloned from the campaign so that the token and other fields are preserved.
+fn parse_self_subject_rules_review(
+    stdout: &str,
+    _stderr: &str,
+    target_id: &str,
+    campaign: &Campaign,
+) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty output".to_string());
+    }
+
+    // Determine format and extract rules.
+    let rules = if serde_json::from_str::<serde_json::Value>(stdout.trim()).is_ok() {
+        let resp: SsrrResponse = match serde_json::from_str(stdout.trim()) {
+            Ok(r) => r,
+            Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+        };
+        if resp.code.map(|c| c >= 400).unwrap_or(false) {
+            return ParserOutput::KnownFailure(format!(
+                "SelfSubjectRulesReview API error (code {}): {}",
+                resp.code.unwrap_or(0),
+                resp.message.unwrap_or_default()
+            ));
+        }
+        let status = resp.status.unwrap_or_default();
+        if status.incomplete {
+            tracing::warn!("SelfSubjectRulesReview results are incomplete");
+        }
+        (status.resource_rules, status.non_resource_rules)
+    } else {
+        match parse_kubectl_ssrr_table(stdout) {
+            Ok(rules) => rules,
+            Err(e) => return ParserOutput::UnknownFormat(format!("pretty-print parse error: {e}")),
+        }
+    };
+    let (resource_rules, non_resource_rules) = rules;
+
+    // Resolve the ServiceAccount to update.
+    // target_id is the *exec target* (often a pod that ran the command), not
+    // necessarily the SA being reviewed. Follow pod → SA if needed.
+    let Some(mut sa) = resolve_sa_for_ssrr(target_id, campaign) else {
+        return ParserOutput::KnownFailure(format!(
+            "cannot resolve a ServiceAccount for target '{target_id}': \
+             target is neither a known SA nor a pod with a known service account"
+        ));
+    };
+
+    let sa_namespace = sa.meta.namespace.as_deref().unwrap_or("").to_string();
+    let mut entitlements: Vec<RbacPermission> = Vec::new();
+
+    for rule in &resource_rules {
+        for verb in &rule.verbs {
+            for resource in &rule.resources {
+                let api_groups: &[String] = if rule.api_groups.is_empty() {
+                    &[]
+                } else {
+                    &rule.api_groups
+                };
+
+                // Treat empty api_groups slice as a single entry with the core group ("").
+                let effective_groups: Vec<&str> = if api_groups.is_empty() {
+                    vec![""]
+                } else {
+                    api_groups.iter().map(String::as_str).collect()
+                };
+
+                for api_group in &effective_groups {
+                    let scope = if is_namespaced_resource(resource, api_group) && !sa_namespace.is_empty() {
+                        Some(sa_namespace.clone())
+                    } else {
+                        None
+                    };
+
+                    if rule.resource_names.is_empty() {
+                        let mut perm = RbacPermission::new(verb, resource);
+                        perm.api_group = Some(api_group.to_string());
+                        perm.scope = scope;
+                        entitlements.push(perm);
+                    } else {
+                        for resource_name in &rule.resource_names {
+                            let mut perm = RbacPermission::new(verb, resource);
+                            perm.api_group = Some(api_group.to_string());
+                            perm.resource_name = Some(resource_name.clone());
+                            perm.scope = scope.clone();
+                            entitlements.push(perm);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for rule in &non_resource_rules {
+        for verb in &rule.verbs {
+            for url in &rule.non_resource_urls {
+                let mut perm = RbacPermission::new(verb, "");
+                perm.resource_name = Some(url.clone());
+                entitlements.push(perm);
+            }
+        }
+    }
+
+    let perm_count = entitlements.len();
+    sa.entitlements = entitlements;
+
+    let mut facts = FactsUpdate::default();
+    facts.new_entities.push(Box::new(sa));
+
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} RBAC permission(s) from SelfSubjectRulesReview", perm_count),
+    )
+}
+
+/// Parse the tabular output of `kubectl auth can-i --list` into resource and
+/// non-resource rule lists.
+///
+/// The format uses `[...]` delimiters for three of the four columns:
+/// ```text
+/// Resources   Non-Resource URLs   Resource Names   Verbs
+/// pods        []                  []               [get list]
+///             [/api]              []               [get]
+/// ```
+fn parse_kubectl_ssrr_table(
+    data: &str,
+) -> Result<(Vec<SsrrResourceRule>, Vec<SsrrNonResourceRule>), String> {
+    let mut resource_rules = Vec::new();
+    let mut non_resource_rules = Vec::new();
+
+    let mut lines = data.lines();
+    // Skip the header row.
+    let _ = lines.next();
+
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        // The three bracketed columns are delimited by `[`.  Split into at most 4
+        // parts: [resources_col, urls_col, names_col, verbs_col].
+        let parts: Vec<&str> = line.splitn(4, '[').collect();
+        if parts.len() < 4 {
+            continue;
+        }
+
+        fn strip_bracket_and_split(s: &str) -> Vec<String> {
+            let cleaned = s.trim().trim_end_matches(']');
+            if cleaned.is_empty() {
+                vec![]
+            } else {
+                cleaned.split_whitespace().map(String::from).collect()
+            }
+        }
+
+        let resources_raw = parts[0].trim();
+        let non_resource_urls = strip_bracket_and_split(parts[1]);
+        let resource_names = strip_bracket_and_split(parts[2]);
+        let verbs = strip_bracket_and_split(parts[3]);
+
+        if verbs.is_empty() {
+            continue;
+        }
+
+        if resources_raw.is_empty() {
+            // Non-resource rule — the resources column is blank.
+            non_resource_rules.push(SsrrNonResourceRule { verbs, non_resource_urls });
+        } else {
+            // Resource rule — split `resource.apiGroup` from the resources column.
+            let (resource, api_group) = split_resource_api_group(resources_raw);
+            resource_rules.push(SsrrResourceRule {
+                verbs,
+                api_groups: vec![api_group],
+                resources: vec![resource],
+                resource_names,
+            });
+        }
+    }
+
+    Ok((resource_rules, non_resource_rules))
+}
+
+/// Split a `resource[.apiGroup]` string from kubectl pretty output into
+/// `(resource, apiGroup)`.
+///
+/// | Input | resource | apiGroup |
+/// |-------|----------|----------|
+/// | `*.*` | `*` | `*` |
+/// | `pods` | `pods` | `""` |
+/// | `pods/exec` | `pods/exec` | `""` |
+/// | `selfsubjectrulesreviews.authorization.k8s.io` | `selfsubjectrulesreviews` | `authorization.k8s.io` |
+fn split_resource_api_group(s: &str) -> (String, String) {
+    if s == "*.*" {
+        return ("*".to_string(), "*".to_string());
+    }
+    if let Some(dot) = s.find('.') {
+        // Only treat `.` as an apiGroup separator when the resource part has no
+        // `/` (subresource), e.g. `pods/exec` should not be split.
+        let resource_part = &s[..dot];
+        if !resource_part.contains('/') {
+            return (resource_part.to_string(), s[dot + 1..].to_string());
+        }
+    }
+    (s.to_string(), String::new())
+}
+
+/// Resolve the `ServiceAccount` that a SSRR result should be attached to.
+///
+/// `target_id` is the exec target — typically the pod that ran the command,
+/// not the SA itself (the SA's exec channel resolves via its pod).
+///
+/// Resolution order:
+/// 1. `target_id` is already a known SA → return it directly.
+/// 2. `target_id` is a known pod → follow `pod.service_account_name` to the SA.
+///    If that SA doesn't exist in the campaign yet, create a minimal stub.
+/// 3. Returns `None` when neither condition is met.
+fn resolve_sa_for_ssrr(target_id: &str, campaign: &Campaign) -> Option<ServiceAccount> {
+    let id = EntityId::new(target_id);
+
+    // Case 1: target already is a ServiceAccount.
+    if let Some(sa) = campaign.service_accounts.get(&id) {
+        return Some(sa.clone());
+    }
+
+    // Case 2: target is a pod — look up the SA the pod uses.
+    if let Some(pod) = campaign.pods.get(&id) {
+        let sa_name = pod.service_account_name.as_deref()?;
+        let namespace = pod.namespace()?;
+        let sa_id = EntityId::new(format!("ns/{}/sa/{}", namespace, sa_name));
+        let sa = campaign
+            .service_accounts
+            .get(&sa_id)
+            .cloned()
+            .unwrap_or_else(|| ServiceAccount::new(sa_name, namespace));
+        return Some(sa);
+    }
+
+    None
+}
+
+/// Returns `true` when `resource` in `api_group` is namespaced.
+///
+/// Unknown resources default to `true` (namespaced).  Wildcards (`"*"`) span
+/// both scopes — treated as cluster-scoped (`false`) to avoid over-constraining
+/// the permission scope.
+fn is_namespaced_resource(resource: &str, api_group: &str) -> bool {
+    if resource == "*" || api_group == "*" {
+        return false;
+    }
+
+    let name = resource.to_ascii_lowercase();
+    let group = api_group.to_ascii_lowercase();
+
+    let cluster_scoped: &[(&str, &[&str])] = &[
+        ("", &[
+            "componentstatuses", "componentstatus",
+            "namespaces", "namespace",
+            "nodes", "node",
+            "persistentvolumes", "persistentvolume",
+        ]),
+        ("admissionregistration.k8s.io", &[
+            "mutatingwebhookconfigurations", "mutatingwebhookconfiguration",
+            "validatingadmissionpolicies", "validatingadmissionpolicy",
+            "validatingadmissionpolicybindings", "validatingadmissionpolicybinding",
+            "validatingwebhookconfigurations", "validatingwebhookconfiguration",
+        ]),
+        ("apiextensions.k8s.io", &[
+            "customresourcedefinitions", "customresourcedefinition",
+        ]),
+        ("apiregistration.k8s.io", &[
+            "apiservices", "apiservice",
+        ]),
+        ("authentication.k8s.io", &[
+            "selfsubjectreviews", "selfsubjectreview",
+            "tokenreviews", "tokenreview",
+        ]),
+        ("authorization.k8s.io", &[
+            "selfsubjectaccessreviews", "selfsubjectaccessreview",
+            "selfsubjectrulesreviews", "selfsubjectrulesreview",
+            "subjectaccessreviews", "subjectaccessreview",
+        ]),
+        ("certificates.k8s.io", &[
+            "certificatesigningrequests", "certificatesigningrequest",
+        ]),
+        ("flowcontrol.apiserver.k8s.io", &[
+            "flowschemas", "flowschema",
+            "prioritylevelconfigurations", "prioritylevelconfiguration",
+        ]),
+        ("networking.k8s.io", &[
+            "ingressclasses", "ingressclass",
+            "ipaddresses", "ipaddress",
+            "servicecidrs", "servicecidr",
+        ]),
+        ("node.k8s.io", &[
+            "runtimeclasses", "runtimeclass",
+        ]),
+        ("rbac.authorization.k8s.io", &[
+            "clusterrolebindings", "clusterrolebinding",
+            "clusterroles", "clusterrole",
+        ]),
+        ("resource.k8s.io", &[
+            "deviceclasses", "deviceclass",
+            "resourceslices", "resourceslice",
+        ]),
+        ("scheduling.k8s.io", &[
+            "priorityclasses", "priorityclass",
+        ]),
+        ("storage.k8s.io", &[
+            "csidrivers", "csidriver",
+            "csinodes", "csinode",
+            "storageclasses", "storageclass",
+            "volumeattachments", "volumeattachment",
+            "volumeattributesclasses", "volumeattributesclass",
+        ]),
+    ];
+
+    for (g, names) in cluster_scoped {
+        if group == *g && names.contains(&name.as_str()) {
+            return false; // cluster-scoped
+        }
+    }
+
+    true // default: namespaced
 }
 
 #[cfg(test)]

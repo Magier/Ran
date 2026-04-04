@@ -418,12 +418,6 @@
 		{prettyPrint(obj)}
 	{/if}
 
-	{#if obj?.entitlements}
-		<h4>Entitlements</h4>
-		{#each obj?.entitlements as e}
-			<div><span>Can {e.verbs.join(', ')}</span>{e.resourceTypes}</div>
-		{/each}
-	{/if}
 </div>
 
 <style>
