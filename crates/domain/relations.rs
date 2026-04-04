@@ -233,6 +233,46 @@ impl Relation for Uses {
     }
 }
 
+// ManagesNode
+// ---------------------------------------------------------------------------
+
+/// Cluster-membership relation: the cluster manages (owns) the node.
+///
+/// High-priority compound-node relation — the graph renderer nests the node
+/// inside the cluster compound node when this edge is present.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManagesNode {
+    pub cluster_id: EntityId,
+    pub node_id: EntityId,
+}
+
+impl ManagesNode {
+    pub fn new(cluster_id: impl Into<String>, node_id: impl Into<String>) -> Self {
+        Self {
+            cluster_id: EntityId::new(cluster_id),
+            node_id: EntityId::new(node_id),
+        }
+    }
+}
+
+impl Relation for ManagesNode {
+    fn relation_name(&self) -> &str {
+        "manages-node"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.cluster_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.node_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 // ---------------------------------------------------------------------------
 // RelationSummary
 // ---------------------------------------------------------------------------

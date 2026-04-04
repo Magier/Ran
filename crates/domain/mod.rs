@@ -14,7 +14,7 @@ pub use entities::{
 pub use identity::{JwToken, ServiceAccountToken};
 pub use relation::Relation;
 pub use rbac::RbacPermission;
-pub use relations::{Contains, KubeletExecSink, KubeletExecSource, PodExec, RelationSummary, RunsOn, Uses};
+pub use relations::{Contains, KubeletExecSink, KubeletExecSource, ManagesNode, PodExec, RelationSummary, RunsOn, Uses};
 pub use types::{
     AccessLevel, BinaryPresence, Confidence, Container, EntityId, K8sMeta, Mount, OwnerRef,
     Process, SystemInfo,
