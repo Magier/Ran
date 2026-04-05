@@ -50,7 +50,7 @@
 			<div class="pr-2">Tactic</div>
 			<div class="badge">{step.TTP.tactic}</div>
 		</div>
-		{#if step.TTP.techniques.length >= 1}
+		{#if step.TTP.techniques?.length >= 1}
 			<div class="flex justify-start">
 				<div class="pr-2">Technique</div>
 				<div class="badge">{step.TTP.techniques[0]}</div>

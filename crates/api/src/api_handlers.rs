@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use axum::extract::{Query, State};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tracing::debug;
 
@@ -183,6 +184,112 @@ pub(crate) async fn campaign_state_handler<S: ApiService>(
     let campaign = service.get_campaign().await?;
     let state = campaign_to_campaign_state(&campaign);
     Ok(axum::Json(state))
+}
+
+fn ms_to_iso8601(ms: u64) -> String {
+    DateTime::<Utc>::from_timestamp_millis(ms as i64)
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_default()
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct FlowEdge {
+    pub id: String,
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    #[serde(rename = "targetId")]
+    pub target_id: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct AttackStepTTP {
+    pub id: String,
+    pub name: String,
+    pub tactic: String,
+    pub techniques: Vec<String>,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct AttackStep {
+    pub id: String,
+    #[serde(rename = "targetId")]
+    pub target_id: String,
+    pub command: String,
+    pub args: std::collections::HashMap<String, String>,
+    #[serde(rename = "procedureId")]
+    pub procedure_id: String,
+    #[serde(rename = "TTP")]
+    pub ttp: AttackStepTTP,
+    pub results: Vec<String>,
+    pub success: bool,
+    pub status: &'static str,
+    #[serde(rename = "startedAt")]
+    pub started_at: String,
+    #[serde(rename = "completedAt")]
+    pub completed_at: String,
+    #[serde(rename = "executedOn")]
+    pub executed_on: String,
+}
+
+impl From<&campaign::ExecutionRecord> for AttackStep {
+    fn from(r: &campaign::ExecutionRecord) -> Self {
+        Self {
+            id: r.id.clone(),
+            target_id: r.target_id.clone(),
+            command: r.command.clone(),
+            args: r.args.clone(),
+            procedure_id: r.procedure_id.clone(),
+            ttp: AttackStepTTP {
+                id: r.ttp_id.clone(),
+                name: r.ttp_name.clone(),
+                tactic: r.tactic.clone(),
+                techniques: Vec::new(),
+                description: String::new(),
+            },
+            results: r.results.clone(),
+            success: r.success,
+            status: if r.success { "Success" } else { "Failed" },
+            started_at: ms_to_iso8601(r.started_at_ms),
+            completed_at: ms_to_iso8601(r.completed_at_ms),
+            executed_on: r.exec_system_id.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct AttackFlow {
+    pub steps: Vec<AttackStep>,
+    pub edges: Vec<FlowEdge>,
+}
+
+pub(crate) async fn flow_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<AttackFlow>, ApiError> {
+    let campaign = service.get_campaign().await?;
+    let records = campaign.get_execution_records();
+
+    let mut edges = Vec::new();
+    let mut last_success_id: Option<&str> = None;
+
+    for record in records {
+        if let Some(src) = last_success_id {
+            edges.push(FlowEdge {
+                id: format!("{}->{}", src, record.id),
+                source_id: src.to_string(),
+                target_id: record.id.clone(),
+            });
+        }
+
+        if record.success {
+            last_success_id = Some(&record.id);
+        }
+    }
+
+    Ok(axum::Json(AttackFlow {
+        steps: records.iter().map(AttackStep::from).collect(),
+        edges,
+    }))
 }
 
 pub(crate) async fn start_pod_watch_handler(

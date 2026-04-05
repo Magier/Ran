@@ -17,6 +17,7 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
         .route("/api/applicable-ttps", axum::routing::get(api_handlers::applicable_ttps_handler::<S>))
         .route("/api/action/execute", axum::routing::post(api_handlers::execute_action_handler::<S>))
         .route("/api/campaign-state", axum::routing::get(api_handlers::campaign_state_handler::<S>))
+        .route("/api/flow", axum::routing::get(api_handlers::flow_handler::<S>))
         .with_state(service.clone())
         .merge(router(service))
 }

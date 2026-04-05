@@ -11,6 +11,8 @@ pub struct ExecTtp {
     pub args: HashMap<String, String>,
     pub target_id: String,
     pub exec_system_id: String,
+    /// Unix timestamp (milliseconds) when the command was dispatched.
+    pub started_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

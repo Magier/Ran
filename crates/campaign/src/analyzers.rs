@@ -710,6 +710,7 @@ mod tests {
             service_accounts: Default::default(),
             relations: Default::default(),
             parse_audits: Default::default(),
+            execution_records: Default::default(),
         };
 
         let ns = Namespace::new("default");

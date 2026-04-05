@@ -2,6 +2,7 @@
 mod analyzers;
 mod campaign;
 pub mod effects;
+pub mod execution_record;
 pub mod external_parser;
 pub mod failure_analyzers;
 pub mod grounding;
@@ -15,6 +16,7 @@ pub use campaign::{
     TtpExecutionProcessing,
 };
 pub use effects::FactsUpdate;
+pub use execution_record::ExecutionRecord;
 pub use external_parser::{ExternalParseRequest, ExternalParseResponse, ExternalParser};
 pub use output_parsers::{ParseAudit, ParseResult};
 pub use rules::{default_rules, run_rules_fixpoint, InferenceRule, RuleTrigger};
