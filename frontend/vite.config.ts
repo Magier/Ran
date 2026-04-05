@@ -10,6 +10,17 @@ export default defineConfig({
 		autoInstall: true,
 	})],
 
+	server: {
+		// When frontend is served through the Rust proxy, HMR must connect directly
+		// to the Vite server because the proxy path only supports plain HTTP forwarding.
+		hmr: {
+			host: 'localhost',
+			port: 5173,
+			clientPort: 5173,
+			protocol: 'ws'
+		}
+	},
+
 	build: {
 		minify: 'esbuild',            // much lighter than terser
 		cssCodeSplit: true,           // ensure CSS isn’t bundled into a giant JS chunk
