@@ -337,3 +337,90 @@ fn prepare_action_respects_caller_supplied_exec_system_id() {
 
     assert_eq!(exec.exec_system_id, "custom-backend");
 }
+
+// ---------------------------------------------------------------------------
+// command-not-found → binary absent tests
+// ---------------------------------------------------------------------------
+
+fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
+    ExecTtp {
+        id: "cmd-nmap".to_string(),
+        ttp: Ttp {
+            id: "network-scan".to_string(),
+            name: "Network Scan".to_string(),
+            description: "scan".to_string(),
+            tactic: "Discovery".to_string(),
+            techniques: vec![],
+            status: "stable".to_string(),
+            params: vec![],
+            requires: Default::default(),
+            effects: vec![],
+            procedures: vec![],
+            references: vec![],
+        },
+        procedure: Procedure {
+            id: "nmap".to_string(),
+            command: "nmap -sT -sV -F 10.244.0.0/24".to_string(),
+            tool: None,
+            is_local_command: None,
+        },
+        args: HashMap::new(),
+        target_id: target_id.to_string(),
+        exec_system_id: target_id.to_string(),
+    }
+}
+
+fn command_not_found_event() -> TtpExecuted {
+    TtpExecuted {
+        id: "evt-1".to_string(),
+        success: false,
+        results: vec![],
+        exit_code: 1,
+        fail_reason: "command terminated with non-zero exit code: error executing command \
+            [/bin/sh -lc nmap -sT -sV -F 10.244.0.0/24], exit code 127"
+            .to_string(),
+    }
+}
+
+#[test]
+fn command_not_found_marks_binary_absent_on_exec_system() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let pod = Pod::new("demo", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.pods.insert(pod.entity_id(), pod);
+
+    let cmd = nmap_exec_ttp(&target_id);
+    let event = command_not_found_event();
+
+    campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    let sys = campaign.get_system_entity(&target_id).unwrap();
+    assert_eq!(
+        sys.entity().system().has_binary("nmap"),
+        ran_domain::BinaryPresence::Absent,
+        "nmap should be marked Absent after exit code 127"
+    );
+}
+
+#[test]
+fn command_not_found_does_not_overwrite_known_present_binary() {
+    use ran_domain::BinaryPresence;
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let mut pod = Pod::new("demo", "default");
+    pod.system.set_binary("nmap", "/usr/bin/nmap");
+    let target_id = pod.entity_id().0.clone();
+    campaign.pods.insert(pod.entity_id(), pod);
+
+    let cmd = nmap_exec_ttp(&target_id);
+    let event = command_not_found_event();
+
+    campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    // Present should be preserved — a single failure doesn't override confirmed presence
+    let sys = campaign.get_system_entity(&target_id).unwrap();
+    assert_eq!(
+        sys.entity().system().has_binary("nmap"),
+        BinaryPresence::Present("/usr/bin/nmap".to_string()),
+        "confirmed Present should not be overwritten by a command-not-found failure"
+    );
+}
