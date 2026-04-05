@@ -96,6 +96,9 @@ impl FailureAnalyzer for CommandNotFoundFailureAnalyzer {
                 "command not found",
                 "executable file not found",
                 "not found in $path",
+                // kube exec embeds the exit code in fail_reason as a string
+                // even when event.exit_code is not propagated correctly
+                "exit code 127",
             ],
         ) {
             return Some(FailureClassification {
@@ -222,6 +225,22 @@ mod tests {
             "",
         );
         event.exit_code = 127;
+
+        let classified = classify_failure(&cmd, &event);
+
+        assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
+        assert!(classified.detail.contains("not found"));
+    }
+
+    #[test]
+    fn classify_failure_detects_exit_code_127_in_fail_reason_string() {
+        // kube exec embeds exit code in fail_reason but may not set event.exit_code
+        let cmd = sample_cmd();
+        let event = sample_failed_event(
+            "command terminated with non-zero exit code: error executing command [/bin/sh -lc nmap -sT -sV -F 10.244.1.2/24], exit code 127",
+            "",
+        );
+        // exit_code is left at 1 (not 127) to simulate the propagation gap
 
         let classified = classify_failure(&cmd, &event);
 

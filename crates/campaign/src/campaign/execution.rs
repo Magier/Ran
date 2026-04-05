@@ -4,7 +4,7 @@ use ran_domain::{BinaryPresence, EntityId, RelationSummary};
 
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
-use crate::failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
+use crate::failure_analyzers::{classify_failure, CommandNotFoundFailureAnalyzer, FailureAnalyzer, FAILURE_ANALYZER_EFFECT_ID};
 use crate::grounding::{detect_ungrounded_vars, ground_args_from_context};
 use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
 use crate::rules::{default_rules as make_rules, run_rules_fixpoint};
@@ -112,6 +112,32 @@ impl Campaign {
                 &classified.detail,
                 0,
             ));
+
+            // If the binary was not found, record it as Absent in the system's
+            // binary map so the procedure selector can automatically fall back to
+            // an alternative procedure next time.
+            if CommandNotFoundFailureAnalyzer.analyze(cmd, event).is_some() {
+                if let Some(binary) = procedure_binary_name(&cmd.procedure) {
+                    let system_id = if self.get_system_entity(&cmd.exec_system_id).is_some() {
+                        Some(cmd.exec_system_id.as_str())
+                    } else if self.get_system_entity(&cmd.target_id).is_some() {
+                        Some(cmd.target_id.as_str())
+                    } else {
+                        None
+                    };
+                    if let Some(id) = system_id {
+                        // Empty path → BinaryPresence::Absent; only written when
+                        // currently Unknown (apply_system_update's existing guard).
+                        let absent_update = SystemFieldUpdates {
+                            binaries: std::collections::HashMap::from([
+                                (binary.to_string(), String::new()),
+                            ]),
+                            ..Default::default()
+                        };
+                        let _ = self.apply_system_update(id, &absent_update);
+                    }
+                }
+            }
 
             self.parse_audits.extend(parse_audits.clone());
             return Ok(TtpExecutionProcessing {
@@ -388,4 +414,27 @@ fn procedure_tool(procedure: &Procedure) -> Option<&str> {
         .tool
         .as_deref()
         .filter(|t| !t.trim().is_empty())
+}
+
+/// Return the name of the binary a procedure invokes, for use when recording
+/// binary presence/absence.
+///
+/// Resolution order:
+/// 1. `procedure.tool` — explicit annotation (e.g. `tool: cat`)
+/// 2. `procedure.id` — when it is a single bare word (e.g. key `nmap`, `curl`)
+/// 3. First word of `procedure.command` — final fallback
+fn procedure_binary_name(procedure: &Procedure) -> Option<&str> {
+    if let Some(tool) = procedure_tool(procedure) {
+        return Some(tool);
+    }
+
+    // Use the procedure ID only when it looks like a bare binary name
+    // (no spaces, no path separators).
+    let id = procedure.id.trim();
+    if !id.is_empty() && !id.contains(' ') && !id.contains('/') {
+        return Some(id);
+    }
+
+    // Fall back to the first word of the command.
+    procedure.command.split_whitespace().next()
 }
