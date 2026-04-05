@@ -6,6 +6,7 @@ use ran_domain::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::execution_record::ExecutionRecord;
 use crate::external_parser::SystemFieldUpdates;
 use crate::{external_parser, ParseAudit};
 
@@ -21,6 +22,7 @@ pub struct Campaign {
     pub service_accounts: HashMap<EntityId, ServiceAccount>,
     pub relations: Vec<RelationSummary>,
     pub parse_audits: Vec<ParseAudit>,
+    pub execution_records: Vec<ExecutionRecord>,
 }
 
 impl Campaign {
@@ -42,6 +44,7 @@ impl Campaign {
             service_accounts: HashMap::new(),
             relations: Vec::new(),
             parse_audits: Vec::new(),
+            execution_records: Vec::new(),
         }
     }
 
@@ -77,6 +80,10 @@ impl Campaign {
 
     pub fn get_parse_audits(&self) -> &[ParseAudit] {
         &self.parse_audits
+    }
+
+    pub fn get_execution_records(&self) -> &[ExecutionRecord] {
+        &self.execution_records
     }
 
     pub fn get_system_entity(&self, id: &str) -> Option<CampaignSystemEntityRef<'_>> {

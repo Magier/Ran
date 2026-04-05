@@ -10,6 +10,8 @@ use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_outp
 use crate::rules::{default_rules as make_rules, run_rules_fixpoint};
 use crate::{FactsUpdate, ParseResult};
 
+use crate::execution_record::ExecutionRecord;
+
 use super::{
     Campaign, ExecuteActionError, ExecuteActionRequest, ExecuteActionResult, ExecutedActionEvent,
     TtpExecutionProcessing,
@@ -91,6 +93,10 @@ impl Campaign {
             args,
             target_id: resolved_target_id,
             exec_system_id,
+            started_at_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
         })
     }
 
@@ -140,6 +146,7 @@ impl Campaign {
             }
 
             self.parse_audits.extend(parse_audits.clone());
+            self.execution_records.push(ExecutionRecord::from_execution(cmd, event));
             return Ok(TtpExecutionProcessing {
                 updates,
                 parse_audits,
@@ -216,6 +223,7 @@ impl Campaign {
 
         self.apply_facts(&updates);
         self.parse_audits.extend(parse_audits.clone());
+        self.execution_records.push(ExecutionRecord::from_execution(cmd, event));
 
         Ok(TtpExecutionProcessing {
             updates,
