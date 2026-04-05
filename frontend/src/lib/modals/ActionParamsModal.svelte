@@ -329,7 +329,7 @@
 						}
 						console.log("Setting target", param.name, "to value", value);
 					} else if (value.indexOf('${TARGET.IP}') >= 0 && target?.ips?.length > 0) {
-						value = value.replace("${TARGET.IP}", target?.ips[0].IP);
+						value = value.replace("${TARGET.IP}", target.ips[0]);
 					}
 
 					if (param.type === 'Namespace') {
@@ -737,7 +737,7 @@
 						<Combobox.Trigger />
 					</Combobox.Control>
 					<Combobox.Positioner>
-						<Combobox.Content class="z-50 bg-surface-100-900 text-xs md:text-sm lg:text-base">
+						<Combobox.Content class="z-50 bg-surface-100-900 text-xs md:text-sm lg:text-base max-h-64 overflow-y-auto">
 							{#each getArgOptions(arg.Name) as item (item)}
 								<Combobox.Item {item} class="text-surface-contrast-100-900 data-[highlighted]:preset-tonal-surface data-[selected]:preset-tonal {item.disabled ? 'opacity-40 line-through' : ''}">
 									<Combobox.ItemText>{item.label}</Combobox.ItemText>

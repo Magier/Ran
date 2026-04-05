@@ -29,7 +29,6 @@ pub(crate) fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
             for (k, v) in full_entity {
                 data.entry(k).or_insert(v);
             }
-            add_ui_system_field_aliases(&mut data);
         }
 
         entities.insert(id, data);
@@ -152,17 +151,6 @@ pub(crate) fn serialize_campaign_entity_map(
         CampaignEntityRef::Namespace(e) => serialize_entity_map(e),
         CampaignEntityRef::Pod(e) => serialize_entity_map(e),
         CampaignEntityRef::ServiceAccount(e) => serialize_entity_map(e),
-    }
-}
-
-fn add_ui_system_field_aliases(data: &mut HashMap<String, Value>) {
-    // SystemInfo fields are flattened directly into the entity map.
-    // Create camelCase aliases for the fields the frontend expects.
-    if let Some(env_vars) = data.get("env_vars").cloned().filter(|v| !v.is_null()) {
-        data.insert("envVars".to_string(), env_vars);
-    }
-    if let Some(access_level) = data.get("access_level").cloned().filter(|v| !is_access_level_none(v)) {
-        data.insert("accessLevel".to_string(), access_level);
     }
 }
 
