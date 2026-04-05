@@ -142,6 +142,7 @@ pub struct SystemInfo {
     pub ips: Vec<IpAddr>,
     pub user_id: Option<u32>,
     pub username: Option<String>,
+    #[serde(rename = "envVars")]
     pub env_vars: HashMap<String, String>,
     /// Maps binary name → presence on this system.
     pub binaries: HashMap<String, BinaryPresence>,
@@ -149,6 +150,7 @@ pub struct SystemInfo {
     pub missing_files: Vec<String>,
     pub processes: Vec<Process>,
     pub mounts: Vec<Mount>,
+    #[serde(rename = "accessLevel")]
     pub access_level: AccessLevel,
 }
 
