@@ -97,7 +97,8 @@ pub fn parse_output_effect(
         let inner = extract_effect_args(effect_id).unwrap_or("");
         parse_sys_has_binary(stdout, inner)
     } else if normalized == "k8s.selfsubjectrulesreview" {
-        parse_self_subject_rules_review(stdout, stderr, &cmd.target_id, campaign)
+        let token_arg = cmd.args.get("TOKEN").map(String::as_str).unwrap_or("");
+        parse_self_subject_rules_review(stdout, stderr, &cmd.target_id, campaign, token_arg)
     } else {
         let parser = resolve_output_parser(&normalized)?;
         parser(stdout, stderr)
@@ -1078,11 +1079,32 @@ struct SsrrNonResourceRule {
 ///
 /// The resulting `RbacPermission` entries are attached to the SA. The existing SA
 /// is cloned from the campaign so that the token and other fields are preserved.
+/// Decode the JWT `token` and extract the Kubernetes SA name and namespace.
+/// Returns `None` if the token is missing, malformed, or lacks k8s claims.
+fn resolve_sa_from_token(token: &str) -> Option<(String, String)> {
+    let token = token.trim();
+    if token.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = token.splitn(3, '.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1]).ok()?;
+    let payload: JwtPayload = serde_json::from_slice(&payload_bytes).ok()?;
+    let (namespace, sa_name, ..) = resolve_k8s_claims(&payload);
+    if namespace.is_empty() || sa_name.is_empty() {
+        return None;
+    }
+    Some((sa_name, namespace))
+}
+
 fn parse_self_subject_rules_review(
     stdout: &str,
     _stderr: &str,
     target_id: &str,
     campaign: &Campaign,
+    token_arg: &str,
 ) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty output".to_string());
@@ -1115,9 +1137,20 @@ fn parse_self_subject_rules_review(
     let (resource_rules, non_resource_rules) = rules;
 
     // Resolve the ServiceAccount to update.
-    // target_id is the *exec target* (often a pod that ran the command), not
-    // necessarily the SA being reviewed. Follow pod → SA if needed.
-    let Some(mut sa) = resolve_sa_for_ssrr(target_id, campaign) else {
+    // If a TOKEN arg was provided, its JWT claims identify the actual SA whose
+    // permissions were reviewed — which may differ from the pod's own SA.
+    // Fall back to the exec target (pod → pod's SA) only when no token is given.
+    let Some(mut sa) = resolve_sa_from_token(token_arg)
+        .map(|(sa_name, namespace)| {
+            let sa_id = EntityId::new(format!("ns/{}/sa/{}", namespace, sa_name));
+            campaign
+                .service_accounts
+                .get(&sa_id)
+                .cloned()
+                .unwrap_or_else(|| ServiceAccount::new(&sa_name, &namespace))
+        })
+        .or_else(|| resolve_sa_for_ssrr(target_id, campaign))
+    else {
         return ParserOutput::KnownFailure(format!(
             "cannot resolve a ServiceAccount for target '{target_id}': \
              target is neither a known SA nor a pod with a known service account"
