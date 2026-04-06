@@ -1,3 +1,4 @@
+id: install-kubectl-c2
 name: Install Kubectl
 description: .
 tactic: Command And Control

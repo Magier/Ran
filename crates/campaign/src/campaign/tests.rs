@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted};
-use ran_domain::{AccessLevel, Entity, EntityId, K8sCluster, Pod, RelationSummary};
+use ran_domain::{AccessLevel, Entity, EntityId, K8sCluster, Pod, PodExec, KubeletExecSink, RceCanExec, RelationSummary, Uses};
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
 use crate::failure_analyzers::FAILURE_ANALYZER_EFFECT_ID;
@@ -160,19 +160,11 @@ fn on_ttp_executed_failure_records_unknown_format_when_unclassified() {
 // ---------------------------------------------------------------------------
 
 fn can_exec_relation(source_id: &str, target_id: &str) -> RelationSummary {
-    RelationSummary {
-        name: "k8s.can-exec".to_string(),
-        source_id: source_id.to_string(),
-        target_id: target_id.to_string(),
-    }
+    RelationSummary::from_relation(&PodExec::new(source_id, target_id))
 }
 
 fn kubelet_pod_exec_relation(source_id: &str, target_id: &str) -> RelationSummary {
-    RelationSummary {
-        name: "kubelet-pod-exec".to_string(),
-        source_id: source_id.to_string(),
-        target_id: target_id.to_string(),
-    }
+    RelationSummary::from_relation(&KubeletExecSink::new(source_id, target_id))
 }
 
 #[test]
@@ -203,11 +195,12 @@ fn resolve_exec_channel_returns_builtin_for_kubelet_pod_exec_relation() {
 fn resolve_exec_channel_returns_via_compromised_intermediate() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
-    // Compromised pod (has exec foothold)
+    // Compromised pod (has exec foothold — C2 can reach it via k8s.can-exec)
     let mut attacker = Pod::new("attacker", "default");
     attacker.system.access_level = AccessLevel::UserExec;
     let attacker_id = attacker.entity_id().0.clone();
     campaign.pods.insert(attacker.entity_id(), attacker);
+    campaign.relations.push(can_exec_relation("sa/default/ran", &attacker_id));
 
     // Target pod (no direct exec edge from C2)
     let target = Pod::new("target", "default");
@@ -222,6 +215,61 @@ fn resolve_exec_channel_returns_via_compromised_intermediate() {
 }
 
 #[test]
+fn resolve_exec_channel_multi_hop_bfs() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    // p1: compromised pod C2 can exec into (via k8s.can-exec from a non-pod)
+    let mut p1 = Pod::new("p1", "default");
+    p1.system.access_level = AccessLevel::UserExec;
+    let p1_id = p1.entity_id().0.clone();
+    campaign.pods.insert(p1.entity_id(), p1);
+    campaign.relations.push(can_exec_relation("sa/default/ran", &p1_id));
+
+    // p2: intermediate pod reachable from p1
+    let p2 = Pod::new("p2", "default");
+    let p2_id = p2.entity_id().0.clone();
+    campaign.pods.insert(p2.entity_id(), p2);
+
+    // p3 (target): reachable from p2
+    let p3 = Pod::new("p3", "default");
+    let p3_id = p3.entity_id().0.clone();
+    campaign.pods.insert(p3.entity_id(), p3);
+
+    campaign.relations.push(can_exec_relation(&p1_id, &p2_id));
+    campaign.relations.push(can_exec_relation(&p2_id, &p3_id));
+
+    let ch = campaign.resolve_exec_channel(&p3_id).expect("should find 2-hop path");
+    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.hops, vec![p1_id.clone(), p2_id.clone()], "hops must be [p1, p2]");
+    assert!(ch.exec_target_id.is_none());
+}
+
+#[test]
+fn resolve_exec_channel_follows_rce_can_exec_edge() {
+    // Regression: after lateral movement creates rce.can-exec(entry-hall, redis),
+    // subsequent commands targeting redis must succeed via the hop through entry-hall.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    // C2 has direct kubectl exec into entry-hall (via k8s.can-exec from a non-pod)
+    let entry_hall = Pod::new("entry-hall-xyz", "default");
+    let entry_hall_id = entry_hall.entity_id().0.clone();
+    campaign.pods.insert(entry_hall.entity_id(), entry_hall);
+    campaign.relations.push(can_exec_relation("sa/default/ran", &entry_hall_id));
+
+    // Lateral movement established rce.can-exec from entry-hall to redis
+    let redis = Pod::new("redis.10-244-1-3", "oopservability");
+    let redis_id = redis.entity_id().0.clone();
+    campaign.pods.insert(redis.entity_id(), redis);
+    campaign.relations.push(RelationSummary::from_relation(&RceCanExec::new(&entry_hall_id, &redis_id)));
+
+    let ch = campaign.resolve_exec_channel(&redis_id)
+        .expect("should find channel via rce.can-exec edge");
+    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.hops, vec![entry_hall_id], "should hop through entry-hall");
+    assert!(ch.exec_target_id.is_none());
+}
+
+#[test]
 fn resolve_exec_channel_resolves_via_service_account_uses_relation() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
@@ -232,11 +280,7 @@ fn resolve_exec_channel_resolves_via_service_account_uses_relation() {
 
     let sa_id = "ns/dungeon/sa/player";
     campaign.relations.push(can_exec_relation("sa/default/ran", &pod_id));
-    campaign.relations.push(RelationSummary {
-        name: "uses".to_string(),
-        source_id: pod_id.clone(),
-        target_id: sa_id.to_string(),
-    });
+    campaign.relations.push(RelationSummary::from_relation(&Uses::new(&pod_id, sa_id)));
 
     let ch = campaign.resolve_exec_channel(sa_id).expect("should resolve via pod uses SA");
     assert_eq!(ch.backend_id, "c2/ran");
@@ -252,6 +296,94 @@ fn resolve_exec_channel_errors_when_no_path_in_graph() {
 
     let result = campaign.resolve_exec_channel(&target_id);
     assert!(result.is_err(), "expected Err when no exec relations exist");
+}
+
+// ---------------------------------------------------------------------------
+// resolve_exec_source tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn resolve_exec_source_finds_pod_via_can_exec_relation_only() {
+    // This is the key regression: entry-hall is accessible via k8s.can-exec but
+    // has never had `id` run on it, so access_level is not set.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("entry-hall-xyz", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.pods.insert(pod.entity_id(), pod);
+    // C2 (non-pod) has exec access to the pod.
+    campaign.relations.push(can_exec_relation("sa/default/ran", &pod_id));
+
+    let ch = campaign.resolve_exec_source().expect("should find source via relation");
+    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.exec_target_id.as_deref(), Some(pod_id.as_str()));
+}
+
+#[test]
+fn resolve_exec_source_prefers_most_recently_used_pod() {
+    use crate::execution_record::ExecutionRecord;
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let pod_a = Pod::new("pod-a", "default");
+    let pod_b = Pod::new("pod-b", "default");
+    let id_a = pod_a.entity_id().0.clone();
+    let id_b = pod_b.entity_id().0.clone();
+    campaign.pods.insert(pod_a.entity_id(), pod_a);
+    campaign.pods.insert(pod_b.entity_id(), pod_b);
+
+    campaign.relations.push(can_exec_relation("sa/default/ran", &id_a));
+    campaign.relations.push(can_exec_relation("sa/default/ran", &id_b));
+
+    // Most recent execution was on pod-b
+    campaign.execution_records.push(ExecutionRecord {
+        id: "cmd-1".to_string(),
+        ttp_id: "x".to_string(), ttp_name: "x".to_string(), tactic: "Execution".to_string(),
+        target_id: id_a.clone(), exec_system_id: "c2/ran".to_string(),
+        procedure_id: "shell".to_string(), command: "id".to_string(),
+        args: HashMap::new(), success: true, exit_code: 0, results: vec![],
+        fail_reason: String::new(), started_at_ms: 1, completed_at_ms: 2,
+    });
+    campaign.execution_records.push(ExecutionRecord {
+        id: "cmd-2".to_string(),
+        ttp_id: "x".to_string(), ttp_name: "x".to_string(), tactic: "Discovery".to_string(),
+        target_id: id_b.clone(), exec_system_id: "c2/ran".to_string(),
+        procedure_id: "shell".to_string(), command: "hostname".to_string(),
+        args: HashMap::new(), success: true, exit_code: 0, results: vec![],
+        fail_reason: String::new(), started_at_ms: 3, completed_at_ms: 4,
+    });
+
+    let ch = campaign.resolve_exec_source().expect("should find source");
+    assert_eq!(ch.exec_target_id.as_deref(), Some(id_b.as_str()),
+        "should prefer most recently targeted pod");
+}
+
+#[test]
+fn resolve_exec_source_finds_pod_via_rce_can_exec_transitively() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    // C2 can exec into pod-a.
+    let pod_a = Pod::new("pod-a", "default");
+    let id_a = pod_a.entity_id().0.clone();
+    campaign.pods.insert(pod_a.entity_id(), pod_a);
+    campaign.relations.push(can_exec_relation("sa/default/ran", &id_a));
+
+    // pod-a has rce.can-exec to pod-b (lateral movement already done)
+    let pod_b = Pod::new("pod-b", "redis");
+    let id_b = pod_b.entity_id().0.clone();
+    campaign.pods.insert(pod_b.entity_id(), pod_b);
+    campaign.relations.push(RelationSummary::from_relation(&RceCanExec::new(&id_a, &id_b)));
+
+    // Both are reachable; without execution history pod-a is returned (first in BFS seed)
+    let ch = campaign.resolve_exec_source().expect("should find source");
+    assert_eq!(ch.backend_id, "c2/ran");
+    assert!(ch.exec_target_id.is_some());
+}
+
+#[test]
+fn resolve_exec_source_errors_with_no_reachable_pod() {
+    let campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    // No pods, no relations
+    let result = campaign.resolve_exec_source();
+    assert!(result.is_err(), "should fail when no reachable pod exists");
 }
 
 // ---------------------------------------------------------------------------

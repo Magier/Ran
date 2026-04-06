@@ -15,7 +15,34 @@ pub trait Relation: std::any::Any + std::fmt::Debug + Send + Sync {
     /// Returns the relation as `&dyn Any` for downcasting.
     fn as_any(&self) -> &dyn std::any::Any;
 
+    /// Returns `true` when this relation is a [`C2Channel`] — i.e. the source
+    /// can execute commands on the target.  Do not override this directly;
+    /// implement [`C2Channel`] on the concrete type instead.
+    fn is_exec_channel(&self) -> bool {
+        false
+    }
 }
+
+/// Marker subtrait for relations that represent an execution channel.
+///
+/// Implement this on any relation that confers the ability to run commands on
+/// the target entity (kubectl exec, RCE exploit, implant session, …).
+/// Then override `is_exec_channel` to return `true` in the same `impl Relation`
+/// block — Rust's trait system does not support blanket default-method overrides
+/// from subtraits, so the one-liner must be written explicitly, but `C2Channel`
+/// is the authoritative declaration of *which* relations are exec channels.
+///
+/// # How to add a new exec-channel relation
+///
+/// ```ignore
+/// impl C2Channel for MyExecRelation {}
+///
+/// impl Relation for MyExecRelation {
+///     // ... required methods ...
+///     fn is_exec_channel(&self) -> bool { true }
+/// }
+/// ```
+pub trait C2Channel: Relation {}
 
 macro_rules! impl_relation_dyn {
     ($t:ty) => {

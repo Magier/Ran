@@ -28,6 +28,7 @@ pub enum ParseResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParseAudit {
+    pub cmd_id: String,
     pub effect_id: String,
     pub ttp_id: String,
     pub target_id: String,
@@ -990,6 +991,7 @@ fn build_audit(
     inferred_facts_written: usize,
 ) -> ParseAudit {
     ParseAudit {
+        cmd_id: cmd.id.clone(),
         effect_id: effect_id.to_string(),
         ttp_id: cmd.ttp.id.clone(),
         target_id: cmd.target_id.clone(),
