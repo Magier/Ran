@@ -102,6 +102,8 @@ pub trait ApiService: Clone + Send + Sync + 'static {
     ) -> Result<campaign::ExecuteActionResult, ApiError>;
 
     async fn get_campaign(&self) -> Result<campaign::Campaign, ApiError>;
+
+    async fn reset_campaign(&self) -> Result<(), ApiError>;
 }
 
 pub fn router<S: ApiService>(service: S) -> Router {

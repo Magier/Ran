@@ -44,6 +44,7 @@ pub enum CampaignEvent {
         cmd_id: String,
         audits: Vec<ParseAudit>,
     },
+    Reset,
 }
 
 #[derive(Clone)]
