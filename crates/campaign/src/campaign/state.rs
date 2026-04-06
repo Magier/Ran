@@ -48,6 +48,14 @@ impl Campaign {
         }
     }
 
+    /// Reset all campaign state back to the initial bootstrap state.
+    ///
+    /// All entities, relations, audit trail and execution records are cleared.
+    /// The C2 server and target cluster are re-seeded from the provided values.
+    pub fn reset(&mut self, ran_name: impl Into<String>, target_cluster: K8sCluster) {
+        *self = Campaign::bootstrap(ran_name, target_cluster);
+    }
+
     pub fn entity_count(&self) -> usize {
         self.c2_servers.len()
             + self.clusters.len()

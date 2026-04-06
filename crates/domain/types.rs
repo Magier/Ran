@@ -147,7 +147,6 @@ pub struct SystemInfo {
     /// Maps binary name → presence on this system.
     pub binaries: HashMap<String, BinaryPresence>,
     pub files: Vec<String>,
-    pub missing_files: Vec<String>,
     pub processes: Vec<Process>,
     pub mounts: Vec<Mount>,
     #[serde(rename = "accessLevel")]
@@ -180,13 +179,37 @@ impl SystemInfo {
 // ---------------------------------------------------------------------------
 
 /// Whether a binary is known to exist on a system and, if so, where.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Serialized as a plain string so the frontend can display it directly:
+/// `Present(path)` → `"path"`, `Absent` → `""`, `Unknown` → `null`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BinaryPresence {
     /// No attempt has been made to discover this binary.
     Unknown,
     Absent,
     /// Known to exist at this path.
     Present(String),
+}
+
+impl serde::Serialize for BinaryPresence {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            BinaryPresence::Present(path) => s.serialize_str(path),
+            BinaryPresence::Absent => s.serialize_str(""),
+            BinaryPresence::Unknown => s.serialize_none(),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for BinaryPresence {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let opt: Option<String> = Option::deserialize(d)?;
+        Ok(match opt {
+            None => BinaryPresence::Unknown,
+            Some(s) if s.is_empty() => BinaryPresence::Absent,
+            Some(path) => BinaryPresence::Present(path),
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------

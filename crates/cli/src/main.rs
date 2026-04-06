@@ -55,6 +55,9 @@ struct AppState {
     c2: C2Handle,
     armory: Armory,
     default_namespace: Option<String>,
+    ran_name: String,
+    target_cluster: K8sCluster,
+    campaign_events: CampaignEventBus,
 }
 
 // TODO: Temporary workaround for MVP wiring.
@@ -94,6 +97,16 @@ impl ApiService for AppState {
             .read()
             .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
         Ok(guard.clone())
+    }
+
+    async fn reset_campaign(&self) -> Result<(), ApiError> {
+        let mut campaign = self
+            .campaign
+            .write()
+            .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
+        campaign.reset(self.ran_name.clone(), self.target_cluster.clone());
+        let _ = self.campaign_events.publish(CampaignEvent::Reset);
+        Ok(())
     }
 
     async fn get_armory(&self, params: api::GetArmoryParams) -> Result<Vec<armory::Ttp>, ApiError> {
@@ -480,11 +493,13 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         None
     };
 
+    let campaign_cluster = K8sCluster::new(target_cluster.name)
+        .with_context_name(target_cluster.context_name)
+        .with_server(target_cluster.server);
+
     let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
         "Ran",
-        K8sCluster::new(target_cluster.name)
-            .with_context_name(target_cluster.context_name)
-            .with_server(target_cluster.server),
+        campaign_cluster.clone(),
     )));
 
     let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s.clone());
@@ -505,6 +520,9 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         c2: c2_handle,
         armory,
         default_namespace: args.namespace.clone(),
+        ran_name: "Ran".to_string(),
+        target_cluster: campaign_cluster,
+        campaign_events: campaign_events.clone(),
     };
     let campaign_entity_count = state
         .campaign
@@ -636,6 +654,12 @@ async fn bridge_campaign_events_to_sse(
                         },
                     })
                     .to_string(),
+                );
+            }
+            Ok(CampaignEvent::Reset) => {
+                api::publish_sse_event(
+                    "reset-campaign",
+                    serde_json::json!({ "type": "reset-campaign" }).to_string(),
                 );
             }
             Err(broadcast::error::RecvError::Lagged(skipped)) => {

@@ -186,6 +186,13 @@ pub(crate) async fn campaign_state_handler<S: ApiService>(
     Ok(axum::Json(state))
 }
 
+pub(crate) async fn reset_campaign_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    service.reset_campaign().await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
 fn ms_to_iso8601(ms: u64) -> String {
     DateTime::<Utc>::from_timestamp_millis(ms as i64)
         .map(|dt| dt.to_rfc3339())
