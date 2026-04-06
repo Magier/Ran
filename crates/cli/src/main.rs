@@ -487,7 +487,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
     let parsers_dir = armory_dir.parent().unwrap_or(&armory_dir).join("parsers");
     let external_parser: Option<Arc<dyn ExternalParser>> = if parsers_dir.is_dir() {
         info!(dir = %parsers_dir.display(), "script parser directory found");
-        Some(Arc::new(ScriptParserRunner::new(parsers_dir)))
+        Some(Arc::new(ScriptParserRunner::new(parsers_dir.clone())))
     } else {
         info!(dir = %parsers_dir.display(), "no script parser directory; external parsers disabled");
         None
@@ -531,7 +531,13 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         .unwrap_or_default();
     let armory_count = state.armory.ttps().len();
 
-    let app: Router = api::router_with_sse(state).fallback(api::frontend_handler);
+    let mcp_config = api::McpConfig {
+        campaign_events: campaign_events.clone(),
+        parsers_dir: Some(parsers_dir),
+    };
+
+    let app: Router = api::router_with_sse_and_mcp(state, mcp_config)
+        .fallback(api::frontend_handler);
     let addr = SocketAddr::from(([127, 0, 0, 1], args.port));
 
     info!("starting emulate API server");

@@ -324,7 +324,7 @@ pub(crate) async fn stop_pod_watch_handler() -> axum::Json<PodWatchStatus> {
     })
 }
 
-fn ttp_is_applicable_for_target_kind(
+pub(crate) fn ttp_is_applicable_for_target_kind(
     ttp: &armory::Ttp,
     target_kind: &str,
     is_system_target: bool,

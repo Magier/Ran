@@ -3,8 +3,10 @@ include!(concat!(env!("OUT_DIR"), "/openapi_generated.rs"));
 mod state_conversions;
 mod api_handlers;
 mod sse;
+pub mod mcp;
 
 pub use api_handlers::frontend_handler;
+pub use mcp::McpConfig;
 pub use sse::publish_sse_event;
 
 pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
@@ -21,4 +23,9 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
         .route("/api/flow", axum::routing::get(api_handlers::flow_handler::<S>))
         .with_state(service.clone())
         .merge(router(service))
+}
+
+pub fn router_with_sse_and_mcp<S: ApiService + 'static>(service: S, mcp_config: McpConfig) -> axum::Router {
+    router_with_sse(service.clone())
+        .merge(mcp::mcp_router(service, mcp_config))
 }
