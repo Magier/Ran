@@ -38,6 +38,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         args: HashMap::new(),
         target_id: target_id.to_string(),
         exec_system_id: String::new(),
+        started_at_ms: 0,
     }
 }
 
@@ -367,6 +368,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         args: HashMap::new(),
         target_id: target_id.to_string(),
         exec_system_id: target_id.to_string(),
+        started_at_ms: 0,
     }
 }
 

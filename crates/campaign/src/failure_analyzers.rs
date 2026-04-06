@@ -18,6 +18,7 @@ pub struct InvalidTargetFailureAnalyzer;
 pub struct RbacDeniedFailureAnalyzer;
 pub struct ConnectivityFailureAnalyzer;
 pub struct CommandNotFoundFailureAnalyzer;
+pub struct NotWriteableFailureAnalyzer;
 
 impl FailureAnalyzer for InvalidTargetFailureAnalyzer {
     fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
@@ -79,6 +80,28 @@ impl FailureAnalyzer for ConnectivityFailureAnalyzer {
     }
 }
 
+impl FailureAnalyzer for NotWriteableFailureAnalyzer {
+    fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
+        // Exit code 23 is used by tool-transfer TTPs to signal a non-writable destination.
+        if event.exit_code == 23 {
+            return Some(FailureClassification {
+                parse_result: ParseResult::KnownFailure,
+                detail: "destination directory is not writable".to_string(),
+            });
+        }
+
+        let haystack = failure_haystack(event);
+        if contains_any(&haystack, &["is not writeable", "exit code 23"]) {
+            return Some(FailureClassification {
+                parse_result: ParseResult::KnownFailure,
+                detail: "destination directory is not writable".to_string(),
+            });
+        }
+
+        None
+    }
+}
+
 impl FailureAnalyzer for CommandNotFoundFailureAnalyzer {
     fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
         // Exit code 127 is the POSIX shell standard for "command not found".
@@ -117,6 +140,7 @@ pub fn default_failure_analyzers() -> Vec<Box<dyn FailureAnalyzer>> {
         Box::new(RbacDeniedFailureAnalyzer),
         Box::new(ConnectivityFailureAnalyzer),
         Box::new(CommandNotFoundFailureAnalyzer),
+        Box::new(NotWriteableFailureAnalyzer),
     ]
 }
 
@@ -193,6 +217,7 @@ mod tests {
             args: HashMap::new(),
             target_id: "ns/default/pod/demo".to_string(),
             exec_system_id: String::new(),
+            started_at_ms: 0,
         }
     }
 
@@ -246,6 +271,36 @@ mod tests {
 
         assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
         assert!(classified.detail.contains("not found"));
+    }
+
+    #[test]
+    fn classify_failure_detects_not_writeable_via_exit_code() {
+        let cmd = sample_cmd();
+        let mut event = sample_failed_event(
+            "command terminated with non-zero exit code: error executing command [/bin/sh -lc ...], exit code 23",
+            "'/usr/local/bin' is not writeable",
+        );
+        event.exit_code = 23;
+
+        let classified = classify_failure(&cmd, &event);
+
+        assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
+        assert!(classified.detail.contains("not writable"));
+    }
+
+    #[test]
+    fn classify_failure_detects_not_writeable_via_message() {
+        let cmd = sample_cmd();
+        // exit_code may not propagate correctly; message in fail_reason should still match
+        let event = sample_failed_event(
+            "command terminated with non-zero exit code: error executing command [...], exit code 23",
+            "",
+        );
+
+        let classified = classify_failure(&cmd, &event);
+
+        assert!(matches!(classified.parse_result, ParseResult::KnownFailure));
+        assert!(classified.detail.contains("not writable"));
     }
 
     #[test]
