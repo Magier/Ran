@@ -1437,6 +1437,7 @@ mod tests {
             args: HashMap::new(),
             target_id: "ns/default/pod/demo".to_string(),
             exec_system_id: String::new(),
+            started_at_ms: 0,
         }
     }
 
