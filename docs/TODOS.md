@@ -7,6 +7,41 @@
 
 - cmd fail due to RBAC 403 shows `success` in the attack flow, but is a failure 
 
+## Replace `RelationSummary` with typed trait objects (Option 2)
+
+**Context:** `Campaign.relations` stores `Vec<RelationSummary>` — a plain serialisable struct with
+only `name`, `source_id`, `target_id`, and `is_exec_channel`. The concrete relation type is
+erased at insertion time (`RelationSummary::from_relation`).
+
+**Why this matters:** The `C2Channel` marker trait and `is_exec_channel: bool` on `RelationSummary`
+are a workaround for the fact that `Box<dyn Relation>` is not serialisable or cloneable. Any new
+semantic property added to a concrete relation type (e.g. port, credentials, RCE envelope string on
+`RceCanExec`) is silently dropped. Rule inference and channel resolution are limited to the
+information that fits in the three-field summary.
+
+**What option 2 would look like:**
+- Add `typetag` to `ran-domain` and annotate `impl Relation` on each concrete type with
+  `#[typetag::serde]`. This makes `Box<dyn Relation>` serialisable with a `type` discriminant
+  in the JSON.
+- Add `dyn_clone` and derive `Clone` on each concrete type; a blanket impl gives
+  `Box<dyn Relation>: Clone`.
+- Change `Campaign.relations` from `Vec<RelationSummary>` to `Vec<Box<dyn Relation>>`.
+- `C2Channel` then works purely as a marker trait — `is_exec_channel()` dispatches
+  polymorphically with no stored flag and no sync risk.
+- Delete `RelationSummary` entirely.
+
+**Cost / risk:**
+- `typetag` changes the JSON shape (adds a `"type"` discriminant to every relation).
+  Existing serialised campaign snapshots become incompatible.
+- All code constructing `RelationSummary {}` literals (tests, rule inference, runtime) must be
+  updated to use concrete types.
+- Medium-sized refactor; touching `campaign`, `api`, and all tests that push relations directly.
+
+**Current state:** `is_exec_channel: bool` on `RelationSummary` bridges the gap. The `C2Channel`
+marker trait in `domain/relation.rs` is already the authoritative list — adding a new exec-channel
+relation is `impl C2Channel for MyType {}` plus `fn is_exec_channel(&self) -> bool { true }` in
+its `Relation` impl.
+
 
 - files are always interpreted as binaries?
 

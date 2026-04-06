@@ -62,7 +62,49 @@ impl Campaign {
         // references like `${NS}` in other arg defaults resolve correctly.
         ground_args_from_context(&mut args, &request.target_id, self);
 
+        // Pre-resolve the lateral movement exec source so that ${SRC} is
+        // available when the effect strings are grounded below.  Lateral
+        // Movement TTPs run FROM a compromised pod, so the source pod entity
+        // ID is the value that ${SRC}, used in effects like
+        // `rce.can-exec(${SRC}, ${TARGET_ID})`, should resolve to.
+        let pre_resolved_src: Option<super::ExecChannel> =
+            if request.exec_system_id.as_deref().map(|s| s.trim().is_empty()).unwrap_or(true)
+                && is_lateral_movement_tactic(&ttp.tactic)
+            {
+                let ch = self
+                    .resolve_exec_source()
+                    .map_err(ExecuteActionError::NoExecChannel)?;
+                if let Some(ref src_id) = ch.exec_target_id {
+                    args.insert("SRC".to_string(), src_id.clone());
+                }
+                Some(ch)
+            } else {
+                None
+            };
+
+        // Inject TARGET_ID — the canonical graph entity ID of the target — so
+        // that effect strings like `rce.can-exec(${SRC}, ${TARGET_ID})` record
+        // the relation with the correct ID even when ${TARGET} holds an IP.
+        args.entry("TARGET_ID".to_string())
+            .or_insert_with(|| request.target_id.clone());
+
         let mut procedure = self.select_procedure(&ttp, request.procedure_id.as_deref())?;
+
+        // Compute the wrapping envelope before fully grounding the command.
+        // Ground every arg *except* CMD so that the ${CMD} placeholder is
+        // preserved as the injection slot for future commands routed over this
+        // hop (e.g. rce.can-exec).  Any effect handler that needs it reads
+        // PROCEDURE_CMD from the args context.
+        {
+            let envelope_args: std::collections::HashMap<_, _> = args
+                .iter()
+                .filter(|(k, _)| k.to_uppercase() != "CMD")
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let envelope = ground_template(&procedure.command, &envelope_args);
+            args.entry("PROCEDURE_CMD".to_string()).or_insert(envelope);
+        }
+
         procedure.command = ground_template(&procedure.command, &args);
 
         for effect in &mut ttp.effects {
@@ -76,12 +118,65 @@ impl Campaign {
 
         let (exec_system_id, resolved_target_id) = match request.exec_system_id {
             Some(id) if !id.trim().is_empty() => (id, request.target_id),
+            _ if is_lateral_movement_tactic(&ttp.tactic) => {
+                // Lateral Movement TTPs run FROM an already-compromised pod and
+                // CREATE the exec edge to the target — they must not require a
+                // pre-existing channel to the victim.  The source was resolved
+                // above so ${SRC} is grounded in effects; use the same channel
+                // here to target the source pod for kubectl exec.
+                let ch = pre_resolved_src
+                    .expect("lateral movement exec source resolved above");
+                let exec_target = ch.exec_target_id.unwrap_or(request.target_id);
+                (ch.backend_id, exec_target)
+            }
             _ if needs_remote_channel(&procedure, &ttp.tactic) => {
                 let ch = self
                     .resolve_exec_channel(&request.target_id)
                     .map_err(ExecuteActionError::NoExecChannel)?;
-                let exec_target = ch.exec_target_id.unwrap_or(request.target_id);
-                (ch.backend_id, exec_target)
+                let exec_target = ch.exec_target_id.clone().unwrap_or(request.target_id.clone());
+
+                if ch.hops.is_empty() {
+                    // Direct path: C2 can reach the target without any hop.
+                    (ch.backend_id, exec_target)
+                } else {
+                    // Multi-hop: build nested command wrappers, one per hop.
+                    //
+                    // hops[0] is what BuiltinC2 execs into; the inner hops and
+                    // the final exec_target are wrapped inside the procedure
+                    // command from innermost (exec_target) outward (hops[1]).
+                    //
+                    // For each consecutive pair in the full chain
+                    //   [hops[0], hops[1], ..., exec_target]
+                    // we look up the exec-channel relation between them and
+                    // delegate wrapping to RelationSummary::wrap_command, which
+                    // applies the envelope for rce.can-exec hops and kubectl exec
+                    // for pod-exec hops — no per-relation-type special-casing here.
+                    let full_chain: Vec<&str> = ch.hops.iter().map(String::as_str)
+                        .chain(std::iter::once(exec_target.as_str()))
+                        .collect();
+
+                    // Wrap from innermost (last pair) to outermost (second pair;
+                    // hops[0] is handled by BuiltinC2 itself).
+                    for i in (1..full_chain.len()).rev() {
+                        let src = full_chain[i - 1];
+                        let tgt = full_chain[i];
+                        let found = self.relations.iter().find(|r| {
+                            r.is_exec_channel && r.source_id == src && r.target_id == tgt
+                        });
+                        procedure.command = match found {
+                            Some(rel) => rel.wrap_command(&procedure.command),
+                            None => {
+                                // Fallback: try kubectl exec via target entity ID
+                                if let Some((ns, name)) = split_pod_entity_id(tgt) {
+                                    format!("kubectl exec -n {} {} -- {}", ns, name, procedure.command)
+                                } else {
+                                    procedure.command.clone()
+                                }
+                            }
+                        };
+                    }
+                    (ch.backend_id, ch.hops[0].clone())
+                }
             }
             _ => (String::new(), request.target_id),
         };
@@ -153,6 +248,14 @@ impl Campaign {
             });
         }
 
+        // Build the effect-parsing context: start with the TTP args and add
+        // PROCEDURE_CMD so relation-effect handlers (e.g. rce.can-exec) that
+        // need the executed command template can read it without special-casing.
+        let mut effect_ctx = cmd.args.clone();
+        effect_ctx
+            .entry("PROCEDURE_CMD".to_string())
+            .or_insert_with(|| cmd.procedure.command.clone());
+
         for effect in &cmd.ttp.effects {
             if let Some(parsed_output) = parse_output_effect(self, effect, cmd, event) {
                 updates.merge(parsed_output.updates);
@@ -160,7 +263,7 @@ impl Campaign {
                 continue;
             }
 
-            match parse_effect_with_status(effect, &cmd.args) {
+            match parse_effect_with_status(effect, &effect_ctx) {
                 Ok(parsed_structural) if parsed_structural.handled => {
                     updates.merge(parsed_structural.updates);
                     parse_audits.push(build_parse_audit(
@@ -390,6 +493,34 @@ fn is_placeholder_node_id(node_id: &str) -> bool {
         }
         None => node_id.trim().is_empty(),
     }
+}
+
+/// Parse a pod entity ID in the canonical form `ns/<namespace>/pod/<name>` and
+/// return `(namespace, pod_name)`, or `None` if the format doesn't match.
+/// Used to build the inner `kubectl exec` when routing via an intermediate pod.
+fn split_pod_entity_id(entity_id: &str) -> Option<(&str, &str)> {
+    let mut parts = entity_id.splitn(5, '/');
+    let kind_a = parts.next()?;
+    let namespace = parts.next()?;
+    let kind_b = parts.next()?;
+    let pod_name = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if kind_a != "ns" || kind_b != "pod" || namespace.is_empty() || pod_name.is_empty() {
+        return None;
+    }
+    Some((namespace, pod_name))
+}
+
+/// Returns `true` when the tactic creates a new execution edge rather than
+/// requiring one to exist.  For these tactics the command is run FROM an
+/// already-compromised source, not TO the target.
+fn is_lateral_movement_tactic(tactic: &str) -> bool {
+    matches!(
+        tactic.trim().to_ascii_lowercase().as_str(),
+        "lateral movement" | "lateral-movement"
+    )
 }
 
 /// Returns `true` when the procedure requires a remote execution channel.

@@ -345,7 +345,7 @@ impl<S: ApiService> RanMcpHandler<S> {
                 let parse_audits: Vec<_> = campaign
                     .get_parse_audits()
                     .iter()
-                    .filter(|a| a.ttp_id == record.ttp_id && a.target_id == record.target_id)
+                    .filter(|a| a.cmd_id == record.id)
                     .map(|a| json!({
                         "effect_id": a.effect_id,
                         "result": format!("{:?}", a.parse_result),

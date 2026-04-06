@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use ran_domain::{
     C2Server, Entity, EntityId, K8sCluster, K8sNode, Namespace, Pod, RelationSummary,
@@ -133,25 +133,27 @@ impl Campaign {
 
     /// Query the knowledge graph and return the best execution channel for `target_id`.
     ///
-    /// Priority (first match wins — no silent fallbacks):
+    /// Resolution order:
     ///
-    /// 1. **Direct builtin**: any `k8s.can-exec` or `kubelet-pod-exec` relation
-    ///    whose `target_id` matches → reach the target directly via kubectl exec.
+    /// 1. **Direct**: a non-pod entity has a `k8s.can-exec` / `kubelet-pod-exec`
+    ///    relation to `target_id` — the C2 reaches the target without any hop.
     ///
-    /// 2. **Via compromised intermediate**: a pod with `system.can_exec()` has a
-    ///    `k8s.can-exec` or `kubelet-pod-exec` edge to the target.  Returns the
-    ///    pod's entity ID in `ExecChannel.via` for future agent routing; the
-    ///    C2Manager will fall back to builtin until agent backends are registered.
+    /// 2. **Multi-hop BFS**: starting from every pod reachable by the C2 (via
+    ///    `k8s.can-exec`, `kubelet-pod-exec` from a non-pod source, or
+    ///    transitively via `rce.can-exec` from prior lateral movement), follow
+    ///    all three edge types to find the shortest path to the target.  The
+    ///    resulting `ExecChannel.hops` contains the full ordered list of
+    ///    intermediate pods, from the C2 side outward; there is no depth limit.
     ///
-    /// Returns `Err` if neither condition is satisfied — the caller must not proceed.
+    /// 3. **Service-account indirection**: when the target is an SA, find the
+    ///    pod that `uses` it and resolve for that pod instead.
+    ///
+    /// Returns `Err` when no path can be found.
     pub fn resolve_exec_channel(&self, target_id: &str) -> Result<ExecChannel, String> {
-        const EXEC_RELS: [&str; 2] = ["k8s.can-exec", "kubelet-pod-exec"];
-
-        // Priority 1: a non-pod entity (service account, node) has an exec
-        // relation to the target → the in-cluster C2 server can reach it directly
-        // via kubectl exec.
+        // Priority 1: direct — a non-pod entity has an exec relation to the
+        // target (e.g. the C2's own SA has kubectl exec rights).
         let direct = self.relations.iter().any(|r| {
-            EXEC_RELS.contains(&r.name.as_str())
+            r.is_exec_channel
                 && r.target_id == target_id
                 && !self.pods.contains_key(&EntityId::new(&r.source_id))
         });
@@ -159,23 +161,67 @@ impl Campaign {
             return Ok(ExecChannel::direct("c2/ran"));
         }
 
-        // Priority 2: route via a compromised intermediate pod.
-        let intermediate = self.pods.values().find(|pod| {
-            let pod_id = pod.entity_id().0.clone();
-            pod.system.can_exec()
-                && self.relations.iter().any(|r| {
-                    EXEC_RELS.contains(&r.name.as_str())
-                        && r.source_id == pod_id
-                        && r.target_id == target_id
-                })
-        });
-        if let Some(pod) = intermediate {
-            return Ok(ExecChannel::via("c2/ran", pod.entity_id().0.clone()));
+        // Priority 2: BFS through exec relations from reachable pods.
+        //
+        // `visited` maps a pod entity ID to the complete ordered hop path that
+        // leads the C2 to it (including the pod itself as the last element).
+        //
+        // Seed: every pod reachable from the C2 (direct k8s.can-exec/
+        // kubelet-pod-exec from non-pod source, or transitively via
+        // rce.can-exec from prior lateral movement).
+        let mut visited: HashMap<String, Vec<String>> = HashMap::new();
+        let mut queue: VecDeque<String> = VecDeque::new();
+
+        // Seed only from pods the C2 can reach in one hop (exec-channel from
+        // a non-pod source).  Transitively reachable pods must NOT be pre-seeded
+        // here — their paths must be discovered by the BFS so that `hops` is
+        // built correctly from the C2 side outward.
+        for r in &self.relations {
+            if r.is_exec_channel
+                && !self.pods.contains_key(&EntityId::new(&r.source_id))
+                && self.pods.contains_key(&EntityId::new(&r.target_id))
+                && !visited.contains_key(&r.target_id)
+            {
+                visited.insert(r.target_id.clone(), vec![r.target_id.clone()]);
+                queue.push_back(r.target_id.clone());
+            }
         }
 
-        // Priority 3: target is a service account — find a pod that `uses` it,
-        // resolve the exec channel for that pod, and stamp the pod ID as the
-        // concrete exec target so the C2 backend can kubectl-exec into it.
+        while let Some(current) = queue.pop_front() {
+            let path_to_current = visited[&current].clone();
+
+            for r in &self.relations {
+                if !r.is_exec_channel || r.source_id != current {
+                    continue;
+                }
+                let next = &r.target_id;
+
+                // Found the target — return the hops leading to `current`;
+                // the caller's wrapping logic will add the final kubectl exec
+                // into `next` (the exec target).
+                if next == target_id {
+                    return Ok(ExecChannel {
+                        backend_id: "c2/ran".to_string(),
+                        hops: path_to_current,
+                        exec_target_id: None,
+                    });
+                }
+
+                // Continue BFS only through unvisited pod entities.
+                let next_id = next.clone();
+                if self.pods.contains_key(&EntityId::new(&next_id))
+                    && !visited.contains_key(&next_id)
+                {
+                    let mut next_path = path_to_current.clone();
+                    next_path.push(next_id.clone());
+                    visited.insert(next_id.clone(), next_path);
+                    queue.push_back(next_id);
+                }
+            }
+        }
+
+        // Priority 3: target is a service account — find the pod `uses`-ing it
+        // and resolve the exec channel for that pod instead.
         let sa_pod_id = self
             .relations
             .iter()
@@ -190,9 +236,151 @@ impl Campaign {
 
         Err(format!(
             "no viable execution channel to '{}' found in the knowledge graph \
-             (no k8s.can-exec or kubelet-pod-exec relation reaches this target)",
+             (no k8s.can-exec or kubelet-pod-exec path reaches this target)",
             target_id
         ))
+    }
+
+    /// Find the best compromised pod to use as a lateral-movement exec source.
+    ///
+    /// Lateral Movement TTPs create a new execution edge rather than require
+    /// one — so they must run FROM an already-compromised system, not TO the
+    /// victim.  Returns an [`ExecChannel`] whose `exec_target_id` is set to the
+    /// source pod entity ID so the C2 backend can `kubectl exec` into it.
+    ///
+    /// Resolution priority (first match wins):
+    ///
+    /// 1. **Most recently used reachable pod** — the last execution record whose
+    ///    `target_id` falls within the reachable set.  Keeps lateral movement in
+    ///    the same foothold the operator was just working in.
+    ///
+    /// 2. **Highest `access_level` among reachable pods** — prefers pods where
+    ///    we have proven interactive access (`UserExec` / `RootExec`).
+    ///
+    /// 3. **Any reachable pod** — fallback when no access-level information is
+    ///    available yet (e.g. initial access via `k8s.can-exec` relation only).
+    ///
+    /// "Reachable" = the C2 can get code running on the pod.  This includes:
+    /// - Pods targeted by a `k8s.can-exec` or `kubelet-pod-exec` relation from
+    ///   a **non-pod** source (the C2 itself has kubectl exec rights).
+    /// - Pods transitively reachable via `rce.can-exec` from the above set
+    ///   (pods compromised through prior lateral movement).
+    /// Collect all pod entity IDs that the C2 can run code on, either directly
+    /// or transitively through prior lateral movement.
+    ///
+    /// A pod is considered reachable if:
+    /// - A `k8s.can-exec` or `kubelet-pod-exec` relation points to it from a
+    ///   **non-pod** source (the C2 itself has kubectl exec rights), **or**
+    /// - It is reachable from any of the above via a chain of `rce.can-exec`
+    ///   edges left by prior lateral movement TTPs (no depth limit).
+    ///
+    /// The returned set contains pod entity IDs only.
+    pub fn reachable_pods(&self) -> std::collections::HashSet<String> {
+        // Seed: pods that C2 can directly exec into via a non-pod source.
+        let mut reachable: std::collections::HashSet<String> = self
+            .relations
+            .iter()
+            .filter(|r| {
+                r.is_exec_channel
+                    && !self.pods.contains_key(&EntityId::new(&r.source_id))
+                    && self.pods.contains_key(&EntityId::new(&r.target_id))
+            })
+            .map(|r| r.target_id.clone())
+            .collect();
+
+        // BFS over exec-channel edges to include pods compromised via lateral movement.
+        let mut bfs_queue: VecDeque<String> = reachable.iter().cloned().collect();
+        while let Some(current) = bfs_queue.pop_front() {
+            for r in &self.relations {
+                if r.is_exec_channel
+                    && r.source_id == current
+                    && self.pods.contains_key(&EntityId::new(&r.target_id))
+                    && !reachable.contains(&r.target_id)
+                {
+                    reachable.insert(r.target_id.clone());
+                    bfs_queue.push_back(r.target_id.clone());
+                }
+            }
+        }
+
+        reachable
+    }
+
+    /// Find the best compromised pod to use as a lateral-movement exec source.
+    ///
+    /// Lateral Movement TTPs create a new execution edge rather than require
+    /// one — so they must run FROM an already-compromised system, not TO the
+    /// victim.  Returns an [`ExecChannel`] whose `exec_target_id` is set to the
+    /// source pod entity ID so the C2 backend can `kubectl exec` into it.
+    ///
+    /// Resolution priority (first match wins):
+    ///
+    /// 1. **Most recently used reachable pod** — the last execution record whose
+    ///    `target_id` falls within the reachable set.  Keeps lateral movement in
+    ///    the same foothold the operator was just working in.
+    ///
+    /// 2. **Highest `access_level` among reachable pods** — prefers pods where
+    ///    we have proven interactive access (`UserExec` / `RootExec`).
+    ///
+    /// 3. **Any reachable pod** — fallback when no access-level information is
+    ///    available yet (e.g. initial access via `k8s.can-exec` relation only).
+    ///
+    /// Returns `Err` when no reachable pod can be found.
+    pub fn resolve_exec_source(&self) -> Result<ExecChannel, String> {
+        let reachable = self.reachable_pods();
+
+        if reachable.is_empty() {
+            return Err(
+                "no compromised system available to use as a lateral-movement \
+                 exec source; gain initial access first"
+                    .to_string(),
+            );
+        }
+
+        // --- Pick the best pod among reachable ones ---
+
+        // Priority 1: most recently used reachable pod.
+        if let Some(pod_id) = self
+            .execution_records
+            .iter()
+            .rev()
+            .map(|r| &r.target_id)
+            .find(|id| reachable.contains(*id))
+        {
+            let mut ch = ExecChannel::direct("c2/ran");
+            ch.exec_target_id = Some(pod_id.clone());
+            return Ok(ch);
+        }
+
+        // Priority 2: pod with highest proven access level.
+        let best_access = self
+            .pods
+            .values()
+            .filter(|p| reachable.contains(&p.entity_id().0) && p.system.can_exec())
+            .max_by_key(|p| p.system.access_level as u8);
+
+        if let Some(pod) = best_access {
+            let mut ch = ExecChannel::direct("c2/ran");
+            ch.exec_target_id = Some(pod.entity_id().0.clone());
+            return Ok(ch);
+        }
+
+        // Priority 3: any reachable pod (initial access only, no exec confirmed yet).
+        let any_pod = reachable
+            .iter()
+            .find(|id| self.pods.contains_key(&EntityId::new(*id)));
+
+        if let Some(pod_id) = any_pod {
+            let mut ch = ExecChannel::direct("c2/ran");
+            ch.exec_target_id = Some(pod_id.clone());
+            return Ok(ch);
+        }
+
+        Err(
+            "no compromised system available to use as a lateral-movement \
+             exec source; gain initial access first"
+                .to_string(),
+        )
     }
 
     pub(crate) fn insert_entity(&mut self, entity: &dyn Entity) {

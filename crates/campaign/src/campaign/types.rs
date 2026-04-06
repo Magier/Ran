@@ -44,10 +44,18 @@ pub enum ExecuteActionError {
 pub struct ExecChannel {
     /// C2 backend ID forwarded to the C2Manager (e.g. `"c2/ran"`).
     pub backend_id: String,
-    /// Intermediate entity to proxy through, if any.
-    /// `None` = reach target directly. `Some(id)` = route via a compromised
-    /// intermediate system (reserved for future agent-based backends).
-    pub via: Option<String>,
+    /// Ordered list of intermediate pod entity IDs to kubectl-exec through,
+    /// from the C2 side outward.
+    ///
+    /// - `[]` — direct path; the C2 can reach the exec target without any hop.
+    /// - `[p1]` — one hop: C2 execs into p1, p1 runs the command on the target.
+    /// - `[p1, p2, p3]` — three hops: C2 → p1 → p2 → p3 → target, each step
+    ///   via a nested `kubectl exec`.
+    ///
+    /// The first hop is the pod entity ID that `BuiltinC2` will directly exec
+    /// into; all subsequent hops plus the final `exec_target_id` are nested as
+    /// kubectl exec wrappers inside the procedure command.
+    pub hops: Vec<String>,
     /// Overrides the exec target entity ID when the requested target (e.g. a
     /// service account) was resolved to a concrete pod that should receive the
     /// command. `None` means use the original `request.target_id`.
@@ -58,15 +66,16 @@ impl ExecChannel {
     pub fn direct(backend_id: impl Into<String>) -> Self {
         Self {
             backend_id: backend_id.into(),
-            via: None,
+            hops: vec![],
             exec_target_id: None,
         }
     }
 
+    /// Convenience constructor for a single-hop channel.
     pub fn via(backend_id: impl Into<String>, intermediate_id: impl Into<String>) -> Self {
         Self {
             backend_id: backend_id.into(),
-            via: Some(intermediate_id.into()),
+            hops: vec![intermediate_id.into()],
             exec_target_id: None,
         }
     }

@@ -1,11 +1,16 @@
 use std::collections::HashMap;
 
-use ran_domain::{Entity, KubeletExecSource, Pod, PodExec, Relation, RunsOn};
+use ran_domain::{Entity, KubeletExecSource, Pod, PodExec, RceCanExec, Relation, RunsOn};
 
 use crate::grounding::resolve_go_template;
 
 type SimpleEffectHandler = fn(&HashMap<String, String>) -> Result<FactsUpdate, String>;
-type RelationEffectHandler = fn(&[&str]) -> Result<FactsUpdate, String>;
+/// Handler for relation-style effects such as `rce.can-exec(src, tgt)`.
+/// Receives both the positional args (from parsing the effect string) and the
+/// full execution context (the TTP args map) so handlers that need extra
+/// context — like `PROCEDURE_CMD` for `rce.can-exec` — can read it without
+/// requiring a separate post-hoc injection step.
+type RelationEffectHandler = fn(&[&str], &HashMap<String, String>) -> Result<FactsUpdate, String>;
 
 pub struct ParsedStructuralEffect {
     pub updates: FactsUpdate,
@@ -76,7 +81,7 @@ pub fn parse_effect_with_status(
     }
 
     if normalized.contains('(') && normalized.ends_with(')') {
-        return parse_relation_effect(normalized);
+        return parse_relation_effect(normalized, args);
     }
 
     Ok(ParsedStructuralEffect {
@@ -129,12 +134,12 @@ fn parse_k8s_pod(args: &HashMap<String, String>) -> Result<FactsUpdate, String> 
     })
 }
 
-fn parse_relation_effect(effect: &str) -> Result<ParsedStructuralEffect, String> {
+fn parse_relation_effect(effect: &str, ctx: &HashMap<String, String>) -> Result<ParsedStructuralEffect, String> {
     let (name, args) = split_relation(effect)?;
 
     if let Some(handler) = resolve_relation_effect_handler(name) {
         return Ok(ParsedStructuralEffect {
-            updates: handler(&args)?,
+            updates: handler(&args, ctx)?,
             handled: true,
         });
     }
@@ -156,29 +161,33 @@ fn resolve_relation_effect_handler(effect_name: &str) -> Option<RelationEffectHa
     match normalize_effect_name(effect_name).as_str() {
         "k8s.can-exec" => Some(parse_k8s_can_exec_relation),
         "k8s.runs-on" | "runs-on" => Some(parse_runs_on_relation),
-        "k8s.kubelet-exec-source" | "kubelet-exec" => Some(parse_kubelet_exec_source_relation),
+        "k8s.kubelet-exec-source" | "k8s.kubelet-exec" => Some(parse_kubelet_exec_source_relation),
+        "rce.can-exec" => Some(parse_rce_can_exec_relation),
         _ => None,
     }
 }
 
-fn parse_k8s_can_exec_relation(args: &[&str]) -> Result<FactsUpdate, String> {
+fn parse_k8s_can_exec_relation(
+    args: &[&str],
+    _ctx: &HashMap<String, String>,
+) -> Result<FactsUpdate, String> {
     if args.len() != 2 {
         return Err("k8s.can-exec effect expects exactly 2 args".to_string());
     }
-
     let rel = PodExec::new(args[0], args[1]);
-
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
     })
 }
 
-fn parse_runs_on_relation(args: &[&str]) -> Result<FactsUpdate, String> {
+fn parse_runs_on_relation(
+    args: &[&str],
+    _ctx: &HashMap<String, String>,
+) -> Result<FactsUpdate, String> {
     if args.len() != 2 {
         return Err("runs-on effect expects exactly 2 args".to_string());
     }
-
     let rel = RunsOn::new(args[0], args[1]);
     Ok(FactsUpdate {
         new_entities: Vec::new(),
@@ -186,12 +195,33 @@ fn parse_runs_on_relation(args: &[&str]) -> Result<FactsUpdate, String> {
     })
 }
 
-fn parse_kubelet_exec_source_relation(args: &[&str]) -> Result<FactsUpdate, String> {
+fn parse_kubelet_exec_source_relation(
+    args: &[&str],
+    _ctx: &HashMap<String, String>,
+) -> Result<FactsUpdate, String> {
     if args.len() != 2 {
         return Err("kubelet-exec effect expects exactly 2 args".to_string());
     }
-
     let rel = KubeletExecSource::new(args[0], args[1]);
+    Ok(FactsUpdate {
+        new_entities: Vec::new(),
+        new_relations: vec![Box::new(rel)],
+    })
+}
+
+fn parse_rce_can_exec_relation(
+    args: &[&str],
+    ctx: &HashMap<String, String>,
+) -> Result<FactsUpdate, String> {
+    if args.len() != 2 {
+        return Err("rce.can-exec effect expects exactly 2 args: source and target".to_string());
+    }
+    // The execution context may carry PROCEDURE_CMD — the grounded exploit
+    // command that was just run to establish this RCE path.  Store it as the
+    // wrapping envelope so subsequent commands through this hop re-invoke the
+    // same exploit with the new command substituted for ${CMD}.
+    let envelope = ctx.get("PROCEDURE_CMD").filter(|v| !v.trim().is_empty()).cloned();
+    let rel = RceCanExec::new(args[0], args[1]).with_opt_envelope(envelope);
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],

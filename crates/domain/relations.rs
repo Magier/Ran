@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, Relation};
+use crate::{relation::C2Channel, EntityId, Relation};
 
 // ---------------------------------------------------------------------------
 // Contains
@@ -64,6 +64,8 @@ impl PodExec {
     }
 }
 
+impl C2Channel for PodExec {}
+
 impl Relation for PodExec {
     fn relation_name(&self) -> &str {
         "k8s.can-exec"
@@ -79,6 +81,10 @@ impl Relation for PodExec {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn is_exec_channel(&self) -> bool {
+        true
     }
 }
 
@@ -174,6 +180,8 @@ impl KubeletExecSink {
     }
 }
 
+impl C2Channel for KubeletExecSink {}
+
 impl Relation for KubeletExecSink {
     fn relation_name(&self) -> &str {
         "kubelet-pod-exec"
@@ -189,6 +197,73 @@ impl Relation for KubeletExecSink {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn is_exec_channel(&self) -> bool {
+        true
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RceCanExec
+// ---------------------------------------------------------------------------
+
+/// An RCE execution-channel edge: `source` can execute arbitrary commands on
+/// `target` via a remote code execution primitive (e.g. Redis SSRF, exploit).
+///
+/// Example: Pod "attacker" → rce.can-exec → Pod "redis-victim"
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RceCanExec {
+    pub source_id: EntityId,
+    pub target_id: EntityId,
+    /// The grounded exploit command template with `${CMD}` as the inner-command
+    /// placeholder, e.g. `redis-cli -h 10.0.0.1 -p 6379 EVAL "..." 0 "${CMD}"`.
+    /// Set when the relation is created from a lateral-movement TTP execution so
+    /// subsequent commands routed over this edge can re-invoke the exploit.
+    pub envelope: Option<String>,
+}
+
+impl RceCanExec {
+    pub fn new(source_id: impl Into<String>, target_id: impl Into<String>) -> Self {
+        Self {
+            source_id: EntityId::new(source_id),
+            target_id: EntityId::new(target_id),
+            envelope: None,
+        }
+    }
+
+    pub fn with_envelope(mut self, envelope: impl Into<String>) -> Self {
+        self.envelope = Some(envelope.into());
+        self
+    }
+
+    pub fn with_opt_envelope(mut self, envelope: Option<String>) -> Self {
+        self.envelope = envelope;
+        self
+    }
+}
+
+impl C2Channel for RceCanExec {}
+
+impl Relation for RceCanExec {
+    fn relation_name(&self) -> &str {
+        "rce.can-exec"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.source_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.target_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn is_exec_channel(&self) -> bool {
+        true
     }
 }
 
@@ -284,14 +359,60 @@ pub struct RelationSummary {
     pub name: String,
     pub source_id: String,
     pub target_id: String,
+    /// `true` when the source entity can execute commands on the target (i.e.
+    /// the originating relation implements [`C2Channel`]).
+    pub is_exec_channel: bool,
+    /// For `rce.can-exec` edges: the grounded exploit command template with
+    /// `${CMD}` as the placeholder for the command to inject.  `None` for all
+    /// other relation types.
+    pub envelope: Option<String>,
 }
 
 impl RelationSummary {
     pub fn from_relation(r: &dyn Relation) -> Self {
+        let envelope = r
+            .as_any()
+            .downcast_ref::<RceCanExec>()
+            .and_then(|rce| rce.envelope.clone());
         Self {
             name: r.relation_name().to_string(),
             source_id: r.source_id().0.clone(),
             target_id: r.target_id().0.clone(),
+            is_exec_channel: r.is_exec_channel(),
+            envelope,
         }
+    }
+
+    /// Wrap `cmd` with the appropriate execution primitive for this channel.
+    ///
+    /// - If the relation carries an `envelope` (e.g. a grounded `redis-cli … ${CMD}` exploit
+    ///   template), substitutes `${CMD}` with `cmd`.
+    /// - Otherwise falls back to `kubectl exec -n <ns> <name> -- <cmd>` by parsing the
+    ///   target entity ID in the canonical `ns/<ns>/pod/<name>` format.
+    pub fn wrap_command(&self, cmd: &str) -> String {
+        if let Some(ref envelope) = self.envelope {
+            return envelope.replace("${CMD}", cmd);
+        }
+        // Default: kubectl exec into the target pod
+        if let Some((ns, name)) = Self::split_pod_entity_id(&self.target_id) {
+            format!("kubectl exec -n {} {} -- {}", ns, name, cmd)
+        } else {
+            cmd.to_string()
+        }
+    }
+
+    fn split_pod_entity_id(entity_id: &str) -> Option<(&str, &str)> {
+        let mut parts = entity_id.splitn(5, '/');
+        let kind_a = parts.next()?;
+        let namespace = parts.next()?;
+        let kind_b = parts.next()?;
+        let pod_name = parts.next()?;
+        if parts.next().is_some() {
+            return None;
+        }
+        if kind_a != "ns" || kind_b != "pod" || namespace.is_empty() || pod_name.is_empty() {
+            return None;
+        }
+        Some((namespace, pod_name))
     }
 }
