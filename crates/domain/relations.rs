@@ -366,6 +366,11 @@ pub struct RelationSummary {
     /// `${CMD}` as the placeholder for the command to inject.  `None` for all
     /// other relation types.
     pub envelope: Option<String>,
+    /// Edge cost for shortest-path queries. Populated from the graph layer;
+    /// defaults to `0.0` for structural relations and positive values for
+    /// exec-channel relations (lower = preferred path).
+    #[serde(default)]
+    pub weight: f32,
 }
 
 impl RelationSummary {
@@ -380,6 +385,7 @@ impl RelationSummary {
             target_id: r.target_id().0.clone(),
             is_exec_channel: r.is_exec_channel(),
             envelope,
+            weight: 0.0,
         }
     }
 

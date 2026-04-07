@@ -1,6 +1,6 @@
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted};
-use ran_domain::{BinaryPresence, EntityId, RelationSummary};
+use ran_domain::{BinaryPresence, EntityId};
 
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
@@ -178,11 +178,23 @@ impl Campaign {
                             procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
                         }
 
-                        let found = self.relations.iter().find(|r| {
-                            r.is_exec_channel && r.source_id == src && r.target_id == tgt
-                        });
+                        let src_eid = EntityId::new(src);
+                        let tgt_eid_inner = EntityId::new(tgt);
+                        let found = self
+                            .graph
+                            .outgoing(&src_eid)
+                            .into_iter()
+                            .find(|(t, d)| *t == &tgt_eid_inner && d.is_exec_channel)
+                            .map(|(t, d)| ran_domain::RelationSummary {
+                                name: d.relation_name.clone(),
+                                source_id: src.to_string(),
+                                target_id: t.0.clone(),
+                                is_exec_channel: true,
+                                envelope: d.envelope.clone(),
+                                weight: d.weight,
+                            });
                         procedure.command = match found {
-                            Some(rel) => rel.wrap_command(&procedure.command),
+                            Some(ref rel) => rel.wrap_command(&procedure.command),
                             None => {
                                 // Fallback: try kubectl exec via target entity ID
                                 if let Some((ns, name)) = split_pod_entity_id(tgt) {
@@ -391,95 +403,84 @@ impl Campaign {
             self.insert_entity(entity.as_ref());
         }
 
-        // Transplant relations and merge runtime data for any entity that was
-        // identified as a placeholder for a real named entity.  This runs after
-        // insert_entity so the preferred entity already exists when we merge.
+        // Merge entity aliases: transplant graph edges and entity data.
+        // Runs after insert_entity so the preferred node already exists.
         for (stale_id, preferred_id) in &updates.entity_aliases {
-            self.rewrite_relation_entity_id(&stale_id.0, &preferred_id.0);
+            // Graph: retarget all edges from stale → preferred.
+            self.graph.merge_entities(preferred_id, stale_id);
+            // Entity maps: merge runtime data (IPs, access level, etc.).
             self.merge_pod_entities(&preferred_id.0, &stale_id.0);
         }
 
         for rel in &updates.new_relations {
-            let mut summary = RelationSummary::from_relation(rel.as_ref());
+            // Resolve stale entity IDs before inserting into the graph.
+            let (src, tgt) = updates.entity_aliases.iter().fold(
+                (rel.source_id().clone(), rel.target_id().clone()),
+                |(src, tgt), (stale, preferred)| {
+                    let src = if src == *stale { preferred.clone() } else { src };
+                    let tgt = if tgt == *stale { preferred.clone() } else { tgt };
+                    (src, tgt)
+                },
+            );
 
-            // Rewrite any relation that still references a stale entity id.
-            for (stale_id, preferred_id) in &updates.entity_aliases {
-                if summary.source_id == stale_id.0 {
-                    summary.source_id = preferred_id.0.clone();
-                }
-                if summary.target_id == stale_id.0 {
-                    summary.target_id = preferred_id.0.clone();
+            // runs-on: when the new node differs, pick the preferred one and
+            // merge the stale node entity into it.
+            if rel.relation_name() == "runs-on" {
+                let existing_node = self
+                    .graph
+                    .targets_of(&src, "runs-on")
+                    .first()
+                    .cloned()
+                    .cloned();
+
+                if let Some(old_node) = existing_node {
+                    if old_node != tgt {
+                        let preferred_node =
+                            EntityId::new(choose_preferred_node_id(&old_node.0, &tgt.0));
+                        let stale_node = if preferred_node == old_node {
+                            tgt.clone()
+                        } else {
+                            old_node
+                        };
+                        self.graph.merge_entities(&preferred_node, &stale_node);
+                        self.merge_node_entities(&preferred_node.0, &stale_node.0);
+                        // Insert edge to preferred node (graph PodSingleNode
+                        // invariant removes the old runs-on automatically).
+                        self.insert_relation_with_ids(&src, &preferred_node, rel.as_ref());
+                        continue;
+                    }
+                    // Same node — nothing to do (PodSingleNode invariant will
+                    // replace the edge anyway, but we skip the insert).
+                    continue;
                 }
             }
 
-            // Invariant: a pod can run on only one node at a time.
-            // If another runs-on arrives, reconcile by preferring a concrete
-            // node name over placeholders and rewrite stale node references.
-            if summary.name == "runs-on" {
-                self.apply_runs_on_with_invariant(summary);
-                continue;
-            }
-
-            let exists = self.relations.iter().any(|r| {
-                r.name == summary.name
-                    && r.source_id == summary.source_id
-                    && r.target_id == summary.target_id
-            });
-            if !exists {
-                self.relations.push(summary);
+            // Common path: no alias resolution changed the IDs — use the
+            // public `insert_relation` so it gets a live production call site.
+            if src == *rel.source_id() && tgt == *rel.target_id() {
+                self.insert_relation(rel.as_ref());
+            } else {
+                self.insert_relation_with_ids(&src, &tgt, rel.as_ref());
             }
         }
     }
 
-    fn apply_runs_on_with_invariant(&mut self, incoming: RelationSummary) {
-        let existing_idx = self
-            .relations
-            .iter()
-            .position(|r| r.name == "runs-on" && r.source_id == incoming.source_id);
-
-        let Some(idx) = existing_idx else {
-            self.relations.push(incoming);
-            return;
-        };
-
-        let existing = self.relations[idx].clone();
-        if existing.target_id == incoming.target_id {
-            return;
-        }
-
-        let preferred = choose_preferred_node_id(&existing.target_id, &incoming.target_id);
-        let stale = if preferred == existing.target_id {
-            incoming.target_id
-        } else {
-            existing.target_id
-        };
-
-        self.relations[idx].target_id = preferred.clone();
-        self.rewrite_relation_entity_id(&stale, &preferred);
-        self.merge_node_entities(&preferred, &stale);
-    }
-
-    fn rewrite_relation_entity_id(&mut self, stale_id: &str, preferred_id: &str) {
-        for rel in &mut self.relations {
-            if rel.source_id == stale_id {
-                rel.source_id = preferred_id.to_string();
-            }
-            if rel.target_id == stale_id {
-                rel.target_id = preferred_id.to_string();
-            }
-        }
-
-        // Deduplicate summaries that became identical after rewrite.
-        let mut deduped = Vec::with_capacity(self.relations.len());
-        for rel in self.relations.drain(..) {
-            let exists = deduped.iter().any(|r: &RelationSummary| {
-                r.name == rel.name && r.source_id == rel.source_id && r.target_id == rel.target_id
-            });
-            if !exists {
-                deduped.push(rel);
-            }
-        }
-        self.relations = deduped;
+    /// Insert a relation into the graph using explicit (possibly alias-resolved)
+    /// source and target IDs rather than the relation's own stored IDs.
+    pub(super) fn insert_relation_with_ids(
+        &mut self,
+        src: &EntityId,
+        tgt: &EntityId,
+        rel: &dyn ran_domain::Relation,
+    ) {
+        use cortex::edge_data_for;
+        use ran_domain::RceCanExec;
+        let envelope = rel
+            .as_any()
+            .downcast_ref::<RceCanExec>()
+            .and_then(|r| r.envelope.clone());
+        let data = edge_data_for(rel.relation_name(), envelope);
+        self.graph.insert_edge(src, tgt, data);
     }
 
     fn merge_node_entities(&mut self, preferred_id: &str, stale_id: &str) {

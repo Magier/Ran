@@ -414,7 +414,9 @@ fn collect_service_accounts(campaign: &Campaign, update: &FactsUpdate) -> Vec<Se
 }
 
 fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<RelationSummary> {
-    let mut rels = campaign.relations.clone();
+    // Start from the committed graph state.
+    let mut rels = campaign.graph.to_relation_summaries();
+    // Append pending relations from the in-flight update (not yet committed).
     for rel in &update.new_relations {
         let summary = RelationSummary::from_relation(rel.as_ref());
         let exists = rels.iter().any(|r| {

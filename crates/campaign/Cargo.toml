@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-armory = { path = "../armory" }
+armory  = { path = "../armory" }
+cortex  = { path = "../graph" }
 async-trait = "0.1"
 c2 = { path = "../c2" }
 ran-domain = { path = "../domain" }

@@ -90,7 +90,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
                     source_id: r.source_id.clone(),
                     target_id: r.target_id.clone(),
                     name: r.name.clone(),
-                    weight: None,
+                    weight: if r.weight > 0.0 { Some(r.weight as f64) } else { None },
                     relation: None,
                 });
             }

@@ -1,5 +1,6 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
+use cortex::KnowledgeGraph;
 use ran_domain::{
     C2Server, Entity, EntityId, K8sCluster, K8sNode, Namespace, Pod, RelationSummary,
     ServiceAccount,
@@ -20,7 +21,10 @@ pub struct Campaign {
     pub namespaces: HashMap<EntityId, Namespace>,
     pub pods: HashMap<EntityId, Pod>,
     pub service_accounts: HashMap<EntityId, ServiceAccount>,
-    pub relations: Vec<RelationSummary>,
+    /// Topology and relation metadata, backed by a petgraph `StableGraph`.
+    /// Replaces the former `Vec<RelationSummary>` flat list.
+    #[serde(skip)]
+    pub graph: KnowledgeGraph,
     pub parse_audits: Vec<ParseAudit>,
     pub execution_records: Vec<ExecutionRecord>,
 }
@@ -31,9 +35,15 @@ impl Campaign {
         let mut clusters = HashMap::new();
 
         let c2 = C2Server::new(ran_name.into());
-        c2_servers.insert(c2.entity_id(), c2);
+        let c2_id = c2.entity_id();
+        c2_servers.insert(c2_id.clone(), c2);
 
-        clusters.insert(target_cluster.entity_id(), target_cluster);
+        let cluster_id = target_cluster.entity_id();
+        clusters.insert(cluster_id.clone(), target_cluster);
+
+        let mut graph = KnowledgeGraph::new();
+        graph.ensure_node(c2_id);
+        graph.ensure_node(cluster_id);
 
         Campaign {
             c2_servers,
@@ -42,7 +52,7 @@ impl Campaign {
             namespaces: HashMap::new(),
             pods: HashMap::new(),
             service_accounts: HashMap::new(),
-            relations: Vec::new(),
+            graph,
             parse_audits: Vec::new(),
             execution_records: Vec::new(),
         }
@@ -82,8 +92,8 @@ impl Campaign {
         entities
     }
 
-    pub fn get_relations(&self) -> &[RelationSummary] {
-        &self.relations
+    pub fn get_relations(&self) -> Vec<RelationSummary> {
+        self.graph.to_relation_summaries()
     }
 
     pub fn get_parse_audits(&self) -> &[ParseAudit] {
@@ -138,98 +148,60 @@ impl Campaign {
     /// 1. **Direct**: a non-pod entity has a `k8s.can-exec` / `kubelet-pod-exec`
     ///    relation to `target_id` — the C2 reaches the target without any hop.
     ///
-    /// 2. **Multi-hop BFS**: starting from every pod reachable by the C2 (via
-    ///    `k8s.can-exec`, `kubelet-pod-exec` from a non-pod source, or
-    ///    transitively via `rce.can-exec` from prior lateral movement), follow
-    ///    all three edge types to find the shortest path to the target.  The
-    ///    resulting `ExecChannel.hops` contains the full ordered list of
-    ///    intermediate pods, from the C2 side outward; there is no depth limit.
+    /// 2. **Shortest-path (Dijkstra)**: from every pod directly reachable by the
+    ///    C2 (seeds), follow exec-channel edges with their weights to find the
+    ///    minimum-cost path to the target.  The path is returned as
+    ///    `ExecChannel.hops`, ordered from the C2 side outward.
     ///
     /// 3. **Service-account indirection**: when the target is an SA, find the
     ///    pod that `uses` it and resolve for that pod instead.
     ///
     /// Returns `Err` when no path can be found.
     pub fn resolve_exec_channel(&self, target_id: &str) -> Result<ExecChannel, String> {
+        let target_eid = EntityId::new(target_id);
+
         // Priority 1: direct — a non-pod entity has an exec relation to the
         // target (e.g. the C2's own SA has kubectl exec rights).
-        let direct = self.relations.iter().any(|r| {
-            r.is_exec_channel
-                && r.target_id == target_id
-                && !self.pods.contains_key(&EntityId::new(&r.source_id))
+        let direct = self.graph.exec_edges().into_iter().any(|(src, tgt, _)| {
+            tgt == &target_eid && !self.pods.contains_key(src)
         });
         if direct {
             return Ok(ExecChannel::direct("c2/ran"));
         }
 
-        // Priority 2: BFS through exec relations from reachable pods.
+        // Priority 2: Dijkstra from C2-reachable pods (seeds) to target.
         //
-        // `visited` maps a pod entity ID to the complete ordered hop path that
-        // leads the C2 to it (including the pod itself as the last element).
-        //
-        // Seed: every pod reachable from the C2 (direct k8s.can-exec/
-        // kubelet-pod-exec from non-pod source, or transitively via
-        // rce.can-exec from prior lateral movement).
-        let mut visited: HashMap<String, Vec<String>> = HashMap::new();
-        let mut queue: VecDeque<String> = VecDeque::new();
+        // Seeds = pods that a non-pod entity can exec into directly.
+        let seeds: Vec<EntityId> = self
+            .graph
+            .exec_edges()
+            .into_iter()
+            .filter(|(src, tgt, _)| {
+                !self.pods.contains_key(*src) && self.pods.contains_key(*tgt)
+            })
+            .map(|(_, tgt, _)| tgt.clone())
+            .collect();
 
-        // Seed only from pods the C2 can reach in one hop (exec-channel from
-        // a non-pod source).  Transitively reachable pods must NOT be pre-seeded
-        // here — their paths must be discovered by the BFS so that `hops` is
-        // built correctly from the C2 side outward.
-        for r in &self.relations {
-            if r.is_exec_channel
-                && !self.pods.contains_key(&EntityId::new(&r.source_id))
-                && self.pods.contains_key(&EntityId::new(&r.target_id))
-                && !visited.contains_key(&r.target_id)
-            {
-                visited.insert(r.target_id.clone(), vec![r.target_id.clone()]);
-                queue.push_back(r.target_id.clone());
-            }
+        if let Some((_cost, path)) = self.graph.shortest_exec_path(&seeds, &target_eid) {
+            // path = [seed, …, target].  hops = everything before target.
+            let hops = path[..path.len().saturating_sub(1)]
+                .iter()
+                .map(|id| id.0.clone())
+                .collect();
+            return Ok(ExecChannel { backend_id: "c2/ran".to_string(), hops, exec_target_id: None });
         }
 
-        while let Some(current) = queue.pop_front() {
-            let path_to_current = visited[&current].clone();
-
-            for r in &self.relations {
-                if !r.is_exec_channel || r.source_id != current {
-                    continue;
-                }
-                let next = &r.target_id;
-
-                // Found the target — return the hops leading to `current`;
-                // the caller's wrapping logic will add the final kubectl exec
-                // into `next` (the exec target).
-                if next == target_id {
-                    return Ok(ExecChannel {
-                        backend_id: "c2/ran".to_string(),
-                        hops: path_to_current,
-                        exec_target_id: None,
-                    });
-                }
-
-                // Continue BFS only through unvisited pod entities.
-                let next_id = next.clone();
-                if self.pods.contains_key(&EntityId::new(&next_id))
-                    && !visited.contains_key(&next_id)
-                {
-                    let mut next_path = path_to_current.clone();
-                    next_path.push(next_id.clone());
-                    visited.insert(next_id.clone(), next_path);
-                    queue.push_back(next_id);
-                }
-            }
-        }
-
-        // Priority 3: target is a service account — find the pod `uses`-ing it
-        // and resolve the exec channel for that pod instead.
+        // Priority 3: target is a service account — resolve for the pod using it.
         let sa_pod_id = self
-            .relations
-            .iter()
-            .find(|r| r.name == "uses" && r.target_id == target_id)
-            .map(|r| r.source_id.clone());
+            .graph
+            .incoming(&target_eid)
+            .into_iter()
+            .find(|(_, d)| d.relation_name == "uses")
+            .map(|(src, _)| src.clone());
+
         if let Some(pod_id) = sa_pod_id {
-            return self.resolve_exec_channel(&pod_id).map(|mut ch| {
-                ch.exec_target_id = Some(pod_id);
+            return self.resolve_exec_channel(&pod_id.0).map(|mut ch| {
+                ch.exec_target_id = Some(pod_id.0);
                 ch
             });
         }
@@ -241,65 +213,33 @@ impl Campaign {
         ))
     }
 
-    /// Find the best compromised pod to use as a lateral-movement exec source.
-    ///
-    /// Lateral Movement TTPs create a new execution edge rather than require
-    /// one — so they must run FROM an already-compromised system, not TO the
-    /// victim.  Returns an [`ExecChannel`] whose `exec_target_id` is set to the
-    /// source pod entity ID so the C2 backend can `kubectl exec` into it.
-    ///
-    /// Resolution priority (first match wins):
-    ///
-    /// 1. **Most recently used reachable pod** — the last execution record whose
-    ///    `target_id` falls within the reachable set.  Keeps lateral movement in
-    ///    the same foothold the operator was just working in.
-    ///
-    /// 2. **Highest `access_level` among reachable pods** — prefers pods where
-    ///    we have proven interactive access (`UserExec` / `RootExec`).
-    ///
-    /// 3. **Any reachable pod** — fallback when no access-level information is
-    ///    available yet (e.g. initial access via `k8s.can-exec` relation only).
-    ///
-    /// "Reachable" = the C2 can get code running on the pod.  This includes:
-    /// - Pods targeted by a `k8s.can-exec` or `kubelet-pod-exec` relation from
-    ///   a **non-pod** source (the C2 itself has kubectl exec rights).
-    /// - Pods transitively reachable via `rce.can-exec` from the above set
-    ///   (pods compromised through prior lateral movement).
     /// Collect all pod entity IDs that the C2 can run code on, either directly
     /// or transitively through prior lateral movement.
     ///
-    /// A pod is considered reachable if:
+    /// A pod is reachable if:
     /// - A `k8s.can-exec` or `kubelet-pod-exec` relation points to it from a
     ///   **non-pod** source (the C2 itself has kubectl exec rights), **or**
-    /// - It is reachable from any of the above via a chain of `rce.can-exec`
+    /// - It is reachable from any of the above via a chain of exec-channel
     ///   edges left by prior lateral movement TTPs (no depth limit).
-    ///
-    /// The returned set contains pod entity IDs only.
     pub fn reachable_pods(&self) -> std::collections::HashSet<String> {
-        // Seed: pods that C2 can directly exec into via a non-pod source.
-        let mut reachable: std::collections::HashSet<String> = self
-            .relations
-            .iter()
-            .filter(|r| {
-                r.is_exec_channel
-                    && !self.pods.contains_key(&EntityId::new(&r.source_id))
-                    && self.pods.contains_key(&EntityId::new(&r.target_id))
+        // Seeds: pods directly reachable from non-pod exec sources.
+        let seeds: Vec<EntityId> = self
+            .graph
+            .exec_edges()
+            .into_iter()
+            .filter(|(src, tgt, _)| {
+                !self.pods.contains_key(*src) && self.pods.contains_key(*tgt)
             })
-            .map(|r| r.target_id.clone())
+            .map(|(_, tgt, _)| tgt.clone())
             .collect();
 
-        // BFS over exec-channel edges to include pods compromised via lateral movement.
-        let mut bfs_queue: VecDeque<String> = reachable.iter().cloned().collect();
-        while let Some(current) = bfs_queue.pop_front() {
-            for r in &self.relations {
-                if r.is_exec_channel
-                    && r.source_id == current
-                    && self.pods.contains_key(&EntityId::new(&r.target_id))
-                    && !reachable.contains(&r.target_id)
-                {
-                    reachable.insert(r.target_id.clone());
-                    bfs_queue.push_back(r.target_id.clone());
-                }
+        let mut reachable: std::collections::HashSet<String> =
+            seeds.iter().map(|id| id.0.clone()).collect();
+
+        // BFS through exec edges for transitively reachable pods.
+        for id in self.graph.reachable_via_exec(&seeds) {
+            if self.pods.contains_key(&id) {
+                reachable.insert(id.0);
             }
         }
 
@@ -384,19 +324,33 @@ impl Campaign {
     }
 
     pub(crate) fn insert_entity(&mut self, entity: &dyn Entity) {
+        let id = entity.entity_id();
+        // Register the node in the graph topology (entity data lives in the maps).
+        self.graph.ensure_node(id.clone());
+
         let any = entity.as_any();
         if let Some(e) = any.downcast_ref::<Pod>() {
-            self.pods.insert(e.entity_id(), e.clone());
+            self.pods.insert(id, e.clone());
         } else if let Some(e) = any.downcast_ref::<Namespace>() {
-            self.namespaces.insert(e.entity_id(), e.clone());
+            self.namespaces.insert(id, e.clone());
         } else if let Some(e) = any.downcast_ref::<K8sCluster>() {
-            self.clusters.insert(e.entity_id(), e.clone());
+            self.clusters.insert(id, e.clone());
         } else if let Some(e) = any.downcast_ref::<K8sNode>() {
-            self.nodes.insert(e.entity_id(), e.clone());
+            self.nodes.insert(id, e.clone());
         } else if let Some(e) = any.downcast_ref::<C2Server>() {
-            self.c2_servers.insert(e.entity_id(), e.clone());
+            self.c2_servers.insert(id, e.clone());
         } else if let Some(e) = any.downcast_ref::<ServiceAccount>() {
-            self.service_accounts.insert(e.entity_id(), e.clone());
+            self.service_accounts.insert(id, e.clone());
         }
+    }
+
+    /// Insert a relation into the graph using the IDs stored on the relation itself.
+    ///
+    /// For cases where IDs need to be alias-resolved first, use
+    /// [`insert_relation_with_ids`] directly.
+    pub(crate) fn insert_relation(&mut self, rel: &dyn ran_domain::Relation) {
+        let src = rel.source_id().clone();
+        let tgt = rel.target_id().clone();
+        self.insert_relation_with_ids(&src, &tgt, rel);
     }
 }

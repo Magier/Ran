@@ -2,9 +2,14 @@ use std::collections::HashMap;
 
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted};
-use ran_domain::{AccessLevel, Entity, EntityId, K8sCluster, Pod, PodExec, KubeletExecSink, RceCanExec, RelationSummary, Uses};
+use ran_domain::{AccessLevel, Entity, EntityId, K8sCluster, Pod, PodExec, KubeletExecSink, RceCanExec, Uses};
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
+
+/// Insert a relation directly into the campaign's knowledge graph.
+fn push_relation(campaign: &mut Campaign, rel: &dyn ran_domain::Relation) {
+    campaign.insert_relation(rel);
+}
 use crate::failure_analyzers::FAILURE_ANALYZER_EFFECT_ID;
 use crate::ParseResult;
 
@@ -159,12 +164,12 @@ fn on_ttp_executed_failure_records_unknown_format_when_unclassified() {
 // resolve_exec_channel tests
 // ---------------------------------------------------------------------------
 
-fn can_exec_relation(source_id: &str, target_id: &str) -> RelationSummary {
-    RelationSummary::from_relation(&PodExec::new(source_id, target_id))
+fn push_exec_edge(campaign: &mut Campaign, source_id: &str, target_id: &str) {
+    push_relation(campaign, &PodExec::new(source_id, target_id));
 }
 
-fn kubelet_pod_exec_relation(source_id: &str, target_id: &str) -> RelationSummary {
-    RelationSummary::from_relation(&KubeletExecSink::new(source_id, target_id))
+fn push_kubelet_exec_edge(campaign: &mut Campaign, source_id: &str, target_id: &str) {
+    push_relation(campaign, &KubeletExecSink::new(source_id, target_id));
 }
 
 #[test]
@@ -173,7 +178,7 @@ fn resolve_exec_channel_returns_builtin_for_can_exec_relation() {
     let pod = Pod::new("target", "default");
     let target_id = pod.entity_id().0.clone();
     campaign.pods.insert(pod.entity_id(), pod);
-    campaign.relations.push(can_exec_relation("sa/default/some-sa", &target_id));
+    push_exec_edge(&mut campaign, "sa/default/some-sa", &target_id);
 
     let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
     assert_eq!(ch, ExecChannel::direct("c2/ran"));
@@ -185,7 +190,7 @@ fn resolve_exec_channel_returns_builtin_for_kubelet_pod_exec_relation() {
     let pod = Pod::new("target", "default");
     let target_id = pod.entity_id().0.clone();
     campaign.pods.insert(pod.entity_id(), pod);
-    campaign.relations.push(kubelet_pod_exec_relation("node/node-a", &target_id));
+    push_kubelet_exec_edge(&mut campaign, "node/node-a", &target_id);
 
     let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
     assert_eq!(ch, ExecChannel::direct("c2/ran"));
@@ -200,7 +205,7 @@ fn resolve_exec_channel_returns_via_compromised_intermediate() {
     attacker.system.access_level = AccessLevel::UserExec;
     let attacker_id = attacker.entity_id().0.clone();
     campaign.pods.insert(attacker.entity_id(), attacker);
-    campaign.relations.push(can_exec_relation("sa/default/ran", &attacker_id));
+    push_exec_edge(&mut campaign, "sa/default/ran", &attacker_id);
 
     // Target pod (no direct exec edge from C2)
     let target = Pod::new("target", "default");
@@ -208,7 +213,7 @@ fn resolve_exec_channel_returns_via_compromised_intermediate() {
     campaign.pods.insert(target.entity_id(), target);
 
     // Attacker → target via k8s.can-exec
-    campaign.relations.push(can_exec_relation(&attacker_id, &target_id));
+    push_exec_edge(&mut campaign, &attacker_id, &target_id);
 
     let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
     assert_eq!(ch, ExecChannel::via("c2/ran", &attacker_id));
@@ -223,7 +228,7 @@ fn resolve_exec_channel_multi_hop_bfs() {
     p1.system.access_level = AccessLevel::UserExec;
     let p1_id = p1.entity_id().0.clone();
     campaign.pods.insert(p1.entity_id(), p1);
-    campaign.relations.push(can_exec_relation("sa/default/ran", &p1_id));
+    push_exec_edge(&mut campaign, "sa/default/ran", &p1_id);
 
     // p2: intermediate pod reachable from p1
     let p2 = Pod::new("p2", "default");
@@ -235,8 +240,8 @@ fn resolve_exec_channel_multi_hop_bfs() {
     let p3_id = p3.entity_id().0.clone();
     campaign.pods.insert(p3.entity_id(), p3);
 
-    campaign.relations.push(can_exec_relation(&p1_id, &p2_id));
-    campaign.relations.push(can_exec_relation(&p2_id, &p3_id));
+    push_exec_edge(&mut campaign, &p1_id, &p2_id);
+    push_exec_edge(&mut campaign, &p2_id, &p3_id);
 
     let ch = campaign.resolve_exec_channel(&p3_id).expect("should find 2-hop path");
     assert_eq!(ch.backend_id, "c2/ran");
@@ -254,13 +259,13 @@ fn resolve_exec_channel_follows_rce_can_exec_edge() {
     let entry_hall = Pod::new("entry-hall-xyz", "default");
     let entry_hall_id = entry_hall.entity_id().0.clone();
     campaign.pods.insert(entry_hall.entity_id(), entry_hall);
-    campaign.relations.push(can_exec_relation("sa/default/ran", &entry_hall_id));
+    push_exec_edge(&mut campaign, "sa/default/ran", &entry_hall_id);
 
     // Lateral movement established rce.can-exec from entry-hall to redis
     let redis = Pod::new("redis.10-244-1-3", "oopservability");
     let redis_id = redis.entity_id().0.clone();
     campaign.pods.insert(redis.entity_id(), redis);
-    campaign.relations.push(RelationSummary::from_relation(&RceCanExec::new(&entry_hall_id, &redis_id)));
+    push_relation(&mut campaign, &RceCanExec::new(&entry_hall_id, &redis_id));
 
     let ch = campaign.resolve_exec_channel(&redis_id)
         .expect("should find channel via rce.can-exec edge");
@@ -279,8 +284,8 @@ fn resolve_exec_channel_resolves_via_service_account_uses_relation() {
     campaign.pods.insert(pod.entity_id(), pod);
 
     let sa_id = "ns/dungeon/sa/player";
-    campaign.relations.push(can_exec_relation("sa/default/ran", &pod_id));
-    campaign.relations.push(RelationSummary::from_relation(&Uses::new(&pod_id, sa_id)));
+    push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
+    push_relation(&mut campaign, &Uses::new(&pod_id, sa_id));
 
     let ch = campaign.resolve_exec_channel(sa_id).expect("should resolve via pod uses SA");
     assert_eq!(ch.backend_id, "c2/ran");
@@ -311,7 +316,7 @@ fn resolve_exec_source_finds_pod_via_can_exec_relation_only() {
     let pod_id = pod.entity_id().0.clone();
     campaign.pods.insert(pod.entity_id(), pod);
     // C2 (non-pod) has exec access to the pod.
-    campaign.relations.push(can_exec_relation("sa/default/ran", &pod_id));
+    push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
 
     let ch = campaign.resolve_exec_source().expect("should find source via relation");
     assert_eq!(ch.backend_id, "c2/ran");
@@ -330,8 +335,8 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
     campaign.pods.insert(pod_a.entity_id(), pod_a);
     campaign.pods.insert(pod_b.entity_id(), pod_b);
 
-    campaign.relations.push(can_exec_relation("sa/default/ran", &id_a));
-    campaign.relations.push(can_exec_relation("sa/default/ran", &id_b));
+    push_exec_edge(&mut campaign, "sa/default/ran", &id_a);
+    push_exec_edge(&mut campaign, "sa/default/ran", &id_b);
 
     // Most recent execution was on pod-b
     campaign.execution_records.push(ExecutionRecord {
@@ -364,13 +369,13 @@ fn resolve_exec_source_finds_pod_via_rce_can_exec_transitively() {
     let pod_a = Pod::new("pod-a", "default");
     let id_a = pod_a.entity_id().0.clone();
     campaign.pods.insert(pod_a.entity_id(), pod_a);
-    campaign.relations.push(can_exec_relation("sa/default/ran", &id_a));
+    push_exec_edge(&mut campaign, "sa/default/ran", &id_a);
 
     // pod-a has rce.can-exec to pod-b (lateral movement already done)
     let pod_b = Pod::new("pod-b", "redis");
     let id_b = pod_b.entity_id().0.clone();
     campaign.pods.insert(pod_b.entity_id(), pod_b);
-    campaign.relations.push(RelationSummary::from_relation(&RceCanExec::new(&id_a, &id_b)));
+    push_relation(&mut campaign, &RceCanExec::new(&id_a, &id_b));
 
     // Both are reachable; without execution history pod-a is returned (first in BFS seed)
     let ch = campaign.resolve_exec_source().expect("should find source");
@@ -427,7 +432,7 @@ fn prepare_action_auto_resolves_channel_from_graph() {
     let pod = Pod::new("demo", "default");
     let target_id = pod.entity_id().0.clone();
     campaign.pods.insert(pod.entity_id(), pod);
-    campaign.relations.push(can_exec_relation("sa/default/ran", &target_id));
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
 
     let armory = minimal_armory("test-ttp");
     let exec = campaign
@@ -595,7 +600,7 @@ fn prepare_action_grounds_binary_against_target_for_direct_path() {
     target.system.set_binary("kubectl", "/tmp/kubectl");
     let target_id = target.entity_id().0.clone();
     campaign.pods.insert(target.entity_id(), target);
-    campaign.relations.push(can_exec_relation("sa/default/ran", &target_id));
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
 
     let armory = armory_with_command("test-ttp", "kubectl get pods", None);
     let exec = campaign
@@ -621,7 +626,7 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
     let entry = Pod::new("entry-pod", "default");
     let entry_id = entry.entity_id().0.clone();
     campaign.pods.insert(entry.entity_id(), entry);
-    campaign.relations.push(can_exec_relation("sa/default/ran", &entry_id));
+    push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
 
     // Redis pod: only reachable via RCE from entry-pod.
     // kubectl was dropped here at /tmp/kubectl.
@@ -634,7 +639,7 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
     let envelope = r#"redis-cli eval "$(echo ${CMD} | base64 -d | sh)" 0"#;
     let rce_rel = RceCanExec::new(&entry_id, &redis_id)
         .with_envelope(envelope.to_string());
-    campaign.relations.push(RelationSummary::from_relation(&rce_rel));
+    push_relation(&mut campaign, &rce_rel);
 
     let armory = armory_with_command("test-ttp", "kubectl get pods -n default", None);
     let exec = campaign
@@ -684,13 +689,7 @@ fn ip_placeholder_pod_merged_when_sa_token_reveals_real_name() {
     campaign.pods.insert(placeholder.entity_id(), placeholder);
 
     // Wire a k8s.can-exec relation C2 → placeholder.
-    campaign.relations.push(RelationSummary {
-        name: "k8s.can-exec".to_string(),
-        source_id: "c2/ran".to_string(),
-        target_id: placeholder_id.0.clone(),
-        is_exec_channel: true,
-        envelope: None,
-    });
+    push_exec_edge(&mut campaign, "c2/ran", &placeholder_id.0);
 
     // Build a JWT whose claims name the real pod.
     let jwt = make_test_jwt(r#"{
@@ -725,14 +724,11 @@ fn ip_placeholder_pod_merged_when_sa_token_reveals_real_name() {
     );
 
     // The exec relation was transplanted to the real pod.
-    let has_exec_to_real = campaign.relations.iter().any(|r| {
-        r.name == "k8s.can-exec" && r.target_id == real_id.0
-    });
+    let rels = campaign.graph.to_relation_summaries();
+    let has_exec_to_real = rels.iter().any(|r| r.name == "k8s.can-exec" && r.target_id == real_id.0);
     assert!(has_exec_to_real, "k8s.can-exec should now target the real pod");
 
-    let has_exec_to_placeholder = campaign.relations.iter().any(|r| {
-        r.name == "k8s.can-exec" && r.target_id == placeholder_id.0
-    });
+    let has_exec_to_placeholder = rels.iter().any(|r| r.name == "k8s.can-exec" && r.target_id == placeholder_id.0);
     assert!(!has_exec_to_placeholder, "k8s.can-exec should no longer target the placeholder");
 }
 
@@ -755,13 +751,7 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
     campaign.pods.insert(placeholder.entity_id(), placeholder);
 
     // Exec relation points at placeholder (from network-scan phase).
-    campaign.relations.push(RelationSummary {
-        name: "k8s.can-exec".to_string(),
-        source_id: "c2/ran".to_string(),
-        target_id: placeholder_id.0.clone(),
-        is_exec_channel: true,
-        envelope: None,
-    });
+    push_exec_edge(&mut campaign, "c2/ran", &placeholder_id.0);
 
     let jwt = make_test_jwt(r#"{
         "kubernetes.io": {
@@ -792,7 +782,7 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
 
     // Exec relation transplanted.
     assert!(
-        campaign.relations.iter().any(|r| r.name == "k8s.can-exec" && r.target_id == real_id.0),
+        campaign.graph.to_relation_summaries().iter().any(|r| r.name == "k8s.can-exec" && r.target_id == real_id.0),
         "k8s.can-exec should target the real pod"
     );
 }
