@@ -1,7 +1,7 @@
 mod config;
 
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use config::NamespaceFilter;
 
@@ -66,6 +66,7 @@ struct AppState {
     ran_name: String,
     target_cluster: K8sCluster,
     campaign_events: CampaignEventBus,
+    pod_watch: Arc<Mutex<Option<k8s::WatchHandle>>>,
 }
 
 // TODO: Temporary workaround for MVP wiring.
@@ -133,6 +134,65 @@ impl ApiService for AppState {
 
     async fn get_armory(&self, params: api::GetArmoryParams) -> Result<Vec<armory::Ttp>, ApiError> {
         Ok(self.armory.ttps_for_tactic(params.tactic.as_deref()))
+    }
+
+    async fn start_pod_watch(&self, namespace: Option<String>) -> Result<(), ApiError> {
+        let mut guard = self
+            .pod_watch
+            .lock()
+            .map_err(|_| ApiError::internal("pod_watch lock poisoned"))?;
+
+        // Drop any existing watch (WatchHandle::drop aborts the background task).
+        *guard = None;
+
+        let k8s = self.k8s.clone();
+        let ns_filter = self.namespace_filter.clone();
+        let scope_ns = namespace.as_deref().filter(|v| !v.is_empty()).map(String::from);
+
+        let handle = k8s.watch_pods(namespace, move |pods| {
+            let filtered: Vec<serde_json::Value> = pods
+                .into_iter()
+                .filter(|p| {
+                    // When scoped to one namespace the k8s query already filtered it.
+                    if scope_ns.is_some() {
+                        return true;
+                    }
+                    match p.namespace.as_deref() {
+                        Some(ns) => ns_filter.should_include(ns),
+                        None => true,
+                    }
+                })
+                .map(|p| {
+                    serde_json::json!({
+                        "id": p.id,
+                        "name": p.name,
+                        "namespace": p.namespace,
+                        "kind": "pod",
+                        "phase": p.phase,
+                        "ready": p.ready,
+                        "stateReason": p.state_reason,
+                    })
+                })
+                .collect();
+
+            api::publish_sse_event(
+                "pods-changed",
+                serde_json::json!({
+                    "type": "pods-changed",
+                    "data": { "pods": filtered },
+                })
+                .to_string(),
+            );
+        });
+
+        *guard = Some(handle);
+        Ok(())
+    }
+
+    async fn stop_pod_watch(&self) {
+        if let Ok(mut guard) = self.pod_watch.lock() {
+            *guard = None;
+        }
     }
 
     async fn execute_action(&self, cmd: ExecuteActionRequest) -> Result<ExecuteActionResult, ApiError> {
@@ -553,6 +613,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         ran_name: "Ran".to_string(),
         target_cluster: campaign_cluster,
         campaign_events: campaign_events.clone(),
+        pod_watch: Arc::new(Mutex::new(None)),
     };
     let campaign_entity_count = state
         .campaign

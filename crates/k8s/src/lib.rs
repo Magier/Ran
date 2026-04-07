@@ -1,14 +1,26 @@
 use std::{env, path::PathBuf};
 
 use anyhow::{anyhow, Context, Result};
+use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{AttachParams, ListParams},
     config::{KubeConfigOptions, Kubeconfig},
+    runtime::watcher,
     Api, Client, Config,
 };
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
+
+/// Cancellation handle for a running pod watch. The background task is aborted when this is
+/// dropped.
+pub struct WatchHandle(tokio::task::AbortHandle);
+
+impl Drop for WatchHandle {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunningPod {
@@ -114,6 +126,48 @@ impl K8sService {
         }
 
         Ok(out)
+    }
+
+    /// Start a live watch on pods in the given namespace (or all namespaces if `None`/empty).
+    /// Calls `on_change` with the current pod list immediately, then again on every
+    /// add/update/delete event. The watch runs until the returned `WatchHandle` is dropped.
+    pub fn watch_pods<F>(&self, namespace: Option<String>, on_change: F) -> WatchHandle
+    where
+        F: Fn(Vec<RunningPod>) + Send + 'static,
+    {
+        let service = self.clone();
+        let jh = tokio::spawn(async move {
+            let api: Api<Pod> = match namespace.as_deref().filter(|ns| !ns.is_empty()) {
+                Some(ns) => Api::namespaced(service.client.clone(), ns),
+                None => Api::all(service.client.clone()),
+            };
+
+            // Send initial state before entering the watch loop.
+            match service.get_running_pods(namespace.as_deref()).await {
+                Ok(pods) => on_change(pods),
+                Err(e) => tracing::error!("watch_pods: initial list failed: {e}"),
+            }
+
+            let stream = watcher(api, watcher::Config::default());
+            tokio::pin!(stream);
+
+            while let Some(event) = stream.next().await {
+                match event {
+                    Ok(_) => {
+                        // Re-list on any event – mirrors the Go WatchPods behaviour.
+                        match service.get_running_pods(namespace.as_deref()).await {
+                            Ok(pods) => on_change(pods),
+                            Err(e) => tracing::error!("watch_pods: re-list failed: {e}"),
+                        }
+                    }
+                    Err(e) => {
+                        // kube-runtime handles reconnects internally; just log.
+                        tracing::warn!("watch_pods: watcher error (will retry): {e}");
+                    }
+                }
+            }
+        });
+        WatchHandle(jh.abort_handle())
     }
 
     pub async fn exec_pod_command(
