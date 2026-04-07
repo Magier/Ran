@@ -443,10 +443,10 @@ impl Analyzer for HostPathAnalyzer {
             }
 
             // If the pod already has a known node, skip the runs-on inference.
-            let already_has_node = campaign
-                .relations
-                .iter()
-                .any(|r| r.name == "runs-on" && r.source_id == pod.entity_id().0);
+            let already_has_node = !campaign
+                .graph
+                .targets_of(&pod.entity_id(), "runs-on")
+                .is_empty();
 
             if !already_has_node {
                 // Try to derive a node name from the host path:
@@ -560,7 +560,7 @@ fn collect_service_accounts(campaign: &Campaign, update: &FactsUpdate) -> Vec<Se
 }
 
 fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<RelationSummary> {
-    let mut rels = campaign.relations.clone();
+    let mut rels = campaign.graph.to_relation_summaries();
     for rel in &update.new_relations {
         let summary = RelationSummary::from_relation(rel.as_ref());
         let exists = rels.iter().any(|r| {
@@ -708,7 +708,7 @@ mod tests {
             namespaces: Default::default(),
             pods: Default::default(),
             service_accounts: Default::default(),
-            relations: Default::default(),
+            graph: Default::default(),
             parse_audits: Default::default(),
             execution_records: Default::default(),
         };
@@ -949,24 +949,9 @@ mod tests {
         let target_id = target.entity_id().0.clone();
         campaign.pods.insert(target.entity_id(), target.clone());
 
-        campaign
-            .relations
-            .push(ran_domain::RelationSummary::from_relation(&RunsOn::new(
-                src_id.clone(),
-                "node/worker-1",
-            )));
-        campaign
-            .relations
-            .push(ran_domain::RelationSummary::from_relation(&RunsOn::new(
-                target_id.clone(),
-                "node/worker-1",
-            )));
-        campaign
-            .relations
-            .push(ran_domain::RelationSummary::from_relation(&KubeletExecSource::new(
-                src_id.clone(),
-                "node/worker-1",
-            )));
+        campaign.insert_relation(&RunsOn::new(src_id.clone(), "node/worker-1"));
+        campaign.insert_relation(&RunsOn::new(target_id.clone(), "node/worker-1"));
+        campaign.insert_relation(&KubeletExecSource::new(src_id.clone(), "node/worker-1"));
 
         let mut update = FactsUpdate::default();
         let analyzers = default_analyzers();
