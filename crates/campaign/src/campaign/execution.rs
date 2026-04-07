@@ -294,6 +294,11 @@ impl Campaign {
         let rules = make_rules();
         updates = run_rules_fixpoint(self, &rules, updates);
 
+        // Detect when a TTP ran against an IP-placeholder pod and the output
+        // revealed the real pod identity (e.g. via a service-account token).
+        // Record the alias so apply_facts can transplant all relations.
+        self.detect_pod_identity_merge(cmd, &mut updates);
+
         // Infer binary presence from the tool used in this procedure.
         // Only records if currently Unknown — preserves more precise paths set by
         // sys.has-binary(${OUTPUT}) or from a real parser.
@@ -359,8 +364,26 @@ impl Campaign {
             self.insert_entity(entity.as_ref());
         }
 
+        // Transplant relations and merge runtime data for any entity that was
+        // identified as a placeholder for a real named entity.  This runs after
+        // insert_entity so the preferred entity already exists when we merge.
+        for (stale_id, preferred_id) in &updates.entity_aliases {
+            self.rewrite_relation_entity_id(&stale_id.0, &preferred_id.0);
+            self.merge_pod_entities(&preferred_id.0, &stale_id.0);
+        }
+
         for rel in &updates.new_relations {
-            let summary = RelationSummary::from_relation(rel.as_ref());
+            let mut summary = RelationSummary::from_relation(rel.as_ref());
+
+            // Rewrite any relation that still references a stale entity id.
+            for (stale_id, preferred_id) in &updates.entity_aliases {
+                if summary.source_id == stale_id.0 {
+                    summary.source_id = preferred_id.0.clone();
+                }
+                if summary.target_id == stale_id.0 {
+                    summary.target_id = preferred_id.0.clone();
+                }
+            }
 
             // Invariant: a pod can run on only one node at a time.
             // If another runs-on arrives, reconcile by preferring a concrete
@@ -449,6 +472,157 @@ impl Campaign {
         self.nodes.remove(&stale);
     }
 
+    /// Merge a stale (placeholder) pod into the preferred (real-named) pod.
+    ///
+    /// Runtime data accumulated on the stale entity — IPs, access level, env
+    /// vars, binaries, processes — is copied into the preferred entity.  Fields
+    /// that are already set on the preferred entity are preserved as-is.  The
+    /// stale entity is removed from the campaign regardless.
+    fn merge_pod_entities(&mut self, preferred_id: &str, stale_id: &str) {
+        if preferred_id == stale_id {
+            return;
+        }
+
+        let preferred = EntityId::new(preferred_id);
+        let stale = EntityId::new(stale_id);
+
+        let Some(stale_pod) = self.pods.remove(&stale) else {
+            return;
+        };
+
+        if let Some(preferred_pod) = self.pods.get_mut(&preferred) {
+            // IPs: add any that the preferred entity doesn't already have.
+            for ip in &stale_pod.system.ips {
+                if !preferred_pod.system.ips.contains(ip) {
+                    preferred_pod.system.ips.push(*ip);
+                }
+            }
+            // Access level: take the higher of the two.
+            if stale_pod.system.access_level > preferred_pod.system.access_level {
+                preferred_pod.system.access_level = stale_pod.system.access_level;
+            }
+            // Env vars / binaries / files: add missing entries from the stale pod.
+            for (k, v) in stale_pod.system.env_vars {
+                preferred_pod.system.env_vars.entry(k).or_insert(v);
+            }
+            for (k, v) in stale_pod.system.binaries {
+                preferred_pod.system.binaries.entry(k).or_insert(v);
+            }
+            for f in stale_pod.system.files {
+                if !preferred_pod.system.files.contains(&f) {
+                    preferred_pod.system.files.push(f);
+                }
+            }
+            // Processes: add any not already tracked by pid.
+            for proc in stale_pod.system.processes {
+                if !preferred_pod.system.processes.iter().any(|p| p.pid == proc.pid) {
+                    preferred_pod.system.processes.push(proc);
+                }
+            }
+            // Fill in Kubernetes metadata absent from the preferred entity.
+            if preferred_pod.node_name.is_none() {
+                preferred_pod.node_name = stale_pod.node_name;
+            }
+            if preferred_pod.service_account_name.is_none() {
+                preferred_pod.service_account_name = stale_pod.service_account_name;
+            }
+            if preferred_pod.meta.uid.is_none() {
+                preferred_pod.meta.uid = stale_pod.meta.uid;
+            }
+        } else {
+            // Preferred entity not yet in the campaign (shouldn't happen in the
+            // normal flow, but handle gracefully by keeping the stale data).
+            self.pods.insert(preferred, stale_pod);
+        }
+    }
+
+    /// Detect when a TTP ran against an IP-placeholder pod and the output
+    /// revealed the real pod identity (e.g. from a service-account token).
+    ///
+    /// An "IP-placeholder" pod is one whose name was derived from the pod's IP
+    /// address during a network scan (e.g. `backend-service.10-244-1-4` from
+    /// reverse DNS).  When a subsequent TTP on that pod produces a
+    /// `ServiceAccount` entity whose token carries the real pod name, the
+    /// `ServiceAccountTokenAnalyzer` emits a properly-named Pod entity (and/or
+    /// a `uses` relation from it).  This function detects that situation and
+    /// records an alias `(stale_id, preferred_id)` in `updates` so that
+    /// `apply_facts` can transplant all relations to the real entity.
+    fn detect_pod_identity_merge(&self, cmd: &ExecTtp, updates: &mut FactsUpdate) {
+        // For multi-hop TTPs the C2 sets `cmd.target_id` to the first hop (the
+        // pod it kubectl-execs into), NOT the logical target of the TTP.  The
+        // original request target is always preserved in args["TARGET_ID"].
+        let logical_target = cmd
+            .args
+            .get("TARGET_ID")
+            .map(String::as_str)
+            .unwrap_or(&cmd.target_id);
+
+        let stale_id = EntityId::new(logical_target);
+
+        // Only proceed when the execution target is a known IP-derived pod.
+        let Some(exec_pod) = self.pods.get(&stale_id) else {
+            return;
+        };
+        if !is_ip_derived_pod_name(&exec_pod.meta.name) {
+            return;
+        }
+
+        let ns = exec_pod.meta.namespace.as_deref().unwrap_or("");
+        if ns.is_empty() {
+            return;
+        }
+        let ns_pod_prefix = format!("ns/{}/pod/", ns);
+
+        // Strategy 1: a new Pod entity with a real name appeared in updates.
+        let preferred_from_entity = updates
+            .new_entities
+            .iter()
+            .find(|e| {
+                if e.entity_kind() != "Pod" {
+                    return false;
+                }
+                let id = e.entity_id();
+                if id == stale_id {
+                    return false;
+                }
+                id.0.starts_with(&ns_pod_prefix)
+                    && !is_ip_derived_pod_name(
+                        id.0.strip_prefix(&ns_pod_prefix).unwrap_or(""),
+                    )
+            })
+            .map(|e| e.entity_id());
+
+        // Strategy 2: a `uses` relation from a real pod appeared in updates
+        // (SA token analysis won't re-emit the pod entity if already known).
+        let preferred_from_relation = if preferred_from_entity.is_none() {
+            updates
+                .new_relations
+                .iter()
+                .filter(|r| r.relation_name() == "uses")
+                .map(|r| r.source_id().clone())
+                .find(|id| {
+                    *id != stale_id
+                        && id.0.starts_with(&ns_pod_prefix)
+                        && !is_ip_derived_pod_name(
+                            id.0.strip_prefix(&ns_pod_prefix).unwrap_or(""),
+                        )
+                })
+        } else {
+            None
+        };
+
+        let Some(preferred_id) = preferred_from_entity.or(preferred_from_relation) else {
+            return;
+        };
+
+        tracing::info!(
+            stale = %stale_id.0,
+            preferred = %preferred_id.0,
+            "merging IP-placeholder pod with discovered real pod identity"
+        );
+        updates.entity_aliases.push((stale_id, preferred_id));
+    }
+
     fn select_procedure(
         &self,
         ttp: &Ttp,
@@ -493,6 +667,23 @@ fn is_placeholder_node_id(node_id: &str) -> bool {
         }
         None => node_id.trim().is_empty(),
     }
+}
+
+/// Returns `true` when a pod name was derived from its IP address during a
+/// network scan.
+///
+/// The rDNS parser produces names like `backend-service.10-244-1-4` (from
+/// `10-244-1-4.backend-service.dev.svc.cluster.local`) or bare `10-244-1-4`
+/// (when there is no service component).  In both cases the last dot-separated
+/// segment is an IPv4 address in kebab notation — exactly four numeric parts
+/// separated by hyphens.
+pub(crate) fn is_ip_derived_pod_name(name: &str) -> bool {
+    let last = name.rsplit('.').next().unwrap_or(name);
+    let parts: Vec<&str> = last.split('-').collect();
+    parts.len() == 4
+        && parts
+            .iter()
+            .all(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// Parse a pod entity ID in the canonical form `ns/<namespace>/pod/<name>` and

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ran_domain::{Entity, KubeletExecSource, Pod, PodExec, RceCanExec, Relation, RunsOn};
+use ran_domain::{Entity, EntityId, KubeletExecSource, Pod, PodExec, RceCanExec, Relation, RunsOn};
 
 use crate::grounding::resolve_go_template;
 
@@ -21,6 +21,14 @@ pub struct ParsedStructuralEffect {
 pub struct FactsUpdate {
     pub new_entities: Vec<Box<dyn Entity + Send + Sync>>,
     pub new_relations: Vec<Box<dyn Relation + Send + Sync>>,
+    /// Entity-identity merges: `(stale_id, preferred_id)`.
+    ///
+    /// When applied, all relations referencing `stale_id` are rewritten to
+    /// `preferred_id`, the stale entity's runtime data is merged into the
+    /// preferred entity, and the stale entity is removed from campaign state.
+    /// Used when a placeholder entity (e.g. IP-derived pod name from a network
+    /// scan) is later identified as an already-known named entity.
+    pub entity_aliases: Vec<(EntityId, EntityId)>,
 }
 
 impl FactsUpdate {
@@ -45,6 +53,13 @@ impl FactsUpdate {
             });
             if !exists {
                 self.new_relations.push(rel);
+            }
+        }
+
+        for alias in other.entity_aliases {
+            let exists = self.entity_aliases.iter().any(|(s, p)| *s == alias.0 && *p == alias.1);
+            if !exists {
+                self.entity_aliases.push(alias);
             }
         }
     }
@@ -131,6 +146,7 @@ fn parse_k8s_pod(args: &HashMap<String, String>) -> Result<FactsUpdate, String> 
     Ok(FactsUpdate {
         new_entities: vec![Box::new(pod)],
         new_relations: Vec::new(),
+        entity_aliases: Vec::new(),
     })
 }
 
@@ -178,6 +194,7 @@ fn parse_k8s_can_exec_relation(
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
+        entity_aliases: Vec::new(),
     })
 }
 
@@ -192,6 +209,7 @@ fn parse_runs_on_relation(
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
+        entity_aliases: Vec::new(),
     })
 }
 
@@ -206,6 +224,7 @@ fn parse_kubelet_exec_source_relation(
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
+        entity_aliases: Vec::new(),
     })
 }
 
@@ -225,6 +244,7 @@ fn parse_rce_can_exec_relation(
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
+        entity_aliases: Vec::new(),
     })
 }
 

@@ -558,3 +558,143 @@ fn command_not_found_does_not_overwrite_known_present_binary() {
         "confirmed Present should not be overwritten by a command-not-found failure"
     );
 }
+
+// ---------------------------------------------------------------------------
+// IP-placeholder → real pod identity merge tests
+// ---------------------------------------------------------------------------
+
+/// Build a minimal JWT with the given payload (no real signature).
+fn make_test_jwt(payload_json: &str) -> String {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"RS256","typ":"JWT"}"#);
+    let payload = URL_SAFE_NO_PAD.encode(payload_json);
+    format!("{}.{}.fakesig", header, payload)
+}
+
+/// When a TTP runs against an IP-placeholder pod and the output contains a
+/// service-account token that reveals the real pod name, all relations pointing
+/// at the placeholder should be transplanted to the real pod entity.
+#[test]
+fn ip_placeholder_pod_merged_when_sa_token_reveals_real_name() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+
+    // Set up the IP-derived placeholder pod (as if created by rDNS scan).
+    let mut placeholder = Pod::new("backend-service.10-244-1-4", "prod");
+    placeholder.system.ips.push("10.244.1.4".parse().unwrap());
+    let placeholder_id = placeholder.entity_id();
+    campaign.pods.insert(placeholder.entity_id(), placeholder);
+
+    // Wire a k8s.can-exec relation C2 → placeholder.
+    campaign.relations.push(RelationSummary {
+        name: "k8s.can-exec".to_string(),
+        source_id: "c2/ran".to_string(),
+        target_id: placeholder_id.0.clone(),
+        is_exec_channel: true,
+        envelope: None,
+    });
+
+    // Build a JWT whose claims name the real pod.
+    let jwt = make_test_jwt(r#"{
+        "kubernetes.io": {
+            "namespace": "prod",
+            "pod": {"name": "backend-xyzabc-123", "uid": "pod-uid-1"},
+            "serviceaccount": {"name": "api-sa", "uid": "sa-uid-1"}
+        },
+        "sub": "system:serviceaccount:prod:api-sa"
+    }"#);
+
+    let cmd = sample_exec_ttp(&placeholder_id.0, vec!["rawServiceAccountToken"]);
+    let event = sample_event(&jwt);
+
+    campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    // Placeholder is gone.
+    assert!(
+        !campaign.pods.contains_key(&placeholder_id),
+        "IP-placeholder pod should have been removed"
+    );
+
+    // Real pod exists with merged IP.
+    let real_id = EntityId::new("ns/prod/pod/backend-xyzabc-123");
+    let real_pod = campaign
+        .pods
+        .get(&real_id)
+        .expect("real pod should exist after merge");
+    assert!(
+        real_pod.system.ips.iter().any(|ip| ip.to_string() == "10.244.1.4"),
+        "IP from placeholder should have been copied to real pod"
+    );
+
+    // The exec relation was transplanted to the real pod.
+    let has_exec_to_real = campaign.relations.iter().any(|r| {
+        r.name == "k8s.can-exec" && r.target_id == real_id.0
+    });
+    assert!(has_exec_to_real, "k8s.can-exec should now target the real pod");
+
+    let has_exec_to_placeholder = campaign.relations.iter().any(|r| {
+        r.name == "k8s.can-exec" && r.target_id == placeholder_id.0
+    });
+    assert!(!has_exec_to_placeholder, "k8s.can-exec should no longer target the placeholder");
+}
+
+/// When the real pod is already known in the campaign (discovered earlier via
+/// the K8s API), running a TTP on the IP-placeholder should still merge the
+/// placeholder into the known entity.
+#[test]
+fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+
+    // Pre-existing real pod (from K8s API discovery).
+    let real_pod = Pod::new("backend-xyzabc-123", "prod");
+    let real_id = real_pod.entity_id();
+    campaign.pods.insert(real_pod.entity_id(), real_pod);
+
+    // IP-derived placeholder (from rDNS scan, created later).
+    let mut placeholder = Pod::new("backend-service.10-244-1-4", "prod");
+    placeholder.system.ips.push("10.244.1.4".parse().unwrap());
+    let placeholder_id = placeholder.entity_id();
+    campaign.pods.insert(placeholder.entity_id(), placeholder);
+
+    // Exec relation points at placeholder (from network-scan phase).
+    campaign.relations.push(RelationSummary {
+        name: "k8s.can-exec".to_string(),
+        source_id: "c2/ran".to_string(),
+        target_id: placeholder_id.0.clone(),
+        is_exec_channel: true,
+        envelope: None,
+    });
+
+    let jwt = make_test_jwt(r#"{
+        "kubernetes.io": {
+            "namespace": "prod",
+            "pod": {"name": "backend-xyzabc-123", "uid": "pod-uid-1"},
+            "serviceaccount": {"name": "api-sa", "uid": "sa-uid-1"}
+        },
+        "sub": "system:serviceaccount:prod:api-sa"
+    }"#);
+
+    let cmd = sample_exec_ttp(&placeholder_id.0, vec!["rawServiceAccountToken"]);
+    let event = sample_event(&jwt);
+
+    campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    // Placeholder removed.
+    assert!(
+        !campaign.pods.contains_key(&placeholder_id),
+        "IP-placeholder pod should have been removed"
+    );
+
+    // Real pod still exists and now carries the IP.
+    let real_pod = campaign.pods.get(&real_id).expect("real pod should survive");
+    assert!(
+        real_pod.system.ips.iter().any(|ip| ip.to_string() == "10.244.1.4"),
+        "IP should be merged into the pre-existing real pod"
+    );
+
+    // Exec relation transplanted.
+    assert!(
+        campaign.relations.iter().any(|r| r.name == "k8s.can-exec" && r.target_id == real_id.0),
+        "k8s.can-exec should target the real pod"
+    );
+}
