@@ -17,8 +17,10 @@ c2 = { path = "../c2" }
 campaign = { path = "../campaign" }
 clap = { version = "4", features = ["derive"] }
 k8s = { path = "../k8s" }
+serde_yaml = "0.9"
 ran-domain = { path = "../domain" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "sync", "process", "io-util"] }
 tracing = "0.1"

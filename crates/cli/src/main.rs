@@ -1,5 +1,9 @@
+mod config;
+
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 use std::sync::{Arc, RwLock};
+
+use config::NamespaceFilter;
 
 use anyhow::Result;
 use armory::Armory;
@@ -41,6 +45,10 @@ struct EmulateArgs {
     #[arg(long = "armory")]
     armory: Option<PathBuf>,
 
+    /// Path to ran.yaml config file (default: ./ran.yaml).
+    #[arg(long = "config")]
+    config: Option<PathBuf>,
+
     #[arg(long = "namespace")]
     namespace: Option<String>,
 
@@ -54,7 +62,7 @@ struct AppState {
     campaign: Arc<RwLock<Campaign>>,
     c2: C2Handle,
     armory: Armory,
-    default_namespace: Option<String>,
+    namespace_filter: NamespaceFilter,
     ran_name: String,
     target_cluster: K8sCluster,
     campaign_events: CampaignEventBus,
@@ -69,16 +77,30 @@ impl ApiService for AppState {
         &self,
         params: GetRunningPodsParams,
     ) -> Result<Vec<K8sResource>, ApiError> {
-        let ns = params
-            .namespace
-            .as_deref()
-            .or(self.default_namespace.as_deref());
+        // A --namespace flag on the CLI scopes the listing to one namespace and
+        // bypasses the config filter (it acts as an implicit whitelist of one).
+        // Treat an empty string the same as absent — don't bypass the filter.
+        let scope_ns = params.namespace.as_deref().filter(|ns| !ns.is_empty());
 
         let pods = self
-            .k8s.get_running_pods(ns).await.map_err(|e| ApiError::internal(e.to_string()))?;
+            .k8s
+            .get_running_pods(scope_ns)
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?;
 
         Ok(pods
             .into_iter()
+            .filter(|p| {
+                // When scoped to a single namespace the filter is already applied
+                // by the k8s call above; skip filtering to avoid double-checking.
+                if scope_ns.is_some() {
+                    return true;
+                }
+                match p.namespace.as_deref() {
+                    Some(ns) => self.namespace_filter.should_include(ns),
+                    None => true,
+                }
+            })
             .map(|p| K8sResource {
                 id: p.id,
                 name: p.name,
@@ -484,6 +506,7 @@ fn is_loopback_url(url: &Url) -> bool {
 }
 
 async fn run_emulate(args: EmulateArgs) -> Result<()> {
+    let cfg = config::load(args.config)?;
     let kubeconfig_path = kubeconfig_path_or_err(args.kubeconfig)?;
     let k8s = K8sService::from_kubeconfig(Some(kubeconfig_path.clone())).await?;
     let target_cluster = target_cluster_from_kubeconfig(Some(kubeconfig_path.clone()))?;
@@ -526,7 +549,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         campaign,
         c2: c2_handle,
         armory,
-        default_namespace: args.namespace.clone(),
+        namespace_filter: cfg.namespaces,
         ran_name: "Ran".to_string(),
         target_cluster: campaign_cluster,
         campaign_events: campaign_events.clone(),
@@ -543,15 +566,21 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         parsers_dir: Some(parsers_dir),
     };
 
+    let addr = SocketAddr::from(([127, 0, 0, 1], args.port));
+    let ns_filter_log = state.namespace_filter.clone();
     let app: Router = api::router_with_sse_and_mcp(state, mcp_config)
         .fallback(api::frontend_handler);
-    let addr = SocketAddr::from(([127, 0, 0, 1], args.port));
 
     info!("starting emulate API server");
     info!(kubeconfig = %kubeconfig_path.display(), "using kubeconfig");
     info!(armory_dir = %armory_dir.display(), armory_ttps = armory_count, "armory loaded");
     info!(campaign_entities = campaign_entity_count, "campaign initialized");
     info!(%addr, namespace = ?args.namespace, "listening");
+    if !ns_filter_log.included.is_empty() {
+        info!(namespaces = ?ns_filter_log.included, "namespace whitelist active");
+    } else if !ns_filter_log.excluded.is_empty() {
+        info!(namespaces = ?ns_filter_log.excluded, "namespace blacklist active");
+    }
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
