@@ -560,6 +560,104 @@ fn command_not_found_does_not_overwrite_known_present_binary() {
 }
 
 // ---------------------------------------------------------------------------
+// binary grounding in hop-wrapped commands
+// ---------------------------------------------------------------------------
+
+/// Build an armory with a single TTP whose command uses a named binary.
+fn armory_with_command(ttp_id: &str, command: &str, tool: Option<&str>) -> Armory {
+    Armory::from_ttps(vec![Ttp {
+        id: ttp_id.to_string(),
+        name: "Test TTP".to_string(),
+        description: String::new(),
+        tactic: "Discovery".to_string(),
+        techniques: vec![],
+        status: "stable".to_string(),
+        params: vec![],
+        requires: Default::default(),
+        effects: vec![],
+        procedures: vec![Procedure {
+            id: "shell".to_string(),
+            command: command.to_string(),
+            tool: tool.map(str::to_string),
+            is_local_command: None,
+        }],
+        references: vec![],
+    }])
+}
+
+#[test]
+fn prepare_action_grounds_binary_against_target_for_direct_path() {
+    // When targeting a pod directly, a non-standard binary path on that pod
+    // should be substituted into the procedure command.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut target = Pod::new("victim", "default");
+    target.system.set_binary("kubectl", "/tmp/kubectl");
+    let target_id = target.entity_id().0.clone();
+    campaign.pods.insert(target.entity_id(), target);
+    campaign.relations.push(can_exec_relation("sa/default/ran", &target_id));
+
+    let armory = armory_with_command("test-ttp", "kubectl get pods", None);
+    let exec = campaign
+        .prepare_action(action_request(&target_id, None), &armory)
+        .expect("should prepare action");
+
+    assert!(
+        exec.procedure.command.starts_with("/tmp/kubectl"),
+        "kubectl should be resolved to /tmp/kubectl, got: {}",
+        exec.procedure.command
+    );
+}
+
+#[test]
+fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
+    // When a command is routed through an RCE hop (rce.can-exec), the inner
+    // binary name must be resolved against the final target's binary map
+    // BEFORE the RCE envelope is applied, so the embedded command references
+    // the correct path (e.g. /tmp/kubectl, not bare kubectl).
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    // Entry pod: C2 has direct exec into it.
+    let entry = Pod::new("entry-pod", "default");
+    let entry_id = entry.entity_id().0.clone();
+    campaign.pods.insert(entry.entity_id(), entry);
+    campaign.relations.push(can_exec_relation("sa/default/ran", &entry_id));
+
+    // Redis pod: only reachable via RCE from entry-pod.
+    // kubectl was dropped here at /tmp/kubectl.
+    let mut redis_pod = Pod::new("redis-pod", "default");
+    redis_pod.system.set_binary("kubectl", "/tmp/kubectl");
+    let redis_id = redis_pod.entity_id().0.clone();
+    campaign.pods.insert(redis_pod.entity_id(), redis_pod);
+
+    // RCE relation with envelope from entry → redis.
+    let envelope = r#"redis-cli eval "$(echo ${CMD} | base64 -d | sh)" 0"#;
+    let rce_rel = RceCanExec::new(&entry_id, &redis_id)
+        .with_envelope(envelope.to_string());
+    campaign.relations.push(RelationSummary::from_relation(&rce_rel));
+
+    let armory = armory_with_command("test-ttp", "kubectl get pods -n default", None);
+    let exec = campaign
+        .prepare_action(action_request(&redis_id, None), &armory)
+        .expect("should prepare action via RCE hop");
+
+    // The final command should embed /tmp/kubectl (not bare kubectl) inside the
+    // redis-cli envelope.
+    assert!(
+        exec.procedure.command.contains("/tmp/kubectl"),
+        "kubectl should be resolved to /tmp/kubectl inside the RCE envelope, got: {}",
+        exec.procedure.command
+    );
+    assert!(
+        !exec.procedure.command.starts_with("kubectl"),
+        "bare 'kubectl' should not be the outer command, got: {}",
+        exec.procedure.command
+    );
+    // The C2 kubectl-execs into the entry pod, which then runs the RCE envelope.
+    assert_eq!(exec.target_id, entry_id, "C2 should exec into entry-pod");
+}
+
+// ---------------------------------------------------------------------------
 // IP-placeholder → real pod identity merge tests
 // ---------------------------------------------------------------------------
 

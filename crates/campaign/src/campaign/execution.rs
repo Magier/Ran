@@ -137,6 +137,13 @@ impl Campaign {
 
                 if ch.hops.is_empty() {
                     // Direct path: C2 can reach the target without any hop.
+                    // Ground the procedure binary against the target pod's binary
+                    // map so non-standard install paths (e.g. /tmp/kubectl) are
+                    // used correctly.
+                    let tgt_id = EntityId::new(exec_target.as_str());
+                    if let Some(pod) = self.pods.get(&tgt_id) {
+                        procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
+                    }
                     (ch.backend_id, exec_target)
                 } else {
                     // Multi-hop: build nested command wrappers, one per hop.
@@ -160,6 +167,17 @@ impl Campaign {
                     for i in (1..full_chain.len()).rev() {
                         let src = full_chain[i - 1];
                         let tgt = full_chain[i];
+
+                        // Ground the inner command's binary against the target
+                        // system's known paths before embedding it in the envelope.
+                        // This mirrors Go's buildFinalCommand groundUsedTool call
+                        // and ensures tools at non-standard locations (e.g.
+                        // /tmp/kubectl) are referenced correctly inside RCE templates.
+                        let tgt_id = EntityId::new(tgt);
+                        if let Some(pod) = self.pods.get(&tgt_id) {
+                            procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
+                        }
+
                         let found = self.relations.iter().find(|r| {
                             r.is_exec_channel && r.source_id == src && r.target_id == tgt
                         });
@@ -174,6 +192,15 @@ impl Campaign {
                                 }
                             }
                         };
+
+                        // After wrapping, ground the outer tool (first word of the
+                        // wrapped command) against the source pod's binary map.
+                        // The wrapped command runs inside src, so paths on src apply
+                        // (e.g. redis-cli at /usr/bin/redis-cli on the pivot pod).
+                        let src_id = EntityId::new(src);
+                        if let Some(pod) = self.pods.get(&src_id) {
+                            procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
+                        }
                     }
                     (ch.backend_id, ch.hops[0].clone())
                 }
@@ -767,4 +794,45 @@ fn procedure_binary_name(procedure: &Procedure) -> Option<&str> {
 
     // Fall back to the first word of the command.
     procedure.command.split_whitespace().next()
+}
+
+/// Resolve the first word of `cmd` using a system's binary map.
+///
+/// If the first word of `cmd` is a known binary with a `Present` path that
+/// differs from the bare name (e.g. `kubectl` → `/tmp/kubectl`), the first
+/// occurrence of the bare name is replaced with the resolved path.
+///
+/// Words that already contain `/` are skipped — they are already absolute
+/// paths and do not need further resolution.
+///
+/// Mirrors Go's `groundUsedTool` in `campaign/campaign.go`.
+fn ground_binary_in_cmd(
+    cmd: &str,
+    binaries: &std::collections::HashMap<String, ran_domain::BinaryPresence>,
+) -> String {
+    use ran_domain::BinaryPresence;
+
+    let first_word = match cmd.split_whitespace().next() {
+        Some(w) => w,
+        None => return cmd.to_string(),
+    };
+
+    // Already an absolute/relative path — nothing to resolve.
+    if first_word.contains('/') {
+        return cmd.to_string();
+    }
+
+    if let Some(BinaryPresence::Present(path)) = binaries.get(first_word) {
+        if !path.is_empty() && path.as_str() != first_word {
+            // Replace the first occurrence of `first_word` in `cmd`, which is
+            // guaranteed to be at a word boundary since it is the first token.
+            if let Some(pos) = cmd.find(first_word) {
+                let mut result = cmd.to_string();
+                result.replace_range(pos..pos + first_word.len(), path.as_str());
+                return result;
+            }
+        }
+    }
+
+    cmd.to_string()
 }
