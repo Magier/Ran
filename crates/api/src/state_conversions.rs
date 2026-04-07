@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use campaign::{Campaign, CampaignEntityRef};
+use ran_domain::AccessLevel;
 use serde_json::Value;
 
 use crate::{CampaignState, Graph, GraphEdge, GraphNode};
@@ -97,6 +98,8 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
         }
     }
 
+    let reachable_pods = campaign.reachable_pods();
+
     let mut nodes = Vec::with_capacity(campaign.entity_count());
 
     for entity in entities {
@@ -118,6 +121,17 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
             }
         };
 
+        let compromised = match &entity {
+            CampaignEntityRef::Pod(_) => Some(reachable_pods.contains(&id)),
+            CampaignEntityRef::ServiceAccount(sa) => {
+                Some(sa.token.as_ref().is_some_and(|t| !t.jwt.is_empty()))
+            }
+            CampaignEntityRef::Node(n) => {
+                Some(n.system.access_level >= AccessLevel::UserExec)
+            }
+            _ => None,
+        };
+
         nodes.push(GraphNode {
             id: id.clone(),
             entity_id: id,
@@ -125,7 +139,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
             name: entity.entity_name().to_string(),
             parent,
             access_level: None,
-            compromised: None,
+            compromised,
             is_running: None,
             entity: serialize_campaign_entity_map(&entity),
         });
