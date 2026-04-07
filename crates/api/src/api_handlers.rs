@@ -299,28 +299,34 @@ pub(crate) async fn flow_handler<S: ApiService>(
     }))
 }
 
-pub(crate) async fn start_pod_watch_handler(
+pub(crate) async fn start_pod_watch_handler<S: ApiService>(
+    State(service): State<S>,
     query: Query<HashMap<String, String>>,
-) -> axum::Json<PodWatchStatus> {
+) -> Result<axum::Json<PodWatchStatus>, ApiError> {
     let namespace = query
         .0
         .get("namespace")
-        .map(String::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("*");
+        .filter(|v| !v.trim().is_empty())
+        .cloned();
 
-    debug!(namespace, "received StartPodWatch request (compat no-op)");
+    debug!(?namespace, "received StartPodWatch request");
 
-    axum::Json(PodWatchStatus {
-        status: "pod watch start accepted (compat no-op)".to_string(),
-    })
+    service.start_pod_watch(namespace).await?;
+
+    Ok(axum::Json(PodWatchStatus {
+        status: "watching".to_string(),
+    }))
 }
 
-pub(crate) async fn stop_pod_watch_handler() -> axum::Json<PodWatchStatus> {
-    debug!("received StopPodWatch request (compat no-op)");
+pub(crate) async fn stop_pod_watch_handler<S: ApiService>(
+    State(service): State<S>,
+) -> axum::Json<PodWatchStatus> {
+    debug!("received StopPodWatch request");
+
+    service.stop_pod_watch().await;
 
     axum::Json(PodWatchStatus {
-        status: "pod watch stop accepted (compat no-op)".to_string(),
+        status: "stopped".to_string(),
     })
 }
 
