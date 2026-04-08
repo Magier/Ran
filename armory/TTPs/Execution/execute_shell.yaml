@@ -26,6 +26,6 @@ parameters:
     default: false
 procedures:
   - key: bash
-    command: bash -c "${COMMAND} ${ARGS}" {{ if .BACKGROUND }} & {{ end }}
+    command: bash -c "${COMMAND} ${ARGS}" {% if BACKGROUND %} & {% endif %}
 # defend: {
 refernces:

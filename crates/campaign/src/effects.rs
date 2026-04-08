@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use ran_domain::{Entity, EntityId, KubeletExecSource, Pod, PodExec, RceCanExec, Relation, RunsOn};
 
-use crate::grounding::resolve_go_template;
+use crate::grounding::resolve_template;
 
 type SimpleEffectHandler = fn(&HashMap<String, String>) -> Result<FactsUpdate, String>;
 /// Handler for relation-style effects such as `rce.can-exec(src, tgt)`.
@@ -66,8 +66,8 @@ impl FactsUpdate {
 }
 
 pub fn ground_template(template: &str, args: &HashMap<String, String>) -> String {
-    // Pass 1: evaluate Go-style {{ if/else/end }} blocks and {{.Var}} substitutions.
-    let mut grounded = resolve_go_template(template, args);
+    // Pass 1: evaluate template {% if/else/endif %} blocks and {{ Var }} substitutions.
+    let mut grounded = resolve_template(template, args);
 
     // Pass 2: replace ${KEY} placeholders with case-insensitive matching on
     // the placeholder name itself (e.g. ${SRC}, ${src}, ${Src}).

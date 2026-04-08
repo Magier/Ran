@@ -50,11 +50,11 @@ procedures:
         }'
         --header="Authorization: Bearer ${TOKEN}"
         --header="Content-Type: application/json"
-        {{ if .USE_CA }}
+        {% if USE_CA %}
         --ca-certificate=${CA_PATH}
-        {{ else }}
+        {% else %}
         --no-check-certificate
-        {{ end }}
+        {% endif %}
         ${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews
 effects:
   - k8s.SelfSubjectRulesReview
