@@ -711,6 +711,7 @@ mod tests {
             graph: Default::default(),
             parse_audits: Default::default(),
             execution_records: Default::default(),
+            open_steps: Default::default(),
         };
 
         let ns = Namespace::new("default");

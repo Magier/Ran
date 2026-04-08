@@ -225,6 +225,7 @@ mod tests {
     fn exec_cmd(exec_system_id: &str) -> ExecTtp {
         ExecTtp {
             id: "cmd-fallback".to_string(),
+            started_at_ms: 0,
             ttp: Ttp {
                 id: "T0001".to_string(),
                 name: "Test TTP".to_string(),

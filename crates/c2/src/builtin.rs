@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k8s::K8sService;
+use k8s::{K8sService, PodExecOutput};
 use tracing::{debug, warn};
 
 use crate::types::{ExecTtp, TtpExecuted};
@@ -13,7 +13,7 @@ pub(crate) trait PodExecClient: Send + Sync {
         namespace: &str,
         pod_name: &str,
         command: &str,
-    ) -> anyhow::Result<String>;
+    ) -> anyhow::Result<PodExecOutput>;
 }
 
 #[async_trait]
@@ -23,7 +23,7 @@ impl PodExecClient for K8sService {
         namespace: &str,
         pod_name: &str,
         command: &str,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<PodExecOutput> {
         self.exec_pod_command(namespace, pod_name, command).await
     }
 }
@@ -69,14 +69,58 @@ impl BuiltinC2 {
                 .exec_pod_command(namespace, pod_name, &cmd.procedure.command)
                 .await
             {
-                Ok(output) => return ok_result(&cmd.id, output),
+                Ok(output) if output.exit_code == 0 => {
+                    let combined = match (
+                        output.stdout.trim().is_empty(),
+                        output.stderr.trim().is_empty(),
+                    ) {
+                        (false, false) => format!(
+                            "{}\n{}",
+                            output.stdout.trim_end(),
+                            output.stderr.trim_end()
+                        ),
+                        (true, false) => output.stderr,
+                        (_, _) => output.stdout,
+                    };
+                    return ok_result(&cmd.id, combined);
+                }
+                Ok(output) => {
+                    let mut results = Vec::new();
+                    if !output.stdout.trim().is_empty() {
+                        results.push(output.stdout.trim().to_string());
+                    }
+                    if !output.stderr.trim().is_empty() {
+                        results.push(output.stderr.trim().to_string());
+                    }
+                    let fail_reason = if !output.stderr.trim().is_empty() {
+                        output.stderr.trim().to_string()
+                    } else if !output.stdout.trim().is_empty() {
+                        output.stdout.trim().to_string()
+                    } else {
+                        format!("command exited with code {}", output.exit_code)
+                    };
+                    warn!(
+                        cmd_id = %cmd.id,
+                        target_id = %cmd.target_id,
+                        exit_code = output.exit_code,
+                        stderr = %output.stderr.trim(),
+                        "builtin c2 pod exec command failed"
+                    );
+                    return TtpExecuted {
+                        id: cmd.id.clone(),
+                        success: false,
+                        results,
+                        exit_code: output.exit_code,
+                        fail_reason,
+                    };
+                }
                 Err(err) => {
                     let reason = err.to_string();
                     warn!(
                         cmd_id = %cmd.id,
                         target_id = %cmd.target_id,
                         error = %reason,
-                        "builtin c2 pod exec failed"
+                        "builtin c2 pod exec infrastructure failure"
                     );
                     return TtpExecuted {
                         id: cmd.id.clone(),
@@ -155,6 +199,8 @@ mod tests {
 
     use armory::{Procedure, Ttp};
 
+    use k8s::PodExecOutput;
+
     use super::{BuiltinC2, PodExecClient};
     use crate::types::ExecTtp;
 
@@ -170,7 +216,7 @@ mod tests {
             namespace: &str,
             pod_name: &str,
             command: &str,
-        ) -> anyhow::Result<String> {
+        ) -> anyhow::Result<PodExecOutput> {
             self.calls
                 .lock()
                 .expect("lock should not be poisoned")
@@ -179,7 +225,11 @@ mod tests {
                     pod_name.to_string(),
                     command.to_string(),
                 ));
-            Ok("uid=0(root) gid=0(root)".to_string())
+            Ok(PodExecOutput {
+                stdout: "uid=0(root) gid=0(root)".to_string(),
+                stderr: String::new(),
+                exit_code: 0,
+            })
         }
     }
 
@@ -221,6 +271,7 @@ mod tests {
     fn exec_cmd(target_id: &str, command: &str, exec_system_id: &str) -> ExecTtp {
         ExecTtp {
             id: "cmd-1".to_string(),
+            started_at_ms: 0,
             ttp: Ttp {
                 id: "T0001".to_string(),
                 name: "Test TTP".to_string(),
