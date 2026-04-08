@@ -7,6 +7,8 @@ use ran_domain::{
 };
 use serde::{Deserialize, Serialize};
 
+use c2::ExecTtp;
+
 use crate::execution_record::ExecutionRecord;
 use crate::external_parser::SystemFieldUpdates;
 use crate::{external_parser, ParseAudit};
@@ -27,6 +29,8 @@ pub struct Campaign {
     pub graph: KnowledgeGraph,
     pub parse_audits: Vec<ParseAudit>,
     pub execution_records: Vec<ExecutionRecord>,
+    /// Steps that have been dispatched to C2 but not yet completed.
+    pub open_steps: Vec<ExecTtp>,
 }
 
 impl Campaign {
@@ -55,6 +59,7 @@ impl Campaign {
             graph,
             parse_audits: Vec::new(),
             execution_records: Vec::new(),
+            open_steps: Vec::new(),
         }
     }
 
@@ -102,6 +107,18 @@ impl Campaign {
 
     pub fn get_execution_records(&self) -> &[ExecutionRecord] {
         &self.execution_records
+    }
+
+    pub fn get_open_steps(&self) -> &[ExecTtp] {
+        &self.open_steps
+    }
+
+    pub fn add_open_step(&mut self, exec: ExecTtp) {
+        self.open_steps.push(exec);
+    }
+
+    pub fn complete_open_step(&mut self, id: &str) {
+        self.open_steps.retain(|s| s.id != id);
     }
 
     pub fn get_system_entity(&self, id: &str) -> Option<CampaignSystemEntityRef<'_>> {
