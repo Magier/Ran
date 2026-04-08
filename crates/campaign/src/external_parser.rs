@@ -196,13 +196,92 @@ pub fn apply_system_field_updates(
     }
 
     for (name, path) in &updates.binaries {
-        // Only record if currently unknown — the parser has definitive data, but we
-        // don't want to silently overwrite a more precise path already recorded.
-        if sys.has_binary(name) == BinaryPresence::Unknown {
+        let should_write = match sys.has_binary(name) {
+            BinaryPresence::Unknown => true,
+            BinaryPresence::Absent => true,
+            BinaryPresence::Present(existing) => {
+                // Allow precision upgrades (e.g. "nmap" -> "/usr/bin/nmap")
+                // but do not overwrite a concrete absolute path with a weaker value.
+                is_more_precise_binary_path(&existing, path)
+            }
+        };
+
+        if should_write {
             sys.set_binary(name.clone(), path.clone());
             count += 1;
         }
     }
 
     count
+}
+
+fn is_more_precise_binary_path(existing: &str, candidate: &str) -> bool {
+    if existing == candidate {
+        return false;
+    }
+    let existing_abs = existing.starts_with('/');
+    let candidate_abs = candidate.starts_with('/');
+    match (existing_abs, candidate_abs) {
+        (false, true) => true,
+        (true, false) => false,
+        // If both are absolute, keep the existing one to avoid churn.
+        // If both are non-absolute, don't rewrite either.
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary_update_upgrades_name_to_absolute_path() {
+        let mut sys = ran_domain::SystemInfo::default();
+        sys.set_binary("nmap", "nmap");
+
+        let updates = SystemFieldUpdates {
+            binaries: HashMap::from([("nmap".to_string(), "/usr/bin/nmap".to_string())]),
+            ..Default::default()
+        };
+
+        let changed = apply_system_field_updates(&mut sys, &updates);
+        assert_eq!(changed, 1);
+        assert_eq!(
+            sys.has_binary("nmap"),
+            ran_domain::BinaryPresence::Present("/usr/bin/nmap".to_string())
+        );
+    }
+
+    #[test]
+    fn binary_update_does_not_downgrade_absolute_path_to_name() {
+        let mut sys = ran_domain::SystemInfo::default();
+        sys.set_binary("nmap", "/usr/bin/nmap");
+
+        let updates = SystemFieldUpdates {
+            binaries: HashMap::from([("nmap".to_string(), "nmap".to_string())]),
+            ..Default::default()
+        };
+
+        let changed = apply_system_field_updates(&mut sys, &updates);
+        assert_eq!(changed, 0);
+        assert_eq!(
+            sys.has_binary("nmap"),
+            ran_domain::BinaryPresence::Present("/usr/bin/nmap".to_string())
+        );
+    }
+
+    #[test]
+    fn binary_update_keeps_absent_when_negative_fact_already_recorded() {
+        let mut sys = ran_domain::SystemInfo::default();
+        sys.set_binary("nmap", "");
+
+        let updates = SystemFieldUpdates {
+            binaries: HashMap::from([("nmap".to_string(), "/usr/bin/nmap".to_string())]),
+            ..Default::default()
+        };
+
+        let changed = apply_system_field_updates(&mut sys, &updates);
+        assert_eq!(changed, 1);
+        assert_eq!(sys.has_binary("nmap"), ran_domain::BinaryPresence::Present("/usr/bin/nmap".to_string()));
+    }
 }
