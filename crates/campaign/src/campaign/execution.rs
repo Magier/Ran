@@ -62,13 +62,47 @@ impl Campaign {
         // references like `${NS}` in other arg defaults resolve correctly.
         ground_args_from_context(&mut args, &request.target_id, self);
 
-        // Pre-resolve the lateral movement exec source so that ${SRC} is
-        // available when the effect strings are grounded below.  Lateral
+        // Treat `exec_system_id == target_id` as implicit/unspecified. The UI
+        // often sends this value by default, but for remote targets we still
+        // need full channel resolution and hop wrapping.
+        let normalized_exec_system_id: Option<String> = request
+            .exec_system_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && *s != request.target_id.as_str())
+            .map(str::to_string);
+
+        // Pre-resolve the lateral movement exec source so that ${SRC}/${src}
+        // is available when the effect strings are grounded below.  Lateral
         // Movement TTPs run FROM a compromised pod, so the source pod entity
-        // ID is the value that ${SRC}, used in effects like
+        // ID is the value that these vars, used in effects like
         // `rce.can-exec(${SRC}, ${TARGET_ID})`, should resolve to.
+        let preselected_lateral_src = if is_lateral_movement_tactic(&ttp.tactic) {
+            normalized_exec_system_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .and_then(|s| {
+                    if self.get_system_entity(s).is_some() {
+                        Some(s.to_string())
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            None
+        };
+
+        if let Some(src_id) = &preselected_lateral_src {
+            args.insert("SRC".to_string(), src_id.clone());
+            args.insert("src".to_string(), src_id.clone());
+        }
+
         let pre_resolved_src: Option<super::ExecChannel> =
-            if request.exec_system_id.as_deref().map(|s| s.trim().is_empty()).unwrap_or(true)
+            if normalized_exec_system_id
+                .as_deref()
+                .map(|s| s.trim().is_empty())
+                .unwrap_or(true)
                 && is_lateral_movement_tactic(&ttp.tactic)
             {
                 let ch = self
@@ -76,6 +110,7 @@ impl Campaign {
                     .map_err(ExecuteActionError::NoExecChannel)?;
                 if let Some(ref src_id) = ch.exec_target_id {
                     args.insert("SRC".to_string(), src_id.clone());
+                    args.insert("src".to_string(), src_id.clone());
                 }
                 Some(ch)
             } else {
@@ -116,109 +151,21 @@ impl Campaign {
             tracing::warn!(var, "ungrounded variable remaining in command after grounding");
         }
 
-        let (exec_system_id, resolved_target_id) = match request.exec_system_id {
-            Some(id) if !id.trim().is_empty() => (id, request.target_id),
-            _ if is_lateral_movement_tactic(&ttp.tactic) => {
-                // Lateral Movement TTPs run FROM an already-compromised pod and
-                // CREATE the exec edge to the target — they must not require a
-                // pre-existing channel to the victim.  The source was resolved
-                // above so ${SRC} is grounded in effects; use the same channel
-                // here to target the source pod for kubectl exec.
-                let ch = pre_resolved_src
-                    .expect("lateral movement exec source resolved above");
-                let exec_target = ch.exec_target_id.unwrap_or(request.target_id);
-                (ch.backend_id, exec_target)
-            }
-            _ if needs_remote_channel(&procedure, &ttp.tactic) => {
-                let ch = self
-                    .resolve_exec_channel(&request.target_id)
-                    .map_err(ExecuteActionError::NoExecChannel)?;
-                let exec_target = ch.exec_target_id.clone().unwrap_or(request.target_id.clone());
+        tracing::debug!(
+            "exec_system_id before backend selection: '{}'",
+            normalized_exec_system_id.as_deref().unwrap_or("")
+        );
 
-                if ch.hops.is_empty() {
-                    // Direct path: C2 can reach the target without any hop.
-                    // Ground the procedure binary against the target pod's binary
-                    // map so non-standard install paths (e.g. /tmp/kubectl) are
-                    // used correctly.
-                    let tgt_id = EntityId::new(exec_target.as_str());
-                    if let Some(pod) = self.pods.get(&tgt_id) {
-                        procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
-                    }
-                    (ch.backend_id, exec_target)
-                } else {
-                    // Multi-hop: build nested command wrappers, one per hop.
-                    //
-                    // hops[0] is what BuiltinC2 execs into; the inner hops and
-                    // the final exec_target are wrapped inside the procedure
-                    // command from innermost (exec_target) outward (hops[1]).
-                    //
-                    // For each consecutive pair in the full chain
-                    //   [hops[0], hops[1], ..., exec_target]
-                    // we look up the exec-channel relation between them and
-                    // delegate wrapping to RelationSummary::wrap_command, which
-                    // applies the envelope for rce.can-exec hops and kubectl exec
-                    // for pod-exec hops — no per-relation-type special-casing here.
-                    let full_chain: Vec<&str> = ch.hops.iter().map(String::as_str)
-                        .chain(std::iter::once(exec_target.as_str()))
-                        .collect();
+        let (exec_system_id, resolved_target_id) = self.resolve_c2_channel(
+            request.action_id.as_str(),
+            request.target_id.as_str(),
+            &ttp,
+            &mut procedure,
+            normalized_exec_system_id.as_deref(),
+            pre_resolved_src,
+        )?;
 
-                    // Wrap from innermost (last pair) to outermost (second pair;
-                    // hops[0] is handled by BuiltinC2 itself).
-                    for i in (1..full_chain.len()).rev() {
-                        let src = full_chain[i - 1];
-                        let tgt = full_chain[i];
-
-                        // Ground the inner command's binary against the target
-                        // system's known paths before embedding it in the envelope.
-                        // This mirrors Go's buildFinalCommand groundUsedTool call
-                        // and ensures tools at non-standard locations (e.g.
-                        // /tmp/kubectl) are referenced correctly inside RCE templates.
-                        let tgt_id = EntityId::new(tgt);
-                        if let Some(pod) = self.pods.get(&tgt_id) {
-                            procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
-                        }
-
-                        let src_eid = EntityId::new(src);
-                        let tgt_eid_inner = EntityId::new(tgt);
-                        let found = self
-                            .graph
-                            .outgoing(&src_eid)
-                            .into_iter()
-                            .find(|(t, d)| *t == &tgt_eid_inner && d.is_exec_channel)
-                            .map(|(t, d)| ran_domain::RelationSummary {
-                                name: d.relation_name.clone(),
-                                source_id: src.to_string(),
-                                target_id: t.0.clone(),
-                                is_exec_channel: true,
-                                envelope: d.envelope.clone(),
-                                weight: d.weight,
-                            });
-                        procedure.command = match found {
-                            Some(ref rel) => rel.wrap_command(&procedure.command),
-                            None => {
-                                // Fallback: try kubectl exec via target entity ID
-                                if let Some((ns, name)) = split_pod_entity_id(tgt) {
-                                    format!("kubectl exec -n {} {} -- {}", ns, name, procedure.command)
-                                } else {
-                                    procedure.command.clone()
-                                }
-                            }
-                        };
-
-                        // After wrapping, ground the outer tool (first word of the
-                        // wrapped command) against the source pod's binary map.
-                        // The wrapped command runs inside src, so paths on src apply
-                        // (e.g. redis-cli at /usr/bin/redis-cli on the pivot pod).
-                        let src_id = EntityId::new(src);
-                        if let Some(pod) = self.pods.get(&src_id) {
-                            procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
-                        }
-                    }
-                    (ch.backend_id, ch.hops[0].clone())
-                }
-            }
-            _ => (String::new(), request.target_id),
-        };
+        tracing::debug!("final grounded command: '{}'", procedure.command);
 
         Ok(ExecTtp {
             id: generate_cmd_id(),
@@ -232,6 +179,190 @@ impl Campaign {
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0),
         })
+    }
+
+    fn resolve_c2_channel(
+        &self,
+        action_id: &str,
+        target_id: &str,
+        ttp: &Ttp,
+        procedure: &mut Procedure,
+        normalized_exec_system_id: Option<&str>,
+        pre_resolved_src: Option<super::ExecChannel>,
+    ) -> Result<(String, String), ExecuteActionError> {
+        match normalized_exec_system_id {
+            Some(id) if !id.trim().is_empty() => {
+                // API callers may pass an entity ID (where the command should run)
+                // or a backend ID. If this matches a known system entity, treat it
+                // as an execution source and route through the builtin backend.
+                if self.get_system_entity(id).is_some() {
+                    tracing::info!(
+                        logical_target = %target_id,
+                        selected_source = %id,
+                        backend_id = %"c2/ran",
+                        chain = %format_exec_chain("c2/ran", &[], id),
+                        "using caller-supplied exec source entity"
+                    );
+                    Ok(("c2/ran".to_string(), id.to_string()))
+                } else {
+                    tracing::info!(
+                        target_id = %target_id,
+                        backend_id = %id,
+                        chain = %format_exec_chain(id, &[], target_id),
+                        "using caller-supplied exec backend"
+                    );
+                    Ok((id.to_string(), target_id.to_string()))
+                }
+            }
+            _ if is_lateral_movement_tactic(&ttp.tactic) => {
+                // Lateral Movement TTPs run FROM an already-compromised pod and
+                // CREATE the exec edge to the target — they must not require a
+                // pre-existing channel to the victim.  The source was resolved
+                // above so ${SRC} is grounded in effects; use the same channel
+                // here to target the source pod for kubectl exec.
+                let ch = pre_resolved_src
+                    .expect("lateral movement exec source resolved above");
+                let exec_target = ch.exec_target_id.unwrap_or(target_id.to_string());
+
+                tracing::warn!("lateral movement tactic detected; targeting exec to source entity {} via channel with backend {}",
+                    exec_target, ch.backend_id);
+                tracing::info!(
+                    target_id = %target_id,
+                    selected_source = %exec_target,
+                    backend_id = %ch.backend_id,
+                    chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
+                    "selected lateral-movement execution chain"
+                );
+
+                Ok((ch.backend_id, exec_target))
+            }
+            _ if needs_remote_channel(procedure, &ttp.tactic) => {
+                let ch = self
+                    .resolve_exec_channel(target_id)
+                    .map_err(ExecuteActionError::NoExecChannel)?;
+                let exec_target = ch.exec_target_id.clone().unwrap_or(target_id.to_string());
+
+                tracing::warn!(
+                    target_id = %target_id,
+                    exec_target = %exec_target,
+                    "resolved exec channel for action target",
+                );
+                tracing::info!("channel backend: {}, hops: {:?}", ch.backend_id, ch.hops);
+                tracing::info!(
+                    target_id = %target_id,
+                    backend_id = %ch.backend_id,
+                    chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
+                    "selected remote execution chain"
+                );
+
+                if ch.hops.is_empty() {
+                    // Direct path: C2 can reach the target without any hop.
+                    // Ground the procedure binary against the target pod's binary
+                    // map so non-standard install paths (e.g. /tmp/kubectl) are
+                    // used correctly.
+                    let tgt_id = EntityId::new(exec_target.as_str());
+                    if let Some(pod) = self.pods.get(&tgt_id) {
+                        procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
+                    }
+                    Ok((ch.backend_id, exec_target))
+                } else {
+                    self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str());
+                    Ok((ch.backend_id, ch.hops[0].clone()))
+                }
+            }
+            _ => {
+                // Safety fallback: if the logical target is a pod and no explicit
+                // exec system was provided, prefer executing FROM an in-cluster
+                // foothold rather than directly from Ran.
+                let target_eid = EntityId::new(target_id);
+                if self.pods.contains_key(&target_eid) {
+                    tracing::warn!(
+                        target_id = %target_id,
+                        action_id = %action_id,
+                        tactic = %ttp.tactic,
+                        "no explicit exec channel selected for pod target; falling back to in-cluster source"
+                    );
+                    let ch = self
+                        .resolve_exec_source()
+                        .map_err(ExecuteActionError::NoExecChannel)?;
+                    let exec_target = ch.exec_target_id.unwrap_or(target_id.to_string());
+                    tracing::info!(
+                        target_id = %target_id,
+                        selected_source = %exec_target,
+                        backend_id = %ch.backend_id,
+                        chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
+                        "pod fallback source selected"
+                    );
+                    Ok((ch.backend_id, exec_target))
+                } else {
+                    Ok((String::new(), target_id.to_string()))
+                }
+            }
+        }
+    }
+
+    /// Wrap `procedure.command` through each hop in reverse order so BuiltinC2
+    /// can exec into the first hop and the nested command traverses the rest of
+    /// the chain to the final execution target.
+    fn wrap_command_for_hops(
+        &self,
+        procedure: &mut Procedure,
+        hops: &[String],
+        exec_target: &str,
+    ) {
+        let full_chain: Vec<&str> = hops
+            .iter()
+            .map(String::as_str)
+            .chain(std::iter::once(exec_target))
+            .collect();
+
+        // Wrap from innermost (last pair) to outermost (second pair;
+        // hops[0] is handled by BuiltinC2 itself).
+        for i in (1..full_chain.len()).rev() {
+            let src = full_chain[i - 1];
+            let tgt = full_chain[i];
+
+            // Ground the inner command's binary against the target system's
+            // known paths before embedding it in the envelope.
+            let tgt_id = EntityId::new(tgt);
+            if let Some(pod) = self.pods.get(&tgt_id) {
+                procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
+            }
+
+            let src_eid = EntityId::new(src);
+            let tgt_eid_inner = EntityId::new(tgt);
+            let found = self
+                .graph
+                .outgoing(&src_eid)
+                .into_iter()
+                .find(|(t, d)| *t == &tgt_eid_inner && d.is_exec_channel)
+                .map(|(t, d)| ran_domain::RelationSummary {
+                    name: d.relation_name.clone(),
+                    source_id: src.to_string(),
+                    target_id: t.0.clone(),
+                    is_exec_channel: true,
+                    envelope: d.envelope.clone(),
+                    weight: d.weight,
+                });
+            procedure.command = match found {
+                Some(ref rel) => rel.wrap_command(&procedure.command),
+                None => {
+                    // Fallback: try kubectl exec via target entity ID.
+                    if let Some((ns, name)) = split_pod_entity_id(tgt) {
+                        format!("kubectl exec -n {} {} -- {}", ns, name, procedure.command)
+                    } else {
+                        procedure.command.clone()
+                    }
+                }
+            };
+
+            // After wrapping, ground the outer tool (first word of the wrapped
+            // command) against the source pod's binary map.
+            let src_id = EntityId::new(src);
+            if let Some(pod) = self.pods.get(&src_id) {
+                procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
+            }
+        }
     }
 
     pub fn on_ttp_executed(
@@ -747,10 +878,7 @@ fn split_pod_entity_id(entity_id: &str) -> Option<(&str, &str)> {
 /// requiring one to exist.  For these tactics the command is run FROM an
 /// already-compromised source, not TO the target.
 fn is_lateral_movement_tactic(tactic: &str) -> bool {
-    matches!(
-        tactic.trim().to_ascii_lowercase().as_str(),
-        "lateral movement" | "lateral-movement"
-    )
+    normalize_tactic(tactic) == "lateral movement"
 }
 
 /// Returns `true` when the procedure requires a remote execution channel.
@@ -762,10 +890,26 @@ fn needs_remote_channel(procedure: &Procedure, tactic: &str) -> bool {
     if procedure.is_local_command == Some(true) {
         return false;
     }
-    !matches!(
-        tactic.trim().to_ascii_lowercase().as_str(),
-        "reconnaissance" | "resource development" | "resource-development"
-    )
+    !matches!(normalize_tactic(tactic).as_str(), "reconnaissance" | "resource development")
+}
+
+fn normalize_tactic(tactic: &str) -> String {
+    tactic
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', '_'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn format_exec_chain(backend_id: &str, hops: &[String], exec_target: &str) -> String {
+    let mut parts: Vec<String> = vec![backend_id.to_string()];
+    parts.extend(hops.iter().cloned());
+    if parts.last().map(|p| p.as_str()) != Some(exec_target) {
+        parts.push(exec_target.to_string());
+    }
+    parts.join(" -> ")
 }
 
 fn generate_cmd_id() -> String {

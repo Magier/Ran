@@ -145,22 +145,58 @@ impl Campaign {
     ///
     /// Resolution order:
     ///
-    /// 1. **Direct**: a non-pod entity has a `k8s.can-exec` / `kubelet-pod-exec`
+    /// 1. **Follow-up from last direct foothold**: if the most recently used
+    ///    directly C2-reachable pod has an exec-channel path to `target_id`,
+    ///    prefer that chain so follow-up actions keep using the established
+    ///    in-cluster channel.
+    ///
+    /// 2. **Direct**: a non-pod entity has a `k8s.can-exec` / `kubelet-pod-exec`
     ///    relation to `target_id` — the C2 reaches the target without any hop.
     ///
-    /// 2. **Shortest-path (Dijkstra)**: from every pod directly reachable by the
+    /// 3. **Shortest-path (Dijkstra)**: from every pod directly reachable by the
     ///    C2 (seeds), follow exec-channel edges with their weights to find the
     ///    minimum-cost path to the target.  The path is returned as
     ///    `ExecChannel.hops`, ordered from the C2 side outward.
     ///
-    /// 3. **Service-account indirection**: when the target is an SA, find the
+    /// 4. **Service-account indirection**: when the target is an SA, find the
     ///    pod that `uses` it and resolve for that pod instead.
     ///
     /// Returns `Err` when no path can be found.
     pub fn resolve_exec_channel(&self, target_id: &str) -> Result<ExecChannel, String> {
         let target_eid = EntityId::new(target_id);
 
-        // Priority 1: direct — a non-pod entity has an exec relation to the
+        // Priority 1: prefer continuing from the most recently used direct
+        // foothold when it can reach the target via exec-channel edges.
+        let direct_footholds: std::collections::HashSet<String> = self
+            .graph
+            .exec_edges()
+            .into_iter()
+            .filter(|(src, tgt, _)| !self.pods.contains_key(*src) && self.pods.contains_key(*tgt))
+            .map(|(_, tgt, _)| tgt.0.clone())
+            .collect();
+
+        if let Some(source_id) = self
+            .execution_records
+            .iter()
+            .rev()
+            .map(|r| r.target_id.as_str())
+            .find(|id| direct_footholds.contains(*id))
+        {
+            let source_eid = EntityId::new(source_id);
+            if let Some((_cost, path)) = self.graph.shortest_exec_path(&[source_eid], &target_eid) {
+                let hops = path[..path.len().saturating_sub(1)]
+                    .iter()
+                    .map(|id| id.0.clone())
+                    .collect();
+                return Ok(ExecChannel {
+                    backend_id: "c2/ran".to_string(),
+                    hops,
+                    exec_target_id: None,
+                });
+            }
+        }
+
+        // Priority 2: direct — a non-pod entity has an exec relation to the
         // target (e.g. the C2's own SA has kubectl exec rights).
         let direct = self.graph.exec_edges().into_iter().any(|(src, tgt, _)| {
             tgt == &target_eid && !self.pods.contains_key(src)
@@ -169,7 +205,7 @@ impl Campaign {
             return Ok(ExecChannel::direct("c2/ran"));
         }
 
-        // Priority 2: Dijkstra from C2-reachable pods (seeds) to target.
+        // Priority 3: Dijkstra from C2-reachable pods (seeds) to target.
         //
         // Seeds = pods that a non-pod entity can exec into directly.
         let seeds: Vec<EntityId> = self
@@ -191,7 +227,7 @@ impl Campaign {
             return Ok(ExecChannel { backend_id: "c2/ran".to_string(), hops, exec_target_id: None });
         }
 
-        // Priority 3: target is a service account — resolve for the pod using it.
+        // Priority 4: target is a service account — resolve for the pod using it.
         let sa_pod_id = self
             .graph
             .incoming(&target_eid)
@@ -255,21 +291,30 @@ impl Campaign {
     ///
     /// Resolution priority (first match wins):
     ///
-    /// 1. **Most recently used reachable pod** — the last execution record whose
-    ///    `target_id` falls within the reachable set.  Keeps lateral movement in
+    /// 1. **Most recently used directly reachable pod** — the last execution
+    ///    record whose `target_id` falls within the direct foothold set. Keeps
+    ///    lateral movement in
     ///    the same foothold the operator was just working in.
     ///
-    /// 2. **Highest `access_level` among reachable pods** — prefers pods where
-    ///    we have proven interactive access (`UserExec` / `RootExec`).
+    /// 2. **Highest `access_level` among directly reachable pods** — prefers
+    ///    pods where we have proven interactive access (`UserExec` / `RootExec`).
     ///
-    /// 3. **Any reachable pod** — fallback when no access-level information is
+    /// 3. **Any directly reachable pod** — fallback when no access-level information is
     ///    available yet (e.g. initial access via `k8s.can-exec` relation only).
     ///
-    /// Returns `Err` when no reachable pod can be found.
+    /// Returns `Err` when no directly reachable pod can be found.
     pub fn resolve_exec_source(&self) -> Result<ExecChannel, String> {
-        let reachable = self.reachable_pods();
+        let direct_reachable: std::collections::HashSet<String> = self
+            .graph
+            .exec_edges()
+            .into_iter()
+            .filter(|(src, tgt, _)| {
+                !self.pods.contains_key(*src) && self.pods.contains_key(*tgt)
+            })
+            .map(|(_, tgt, _)| tgt.0.clone())
+            .collect();
 
-        if reachable.is_empty() {
+        if direct_reachable.is_empty() {
             return Err(
                 "no compromised system available to use as a lateral-movement \
                  exec source; gain initial access first"
@@ -277,15 +322,15 @@ impl Campaign {
             );
         }
 
-        // --- Pick the best pod among reachable ones ---
+        // --- Pick the best pod among directly reachable footholds ---
 
-        // Priority 1: most recently used reachable pod.
+        // Priority 1: most recently used directly reachable pod.
         if let Some(pod_id) = self
             .execution_records
             .iter()
             .rev()
             .map(|r| &r.target_id)
-            .find(|id| reachable.contains(*id))
+            .find(|id| direct_reachable.contains(*id))
         {
             let mut ch = ExecChannel::direct("c2/ran");
             ch.exec_target_id = Some(pod_id.clone());
@@ -296,7 +341,7 @@ impl Campaign {
         let best_access = self
             .pods
             .values()
-            .filter(|p| reachable.contains(&p.entity_id().0) && p.system.can_exec())
+            .filter(|p| direct_reachable.contains(&p.entity_id().0) && p.system.can_exec())
             .max_by_key(|p| p.system.access_level as u8);
 
         if let Some(pod) = best_access {
@@ -305,8 +350,8 @@ impl Campaign {
             return Ok(ch);
         }
 
-        // Priority 3: any reachable pod (initial access only, no exec confirmed yet).
-        let any_pod = reachable
+        // Priority 3: any directly reachable pod (initial access only, no exec confirmed yet).
+        let any_pod = direct_reachable
             .iter()
             .find(|id| self.pods.contains_key(&EntityId::new(*id)));
 

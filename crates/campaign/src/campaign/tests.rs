@@ -275,6 +275,56 @@ fn resolve_exec_channel_follows_rce_can_exec_edge() {
 }
 
 #[test]
+fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
+    use crate::execution_record::ExecutionRecord;
+
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    // entry-hall is a direct foothold.
+    let entry = Pod::new("entry-hall", "dungeon");
+    let entry_id = entry.entity_id().0.clone();
+    campaign.pods.insert(entry.entity_id(), entry);
+    push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
+
+    // redis is target.
+    let redis = Pod::new("redis.10-244-1-7", "oopservability");
+    let redis_id = redis.entity_id().0.clone();
+    campaign.pods.insert(redis.entity_id(), redis);
+
+    // Lateral chain from entry-hall to redis exists.
+    push_relation(&mut campaign, &RceCanExec::new(&entry_id, &redis_id));
+
+    // Also inject a direct non-pod edge to redis (can appear from broad
+    // inferred permissions), but follow-up should still prefer last foothold.
+    push_exec_edge(&mut campaign, "sa/default/other", &redis_id);
+
+    // Most recent command executed on entry-hall.
+    campaign.execution_records.push(ExecutionRecord {
+        id: "cmd-followup-1".to_string(),
+        ttp_id: "x".to_string(),
+        ttp_name: "x".to_string(),
+        tactic: "Discovery".to_string(),
+        target_id: entry_id.clone(),
+        exec_system_id: "c2/ran".to_string(),
+        procedure_id: "shell".to_string(),
+        command: "id".to_string(),
+        args: HashMap::new(),
+        success: true,
+        exit_code: 0,
+        results: vec![],
+        fail_reason: String::new(),
+        started_at_ms: 1,
+        completed_at_ms: 2,
+    });
+
+    let ch = campaign
+        .resolve_exec_channel(&redis_id)
+        .expect("should resolve follow-up channel");
+    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.hops, vec![entry_id], "follow-up should keep the foothold chain");
+}
+
+#[test]
 fn resolve_exec_channel_resolves_via_service_account_uses_relation() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
@@ -384,6 +434,32 @@ fn resolve_exec_source_finds_pod_via_rce_can_exec_transitively() {
 }
 
 #[test]
+fn resolve_exec_source_prefers_direct_foothold_over_transitive_pod() {
+    // Regression: if redis is only reachable via entry-hall, lateral movement
+    // must still execute FROM entry-hall. Picking redis as a direct source
+    // makes BuiltinC2 attempt C2 -> redis directly and fail.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let entry = Pod::new("entry-hall", "default");
+    let entry_id = entry.entity_id().0.clone();
+    campaign.pods.insert(entry.entity_id(), entry);
+    push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
+
+    // redis is reachable only through entry-hall, but appears more privileged.
+    let mut redis = Pod::new("redis", "default");
+    redis.system.access_level = AccessLevel::UserExec;
+    let redis_id = redis.entity_id().0.clone();
+    campaign.pods.insert(redis.entity_id(), redis);
+    push_relation(&mut campaign, &RceCanExec::new(&entry_id, &redis_id));
+
+    let ch = campaign
+        .resolve_exec_source()
+        .expect("should choose a direct foothold source");
+    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.exec_target_id.as_deref(), Some(entry_id.as_str()));
+}
+
+#[test]
 fn resolve_exec_source_errors_with_no_reachable_pod() {
     let campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     // No pods, no relations
@@ -474,6 +550,89 @@ fn prepare_action_respects_caller_supplied_exec_system_id() {
         .expect("explicit exec_system_id should bypass graph check");
 
     assert_eq!(exec.exec_system_id, "custom-backend");
+}
+
+#[test]
+fn prepare_action_explicit_exec_source_entity_runs_from_that_system() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let source = Pod::new("entry-hall", "dungeon");
+    let source_id = source.entity_id().0.clone();
+    campaign.pods.insert(source.entity_id(), source);
+
+    let target = Pod::new("redis.10-244-1-7", "oopservability");
+    let target_id = target.entity_id().0.clone();
+    campaign.pods.insert(target.entity_id(), target);
+
+    let armory = minimal_armory("test-ttp");
+    let exec = campaign
+        .prepare_action(action_request(&target_id, Some(&source_id)), &armory)
+        .expect("explicit source entity should be used as execution target");
+
+    assert_eq!(exec.exec_system_id, "c2/ran");
+    assert_eq!(exec.target_id, source_id);
+    assert_eq!(exec.args.get("TARGET_ID").map(String::as_str), Some(target_id.as_str()));
+}
+
+#[test]
+fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_entity() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let source = Pod::new("entry-hall", "dungeon");
+    let source_id = source.entity_id().0.clone();
+    campaign.pods.insert(source.entity_id(), source);
+
+    let target = Pod::new("redis.10-244-1-7", "oopservability");
+    let target_id = target.entity_id().0.clone();
+    campaign.pods.insert(target.entity_id(), target);
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        id: "lateral-test".to_string(),
+        name: "Lateral Test".to_string(),
+        description: String::new(),
+        tactic: "Lateral Movement".to_string(),
+        techniques: vec![],
+        status: "stable".to_string(),
+        params: vec![],
+        requires: Default::default(),
+        effects: vec!["rce.can-exec(${src}, ${TARGET_ID})".to_string()],
+        procedures: vec![Procedure {
+            id: "shell".to_string(),
+            command: "id".to_string(),
+            tool: None,
+            is_local_command: None,
+        }],
+        references: vec![],
+    }]);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "lateral-test".to_string(),
+                target_id: target_id.clone(),
+                exec_system_id: Some(source_id.clone()),
+                procedure_id: None,
+                args: HashMap::new(),
+            },
+            &armory,
+        )
+        .expect("should prepare lateral action");
+
+    let effect = exec
+        .ttp
+        .effects
+        .first()
+        .expect("effect should exist");
+    assert!(
+        !effect.contains("${src}"),
+        "lowercase src should be grounded, got: {}",
+        effect
+    );
+    assert!(
+        effect.contains(&source_id),
+        "effect should include explicit source id, got: {}",
+        effect
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -660,6 +819,87 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
     );
     // The C2 kubectl-execs into the entry pod, which then runs the RCE envelope.
     assert_eq!(exec.target_id, entry_id, "C2 should exec into entry-pod");
+}
+
+#[test]
+fn prepare_action_exec_system_same_as_target_still_uses_channel_hops() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let entry = Pod::new("entry-hall", "dungeon");
+    let entry_id = entry.entity_id().0.clone();
+    campaign.pods.insert(entry.entity_id(), entry);
+    push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
+
+    let redis = Pod::new("redis.10-244-1-7", "oopservability");
+    let redis_id = redis.entity_id().0.clone();
+    campaign.pods.insert(redis.entity_id(), redis);
+
+    let rce_rel = RceCanExec::new(&entry_id, &redis_id)
+        .with_envelope("redis-cli eval \"$(echo ${CMD} | base64 -d | sh)\" 0".to_string());
+    push_relation(&mut campaign, &rce_rel);
+
+    // Simulates frontend defaulting exec_system_id to target_id.
+    let exec = campaign
+        .prepare_action(action_request(&redis_id, Some(&redis_id)), &minimal_armory("test-ttp"))
+        .expect("should still resolve via channel path");
+
+    assert_eq!(exec.exec_system_id, "c2/ran");
+    assert_eq!(exec.target_id, entry_id, "should exec into first hop, not target pod directly");
+}
+
+#[test]
+fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target() {
+    // Regression: when a procedure is marked local-command, prepare_action used
+    // to fall back to direct Ran -> target pod execution. For pod targets, we
+    // should execute from the current in-cluster foothold instead.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    // C2 can exec into entry-hall directly.
+    let entry = Pod::new("entry-hall", "default");
+    let entry_id = entry.entity_id().0.clone();
+    campaign.pods.insert(entry.entity_id(), entry);
+    push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
+
+    // redis is a pod target (no direct C2 channel).
+    let redis = Pod::new("redis.10-244-1-7", "oopservability");
+    let redis_id = redis.entity_id().0.clone();
+    campaign.pods.insert(redis.entity_id(), redis);
+
+    // Local command procedure; without the fix this would run directly on redis.
+    let armory = Armory::from_ttps(vec![Ttp {
+        id: "test-local-fallback".to_string(),
+        name: "Test Local Fallback".to_string(),
+        description: String::new(),
+        tactic: "Discovery".to_string(),
+        techniques: vec![],
+        status: "stable".to_string(),
+        params: vec![],
+        requires: Default::default(),
+        effects: vec![],
+        procedures: vec![Procedure {
+            id: "shell".to_string(),
+            command: "echo hi".to_string(),
+            tool: None,
+            is_local_command: Some(true),
+        }],
+        references: vec![],
+    }]);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "test-local-fallback".to_string(),
+                exec_system_id: None,
+                target_id: redis_id,
+                procedure_id: None,
+                args: HashMap::new(),
+            },
+            &armory,
+        )
+        .expect("should route through in-cluster source");
+
+    assert_eq!(exec.exec_system_id, "c2/ran");
+    assert_eq!(exec.target_id, entry_id, "fallback should exec into entry-hall, not redis directly");
 }
 
 // ---------------------------------------------------------------------------

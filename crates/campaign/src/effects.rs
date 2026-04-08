@@ -69,13 +69,47 @@ pub fn ground_template(template: &str, args: &HashMap<String, String>) -> String
     // Pass 1: evaluate Go-style {{ if/else/end }} blocks and {{.Var}} substitutions.
     let mut grounded = resolve_go_template(template, args);
 
-    // Pass 2: replace ${KEY} placeholders (case-insensitive key matching).
-    for (k, v) in args {
-        let key = format!("${{{}}}", k.to_uppercase());
-        grounded = grounded.replace(&key, v);
-    }
+    // Pass 2: replace ${KEY} placeholders with case-insensitive matching on
+    // the placeholder name itself (e.g. ${SRC}, ${src}, ${Src}).
+    grounded = substitute_dollar_placeholders_case_insensitive(&grounded, args);
 
     grounded
+}
+
+fn substitute_dollar_placeholders_case_insensitive(
+    template: &str,
+    args: &HashMap<String, String>,
+) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut idx = 0usize;
+
+    while let Some(rel_start) = template[idx..].find("${") {
+        let start = idx + rel_start;
+        out.push_str(&template[idx..start]);
+
+        let name_start = start + 2;
+        let Some(rel_end) = template[name_start..].find('}') else {
+            // Unterminated placeholder; keep remainder verbatim.
+            out.push_str(&template[start..]);
+            return out;
+        };
+        let end = name_start + rel_end;
+        let placeholder_name = &template[name_start..end];
+
+        if let Some((_, value)) = args
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(placeholder_name))
+        {
+            out.push_str(value);
+        } else {
+            out.push_str(&template[start..=end]);
+        }
+
+        idx = end + 1;
+    }
+
+    out.push_str(&template[idx..]);
+    out
 }
 
 pub fn parse_effect(effect: &str, args: &HashMap<String, String>) -> Result<FactsUpdate, String> {
