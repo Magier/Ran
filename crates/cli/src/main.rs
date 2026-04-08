@@ -35,6 +35,15 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Emulate(EmulateArgs),
+    Armory(ArmoryArgs),
+}
+
+#[derive(Debug, Clone, Parser)]
+#[command(about = "Show the contents of the armory")]
+struct ArmoryArgs {
+    /// Path to the armory TTPs directory (default: ./armory/TTPs).
+    #[arg(long = "armory")]
+    armory: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -292,6 +301,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Emulate(args) => run_emulate(args).await,
+        Commands::Armory(args) => run_show_armory(args),
     }
 }
 
@@ -563,6 +573,54 @@ fn is_loopback_url(url: &Url) -> bool {
         Some("localhost") | Some("127.0.0.1") | Some("::1") => true,
         _ => false,
     }
+}
+
+fn run_show_armory(args: ArmoryArgs) -> Result<()> {
+    let armory_dir = resolve_armory_dir(args.armory)?;
+    let armory = Armory::load_from_dir(&armory_dir)?;
+    let ttps = armory.ttps();
+
+    // Column widths
+    let id_w = ttps.iter().map(|t| t.id.len()).max().unwrap_or(6).max(6);
+    let name_w = ttps.iter().map(|t| t.name.len()).max().unwrap_or(4).max(4);
+    let tactic_w = ttps.iter().map(|t| t.tactic.len()).max().unwrap_or(6).max(6);
+    let status_w = ttps.iter().map(|t| t.status.len()).max().unwrap_or(6).max(6);
+    let desc_w = 60usize;
+
+    let sep = format!(
+        "+-{}-+-{}-+-{}-+-{}-+-{}-+",
+        "-".repeat(id_w),
+        "-".repeat(name_w),
+        "-".repeat(tactic_w),
+        "-".repeat(status_w),
+        "-".repeat(desc_w),
+    );
+
+    println!("{sep}");
+    println!(
+        "| {:id_w$} | {:name_w$} | {:tactic_w$} | {:status_w$} | {:desc_w$} |",
+        "TTP ID", "Name", "Tactic", "Status", "Description",
+        id_w = id_w, name_w = name_w, tactic_w = tactic_w, status_w = status_w, desc_w = desc_w,
+    );
+    println!("{sep}");
+
+    for ttp in ttps {
+        let desc = if ttp.description.len() > desc_w {
+            format!("{}…", &ttp.description[..desc_w - 1])
+        } else {
+            ttp.description.clone()
+        };
+        println!(
+            "| {:id_w$} | {:name_w$} | {:tactic_w$} | {:status_w$} | {:desc_w$} |",
+            ttp.id, ttp.name, ttp.tactic, ttp.status, desc,
+            id_w = id_w, name_w = name_w, tactic_w = tactic_w, status_w = status_w, desc_w = desc_w,
+        );
+    }
+
+    println!("{sep}");
+    println!("{} TTPs loaded from {}", ttps.len(), armory_dir.display());
+
+    Ok(())
 }
 
 async fn run_emulate(args: EmulateArgs) -> Result<()> {
