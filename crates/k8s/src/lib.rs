@@ -16,6 +16,16 @@ use tokio::io::AsyncReadExt;
 /// dropped.
 pub struct WatchHandle(tokio::task::AbortHandle);
 
+/// Output from a pod exec command, including both streams and the exit code.
+/// Only infrastructure failures (can't connect, stream errors) produce an `Err`.
+/// A non-zero exit code is returned as `Ok` so callers can surface all output.
+#[derive(Debug, Clone)]
+pub struct PodExecOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
 impl Drop for WatchHandle {
     fn drop(&mut self) {
         self.0.abort();
@@ -175,7 +185,7 @@ impl K8sService {
         namespace: &str,
         pod_name: &str,
         command: &str,
-    ) -> Result<String> {
+    ) -> Result<PodExecOutput> {
         let command = command.trim();
         if command.is_empty() {
             return Err(anyhow!("pod exec command is empty"));
@@ -221,24 +231,25 @@ impl K8sService {
             .await
             .context("failed to receive pod exec status")?;
 
-        if status.status != Some("Success".to_string()) {
-            let details = status
-                .message
-                .clone()
-                .or_else(|| (!stderr.trim().is_empty()).then(|| stderr.clone()))
-                .unwrap_or_else(|| "pod exec command failed".to_string());
-
-            return Err(anyhow!(details));
-        }
-
-        if stderr.trim().is_empty() {
-            Ok(stdout)
-        } else if stdout.trim().is_empty() {
-            Ok(stderr)
+        let exit_code = if status.status == Some("Success".to_string()) {
+            0
         } else {
-            Ok(format!("{}\n{}", stdout.trim_end(), stderr.trim_end()))
-        }
+            parse_exit_code(status.message.as_deref()).unwrap_or(1)
+        };
+
+        Ok(PodExecOutput {
+            stdout,
+            stderr,
+            exit_code,
+        })
     }
+}
+
+fn parse_exit_code(message: Option<&str>) -> Option<i32> {
+    // Kubernetes status message for non-zero exits: "command terminated with exit code N"
+    let msg = message?;
+    let code_str = msg.strip_prefix("command terminated with exit code ")?;
+    code_str.trim().parse().ok()
 }
 
 pub fn default_kubeconfig_path() -> PathBuf {

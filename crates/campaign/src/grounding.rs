@@ -231,7 +231,21 @@ pub fn resolve_template(template: &str, args: &HashMap<String, String>) -> Strin
     }
 
     match tera.render("__ttp__", &context) {
-        Ok(result) => result,
+        Ok(result) => {
+            // YAML `>-` folded block scalars with extra-indented continuation lines
+            // preserve newlines (treating those lines as "literal"), so the template
+            // arrives here as a multiline string even though it was authored as a
+            // single logical command.  Tera also leaves blank lines behind where
+            // `{% if %}` / `{% endif %}` tags were removed.  Collapse the result to
+            // a single space-joined line so that `sh -c` receives one command.
+            let collapsed: String = result
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            collapsed
+        }
         Err(e) => {
             tracing::warn!(error = %e, "Tera template rendering failed; returning raw template");
             template.to_string()
@@ -604,6 +618,32 @@ mod tests {
         let result = resolve_template(template, &args);
         // resolve_tera_template handles {{ }} only; ${} is handled by ground_template
         assert_eq!(result, "my-pod-${NS}");
+    }
+
+    #[test]
+    fn tera_multiline_template_collapses_to_single_line() {
+        // serde_yaml `>-` with extra-indented continuation lines preserves
+        // newlines, so commands arrive as multiline strings.  Tera also leaves
+        // blank lines where {% if %} tags were removed.  Both should be collapsed
+        // to a single space-joined line.
+        let args = HashMap::from([("USE_CA".to_string(), "false".to_string())]);
+        let template = "wget -O-\n  --header=\"Auth\"\n  {% if USE_CA %}\n  --ca-certificate=/ca.crt\n  {% else %}\n  --no-check-certificate\n  {% endif %}\n  https://example.com";
+        let result = resolve_template(template, &args);
+        assert_eq!(
+            result,
+            "wget -O- --header=\"Auth\" --no-check-certificate https://example.com"
+        );
+    }
+
+    #[test]
+    fn tera_multiline_template_collapses_if_true_branch() {
+        let args = HashMap::from([("USE_CA".to_string(), "true".to_string())]);
+        let template = "wget -O-\n  --header=\"Auth\"\n  {% if USE_CA %}\n  --ca-certificate=/ca.crt\n  {% else %}\n  --no-check-certificate\n  {% endif %}\n  https://example.com";
+        let result = resolve_template(template, &args);
+        assert_eq!(
+            result,
+            "wget -O- --header=\"Auth\" --ca-certificate=/ca.crt https://example.com"
+        );
     }
 
     // ------------------------------------------------------------------
