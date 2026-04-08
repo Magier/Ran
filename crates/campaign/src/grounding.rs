@@ -19,7 +19,7 @@
 
 use std::collections::HashMap;
 
-use ran_domain::EntityId;
+use ran_domain::{Entity, EntityId};
 
 use crate::campaign::{CampaignEntityRef, Campaign};
 
@@ -34,7 +34,7 @@ use crate::campaign::{CampaignEntityRef, Campaign};
 /// | `NS` / `NAMESPACE`           | Target entity's namespace. Only replaced when the current value is empty or exactly `"${NS}"` / `"${NAMESPACE}"`. |
 /// | `POD_NAME` / `PODNAME`       | Target entity's name. Replaces the `${POD_NAME}` token wherever it appears in the value. |
 /// | `NODE` / `NODENAME` / `NODE_NAME` | The pod's scheduled node name. Only replaced when the current value is empty or exactly `"${NODE_NAME}"`. |
-/// | `TOKEN`                      | SA entity ID → raw JWT. Looks up the SA in the campaign by ID and extracts its token. |
+/// | `TOKEN`                      | ServiceAccount reference → raw JWT. Accepts SA entity ID (`ns/<ns>/sa/<name>`), SA name (resolved in target namespace), or empty value (resolved from target pod/SA). Raw JWT values are preserved as-is. |
 /// | `API_SERVER`                 | Empty or template-var → `https://kubernetes.default.svc`. |
 /// | *(any)*                      | Any value containing `${RANDOM}` is replaced with a 5-digit pseudo-random number. |
 ///
@@ -74,18 +74,8 @@ pub fn ground_args_from_context(
                 }
             }
             "TOKEN" => {
-                if !value.is_empty() {
-                    // Value is a SA entity ID — resolve it to the raw JWT.
-                    let sa_id = EntityId::new(value.as_str());
-                    if let Some(sa) = campaign.service_accounts.get(&sa_id) {
-                        if let Some(raw) = sa.raw_token() {
-                            *value = raw.to_string();
-                        } else {
-                            tracing::warn!(sa_id = %sa_id.0, "TOKEN arg references SA with no extracted token");
-                        }
-                    } else {
-                        tracing::warn!(sa_id = %value, "TOKEN arg references unknown SA entity");
-                    }
+                if let Some(raw) = resolve_token_arg(value, target.as_ref(), campaign) {
+                    *value = raw;
                 }
             }
             "API_SERVER" => {
@@ -109,6 +99,72 @@ fn entity_namespace(entity: &CampaignEntityRef) -> Option<String> {
 fn pod_node_name(entity: &CampaignEntityRef) -> Option<String> {
     match entity {
         CampaignEntityRef::Pod(pod) => pod.node_name.clone(),
+        _ => None,
+    }
+}
+
+fn resolve_token_arg(
+    value: &str,
+    target: Option<&CampaignEntityRef>,
+    campaign: &Campaign,
+) -> Option<String> {
+    let trimmed = value.trim();
+
+    // Already a raw JWT provided by the caller; keep it unchanged.
+    if looks_like_jwt(trimmed) {
+        return Some(trimmed.to_string());
+    }
+
+    // 1) Explicit SA entity ID in arg value.
+    if !trimmed.is_empty() {
+        if let Some(raw) = sa_token_by_entity_id(campaign, trimmed) {
+            return Some(raw);
+        }
+
+        // 2) SA name in target namespace.
+        if let Some(ns) = target.and_then(|t| t.namespace()) {
+            let guessed_id = format!("ns/{}/sa/{}", ns, trimmed);
+            if let Some(raw) = sa_token_by_entity_id(campaign, guessed_id.as_str()) {
+                return Some(raw);
+            }
+        }
+
+        tracing::warn!(token_ref = trimmed, "TOKEN arg could not be resolved to a ServiceAccount token");
+        return None;
+    }
+
+    // 3) Empty TOKEN defaults to the target's ServiceAccount token when known.
+    resolve_token_from_target(target, campaign)
+}
+
+fn looks_like_jwt(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('.').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    parts.iter().all(|p| !p.is_empty())
+}
+
+fn sa_token_by_entity_id(campaign: &Campaign, sa_entity_id: &str) -> Option<String> {
+    let sa_id = EntityId::new(sa_entity_id);
+    let sa = campaign.service_accounts.get(&sa_id)?;
+    let raw = sa.raw_token()?;
+    Some(raw.to_string())
+}
+
+fn resolve_token_from_target(
+    target: Option<&CampaignEntityRef>,
+    campaign: &Campaign,
+) -> Option<String> {
+    let target = target?;
+    match target {
+        CampaignEntityRef::ServiceAccount(sa) => sa_token_by_entity_id(campaign, &sa.entity_id().0),
+        CampaignEntityRef::Pod(pod) => {
+            let ns = pod.namespace()?;
+            let sa_name = pod.service_account_name.as_deref()?;
+            let sa_id = format!("ns/{}/sa/{}", ns, sa_name);
+            sa_token_by_entity_id(campaign, &sa_id)
+        }
         _ => None,
     }
 }
@@ -265,7 +321,7 @@ pub fn detect_ungrounded_vars(cmd: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ran_domain::{Entity, K8sCluster, Pod};
+    use ran_domain::{Entity, JwToken, K8sCluster, Pod, ServiceAccountToken};
 
     use crate::campaign::Campaign;
 
@@ -347,6 +403,135 @@ mod tests {
         let val = &args["Label"];
         assert!(val.starts_with("ran-"), "got '{}'", val);
         assert!(!val.contains("${RANDOM}"));
+    }
+
+    #[test]
+    fn ground_args_resolves_token_from_sa_entity_id() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut sa = ran_domain::ServiceAccount::new("reader", "default");
+        sa.token = Some(ServiceAccountToken {
+            jwt: JwToken {
+                raw: "ey.aa.bb".to_string(),
+                ..Default::default()
+            },
+            service_account_name: "reader".to_string(),
+            namespace: "default".to_string(),
+            pod_name: None,
+            pod_uid: None,
+            service_account_uid: None,
+            is_bound: false,
+        });
+        let sa_id = sa.entity_id();
+        campaign.service_accounts.insert(sa_id.clone(), sa);
+
+        let mut args = HashMap::from([("TOKEN".to_string(), sa_id.0)]);
+        ground_args_from_context(&mut args, "nonexistent", &campaign);
+
+        assert_eq!(args["TOKEN"], "ey.aa.bb");
+    }
+
+    #[test]
+    fn ground_args_resolves_empty_token_from_target_pod_service_account() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut pod = Pod::new("runner", "default");
+        pod.service_account_name = Some("runner-sa".to_string());
+        let target_id = pod.entity_id().0.clone();
+        campaign.pods.insert(pod.entity_id(), pod);
+
+        let mut sa = ran_domain::ServiceAccount::new("runner-sa", "default");
+        sa.token = Some(ServiceAccountToken {
+            jwt: JwToken {
+                raw: "ey.pod.token".to_string(),
+                ..Default::default()
+            },
+            service_account_name: "runner-sa".to_string(),
+            namespace: "default".to_string(),
+            pod_name: None,
+            pod_uid: None,
+            service_account_uid: None,
+            is_bound: false,
+        });
+        campaign.service_accounts.insert(sa.entity_id(), sa);
+
+        let mut args = HashMap::from([("TOKEN".to_string(), "".to_string())]);
+        ground_args_from_context(&mut args, &target_id, &campaign);
+
+        assert_eq!(args["TOKEN"], "ey.pod.token");
+    }
+
+    #[test]
+    fn ground_args_preserves_raw_jwt_token_value() {
+        let campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut args = HashMap::from([("TOKEN".to_string(), "header.payload.sig".to_string())]);
+        ground_args_from_context(&mut args, "nonexistent", &campaign);
+
+        assert_eq!(args["TOKEN"], "header.payload.sig");
+    }
+
+    #[test]
+    fn ground_args_resolves_token_from_sa_name_in_target_namespace() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let pod = Pod::new("runner", "default");
+        let target_id = pod.entity_id().0.clone();
+        campaign.pods.insert(pod.entity_id(), pod);
+
+        let mut sa = ran_domain::ServiceAccount::new("reader", "default");
+        sa.token = Some(ServiceAccountToken {
+            jwt: JwToken {
+                raw: "ey.name.ns".to_string(),
+                ..Default::default()
+            },
+            service_account_name: "reader".to_string(),
+            namespace: "default".to_string(),
+            pod_name: None,
+            pod_uid: None,
+            service_account_uid: None,
+            is_bound: false,
+        });
+        campaign.service_accounts.insert(sa.entity_id(), sa);
+
+        let mut args = HashMap::from([("TOKEN".to_string(), "reader".to_string())]);
+        ground_args_from_context(&mut args, &target_id, &campaign);
+
+        assert_eq!(args["TOKEN"], "ey.name.ns");
+    }
+
+    #[test]
+    fn ground_args_resolves_empty_token_from_target_service_account_entity() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut sa = ran_domain::ServiceAccount::new("auditor", "kube-system");
+        sa.token = Some(ServiceAccountToken {
+            jwt: JwToken {
+                raw: "ey.sa.target".to_string(),
+                ..Default::default()
+            },
+            service_account_name: "auditor".to_string(),
+            namespace: "kube-system".to_string(),
+            pod_name: None,
+            pod_uid: None,
+            service_account_uid: None,
+            is_bound: false,
+        });
+        let target_id = sa.entity_id().0.clone();
+        campaign.service_accounts.insert(sa.entity_id(), sa);
+
+        let mut args = HashMap::from([("TOKEN".to_string(), "".to_string())]);
+        ground_args_from_context(&mut args, &target_id, &campaign);
+
+        assert_eq!(args["TOKEN"], "ey.sa.target");
+    }
+
+    #[test]
+    fn ground_args_keeps_unresolvable_token_reference_unchanged() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let pod = Pod::new("runner", "default");
+        let target_id = pod.entity_id().0.clone();
+        campaign.pods.insert(pod.entity_id(), pod);
+
+        let mut args = HashMap::from([("TOKEN".to_string(), "missing-sa".to_string())]);
+        ground_args_from_context(&mut args, &target_id, &campaign);
+
+        assert_eq!(args["TOKEN"], "missing-sa");
     }
 
     // ------------------------------------------------------------------
