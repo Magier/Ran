@@ -264,6 +264,31 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
     }
 }
 
+impl From<&campaign::ExecTtp> for AttackStep {
+    fn from(exec: &campaign::ExecTtp) -> Self {
+        Self {
+            id: exec.id.clone(),
+            target_id: exec.target_id.clone(),
+            command: exec.procedure.command.clone(),
+            args: exec.args.clone(),
+            procedure_id: exec.procedure.id.clone(),
+            ttp: AttackStepTTP {
+                id: exec.ttp.id.clone(),
+                name: exec.ttp.name.clone(),
+                tactic: exec.ttp.tactic.clone(),
+                techniques: Vec::new(),
+                description: String::new(),
+            },
+            results: Vec::new(),
+            success: false,
+            status: "Ongoing",
+            started_at: ms_to_iso8601(exec.started_at_ms),
+            completed_at: String::new(),
+            executed_on: exec.exec_system_id.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct AttackFlow {
     pub steps: Vec<AttackStep>,
@@ -275,28 +300,29 @@ pub(crate) async fn flow_handler<S: ApiService>(
 ) -> Result<axum::Json<AttackFlow>, ApiError> {
     let campaign = service.get_campaign().await?;
     let records = campaign.get_execution_records();
+    let open = campaign.get_open_steps();
+
+    let mut steps: Vec<AttackStep> = records.iter().map(AttackStep::from).collect();
+    steps.extend(open.iter().map(AttackStep::from));
 
     let mut edges = Vec::new();
-    let mut last_success_id: Option<&str> = None;
+    let mut last_success_id: Option<String> = None;
 
-    for record in records {
-        if let Some(src) = last_success_id {
+    for step in &steps {
+        if let Some(ref src) = last_success_id {
             edges.push(FlowEdge {
-                id: format!("{}->{}", src, record.id),
-                source_id: src.to_string(),
-                target_id: record.id.clone(),
+                id: format!("{}->{}", src, step.id),
+                source_id: src.clone(),
+                target_id: step.id.clone(),
             });
         }
 
-        if record.success {
-            last_success_id = Some(&record.id);
+        if step.status == "Success" {
+            last_success_id = Some(step.id.clone());
         }
     }
 
-    Ok(axum::Json(AttackFlow {
-        steps: records.iter().map(AttackStep::from).collect(),
-        edges,
-    }))
+    Ok(axum::Json(AttackFlow { steps, edges }))
 }
 
 pub(crate) async fn start_pod_watch_handler<S: ApiService>(

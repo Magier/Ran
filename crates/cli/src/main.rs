@@ -229,7 +229,7 @@ impl ApiService for AppState {
                     ApiError::internal("campaign lock poisoned")
                 })?;
 
-            campaign
+            let exec = campaign
                 .prepare_action(cmd, &self.armory)
                 .map_err(|err| {
                 match err {
@@ -264,7 +264,9 @@ impl ApiService for AppState {
                         }
                     }
                 }
-            })?
+            })?;
+            campaign.add_open_step(exec.clone());
+            exec
         };
 
         self.c2.send(exec.clone()).await.map_err(|message| {

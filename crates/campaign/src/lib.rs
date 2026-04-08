@@ -15,6 +15,7 @@ pub use campaign::{
     ExecuteActionError, ExecuteActionRequest, ExecuteActionResult, ExecutedActionEvent,
     TtpExecutionProcessing,
 };
+pub use c2::ExecTtp;
 pub use effects::FactsUpdate;
 pub use execution_record::ExecutionRecord;
 pub use external_parser::{ExternalParseRequest, ExternalParseResponse, ExternalParser};

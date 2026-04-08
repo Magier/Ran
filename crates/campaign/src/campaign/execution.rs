@@ -412,6 +412,7 @@ impl Campaign {
 
             self.parse_audits.extend(parse_audits.clone());
             self.execution_records.push(ExecutionRecord::from_execution(cmd, event));
+            self.complete_open_step(&cmd.id);
             return Ok(TtpExecutionProcessing {
                 updates,
                 parse_audits,
@@ -502,6 +503,7 @@ impl Campaign {
         self.apply_facts(&updates);
         self.parse_audits.extend(parse_audits.clone());
         self.execution_records.push(ExecutionRecord::from_execution(cmd, event));
+        self.complete_open_step(&cmd.id);
 
         Ok(TtpExecutionProcessing {
             updates,
