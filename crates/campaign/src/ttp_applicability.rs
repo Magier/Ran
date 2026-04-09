@@ -1,3 +1,4 @@
+use ran_domain::AccessLevel;
 use serde_json::Value;
 
 use crate::Campaign;
@@ -67,13 +68,51 @@ pub fn ttp_rbac_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
     })
 }
 
+/// Returns `true` when the target entity's access level satisfies the TTP's requirement.
+///
+/// Three tactics are exempt and never require access: `Initial Access`,
+/// `Lateral Movement`, and `Resource Development`.  For all other tactics the
+/// target must have at least the level declared in `requires.accessLevel`.
+/// When no level is declared the default is `UserExec`.
+///
+/// Tactic names are normalised (spaces stripped, ASCII lower-cased) before
+/// comparison so `"InitialAccess"` (directory-derived) and `"Initial Access"`
+/// (YAML-declared) are treated identically.
+pub fn ttp_access_level_satisfied(ttp: &armory::Ttp, target_access_level: AccessLevel) -> bool {
+    fn normalise(s: &str) -> String {
+        s.chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>()
+            .to_ascii_lowercase()
+    }
+
+    let tactic = normalise(&ttp.tactic);
+    if matches!(
+        tactic.as_str(),
+        "initialaccess" | "lateralmovement" | "resourcedevelopment"
+    ) {
+        return true;
+    }
+
+    // Any declared accessLevel value other than "none" maps to Exec.
+    // Undeclared on a non-exempt tactic also requires Exec.
+    let requires_exec = match ttp.requires.get("accessLevel").and_then(Value::as_str) {
+        Some("none") => false,
+        _ => true,
+    };
+
+    !requires_exec || target_access_level >= AccessLevel::Exec
+}
+
 #[cfg(test)]
 mod tests {
     use armory::Ttp;
     use ran_domain::{C2Server, Entity, K8sCluster, RbacPermission, ServiceAccount};
     use serde_json::json;
 
-    use super::{ttp_exists_satisfied, ttp_rbac_satisfied};
+    use ran_domain::AccessLevel;
+
+    use super::{ttp_access_level_satisfied, ttp_exists_satisfied, ttp_rbac_satisfied};
 
     fn ttp_with_rbac(verb: &str, resource_type: &str) -> Ttp {
         let mut requires = serde_json::Map::new();
@@ -140,6 +179,59 @@ mod tests {
             procedures: vec![],
             references: vec![],
         }
+    }
+
+    fn ttp_with_tactic_and_access(tactic: &str, access_level: Option<&str>) -> Ttp {
+        let mut requires = serde_json::Map::new();
+        if let Some(level) = access_level {
+            requires.insert("accessLevel".to_string(), json!(level));
+        }
+        Ttp {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: String::new(),
+            tactic: tactic.to_string(),
+            techniques: vec![],
+            status: "enabled".to_string(),
+            params: vec![],
+            requires,
+            effects: vec![],
+            procedures: vec![],
+            references: vec![],
+        }
+    }
+
+    #[test]
+    fn exempt_tactics_always_satisfied_regardless_of_access_level() {
+        for tactic in &["Initial Access", "InitialAccess", "Lateral Movement", "LateralMovement", "Resource Development", "ResourceDevelopment"] {
+            let ttp = ttp_with_tactic_and_access(tactic, Some("root-exec"));
+            assert!(ttp_access_level_satisfied(&ttp, AccessLevel::None),
+                "tactic '{tactic}' should be exempt");
+        }
+    }
+
+    #[test]
+    fn non_exempt_tactic_requires_exec_by_default() {
+        let ttp = ttp_with_tactic_and_access("Discovery", None);
+        assert!(!ttp_access_level_satisfied(&ttp, AccessLevel::None));
+        assert!(ttp_access_level_satisfied(&ttp, AccessLevel::Exec));
+    }
+
+    #[test]
+    fn any_non_none_access_level_declaration_requires_exec() {
+        for declared in &["user-exec", "user-read", "user-write", "root-exec", "root-read"] {
+            let ttp = ttp_with_tactic_and_access("Discovery", Some(declared));
+            assert!(!ttp_access_level_satisfied(&ttp, AccessLevel::None),
+                "declared '{declared}' should require Exec");
+            assert!(ttp_access_level_satisfied(&ttp, AccessLevel::Exec),
+                "declared '{declared}' should be satisfied by Exec");
+        }
+    }
+
+    #[test]
+    fn access_level_none_declaration_does_not_require_exec() {
+        let ttp = ttp_with_tactic_and_access("Discovery", Some("none"));
+        assert!(ttp_access_level_satisfied(&ttp, AccessLevel::None));
     }
 
     #[test]

@@ -202,7 +202,7 @@ fn resolve_exec_channel_returns_via_compromised_intermediate() {
 
     // Compromised pod (has exec foothold — C2 can reach it via k8s.can-exec)
     let mut attacker = Pod::new("attacker", "default");
-    attacker.system.access_level = AccessLevel::UserExec;
+    attacker.system.access_level = AccessLevel::Exec;
     let attacker_id = attacker.entity_id().0.clone();
     campaign.pods.insert(attacker.entity_id(), attacker);
     push_exec_edge(&mut campaign, "sa/default/ran", &attacker_id);
@@ -225,7 +225,7 @@ fn resolve_exec_channel_multi_hop_bfs() {
 
     // p1: compromised pod C2 can exec into (via k8s.can-exec from a non-pod)
     let mut p1 = Pod::new("p1", "default");
-    p1.system.access_level = AccessLevel::UserExec;
+    p1.system.access_level = AccessLevel::Exec;
     let p1_id = p1.entity_id().0.clone();
     campaign.pods.insert(p1.entity_id(), p1);
     push_exec_edge(&mut campaign, "sa/default/ran", &p1_id);
@@ -447,7 +447,7 @@ fn resolve_exec_source_prefers_direct_foothold_over_transitive_pod() {
 
     // redis is reachable only through entry-hall, but appears more privileged.
     let mut redis = Pod::new("redis", "default");
-    redis.system.access_level = AccessLevel::UserExec;
+    redis.system.access_level = AccessLevel::Exec;
     let redis_id = redis.entity_id().0.clone();
     campaign.pods.insert(redis.entity_id(), redis);
     push_relation(&mut campaign, &RceCanExec::new(&entry_id, &redis_id));

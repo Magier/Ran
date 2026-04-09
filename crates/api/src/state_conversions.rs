@@ -127,7 +127,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
                 Some(sa.token.as_ref().is_some_and(|t| !t.jwt.is_empty()))
             }
             CampaignEntityRef::Node(n) => {
-                Some(n.system.access_level >= AccessLevel::UserExec)
+                Some(n.system.access_level >= AccessLevel::Exec)
             }
             _ => None,
         };

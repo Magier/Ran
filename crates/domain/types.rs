@@ -73,17 +73,12 @@ impl From<Option<bool>> for Confidence {
 // ---------------------------------------------------------------------------
 
 /// The access level an operator holds on a system.
-///
-/// Ordered so that `current >= AccessLevel::UserExec` comparisons work directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AccessLevel {
     #[default]
     None,
-    UserRead,
-    UserExec,
-    RootRead,
-    RootExec,
+    Exec,
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +154,7 @@ impl SystemInfo {
     }
 
     pub fn can_exec(&self) -> bool {
-        self.access_level >= AccessLevel::UserExec
+        self.access_level >= AccessLevel::Exec
     }
 
     /// Adds or updates the known path for a binary.
