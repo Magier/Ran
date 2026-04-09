@@ -617,11 +617,10 @@ impl Campaign {
 
         // When a C2 channel relation is added to a pod, ensure access_level
         // reflects at least UserExec so the field stays consistent with the
-        // relation (it may be raised to RootExec later when `id` is parsed).
         if rel.is_exec_channel() {
             if let Some(pod) = self.pods.get_mut(tgt) {
                 if pod.system.access_level == ran_domain::AccessLevel::None {
-                    pod.system.access_level = ran_domain::AccessLevel::UserExec;
+                    pod.system.access_level = ran_domain::AccessLevel::Exec;
                 }
             }
         }

@@ -310,7 +310,7 @@ fn parse_process_line(line: &str) -> Option<Process> {
 /// Parse `id` command output: `uid=0(root) gid=0(root) groups=0(root),1(bin)`.
 ///
 /// Extracts the numeric uid and the username in parentheses.  Sets
-/// `access_level` to `RootExec` for uid 0, `UserExec` for any other uid.
+/// Sets `access_level` to `Exec` for any uid.
 fn parse_sys_userid(stdout: &str, _stderr: &str) -> ParserOutput {
     let line = stdout.trim();
     if line.is_empty() {
@@ -335,11 +335,7 @@ fn parse_sys_userid(stdout: &str, _stderr: &str) -> ParserOutput {
         return ParserOutput::UnknownFormat(format!("could not parse uid from: {line}"));
     };
 
-    let access_level = if uid == 0 {
-        AccessLevel::RootExec
-    } else {
-        AccessLevel::UserExec
-    };
+    let access_level = AccessLevel::Exec;
 
     let detail = match &username {
         Some(name) => format!("uid={uid} ({name}), access_level={access_level:?}"),
@@ -1698,8 +1694,8 @@ mod tests {
         };
         assert_eq!(updates.user_id, Some(0));
         assert_eq!(updates.username, Some("root".to_string()));
-        assert_eq!(updates.access_level, Some(AccessLevel::RootExec));
-        assert!(detail.contains("RootExec"));
+        assert_eq!(updates.access_level, Some(AccessLevel::Exec));
+        assert!(detail.contains("Exec"));
     }
 
     #[test]
@@ -1710,7 +1706,7 @@ mod tests {
         };
         assert_eq!(updates.user_id, Some(1000));
         assert_eq!(updates.username, Some("appuser".to_string()));
-        assert_eq!(updates.access_level, Some(AccessLevel::UserExec));
+        assert_eq!(updates.access_level, Some(AccessLevel::Exec));
     }
 
     #[test]
@@ -1721,7 +1717,7 @@ mod tests {
         };
         assert_eq!(updates.user_id, Some(500));
         assert_eq!(updates.username, None);
-        assert_eq!(updates.access_level, Some(AccessLevel::UserExec));
+        assert_eq!(updates.access_level, Some(AccessLevel::Exec));
     }
 
     #[test]
@@ -1750,7 +1746,7 @@ mod tests {
             .system();
         assert_eq!(sys.user_id, Some(0));
         assert_eq!(sys.username.as_deref(), Some("root"));
-        assert_eq!(sys.access_level, ran_domain::AccessLevel::RootExec);
+        assert_eq!(sys.access_level, ran_domain::AccessLevel::Exec);
     }
 
     // --- linux.mounts tests ---

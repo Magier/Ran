@@ -5,8 +5,9 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tracing::debug;
 
-use campaign::ttp_applicability::{ttp_exists_satisfied, ttp_rbac_satisfied};
+use campaign::ttp_applicability::{ttp_access_level_satisfied, ttp_exists_satisfied, ttp_rbac_satisfied};
 use campaign::CampaignEntityRef;
+use ran_domain::AccessLevel;
 
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
 use crate::sse::events_handler;
@@ -123,9 +124,10 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
 
     let campaign = service.get_campaign().await?;
 
-    // Resolve the target entity – we need both its kind string (for exact-kind
-    // matching) and whether it is a SystemEntity (for abstract "System" matching).
-    let (target_kind, is_system_target) = {
+    // Resolve the target entity – we need its kind string (for exact-kind
+    // matching), whether it is a SystemEntity (for abstract "System" matching),
+    // and its current access level (for the access-level pre-condition check).
+    let (target_kind, is_system_target, target_access_level) = {
         let entities = campaign.get_entities();
         let entity = entities
             .into_iter()
@@ -138,11 +140,13 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
                 },
             })?;
         let kind = entity.entity_kind().to_string();
-        let is_system = match &entity {
-            CampaignEntityRef::Pod(_) | CampaignEntityRef::Node(_) => true,
-            _ => false,
+        let is_system = matches!(&entity, CampaignEntityRef::Pod(_) | CampaignEntityRef::Node(_));
+        let access_level = match &entity {
+            CampaignEntityRef::Pod(p) => p.system.access_level,
+            CampaignEntityRef::Node(n) => n.system.access_level,
+            _ => AccessLevel::None,
         };
-        (kind, is_system)
+        (kind, is_system, access_level)
     };
 
     let ttps = all_ttps
@@ -151,6 +155,7 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
             ttp_is_applicable_for_target_kind(ttp, &target_kind, is_system_target)
                 && ttp_rbac_satisfied(ttp, &campaign)
                 && ttp_exists_satisfied(ttp, &campaign)
+                && ttp_access_level_satisfied(ttp, target_access_level)
         })
         .collect::<Vec<_>>();
 
