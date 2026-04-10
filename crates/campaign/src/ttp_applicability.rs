@@ -68,6 +68,18 @@ pub fn ttp_rbac_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
     })
 }
 
+/// Returns `true` when the TTP's `has-token` requirement is satisfied by the target entity.
+///
+/// - No `has-token` in `requires` → satisfied (no restriction).
+/// - `has-token: true` → the target must have a non-empty token.
+/// - `has-token: false` (or any other value) → always satisfied.
+pub fn ttp_has_token_satisfied(ttp: &armory::Ttp, target_has_token: bool) -> bool {
+    match ttp.requires.get("has-token").and_then(Value::as_bool) {
+        Some(true) => target_has_token,
+        _ => true,
+    }
+}
+
 /// Returns `true` when the target entity's access level satisfies the TTP's requirement.
 ///
 /// Three tactics are exempt and never require access: `Initial Access`,

@@ -90,6 +90,19 @@ pub fn ground_args_from_context(
             *value = value.replace("${RANDOM}", &random_id());
         }
     }
+
+    // Inject well-known defaults for keys that may not be declared as TTP
+    // parameters but are referenced in procedure commands.
+    args.entry("API_SERVER".to_string())
+        .or_insert_with(|| "https://kubernetes.default.svc".to_string());
+
+    // If TOKEN was not a declared parameter at all, try to resolve it from the
+    // target entity so that curl-style procedures get a bearer token.
+    if !args.contains_key("TOKEN") {
+        if let Some(raw) = resolve_token_from_target(target.as_ref(), campaign) {
+            args.insert("TOKEN".to_string(), raw);
+        }
+    }
 }
 
 fn entity_namespace(entity: &CampaignEntityRef) -> Option<String> {
@@ -550,6 +563,48 @@ mod tests {
         ground_args_from_context(&mut args, &target_id, &campaign);
 
         assert_eq!(args["TOKEN"], "missing-sa");
+    }
+
+    #[test]
+    fn ground_args_injects_api_server_when_not_a_declared_param() {
+        // TTPs that use ${API_SERVER} in their curl commands may not declare it
+        // as an explicit parameter.  It must still be grounded to the default.
+        let campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut args: HashMap<String, String> = HashMap::new(); // no API_SERVER key
+        ground_args_from_context(&mut args, "nonexistent", &campaign);
+
+        assert_eq!(args["API_SERVER"], "https://kubernetes.default.svc");
+    }
+
+    #[test]
+    fn ground_args_injects_token_when_not_a_declared_param() {
+        // If TOKEN is absent from args entirely (not declared as a TTP param)
+        // but the target pod has an SA token, it should still be injected.
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut pod = Pod::new("runner", "default");
+        pod.service_account_name = Some("runner-sa".to_string());
+        let target_id = pod.entity_id().0.clone();
+        campaign.pods.insert(pod.entity_id(), pod);
+
+        let mut sa = ran_domain::ServiceAccount::new("runner-sa", "default");
+        sa.token = Some(ServiceAccountToken {
+            jwt: JwToken {
+                raw: "ey.injected.token".to_string(),
+                ..Default::default()
+            },
+            service_account_name: "runner-sa".to_string(),
+            namespace: "default".to_string(),
+            pod_name: None,
+            pod_uid: None,
+            service_account_uid: None,
+            is_bound: false,
+        });
+        campaign.service_accounts.insert(sa.entity_id(), sa);
+
+        let mut args: HashMap<String, String> = HashMap::new(); // no TOKEN key
+        ground_args_from_context(&mut args, &target_id, &campaign);
+
+        assert_eq!(args["TOKEN"], "ey.injected.token");
     }
 
     // ------------------------------------------------------------------

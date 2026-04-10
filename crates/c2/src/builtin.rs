@@ -70,19 +70,30 @@ impl BuiltinC2 {
                 .await
             {
                 Ok(output) if output.exit_code == 0 => {
-                    let combined = match (
-                        output.stdout.trim().is_empty(),
-                        output.stderr.trim().is_empty(),
-                    ) {
-                        (false, false) => format!(
-                            "{}\n{}",
-                            output.stdout.trim_end(),
-                            output.stderr.trim_end()
-                        ),
-                        (true, false) => output.stderr,
-                        (_, _) => output.stdout,
+                    let stdout = output.stdout.trim().to_string();
+                    let stderr = output.stderr.trim().to_string();
+
+                    // Keep stdout and stderr as separate entries so downstream
+                    // output parsers can consume clean stdout JSON/table data.
+                    // Preserve stdout at index 0 when stderr is present.
+                    let mut results = Vec::new();
+                    if !stdout.is_empty() {
+                        results.push(stdout);
+                    }
+                    if !stderr.is_empty() {
+                        if results.is_empty() {
+                            results.push(String::new());
+                        }
+                        results.push(stderr);
+                    }
+
+                    return TtpExecuted {
+                        id: cmd.id.clone(),
+                        success: true,
+                        results,
+                        exit_code: 0,
+                        fail_reason: String::new(),
                     };
-                    return ok_result(&cmd.id, combined);
                 }
                 Ok(output) => {
                     let mut results = Vec::new();
@@ -204,9 +215,22 @@ mod tests {
     use super::{BuiltinC2, PodExecClient};
     use crate::types::ExecTtp;
 
-    #[derive(Default)]
     struct FakePodExecClient {
         calls: Mutex<Vec<(String, String, String)>>,
+        output: Mutex<PodExecOutput>,
+    }
+
+    impl Default for FakePodExecClient {
+        fn default() -> Self {
+            Self {
+                calls: Mutex::new(Vec::new()),
+                output: Mutex::new(PodExecOutput {
+                    stdout: "uid=0(root) gid=0(root)".to_string(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                }),
+            }
+        }
     }
 
     #[async_trait::async_trait]
@@ -225,17 +249,24 @@ mod tests {
                     pod_name.to_string(),
                     command.to_string(),
                 ));
-            Ok(PodExecOutput {
-                stdout: "uid=0(root) gid=0(root)".to_string(),
-                stderr: String::new(),
-                exit_code: 0,
-            })
+            Ok(self
+                .output
+                .lock()
+                .expect("lock should not be poisoned")
+                .clone())
         }
     }
 
     #[tokio::test]
     async fn pod_target_executes_command_successfully() {
-        let fake = Arc::new(FakePodExecClient::default());
+        let fake = Arc::new(FakePodExecClient {
+            calls: Mutex::new(Vec::new()),
+            output: Mutex::new(PodExecOutput {
+                stdout: "uid=0(root) gid=0(root)".to_string(),
+                stderr: String::new(),
+                exit_code: 0,
+            }),
+        });
         let builtin = BuiltinC2::from_pod_exec_client(fake.clone());
 
         let cmd = exec_cmd("ns/default/pod/nginx", "id", "");
@@ -250,6 +281,28 @@ mod tests {
         assert_eq!(calls[0].0, "default");
         assert_eq!(calls[0].1, "nginx");
         assert_eq!(calls[0].2, "id");
+    }
+
+    #[tokio::test]
+    async fn success_keeps_stdout_and_stderr_separate() {
+        let fake = Arc::new(FakePodExecClient {
+            calls: Mutex::new(Vec::new()),
+            output: Mutex::new(PodExecOutput {
+                stdout: "{\"status\":\"ok\"}".to_string(),
+                stderr: "curl: (0) progress output".to_string(),
+                exit_code: 0,
+            }),
+        });
+        let builtin = BuiltinC2::from_pod_exec_client(fake);
+
+        let cmd = exec_cmd("ns/default/pod/nginx", "curl ...", "");
+        let result = builtin.execute(&cmd).await;
+
+        assert!(result.success);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.results.len(), 2);
+        assert_eq!(result.results[0], "{\"status\":\"ok\"}");
+        assert_eq!(result.results[1], "curl: (0) progress output");
     }
 
     #[tokio::test]
