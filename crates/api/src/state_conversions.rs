@@ -197,9 +197,10 @@ fn prune_entity_payload_for_ui(kind: &str, data: &mut HashMap<String, Value>) {
         }
     }
 
-    // Remove access_level when it carries no information (flattened from SystemInfo).
-    if data.get("access_level").is_some_and(is_access_level_none) {
-        data.remove("access_level");
+    // Remove accessLevel when it carries no information (flattened from SystemInfo).
+    // SystemInfo serializes access_level as "accessLevel" via #[serde(rename = "accessLevel")].
+    if data.get("accessLevel").is_some_and(is_access_level_none) {
+        data.remove("accessLevel");
     }
 
     if kind == "ServiceAccount" {

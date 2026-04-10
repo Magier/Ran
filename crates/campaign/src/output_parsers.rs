@@ -100,7 +100,14 @@ pub fn parse_output_effect(
         parse_sys_has_binary(stdout, inner)
     } else if normalized == "k8s.selfsubjectrulesreview" {
         let token_arg = cmd.args.get("TOKEN").map(String::as_str).unwrap_or("");
-        parse_self_subject_rules_review(stdout, stderr, &cmd.target_id, campaign, token_arg)
+        // When an exec system is selected, cmd.target_id is rewritten to the pod ID.
+        // TARGET_ID always holds the original logical target (SA entity) from the request.
+        let fallback_target = cmd
+            .args
+            .get("TARGET_ID")
+            .map(String::as_str)
+            .unwrap_or(&cmd.target_id);
+        parse_self_subject_rules_review(stdout, stderr, fallback_target, token_arg)
     } else {
         let parser = resolve_output_parser(&normalized)?;
         parser(stdout, stderr)
@@ -831,6 +838,500 @@ fn parse_rdns(stdout: &str, _stderr: &str) -> ParserOutput {
 }
 
 // ---------------------------------------------------------------------------
+// K8s resource list parsers
+// ---------------------------------------------------------------------------
+
+/// Minimal serde types for deserializing K8s API `kubectl --output=json` responses.
+/// These cover only the fields Ran needs — unknown fields are ignored.
+mod k8s_json {
+    use serde::Deserialize;
+    use std::collections::HashMap;
+
+    #[derive(Deserialize, Default)]
+    pub struct Meta {
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub namespace: Option<String>,
+        #[serde(default)]
+        pub uid: Option<String>,
+    }
+
+    // --- Pod ---
+
+    #[derive(Deserialize, Default)]
+    pub struct ContainerSecCtx {
+        pub privileged: Option<bool>,
+        #[serde(rename = "readOnlyRootFilesystem")]
+        pub read_only_root_fs: Option<bool>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct Container {
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub image: String,
+        #[serde(rename = "securityContext", default)]
+        pub security_context: Option<ContainerSecCtx>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct HostPathVolume {
+        pub path: String,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct Volume {
+        #[serde(default)]
+        pub name: String,
+        #[serde(rename = "hostPath")]
+        pub host_path: Option<HostPathVolume>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct PodSpec {
+        #[serde(rename = "nodeName", default)]
+        pub node_name: Option<String>,
+        #[serde(rename = "serviceAccountName", default)]
+        pub service_account_name: Option<String>,
+        #[serde(rename = "automountServiceAccountToken", default)]
+        pub automount_service_account_token: Option<bool>,
+        #[serde(rename = "hostPID", default)]
+        pub host_pid: bool,
+        #[serde(rename = "hostIPC", default)]
+        pub host_ipc: bool,
+        #[serde(rename = "hostNetwork", default)]
+        pub host_network: bool,
+        #[serde(default)]
+        pub containers: Vec<Container>,
+        #[serde(rename = "initContainers", default)]
+        pub init_containers: Vec<Container>,
+        #[serde(default)]
+        pub volumes: Vec<Volume>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct PodStatus {
+        #[serde(default)]
+        pub phase: Option<String>,
+        #[serde(rename = "podIP", default)]
+        pub pod_ip: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct PodItem {
+        pub metadata: Meta,
+        #[serde(default)]
+        pub spec: PodSpec,
+        #[serde(default)]
+        pub status: PodStatus,
+    }
+
+    #[derive(Deserialize)]
+    pub struct PodList {
+        #[serde(default)]
+        pub items: Vec<PodItem>,
+    }
+
+    // --- Node ---
+
+    #[derive(Deserialize)]
+    pub struct NodeItem {
+        pub metadata: Meta,
+    }
+
+    #[derive(Deserialize)]
+    pub struct NodeList {
+        #[serde(default)]
+        pub items: Vec<NodeItem>,
+    }
+
+    // --- ServiceAccount ---
+
+    #[derive(Deserialize, Default)]
+    pub struct SecretRef {
+        #[serde(default)]
+        pub name: String,
+    }
+
+    #[derive(Deserialize)]
+    pub struct ServiceAccountItem {
+        pub metadata: Meta,
+        #[serde(default)]
+        pub secrets: Vec<SecretRef>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct ServiceAccountList {
+        #[serde(default)]
+        pub items: Vec<ServiceAccountItem>,
+    }
+
+    // --- Secret ---
+
+    #[derive(Deserialize)]
+    pub struct SecretItem {
+        pub metadata: Meta,
+        #[serde(rename = "type", default)]
+        pub secret_type: String,
+        /// Keys only — values are base64-encoded credentials; we don't store them.
+        #[serde(default)]
+        pub data: HashMap<String, serde_json::Value>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct SecretList {
+        #[serde(default)]
+        pub items: Vec<SecretItem>,
+    }
+
+    // --- ConfigMap ---
+
+    #[derive(Deserialize)]
+    pub struct ConfigMapItem {
+        pub metadata: Meta,
+        #[serde(default)]
+        pub data: HashMap<String, String>,
+        #[serde(default)]
+        pub immutable: Option<bool>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct ConfigMapList {
+        #[serde(default)]
+        pub items: Vec<ConfigMapItem>,
+    }
+
+    // --- Deployment ---
+
+    #[derive(Deserialize)]
+    pub struct DeploymentItem {
+        pub metadata: Meta,
+    }
+
+    #[derive(Deserialize)]
+    pub struct DeploymentList {
+        #[serde(default)]
+        pub items: Vec<DeploymentItem>,
+    }
+
+    // --- API error response (e.g. 403 Forbidden) ---
+
+    /// Subset of the Kubernetes `Status` object returned by the API server
+    /// when a request fails (e.g. RBAC denied).  `kind` must equal `"Status"`
+    /// for this struct to be treated as an error response.
+    #[derive(Deserialize)]
+    pub struct StatusError {
+        #[serde(default)]
+        pub kind: String,
+        pub code: Option<i32>,
+        #[serde(default)]
+        pub message: Option<String>,
+    }
+}
+
+/// Check whether `stdout` is a Kubernetes API error response.
+///
+/// The API server returns a `Status` object (not the requested resource) when a
+/// call succeeds at the transport level but is rejected (e.g. 403 Forbidden).
+/// Mirroring the Go `ParseEffect` logic in `parsers.go` (line 346), any status
+/// code ≥ 400 is treated as a failure so it is never mis-classified as a
+/// successful but empty result.
+fn check_k8s_api_error(stdout: &str) -> Option<ParserOutput> {
+    let resp: k8s_json::StatusError = serde_json::from_str(stdout.trim()).ok()?;
+    if resp.kind != "Status" {
+        return None;
+    }
+    let code = resp.code?;
+    if code >= 400 {
+        Some(ParserOutput::KnownFailure(format!(
+            "K8s API error {}: {}",
+            code,
+            resp.message.as_deref().unwrap_or("(no message)")
+        )))
+    } else {
+        None
+    }
+}
+
+fn parse_k8s_pod_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::PodList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("PodList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let mut pod = Pod::new(name.clone(), ns.clone());
+
+        if let Some(uid) = &item.metadata.uid {
+            pod.meta.uid = Some(uid.clone());
+        }
+
+        pod.node_name = item.spec.node_name.clone();
+        pod.service_account_name = item.spec.service_account_name.clone();
+        pod.automount_service_account_token = item.spec.automount_service_account_token.into();
+        pod.host_pid = item.spec.host_pid.into();
+        pod.host_ipc = item.spec.host_ipc.into();
+        pod.host_network = item.spec.host_network.into();
+
+        // Security context: any container flagged as privileged makes the pod privileged.
+        let all_containers =
+            item.spec.containers.iter().chain(item.spec.init_containers.iter());
+        for c in all_containers {
+            pod.containers.push(ran_domain::Container {
+                name: c.name.clone(),
+                image: c.image.clone(),
+            });
+            if let Some(sc) = &c.security_context {
+                if sc.privileged == Some(true) {
+                    pod.privileged = true.into();
+                }
+                if let Some(rorf) = sc.read_only_root_fs {
+                    pod.read_only_root_fs = rorf.into();
+                }
+            }
+        }
+
+        // Volumes — record host-path mounts.
+        for vol in &item.spec.volumes {
+            if let Some(hp) = &vol.host_path {
+                pod.host_paths.push(hp.path.clone());
+                pod.volume_mounts.push(Mount {
+                    name: vol.name.clone(),
+                    mount_root: hp.path.clone(),
+                    mount_point: String::new(), // mountPath lives on VolumeMount, not Volume
+                    mount_type: None,
+                    is_host_path: true,
+                    read_only: false,
+                });
+            }
+        }
+
+        pod.phase = item.status.phase.as_deref().and_then(|p| match p {
+            "Pending" => Some(PodPhase::Pending),
+            "Running" => Some(PodPhase::Running),
+            "Succeeded" => Some(PodPhase::Succeeded),
+            "Failed" => Some(PodPhase::Failed),
+            _ => Some(PodPhase::Unknown),
+        });
+        pod.is_running = pod.phase == Some(PodPhase::Running);
+
+        if let Some(ip_str) = &item.status.pod_ip {
+            if let Ok(ip) = ip_str.parse::<IpAddr>() {
+                pod.system.ips.push(ip);
+            }
+        }
+
+        facts.new_entities.push(Box::new(pod));
+
+        // Ensure the namespace exists in the graph.
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(facts, format!("parsed {} pod(s) from PodList", count))
+}
+
+fn parse_k8s_node_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::NodeList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("NodeList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        if item.metadata.name.is_empty() {
+            continue;
+        }
+        let node = K8sNode::new(item.metadata.name.clone());
+        facts.new_entities.push(Box::new(node));
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(facts, format!("parsed {} node(s) from NodeList", count))
+}
+
+fn parse_k8s_service_account_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::ServiceAccountList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("ServiceAccountList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let mut sa = ServiceAccount::new(name.clone(), ns.clone());
+        sa.secret_names = item.secrets.iter().map(|s| s.name.clone()).collect();
+        facts.new_entities.push(Box::new(sa));
+
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} service account(s) from ServiceAccountList", count),
+    )
+}
+
+fn parse_k8s_secret_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::SecretList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("SecretList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let mut secret = K8sSecret::new(name.clone(), ns.clone());
+        secret.secret_type = item.secret_type.clone();
+        secret.data_keys = item.data.keys().cloned().collect();
+        facts.new_entities.push(Box::new(secret));
+
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} secret(s) from SecretList", count),
+    )
+}
+
+fn parse_k8s_deployment_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::DeploymentList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("DeploymentList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+        facts.new_entities.push(Box::new(Deployment::new(name.clone(), ns.clone())));
+
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} deployment(s) from DeploymentList", count),
+    )
+}
+
+fn parse_k8s_config_map_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::ConfigMapList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("ConfigMapList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let mut cm = ConfigMap::new(name.clone(), ns.clone());
+        cm.data = item.data.clone();
+        cm.immutable = item.immutable.unwrap_or(false);
+        facts.new_entities.push(Box::new(cm));
+
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} configmap(s) from ConfigMapList", count),
+    )
+}
+
+// ---------------------------------------------------------------------------
 // sys.has-binary
 // ---------------------------------------------------------------------------
 
@@ -1076,15 +1577,6 @@ struct SsrrNonResourceRule {
     non_resource_urls: Vec<String>,
 }
 
-/// Parse a `k8s.SelfSubjectRulesReview` effect output into RBAC entitlements
-/// on the target ServiceAccount.
-///
-/// Supports two output formats:
-/// - JSON: the raw Kubernetes API response from `curl … /selfsubjectrulesreviews`
-/// - Pretty: the tabular output of `kubectl auth can-i --list`
-///
-/// The resulting `RbacPermission` entries are attached to the SA. The existing SA
-/// is cloned from the campaign so that the token and other fields are preserved.
 /// Decode the JWT `token` and extract the Kubernetes SA name and namespace.
 /// Returns `None` if the token is missing, malformed, or lacks k8s claims.
 fn resolve_sa_from_token(token: &str) -> Option<(String, String)> {
@@ -1105,11 +1597,16 @@ fn resolve_sa_from_token(token: &str) -> Option<(String, String)> {
     Some((sa_name, namespace))
 }
 
+/// Parse a `k8s.SelfSubjectRulesReview` effect output into RBAC entitlements
+/// on the target ServiceAccount.
+///
+/// Supports two output formats:
+/// - JSON: the raw Kubernetes API response from `curl … /selfsubjectrulesreviews`
+/// - Pretty: the tabular output of `kubectl auth can-i --list`
 fn parse_self_subject_rules_review(
     stdout: &str,
     _stderr: &str,
     target_id: &str,
-    campaign: &Campaign,
     token_arg: &str,
 ) -> ParserOutput {
     if stdout.trim().is_empty() {
@@ -1142,28 +1639,19 @@ fn parse_self_subject_rules_review(
     };
     let (resource_rules, non_resource_rules) = rules;
 
-    // Resolve the ServiceAccount to update.
-    // If a TOKEN arg was provided, its JWT claims identify the actual SA whose
-    // permissions were reviewed — which may differ from the pod's own SA.
-    // Fall back to the exec target (pod → pod's SA) only when no token is given.
-    let Some(mut sa) = resolve_sa_from_token(token_arg)
-        .map(|(sa_name, namespace)| {
-            let sa_id = EntityId::new(format!("ns/{}/sa/{}", namespace, sa_name));
-            campaign
-                .service_accounts
-                .get(&sa_id)
-                .cloned()
-                .unwrap_or_else(|| ServiceAccount::new(&sa_name, &namespace))
-        })
-        .or_else(|| resolve_sa_for_ssrr(target_id, campaign))
+    // Resolve SA identity from the TOKEN arg (preferred — the JWT identifies the
+    // exact SA whose permissions were reviewed) or from the target_id entity ID
+    // string (for SA targets like `ns/default/sa/mysa`).
+    // Pod targets require a TOKEN arg; without one the namespace/name cannot be
+    // determined without campaign access, which parsers must not use.
+    let Some((sa_name, sa_namespace)) = resolve_sa_from_token(token_arg)
+        .or_else(|| parse_sa_identity_from_target(target_id))
     else {
         return ParserOutput::KnownFailure(format!(
             "cannot resolve a ServiceAccount for target '{target_id}': \
-             target is neither a known SA nor a pod with a known service account"
+             no valid TOKEN arg and target is not an SA entity ID (ns/…/sa/…)"
         ));
     };
-
-    let sa_namespace = sa.meta.namespace.as_deref().unwrap_or("").to_string();
     let mut entitlements: Vec<RbacPermission> = Vec::new();
 
     for rule in &resource_rules {
@@ -1219,6 +1707,7 @@ fn parse_self_subject_rules_review(
     }
 
     let perm_count = entitlements.len();
+    let mut sa = ServiceAccount::new(&sa_name, &sa_namespace);
     sa.entitlements = entitlements;
 
     let mut facts = FactsUpdate::default();
@@ -2127,5 +2616,104 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
             panic!("expected SuccessWithFacts");
         };
         assert_eq!(facts.new_entities.len(), 2);
+    }
+
+    // --- SelfSubjectRulesReview tests ---
+
+    /// JWT token arg identifies the SA whose permissions were reviewed, even when
+    /// target_id is a pod (exec-system resolution changes cmd.target_id to the pod).
+    #[test]
+    fn ssrr_parser_resolves_sa_identity_from_jwt_token_arg() {
+        use ran_domain::ServiceAccount;
+
+        let jwt_payload = r#"{
+            "kubernetes.io": {
+                "namespace": "default",
+                "serviceaccount": {"name": "mysa", "uid": "sa-uid-1"}
+            }
+        }"#;
+        let jwt = make_jwt(jwt_payload);
+
+        let kubectl_output = "Resources                Non-Resource URLs   Resource Names   Verbs\n\
+            pods                     []                  []               [get list watch]\n\
+            secrets                  []                  []               [get]\n";
+
+        let result = parse_self_subject_rules_review(
+            kubectl_output,
+            "",
+            "ns/default/pod/some-other-pod",  // target_id is a pod — SA comes from JWT
+            &jwt,
+        );
+
+        let ParserOutput::SuccessWithFacts(facts, detail) = result else {
+            panic!("expected SuccessWithFacts, got {:?}", result);
+        };
+
+        assert!(detail.contains("RBAC permission"), "detail: {detail}");
+        assert_eq!(facts.new_entities.len(), 1);
+
+        let updated_sa = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<ServiceAccount>()
+            .expect("should be a ServiceAccount");
+
+        assert_eq!(updated_sa.entity_id().0, "ns/default/sa/mysa");
+        assert!(!updated_sa.entitlements.is_empty(), "entitlements should be populated");
+        assert!(updated_sa.entitlements.iter().any(|p| p.verb == "get" && p.resource_type == "pods"));
+    }
+
+    /// When the JWT has no Kubernetes claims, the parser falls back to parsing
+    /// the SA identity directly from the target_id entity ID string.
+    #[test]
+    fn ssrr_parser_falls_back_to_sa_identity_from_target_id_string() {
+        use ran_domain::ServiceAccount;
+
+        // A JWT whose payload has no kubernetes.io claims — resolve_sa_from_token returns None.
+        let non_k8s_jwt = make_jwt(r#"{"sub": "system:serviceaccount:default:mysa"}"#);
+
+        let kubectl_output = "Resources   Non-Resource URLs   Resource Names   Verbs\n\
+            pods        []                  []               [get list]\n";
+
+        // target_id is the SA entity ID — identity is parsed from the string directly,
+        // no campaign lookup required.
+        let result = parse_self_subject_rules_review(
+            kubectl_output,
+            "",
+            "ns/default/sa/mysa",
+            &non_k8s_jwt,
+        );
+
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected SuccessWithFacts, got {:?}", result);
+        };
+
+        assert_eq!(facts.new_entities.len(), 1);
+        let updated_sa = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<ServiceAccount>()
+            .expect("should be ServiceAccount");
+        assert_eq!(updated_sa.entity_id().0, "ns/default/sa/mysa");
+        assert!(!updated_sa.entitlements.is_empty());
+    }
+
+    /// When no TOKEN is supplied and target_id is a pod (not an SA), the parser
+    /// cannot determine the SA identity without campaign access, so it returns
+    /// KnownFailure instead of guessing.
+    #[test]
+    fn ssrr_parser_returns_known_failure_for_pod_target_without_token() {
+        let kubectl_output = "Resources   Non-Resource URLs   Resource Names   Verbs\n\
+            pods        []                  []               [get list]\n";
+
+        let result = parse_self_subject_rules_review(
+            kubectl_output,
+            "",
+            "ns/default/pod/some-pod",
+            "",  // no token
+        );
+
+        assert!(
+            matches!(result, ParserOutput::KnownFailure(_)),
+            "expected KnownFailure for pod target without TOKEN, got {:?}", result
+        );
     }
 }

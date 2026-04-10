@@ -85,4 +85,10 @@ impl ExecChannel {
 pub struct TtpExecutionProcessing {
     pub updates: FactsUpdate,
     pub parse_audits: Vec<ParseAudit>,
+    /// Effective success flag — may differ from `TtpExecuted.success` when a
+    /// parser detected a semantic failure in an otherwise successful transport
+    /// response (e.g. a Kubernetes API 403 Forbidden inside an HTTP 200 body).
+    pub effective_success: bool,
+    /// Human-readable reason for the overridden failure, if any.
+    pub effective_fail_reason: String,
 }

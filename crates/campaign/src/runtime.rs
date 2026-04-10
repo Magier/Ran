@@ -259,8 +259,11 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         exec_system_id: cmd.exec_system_id,
                         ttp: cmd.ttp,
                         args: cmd.args,
-                        success: event.success,
-                        fail_reason: event.fail_reason,
+                        // Use the effective success/fail_reason derived by the parser,
+                        // which may override the raw transport-level success when a
+                        // semantic error (e.g. k8s 403 Forbidden) was detected.
+                        success: processing.effective_success,
+                        fail_reason: processing.effective_fail_reason.clone(),
                         results: event.results,
                         exit_code: event.exit_code,
                     });

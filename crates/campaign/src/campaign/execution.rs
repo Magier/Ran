@@ -1,6 +1,6 @@
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted};
-use ran_domain::{BinaryPresence, EntityId};
+use ran_domain::{BinaryPresence, EntityId, Merge};
 
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
@@ -416,6 +416,8 @@ impl Campaign {
             return Ok(TtpExecutionProcessing {
                 updates,
                 parse_audits,
+                effective_success: false,
+                effective_fail_reason: event.fail_reason.clone(),
             });
         }
 
@@ -502,12 +504,32 @@ impl Campaign {
 
         self.apply_facts(&updates);
         self.parse_audits.extend(parse_audits.clone());
-        self.execution_records.push(ExecutionRecord::from_execution(cmd, event));
+
+        // If a parser detected a semantic failure inside an otherwise-successful
+        // transport response (e.g. Kubernetes API 403 Forbidden returned as HTTP
+        // 200 with a Status body), override the recorded success flag so the
+        // audit log and /api/flow reflect the real outcome.
+        let api_error = parse_audits.iter().find(|a| {
+            matches!(a.parse_result, ParseResult::KnownFailure)
+                && a.detail.starts_with("K8s API error ")
+        });
+        let (effective_success, effective_fail_reason) = if let Some(err_audit) = api_error {
+            let mut record = ExecutionRecord::from_execution(cmd, event);
+            record.success = false;
+            record.fail_reason = err_audit.detail.clone();
+            self.execution_records.push(record);
+            (false, err_audit.detail.clone())
+        } else {
+            self.execution_records.push(ExecutionRecord::from_execution(cmd, event));
+            (event.success, event.fail_reason.clone())
+        };
         self.complete_open_step(&cmd.id);
 
         Ok(TtpExecutionProcessing {
             updates,
             parse_audits,
+            effective_success,
+            effective_fail_reason,
         })
     }
 
@@ -634,21 +656,21 @@ impl Campaign {
         let preferred = EntityId::new(preferred_id);
         let stale = EntityId::new(stale_id);
 
-        if !self.nodes.contains_key(&preferred) {
-            if let Some(stale_node) = self.nodes.get(&stale).cloned() {
-                self.nodes.insert(preferred.clone(), stale_node);
-            }
-        }
+        let Some(stale_node) = self.nodes.remove(&stale) else {
+            return;
+        };
 
-        self.nodes.remove(&stale);
+        if let Some(preferred_node) = self.nodes.get_mut(&preferred) {
+            preferred_node.merge_from(&stale_node);
+        } else {
+            self.nodes.insert(preferred, stale_node);
+        }
     }
 
     /// Merge a stale (placeholder) pod into the preferred (real-named) pod.
     ///
-    /// Runtime data accumulated on the stale entity — IPs, access level, env
-    /// vars, binaries, processes — is copied into the preferred entity.  Fields
-    /// that are already set on the preferred entity are preserved as-is.  The
-    /// stale entity is removed from the campaign regardless.
+    /// All facts accumulated on the stale entity are folded into the preferred
+    /// one via `Pod::merge_from`.  The stale entity is removed regardless.
     fn merge_pod_entities(&mut self, preferred_id: &str, stale_id: &str) {
         if preferred_id == stale_id {
             return;
@@ -662,44 +684,7 @@ impl Campaign {
         };
 
         if let Some(preferred_pod) = self.pods.get_mut(&preferred) {
-            // IPs: add any that the preferred entity doesn't already have.
-            for ip in &stale_pod.system.ips {
-                if !preferred_pod.system.ips.contains(ip) {
-                    preferred_pod.system.ips.push(*ip);
-                }
-            }
-            // Access level: take the higher of the two.
-            if stale_pod.system.access_level > preferred_pod.system.access_level {
-                preferred_pod.system.access_level = stale_pod.system.access_level;
-            }
-            // Env vars / binaries / files: add missing entries from the stale pod.
-            for (k, v) in stale_pod.system.env_vars {
-                preferred_pod.system.env_vars.entry(k).or_insert(v);
-            }
-            for (k, v) in stale_pod.system.binaries {
-                preferred_pod.system.binaries.entry(k).or_insert(v);
-            }
-            for f in stale_pod.system.files {
-                if !preferred_pod.system.files.contains(&f) {
-                    preferred_pod.system.files.push(f);
-                }
-            }
-            // Processes: add any not already tracked by pid.
-            for proc in stale_pod.system.processes {
-                if !preferred_pod.system.processes.iter().any(|p| p.pid == proc.pid) {
-                    preferred_pod.system.processes.push(proc);
-                }
-            }
-            // Fill in Kubernetes metadata absent from the preferred entity.
-            if preferred_pod.node_name.is_none() {
-                preferred_pod.node_name = stale_pod.node_name;
-            }
-            if preferred_pod.service_account_name.is_none() {
-                preferred_pod.service_account_name = stale_pod.service_account_name;
-            }
-            if preferred_pod.meta.uid.is_none() {
-                preferred_pod.meta.uid = stale_pod.meta.uid;
-            }
+            preferred_pod.merge_from(&stale_pod);
         } else {
             // Preferred entity not yet in the campaign (shouldn't happen in the
             // normal flow, but handle gracefully by keeping the stale data).

@@ -556,7 +556,7 @@ export function getGraphStyle(isDark: boolean = false) {
 	return [...mapKindIcons(kind_svg_map), ...graph_style] as any;
 }
 
-const redTintSvg = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>';
+const redTintSvg = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>');
 
 export function applyCompromisedStyle(cy: cytoscape.Core) {
 	// Remove tint from nodes that are no longer compromised
