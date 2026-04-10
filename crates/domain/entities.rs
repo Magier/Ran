@@ -161,6 +161,9 @@ pub enum GraphEntity {
     Namespace(Namespace),
     Pod(Pod),
     ServiceAccount(ServiceAccount),
+    Secret(K8sSecret),
+    ConfigMap(ConfigMap),
+    Deployment(Deployment),
 }
 
 impl Entity for GraphEntity {
@@ -172,6 +175,9 @@ impl Entity for GraphEntity {
             GraphEntity::Namespace(e) => e.entity_id(),
             GraphEntity::Pod(e) => e.entity_id(),
             GraphEntity::ServiceAccount(e) => e.entity_id(),
+            GraphEntity::Secret(e) => e.entity_id(),
+            GraphEntity::ConfigMap(e) => e.entity_id(),
+            GraphEntity::Deployment(e) => e.entity_id(),
         }
     }
 
@@ -183,6 +189,9 @@ impl Entity for GraphEntity {
             GraphEntity::Namespace(e) => e.entity_name(),
             GraphEntity::Pod(e) => e.entity_name(),
             GraphEntity::ServiceAccount(e) => e.entity_name(),
+            GraphEntity::Secret(e) => e.entity_name(),
+            GraphEntity::ConfigMap(e) => e.entity_name(),
+            GraphEntity::Deployment(e) => e.entity_name(),
         }
     }
 
@@ -194,6 +203,9 @@ impl Entity for GraphEntity {
             GraphEntity::Namespace(e) => e.entity_kind(),
             GraphEntity::Pod(e) => e.entity_kind(),
             GraphEntity::ServiceAccount(e) => e.entity_kind(),
+            GraphEntity::Secret(e) => e.entity_kind(),
+            GraphEntity::ConfigMap(e) => e.entity_kind(),
+            GraphEntity::Deployment(e) => e.entity_kind(),
         }
     }
 
@@ -430,8 +442,10 @@ pub struct ServiceAccount {
     pub meta: K8sMeta,
     /// The extracted SA token, if any has been observed.
     pub token: Option<ServiceAccountToken>,
-    /// Names of Secrets associated with this SA (from SA `.secrets` field).
+    /// a list of the secrets in the same namespace that pods running using this ServiceAccount are allowed to use.
     pub secret_names: Vec<String>,
+    /// a list of references to secrets in the same namespace to use for pulling any images in pods that reference this ServiceAccount.
+    pub image_pull_secrets: Vec<String>,
     /// RBAC permissions this SA holds, populated after RBAC discovery.
     pub entitlements: Vec<RbacPermission>,
 }
@@ -442,6 +456,7 @@ impl ServiceAccount {
             meta: K8sMeta::namespaced(name, namespace),
             token: None,
             secret_names: Vec::new(),
+            image_pull_secrets: Vec::new(),
             entitlements: Vec::new(),
         }
     }
@@ -482,5 +497,403 @@ impl Entity for ServiceAccount {
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// K8sSecret
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes Secret discovered in the cluster.
+///
+/// Only the key names of `.data` are stored — never the decoded values —
+/// to avoid persisting credentials in campaign state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sSecret {
+    pub meta: K8sMeta,
+    /// Secret type (e.g. `kubernetes.io/service-account-token`, `Opaque`).
+    pub secret_type: String,
+    /// Keys present in `.data` / `.stringData`, not the values.
+    pub data_keys: Vec<String>,
+}
+
+impl K8sSecret {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        K8sSecret {
+            meta: K8sMeta::namespaced(name, namespace),
+            secret_type: String::new(),
+            data_keys: Vec::new(),
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for K8sSecret {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/secret/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "Secret"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ConfigMap
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes ConfigMap discovered in the cluster.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigMap {
+    pub meta: K8sMeta,
+    pub data: HashMap<String, String>,
+    pub immutable: bool,
+}
+
+impl ConfigMap {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        ConfigMap {
+            meta: K8sMeta::namespaced(name, namespace),
+            data: HashMap::new(),
+            immutable: false,
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for ConfigMap {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/cm/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "ConfigMap"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Deployment
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes Deployment discovered in the cluster.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Deployment {
+    pub meta: K8sMeta,
+}
+
+impl Deployment {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        Deployment {
+            meta: K8sMeta::namespaced(name, namespace),
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for Deployment {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/deployment/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "Deployment"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Merge trait
+// ---------------------------------------------------------------------------
+
+/// Merges facts from an `incoming` entity into an existing one already held in
+/// campaign state.
+///
+/// The general contract — matching Go's `UpdateEntity` / `mergeObjects` — is:
+/// - `Option<T>` fields: keep `self` when `Some`, take `incoming` when `self` is `None`.
+/// - `Vec` fields: union (append items from `incoming` absent in `self`).
+/// - `HashMap` fields: union; `incoming` wins on key collision.
+/// - Scalar/enum fields: take `incoming` when it carries a more specific value
+///   than the default / zero value already in `self`.
+pub trait Merge {
+    fn merge_from(&mut self, incoming: &Self);
+}
+
+/// Merge K8s metadata: fill gaps in `self` from `incoming`.
+fn merge_k8s_meta(existing: &mut K8sMeta, incoming: &K8sMeta) {
+    if existing.uid.is_none() {
+        existing.uid = incoming.uid.clone();
+    }
+    if existing.created_at.is_none() {
+        existing.created_at = incoming.created_at.clone();
+    }
+    if existing.owner.is_none() {
+        existing.owner = incoming.owner.clone();
+    }
+    for (k, v) in &incoming.labels {
+        existing.labels.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    for (k, v) in &incoming.annotations {
+        existing.annotations.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+}
+
+/// Merge a `Confidence` field: `Unknown` is the zero value; any concrete value
+/// (`Yes` / `No`) from `incoming` overwrites an `Unknown` in `self`.
+/// If `self` already holds a concrete value it is preserved (caller has
+/// already observed the fact).
+fn merge_confidence(existing: &mut Confidence, incoming: Confidence) {
+    if *existing == Confidence::Unknown {
+        *existing = incoming;
+    }
+}
+
+impl Merge for C2Server {
+    fn merge_from(&mut self, incoming: &Self) {
+        for l in &incoming.listeners {
+            if !self.listeners.contains(l) {
+                self.listeners.push(l.clone());
+            }
+        }
+    }
+}
+
+impl Merge for K8sCluster {
+    fn merge_from(&mut self, incoming: &Self) {
+        if self.context_name.is_none() {
+            self.context_name = incoming.context_name.clone();
+        }
+        if self.server.is_none() {
+            self.server = incoming.server.clone();
+        }
+    }
+}
+
+impl Merge for K8sNode {
+    fn merge_from(&mut self, incoming: &Self) {
+        self.system.merge_from(&incoming.system);
+    }
+}
+
+impl Merge for Namespace {
+    fn merge_from(&mut self, incoming: &Self) {
+        if self.psa.enforce.is_none() {
+            self.psa.enforce = incoming.psa.enforce;
+        }
+        if self.psa.warn.is_none() {
+            self.psa.warn = incoming.psa.warn;
+        }
+        if self.psa.audit.is_none() {
+            self.psa.audit = incoming.psa.audit;
+        }
+        for (k, v) in &incoming.labels {
+            self.labels.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
+}
+
+impl Merge for Pod {
+    fn merge_from(&mut self, incoming: &Self) {
+        self.system.merge_from(&incoming.system);
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+
+        if self.node_name.is_none() {
+            self.node_name = incoming.node_name.clone();
+        }
+        if self.service_account_name.is_none() {
+            self.service_account_name = incoming.service_account_name.clone();
+        }
+        if self.phase.is_none() {
+            self.phase = incoming.phase;
+        }
+        // is_running: true is a known positive state — if either side confirms
+        // the pod is running, record it. Explicit `false` from incoming is only
+        // meaningful when `self` is already known to be running; preserve that
+        // signal only through the dedicated "pod stopped" code path.
+        if incoming.is_running {
+            self.is_running = true;
+        }
+
+        merge_confidence(&mut self.privileged, incoming.privileged);
+        merge_confidence(&mut self.host_pid, incoming.host_pid);
+        merge_confidence(&mut self.host_ipc, incoming.host_ipc);
+        merge_confidence(&mut self.host_network, incoming.host_network);
+        merge_confidence(&mut self.read_only_root_fs, incoming.read_only_root_fs);
+        merge_confidence(&mut self.automount_service_account_token, incoming.automount_service_account_token);
+
+        for c in &incoming.containers {
+            if !self.containers.iter().any(|ec| ec.name == c.name) {
+                self.containers.push(c.clone());
+            }
+        }
+        for m in &incoming.volume_mounts {
+            if !self.volume_mounts.iter().any(|em| em.mount_point == m.mount_point) {
+                self.volume_mounts.push(m.clone());
+            }
+        }
+        for hp in &incoming.host_paths {
+            if !self.host_paths.contains(hp) {
+                self.host_paths.push(hp.clone());
+            }
+        }
+    }
+}
+
+impl Merge for ServiceAccount {
+    fn merge_from(&mut self, incoming: &Self) {
+        // token: once discovered, never lose it
+        if self.token.is_none() {
+            self.token = incoming.token.clone();
+        }
+        // entitlements: additive — union by equality
+        for perm in &incoming.entitlements {
+            if !self.entitlements.contains(perm) {
+                self.entitlements.push(perm.clone());
+            }
+        }
+        for name in &incoming.secret_names {
+            if !self.secret_names.contains(name) {
+                self.secret_names.push(name.clone());
+            }
+        }
+        for ips in &incoming.image_pull_secrets {
+            if !self.image_pull_secrets.contains(ips) {
+                self.image_pull_secrets.push(ips.clone());
+            }
+        }
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+    }
+}
+
+impl Merge for K8sSecret {
+    fn merge_from(&mut self, incoming: &Self) {
+        if self.secret_type.is_empty() && !incoming.secret_type.is_empty() {
+            self.secret_type = incoming.secret_type.clone();
+        }
+        for key in &incoming.data_keys {
+            if !self.data_keys.contains(key) {
+                self.data_keys.push(key.clone());
+            }
+        }
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+    }
+}
+
+impl Merge for ConfigMap {
+    fn merge_from(&mut self, incoming: &Self) {
+        for (k, v) in &incoming.data {
+            self.data.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+    }
+}
+
+impl Merge for Deployment {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Merge tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::{JwToken, ServiceAccountToken};
+    use crate::rbac::RbacPermission;
+
+    #[test]
+    fn service_account_token_preserved_after_entitlements_merge() {
+        // Reproduces the reported bug: SA with token should retain it when a
+        // second update adds entitlements but carries no token.
+        let token = ServiceAccountToken {
+            jwt: JwToken { raw: "eyJ...".to_string(), ..Default::default() },
+            namespace: "default".to_string(),
+            service_account_name: "my-sa".to_string(),
+            ..Default::default()
+        };
+
+        let mut existing = ServiceAccount::new("my-sa", "default");
+        existing.token = Some(token);
+
+        let mut incoming = ServiceAccount::new("my-sa", "default");
+        incoming.entitlements = vec![RbacPermission::new("get", "pods")];
+
+        existing.merge_from(&incoming);
+
+        assert!(existing.token.is_some(), "token must be preserved after merge");
+        assert_eq!(existing.entitlements.len(), 1, "entitlements must be added");
+    }
+
+    #[test]
+    fn service_account_entitlements_are_unioned() {
+        let perm_a = RbacPermission::new("get", "pods");
+        let perm_b = RbacPermission::new("list", "secrets");
+
+        let mut existing = ServiceAccount::new("sa", "ns");
+        existing.entitlements = vec![perm_a.clone()];
+
+        let mut incoming = ServiceAccount::new("sa", "ns");
+        incoming.entitlements = vec![perm_a.clone(), perm_b.clone()];
+
+        existing.merge_from(&incoming);
+
+        assert_eq!(existing.entitlements.len(), 2, "no duplicates; union gives 2");
+    }
+
+    #[test]
+    fn pod_system_info_merged_on_second_insert() {
+        let mut existing = Pod::new("my-pod", "default");
+        existing.system.access_level = crate::types::AccessLevel::Exec;
+        existing.system.ips = vec!["10.0.0.1".parse().unwrap()];
+
+        let mut incoming = Pod::new("my-pod", "default");
+        incoming.system.env_vars.insert("SECRET".to_string(), "value".to_string());
+        incoming.node_name = Some("node-1".to_string());
+
+        existing.merge_from(&incoming);
+
+        assert_eq!(existing.system.access_level, crate::types::AccessLevel::Exec, "access level preserved");
+        assert!(!existing.system.ips.is_empty(), "IPs preserved");
+        assert_eq!(existing.system.env_vars.get("SECRET").map(String::as_str), Some("value"), "env var added");
+        assert_eq!(existing.node_name.as_deref(), Some("node-1"), "node_name filled in");
+    }
+
+    #[test]
+    fn confidence_unknown_overwritten_by_concrete_value() {
+        let mut c = Confidence::Unknown;
+        merge_confidence(&mut c, Confidence::Yes);
+        assert_eq!(c, Confidence::Yes);
+
+        let mut c2 = Confidence::No;
+        merge_confidence(&mut c2, Confidence::Yes);
+        assert_eq!(c2, Confidence::No, "existing concrete value must not be overwritten");
     }
 }

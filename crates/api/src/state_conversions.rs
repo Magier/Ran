@@ -165,6 +165,9 @@ pub(crate) fn serialize_campaign_entity_map(
         CampaignEntityRef::Namespace(e) => serialize_entity_map(e),
         CampaignEntityRef::Pod(e) => serialize_entity_map(e),
         CampaignEntityRef::ServiceAccount(e) => serialize_entity_map(e),
+        CampaignEntityRef::Secret(e) => serialize_entity_map(e),
+        CampaignEntityRef::ConfigMap(e) => serialize_entity_map(e),
+        CampaignEntityRef::Deployment(e) => serialize_entity_map(e),
     }
 }
 
