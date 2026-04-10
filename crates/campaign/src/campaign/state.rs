@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use cortex::KnowledgeGraph;
 use ran_domain::{
-    C2Server, Entity, EntityId, K8sCluster, K8sNode, Namespace, Pod, RelationSummary,
-    ServiceAccount,
+    C2Server, ConfigMap, Deployment, Entity, EntityId, K8sCluster, K8sNode, K8sSecret, Merge,
+    Namespace, Pod, RelationSummary, ServiceAccount,
 };
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +23,9 @@ pub struct Campaign {
     pub namespaces: HashMap<EntityId, Namespace>,
     pub pods: HashMap<EntityId, Pod>,
     pub service_accounts: HashMap<EntityId, ServiceAccount>,
+    pub secrets: HashMap<EntityId, K8sSecret>,
+    pub config_maps: HashMap<EntityId, ConfigMap>,
+    pub deployments: HashMap<EntityId, Deployment>,
     /// Topology and relation metadata, backed by a petgraph `StableGraph`.
     /// Replaces the former `Vec<RelationSummary>` flat list.
     #[serde(skip)]
@@ -56,6 +59,9 @@ impl Campaign {
             namespaces: HashMap::new(),
             pods: HashMap::new(),
             service_accounts: HashMap::new(),
+            secrets: HashMap::new(),
+            config_maps: HashMap::new(),
+            deployments: HashMap::new(),
             graph,
             parse_audits: Vec::new(),
             execution_records: Vec::new(),
@@ -78,6 +84,9 @@ impl Campaign {
             + self.namespaces.len()
             + self.pods.len()
             + self.service_accounts.len()
+            + self.secrets.len()
+            + self.config_maps.len()
+            + self.deployments.len()
     }
 
     pub fn get_entities(&self) -> Vec<CampaignEntityRef<'_>> {
@@ -93,6 +102,9 @@ impl Campaign {
                 .values()
                 .map(CampaignEntityRef::ServiceAccount),
         );
+        entities.extend(self.secrets.values().map(CampaignEntityRef::Secret));
+        entities.extend(self.config_maps.values().map(CampaignEntityRef::ConfigMap));
+        entities.extend(self.deployments.values().map(CampaignEntityRef::Deployment));
 
         entities
     }
@@ -390,19 +402,55 @@ impl Campaign {
         // Register the node in the graph topology (entity data lives in the maps).
         self.graph.ensure_node(id.clone());
 
+        // Each arm uses entry().and_modify().or_insert_with() so that when an
+        // entity with the same ID already exists its accumulated facts are
+        // preserved via Merge::merge_from rather than being silently overwritten.
         let any = entity.as_any();
         if let Some(e) = any.downcast_ref::<Pod>() {
-            self.pods.insert(id, e.clone());
-        } else if let Some(e) = any.downcast_ref::<Namespace>() {
-            self.namespaces.insert(id, e.clone());
-        } else if let Some(e) = any.downcast_ref::<K8sCluster>() {
-            self.clusters.insert(id, e.clone());
-        } else if let Some(e) = any.downcast_ref::<K8sNode>() {
-            self.nodes.insert(id, e.clone());
-        } else if let Some(e) = any.downcast_ref::<C2Server>() {
-            self.c2_servers.insert(id, e.clone());
+            self.pods
+                .entry(id)
+                .and_modify(|existing| existing.merge_from(e))
+                .or_insert_with(|| e.clone());
         } else if let Some(e) = any.downcast_ref::<ServiceAccount>() {
-            self.service_accounts.insert(id, e.clone());
+            self.service_accounts
+                .entry(id)
+                .and_modify(|existing| existing.merge_from(e))
+                .or_insert_with(|| e.clone());
+        } else if let Some(e) = any.downcast_ref::<Namespace>() {
+            self.namespaces
+                .entry(id)
+                .and_modify(|existing| existing.merge_from(e))
+                .or_insert_with(|| e.clone());
+        } else if let Some(e) = any.downcast_ref::<K8sCluster>() {
+            self.clusters
+                .entry(id)
+                .and_modify(|existing| existing.merge_from(e))
+                .or_insert_with(|| e.clone());
+        } else if let Some(e) = any.downcast_ref::<K8sNode>() {
+            self.nodes
+                .entry(id)
+                .and_modify(|existing| existing.merge_from(e))
+                .or_insert_with(|| e.clone());
+        } else if let Some(e) = any.downcast_ref::<C2Server>() {
+            self.c2_servers
+                .entry(id)
+                .and_modify(|existing| existing.merge_from(e))
+                .or_insert_with(|| e.clone());
+        } else if let Some(e) = any.downcast_ref::<K8sSecret>() {
+            self.secrets
+                .entry(id)
+                .and_modify(|existing| existing.merge_from(e))
+                .or_insert_with(|| e.clone());
+        } else if let Some(e) = any.downcast_ref::<ConfigMap>() {
+            self.config_maps
+                .entry(id)
+                .and_modify(|existing| existing.merge_from(e))
+                .or_insert_with(|| e.clone());
+        } else if let Some(e) = any.downcast_ref::<Deployment>() {
+            self.deployments
+                .entry(id)
+                .and_modify(|existing| existing.merge_from(e))
+                .or_insert_with(|| e.clone());
         }
     }
 

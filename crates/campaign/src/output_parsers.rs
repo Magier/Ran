@@ -5,8 +5,9 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use c2::{ExecTtp, TtpExecuted};
 use ran_domain::{
-    AccessLevel, Contains, Entity, EntityId, JwToken, K8sNode, Mount, Namespace, Pod, Process,
-    RbacPermission, RunsOn, ServiceAccount, ServiceAccountToken, Uses,
+    AccessLevel, ConfigMap, Contains, Deployment, Entity, JwToken, K8sNode, K8sSecret,
+    Mount, Namespace, Pod, PodPhase, Process, RbacPermission, RunsOn, ServiceAccount,
+    ServiceAccountToken, Uses,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -199,6 +200,13 @@ fn resolve_output_parser(effect_name: &str) -> Option<InternalParserFn> {
         "linux.mounts" => Some(parse_linux_mounts),
         "rawserviceaccounttoken" => Some(parse_raw_service_account_token),
         "rdns" => Some(parse_rdns),
+        // "k8s.selfsubjectrulesreview" => Some(parse_self_subject_rules_review),
+        "k8s.podlist" => Some(parse_k8s_pod_list),
+        "k8s.nodelist" => Some(parse_k8s_node_list),
+        "k8s.serviceaccountlist" => Some(parse_k8s_service_account_list),
+        "k8s.secretlist" => Some(parse_k8s_secret_list),
+        "k8s.deploymentlist" => Some(parse_k8s_deployment_list),
+        "k8s.configmaplist" => Some(parse_k8s_config_map_list),
         _ => None,
     }
 }
@@ -1313,38 +1321,17 @@ fn split_resource_api_group(s: &str) -> (String, String) {
     (s.to_string(), String::new())
 }
 
-/// Resolve the `ServiceAccount` that a SSRR result should be attached to.
+/// Parse a ServiceAccount identity `(sa_name, namespace)` from an entity ID string.
 ///
-/// `target_id` is the exec target — typically the pod that ran the command,
-/// not the SA itself (the SA's exec channel resolves via its pod).
-///
-/// Resolution order:
-/// 1. `target_id` is already a known SA → return it directly.
-/// 2. `target_id` is a known pod → follow `pod.service_account_name` to the SA.
-///    If that SA doesn't exist in the campaign yet, create a minimal stub.
-/// 3. Returns `None` when neither condition is met.
-fn resolve_sa_for_ssrr(target_id: &str, campaign: &Campaign) -> Option<ServiceAccount> {
-    let id = EntityId::new(target_id);
-
-    // Case 1: target already is a ServiceAccount.
-    if let Some(sa) = campaign.service_accounts.get(&id) {
-        return Some(sa.clone());
+/// Handles the canonical `ns/{namespace}/sa/{name}` format. Returns `None` for
+/// pod IDs or any other format — those require a TOKEN arg to identify the SA.
+fn parse_sa_identity_from_target(target_id: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = target_id.splitn(5, '/').collect();
+    if parts.len() == 4 && parts[0] == "ns" && parts[2] == "sa" {
+        Some((parts[3].to_string(), parts[1].to_string()))
+    } else {
+        None
     }
-
-    // Case 2: target is a pod — look up the SA the pod uses.
-    if let Some(pod) = campaign.pods.get(&id) {
-        let sa_name = pod.service_account_name.as_deref()?;
-        let namespace = pod.namespace()?;
-        let sa_id = EntityId::new(format!("ns/{}/sa/{}", namespace, sa_name));
-        let sa = campaign
-            .service_accounts
-            .get(&sa_id)
-            .cloned()
-            .unwrap_or_else(|| ServiceAccount::new(sa_name, namespace));
-        return Some(sa);
-    }
-
-    None
 }
 
 /// Returns `true` when `resource` in `api_group` is namespaced.

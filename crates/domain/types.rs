@@ -167,6 +167,59 @@ impl SystemInfo {
         };
         self.binaries.insert(name.into(), presence);
     }
+
+    /// Merge facts from `incoming` into `self`.
+    ///
+    /// Rules:
+    /// - `Option<T>` fields: keep `self` when already `Some`, take `incoming` when `self` is `None`.
+    /// - `Vec` fields: union — append items from `incoming` not already present in `self`.
+    /// - `HashMap` fields: union — `incoming` wins on key collision (newer observation is more specific).
+    /// - `AccessLevel`: take the higher of the two.
+    pub fn merge_from(&mut self, incoming: &Self) {
+        if self.os.is_none() {
+            self.os = incoming.os.clone();
+        }
+        if self.user_id.is_none() {
+            self.user_id = incoming.user_id;
+        }
+        if self.username.is_none() {
+            self.username = incoming.username.clone();
+        }
+
+        for ip in &incoming.ips {
+            if !self.ips.contains(ip) {
+                self.ips.push(*ip);
+            }
+        }
+
+        // env_vars and binaries: incoming wins on collision (newer data is more specific)
+        for (k, v) in &incoming.env_vars {
+            self.env_vars.insert(k.clone(), v.clone());
+        }
+        for (k, v) in &incoming.binaries {
+            self.binaries.insert(k.clone(), v.clone());
+        }
+
+        for f in &incoming.files {
+            if !self.files.contains(f) {
+                self.files.push(f.clone());
+            }
+        }
+        for proc in &incoming.processes {
+            if !self.processes.iter().any(|p| p.pid == proc.pid) {
+                self.processes.push(proc.clone());
+            }
+        }
+        for mount in &incoming.mounts {
+            if !self.mounts.iter().any(|m| m.mount_point == mount.mount_point) {
+                self.mounts.push(mount.clone());
+            }
+        }
+
+        if incoming.access_level > self.access_level {
+            self.access_level = incoming.access_level;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

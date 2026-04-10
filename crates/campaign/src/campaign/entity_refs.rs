@@ -1,6 +1,6 @@
 use ran_domain::{
-    C2Server, Entity, EntityId, K8sCluster, K8sNode, Namespace, Pod, ServiceAccount,
-    SystemEntity,
+    C2Server, ConfigMap, Deployment, Entity, EntityId, K8sCluster, K8sNode, K8sSecret, Namespace,
+    Pod, ServiceAccount, SystemEntity,
 };
 
 pub enum CampaignEntityRef<'a> {
@@ -10,6 +10,9 @@ pub enum CampaignEntityRef<'a> {
     Namespace(&'a Namespace),
     Pod(&'a Pod),
     ServiceAccount(&'a ServiceAccount),
+    Secret(&'a K8sSecret),
+    ConfigMap(&'a ConfigMap),
+    Deployment(&'a Deployment),
 }
 
 pub enum CampaignSystemEntityRef<'a> {
@@ -49,6 +52,9 @@ impl<'a> CampaignEntityRef<'a> {
             CampaignEntityRef::Namespace(e) => e.entity_id(),
             CampaignEntityRef::Pod(e) => e.entity_id(),
             CampaignEntityRef::ServiceAccount(e) => e.entity_id(),
+            CampaignEntityRef::Secret(e) => e.entity_id(),
+            CampaignEntityRef::ConfigMap(e) => e.entity_id(),
+            CampaignEntityRef::Deployment(e) => e.entity_id(),
         }
     }
 
@@ -60,6 +66,9 @@ impl<'a> CampaignEntityRef<'a> {
             CampaignEntityRef::Namespace(e) => e.entity_name(),
             CampaignEntityRef::Pod(e) => e.entity_name(),
             CampaignEntityRef::ServiceAccount(e) => e.entity_name(),
+            CampaignEntityRef::Secret(e) => e.entity_name(),
+            CampaignEntityRef::ConfigMap(e) => e.entity_name(),
+            CampaignEntityRef::Deployment(e) => e.entity_name(),
         }
     }
 
@@ -71,6 +80,9 @@ impl<'a> CampaignEntityRef<'a> {
             CampaignEntityRef::Namespace(e) => e.entity_kind(),
             CampaignEntityRef::Pod(e) => e.entity_kind(),
             CampaignEntityRef::ServiceAccount(e) => e.entity_kind(),
+            CampaignEntityRef::Secret(e) => e.entity_kind(),
+            CampaignEntityRef::ConfigMap(e) => e.entity_kind(),
+            CampaignEntityRef::Deployment(e) => e.entity_kind(),
         }
     }
 
@@ -78,6 +90,9 @@ impl<'a> CampaignEntityRef<'a> {
         match self {
             CampaignEntityRef::Pod(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::ServiceAccount(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::Secret(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::ConfigMap(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::Deployment(e) => e.meta.namespace.as_deref(),
             _ => None,
         }
     }
