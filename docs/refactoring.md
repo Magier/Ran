@@ -51,35 +51,18 @@ all 20+ literals replaced across `campaign` and `c2`.
 
 ---
 
-## Issue 4 — `output_parsers.rs` is a monolithic 2000+ line file
+## ~~Issue 4 — `output_parsers.rs` is a monolithic 2000+ line file~~ ✅ Done (`8e75df5`)
 
-**File:** `crates/campaign/src/output_parsers.rs`
+Split into 4 domain modules under `output_parsers/`:
 
-Every effect parser (`sys.envvar`, `sys.ip`, `sys.userid`, `linux.mounts`,
-`sys.processes`, `sys.has-binary`, `k8s.selfsubjectrulesreview`, token
-parsers, etc.) is registered in one file. Adding a parser requires editing
-this single large file. `resolve_output_parser` is yet another match-based
-dispatch table.
+| Module | Parsers |
+|--------|---------|
+| `sys.rs` | `sys.envvar`, `sys.ip`, `sys.userid`, `sys.processes`, `sys.has-binary`, `linux.mounts` |
+| `k8s.rs` | `k8s.podlist`, `k8s.nodelist`, `k8s.serviceaccountlist`, `k8s.secretlist`, `k8s.deploymentlist`, `k8s.configmaplist` |
+| `iam.rs` | `rawserviceaccounttoken`, `k8s.selfsubjectrulesreview` |
+| `network.rs` | `rdns` |
 
-**Plan:** Introduce an `OutputParser` trait:
-
-```rust
-trait OutputParser: Send + Sync {
-    fn effect_id(&self) -> &str;
-    fn parse(&self, stdout: &str, stderr: &str) -> ParserOutput;
-}
-```
-
-Move each parser to its own module under `output_parsers/` and register them
-in a `ParserRegistry`. Makes the external parser fallback (currently bolted on
-in `runtime.rs`) a first-class concept. New parsers can be added without merge
-conflicts on a shared file.
-
-- [ ] Define `OutputParser` trait and `ParserRegistry`
-- [ ] Create `output_parsers/` subdirectory
-- [ ] Move each parser to its own module
-- [ ] Replace `resolve_output_parser` match table with registry lookup
-- [ ] Promote external parser to a `ParserRegistry` entry rather than a special-case in `runtime.rs`
+`resolve_output_parser` match table replaced with an `OnceLock<HashMap>` registry; each module registers its own parsers via `pub(super) fn register(m: &mut HashMap<...>)` in `mod.rs`'s `get_registry()` initialiser. New parsers can be added without touching `mod.rs`.
 
 ---
 
@@ -163,7 +146,7 @@ CLI layer.
 | 2 | ~~**6** — Extract `direct_foothold_systems()`~~ ✅ | XS | Low | Clarity / DRY |
 | 3 | ~~**3** — Decompose `prepare_action` pipeline~~ ✅ | M | Medium | Testability |
 | 4 | ~~**5** — `FactsUpdate::merge` O(n²)~~ ✅ | S | Low | Performance |
-| 5 | **4** — Split `output_parsers.rs` into modules | M | Medium | Scalability |
+| 5 | ~~**4** — Split `output_parsers.rs` into modules~~ ✅ | M | Medium | Scalability |
 | 6 | **8** — `CampaignEntityRef` delegation macro | M | Medium | Extensibility |
 | 7 | **1** — Entity registry abstraction | L | High | Long-term scalability |
 | 8 | **9** — Extract `crates/app` | L | High | Testability / structure |
