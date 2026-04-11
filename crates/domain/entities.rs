@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use ambassador::{delegatable_trait, Delegate};
 use serde::{Deserialize, Serialize};
 
 use crate::identity::ServiceAccountToken;
@@ -16,6 +17,7 @@ use crate::types::{Confidence, Container, EntityId, K8sMeta, Mount, SystemInfo};
 /// `GetId`/`GetName`/`GetKind` by any struct), Rust traits are explicit
 /// opt-in. Every domain type that implements `Entity` is intentionally
 /// expressing that it belongs in the graph.
+#[delegatable_trait]
 pub trait Entity: std::any::Any + std::fmt::Debug + Send + Sync {
     /// Stable, unique identifier used as the graph node key.
     fn entity_id(&self) -> EntityId;
@@ -153,7 +155,8 @@ impl Entity for K8sCluster {
 // ---------------------------------------------------------------------------
 
 /// Domain-level union of entities that can exist in campaign state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Delegate, Debug, Clone, Serialize, Deserialize)]
+#[delegate(Entity)]
 pub enum GraphEntity {
     C2(C2Server),
     Cluster(K8sCluster),
@@ -164,54 +167,6 @@ pub enum GraphEntity {
     Secret(K8sSecret),
     ConfigMap(ConfigMap),
     Deployment(Deployment),
-}
-
-impl Entity for GraphEntity {
-    fn entity_id(&self) -> EntityId {
-        match self {
-            GraphEntity::C2(e) => e.entity_id(),
-            GraphEntity::Cluster(e) => e.entity_id(),
-            GraphEntity::Node(e) => e.entity_id(),
-            GraphEntity::Namespace(e) => e.entity_id(),
-            GraphEntity::Pod(e) => e.entity_id(),
-            GraphEntity::ServiceAccount(e) => e.entity_id(),
-            GraphEntity::Secret(e) => e.entity_id(),
-            GraphEntity::ConfigMap(e) => e.entity_id(),
-            GraphEntity::Deployment(e) => e.entity_id(),
-        }
-    }
-
-    fn entity_name(&self) -> &str {
-        match self {
-            GraphEntity::C2(e) => e.entity_name(),
-            GraphEntity::Cluster(e) => e.entity_name(),
-            GraphEntity::Node(e) => e.entity_name(),
-            GraphEntity::Namespace(e) => e.entity_name(),
-            GraphEntity::Pod(e) => e.entity_name(),
-            GraphEntity::ServiceAccount(e) => e.entity_name(),
-            GraphEntity::Secret(e) => e.entity_name(),
-            GraphEntity::ConfigMap(e) => e.entity_name(),
-            GraphEntity::Deployment(e) => e.entity_name(),
-        }
-    }
-
-    fn entity_kind(&self) -> &str {
-        match self {
-            GraphEntity::C2(e) => e.entity_kind(),
-            GraphEntity::Cluster(e) => e.entity_kind(),
-            GraphEntity::Node(e) => e.entity_kind(),
-            GraphEntity::Namespace(e) => e.entity_kind(),
-            GraphEntity::Pod(e) => e.entity_kind(),
-            GraphEntity::ServiceAccount(e) => e.entity_kind(),
-            GraphEntity::Secret(e) => e.entity_kind(),
-            GraphEntity::ConfigMap(e) => e.entity_kind(),
-            GraphEntity::Deployment(e) => e.entity_kind(),
-        }
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 }
 
 // ---------------------------------------------------------------------------

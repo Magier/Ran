@@ -96,24 +96,28 @@ Audit confirmed no other `expect()` calls in non-test execution code.
 
 ---
 
-## Issue 8 — `CampaignEntityRef` enum has 9-arm delegation in 5 places
+## ~~Issue 8 — `CampaignEntityRef` enum has 9-arm delegation in 5 places~~ ✅ Done
 
-**File:** `crates/campaign/src/campaign/entity_refs.rs`
+**Files:** `crates/campaign/src/campaign/entity_refs.rs`, `crates/domain/entities.rs`
 
-Every method (`entity_id`, `entity_name`, `entity_kind`, `namespace`) has a
-full `match self { ... }` with 9 arms, all delegating to the inner type.
-Same pattern repeated for `CampaignSystemEntityRef` and
-`CampaignSystemEntityMut`. Every new entity type requires 5+ new match arms
-across these three enums.
+**`GraphEntity` (owned variants) → ambassador `#[delegate(Entity)]`:**
+- Added `ambassador = "0.5"` to `ran-domain/Cargo.toml`
+- Annotated `Entity` with `#[delegatable_trait]`
+- Replaced `impl Entity for GraphEntity` (3 × 9-arm match + manual `as_any`)
+  with `#[derive(Delegate)] #[delegate(Entity)]` on the enum
+- `as_any` now correctly delegates to each inner type (previously returned `self`,
+  which would have given `&GraphEntity` not the concrete type)
 
-**Plan:** Use the `ambassador` crate's `#[delegate]` proc-macro to generate
-delegation, or write a project-local `delegate_entity!` macro. At minimum, add
-a compile-time assertion that the arm count matches the entity field count in
-`Campaign` so new entities can't be silently missed.
+**`CampaignEntityRef<'a>` (reference variants) → local `delegate_entity_methods!` macro:**
+- `Entity: std::any::Any` implies `'static`; `&'a T` cannot implement `Entity`,
+  so ambassador cannot generate `impl Entity for CampaignEntityRef<'a>`
+- Wrote a `macro_rules! delegate_entity_methods!` that generates
+  `entity_id` / `entity_name` / `entity_kind` from a single variant list
+- Adding a new entity variant now only touches the enum definition and the
+  one-line macro invocation; `namespace` (partial match) remains explicit
 
-- [ ] Evaluate `ambassador` vs a local macro
-- [ ] Generate `entity_id` / `entity_name` / `entity_kind` delegation
-- [ ] Add compile-time completeness check
+`CampaignSystemEntityRef` / `CampaignSystemEntityMut` have only 2 arms each and
+return `&dyn SystemEntity` trait objects (upcast, not delegation) — left as-is.
 
 ---
 
@@ -147,7 +151,7 @@ CLI layer.
 | 3 | ~~**3** — Decompose `prepare_action` pipeline~~ ✅ | M | Medium | Testability |
 | 4 | ~~**5** — `FactsUpdate::merge` O(n²)~~ ✅ | S | Low | Performance |
 | 5 | ~~**4** — Split `output_parsers.rs` into modules~~ ✅ | M | Medium | Scalability |
-| 6 | **8** — `CampaignEntityRef` delegation macro | M | Medium | Extensibility |
+| 6 | ~~**8** — `CampaignEntityRef` delegation macro~~ ✅ | M | Medium | Extensibility |
 | 7 | **1** — Entity registry abstraction | L | High | Long-term scalability |
 | 8 | **9** — Extract `crates/app` | L | High | Testability / structure |
 
