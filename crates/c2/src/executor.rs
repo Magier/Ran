@@ -9,7 +9,7 @@ use tracing::{debug, warn};
 use crate::builtin::BuiltinC2;
 use crate::types::{C2Event, ExecTtp, TtpExecuted};
 
-const BUILTIN_C2_ID: &str = "c2/ran";
+use crate::types::BUILTIN_C2_ID;
 
 #[derive(Clone)]
 pub struct C2Handle {

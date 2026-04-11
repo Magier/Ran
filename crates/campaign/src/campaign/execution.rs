@@ -1,5 +1,5 @@
 use armory::{Armory, Procedure, Ttp};
-use c2::{ExecTtp, TtpExecuted};
+use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{BinaryPresence, EntityId, Merge};
 
 use crate::effects::{ground_template, parse_effect_with_status};
@@ -199,11 +199,11 @@ impl Campaign {
                     tracing::info!(
                         logical_target = %target_id,
                         selected_source = %id,
-                        backend_id = %"c2/ran",
-                        chain = %format_exec_chain("c2/ran", &[], id),
+                        backend_id = %BUILTIN_C2_ID,
+                        chain = %format_exec_chain(BUILTIN_C2_ID, &[], id),
                         "using caller-supplied exec source entity"
                     );
-                    Ok(("c2/ran".to_string(), id.to_string()))
+                    Ok((BUILTIN_C2_ID.to_string(), id.to_string()))
                 } else {
                     tracing::info!(
                         target_id = %target_id,
@@ -389,8 +389,12 @@ impl Campaign {
             // an alternative procedure next time.
             if CommandNotFoundFailureAnalyzer.analyze(cmd, event).is_some() {
                 if let Some(binary) = procedure_binary_name(&cmd.procedure) {
-                    let system_id = if self.get_system_entity(&cmd.exec_system_id).is_some() {
-                        Some(cmd.exec_system_id.as_str())
+                    // args["TARGET_ID"] = the original request target, which is
+                    // the actual execution target even in multi-hop chains (where
+                    // cmd.target_id is the first hop, not the final destination).
+                    let target_id_arg = cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
+                    let system_id = if self.get_system_entity(target_id_arg).is_some() {
+                        Some(target_id_arg)
                     } else if self.get_system_entity(&cmd.target_id).is_some() {
                         Some(cmd.target_id.as_str())
                     } else {
