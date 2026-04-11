@@ -36,7 +36,7 @@ all 20+ literals replaced across `campaign` and `c2`.
 
 ---
 
-## ~~Issue 3 — `prepare_action` / `resolve_c2_channel` do too many things~~ ✅ Done
+## ~~Issue 3 — `prepare_action` / `resolve_c2_channel` do too many things~~ ✅ Done (`333d824`)
 
 `prepare_action` decomposed into a six-stage railway-oriented pipeline.
 `resolve_c2_channel` replaced with four focused routing methods.
@@ -45,9 +45,9 @@ all 20+ literals replaced across `campaign` and `c2`.
 1. `validate_request` — empty field checks (free fn)
 2. `resolve_ttp_and_defaults` — TTP lookup + param default filling (free fn)
 3. `ground_args_from_context` — NS / NODE / TOKEN injection
-4. `resolve_lateral_src` — unified `SRC`/`src` injection for Lateral Movement (Campaign method); merged the two old injection sites that could conflict
-5. `ground_procedure_and_effects` — Tera + `${}` substitution → `GroundingReport` with structured ungrounded-var warnings; `${CMD}` excluded from warnings (it's the hop-injection slot)
-6. `route_exec_channel` — dispatches to one of four focused sub-methods: `route_caller_supplied`, `route_lateral_movement`, `route_remote`, `route_fallback`
+4. `resolve_lateral_src` — unified `SRC`/`src` injection for Lateral Movement; merged the two old injection sites that could conflict
+5. `ground_procedure_and_effects` — Tera + `${}` substitution; warns on ungrounded vars; `${CMD}` excluded (it's the hop-injection slot)
+6. `route_exec_channel` — dispatches to `route_caller_supplied`, `route_lateral_movement`, `route_remote`, `route_fallback`
 
 ---
 
@@ -83,25 +83,11 @@ conflicts on a shared file.
 
 ---
 
-## Issue 5 — `FactsUpdate::merge` is O(n²)
+## ~~Issue 5 — `FactsUpdate::merge` is O(n²)~~ ✅ Done
 
-**File:** `crates/campaign/src/effects.rs:34–65`
+`entity_aliases` changed from `Vec` to `IndexSet<(EntityId, EntityId)>` — dedup on insert is now O(1).
 
-`FactsUpdate::merge` does a linear scan of `self.new_entities` before
-inserting each item from `other`, and repeats the same pattern for
-`new_relations` and `entity_aliases`. Degrades on large post-lateral-movement
-entity sets.
-
-**Plan:** Replace the `Vec` backing stores with `IndexSet` (from `indexmap`)
-keyed on `entity_id` / `(relation_name, source_id, target_id)`. Merge becomes
-O(1) per item. Serialization shape stays the same since `IndexSet` serializes
-as a sequence.
-
-- [ ] Add `indexmap` dependency
-- [ ] Replace `new_entities: Vec<...>` with `IndexSet`
-- [ ] Replace `new_relations: Vec<...>` with `IndexSet`
-- [ ] Replace `entity_aliases: Vec<...>` with `IndexSet`
-- [ ] Verify serialization round-trips unchanged
+`merge` for `new_entities` and `new_relations` (which store `Box<dyn Trait>` values and can't be IndexSet directly) now builds an `IndexSet` of existing keys at the start of each call, replacing the inner O(n) scan with an O(1) lookup. Overall merge complexity: O(n+m) instead of O(n×m).
 
 ---
 
@@ -176,12 +162,11 @@ CLI layer.
 | 1 | ~~**7** — Remove `expect()` in dispatch path~~ ✅ | XS | Low | Safety |
 | 2 | ~~**6** — Extract `direct_foothold_systems()`~~ ✅ | XS | Low | Clarity / DRY |
 | 3 | ~~**3** — Decompose `prepare_action` pipeline~~ ✅ | M | Medium | Testability |
-| 4 | **5** — `FactsUpdate::merge` O(n²) | S | Low | Performance |
+| 4 | ~~**5** — `FactsUpdate::merge` O(n²)~~ ✅ | S | Low | Performance |
 | 5 | **4** — Split `output_parsers.rs` into modules | M | Medium | Scalability |
 | 6 | **8** — `CampaignEntityRef` delegation macro | M | Medium | Extensibility |
 | 7 | **1** — Entity registry abstraction | L | High | Long-term scalability |
 | 8 | **9** — Extract `crates/app` | L | High | Testability / structure |
 
-Issues 7, 6, and 3 are independent and can be done in any order.
-Issues 4 and 5 are best done after 3 (cleaner pipeline makes the parser boundary clearer).
+Issues 4 and 5 are independent of each other and can be done in any order.
 Issue 9 is the largest structural change and is a prerequisite for proper integration testing.
