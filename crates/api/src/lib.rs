@@ -21,6 +21,8 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
         .route("/api/campaign-state", axum::routing::get(api_handlers::campaign_state_handler::<S>))
         .route("/api/campaign/reset", axum::routing::post(api_handlers::reset_campaign_handler::<S>))
         .route("/api/flow", axum::routing::get(api_handlers::flow_handler::<S>))
+        .route("/api/openapi.yaml", axum::routing::get(api_handlers::openapi_spec_handler))
+        .route("/api/docs", axum::routing::get(api_handlers::swagger_ui_handler))
         .with_state(service.clone())
         .merge(router(service))
 }
