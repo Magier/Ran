@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
-use ran_domain::{AccessLevel, Entity, EntityId, K8sCluster, Pod, PodExec, KubeletExecSink, RceCanExec, Uses};
+use ran_domain::{AccessLevel, C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, PodExec, KubeletExecSink, RceCanExec, Uses};
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
 
@@ -77,10 +77,10 @@ fn bootstrap_contains_c2_and_cluster_entities() {
     );
 
     assert_eq!(campaign.entity_count(), 2);
-    assert!(campaign.c2_servers.contains_key(&EntityId::new(BUILTIN_C2_ID)));
+    assert!(campaign.entities.contains::<C2Server>(&EntityId::new(BUILTIN_C2_ID)));
     assert!(campaign
-        .clusters
-        .contains_key(&EntityId::new("k8s/cluster/dev-cluster")));
+        .entities
+        .contains::<K8sCluster>(&EntityId::new("k8s/cluster/dev-cluster")));
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn on_ttp_executed_records_no_parser_audit_for_unknown_effect() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
     let pod = Pod::new("demo", "default");
     let target_id = pod.entity_id().0;
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
 
     let cmd = sample_exec_ttp(&target_id, vec!["sys.unknown"]);
     let event = sample_event("X=1\n");
@@ -107,7 +107,7 @@ fn on_ttp_executed_parses_sys_envvar_into_target_system_info() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
     let pod = Pod::new("demo", "default");
     let target_id = pod.entity_id().0;
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
 
     let cmd = sample_exec_ttp(&target_id, vec!["sys.envvar"]);
     let event = sample_event("HOME=/root\nPATH=/usr/bin\n");
@@ -177,7 +177,7 @@ fn resolve_exec_channel_returns_builtin_for_can_exec_relation() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("target", "default");
     let target_id = pod.entity_id().0.clone();
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
     push_exec_edge(&mut campaign, "sa/default/some-sa", &target_id);
 
     let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
@@ -189,7 +189,7 @@ fn resolve_exec_channel_returns_builtin_for_kubelet_pod_exec_relation() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("target", "default");
     let target_id = pod.entity_id().0.clone();
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
     push_kubelet_exec_edge(&mut campaign, "node/node-a", &target_id);
 
     let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
@@ -204,13 +204,13 @@ fn resolve_exec_channel_returns_via_compromised_intermediate() {
     let mut attacker = Pod::new("attacker", "default");
     attacker.system.access_level = AccessLevel::Exec;
     let attacker_id = attacker.entity_id().0.clone();
-    campaign.pods.insert(attacker.entity_id(), attacker);
+    campaign.entities.insert_typed(attacker);
     push_exec_edge(&mut campaign, "sa/default/ran", &attacker_id);
 
     // Target pod (no direct exec edge from C2)
     let target = Pod::new("target", "default");
     let target_id = target.entity_id().0.clone();
-    campaign.pods.insert(target.entity_id(), target);
+    campaign.entities.insert_typed(target);
 
     // Attacker → target via k8s.can-exec
     push_exec_edge(&mut campaign, &attacker_id, &target_id);
@@ -227,18 +227,18 @@ fn resolve_exec_channel_multi_hop_bfs() {
     let mut p1 = Pod::new("p1", "default");
     p1.system.access_level = AccessLevel::Exec;
     let p1_id = p1.entity_id().0.clone();
-    campaign.pods.insert(p1.entity_id(), p1);
+    campaign.entities.insert_typed(p1);
     push_exec_edge(&mut campaign, "sa/default/ran", &p1_id);
 
     // p2: intermediate pod reachable from p1
     let p2 = Pod::new("p2", "default");
     let p2_id = p2.entity_id().0.clone();
-    campaign.pods.insert(p2.entity_id(), p2);
+    campaign.entities.insert_typed(p2);
 
     // p3 (target): reachable from p2
     let p3 = Pod::new("p3", "default");
     let p3_id = p3.entity_id().0.clone();
-    campaign.pods.insert(p3.entity_id(), p3);
+    campaign.entities.insert_typed(p3);
 
     push_exec_edge(&mut campaign, &p1_id, &p2_id);
     push_exec_edge(&mut campaign, &p2_id, &p3_id);
@@ -258,13 +258,13 @@ fn resolve_exec_channel_follows_rce_can_exec_edge() {
     // C2 has direct kubectl exec into entry-hall (via k8s.can-exec from a non-pod)
     let entry_hall = Pod::new("entry-hall-xyz", "default");
     let entry_hall_id = entry_hall.entity_id().0.clone();
-    campaign.pods.insert(entry_hall.entity_id(), entry_hall);
+    campaign.entities.insert_typed(entry_hall);
     push_exec_edge(&mut campaign, "sa/default/ran", &entry_hall_id);
 
     // Lateral movement established rce.can-exec from entry-hall to redis
     let redis = Pod::new("redis.10-244-1-3", "oopservability");
     let redis_id = redis.entity_id().0.clone();
-    campaign.pods.insert(redis.entity_id(), redis);
+    campaign.entities.insert_typed(redis);
     push_relation(&mut campaign, &RceCanExec::new(&entry_hall_id, &redis_id));
 
     let ch = campaign.resolve_exec_channel(&redis_id)
@@ -283,13 +283,13 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
     // entry-hall is a direct foothold.
     let entry = Pod::new("entry-hall", "dungeon");
     let entry_id = entry.entity_id().0.clone();
-    campaign.pods.insert(entry.entity_id(), entry);
+    campaign.entities.insert_typed(entry);
     push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
 
     // redis is target.
     let redis = Pod::new("redis.10-244-1-7", "oopservability");
     let redis_id = redis.entity_id().0.clone();
-    campaign.pods.insert(redis.entity_id(), redis);
+    campaign.entities.insert_typed(redis);
 
     // Lateral chain from entry-hall to redis exists.
     push_relation(&mut campaign, &RceCanExec::new(&entry_id, &redis_id));
@@ -331,7 +331,7 @@ fn resolve_exec_channel_resolves_via_service_account_uses_relation() {
     // Pod that uses the SA and has a direct exec channel
     let pod = Pod::new("player-pod", "dungeon");
     let pod_id = pod.entity_id().0.clone();
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
 
     let sa_id = "ns/dungeon/sa/player";
     push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
@@ -347,7 +347,7 @@ fn resolve_exec_channel_errors_when_no_path_in_graph() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("orphan", "default");
     let target_id = pod.entity_id().0.clone();
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
 
     let result = campaign.resolve_exec_channel(&target_id);
     assert!(result.is_err(), "expected Err when no exec relations exist");
@@ -364,7 +364,7 @@ fn resolve_exec_source_finds_pod_via_can_exec_relation_only() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("entry-hall-xyz", "default");
     let pod_id = pod.entity_id().0.clone();
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
     // C2 (non-pod) has exec access to the pod.
     push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
 
@@ -382,8 +382,8 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
     let pod_b = Pod::new("pod-b", "default");
     let id_a = pod_a.entity_id().0.clone();
     let id_b = pod_b.entity_id().0.clone();
-    campaign.pods.insert(pod_a.entity_id(), pod_a);
-    campaign.pods.insert(pod_b.entity_id(), pod_b);
+    campaign.entities.insert_typed(pod_a);
+    campaign.entities.insert_typed(pod_b);
 
     push_exec_edge(&mut campaign, "sa/default/ran", &id_a);
     push_exec_edge(&mut campaign, "sa/default/ran", &id_b);
@@ -418,13 +418,13 @@ fn resolve_exec_source_finds_pod_via_rce_can_exec_transitively() {
     // C2 can exec into pod-a.
     let pod_a = Pod::new("pod-a", "default");
     let id_a = pod_a.entity_id().0.clone();
-    campaign.pods.insert(pod_a.entity_id(), pod_a);
+    campaign.entities.insert_typed(pod_a);
     push_exec_edge(&mut campaign, "sa/default/ran", &id_a);
 
     // pod-a has rce.can-exec to pod-b (lateral movement already done)
     let pod_b = Pod::new("pod-b", "redis");
     let id_b = pod_b.entity_id().0.clone();
-    campaign.pods.insert(pod_b.entity_id(), pod_b);
+    campaign.entities.insert_typed(pod_b);
     push_relation(&mut campaign, &RceCanExec::new(&id_a, &id_b));
 
     // Both are reachable; without execution history pod-a is returned (first in BFS seed)
@@ -442,14 +442,14 @@ fn resolve_exec_source_prefers_direct_foothold_over_transitive_pod() {
 
     let entry = Pod::new("entry-hall", "default");
     let entry_id = entry.entity_id().0.clone();
-    campaign.pods.insert(entry.entity_id(), entry);
+    campaign.entities.insert_typed(entry);
     push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
 
     // redis is reachable only through entry-hall, but appears more privileged.
     let mut redis = Pod::new("redis", "default");
     redis.system.access_level = AccessLevel::Exec;
     let redis_id = redis.entity_id().0.clone();
-    campaign.pods.insert(redis.entity_id(), redis);
+    campaign.entities.insert_typed(redis);
     push_relation(&mut campaign, &RceCanExec::new(&entry_id, &redis_id));
 
     let ch = campaign
@@ -475,7 +475,7 @@ fn resolve_exec_source_uses_node_as_direct_foothold() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let node = K8sNode::new("worker-1");
     let node_id = node.entity_id().0.clone();
-    campaign.nodes.insert(node.entity_id(), node);
+    campaign.entities.insert_typed(node);
     // Non-system source → node target exec edge.
     push_exec_edge(&mut campaign, "sa/default/ran", &node_id);
 
@@ -493,11 +493,11 @@ fn resolve_exec_channel_seeds_include_node_for_dijkstra() {
 
     let node = K8sNode::new("worker-1");
     let node_id = node.entity_id().0.clone();
-    campaign.nodes.insert(node.entity_id(), node);
+    campaign.entities.insert_typed(node);
 
     let target_pod = Pod::new("victim", "default");
     let target_id = target_pod.entity_id().0.clone();
-    campaign.pods.insert(target_pod.entity_id(), target_pod);
+    campaign.entities.insert_typed(target_pod);
 
     // C2 → node (direct exec), node → victim pod (exec-channel edge).
     push_exec_edge(&mut campaign, "sa/default/ran", &node_id);
@@ -550,7 +550,7 @@ fn prepare_action_auto_resolves_channel_from_graph() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("demo", "default");
     let target_id = pod.entity_id().0.clone();
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
     push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
 
     let armory = minimal_armory("test-ttp");
@@ -566,7 +566,7 @@ fn prepare_action_errors_when_no_exec_channel_in_graph() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("demo", "default");
     let target_id = pod.entity_id().0.clone();
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
     // No exec relations added
 
     let armory = minimal_armory("test-ttp");
@@ -584,7 +584,7 @@ fn prepare_action_respects_caller_supplied_exec_system_id() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("demo", "default");
     let target_id = pod.entity_id().0.clone();
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
     // No exec relations — would normally error, but caller supplies explicit backend
 
     let armory = minimal_armory("test-ttp");
@@ -601,11 +601,11 @@ fn prepare_action_explicit_exec_source_entity_runs_from_that_system() {
 
     let source = Pod::new("entry-hall", "dungeon");
     let source_id = source.entity_id().0.clone();
-    campaign.pods.insert(source.entity_id(), source);
+    campaign.entities.insert_typed(source);
 
     let target = Pod::new("redis.10-244-1-7", "oopservability");
     let target_id = target.entity_id().0.clone();
-    campaign.pods.insert(target.entity_id(), target);
+    campaign.entities.insert_typed(target);
 
     let armory = minimal_armory("test-ttp");
     let exec = campaign
@@ -623,11 +623,11 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
 
     let source = Pod::new("entry-hall", "dungeon");
     let source_id = source.entity_id().0.clone();
-    campaign.pods.insert(source.entity_id(), source);
+    campaign.entities.insert_typed(source);
 
     let target = Pod::new("redis.10-244-1-7", "oopservability");
     let target_id = target.entity_id().0.clone();
-    campaign.pods.insert(target.entity_id(), target);
+    campaign.entities.insert_typed(target);
 
     let armory = Armory::from_ttps(vec![Ttp {
         id: "lateral-test".to_string(),
@@ -728,7 +728,7 @@ fn command_not_found_marks_binary_absent_on_exec_system() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
     let pod = Pod::new("demo", "default");
     let target_id = pod.entity_id().0.clone();
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
 
     let cmd = nmap_exec_ttp(&target_id);
     let event = command_not_found_event();
@@ -750,7 +750,7 @@ fn command_not_found_does_not_overwrite_known_present_binary() {
     let mut pod = Pod::new("demo", "default");
     pod.system.set_binary("nmap", "/usr/bin/nmap");
     let target_id = pod.entity_id().0.clone();
-    campaign.pods.insert(pod.entity_id(), pod);
+    campaign.entities.insert_typed(pod);
 
     let cmd = nmap_exec_ttp(&target_id);
     let event = command_not_found_event();
@@ -801,7 +801,7 @@ fn prepare_action_grounds_binary_against_target_for_direct_path() {
     let mut target = Pod::new("victim", "default");
     target.system.set_binary("kubectl", "/tmp/kubectl");
     let target_id = target.entity_id().0.clone();
-    campaign.pods.insert(target.entity_id(), target);
+    campaign.entities.insert_typed(target);
     push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
 
     let armory = armory_with_command("test-ttp", "kubectl get pods", None);
@@ -827,7 +827,7 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
     // Entry pod: C2 has direct exec into it.
     let entry = Pod::new("entry-pod", "default");
     let entry_id = entry.entity_id().0.clone();
-    campaign.pods.insert(entry.entity_id(), entry);
+    campaign.entities.insert_typed(entry);
     push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
 
     // Redis pod: only reachable via RCE from entry-pod.
@@ -835,7 +835,7 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
     let mut redis_pod = Pod::new("redis-pod", "default");
     redis_pod.system.set_binary("kubectl", "/tmp/kubectl");
     let redis_id = redis_pod.entity_id().0.clone();
-    campaign.pods.insert(redis_pod.entity_id(), redis_pod);
+    campaign.entities.insert_typed(redis_pod);
 
     // RCE relation with envelope from entry → redis.
     let envelope = r#"redis-cli eval "$(echo ${CMD} | base64 -d | sh)" 0"#;
@@ -870,12 +870,12 @@ fn prepare_action_exec_system_same_as_target_still_uses_channel_hops() {
 
     let entry = Pod::new("entry-hall", "dungeon");
     let entry_id = entry.entity_id().0.clone();
-    campaign.pods.insert(entry.entity_id(), entry);
+    campaign.entities.insert_typed(entry);
     push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
 
     let redis = Pod::new("redis.10-244-1-7", "oopservability");
     let redis_id = redis.entity_id().0.clone();
-    campaign.pods.insert(redis.entity_id(), redis);
+    campaign.entities.insert_typed(redis);
 
     let rce_rel = RceCanExec::new(&entry_id, &redis_id)
         .with_envelope("redis-cli eval \"$(echo ${CMD} | base64 -d | sh)\" 0".to_string());
@@ -900,13 +900,13 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
     // C2 can exec into entry-hall directly.
     let entry = Pod::new("entry-hall", "default");
     let entry_id = entry.entity_id().0.clone();
-    campaign.pods.insert(entry.entity_id(), entry);
+    campaign.entities.insert_typed(entry);
     push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
 
     // redis is a pod target (no direct C2 channel).
     let redis = Pod::new("redis.10-244-1-7", "oopservability");
     let redis_id = redis.entity_id().0.clone();
-    campaign.pods.insert(redis.entity_id(), redis);
+    campaign.entities.insert_typed(redis);
 
     // Local command procedure; without the fix this would run directly on redis.
     let armory = Armory::from_ttps(vec![Ttp {
@@ -969,7 +969,7 @@ fn ip_placeholder_pod_merged_when_sa_token_reveals_real_name() {
     let mut placeholder = Pod::new("backend-service.10-244-1-4", "prod");
     placeholder.system.ips.push("10.244.1.4".parse().unwrap());
     let placeholder_id = placeholder.entity_id();
-    campaign.pods.insert(placeholder.entity_id(), placeholder);
+    campaign.entities.insert_typed(placeholder);
 
     // Wire a k8s.can-exec relation C2 → placeholder.
     push_exec_edge(&mut campaign, BUILTIN_C2_ID, &placeholder_id.0);
@@ -991,15 +991,15 @@ fn ip_placeholder_pod_merged_when_sa_token_reveals_real_name() {
 
     // Placeholder is gone.
     assert!(
-        !campaign.pods.contains_key(&placeholder_id),
+        !campaign.entities.contains::<Pod>(&placeholder_id),
         "IP-placeholder pod should have been removed"
     );
 
     // Real pod exists with merged IP.
     let real_id = EntityId::new("ns/prod/pod/backend-xyzabc-123");
     let real_pod = campaign
-        .pods
-        .get(&real_id)
+        .entities
+        .find::<Pod>(&real_id)
         .expect("real pod should exist after merge");
     assert!(
         real_pod.system.ips.iter().any(|ip| ip.to_string() == "10.244.1.4"),
@@ -1025,13 +1025,13 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
     // Pre-existing real pod (from K8s API discovery).
     let real_pod = Pod::new("backend-xyzabc-123", "prod");
     let real_id = real_pod.entity_id();
-    campaign.pods.insert(real_pod.entity_id(), real_pod);
+    campaign.entities.insert_typed(real_pod);
 
     // IP-derived placeholder (from rDNS scan, created later).
     let mut placeholder = Pod::new("backend-service.10-244-1-4", "prod");
     placeholder.system.ips.push("10.244.1.4".parse().unwrap());
     let placeholder_id = placeholder.entity_id();
-    campaign.pods.insert(placeholder.entity_id(), placeholder);
+    campaign.entities.insert_typed(placeholder);
 
     // Exec relation points at placeholder (from network-scan phase).
     push_exec_edge(&mut campaign, BUILTIN_C2_ID, &placeholder_id.0);
@@ -1052,12 +1052,12 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
 
     // Placeholder removed.
     assert!(
-        !campaign.pods.contains_key(&placeholder_id),
+        !campaign.entities.contains::<Pod>(&placeholder_id),
         "IP-placeholder pod should have been removed"
     );
 
     // Real pod still exists and now carries the IP.
-    let real_pod = campaign.pods.get(&real_id).expect("real pod should survive");
+    let real_pod = campaign.entities.find::<Pod>(&real_id).expect("real pod should survive");
     assert!(
         real_pod.system.ips.iter().any(|ip| ip.to_string() == "10.244.1.4"),
         "IP should be merged into the pre-existing real pod"

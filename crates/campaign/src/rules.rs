@@ -1,6 +1,6 @@
 use ran_domain::{
-    Contains, Entity, EntityId, K8sNode, KubeletExecSink, ManagesNode, Namespace, Pod, PodExec,
-    RelationSummary, RunsOn, ServiceAccount,
+    Contains, Entity, EntityId, K8sCluster, K8sNode, KubeletExecSink, ManagesNode, Namespace, Pod,
+    PodExec, RelationSummary, RunsOn, ServiceAccount,
 };
 
 use crate::{Campaign, FactsUpdate};
@@ -37,7 +37,7 @@ impl InferenceRule for NamespaceClusterRule {
 
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
-        let Some(cluster) = campaign.clusters.values().next() else {
+        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
             return inferred;
         };
         let cluster_id = cluster.entity_id();
@@ -68,7 +68,7 @@ impl InferenceRule for NodeClusterRule {
 
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
-        let Some(cluster) = campaign.clusters.values().next() else {
+        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
             return inferred;
         };
         let cluster_id = cluster.entity_id();
@@ -112,7 +112,7 @@ impl InferenceRule for PodNamespaceRule {
             }
 
             let ns_id = EntityId::new(format!("ns/{}", ns_name));
-            let ns_exists = campaign.namespaces.contains_key(&ns_id)
+            let ns_exists = campaign.entities.contains::<Namespace>(&ns_id)
                 || update.new_entities.iter().any(|e| {
                     e.as_any()
                         .downcast_ref::<Namespace>()
@@ -158,7 +158,7 @@ impl InferenceRule for ServiceAccountNamespaceRule {
             }
 
             let ns_id = EntityId::new(format!("ns/{}", ns_name));
-            let ns_exists = campaign.namespaces.contains_key(&ns_id)
+            let ns_exists = campaign.entities.contains::<Namespace>(&ns_id)
                 || update.new_entities.iter().any(|e| {
                     e.as_any()
                         .downcast_ref::<Namespace>()
@@ -209,7 +209,7 @@ impl InferenceRule for PodNodeRule {
 
             let node = K8sNode::new(node_name);
             let node_id = node.entity_id();
-            let node_exists = campaign.nodes.contains_key(&node_id)
+            let node_exists = campaign.entities.contains::<K8sNode>(&node_id)
                 || update.new_entities.iter().any(|e| {
                     e.as_any()
                         .downcast_ref::<K8sNode>()
@@ -386,7 +386,7 @@ pub fn run_rules_fixpoint(
 }
 
 fn collect_pods(campaign: &Campaign, update: &FactsUpdate) -> Vec<Pod> {
-    let mut pods = campaign.pods.values().cloned().collect::<Vec<_>>();
+    let mut pods = campaign.entities.values::<Pod>().cloned().collect::<Vec<_>>();
     for entity in &update.new_entities {
         if let Some(pod) = entity.as_any().downcast_ref::<Pod>() {
             if let Some(existing) = pods.iter_mut().find(|p| p.entity_id() == pod.entity_id()) {
@@ -400,7 +400,7 @@ fn collect_pods(campaign: &Campaign, update: &FactsUpdate) -> Vec<Pod> {
 }
 
 fn collect_service_accounts(campaign: &Campaign, update: &FactsUpdate) -> Vec<ServiceAccount> {
-    let mut sas = campaign.service_accounts.values().cloned().collect::<Vec<_>>();
+    let mut sas = campaign.entities.values::<ServiceAccount>().cloned().collect::<Vec<_>>();
     for entity in &update.new_entities {
         if let Some(sa) = entity.as_any().downcast_ref::<ServiceAccount>() {
             if let Some(existing) = sas.iter_mut().find(|s| s.entity_id() == sa.entity_id()) {
@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn node_cluster_rule_infers_manages_node_relation() {
         let campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
-        let cluster_id = campaign.clusters.values().next().unwrap().entity_id();
+        let cluster_id = campaign.entities.values::<K8sCluster>().next().unwrap().entity_id();
 
         let node = K8sNode::new("node-1");
         let node_id = node.entity_id();

@@ -1,10 +1,5 @@
-use std::collections::HashMap;
-
 use cortex::KnowledgeGraph;
-use ran_domain::{
-    C2Server, ConfigMap, Deployment, Entity, EntityId, K8sCluster, K8sNode, K8sSecret, Merge,
-    Namespace, Pod, RelationSummary, ServiceAccount,
-};
+use ran_domain::{C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, RelationSummary};
 use serde::{Deserialize, Serialize};
 
 use c2::{ExecTtp, BUILTIN_C2_ID};
@@ -13,21 +8,12 @@ use crate::execution_record::ExecutionRecord;
 use crate::external_parser::SystemFieldUpdates;
 use crate::{external_parser, ParseAudit};
 
-use super::{CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef, ExecChannel};
+use super::{CampaignSystemEntityMut, CampaignSystemEntityRef, EntityStore, ExecChannel};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Campaign {
-    pub c2_servers: HashMap<EntityId, C2Server>,
-    pub clusters: HashMap<EntityId, K8sCluster>,
-    pub nodes: HashMap<EntityId, K8sNode>,
-    pub namespaces: HashMap<EntityId, Namespace>,
-    pub pods: HashMap<EntityId, Pod>,
-    pub service_accounts: HashMap<EntityId, ServiceAccount>,
-    pub secrets: HashMap<EntityId, K8sSecret>,
-    pub config_maps: HashMap<EntityId, ConfigMap>,
-    pub deployments: HashMap<EntityId, Deployment>,
+    pub entities: EntityStore,
     /// Topology and relation metadata, backed by a petgraph `StableGraph`.
-    /// Replaces the former `Vec<RelationSummary>` flat list.
     #[serde(skip)]
     pub graph: KnowledgeGraph,
     pub parse_audits: Vec<ParseAudit>,
@@ -38,30 +24,20 @@ pub struct Campaign {
 
 impl Campaign {
     pub fn bootstrap(ran_name: impl Into<String>, target_cluster: K8sCluster) -> Self {
-        let mut c2_servers = HashMap::new();
-        let mut clusters = HashMap::new();
+        let mut entities = EntityStore::default();
+        let mut graph = KnowledgeGraph::new();
 
         let c2 = C2Server::new(ran_name.into());
         let c2_id = c2.entity_id();
-        c2_servers.insert(c2_id.clone(), c2);
+        entities.insert_typed(c2);
+        graph.ensure_node(c2_id);
 
         let cluster_id = target_cluster.entity_id();
-        clusters.insert(cluster_id.clone(), target_cluster);
-
-        let mut graph = KnowledgeGraph::new();
-        graph.ensure_node(c2_id);
+        entities.insert_typed(target_cluster);
         graph.ensure_node(cluster_id);
 
         Campaign {
-            c2_servers,
-            clusters,
-            nodes: HashMap::new(),
-            namespaces: HashMap::new(),
-            pods: HashMap::new(),
-            service_accounts: HashMap::new(),
-            secrets: HashMap::new(),
-            config_maps: HashMap::new(),
-            deployments: HashMap::new(),
+            entities,
             graph,
             parse_audits: Vec::new(),
             execution_records: Vec::new(),
@@ -70,43 +46,16 @@ impl Campaign {
     }
 
     /// Reset all campaign state back to the initial bootstrap state.
-    ///
-    /// All entities, relations, audit trail and execution records are cleared.
-    /// The C2 server and target cluster are re-seeded from the provided values.
     pub fn reset(&mut self, ran_name: impl Into<String>, target_cluster: K8sCluster) {
         *self = Campaign::bootstrap(ran_name, target_cluster);
     }
 
     pub fn entity_count(&self) -> usize {
-        self.c2_servers.len()
-            + self.clusters.len()
-            + self.nodes.len()
-            + self.namespaces.len()
-            + self.pods.len()
-            + self.service_accounts.len()
-            + self.secrets.len()
-            + self.config_maps.len()
-            + self.deployments.len()
+        self.entities.entity_count()
     }
 
-    pub fn get_entities(&self) -> Vec<CampaignEntityRef<'_>> {
-        let mut entities = Vec::with_capacity(self.entity_count());
-
-        entities.extend(self.c2_servers.values().map(CampaignEntityRef::C2Server));
-        entities.extend(self.clusters.values().map(CampaignEntityRef::Cluster));
-        entities.extend(self.nodes.values().map(CampaignEntityRef::Node));
-        entities.extend(self.namespaces.values().map(CampaignEntityRef::Namespace));
-        entities.extend(self.pods.values().map(CampaignEntityRef::Pod));
-        entities.extend(
-            self.service_accounts
-                .values()
-                .map(CampaignEntityRef::ServiceAccount),
-        );
-        entities.extend(self.secrets.values().map(CampaignEntityRef::Secret));
-        entities.extend(self.config_maps.values().map(CampaignEntityRef::ConfigMap));
-        entities.extend(self.deployments.values().map(CampaignEntityRef::Deployment));
-
-        entities
+    pub fn get_entities(&self) -> Vec<super::CampaignEntityRef<'_>> {
+        self.entities.all_entities()
     }
 
     pub fn get_relations(&self) -> Vec<RelationSummary> {
@@ -134,22 +83,13 @@ impl Campaign {
     }
 
     /// Returns `true` when `id` identifies a system entity (Pod or Node).
-    ///
-    /// Used to distinguish C2-side / non-exec sources from executable targets
-    /// when filtering exec-channel edges.
-    fn is_system_entity_id(&self, id: &EntityId) -> bool {
-        self.pods.contains_key(id) || self.nodes.contains_key(id)
+    pub(crate) fn is_system_entity_id(&self, id: &EntityId) -> bool {
+        self.entities.contains::<Pod>(id) || self.entities.contains::<K8sNode>(id)
     }
 
-    /// Returns the entity IDs of all systems (Pods **and** Nodes) that the C2
-    /// can exec into directly — i.e., the targets of exec-channel edges whose
-    /// *source* is a non-system entity such as the C2 server or a service
-    /// account.
-    ///
-    /// These are the seeds for Dijkstra / BFS path searches and for picking
-    /// a lateral-movement exec source.  The set grows as new initial-access
-    /// TTPs are executed and new exec edges are written to the graph.
-    fn direct_foothold_systems(&self) -> Vec<EntityId> {
+    /// Returns the entity IDs of all systems (Pods and Nodes) that the C2 can
+    /// exec into directly — seeds for Dijkstra / BFS path searches.
+    pub(crate) fn direct_foothold_systems(&self) -> Vec<EntityId> {
         self.graph
             .exec_edges()
             .into_iter()
@@ -163,28 +103,29 @@ impl Campaign {
     pub fn get_system_entity(&self, id: &str) -> Option<CampaignSystemEntityRef<'_>> {
         let entity_id = EntityId::new(id);
 
-        if let Some(node) = self.nodes.get(&entity_id) {
+        if let Some(node) = self.entities.find::<K8sNode>(&entity_id) {
             return Some(CampaignSystemEntityRef::Node(node));
         }
-
-        self.pods.get(&entity_id).map(CampaignSystemEntityRef::Pod)
+        self.entities
+            .find::<Pod>(&entity_id)
+            .map(CampaignSystemEntityRef::Pod)
     }
 
     pub fn get_system_entity_mut(&mut self, id: &str) -> Option<CampaignSystemEntityMut<'_>> {
         let entity_id = EntityId::new(id);
 
-        if let Some(node) = self.nodes.get_mut(&entity_id) {
-            return Some(CampaignSystemEntityMut::Node(node));
+        if self.entities.contains::<K8sNode>(&entity_id) {
+            return self
+                .entities
+                .find_mut::<K8sNode>(&entity_id)
+                .map(CampaignSystemEntityMut::Node);
         }
-
-        self.pods
-            .get_mut(&entity_id)
+        self.entities
+            .find_mut::<Pod>(&entity_id)
             .map(CampaignSystemEntityMut::Pod)
     }
 
-    /// Apply partial system-info updates from an external parser to a target
-    /// entity. Returns the number of new facts written, or an error if the
-    /// target is not a system entity.
+    /// Apply partial system-info updates from an external parser to a target entity.
     pub fn apply_system_update(
         &mut self,
         target_id: &str,
@@ -198,31 +139,9 @@ impl Campaign {
     }
 
     /// Query the knowledge graph and return the best execution channel for `target_id`.
-    ///
-    /// Resolution order:
-    ///
-    /// 1. **Follow-up from last direct foothold**: if the most recently used
-    ///    directly C2-reachable pod has an exec-channel path to `target_id`,
-    ///    prefer that chain so follow-up actions keep using the established
-    ///    in-cluster channel.
-    ///
-    /// 2. **Direct**: a non-system entity has a `k8s.can-exec` / `kubelet-pod-exec`
-    ///    relation to `target_id` — the C2 reaches the target without any hop.
-    ///
-    /// 3. **Shortest-path (Dijkstra)**: from every system (Pod or Node) directly
-    ///    reachable by the C2 (seeds), follow exec-channel edges with their
-    ///    weights to find the minimum-cost path to the target.  The path is
-    ///    returned as `ExecChannel.hops`, ordered from the C2 side outward.
-    ///
-    /// 4. **Service-account indirection**: when the target is an SA, find the
-    ///    pod that `uses` it and resolve for that pod instead.
-    ///
-    /// Returns `Err` when no path can be found.
     pub fn resolve_exec_channel(&self, target_id: &str) -> Result<ExecChannel, String> {
         let target_eid = EntityId::new(target_id);
 
-        // Priority 1: prefer continuing from the most recently used direct
-        // foothold when it can reach the target via exec-channel edges.
         let direct_footholds: std::collections::HashSet<String> = self
             .direct_foothold_systems()
             .into_iter()
@@ -237,7 +156,9 @@ impl Campaign {
             .find(|id| direct_footholds.contains(*id))
         {
             let source_eid = EntityId::new(source_id);
-            if let Some((_cost, path)) = self.graph.shortest_exec_path(&[source_eid], &target_eid) {
+            if let Some((_cost, path)) =
+                self.graph.shortest_exec_path(&[source_eid], &target_eid)
+            {
                 let hops = path[..path.len().saturating_sub(1)]
                     .iter()
                     .map(|id| id.0.clone())
@@ -250,8 +171,6 @@ impl Campaign {
             }
         }
 
-        // Priority 2: direct — a non-system entity has an exec relation to the
-        // target (e.g. the C2's own SA has kubectl exec rights).
         let direct = self.graph.exec_edges().into_iter().any(|(src, tgt, _)| {
             tgt == &target_eid && !self.is_system_entity_id(src)
         });
@@ -259,21 +178,19 @@ impl Campaign {
             return Ok(ExecChannel::direct(BUILTIN_C2_ID));
         }
 
-        // Priority 3: Dijkstra from directly reachable systems (seeds) to target.
-        //
-        // Seeds = Pods and Nodes that a non-system entity can exec into directly.
         let seeds = self.direct_foothold_systems();
-
         if let Some((_cost, path)) = self.graph.shortest_exec_path(&seeds, &target_eid) {
-            // path = [seed, …, target].  hops = everything before target.
             let hops = path[..path.len().saturating_sub(1)]
                 .iter()
                 .map(|id| id.0.clone())
                 .collect();
-            return Ok(ExecChannel { backend_id: BUILTIN_C2_ID.to_string(), hops, exec_target_id: None });
+            return Ok(ExecChannel {
+                backend_id: BUILTIN_C2_ID.to_string(),
+                hops,
+                exec_target_id: None,
+            });
         }
 
-        // Priority 4: target is a service account — resolve for the pod using it.
         let sa_pod_id = self
             .graph
             .incoming(&target_eid)
@@ -295,25 +212,13 @@ impl Campaign {
         ))
     }
 
-    /// Collect all pod entity IDs that the C2 can run code on, either directly
-    /// or transitively through prior lateral movement.
-    ///
-    /// A pod is reachable if:
-    /// - A `k8s.can-exec` or `kubelet-pod-exec` relation points to it from a
-    ///   **non-system** source (the C2 itself has kubectl exec rights), **or**
-    /// - It is reachable from any direct foothold system (Pod or Node) via a
-    ///   chain of exec-channel edges left by prior lateral movement TTPs
-    ///   (no depth limit).
     pub fn reachable_pods(&self) -> std::collections::HashSet<String> {
-        // Seeds: systems (Pods and Nodes) directly reachable from non-system exec sources.
         let seeds = self.direct_foothold_systems();
-
         let mut reachable: std::collections::HashSet<String> =
             seeds.iter().map(|id| id.0.clone()).collect();
 
-        // BFS through exec edges for transitively reachable pods.
         for id in self.graph.reachable_via_exec(&seeds) {
-            if self.pods.contains_key(&id) {
+            if self.entities.contains::<Pod>(&id) {
                 reachable.insert(id.0);
             }
         }
@@ -321,27 +226,6 @@ impl Campaign {
         reachable
     }
 
-    /// Find the best compromised system to use as a lateral-movement exec source.
-    ///
-    /// Lateral Movement TTPs create a new execution edge rather than require
-    /// one — so they must run FROM an already-compromised system, not TO the
-    /// victim.  Returns an [`ExecChannel`] whose `exec_target_id` is set to the
-    /// source system entity ID so the C2 backend can `kubectl exec` into it.
-    ///
-    /// Resolution priority (first match wins):
-    ///
-    /// 1. **Most recently used directly reachable system** — the last execution
-    ///    record whose `target_id` falls within the direct foothold set. Keeps
-    ///    lateral movement in the same foothold the operator was just working in.
-    ///
-    /// 2. **Highest `access_level` among directly reachable systems** — prefers
-    ///    systems where we have proven interactive access (`Exec`).
-    ///
-    /// 3. **Any directly reachable system** — fallback when no access-level
-    ///    information is available yet (e.g. initial access via `k8s.can-exec`
-    ///    relation only).
-    ///
-    /// Returns `Err` when no directly reachable system can be found.
     pub fn resolve_exec_source(&self) -> Result<ExecChannel, String> {
         let direct_reachable: std::collections::HashSet<String> = self
             .direct_foothold_systems()
@@ -357,9 +241,6 @@ impl Campaign {
             );
         }
 
-        // --- Pick the best system among directly reachable footholds ---
-
-        // Priority 1: most recently used directly reachable system.
         if let Some(system_id) = self
             .execution_records
             .iter()
@@ -372,7 +253,6 @@ impl Campaign {
             return Ok(ch);
         }
 
-        // Priority 2: system with highest proven access level (Pod or Node).
         let best_access = direct_reachable
             .iter()
             .filter_map(|id| {
@@ -389,8 +269,6 @@ impl Campaign {
             return Ok(ch);
         }
 
-        // Priority 3: any directly reachable system (initial access only, no
-        // exec confirmed yet).
         let any_system = direct_reachable
             .iter()
             .find(|id| self.get_system_entity(id).is_some())
@@ -409,67 +287,14 @@ impl Campaign {
         )
     }
 
+    /// Insert an entity into the store and register its node in the graph.
     pub(crate) fn insert_entity(&mut self, entity: &dyn Entity) {
         let id = entity.entity_id();
-        // Register the node in the graph topology (entity data lives in the maps).
-        self.graph.ensure_node(id.clone());
-
-        // Each arm uses entry().and_modify().or_insert_with() so that when an
-        // entity with the same ID already exists its accumulated facts are
-        // preserved via Merge::merge_from rather than being silently overwritten.
-        let any = entity.as_any();
-        if let Some(e) = any.downcast_ref::<Pod>() {
-            self.pods
-                .entry(id)
-                .and_modify(|existing| existing.merge_from(e))
-                .or_insert_with(|| e.clone());
-        } else if let Some(e) = any.downcast_ref::<ServiceAccount>() {
-            self.service_accounts
-                .entry(id)
-                .and_modify(|existing| existing.merge_from(e))
-                .or_insert_with(|| e.clone());
-        } else if let Some(e) = any.downcast_ref::<Namespace>() {
-            self.namespaces
-                .entry(id)
-                .and_modify(|existing| existing.merge_from(e))
-                .or_insert_with(|| e.clone());
-        } else if let Some(e) = any.downcast_ref::<K8sCluster>() {
-            self.clusters
-                .entry(id)
-                .and_modify(|existing| existing.merge_from(e))
-                .or_insert_with(|| e.clone());
-        } else if let Some(e) = any.downcast_ref::<K8sNode>() {
-            self.nodes
-                .entry(id)
-                .and_modify(|existing| existing.merge_from(e))
-                .or_insert_with(|| e.clone());
-        } else if let Some(e) = any.downcast_ref::<C2Server>() {
-            self.c2_servers
-                .entry(id)
-                .and_modify(|existing| existing.merge_from(e))
-                .or_insert_with(|| e.clone());
-        } else if let Some(e) = any.downcast_ref::<K8sSecret>() {
-            self.secrets
-                .entry(id)
-                .and_modify(|existing| existing.merge_from(e))
-                .or_insert_with(|| e.clone());
-        } else if let Some(e) = any.downcast_ref::<ConfigMap>() {
-            self.config_maps
-                .entry(id)
-                .and_modify(|existing| existing.merge_from(e))
-                .or_insert_with(|| e.clone());
-        } else if let Some(e) = any.downcast_ref::<Deployment>() {
-            self.deployments
-                .entry(id)
-                .and_modify(|existing| existing.merge_from(e))
-                .or_insert_with(|| e.clone());
-        }
+        self.graph.ensure_node(id);
+        self.entities.insert_entity(entity);
     }
 
     /// Insert a relation into the graph using the IDs stored on the relation itself.
-    ///
-    /// For cases where IDs need to be alias-resolved first, use
-    /// [`insert_relation_with_ids`] directly.
     pub(crate) fn insert_relation(&mut self, rel: &dyn ran_domain::Relation) {
         let src = rel.source_id().clone();
         let tgt = rel.target_id().clone();

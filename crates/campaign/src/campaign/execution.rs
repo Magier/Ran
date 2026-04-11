@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
-use ran_domain::{BinaryPresence, EntityId, Merge};
+use ran_domain::{BinaryPresence, EntityId, K8sNode, Merge, Pod};
 
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
@@ -365,7 +365,7 @@ impl Campaign {
             // Ground the procedure binary against the target pod's binary
             // map so non-standard install paths (e.g. /tmp/kubectl) are used correctly.
             let tgt_id = EntityId::new(exec_target.as_str());
-            if let Some(pod) = self.pods.get(&tgt_id) {
+            if let Some(pod) = self.entities.find::<Pod>(&tgt_id) {
                 procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
             }
             Ok((ch.backend_id, exec_target))
@@ -381,7 +381,7 @@ impl Campaign {
     /// (the C2 side will execute directly against the target).
     fn route_fallback(&self, target_id: &str) -> Result<(String, String), ExecuteActionError> {
         let target_eid = EntityId::new(target_id);
-        if self.pods.contains_key(&target_eid) {
+        if self.entities.contains::<Pod>(&target_eid) {
             tracing::warn!(
                 target_id = %target_id,
                 "no explicit exec channel selected for pod target; falling back to in-cluster source"
@@ -427,7 +427,7 @@ impl Campaign {
             // Ground the inner command's binary against the target system's
             // known paths before embedding it in the envelope.
             let tgt_id = EntityId::new(tgt);
-            if let Some(pod) = self.pods.get(&tgt_id) {
+            if let Some(pod) = self.entities.find::<Pod>(&tgt_id) {
                 procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
             }
 
@@ -461,7 +461,7 @@ impl Campaign {
             // After wrapping, ground the outer tool (first word of the wrapped
             // command) against the source pod's binary map.
             let src_id = EntityId::new(src);
-            if let Some(pod) = self.pods.get(&src_id) {
+            if let Some(pod) = self.entities.find::<Pod>(&src_id) {
                 procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
             }
         }
@@ -746,7 +746,7 @@ impl Campaign {
         // When a C2 channel relation is added to a pod, ensure access_level
         // reflects at least UserExec so the field stays consistent with the
         if rel.is_exec_channel() {
-            if let Some(pod) = self.pods.get_mut(tgt) {
+            if let Some(pod) = self.entities.find_mut::<Pod>(tgt) {
                 if pod.system.access_level == ran_domain::AccessLevel::None {
                     pod.system.access_level = ran_domain::AccessLevel::Exec;
                 }
@@ -762,14 +762,14 @@ impl Campaign {
         let preferred = EntityId::new(preferred_id);
         let stale = EntityId::new(stale_id);
 
-        let Some(stale_node) = self.nodes.remove(&stale) else {
+        let Some(stale_node) = self.entities.get_mut::<K8sNode>().remove(&stale) else {
             return;
         };
 
-        if let Some(preferred_node) = self.nodes.get_mut(&preferred) {
+        if let Some(preferred_node) = self.entities.find_mut::<K8sNode>(&preferred) {
             preferred_node.merge_from(&stale_node);
         } else {
-            self.nodes.insert(preferred, stale_node);
+            self.entities.get_mut::<K8sNode>().insert(preferred, stale_node);
         }
     }
 
@@ -785,16 +785,16 @@ impl Campaign {
         let preferred = EntityId::new(preferred_id);
         let stale = EntityId::new(stale_id);
 
-        let Some(stale_pod) = self.pods.remove(&stale) else {
+        let Some(stale_pod) = self.entities.get_mut::<Pod>().remove(&stale) else {
             return;
         };
 
-        if let Some(preferred_pod) = self.pods.get_mut(&preferred) {
+        if let Some(preferred_pod) = self.entities.find_mut::<Pod>(&preferred) {
             preferred_pod.merge_from(&stale_pod);
         } else {
             // Preferred entity not yet in the campaign (shouldn't happen in the
             // normal flow, but handle gracefully by keeping the stale data).
-            self.pods.insert(preferred, stale_pod);
+            self.entities.get_mut::<Pod>().insert(preferred, stale_pod);
         }
     }
 
@@ -822,7 +822,7 @@ impl Campaign {
         let stale_id = EntityId::new(logical_target);
 
         // Only proceed when the execution target is a known IP-derived pod.
-        let Some(exec_pod) = self.pods.get(&stale_id) else {
+        let Some(exec_pod) = self.entities.find::<Pod>(&stale_id) else {
             return;
         };
         if !is_ip_derived_pod_name(&exec_pod.meta.name) {

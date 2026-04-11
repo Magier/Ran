@@ -5,27 +5,24 @@ Issues are ordered by recommended implementation sequence (see bottom).
 
 ---
 
-## Issue 1 — `Campaign` is a flat entity registry, not a proper store
+## ~~Issue 1 — `Campaign` is a flat entity registry, not a proper store~~ ✅ Done
 
-**Files:** `crates/campaign/src/campaign/state.rs`, `entity_refs.rs`
+**Files:** `crates/campaign/src/campaign/entity_store.rs` (new), `state.rs`, and every caller.
 
-`Campaign` has 9 separate `HashMap<EntityId, T>` fields, one per entity type.
-Every new entity type (e.g. `Deployment` was recently added) requires touching
-`state.rs`, `entity_refs.rs`, `insert_entity()`, `get_entities()`,
-`entity_count()`, `get_system_entity()`, and `get_system_entity_mut()` in
-lockstep. `insert_entity` is a 50-line if/else chain using `downcast_ref` on
-`&dyn Any` (`state.rs:408–454`).
+Replaced 9 individual `HashMap<EntityId, T>` fields on `Campaign` with a single
+`pub entities: EntityStore` field.
 
-**Plan:** Introduce an `EntityStore` abstraction (a type-erased registry keyed
-on `TypeId + EntityId`) or at minimum a macro that generates the per-type
-boilerplate. The `CampaignEntityRef` enum in `entity_refs.rs` should be
-auto-derived or replaced with a generic visitor trait so new types don't
-require manual exhaustive match arms in 5+ places.
+**`EntityStore` design:**
+- `HashMap<TypeId, Box<dyn ErasedSlot>>` where each `Slot<T>` stores `HashMap<EntityId, T>`
+  plus a HRTB fn pointer `for<'a> fn(&'a T) -> CampaignEntityRef<'a>` for type-erased iteration
+- `EntityType` blanket-impl supertrait collects `Entity + Merge + Clone + Serialize + DeserializeOwned + Debug + Send + Sync + 'static`
+- `Default` impl is the single registration point — adding a new entity type requires one `s.register::<NewType>(...)` call and one variant in `CampaignEntityRef`; nothing else changes
+- Custom `Serialize`/`Deserialize` preserves the old flat JSON wire format (`"pods"`, `"c2_servers"`, …) — existing serialised campaign state remains compatible
+- `Clone` forwarded via `clone_box()` on `ErasedSlot` so `Campaign: Clone` still holds
 
-- [ ] Define `EntityStore` trait / type-map abstraction
-- [ ] Replace the 9 individual `HashMap` fields with it
-- [ ] Regenerate `insert_entity` / `get_entities` / `entity_count` from the store
-- [ ] Eliminate hand-written arms in `get_system_entity` / `get_system_entity_mut`
+**Public API:** `get::<T>()`, `get_mut::<T>()`, `insert_typed::<T>()`, `insert_entity(&dyn Entity)`, `find()`, `find_mut()`, `contains()`, `values()`, `entity_count()`, `all_entities()`
+
+**Callers updated:** `state.rs`, `execution.rs`, `tests.rs`, `grounding.rs`, `analyzers.rs`, `rules.rs`, `output_parsers/mod.rs`, `ttp_applicability.rs`, `api/src/mcp.rs` — ~120 call sites migrated.
 
 ---
 
@@ -142,6 +139,214 @@ CLI layer.
 
 ---
 
+## Issue 10 — Missing output parsers (file content, kubeconfig, nmap, individual k8s entity effects)
+
+**Files:** `crates/campaign/src/output_parsers/`, `crates/campaign/src/effects.rs`
+
+Several parsers from the Go implementation have no Rust equivalent:
+
+**File content / kubeconfig** (`src/campaign/parsers.go: file:content, file:kubeconfig`):
+- `file:content` — caches arbitrary file content on the entity; auto-detects kubeconfig YAML and forwards to `file:kubeconfig`
+- `file:kubeconfig` — parses kubeconfig YAML, extracts cluster endpoint + CA, user credentials (token or cert); creates a `K8sCredential` entity and wires it to the cluster
+
+**System** (`src/campaign/parsers.go: sys.files, sys.hasfile`):
+- `sys.files` — populates `system.files` from a line-delimited file list, marks executables as binaries
+- `sys.hasfile(PATH)` — parametric effect (same pattern as `sys.has-binary`): marks path present/absent in `system.files`
+
+**Network** (`src/campaign/parsers.go: nmap, k8s.can-reach`):
+- `nmap` — parses nmap XML or greppable output; creates `Pod` placeholder entities from open-port IPs and links them with `CanReach` relations
+- `k8s.can-reach(src, tgt)` — explicit reachability effect: creates a `CanReach` relation between two entity IDs
+
+**Individual k8s entity creation effects** (`src/campaign/parsers.go`):
+- `k8s.serviceaccount` — creates a single `ServiceAccount` entity from inline YAML/JSON
+- `k8s.role` / `k8s.rolebinding` — creates `K8sRole` / `K8sRoleBinding` entities; `rolebinding` also injects parsed RBAC permissions into the referenced SA's entitlements
+- `k8s.cronjob` — creates a `CronJob` entity with schedule and namespace
+
+- [ ] Add `file:content` / `file:kubeconfig` parsers (new `file.rs` module under `output_parsers/`)
+- [ ] Add `sys.files` and parametric `sys.hasfile(...)` to `output_parsers/sys.rs`
+- [ ] Add `nmap` parser to `output_parsers/network.rs`
+- [ ] Add `k8s.can-reach(src, tgt)` effect to `effects.rs`
+- [ ] Add `k8s.serviceaccount`, `k8s.role`, `k8s.rolebinding`, `k8s.cronjob` effects to `effects.rs`
+
+---
+
+## Issue 11 — Missing GCP support
+
+**Go source:** `src/campaign/gcp/gcp_parser.go`, `src/domain/gcp_entities.go`
+
+No GCP entity types or parsers exist in the Rust codebase.
+
+**Domain types needed:**
+- `GCPServiceAccount` — GCP SA with email, project, roles, bound K8s SA reference
+- `GCPBucket` — bucket name, IAM policy entries
+
+**Parsers needed:**
+- `gcp.serviceaccount` — parses `gcloud iam service-accounts describe` JSON output
+- `gcp.buckets` — parses `gsutil ls -L` or JSON bucket listing
+
+**Analyzer needed:**
+- `GCPServiceAccountAnalyzer` — when a pod's env contains `GOOGLE_APPLICATION_CREDENTIALS` or a known GCP SA email, wire a `Uses` relation to the GCP SA entity
+
+- [ ] Add `GCPServiceAccount` and `GCPBucket` to `crates/domain/entities.rs`
+- [ ] Add `gcp.rs` module under `output_parsers/` with `gcp.serviceaccount` and `gcp.buckets`
+- [ ] Add `GCPServiceAccountAnalyzer` to `analyzers.rs`
+
+---
+
+## Issue 12a — `CanExecAccessAnalyzer`
+
+**Go source:** `src/campaign/rules_builtin.go`  
+**File:** `crates/campaign/src/analyzers.rs`  
+**Dependencies:** none
+
+When a system entity receives an incoming `PodExec`, `RceCanExec`, or `KubeletExecSink` relation, set its `system.access_level` to `UserExec` — unless it is already `Exec` (root), which must never be downgraded. This ensures access level propagates through lateral movement paths discovered after initial compromise, not only from `sys.userid` output.
+
+Trigger: new relations whose name is `can-exec`, `rce-can-exec`, or `kubelet-pod-exec`. The target entity of each relation is the system whose access level is updated.
+
+**Tests to write:**
+- Pod with `AccessLevel::Unknown` + incoming `PodExec` → access level becomes `UserExec`
+- Pod with `AccessLevel::Exec` (root) + incoming `PodExec` → access level unchanged (no downgrade)
+- Pod with `AccessLevel::UserExec` + second incoming `PodExec` → no change (idempotent)
+- `KubeletExecSink` relation → target pod gets `UserExec`
+- `RceCanExec` relation → target gets `UserExec`
+- Non-system entity as target (e.g. `Namespace`) → no update emitted
+
+- [ ] Add `CanExecAccessAnalyzer` to `analyzers.rs`
+- [ ] Add to `default_analyzers()`
+- [ ] Write tests covering the six cases above
+
+---
+
+## Issue 12b — `PropagateHostIPAnalyzer`
+
+**Go source:** `src/campaign/rules_builtin.go`  
+**File:** `crates/campaign/src/analyzers.rs`  
+**Dependencies:** none
+
+When a `Pod` has a non-empty `host_ip` field and a `runs-on` relation to a `K8sNode`, copy the `host_ip` into `node.system.ips` if not already present. Node-targeted TTPs (kubelet API calls) need the node's real IP; this is the only way to populate it when no `k8s.nodelist` has been run.
+
+Trigger: new `Pod` entities with `host_ip` set, or new `RunsOn` relations where the source pod has `host_ip` set.
+
+**Tests to write:**
+- Pod with `host_ip` + existing `RunsOn` to node → node gains that IP in `system.ips`
+- Pod with `host_ip` already present in node's IPs → no duplicate added, facts written = 0
+- Pod with no `host_ip` + `RunsOn` → no update emitted
+- `RunsOn` relation added to a pod that already has `host_ip` (relation arrives after entity) → node still gets the IP
+
+- [ ] Add `host_ip` field to `Pod` in `crates/domain/entities.rs` (populated by `k8s.podlist` parser)
+- [ ] Add `PropagateHostIPAnalyzer` to `analyzers.rs`
+- [ ] Add to `default_analyzers()`
+- [ ] Write tests covering the four cases above
+
+---
+
+## Issue 12c — `WorkloadOwnershipAnalyzer`
+
+**Go source:** `src/campaign/analyzers.go: analyzeWorkloadOwnership`  
+**File:** `crates/campaign/src/analyzers.rs`  
+**Dependencies:** Issue 1 (new entity types: `ReplicaSet`, `StatefulSet`, `DaemonSet`, `Job` are simpler to add after entity registry abstraction)
+
+When a `Pod` carries owner references (populated by the `k8s.podlist` parser from `metadata.ownerReferences`), walk the ownership chain and emit `Owns` relations up to the workload root:
+
+```
+Pod → ReplicaSet → Deployment
+Pod → StatefulSet
+Pod → DaemonSet
+Pod → Job → CronJob
+```
+
+Create each intermediate entity if not already known. This makes workload-level entities visible in the graph so TTPs can target a `Deployment` rather than individual pods.
+
+Trigger: new `Pod` entities with non-empty `owner_references`.
+
+**Tests to write:**
+- Pod owned by `ReplicaSet` → `ReplicaSet` entity created + `Owns(ReplicaSet→Pod)`
+- Pod owned by `StatefulSet` → `StatefulSet` entity + `Owns`
+- Pod owned by `DaemonSet` → `DaemonSet` entity + `Owns`
+- Pod owned by `Job` → `Job` entity + `Owns`
+- Already-known `ReplicaSet` as owner → no duplicate entity emitted, `Owns` still emitted
+- Pod with no owner references → no output
+
+- [ ] Add `owner_references` field to `Pod` (populated from `k8s.podlist` JSON)
+- [ ] Add `ReplicaSet`, `StatefulSet`, `DaemonSet`, `Job` entity types to `crates/domain/entities.rs`
+- [ ] Add `Owns` relation type to `crates/domain/relations.rs`
+- [ ] Add `WorkloadOwnershipAnalyzer` to `analyzers.rs`
+- [ ] Add to `default_analyzers()`
+- [ ] Write tests covering the six cases above
+
+---
+
+## Issue 12d — `RoleBindingAnalyzer`
+
+**Go source:** `src/campaign/analyzers.go: analyzeRoleBinding`  
+**File:** `crates/campaign/src/analyzers.rs`  
+**Dependencies:** Issue 10 (`k8s.rolebinding` effect must exist to produce `K8sRoleBinding` entities)
+
+When a `K8sRoleBinding` entity arrives, resolve its subjects and inject the referenced role's permissions into each subject `ServiceAccount`'s `entitlements`. This is what converts raw RBAC YAML into actionable `ServiceAccount.Can()` facts — without it, RBAC-gated TTPs never unlock from binding data alone.
+
+`ClusterRoleBinding` subjects receive permissions with a wildcard namespace scope (`*`). Namespace-scoped `RoleBinding` subjects receive permissions scoped to the binding's namespace.
+
+Trigger: new `K8sRoleBinding` entities.
+
+**Tests to write:**
+- `RoleBinding` references a known `ServiceAccount` → SA's `entitlements` extended with role's permissions
+- `RoleBinding` references an unknown SA → SA entity created with entitlements set
+- `ClusterRoleBinding` → permissions have `scope = *` (cluster-wide)
+- `RoleBinding` in namespace `"default"` → permissions have `scope = "default"`
+- Multiple subjects in one binding → each SA receives the permissions
+- `RoleBinding` with no matching role permissions → no entitlements emitted (not a crash)
+
+- [ ] Add `K8sRoleBinding` entity type to `crates/domain/entities.rs` (if not added by Issue 10)
+- [ ] Add `RoleBindingAnalyzer` to `analyzers.rs`
+- [ ] Add to `default_analyzers()`
+- [ ] Write tests covering the six cases above
+
+---
+
+## Issue 13 — MITRE domain types and AttackFlow export
+
+**Go source:** `src/mitre/`, `src/campaign/audit_trail.go`
+
+No MITRE types or attack flow serialization exist in the Rust codebase. The `ExecutionRecord` struct already captures all the raw data needed; what is missing is the conversion layer.
+
+**Domain types needed (`crates/domain/` or new `crates/mitre/`):**
+
+- `Tactic` enum — 14 ATT&CK tactics (Reconnaissance through Impact)
+- `DefendTactic` enum — 7 D3FEND tactics (Model through Restore)
+- STIX2 bundle types: `StixBundle`, `AttackFlow`, `AttackAction`, `AttackAsset`, `Relationship`, `Indicator`
+- Technique/tactic ID mapping tables (STIX IDs for each tactic and technique name)
+
+**Conversion function:**
+- `execution_records_to_attack_flow(records: &[ExecutionRecord]) -> StixBundle`  
+  Maps each `ExecutionRecord` to an `AttackAction` STIX object; links them in sequence; wraps in a signed `StixBundle`.
+
+**API endpoint:**
+- `GET /api/attack-flow` — returns the current campaign's execution history as a STIX2 AttackFlow bundle (JSON)
+
+- [ ] Add `Tactic` and `DefendTactic` enums to `crates/domain/`
+- [ ] Add STIX2 / AttackFlow types (new `crates/mitre/` or `crates/domain/mitre.rs`)
+- [ ] Implement `execution_records_to_attack_flow()` converter
+- [ ] Add `GET /api/attack-flow` endpoint
+
+---
+
+## Issue 14 — Execution records API endpoint (blocker for self-improving loop)
+
+**File:** `crates/api/src/lib.rs`, `crates/api/src/api_handlers.rs`
+
+`ExecutionRecord` objects (full stdout, args, parse audits, timing) are stored in `Campaign` but are not accessible via the HTTP API. The self-improving loop's Gap 2 scanner needs to inspect raw stdout of past executions to detect undeclared output. The SSE stream delivers `ParseAudit` in real time but not the full results.
+
+**Needed:**
+- `GET /api/execution-records` — returns `Vec<ExecutionRecord>` for the current campaign session (full stdout in `results` field)
+- Optional: `GET /api/execution-records/:id` — single record by command ID
+
+- [ ] Add `get_execution_records()` method to `ApiService` trait
+- [ ] Implement it on `AppState` (reads from `campaign.execution_records`)
+- [ ] Wire `GET /api/execution-records` route
+- [ ] Add `GET /api/execution-records/:id` route for targeted lookups
+
+---
+
 ## Recommended Sequencing
 
 | # | Issue | Effort | Risk | Benefit |
@@ -152,8 +357,20 @@ CLI layer.
 | 4 | ~~**5** — `FactsUpdate::merge` O(n²)~~ ✅ | S | Low | Performance |
 | 5 | ~~**4** — Split `output_parsers.rs` into modules~~ ✅ | M | Medium | Scalability |
 | 6 | ~~**8** — `CampaignEntityRef` delegation macro~~ ✅ | M | Medium | Extensibility |
-| 7 | **1** — Entity registry abstraction | L | High | Long-term scalability |
-| 8 | **9** — Extract `crates/app` | L | High | Testability / structure |
+| 7 | **1** — Entity registry abstraction 🔄 | L | High | Required before adding new entity types (Issues 10–12) |
+| 8 | **14** — Execution records API endpoint | XS | Low | Self-improving loop unblocked |
+| 9 | **10** — Missing output parsers | M | Low | Parser coverage |
+| 10 | **12a** — `CanExecAccessAnalyzer` | XS | Low | Access level propagation via lateral movement |
+| 11 | **12b** — `PropagateHostIPAnalyzer` | XS | Low | Node IP visibility for kubelet TTPs |
+| 12 | **12c** — `WorkloadOwnershipAnalyzer` | S | Low | Workload hierarchy in graph (needs Issue 1) |
+| 13 | **12d** — `RoleBindingAnalyzer` | S | Low | RBAC facts from binding data (needs Issue 10) |
+| 14 | **11** — GCP support | M | Low | Cloud coverage |
+| 15 | **13** — MITRE / AttackFlow export | L | Low | Reporting |
+| 16 | **9** — Extract `crates/app` | L | High | Testability / structure |
 
 Issues 4 and 5 are independent of each other and can be done in any order.
+Issue 1 should land before Issues 10, 12c — each adds new entity types and the registry abstraction makes that a one-liner instead of a 6-file change.
+Issues 12a and 12b have no dependencies and can be done immediately after Issue 14.
+Issue 12d depends on Issue 10 (`k8s.rolebinding` effect).
 Issue 9 is the largest structural change and is a prerequisite for proper integration testing.
+Issues 10, 11, 12a–12d, 13 are independent of each other and can be parallelized once Issue 1 is done.

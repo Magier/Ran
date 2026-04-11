@@ -1,4 +1,4 @@
-use ran_domain::AccessLevel;
+use ran_domain::{AccessLevel, C2Server, ServiceAccount};
 use serde_json::Value;
 
 use crate::Campaign;
@@ -22,8 +22,8 @@ pub fn ttp_exists_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
         let kind = item.as_str().unwrap_or("").trim().to_ascii_lowercase();
         match kind.as_str() {
             "listener" => campaign
-                .c2_servers
-                .values()
+                .entities
+                .values::<C2Server>()
                 .any(|c2| !c2.listeners.is_empty()),
             _ => false, // unknown entity kind — fail safe
         }
@@ -47,11 +47,11 @@ pub fn ttp_rbac_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
     }
 
     // RBAC requirement present: we need at least one known SA that covers all of them.
-    if campaign.service_accounts.is_empty() {
+    if campaign.entities.get::<ServiceAccount>().is_empty() {
         return false;
     }
 
-    campaign.service_accounts.values().any(|sa| {
+    campaign.entities.values::<ServiceAccount>().any(|sa| {
         reqs.iter().all(|req| {
             let Some(obj) = req.as_object() else {
                 return true; // under-specified — assume satisfied
@@ -171,7 +171,7 @@ mod tests {
         let mut c = empty_campaign();
         let mut sa = ServiceAccount::new("attacker", "default");
         sa.entitlements.push(RbacPermission::new(verb, resource_type));
-        c.service_accounts.insert(sa.entity_id(), sa);
+        c.entities.insert_typed(sa);
         c
     }
 
@@ -262,7 +262,7 @@ mod tests {
         let mut c = empty_campaign();
         let mut c2 = C2Server::new("ran");
         c2.listeners.push("tcp-1337".to_string());
-        c.c2_servers.insert(c2.entity_id(), c2);
+        c.entities.insert_typed(c2);
         assert!(ttp_exists_satisfied(&ttp_with_exists("Listener"), &c));
     }
 

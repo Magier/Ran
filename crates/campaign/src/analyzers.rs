@@ -1,9 +1,7 @@
 use ran_domain::{
-    Confidence, Contains, Entity, EntityId, K8sNode, KubeletExecSink, Pod, PodExec,
-    RelationSummary, RunsOn, ServiceAccount, Uses,
+    Confidence, Contains, Entity, EntityId, K8sCluster, K8sNode, KubeletExecSink, Namespace, Pod,
+    PodExec, RelationSummary, RunsOn, ServiceAccount, Uses,
 };
-
-use ran_domain::Namespace;
 
 use crate::{Campaign, FactsUpdate};
 
@@ -48,8 +46,8 @@ impl Analyzer for PodNamespaceAnalyzer {
             // check whether a namespace was freshly added in this same update,
             // and finally fall back to creating a minimal one.
             let ns = campaign
-                .namespaces
-                .get(&ns_id)
+                .entities
+                .find::<Namespace>(&ns_id)
                 .cloned()
                 .or_else(|| {
                     update.new_entities.iter().find_map(|e| {
@@ -64,7 +62,7 @@ impl Analyzer for PodNamespaceAnalyzer {
             let rel = Contains::new(ns_id.0.clone(), pod.entity_id().0.clone());
 
             // Only emit the namespace entity if it was not already known.
-            if !campaign.namespaces.contains_key(&ns_id) {
+            if !campaign.entities.contains::<Namespace>(&ns_id) {
                 inferred.new_entities.push(Box::new(ns));
             }
             inferred.new_relations.push(Box::new(rel));
@@ -96,8 +94,8 @@ impl Analyzer for ServiceAccountNamespaceAnalyzer {
             let ns_id = EntityId::new(format!("ns/{}", ns_name));
 
             let ns = campaign
-                .namespaces
-                .get(&ns_id)
+                .entities
+                .find::<Namespace>(&ns_id)
                 .cloned()
                 .or_else(|| {
                     update.new_entities.iter().find_map(|e| {
@@ -111,7 +109,7 @@ impl Analyzer for ServiceAccountNamespaceAnalyzer {
 
             let rel = Contains::new(ns_id.0.clone(), sa.entity_id().0.clone());
 
-            if !campaign.namespaces.contains_key(&ns_id) {
+            if !campaign.entities.contains::<Namespace>(&ns_id) {
                 inferred.new_entities.push(Box::new(ns));
             }
             inferred.new_relations.push(Box::new(rel));
@@ -132,7 +130,7 @@ impl Analyzer for NamespaceClusterAnalyzer {
         let mut inferred = FactsUpdate::default();
 
         // Only one cluster is currently supported; bail out if none is known.
-        let Some(cluster) = campaign.clusters.values().next() else {
+        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
             return inferred;
         };
         let cluster_id = cluster.entity_id();
@@ -177,7 +175,7 @@ impl Analyzer for PodNodeAnalyzer {
 
             let node = K8sNode::new(node_name);
             let node_id = node.entity_id();
-            let node_exists = campaign.nodes.contains_key(&node_id)
+            let node_exists = campaign.entities.contains::<K8sNode>(&node_id)
                 || update.new_entities.iter().any(|e| {
                     e.as_any()
                         .downcast_ref::<K8sNode>()
@@ -239,7 +237,7 @@ impl Analyzer for ServiceAccountAnalyzer {
             let sa_id = sa.entity_id();
 
             // Only emit the SA entity if it is not already known.
-            let sa_known = campaign.service_accounts.contains_key(&sa_id)
+            let sa_known = campaign.entities.contains::<ServiceAccount>(&sa_id)
                 || update
                     .new_entities
                     .iter()
@@ -300,7 +298,7 @@ impl Analyzer for ServiceAccountTokenAnalyzer {
             let pod_id = pod.entity_id();
             let sa_id = sa.entity_id();
 
-            let pod_known = campaign.pods.contains_key(&pod_id)
+            let pod_known = campaign.entities.contains::<Pod>(&pod_id)
                 || update.new_entities.iter().any(|e| e.entity_id() == pod_id);
             if !pod_known {
                 inferred.new_entities.push(Box::new(pod));
@@ -458,7 +456,7 @@ impl Analyzer for HostPathAnalyzer {
                 let node = K8sNode::new(node_name);
                 let node_id = node.entity_id();
 
-                let node_known = campaign.nodes.contains_key(&node_id)
+                let node_known = campaign.entities.contains::<K8sNode>(&node_id)
                     || update.new_entities.iter().any(|e| e.entity_id() == node_id);
                 if !node_known {
                     inferred.new_entities.push(Box::new(node));
@@ -486,7 +484,7 @@ impl Analyzer for NodeClusterAnalyzer {
     fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
-        let Some(cluster) = campaign.clusters.values().next() else {
+        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
             return inferred;
         };
         let cluster_id = cluster.entity_id();
@@ -532,7 +530,7 @@ pub fn run_analyzers(campaign: &Campaign, analyzers: &[Box<dyn Analyzer>], base:
 }
 
 fn collect_pods(campaign: &Campaign, update: &FactsUpdate) -> Vec<Pod> {
-    let mut pods = campaign.pods.values().cloned().collect::<Vec<_>>();
+    let mut pods = campaign.entities.values::<Pod>().cloned().collect::<Vec<_>>();
     for entity in &update.new_entities {
         if let Some(pod) = entity.as_any().downcast_ref::<Pod>() {
             if let Some(existing) = pods.iter_mut().find(|p| p.entity_id() == pod.entity_id()) {
@@ -546,7 +544,7 @@ fn collect_pods(campaign: &Campaign, update: &FactsUpdate) -> Vec<Pod> {
 }
 
 fn collect_service_accounts(campaign: &Campaign, update: &FactsUpdate) -> Vec<ServiceAccount> {
-    let mut sas = campaign.service_accounts.values().cloned().collect::<Vec<_>>();
+    let mut sas = campaign.entities.values::<ServiceAccount>().cloned().collect::<Vec<_>>();
     for entity in &update.new_entities {
         if let Some(sa) = entity.as_any().downcast_ref::<ServiceAccount>() {
             if let Some(existing) = sas.iter_mut().find(|s| s.entity_id() == sa.entity_id()) {
@@ -596,7 +594,7 @@ mod tests {
     #[test]
     fn node_gets_contains_relation_from_cluster() {
         let campaign = test_campaign();
-        let cluster_id = campaign.clusters.values().next().unwrap().entity_id();
+        let cluster_id = campaign.entities.values::<K8sCluster>().next().unwrap().entity_id();
 
         let node = K8sNode::new("node-1");
         let node_id = node.entity_id();
@@ -618,7 +616,7 @@ mod tests {
     fn pod_in_known_namespace_creates_contains_relation() {
         let mut campaign = test_campaign();
         let ns = Namespace::new("default");
-        campaign.namespaces.insert(ns.entity_id(), ns);
+        campaign.entities.insert_typed(ns);
 
         let pod = Pod::new("nginx", "default");
         let mut update = FactsUpdate::default();
@@ -701,21 +699,9 @@ mod tests {
     #[test]
     fn namespace_without_cluster_produces_no_relation() {
         // A campaign with no cluster at all.
-        let campaign = Campaign {
-            c2_servers: Default::default(),
-            clusters: Default::default(),
-            nodes: Default::default(),
-            namespaces: Default::default(),
-            pods: Default::default(),
-            service_accounts: Default::default(),
-            secrets: Default::default(),
-            config_maps: Default::default(),
-            deployments: Default::default(),
-            graph: Default::default(),
-            parse_audits: Default::default(),
-            execution_records: Default::default(),
-            open_steps: Default::default(),
-        };
+        let mut campaign = Campaign::bootstrap("ran", ran_domain::K8sCluster::new("no-cluster"));
+        // Remove the auto-inserted cluster so the campaign truly has no cluster.
+        campaign.entities.get_mut::<K8sCluster>().clear();
 
         let ns = Namespace::new("default");
         let mut update = FactsUpdate::default();
@@ -802,7 +788,7 @@ mod tests {
         let mut campaign = test_campaign();
 
         let existing_sa = ServiceAccount::new("existing-sa", "default");
-        campaign.service_accounts.insert(existing_sa.entity_id(), existing_sa.clone());
+        campaign.entities.insert_typed(existing_sa.clone());
 
         let mut pod = Pod::new("worker", "default");
         pod.service_account_name = Some("existing-sa".to_string());
@@ -832,7 +818,7 @@ mod tests {
 
         let mut pod = Pod::new("target", "default");
         pod.is_running = true;
-        campaign.pods.insert(pod.entity_id(), pod.clone());
+        campaign.entities.insert_typed(pod.clone());
 
         let mut sa = ServiceAccount::new("operator", "default");
         let mut perm = RbacPermission::new("create", "pods/exec");
@@ -892,7 +878,7 @@ mod tests {
 
         let mut campaign = test_campaign();
         let existing_pod = Pod::new("web-pod", "default");
-        campaign.pods.insert(existing_pod.entity_id(), existing_pod);
+        campaign.entities.insert_typed(existing_pod);
 
         let token = ServiceAccountToken {
             jwt: JwToken { raw: "raw.jwt.token".to_string(), ..Default::default() },
@@ -946,12 +932,12 @@ mod tests {
         let mut src = Pod::new("src", "default");
         src.is_running = true;
         let src_id = src.entity_id().0.clone();
-        campaign.pods.insert(src.entity_id(), src.clone());
+        campaign.entities.insert_typed(src.clone());
 
         let mut target = Pod::new("target", "default");
         target.is_running = true;
         let target_id = target.entity_id().0.clone();
-        campaign.pods.insert(target.entity_id(), target.clone());
+        campaign.entities.insert_typed(target.clone());
 
         campaign.insert_relation(&RunsOn::new(src_id.clone(), "node/worker-1"));
         campaign.insert_relation(&RunsOn::new(target_id.clone(), "node/worker-1"));

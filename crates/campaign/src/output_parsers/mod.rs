@@ -336,7 +336,7 @@ mod tests {
     fn parse_output_effect_registry_lookup_is_case_insensitive() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let cmd = sample_cmd();
         let event = sample_event(vec!["HOME=/root\nPATH=/usr/bin".to_string()]);
@@ -351,7 +351,7 @@ mod tests {
     fn parse_output_effect_still_parses_when_stderr_is_present() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let cmd = sample_cmd();
         let event = sample_event(vec![
@@ -372,7 +372,7 @@ mod tests {
     fn parse_output_effect_falls_back_to_exec_system_id_for_updates() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut cmd = sample_cmd();
         cmd.target_id = "sa/default/demo".to_string();
@@ -421,7 +421,7 @@ mod tests {
     fn parse_output_effect_sys_ip_writes_ips_to_entity() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut cmd = sample_cmd();
         cmd.ttp.effects = vec!["sys.ip".to_string()];
@@ -444,7 +444,7 @@ mod tests {
     fn parse_output_effect_sys_userid_writes_access_level_to_entity() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut cmd = sample_cmd();
         cmd.ttp.effects = vec!["sys.userID".to_string()];
@@ -467,7 +467,7 @@ mod tests {
     fn parse_output_effect_linux_mounts_writes_mounts_to_entity() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut cmd = sample_cmd();
         cmd.ttp.effects = vec!["linux.mounts".to_string()];
@@ -489,7 +489,7 @@ mod tests {
     fn parse_output_effect_sys_processes_writes_to_entity() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut cmd = sample_cmd();
         cmd.ttp.effects = vec!["sys.processes".to_string()];
@@ -515,7 +515,7 @@ mod tests {
     fn parse_output_effect_has_binary_writes_to_entity() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut cmd = sample_cmd();
         cmd.ttp.effects = vec!["sys.has-binary(/usr/bin/curl)".to_string()];

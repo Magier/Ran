@@ -19,7 +19,7 @@
 
 use std::collections::HashMap;
 
-use ran_domain::{Entity, EntityId};
+use ran_domain::{Entity, EntityId, ServiceAccount};
 
 use crate::campaign::{CampaignEntityRef, Campaign};
 
@@ -160,7 +160,7 @@ fn looks_like_jwt(value: &str) -> bool {
 
 fn sa_token_by_entity_id(campaign: &Campaign, sa_entity_id: &str) -> Option<String> {
     let sa_id = EntityId::new(sa_entity_id);
-    let sa = campaign.service_accounts.get(&sa_id)?;
+    let sa = campaign.entities.find::<ServiceAccount>(&sa_id)?;
     let raw = sa.raw_token()?;
     Some(raw.to_string())
 }
@@ -375,7 +375,7 @@ mod tests {
         let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let pod = pod_in_ns("demo", "staging");
         let target_id = pod.entity_id().0.clone();
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut args = HashMap::from([("NS".to_string(), "${NS}".to_string())]);
         ground_args_from_context(&mut args, &target_id, &campaign);
@@ -388,7 +388,7 @@ mod tests {
         let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let pod = pod_in_ns("demo", "staging");
         let target_id = pod.entity_id().0.clone();
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut args = HashMap::from([("NS".to_string(), "production".to_string())]);
         ground_args_from_context(&mut args, &target_id, &campaign);
@@ -401,7 +401,7 @@ mod tests {
         let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let pod = pod_in_ns("nginx", "default");
         let target_id = pod.entity_id().0.clone();
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut args = HashMap::from([("PodName".to_string(), "${POD_NAME}-${RANDOM}".to_string())]);
         ground_args_from_context(&mut args, &target_id, &campaign);
@@ -417,7 +417,7 @@ mod tests {
         let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let pod = pod_on_node("runner", "default", "worker-1");
         let target_id = pod.entity_id().0.clone();
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut args = HashMap::from([("NodeName".to_string(), "${NODE_NAME}".to_string())]);
         ground_args_from_context(&mut args, &target_id, &campaign);
@@ -453,7 +453,7 @@ mod tests {
             is_bound: false,
         });
         let sa_id = sa.entity_id();
-        campaign.service_accounts.insert(sa_id.clone(), sa);
+        campaign.entities.get_mut::<ServiceAccount>().insert(sa_id.clone(), sa);
 
         let mut args = HashMap::from([("TOKEN".to_string(), sa_id.0)]);
         ground_args_from_context(&mut args, "nonexistent", &campaign);
@@ -467,7 +467,7 @@ mod tests {
         let mut pod = Pod::new("runner", "default");
         pod.service_account_name = Some("runner-sa".to_string());
         let target_id = pod.entity_id().0.clone();
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut sa = ran_domain::ServiceAccount::new("runner-sa", "default");
         sa.token = Some(ServiceAccountToken {
@@ -482,7 +482,7 @@ mod tests {
             service_account_uid: None,
             is_bound: false,
         });
-        campaign.service_accounts.insert(sa.entity_id(), sa);
+        campaign.entities.insert_typed(sa);
 
         let mut args = HashMap::from([("TOKEN".to_string(), "".to_string())]);
         ground_args_from_context(&mut args, &target_id, &campaign);
@@ -504,7 +504,7 @@ mod tests {
         let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let pod = Pod::new("runner", "default");
         let target_id = pod.entity_id().0.clone();
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut sa = ran_domain::ServiceAccount::new("reader", "default");
         sa.token = Some(ServiceAccountToken {
@@ -519,7 +519,7 @@ mod tests {
             service_account_uid: None,
             is_bound: false,
         });
-        campaign.service_accounts.insert(sa.entity_id(), sa);
+        campaign.entities.insert_typed(sa);
 
         let mut args = HashMap::from([("TOKEN".to_string(), "reader".to_string())]);
         ground_args_from_context(&mut args, &target_id, &campaign);
@@ -544,7 +544,7 @@ mod tests {
             is_bound: false,
         });
         let target_id = sa.entity_id().0.clone();
-        campaign.service_accounts.insert(sa.entity_id(), sa);
+        campaign.entities.insert_typed(sa);
 
         let mut args = HashMap::from([("TOKEN".to_string(), "".to_string())]);
         ground_args_from_context(&mut args, &target_id, &campaign);
@@ -557,7 +557,7 @@ mod tests {
         let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
         let pod = Pod::new("runner", "default");
         let target_id = pod.entity_id().0.clone();
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut args = HashMap::from([("TOKEN".to_string(), "missing-sa".to_string())]);
         ground_args_from_context(&mut args, &target_id, &campaign);
@@ -584,7 +584,7 @@ mod tests {
         let mut pod = Pod::new("runner", "default");
         pod.service_account_name = Some("runner-sa".to_string());
         let target_id = pod.entity_id().0.clone();
-        campaign.pods.insert(pod.entity_id(), pod);
+        campaign.entities.insert_typed(pod);
 
         let mut sa = ran_domain::ServiceAccount::new("runner-sa", "default");
         sa.token = Some(ServiceAccountToken {
@@ -599,7 +599,7 @@ mod tests {
             service_account_uid: None,
             is_bound: false,
         });
-        campaign.service_accounts.insert(sa.entity_id(), sa);
+        campaign.entities.insert_typed(sa);
 
         let mut args: HashMap<String, String> = HashMap::new(); // no TOKEN key
         ground_args_from_context(&mut args, &target_id, &campaign);
