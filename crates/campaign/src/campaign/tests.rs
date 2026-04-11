@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use armory::{Armory, Procedure, Ttp};
-use c2::{ExecTtp, TtpExecuted};
+use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{AccessLevel, Entity, EntityId, K8sCluster, Pod, PodExec, KubeletExecSink, RceCanExec, Uses};
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
@@ -77,7 +77,7 @@ fn bootstrap_contains_c2_and_cluster_entities() {
     );
 
     assert_eq!(campaign.entity_count(), 2);
-    assert!(campaign.c2_servers.contains_key(&EntityId::new("c2/ran")));
+    assert!(campaign.c2_servers.contains_key(&EntityId::new(BUILTIN_C2_ID)));
     assert!(campaign
         .clusters
         .contains_key(&EntityId::new("k8s/cluster/dev-cluster")));
@@ -181,7 +181,7 @@ fn resolve_exec_channel_returns_builtin_for_can_exec_relation() {
     push_exec_edge(&mut campaign, "sa/default/some-sa", &target_id);
 
     let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
-    assert_eq!(ch, ExecChannel::direct("c2/ran"));
+    assert_eq!(ch, ExecChannel::direct(BUILTIN_C2_ID));
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn resolve_exec_channel_returns_builtin_for_kubelet_pod_exec_relation() {
     push_kubelet_exec_edge(&mut campaign, "node/node-a", &target_id);
 
     let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
-    assert_eq!(ch, ExecChannel::direct("c2/ran"));
+    assert_eq!(ch, ExecChannel::direct(BUILTIN_C2_ID));
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn resolve_exec_channel_returns_via_compromised_intermediate() {
     push_exec_edge(&mut campaign, &attacker_id, &target_id);
 
     let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
-    assert_eq!(ch, ExecChannel::via("c2/ran", &attacker_id));
+    assert_eq!(ch, ExecChannel::via(BUILTIN_C2_ID, &attacker_id));
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn resolve_exec_channel_multi_hop_bfs() {
     push_exec_edge(&mut campaign, &p2_id, &p3_id);
 
     let ch = campaign.resolve_exec_channel(&p3_id).expect("should find 2-hop path");
-    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert_eq!(ch.hops, vec![p1_id.clone(), p2_id.clone()], "hops must be [p1, p2]");
     assert!(ch.exec_target_id.is_none());
 }
@@ -269,7 +269,7 @@ fn resolve_exec_channel_follows_rce_can_exec_edge() {
 
     let ch = campaign.resolve_exec_channel(&redis_id)
         .expect("should find channel via rce.can-exec edge");
-    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert_eq!(ch.hops, vec![entry_hall_id], "should hop through entry-hall");
     assert!(ch.exec_target_id.is_none());
 }
@@ -305,7 +305,7 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
         ttp_name: "x".to_string(),
         tactic: "Discovery".to_string(),
         target_id: entry_id.clone(),
-        exec_system_id: "c2/ran".to_string(),
+        exec_system_id: BUILTIN_C2_ID.to_string(),
         procedure_id: "shell".to_string(),
         command: "id".to_string(),
         args: HashMap::new(),
@@ -320,7 +320,7 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
     let ch = campaign
         .resolve_exec_channel(&redis_id)
         .expect("should resolve follow-up channel");
-    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert_eq!(ch.hops, vec![entry_id], "follow-up should keep the foothold chain");
 }
 
@@ -338,7 +338,7 @@ fn resolve_exec_channel_resolves_via_service_account_uses_relation() {
     push_relation(&mut campaign, &Uses::new(&pod_id, sa_id));
 
     let ch = campaign.resolve_exec_channel(sa_id).expect("should resolve via pod uses SA");
-    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert_eq!(ch.exec_target_id.as_deref(), Some(pod_id.as_str()), "exec_target_id must be the pod, not the SA");
 }
 
@@ -369,7 +369,7 @@ fn resolve_exec_source_finds_pod_via_can_exec_relation_only() {
     push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
 
     let ch = campaign.resolve_exec_source().expect("should find source via relation");
-    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert_eq!(ch.exec_target_id.as_deref(), Some(pod_id.as_str()));
 }
 
@@ -392,7 +392,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-1".to_string(),
         ttp_id: "x".to_string(), ttp_name: "x".to_string(), tactic: "Execution".to_string(),
-        target_id: id_a.clone(), exec_system_id: "c2/ran".to_string(),
+        target_id: id_a.clone(), exec_system_id: BUILTIN_C2_ID.to_string(),
         procedure_id: "shell".to_string(), command: "id".to_string(),
         args: HashMap::new(), success: true, exit_code: 0, results: vec![],
         fail_reason: String::new(), started_at_ms: 1, completed_at_ms: 2,
@@ -400,7 +400,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-2".to_string(),
         ttp_id: "x".to_string(), ttp_name: "x".to_string(), tactic: "Discovery".to_string(),
-        target_id: id_b.clone(), exec_system_id: "c2/ran".to_string(),
+        target_id: id_b.clone(), exec_system_id: BUILTIN_C2_ID.to_string(),
         procedure_id: "shell".to_string(), command: "hostname".to_string(),
         args: HashMap::new(), success: true, exit_code: 0, results: vec![],
         fail_reason: String::new(), started_at_ms: 3, completed_at_ms: 4,
@@ -429,7 +429,7 @@ fn resolve_exec_source_finds_pod_via_rce_can_exec_transitively() {
 
     // Both are reachable; without execution history pod-a is returned (first in BFS seed)
     let ch = campaign.resolve_exec_source().expect("should find source");
-    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert!(ch.exec_target_id.is_some());
 }
 
@@ -455,7 +455,7 @@ fn resolve_exec_source_prefers_direct_foothold_over_transitive_pod() {
     let ch = campaign
         .resolve_exec_source()
         .expect("should choose a direct foothold source");
-    assert_eq!(ch.backend_id, "c2/ran");
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert_eq!(ch.exec_target_id.as_deref(), Some(entry_id.as_str()));
 }
 
@@ -515,7 +515,7 @@ fn prepare_action_auto_resolves_channel_from_graph() {
         .prepare_action(action_request(&target_id, None), &armory)
         .expect("should prepare action");
 
-    assert_eq!(exec.exec_system_id, "c2/ran");
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
 }
 
 #[test]
@@ -569,7 +569,7 @@ fn prepare_action_explicit_exec_source_entity_runs_from_that_system() {
         .prepare_action(action_request(&target_id, Some(&source_id)), &armory)
         .expect("explicit source entity should be used as execution target");
 
-    assert_eq!(exec.exec_system_id, "c2/ran");
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
     assert_eq!(exec.target_id, source_id);
     assert_eq!(exec.args.get("TARGET_ID").map(String::as_str), Some(target_id.as_str()));
 }
@@ -843,7 +843,7 @@ fn prepare_action_exec_system_same_as_target_still_uses_channel_hops() {
         .prepare_action(action_request(&redis_id, Some(&redis_id)), &minimal_armory("test-ttp"))
         .expect("should still resolve via channel path");
 
-    assert_eq!(exec.exec_system_id, "c2/ran");
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
     assert_eq!(exec.target_id, entry_id, "should exec into first hop, not target pod directly");
 }
 
@@ -898,7 +898,7 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
         )
         .expect("should route through in-cluster source");
 
-    assert_eq!(exec.exec_system_id, "c2/ran");
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
     assert_eq!(exec.target_id, entry_id, "fallback should exec into entry-hall, not redis directly");
 }
 
@@ -929,7 +929,7 @@ fn ip_placeholder_pod_merged_when_sa_token_reveals_real_name() {
     campaign.pods.insert(placeholder.entity_id(), placeholder);
 
     // Wire a k8s.can-exec relation C2 → placeholder.
-    push_exec_edge(&mut campaign, "c2/ran", &placeholder_id.0);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &placeholder_id.0);
 
     // Build a JWT whose claims name the real pod.
     let jwt = make_test_jwt(r#"{
@@ -991,7 +991,7 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
     campaign.pods.insert(placeholder.entity_id(), placeholder);
 
     // Exec relation points at placeholder (from network-scan phase).
-    push_exec_edge(&mut campaign, "c2/ran", &placeholder_id.0);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &placeholder_id.0);
 
     let jwt = make_test_jwt(r#"{
         "kubernetes.io": {

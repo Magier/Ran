@@ -7,7 +7,7 @@ use ran_domain::{
 };
 use serde::{Deserialize, Serialize};
 
-use c2::ExecTtp;
+use c2::{ExecTtp, BUILTIN_C2_ID};
 
 use crate::execution_record::ExecutionRecord;
 use crate::external_parser::SystemFieldUpdates;
@@ -218,7 +218,7 @@ impl Campaign {
                     .map(|id| id.0.clone())
                     .collect();
                 return Ok(ExecChannel {
-                    backend_id: "c2/ran".to_string(),
+                    backend_id: BUILTIN_C2_ID.to_string(),
                     hops,
                     exec_target_id: None,
                 });
@@ -231,7 +231,7 @@ impl Campaign {
             tgt == &target_eid && !self.pods.contains_key(src)
         });
         if direct {
-            return Ok(ExecChannel::direct("c2/ran"));
+            return Ok(ExecChannel::direct(BUILTIN_C2_ID));
         }
 
         // Priority 3: Dijkstra from C2-reachable pods (seeds) to target.
@@ -253,7 +253,7 @@ impl Campaign {
                 .iter()
                 .map(|id| id.0.clone())
                 .collect();
-            return Ok(ExecChannel { backend_id: "c2/ran".to_string(), hops, exec_target_id: None });
+            return Ok(ExecChannel { backend_id: BUILTIN_C2_ID.to_string(), hops, exec_target_id: None });
         }
 
         // Priority 4: target is a service account — resolve for the pod using it.
@@ -361,7 +361,7 @@ impl Campaign {
             .map(|r| &r.target_id)
             .find(|id| direct_reachable.contains(*id))
         {
-            let mut ch = ExecChannel::direct("c2/ran");
+            let mut ch = ExecChannel::direct(BUILTIN_C2_ID);
             ch.exec_target_id = Some(pod_id.clone());
             return Ok(ch);
         }
@@ -374,7 +374,7 @@ impl Campaign {
             .max_by_key(|p| p.system.access_level as u8);
 
         if let Some(pod) = best_access {
-            let mut ch = ExecChannel::direct("c2/ran");
+            let mut ch = ExecChannel::direct(BUILTIN_C2_ID);
             ch.exec_target_id = Some(pod.entity_id().0.clone());
             return Ok(ch);
         }
@@ -385,7 +385,7 @@ impl Campaign {
             .find(|id| self.pods.contains_key(&EntityId::new(*id)));
 
         if let Some(pod_id) = any_pod {
-            let mut ch = ExecChannel::direct("c2/ran");
+            let mut ch = ExecChannel::direct(BUILTIN_C2_ID);
             ch.exec_target_id = Some(pod_id.clone());
             return Ok(ch);
         }

@@ -42,7 +42,7 @@ pub enum ExecuteActionError {
 /// A resolved execution channel for a TTP.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecChannel {
-    /// C2 backend ID forwarded to the C2Manager (e.g. `"c2/ran"`).
+    /// C2 backend ID forwarded to the C2Manager (e.g. [`c2::BUILTIN_C2_ID`]).
     pub backend_id: String,
     /// Ordered list of intermediate pod entity IDs to kubectl-exec through,
     /// from the C2 side outward.

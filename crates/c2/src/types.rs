@@ -3,6 +3,9 @@ use std::collections::HashMap;
 use armory::{Procedure, Ttp};
 use serde::{Deserialize, Serialize};
 
+/// The backend ID for the built-in Ran C2.
+pub const BUILTIN_C2_ID: &str = "c2/ran";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecTtp {
     pub id: String,
