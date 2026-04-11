@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use campaign::{CampaignEventBus, ExecuteActionRequest};
-use ran_domain::Entity;
+use ran_domain::{Entity, ServiceAccount};
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Content, Implementation, JsonObject,
     ListToolsResult, ServerCapabilities, ServerInfo, Tool,
@@ -392,7 +392,7 @@ impl<S: ApiService> RanMcpHandler<S> {
         // RBAC permissions live on ServiceAccount entities, not on the system
         // entity itself. Look for a SA with this id.
         let campaign = self.api.get_campaign().await.map_err(api_err)?;
-        let sa = campaign.service_accounts.values().find(|sa| {
+        let sa = campaign.entities.values::<ServiceAccount>().find(|sa| {
             sa.entity_id().0 == entity_id
         });
         let entitlements = sa.map(|sa| &sa.entitlements[..]).unwrap_or(&[]);
