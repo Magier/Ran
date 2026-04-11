@@ -245,12 +245,40 @@ fn parse_runs_on_relation(
 
 fn parse_kubelet_exec_source_relation(
     args: &[&str],
-    _ctx: &HashMap<String, String>,
+    ctx: &HashMap<String, String>,
 ) -> Result<FactsUpdate, String> {
     if args.len() != 2 {
         return Err("kubelet-exec effect expects exactly 2 args".to_string());
     }
-    let rel = KubeletExecSource::new(args[0], args[1]);
+    // `sys` is a well-known placeholder for the entity that executed the TTP.
+    // Resolve it to the actual target entity ID stored in the context.
+    let src = if args[0].eq_ignore_ascii_case("sys") {
+        ctx.get("TARGET_ID")
+            .filter(|id| !id.is_empty())
+            .map(String::as_str)
+            .ok_or_else(|| {
+                "kubelet-exec: arg is 'sys' but TARGET_ID not present in context".to_string()
+            })?
+    } else {
+        args[0]
+    };
+    // `all(k8s.Node)` is a placeholder meaning "the node the executing pod runs on".
+    // Kubelet exec is always node-local, so we resolve to the specific node via context.
+    let tgt_raw = args[1].trim();
+    let tgt = if tgt_raw.eq_ignore_ascii_case("all(k8s.node)") {
+        ctx.get("TARGET_NODE_ID")
+            .filter(|id| !id.is_empty())
+            .map(String::as_str)
+            .ok_or_else(|| {
+                "kubelet-exec: arg is 'all(k8s.Node)' but TARGET_NODE_ID not in context \
+                 (is the executing pod assigned to a node?)"
+                    .to_string()
+            })?
+    } else {
+        tgt_raw
+    };
+
+    let rel = KubeletExecSource::new(src, tgt);
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],

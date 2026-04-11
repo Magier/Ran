@@ -15,8 +15,8 @@ use crate::{FactsUpdate, ParseResult};
 use crate::execution_record::ExecutionRecord;
 
 use super::{
-    Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest, ExecuteActionResult,
-    ExecutedActionEvent, TtpExecutionProcessing,
+    Campaign, CampaignSystemEntityRef, ExecChannel, ExecuteActionError, ExecuteActionRequest,
+    ExecuteActionResult, ExecutedActionEvent, TtpExecutionProcessing,
 };
 
 
@@ -530,10 +530,24 @@ impl Campaign {
         // Build the effect-parsing context: start with the TTP args and add
         // PROCEDURE_CMD so relation-effect handlers (e.g. rce.can-exec) that
         // need the executed command template can read it without special-casing.
+        // TARGET_ID resolves the `sys` placeholder used in relation effects like
+        // `k8s.kubelet-exec(sys, all(k8s.Node))` to the actual executing entity.
         let mut effect_ctx = cmd.args.clone();
         effect_ctx
             .entry("PROCEDURE_CMD".to_string())
             .or_insert_with(|| cmd.procedure.command.clone());
+        effect_ctx
+            .entry("TARGET_ID".to_string())
+            .or_insert_with(|| cmd.target_id.clone());
+        // TARGET_NODE_ID resolves `all(k8s.Node)` in kubelet-exec effects to the
+        // specific node the executing pod runs on (kubelet exec is always node-local).
+        if let Some(CampaignSystemEntityRef::Pod(pod)) = self.get_system_entity(&cmd.target_id) {
+            if let Some(ref node_name) = pod.node_name {
+                effect_ctx
+                    .entry("TARGET_NODE_ID".to_string())
+                    .or_insert_with(|| format!("node/{}", node_name));
+            }
+        }
 
         for effect in &cmd.ttp.effects {
             if let Some(parsed_output) = parse_output_effect(self, effect, cmd, event) {
