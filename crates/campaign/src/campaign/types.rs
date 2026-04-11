@@ -37,6 +37,9 @@ pub enum ExecuteActionError {
     NotFound(String),
     /// No viable execution channel was found in the knowledge graph for the target.
     NoExecChannel(String),
+    /// An internal invariant was violated. Indicates a programming error, not a
+    /// user-facing condition — surfaces as a 500 rather than panicking.
+    InvariantViolation(String),
 }
 
 /// A resolved execution channel for a TTP.
