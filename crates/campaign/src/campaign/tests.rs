@@ -467,6 +467,49 @@ fn resolve_exec_source_errors_with_no_reachable_pod() {
     assert!(result.is_err(), "should fail when no reachable pod exists");
 }
 
+#[test]
+fn resolve_exec_source_uses_node_as_direct_foothold() {
+    // A K8sNode that the C2 can exec into directly (e.g. via kubelet exec)
+    // should be returned as a valid lateral-movement source, not ignored.
+    use ran_domain::K8sNode;
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0.clone();
+    campaign.nodes.insert(node.entity_id(), node);
+    // Non-system source → node target exec edge.
+    push_exec_edge(&mut campaign, "sa/default/ran", &node_id);
+
+    let ch = campaign.resolve_exec_source().expect("node should be a valid exec source");
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
+    assert_eq!(ch.exec_target_id.as_deref(), Some(node_id.as_str()));
+}
+
+#[test]
+fn resolve_exec_channel_seeds_include_node_for_dijkstra() {
+    // When a Node is a direct foothold seed, Dijkstra should be able to route
+    // through it to reach a pod connected via an exec-channel edge.
+    use ran_domain::K8sNode;
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0.clone();
+    campaign.nodes.insert(node.entity_id(), node);
+
+    let target_pod = Pod::new("victim", "default");
+    let target_id = target_pod.entity_id().0.clone();
+    campaign.pods.insert(target_pod.entity_id(), target_pod);
+
+    // C2 → node (direct exec), node → victim pod (exec-channel edge).
+    push_exec_edge(&mut campaign, "sa/default/ran", &node_id);
+    push_exec_edge(&mut campaign, &node_id, &target_id);
+
+    let ch = campaign
+        .resolve_exec_channel(&target_id)
+        .expect("should route through node seed to victim pod");
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
+    assert_eq!(ch.hops, vec![node_id], "node should appear as the single hop");
+}
+
 // ---------------------------------------------------------------------------
 // prepare_action channel resolution tests
 // ---------------------------------------------------------------------------
