@@ -882,7 +882,7 @@ impl Campaign {
             preferred = %preferred_id.0,
             "merging IP-placeholder pod with discovered real pod identity"
         );
-        updates.entity_aliases.push((stale_id, preferred_id));
+        updates.entity_aliases.insert((stale_id, preferred_id));
     }
 
     fn select_procedure(

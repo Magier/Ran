@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use indexmap::IndexSet;
 use ran_domain::{Entity, EntityId, KubeletExecSource, Pod, PodExec, RceCanExec, Relation, RunsOn};
 
 use crate::grounding::resolve_template;
@@ -28,40 +29,35 @@ pub struct FactsUpdate {
     /// preferred entity, and the stale entity is removed from campaign state.
     /// Used when a placeholder entity (e.g. IP-derived pod name from a network
     /// scan) is later identified as an already-known named entity.
-    pub entity_aliases: Vec<(EntityId, EntityId)>,
+    pub entity_aliases: IndexSet<(EntityId, EntityId)>,
 }
 
 impl FactsUpdate {
     pub fn merge(&mut self, other: Self) {
+        // Build O(1)-lookup sets from existing entries so each item from `other`
+        // is checked in O(1) rather than O(n), avoiding the previous O(n²) scan.
+        let seen_entities: IndexSet<EntityId> =
+            self.new_entities.iter().map(|e| e.entity_id()).collect();
         for entity in other.new_entities {
-            let id = entity.entity_id();
-            let exists = self.new_entities.iter().any(|e| e.entity_id() == id);
-            if !exists {
+            if !seen_entities.contains(&entity.entity_id()) {
                 self.new_entities.push(entity);
             }
         }
 
+        let seen_relations: IndexSet<(String, EntityId, EntityId)> = self
+            .new_relations
+            .iter()
+            .map(|r| (r.relation_name().to_string(), r.source_id().clone(), r.target_id().clone()))
+            .collect();
         for rel in other.new_relations {
-            let name = rel.relation_name().to_string();
-            let source_id = rel.source_id().0.clone();
-            let target_id = rel.target_id().0.clone();
-
-            let exists = self.new_relations.iter().any(|r| {
-                r.relation_name() == name
-                    && r.source_id().0 == source_id
-                    && r.target_id().0 == target_id
-            });
-            if !exists {
+            let key = (rel.relation_name().to_string(), rel.source_id().clone(), rel.target_id().clone());
+            if !seen_relations.contains(&key) {
                 self.new_relations.push(rel);
             }
         }
 
-        for alias in other.entity_aliases {
-            let exists = self.entity_aliases.iter().any(|(s, p)| *s == alias.0 && *p == alias.1);
-            if !exists {
-                self.entity_aliases.push(alias);
-            }
-        }
+        // IndexSet::insert handles dedup natively — no scan needed.
+        self.entity_aliases.extend(other.entity_aliases);
     }
 }
 
@@ -180,7 +176,7 @@ fn parse_k8s_pod(args: &HashMap<String, String>) -> Result<FactsUpdate, String> 
     Ok(FactsUpdate {
         new_entities: vec![Box::new(pod)],
         new_relations: Vec::new(),
-        entity_aliases: Vec::new(),
+        entity_aliases: IndexSet::new(),
     })
 }
 
@@ -228,7 +224,7 @@ fn parse_k8s_can_exec_relation(
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
-        entity_aliases: Vec::new(),
+        entity_aliases: IndexSet::new(),
     })
 }
 
@@ -243,7 +239,7 @@ fn parse_runs_on_relation(
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
-        entity_aliases: Vec::new(),
+        entity_aliases: IndexSet::new(),
     })
 }
 
@@ -258,7 +254,7 @@ fn parse_kubelet_exec_source_relation(
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
-        entity_aliases: Vec::new(),
+        entity_aliases: IndexSet::new(),
     })
 }
 
@@ -278,7 +274,7 @@ fn parse_rce_can_exec_relation(
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
-        entity_aliases: Vec::new(),
+        entity_aliases: IndexSet::new(),
     })
 }
 
