@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{BinaryPresence, EntityId, Merge};
@@ -13,156 +15,186 @@ use crate::{FactsUpdate, ParseResult};
 use crate::execution_record::ExecutionRecord;
 
 use super::{
-    Campaign, ExecuteActionError, ExecuteActionRequest, ExecuteActionResult, ExecutedActionEvent,
-    TtpExecutionProcessing,
+    Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest, ExecuteActionResult,
+    ExecutedActionEvent, TtpExecutionProcessing,
 };
 
+
+// ---------------------------------------------------------------------------
+// Pipeline stage helpers (free functions)
+// ---------------------------------------------------------------------------
+
+fn validate_request(request: &ExecuteActionRequest) -> Result<(), ExecuteActionError> {
+    if request.action_id.trim().is_empty() || request.target_id.trim().is_empty() {
+        return Err(ExecuteActionError::InvalidInput(
+            "actionId and targetId are required".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn resolve_ttp_and_defaults(
+    action_id: &str,
+    mut args: HashMap<String, String>,
+    armory: &Armory,
+) -> Result<(Ttp, HashMap<String, String>), ExecuteActionError> {
+    let ttp = armory
+        .get_ttp(action_id)
+        .cloned()
+        .ok_or_else(|| ExecuteActionError::NotFound(format!("No TTP with ID '{}' found", action_id)))?;
+    for p in &ttp.params {
+        if !args.contains_key(&p.name) && !p.default.is_empty() {
+            args.insert(p.name.clone(), p.default.clone());
+        }
+    }
+    Ok((ttp, args))
+}
+
+/// Normalise the caller-supplied `exec_system_id` hint.
+///
+/// Treats missing, whitespace-only, or "same as target" values as unspecified
+/// so that channel resolution can apply its own logic without special-casing
+/// the common UI default of echoing the target ID back.
+fn normalise_exec_hint(exec_system_id: Option<&str>, target_id: &str) -> Option<String> {
+    exec_system_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != target_id)
+        .map(str::to_string)
+}
+
+/// Ground the procedure command and all TTP effects with the collected args.
+///
+/// Emits a structured warning for every variable that remains unresolved after
+/// all passes (except `${CMD}`, which is intentionally preserved as the
+/// hop-injection slot).
+///
+/// Also mints `PROCEDURE_CMD` in `args`: the command template grounded with all
+/// args *except* CMD, so that effect handlers (e.g. `rce.can-exec`) can read
+/// the full executed-command string from the args context.
+fn ground_procedure_and_effects(
+    procedure: &mut Procedure,
+    effects: &mut Vec<String>,
+    args: &mut HashMap<String, String>,
+    ttp_id: &str,
+) {
+    let envelope_args: HashMap<_, _> = args
+        .iter()
+        .filter(|(k, _)| k.to_uppercase() != "CMD")
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let envelope = ground_template(&procedure.command, &envelope_args);
+    args.entry("PROCEDURE_CMD".to_string()).or_insert(envelope);
+
+    procedure.command = ground_template(&procedure.command, args);
+    for effect in effects.iter_mut() {
+        *effect = ground_template(effect, args);
+    }
+
+    for var in detect_ungrounded_vars(&procedure.command)
+        .into_iter()
+        .filter(|v| v != "CMD")
+    {
+        tracing::warn!(
+            ttp_id,
+            var,
+            "ungrounded variable in procedure command — \
+             check TTP params or target entity context"
+        );
+    }
+}
+
+/// Route a Lateral Movement action to the pre-resolved execution source.
+///
+/// Lateral Movement TTPs CREATE the exec edge to the victim rather than
+/// requiring one to exist; they run FROM the compromised source.  The channel
+/// was resolved (and `SRC` injected) in [`Campaign::resolve_lateral_src`]
+/// before grounding so that effect strings like
+/// `rce.can-exec(${SRC}, ${TARGET_ID})` are fully grounded.
+fn route_lateral_movement(
+    lateral_src: Option<ExecChannel>,
+    target_id: &str,
+) -> Result<(String, String), ExecuteActionError> {
+    let ch = lateral_src.ok_or_else(|| {
+        ExecuteActionError::InvariantViolation(
+            "lateral movement exec source should have been resolved before routing".to_string(),
+        )
+    })?;
+    let exec_target = ch.exec_target_id.clone().unwrap_or_else(|| target_id.to_string());
+
+    tracing::info!(
+        target_id = %target_id,
+        selected_source = %exec_target,
+        backend_id = %ch.backend_id,
+        chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
+        "selected lateral-movement execution chain"
+    );
+    Ok((ch.backend_id, exec_target))
+}
+
+fn current_time_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// Campaign impl — action preparation pipeline
+// ---------------------------------------------------------------------------
+
 impl Campaign {
+    /// Prepare a TTP action for execution via a clean six-stage pipeline.
+    ///
+    /// ```text
+    /// validate_request        — reject empty IDs immediately
+    ///   → assert_target_exists  — target must be in the campaign
+    ///   → resolve_ttp_and_defaults — TTP lookup + param default filling
+    ///   → ground_args_from_context — NS / NODE / TOKEN injection from entity
+    ///   → resolve_lateral_src  — unified SRC injection for Lateral Movement
+    ///   → ground_procedure_and_effects — Tera + ${} substitution, GroundingReport
+    ///   → route_exec_channel   — select C2 backend + optional hop wrapping
+    /// ```
+    ///
+    /// Each stage takes typed inputs and returns typed outputs; errors short-
+    /// circuit via `?`.  `${SRC}` is injected exactly once (in
+    /// `resolve_lateral_src`) so there is no risk of the two old injection sites
+    /// conflicting.
     pub fn prepare_action(
         &mut self,
         request: ExecuteActionRequest,
         armory: &Armory,
     ) -> Result<ExecTtp, ExecuteActionError> {
-        if request.action_id.trim().is_empty() || request.target_id.trim().is_empty() {
-            return Err(ExecuteActionError::InvalidInput(
-                "actionId and targetId are required".to_string(),
-            ));
-        }
+        // Stage 1: validate inputs and look up static data.
+        validate_request(&request)?;
+        self.assert_target_exists(&request.target_id)?;
+        let (mut ttp, mut args) =
+            resolve_ttp_and_defaults(&request.action_id, request.args, armory)?;
 
-        let target_exists = self
-            .get_entities()
-            .into_iter()
-            .any(|entity| entity.entity_id().0 == request.target_id);
-        if !target_exists {
-            return Err(ExecuteActionError::NotFound(format!(
-                "failed to get target entity: {}",
-                request.target_id
-            )));
-        }
+        // Stage 2: normalise the caller-supplied routing hint.
+        let exec_hint = normalise_exec_hint(request.exec_system_id.as_deref(), &request.target_id);
 
-        let mut ttp = armory
-            .get_ttp(&request.action_id)
-            .cloned()
-            .ok_or_else(|| {
-                ExecuteActionError::NotFound(format!(
-                    "No TTP with ID '{}' found",
-                    request.action_id
-                ))
-            })?;
-
-        let mut args = request.args;
-        for p in &ttp.params {
-            if !args.contains_key(&p.name) && !p.default.is_empty() {
-                args.insert(p.name.clone(), p.default.clone());
-            }
-        }
-
-        // Resolve context-aware variables (NS, POD_NAME, NODE, RANDOM) from
-        // the target entity before template substitution so that cross-param
-        // references like `${NS}` in other arg defaults resolve correctly.
+        // Stage 3: inject context args (NS / NODE / TOKEN) from the target entity
+        // before template substitution so cross-param references like `${NS}` in
+        // arg defaults resolve correctly.
         ground_args_from_context(&mut args, &request.target_id, self);
 
-        // Treat `exec_system_id == target_id` as implicit/unspecified. The UI
-        // often sends this value by default, but for remote targets we still
-        // need full channel resolution and hop wrapping.
-        let normalized_exec_system_id: Option<String> = request
-            .exec_system_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && *s != request.target_id.as_str())
-            .map(str::to_string);
+        // Stage 4: resolve lateral-movement source and inject SRC — single,
+        // authoritative site.  For non-lateral TTPs this is a no-op.
+        let lateral_src = self.resolve_lateral_src(&ttp.tactic, exec_hint.as_deref(), &mut args)?;
 
-        // Pre-resolve the lateral movement exec source so that ${SRC}/${src}
-        // is available when the effect strings are grounded below.  Lateral
-        // Movement TTPs run FROM a compromised pod, so the source pod entity
-        // ID is the value that these vars, used in effects like
-        // `rce.can-exec(${SRC}, ${TARGET_ID})`, should resolve to.
-        let preselected_lateral_src = if is_lateral_movement_tactic(&ttp.tactic) {
-            normalized_exec_system_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .and_then(|s| {
-                    if self.get_system_entity(s).is_some() {
-                        Some(s.to_string())
-                    } else {
-                        None
-                    }
-                })
-        } else {
-            None
-        };
-
-        if let Some(src_id) = &preselected_lateral_src {
-            args.insert("SRC".to_string(), src_id.clone());
-            args.insert("src".to_string(), src_id.clone());
-        }
-
-        let pre_resolved_src: Option<super::ExecChannel> =
-            if normalized_exec_system_id
-                .as_deref()
-                .map(|s| s.trim().is_empty())
-                .unwrap_or(true)
-                && is_lateral_movement_tactic(&ttp.tactic)
-            {
-                let ch = self
-                    .resolve_exec_source()
-                    .map_err(ExecuteActionError::NoExecChannel)?;
-                if let Some(ref src_id) = ch.exec_target_id {
-                    args.insert("SRC".to_string(), src_id.clone());
-                    args.insert("src".to_string(), src_id.clone());
-                }
-                Some(ch)
-            } else {
-                None
-            };
-
-        // Inject TARGET_ID — the canonical graph entity ID of the target — so
-        // that effect strings like `rce.can-exec(${SRC}, ${TARGET_ID})` record
-        // the relation with the correct ID even when ${TARGET} holds an IP.
+        // Stage 5: inject TARGET_ID then ground the procedure command and effects.
         args.entry("TARGET_ID".to_string())
             .or_insert_with(|| request.target_id.clone());
-
         let mut procedure = self.select_procedure(&ttp, request.procedure_id.as_deref())?;
+        ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
 
-        // Compute the wrapping envelope before fully grounding the command.
-        // Ground every arg *except* CMD so that the ${CMD} placeholder is
-        // preserved as the injection slot for future commands routed over this
-        // hop (e.g. rce.can-exec).  Any effect handler that needs it reads
-        // PROCEDURE_CMD from the args context.
-        {
-            let envelope_args: std::collections::HashMap<_, _> = args
-                .iter()
-                .filter(|(k, _)| k.to_uppercase() != "CMD")
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            let envelope = ground_template(&procedure.command, &envelope_args);
-            args.entry("PROCEDURE_CMD".to_string()).or_insert(envelope);
-        }
-
-        procedure.command = ground_template(&procedure.command, &args);
-
-        for effect in &mut ttp.effects {
-            *effect = ground_template(effect, &args);
-        }
-
-        // Warn about any variables that were not resolved.
-        for var in detect_ungrounded_vars(&procedure.command) {
-            tracing::warn!(var, "ungrounded variable remaining in command after grounding");
-        }
-
-        tracing::debug!(
-            "exec_system_id before backend selection: '{}'",
-            normalized_exec_system_id.as_deref().unwrap_or("")
-        );
-
-        let (exec_system_id, resolved_target_id) = self.resolve_c2_channel(
-            request.action_id.as_str(),
-            request.target_id.as_str(),
-            &ttp,
+        // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
+        let (exec_system_id, resolved_target_id) = self.route_exec_channel(
+            &request.target_id,
+            &ttp.tactic,
             &mut procedure,
-            normalized_exec_system_id.as_deref(),
-            pre_resolved_src,
+            exec_hint.as_deref(),
+            lateral_src,
         )?;
 
         tracing::debug!("final grounded command: '{}'", procedure.command);
@@ -174,133 +206,200 @@ impl Campaign {
             args,
             target_id: resolved_target_id,
             exec_system_id,
-            started_at_ms: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0),
+            started_at_ms: current_time_millis(),
         })
     }
 
-    fn resolve_c2_channel(
+    fn assert_target_exists(&self, target_id: &str) -> Result<(), ExecuteActionError> {
+        let exists = self
+            .get_entities()
+            .into_iter()
+            .any(|entity| entity.entity_id().0 == target_id);
+        if !exists {
+            return Err(ExecuteActionError::NotFound(format!(
+                "failed to get target entity: {}",
+                target_id
+            )));
+        }
+        Ok(())
+    }
+
+    /// Resolve the lateral-movement execution source and inject `SRC`/`src`
+    /// into `args`.
+    ///
+    /// This is the **single** place where `${SRC}` is injected for Lateral
+    /// Movement TTPs.  The old code had two separate injection sites — one for a
+    /// caller-supplied entity hint and one for the graph-resolved source — that
+    /// could conflict when both conditions were true.  They are unified here.
+    ///
+    /// Returns the resolved [`ExecChannel`] so [`route_exec_channel`] can reuse
+    /// it without hitting the graph a second time.  Returns `Ok(None)` for
+    /// non-lateral TTPs.
+    fn resolve_lateral_src(
         &self,
-        action_id: &str,
+        tactic: &str,
+        exec_hint: Option<&str>,
+        args: &mut HashMap<String, String>,
+    ) -> Result<Option<ExecChannel>, ExecuteActionError> {
+        if !is_lateral_movement_tactic(tactic) {
+            return Ok(None);
+        }
+
+        // Case A: caller explicitly nominated a source that is a known system entity.
+        if let Some(hint) = exec_hint {
+            if self.get_system_entity(hint).is_some() {
+                args.insert("SRC".to_string(), hint.to_string());
+                args.insert("src".to_string(), hint.to_string());
+                return Ok(Some(ExecChannel {
+                    backend_id: BUILTIN_C2_ID.to_string(),
+                    exec_target_id: Some(hint.to_string()),
+                    hops: vec![],
+                }));
+            }
+        }
+
+        // Case B: auto-resolve from the graph (no hint, or hint is not a known
+        // system entity — treated as a backend ID, which doesn't give us a SRC).
+        let ch = self
+            .resolve_exec_source()
+            .map_err(ExecuteActionError::NoExecChannel)?;
+        if let Some(ref src_id) = ch.exec_target_id {
+            args.insert("SRC".to_string(), src_id.clone());
+            args.insert("src".to_string(), src_id.clone());
+        }
+        Ok(Some(ch))
+    }
+
+    /// Select a C2 backend and return `(exec_system_id, resolved_target_id)`.
+    ///
+    /// Decision order (first matching branch wins):
+    /// 1. Caller supplied a non-empty exec hint → [`route_caller_supplied`].
+    /// 2. Lateral Movement tactic → [`route_lateral_movement`] (uses pre-resolved src).
+    /// 3. Remote channel needed (tactic / procedure flag) → [`route_remote`].
+    /// 4. Everything else → [`route_fallback`] (pod targets get in-cluster source).
+    fn route_exec_channel(
+        &mut self,
         target_id: &str,
-        ttp: &Ttp,
+        tactic: &str,
         procedure: &mut Procedure,
-        normalized_exec_system_id: Option<&str>,
-        pre_resolved_src: Option<super::ExecChannel>,
+        exec_hint: Option<&str>,
+        lateral_src: Option<ExecChannel>,
     ) -> Result<(String, String), ExecuteActionError> {
-        match normalized_exec_system_id {
-            Some(id) if !id.trim().is_empty() => {
-                // API callers may pass an entity ID (where the command should run)
-                // or a backend ID. If this matches a known system entity, treat it
-                // as an execution source and route through the builtin backend.
-                if self.get_system_entity(id).is_some() {
-                    tracing::info!(
-                        logical_target = %target_id,
-                        selected_source = %id,
-                        backend_id = %BUILTIN_C2_ID,
-                        chain = %format_exec_chain(BUILTIN_C2_ID, &[], id),
-                        "using caller-supplied exec source entity"
-                    );
-                    Ok((BUILTIN_C2_ID.to_string(), id.to_string()))
-                } else {
-                    tracing::info!(
-                        target_id = %target_id,
-                        backend_id = %id,
-                        chain = %format_exec_chain(id, &[], target_id),
-                        "using caller-supplied exec backend"
-                    );
-                    Ok((id.to_string(), target_id.to_string()))
-                }
-            }
-            _ if is_lateral_movement_tactic(&ttp.tactic) => {
-                // Lateral Movement TTPs run FROM an already-compromised pod and
-                // CREATE the exec edge to the target — they must not require a
-                // pre-existing channel to the victim.  The source was resolved
-                // above so ${SRC} is grounded in effects; use the same channel
-                // here to target the source pod for kubectl exec.
-                let ch = pre_resolved_src
-                    .ok_or_else(|| ExecuteActionError::InvariantViolation(
-                        "lateral movement exec source should have been resolved before \
-                         reaching resolve_c2_channel".to_string(),
-                    ))?;
-                let exec_target = ch.exec_target_id.unwrap_or(target_id.to_string());
+        tracing::debug!(
+            "exec_system_id before backend selection: '{}'",
+            exec_hint.unwrap_or("")
+        );
 
-                tracing::warn!("lateral movement tactic detected; targeting exec to source entity {} via channel with backend {}",
-                    exec_target, ch.backend_id);
-                tracing::info!(
-                    target_id = %target_id,
-                    selected_source = %exec_target,
-                    backend_id = %ch.backend_id,
-                    chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
-                    "selected lateral-movement execution chain"
-                );
+        if let Some(hint) = exec_hint.filter(|s| !s.trim().is_empty()) {
+            return self.route_caller_supplied(hint, target_id);
+        }
 
-                Ok((ch.backend_id, exec_target))
-            }
-            _ if needs_remote_channel(procedure, &ttp.tactic) => {
-                let ch = self
-                    .resolve_exec_channel(target_id)
-                    .map_err(ExecuteActionError::NoExecChannel)?;
-                let exec_target = ch.exec_target_id.clone().unwrap_or(target_id.to_string());
+        if is_lateral_movement_tactic(tactic) {
+            return route_lateral_movement(lateral_src, target_id);
+        }
 
-                tracing::warn!(
-                    target_id = %target_id,
-                    exec_target = %exec_target,
-                    "resolved exec channel for action target",
-                );
-                tracing::info!("channel backend: {}, hops: {:?}", ch.backend_id, ch.hops);
-                tracing::info!(
-                    target_id = %target_id,
-                    backend_id = %ch.backend_id,
-                    chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
-                    "selected remote execution chain"
-                );
+        if needs_remote_channel(procedure, tactic) {
+            return self.route_remote(target_id, procedure);
+        }
 
-                if ch.hops.is_empty() {
-                    // Direct path: C2 can reach the target without any hop.
-                    // Ground the procedure binary against the target pod's binary
-                    // map so non-standard install paths (e.g. /tmp/kubectl) are
-                    // used correctly.
-                    let tgt_id = EntityId::new(exec_target.as_str());
-                    if let Some(pod) = self.pods.get(&tgt_id) {
-                        procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
-                    }
-                    Ok((ch.backend_id, exec_target))
-                } else {
-                    self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str());
-                    Ok((ch.backend_id, ch.hops[0].clone()))
-                }
+        self.route_fallback(target_id)
+    }
+
+    /// Route to a caller-supplied system entity or C2 backend ID.
+    ///
+    /// If the hint resolves to a known system entity it becomes the execution
+    /// target (via the builtin C2); otherwise it is treated as an explicit
+    /// backend ID and the logical target is kept unchanged.
+    fn route_caller_supplied(
+        &self,
+        hint: &str,
+        target_id: &str,
+    ) -> Result<(String, String), ExecuteActionError> {
+        if self.get_system_entity(hint).is_some() {
+            tracing::info!(
+                logical_target = %target_id,
+                selected_source = %hint,
+                backend_id = %BUILTIN_C2_ID,
+                chain = %format_exec_chain(BUILTIN_C2_ID, &[], hint),
+                "using caller-supplied exec source entity"
+            );
+            Ok((BUILTIN_C2_ID.to_string(), hint.to_string()))
+        } else {
+            tracing::info!(
+                target_id = %target_id,
+                backend_id = %hint,
+                chain = %format_exec_chain(hint, &[], target_id),
+                "using caller-supplied exec backend"
+            );
+            Ok((hint.to_string(), target_id.to_string()))
+        }
+    }
+
+    /// Route through a graph-resolved exec channel, wrapping the command for
+    /// any intermediate hops.
+    fn route_remote(
+        &mut self,
+        target_id: &str,
+        procedure: &mut Procedure,
+    ) -> Result<(String, String), ExecuteActionError> {
+        let ch = self
+            .resolve_exec_channel(target_id)
+            .map_err(ExecuteActionError::NoExecChannel)?;
+        let exec_target = ch.exec_target_id.clone().unwrap_or_else(|| target_id.to_string());
+
+        tracing::warn!(
+            target_id = %target_id,
+            exec_target = %exec_target,
+            "resolved exec channel for action target",
+        );
+        tracing::info!("channel backend: {}, hops: {:?}", ch.backend_id, ch.hops);
+        tracing::info!(
+            target_id = %target_id,
+            backend_id = %ch.backend_id,
+            chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
+            "selected remote execution chain"
+        );
+
+        if ch.hops.is_empty() {
+            // Direct path: C2 can reach the target without any hop.
+            // Ground the procedure binary against the target pod's binary
+            // map so non-standard install paths (e.g. /tmp/kubectl) are used correctly.
+            let tgt_id = EntityId::new(exec_target.as_str());
+            if let Some(pod) = self.pods.get(&tgt_id) {
+                procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
             }
-            _ => {
-                // Safety fallback: if the logical target is a pod and no explicit
-                // exec system was provided, prefer executing FROM an in-cluster
-                // foothold rather than directly from Ran.
-                let target_eid = EntityId::new(target_id);
-                if self.pods.contains_key(&target_eid) {
-                    tracing::warn!(
-                        target_id = %target_id,
-                        action_id = %action_id,
-                        tactic = %ttp.tactic,
-                        "no explicit exec channel selected for pod target; falling back to in-cluster source"
-                    );
-                    let ch = self
-                        .resolve_exec_source()
-                        .map_err(ExecuteActionError::NoExecChannel)?;
-                    let exec_target = ch.exec_target_id.unwrap_or(target_id.to_string());
-                    tracing::info!(
-                        target_id = %target_id,
-                        selected_source = %exec_target,
-                        backend_id = %ch.backend_id,
-                        chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
-                        "pod fallback source selected"
-                    );
-                    Ok((ch.backend_id, exec_target))
-                } else {
-                    Ok((String::new(), target_id.to_string()))
-                }
-            }
+            Ok((ch.backend_id, exec_target))
+        } else {
+            let first_hop = ch.hops[0].clone();
+            self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str());
+            Ok((ch.backend_id, first_hop))
+        }
+    }
+
+    /// Safety fallback: pod targets get an in-cluster execution source when no
+    /// explicit channel was selected; all other targets get an empty backend
+    /// (the C2 side will execute directly against the target).
+    fn route_fallback(&self, target_id: &str) -> Result<(String, String), ExecuteActionError> {
+        let target_eid = EntityId::new(target_id);
+        if self.pods.contains_key(&target_eid) {
+            tracing::warn!(
+                target_id = %target_id,
+                "no explicit exec channel selected for pod target; falling back to in-cluster source"
+            );
+            let ch = self
+                .resolve_exec_source()
+                .map_err(ExecuteActionError::NoExecChannel)?;
+            let exec_target = ch.exec_target_id.unwrap_or_else(|| target_id.to_string());
+            tracing::info!(
+                target_id = %target_id,
+                selected_source = %exec_target,
+                backend_id = %ch.backend_id,
+                chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
+                "pod fallback source selected"
+            );
+            Ok((ch.backend_id, exec_target))
+        } else {
+            Ok((String::new(), target_id.to_string()))
         }
     }
 
