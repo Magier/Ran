@@ -221,7 +221,10 @@ impl Campaign {
                 // above so ${SRC} is grounded in effects; use the same channel
                 // here to target the source pod for kubectl exec.
                 let ch = pre_resolved_src
-                    .expect("lateral movement exec source resolved above");
+                    .ok_or_else(|| ExecuteActionError::InvariantViolation(
+                        "lateral movement exec source should have been resolved before \
+                         reaching resolve_c2_channel".to_string(),
+                    ))?;
                 let exec_target = ch.exec_target_id.unwrap_or(target_id.to_string());
 
                 tracing::warn!("lateral movement tactic detected; targeting exec to source entity {} via channel with backend {}",

@@ -263,6 +263,16 @@ impl ApiService for AppState {
                             },
                         }
                     }
+                    ExecuteActionError::InvariantViolation(message) => {
+                        error!("execute_action invariant violation: {}", message);
+                        ApiError {
+                            status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                            body: api::ErrorResponse {
+                                error: message,
+                                details: None,
+                            },
+                        }
+                    }
                 }
             })?;
             campaign.add_open_step(exec.clone());
