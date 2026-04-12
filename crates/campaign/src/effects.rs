@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use indexmap::IndexSet;
-use ran_domain::{Entity, EntityId, KubeletExecSource, Pod, PodExec, RceCanExec, Relation, RunsOn};
+use ran_domain::{
+    CanReach, CronJob, Entity, EntityId, K8sRole, K8sRoleBinding, KubeletExecSource, Pod, PodExec,
+    RbacPermission, RbacSubject, RceCanExec, Relation, RunsOn, ServiceAccount,
+};
 
 use crate::grounding::resolve_template;
 
@@ -180,6 +183,154 @@ fn parse_k8s_pod(args: &HashMap<String, String>) -> Result<FactsUpdate, String> 
     })
 }
 
+fn parse_k8s_serviceaccount(args: &HashMap<String, String>) -> Result<FactsUpdate, String> {
+    let namespace = get_arg(args, &["Namespace", "NAMESPACE"])
+        .ok_or_else(|| "k8s.serviceaccount effect requires Namespace argument".to_string())?;
+
+    let sa_name = get_arg(args, &["ServiceAccountName", "SA_NAME", "SERVICEACCOUNTNAME"])
+        .ok_or_else(|| "k8s.serviceaccount effect requires ServiceAccountName argument".to_string())?;
+
+    let mut sa = ServiceAccount::new(sa_name, namespace);
+
+    if let Some(raw_token) = get_arg(args, &["Token", "TOKEN"]) {
+        if !raw_token.is_empty() {
+            use ran_domain::{JwToken, ServiceAccountToken};
+            sa.token = Some(ServiceAccountToken {
+                jwt: JwToken { raw: raw_token.to_string(), ..Default::default() },
+                namespace: namespace.to_string(),
+                service_account_name: sa_name.to_string(),
+                ..Default::default()
+            });
+        }
+    }
+
+    Ok(FactsUpdate {
+        new_entities: vec![Box::new(sa)],
+        new_relations: Vec::new(),
+        entity_aliases: IndexSet::new(),
+    })
+}
+
+fn parse_k8s_role(args: &HashMap<String, String>) -> Result<FactsUpdate, String> {
+    let namespace = get_arg(args, &["Namespace", "NAMESPACE"])
+        .ok_or_else(|| "k8s.role effect requires Namespace argument".to_string())?;
+
+    let role_name = get_arg(args, &["RoleName", "ROLENAME", "ROLE_NAME"])
+        .ok_or_else(|| "k8s.role effect requires RoleName argument".to_string())?;
+
+    let mut role = K8sRole::new(role_name, namespace);
+
+    if let Some(rules_json) = get_arg(args, &["Rules", "RULES"]) {
+        role.permissions = parse_rules_json(rules_json);
+    }
+
+    Ok(FactsUpdate {
+        new_entities: vec![Box::new(role)],
+        new_relations: Vec::new(),
+        entity_aliases: IndexSet::new(),
+    })
+}
+
+fn parse_k8s_rolebinding(args: &HashMap<String, String>) -> Result<FactsUpdate, String> {
+    let namespace = get_arg(args, &["Namespace", "NAMESPACE"])
+        .ok_or_else(|| "k8s.rolebinding effect requires Namespace argument".to_string())?;
+
+    let binding_name = get_arg(args, &["BindingName", "BINDINGNAME", "BINDING_NAME"])
+        .ok_or_else(|| "k8s.rolebinding effect requires BindingName argument".to_string())?;
+
+    let mut binding = K8sRoleBinding::new(binding_name, namespace);
+
+    if let Some(role_ref) = get_arg(args, &["RoleRef", "ROLEREF", "ROLE_REF"]) {
+        binding.role_ref = role_ref.to_string();
+    }
+
+    if let Some(subjects_json) = get_arg(args, &["Subjects", "SUBJECTS"]) {
+        binding.subjects = parse_subjects_json(subjects_json);
+    }
+
+    Ok(FactsUpdate {
+        new_entities: vec![Box::new(binding)],
+        new_relations: Vec::new(),
+        entity_aliases: IndexSet::new(),
+    })
+}
+
+fn parse_k8s_cronjob(args: &HashMap<String, String>) -> Result<FactsUpdate, String> {
+    let namespace = get_arg(args, &["Namespace", "NAMESPACE"])
+        .ok_or_else(|| "k8s.cronjob effect requires Namespace argument".to_string())?;
+
+    let name = get_arg(args, &["CronJobName", "CRONJOBNAME", "CRONJOB_NAME"])
+        .ok_or_else(|| "k8s.cronjob effect requires CronJobName argument".to_string())?;
+
+    let mut cj = CronJob::new(name, namespace);
+
+    if let Some(schedule) = get_arg(args, &["Schedule", "SCHEDULE"]) {
+        if !schedule.is_empty() {
+            cj.schedule = Some(schedule.to_string());
+        }
+    }
+
+    Ok(FactsUpdate {
+        new_entities: vec![Box::new(cj)],
+        new_relations: Vec::new(),
+        entity_aliases: IndexSet::new(),
+    })
+}
+
+/// Parse a JSON array of RBAC rule objects into `RbacPermission` entries.
+///
+/// Expected format (same schema as `k8s.selfsubjectrulesreview` output):
+/// ```json
+/// [{"verbs":["get","list"],"resources":["pods"],"apiGroups":[""]}]
+/// ```
+fn parse_rules_json(json: &str) -> Vec<RbacPermission> {
+    let json = json.trim();
+    if json.is_empty() || json == "[]" || json == "null" {
+        return Vec::new();
+    }
+
+    #[derive(serde::Deserialize)]
+    struct RuleEntry {
+        #[serde(default)]
+        verbs: Vec<String>,
+        #[serde(default)]
+        resources: Vec<String>,
+        #[serde(rename = "apiGroups", default)]
+        api_groups: Vec<String>,
+    }
+
+    let Ok(entries) = serde_json::from_str::<Vec<RuleEntry>>(json) else {
+        return Vec::new();
+    };
+
+    let mut perms = Vec::new();
+    for entry in entries {
+        for verb in &entry.verbs {
+            for resource in &entry.resources {
+                let mut perm = RbacPermission::new(verb.clone(), resource.clone());
+                perm.api_group = entry.api_groups.first().cloned();
+                perms.push(perm);
+            }
+        }
+    }
+    perms
+}
+
+/// Parse a JSON array of subject objects into `RbacSubject` entries.
+///
+/// Expected format:
+/// ```json
+/// [{"kind":"ServiceAccount","name":"my-sa","namespace":"default"}]
+/// ```
+fn parse_subjects_json(json: &str) -> Vec<RbacSubject> {
+    let json = json.trim();
+    if json.is_empty() || json == "[]" || json == "null" {
+        return Vec::new();
+    }
+
+    serde_json::from_str::<Vec<RbacSubject>>(json).unwrap_or_default()
+}
+
 fn parse_relation_effect(effect: &str, ctx: &HashMap<String, String>) -> Result<ParsedStructuralEffect, String> {
     let (name, args) = split_relation(effect)?;
 
@@ -199,6 +350,10 @@ fn parse_relation_effect(effect: &str, ctx: &HashMap<String, String>) -> Result<
 fn resolve_simple_effect_handler(effect_name: &str) -> Option<SimpleEffectHandler> {
     match normalize_effect_name(effect_name).as_str() {
         "k8s.pod" => Some(parse_k8s_pod),
+        "k8s.serviceaccount" => Some(parse_k8s_serviceaccount),
+        "k8s.role" => Some(parse_k8s_role),
+        "k8s.rolebinding" => Some(parse_k8s_rolebinding),
+        "k8s.cronjob" => Some(parse_k8s_cronjob),
         _ => None,
     }
 }
@@ -206,6 +361,7 @@ fn resolve_simple_effect_handler(effect_name: &str) -> Option<SimpleEffectHandle
 fn resolve_relation_effect_handler(effect_name: &str) -> Option<RelationEffectHandler> {
     match normalize_effect_name(effect_name).as_str() {
         "k8s.can-exec" => Some(parse_k8s_can_exec_relation),
+        "k8s.can-reach" => Some(parse_k8s_can_reach_relation),
         "k8s.runs-on" | "runs-on" => Some(parse_runs_on_relation),
         "k8s.kubelet-exec-source" | "k8s.kubelet-exec" => Some(parse_kubelet_exec_source_relation),
         "rce.can-exec" => Some(parse_rce_can_exec_relation),
@@ -221,6 +377,21 @@ fn parse_k8s_can_exec_relation(
         return Err("k8s.can-exec effect expects exactly 2 args".to_string());
     }
     let rel = PodExec::new(args[0], args[1]);
+    Ok(FactsUpdate {
+        new_entities: Vec::new(),
+        new_relations: vec![Box::new(rel)],
+        entity_aliases: IndexSet::new(),
+    })
+}
+
+fn parse_k8s_can_reach_relation(
+    args: &[&str],
+    _ctx: &HashMap<String, String>,
+) -> Result<FactsUpdate, String> {
+    if args.len() != 2 {
+        return Err("k8s.can-reach effect expects exactly 2 args".to_string());
+    }
+    let rel = CanReach::new(args[0], args[1]);
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
@@ -346,4 +517,207 @@ fn normalize_effect_name(name: &str) -> String {
 
 fn parse_bool_like(v: &str) -> bool {
     matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "running")
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ran_domain::CanReach;
+
+    fn ctx() -> HashMap<String, String> {
+        HashMap::new()
+    }
+
+    #[test]
+    fn k8s_can_reach_creates_can_reach_relation() {
+        let result = parse_effect("k8s.can-reach(pod/ns/a, pod/ns/b)", &ctx());
+        let update = result.expect("should parse");
+        assert_eq!(update.new_relations.len(), 1);
+        let rel = update.new_relations[0].as_ref();
+        assert!(rel.as_any().downcast_ref::<CanReach>().is_some());
+        assert_eq!(rel.source_id().0, "pod/ns/a");
+        assert_eq!(rel.target_id().0, "pod/ns/b");
+        assert_eq!(rel.relation_name(), "can-reach");
+    }
+
+    #[test]
+    fn k8s_can_reach_wrong_arg_count_returns_err() {
+        assert!(parse_effect("k8s.can-reach(pod/ns/a)", &ctx()).is_err());
+        assert!(parse_effect("k8s.can-reach(a, b, c)", &ctx()).is_err());
+    }
+
+    #[test]
+    fn k8s_can_reach_relation_name_is_can_reach() {
+        let update = parse_effect("k8s.can-reach(a, b)", &ctx()).unwrap();
+        assert_eq!(update.new_relations[0].relation_name(), "can-reach");
+    }
+
+    #[test]
+    fn k8s_can_reach_ids_containing_slashes_roundtrip_correctly() {
+        let update =
+            parse_effect("k8s.can-reach(ns/default/pod/frontend, ns/default/pod/backend)", &ctx())
+                .unwrap();
+        let rel = &update.new_relations[0];
+        assert_eq!(rel.source_id().0, "ns/default/pod/frontend");
+        assert_eq!(rel.target_id().0, "ns/default/pod/backend");
+    }
+
+    // --- k8s.serviceaccount ---
+
+    #[test]
+    fn k8s_serviceaccount_creates_sa_entity() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        args.insert("ServiceAccountName".into(), "my-sa".into());
+        let update = parse_effect("k8s.serviceaccount", &args).unwrap();
+        assert_eq!(update.new_entities.len(), 1);
+        let sa = update.new_entities[0].as_any().downcast_ref::<ran_domain::ServiceAccount>().unwrap();
+        assert_eq!(sa.entity_name(), "my-sa");
+        assert_eq!(sa.namespace(), Some("default"));
+    }
+
+    #[test]
+    fn k8s_serviceaccount_missing_namespace_returns_err() {
+        let mut args = ctx();
+        args.insert("ServiceAccountName".into(), "my-sa".into());
+        assert!(parse_effect("k8s.serviceaccount", &args).is_err());
+    }
+
+    #[test]
+    fn k8s_serviceaccount_missing_name_returns_err() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        assert!(parse_effect("k8s.serviceaccount", &args).is_err());
+    }
+
+    #[test]
+    fn k8s_serviceaccount_optional_token_populates_sa_token() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        args.insert("ServiceAccountName".into(), "my-sa".into());
+        args.insert("Token".into(), "eyJhbGciOiJSUzI1NiJ9.test".into());
+        let update = parse_effect("k8s.serviceaccount", &args).unwrap();
+        let sa = update.new_entities[0].as_any().downcast_ref::<ran_domain::ServiceAccount>().unwrap();
+        assert_eq!(sa.raw_token(), Some("eyJhbGciOiJSUzI1NiJ9.test"));
+    }
+
+    // --- k8s.role ---
+
+    #[test]
+    fn k8s_role_creates_role_with_namespace_and_name() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        args.insert("RoleName".into(), "pod-reader".into());
+        let update = parse_effect("k8s.role", &args).unwrap();
+        let role = update.new_entities[0].as_any().downcast_ref::<ran_domain::K8sRole>().unwrap();
+        assert_eq!(role.entity_name(), "pod-reader");
+        assert_eq!(role.namespace(), Some("default"));
+        assert!(role.permissions.is_empty());
+    }
+
+    #[test]
+    fn k8s_role_parses_rules_json() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        args.insert("RoleName".into(), "pod-reader".into());
+        args.insert("Rules".into(), r#"[{"verbs":["get","list"],"resources":["pods"],"apiGroups":[""]}]"#.into());
+        let update = parse_effect("k8s.role", &args).unwrap();
+        let role = update.new_entities[0].as_any().downcast_ref::<ran_domain::K8sRole>().unwrap();
+        assert_eq!(role.permissions.len(), 2);
+        assert!(role.permissions.iter().any(|p| p.verb == "get" && p.resource_type == "pods"));
+        assert!(role.permissions.iter().any(|p| p.verb == "list" && p.resource_type == "pods"));
+    }
+
+    #[test]
+    fn k8s_role_empty_rules_arg_creates_role_with_no_permissions() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        args.insert("RoleName".into(), "empty-role".into());
+        args.insert("Rules".into(), "[]".into());
+        let update = parse_effect("k8s.role", &args).unwrap();
+        let role = update.new_entities[0].as_any().downcast_ref::<ran_domain::K8sRole>().unwrap();
+        assert!(role.permissions.is_empty());
+    }
+
+    #[test]
+    fn k8s_role_missing_name_returns_err() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        assert!(parse_effect("k8s.role", &args).is_err());
+    }
+
+    // --- k8s.rolebinding ---
+
+    #[test]
+    fn k8s_rolebinding_creates_binding_with_role_ref_and_subjects() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        args.insert("BindingName".into(), "pod-reader-binding".into());
+        args.insert("RoleRef".into(), "pod-reader".into());
+        args.insert("Subjects".into(), r#"[{"kind":"ServiceAccount","name":"my-sa","namespace":"default"}]"#.into());
+        let update = parse_effect("k8s.rolebinding", &args).unwrap();
+        let binding = update.new_entities[0].as_any().downcast_ref::<ran_domain::K8sRoleBinding>().unwrap();
+        assert_eq!(binding.entity_name(), "pod-reader-binding");
+        assert_eq!(binding.role_ref, "pod-reader");
+        assert_eq!(binding.subjects.len(), 1);
+        assert_eq!(binding.subjects[0].name, "my-sa");
+    }
+
+    #[test]
+    fn k8s_rolebinding_missing_binding_name_returns_err() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        assert!(parse_effect("k8s.rolebinding", &args).is_err());
+    }
+
+    #[test]
+    fn k8s_rolebinding_empty_subjects_creates_binding() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        args.insert("BindingName".into(), "empty-binding".into());
+        args.insert("Subjects".into(), "[]".into());
+        let update = parse_effect("k8s.rolebinding", &args).unwrap();
+        let binding = update.new_entities[0].as_any().downcast_ref::<ran_domain::K8sRoleBinding>().unwrap();
+        assert!(binding.subjects.is_empty());
+    }
+
+    // --- k8s.cronjob ---
+
+    #[test]
+    fn k8s_cronjob_creates_cronjob_entity() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        args.insert("CronJobName".into(), "cleanup-job".into());
+        let update = parse_effect("k8s.cronjob", &args).unwrap();
+        let cj = update.new_entities[0].as_any().downcast_ref::<ran_domain::CronJob>().unwrap();
+        assert_eq!(cj.entity_name(), "cleanup-job");
+        assert_eq!(cj.namespace(), Some("default"));
+        assert!(cj.schedule.is_none());
+    }
+
+    #[test]
+    fn k8s_cronjob_optional_schedule_arg_populated() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        args.insert("CronJobName".into(), "nightly".into());
+        args.insert("Schedule".into(), "0 2 * * *".into());
+        let update = parse_effect("k8s.cronjob", &args).unwrap();
+        let cj = update.new_entities[0].as_any().downcast_ref::<ran_domain::CronJob>().unwrap();
+        assert_eq!(cj.schedule.as_deref(), Some("0 2 * * *"));
+    }
+
+    #[test]
+    fn k8s_cronjob_missing_namespace_returns_err() {
+        let mut args = ctx();
+        args.insert("CronJobName".into(), "cleanup-job".into());
+        assert!(parse_effect("k8s.cronjob", &args).is_err());
+    }
+
+    #[test]
+    fn k8s_cronjob_missing_name_returns_err() {
+        let mut args = ctx();
+        args.insert("Namespace".into(), "default".into());
+        assert!(parse_effect("k8s.cronjob", &args).is_err());
+    }
 }
