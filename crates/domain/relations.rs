@@ -349,6 +349,48 @@ impl Relation for ManagesNode {
 }
 
 // ---------------------------------------------------------------------------
+// CanReach
+// ---------------------------------------------------------------------------
+
+/// Network-reachability relation: `source` can reach `target` over the network.
+///
+/// This is a *precondition* edge, not an execution channel.  Emitted by network
+/// scan parsers (e.g. nmap) to record that a host is reachable from another.
+/// Does **not** implement `C2Channel` — reachability alone is not an exec path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanReach {
+    pub source_id: EntityId,
+    pub target_id: EntityId,
+}
+
+impl CanReach {
+    pub fn new(source_id: impl Into<String>, target_id: impl Into<String>) -> Self {
+        Self {
+            source_id: EntityId::new(source_id),
+            target_id: EntityId::new(target_id),
+        }
+    }
+}
+
+impl Relation for CanReach {
+    fn relation_name(&self) -> &str {
+        "can-reach"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.source_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.target_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
 // RelationSummary
 // ---------------------------------------------------------------------------
 

@@ -473,6 +473,114 @@ impl Analyzer for HostPathAnalyzer {
 }
 
 // ---------------------------------------------------------------------------
+// CanExecAccessAnalyzer
+// ---------------------------------------------------------------------------
+
+/// Set `system.access_level` to `Exec` on every system entity that receives
+/// an incoming exec-channel relation.
+///
+/// Triggers on any relation that returns `true` for [`Relation::is_exec_channel`]
+/// — this covers `PodExec` (kubectl exec), `KubeletExecSink` (kubelet exec),
+/// `RceCanExec` (exploit), and any future exec-channel type without needing
+/// a name-based allowlist.
+///
+/// The "take max" semantics are enforced automatically by `SystemInfo::merge_from`
+/// — we emit a cloned entity with `access_level = Exec` and the entity store
+/// merges it in, so already-`Exec` entities are unaffected.
+///
+/// This ensures that access level propagates to targets discovered through
+/// lateral-movement TTPs even before `sys.userid` output is available.
+pub struct CanExecAccessAnalyzer;
+
+impl Analyzer for CanExecAccessAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let exec_target_ids: Vec<String> = update
+            .new_relations
+            .iter()
+            .filter(|r| r.is_exec_channel())
+            .map(|r| r.target_id().0.clone())
+            .collect();
+
+        for target_id in exec_target_ids {
+            let eid = ran_domain::EntityId::new(&target_id);
+
+            // Resolve the target from the committed campaign state first, then
+            // fall back to entities pending in this same update (not yet stored).
+            let (is_pod, current_level): (bool, ran_domain::AccessLevel) =
+                if let Some(pod) = campaign.entities.find::<ran_domain::Pod>(&eid) {
+                    (true, pod.system.access_level)
+                } else if let Some(node) = campaign.entities.find::<ran_domain::K8sNode>(&eid) {
+                    (false, node.system.access_level)
+                } else if let Some(pod) = update.new_entities.iter().find_map(|e| {
+                    e.as_any().downcast_ref::<ran_domain::Pod>()
+                        .filter(|p| p.entity_id() == eid)
+                }) {
+                    (true, pod.system.access_level)
+                } else if let Some(node) = update.new_entities.iter().find_map(|e| {
+                    e.as_any().downcast_ref::<ran_domain::K8sNode>()
+                        .filter(|n| n.entity_id() == eid)
+                }) {
+                    (false, node.system.access_level)
+                } else {
+                    // Not a system entity — skip.
+                    continue;
+                };
+
+            // Only emit if access_level is not already Exec — the merge takes
+            // max, so this is a no-op for already-Exec entities, but skipping
+            // avoids a needless clone.
+            if current_level >= ran_domain::AccessLevel::Exec {
+                continue;
+            }
+
+            // Emit a cloned entity with access_level = Exec.
+            // When committed via apply_facts → insert_entity → merge_from,
+            // the max(access_level) rule will raise the stored level.
+            if is_pod {
+                let mut pod = ran_domain::Pod::new(
+                    eid.0.rsplit('/').next().unwrap_or(&eid.0),
+                    "",
+                );
+                pod.meta.name = eid.0.rsplit('/').next().unwrap_or(&eid.0).to_string();
+                // Reconstruct a minimal pod that will merge into the existing one.
+                // The only thing that matters for the merge is the entity ID and
+                // the elevated access_level.
+                let mut full_pod = campaign.entities.find::<ran_domain::Pod>(&eid)
+                    .cloned()
+                    .or_else(|| {
+                        update.new_entities.iter().find_map(|e| {
+                            e.as_any().downcast_ref::<ran_domain::Pod>()
+                                .filter(|p| p.entity_id() == eid)
+                                .cloned()
+                        })
+                    })
+                    .unwrap_or(pod);
+                full_pod.system.access_level = ran_domain::AccessLevel::Exec;
+                inferred.new_entities.push(Box::new(full_pod));
+            } else {
+                let node_name = eid.0.strip_prefix("node/").unwrap_or(&eid.0);
+                let mut full_node = campaign.entities.find::<ran_domain::K8sNode>(&eid)
+                    .cloned()
+                    .or_else(|| {
+                        update.new_entities.iter().find_map(|e| {
+                            e.as_any().downcast_ref::<ran_domain::K8sNode>()
+                                .filter(|n| n.entity_id() == eid)
+                                .cloned()
+                        })
+                    })
+                    .unwrap_or_else(|| ran_domain::K8sNode::new(node_name));
+                full_node.system.access_level = ran_domain::AccessLevel::Exec;
+                inferred.new_entities.push(Box::new(full_node));
+            }
+        }
+
+        inferred
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Default analyzer pipeline
 // ---------------------------------------------------------------------------
 
@@ -516,6 +624,7 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(HostPathAnalyzer),
         Box::new(ServiceAccountCanExecAnalyzer),
         Box::new(KubeletExecSinkAnalyzer),
+        Box::new(CanExecAccessAnalyzer),
     ]
 }
 
@@ -580,8 +689,9 @@ fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        Confidence, Contains, K8sCluster, K8sNode, KubeletExecSink, KubeletExecSource, ManagesNode,
-        Namespace, Pod, PodExec, RbacPermission, RunsOn, ServiceAccount, Uses,
+        AccessLevel, Confidence, Contains, K8sCluster, K8sNode, KubeletExecSink, KubeletExecSource,
+        ManagesNode, Namespace, Pod, PodExec, RbacPermission, RceCanExec, RunsOn, ServiceAccount,
+        Uses,
     };
 
     use super::*;
@@ -957,5 +1067,104 @@ mod tests {
                 && r.source_id().0 == "node/worker-1"
                 && r.target_id().0 == src_id
         }));
+    }
+
+    // ---------------------------------------------------------------------------
+    // CanExecAccessAnalyzer tests
+    // ---------------------------------------------------------------------------
+
+    fn run_can_exec_access(campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        CanExecAccessAnalyzer.analyze(campaign, update)
+    }
+
+    #[test]
+    fn can_exec_access_sets_exec_on_pod_exec_target() {
+        let campaign = Campaign::bootstrap("ran", K8sCluster::new("test"));
+        let pod = Pod::new("victim", "default");
+        let pod_id = pod.entity_id().0.clone();
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+        update.new_relations.push(Box::new(PodExec::new("sa/default/attacker", &pod_id)));
+
+        let inferred = run_can_exec_access(&campaign, &update);
+
+        let updated_pod = inferred
+            .new_entities
+            .iter()
+            .find_map(|e| e.as_any().downcast_ref::<Pod>())
+            .expect("should emit updated pod");
+        assert_eq!(updated_pod.system.access_level, AccessLevel::Exec);
+    }
+
+    #[test]
+    fn can_exec_access_is_idempotent_for_exec_pod() {
+        let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test"));
+        let mut pod = Pod::new("root-pod", "default");
+        pod.system.access_level = AccessLevel::Exec;
+        let pod_id = pod.entity_id().0.clone();
+        campaign.entities.insert_typed(pod);
+
+        let mut update = FactsUpdate::default();
+        update.new_relations.push(Box::new(PodExec::new("sa/default/attacker", &pod_id)));
+
+        let inferred = run_can_exec_access(&campaign, &update);
+
+        // No updated entity should be emitted (access_level already at Exec).
+        assert!(inferred.new_entities.is_empty());
+    }
+
+    #[test]
+    fn can_exec_access_triggers_on_kubelet_exec_sink() {
+        let campaign = Campaign::bootstrap("ran", K8sCluster::new("test"));
+        let pod = Pod::new("target", "default");
+        let pod_id = pod.entity_id().0.clone();
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+        update.new_relations.push(Box::new(KubeletExecSink::new("node/worker-1", &pod_id)));
+
+        let inferred = run_can_exec_access(&campaign, &update);
+
+        let updated_pod = inferred
+            .new_entities
+            .iter()
+            .find_map(|e| e.as_any().downcast_ref::<Pod>())
+            .expect("should emit updated pod");
+        assert_eq!(updated_pod.system.access_level, AccessLevel::Exec);
+    }
+
+    #[test]
+    fn can_exec_access_triggers_on_rce_can_exec() {
+        let campaign = Campaign::bootstrap("ran", K8sCluster::new("test"));
+        let pod = Pod::new("redis", "default");
+        let pod_id = pod.entity_id().0.clone();
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+        update.new_relations.push(Box::new(RceCanExec::new("ns/default/pod/attacker", &pod_id)));
+
+        let inferred = run_can_exec_access(&campaign, &update);
+
+        let updated_pod = inferred
+            .new_entities
+            .iter()
+            .find_map(|e| e.as_any().downcast_ref::<Pod>())
+            .expect("should emit updated pod");
+        assert_eq!(updated_pod.system.access_level, AccessLevel::Exec);
+    }
+
+    #[test]
+    fn can_exec_access_ignores_non_system_entity_targets() {
+        let campaign = Campaign::bootstrap("ran", K8sCluster::new("test"));
+        // Namespace is not a system entity — target ID doesn't resolve.
+        let mut update = FactsUpdate::default();
+        update.new_relations.push(Box::new(PodExec::new(
+            "ns/default/pod/attacker",
+            "ns/default",  // namespace entity ID, not a pod/node
+        )));
+
+        let inferred = run_can_exec_access(&campaign, &update);
+        assert!(inferred.new_entities.is_empty());
     }
 }

@@ -11,6 +11,7 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("sys.ip", parse_sys_ip);
     m.insert("sys.processes", parse_sys_processes);
     m.insert("sys.userid", parse_sys_userid);
+    m.insert("sys.files", parse_sys_files);
     m.insert("linux.mounts", parse_linux_mounts);
 }
 
@@ -59,6 +60,78 @@ pub(super) fn parse_sys_has_binary(stdout: &str, inner: &str) -> ParserOutput {
             ..Default::default()
         },
         detail,
+    )
+}
+
+/// Parse a line-delimited file listing (e.g. `find / -maxdepth 3` output).
+///
+/// Lines ending in `*` (executable marker from `find -perm /111` or `ls -F`) are
+/// also recorded in `system.binaries` as present with an empty path — the same
+/// name-only sentinel used by `sys.has-binary` when the path is unknown.
+fn parse_sys_files(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty output from file listing command".to_string());
+    }
+
+    let mut files = Vec::new();
+    let mut binaries: HashMap<String, String> = HashMap::new();
+
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        // Lines ending in `*` mark executables (ls -F / find -perm /111 style).
+        let (path, is_exec) = if let Some(stripped) = line.strip_suffix('*') {
+            (stripped.trim(), true)
+        } else {
+            (line, false)
+        };
+        files.push(path.to_string());
+        if is_exec {
+            let name = path.rsplit('/').next().unwrap_or(path).to_string();
+            binaries.entry(name).or_insert_with(String::new);
+        }
+    }
+
+    let detail = format!("recorded {} file(s)", files.len());
+    ParserOutput::Success(
+        SystemFieldUpdates {
+            files,
+            binaries,
+            ..Default::default()
+        },
+        detail,
+    )
+}
+
+/// Parametric effect: `sys.hasfile(PATH)`.
+///
+/// If stdout is non-empty or exit code is 0 the file is marked present in
+/// `system.files`.  If stdout is empty (command returned nothing / failed)
+/// the file is considered absent — we emit `KnownFailure` so the audit
+/// records the negative result without triggering a `NoParser` signal.
+pub(super) fn parse_sys_hasfile(stdout: &str, path: &str) -> ParserOutput {
+    let path = path.trim();
+    if path.is_empty() {
+        return ParserOutput::KnownFailure(
+            "sys.hasfile effect had empty path argument".to_string(),
+        );
+    }
+
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure(format!(
+            "file '{}' not found or command returned no output",
+            path
+        ));
+    }
+
+    ParserOutput::Success(
+        SystemFieldUpdates {
+            files: vec![path.to_string()],
+            ..Default::default()
+        },
+        format!("file '{}' confirmed present", path),
     )
 }
 
@@ -647,6 +720,81 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
     #[test]
     fn parse_sys_has_binary_output_sentinel_empty_stdout_returns_known_failure() {
         let result = parse_sys_has_binary("", "${OUTPUT}");
+        assert!(matches!(result, ParserOutput::KnownFailure(_)));
+    }
+
+    // --- sys.files ---
+
+    #[test]
+    fn parse_sys_files_multi_line_listing_populates_files() {
+        let stdout = "/etc/passwd\n/etc/hostname\n/tmp/app.conf\n";
+        let result = parse_sys_files(stdout, "");
+        let ParserOutput::Success(updates, detail) = result else {
+            panic!("expected Success, got {:?}", result);
+        };
+        assert_eq!(updates.files.len(), 3);
+        assert!(updates.files.contains(&"/etc/passwd".to_string()));
+        assert!(updates.files.contains(&"/tmp/app.conf".to_string()));
+        assert!(detail.contains("3 file"));
+    }
+
+    #[test]
+    fn parse_sys_files_executable_marker_records_binary() {
+        let stdout = "/usr/bin/curl*\n/etc/passwd\n";
+        let result = parse_sys_files(stdout, "");
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success");
+        };
+        // The stripped path (without `*`) should be in files.
+        assert!(updates.files.contains(&"/usr/bin/curl".to_string()));
+        // The binary name should appear in binaries with empty path sentinel.
+        assert!(updates.binaries.contains_key("curl"));
+        assert_eq!(updates.binaries["curl"], "");
+        // Non-executable path should not be in binaries.
+        assert!(!updates.binaries.contains_key("passwd"));
+    }
+
+    #[test]
+    fn parse_sys_files_empty_output_returns_known_failure() {
+        let result = parse_sys_files("", "");
+        assert!(matches!(result, ParserOutput::KnownFailure(_)));
+    }
+
+    // --- sys.hasfile ---
+
+    #[test]
+    fn parse_sys_hasfile_exit0_marks_file_present() {
+        let result = parse_sys_hasfile("exists", "/etc/passwd");
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success, got {:?}", result);
+        };
+        assert!(updates.files.contains(&"/etc/passwd".to_string()));
+    }
+
+    #[test]
+    fn parse_sys_hasfile_empty_stdout_returns_known_failure() {
+        let result = parse_sys_hasfile("", "/etc/shadow");
+        assert!(
+            matches!(result, ParserOutput::KnownFailure(_)),
+            "absent file should yield KnownFailure"
+        );
+    }
+
+    #[test]
+    fn parse_sys_hasfile_path_extracted_from_effect_id_with_nested_separators() {
+        // Path contains `/` — the extraction from the effect string must not split on them.
+        let result = parse_sys_hasfile("found", "/var/run/secrets/kubernetes.io/serviceaccount/token");
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success");
+        };
+        assert!(updates.files.contains(
+            &"/var/run/secrets/kubernetes.io/serviceaccount/token".to_string()
+        ));
+    }
+
+    #[test]
+    fn parse_sys_hasfile_empty_path_argument_returns_known_failure() {
+        let result = parse_sys_hasfile("some output", "");
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 }
