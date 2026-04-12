@@ -86,6 +86,8 @@ pub fn parse_output_effect(
         None => {
             // Only return early if there is actually a registered/known parser.
             let is_known = normalized.starts_with("sys.has-binary(")
+                || normalized.starts_with("sys.hasfile(")
+                || normalized == "nmap"
                 || normalized == "k8s.selfsubjectrulesreview"
                 || get_registry().contains_key(normalized.trim());
             if !is_known {
@@ -109,6 +111,16 @@ pub fn parse_output_effect(
     let parser_output: ParserOutput = if normalized.starts_with("sys.has-binary(") {
         let inner = sys::extract_effect_args(effect_id).unwrap_or("");
         sys::parse_sys_has_binary(stdout, inner)
+    } else if normalized.starts_with("sys.hasfile(") {
+        let path = sys::extract_effect_args(effect_id).unwrap_or("");
+        sys::parse_sys_hasfile(stdout, path)
+    } else if normalized == "nmap" {
+        let source_id = cmd
+            .args
+            .get("TARGET_ID")
+            .map(String::as_str)
+            .unwrap_or(&cmd.target_id);
+        network::parse_nmap(stdout, source_id)
     } else if normalized == "k8s.selfsubjectrulesreview" {
         let token_arg = cmd.args.get("TOKEN").map(String::as_str).unwrap_or("");
         // When an exec system is selected, cmd.target_id is rewritten to the pod ID.

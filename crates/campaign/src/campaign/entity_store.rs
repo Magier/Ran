@@ -2,8 +2,8 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
 use ran_domain::{
-    C2Server, ConfigMap, Deployment, Entity, EntityId, K8sCluster, K8sNode, K8sSecret, Merge,
-    Namespace, Pod, ServiceAccount,
+    C2Server, ConfigMap, CronJob, Deployment, Entity, EntityId, K8sCluster, K8sNode, K8sSecret,
+    K8sRole, K8sRoleBinding, Merge, Namespace, Pod, ServiceAccount,
 };
 use serde::de::MapAccess;
 use serde::ser::SerializeMap;
@@ -269,6 +269,9 @@ impl Default for EntityStore {
         s.register::<K8sSecret>("secrets", |t| CampaignEntityRef::Secret(t));
         s.register::<ConfigMap>("config_maps", |t| CampaignEntityRef::ConfigMap(t));
         s.register::<Deployment>("deployments", |t| CampaignEntityRef::Deployment(t));
+        s.register::<K8sRole>("roles", |t| CampaignEntityRef::Role(t));
+        s.register::<K8sRoleBinding>("role_bindings", |t| CampaignEntityRef::RoleBinding(t));
+        s.register::<CronJob>("cron_jobs", |t| CampaignEntityRef::CronJob(t));
         s
     }
 }

@@ -168,6 +168,9 @@ pub(crate) fn serialize_campaign_entity_map(
         CampaignEntityRef::Secret(e) => serialize_entity_map(e),
         CampaignEntityRef::ConfigMap(e) => serialize_entity_map(e),
         CampaignEntityRef::Deployment(e) => serialize_entity_map(e),
+        CampaignEntityRef::Role(e) => serialize_entity_map(e),
+        CampaignEntityRef::RoleBinding(e) => serialize_entity_map(e),
+        CampaignEntityRef::CronJob(e) => serialize_entity_map(e),
     }
 }
 
