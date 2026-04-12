@@ -84,26 +84,48 @@ pub fn parse_output_effect(
     let stdout = match event.results.first() {
         Some(s) => s.as_str(),
         None => {
-            // Only return early if there is actually a registered/known parser.
-            let is_known = normalized.starts_with("sys.has-binary(")
-                || normalized.starts_with("sys.hasfile(")
-                || normalized == "nmap"
-                || normalized == "k8s.selfsubjectrulesreview"
-                || get_registry().contains_key(normalized.trim());
-            if !is_known {
-                return None;
+            // sys.has-binary with a literal path encodes everything in the effect ID itself;
+            // no stdout is needed. Let it fall through so the parser can record the binary.
+            if normalized.starts_with("sys.has-binary(") {
+                let inner = sys::extract_effect_args(effect_id).unwrap_or("");
+                let is_output = inner.eq_ignore_ascii_case("${output}")
+                    || inner.eq_ignore_ascii_case("output");
+                if !is_output {
+                    "" // literal path — proceed without stdout
+                } else {
+                    return Some(ParsedEffect {
+                        updates: FactsUpdate::default(),
+                        audit: build_audit(
+                            effect_id,
+                            cmd,
+                            event,
+                            ParseResult::KnownFailure,
+                            "missing stdout payload",
+                            0,
+                        ),
+                    });
+                }
+            } else {
+                // Only return early if there is actually a registered/known parser.
+                let is_known = normalized.starts_with("sys.hasfile(")
+                    || normalized == "nmap"
+                    || normalized == "k8s.selfsubjectrulesreview"
+                    || get_registry().contains_key(normalized.trim());
+                if !is_known {
+                    return None;
+                }
+                return Some(ParsedEffect {
+                    updates: FactsUpdate::default(),
+                    audit: build_audit(
+                        effect_id,
+                        cmd,
+                        event,
+                        ParseResult::KnownFailure,
+                        "missing stdout payload",
+                        0,
+                    ),
+                });
             }
-            return Some(ParsedEffect {
-                updates: FactsUpdate::default(),
-                audit: build_audit(
-                    effect_id,
-                    cmd,
-                    event,
-                    ParseResult::KnownFailure,
-                    "missing stdout payload",
-                    0,
-                ),
-            });
         }
     };
     let stderr = event.results.get(1).map(String::as_str).unwrap_or("");
@@ -544,5 +566,35 @@ mod tests {
             .system();
         use ran_domain::BinaryPresence;
         assert_eq!(sys.has_binary("curl"), BinaryPresence::Present("/usr/bin/curl".to_string()));
+    }
+
+    #[test]
+    fn parse_output_effect_has_binary_literal_path_no_stdout_still_parses() {
+        // Regression: sys.has-binary(/tmp/ran-ws) with empty results should NOT produce
+        // KnownFailure("missing stdout payload") — the path is in the effect ID itself.
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let pod = Pod::new("demo", "default");
+        campaign.entities.insert_typed(pod);
+
+        let mut cmd = sample_cmd();
+        cmd.ttp.effects = vec!["sys.has-binary(/tmp/ran-ws)".to_string()];
+        // No stdout at all — empty results vec
+        let event = sample_event(vec![]);
+
+        let parsed = parse_output_effect(&mut campaign, "sys.has-binary(/tmp/ran-ws)", &cmd, &event).unwrap();
+        assert!(
+            matches!(parsed.audit.parse_result, ParseResult::Parsed),
+            "expected Parsed, got {:?}: {}",
+            parsed.audit.parse_result,
+            parsed.audit.detail
+        );
+
+        let sys = campaign
+            .get_system_entity("ns/default/pod/demo")
+            .expect("pod should exist")
+            .entity()
+            .system();
+        use ran_domain::BinaryPresence;
+        assert_eq!(sys.has_binary("ran-ws"), BinaryPresence::Present("/tmp/ran-ws".to_string()));
     }
 }
