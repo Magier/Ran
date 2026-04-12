@@ -583,6 +583,139 @@ impl Entity for Deployment {
 }
 
 // ---------------------------------------------------------------------------
+// K8sRole
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes Role or ClusterRole with its aggregated RBAC permissions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sRole {
+    pub meta: K8sMeta,
+    pub permissions: Vec<RbacPermission>,
+    pub is_cluster_role: bool,
+}
+
+impl K8sRole {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        K8sRole {
+            meta: K8sMeta::namespaced(name, namespace),
+            permissions: Vec::new(),
+            is_cluster_role: false,
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for K8sRole {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/role/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "K8sRole"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// K8sRoleBinding
+// ---------------------------------------------------------------------------
+
+/// A subject reference inside a `K8sRoleBinding`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RbacSubject {
+    pub kind: String,
+    pub name: String,
+    pub namespace: String,
+}
+
+/// A Kubernetes RoleBinding or ClusterRoleBinding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sRoleBinding {
+    pub meta: K8sMeta,
+    /// Name of the referenced Role or ClusterRole.
+    pub role_ref: String,
+    pub subjects: Vec<RbacSubject>,
+}
+
+impl K8sRoleBinding {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        K8sRoleBinding {
+            meta: K8sMeta::namespaced(name, namespace),
+            role_ref: String::new(),
+            subjects: Vec::new(),
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for K8sRoleBinding {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/rolebinding/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "K8sRoleBinding"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CronJob
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes CronJob workload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CronJob {
+    pub meta: K8sMeta,
+    pub schedule: Option<String>,
+}
+
+impl CronJob {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        CronJob {
+            meta: K8sMeta::namespaced(name, namespace),
+            schedule: None,
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for CronJob {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/cronjob/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "CronJob"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Merge trait
 // ---------------------------------------------------------------------------
 
@@ -771,6 +904,40 @@ impl Merge for ConfigMap {
 impl Merge for Deployment {
     fn merge_from(&mut self, incoming: &Self) {
         merge_k8s_meta(&mut self.meta, &incoming.meta);
+    }
+}
+
+impl Merge for K8sRole {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+        for perm in &incoming.permissions {
+            if !self.permissions.contains(perm) {
+                self.permissions.push(perm.clone());
+            }
+        }
+    }
+}
+
+impl Merge for K8sRoleBinding {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+        if self.role_ref.is_empty() {
+            self.role_ref = incoming.role_ref.clone();
+        }
+        for subj in &incoming.subjects {
+            if !self.subjects.contains(subj) {
+                self.subjects.push(subj.clone());
+            }
+        }
+    }
+}
+
+impl Merge for CronJob {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+        if self.schedule.is_none() {
+            self.schedule = incoming.schedule.clone();
+        }
     }
 }
 

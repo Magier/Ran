@@ -254,6 +254,67 @@ pub(crate) async fn execute_action_handler<S: ApiService>(
     }))
 }
 
+// ---------------------------------------------------------------------------
+// Execution records
+// ---------------------------------------------------------------------------
+
+/// A single execution record joined with the parse audits produced by its
+/// effects.  Returned by `GET /api/execution-records` and
+/// `GET /api/execution-records/:id`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct ExecutionRecordEntry {
+    #[serde(flatten)]
+    pub record: campaign::ExecutionRecord,
+    #[serde(rename = "parseAudits")]
+    pub parse_audits: Vec<campaign::ParseAudit>,
+}
+
+pub(crate) async fn execution_records_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<Vec<ExecutionRecordEntry>>, ApiError> {
+    let campaign = service.get_campaign().await?;
+    let audits = campaign.get_parse_audits();
+    let entries = campaign
+        .get_execution_records()
+        .iter()
+        .map(|record| {
+            let parse_audits = audits
+                .iter()
+                .filter(|a| a.cmd_id == record.id)
+                .cloned()
+                .collect();
+            ExecutionRecordEntry { record: record.clone(), parse_audits }
+        })
+        .collect();
+    Ok(axum::Json(entries))
+}
+
+pub(crate) async fn execution_record_by_id_handler<S: ApiService>(
+    State(service): State<S>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<axum::Json<ExecutionRecordEntry>, ApiError> {
+    let campaign = service.get_campaign().await?;
+    let record = campaign
+        .get_execution_records()
+        .iter()
+        .find(|r| r.id == id)
+        .cloned()
+        .ok_or_else(|| ApiError {
+            status: axum::http::StatusCode::NOT_FOUND,
+            body: ErrorResponse {
+                error: format!("execution record '{}' not found", id),
+                details: None,
+            },
+        })?;
+    let parse_audits = campaign
+        .get_parse_audits()
+        .iter()
+        .filter(|a| a.cmd_id == id)
+        .cloned()
+        .collect();
+    Ok(axum::Json(ExecutionRecordEntry { record, parse_audits }))
+}
+
 pub(crate) async fn campaign_state_handler<S: ApiService>(
     State(service): State<S>,
 ) -> Result<axum::Json<CampaignState>, ApiError> {

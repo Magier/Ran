@@ -8,13 +8,14 @@ pub mod types;
 // Re-export the most commonly used types so callers can do
 // `use ran_domain::{Pod, Namespace, ServiceAccount}` without long paths.
 pub use entities::{
-    C2Server, ConfigMap, Deployment, Entity, GraphEntity, K8sCluster, K8sNode, K8sSecret,
-    Merge, Namespace, Pod, PodPhase, PodSecurityAdmission, PssLevel, ServiceAccount, SystemEntity,
+    C2Server, ConfigMap, CronJob, Deployment, Entity, GraphEntity, K8sCluster, K8sNode, K8sSecret,
+    K8sRole, K8sRoleBinding, Merge, Namespace, Pod, PodPhase, PodSecurityAdmission, PssLevel,
+    RbacSubject, ServiceAccount, SystemEntity,
 };
 pub use identity::{JwToken, ServiceAccountToken};
 pub use relation::{C2Channel, Relation};
 pub use rbac::RbacPermission;
-pub use relations::{Contains, KubeletExecSink, KubeletExecSource, ManagesNode, PodExec, RceCanExec, RelationSummary, RunsOn, Uses};
+pub use relations::{CanReach, Contains, KubeletExecSink, KubeletExecSource, ManagesNode, PodExec, RceCanExec, RelationSummary, RunsOn, Uses};
 pub use types::{
     AccessLevel, BinaryPresence, Confidence, Container, EntityId, K8sMeta, Mount, OwnerRef,
     Process, SystemInfo,
