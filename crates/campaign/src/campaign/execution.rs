@@ -6,7 +6,7 @@ use ran_domain::{BinaryPresence, EntityId, K8sNode, Merge, Pod};
 
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
-use crate::failure_analyzers::{classify_failure, CommandNotFoundFailureAnalyzer, FailureAnalyzer, FAILURE_ANALYZER_EFFECT_ID};
+use crate::failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
 use crate::grounding::{detect_ungrounded_vars, ground_args_from_context};
 use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
 use crate::rules::{default_rules as make_rules, run_rules_fixpoint};
@@ -489,8 +489,17 @@ impl Campaign {
             // If the binary was not found, record it as Absent in the system's
             // binary map so the procedure selector can automatically fall back to
             // an alternative procedure next time.
-            if CommandNotFoundFailureAnalyzer.analyze(cmd, event).is_some() {
-                if let Some(binary) = procedure_binary_name(&cmd.procedure) {
+            //
+            // Prefer the name extracted from the error output (more reliable when
+            // the procedure runs a wrapper that calls a different binary), then
+            // fall back to the procedure's declared tool name.
+            if classified.is_binary_missing {
+                let binary = classified
+                    .extracted_binary
+                    .as_deref()
+                    .or_else(|| procedure_binary_name(&cmd.procedure));
+
+                if let Some(binary) = binary {
                     // args["TARGET_ID"] = the original request target, which is
                     // the actual execution target even in multi-hop chains (where
                     // cmd.target_id is the first hop, not the final destination).
