@@ -118,55 +118,212 @@ return `&dyn SystemEntity` trait objects (upcast, not delegation) — left as-is
 
 ---
 
-## Issue 9 — `AppState` / `ApiService` impl lives inside the CLI crate
+## ~~Issue 9 — `AppState` / `ApiService` impl lives inside the CLI crate~~ ✅ Done
 
-**File:** `crates/cli/src/main.rs:81` (`// TODO: Temporary workaround for MVP wiring`)
+**Files:** `crates/app/src/lib.rs` (new), `crates/app/src/config.rs` (moved from cli), `crates/cli/src/main.rs`
 
-`AppState` (the `ApiService` impl) is defined in `crates/cli`, which means the
-wiring of k8s + campaign + c2 + armory is owned by the binary crate. This
-makes the service untestable without spinning up the full CLI, and couples
-bootstrap logic to the HTTP layer.
+`AppState` and its `ApiService` impl extracted from `crates/cli` into a new
+`crates/app` library crate. `crates/cli` is now a thin binary (~140 lines)
+that parses arguments and calls `app::start()`.
 
-**Plan:** Extract a `crates/app` (or `crates/server`) crate that owns
-`AppState` and the `ApiService` impl. `crates/cli` becomes a thin binary that
-calls `app::start()`. Prerequisite for proper integration tests without the
-CLI layer.
+**`crates/app` public surface:**
+- `pub mod config` — `Config`, `NamespaceFilter`, `load()` (moved from cli)
+- `pub struct AppState` with a `pub fn new(...)` constructor
+- `impl ApiService for AppState` — full service implementation
+- `pub struct ServerConfig` — kubeconfig, armory dir, port, namespace filter
+- `pub async fn start(cfg: ServerConfig) -> Result<()>` — complete server bootstrap
+- `pub struct ScriptParserRunner` — external script-based effect parser
 
-- [ ] Create `crates/app` crate
-- [ ] Move `AppState` and `ApiService` impl into it
-- [ ] Reduce `crates/cli/src/main.rs` to argument parsing + `app::start()`
-- [ ] Add integration test in `crates/app` that exercises the full service without the CLI
+**`crates/cli` reduced to:**
+- CLI arg structs + `main()`
+- `run_emulate()` — loads config, delegates to `app::start()`
+- `run_show_armory()` — armory table display (unchanged)
+- `init_tracing()`, `resolve_armory_dir()`
+
+**Integration tests in `crates/app/tests/service.rs`:**
+- `namespace_filter_blacklist_excludes_system_namespaces` — default filter excludes kube-system
+- `namespace_filter_whitelist_only_allows_listed` — whitelist mode takes precedence
+- `config_load_returns_defaults_when_file_missing` — missing ran.yaml returns defaults
+- `app_state_get_and_reset_campaign_without_cli` — full AppState via ApiService trait (requires kubeconfig, `#[ignore]` by default); run with `cargo test -p app -- --ignored`
+
+- [x] Create `crates/app` crate
+- [x] Move `AppState` and `ApiService` impl into it
+- [x] Reduce `crates/cli/src/main.rs` to argument parsing + `app::start()`
+- [x] Add integration test in `crates/app` that exercises the full service without the CLI
 
 ---
 
-## Issue 10 — Missing output parsers (file content, kubeconfig, nmap, individual k8s entity effects)
+## ~~Issue 10a — `sys.files` and `sys.hasfile(PATH)`~~ ✅ Done
 
-**Files:** `crates/campaign/src/output_parsers/`, `crates/campaign/src/effects.rs`
+**Go source:** `src/campaign/parsers.go`  
+**File:** `crates/campaign/src/output_parsers/sys.rs`  
+**Dependencies:** none
 
-Several parsers from the Go implementation have no Rust equivalent:
+Two small sys-level parsers following the same patterns as the existing `sys.*` family.
 
-**File content / kubeconfig** (`src/campaign/parsers.go: file:content, file:kubeconfig`):
-- `file:content` — caches arbitrary file content on the entity; auto-detects kubeconfig YAML and forwards to `file:kubeconfig`
-- `file:kubeconfig` — parses kubeconfig YAML, extracts cluster endpoint + CA, user credentials (token or cert); creates a `K8sCredential` entity and wires it to the cluster
+**`sys.files`** — parses a line-delimited file listing (e.g. `find / -maxdepth 3` output) and populates `system.files`. Lines ending in `*` (from `find -perm /111` or `ls -F` with executable marker) are also recorded in `system.binaries` as present with an empty path (name-only, same as `sys.has-binary` absent-path sentinel meaning "known present but path unresolved").
 
-**System** (`src/campaign/parsers.go: sys.files, sys.hasfile`):
-- `sys.files` — populates `system.files` from a line-delimited file list, marks executables as binaries
-- `sys.hasfile(PATH)` — parametric effect (same pattern as `sys.has-binary`): marks path present/absent in `system.files`
+**`sys.hasfile(PATH)`** — parametric effect, same dispatch pattern as `sys.has-binary(PATH)`. The path is extracted from the effect ID string. If stdout is non-empty / exit code 0, the file is marked present in `system.files`. If exit code is non-zero or stdout is empty, the file is marked absent.
 
-**Network** (`src/campaign/parsers.go: nmap, k8s.can-reach`):
-- `nmap` — parses nmap XML or greppable output; creates `Pod` placeholder entities from open-port IPs and links them with `CanReach` relations
-- `k8s.can-reach(src, tgt)` — explicit reachability effect: creates a `CanReach` relation between two entity IDs
+- [x] Added `parse_sys_files` to `output_parsers/sys.rs` and registered it
+- [x] Added parametric `sys.hasfile(...)` dispatch to `parse_output_effect` in `output_parsers/mod.rs`
+- [x] 6 tests written and passing
 
-**Individual k8s entity creation effects** (`src/campaign/parsers.go`):
-- `k8s.serviceaccount` — creates a single `ServiceAccount` entity from inline YAML/JSON
-- `k8s.role` / `k8s.rolebinding` — creates `K8sRole` / `K8sRoleBinding` entities; `rolebinding` also injects parsed RBAC permissions into the referenced SA's entitlements
-- `k8s.cronjob` — creates a `CronJob` entity with schedule and namespace
+---
 
-- [ ] Add `file:content` / `file:kubeconfig` parsers (new `file.rs` module under `output_parsers/`)
-- [ ] Add `sys.files` and parametric `sys.hasfile(...)` to `output_parsers/sys.rs`
-- [ ] Add `nmap` parser to `output_parsers/network.rs`
-- [ ] Add `k8s.can-reach(src, tgt)` effect to `effects.rs`
-- [ ] Add `k8s.serviceaccount`, `k8s.role`, `k8s.rolebinding`, `k8s.cronjob` effects to `effects.rs`
+## ~~Issue 10b — `k8s.can-reach(src, tgt)` relation effect~~ ✅ Done
+
+**Go source:** `src/campaign/parsers.go`  
+**Files:** `crates/domain/relations.rs`, `crates/campaign/src/effects.rs`  
+**Dependencies:** none
+
+A two-argument relation effect declaring that one entity can reach another over the network. Pattern is identical to the existing `k8s.can-exec(src, tgt)` handler.
+
+**`CanReach` relation:** non-exec-channel edge, relation name `"can-reach"`. Carries source and target entity IDs. Does not implement `C2Channel` — reachability is a precondition for attacks, not itself an execution channel.
+
+- [x] Added `CanReach` struct to `crates/domain/relations.rs` (non-exec-channel)
+- [x] Re-exported from `crates/domain/mod.rs`
+- [x] Added `"k8s.can-reach"` arm to `resolve_relation_effect_handler` in `effects.rs`
+- [x] 4 tests written and passing
+
+---
+
+## ~~Issue 10c — `nmap` network scan parser~~ ✅ Done
+
+**Go source:** `src/campaign/parsers.go`  
+**File:** `crates/campaign/src/output_parsers/network.rs`  
+**Dependencies:** Issue 10b (`CanReach` relation must exist)
+
+Parses nmap output and discovers reachable hosts as placeholder `Pod` entities. Two input formats are supported:
+
+**Greppable (`-oG`):**
+```
+Host: 10.0.0.5 ()	Status: Up
+Host: 10.0.0.6 (redis.default.svc.cluster.local)	Ports: 6379/open/tcp
+```
+Each `Status: Up` or `Ports:` line yields one Pod placeholder named `pod-<ip-kebab>` with the IP set in `system.ips`. A `CanReach` relation is emitted from the effect's `TARGET_ID` arg (the scanning pod) to each discovered placeholder.
+
+**XML (`-oX`):** parse `<host>` elements, extract address and hostname; same entity/relation output.
+
+Placeholder pods discovered by `rdns` later (which uses the same `pod-<ip-kebab>` naming convention) will naturally merge with nmap-discovered placeholders via entity ID collision — no explicit alias needed.
+
+**Tests to write:**
+- Greppable: single `Status: Up` line → one Pod + one CanReach
+- Greppable: multiple hosts → one Pod + one CanReach per host
+- Greppable: hostname present → used as pod name instead of IP-kebab
+- XML: `<host>` with address element → same Pod + CanReach output
+- Empty / malformed output → `KnownFailure`
+- Hosts with no open ports / `Status: Down` → skipped
+
+- [x] Added `parse_nmap` to `output_parsers/network.rs`; wired in `parse_output_effect` with `source_id` from `cmd.target_id`
+- [x] 6 tests passing (greppable single/multi host, hostname, XML, empty, Status: Down)
+
+---
+
+## ~~Issue 10d — `k8s.serviceaccount` entity effect~~ ✅ Done
+
+**Go source:** `src/campaign/parsers.go`  
+**File:** `crates/campaign/src/effects.rs`  
+**Dependencies:** none (`ServiceAccount` entity already exists)
+
+Simple effect that creates a single `ServiceAccount` entity from TTP args. Mirrors the existing `k8s.pod` handler exactly.
+
+Args: `Namespace` (required), `ServiceAccountName` / `SA_NAME` (required), optionally `Token` (sets `sa.token.jwt.raw`).
+
+**Tests to write:**
+- Valid `Namespace` + `ServiceAccountName` args → `ServiceAccount` entity with correct namespace and name
+- Missing `Namespace` → `Err`
+- Missing `ServiceAccountName` → `Err`
+- Optional `Token` arg → `sa.token` populated
+
+- [x] Added `parse_k8s_serviceaccount` to `effects.rs`, registered in `resolve_simple_effect_handler`
+- [x] 4 tests passing
+
+---
+
+## ~~Issue 10e — `k8s.role` and `k8s.rolebinding` entity effects~~ ✅ Done
+
+**Go source:** `src/campaign/parsers.go`  
+**Files:** `crates/domain/entities.rs`, `crates/campaign/src/effects.rs`  
+**Dependencies:** Issue 1 ✅ (new entity types are now a single `register` call)  
+**Unblocks:** Issue 12d (`RoleBindingAnalyzer`)
+
+**`k8s.role`** — creates a `K8sRole` entity. Args: `Namespace`, `RoleName`. The role carries a list of `RbacPermission` entries parsed from a `Rules` arg (JSON array of `{"verbs":[],"resources":[]}` objects, same schema as `k8s.selfsubjectrulesreview` output).
+
+**`k8s.rolebinding`** — creates a `K8sRoleBinding` entity. Args: `Namespace`, `BindingName`, `RoleRef` (name of the referenced role), `Subjects` (JSON array of `{"kind":"ServiceAccount","name":"...","namespace":"..."}` objects). The `RoleBindingAnalyzer` (Issue 12d) is what converts a `K8sRoleBinding` entity into SA entitlements — the effect itself only creates the entity.
+
+**Domain types:**
+- `K8sRole { name, namespace, permissions: Vec<RbacPermission> }`
+- `K8sRoleBinding { name, namespace, role_ref: String, subjects: Vec<RbacSubject> }`
+- `RbacSubject { kind: String, name: String, namespace: String }`
+
+**Tests to write:**
+- `k8s.role`: valid args → `K8sRole` with correct name, namespace, parsed permissions
+- `k8s.role`: missing `RoleName` → `Err`
+- `k8s.role`: empty `Rules` arg → role created with empty permissions (not an error)
+- `k8s.rolebinding`: valid args → `K8sRoleBinding` with correct role_ref and subjects list
+- `k8s.rolebinding`: missing `BindingName` → `Err`
+- `k8s.rolebinding`: empty `Subjects` → binding created with empty subjects (not an error)
+
+- [x] Added `K8sRole`, `K8sRoleBinding`, `RbacSubject` to `crates/domain/entities.rs` with `Merge` impls
+- [x] Registered in `EntityStore` default + `CampaignEntityRef` variants
+- [x] Added `parse_k8s_role` and `parse_k8s_rolebinding` to `effects.rs`
+- [x] 6 tests passing (valid args, missing name Err, empty rules/subjects, parsed permissions)
+
+---
+
+## ~~Issue 10f — `k8s.cronjob` entity effect~~ ✅ Done
+
+**Go source:** `src/campaign/parsers.go`  
+**Files:** `crates/domain/entities.rs`, `crates/campaign/src/effects.rs`  
+**Dependencies:** Issue 1 ✅  
+**Note:** `WorkloadOwnershipAnalyzer` (Issue 12c) also needs `CronJob` — coordinate or do together
+
+Creates a `CronJob` entity. Args: `Namespace` (required), `CronJobName` / `CRONJOB_NAME` (required), optionally `Schedule` (cron expression string).
+
+**Tests to write:**
+- Valid args → `CronJob` entity with correct namespace and name
+- Optional `Schedule` arg populated correctly
+- Missing `Namespace` → `Err`
+- Missing `CronJobName` → `Err`
+
+- [x] Added `CronJob { meta, schedule }` to `crates/domain/entities.rs` with `Merge` impl
+- [x] Registered in `EntityStore` default + `CampaignEntityRef` variant
+- [x] Added `parse_k8s_cronjob` to `effects.rs`
+- [x] 4 tests passing
+
+---
+
+## Issue 10g — `file:content` and `file:kubeconfig`
+
+**Go source:** `src/campaign/parsers.go`  
+**Files:** `crates/campaign/src/output_parsers/file.rs` (new module), `crates/domain/entities.rs`  
+**Dependencies:** Issue 1 ✅ (new `K8sCredential` entity type)
+
+The most complex of the file parsers. Two effects that chain together.
+
+**`file:content`** — stores raw file content in `system.files` keyed by path. The effect ID carries the path: `file:content(/etc/kubernetes/admin.conf)`. After storing, heuristically checks whether the content looks like a kubeconfig (contains `apiVersion: v1`, `kind: Config`, and `clusters:`) and if so, runs the kubeconfig sub-parser to create a `K8sCredential` entity.
+
+**`file:kubeconfig`** — can also be declared explicitly as an effect. Parses kubeconfig YAML:
+- Extracts `clusters[].cluster.server` (endpoint) and `clusters[].cluster.certificate-authority-data` (CA)
+- Extracts `users[].user.token` (bearer token) or `users[].user.client-certificate-data` + `client-key-data` (mTLS)
+- Creates a `K8sCredential { endpoint, ca_data, token: Option<String>, cert_data: Option<String>, key_data: Option<String> }` entity
+- Emits a `Uses` relation from the target system to the `K8sCredential`
+
+**Tests to write:**
+- `file:content(/tmp/foo)`: plain text → content stored in `system.files`, no credential entity
+- `file:content(/etc/kubernetes/admin.conf)`: valid kubeconfig YAML → content stored AND `K8sCredential` entity emitted
+- `file:content`: kubeconfig with token auth → `K8sCredential.token` populated
+- `file:content`: kubeconfig with cert auth → `K8sCredential.cert_data` + `key_data` populated
+- `file:kubeconfig`: explicitly declared, same YAML input → same `K8sCredential` output
+- `file:kubeconfig`: malformed YAML → `UnknownFormat`
+- `file:content`: empty stdout → `KnownFailure`
+- Path extraction from effect ID with colons and slashes (`file:content(/var/run/secrets/token)`)
+
+- [ ] Add `K8sCredential` entity to `crates/domain/entities.rs` and register in `EntityStore`
+- [ ] Create `output_parsers/file.rs`, register `file:kubeconfig` in the module registry
+- [ ] Handle parametric `file:content(...)` dispatch in `parse_output_effect` (mirrors `sys.has-binary` pattern)
+- [ ] Write tests for the eight cases above
 
 ---
 
@@ -193,27 +350,17 @@ No GCP entity types or parsers exist in the Rust codebase.
 
 ---
 
-## Issue 12a — `CanExecAccessAnalyzer`
+## ~~Issue 12a — `CanExecAccessAnalyzer`~~ ✅ Done
 
 **Go source:** `src/campaign/rules_builtin.go`  
 **File:** `crates/campaign/src/analyzers.rs`  
 **Dependencies:** none
 
-When a system entity receives an incoming `PodExec`, `RceCanExec`, or `KubeletExecSink` relation, set its `system.access_level` to `UserExec` — unless it is already `Exec` (root), which must never be downgraded. This ensures access level propagates through lateral movement paths discovered after initial compromise, not only from `sys.userid` output.
+When a system entity receives an incoming exec-channel relation (any relation where `is_exec_channel()` returns true — covers `PodExec`, `KubeletExecSink`, `RceCanExec`, and future types), set its `system.access_level` to `Exec`. Already-`Exec` entities are unaffected (merge takes max). This ensures access level propagates through lateral movement paths discovered after initial compromise, not only from `sys.userid` output.
 
-Trigger: new relations whose name is `can-exec`, `rce-can-exec`, or `kubelet-pod-exec`. The target entity of each relation is the system whose access level is updated.
-
-**Tests to write:**
-- Pod with `AccessLevel::Unknown` + incoming `PodExec` → access level becomes `UserExec`
-- Pod with `AccessLevel::Exec` (root) + incoming `PodExec` → access level unchanged (no downgrade)
-- Pod with `AccessLevel::UserExec` + second incoming `PodExec` → no change (idempotent)
-- `KubeletExecSink` relation → target pod gets `UserExec`
-- `RceCanExec` relation → target gets `UserExec`
-- Non-system entity as target (e.g. `Namespace`) → no update emitted
-
-- [ ] Add `CanExecAccessAnalyzer` to `analyzers.rs`
-- [ ] Add to `default_analyzers()`
-- [ ] Write tests covering the six cases above
+- [x] Added `CanExecAccessAnalyzer` to `analyzers.rs`, using `r.is_exec_channel()` instead of a name allowlist
+- [x] Added to `default_analyzers()`
+- [x] 5 tests written and passing (sets Exec, idempotent for existing Exec, kubelet-exec-sink, rce-can-exec, non-system target ignored)
 
 ---
 
@@ -330,20 +477,16 @@ No MITRE types or attack flow serialization exist in the Rust codebase. The `Exe
 
 ---
 
-## Issue 14 — Execution records API endpoint (blocker for self-improving loop)
+## ~~Issue 14 — Execution records API endpoint~~ ✅ Done
 
-**File:** `crates/api/src/lib.rs`, `crates/api/src/api_handlers.rs`
+**Files:** `crates/api/src/api_handlers.rs`, `crates/api/src/lib.rs`
 
-`ExecutionRecord` objects (full stdout, args, parse audits, timing) are stored in `Campaign` but are not accessible via the HTTP API. The self-improving loop's Gap 2 scanner needs to inspect raw stdout of past executions to detect undeclared output. The SSE stream delivers `ParseAudit` in real time but not the full results.
+`GET /api/execution-records` and `GET /api/execution-records/:id` added.
 
-**Needed:**
-- `GET /api/execution-records` — returns `Vec<ExecutionRecord>` for the current campaign session (full stdout in `results` field)
-- Optional: `GET /api/execution-records/:id` — single record by command ID
-
-- [ ] Add `get_execution_records()` method to `ApiService` trait
-- [ ] Implement it on `AppState` (reads from `campaign.execution_records`)
-- [ ] Wire `GET /api/execution-records` route
-- [ ] Add `GET /api/execution-records/:id` route for targeted lookups
+Each response entry is an `ExecutionRecordEntry` — the raw `ExecutionRecord` (flattened,
+includes full stdout in `results`) joined with its `Vec<ParseAudit>` under `parseAudits`.
+Parse audits are correlated by `cmd_id`. No new trait method needed — handlers call the
+existing `get_campaign()` and read `execution_records` + `parse_audits` directly.
 
 ---
 
@@ -357,20 +500,24 @@ No MITRE types or attack flow serialization exist in the Rust codebase. The `Exe
 | 4 | ~~**5** — `FactsUpdate::merge` O(n²)~~ ✅ | S | Low | Performance |
 | 5 | ~~**4** — Split `output_parsers.rs` into modules~~ ✅ | M | Medium | Scalability |
 | 6 | ~~**8** — `CampaignEntityRef` delegation macro~~ ✅ | M | Medium | Extensibility |
-| 7 | **1** — Entity registry abstraction 🔄 | L | High | Required before adding new entity types (Issues 10–12) |
-| 8 | **14** — Execution records API endpoint | XS | Low | Self-improving loop unblocked |
-| 9 | **10** — Missing output parsers | M | Low | Parser coverage |
-| 10 | **12a** — `CanExecAccessAnalyzer` | XS | Low | Access level propagation via lateral movement |
+| 7 | ~~**14** — Execution records API endpoint~~ ✅ | XS | Low | Self-improving loop unblocked |
+| 8 | ~~**10a** — `sys.files` + `sys.hasfile`~~ ✅ | XS | Low | File enumeration parser coverage |
+| 9 | ~~**10b** — `k8s.can-reach` + `CanReach` type~~ ✅ | XS | Low | Network reachability effect |
+| 10 | ~~**12a** — `CanExecAccessAnalyzer`~~ ✅ | XS | Low | Access level propagation via lateral movement |
 | 11 | **12b** — `PropagateHostIPAnalyzer` | XS | Low | Node IP visibility for kubelet TTPs |
-| 12 | **12c** — `WorkloadOwnershipAnalyzer` | S | Low | Workload hierarchy in graph (needs Issue 1) |
-| 13 | **12d** — `RoleBindingAnalyzer` | S | Low | RBAC facts from binding data (needs Issue 10) |
-| 14 | **11** — GCP support | M | Low | Cloud coverage |
-| 15 | **13** — MITRE / AttackFlow export | L | Low | Reporting |
-| 16 | **9** — Extract `crates/app` | L | High | Testability / structure |
+| 12 | ~~**10c** — `nmap` parser~~ ✅ | S | Low | Network host discovery |
+| 13 | ~~**10d** — `k8s.serviceaccount` effect~~ ✅ | XS | Low | Single SA entity creation |
+| 14 | ~~**10e** — `k8s.role` + `k8s.rolebinding` effects~~ ✅ | S | Low | RBAC entities; unblocks 12d |
+| 15 | ~~**10f** — `k8s.cronjob` effect~~ ✅ | XS | Low | CronJob entity (coordinate with 12c) |
+| 16 | **12c** — `WorkloadOwnershipAnalyzer` | S | Low | Workload hierarchy in graph |
+| 17 | **12d** — `RoleBindingAnalyzer` | S | Low | RBAC facts from binding data (needs 10e) |
+| 18 | **10g** — `file:content` + `file:kubeconfig` | M | Low | Credential extraction from files |
+| 19 | **11** — GCP support | M | Low | Cloud coverage |
+| 20 | **13** — MITRE / AttackFlow export | L | Low | Reporting |
+| 21 | ~~**9** — Extract `crates/app`~~ ✅ | L | High | Testability / structure |
 
-Issues 4 and 5 are independent of each other and can be done in any order.
-Issue 1 should land before Issues 10, 12c — each adds new entity types and the registry abstraction makes that a one-liner instead of a 6-file change.
-Issues 12a and 12b have no dependencies and can be done immediately after Issue 14.
-Issue 12d depends on Issue 10 (`k8s.rolebinding` effect).
-Issue 9 is the largest structural change and is a prerequisite for proper integration testing.
-Issues 10, 11, 12a–12d, 13 are independent of each other and can be parallelized once Issue 1 is done.
+Issues 1, 9, 14, 10a–10f, 12a ✅ done.
+12b has no remaining dependencies — can start immediately.
+10g is the most complex remaining item; 12c, 12d are now unblocked by 10e ✅ and 10f ✅.
+10e unblocks 12d; 10f and 12c share the CronJob entity type and can be done together.
+10g is the most complex parser and can be deferred without blocking anything else.
