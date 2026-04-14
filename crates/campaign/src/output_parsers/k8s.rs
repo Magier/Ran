@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use ran_domain::{ConfigMap, Deployment, K8sNode, K8sSecret, Mount, Namespace, Pod, PodPhase, ServiceAccount};
+use ran_domain::{ConfigMap, Deployment, K8sNode, K8sSecret, Mount, Namespace, OwnerRef, Pod, PodPhase, ServiceAccount};
 
 use crate::FactsUpdate;
 use super::ParserOutput;
@@ -22,6 +22,16 @@ mod k8s_json {
     use std::collections::HashMap;
 
     #[derive(Deserialize, Default)]
+    pub struct OwnerReference {
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub kind: String,
+        #[serde(default)]
+        pub uid: String,
+    }
+
+    #[derive(Deserialize, Default)]
     pub struct Meta {
         #[serde(default)]
         pub name: String,
@@ -29,6 +39,8 @@ mod k8s_json {
         pub namespace: Option<String>,
         #[serde(default)]
         pub uid: Option<String>,
+        #[serde(rename = "ownerReferences", default)]
+        pub owner_references: Vec<OwnerReference>,
     }
 
     // --- Pod ---
@@ -258,6 +270,11 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str) -> ParserOutput {
             pod.meta.uid = Some(uid.clone());
         }
 
+        pod.owner_references = item.metadata.owner_references.iter().map(|o| OwnerRef {
+            name: o.name.clone(),
+            kind: o.kind.clone(),
+            uid: o.uid.clone(),
+        }).collect();
         pod.node_name = item.spec.node_name.clone();
         pod.service_account_name = item.spec.service_account_name.clone();
         pod.automount_service_account_token = item.spec.automount_service_account_token.into();

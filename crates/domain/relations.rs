@@ -391,6 +391,48 @@ impl Relation for CanReach {
 }
 
 // ---------------------------------------------------------------------------
+// Owns
+// ---------------------------------------------------------------------------
+
+/// Workload ownership relation: a workload controller owns a pod.
+///
+/// Emitted by `WorkloadOwnershipAnalyzer` from `metadata.ownerReferences` on
+/// pods.  Source is the workload (ReplicaSet, StatefulSet, DaemonSet, Job);
+/// target is the owned Pod.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Owns {
+    pub owner_id: EntityId,
+    pub object_id: EntityId,
+}
+
+impl Owns {
+    pub fn new(owner_id: impl Into<String>, object_id: impl Into<String>) -> Self {
+        Self {
+            owner_id: EntityId::new(owner_id),
+            object_id: EntityId::new(object_id),
+        }
+    }
+}
+
+impl Relation for Owns {
+    fn relation_name(&self) -> &str {
+        "owns"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.owner_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.object_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
 // RelationSummary
 // ---------------------------------------------------------------------------
 

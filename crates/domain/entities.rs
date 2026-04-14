@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identity::ServiceAccountToken;
 use crate::rbac::RbacPermission;
-use crate::types::{Confidence, Container, EntityId, K8sMeta, Mount, SystemInfo};
+use crate::types::{Confidence, Container, EntityId, K8sMeta, Mount, OwnerRef, SystemInfo};
 
 // ---------------------------------------------------------------------------
 // Entity trait
@@ -167,6 +167,10 @@ pub enum GraphEntity {
     Secret(K8sSecret),
     ConfigMap(ConfigMap),
     Deployment(Deployment),
+    ReplicaSet(ReplicaSet),
+    StatefulSet(StatefulSet),
+    DaemonSet(DaemonSet),
+    Job(Job),
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +307,12 @@ pub struct Pod {
     /// `None` means the pod has not been scheduled to a node yet.
     pub node_name: Option<String>,
 
+    // --- Ownership ---
+    /// Direct owner references from `metadata.ownerReferences` in the K8s API.
+    /// Used by `WorkloadOwnershipAnalyzer` to build workload hierarchy edges.
+    #[serde(default)]
+    pub owner_references: Vec<OwnerRef>,
+
     // --- Security context ---
     pub privileged: Confidence,
     pub host_pid: Confidence,
@@ -331,6 +341,7 @@ impl Pod {
             meta: K8sMeta::namespaced(name, namespace),
             system: SystemInfo::default(),
             node_name: None,
+            owner_references: Vec::new(),
             privileged: Confidence::Unknown,
             host_pid: Confidence::Unknown,
             host_ipc: Confidence::Unknown,
@@ -716,6 +727,126 @@ impl Entity for CronJob {
 }
 
 // ---------------------------------------------------------------------------
+// ReplicaSet
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes ReplicaSet workload controller.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplicaSet {
+    pub meta: K8sMeta,
+}
+
+impl ReplicaSet {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        ReplicaSet { meta: K8sMeta::namespaced(name, namespace) }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for ReplicaSet {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/replicaset/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str { &self.meta.name }
+    fn entity_kind(&self) -> &str { "ReplicaSet" }
+    fn as_any(&self) -> &dyn std::any::Any { self }
+}
+
+// ---------------------------------------------------------------------------
+// StatefulSet
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes StatefulSet workload controller.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatefulSet {
+    pub meta: K8sMeta,
+}
+
+impl StatefulSet {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        StatefulSet { meta: K8sMeta::namespaced(name, namespace) }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for StatefulSet {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/statefulset/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str { &self.meta.name }
+    fn entity_kind(&self) -> &str { "StatefulSet" }
+    fn as_any(&self) -> &dyn std::any::Any { self }
+}
+
+// ---------------------------------------------------------------------------
+// DaemonSet
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes DaemonSet workload controller.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaemonSet {
+    pub meta: K8sMeta,
+}
+
+impl DaemonSet {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        DaemonSet { meta: K8sMeta::namespaced(name, namespace) }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for DaemonSet {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/daemonset/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str { &self.meta.name }
+    fn entity_kind(&self) -> &str { "DaemonSet" }
+    fn as_any(&self) -> &dyn std::any::Any { self }
+}
+
+// ---------------------------------------------------------------------------
+// Job
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes Job workload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Job {
+    pub meta: K8sMeta,
+}
+
+impl Job {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        Job { meta: K8sMeta::namespaced(name, namespace) }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for Job {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/job/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str { &self.meta.name }
+    fn entity_kind(&self) -> &str { "Job" }
+    fn as_any(&self) -> &dyn std::any::Any { self }
+}
+
+// ---------------------------------------------------------------------------
 // Merge trait
 // ---------------------------------------------------------------------------
 
@@ -812,6 +943,11 @@ impl Merge for Pod {
 
         if self.node_name.is_none() {
             self.node_name = incoming.node_name.clone();
+        }
+        for oref in &incoming.owner_references {
+            if !self.owner_references.iter().any(|o| o.uid == oref.uid) {
+                self.owner_references.push(oref.clone());
+            }
         }
         if self.service_account_name.is_none() {
             self.service_account_name = incoming.service_account_name.clone();
@@ -938,6 +1074,30 @@ impl Merge for CronJob {
         if self.schedule.is_none() {
             self.schedule = incoming.schedule.clone();
         }
+    }
+}
+
+impl Merge for ReplicaSet {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+    }
+}
+
+impl Merge for StatefulSet {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+    }
+}
+
+impl Merge for DaemonSet {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+    }
+}
+
+impl Merge for Job {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
     }
 }
 

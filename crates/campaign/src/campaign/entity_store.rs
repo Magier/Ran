@@ -2,8 +2,9 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
 use ran_domain::{
-    C2Server, ConfigMap, CronJob, Deployment, Entity, EntityId, K8sCluster, K8sNode, K8sSecret,
-    K8sRole, K8sRoleBinding, Merge, Namespace, Pod, ServiceAccount,
+    C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, Job, K8sCluster,
+    K8sNode, K8sSecret, K8sRole, K8sRoleBinding, Merge, Namespace, Pod, ReplicaSet, ServiceAccount,
+    StatefulSet,
 };
 use serde::de::MapAccess;
 use serde::ser::SerializeMap;
@@ -272,6 +273,10 @@ impl Default for EntityStore {
         s.register::<K8sRole>("roles", |t| CampaignEntityRef::Role(t));
         s.register::<K8sRoleBinding>("role_bindings", |t| CampaignEntityRef::RoleBinding(t));
         s.register::<CronJob>("cron_jobs", |t| CampaignEntityRef::CronJob(t));
+        s.register::<ReplicaSet>("replica_sets", |t| CampaignEntityRef::ReplicaSet(t));
+        s.register::<StatefulSet>("stateful_sets", |t| CampaignEntityRef::StatefulSet(t));
+        s.register::<DaemonSet>("daemon_sets", |t| CampaignEntityRef::DaemonSet(t));
+        s.register::<Job>("jobs", |t| CampaignEntityRef::Job(t));
         s
     }
 }

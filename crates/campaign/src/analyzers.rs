@@ -1,6 +1,7 @@
 use ran_domain::{
-    Confidence, Contains, Entity, EntityId, K8sCluster, K8sNode, KubeletExecSink, Namespace, Pod,
-    PodExec, RelationSummary, RunsOn, ServiceAccount, Uses,
+    Confidence, Contains, DaemonSet, Entity, EntityId, Job, K8sCluster, K8sNode, KubeletExecSink,
+    Namespace, Owns, Pod, PodExec, RelationSummary, ReplicaSet, RunsOn, ServiceAccount,
+    StatefulSet, Uses,
 };
 
 use crate::{Campaign, FactsUpdate};
@@ -581,6 +582,92 @@ impl Analyzer for CanExecAccessAnalyzer {
 }
 
 // ---------------------------------------------------------------------------
+// WorkloadOwnershipAnalyzer
+// ---------------------------------------------------------------------------
+
+/// For every new `Pod` with owner references, create the owning workload entity
+/// (if not already known) and emit an `owns` relation from the workload to the pod.
+///
+/// Handles the following owner kinds from `metadata.ownerReferences`:
+/// - `ReplicaSet` → creates a `ReplicaSet` entity + `Owns(ReplicaSet → Pod)`
+/// - `StatefulSet` → creates a `StatefulSet` entity + `Owns(StatefulSet → Pod)`
+/// - `DaemonSet` → creates a `DaemonSet` entity + `Owns(DaemonSet → Pod)`
+/// - `Job` → creates a `Job` entity + `Owns(Job → Pod)`
+///
+/// Trigger: new `Pod` entities with non-empty `owner_references`.
+pub struct WorkloadOwnershipAnalyzer;
+
+impl Analyzer for WorkloadOwnershipAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
+                continue;
+            };
+            if pod.owner_references.is_empty() {
+                continue;
+            }
+
+            let ns = pod.namespace().unwrap_or("").to_string();
+            let pod_id = pod.entity_id().0.clone();
+
+            for owner_ref in &pod.owner_references {
+                match owner_ref.kind.as_str() {
+                    "ReplicaSet" => {
+                        let rs = ReplicaSet::new(&owner_ref.name, &ns);
+                        let rs_id = rs.entity_id();
+                        let known = campaign.entities.contains::<ReplicaSet>(&rs_id)
+                            || update.new_entities.iter().any(|e| e.entity_id() == rs_id)
+                            || inferred.new_entities.iter().any(|e| e.entity_id() == rs_id);
+                        if !known {
+                            inferred.new_entities.push(Box::new(rs));
+                        }
+                        inferred.new_relations.push(Box::new(Owns::new(rs_id.0, pod_id.clone())));
+                    }
+                    "StatefulSet" => {
+                        let ss = StatefulSet::new(&owner_ref.name, &ns);
+                        let ss_id = ss.entity_id();
+                        let known = campaign.entities.contains::<StatefulSet>(&ss_id)
+                            || update.new_entities.iter().any(|e| e.entity_id() == ss_id)
+                            || inferred.new_entities.iter().any(|e| e.entity_id() == ss_id);
+                        if !known {
+                            inferred.new_entities.push(Box::new(ss));
+                        }
+                        inferred.new_relations.push(Box::new(Owns::new(ss_id.0, pod_id.clone())));
+                    }
+                    "DaemonSet" => {
+                        let ds = DaemonSet::new(&owner_ref.name, &ns);
+                        let ds_id = ds.entity_id();
+                        let known = campaign.entities.contains::<DaemonSet>(&ds_id)
+                            || update.new_entities.iter().any(|e| e.entity_id() == ds_id)
+                            || inferred.new_entities.iter().any(|e| e.entity_id() == ds_id);
+                        if !known {
+                            inferred.new_entities.push(Box::new(ds));
+                        }
+                        inferred.new_relations.push(Box::new(Owns::new(ds_id.0, pod_id.clone())));
+                    }
+                    "Job" => {
+                        let job = Job::new(&owner_ref.name, &ns);
+                        let job_id = job.entity_id();
+                        let known = campaign.entities.contains::<Job>(&job_id)
+                            || update.new_entities.iter().any(|e| e.entity_id() == job_id)
+                            || inferred.new_entities.iter().any(|e| e.entity_id() == job_id);
+                        if !known {
+                            inferred.new_entities.push(Box::new(job));
+                        }
+                        inferred.new_relations.push(Box::new(Owns::new(job_id.0, pod_id.clone())));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        inferred
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Default analyzer pipeline
 // ---------------------------------------------------------------------------
 
@@ -625,6 +712,7 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(ServiceAccountCanExecAnalyzer),
         Box::new(KubeletExecSinkAnalyzer),
         Box::new(CanExecAccessAnalyzer),
+        Box::new(WorkloadOwnershipAnalyzer),
     ]
 }
 
@@ -1166,5 +1254,160 @@ mod tests {
 
         let inferred = run_can_exec_access(&campaign, &update);
         assert!(inferred.new_entities.is_empty());
+    }
+
+    // ---------------------------------------------------------------------------
+    // WorkloadOwnershipAnalyzer tests
+    // ---------------------------------------------------------------------------
+
+    fn make_pod_with_owner(name: &str, ns: &str, owner_kind: &str, owner_name: &str) -> Pod {
+        use ran_domain::OwnerRef;
+        let mut pod = Pod::new(name, ns);
+        pod.owner_references.push(OwnerRef {
+            name: owner_name.to_string(),
+            kind: owner_kind.to_string(),
+            uid: format!("uid-{}", owner_name),
+        });
+        pod
+    }
+
+    #[test]
+    fn pod_owned_by_replicaset_creates_entity_and_owns_relation() {
+        use ran_domain::{Owns, ReplicaSet};
+        let campaign = test_campaign();
+        let pod = make_pod_with_owner("my-pod-abc", "default", "ReplicaSet", "my-rs");
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod.clone()));
+
+        let analyzer = WorkloadOwnershipAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        assert!(
+            inferred.new_entities.iter().any(|e| e.entity_kind() == "ReplicaSet" && e.entity_name() == "my-rs"),
+            "expected ReplicaSet entity to be created"
+        );
+        let rs = ReplicaSet::new("my-rs", "default");
+        assert!(
+            inferred.new_relations.iter().any(|r| {
+                r.is::<Owns>()
+                    && r.source_id().0 == rs.entity_id().0
+                    && r.target_id().0 == pod.entity_id().0
+            }),
+            "expected Owns(ReplicaSet → Pod) relation"
+        );
+    }
+
+    #[test]
+    fn pod_owned_by_statefulset_creates_entity_and_owns_relation() {
+        use ran_domain::{Owns, StatefulSet};
+        let campaign = test_campaign();
+        let pod = make_pod_with_owner("my-ss-pod-0", "default", "StatefulSet", "my-ss");
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod.clone()));
+
+        let analyzer = WorkloadOwnershipAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        assert!(
+            inferred.new_entities.iter().any(|e| e.entity_kind() == "StatefulSet" && e.entity_name() == "my-ss"),
+            "expected StatefulSet entity"
+        );
+        let ss = StatefulSet::new("my-ss", "default");
+        assert!(
+            inferred.new_relations.iter().any(|r| r.is::<Owns>() && r.source_id().0 == ss.entity_id().0),
+            "expected Owns relation from StatefulSet"
+        );
+    }
+
+    #[test]
+    fn pod_owned_by_daemonset_creates_entity_and_owns_relation() {
+        use ran_domain::{DaemonSet, Owns};
+        let campaign = test_campaign();
+        let pod = make_pod_with_owner("ds-pod", "kube-system", "DaemonSet", "my-ds");
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod.clone()));
+
+        let analyzer = WorkloadOwnershipAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        assert!(
+            inferred.new_entities.iter().any(|e| e.entity_kind() == "DaemonSet" && e.entity_name() == "my-ds"),
+            "expected DaemonSet entity"
+        );
+        let ds = DaemonSet::new("my-ds", "kube-system");
+        assert!(
+            inferred.new_relations.iter().any(|r| r.is::<Owns>() && r.source_id().0 == ds.entity_id().0),
+            "expected Owns relation from DaemonSet"
+        );
+    }
+
+    #[test]
+    fn pod_owned_by_job_creates_entity_and_owns_relation() {
+        use ran_domain::{Job, Owns};
+        let campaign = test_campaign();
+        let pod = make_pod_with_owner("job-pod-xyz", "default", "Job", "my-job");
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod.clone()));
+
+        let analyzer = WorkloadOwnershipAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        assert!(
+            inferred.new_entities.iter().any(|e| e.entity_kind() == "Job" && e.entity_name() == "my-job"),
+            "expected Job entity"
+        );
+        let job = Job::new("my-job", "default");
+        assert!(
+            inferred.new_relations.iter().any(|r| r.is::<Owns>() && r.source_id().0 == job.entity_id().0),
+            "expected Owns relation from Job"
+        );
+    }
+
+    #[test]
+    fn already_known_replicaset_not_duplicated_owns_still_emitted() {
+        use ran_domain::{Owns, ReplicaSet};
+        let mut campaign = test_campaign();
+        let rs = ReplicaSet::new("existing-rs", "default");
+        let rs_id = rs.entity_id();
+        campaign.entities.insert_typed(rs);
+
+        let pod = make_pod_with_owner("my-pod", "default", "ReplicaSet", "existing-rs");
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod.clone()));
+
+        let analyzer = WorkloadOwnershipAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        assert!(
+            inferred.new_entities.iter().all(|e| e.entity_kind() != "ReplicaSet"),
+            "should not emit ReplicaSet entity when already in campaign"
+        );
+        assert!(
+            inferred.new_relations.iter().any(|r| {
+                r.is::<Owns>()
+                    && r.source_id().0 == rs_id.0
+                    && r.target_id().0 == pod.entity_id().0
+            }),
+            "Owns relation must still be emitted even when owner already known"
+        );
+    }
+
+    #[test]
+    fn pod_with_no_owner_references_emits_nothing() {
+        let campaign = test_campaign();
+        let pod = Pod::new("standalone-pod", "default");
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+
+        let analyzer = WorkloadOwnershipAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        assert!(inferred.new_entities.is_empty());
+        assert!(inferred.new_relations.is_empty());
     }
 }
