@@ -1,6 +1,7 @@
 use ran_domain::{
-    C2Server, ConfigMap, CronJob, Deployment, Entity, EntityId, K8sCluster, K8sNode, K8sSecret,
-    K8sRole, K8sRoleBinding, Namespace, Pod, ServiceAccount, SystemEntity,
+    C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, Job, K8sCluster,
+    K8sNode, K8sSecret, K8sRole, K8sRoleBinding, Namespace, Pod, ReplicaSet, ServiceAccount,
+    StatefulSet, SystemEntity,
 };
 
 pub enum CampaignEntityRef<'a> {
@@ -16,6 +17,10 @@ pub enum CampaignEntityRef<'a> {
     Role(&'a K8sRole),
     RoleBinding(&'a K8sRoleBinding),
     CronJob(&'a CronJob),
+    ReplicaSet(&'a ReplicaSet),
+    StatefulSet(&'a StatefulSet),
+    DaemonSet(&'a DaemonSet),
+    Job(&'a Job),
 }
 
 pub enum CampaignSystemEntityRef<'a> {
@@ -68,7 +73,7 @@ macro_rules! delegate_entity_methods {
 impl<'a> CampaignEntityRef<'a> {
     delegate_entity_methods!(
         C2Server, Cluster, Node, Namespace, Pod, ServiceAccount, Secret, ConfigMap, Deployment,
-        Role, RoleBinding, CronJob,
+        Role, RoleBinding, CronJob, ReplicaSet, StatefulSet, DaemonSet, Job,
     );
 
     pub fn namespace(&self) -> Option<&str> {
@@ -81,6 +86,10 @@ impl<'a> CampaignEntityRef<'a> {
             CampaignEntityRef::Role(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::RoleBinding(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::CronJob(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::ReplicaSet(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::StatefulSet(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::DaemonSet(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::Job(e) => e.meta.namespace.as_deref(),
             _ => None,
         }
     }
