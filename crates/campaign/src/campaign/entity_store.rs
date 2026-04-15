@@ -2,9 +2,9 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
 use ran_domain::{
-    C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, Job, K8sCluster,
-    K8sNode, K8sSecret, K8sRole, K8sRoleBinding, Merge, Namespace, Pod, ReplicaSet, ServiceAccount,
-    StatefulSet,
+    C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
+    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sNode, K8sSecret, K8sRole, K8sRoleBinding,
+    Merge, Namespace, Pod, ReplicaSet, ServiceAccount, StatefulSet,
 };
 use serde::de::MapAccess;
 use serde::ser::SerializeMap;
@@ -277,6 +277,9 @@ impl Default for EntityStore {
         s.register::<StatefulSet>("stateful_sets", |t| CampaignEntityRef::StatefulSet(t));
         s.register::<DaemonSet>("daemon_sets", |t| CampaignEntityRef::DaemonSet(t));
         s.register::<Job>("jobs", |t| CampaignEntityRef::Job(t));
+        s.register::<GCPServiceAccount>("gcp_service_accounts", |t| CampaignEntityRef::GCPServiceAccount(t));
+        s.register::<GCPBucket>("gcp_buckets", |t| CampaignEntityRef::GCPBucket(t));
+        s.register::<K8sCredential>("k8s_credentials", |t| CampaignEntityRef::K8sCredential(t));
         s
     }
 }

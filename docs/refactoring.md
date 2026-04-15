@@ -364,7 +364,7 @@ When a system entity receives an incoming exec-channel relation (any relation wh
 
 ---
 
-## Issue 12b — `PropagateHostIPAnalyzer`
+## ~~Issue 12b — `PropagateHostIPAnalyzer`~~ ✅ Done
 
 **Go source:** `src/campaign/rules_builtin.go`  
 **File:** `crates/campaign/src/analyzers.rs`  
@@ -380,14 +380,14 @@ Trigger: new `Pod` entities with `host_ip` set, or new `RunsOn` relations where 
 - Pod with no `host_ip` + `RunsOn` → no update emitted
 - `RunsOn` relation added to a pod that already has `host_ip` (relation arrives after entity) → node still gets the IP
 
-- [ ] Add `host_ip` field to `Pod` in `crates/domain/entities.rs` (populated by `k8s.podlist` parser)
-- [ ] Add `PropagateHostIPAnalyzer` to `analyzers.rs`
-- [ ] Add to `default_analyzers()`
-- [ ] Write tests covering the four cases above
+- [x] Add `host_ip: Option<IpAddr>` field to `Pod` in `crates/domain/entities.rs`; populated from `status.hostIP` by `k8s.podlist` parser
+- [x] Add `PropagateHostIPAnalyzer` to `analyzers.rs` (placed after `PodNodeAnalyzer` in pipeline)
+- [x] Add to `default_analyzers()`
+- [x] 4 tests passing (host_ip→existing runs-on, already-present IP no-op, no host_ip no update, runs-on arrives after pod)
 
 ---
 
-## Issue 12c — `WorkloadOwnershipAnalyzer`
+## ~~Issue 12c — `WorkloadOwnershipAnalyzer`~~ ✅ Done
 
 **Go source:** `src/campaign/analyzers.go: analyzeWorkloadOwnership`  
 **File:** `crates/campaign/src/analyzers.rs`  
@@ -414,12 +414,12 @@ Trigger: new `Pod` entities with non-empty `owner_references`.
 - Already-known `ReplicaSet` as owner → no duplicate entity emitted, `Owns` still emitted
 - Pod with no owner references → no output
 
-- [ ] Add `owner_references` field to `Pod` (populated from `k8s.podlist` JSON)
-- [ ] Add `ReplicaSet`, `StatefulSet`, `DaemonSet`, `Job` entity types to `crates/domain/entities.rs`
-- [ ] Add `Owns` relation type to `crates/domain/relations.rs`
-- [ ] Add `WorkloadOwnershipAnalyzer` to `analyzers.rs`
-- [ ] Add to `default_analyzers()`
-- [ ] Write tests covering the six cases above
+- [x] Add `owner_references: Vec<OwnerRef>` field to `Pod` (populated from `k8s.podlist` JSON `metadata.ownerReferences`)
+- [x] Add `ReplicaSet`, `StatefulSet`, `DaemonSet`, `Job` entity types to `crates/domain/entities.rs`; registered in `EntityStore` default + `CampaignEntityRef` variants
+- [x] Add `Owns` relation type to `crates/domain/relations.rs`
+- [x] Add `WorkloadOwnershipAnalyzer` to `analyzers.rs`
+- [x] Add to `default_analyzers()`
+- [x] 6 tests passing (ReplicaSet, StatefulSet, DaemonSet, Job owners; already-known owner no duplicate; no owner refs emits nothing)
 
 ---
 
@@ -504,12 +504,12 @@ existing `get_campaign()` and read `execution_records` + `parse_audits` directly
 | 8 | ~~**10a** — `sys.files` + `sys.hasfile`~~ ✅ | XS | Low | File enumeration parser coverage |
 | 9 | ~~**10b** — `k8s.can-reach` + `CanReach` type~~ ✅ | XS | Low | Network reachability effect |
 | 10 | ~~**12a** — `CanExecAccessAnalyzer`~~ ✅ | XS | Low | Access level propagation via lateral movement |
-| 11 | **12b** — `PropagateHostIPAnalyzer` | XS | Low | Node IP visibility for kubelet TTPs |
+| 11 | ~~**12b** — `PropagateHostIPAnalyzer`~~ ✅ | XS | Low | Node IP visibility for kubelet TTPs |
 | 12 | ~~**10c** — `nmap` parser~~ ✅ | S | Low | Network host discovery |
 | 13 | ~~**10d** — `k8s.serviceaccount` effect~~ ✅ | XS | Low | Single SA entity creation |
 | 14 | ~~**10e** — `k8s.role` + `k8s.rolebinding` effects~~ ✅ | S | Low | RBAC entities; unblocks 12d |
 | 15 | ~~**10f** — `k8s.cronjob` effect~~ ✅ | XS | Low | CronJob entity (coordinate with 12c) |
-| 16 | **12c** — `WorkloadOwnershipAnalyzer` | S | Low | Workload hierarchy in graph |
+| 16 | ~~**12c** — `WorkloadOwnershipAnalyzer`~~ ✅ | S | Low | Workload hierarchy in graph |
 | 17 | **12d** — `RoleBindingAnalyzer` | S | Low | RBAC facts from binding data (needs 10e) |
 | 18 | **10g** — `file:content` + `file:kubeconfig` | M | Low | Credential extraction from files |
 | 19 | **11** — GCP support | M | Low | Cloud coverage |
