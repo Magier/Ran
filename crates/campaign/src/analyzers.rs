@@ -1,7 +1,8 @@
 use ran_domain::{
-    Confidence, Contains, DaemonSet, Entity, EntityId, Job, K8sCluster, K8sNode, KubeletExecSink,
-    Namespace, Owns, Pod, PodExec, RelationSummary, ReplicaSet, RunsOn, ServiceAccount,
-    StatefulSet, Uses,
+    Confidence, Contains, DaemonSet, Entity, EntityId, GCPServiceAccount, Job, K8sCluster,
+    K8sNode, K8sRole, K8sRoleBinding, KubeletExecSink, Namespace, Owns, Pod, PodExec,
+    RbacPermission, RbacSubject, RelationSummary, ReplicaSet, RunsOn, ServiceAccount, StatefulSet,
+    Uses,
 };
 
 use crate::{Campaign, FactsUpdate};
@@ -668,6 +669,141 @@ impl Analyzer for WorkloadOwnershipAnalyzer {
 }
 
 // ---------------------------------------------------------------------------
+// PropagateHostIPAnalyzer
+// ---------------------------------------------------------------------------
+
+/// Copy a pod's `host_ip` into the owning node's `system.ips` when the two are
+/// connected by a `runs-on` relation.
+///
+/// Triggers on two events:
+/// 1. **New Pod with `host_ip`** — if a `runs-on` edge already exists in the
+///    campaign graph (or in the current update from `PodNodeAnalyzer`), the IP
+///    is propagated to the target node immediately.
+/// 2. **New `runs-on` relation** — if the source pod (in campaign state or the
+///    current update) already has `host_ip` set, the IP is propagated to the
+///    target node.  This covers the case where the pod entity arrives first,
+///    a `runs-on` edge is later wired (e.g. by `PodNodeAnalyzer`), and
+///    `PropagateHostIPAnalyzer` runs after them in the same pipeline pass.
+///
+/// No update is emitted when the IP is already present in the node's `system.ips`.
+pub struct PropagateHostIPAnalyzer;
+
+impl Analyzer for PropagateHostIPAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        // --- Case 1: new Pod with host_ip ----------------------------------
+        for entity in &update.new_entities {
+            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
+                continue;
+            };
+            let Some(host_ip) = pod.host_ip else {
+                continue;
+            };
+
+            let pod_id = pod.entity_id();
+
+            // Runs-on edges committed to the campaign graph.
+            let node_ids: Vec<EntityId> = campaign
+                .graph
+                .targets_of(&pod_id, "runs-on")
+                .into_iter()
+                .cloned()
+                .collect();
+            for node_id in node_ids {
+                propagate_ip_to_node(&mut inferred, campaign, update, &node_id, host_ip);
+            }
+
+            // Runs-on edges still pending in the current update (e.g. from PodNodeAnalyzer).
+            for rel in &update.new_relations {
+                if rel.relation_name() == "runs-on" && rel.source_id() == &pod_id {
+                    let node_id = rel.target_id().clone();
+                    propagate_ip_to_node(&mut inferred, campaign, update, &node_id, host_ip);
+                }
+            }
+        }
+
+        // --- Case 2: new RunsOn relation -----------------------------------
+        for rel in &update.new_relations {
+            if rel.relation_name() != "runs-on" {
+                continue;
+            }
+            let pod_id = rel.source_id();
+            let node_id = rel.target_id().clone();
+
+            // Find the pod's host_ip from campaign state or the current update.
+            let host_ip = campaign
+                .entities
+                .find::<Pod>(pod_id)
+                .and_then(|p| p.host_ip)
+                .or_else(|| {
+                    update.new_entities.iter().find_map(|e| {
+                        e.as_any()
+                            .downcast_ref::<Pod>()
+                            .filter(|p| &p.entity_id() == pod_id)
+                            .and_then(|p| p.host_ip)
+                    })
+                });
+
+            let Some(host_ip) = host_ip else {
+                continue;
+            };
+            propagate_ip_to_node(&mut inferred, campaign, update, &node_id, host_ip);
+        }
+
+        inferred
+    }
+}
+
+/// Emit an updated `K8sNode` with `host_ip` added to `system.ips`, unless the
+/// IP is already present in the node's stored IPs or in a pending inferred update.
+fn propagate_ip_to_node(
+    inferred: &mut FactsUpdate,
+    campaign: &Campaign,
+    update: &FactsUpdate,
+    node_id: &EntityId,
+    host_ip: std::net::IpAddr,
+) {
+    // Already committed to campaign state?
+    if let Some(node) = campaign.entities.find::<K8sNode>(node_id) {
+        if node.system.ips.contains(&host_ip) {
+            return;
+        }
+    }
+
+    // Already emitted in this inferred batch?
+    if inferred.new_entities.iter().any(|e| {
+        e.as_any()
+            .downcast_ref::<K8sNode>()
+            .map(|n| n.entity_id() == *node_id && n.system.ips.contains(&host_ip))
+            .unwrap_or(false)
+    }) {
+        return;
+    }
+
+    // Resolve the node: campaign → update → fresh placeholder.
+    let mut node = campaign
+        .entities
+        .find::<K8sNode>(node_id)
+        .cloned()
+        .or_else(|| {
+            update.new_entities.iter().find_map(|e| {
+                e.as_any()
+                    .downcast_ref::<K8sNode>()
+                    .filter(|n| n.entity_id() == *node_id)
+                    .cloned()
+            })
+        })
+        .unwrap_or_else(|| {
+            let name = node_id.0.strip_prefix("node/").unwrap_or(&node_id.0);
+            K8sNode::new(name)
+        });
+
+    node.system.ips.push(host_ip);
+    inferred.new_entities.push(Box::new(node));
+}
+
+// ---------------------------------------------------------------------------
 // Default analyzer pipeline
 // ---------------------------------------------------------------------------
 
@@ -698,6 +834,191 @@ impl Analyzer for NodeClusterAnalyzer {
     }
 }
 
+// ---------------------------------------------------------------------------
+// RoleBindingAnalyzer
+// ---------------------------------------------------------------------------
+
+/// Convert `K8sRoleBinding` entities into concrete `ServiceAccount` entitlements.
+///
+/// When a new `K8sRoleBinding` arrives, the analyzer:
+/// 1. Finds the referenced `K8sRole` by name (searching both committed campaign
+///    state and entities pending in the current update).
+/// 2. For each subject of kind `"ServiceAccount"` in the binding, clones the
+///    role's permissions and sets the `scope` field:
+///    - Namespace-scoped binding → `scope = binding.namespace`
+///    - Cluster-wide binding (empty namespace) → `scope = "*"`
+///    - `source_role` is set to the role name on each cloned permission.
+/// 3. Emits a minimal `ServiceAccount` entity carrying those entitlements;
+///    the entity store merges it into the existing SA (or creates a new one
+///    if the SA is not yet known).
+///
+/// If the referenced role cannot be found in the campaign, no entitlements
+/// are emitted — this is not an error, the role may arrive later.
+pub struct RoleBindingAnalyzer;
+
+impl Analyzer for RoleBindingAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
+                continue;
+            };
+
+            // Determine scope from the binding's namespace.
+            // An empty/absent namespace signals a ClusterRoleBinding → wildcard scope.
+            let binding_ns = binding.meta.namespace.as_deref().unwrap_or("");
+            let scope: Option<String> = if binding_ns.is_empty() {
+                Some("*".to_string())
+            } else {
+                Some(binding_ns.to_string())
+            };
+
+            // Find the referenced role by name, checking both committed state and
+            // entities that arrived in the same update batch as this binding.
+            let role_perms: Vec<RbacPermission> = find_role_permissions(
+                campaign,
+                update,
+                &binding.role_ref,
+            );
+
+            if role_perms.is_empty() {
+                // Role not found or has no permissions — skip silently.
+                continue;
+            }
+
+            // Stamp scope and source_role onto every cloned permission.
+            let stamped: Vec<RbacPermission> = role_perms
+                .into_iter()
+                .map(|mut p| {
+                    p.scope = scope.clone();
+                    p.source_role = Some(binding.role_ref.clone());
+                    p
+                })
+                .collect();
+
+            // Emit one SA update per ServiceAccount subject.
+            for subject in &binding.subjects {
+                if !subject.kind.eq_ignore_ascii_case("ServiceAccount") {
+                    continue;
+                }
+                let sa_ns = if subject.namespace.is_empty() {
+                    binding_ns.to_string()
+                } else {
+                    subject.namespace.clone()
+                };
+
+                let mut sa = ServiceAccount::new(&subject.name, &sa_ns);
+                sa.entitlements = stamped.clone();
+                inferred.new_entities.push(Box::new(sa));
+            }
+        }
+
+        inferred
+    }
+}
+
+/// Find the permissions of a role named `role_name`.
+///
+/// Searches committed campaign state first, then falls back to new entities
+/// in the current update batch (so a role and its binding can arrive together).
+/// Returns an empty `Vec` when no matching role is found.
+fn find_role_permissions(
+    campaign: &Campaign,
+    update: &FactsUpdate,
+    role_name: &str,
+) -> Vec<RbacPermission> {
+    // Campaign state: iterate all registered K8sRole entities.
+    if let Some(role) = campaign
+        .entities
+        .values::<K8sRole>()
+        .find(|r| r.meta.name == role_name)
+    {
+        return role.permissions.clone();
+    }
+
+    // Pending update batch: roles parsed in the same round as the binding.
+    if let Some(role) = update.new_entities.iter().find_map(|e| {
+        e.as_any()
+            .downcast_ref::<K8sRole>()
+            .filter(|r| r.meta.name == role_name)
+    }) {
+        return role.permissions.clone();
+    }
+
+    Vec::new()
+}
+
+// ---------------------------------------------------------------------------
+// GCPServiceAccountAnalyzer
+// ---------------------------------------------------------------------------
+
+/// Wire a `Uses` relation from a Pod to a `GCPServiceAccount` when the pod's
+/// environment variables indicate GCP credential usage.
+///
+/// Two signals trigger the relation:
+///
+/// 1. **Env var value match** — any env var whose value matches the email of a
+///    known `GCPServiceAccount` entity. This covers cases where the SA email is
+///    injected directly (e.g. `CLOUDSDK_CORE_ACCOUNT=my-sa@proj.iam…`).
+///
+/// 2. **`GOOGLE_APPLICATION_CREDENTIALS` key** — presence of this env var
+///    indicates a credential file is mounted, pointing to a GCP SA.  When a
+///    GCP SA entity is known in the campaign, the pod is linked to the first
+///    available one.  When no SA is yet known, the relation is deferred until
+///    a `gcp.serviceaccount` parse runs.
+pub struct GCPServiceAccountAnalyzer;
+
+impl Analyzer for GCPServiceAccountAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let gcp_sas: Vec<GCPServiceAccount> = campaign
+            .entities
+            .values::<GCPServiceAccount>()
+            .cloned()
+            .collect();
+
+        if gcp_sas.is_empty() {
+            return inferred;
+        }
+
+        let pods = collect_pods(campaign, update);
+
+        for pod in &pods {
+            if pod.system.env_vars.is_empty() {
+                continue;
+            }
+
+            let pod_id = pod.entity_id().0.clone();
+
+            // Signal 1: an env var value equals a known GCP SA email.
+            if let Some(sa) = gcp_sas.iter().find(|sa| {
+                !sa.email.is_empty()
+                    && pod.system.env_vars.values().any(|v| v == &sa.email)
+            }) {
+                inferred.new_relations.push(Box::new(Uses::new(
+                    pod_id,
+                    sa.entity_id().0.clone(),
+                )));
+                continue;
+            }
+
+            // Signal 2: GOOGLE_APPLICATION_CREDENTIALS key is present.
+            if pod.system.env_vars.contains_key("GOOGLE_APPLICATION_CREDENTIALS") {
+                if let Some(sa) = gcp_sas.first() {
+                    inferred.new_relations.push(Box::new(Uses::new(
+                        pod_id,
+                        sa.entity_id().0.clone(),
+                    )));
+                }
+            }
+        }
+
+        inferred
+    }
+}
+
 /// Returns the default set of analyzers that run after every effect parse.
 pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
     vec![
@@ -706,6 +1027,7 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(PodNamespaceAnalyzer),
         Box::new(ServiceAccountNamespaceAnalyzer),
         Box::new(PodNodeAnalyzer),
+        Box::new(PropagateHostIPAnalyzer),
         Box::new(ServiceAccountAnalyzer),
         Box::new(ServiceAccountTokenAnalyzer),
         Box::new(HostPathAnalyzer),
@@ -713,6 +1035,8 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(KubeletExecSinkAnalyzer),
         Box::new(CanExecAccessAnalyzer),
         Box::new(WorkloadOwnershipAnalyzer),
+        Box::new(RoleBindingAnalyzer),
+        Box::new(GCPServiceAccountAnalyzer),
     ]
 }
 
@@ -777,9 +1101,9 @@ fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        AccessLevel, Confidence, Contains, K8sCluster, K8sNode, KubeletExecSink, KubeletExecSource,
-        ManagesNode, Namespace, Pod, PodExec, RbacPermission, RceCanExec, RunsOn, ServiceAccount,
-        Uses,
+        AccessLevel, Confidence, Contains, K8sCluster, K8sNode, K8sRole, K8sRoleBinding,
+        KubeletExecSink, KubeletExecSource, ManagesNode, Namespace, Pod, PodExec, RbacPermission,
+        RbacSubject, RceCanExec, RunsOn, ServiceAccount, Uses,
     };
 
     use super::*;
@@ -1408,6 +1732,282 @@ mod tests {
         let inferred = analyzer.analyze(&campaign, &update);
 
         assert!(inferred.new_entities.is_empty());
+        assert!(inferred.new_relations.is_empty());
+    }
+
+    // ---------------------------------------------------------------------------
+    // PropagateHostIPAnalyzer tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn host_ip_propagated_to_node_when_runs_on_exists_in_campaign() {
+        use std::net::IpAddr;
+        let mut campaign = test_campaign();
+
+        let mut pod = Pod::new("web-pod", "default");
+        pod.host_ip = Some("192.168.1.5".parse::<IpAddr>().unwrap());
+        pod.is_running = true;
+        let pod_id = pod.entity_id();
+        campaign.entities.insert_typed(pod.clone());
+
+        let node = K8sNode::new("worker-1");
+        let node_id = node.entity_id();
+        campaign.entities.insert_typed(node);
+        campaign.insert_relation(&RunsOn::new(pod_id.0.clone(), node_id.0.clone()));
+
+        // Pod arrives again (e.g. re-parsed), triggering the analyzer.
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+
+        let analyzer = PropagateHostIPAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        let updated_node = inferred
+            .new_entities
+            .iter()
+            .find_map(|e| e.as_any().downcast_ref::<K8sNode>().filter(|n| n.entity_id() == node_id))
+            .expect("should emit updated node");
+        assert!(
+            updated_node.system.ips.contains(&"192.168.1.5".parse::<IpAddr>().unwrap()),
+            "node should gain the host IP"
+        );
+    }
+
+    #[test]
+    fn no_update_when_host_ip_already_in_node_ips() {
+        use std::net::IpAddr;
+        let mut campaign = test_campaign();
+
+        let host_ip: IpAddr = "10.0.0.1".parse().unwrap();
+
+        let mut pod = Pod::new("my-pod", "default");
+        pod.host_ip = Some(host_ip);
+        pod.is_running = true;
+        let pod_id = pod.entity_id();
+        campaign.entities.insert_typed(pod.clone());
+
+        let mut node = K8sNode::new("node-1");
+        node.system.ips.push(host_ip);
+        let node_id = node.entity_id();
+        campaign.entities.insert_typed(node);
+        campaign.insert_relation(&RunsOn::new(pod_id.0.clone(), node_id.0.clone()));
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+
+        let analyzer = PropagateHostIPAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        assert!(
+            inferred.new_entities.is_empty(),
+            "no update should be emitted when IP already present"
+        );
+    }
+
+    #[test]
+    fn no_update_when_pod_has_no_host_ip() {
+        let mut campaign = test_campaign();
+
+        let mut pod = Pod::new("no-ip-pod", "default");
+        pod.node_name = Some("worker-1".to_string());
+        pod.is_running = true;
+        let pod_id = pod.entity_id();
+        campaign.entities.insert_typed(pod.clone());
+
+        let node = K8sNode::new("worker-1");
+        let node_id = node.entity_id();
+        campaign.entities.insert_typed(node);
+        campaign.insert_relation(&RunsOn::new(pod_id.0, node_id.0));
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+
+        let analyzer = PropagateHostIPAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        assert!(inferred.new_entities.is_empty());
+    }
+
+    #[test]
+    fn host_ip_propagated_when_runs_on_arrives_after_pod() {
+        use std::net::IpAddr;
+        // Pod (with host_ip) is already in campaign; a RunsOn relation arrives now.
+        let mut campaign = test_campaign();
+
+        let host_ip: IpAddr = "172.16.0.5".parse().unwrap();
+
+        let mut pod = Pod::new("early-pod", "default");
+        pod.host_ip = Some(host_ip);
+        pod.is_running = true;
+        let pod_id = pod.entity_id();
+        campaign.entities.insert_typed(pod);
+
+        let node = K8sNode::new("new-node");
+        let node_id = node.entity_id();
+        campaign.entities.insert_typed(node);
+
+        // RunsOn arrives in this update (relation was just discovered).
+        let mut update = FactsUpdate::default();
+        update.new_relations.push(Box::new(RunsOn::new(pod_id.0, node_id.0.clone())));
+
+        let analyzer = PropagateHostIPAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        let updated_node = inferred
+            .new_entities
+            .iter()
+            .find_map(|e| e.as_any().downcast_ref::<K8sNode>().filter(|n| n.entity_id() == node_id))
+            .expect("should emit updated node with host IP");
+        assert!(updated_node.system.ips.contains(&host_ip));
+    }
+
+    // ---------------------------------------------------------------------------
+    // RoleBindingAnalyzer tests
+    // ---------------------------------------------------------------------------
+
+    fn make_role(name: &str, ns: &str, perms: Vec<RbacPermission>) -> K8sRole {
+        let mut role = K8sRole::new(name, ns);
+        role.permissions = perms;
+        role
+    }
+
+    fn make_binding(name: &str, ns: &str, role_ref: &str, subjects: Vec<RbacSubject>) -> K8sRoleBinding {
+        let mut binding = K8sRoleBinding::new(name, ns);
+        binding.role_ref = role_ref.to_string();
+        binding.subjects = subjects;
+        binding
+    }
+
+    fn sa_subject(name: &str, ns: &str) -> RbacSubject {
+        RbacSubject { kind: "ServiceAccount".to_string(), name: name.to_string(), namespace: ns.to_string() }
+    }
+
+    #[test]
+    fn rolebinding_injects_permissions_into_known_sa() {
+        let mut campaign = test_campaign();
+        let perm = RbacPermission::new("get", "pods");
+        campaign.entities.insert_typed(make_role("pod-reader", "default", vec![perm.clone()]));
+        campaign.entities.insert_typed(ServiceAccount::new("my-sa", "default"));
+
+        let binding = make_binding("pod-reader-binding", "default", "pod-reader",
+            vec![sa_subject("my-sa", "default")]);
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(binding));
+
+        let analyzer = RoleBindingAnalyzer;
+        let inferred = analyzer.analyze(&campaign, &update);
+
+        let sa = inferred.new_entities.iter()
+            .find_map(|e| e.as_any().downcast_ref::<ServiceAccount>()
+                .filter(|s| s.meta.name == "my-sa"))
+            .expect("should emit SA with entitlements");
+        assert_eq!(sa.entitlements.len(), 1);
+        assert_eq!(sa.entitlements[0].verb, "get");
+        assert_eq!(sa.entitlements[0].resource_type, "pods");
+        assert_eq!(sa.entitlements[0].scope.as_deref(), Some("default"));
+        assert_eq!(sa.entitlements[0].source_role.as_deref(), Some("pod-reader"));
+    }
+
+    #[test]
+    fn rolebinding_creates_sa_when_not_yet_known() {
+        let mut campaign = test_campaign();
+        let perm = RbacPermission::new("list", "secrets");
+        campaign.entities.insert_typed(make_role("secret-reader", "default", vec![perm]));
+        // SA does NOT exist yet in campaign.
+
+        let binding = make_binding("secret-reader-binding", "default", "secret-reader",
+            vec![sa_subject("new-sa", "default")]);
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(binding));
+
+        let inferred = RoleBindingAnalyzer.analyze(&campaign, &update);
+
+        let sa = inferred.new_entities.iter()
+            .find_map(|e| e.as_any().downcast_ref::<ServiceAccount>()
+                .filter(|s| s.meta.name == "new-sa"))
+            .expect("should create new SA with entitlements");
+        assert_eq!(sa.entitlements.len(), 1);
+        assert_eq!(sa.entitlements[0].verb, "list");
+    }
+
+    #[test]
+    fn clusterrolebinding_sets_wildcard_scope() {
+        // ClusterRoleBinding has no namespace (empty string).
+        let mut campaign = test_campaign();
+        let perm = RbacPermission::new("*", "*");
+        campaign.entities.insert_typed(make_role("cluster-admin", "", vec![perm]));
+
+        let binding = make_binding("cluster-admin-binding", "", "cluster-admin",
+            vec![sa_subject("admin-sa", "kube-system")]);
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(binding));
+
+        let inferred = RoleBindingAnalyzer.analyze(&campaign, &update);
+
+        let sa = inferred.new_entities.iter()
+            .find_map(|e| e.as_any().downcast_ref::<ServiceAccount>())
+            .expect("should emit SA");
+        assert_eq!(sa.entitlements[0].scope.as_deref(), Some("*"),
+            "ClusterRoleBinding subjects must get wildcard scope");
+    }
+
+    #[test]
+    fn rolebinding_scope_is_binding_namespace() {
+        let mut campaign = test_campaign();
+        let perm = RbacPermission::new("get", "configmaps");
+        campaign.entities.insert_typed(make_role("cm-reader", "staging", vec![perm]));
+
+        let binding = make_binding("cm-reader-binding", "staging", "cm-reader",
+            vec![sa_subject("reader-sa", "staging")]);
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(binding));
+
+        let inferred = RoleBindingAnalyzer.analyze(&campaign, &update);
+
+        let sa = inferred.new_entities.iter()
+            .find_map(|e| e.as_any().downcast_ref::<ServiceAccount>())
+            .expect("should emit SA");
+        assert_eq!(sa.entitlements[0].scope.as_deref(), Some("staging"));
+    }
+
+    #[test]
+    fn rolebinding_multiple_subjects_each_receive_permissions() {
+        let mut campaign = test_campaign();
+        let perm = RbacPermission::new("get", "pods");
+        campaign.entities.insert_typed(make_role("pod-reader", "default", vec![perm]));
+
+        let binding = make_binding("multi-binding", "default", "pod-reader", vec![
+            sa_subject("sa-alpha", "default"),
+            sa_subject("sa-beta", "default"),
+        ]);
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(binding));
+
+        let inferred = RoleBindingAnalyzer.analyze(&campaign, &update);
+
+        let sa_names: Vec<&str> = inferred.new_entities.iter()
+            .filter_map(|e| e.as_any().downcast_ref::<ServiceAccount>())
+            .map(|s| s.meta.name.as_str())
+            .collect();
+        assert!(sa_names.contains(&"sa-alpha"), "sa-alpha should receive permissions");
+        assert!(sa_names.contains(&"sa-beta"), "sa-beta should receive permissions");
+        assert_eq!(sa_names.len(), 2);
+    }
+
+    #[test]
+    fn rolebinding_unknown_role_emits_nothing() {
+        let campaign = test_campaign();
+        // No K8sRole with name "nonexistent" in campaign.
+
+        let binding = make_binding("orphan-binding", "default", "nonexistent",
+            vec![sa_subject("some-sa", "default")]);
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(binding));
+
+        let inferred = RoleBindingAnalyzer.analyze(&campaign, &update);
+
+        assert!(inferred.new_entities.is_empty(),
+            "no entities emitted when referenced role is unknown");
         assert!(inferred.new_relations.is_empty());
     }
 }

@@ -103,6 +103,8 @@ mod k8s_json {
         pub phase: Option<String>,
         #[serde(rename = "podIP", default)]
         pub pod_ip: Option<String>,
+        #[serde(rename = "hostIP", default)]
+        pub host_ip: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -327,6 +329,11 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str) -> ParserOutput {
         if let Some(ip_str) = &item.status.pod_ip {
             if let Ok(ip) = ip_str.parse::<IpAddr>() {
                 pod.system.ips.push(ip);
+            }
+        }
+        if let Some(ip_str) = &item.status.host_ip {
+            if let Ok(ip) = ip_str.parse::<IpAddr>() {
+                pod.host_ip = Some(ip);
             }
         }
 

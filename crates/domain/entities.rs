@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::identity::ServiceAccountToken;
 use crate::rbac::RbacPermission;
+use std::net::IpAddr;
+
 use crate::types::{Confidence, Container, EntityId, K8sMeta, Mount, OwnerRef, SystemInfo};
 
 // ---------------------------------------------------------------------------
@@ -306,6 +308,12 @@ pub struct Pod {
     // --- Scheduling ---
     /// `None` means the pod has not been scheduled to a node yet.
     pub node_name: Option<String>,
+    /// The IP of the node this pod was scheduled to, as reported by the API server
+    /// in `status.hostIP`.  Populated by the `k8s.podlist` parser and used by
+    /// `PropagateHostIPAnalyzer` to fill in `node.system.ips` when no explicit
+    /// node-list has been run.
+    #[serde(default)]
+    pub host_ip: Option<IpAddr>,
 
     // --- Ownership ---
     /// Direct owner references from `metadata.ownerReferences` in the K8s API.
@@ -341,6 +349,7 @@ impl Pod {
             meta: K8sMeta::namespaced(name, namespace),
             system: SystemInfo::default(),
             node_name: None,
+            host_ip: None,
             owner_references: Vec::new(),
             privileged: Confidence::Unknown,
             host_pid: Confidence::Unknown,
@@ -847,6 +856,177 @@ impl Entity for Job {
 }
 
 // ---------------------------------------------------------------------------
+// K8sCredential
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes API credential extracted from a kubeconfig file.
+///
+/// Populated by the `file:kubeconfig` and `file:content` output parsers when
+/// they detect kubeconfig YAML in captured file content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sCredential {
+    /// API server URL (e.g. `https://10.96.0.1:6443`).
+    pub endpoint: String,
+    /// Base64-encoded CA certificate from the kubeconfig cluster entry.
+    #[serde(default)]
+    pub ca_data: Option<String>,
+    /// Bearer token (service-account or user token).  Mutually exclusive with
+    /// cert/key auth, but both fields are kept for partial-parse scenarios.
+    #[serde(default)]
+    pub token: Option<String>,
+    /// Base64-encoded client certificate data (mTLS auth).
+    #[serde(default)]
+    pub cert_data: Option<String>,
+    /// Base64-encoded client private key data (mTLS auth).
+    #[serde(default)]
+    pub key_data: Option<String>,
+}
+
+impl K8sCredential {
+    pub fn new(endpoint: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            ca_data: None,
+            token: None,
+            cert_data: None,
+            key_data: None,
+        }
+    }
+}
+
+impl Entity for K8sCredential {
+    fn entity_id(&self) -> EntityId {
+        let slug = if self.endpoint.is_empty() {
+            "unknown".to_string()
+        } else {
+            slugify(&self.endpoint)
+        };
+        EntityId::new(format!("k8s/credential/{}", slug))
+    }
+
+    fn entity_name(&self) -> &str {
+        &self.endpoint
+    }
+
+    fn entity_kind(&self) -> &str {
+        "K8sCredential"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GCP Service Account
+// ---------------------------------------------------------------------------
+
+/// Access token returned by the GCP metadata service or `gcloud auth print-access-token`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GcpAccessToken {
+    #[serde(default)]
+    pub access_token: String,
+    #[serde(default)]
+    pub expires_in: i64,
+    #[serde(default)]
+    pub token_type: String,
+}
+
+/// A GCP Service Account discovered via workload identity, credential files,
+/// or the GCP metadata server.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GCPServiceAccount {
+    /// GCP SA email (e.g. `my-sa@my-project.iam.gserviceaccount.com`).
+    pub email: String,
+    /// GCP project ID extracted from the email domain, if parseable.
+    #[serde(default)]
+    pub project: Option<String>,
+    /// Access token obtained from the metadata server.
+    #[serde(default)]
+    pub token: Option<GcpAccessToken>,
+    /// Kubernetes ServiceAccount entity ID that has this GCP SA bound via
+    /// Workload Identity annotation.
+    #[serde(default)]
+    pub bound_k8s_sa: Option<String>,
+}
+
+impl GCPServiceAccount {
+    pub fn new(email: impl Into<String>) -> Self {
+        Self {
+            email: email.into(),
+            project: None,
+            token: None,
+            bound_k8s_sa: None,
+        }
+    }
+}
+
+impl Entity for GCPServiceAccount {
+    fn entity_id(&self) -> EntityId {
+        let name = if self.email.is_empty() { "default" } else { &self.email };
+        EntityId::new(format!("gcp-sa/{}", name))
+    }
+
+    fn entity_name(&self) -> &str {
+        &self.email
+    }
+
+    fn entity_kind(&self) -> &str {
+        "GCPServiceAccount"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GCP Bucket
+// ---------------------------------------------------------------------------
+
+/// A GCP Cloud Storage bucket discovered during cloud enumeration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GCPBucket {
+    /// Unique bucket ID as returned by the GCS API (`id` field).
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub location: Option<String>,
+    /// IAM policy entries (human-readable or raw JSON strings).
+    #[serde(default)]
+    pub iam_policies: Vec<String>,
+}
+
+impl GCPBucket {
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            location: None,
+            iam_policies: Vec::new(),
+        }
+    }
+}
+
+impl Entity for GCPBucket {
+    fn entity_id(&self) -> EntityId {
+        EntityId::new(format!("gcp/bucket/{}", self.id))
+    }
+
+    fn entity_name(&self) -> &str {
+        &self.name
+    }
+
+    fn entity_kind(&self) -> &str {
+        "GCPBucket"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Merge trait
 // ---------------------------------------------------------------------------
 
@@ -943,6 +1123,9 @@ impl Merge for Pod {
 
         if self.node_name.is_none() {
             self.node_name = incoming.node_name.clone();
+        }
+        if self.host_ip.is_none() {
+            self.host_ip = incoming.host_ip;
         }
         for oref in &incoming.owner_references {
             if !self.owner_references.iter().any(|o| o.uid == oref.uid) {
@@ -1098,6 +1281,50 @@ impl Merge for DaemonSet {
 impl Merge for Job {
     fn merge_from(&mut self, incoming: &Self) {
         merge_k8s_meta(&mut self.meta, &incoming.meta);
+    }
+}
+
+impl Merge for K8sCredential {
+    fn merge_from(&mut self, incoming: &Self) {
+        if self.ca_data.is_none() {
+            self.ca_data = incoming.ca_data.clone();
+        }
+        if self.token.is_none() {
+            self.token = incoming.token.clone();
+        }
+        if self.cert_data.is_none() {
+            self.cert_data = incoming.cert_data.clone();
+        }
+        if self.key_data.is_none() {
+            self.key_data = incoming.key_data.clone();
+        }
+    }
+}
+
+impl Merge for GCPServiceAccount {
+    fn merge_from(&mut self, incoming: &Self) {
+        if self.project.is_none() {
+            self.project = incoming.project.clone();
+        }
+        if self.token.is_none() {
+            self.token = incoming.token.clone();
+        }
+        if self.bound_k8s_sa.is_none() {
+            self.bound_k8s_sa = incoming.bound_k8s_sa.clone();
+        }
+    }
+}
+
+impl Merge for GCPBucket {
+    fn merge_from(&mut self, incoming: &Self) {
+        if self.location.is_none() {
+            self.location = incoming.location.clone();
+        }
+        for p in &incoming.iam_policies {
+            if !self.iam_policies.contains(p) {
+                self.iam_policies.push(p.clone());
+            }
+        }
     }
 }
 

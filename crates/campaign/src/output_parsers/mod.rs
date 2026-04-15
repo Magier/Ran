@@ -2,6 +2,8 @@ mod sys;
 mod k8s;
 mod iam;
 mod network;
+mod gcp;
+mod file;
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -66,6 +68,7 @@ fn get_registry() -> &'static HashMap<&'static str, ParserFn> {
         k8s::register(&mut m);
         iam::register(&mut m);
         network::register(&mut m);
+        gcp::register(&mut m);
         m
     })
 }
@@ -108,6 +111,8 @@ pub fn parse_output_effect(
             } else {
                 // Only return early if there is actually a registered/known parser.
                 let is_known = normalized.starts_with("sys.hasfile(")
+                    || normalized.starts_with("file:content(")
+                    || normalized == "file:kubeconfig"
                     || normalized == "nmap"
                     || normalized == "k8s.selfsubjectrulesreview"
                     || get_registry().contains_key(normalized.trim());
@@ -153,6 +158,24 @@ pub fn parse_output_effect(
             .map(String::as_str)
             .unwrap_or(&cmd.target_id);
         iam::parse_self_subject_rules_review(stdout, stderr, fallback_target, token_arg)
+    } else if normalized.starts_with("file:content(") {
+        // Parametric effect: path is in the effect ID, not in args.
+        // Step 1: record the path in the target's system.files via apply_system_update.
+        let path = file::extract_path(effect_id).unwrap_or(effect_id);
+        let target_id_opt = resolve_target_id(campaign, cmd);
+        if let Some(ref tid) = target_id_opt {
+            use crate::external_parser::SystemFieldUpdates;
+            let _ = campaign.apply_system_update(tid, &SystemFieldUpdates {
+                files: vec![path.to_string()],
+                ..Default::default()
+            });
+        }
+        // Step 2: check for kubeconfig content and emit credential entity if found.
+        let source_id = target_id_opt.as_deref().unwrap_or("");
+        file::parse_file_content(stdout, path, source_id)
+    } else if normalized == "file:kubeconfig" {
+        let source_id = resolve_target_id(campaign, cmd);
+        file::parse_file_kubeconfig(stdout, source_id.as_deref().unwrap_or(""))
     } else {
         let parser = get_registry().get(normalized.trim())?;
         parser(stdout, stderr)

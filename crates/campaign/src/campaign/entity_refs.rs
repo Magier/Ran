@@ -1,7 +1,7 @@
 use ran_domain::{
-    C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, Job, K8sCluster,
-    K8sNode, K8sSecret, K8sRole, K8sRoleBinding, Namespace, Pod, ReplicaSet, ServiceAccount,
-    StatefulSet, SystemEntity,
+    C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
+    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sNode, K8sSecret, K8sRole, K8sRoleBinding,
+    Namespace, Pod, ReplicaSet, ServiceAccount, StatefulSet, SystemEntity,
 };
 
 pub enum CampaignEntityRef<'a> {
@@ -21,6 +21,9 @@ pub enum CampaignEntityRef<'a> {
     StatefulSet(&'a StatefulSet),
     DaemonSet(&'a DaemonSet),
     Job(&'a Job),
+    GCPServiceAccount(&'a GCPServiceAccount),
+    GCPBucket(&'a GCPBucket),
+    K8sCredential(&'a K8sCredential),
 }
 
 pub enum CampaignSystemEntityRef<'a> {
@@ -74,6 +77,7 @@ impl<'a> CampaignEntityRef<'a> {
     delegate_entity_methods!(
         C2Server, Cluster, Node, Namespace, Pod, ServiceAccount, Secret, ConfigMap, Deployment,
         Role, RoleBinding, CronJob, ReplicaSet, StatefulSet, DaemonSet, Job,
+        GCPServiceAccount, GCPBucket, K8sCredential,
     );
 
     pub fn namespace(&self) -> Option<&str> {
