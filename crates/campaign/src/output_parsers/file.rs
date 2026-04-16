@@ -1,19 +1,9 @@
-use std::collections::HashMap;
-
 use ran_domain::{Entity, K8sCredential, Uses};
 use serde::Deserialize;
 
 use crate::FactsUpdate;
 use super::ParserOutput;
 
-pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
-    // file:kubeconfig is dispatched specially in parse_output_effect so that the
-    // caller can supply the target entity ID for the Uses relation. It does NOT go
-    // through the generic registry path.
-    // This registration is a no-op sentinel used only by the `is_known` check
-    // in the missing-stdout early-exit path.
-    let _ = m; // nothing to register via the generic fn(&str, &str) signature
-}
 
 // ---------------------------------------------------------------------------
 // Path extraction
