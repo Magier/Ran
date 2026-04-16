@@ -367,7 +367,14 @@
 					<ul class="list-inside list-none pl-5">
 						{#each Object.entries(data).sort(([a], [b]) => a.localeCompare(b)) as [key, value]}
 							<li class="font-mono text-sm">
-								<span class="font-semibold">{key}:</span> {value === '' ? '❌' : value}
+								<span class="font-semibold">{key}:</span>
+								{#if label === 'binaries' && value === ''}
+									<span class="text-error-500 font-semibold">absent</span>
+								{:else if value === ''}
+									<span class="text-surface-400 italic">empty</span>
+								{:else}
+									{value}
+								{/if}
 							</li>
 						{/each}
 					</ul>

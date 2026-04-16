@@ -171,6 +171,13 @@ pub(crate) fn serialize_campaign_entity_map(
         CampaignEntityRef::Role(e) => serialize_entity_map(e),
         CampaignEntityRef::RoleBinding(e) => serialize_entity_map(e),
         CampaignEntityRef::CronJob(e) => serialize_entity_map(e),
+        CampaignEntityRef::ReplicaSet(e) => serialize_entity_map(e),
+        CampaignEntityRef::StatefulSet(e) => serialize_entity_map(e),
+        CampaignEntityRef::DaemonSet(e) => serialize_entity_map(e),
+        CampaignEntityRef::Job(e) => serialize_entity_map(e),
+        CampaignEntityRef::GCPServiceAccount(e) => serialize_entity_map(e),
+        CampaignEntityRef::GCPBucket(e) => serialize_entity_map(e),
+        CampaignEntityRef::K8sCredential(e) => serialize_entity_map(e),
     }
 }
 

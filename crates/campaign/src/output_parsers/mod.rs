@@ -69,6 +69,8 @@ fn get_registry() -> &'static HashMap<&'static str, ParserFn> {
         iam::register(&mut m);
         network::register(&mut m);
         gcp::register(&mut m);
+        // file module has no registry entries — file:content and file:kubeconfig
+        // are dispatched specially in parse_output_effect.
         m
     })
 }
@@ -266,14 +268,27 @@ pub fn build_parse_audit(
     )
 }
 
+/// Resolve the system entity that should receive parsed output facts.
+///
+/// System-level facts (binary presence, env vars, IPs, mounts, …) are facts
+/// about the machine that **executed** the command, not the logical target.
+/// For lateral movement, `exec_system_id` is the source pod (where the command
+/// runs) and `target_id` is the victim/destination — so we must prefer
+/// `exec_system_id` when it is set.
+///
+/// Priority:
+/// 1. `exec_system_id` — the actual execution host; set for lateral movement
+///    and for actions routed through a hop chain.
+/// 2. `target_id` — used for direct (non-lateral) execution where the target
+///    IS the execution host.
 fn resolve_target_id(campaign: &Campaign, cmd: &ExecTtp) -> Option<String> {
-    if campaign.get_system_entity(&cmd.target_id).is_some() {
-        return Some(cmd.target_id.clone());
-    }
     if !cmd.exec_system_id.trim().is_empty()
         && campaign.get_system_entity(&cmd.exec_system_id).is_some()
     {
         return Some(cmd.exec_system_id.clone());
+    }
+    if campaign.get_system_entity(&cmd.target_id).is_some() {
+        return Some(cmd.target_id.clone());
     }
     None
 }
@@ -448,6 +463,57 @@ mod tests {
             .system();
         assert_eq!(sys.env_vars.get("HOME"), Some(&"/root".to_string()));
         assert_eq!(sys.env_vars.get("PATH"), Some(&"/usr/bin".to_string()));
+    }
+
+    #[test]
+    fn parse_output_effect_prefers_exec_system_id_over_target_for_lateral_movement() {
+        // Regression: for lateral movement the command runs on src-pod but the
+        // effect should NOT be written to dst-pod (the victim/target).
+        // exec_system_id (src) must take priority over target_id (dst).
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let src_pod = Pod::new("src-pod", "default");
+        let dst_pod = Pod::new("dst-pod", "default");
+        campaign.entities.insert_typed(src_pod);
+        campaign.entities.insert_typed(dst_pod);
+
+        let mut cmd = sample_cmd();
+        cmd.target_id = "ns/default/pod/dst-pod".to_string();
+        cmd.exec_system_id = "ns/default/pod/src-pod".to_string();
+        cmd.ttp.effects = vec!["sys.has-binary(/usr/bin/redis-cli)".to_string()];
+        // Empty results simulates the tool being absent (exit non-zero / no stdout).
+        let event = sample_event(vec![]);
+
+        let parsed = parse_output_effect(
+            &mut campaign,
+            "sys.has-binary(/usr/bin/redis-cli)",
+            &cmd,
+            &event,
+        )
+        .unwrap();
+        assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
+
+        use ran_domain::BinaryPresence;
+        let src_sys = campaign
+            .get_system_entity("ns/default/pod/src-pod")
+            .expect("src-pod should exist")
+            .entity()
+            .system();
+        assert_eq!(
+            src_sys.has_binary("redis-cli"),
+            BinaryPresence::Present("/usr/bin/redis-cli".to_string()),
+            "binary fact must be written to the execution host (src-pod)"
+        );
+
+        let dst_sys = campaign
+            .get_system_entity("ns/default/pod/dst-pod")
+            .expect("dst-pod should exist")
+            .entity()
+            .system();
+        assert_eq!(
+            dst_sys.has_binary("redis-cli"),
+            BinaryPresence::Unknown,
+            "dst-pod (victim) must NOT be updated"
+        );
     }
 
     #[test]
