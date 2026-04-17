@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
-use ran_domain::{AccessLevel, C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, PodExec, KubeletExecSink, RceCanExec, Uses};
+use ran_domain::{AccessLevel, C2Server, ContainerEscape, Entity, EntityId, K8sCluster, K8sNode, Pod, PodExec, KubeletExecSink, RceCanExec, RunsOn, Uses};
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
 
@@ -1068,4 +1068,155 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
         campaign.graph.to_relation_summaries().iter().any(|r| r.name == "k8s.can-exec" && r.target_id == real_id.0),
         "k8s.can-exec should target the real pod"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ContainerEscape relation tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn container_escape_relation_routes_to_node() {
+    // When a ContainerEscape relation exists pod → node,
+    // resolve_exec_channel for the node should hop through the pod.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    // Compromised pod (C2 has direct exec into it).
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
+
+    // Node the pod runs on.
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0.clone();
+    campaign.entities.insert_typed(node);
+
+    // Escape relation: pod → node with nsenter envelope.
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &node_id)
+            .with_envelope("nsenter -t 1 -m -u -i -n -p -- ${CMD}"),
+    );
+    push_relation(&mut campaign, &RunsOn::new(&pod_id, &node_id));
+
+    let ch = campaign
+        .resolve_exec_channel(&node_id)
+        .expect("should route to node via container escape edge");
+
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
+    assert_eq!(ch.hops, vec![pod_id], "should hop through attacker pod");
+}
+
+#[test]
+fn container_escape_upgrades_node_access_level() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0.clone();
+    campaign.entities.insert_typed(node);
+
+    // Before escape: node has no exec access.
+    assert_eq!(
+        campaign.entities.find::<K8sNode>(&EntityId::new(&node_id)).unwrap().system.access_level,
+        AccessLevel::None
+    );
+
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &node_id)
+            .with_envelope("nsenter -t 1 -m -u -i -n -p -- ${CMD}"),
+    );
+
+    // After escape: node access_level should be Exec.
+    assert_eq!(
+        campaign.entities.find::<K8sNode>(&EntityId::new(&node_id)).unwrap().system.access_level,
+        AccessLevel::Exec,
+        "node should have Exec access after ContainerEscape relation is inserted"
+    );
+}
+
+#[test]
+fn container_escape_envelope_wraps_command_correctly() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0.clone();
+    campaign.entities.insert_typed(node);
+
+    push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &node_id)
+            .with_envelope("nsenter -t 1 -m -u -i -n -p -- ${CMD}"),
+    );
+
+    // The graph edge should carry the envelope.
+    let summaries = campaign.graph.to_relation_summaries();
+    let escape_edge = summaries
+        .iter()
+        .find(|r| r.name == "container.escape")
+        .expect("container.escape edge should be in graph");
+
+    assert_eq!(
+        escape_edge.envelope.as_deref(),
+        Some("nsenter -t 1 -m -u -i -n -p -- ${CMD}")
+    );
+
+    // wrap_command should substitute ${CMD}.
+    let wrapped = escape_edge.wrap_command("id");
+    assert_eq!(wrapped, "nsenter -t 1 -m -u -i -n -p -- id");
+}
+
+#[test]
+fn container_escape_effect_creates_node_when_runs_on_exists_in_graph() {
+    // When the pod already has a runs-on edge, the effect should reuse that
+    // node (via TARGET_NODE_ID injected from the graph in on_ttp_executed).
+    // This test validates the effect handler directly with a pre-populated ctx.
+    use crate::effects::parse_effect;
+    let mut ctx = std::collections::HashMap::new();
+    ctx.insert("TARGET_NODE_ID".into(), "node/worker-1".into());
+    ctx.insert("PROCEDURE_CMD".into(), "nsenter -t 1 -m -u -i -n -p -- ${CMD}".into());
+
+    let pod_id = "ns/default/pod/attacker";
+    let update = parse_effect(&format!("container.escape({})", pod_id), &ctx).unwrap();
+
+    // Node entity emitted.
+    assert_eq!(update.new_entities.len(), 1);
+    let node = update.new_entities[0].as_any().downcast_ref::<K8sNode>().unwrap();
+    assert_eq!(node.entity_name(), "worker-1");
+
+    // Both RunsOn and ContainerEscape emitted.
+    assert_eq!(update.new_relations.len(), 2);
+    let ro = update.new_relations.iter().find(|r| r.relation_name() == "runs-on").unwrap();
+    assert_eq!(ro.target_id().0, "node/worker-1");
+    let esc = update.new_relations.iter().find(|r| r.relation_name() == "container.escape").unwrap();
+    assert_eq!(esc.target_id().0, "node/worker-1");
+}
+
+#[test]
+fn container_escape_effect_creates_placeholder_node_when_no_node_known() {
+    use crate::effects::parse_effect;
+    let ctx = std::collections::HashMap::new();
+
+    let pod_id = "ns/default/pod/attacker";
+    let update = parse_effect(&format!("container.escape({})", pod_id), &ctx).unwrap();
+
+    // Node entity still emitted (placeholder).
+    assert_eq!(update.new_entities.len(), 1);
+    // Both relations still emitted.
+    assert_eq!(update.new_relations.len(), 2);
+    // Source is correct on the escape edge.
+    let esc = update.new_relations.iter().find(|r| r.relation_name() == "container.escape").unwrap();
+    assert_eq!(esc.source_id().0, pod_id);
+    // RunsOn and ContainerEscape target the same (placeholder) node.
+    let ro = update.new_relations.iter().find(|r| r.relation_name() == "runs-on").unwrap();
+    assert_eq!(ro.target_id(), esc.target_id());
 }

@@ -426,9 +426,9 @@ impl Campaign {
 
             // Ground the inner command's binary against the target system's
             // known paths before embedding it in the envelope.
-            let tgt_id = EntityId::new(tgt);
-            if let Some(pod) = self.entities.find::<Pod>(&tgt_id) {
-                procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
+            if let Some(sys) = self.get_system_entity(tgt) {
+                procedure.command =
+                    ground_binary_in_cmd(&procedure.command, &sys.entity().system().binaries);
             }
 
             let src_eid = EntityId::new(src);
@@ -459,10 +459,10 @@ impl Campaign {
             };
 
             // After wrapping, ground the outer tool (first word of the wrapped
-            // command) against the source pod's binary map.
-            let src_id = EntityId::new(src);
-            if let Some(pod) = self.entities.find::<Pod>(&src_id) {
-                procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
+            // command) against the source system's binary map.
+            if let Some(sys) = self.get_system_entity(src) {
+                procedure.command =
+                    ground_binary_in_cmd(&procedure.command, &sys.entity().system().binaries);
             }
         }
     }
@@ -548,13 +548,27 @@ impl Campaign {
         effect_ctx
             .entry("TARGET_ID".to_string())
             .or_insert_with(|| cmd.target_id.clone());
-        // TARGET_NODE_ID resolves `all(k8s.Node)` in kubelet-exec effects to the
-        // specific node the executing pod runs on (kubelet exec is always node-local).
+        // TARGET_NODE_ID is the entity ID of the node the executing pod runs on.
+        // Used by kubelet-exec and container.escape effects.
+        // Resolution order:
+        //   1. pod.node_name (set when the pod was parsed from the K8s API)
+        //   2. runs-on graph edge from the pod (set when a RunsOn relation exists)
         if let Some(CampaignSystemEntityRef::Pod(pod)) = self.get_system_entity(&cmd.target_id) {
-            if let Some(ref node_name) = pod.node_name {
+            let node_id = pod
+                .node_name
+                .as_ref()
+                .map(|n| format!("node/{}", n))
+                .or_else(|| {
+                    let target_eid = EntityId::new(&cmd.target_id);
+                    self.graph
+                        .targets_of(&target_eid, ran_domain::RunsOn::RELATION_NAME)
+                        .first()
+                        .map(|n| n.0.clone())
+                });
+            if let Some(node_id) = node_id {
                 effect_ctx
                     .entry("TARGET_NODE_ID".to_string())
-                    .or_insert_with(|| format!("node/{}", node_name));
+                    .or_insert(node_id);
             }
         }
 
@@ -758,20 +772,30 @@ impl Campaign {
         rel: &dyn ran_domain::Relation,
     ) {
         use cortex::edge_data_for;
-        use ran_domain::RceCanExec;
+        use ran_domain::{ContainerEscape, RceCanExec};
         let envelope = rel
             .as_any()
             .downcast_ref::<RceCanExec>()
-            .and_then(|r| r.envelope.clone());
+            .and_then(|r| r.envelope.clone())
+            .or_else(|| {
+                rel.as_any()
+                    .downcast_ref::<ContainerEscape>()
+                    .and_then(|r| r.envelope.clone())
+            });
         let data = edge_data_for(rel.relation_name(), envelope);
         self.graph.insert_edge(src, tgt, data);
 
-        // When a C2 channel relation is added to a pod, ensure access_level
-        // reflects at least UserExec so the field stays consistent with the
+        // When a C2 channel relation is added to a system entity, ensure
+        // access_level reflects at least Exec so the field stays consistent.
         if rel.is_exec_channel() {
             if let Some(pod) = self.entities.find_mut::<Pod>(tgt) {
                 if pod.system.access_level == ran_domain::AccessLevel::None {
                     pod.system.access_level = ran_domain::AccessLevel::Exec;
+                }
+            }
+            if let Some(node) = self.entities.find_mut::<K8sNode>(tgt) {
+                if node.system.access_level == ran_domain::AccessLevel::None {
+                    node.system.access_level = ran_domain::AccessLevel::Exec;
                 }
             }
         }

@@ -100,6 +100,8 @@ pub struct RunsOn {
 }
 
 impl RunsOn {
+    pub const RELATION_NAME: &'static str = "runs-on";
+
     pub fn new(pod_id: impl Into<String>, node_id: impl Into<String>) -> Self {
         Self {
             pod_id: EntityId::new(pod_id),
@@ -248,6 +250,73 @@ impl C2Channel for RceCanExec {}
 impl Relation for RceCanExec {
     fn relation_name(&self) -> &str {
         "rce.can-exec"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.source_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.target_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn is_exec_channel(&self) -> bool {
+        true
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ContainerEscape
+// ---------------------------------------------------------------------------
+
+/// An execution-channel edge representing a container escape: the `source` pod
+/// can execute commands on the `target` node by breaking out of its container
+/// namespace (e.g. via nsenter, chroot, or a privileged container mount).
+///
+/// Carries an `envelope` — the grounded escape command template with `${CMD}`
+/// as the placeholder for the inner command, e.g.
+/// `nsenter -t 1 -m -u -i -n -p -- ${CMD}`.
+///
+/// Example: Pod "attacker" → container.escape → Node "worker-1"
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerEscape {
+    pub source_id: EntityId,
+    pub target_id: EntityId,
+    /// The grounded escape command template with `${CMD}` as the inner-command
+    /// placeholder, e.g. `nsenter -t 1 -m -u -i -n -p -- ${CMD}` or
+    /// `chroot /host ${CMD}`.
+    pub envelope: Option<String>,
+}
+
+impl ContainerEscape {
+    pub fn new(source_id: impl Into<String>, target_id: impl Into<String>) -> Self {
+        Self {
+            source_id: EntityId::new(source_id),
+            target_id: EntityId::new(target_id),
+            envelope: None,
+        }
+    }
+
+    pub fn with_envelope(mut self, envelope: impl Into<String>) -> Self {
+        self.envelope = Some(envelope.into());
+        self
+    }
+
+    pub fn with_opt_envelope(mut self, envelope: Option<String>) -> Self {
+        self.envelope = envelope;
+        self
+    }
+}
+
+impl C2Channel for ContainerEscape {}
+
+impl Relation for ContainerEscape {
+    fn relation_name(&self) -> &str {
+        "container.escape"
     }
 
     fn source_id(&self) -> &EntityId {
@@ -462,7 +531,12 @@ impl RelationSummary {
         let envelope = r
             .as_any()
             .downcast_ref::<RceCanExec>()
-            .and_then(|rce| rce.envelope.clone());
+            .and_then(|rce| rce.envelope.clone())
+            .or_else(|| {
+                r.as_any()
+                    .downcast_ref::<ContainerEscape>()
+                    .and_then(|e| e.envelope.clone())
+            });
         Self {
             name: r.relation_name().to_string(),
             source_id: r.source_id().0.clone(),
