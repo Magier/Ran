@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use indexmap::IndexSet;
 use ran_domain::{
-    CanReach, CronJob, Entity, EntityId, K8sRole, K8sRoleBinding, KubeletExecSource, Pod, PodExec,
-    RbacPermission, RbacSubject, RceCanExec, Relation, RunsOn, ServiceAccount,
+    CanReach, ContainerEscape, CronJob, Entity, EntityId, K8sNode, K8sRole, K8sRoleBinding,
+    KubeletExecSource, Pod, PodExec, RbacPermission, RbacSubject, RceCanExec, Relation, RunsOn,
+    ServiceAccount,
 };
 
 use crate::grounding::resolve_template;
@@ -365,6 +366,7 @@ fn resolve_relation_effect_handler(effect_name: &str) -> Option<RelationEffectHa
         "k8s.runs-on" | "runs-on" => Some(parse_runs_on_relation),
         "k8s.kubelet-exec-source" | "k8s.kubelet-exec" => Some(parse_kubelet_exec_source_relation),
         "rce.can-exec" => Some(parse_rce_can_exec_relation),
+        "container.escape" => Some(parse_container_escape_relation),
         _ => None,
     }
 }
@@ -473,6 +475,76 @@ fn parse_rce_can_exec_relation(
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
+        entity_aliases: IndexSet::new(),
+    })
+}
+
+fn parse_container_escape_relation(
+    args: &[&str],
+    ctx: &HashMap<String, String>,
+) -> Result<FactsUpdate, String> {
+    if args.len() != 1 {
+        return Err(
+            "container.escape effect expects exactly 1 arg: the source pod \
+             (use `sys` or the pod entity ID; the node is resolved automatically)"
+                .to_string(),
+        );
+    }
+
+    // `sys` resolves to the entity the TTP executed on.
+    let src = if args[0].eq_ignore_ascii_case("sys") {
+        ctx.get("TARGET_ID")
+            .filter(|id| !id.is_empty())
+            .map(String::as_str)
+            .ok_or_else(|| "container.escape: 'sys' requires TARGET_ID in context".to_string())?
+    } else {
+        args[0]
+    };
+
+    // Resolve the node entity ID. The pipeline injects TARGET_NODE_ID from
+    // pod.node_name (if known) or from an existing runs-on graph edge.
+    // If neither is available, the pod is running on an unknown node — create a
+    // deterministic placeholder so the graph stays consistent. The placeholder
+    // can be aliased to the real node once its name is discovered.
+    let node_entity_id: String = ctx
+        .get("TARGET_NODE_ID")
+        .filter(|id| !id.is_empty())
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| {
+            // No node is known yet; derive a deterministic placeholder from the
+            // source pod ID so repeated escapes are idempotent.
+            format!("node/escape-host-{}", src.replace('/', "-"))
+        });
+
+    // Parse the node name from `node/<name>` to construct the typed entity.
+    let node_name = node_entity_id
+        .strip_prefix("node/")
+        .filter(|n| !n.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "container.escape: '{}' is not a valid node entity ID (expected node/<name>)",
+                node_entity_id
+            )
+        })?
+        .to_string();
+
+    // Ensure the node entity exists. If a runs-on relation already references
+    // this node, the campaign merges rather than duplicates it.
+    let node = K8sNode::new(&node_name);
+
+    // PROCEDURE_CMD is the grounded escape command (e.g. `nsenter -t 1 ... ${CMD}`).
+    // Store it as the envelope so subsequent commands through this hop are
+    // wrapped with the same escape primitive.
+    let envelope = ctx.get("PROCEDURE_CMD").filter(|v| !v.trim().is_empty()).cloned();
+
+    Ok(FactsUpdate {
+        new_entities: vec![Box::new(node)],
+        new_relations: vec![
+            // Establish the pod→node scheduling relation if not already present.
+            Box::new(RunsOn::new(src, &node_entity_id)),
+            // The escape channel itself.
+            Box::new(ContainerEscape::new(src, &node_entity_id).with_opt_envelope(envelope)),
+        ],
         entity_aliases: IndexSet::new(),
     })
 }
@@ -719,5 +791,88 @@ mod tests {
         let mut args = ctx();
         args.insert("Namespace".into(), "default".into());
         assert!(parse_effect("k8s.cronjob", &args).is_err());
+    }
+
+    // --- container.escape ---
+
+    #[test]
+    fn container_escape_creates_node_and_relations_with_known_node() {
+        let mut args = ctx();
+        args.insert("TARGET_NODE_ID".into(), "node/worker-1".into());
+        args.insert(
+            "PROCEDURE_CMD".into(),
+            "nsenter -t 1 -m -u -i -n -p -- ${CMD}".into(),
+        );
+        let update =
+            parse_effect("container.escape(ns/default/pod/attacker)", &args).unwrap();
+
+        // Emits a K8sNode entity.
+        assert_eq!(update.new_entities.len(), 1);
+        let node = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::K8sNode>()
+            .unwrap();
+        assert_eq!(node.entity_name(), "worker-1");
+
+        // Emits RunsOn + ContainerEscape relations.
+        assert_eq!(update.new_relations.len(), 2);
+        let runs_on = update.new_relations.iter().find(|r| r.relation_name() == "runs-on").unwrap();
+        assert_eq!(runs_on.source_id().0, "ns/default/pod/attacker");
+        assert_eq!(runs_on.target_id().0, "node/worker-1");
+
+        let escape = update.new_relations.iter()
+            .find(|r| r.relation_name() == "container.escape")
+            .unwrap();
+        let escape = escape.as_any().downcast_ref::<ContainerEscape>().unwrap();
+        assert_eq!(escape.source_id.0, "ns/default/pod/attacker");
+        assert_eq!(escape.target_id.0, "node/worker-1");
+        assert_eq!(escape.envelope.as_deref(), Some("nsenter -t 1 -m -u -i -n -p -- ${CMD}"));
+        assert!(escape.is_exec_channel());
+    }
+
+    #[test]
+    fn container_escape_creates_placeholder_node_when_node_unknown() {
+        let update =
+            parse_effect("container.escape(ns/default/pod/attacker)", &ctx()).unwrap();
+
+        // Should still create a node entity (placeholder).
+        assert_eq!(update.new_entities.len(), 1);
+        // And two relations: RunsOn + ContainerEscape.
+        assert_eq!(update.new_relations.len(), 2);
+        assert!(update.new_relations.iter().any(|r| r.relation_name() == "runs-on"));
+        assert!(update.new_relations.iter().any(|r| r.relation_name() == "container.escape"));
+    }
+
+    #[test]
+    fn container_escape_sys_resolves_to_target_id() {
+        let mut args = ctx();
+        args.insert("TARGET_ID".into(), "ns/default/pod/attacker".into());
+        args.insert("TARGET_NODE_ID".into(), "node/worker-1".into());
+        let update = parse_effect("container.escape(sys)", &args).unwrap();
+        let escape = update.new_relations.iter()
+            .find(|r| r.relation_name() == "container.escape")
+            .unwrap();
+        assert_eq!(escape.source_id().0, "ns/default/pod/attacker");
+    }
+
+    #[test]
+    fn container_escape_without_procedure_cmd_has_no_envelope() {
+        let mut args = ctx();
+        args.insert("TARGET_NODE_ID".into(), "node/worker-1".into());
+        let update = parse_effect("container.escape(ns/default/pod/attacker)", &args).unwrap();
+        let escape = update.new_relations.iter()
+            .find(|r| r.relation_name() == "container.escape")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ContainerEscape>()
+            .unwrap();
+        assert!(escape.envelope.is_none());
+    }
+
+    #[test]
+    fn container_escape_wrong_arg_count_returns_err() {
+        assert!(parse_effect("container.escape(a, b)", &ctx()).is_err());
+        assert!(parse_effect("container.escape(a, b, c)", &ctx()).is_err());
+        assert!(parse_effect("container.escape()", &ctx()).is_err());
     }
 }

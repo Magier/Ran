@@ -9,7 +9,9 @@ parameters:
 preconditions:
   kind: Session
   "Pod.hostPath": true
-effects: []
+  accessLevel: "user-exec"
+effects: 
+  - container.escape(sys)
 procedures:
   - key: chroot
     command: chroot ${HOST_PATH}
