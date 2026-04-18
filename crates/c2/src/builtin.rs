@@ -55,10 +55,12 @@ impl BuiltinC2 {
             return ok_result(&cmd.id, "ok".to_string());
         }
 
-        if let Some((namespace, pod_name)) = parse_pod_target_id(&cmd.target_id) {
+        let routing_target = cmd.exec_entity_id.as_str();
+        if let Some((namespace, pod_name)) = parse_pod_target_id(routing_target) {
             debug!(
                 cmd_id = %cmd.id,
                 target_id = %cmd.target_id,
+                routing_target,
                 namespace,
                 pod_name,
                 "builtin c2 executing command through pod exec"
@@ -144,12 +146,12 @@ impl BuiltinC2 {
             }
         }
 
-        if cmd.target_id.starts_with("ns/") {
+        if routing_target.starts_with("ns/") {
             let reason = format!(
                 "invalid pod target id '{}': expected format ns/<namespace>/pod/<pod-name>",
-                cmd.target_id
+                routing_target
             );
-            warn!(cmd_id = %cmd.id, target_id = %cmd.target_id, "{}", reason);
+            warn!(cmd_id = %cmd.id, target_id = %cmd.target_id, routing_target, "{}", reason);
             return TtpExecuted {
                 id: cmd.id.clone(),
                 success: false,
@@ -346,6 +348,7 @@ mod tests {
             },
             args: HashMap::new(),
             target_id: target_id.to_string(),
+            exec_entity_id: target_id.to_string(),
             exec_system_id: exec_system_id.to_string(),
         }
     }

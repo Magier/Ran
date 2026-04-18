@@ -110,25 +110,27 @@ fn ground_procedure_and_effects(
 /// was resolved (and `SRC` injected) in [`Campaign::resolve_lateral_src`]
 /// before grounding so that effect strings like
 /// `rce.can-exec(${SRC}, ${TARGET_ID})` are fully grounded.
+///
+/// Returns `(backend_id, semantic_target_id, exec_entity_id)`.
 fn route_lateral_movement(
     lateral_src: Option<ExecChannel>,
     target_id: &str,
-) -> Result<(String, String), ExecuteActionError> {
+) -> Result<(String, String, String), ExecuteActionError> {
     let ch = lateral_src.ok_or_else(|| {
         ExecuteActionError::InvariantViolation(
             "lateral movement exec source should have been resolved before routing".to_string(),
         )
     })?;
-    let exec_target = ch.exec_target_id.clone().unwrap_or_else(|| target_id.to_string());
+    let exec_entity = ch.exec_target_id.clone().unwrap_or_else(|| target_id.to_string());
 
     tracing::info!(
         target_id = %target_id,
-        selected_source = %exec_target,
+        selected_source = %exec_entity,
         backend_id = %ch.backend_id,
-        chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
+        chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_entity.as_str()),
         "selected lateral-movement execution chain"
     );
-    Ok((ch.backend_id, exec_target))
+    Ok((ch.backend_id, target_id.to_string(), exec_entity))
 }
 
 fn current_time_millis() -> u64 {
@@ -189,7 +191,7 @@ impl Campaign {
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
 
         // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
-        let (exec_system_id, resolved_target_id) = self.route_exec_channel(
+        let (exec_system_id, target_id, exec_entity_id) = self.route_exec_channel(
             &request.target_id,
             &ttp.tactic,
             &mut procedure,
@@ -204,7 +206,8 @@ impl Campaign {
             ttp,
             procedure,
             args,
-            target_id: resolved_target_id,
+            target_id,
+            exec_entity_id,
             exec_system_id,
             started_at_ms: current_time_millis(),
         })
@@ -270,7 +273,12 @@ impl Campaign {
         Ok(Some(ch))
     }
 
-    /// Select a C2 backend and return `(exec_system_id, resolved_target_id)`.
+    /// Select a C2 backend and return `(backend_id, semantic_target_id, exec_entity_id)`.
+    ///
+    /// - `semantic_target_id` is always the original `target_id` from the request — used for
+    ///   attribution (execution records, effect context `TARGET_ID`, knowledge graph updates).
+    /// - `exec_entity_id` is the physical entity `BuiltinC2` will exec into — may be the first
+    ///   hop of a multi-hop path or a resolved pod for SA/node targets.
     ///
     /// Decision order (first matching branch wins):
     /// 1. Caller supplied a non-empty exec hint → [`route_caller_supplied`].
@@ -284,7 +292,7 @@ impl Campaign {
         procedure: &mut Procedure,
         exec_hint: Option<&str>,
         lateral_src: Option<ExecChannel>,
-    ) -> Result<(String, String), ExecuteActionError> {
+    ) -> Result<(String, String, String), ExecuteActionError> {
         tracing::debug!(
             "exec_system_id before backend selection: '{}'",
             exec_hint.unwrap_or("")
@@ -307,14 +315,16 @@ impl Campaign {
 
     /// Route to a caller-supplied system entity or C2 backend ID.
     ///
-    /// If the hint resolves to a known system entity it becomes the execution
-    /// target (via the builtin C2); otherwise it is treated as an explicit
-    /// backend ID and the logical target is kept unchanged.
+    /// If the hint resolves to a known system entity it becomes the exec entity
+    /// (via the builtin C2); otherwise it is treated as an explicit backend ID
+    /// and the logical target is kept as the exec entity.
+    ///
+    /// Returns `(backend_id, semantic_target_id, exec_entity_id)`.
     fn route_caller_supplied(
         &self,
         hint: &str,
         target_id: &str,
-    ) -> Result<(String, String), ExecuteActionError> {
+    ) -> Result<(String, String, String), ExecuteActionError> {
         if self.get_system_entity(hint).is_some() {
             tracing::info!(
                 logical_target = %target_id,
@@ -323,7 +333,7 @@ impl Campaign {
                 chain = %format_exec_chain(BUILTIN_C2_ID, &[], hint),
                 "using caller-supplied exec source entity"
             );
-            Ok((BUILTIN_C2_ID.to_string(), hint.to_string()))
+            Ok((BUILTIN_C2_ID.to_string(), target_id.to_string(), hint.to_string()))
         } else {
             tracing::info!(
                 target_id = %target_id,
@@ -331,17 +341,21 @@ impl Campaign {
                 chain = %format_exec_chain(hint, &[], target_id),
                 "using caller-supplied exec backend"
             );
-            Ok((hint.to_string(), target_id.to_string()))
+            Ok((hint.to_string(), target_id.to_string(), target_id.to_string()))
         }
     }
 
     /// Route through a graph-resolved exec channel, wrapping the command for
     /// any intermediate hops.
+    ///
+    /// Returns `(backend_id, semantic_target_id, exec_entity_id)`.
+    /// `semantic_target_id` is always the original `target_id`; `exec_entity_id`
+    /// is the first hop for multi-hop paths or the resolved exec target for direct paths.
     fn route_remote(
         &mut self,
         target_id: &str,
         procedure: &mut Procedure,
-    ) -> Result<(String, String), ExecuteActionError> {
+    ) -> Result<(String, String, String), ExecuteActionError> {
         let ch = self
             .resolve_exec_channel(target_id)
             .map_err(ExecuteActionError::NoExecChannel)?;
@@ -368,18 +382,20 @@ impl Campaign {
             if let Some(pod) = self.entities.find::<Pod>(&tgt_id) {
                 procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
             }
-            Ok((ch.backend_id, exec_target))
+            Ok((ch.backend_id, target_id.to_string(), exec_target))
         } else {
             let first_hop = ch.hops[0].clone();
             self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str());
-            Ok((ch.backend_id, first_hop))
+            Ok((ch.backend_id, target_id.to_string(), first_hop))
         }
     }
 
     /// Safety fallback: pod targets get an in-cluster execution source when no
     /// explicit channel was selected; all other targets get an empty backend
     /// (the C2 side will execute directly against the target).
-    fn route_fallback(&self, target_id: &str) -> Result<(String, String), ExecuteActionError> {
+    ///
+    /// Returns `(backend_id, semantic_target_id, exec_entity_id)`.
+    fn route_fallback(&self, target_id: &str) -> Result<(String, String, String), ExecuteActionError> {
         let target_eid = EntityId::new(target_id);
         if self.entities.contains::<Pod>(&target_eid) {
             tracing::warn!(
@@ -389,17 +405,17 @@ impl Campaign {
             let ch = self
                 .resolve_exec_source()
                 .map_err(ExecuteActionError::NoExecChannel)?;
-            let exec_target = ch.exec_target_id.unwrap_or_else(|| target_id.to_string());
+            let exec_entity = ch.exec_target_id.unwrap_or_else(|| target_id.to_string());
             tracing::info!(
                 target_id = %target_id,
-                selected_source = %exec_target,
+                selected_source = %exec_entity,
                 backend_id = %ch.backend_id,
-                chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
+                chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_entity.as_str()),
                 "pod fallback source selected"
             );
-            Ok((ch.backend_id, exec_target))
+            Ok((ch.backend_id, target_id.to_string(), exec_entity))
         } else {
-            Ok((String::new(), target_id.to_string()))
+            Ok((String::new(), target_id.to_string(), target_id.to_string()))
         }
     }
 
