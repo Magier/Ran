@@ -42,6 +42,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         },
         args: HashMap::new(),
         target_id: target_id.to_string(),
+        exec_entity_id: target_id.to_string(),
         exec_system_id: String::new(),
         started_at_ms: 0,
     }
@@ -613,7 +614,8 @@ fn prepare_action_explicit_exec_source_entity_runs_from_that_system() {
         .expect("explicit source entity should be used as execution target");
 
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
-    assert_eq!(exec.target_id, source_id);
+    assert_eq!(exec.target_id, target_id, "semantic target must be the requested target");
+    assert_eq!(exec.exec_entity_id, source_id, "physical exec entity must be the supplied source");
     assert_eq!(exec.args.get("TARGET_ID").map(String::as_str), Some(target_id.as_str()));
 }
 
@@ -706,6 +708,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         },
         args: HashMap::new(),
         target_id: target_id.to_string(),
+        exec_entity_id: target_id.to_string(),
         exec_system_id: target_id.to_string(),
         started_at_ms: 0,
     }
@@ -861,7 +864,7 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
         exec.procedure.command
     );
     // The C2 kubectl-execs into the entry pod, which then runs the RCE envelope.
-    assert_eq!(exec.target_id, entry_id, "C2 should exec into entry-pod");
+    assert_eq!(exec.exec_entity_id, entry_id, "C2 should exec into entry-pod");
 }
 
 #[test]
@@ -887,7 +890,8 @@ fn prepare_action_exec_system_same_as_target_still_uses_channel_hops() {
         .expect("should still resolve via channel path");
 
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
-    assert_eq!(exec.target_id, entry_id, "should exec into first hop, not target pod directly");
+    assert_eq!(exec.target_id, redis_id, "semantic target must be the requested redis pod");
+    assert_eq!(exec.exec_entity_id, entry_id, "physical exec entity must be the first hop, not target pod directly");
 }
 
 #[test]
@@ -942,7 +946,7 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
         .expect("should route through in-cluster source");
 
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
-    assert_eq!(exec.target_id, entry_id, "fallback should exec into entry-hall, not redis directly");
+    assert_eq!(exec.exec_entity_id, entry_id, "fallback should exec into entry-hall, not redis directly");
 }
 
 // ---------------------------------------------------------------------------

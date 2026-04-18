@@ -12,7 +12,17 @@ pub struct ExecTtp {
     pub ttp: Ttp,
     pub procedure: Procedure,
     pub args: HashMap<String, String>,
+    /// The semantic target entity — the entity whose knowledge graph entry,
+    /// system info, and execution records are updated by this command.
+    /// Always the entity the operator is working with (e.g. a K8sNode after
+    /// a container escape, or a ServiceAccount being exploited).
     pub target_id: String,
+    /// The physical entity the C2 backend execs into to deliver the command.
+    /// Equals `target_id` for direct pod targets; differs when the semantic
+    /// target is not itself an exec-capable system (e.g. a ServiceAccount is
+    /// resolved to its pod, or a K8sNode is reached via a container escape
+    /// hop through a pod).
+    pub exec_entity_id: String,
     pub exec_system_id: String,
     /// Unix timestamp (milliseconds) when the command was dispatched.
     pub started_at_ms: u64,

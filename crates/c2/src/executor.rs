@@ -247,6 +247,7 @@ mod tests {
             },
             args: HashMap::new(),
             target_id: "ns/default/pod/nginx".to_string(),
+            exec_entity_id: "ns/default/pod/nginx".to_string(),
             exec_system_id: exec_system_id.to_string(),
         }
     }
