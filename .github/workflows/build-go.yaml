@@ -1,4 +1,4 @@
-name: Build
+name: Build (Go)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
-  workflow_dispatch: 
+  workflow_dispatch:
   workflow_call:
 
 env:
@@ -21,12 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-      
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
           cache-dependency-path: src/go.sum
-      
+
       - name: Run Go tests
         run: make test-go
 
@@ -39,26 +39,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-      
+
       - uses: pnpm/action-setup@v2
         with:
           version: 9
-      
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
-      
+
       - name: Install dependencies
         run: pnpm --prefix frontend install --frozen-lockfile
-      
+
       - name: Run frontend tests
         run: make test-frontend
-      
+
       - name: Build frontend
         run: pnpm --prefix frontend build
-      
+
       - name: Upload frontend build
         uses: actions/upload-artifact@v4
         with:
@@ -89,21 +89,21 @@ jobs:
             goarch: amd64
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-      
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
           cache-dependency-path: src/go.sum
-      
+
       - name: Download frontend build
         uses: actions/download-artifact@v4
         with:
           name: frontend-build
           path: frontend/build/
-      
+
       - name: Prepare assets and build
         run: make ci-build GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }}
-      
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
@@ -122,32 +122,32 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-      
+
       - name: Download Linux amd64 binary
         uses: actions/download-artifact@v4
         with:
           name: ran-linux-amd64
           path: dist/linux-amd64/
-      
+
       - name: Download Linux arm64 binary
         uses: actions/download-artifact@v4
         with:
           name: ran-linux-arm64
           path: dist/linux-arm64/
-      
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Log in to registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
@@ -158,7 +158,7 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-      
+
       - name: Build and push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
@@ -186,7 +186,7 @@ jobs:
         with:
           path: artifacts/
           pattern: ran-*
-      
+
       - name: Package binaries
         run: |
           cd artifacts
@@ -194,7 +194,7 @@ jobs:
             name="${dir%/}"
             tar -czvf "${name}.tar.gz" -C "$dir" .
           done
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
