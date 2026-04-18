@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use ran_domain::{ConfigMap, Deployment, K8sNode, K8sSecret, Mount, Namespace, OwnerRef, Pod, PodPhase, ServiceAccount};
+use ran_domain::{ConfigMap, Deployment, K8sNode, K8sSecret, Mount, NameConfidence, Namespace, OwnerRef, Pod, PodPhase, ServiceAccount};
 
 use crate::FactsUpdate;
 use super::ParserOutput;
@@ -267,6 +267,7 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str) -> ParserOutput {
         }
 
         let mut pod = Pod::new(name.clone(), ns.clone());
+        pod.meta.name_confidence = NameConfidence::Authoritative;
 
         if let Some(uid) = &item.metadata.uid {
             pod.meta.uid = Some(uid.clone());
@@ -369,7 +370,8 @@ fn parse_k8s_node_list(stdout: &str, _stderr: &str) -> ParserOutput {
         if item.metadata.name.is_empty() {
             continue;
         }
-        let node = K8sNode::new(item.metadata.name.clone());
+        let mut node = K8sNode::new(item.metadata.name.clone());
+        node.name_confidence = NameConfidence::Authoritative;
         facts.new_entities.push(Box::new(node));
     }
 
