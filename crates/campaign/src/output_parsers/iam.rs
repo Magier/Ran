@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use ran_domain::{Contains, Entity, JwToken, K8sNode, Namespace, Pod, RbacPermission, RunsOn, ServiceAccount, ServiceAccountToken, Uses};
+use ran_domain::{Contains, Entity, JwToken, K8sNode, NameConfidence, Namespace, Pod, RbacPermission, RunsOn, ServiceAccount, ServiceAccountToken, Uses};
 use serde::Deserialize;
 
 use crate::FactsUpdate;
@@ -201,6 +201,7 @@ fn parse_raw_service_account_token(stdout: &str, _stderr: &str) -> ParserOutput 
     if let Some(pod_name) = &pod_name {
         if !pod_name.is_empty() {
             let mut pod = Pod::new(pod_name.as_str(), namespace.as_str());
+            pod.meta.name_confidence = NameConfidence::Authoritative;
             pod.service_account_name = Some(sa_name.clone());
             pod.is_running = true;
             let pod_id = pod.entity_id();
@@ -210,7 +211,8 @@ fn parse_raw_service_account_token(stdout: &str, _stderr: &str) -> ParserOutput 
                 if !node_name.is_empty() {
                     pod.node_name = Some(node_name.clone());
 
-                    let node = K8sNode::new(node_name.as_str());
+                    let mut node = K8sNode::new(node_name.as_str());
+                    node.name_confidence = NameConfidence::Authoritative;
                     let node_id = node.entity_id();
                     facts.new_entities.push(Box::new(node));
                     facts.new_relations.push(Box::new(RunsOn::new(

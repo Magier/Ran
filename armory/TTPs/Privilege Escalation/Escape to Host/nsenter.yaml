@@ -1,4 +1,4 @@
-name: Escape container via NSenter 🚧
+name: Escape container via NSenter
 description: Container escape via the nsenter built-in linux program that allows executing a binary into another namespace.
 tactic: "Privilege Escalation"
 techniques: ["Escape to Host", T1611]
@@ -8,6 +8,11 @@ preconditions:
   accessLevel: "user-exec"
 effects: 
   - container.escape(sys)
+parameters:
+  CMD:
+    type: string
+    default: hostname
+    description: the command to execute on the host
 procedures:
   - key: nsenter
     command: nsenter --target 1 --mount --uts --ipc --net --pid ${CMD}
@@ -18,6 +23,6 @@ defend:
   - tactic: detect
     id: D3-PSA
     process_creation: nsenter
-refernces:
+references:
   - https://attack.mitre.org/techniques/T1611/
   - "[https://kubehound.io/reference/attacks/CE_NSENTER](KubeHound CE_NSENTER)"

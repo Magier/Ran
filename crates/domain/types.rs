@@ -43,6 +43,29 @@ pub enum Confidence {
     Yes,
 }
 
+// ---------------------------------------------------------------------------
+// NameConfidence
+// ---------------------------------------------------------------------------
+
+/// Confidence in an entity's name/identity.
+///
+/// Every entity starts as `Derived` until an authoritative source confirms it.
+/// Authoritative sources include the Kubernetes API server, SA token JWTs, and
+/// output parsers that read the real name from the system (e.g. `sys.node-name`).
+///
+/// `Derived` covers heuristic and placeholder names: IP-derived pod names from
+/// network scans, escape-host placeholder nodes, names inferred from TTP effects,
+/// and any other name that was not directly observed from an authoritative source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NameConfidence {
+    /// Name came from an authoritative source (K8s API, SA token JWT, etc.)
+    Authoritative,
+    /// Name is heuristic, placeholder, or inferred — not directly confirmed.
+    #[default]
+    Derived,
+}
+
 impl Confidence {
     pub fn is_yes(&self) -> bool {
         matches!(self, Confidence::Yes)
@@ -89,6 +112,10 @@ pub enum AccessLevel {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct K8sMeta {
     pub name: String,
+    /// Confidence in this resource's name.  Defaults to `Derived`; set to
+    /// `Authoritative` when the name comes from the K8s API or a JWT claim.
+    #[serde(default)]
+    pub name_confidence: NameConfidence,
     /// `None` for cluster-scoped resources (Nodes, ClusterRoles, etc.).
     pub namespace: Option<String>,
     pub uid: Option<String>,

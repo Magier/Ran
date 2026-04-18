@@ -117,6 +117,7 @@ pub fn parse_output_effect(
                     || normalized == "file:kubeconfig"
                     || normalized == "nmap"
                     || normalized == "k8s.selfsubjectrulesreview"
+                    || normalized == "sys.node-name"
                     || get_registry().contains_key(normalized.trim());
                 if !is_known {
                     return None;
@@ -178,6 +179,8 @@ pub fn parse_output_effect(
     } else if normalized == "file:kubeconfig" {
         let source_id = resolve_target_id(campaign, cmd);
         file::parse_file_kubeconfig(stdout, source_id.as_deref().unwrap_or(""))
+    } else if normalized == "sys.node-name" {
+        parse_sys_node_name(campaign, cmd, stdout)
     } else {
         let parser = get_registry().get(normalized.trim())?;
         parser(stdout, stderr)
@@ -237,6 +240,77 @@ pub fn parse_output_effect(
             })
         }
     }
+}
+
+/// Parse the output of a `hostname` (or equivalent) command run on a K8s node
+/// after a container escape, and resolve the placeholder node entity to its
+/// real name.
+///
+/// The stdout must be a single-line hostname string. On success:
+/// - A real `K8sNode` entity is created with the discovered name.
+/// - An entity alias is emitted from the current node target (placeholder) to
+///   the real node, so `apply_facts` migrates all graph edges and entity data.
+///
+/// Target resolution:
+/// - If the semantic target is already a node entity (e.g. `node/escape-host-...`),
+///   it is aliased directly.
+/// - If the semantic target is a pod (the escape was attributed to the pod),
+///   the pod's `runs-on` graph edge is followed to find the placeholder node.
+fn parse_sys_node_name(campaign: &Campaign, cmd: &ExecTtp, stdout: &str) -> ParserOutput {
+    use indexmap::IndexSet;
+    use ran_domain::{EntityId, K8sNode, NameConfidence, RunsOn};
+
+    let name = stdout.trim();
+    if name.is_empty() {
+        return ParserOutput::KnownFailure("sys.node-name: empty hostname output".to_string());
+    }
+    if name.contains('\n') || name.contains('/') || name.contains(' ') {
+        return ParserOutput::UnknownFormat(format!(
+            "sys.node-name: unexpected format {:?} — expected a single hostname",
+            name
+        ));
+    }
+
+    let real_node_id = EntityId::new(format!("node/{}", name));
+
+    // Find the stale placeholder node, if any, to alias it to the real ID.
+    let target_eid = EntityId::new(&cmd.target_id);
+    let stale_node_id: Option<EntityId> = if cmd.target_id.starts_with("node/") {
+        // The semantic target is already a node — alias it if it's not already real.
+        if target_eid != real_node_id {
+            Some(target_eid)
+        } else {
+            None
+        }
+    } else {
+        // The semantic target is a pod (escape attributed to the pod).
+        // Follow its runs-on edge to find the node that needs updating.
+        campaign
+            .graph
+            .targets_of(&target_eid, RunsOn::RELATION_NAME)
+            .first()
+            .filter(|n| n.0 != real_node_id.0)
+            .cloned()
+            .cloned()
+    };
+
+    let mut real_node = K8sNode::new(name);
+    real_node.name_confidence = NameConfidence::Authoritative;
+    let mut facts = FactsUpdate {
+        new_entities: vec![Box::new(real_node)],
+        new_relations: vec![],
+        entity_aliases: IndexSet::new(),
+    };
+    if let Some(stale) = stale_node_id {
+        tracing::info!(
+            stale = %stale.0,
+            real = %real_node_id.0,
+            "merging escape-host placeholder node with discovered real node name"
+        );
+        facts.entity_aliases.insert((stale, real_node_id));
+    }
+
+    ParserOutput::SuccessWithFacts(facts, format!("node name resolved: {}", name))
 }
 
 pub fn build_no_parser_audit(effect_id: &str, cmd: &ExecTtp, event: &TtpExecuted) -> ParseAudit {

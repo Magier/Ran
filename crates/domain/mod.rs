@@ -18,7 +18,7 @@ pub use relation::{C2Channel, Relation};
 pub use rbac::RbacPermission;
 pub use relations::{CanReach, ContainerEscape, Contains, KubeletExecSink, KubeletExecSource, ManagesNode, Owns, PodExec, RceCanExec, RelationSummary, RunsOn, Uses};
 pub use types::{
-    AccessLevel, BinaryPresence, Confidence, Container, EntityId, K8sMeta, Mount, OwnerRef,
-    Process, SystemInfo,
+    AccessLevel, BinaryPresence, Confidence, Container, EntityId, K8sMeta, Mount, NameConfidence,
+    OwnerRef, Process, SystemInfo,
 };
 

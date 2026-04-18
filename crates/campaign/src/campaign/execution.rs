@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
-use ran_domain::{BinaryPresence, EntityId, K8sNode, Merge, Pod};
+use ran_domain::{BinaryPresence, EntityId, K8sNode, Merge, NameConfidence, Pod};
 
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
@@ -722,8 +722,13 @@ impl Campaign {
         for (stale_id, preferred_id) in &updates.entity_aliases {
             // Graph: retarget all edges from stale → preferred.
             self.graph.merge_entities(preferred_id, stale_id);
-            // Entity maps: merge runtime data (IPs, access level, etc.).
-            self.merge_pod_entities(&preferred_id.0, &stale_id.0);
+            // Entity maps: merge runtime data (IPs, access level, binaries, etc.).
+            // Dispatch to the correct merge function based on entity kind.
+            if preferred_id.0.starts_with("node/") || stale_id.0.starts_with("node/") {
+                self.merge_node_entities(&preferred_id.0, &stale_id.0);
+            } else {
+                self.merge_pod_entities(&preferred_id.0, &stale_id.0);
+            }
         }
 
         for rel in &updates.new_relations {
@@ -749,8 +754,26 @@ impl Campaign {
 
                 if let Some(old_node) = existing_node {
                     if old_node != tgt {
+                        // Prefer the node whose name is Authoritative; fall back to
+                        // keeping the existing node when both have equal confidence.
+                        let old_confidence = self
+                            .entities
+                            .find::<K8sNode>(&old_node)
+                            .map(|n| n.name_confidence)
+                            .unwrap_or(NameConfidence::Derived);
+                        let tgt_confidence = self
+                            .entities
+                            .find::<K8sNode>(&tgt)
+                            .map(|n| n.name_confidence)
+                            .unwrap_or(NameConfidence::Derived);
                         let preferred_node =
-                            EntityId::new(choose_preferred_node_id(&old_node.0, &tgt.0));
+                            if tgt_confidence == NameConfidence::Authoritative
+                                && old_confidence != NameConfidence::Authoritative
+                            {
+                                tgt.clone()
+                            } else {
+                                old_node.clone()
+                            };
                         let stale_node = if preferred_node == old_node {
                             tgt.clone()
                         } else {
@@ -861,17 +884,15 @@ impl Campaign {
         }
     }
 
-    /// Detect when a TTP ran against an IP-placeholder pod and the output
+    /// Detect when a TTP ran against a derived-name pod and the output
     /// revealed the real pod identity (e.g. from a service-account token).
     ///
-    /// An "IP-placeholder" pod is one whose name was derived from the pod's IP
-    /// address during a network scan (e.g. `backend-service.10-244-1-4` from
-    /// reverse DNS).  When a subsequent TTP on that pod produces a
-    /// `ServiceAccount` entity whose token carries the real pod name, the
-    /// `ServiceAccountTokenAnalyzer` emits a properly-named Pod entity (and/or
-    /// a `uses` relation from it).  This function detects that situation and
-    /// records an alias `(stale_id, preferred_id)` in `updates` so that
-    /// `apply_facts` can transplant all relations to the real entity.
+    /// A "derived-name" pod is one whose `name_confidence` is [`NameConfidence::Derived`] —
+    /// for example a pod whose name was inferred from its IP address during a
+    /// network scan.  When a subsequent TTP produces a `Pod` entity whose name
+    /// is [`NameConfidence::Authoritative`] (e.g. from a service-account JWT),
+    /// this function records an alias `(stale_id, preferred_id)` in `updates`
+    /// so that `apply_facts` can transplant all relations to the real entity.
     fn detect_pod_identity_merge(&self, cmd: &ExecTtp, updates: &mut FactsUpdate) {
         // For multi-hop TTPs the C2 sets `cmd.target_id` to the first hop (the
         // pod it kubectl-execs into), NOT the logical target of the TTP.  The
@@ -884,11 +905,11 @@ impl Campaign {
 
         let stale_id = EntityId::new(logical_target);
 
-        // Only proceed when the execution target is a known IP-derived pod.
+        // Only proceed when the execution target is a pod with a derived name.
         let Some(exec_pod) = self.entities.find::<Pod>(&stale_id) else {
             return;
         };
-        if !is_ip_derived_pod_name(&exec_pod.meta.name) {
+        if exec_pod.meta.name_confidence == NameConfidence::Authoritative {
             return;
         }
 
@@ -898,7 +919,7 @@ impl Campaign {
         }
         let ns_pod_prefix = format!("ns/{}/pod/", ns);
 
-        // Strategy 1: a new Pod entity with a real name appeared in updates.
+        // Strategy 1: a new Pod entity with an authoritative name appeared in updates.
         let preferred_from_entity = updates
             .new_entities
             .iter()
@@ -910,15 +931,16 @@ impl Campaign {
                 if id == stale_id {
                     return false;
                 }
-                id.0.starts_with(&ns_pod_prefix)
-                    && !is_ip_derived_pod_name(
-                        id.0.strip_prefix(&ns_pod_prefix).unwrap_or(""),
-                    )
+                if !id.0.starts_with(&ns_pod_prefix) {
+                    return false;
+                }
+                // Accept any pod in updates whose name is authoritative.
+                e.name_confidence() == NameConfidence::Authoritative
             })
             .map(|e| e.entity_id());
 
-        // Strategy 2: a `uses` relation from a real pod appeared in updates
-        // (SA token analysis won't re-emit the pod entity if already known).
+        // Strategy 2: a `uses` relation from an authoritative pod appeared in
+        // updates (SA token analysis won't re-emit the pod entity if already known).
         let preferred_from_relation = if preferred_from_entity.is_none() {
             updates
                 .new_relations
@@ -928,9 +950,11 @@ impl Campaign {
                 .find(|id| {
                     *id != stale_id
                         && id.0.starts_with(&ns_pod_prefix)
-                        && !is_ip_derived_pod_name(
-                            id.0.strip_prefix(&ns_pod_prefix).unwrap_or(""),
-                        )
+                        && self
+                            .entities
+                            .find::<Pod>(id)
+                            .map(|p| p.meta.name_confidence == NameConfidence::Authoritative)
+                            .unwrap_or(false)
                 })
         } else {
             None
@@ -973,43 +997,6 @@ impl Campaign {
     }
 }
 
-fn choose_preferred_node_id(a: &str, b: &str) -> String {
-    let a_unknown = is_placeholder_node_id(a);
-    let b_unknown = is_placeholder_node_id(b);
-
-    match (a_unknown, b_unknown) {
-        (true, false) => b.to_string(),
-        (false, true) => a.to_string(),
-        _ => a.to_string(),
-    }
-}
-
-fn is_placeholder_node_id(node_id: &str) -> bool {
-    match node_id.strip_prefix("node/") {
-        Some(name) => {
-            let n = name.trim();
-            n.is_empty() || n == "?" || n.eq_ignore_ascii_case("unknown")
-        }
-        None => node_id.trim().is_empty(),
-    }
-}
-
-/// Returns `true` when a pod name was derived from its IP address during a
-/// network scan.
-///
-/// The rDNS parser produces names like `backend-service.10-244-1-4` (from
-/// `10-244-1-4.backend-service.dev.svc.cluster.local`) or bare `10-244-1-4`
-/// (when there is no service component).  In both cases the last dot-separated
-/// segment is an IPv4 address in kebab notation — exactly four numeric parts
-/// separated by hyphens.
-pub(crate) fn is_ip_derived_pod_name(name: &str) -> bool {
-    let last = name.rsplit('.').next().unwrap_or(name);
-    let parts: Vec<&str> = last.split('-').collect();
-    parts.len() == 4
-        && parts
-            .iter()
-            .all(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
-}
 
 /// Parse a pod entity ID in the canonical form `ns/<namespace>/pod/<name>` and
 /// return `(namespace, pod_name)`, or `None` if the format doesn't match.

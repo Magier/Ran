@@ -7,7 +7,7 @@ use crate::identity::ServiceAccountToken;
 use crate::rbac::RbacPermission;
 use std::net::IpAddr;
 
-use crate::types::{Confidence, Container, EntityId, K8sMeta, Mount, OwnerRef, SystemInfo};
+use crate::types::{Confidence, Container, EntityId, K8sMeta, Mount, NameConfidence, OwnerRef, SystemInfo};
 
 // ---------------------------------------------------------------------------
 // Entity trait
@@ -29,6 +29,13 @@ pub trait Entity: std::any::Any + std::fmt::Debug + Send + Sync {
     fn entity_kind(&self) -> &str;
     /// Returns the entity as `&dyn Any` for downcasting to concrete types.
     fn as_any(&self) -> &dyn std::any::Any;
+    /// Confidence in this entity's name/identity.
+    ///
+    /// Returns [`NameConfidence::Derived`] by default; overridden by entity
+    /// types whose names can come from authoritative sources (Pod, K8sNode).
+    fn name_confidence(&self) -> NameConfidence {
+        NameConfidence::Derived
+    }
 }
 
 /// Behavior shared by graph entities that represent an executable system
@@ -183,6 +190,8 @@ pub enum GraphEntity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct K8sNode {
     pub name: String,
+    #[serde(default)]
+    pub name_confidence: NameConfidence,
     #[serde(flatten)]
     pub system: SystemInfo,
 }
@@ -191,6 +200,7 @@ impl K8sNode {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
+            name_confidence: NameConfidence::Derived,
             system: SystemInfo::default(),
         }
     }
@@ -211,6 +221,10 @@ impl Entity for K8sNode {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn name_confidence(&self) -> NameConfidence {
+        self.name_confidence
     }
 }
 
@@ -394,6 +408,9 @@ impl Entity for Pod {
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+    fn name_confidence(&self) -> NameConfidence {
+        self.meta.name_confidence
     }
 }
 
@@ -1060,6 +1077,10 @@ fn merge_k8s_meta(existing: &mut K8sMeta, incoming: &K8sMeta) {
     for (k, v) in &incoming.annotations {
         existing.annotations.entry(k.clone()).or_insert_with(|| v.clone());
     }
+    // Authoritative always wins over Derived.
+    if incoming.name_confidence == NameConfidence::Authoritative {
+        existing.name_confidence = NameConfidence::Authoritative;
+    }
 }
 
 /// Merge a `Confidence` field: `Unknown` is the zero value; any concrete value
@@ -1095,6 +1116,9 @@ impl Merge for K8sCluster {
 
 impl Merge for K8sNode {
     fn merge_from(&mut self, incoming: &Self) {
+        if incoming.name_confidence == NameConfidence::Authoritative {
+            self.name_confidence = NameConfidence::Authoritative;
+        }
         self.system.merge_from(&incoming.system);
     }
 }

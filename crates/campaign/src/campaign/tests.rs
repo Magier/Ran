@@ -1075,6 +1075,146 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
 }
 
 // ---------------------------------------------------------------------------
+// sys.node-name — placeholder node identity resolution tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sys_node_name_merges_placeholder_node_into_real_node_when_target_is_node() {
+    // Setup: a pod escaped to a placeholder node.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
+
+    let placeholder = K8sNode::new("escape-host-ns-default-pod-attacker");
+    let placeholder_id = placeholder.entity_id().0.clone();
+    campaign.entities.insert_typed(placeholder);
+    push_relation(&mut campaign, &RunsOn::new(&pod_id, &placeholder_id));
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &placeholder_id)
+            .with_envelope("nsenter -t 1 -m -u -i -n -p -- ${CMD}".to_string()),
+    );
+
+    // Simulate on_ttp_executed: the escape already ran; now a follow-up
+    // `hostname` command targeted at the placeholder node returns the real name.
+    let cmd = sample_exec_ttp(&placeholder_id, vec!["sys.node-name"]);
+    let event = sample_event("worker-node-1");
+
+    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+
+    // The real node entity should exist.
+    let real_id = EntityId::new("node/worker-node-1");
+    assert!(
+        campaign.entities.contains::<K8sNode>(&real_id),
+        "real node entity should exist after sys.node-name resolution"
+    );
+
+    // The placeholder should be gone.
+    let stale_id = EntityId::new(&placeholder_id);
+    assert!(
+        !campaign.entities.contains::<K8sNode>(&stale_id),
+        "placeholder node should have been removed"
+    );
+
+    // ContainerEscape edge should point at the real node, not the placeholder.
+    let real_node_eid = EntityId::new("node/worker-node-1");
+    let pod_eid = EntityId::new(&pod_id);
+    let escape_edges = campaign
+        .graph
+        .targets_of(&pod_eid, "container.escape");
+    assert!(
+        escape_edges.iter().any(|t| *t == &real_node_eid),
+        "ContainerEscape edge should target the real node after merge"
+    );
+}
+
+#[test]
+fn sys_node_name_merges_placeholder_when_target_is_pod_after_escape() {
+    // The escape TTP may be attributed to the pod (semantic target = pod),
+    // and the follow-up hostname command is also targeted at the pod.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
+
+    let placeholder = K8sNode::new("escape-host-ns-default-pod-attacker");
+    let placeholder_id = placeholder.entity_id().0.clone();
+    campaign.entities.insert_typed(placeholder);
+    push_relation(&mut campaign, &RunsOn::new(&pod_id, &placeholder_id));
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &placeholder_id)
+            .with_envelope("nsenter -t 1 -m -u -i -n -p -- ${CMD}".to_string()),
+    );
+
+    // sys.node-name targeted at the pod (not the node).
+    let cmd = sample_exec_ttp(&pod_id, vec!["sys.node-name"]);
+    let event = sample_event("worker-node-2");
+
+    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+
+    let real_id = EntityId::new("node/worker-node-2");
+    assert!(
+        campaign.entities.contains::<K8sNode>(&real_id),
+        "real node should exist"
+    );
+    assert!(
+        !campaign.entities.contains::<K8sNode>(&EntityId::new(&placeholder_id)),
+        "placeholder should be gone"
+    );
+}
+
+#[test]
+fn sys_node_name_preserves_access_level_from_placeholder_node() {
+    // The placeholder node gets AccessLevel::Exec when the ContainerEscape edge
+    // is inserted. After sys.node-name resolves the real name, the access level
+    // must be preserved on the real node via merge_node_entities.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let pod = Pod::new("victim", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
+
+    let placeholder = K8sNode::new("escape-host-ns-default-pod-victim");
+    let placeholder_id = placeholder.entity_id().0.clone();
+    campaign.entities.insert_typed(placeholder);
+    push_relation(&mut campaign, &RunsOn::new(&pod_id, &placeholder_id));
+    // ContainerEscape edge upgrades the placeholder node's AccessLevel to Exec.
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &placeholder_id)
+            .with_envelope("nsenter -t 1 -m -u -i -n -p -- ${CMD}".to_string()),
+    );
+
+    // Sanity check: placeholder has Exec access.
+    let ph_eid = EntityId::new(&placeholder_id);
+    let ph_access = campaign
+        .entities
+        .find::<K8sNode>(&ph_eid)
+        .map(|n| n.system.access_level);
+    assert_eq!(ph_access, Some(AccessLevel::Exec), "placeholder must have Exec access");
+
+    // sys.node-name targeted at the placeholder node resolves the real name.
+    let cmd = sample_exec_ttp(&placeholder_id, vec!["sys.node-name"]);
+    let event = sample_event("worker-4");
+    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+
+    // Real node should inherit the Exec access level from the placeholder.
+    let real_eid = EntityId::new("node/worker-4");
+    let real_access = campaign
+        .entities
+        .find::<K8sNode>(&real_eid)
+        .map(|n| n.system.access_level);
+    assert_eq!(real_access, Some(AccessLevel::Exec), "real node must inherit Exec access level from placeholder");
+}
+
+// ---------------------------------------------------------------------------
 // ContainerEscape relation tests
 // ---------------------------------------------------------------------------
 
