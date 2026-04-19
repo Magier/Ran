@@ -77,7 +77,11 @@ impl Confidence {
 
 impl From<bool> for Confidence {
     fn from(b: bool) -> Self {
-        if b { Confidence::Yes } else { Confidence::No }
+        if b {
+            Confidence::Yes
+        } else {
+            Confidence::No
+        }
     }
 }
 
@@ -127,7 +131,10 @@ pub struct K8sMeta {
 
 impl K8sMeta {
     pub fn new(name: impl Into<String>) -> Self {
-        K8sMeta { name: name.into(), ..Default::default() }
+        K8sMeta {
+            name: name.into(),
+            ..Default::default()
+        }
     }
 
     pub fn namespaced(name: impl Into<String>, namespace: impl Into<String>) -> Self {
@@ -184,8 +191,17 @@ pub struct SessionInfo {
 }
 
 impl SessionInfo {
-    pub fn new_connecting(id: impl Into<String>, kind: impl Into<String>, port: Option<u16>) -> Self {
-        Self { id: id.into(), kind: kind.into(), port, status: SessionStatus::Connecting }
+    pub fn new_connecting(
+        id: impl Into<String>,
+        kind: impl Into<String>,
+        port: Option<u16>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            kind: kind.into(),
+            port,
+            status: SessionStatus::Connecting,
+        }
     }
 
     pub fn backend_id(&self) -> String {
@@ -221,7 +237,10 @@ pub struct SystemInfo {
 
 impl SystemInfo {
     pub fn has_binary(&self, name: &str) -> BinaryPresence {
-        self.binaries.get(name).cloned().unwrap_or(BinaryPresence::Unknown)
+        self.binaries
+            .get(name)
+            .cloned()
+            .unwrap_or(BinaryPresence::Unknown)
     }
 
     pub fn can_exec(&self) -> bool {
@@ -282,7 +301,11 @@ impl SystemInfo {
             }
         }
         for mount in &incoming.mounts {
-            if !self.mounts.iter().any(|m| m.mount_point == mount.mount_point) {
+            if !self
+                .mounts
+                .iter()
+                .any(|m| m.mount_point == mount.mount_point)
+            {
                 self.mounts.push(mount.clone());
             }
         }

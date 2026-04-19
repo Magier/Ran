@@ -3,8 +3,8 @@ use std::net::IpAddr;
 
 use ran_domain::{AccessLevel, Mount};
 
-use crate::external_parser::SystemFieldUpdates;
 use super::ParserOutput;
+use crate::external_parser::SystemFieldUpdates;
 
 pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("sys.envvar", parse_sys_envvar);
@@ -17,8 +17,8 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
 
 pub(super) fn parse_sys_has_binary(stdout: &str, inner: &str) -> ParserOutput {
     let (explicit_name, source) = split_has_binary_args(inner);
-    let is_output = source.eq_ignore_ascii_case("${output}")
-        || source.eq_ignore_ascii_case("output");
+    let is_output =
+        source.eq_ignore_ascii_case("${output}") || source.eq_ignore_ascii_case("output");
 
     let binaries: HashMap<String, String> = if is_output {
         let paths = parse_binary_paths_from_output(stdout);
@@ -28,9 +28,9 @@ pub(super) fn parse_sys_has_binary(stdout: &str, inner: &str) -> ParserOutput {
         paths
             .into_iter()
             .map(|path| {
-                let name = explicit_name.clone().unwrap_or_else(|| {
-                    path.rsplit('/').next().unwrap_or(&path).to_string()
-                });
+                let name = explicit_name
+                    .clone()
+                    .unwrap_or_else(|| path.rsplit('/').next().unwrap_or(&path).to_string());
                 (name, path)
             })
             .collect()
@@ -90,7 +90,7 @@ fn parse_sys_files(stdout: &str, _stderr: &str) -> ParserOutput {
         files.push(path.to_string());
         if is_exec {
             let name = path.rsplit('/').next().unwrap_or(path).to_string();
-            binaries.entry(name).or_insert_with(String::new);
+            binaries.entry(name).or_default();
         }
     }
 
@@ -318,9 +318,7 @@ fn parse_linux_mounts(stdout: &str, _stderr: &str) -> ParserOutput {
     }
 
     if mounts.is_empty() {
-        return ParserOutput::UnknownFormat(
-            "no mount entries recognised in output".to_string(),
-        );
+        return ParserOutput::UnknownFormat("no mount entries recognised in output".to_string());
     }
 
     let detail = format!("parsed {} mount(s)", mounts.len());
@@ -363,7 +361,11 @@ fn parse_mountinfo_line(line: &str) -> Option<Mount> {
         name: String::new(),
         mount_point,
         mount_root,
-        mount_type: if fs_type.is_empty() { None } else { Some(fs_type) },
+        mount_type: if fs_type.is_empty() {
+            None
+        } else {
+            Some(fs_type)
+        },
         read_only: fields[5].contains("ro"),
         is_host_path,
     })
@@ -394,7 +396,11 @@ fn parse_mount_cmd_line(line: &str) -> Option<Mount> {
         name: String::new(),
         mount_point,
         mount_root: String::new(),
-        mount_type: if fs_type.is_empty() { None } else { Some(fs_type) },
+        mount_type: if fs_type.is_empty() {
+            None
+        } else {
+            Some(fs_type)
+        },
         read_only,
         is_host_path,
     })
@@ -423,7 +429,9 @@ pub(super) fn extract_effect_args(effect: &str) -> Option<&str> {
 /// - Quoted name `"'ran-ws', ${OUTPUT}"` → `(Some("ran-ws"), "${OUTPUT}")`
 fn split_has_binary_args(inner: &str) -> (Option<String>, &str) {
     if let Some(comma_pos) = inner.find(',') {
-        let name_part = inner[..comma_pos].trim().trim_matches(|c| c == '\'' || c == '"');
+        let name_part = inner[..comma_pos]
+            .trim()
+            .trim_matches(|c| c == '\'' || c == '"');
         let rest = inner[comma_pos + 1..].trim();
         // Empty first arg (`, /path` form) → derive name from path
         if name_part.is_empty() {
@@ -499,7 +507,8 @@ mod tests {
 
     #[test]
     fn parses_standard_env_output_fixture() {
-        let stdout_fixture = "HOME=/root\nPATH=/usr/local/sbin:/usr/local/bin\nKUBERNETES_SERVICE_HOST=10.96.0.1\n";
+        let stdout_fixture =
+            "HOME=/root\nPATH=/usr/local/sbin:/usr/local/bin\nKUBERNETES_SERVICE_HOST=10.96.0.1\n";
         let parsed = parse_env_vars(stdout_fixture);
 
         assert_eq!(parsed.get("HOME"), Some(&"/root".to_string()));
@@ -590,7 +599,10 @@ mod tests {
 
     #[test]
     fn parse_sys_userid_nonroot_sets_user_exec() {
-        let result = parse_sys_userid("uid=1000(appuser) gid=1000(appuser) groups=1000(appuser)", "");
+        let result = parse_sys_userid(
+            "uid=1000(appuser) gid=1000(appuser) groups=1000(appuser)",
+            "",
+        );
         let ParserOutput::Success(updates, _) = result else {
             panic!("expected Success");
         };
@@ -686,22 +698,34 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
     #[test]
     fn parse_sys_has_binary_literal_path_derives_name_from_path() {
         let result = parse_sys_has_binary("", "/usr/bin/nmap");
-        let ParserOutput::Success(updates, _) = result else { panic!("expected Success") };
-        assert_eq!(updates.binaries.get("nmap").map(String::as_str), Some("/usr/bin/nmap"));
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success")
+        };
+        assert_eq!(
+            updates.binaries.get("nmap").map(String::as_str),
+            Some("/usr/bin/nmap")
+        );
     }
 
     #[test]
     fn parse_sys_has_binary_bare_name_uses_name_as_path() {
         let result = parse_sys_has_binary("", "curl");
-        let ParserOutput::Success(updates, _) = result else { panic!("expected Success") };
-        assert_eq!(updates.binaries.get("curl").map(String::as_str), Some("curl"));
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success")
+        };
+        assert_eq!(
+            updates.binaries.get("curl").map(String::as_str),
+            Some("curl")
+        );
     }
 
     #[test]
     fn parse_sys_has_binary_two_arg_explicit_name() {
         // inner = "my-tool, /usr/local/bin/my-tool-v2"
         let result = parse_sys_has_binary("unused", "my-tool, /usr/local/bin/my-tool-v2");
-        let ParserOutput::Success(updates, _) = result else { panic!("expected Success") };
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success")
+        };
         assert_eq!(
             updates.binaries.get("my-tool").map(String::as_str),
             Some("/usr/local/bin/my-tool-v2")
@@ -712,9 +736,17 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
     fn parse_sys_has_binary_output_sentinel_extracts_paths_from_stdout() {
         let stdout = "/usr/bin/redis-benchmark\n/usr/bin/redis-cli\ndebconf: noise line\n";
         let result = parse_sys_has_binary(stdout, "${OUTPUT}");
-        let ParserOutput::Success(updates, _) = result else { panic!("expected Success") };
-        assert_eq!(updates.binaries.get("redis-benchmark").map(String::as_str), Some("/usr/bin/redis-benchmark"));
-        assert_eq!(updates.binaries.get("redis-cli").map(String::as_str), Some("/usr/bin/redis-cli"));
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success")
+        };
+        assert_eq!(
+            updates.binaries.get("redis-benchmark").map(String::as_str),
+            Some("/usr/bin/redis-benchmark")
+        );
+        assert_eq!(
+            updates.binaries.get("redis-cli").map(String::as_str),
+            Some("/usr/bin/redis-cli")
+        );
     }
 
     #[test]
@@ -783,13 +815,16 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
     #[test]
     fn parse_sys_hasfile_path_extracted_from_effect_id_with_nested_separators() {
         // Path contains `/` — the extraction from the effect string must not split on them.
-        let result = parse_sys_hasfile("found", "/var/run/secrets/kubernetes.io/serviceaccount/token");
+        let result = parse_sys_hasfile(
+            "found",
+            "/var/run/secrets/kubernetes.io/serviceaccount/token",
+        );
         let ParserOutput::Success(updates, _) = result else {
             panic!("expected Success");
         };
-        assert!(updates.files.contains(
-            &"/var/run/secrets/kubernetes.io/serviceaccount/token".to_string()
-        ));
+        assert!(updates
+            .files
+            .contains(&"/var/run/secrets/kubernetes.io/serviceaccount/token".to_string()));
     }
 
     #[test]

@@ -1,6 +1,11 @@
 pub mod config;
 
-use std::{net::SocketAddr, path::PathBuf, sync::{Arc, Mutex, RwLock}, time::Duration};
+use std::{
+    net::SocketAddr,
+    path::PathBuf,
+    sync::{Arc, Mutex, RwLock},
+    time::Duration,
+};
 
 use anyhow::Result;
 use armory::Armory;
@@ -13,8 +18,8 @@ use tracing::{error, info, warn};
 use api::{ApiError, ApiService, GetRunningPodsParams, K8sResource};
 use campaign::{
     spawn_c2_event_processor_with_external_parser, Campaign, CampaignEvent, CampaignEventBus,
-    ExecuteActionError, ExecuteActionRequest, ExecuteActionResult,
-    ExternalParseRequest, ExternalParseResponse, ExternalParser,
+    ExecuteActionError, ExecuteActionRequest, ExecuteActionResult, ExternalParseRequest,
+    ExternalParseResponse, ExternalParser,
 };
 use config::NamespaceFilter;
 use k8s::{kubeconfig_path_or_err, target_cluster_from_kubeconfig, K8sService};
@@ -38,6 +43,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         k8s: K8sService,
         campaign: Arc<RwLock<Campaign>>,
@@ -137,7 +143,10 @@ impl ApiService for AppState {
 
         let k8s = self.k8s.clone();
         let ns_filter = self.namespace_filter.clone();
-        let scope_ns = namespace.as_deref().filter(|v| !v.is_empty()).map(String::from);
+        let scope_ns = namespace
+            .as_deref()
+            .filter(|v| !v.is_empty())
+            .map(String::from);
 
         let handle = k8s.watch_pods(namespace, move |pods| {
             let filtered: Vec<serde_json::Value> = pods
@@ -185,7 +194,10 @@ impl ApiService for AppState {
         }
     }
 
-    async fn execute_action(&self, cmd: ExecuteActionRequest) -> Result<ExecuteActionResult, ApiError> {
+    async fn execute_action(
+        &self,
+        cmd: ExecuteActionRequest,
+    ) -> Result<ExecuteActionResult, ApiError> {
         let action_id = cmd.action_id.clone();
         let target_id = cmd.target_id.clone();
         let exec_system_id = cmd.exec_system_id.clone().unwrap_or_default();
@@ -202,18 +214,14 @@ impl ApiService for AppState {
         );
 
         let exec = {
-            let mut campaign = self
-                .campaign
-                .write()
-                .map_err(|_| {
-                    error!("campaign lock poisoned while executing action");
-                    ApiError::internal("campaign lock poisoned")
-                })?;
+            let mut campaign = self.campaign.write().map_err(|_| {
+                error!("campaign lock poisoned while executing action");
+                ApiError::internal("campaign lock poisoned")
+            })?;
 
             let exec = campaign
                 .prepare_action(cmd, &self.armory)
-                .map_err(|err| {
-                match err {
+                .map_err(|err| match err {
                     ExecuteActionError::InvalidInput(message) => {
                         error!("execute_action invalid input: {}", message);
                         ApiError {
@@ -254,8 +262,7 @@ impl ApiService for AppState {
                             },
                         }
                     }
-                }
-            })?;
+                })?;
             campaign.add_open_step(exec.clone());
             exec
         };
@@ -355,7 +362,13 @@ impl ScriptParserRunner {
         let name = effect_id
             .trim()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect::<String>()
             .to_ascii_lowercase();
 
@@ -443,9 +456,8 @@ impl ScriptParserRunner {
         match serde_json::from_slice::<ExternalParseResponse>(&output.stdout) {
             Ok(response) => Some(response),
             Err(e) => {
-                let stdout_preview = String::from_utf8_lossy(
-                    &output.stdout[..output.stdout.len().min(512)],
-                );
+                let stdout_preview =
+                    String::from_utf8_lossy(&output.stdout[..output.stdout.len().min(512)]);
                 warn!(
                     error = %e,
                     stdout_preview = %stdout_preview,
@@ -551,10 +563,10 @@ impl ExternalParser for ScriptParserRunner {
 }
 
 fn is_loopback_url(url: &Url) -> bool {
-    match url.host_str() {
-        Some("localhost") | Some("127.0.0.1") | Some("::1") => true,
-        _ => false,
-    }
+    matches!(
+        url.host_str(),
+        Some("localhost") | Some("127.0.0.1") | Some("::1")
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -637,13 +649,16 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     };
 
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
-    let app: Router = api::router_with_sse_and_mcp(state, mcp_config)
-        .fallback(api::frontend_handler);
+    let app: Router =
+        api::router_with_sse_and_mcp(state, mcp_config).fallback(api::frontend_handler);
 
     info!("starting emulate API server");
     info!(kubeconfig = %kubeconfig_path.display(), "using kubeconfig");
     info!(armory_dir = %armory_dir.display(), armory_ttps = armory_count, "armory loaded");
-    info!(campaign_entities = campaign_entity_count, "campaign initialized");
+    info!(
+        campaign_entities = campaign_entity_count,
+        "campaign initialized"
+    );
     info!(%addr, "listening");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -668,9 +683,7 @@ fn resolve_armory_dir(arg: Option<PathBuf>) -> Result<PathBuf> {
     Ok(cwd.join("armory").join("TTPs"))
 }
 
-async fn bridge_campaign_events_to_sse(
-    mut campaign_rx: broadcast::Receiver<CampaignEvent>,
-) {
+async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<CampaignEvent>) {
     loop {
         match campaign_rx.recv().await {
             Ok(CampaignEvent::TtpExecuted {
@@ -741,7 +754,10 @@ async fn bridge_campaign_events_to_sse(
                 );
             }
             Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                error!(skipped, "campaign SSE bridge lagged behind campaign event bus");
+                error!(
+                    skipped,
+                    "campaign SSE bridge lagged behind campaign event bus"
+                );
             }
             Err(broadcast::error::RecvError::Closed) => break,
         }

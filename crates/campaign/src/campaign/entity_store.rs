@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use ran_domain::{
     C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
-    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sNode, K8sSecret, K8sRole, K8sRoleBinding,
+    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sNode, K8sRole, K8sRoleBinding, K8sSecret,
     Merge, Namespace, Pod, ReplicaSet, ServiceAccount, StatefulSet, UnknownSystem,
 };
 use serde::de::MapAccess;
@@ -67,7 +67,10 @@ struct Slot<T: EntityType> {
 
 impl<T: EntityType> Slot<T> {
     fn new(make_ref: for<'a> fn(&'a T) -> CampaignEntityRef<'a>) -> Self {
-        Self { data: HashMap::new(), make_ref }
+        Self {
+            data: HashMap::new(),
+            make_ref,
+        }
     }
 }
 
@@ -85,8 +88,12 @@ impl<T: EntityType> ErasedSlot for Slot<T> {
         }
     }
 
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn all_refs<'a>(&'a self) -> Vec<CampaignEntityRef<'a>> {
         self.data.values().map(self.make_ref).collect()
@@ -97,14 +104,16 @@ impl<T: EntityType> ErasedSlot for Slot<T> {
     }
 
     fn populate_from_json(&mut self, val: serde_json::Value) -> Result<(), String> {
-        let map: HashMap<EntityId, T> =
-            serde_json::from_value(val).map_err(|e| e.to_string())?;
+        let map: HashMap<EntityId, T> = serde_json::from_value(val).map_err(|e| e.to_string())?;
         self.data.extend(map);
         Ok(())
     }
 
     fn clone_box(&self) -> Box<dyn ErasedSlot> {
-        Box::new(Slot { data: self.data.clone(), make_ref: self.make_ref })
+        Box::new(Slot {
+            data: self.data.clone(),
+            make_ref: self.make_ref,
+        })
     }
 }
 
@@ -158,10 +167,9 @@ impl EntityStore {
     /// Panics if `T` was not registered.
     pub fn get<T: EntityType>(&self) -> &HashMap<EntityId, T> {
         let tid = TypeId::of::<T>();
-        let slot = self
-            .slots
-            .get(&tid)
-            .unwrap_or_else(|| panic!("EntityStore: {} not registered", std::any::type_name::<T>()));
+        let slot = self.slots.get(&tid).unwrap_or_else(|| {
+            panic!("EntityStore: {} not registered", std::any::type_name::<T>())
+        });
         &slot
             .as_any()
             .downcast_ref::<Slot<T>>()
@@ -175,10 +183,9 @@ impl EntityStore {
     /// Panics if `T` was not registered.
     pub fn get_mut<T: EntityType>(&mut self) -> &mut HashMap<EntityId, T> {
         let tid = TypeId::of::<T>();
-        let slot = self
-            .slots
-            .get_mut(&tid)
-            .unwrap_or_else(|| panic!("EntityStore: {} not registered", std::any::type_name::<T>()));
+        let slot = self.slots.get_mut(&tid).unwrap_or_else(|| {
+            panic!("EntityStore: {} not registered", std::any::type_name::<T>())
+        });
         &mut slot
             .as_any_mut()
             .downcast_mut::<Slot<T>>()
@@ -243,7 +250,11 @@ impl EntityStore {
 impl Clone for EntityStore {
     fn clone(&self) -> Self {
         Self {
-            slots: self.slots.iter().map(|(&k, v)| (k, v.clone_box())).collect(),
+            slots: self
+                .slots
+                .iter()
+                .map(|(&k, v)| (k, v.clone_box()))
+                .collect(),
             name_to_type: self.name_to_type.clone(),
             type_to_name: self.type_to_name.clone(),
         }
@@ -277,7 +288,9 @@ impl Default for EntityStore {
         s.register::<StatefulSet>("stateful_sets", |t| CampaignEntityRef::StatefulSet(t));
         s.register::<DaemonSet>("daemon_sets", |t| CampaignEntityRef::DaemonSet(t));
         s.register::<Job>("jobs", |t| CampaignEntityRef::Job(t));
-        s.register::<GCPServiceAccount>("gcp_service_accounts", |t| CampaignEntityRef::GCPServiceAccount(t));
+        s.register::<GCPServiceAccount>("gcp_service_accounts", |t| {
+            CampaignEntityRef::GCPServiceAccount(t)
+        });
         s.register::<GCPBucket>("gcp_buckets", |t| CampaignEntityRef::GCPBucket(t));
         s.register::<K8sCredential>("k8s_credentials", |t| CampaignEntityRef::K8sCredential(t));
         s.register::<UnknownSystem>("unknown_systems", |t| CampaignEntityRef::UnknownSystem(t));

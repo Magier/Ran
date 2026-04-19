@@ -77,10 +77,9 @@ impl RawTtp {
                 if p.command.trim().is_empty() {
                     return None;
                 }
-                let id = p
-                    .id
-                    .or(p.key.clone())
-                    .unwrap_or_else(|| format!("proc-{}", idx + 1));
+                let id =
+                    p.id.or(p.key.clone())
+                        .unwrap_or_else(|| format!("proc-{}", idx + 1));
                 Some(Procedure {
                     id,
                     command: p.command,
@@ -203,12 +202,17 @@ procedures:
 "#;
 
         let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
-        let ttp = raw.into_ttp(Path::new("Impact/delete_deployment.yaml")).unwrap();
+        let ttp = raw
+            .into_ttp(Path::new("Impact/delete_deployment.yaml"))
+            .unwrap();
 
         assert_eq!(ttp.params.len(), 1);
         assert_eq!(ttp.params[0].name, "Namespace");
         assert_eq!(ttp.params[0].param_type, "string");
-        assert_eq!(ttp.requires.get("kind").and_then(|v| v.as_str()), Some("Deployment"));
+        assert_eq!(
+            ttp.requires.get("kind").and_then(|v| v.as_str()),
+            Some("Deployment")
+        );
         assert_eq!(ttp.procedures[0].id, "kubectl");
     }
 
@@ -225,13 +229,16 @@ procedures:
   - command: kubectl delete events --all
 "#;
         let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
-        let ttp = raw.into_ttp(Path::new("Defense Evasion/delete_events.yaml")).unwrap();
+        let ttp = raw
+            .into_ttp(Path::new("Defense Evasion/delete_events.yaml"))
+            .unwrap();
 
         assert!(
             ttp.requires.get("rbac").is_none(),
             "raw 'rbac' key should be removed"
         );
-        let rbac_perms = ttp.requires
+        let rbac_perms = ttp
+            .requires
             .get("rbacPermissions")
             .expect("rbacPermissions should exist")
             .as_array()
@@ -239,8 +246,14 @@ procedures:
         assert_eq!(rbac_perms.len(), 1);
 
         let entry = rbac_perms[0].as_object().unwrap();
-        assert!(entry.contains_key("resourceType"), "resource should be renamed to resourceType");
-        assert!(!entry.contains_key("resource"), "original 'resource' key should be gone");
+        assert!(
+            entry.contains_key("resourceType"),
+            "resource should be renamed to resourceType"
+        );
+        assert!(
+            !entry.contains_key("resource"),
+            "original 'resource' key should be gone"
+        );
         assert_eq!(entry["verb"].as_str(), Some("delete"));
         assert_eq!(entry["resourceType"].as_str(), Some("events"));
     }

@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use ran_domain::{Entity, EntityId, ServiceAccount};
 
-use crate::campaign::{CampaignEntityRef, Campaign};
+use crate::campaign::{Campaign, CampaignEntityRef};
 
 // ---------------------------------------------------------------------------
 // Context-aware argument resolution
@@ -142,7 +142,10 @@ fn resolve_token_arg(
             }
         }
 
-        tracing::warn!(token_ref = trimmed, "TOKEN arg could not be resolved to a ServiceAccount token");
+        tracing::warn!(
+            token_ref = trimmed,
+            "TOKEN arg could not be resolved to a ServiceAccount token"
+        );
         return None;
     }
 
@@ -285,7 +288,9 @@ fn collect_tera_var_refs(template: &str) -> Vec<String> {
                 if let Some(rel) = template[start..].find("}}") {
                     let inner = template[start..start + rel].trim();
                     if !inner.is_empty()
-                        && inner.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                        && inner
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
                     {
                         vars.push(inner.to_string());
                     }
@@ -301,7 +306,9 @@ fn collect_tera_var_refs(template: &str) -> Vec<String> {
                         let cond = rest.trim();
                         let var_name = cond.strip_prefix("not ").unwrap_or(cond).trim();
                         if !var_name.is_empty()
-                            && var_name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                            && var_name
+                                .bytes()
+                                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
                         {
                             vars.push(var_name.to_string());
                         }
@@ -403,11 +410,16 @@ mod tests {
         let target_id = pod.entity_id().0.clone();
         campaign.entities.insert_typed(pod);
 
-        let mut args = HashMap::from([("PodName".to_string(), "${POD_NAME}-${RANDOM}".to_string())]);
+        let mut args =
+            HashMap::from([("PodName".to_string(), "${POD_NAME}-${RANDOM}".to_string())]);
         ground_args_from_context(&mut args, &target_id, &campaign);
 
         let val = &args["PodName"];
-        assert!(val.starts_with("nginx-"), "expected 'nginx-...', got '{}'", val);
+        assert!(
+            val.starts_with("nginx-"),
+            "expected 'nginx-...', got '{}'",
+            val
+        );
         assert!(!val.contains("${POD_NAME}"));
         assert!(!val.contains("${RANDOM}"));
     }
@@ -453,7 +465,10 @@ mod tests {
             is_bound: false,
         });
         let sa_id = sa.entity_id();
-        campaign.entities.get_mut::<ServiceAccount>().insert(sa_id.clone(), sa);
+        campaign
+            .entities
+            .get_mut::<ServiceAccount>()
+            .insert(sa_id.clone(), sa);
 
         let mut args = HashMap::from([("TOKEN".to_string(), sa_id.0)]);
         ground_args_from_context(&mut args, "nonexistent", &campaign);
@@ -628,20 +643,14 @@ mod tests {
     #[test]
     fn tera_template_else_branch_taken_when_false() {
         let args = HashMap::from([("ALL_NS".to_string(), "false".to_string())]);
-        let result = resolve_template(
-            "{% if ALL_NS %}all{% else %}single{% endif %}",
-            &args,
-        );
+        let result = resolve_template("{% if ALL_NS %}all{% else %}single{% endif %}", &args);
         assert_eq!(result, "single");
     }
 
     #[test]
     fn tera_template_else_branch_skipped_when_true() {
         let args = HashMap::from([("ALL_NS".to_string(), "true".to_string())]);
-        let result = resolve_template(
-            "{% if ALL_NS %}all{% else %}single{% endif %}",
-            &args,
-        );
+        let result = resolve_template("{% if ALL_NS %}all{% else %}single{% endif %}", &args);
         assert_eq!(result, "all");
     }
 

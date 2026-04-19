@@ -1,5 +1,8 @@
 use cortex::KnowledgeGraph;
-use ran_domain::{C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, RelationSummary, SessionStatus, UnknownSystem};
+use ran_domain::{
+    C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, RelationSummary, SessionStatus,
+    UnknownSystem,
+};
 use serde::{Deserialize, Serialize};
 
 use c2::{ExecTtp, BUILTIN_C2_ID};
@@ -95,9 +98,7 @@ impl Campaign {
         self.graph
             .exec_edges()
             .into_iter()
-            .filter(|(src, tgt, _)| {
-                !self.is_system_entity_id(src) && self.is_system_entity_id(tgt)
-            })
+            .filter(|(src, tgt, _)| !self.is_system_entity_id(src) && self.is_system_entity_id(tgt))
             .map(|(_, tgt, _)| tgt.clone())
             .collect()
     }
@@ -155,16 +156,14 @@ impl Campaign {
 
         // Prefer an Active session on the target system — it is a live shell
         // already exiting into this entity, so no graph traversal is needed.
-        let active_session = self
-            .get_system_entity(target_id)
-            .and_then(|sys| {
-                sys.entity()
-                    .system()
-                    .sessions
-                    .iter()
-                    .find(|s| s.status == SessionStatus::Active)
-                    .map(|s| s.backend_id())
-            });
+        let active_session = self.get_system_entity(target_id).and_then(|sys| {
+            sys.entity()
+                .system()
+                .sessions
+                .iter()
+                .find(|s| s.status == SessionStatus::Active)
+                .map(|s| s.backend_id())
+        });
 
         if let Some(backend_id) = active_session {
             return Ok(ExecChannel {
@@ -188,9 +187,7 @@ impl Campaign {
             .find(|id| direct_footholds.contains(*id))
         {
             let source_eid = EntityId::new(source_id);
-            if let Some((_cost, path)) =
-                self.graph.shortest_exec_path(&[source_eid], &target_eid)
-            {
+            if let Some((_cost, path)) = self.graph.shortest_exec_path(&[source_eid], &target_eid) {
                 let hops = path[..path.len().saturating_sub(1)]
                     .iter()
                     .map(|id| id.0.clone())
@@ -203,9 +200,11 @@ impl Campaign {
             }
         }
 
-        let direct = self.graph.exec_edges().into_iter().any(|(src, tgt, _)| {
-            tgt == &target_eid && !self.is_system_entity_id(src)
-        });
+        let direct = self
+            .graph
+            .exec_edges()
+            .into_iter()
+            .any(|(src, tgt, _)| tgt == &target_eid && !self.is_system_entity_id(src));
         if direct {
             return Ok(ExecChannel::direct(BUILTIN_C2_ID));
         }
@@ -290,7 +289,10 @@ impl Campaign {
             .filter_map(|id| {
                 let sys = self.get_system_entity(id)?;
                 let access = sys.entity().system().access_level;
-                sys.entity().system().can_exec().then_some((id.clone(), access))
+                sys.entity()
+                    .system()
+                    .can_exec()
+                    .then_some((id.clone(), access))
             })
             .max_by_key(|(_, access)| *access as u8)
             .map(|(id, _)| id);

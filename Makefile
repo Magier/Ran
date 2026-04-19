@@ -1,3 +1,10 @@
+# === Dev Setup ===
+.PHONY: install-hooks
+install-hooks:
+	@printf '#!/bin/sh\nset -e\ncargo fmt --check || { echo "Run: make fmt"; exit 1; }\ncargo clippy --workspace -- -D warnings\n' > .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "pre-commit hook installed"
+
 # === Code Generation ===
 .PHONY: generate-api
 generate-api:
@@ -7,10 +14,30 @@ generate-api:
 .PHONY: generate
 generate: generate-api
 
+# === Linting ===
+.PHONY: fmt
+fmt:
+	cargo fmt
+
+.PHONY: fmt-check
+fmt-check:
+	cargo fmt --check
+
+.PHONY: clippy
+clippy:
+	cargo clippy --workspace -- -D warnings
+
+.PHONY: lint
+lint: fmt-check clippy
+
 # === Testing ===
 .PHONY: test-go
 test-go:
 	cd src && go test -v ./...
+
+.PHONY: test-rust
+test-rust:
+	cargo test --workspace
 
 .PHONY: test-frontend
 test-frontend:

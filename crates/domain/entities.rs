@@ -7,7 +7,9 @@ use crate::identity::ServiceAccountToken;
 use crate::rbac::RbacPermission;
 use std::net::IpAddr;
 
-use crate::types::{Confidence, Container, EntityId, K8sMeta, Mount, NameConfidence, OwnerRef, SystemInfo};
+use crate::types::{
+    Confidence, Container, EntityId, K8sMeta, Mount, NameConfidence, OwnerRef, SystemInfo,
+};
 
 // ---------------------------------------------------------------------------
 // Entity trait
@@ -513,13 +515,18 @@ impl ServiceAccount {
 
     /// The raw JWT string, if a token has been extracted.
     pub fn raw_token(&self) -> Option<&str> {
-        self.token.as_ref().filter(|t| t.has_token()).map(|t| t.raw())
+        self.token
+            .as_ref()
+            .filter(|t| t.has_token())
+            .map(|t| t.raw())
     }
 
     /// Returns the first permission that satisfies the given verb + resource,
     /// or `None` if this SA cannot perform the operation.
     pub fn can(&self, verb: &str, resource: &str) -> Option<&RbacPermission> {
-        self.entitlements.iter().find(|p| p.satisfies(verb, resource))
+        self.entitlements
+            .iter()
+            .find(|p| p.satisfies(verb, resource))
     }
 
     /// Returns `true` if this SA has any cluster-admin equivalent permission.
@@ -818,7 +825,9 @@ pub struct ReplicaSet {
 
 impl ReplicaSet {
     pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
-        ReplicaSet { meta: K8sMeta::namespaced(name, namespace) }
+        ReplicaSet {
+            meta: K8sMeta::namespaced(name, namespace),
+        }
     }
 
     pub fn namespace(&self) -> Option<&str> {
@@ -831,9 +840,15 @@ impl Entity for ReplicaSet {
         let ns = self.meta.namespace.as_deref().unwrap_or("");
         EntityId::new(format!("ns/{}/replicaset/{}", ns, self.meta.name))
     }
-    fn entity_name(&self) -> &str { &self.meta.name }
-    fn entity_kind(&self) -> &str { "ReplicaSet" }
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "ReplicaSet"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -848,7 +863,9 @@ pub struct StatefulSet {
 
 impl StatefulSet {
     pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
-        StatefulSet { meta: K8sMeta::namespaced(name, namespace) }
+        StatefulSet {
+            meta: K8sMeta::namespaced(name, namespace),
+        }
     }
 
     pub fn namespace(&self) -> Option<&str> {
@@ -861,9 +878,15 @@ impl Entity for StatefulSet {
         let ns = self.meta.namespace.as_deref().unwrap_or("");
         EntityId::new(format!("ns/{}/statefulset/{}", ns, self.meta.name))
     }
-    fn entity_name(&self) -> &str { &self.meta.name }
-    fn entity_kind(&self) -> &str { "StatefulSet" }
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "StatefulSet"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -878,7 +901,9 @@ pub struct DaemonSet {
 
 impl DaemonSet {
     pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
-        DaemonSet { meta: K8sMeta::namespaced(name, namespace) }
+        DaemonSet {
+            meta: K8sMeta::namespaced(name, namespace),
+        }
     }
 
     pub fn namespace(&self) -> Option<&str> {
@@ -891,9 +916,15 @@ impl Entity for DaemonSet {
         let ns = self.meta.namespace.as_deref().unwrap_or("");
         EntityId::new(format!("ns/{}/daemonset/{}", ns, self.meta.name))
     }
-    fn entity_name(&self) -> &str { &self.meta.name }
-    fn entity_kind(&self) -> &str { "DaemonSet" }
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "DaemonSet"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -908,7 +939,9 @@ pub struct Job {
 
 impl Job {
     pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
-        Job { meta: K8sMeta::namespaced(name, namespace) }
+        Job {
+            meta: K8sMeta::namespaced(name, namespace),
+        }
     }
 
     pub fn namespace(&self) -> Option<&str> {
@@ -921,9 +954,15 @@ impl Entity for Job {
         let ns = self.meta.namespace.as_deref().unwrap_or("");
         EntityId::new(format!("ns/{}/job/{}", ns, self.meta.name))
     }
-    fn entity_name(&self) -> &str { &self.meta.name }
-    fn entity_kind(&self) -> &str { "Job" }
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "Job"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1034,7 +1073,11 @@ impl GCPServiceAccount {
 
 impl Entity for GCPServiceAccount {
     fn entity_id(&self) -> EntityId {
-        let name = if self.email.is_empty() { "default" } else { &self.email };
+        let name = if self.email.is_empty() {
+            "default"
+        } else {
+            &self.email
+        };
         EntityId::new(format!("gcp-sa/{}", name))
     }
 
@@ -1126,10 +1169,16 @@ fn merge_k8s_meta(existing: &mut K8sMeta, incoming: &K8sMeta) {
         existing.owner = incoming.owner.clone();
     }
     for (k, v) in &incoming.labels {
-        existing.labels.entry(k.clone()).or_insert_with(|| v.clone());
+        existing
+            .labels
+            .entry(k.clone())
+            .or_insert_with(|| v.clone());
     }
     for (k, v) in &incoming.annotations {
-        existing.annotations.entry(k.clone()).or_insert_with(|| v.clone());
+        existing
+            .annotations
+            .entry(k.clone())
+            .or_insert_with(|| v.clone());
     }
     // Authoritative always wins over Derived.
     if incoming.name_confidence == NameConfidence::Authoritative {
@@ -1235,7 +1284,10 @@ impl Merge for Pod {
         merge_confidence(&mut self.host_ipc, incoming.host_ipc);
         merge_confidence(&mut self.host_network, incoming.host_network);
         merge_confidence(&mut self.read_only_root_fs, incoming.read_only_root_fs);
-        merge_confidence(&mut self.automount_service_account_token, incoming.automount_service_account_token);
+        merge_confidence(
+            &mut self.automount_service_account_token,
+            incoming.automount_service_account_token,
+        );
 
         for c in &incoming.containers {
             if !self.containers.iter().any(|ec| ec.name == c.name) {
@@ -1243,7 +1295,11 @@ impl Merge for Pod {
             }
         }
         for m in &incoming.volume_mounts {
-            if !self.volume_mounts.iter().any(|em| em.mount_point == m.mount_point) {
+            if !self
+                .volume_mounts
+                .iter()
+                .any(|em| em.mount_point == m.mount_point)
+            {
                 self.volume_mounts.push(m.clone());
             }
         }
@@ -1427,7 +1483,10 @@ mod tests {
         // Reproduces the reported bug: SA with token should retain it when a
         // second update adds entitlements but carries no token.
         let token = ServiceAccountToken {
-            jwt: JwToken { raw: "eyJ...".to_string(), ..Default::default() },
+            jwt: JwToken {
+                raw: "eyJ...".to_string(),
+                ..Default::default()
+            },
             namespace: "default".to_string(),
             service_account_name: "my-sa".to_string(),
             ..Default::default()
@@ -1441,7 +1500,10 @@ mod tests {
 
         existing.merge_from(&incoming);
 
-        assert!(existing.token.is_some(), "token must be preserved after merge");
+        assert!(
+            existing.token.is_some(),
+            "token must be preserved after merge"
+        );
         assert_eq!(existing.entitlements.len(), 1, "entitlements must be added");
     }
 
@@ -1458,7 +1520,11 @@ mod tests {
 
         existing.merge_from(&incoming);
 
-        assert_eq!(existing.entitlements.len(), 2, "no duplicates; union gives 2");
+        assert_eq!(
+            existing.entitlements.len(),
+            2,
+            "no duplicates; union gives 2"
+        );
     }
 
     #[test]
@@ -1468,15 +1534,30 @@ mod tests {
         existing.system.ips = vec!["10.0.0.1".parse().unwrap()];
 
         let mut incoming = Pod::new("my-pod", "default");
-        incoming.system.env_vars.insert("SECRET".to_string(), "value".to_string());
+        incoming
+            .system
+            .env_vars
+            .insert("SECRET".to_string(), "value".to_string());
         incoming.node_name = Some("node-1".to_string());
 
         existing.merge_from(&incoming);
 
-        assert_eq!(existing.system.access_level, crate::types::AccessLevel::Exec, "access level preserved");
+        assert_eq!(
+            existing.system.access_level,
+            crate::types::AccessLevel::Exec,
+            "access level preserved"
+        );
         assert!(!existing.system.ips.is_empty(), "IPs preserved");
-        assert_eq!(existing.system.env_vars.get("SECRET").map(String::as_str), Some("value"), "env var added");
-        assert_eq!(existing.node_name.as_deref(), Some("node-1"), "node_name filled in");
+        assert_eq!(
+            existing.system.env_vars.get("SECRET").map(String::as_str),
+            Some("value"),
+            "env var added"
+        );
+        assert_eq!(
+            existing.node_name.as_deref(),
+            Some("node-1"),
+            "node_name filled in"
+        );
     }
 
     #[test]
@@ -1487,6 +1568,10 @@ mod tests {
 
         let mut c2 = Confidence::No;
         merge_confidence(&mut c2, Confidence::Yes);
-        assert_eq!(c2, Confidence::No, "existing concrete value must not be overwritten");
+        assert_eq!(
+            c2,
+            Confidence::No,
+            "existing concrete value must not be overwritten"
+        );
     }
 }

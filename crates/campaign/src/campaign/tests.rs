@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
-use ran_domain::{AccessLevel, C2Server, ContainerEscape, Entity, EntityId, K8sCluster, K8sNode, Pod, PodExec, KubeletExecSink, RceCanExec, RunsOn, Uses};
+use ran_domain::{
+    AccessLevel, C2Server, ContainerEscape, Entity, EntityId, K8sCluster, K8sNode, KubeletExecSink,
+    Pod, PodExec, RceCanExec, RunsOn, Uses,
+};
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
 
@@ -78,7 +81,9 @@ fn bootstrap_contains_c2_and_cluster_entities() {
     );
 
     assert_eq!(campaign.entity_count(), 2);
-    assert!(campaign.entities.contains::<C2Server>(&EntityId::new(BUILTIN_C2_ID)));
+    assert!(campaign
+        .entities
+        .contains::<C2Server>(&EntityId::new(BUILTIN_C2_ID)));
     assert!(campaign
         .entities
         .contains::<K8sCluster>(&EntityId::new("k8s/cluster/dev-cluster")));
@@ -142,7 +147,10 @@ fn on_ttp_executed_failure_records_known_failure_audit() {
         processed.parse_audits[0].parse_result,
         ParseResult::KnownFailure
     ));
-    assert_eq!(processed.parse_audits[0].effect_id, FAILURE_ANALYZER_EFFECT_ID);
+    assert_eq!(
+        processed.parse_audits[0].effect_id,
+        FAILURE_ANALYZER_EFFECT_ID
+    );
 }
 
 #[test]
@@ -158,7 +166,10 @@ fn on_ttp_executed_failure_records_unknown_format_when_unclassified() {
         processed.parse_audits[0].parse_result,
         ParseResult::UnknownFormat
     ));
-    assert_eq!(processed.parse_audits[0].effect_id, FAILURE_ANALYZER_EFFECT_ID);
+    assert_eq!(
+        processed.parse_audits[0].effect_id,
+        FAILURE_ANALYZER_EFFECT_ID
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -181,7 +192,9 @@ fn resolve_exec_channel_returns_builtin_for_can_exec_relation() {
     campaign.entities.insert_typed(pod);
     push_exec_edge(&mut campaign, "sa/default/some-sa", &target_id);
 
-    let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
+    let ch = campaign
+        .resolve_exec_channel(&target_id)
+        .expect("should find channel");
     assert_eq!(ch, ExecChannel::direct(BUILTIN_C2_ID));
 }
 
@@ -193,7 +206,9 @@ fn resolve_exec_channel_returns_builtin_for_kubelet_pod_exec_relation() {
     campaign.entities.insert_typed(pod);
     push_kubelet_exec_edge(&mut campaign, "node/node-a", &target_id);
 
-    let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
+    let ch = campaign
+        .resolve_exec_channel(&target_id)
+        .expect("should find channel");
     assert_eq!(ch, ExecChannel::direct(BUILTIN_C2_ID));
 }
 
@@ -216,7 +231,9 @@ fn resolve_exec_channel_returns_via_compromised_intermediate() {
     // Attacker → target via k8s.can-exec
     push_exec_edge(&mut campaign, &attacker_id, &target_id);
 
-    let ch = campaign.resolve_exec_channel(&target_id).expect("should find channel");
+    let ch = campaign
+        .resolve_exec_channel(&target_id)
+        .expect("should find channel");
     assert_eq!(ch, ExecChannel::via(BUILTIN_C2_ID, &attacker_id));
 }
 
@@ -244,9 +261,15 @@ fn resolve_exec_channel_multi_hop_bfs() {
     push_exec_edge(&mut campaign, &p1_id, &p2_id);
     push_exec_edge(&mut campaign, &p2_id, &p3_id);
 
-    let ch = campaign.resolve_exec_channel(&p3_id).expect("should find 2-hop path");
+    let ch = campaign
+        .resolve_exec_channel(&p3_id)
+        .expect("should find 2-hop path");
     assert_eq!(ch.backend_id, BUILTIN_C2_ID);
-    assert_eq!(ch.hops, vec![p1_id.clone(), p2_id.clone()], "hops must be [p1, p2]");
+    assert_eq!(
+        ch.hops,
+        vec![p1_id.clone(), p2_id.clone()],
+        "hops must be [p1, p2]"
+    );
     assert!(ch.exec_target_id.is_none());
 }
 
@@ -268,10 +291,15 @@ fn resolve_exec_channel_follows_rce_can_exec_edge() {
     campaign.entities.insert_typed(redis);
     push_relation(&mut campaign, &RceCanExec::new(&entry_hall_id, &redis_id));
 
-    let ch = campaign.resolve_exec_channel(&redis_id)
+    let ch = campaign
+        .resolve_exec_channel(&redis_id)
         .expect("should find channel via rce.can-exec edge");
     assert_eq!(ch.backend_id, BUILTIN_C2_ID);
-    assert_eq!(ch.hops, vec![entry_hall_id], "should hop through entry-hall");
+    assert_eq!(
+        ch.hops,
+        vec![entry_hall_id],
+        "should hop through entry-hall"
+    );
     assert!(ch.exec_target_id.is_none());
 }
 
@@ -322,7 +350,11 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
         .resolve_exec_channel(&redis_id)
         .expect("should resolve follow-up channel");
     assert_eq!(ch.backend_id, BUILTIN_C2_ID);
-    assert_eq!(ch.hops, vec![entry_id], "follow-up should keep the foothold chain");
+    assert_eq!(
+        ch.hops,
+        vec![entry_id],
+        "follow-up should keep the foothold chain"
+    );
 }
 
 #[test]
@@ -338,9 +370,15 @@ fn resolve_exec_channel_resolves_via_service_account_uses_relation() {
     push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
     push_relation(&mut campaign, &Uses::new(&pod_id, sa_id));
 
-    let ch = campaign.resolve_exec_channel(sa_id).expect("should resolve via pod uses SA");
+    let ch = campaign
+        .resolve_exec_channel(sa_id)
+        .expect("should resolve via pod uses SA");
     assert_eq!(ch.backend_id, BUILTIN_C2_ID);
-    assert_eq!(ch.exec_target_id.as_deref(), Some(pod_id.as_str()), "exec_target_id must be the pod, not the SA");
+    assert_eq!(
+        ch.exec_target_id.as_deref(),
+        Some(pod_id.as_str()),
+        "exec_target_id must be the pod, not the SA"
+    );
 }
 
 #[test]
@@ -369,7 +407,9 @@ fn resolve_exec_source_finds_pod_via_can_exec_relation_only() {
     // C2 (non-pod) has exec access to the pod.
     push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
 
-    let ch = campaign.resolve_exec_source().expect("should find source via relation");
+    let ch = campaign
+        .resolve_exec_source()
+        .expect("should find source via relation");
     assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert_eq!(ch.exec_target_id.as_deref(), Some(pod_id.as_str()));
 }
@@ -392,24 +432,45 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
     // Most recent execution was on pod-b
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-1".to_string(),
-        ttp_id: "x".to_string(), ttp_name: "x".to_string(), tactic: "Execution".to_string(),
-        target_id: id_a.clone(), exec_system_id: BUILTIN_C2_ID.to_string(),
-        procedure_id: "shell".to_string(), command: "id".to_string(),
-        args: HashMap::new(), success: true, exit_code: 0, results: vec![],
-        fail_reason: String::new(), started_at_ms: 1, completed_at_ms: 2,
+        ttp_id: "x".to_string(),
+        ttp_name: "x".to_string(),
+        tactic: "Execution".to_string(),
+        target_id: id_a.clone(),
+        exec_system_id: BUILTIN_C2_ID.to_string(),
+        procedure_id: "shell".to_string(),
+        command: "id".to_string(),
+        args: HashMap::new(),
+        success: true,
+        exit_code: 0,
+        results: vec![],
+        fail_reason: String::new(),
+        started_at_ms: 1,
+        completed_at_ms: 2,
     });
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-2".to_string(),
-        ttp_id: "x".to_string(), ttp_name: "x".to_string(), tactic: "Discovery".to_string(),
-        target_id: id_b.clone(), exec_system_id: BUILTIN_C2_ID.to_string(),
-        procedure_id: "shell".to_string(), command: "hostname".to_string(),
-        args: HashMap::new(), success: true, exit_code: 0, results: vec![],
-        fail_reason: String::new(), started_at_ms: 3, completed_at_ms: 4,
+        ttp_id: "x".to_string(),
+        ttp_name: "x".to_string(),
+        tactic: "Discovery".to_string(),
+        target_id: id_b.clone(),
+        exec_system_id: BUILTIN_C2_ID.to_string(),
+        procedure_id: "shell".to_string(),
+        command: "hostname".to_string(),
+        args: HashMap::new(),
+        success: true,
+        exit_code: 0,
+        results: vec![],
+        fail_reason: String::new(),
+        started_at_ms: 3,
+        completed_at_ms: 4,
     });
 
     let ch = campaign.resolve_exec_source().expect("should find source");
-    assert_eq!(ch.exec_target_id.as_deref(), Some(id_b.as_str()),
-        "should prefer most recently targeted pod");
+    assert_eq!(
+        ch.exec_target_id.as_deref(),
+        Some(id_b.as_str()),
+        "should prefer most recently targeted pod"
+    );
 }
 
 #[test]
@@ -480,7 +541,9 @@ fn resolve_exec_source_uses_node_as_direct_foothold() {
     // Non-system source → node target exec edge.
     push_exec_edge(&mut campaign, "sa/default/ran", &node_id);
 
-    let ch = campaign.resolve_exec_source().expect("node should be a valid exec source");
+    let ch = campaign
+        .resolve_exec_source()
+        .expect("node should be a valid exec source");
     assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert_eq!(ch.exec_target_id.as_deref(), Some(node_id.as_str()));
 }
@@ -508,7 +571,11 @@ fn resolve_exec_channel_seeds_include_node_for_dijkstra() {
         .resolve_exec_channel(&target_id)
         .expect("should route through node seed to victim pod");
     assert_eq!(ch.backend_id, BUILTIN_C2_ID);
-    assert_eq!(ch.hops, vec![node_id], "node should appear as the single hop");
+    assert_eq!(
+        ch.hops,
+        vec![node_id],
+        "node should appear as the single hop"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -614,9 +681,18 @@ fn prepare_action_explicit_exec_source_entity_runs_from_that_system() {
         .expect("explicit source entity should be used as execution target");
 
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
-    assert_eq!(exec.target_id, target_id, "semantic target must be the requested target");
-    assert_eq!(exec.exec_entity_id, source_id, "physical exec entity must be the supplied source");
-    assert_eq!(exec.args.get("TARGET_ID").map(String::as_str), Some(target_id.as_str()));
+    assert_eq!(
+        exec.target_id, target_id,
+        "semantic target must be the requested target"
+    );
+    assert_eq!(
+        exec.exec_entity_id, source_id,
+        "physical exec entity must be the supplied source"
+    );
+    assert_eq!(
+        exec.args.get("TARGET_ID").map(String::as_str),
+        Some(target_id.as_str())
+    );
 }
 
 #[test]
@@ -663,11 +739,7 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
         )
         .expect("should prepare lateral action");
 
-    let effect = exec
-        .ttp
-        .effects
-        .first()
-        .expect("effect should exist");
+    let effect = exec.ttp.effects.first().expect("effect should exist");
     assert!(
         !effect.contains("${src}"),
         "lowercase src should be grounded, got: {}",
@@ -842,8 +914,7 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
 
     // RCE relation with envelope from entry → redis.
     let envelope = r#"redis-cli eval "$(echo ${CMD} | base64 -d | sh)" 0"#;
-    let rce_rel = RceCanExec::new(&entry_id, &redis_id)
-        .with_envelope(envelope.to_string());
+    let rce_rel = RceCanExec::new(&entry_id, &redis_id).with_envelope(envelope.to_string());
     push_relation(&mut campaign, &rce_rel);
 
     let armory = armory_with_command("test-ttp", "kubectl get pods -n default", None);
@@ -864,7 +935,10 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
         exec.procedure.command
     );
     // The C2 kubectl-execs into the entry pod, which then runs the RCE envelope.
-    assert_eq!(exec.exec_entity_id, entry_id, "C2 should exec into entry-pod");
+    assert_eq!(
+        exec.exec_entity_id, entry_id,
+        "C2 should exec into entry-pod"
+    );
 }
 
 #[test]
@@ -886,12 +960,21 @@ fn prepare_action_exec_system_same_as_target_still_uses_channel_hops() {
 
     // Simulates frontend defaulting exec_system_id to target_id.
     let exec = campaign
-        .prepare_action(action_request(&redis_id, Some(&redis_id)), &minimal_armory("test-ttp"))
+        .prepare_action(
+            action_request(&redis_id, Some(&redis_id)),
+            &minimal_armory("test-ttp"),
+        )
         .expect("should still resolve via channel path");
 
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
-    assert_eq!(exec.target_id, redis_id, "semantic target must be the requested redis pod");
-    assert_eq!(exec.exec_entity_id, entry_id, "physical exec entity must be the first hop, not target pod directly");
+    assert_eq!(
+        exec.target_id, redis_id,
+        "semantic target must be the requested redis pod"
+    );
+    assert_eq!(
+        exec.exec_entity_id, entry_id,
+        "physical exec entity must be the first hop, not target pod directly"
+    );
 }
 
 #[test]
@@ -946,7 +1029,10 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
         .expect("should route through in-cluster source");
 
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
-    assert_eq!(exec.exec_entity_id, entry_id, "fallback should exec into entry-hall, not redis directly");
+    assert_eq!(
+        exec.exec_entity_id, entry_id,
+        "fallback should exec into entry-hall, not redis directly"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -979,14 +1065,16 @@ fn ip_placeholder_pod_merged_when_sa_token_reveals_real_name() {
     push_exec_edge(&mut campaign, BUILTIN_C2_ID, &placeholder_id.0);
 
     // Build a JWT whose claims name the real pod.
-    let jwt = make_test_jwt(r#"{
+    let jwt = make_test_jwt(
+        r#"{
         "kubernetes.io": {
             "namespace": "prod",
             "pod": {"name": "backend-xyzabc-123", "uid": "pod-uid-1"},
             "serviceaccount": {"name": "api-sa", "uid": "sa-uid-1"}
         },
         "sub": "system:serviceaccount:prod:api-sa"
-    }"#);
+    }"#,
+    );
 
     let cmd = sample_exec_ttp(&placeholder_id.0, vec!["rawServiceAccountToken"]);
     let event = sample_event(&jwt);
@@ -1006,17 +1094,31 @@ fn ip_placeholder_pod_merged_when_sa_token_reveals_real_name() {
         .find::<Pod>(&real_id)
         .expect("real pod should exist after merge");
     assert!(
-        real_pod.system.ips.iter().any(|ip| ip.to_string() == "10.244.1.4"),
+        real_pod
+            .system
+            .ips
+            .iter()
+            .any(|ip| ip.to_string() == "10.244.1.4"),
         "IP from placeholder should have been copied to real pod"
     );
 
     // The exec relation was transplanted to the real pod.
     let rels = campaign.graph.to_relation_summaries();
-    let has_exec_to_real = rels.iter().any(|r| r.name == "k8s.can-exec" && r.target_id == real_id.0);
-    assert!(has_exec_to_real, "k8s.can-exec should now target the real pod");
+    let has_exec_to_real = rels
+        .iter()
+        .any(|r| r.name == "k8s.can-exec" && r.target_id == real_id.0);
+    assert!(
+        has_exec_to_real,
+        "k8s.can-exec should now target the real pod"
+    );
 
-    let has_exec_to_placeholder = rels.iter().any(|r| r.name == "k8s.can-exec" && r.target_id == placeholder_id.0);
-    assert!(!has_exec_to_placeholder, "k8s.can-exec should no longer target the placeholder");
+    let has_exec_to_placeholder = rels
+        .iter()
+        .any(|r| r.name == "k8s.can-exec" && r.target_id == placeholder_id.0);
+    assert!(
+        !has_exec_to_placeholder,
+        "k8s.can-exec should no longer target the placeholder"
+    );
 }
 
 /// When the real pod is already known in the campaign (discovered earlier via
@@ -1040,14 +1142,16 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
     // Exec relation points at placeholder (from network-scan phase).
     push_exec_edge(&mut campaign, BUILTIN_C2_ID, &placeholder_id.0);
 
-    let jwt = make_test_jwt(r#"{
+    let jwt = make_test_jwt(
+        r#"{
         "kubernetes.io": {
             "namespace": "prod",
             "pod": {"name": "backend-xyzabc-123", "uid": "pod-uid-1"},
             "serviceaccount": {"name": "api-sa", "uid": "sa-uid-1"}
         },
         "sub": "system:serviceaccount:prod:api-sa"
-    }"#);
+    }"#,
+    );
 
     let cmd = sample_exec_ttp(&placeholder_id.0, vec!["rawServiceAccountToken"]);
     let event = sample_event(&jwt);
@@ -1061,15 +1165,26 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
     );
 
     // Real pod still exists and now carries the IP.
-    let real_pod = campaign.entities.find::<Pod>(&real_id).expect("real pod should survive");
+    let real_pod = campaign
+        .entities
+        .find::<Pod>(&real_id)
+        .expect("real pod should survive");
     assert!(
-        real_pod.system.ips.iter().any(|ip| ip.to_string() == "10.244.1.4"),
+        real_pod
+            .system
+            .ips
+            .iter()
+            .any(|ip| ip.to_string() == "10.244.1.4"),
         "IP should be merged into the pre-existing real pod"
     );
 
     // Exec relation transplanted.
     assert!(
-        campaign.graph.to_relation_summaries().iter().any(|r| r.name == "k8s.can-exec" && r.target_id == real_id.0),
+        campaign
+            .graph
+            .to_relation_summaries()
+            .iter()
+            .any(|r| r.name == "k8s.can-exec" && r.target_id == real_id.0),
         "k8s.can-exec should target the real pod"
     );
 }
@@ -1103,7 +1218,9 @@ fn sys_node_name_merges_placeholder_node_into_real_node_when_target_is_node() {
     let cmd = sample_exec_ttp(&placeholder_id, vec!["sys.node-name"]);
     let event = sample_event("worker-node-1");
 
-    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+    campaign
+        .on_ttp_executed(&cmd, &event)
+        .expect("should succeed");
 
     // The real node entity should exist.
     let real_id = EntityId::new("node/worker-node-1");
@@ -1122,9 +1239,7 @@ fn sys_node_name_merges_placeholder_node_into_real_node_when_target_is_node() {
     // ContainerEscape edge should point at the real node, not the placeholder.
     let real_node_eid = EntityId::new("node/worker-node-1");
     let pod_eid = EntityId::new(&pod_id);
-    let escape_edges = campaign
-        .graph
-        .targets_of(&pod_eid, "container.escape");
+    let escape_edges = campaign.graph.targets_of(&pod_eid, "container.escape");
     assert!(
         escape_edges.iter().any(|t| *t == &real_node_eid),
         "ContainerEscape edge should target the real node after merge"
@@ -1156,7 +1271,9 @@ fn sys_node_name_merges_placeholder_when_target_is_pod_after_escape() {
     let cmd = sample_exec_ttp(&pod_id, vec!["sys.node-name"]);
     let event = sample_event("worker-node-2");
 
-    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+    campaign
+        .on_ttp_executed(&cmd, &event)
+        .expect("should succeed");
 
     let real_id = EntityId::new("node/worker-node-2");
     assert!(
@@ -1164,7 +1281,9 @@ fn sys_node_name_merges_placeholder_when_target_is_pod_after_escape() {
         "real node should exist"
     );
     assert!(
-        !campaign.entities.contains::<K8sNode>(&EntityId::new(&placeholder_id)),
+        !campaign
+            .entities
+            .contains::<K8sNode>(&EntityId::new(&placeholder_id)),
         "placeholder should be gone"
     );
 }
@@ -1198,12 +1317,18 @@ fn sys_node_name_preserves_access_level_from_placeholder_node() {
         .entities
         .find::<K8sNode>(&ph_eid)
         .map(|n| n.system.access_level);
-    assert_eq!(ph_access, Some(AccessLevel::Exec), "placeholder must have Exec access");
+    assert_eq!(
+        ph_access,
+        Some(AccessLevel::Exec),
+        "placeholder must have Exec access"
+    );
 
     // sys.node-name targeted at the placeholder node resolves the real name.
     let cmd = sample_exec_ttp(&placeholder_id, vec!["sys.node-name"]);
     let event = sample_event("worker-4");
-    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+    campaign
+        .on_ttp_executed(&cmd, &event)
+        .expect("should succeed");
 
     // Real node should inherit the Exec access level from the placeholder.
     let real_eid = EntityId::new("node/worker-4");
@@ -1211,7 +1336,11 @@ fn sys_node_name_preserves_access_level_from_placeholder_node() {
         .entities
         .find::<K8sNode>(&real_eid)
         .map(|n| n.system.access_level);
-    assert_eq!(real_access, Some(AccessLevel::Exec), "real node must inherit Exec access level from placeholder");
+    assert_eq!(
+        real_access,
+        Some(AccessLevel::Exec),
+        "real node must inherit Exec access level from placeholder"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1265,7 +1394,12 @@ fn container_escape_upgrades_node_access_level() {
 
     // Before escape: node has no exec access.
     assert_eq!(
-        campaign.entities.find::<K8sNode>(&EntityId::new(&node_id)).unwrap().system.access_level,
+        campaign
+            .entities
+            .find::<K8sNode>(&EntityId::new(&node_id))
+            .unwrap()
+            .system
+            .access_level,
         AccessLevel::None
     );
 
@@ -1277,7 +1411,12 @@ fn container_escape_upgrades_node_access_level() {
 
     // After escape: node access_level should be Exec.
     assert_eq!(
-        campaign.entities.find::<K8sNode>(&EntityId::new(&node_id)).unwrap().system.access_level,
+        campaign
+            .entities
+            .find::<K8sNode>(&EntityId::new(&node_id))
+            .unwrap()
+            .system
+            .access_level,
         AccessLevel::Exec,
         "node should have Exec access after ContainerEscape relation is inserted"
     );
@@ -1327,21 +1466,35 @@ fn container_escape_effect_creates_node_when_runs_on_exists_in_graph() {
     use crate::effects::parse_effect;
     let mut ctx = std::collections::HashMap::new();
     ctx.insert("TARGET_NODE_ID".into(), "node/worker-1".into());
-    ctx.insert("PROCEDURE_CMD".into(), "nsenter -t 1 -m -u -i -n -p -- ${CMD}".into());
+    ctx.insert(
+        "PROCEDURE_CMD".into(),
+        "nsenter -t 1 -m -u -i -n -p -- ${CMD}".into(),
+    );
 
     let pod_id = "ns/default/pod/attacker";
     let update = parse_effect(&format!("container.escape({})", pod_id), &ctx).unwrap();
 
     // Node entity emitted.
     assert_eq!(update.new_entities.len(), 1);
-    let node = update.new_entities[0].as_any().downcast_ref::<K8sNode>().unwrap();
+    let node = update.new_entities[0]
+        .as_any()
+        .downcast_ref::<K8sNode>()
+        .unwrap();
     assert_eq!(node.entity_name(), "worker-1");
 
     // Both RunsOn and ContainerEscape emitted.
     assert_eq!(update.new_relations.len(), 2);
-    let ro = update.new_relations.iter().find(|r| r.relation_name() == "runs-on").unwrap();
+    let ro = update
+        .new_relations
+        .iter()
+        .find(|r| r.relation_name() == "runs-on")
+        .unwrap();
     assert_eq!(ro.target_id().0, "node/worker-1");
-    let esc = update.new_relations.iter().find(|r| r.relation_name() == "container.escape").unwrap();
+    let esc = update
+        .new_relations
+        .iter()
+        .find(|r| r.relation_name() == "container.escape")
+        .unwrap();
     assert_eq!(esc.target_id().0, "node/worker-1");
 }
 
@@ -1358,9 +1511,17 @@ fn container_escape_effect_creates_placeholder_node_when_no_node_known() {
     // Both relations still emitted.
     assert_eq!(update.new_relations.len(), 2);
     // Source is correct on the escape edge.
-    let esc = update.new_relations.iter().find(|r| r.relation_name() == "container.escape").unwrap();
+    let esc = update
+        .new_relations
+        .iter()
+        .find(|r| r.relation_name() == "container.escape")
+        .unwrap();
     assert_eq!(esc.source_id().0, pod_id);
     // RunsOn and ContainerEscape target the same (placeholder) node.
-    let ro = update.new_relations.iter().find(|r| r.relation_name() == "runs-on").unwrap();
+    let ro = update
+        .new_relations
+        .iter()
+        .find(|r| r.relation_name() == "runs-on")
+        .unwrap();
     assert_eq!(ro.target_id(), esc.target_id());
 }

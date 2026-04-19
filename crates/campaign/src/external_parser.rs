@@ -182,7 +182,11 @@ pub fn apply_system_field_updates(
     }
 
     for mount in &updates.mounts {
-        if !sys.mounts.iter().any(|m| m.mount_point == mount.mount_point) {
+        if !sys
+            .mounts
+            .iter()
+            .any(|m| m.mount_point == mount.mount_point)
+        {
             sys.mounts.push(mount.clone());
             count += 1;
         }
@@ -282,6 +286,9 @@ mod tests {
 
         let changed = apply_system_field_updates(&mut sys, &updates);
         assert_eq!(changed, 1);
-        assert_eq!(sys.has_binary("nmap"), ran_domain::BinaryPresence::Present("/usr/bin/nmap".to_string()));
+        assert_eq!(
+            sys.has_binary("nmap"),
+            ran_domain::BinaryPresence::Present("/usr/bin/nmap".to_string())
+        );
     }
 }

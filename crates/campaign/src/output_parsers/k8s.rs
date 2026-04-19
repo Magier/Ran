@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use ran_domain::{ConfigMap, Deployment, K8sNode, K8sSecret, Mount, NameConfidence, Namespace, OwnerRef, Pod, PodPhase, ServiceAccount};
+use ran_domain::{
+    ConfigMap, Deployment, K8sNode, K8sSecret, Mount, NameConfidence, Namespace, OwnerRef, Pod,
+    PodPhase, ServiceAccount,
+};
 
-use crate::FactsUpdate;
 use super::ParserOutput;
+use crate::FactsUpdate;
 
 pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("k8s.podlist", parse_k8s_pod_list);
@@ -273,11 +276,16 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str) -> ParserOutput {
             pod.meta.uid = Some(uid.clone());
         }
 
-        pod.owner_references = item.metadata.owner_references.iter().map(|o| OwnerRef {
-            name: o.name.clone(),
-            kind: o.kind.clone(),
-            uid: o.uid.clone(),
-        }).collect();
+        pod.owner_references = item
+            .metadata
+            .owner_references
+            .iter()
+            .map(|o| OwnerRef {
+                name: o.name.clone(),
+                kind: o.kind.clone(),
+                uid: o.uid.clone(),
+            })
+            .collect();
         pod.node_name = item.spec.node_name.clone();
         pod.service_account_name = item.spec.service_account_name.clone();
         pod.automount_service_account_token = item.spec.automount_service_account_token.into();
@@ -286,8 +294,11 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str) -> ParserOutput {
         pod.host_network = item.spec.host_network.into();
 
         // Security context: any container flagged as privileged makes the pod privileged.
-        let all_containers =
-            item.spec.containers.iter().chain(item.spec.init_containers.iter());
+        let all_containers = item
+            .spec
+            .containers
+            .iter()
+            .chain(item.spec.init_containers.iter());
         for c in all_containers {
             pod.containers.push(ran_domain::Container {
                 name: c.name.clone(),
@@ -318,12 +329,12 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str) -> ParserOutput {
             }
         }
 
-        pod.phase = item.status.phase.as_deref().and_then(|p| match p {
-            "Pending" => Some(PodPhase::Pending),
-            "Running" => Some(PodPhase::Running),
-            "Succeeded" => Some(PodPhase::Succeeded),
-            "Failed" => Some(PodPhase::Failed),
-            _ => Some(PodPhase::Unknown),
+        pod.phase = item.status.phase.as_deref().map(|p| match p {
+            "Pending" => PodPhase::Pending,
+            "Running" => PodPhase::Running,
+            "Succeeded" => PodPhase::Succeeded,
+            "Failed" => PodPhase::Failed,
+            _ => PodPhase::Unknown,
         });
         pod.is_running = pod.phase == Some(PodPhase::Running);
 
@@ -413,7 +424,10 @@ fn parse_k8s_service_account_list(stdout: &str, _stderr: &str) -> ParserOutput {
     let count = facts.new_entities.len();
     ParserOutput::SuccessWithFacts(
         facts,
-        format!("parsed {} service account(s) from ServiceAccountList", count),
+        format!(
+            "parsed {} service account(s) from ServiceAccountList",
+            count
+        ),
     )
 }
 
@@ -450,10 +464,7 @@ fn parse_k8s_secret_list(stdout: &str, _stderr: &str) -> ParserOutput {
     }
 
     let count = facts.new_entities.len();
-    ParserOutput::SuccessWithFacts(
-        facts,
-        format!("parsed {} secret(s) from SecretList", count),
-    )
+    ParserOutput::SuccessWithFacts(facts, format!("parsed {} secret(s) from SecretList", count))
 }
 
 fn parse_k8s_deployment_list(stdout: &str, _stderr: &str) -> ParserOutput {
@@ -478,7 +489,9 @@ fn parse_k8s_deployment_list(stdout: &str, _stderr: &str) -> ParserOutput {
         if name.is_empty() {
             continue;
         }
-        facts.new_entities.push(Box::new(Deployment::new(name.clone(), ns.clone())));
+        facts
+            .new_entities
+            .push(Box::new(Deployment::new(name.clone(), ns.clone())));
 
         if !ns.is_empty() {
             facts.new_entities.push(Box::new(Namespace::new(ns)));
@@ -530,4 +543,3 @@ fn parse_k8s_config_map_list(stdout: &str, _stderr: &str) -> ParserOutput {
         format!("parsed {} configmap(s) from ConfigMapList", count),
     )
 }
-

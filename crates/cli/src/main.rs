@@ -83,8 +83,18 @@ fn run_show_armory(args: ArmoryArgs) -> Result<()> {
     // Column widths
     let id_w = ttps.iter().map(|t| t.id.len()).max().unwrap_or(6).max(6);
     let name_w = ttps.iter().map(|t| t.name.len()).max().unwrap_or(4).max(4);
-    let tactic_w = ttps.iter().map(|t| t.tactic.len()).max().unwrap_or(6).max(6);
-    let status_w = ttps.iter().map(|t| t.status.len()).max().unwrap_or(6).max(6);
+    let tactic_w = ttps
+        .iter()
+        .map(|t| t.tactic.len())
+        .max()
+        .unwrap_or(6)
+        .max(6);
+    let status_w = ttps
+        .iter()
+        .map(|t| t.status.len())
+        .max()
+        .unwrap_or(6)
+        .max(6);
     let desc_w = 60usize;
 
     let sep = format!(
@@ -99,8 +109,16 @@ fn run_show_armory(args: ArmoryArgs) -> Result<()> {
     println!("{sep}");
     println!(
         "| {:id_w$} | {:name_w$} | {:tactic_w$} | {:status_w$} | {:desc_w$} |",
-        "TTP ID", "Name", "Tactic", "Status", "Description",
-        id_w = id_w, name_w = name_w, tactic_w = tactic_w, status_w = status_w, desc_w = desc_w,
+        "TTP ID",
+        "Name",
+        "Tactic",
+        "Status",
+        "Description",
+        id_w = id_w,
+        name_w = name_w,
+        tactic_w = tactic_w,
+        status_w = status_w,
+        desc_w = desc_w,
     );
     println!("{sep}");
 
@@ -112,8 +130,16 @@ fn run_show_armory(args: ArmoryArgs) -> Result<()> {
         };
         println!(
             "| {:id_w$} | {:name_w$} | {:tactic_w$} | {:status_w$} | {:desc_w$} |",
-            ttp.id, ttp.name, ttp.tactic, ttp.status, desc,
-            id_w = id_w, name_w = name_w, tactic_w = tactic_w, status_w = status_w, desc_w = desc_w,
+            ttp.id,
+            ttp.name,
+            ttp.tactic,
+            ttp.status,
+            desc,
+            id_w = id_w,
+            name_w = name_w,
+            tactic_w = tactic_w,
+            status_w = status_w,
+            desc_w = desc_w,
         );
     }
 
@@ -124,8 +150,7 @@ fn run_show_armory(args: ArmoryArgs) -> Result<()> {
 }
 
 fn init_tracing() {
-    let mut filter = EnvFilter::try_from_env("RAN_LOG")
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let mut filter = EnvFilter::try_from_env("RAN_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
 
     // Keep Ran logs configurable via RAN_LOG while muting very chatty HTTP internals.
     // This prevents flooding from lines like "connecting to 127.0.0.1:5173".

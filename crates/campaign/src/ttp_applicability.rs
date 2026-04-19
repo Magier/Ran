@@ -57,13 +57,18 @@ pub fn ttp_rbac_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
                 return true; // under-specified — assume satisfied
             };
             let verb = obj.get("verb").and_then(Value::as_str).unwrap_or("");
-            let resource = obj.get("resourceType").and_then(Value::as_str).unwrap_or("");
+            let resource = obj
+                .get("resourceType")
+                .and_then(Value::as_str)
+                .unwrap_or("");
 
             if verb.is_empty() || resource.is_empty() {
                 return true; // under-specified — assume satisfied
             }
 
-            sa.entitlements.iter().any(|perm| perm.satisfies(verb, resource))
+            sa.entitlements
+                .iter()
+                .any(|perm| perm.satisfies(verb, resource))
         })
     })
 }
@@ -108,10 +113,10 @@ pub fn ttp_access_level_satisfied(ttp: &armory::Ttp, target_access_level: Access
 
     // Any declared accessLevel value other than "none" maps to Exec.
     // Undeclared on a non-exempt tactic also requires Exec.
-    let requires_exec = match ttp.requires.get("accessLevel").and_then(Value::as_str) {
-        Some("none") => false,
-        _ => true,
-    };
+    let requires_exec = !matches!(
+        ttp.requires.get("accessLevel").and_then(Value::as_str),
+        Some("none")
+    );
 
     !requires_exec || target_access_level >= AccessLevel::Exec
 }
@@ -170,7 +175,8 @@ mod tests {
     fn campaign_with_sa(verb: &str, resource_type: &str) -> crate::Campaign {
         let mut c = empty_campaign();
         let mut sa = ServiceAccount::new("attacker", "default");
-        sa.entitlements.push(RbacPermission::new(verb, resource_type));
+        sa.entitlements
+            .push(RbacPermission::new(verb, resource_type));
         c.entities.insert_typed(sa);
         c
     }
@@ -215,10 +221,19 @@ mod tests {
 
     #[test]
     fn exempt_tactics_always_satisfied_regardless_of_access_level() {
-        for tactic in &["Initial Access", "InitialAccess", "Lateral Movement", "LateralMovement", "Resource Development", "ResourceDevelopment"] {
+        for tactic in &[
+            "Initial Access",
+            "InitialAccess",
+            "Lateral Movement",
+            "LateralMovement",
+            "Resource Development",
+            "ResourceDevelopment",
+        ] {
             let ttp = ttp_with_tactic_and_access(tactic, Some("root-exec"));
-            assert!(ttp_access_level_satisfied(&ttp, AccessLevel::None),
-                "tactic '{tactic}' should be exempt");
+            assert!(
+                ttp_access_level_satisfied(&ttp, AccessLevel::None),
+                "tactic '{tactic}' should be exempt"
+            );
         }
     }
 
@@ -231,12 +246,22 @@ mod tests {
 
     #[test]
     fn any_non_none_access_level_declaration_requires_exec() {
-        for declared in &["user-exec", "user-read", "user-write", "root-exec", "root-read"] {
+        for declared in &[
+            "user-exec",
+            "user-read",
+            "user-write",
+            "root-exec",
+            "root-read",
+        ] {
             let ttp = ttp_with_tactic_and_access("Discovery", Some(declared));
-            assert!(!ttp_access_level_satisfied(&ttp, AccessLevel::None),
-                "declared '{declared}' should require Exec");
-            assert!(ttp_access_level_satisfied(&ttp, AccessLevel::Exec),
-                "declared '{declared}' should be satisfied by Exec");
+            assert!(
+                !ttp_access_level_satisfied(&ttp, AccessLevel::None),
+                "declared '{declared}' should require Exec"
+            );
+            assert!(
+                ttp_access_level_satisfied(&ttp, AccessLevel::Exec),
+                "declared '{declared}' should be satisfied by Exec"
+            );
         }
     }
 
@@ -254,7 +279,10 @@ mod tests {
     #[test]
     fn exists_not_satisfied_when_listener_required_and_none_in_campaign() {
         // Listener mechanics not yet ported: C2Server.listeners is always empty.
-        assert!(!ttp_exists_satisfied(&ttp_with_exists("Listener"), &empty_campaign()));
+        assert!(!ttp_exists_satisfied(
+            &ttp_with_exists("Listener"),
+            &empty_campaign()
+        ));
     }
 
     #[test]
@@ -269,7 +297,10 @@ mod tests {
     #[test]
     fn exists_not_satisfied_for_unknown_entity_kind() {
         // Unknown kinds fail safe so phantom pre-conditions don't silently pass.
-        assert!(!ttp_exists_satisfied(&ttp_with_exists("UnknownThing"), &empty_campaign()));
+        assert!(!ttp_exists_satisfied(
+            &ttp_with_exists("UnknownThing"),
+            &empty_campaign()
+        ));
     }
 
     #[test]
@@ -281,7 +312,10 @@ mod tests {
     #[test]
     fn rbac_not_satisfied_when_no_service_accounts_in_campaign() {
         // TTP has RBAC requirements but no SA has been captured yet → must fail.
-        assert!(!ttp_rbac_satisfied(&ttp_with_rbac("delete", "events"), &empty_campaign()));
+        assert!(!ttp_rbac_satisfied(
+            &ttp_with_rbac("delete", "events"),
+            &empty_campaign()
+        ));
     }
 
     #[test]

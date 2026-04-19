@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 /// Top-level Ran configuration, loaded from `ran.yaml`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub namespaces: NamespaceFilter,
@@ -22,12 +22,6 @@ pub struct NamespaceFilter {
     pub excluded: Vec<String>,
     /// Namespaces to show (whitelist mode, takes precedence over `excluded`).
     pub included: Vec<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self { namespaces: NamespaceFilter::default() }
-    }
 }
 
 impl Default for NamespaceFilter {

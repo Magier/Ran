@@ -2,11 +2,14 @@ use std::collections::HashMap;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use ran_domain::{Contains, Entity, JwToken, K8sNode, NameConfidence, Namespace, Pod, RbacPermission, RunsOn, ServiceAccount, ServiceAccountToken, Uses};
+use ran_domain::{
+    Contains, Entity, JwToken, K8sNode, NameConfidence, Namespace, Pod, RbacPermission, RunsOn,
+    ServiceAccount, ServiceAccountToken, Uses,
+};
 use serde::Deserialize;
 
-use crate::FactsUpdate;
 use super::ParserOutput;
+use crate::FactsUpdate;
 
 pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("rawserviceaccounttoken", parse_raw_service_account_token);
@@ -103,9 +106,7 @@ fn parse_raw_service_account_token(stdout: &str, _stderr: &str) -> ParserOutput 
     // Find the JWT within possibly multi-line output.
     let token_str = find_jwt_in_output(stdout);
     if token_str.is_empty() {
-        return ParserOutput::KnownFailure(
-            "could not locate a JWT token in output".to_string(),
-        );
+        return ParserOutput::KnownFailure("could not locate a JWT token in output".to_string());
     }
 
     // Decode the JWT payload (second of three dot-separated segments).
@@ -120,24 +121,19 @@ fn parse_raw_service_account_token(stdout: &str, _stderr: &str) -> ParserOutput 
     let payload_bytes = match URL_SAFE_NO_PAD.decode(parts[1]) {
         Ok(b) => b,
         Err(e) => {
-            return ParserOutput::UnknownFormat(format!(
-                "failed to base64-decode JWT payload: {e}"
-            ))
+            return ParserOutput::UnknownFormat(format!("failed to base64-decode JWT payload: {e}"))
         }
     };
 
     let payload: JwtPayload = match serde_json::from_slice(&payload_bytes) {
         Ok(p) => p,
         Err(e) => {
-            return ParserOutput::UnknownFormat(format!(
-                "failed to parse JWT payload JSON: {e}"
-            ))
+            return ParserOutput::UnknownFormat(format!("failed to parse JWT payload JSON: {e}"))
         }
     };
 
     // Resolve namespace and SA name from either projected or legacy claims.
-    let (namespace, sa_name, sa_uid, pod_name, pod_uid, node_name) =
-        resolve_k8s_claims(&payload);
+    let (namespace, sa_name, sa_uid, pod_name, pod_uid, node_name) = resolve_k8s_claims(&payload);
 
     if namespace.is_empty() || sa_name.is_empty() {
         return ParserOutput::UnknownFormat(
@@ -215,10 +211,9 @@ fn parse_raw_service_account_token(stdout: &str, _stderr: &str) -> ParserOutput 
                     node.name_confidence = NameConfidence::Authoritative;
                     let node_id = node.entity_id();
                     facts.new_entities.push(Box::new(node));
-                    facts.new_relations.push(Box::new(RunsOn::new(
-                        pod_id.0.clone(),
-                        node_id.0.clone(),
-                    )));
+                    facts
+                        .new_relations
+                        .push(Box::new(RunsOn::new(pod_id.0.clone(), node_id.0.clone())));
                 }
             }
 
@@ -270,7 +265,14 @@ fn find_jwt_in_output(stdout: &str) -> &str {
 /// Returns `(namespace, sa_name, sa_uid, pod_name, pod_uid, node_name)`.
 fn resolve_k8s_claims(
     payload: &JwtPayload,
-) -> (String, String, Option<String>, Option<String>, Option<String>, Option<String>) {
+) -> (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     if let Some(k8s) = &payload.kubernetes {
         let namespace = k8s.namespace.clone().unwrap_or_default();
         let sa_name = k8s
@@ -278,10 +280,7 @@ fn resolve_k8s_claims(
             .as_ref()
             .and_then(|sa| sa.name.clone())
             .unwrap_or_default();
-        let sa_uid = k8s
-            .serviceaccount
-            .as_ref()
-            .and_then(|sa| sa.uid.clone());
+        let sa_uid = k8s.serviceaccount.as_ref().and_then(|sa| sa.uid.clone());
         let pod_name = k8s.pod.as_ref().and_then(|p| p.name.clone());
         let pod_uid = k8s.pod.as_ref().and_then(|p| p.uid.clone());
         let node_name = k8s.node.as_ref().and_then(|n| n.name.clone());
@@ -364,8 +363,8 @@ pub(super) fn parse_self_subject_rules_review(
     // string (for SA targets like `ns/default/sa/mysa`).
     // Pod targets require a TOKEN arg; without one the namespace/name cannot be
     // determined without campaign access, which parsers must not use.
-    let Some((sa_name, sa_namespace)) = resolve_sa_from_token(token_arg)
-        .or_else(|| parse_sa_identity_from_target(target_id))
+    let Some((sa_name, sa_namespace)) =
+        resolve_sa_from_token(token_arg).or_else(|| parse_sa_identity_from_target(target_id))
     else {
         return ParserOutput::KnownFailure(format!(
             "cannot resolve a ServiceAccount for target '{target_id}': \
@@ -391,7 +390,9 @@ pub(super) fn parse_self_subject_rules_review(
                 };
 
                 for api_group in &effective_groups {
-                    let scope = if is_namespaced_resource(resource, api_group) && !sa_namespace.is_empty() {
+                    let scope = if is_namespaced_resource(resource, api_group)
+                        && !sa_namespace.is_empty()
+                    {
                         Some(sa_namespace.clone())
                     } else {
                         None
@@ -435,7 +436,10 @@ pub(super) fn parse_self_subject_rules_review(
 
     ParserOutput::SuccessWithFacts(
         facts,
-        format!("parsed {} RBAC permission(s) from SelfSubjectRulesReview", perm_count),
+        format!(
+            "parsed {} RBAC permission(s) from SelfSubjectRulesReview",
+            perm_count
+        ),
     )
 }
 
@@ -490,7 +494,10 @@ fn parse_kubectl_ssrr_table(
 
         if resources_raw.is_empty() {
             // Non-resource rule — the resources column is blank.
-            non_resource_rules.push(SsrrNonResourceRule { verbs, non_resource_urls });
+            non_resource_rules.push(SsrrNonResourceRule {
+                verbs,
+                non_resource_urls,
+            });
         } else {
             // Resource rule — split `resource.apiGroup` from the resources column.
             let (resource, api_group) = split_resource_api_group(resources_raw);
@@ -557,66 +564,116 @@ fn is_namespaced_resource(resource: &str, api_group: &str) -> bool {
     let group = api_group.to_ascii_lowercase();
 
     let cluster_scoped: &[(&str, &[&str])] = &[
-        ("", &[
-            "componentstatuses", "componentstatus",
-            "namespaces", "namespace",
-            "nodes", "node",
-            "persistentvolumes", "persistentvolume",
-        ]),
-        ("admissionregistration.k8s.io", &[
-            "mutatingwebhookconfigurations", "mutatingwebhookconfiguration",
-            "validatingadmissionpolicies", "validatingadmissionpolicy",
-            "validatingadmissionpolicybindings", "validatingadmissionpolicybinding",
-            "validatingwebhookconfigurations", "validatingwebhookconfiguration",
-        ]),
-        ("apiextensions.k8s.io", &[
-            "customresourcedefinitions", "customresourcedefinition",
-        ]),
-        ("apiregistration.k8s.io", &[
-            "apiservices", "apiservice",
-        ]),
-        ("authentication.k8s.io", &[
-            "selfsubjectreviews", "selfsubjectreview",
-            "tokenreviews", "tokenreview",
-        ]),
-        ("authorization.k8s.io", &[
-            "selfsubjectaccessreviews", "selfsubjectaccessreview",
-            "selfsubjectrulesreviews", "selfsubjectrulesreview",
-            "subjectaccessreviews", "subjectaccessreview",
-        ]),
-        ("certificates.k8s.io", &[
-            "certificatesigningrequests", "certificatesigningrequest",
-        ]),
-        ("flowcontrol.apiserver.k8s.io", &[
-            "flowschemas", "flowschema",
-            "prioritylevelconfigurations", "prioritylevelconfiguration",
-        ]),
-        ("networking.k8s.io", &[
-            "ingressclasses", "ingressclass",
-            "ipaddresses", "ipaddress",
-            "servicecidrs", "servicecidr",
-        ]),
-        ("node.k8s.io", &[
-            "runtimeclasses", "runtimeclass",
-        ]),
-        ("rbac.authorization.k8s.io", &[
-            "clusterrolebindings", "clusterrolebinding",
-            "clusterroles", "clusterrole",
-        ]),
-        ("resource.k8s.io", &[
-            "deviceclasses", "deviceclass",
-            "resourceslices", "resourceslice",
-        ]),
-        ("scheduling.k8s.io", &[
-            "priorityclasses", "priorityclass",
-        ]),
-        ("storage.k8s.io", &[
-            "csidrivers", "csidriver",
-            "csinodes", "csinode",
-            "storageclasses", "storageclass",
-            "volumeattachments", "volumeattachment",
-            "volumeattributesclasses", "volumeattributesclass",
-        ]),
+        (
+            "",
+            &[
+                "componentstatuses",
+                "componentstatus",
+                "namespaces",
+                "namespace",
+                "nodes",
+                "node",
+                "persistentvolumes",
+                "persistentvolume",
+            ],
+        ),
+        (
+            "admissionregistration.k8s.io",
+            &[
+                "mutatingwebhookconfigurations",
+                "mutatingwebhookconfiguration",
+                "validatingadmissionpolicies",
+                "validatingadmissionpolicy",
+                "validatingadmissionpolicybindings",
+                "validatingadmissionpolicybinding",
+                "validatingwebhookconfigurations",
+                "validatingwebhookconfiguration",
+            ],
+        ),
+        (
+            "apiextensions.k8s.io",
+            &["customresourcedefinitions", "customresourcedefinition"],
+        ),
+        ("apiregistration.k8s.io", &["apiservices", "apiservice"]),
+        (
+            "authentication.k8s.io",
+            &[
+                "selfsubjectreviews",
+                "selfsubjectreview",
+                "tokenreviews",
+                "tokenreview",
+            ],
+        ),
+        (
+            "authorization.k8s.io",
+            &[
+                "selfsubjectaccessreviews",
+                "selfsubjectaccessreview",
+                "selfsubjectrulesreviews",
+                "selfsubjectrulesreview",
+                "subjectaccessreviews",
+                "subjectaccessreview",
+            ],
+        ),
+        (
+            "certificates.k8s.io",
+            &["certificatesigningrequests", "certificatesigningrequest"],
+        ),
+        (
+            "flowcontrol.apiserver.k8s.io",
+            &[
+                "flowschemas",
+                "flowschema",
+                "prioritylevelconfigurations",
+                "prioritylevelconfiguration",
+            ],
+        ),
+        (
+            "networking.k8s.io",
+            &[
+                "ingressclasses",
+                "ingressclass",
+                "ipaddresses",
+                "ipaddress",
+                "servicecidrs",
+                "servicecidr",
+            ],
+        ),
+        ("node.k8s.io", &["runtimeclasses", "runtimeclass"]),
+        (
+            "rbac.authorization.k8s.io",
+            &[
+                "clusterrolebindings",
+                "clusterrolebinding",
+                "clusterroles",
+                "clusterrole",
+            ],
+        ),
+        (
+            "resource.k8s.io",
+            &[
+                "deviceclasses",
+                "deviceclass",
+                "resourceslices",
+                "resourceslice",
+            ],
+        ),
+        ("scheduling.k8s.io", &["priorityclasses", "priorityclass"]),
+        (
+            "storage.k8s.io",
+            &[
+                "csidrivers",
+                "csidriver",
+                "csinodes",
+                "csinode",
+                "storageclasses",
+                "storageclass",
+                "volumeattachments",
+                "volumeattachment",
+                "volumeattributesclasses",
+                "volumeattributesclass",
+            ],
+        ),
     ];
 
     for (g, names) in cluster_scoped {
@@ -633,7 +690,7 @@ mod tests {
     use super::*;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
-    use ran_domain::{ServiceAccount, Contains, RunsOn};
+    use ran_domain::{Contains, RunsOn, ServiceAccount};
 
     /// Build a minimal JWT string with the given JSON payload (no real signature).
     fn make_jwt(payload_json: &str) -> String {
@@ -668,10 +725,22 @@ mod tests {
 
         // Namespace, ServiceAccount, Pod, K8sNode
         assert_eq!(facts.new_entities.len(), 4);
-        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "Namespace" && e.entity_name() == "prod"));
-        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "ServiceAccount" && e.entity_name() == "api-sa"));
-        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "Pod" && e.entity_name() == "api-pod"));
-        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "Node" && e.entity_name() == "worker-1"));
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|e| e.entity_kind() == "Namespace" && e.entity_name() == "prod"));
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|e| e.entity_kind() == "ServiceAccount" && e.entity_name() == "api-sa"));
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|e| e.entity_kind() == "Pod" && e.entity_name() == "api-pod"));
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|e| e.entity_kind() == "Node" && e.entity_name() == "worker-1"));
 
         // Contains (ns→sa), Uses (pod→sa), RunsOn (pod→node)
         assert_eq!(facts.new_relations.len(), 3);
@@ -696,7 +765,10 @@ mod tests {
             panic!("expected SuccessWithFacts");
         };
 
-        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "ServiceAccount" && e.entity_name() == "default-sa"));
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|e| e.entity_kind() == "ServiceAccount" && e.entity_name() == "default-sa"));
         // No node entity since legacy tokens don't carry node info.
         assert!(!facts.new_entities.iter().any(|e| e.entity_kind() == "Node"));
         // No RunsOn relation.
@@ -781,14 +853,15 @@ mod tests {
         }"#;
         let jwt = make_jwt(jwt_payload);
 
-        let kubectl_output = "Resources                Non-Resource URLs   Resource Names   Verbs\n\
+        let kubectl_output =
+            "Resources                Non-Resource URLs   Resource Names   Verbs\n\
             pods                     []                  []               [get list watch]\n\
             secrets                  []                  []               [get]\n";
 
         let result = parse_self_subject_rules_review(
             kubectl_output,
             "",
-            "ns/default/pod/some-other-pod",  // target_id is a pod — SA comes from JWT
+            "ns/default/pod/some-other-pod", // target_id is a pod — SA comes from JWT
             &jwt,
         );
 
@@ -805,8 +878,14 @@ mod tests {
             .expect("should be a ServiceAccount");
 
         assert_eq!(updated_sa.entity_id().0, "ns/default/sa/mysa");
-        assert!(!updated_sa.entitlements.is_empty(), "entitlements should be populated");
-        assert!(updated_sa.entitlements.iter().any(|p| p.verb == "get" && p.resource_type == "pods"));
+        assert!(
+            !updated_sa.entitlements.is_empty(),
+            "entitlements should be populated"
+        );
+        assert!(updated_sa
+            .entitlements
+            .iter()
+            .any(|p| p.verb == "get" && p.resource_type == "pods"));
     }
 
     /// When the JWT has no Kubernetes claims, the parser falls back to parsing
@@ -821,12 +900,8 @@ mod tests {
 
         // target_id is the SA entity ID — identity is parsed from the string directly,
         // no campaign lookup required.
-        let result = parse_self_subject_rules_review(
-            kubectl_output,
-            "",
-            "ns/default/sa/mysa",
-            &non_k8s_jwt,
-        );
+        let result =
+            parse_self_subject_rules_review(kubectl_output, "", "ns/default/sa/mysa", &non_k8s_jwt);
 
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts, got {:?}", result);
@@ -853,12 +928,13 @@ mod tests {
             kubectl_output,
             "",
             "ns/default/pod/some-pod",
-            "",  // no token
+            "", // no token
         );
 
         assert!(
             matches!(result, ParserOutput::KnownFailure(_)),
-            "expected KnownFailure for pod target without TOKEN, got {:?}", result
+            "expected KnownFailure for pod target without TOKEN, got {:?}",
+            result
         );
     }
 }

@@ -148,9 +148,15 @@ impl ShellSession {
         let payload = format!("{cmd} 2>&1\nprintf '{marker}:%d\\n' $?\n");
 
         let mut guard = self.inner.lock().await;
-        guard.tx.write_all(payload.as_bytes()).await
+        guard
+            .tx
+            .write_all(payload.as_bytes())
+            .await
             .map_err(|e| format!("run_raw write failed: {e}"))?;
-        guard.tx.flush().await
+        guard
+            .tx
+            .flush()
+            .await
             .map_err(|e| format!("run_raw flush failed: {e}"))?;
 
         let read_fut = async {
@@ -244,7 +250,11 @@ impl C2Backend for ShellSession {
         TtpExecuted {
             id: cmd.id.clone(),
             success,
-            results: if stdout.is_empty() { vec![] } else { vec![stdout] },
+            results: if stdout.is_empty() {
+                vec![]
+            } else {
+                vec![stdout]
+            },
             exit_code,
             fail_reason,
         }
@@ -327,7 +337,11 @@ mod tests {
         let cmd = make_cmd("echo hello", "session/test");
         let result = session.execute(&cmd).await;
 
-        assert!(result.success, "expected success, got: {:?}", result.fail_reason);
+        assert!(
+            result.success,
+            "expected success, got: {:?}",
+            result.fail_reason
+        );
         assert_eq!(result.exit_code, 0);
         assert_eq!(result.results, vec!["hello world"]);
     }

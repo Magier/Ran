@@ -53,8 +53,8 @@ fn config_load_returns_defaults_when_file_missing() {
 #[tokio::test]
 #[ignore = "requires a valid kubeconfig at the default location"]
 async fn app_state_get_and_reset_campaign_without_cli() {
-    use std::sync::{Arc, RwLock};
     use api::ApiService;
+    use std::sync::{Arc, RwLock};
 
     let kubeconfig = k8s::default_kubeconfig_path();
     let k8s = k8s::K8sService::from_kubeconfig(Some(kubeconfig.clone()))
@@ -86,8 +86,7 @@ async fn app_state_get_and_reset_campaign_without_cli() {
 
     // Load an empty armory from a temp directory.
     let tmp = tempfile::tempdir().expect("failed to create tempdir");
-    let armory = armory::Armory::load_from_dir(tmp.path())
-        .expect("failed to load empty armory");
+    let armory = armory::Armory::load_from_dir(tmp.path()).expect("failed to load empty armory");
 
     let state = app::AppState::new(
         k8s,
@@ -102,7 +101,11 @@ async fn app_state_get_and_reset_campaign_without_cli() {
 
     // get_campaign — should return a freshly bootstrapped campaign.
     let c = state.get_campaign().await.expect("get_campaign failed");
-    assert_eq!(c.entity_count(), 0, "fresh campaign should have no entities");
+    assert_eq!(
+        c.entity_count(),
+        0,
+        "fresh campaign should have no entities"
+    );
 
     // get_armory — empty armory, no TTPs.
     let ttps = state
@@ -113,6 +116,9 @@ async fn app_state_get_and_reset_campaign_without_cli() {
 
     // reset_campaign — should succeed and leave campaign intact.
     state.reset_campaign().await.expect("reset_campaign failed");
-    let c = state.get_campaign().await.expect("get_campaign after reset failed");
+    let c = state
+        .get_campaign()
+        .await
+        .expect("get_campaign after reset failed");
     assert_eq!(c.entity_count(), 0);
 }
