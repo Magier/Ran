@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use ran_domain::{
-    ConfigMap, Deployment, K8sNode, K8sSecret, Mount, NameConfidence, Namespace, OwnerRef, Pod,
-    PodPhase, ServiceAccount,
+    ConfigMap, Deployment, K8sNode, K8sRole, K8sRoleBinding, K8sSecret, Mount, NameConfidence,
+    Namespace, OwnerRef, Pod, PodPhase, RbacPermission, RbacSubject, ServiceAccount,
 };
 
 use super::ParserOutput;
@@ -16,6 +16,10 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("k8s.secretlist", parse_k8s_secret_list);
     m.insert("k8s.deploymentlist", parse_k8s_deployment_list);
     m.insert("k8s.configmaplist", parse_k8s_config_map_list);
+    m.insert("k8s.rolelist", parse_k8s_role_list);
+    m.insert("k8s.rolebindinglist", parse_k8s_role_binding_list);
+    m.insert("k8s.clusterrolelist", parse_k8s_cluster_role_list);
+    m.insert("k8s.clusterrolebindinglist", parse_k8s_cluster_role_binding_list);
 }
 
 /// Minimal serde types for deserializing K8s API `kubectl --output=json` responses.
@@ -205,6 +209,68 @@ mod k8s_json {
     pub struct DeploymentList {
         #[serde(default)]
         pub items: Vec<DeploymentItem>,
+    }
+
+    // --- Role / ClusterRole ---
+
+    #[derive(Deserialize, Default)]
+    pub struct PolicyRule {
+        #[serde(default)]
+        pub verbs: Vec<String>,
+        #[serde(default)]
+        pub resources: Vec<String>,
+        #[serde(rename = "resourceNames", default)]
+        pub resource_names: Vec<String>,
+        #[serde(rename = "apiGroups", default)]
+        pub api_groups: Vec<String>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct RoleItem {
+        pub metadata: Meta,
+        #[serde(default)]
+        pub rules: Vec<PolicyRule>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct RoleList {
+        #[serde(default)]
+        pub items: Vec<RoleItem>,
+    }
+
+    // --- RoleBinding / ClusterRoleBinding ---
+
+    #[derive(Deserialize, Default)]
+    pub struct RoleRef {
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub kind: String,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct Subject {
+        #[serde(default)]
+        pub kind: String,
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub namespace: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct RoleBindingItem {
+        pub metadata: Meta,
+        #[serde(rename = "roleRef", default)]
+        pub role_ref: RoleRef,
+        #[serde(default)]
+        pub subjects: Vec<Subject>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct RoleBindingList {
+        #[serde(default)]
+        pub items: Vec<RoleBindingItem>,
     }
 
     // --- API error response (e.g. 403 Forbidden) ---
@@ -505,6 +571,58 @@ fn parse_k8s_deployment_list(stdout: &str, _stderr: &str) -> ParserOutput {
     )
 }
 
+fn rules_to_permissions(rules: &[k8s_json::PolicyRule]) -> Vec<RbacPermission> {
+    let mut perms = Vec::new();
+    for rule in rules {
+        let api_group = rule.api_groups.first().cloned();
+        for verb in &rule.verbs {
+            for resource in &rule.resources {
+                if rule.resource_names.is_empty() {
+                    let mut p = RbacPermission::new(verb.clone(), resource.clone());
+                    p.api_group = api_group.clone();
+                    perms.push(p);
+                } else {
+                    for rname in &rule.resource_names {
+                        let mut p = RbacPermission::new(verb.clone(), resource.clone());
+                        p.api_group = api_group.clone();
+                        p.resource_name = Some(rname.clone());
+                        perms.push(p);
+                    }
+                }
+            }
+        }
+    }
+    perms
+}
+
+fn parse_role_binding_item(
+    item: &k8s_json::RoleBindingItem,
+    is_cluster: bool,
+) -> Option<K8sRoleBinding> {
+    let name = &item.metadata.name;
+    if name.is_empty() {
+        return None;
+    }
+    let ns = if is_cluster {
+        String::new()
+    } else {
+        item.metadata.namespace.as_deref().unwrap_or("").to_string()
+    };
+    let mut binding = K8sRoleBinding::new(name.clone(), ns);
+    binding.role_ref = item.role_ref.name.clone();
+    binding.role_ref_kind = item.role_ref.kind.clone();
+    binding.subjects = item
+        .subjects
+        .iter()
+        .map(|s| RbacSubject {
+            kind: s.kind.clone(),
+            name: s.name.clone(),
+            namespace: s.namespace.as_deref().unwrap_or("").to_string(),
+        })
+        .collect();
+    Some(binding)
+}
+
 fn parse_k8s_config_map_list(stdout: &str, _stderr: &str) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
@@ -541,5 +659,143 @@ fn parse_k8s_config_map_list(stdout: &str, _stderr: &str) -> ParserOutput {
     ParserOutput::SuccessWithFacts(
         facts,
         format!("parsed {} configmap(s) from ConfigMapList", count),
+    )
+}
+
+fn parse_k8s_role_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::RoleList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("RoleList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let mut role = K8sRole::new(name.clone(), ns.clone());
+        role.is_cluster_role = false;
+        role.permissions = rules_to_permissions(&item.rules);
+        facts.new_entities.push(Box::new(role));
+
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(facts, format!("parsed {} role(s) from RoleList", count))
+}
+
+fn parse_k8s_cluster_role_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::RoleList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("ClusterRoleList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        if name.is_empty() {
+            continue;
+        }
+        let mut role = K8sRole::new(name.clone(), "");
+        role.is_cluster_role = true;
+        role.permissions = rules_to_permissions(&item.rules);
+        facts.new_entities.push(Box::new(role));
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} cluster role(s) from ClusterRoleList", count),
+    )
+}
+
+fn parse_k8s_role_binding_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::RoleBindingList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("RoleBindingList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        let Some(binding) = parse_role_binding_item(item, false) else {
+            continue;
+        };
+        facts.new_entities.push(Box::new(binding));
+
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} role binding(s) from RoleBindingList", count),
+    )
+}
+
+fn parse_k8s_cluster_role_binding_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::RoleBindingList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("ClusterRoleBindingList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let Some(binding) = parse_role_binding_item(item, true) else {
+            continue;
+        };
+        facts.new_entities.push(Box::new(binding));
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!(
+            "parsed {} cluster role binding(s) from ClusterRoleBindingList",
+            count
+        ),
     )
 }

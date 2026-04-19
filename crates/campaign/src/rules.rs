@@ -1,6 +1,7 @@
 use ran_domain::{
-    Contains, Entity, EntityId, K8sCluster, K8sNode, KubeletExecSink, ManagesNode, Namespace, Pod,
-    PodExec, RelationSummary, RunsOn, ServiceAccount,
+    BindsTo, Contains, Entity, EntityId, Grants, K8sCluster, K8sNode, K8sRole, K8sRoleBinding,
+    KubeletExecSink, ManagesNode, Namespace, Pod, PodExec, RbacPermission,
+    RelationSummary, RunsOn, ServiceAccount,
 };
 
 use crate::{Campaign, FactsUpdate};
@@ -25,6 +26,12 @@ pub struct ServiceAccountNamespaceRule;
 pub struct PodNodeRule;
 pub struct ServiceAccountCanExecRule;
 pub struct KubeletExecSinkRule;
+pub struct RoleNamespaceRule;
+pub struct RoleBindingNamespaceRule;
+pub struct ClusterRoleClusterRule;
+pub struct ClusterRoleBindingClusterRule;
+pub struct RoleBindingPermissionsRule;
+pub struct RoleBindingGraphRule;
 
 impl InferenceRule for NamespaceClusterRule {
     fn name(&self) -> &'static str {
@@ -341,6 +348,363 @@ impl InferenceRule for KubeletExecSinkRule {
     }
 }
 
+impl InferenceRule for RoleNamespaceRule {
+    fn name(&self) -> &'static str {
+        "role.namespace"
+    }
+
+    fn triggers(&self) -> Vec<RuleTrigger> {
+        vec![RuleTrigger::EntityKind("Role".to_string())]
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(role) = entity.as_any().downcast_ref::<K8sRole>() else {
+                continue;
+            };
+            if role.is_cluster_role {
+                continue;
+            }
+            let Some(ns_name) = role.namespace() else {
+                continue;
+            };
+            if ns_name.is_empty() {
+                continue;
+            }
+
+            let ns_id = EntityId::new(format!("ns/{}", ns_name));
+            let ns_exists = campaign.entities.contains::<Namespace>(&ns_id)
+                || update.new_entities.iter().any(|e| {
+                    e.as_any()
+                        .downcast_ref::<Namespace>()
+                        .map(|n| n.entity_id() == ns_id)
+                        .unwrap_or(false)
+                });
+
+            if !ns_exists {
+                inferred
+                    .new_entities
+                    .push(Box::new(Namespace::new(ns_name)));
+            }
+
+            inferred.new_relations.push(Box::new(Contains::new(
+                ns_id.0.clone(),
+                role.entity_id().0.clone(),
+            )));
+        }
+
+        inferred
+    }
+}
+
+impl InferenceRule for RoleBindingNamespaceRule {
+    fn name(&self) -> &'static str {
+        "rolebinding.namespace"
+    }
+
+    fn triggers(&self) -> Vec<RuleTrigger> {
+        vec![RuleTrigger::EntityKind("RoleBinding".to_string())]
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
+                continue;
+            };
+            let Some(ns_name) = binding.namespace() else {
+                continue;
+            };
+            if ns_name.is_empty() {
+                continue;
+            }
+
+            let ns_id = EntityId::new(format!("ns/{}", ns_name));
+            let ns_exists = campaign.entities.contains::<Namespace>(&ns_id)
+                || update.new_entities.iter().any(|e| {
+                    e.as_any()
+                        .downcast_ref::<Namespace>()
+                        .map(|n| n.entity_id() == ns_id)
+                        .unwrap_or(false)
+                });
+
+            if !ns_exists {
+                inferred
+                    .new_entities
+                    .push(Box::new(Namespace::new(ns_name)));
+            }
+
+            inferred.new_relations.push(Box::new(Contains::new(
+                ns_id.0.clone(),
+                binding.entity_id().0.clone(),
+            )));
+        }
+
+        inferred
+    }
+}
+
+impl InferenceRule for ClusterRoleClusterRule {
+    fn name(&self) -> &'static str {
+        "clusterrole.cluster"
+    }
+
+    fn triggers(&self) -> Vec<RuleTrigger> {
+        vec![RuleTrigger::EntityKind("ClusterRole".to_string())]
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
+            return inferred;
+        };
+        let cluster_id = cluster.entity_id();
+
+        for entity in &update.new_entities {
+            let Some(role) = entity.as_any().downcast_ref::<K8sRole>() else {
+                continue;
+            };
+            if !role.is_cluster_role {
+                continue;
+            }
+            inferred.new_relations.push(Box::new(Contains::new(
+                cluster_id.0.clone(),
+                role.entity_id().0.clone(),
+            )));
+        }
+
+        inferred
+    }
+}
+
+impl InferenceRule for ClusterRoleBindingClusterRule {
+    fn name(&self) -> &'static str {
+        "clusterrolebinding.cluster"
+    }
+
+    fn triggers(&self) -> Vec<RuleTrigger> {
+        vec![RuleTrigger::EntityKind("ClusterRoleBinding".to_string())]
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
+            return inferred;
+        };
+        let cluster_id = cluster.entity_id();
+
+        for entity in &update.new_entities {
+            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
+                continue;
+            };
+            let ns = binding.meta.namespace.as_deref().unwrap_or("");
+            if !ns.is_empty() {
+                continue;
+            }
+            inferred.new_relations.push(Box::new(Contains::new(
+                cluster_id.0.clone(),
+                binding.entity_id().0.clone(),
+            )));
+        }
+
+        inferred
+    }
+}
+
+/// Resolve `K8sRoleBinding` → `K8sRole` → `ServiceAccount` entitlement injection.
+///
+/// For every new binding, finds the referenced role (in campaign state or the
+/// current update batch), stamps the scope and source_role onto each permission,
+/// and emits a minimal `ServiceAccount` carrying those entitlements.
+/// The entity store merges the entitlements into any existing SA record.
+impl InferenceRule for RoleBindingPermissionsRule {
+    fn name(&self) -> &'static str {
+        "rolebinding.permissions"
+    }
+
+    fn triggers(&self) -> Vec<RuleTrigger> {
+        vec![
+            RuleTrigger::EntityKind("RoleBinding".to_string()),
+            RuleTrigger::EntityKind("ClusterRoleBinding".to_string()),
+        ]
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
+                continue;
+            };
+
+            let binding_ns = binding.meta.namespace.as_deref().unwrap_or("");
+            let scope: Option<String> = if binding_ns.is_empty() {
+                Some("*".to_string())
+            } else {
+                Some(binding_ns.to_string())
+            };
+
+            let role_perms: Vec<RbacPermission> =
+                find_role_permissions(campaign, update, &binding.role_ref);
+            if role_perms.is_empty() {
+                continue;
+            }
+
+            let stamped: Vec<RbacPermission> = role_perms
+                .into_iter()
+                .map(|mut p| {
+                    p.scope = scope.clone();
+                    p.source_role = Some(binding.role_ref.clone());
+                    p
+                })
+                .collect();
+
+            for subject in &binding.subjects {
+                if !subject.kind.eq_ignore_ascii_case("ServiceAccount") {
+                    continue;
+                }
+                let sa_ns = if subject.namespace.is_empty() {
+                    binding_ns.to_string()
+                } else {
+                    subject.namespace.clone()
+                };
+                let mut sa = ServiceAccount::new(&subject.name, &sa_ns);
+                sa.entitlements = stamped.clone();
+                inferred.new_entities.push(Box::new(sa));
+            }
+        }
+
+        inferred
+    }
+}
+
+/// Emit `BindsTo(binding → role)` and `Grants(binding → sa)` edges for every
+/// new `K8sRoleBinding` / `K8sClusterRoleBinding`.  Creates stub role and SA
+/// entities when they are not yet known in the campaign so the graph stays
+/// connected even if discovery runs out of order.
+impl InferenceRule for RoleBindingGraphRule {
+    fn name(&self) -> &'static str {
+        "rolebinding.graph"
+    }
+
+    fn triggers(&self) -> Vec<RuleTrigger> {
+        vec![
+            RuleTrigger::EntityKind("RoleBinding".to_string()),
+            RuleTrigger::EntityKind("ClusterRoleBinding".to_string()),
+        ]
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
+                continue;
+            };
+
+            let binding_id = binding.entity_id();
+            let binding_ns = binding.meta.namespace.as_deref().unwrap_or("");
+            let is_cluster_scoped = binding_ns.is_empty();
+
+            // Determine whether the roleRef points to a ClusterRole or a Role.
+            let ref_is_cluster = binding.role_ref_kind.eq_ignore_ascii_case("ClusterRole")
+                || (binding.role_ref_kind.is_empty() && is_cluster_scoped);
+
+            // Build the target role entity_id the same way K8sRole::entity_id() does.
+            let role_entity_id = if ref_is_cluster {
+                EntityId(format!("clusterrole/{}", binding.role_ref))
+            } else {
+                EntityId(format!("ns/{}/role/{}", binding_ns, binding.role_ref))
+            };
+
+            // Create a stub role if not yet known.
+            let role_known = campaign
+                .entities
+                .values::<K8sRole>()
+                .any(|r| r.entity_id() == role_entity_id)
+                || update.new_entities.iter().any(|e| {
+                    e.as_any()
+                        .downcast_ref::<K8sRole>()
+                        .map(|r| r.entity_id() == role_entity_id)
+                        .unwrap_or(false)
+                });
+
+            if !role_known {
+                let mut stub = K8sRole::new(&binding.role_ref, binding_ns);
+                stub.is_cluster_role = ref_is_cluster;
+                inferred.new_entities.push(Box::new(stub));
+            }
+
+            inferred
+                .new_relations
+                .push(Box::new(BindsTo::new(binding_id.0.clone(), role_entity_id.0)));
+
+            // Emit Grants edges for ServiceAccount subjects.
+            for subject in &binding.subjects {
+                if !subject.kind.eq_ignore_ascii_case("ServiceAccount") {
+                    continue;
+                }
+                let sa_ns = if subject.namespace.is_empty() {
+                    binding_ns.to_string()
+                } else {
+                    subject.namespace.clone()
+                };
+                let sa_entity_id = EntityId(format!("ns/{}/sa/{}", sa_ns, subject.name));
+
+                let sa_known = campaign
+                    .entities
+                    .values::<ServiceAccount>()
+                    .any(|sa| sa.entity_id() == sa_entity_id)
+                    || update.new_entities.iter().any(|e| {
+                        e.as_any()
+                            .downcast_ref::<ServiceAccount>()
+                            .map(|sa| sa.entity_id() == sa_entity_id)
+                            .unwrap_or(false)
+                    });
+
+                if !sa_known {
+                    let stub = ServiceAccount::new(&subject.name, &sa_ns);
+                    inferred.new_entities.push(Box::new(stub));
+                }
+
+                inferred.new_relations.push(Box::new(Grants::new(
+                    binding_id.0.clone(),
+                    sa_entity_id.0,
+                )));
+            }
+        }
+
+        inferred
+    }
+}
+
+fn find_role_permissions(
+    campaign: &Campaign,
+    update: &FactsUpdate,
+    role_name: &str,
+) -> Vec<RbacPermission> {
+    if let Some(role) = campaign
+        .entities
+        .values::<K8sRole>()
+        .find(|r| r.meta.name == role_name)
+    {
+        return role.permissions.clone();
+    }
+    if let Some(role) = update.new_entities.iter().find_map(|e| {
+        e.as_any()
+            .downcast_ref::<K8sRole>()
+            .filter(|r| r.meta.name == role_name)
+    }) {
+        return role.permissions.clone();
+    }
+    Vec::new()
+}
+
 pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
     vec![
         Box::new(NamespaceClusterRule),
@@ -350,6 +714,12 @@ pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
         Box::new(PodNodeRule),
         Box::new(ServiceAccountCanExecRule),
         Box::new(KubeletExecSinkRule),
+        Box::new(RoleNamespaceRule),
+        Box::new(RoleBindingNamespaceRule),
+        Box::new(ClusterRoleClusterRule),
+        Box::new(ClusterRoleBindingClusterRule),
+        Box::new(RoleBindingPermissionsRule),
+        Box::new(RoleBindingGraphRule),
     ]
 }
 

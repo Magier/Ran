@@ -556,6 +556,84 @@ impl Relation for SessionChannel {
 }
 
 // ---------------------------------------------------------------------------
+// BindsTo
+// ---------------------------------------------------------------------------
+
+/// RBAC binding edge: a RoleBinding or ClusterRoleBinding references a Role or
+/// ClusterRole. Source is the binding; target is the role.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BindsTo {
+    pub binding_id: EntityId,
+    pub role_id: EntityId,
+}
+
+impl BindsTo {
+    pub fn new(binding_id: impl Into<String>, role_id: impl Into<String>) -> Self {
+        Self {
+            binding_id: EntityId::new(binding_id),
+            role_id: EntityId::new(role_id),
+        }
+    }
+}
+
+impl Relation for BindsTo {
+    fn relation_name(&self) -> &str {
+        "binds-to"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.binding_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.role_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Grants
+// ---------------------------------------------------------------------------
+
+/// RBAC grant edge: a RoleBinding or ClusterRoleBinding grants permissions to a
+/// subject (ServiceAccount). Source is the binding; target is the subject.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Grants {
+    pub binding_id: EntityId,
+    pub subject_id: EntityId,
+}
+
+impl Grants {
+    pub fn new(binding_id: impl Into<String>, subject_id: impl Into<String>) -> Self {
+        Self {
+            binding_id: EntityId::new(binding_id),
+            subject_id: EntityId::new(subject_id),
+        }
+    }
+}
+
+impl Relation for Grants {
+    fn relation_name(&self) -> &str {
+        "grants"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.binding_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.subject_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
 // RelationSummary
 // ---------------------------------------------------------------------------
 

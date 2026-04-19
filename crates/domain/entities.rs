@@ -708,14 +708,22 @@ impl K8sRole {
 
 impl Entity for K8sRole {
     fn entity_id(&self) -> EntityId {
-        let ns = self.meta.namespace.as_deref().unwrap_or("");
-        EntityId::new(format!("ns/{}/role/{}", ns, self.meta.name))
+        if self.is_cluster_role {
+            EntityId::new(format!("clusterrole/{}", self.meta.name))
+        } else {
+            let ns = self.meta.namespace.as_deref().unwrap_or("");
+            EntityId::new(format!("ns/{}/role/{}", ns, self.meta.name))
+        }
     }
     fn entity_name(&self) -> &str {
         &self.meta.name
     }
     fn entity_kind(&self) -> &str {
-        "K8sRole"
+        if self.is_cluster_role {
+            "ClusterRole"
+        } else {
+            "Role"
+        }
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -740,6 +748,9 @@ pub struct K8sRoleBinding {
     pub meta: K8sMeta,
     /// Name of the referenced Role or ClusterRole.
     pub role_ref: String,
+    /// Kind of the referenced role: "Role" or "ClusterRole".
+    #[serde(default)]
+    pub role_ref_kind: String,
     pub subjects: Vec<RbacSubject>,
 }
 
@@ -748,6 +759,7 @@ impl K8sRoleBinding {
         K8sRoleBinding {
             meta: K8sMeta::namespaced(name, namespace),
             role_ref: String::new(),
+            role_ref_kind: String::new(),
             subjects: Vec::new(),
         }
     }
@@ -760,13 +772,22 @@ impl K8sRoleBinding {
 impl Entity for K8sRoleBinding {
     fn entity_id(&self) -> EntityId {
         let ns = self.meta.namespace.as_deref().unwrap_or("");
-        EntityId::new(format!("ns/{}/rolebinding/{}", ns, self.meta.name))
+        if ns.is_empty() {
+            EntityId::new(format!("clusterrolebinding/{}", self.meta.name))
+        } else {
+            EntityId::new(format!("ns/{}/rolebinding/{}", ns, self.meta.name))
+        }
     }
     fn entity_name(&self) -> &str {
         &self.meta.name
     }
     fn entity_kind(&self) -> &str {
-        "K8sRoleBinding"
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        if ns.is_empty() {
+            "ClusterRoleBinding"
+        } else {
+            "RoleBinding"
+        }
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self

@@ -818,6 +818,165 @@ fn propagate_ip_to_node(
 }
 
 // ---------------------------------------------------------------------------
+// RoleNamespaceAnalyzer / RoleBindingNamespaceAnalyzer
+// ---------------------------------------------------------------------------
+
+/// For every new `K8sRole` with `is_cluster_role = true`, wire a `contains`
+/// relation from the cluster to the ClusterRole.
+pub struct ClusterRoleClusterAnalyzer;
+
+impl Analyzer for ClusterRoleClusterAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
+            return inferred;
+        };
+        let cluster_id = cluster.entity_id();
+
+        for entity in &update.new_entities {
+            let Some(role) = entity.as_any().downcast_ref::<K8sRole>() else {
+                continue;
+            };
+            if !role.is_cluster_role {
+                continue;
+            }
+            inferred.new_relations.push(Box::new(Contains::new(
+                cluster_id.0.clone(),
+                role.entity_id().0.clone(),
+            )));
+        }
+
+        inferred
+    }
+}
+
+/// For every new `K8sRoleBinding` with an empty namespace (i.e. a
+/// ClusterRoleBinding), wire a `contains` relation from the cluster to the
+/// ClusterRoleBinding.
+pub struct ClusterRoleBindingClusterAnalyzer;
+
+impl Analyzer for ClusterRoleBindingClusterAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
+            return inferred;
+        };
+        let cluster_id = cluster.entity_id();
+
+        for entity in &update.new_entities {
+            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
+                continue;
+            };
+            let ns = binding.meta.namespace.as_deref().unwrap_or("");
+            if !ns.is_empty() {
+                continue;
+            }
+            inferred.new_relations.push(Box::new(Contains::new(
+                cluster_id.0.clone(),
+                binding.entity_id().0.clone(),
+            )));
+        }
+
+        inferred
+    }
+}
+
+/// For every new namespace-scoped `K8sRole`, ensure its namespace entity exists
+/// and wire a `contains` relation from the Namespace to the Role.
+pub struct RoleNamespaceAnalyzer;
+
+impl Analyzer for RoleNamespaceAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(role) = entity.as_any().downcast_ref::<K8sRole>() else {
+                continue;
+            };
+            if role.is_cluster_role {
+                continue;
+            }
+            let Some(ns_name) = role.namespace() else {
+                continue;
+            };
+            if ns_name.is_empty() {
+                continue;
+            }
+
+            let ns_id = EntityId::new(format!("ns/{}", ns_name));
+            let ns = campaign
+                .entities
+                .find::<Namespace>(&ns_id)
+                .cloned()
+                .or_else(|| {
+                    update.new_entities.iter().find_map(|e| {
+                        e.as_any()
+                            .downcast_ref::<Namespace>()
+                            .filter(|n| n.entity_id() == ns_id)
+                            .cloned()
+                    })
+                })
+                .unwrap_or_else(|| Namespace::new(ns_name));
+
+            let rel = Contains::new(ns_id.0.clone(), role.entity_id().0.clone());
+            if !campaign.entities.contains::<Namespace>(&ns_id) {
+                inferred.new_entities.push(Box::new(ns));
+            }
+            inferred.new_relations.push(Box::new(rel));
+        }
+
+        inferred
+    }
+}
+
+/// For every new namespace-scoped `K8sRoleBinding`, ensure its namespace entity
+/// exists and wire a `contains` relation from the Namespace to the RoleBinding.
+pub struct RoleBindingNamespaceAnalyzer;
+
+impl Analyzer for RoleBindingNamespaceAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
+                continue;
+            };
+            let Some(ns_name) = binding.namespace() else {
+                continue;
+            };
+            if ns_name.is_empty() {
+                continue;
+            }
+
+            let ns_id = EntityId::new(format!("ns/{}", ns_name));
+            let ns = campaign
+                .entities
+                .find::<Namespace>(&ns_id)
+                .cloned()
+                .or_else(|| {
+                    update.new_entities.iter().find_map(|e| {
+                        e.as_any()
+                            .downcast_ref::<Namespace>()
+                            .filter(|n| n.entity_id() == ns_id)
+                            .cloned()
+                    })
+                })
+                .unwrap_or_else(|| Namespace::new(ns_name));
+
+            let rel = Contains::new(ns_id.0.clone(), binding.entity_id().0.clone());
+            if !campaign.entities.contains::<Namespace>(&ns_id) {
+                inferred.new_entities.push(Box::new(ns));
+            }
+            inferred.new_relations.push(Box::new(rel));
+        }
+
+        inferred
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Default analyzer pipeline
 // ---------------------------------------------------------------------------
 
@@ -1048,6 +1207,10 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(KubeletExecSinkAnalyzer),
         Box::new(CanExecAccessAnalyzer),
         Box::new(WorkloadOwnershipAnalyzer),
+        Box::new(ClusterRoleClusterAnalyzer),
+        Box::new(ClusterRoleBindingClusterAnalyzer),
+        Box::new(RoleNamespaceAnalyzer),
+        Box::new(RoleBindingNamespaceAnalyzer),
         Box::new(RoleBindingAnalyzer),
         Box::new(GCPServiceAccountAnalyzer),
     ]
@@ -2178,5 +2341,115 @@ mod tests {
             "no entities emitted when referenced role is unknown"
         );
         assert!(inferred.new_relations.is_empty());
+    }
+
+    // ---------------------------------------------------------------------------
+    // RBAC namespace / cluster contains
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn namespaced_role_gets_contains_relation_from_namespace() {
+        let campaign = test_campaign();
+
+        let mut role = K8sRole::new("pod-reader", "default");
+        role.is_cluster_role = false;
+        let role_id = role.entity_id();
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(role));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<Contains>()
+                    && r.source_id().0 == "ns/default"
+                    && r.target_id().0 == role_id.0
+            }),
+            "expected Contains(ns/default → role)"
+        );
+    }
+
+    #[test]
+    fn namespaced_rolebinding_gets_contains_relation_from_namespace() {
+        let campaign = test_campaign();
+
+        let binding = make_binding("rb", "default", "some-role", vec![]);
+        let binding_id = binding.entity_id();
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(binding));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<Contains>()
+                    && r.source_id().0 == "ns/default"
+                    && r.target_id().0 == binding_id.0
+            }),
+            "expected Contains(ns/default → rolebinding)"
+        );
+    }
+
+    #[test]
+    fn clusterrole_gets_contains_relation_from_cluster() {
+        let campaign = test_campaign();
+        let cluster_id = campaign
+            .entities
+            .values::<K8sCluster>()
+            .next()
+            .unwrap()
+            .entity_id();
+
+        let mut role = K8sRole::new("cluster-admin", "");
+        role.is_cluster_role = true;
+        let role_id = role.entity_id();
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(role));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<Contains>()
+                    && r.source_id().0 == cluster_id.0
+                    && r.target_id().0 == role_id.0
+            }),
+            "expected Contains(cluster → clusterrole)"
+        );
+    }
+
+    #[test]
+    fn clusterrolebinding_gets_contains_relation_from_cluster() {
+        let campaign = test_campaign();
+        let cluster_id = campaign
+            .entities
+            .values::<K8sCluster>()
+            .next()
+            .unwrap()
+            .entity_id();
+
+        let binding = make_binding("cluster-admin-binding", "", "cluster-admin", vec![]);
+        let binding_id = binding.entity_id();
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(binding));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<Contains>()
+                    && r.source_id().0 == cluster_id.0
+                    && r.target_id().0 == binding_id.0
+            }),
+            "expected Contains(cluster → clusterrolebinding)"
+        );
     }
 }
