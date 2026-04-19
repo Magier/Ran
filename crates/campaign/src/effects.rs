@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use indexmap::IndexSet;
 use ran_domain::{
-    CanReach, ContainerEscape, CronJob, Entity, EntityId, K8sNode, K8sRole, K8sRoleBinding,
-    KubeletExecSource, Pod, PodExec, RbacPermission, RbacSubject, RceCanExec, Relation, RunsOn,
-    ServiceAccount,
+    CanReach, ContainerEscape, CronJob, Entity, EntityId, K8sNode, K8sRole,
+    K8sRoleBinding, KubeletExecSource, Pod, PodExec, RbacPermission, RbacSubject, RceCanExec,
+    Relation, RunsOn, ServiceAccount,
 };
 
 use crate::grounding::resolve_template;
@@ -540,14 +540,13 @@ fn parse_container_escape_relation(
     Ok(FactsUpdate {
         new_entities: vec![Box::new(node)],
         new_relations: vec![
-            // Establish the pod→node scheduling relation if not already present.
             Box::new(RunsOn::new(src, &node_entity_id)),
-            // The escape channel itself.
             Box::new(ContainerEscape::new(src, &node_entity_id).with_opt_envelope(envelope)),
         ],
         entity_aliases: IndexSet::new(),
     })
 }
+
 
 fn split_relation(effect: &str) -> Result<(&str, Vec<&str>), String> {
     let open = effect

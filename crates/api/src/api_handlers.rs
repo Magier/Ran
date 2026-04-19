@@ -196,7 +196,10 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
                 },
             })?;
         let kind = entity.entity_kind().to_string();
-        let is_system = matches!(&entity, CampaignEntityRef::Pod(_) | CampaignEntityRef::Node(_));
+        let is_system = matches!(
+            &entity,
+            CampaignEntityRef::Pod(_) | CampaignEntityRef::Node(_) | CampaignEntityRef::UnknownSystem(_)
+        );
         let access_level = match &entity {
             CampaignEntityRef::Pod(p) => {
                 // A reachable pod (kubectl-exec channel exists) implies exec access
@@ -210,6 +213,7 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
                 }
             }
             CampaignEntityRef::Node(n) => n.system.access_level,
+            CampaignEntityRef::UnknownSystem(s) => s.system.access_level,
             _ => AccessLevel::None,
         };
         let has_token = match &entity {

@@ -196,6 +196,7 @@ const kind_svg_map = {
 	GCPServiceAccountToken: 'gcp/iam.svg',
 	MetadataServer: 'gcp/compute_engine.svg',
 	GCPMetadataServer: 'gcp/compute_engine.svg',
+	UnknownSystem: 'system-dark.svg',
 
 	Cluster: '{k8s/k8s.svg',
 	Namespace: '{k8s/ns.svg'

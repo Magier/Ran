@@ -800,6 +800,7 @@ impl Campaign {
                 self.insert_relation_with_ids(&src, &tgt, rel.as_ref());
             }
         }
+
     }
 
     /// Insert a relation into the graph using explicit (possibly alias-resolved)

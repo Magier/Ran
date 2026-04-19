@@ -178,6 +178,7 @@ pub(crate) fn serialize_campaign_entity_map(
         CampaignEntityRef::GCPServiceAccount(e) => serialize_entity_map(e),
         CampaignEntityRef::GCPBucket(e) => serialize_entity_map(e),
         CampaignEntityRef::K8sCredential(e) => serialize_entity_map(e),
+        CampaignEntityRef::UnknownSystem(e) => serialize_entity_map(e),
     }
 }
 

@@ -1,5 +1,5 @@
 use cortex::KnowledgeGraph;
-use ran_domain::{C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, RelationSummary};
+use ran_domain::{C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, RelationSummary, SessionStatus, UnknownSystem};
 use serde::{Deserialize, Serialize};
 
 use c2::{ExecTtp, BUILTIN_C2_ID};
@@ -84,7 +84,9 @@ impl Campaign {
 
     /// Returns `true` when `id` identifies a system entity (Pod or Node).
     pub(crate) fn is_system_entity_id(&self, id: &EntityId) -> bool {
-        self.entities.contains::<Pod>(id) || self.entities.contains::<K8sNode>(id)
+        self.entities.contains::<Pod>(id)
+            || self.entities.contains::<K8sNode>(id)
+            || self.entities.contains::<UnknownSystem>(id)
     }
 
     /// Returns the entity IDs of all systems (Pods and Nodes) that the C2 can
@@ -106,9 +108,12 @@ impl Campaign {
         if let Some(node) = self.entities.find::<K8sNode>(&entity_id) {
             return Some(CampaignSystemEntityRef::Node(node));
         }
+        if let Some(pod) = self.entities.find::<Pod>(&entity_id) {
+            return Some(CampaignSystemEntityRef::Pod(pod));
+        }
         self.entities
-            .find::<Pod>(&entity_id)
-            .map(CampaignSystemEntityRef::Pod)
+            .find::<UnknownSystem>(&entity_id)
+            .map(CampaignSystemEntityRef::Unknown)
     }
 
     pub fn get_system_entity_mut(&mut self, id: &str) -> Option<CampaignSystemEntityMut<'_>> {
@@ -120,9 +125,15 @@ impl Campaign {
                 .find_mut::<K8sNode>(&entity_id)
                 .map(CampaignSystemEntityMut::Node);
         }
+        if self.entities.contains::<Pod>(&entity_id) {
+            return self
+                .entities
+                .find_mut::<Pod>(&entity_id)
+                .map(CampaignSystemEntityMut::Pod);
+        }
         self.entities
-            .find_mut::<Pod>(&entity_id)
-            .map(CampaignSystemEntityMut::Pod)
+            .find_mut::<UnknownSystem>(&entity_id)
+            .map(CampaignSystemEntityMut::Unknown)
     }
 
     /// Apply partial system-info updates from an external parser to a target entity.
@@ -141,6 +152,27 @@ impl Campaign {
     /// Query the knowledge graph and return the best execution channel for `target_id`.
     pub fn resolve_exec_channel(&self, target_id: &str) -> Result<ExecChannel, String> {
         let target_eid = EntityId::new(target_id);
+
+        // Prefer an Active session on the target system — it is a live shell
+        // already exiting into this entity, so no graph traversal is needed.
+        let active_session = self
+            .get_system_entity(target_id)
+            .and_then(|sys| {
+                sys.entity()
+                    .system()
+                    .sessions
+                    .iter()
+                    .find(|s| s.status == SessionStatus::Active)
+                    .map(|s| s.backend_id())
+            });
+
+        if let Some(backend_id) = active_session {
+            return Ok(ExecChannel {
+                backend_id,
+                hops: vec![],
+                exec_target_id: None,
+            });
+        }
 
         let direct_footholds: std::collections::HashSet<String> = self
             .direct_foothold_systems()

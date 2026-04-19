@@ -155,6 +155,48 @@ pub struct OwnerRef {
 // SystemInfo
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Session
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionStatus {
+    #[default]
+    Connecting,
+    Active,
+    Lost,
+}
+
+/// A live (or pending) shell session that exits into this system.
+///
+/// Stored as a value inside `SystemInfo.sessions` — sessions are attributes of
+/// the system they provide access to, not independent graph entities.  The `id`
+/// doubles as the C2 backend key: the backend is registered as `session/<id>`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionInfo {
+    pub id: String,
+    /// Protocol / kind: "tcp", "mtls", "http", …
+    pub kind: String,
+    /// For listener sessions: the TCP port Ran is listening on.
+    pub port: Option<u16>,
+    pub status: SessionStatus,
+}
+
+impl SessionInfo {
+    pub fn new_connecting(id: impl Into<String>, kind: impl Into<String>, port: Option<u16>) -> Self {
+        Self { id: id.into(), kind: kind.into(), port, status: SessionStatus::Connecting }
+    }
+
+    pub fn backend_id(&self) -> String {
+        format!("session/{}", self.id)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SystemInfo
+// ---------------------------------------------------------------------------
+
 /// Runtime capabilities gathered about a system (pod or node).
 ///
 /// Composed as a plain value field inside `Pod` and `K8sNode`.
@@ -173,6 +215,8 @@ pub struct SystemInfo {
     pub mounts: Vec<Mount>,
     #[serde(rename = "accessLevel")]
     pub access_level: AccessLevel,
+    /// Live or pending shell sessions that exit into this system.
+    pub sessions: Vec<SessionInfo>,
 }
 
 impl SystemInfo {
@@ -245,6 +289,21 @@ impl SystemInfo {
 
         if incoming.access_level > self.access_level {
             self.access_level = incoming.access_level;
+        }
+
+        // Sessions: merge by id, only allow forward status transitions.
+        for incoming_s in &incoming.sessions {
+            if let Some(existing) = self.sessions.iter_mut().find(|s| s.id == incoming_s.id) {
+                use SessionStatus::*;
+                match (&existing.status, &incoming_s.status) {
+                    (Connecting, Active) | (Connecting, Lost) | (Active, Lost) => {
+                        existing.status = incoming_s.status.clone();
+                    }
+                    _ => {}
+                }
+            } else {
+                self.sessions.push(incoming_s.clone());
+            }
         }
     }
 }
