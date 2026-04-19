@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -17,6 +18,45 @@ struct Cli {
 enum Commands {
     Emulate(EmulateArgs),
     Armory(ArmoryArgs),
+    Trigger(TriggerArgs),
+}
+
+#[derive(Debug, Clone, Parser)]
+#[command(
+    about = "Execute a single TTP atomically against a target pod",
+    long_about = "Executes one TTP from the armory against a specific target pod and prints \
+                  the raw output together with any entities and relations discovered by the \
+                  output parsers and analyzers. Use `ran armory` to browse available TTPs."
+)]
+struct TriggerArgs {
+    /// TTP ID to execute (see `ran armory` for available IDs).
+    action_id: String,
+
+    /// Target pod entity ID in the form ns/<namespace>/pod/<name>.
+    #[arg(short = 't', long = "target")]
+    target_id: String,
+
+    #[arg(long = "kubeconfig")]
+    kubeconfig: Option<PathBuf>,
+
+    #[arg(long = "armory")]
+    armory: Option<PathBuf>,
+
+    /// Path to ran.yaml config file (default: ./ran.yaml).
+    #[arg(long = "config")]
+    config: Option<PathBuf>,
+
+    /// Override the execution system ID.
+    #[arg(long = "exec-system")]
+    exec_system_id: Option<String>,
+
+    /// Override the procedure ID.
+    #[arg(long = "procedure")]
+    procedure_id: Option<String>,
+
+    /// TTP parameter as key=value. May be repeated.
+    #[arg(long = "arg", value_name = "KEY=VALUE")]
+    args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -48,12 +88,16 @@ struct EmulateArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install rustls crypto provider");
     init_tracing();
 
     let cli = Cli::parse();
     match cli.command {
         Commands::Emulate(args) => run_emulate(args).await,
         Commands::Armory(args) => run_show_armory(args),
+        Commands::Trigger(args) => run_trigger(args).await,
     }
 }
 
@@ -71,6 +115,30 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         armory_dir: args.armory,
         port: args.port,
         namespace_filter: cfg.namespaces,
+    })
+    .await
+}
+
+async fn run_trigger(args: TriggerArgs) -> Result<()> {
+    let cfg = app::config::load(args.config)?;
+
+    let mut params: HashMap<String, String> = HashMap::new();
+    for kv in &args.args {
+        let (k, v) = kv
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--arg '{}' is not in key=value format", kv))?;
+        params.insert(k.to_string(), v.to_string());
+    }
+
+    app::trigger(app::TriggerConfig {
+        kubeconfig: args.kubeconfig,
+        armory_dir: args.armory,
+        namespace_filter: cfg.namespaces,
+        action_id: args.action_id,
+        target_id: args.target_id,
+        exec_system_id: args.exec_system_id,
+        procedure_id: args.procedure_id,
+        args: params,
     })
     .await
 }

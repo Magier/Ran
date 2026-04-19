@@ -7,12 +7,12 @@ edition = "2021"
 armory = { path = "../armory" }
 async-stream = "0.3"
 async-trait = "0.1"
-axum = "0.7"
+axum = "0.8"
 chrono = { workspace = true }
 campaign = { path = "../campaign" }
 ran-domain = { path = "../domain" }
 mime_guess = "2"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = "0.13"
 rmcp = { version = "1", features = ["server", "macros", "schemars", "transport-streamable-http-server"] }
 rust-embed = "8"
 serde = { workspace = true }

@@ -1,6 +1,6 @@
 use cortex::KnowledgeGraph;
 use ran_domain::{
-    C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, RelationSummary, SessionStatus,
+    C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, PodExec, RelationSummary, SessionStatus,
     UnknownSystem,
 };
 use serde::{Deserialize, Serialize};
@@ -319,6 +319,18 @@ impl Campaign {
              exec source; gain initial access first"
                 .to_string(),
         )
+    }
+
+    /// Seed a pod into the campaign with a direct kubectl-exec channel from the
+    /// C2 server. Used by `ran trigger` to prepare a target without prior
+    /// discovery (equivalent to Go's godMode). Returns the pod's entity ID.
+    pub fn seed_pod_for_trigger(&mut self, name: &str, namespace: &str) -> EntityId {
+        let mut pod = Pod::new(name, namespace);
+        pod.is_running = true;
+        let pod_id = pod.entity_id();
+        self.insert_entity(&pod);
+        self.insert_relation(&PodExec::new(BUILTIN_C2_ID, pod_id.0.clone()));
+        pod_id
     }
 
     /// Insert an entity into the store and register its node in the graph.

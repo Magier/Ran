@@ -5,6 +5,67 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Ran (Rust): emulate",
+      "type": "lldb",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "cargo": {
+        "args": [
+          "build",
+          "-p",
+          "cli",
+          "--bin",
+          "ran"
+        ],
+        "filter": {
+          "name": "ran",
+          "kind": "bin"
+        }
+      },
+      "args": [
+        "emulate",
+        "--port",
+        "8080",
+        "--kubeconfig",
+        "ixi-config.yaml"
+      ],
+      "env": {
+        "RAN_LOG": "debug"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Ran (Rust): trigger",
+      "type": "lldb",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "cargo": {
+        "args": [
+          "build",
+          "-p",
+          "cli",
+          "--bin",
+          "ran"
+        ],
+        "filter": {
+          "name": "ran",
+          "kind": "bin"
+        }
+      },
+      "args": [
+        "trigger",
+        "get-pods",
+        "--target",
+        "ns/dev/pod/workstation-7885f9c4f8-bbhgp",
+        "--kubeconfig",
+        "ixi-config.yaml"
+      ],
+      "env": {
+        "RAN_LOG": "debug"
+      },
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Generate Mitre Stix",
       "type": "go",
       "request": "launch",
@@ -98,7 +159,11 @@
       "mode": "debug",
       "program": "${workspaceFolder}/src",
       "console": "integratedTerminal",
-      "args": ["emulate", "--target", "default/kubelet-reader-pod"],
+      "args": [
+        "emulate",
+        "--target",
+        "default/kubelet-reader-pod"
+      ],
       // "program": "${fileDirname}"
     },
     {
@@ -109,8 +174,12 @@
       "cwd": "${workspaceFolder}/src",
       "program": "${workspaceFolder}/src",
       "console": "integratedTerminal",
-      "env": {"RAN_DEBUG": "1"},
-      "args": ["emulate"],
+      "env": {
+        "RAN_DEBUG": "1"
+      },
+      "args": [
+        "emulate"
+      ],
       // "program": "${fileDirname}"
     },
     {

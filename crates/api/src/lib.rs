@@ -56,7 +56,7 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             axum::routing::get(api_handlers::execution_records_handler::<S>),
         )
         .route(
-            "/api/execution-records/:id",
+            "/api/execution-records/{id}",
             axum::routing::get(api_handlers::execution_record_by_id_handler::<S>),
         )
         .route(
