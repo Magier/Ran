@@ -502,6 +502,60 @@ impl Relation for Owns {
 }
 
 // ---------------------------------------------------------------------------
+// SessionChannel
+// ---------------------------------------------------------------------------
+
+/// An active reverse-shell session: `source` (C2Server) has a live shell
+/// into `target` (K8sNode or Pod), identified by the C2 backend `session_id`.
+///
+/// Implements `C2Channel` — commands can be routed through this edge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionChannel {
+    pub source_id: EntityId,
+    pub target_id: EntityId,
+    /// The C2 backend id for this session (e.g. `session/c2-ran-1337`).
+    pub session_id: String,
+}
+
+impl SessionChannel {
+    pub fn new(
+        source_id: impl Into<String>,
+        target_id: impl Into<String>,
+        session_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            source_id: EntityId::new(source_id),
+            target_id: EntityId::new(target_id),
+            session_id: session_id.into(),
+        }
+    }
+}
+
+impl C2Channel for SessionChannel {}
+
+impl Relation for SessionChannel {
+    fn relation_name(&self) -> &str {
+        "c2.session"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.source_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.target_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn is_exec_channel(&self) -> bool {
+        true
+    }
+}
+
+// ---------------------------------------------------------------------------
 // RelationSummary
 // ---------------------------------------------------------------------------
 

@@ -1,21 +1,37 @@
+id: create-listener
 name: Create Listener
-description: Catch incoming reverse shells
+description: >
+  Create a reverse-shell listener on the active C2.
+  When a shell connects, the session is registered as a live execution backend
+  and marked as the exit point on the target entity.
 tactic: Resource Development
-techniques: ["Stage Capabilities"]
+techniques: ["Acquire Infrastructure"]
 parameters:
   PORT:
-    type: int
-    default: 1337
-    description: the port to listen for incoming connections
+    type: string
+    default: "1337"
+    description: TCP port to listen on
+  LHOST:
+    type: string
+    default: "0.0.0.0"
+    description: Local address to bind
   PROTOCOL:
     type: string
-    default: HTTP
-    description: the protocol used for the communication
-    required: false
-command: "StartListener"
+    default: "tcp"
+    description: Listener protocol — tcp/mtls/http/https for Sliver; tcp for Ran
 preconditions:
   kind: C2
-effects: ["ListenerReady"]
-# cmd: {}
-# defend: {}
-references:
+procedures:
+  - id: ran
+    command: "c2.listen(${PORT}, ${PROTOCOL})"
+    isLocal: true
+  # - id: sliver
+  #   command: "${PROTOCOL} --lhost ${LHOST} --lport ${PORT}"
+  #   tool: sliver-client
+  #   isLocal: true
+  # - id: metasploit
+  #   command: "use exploit/multi/handler; set PAYLOAD generic/shell_reverse_tcp; set LHOST ${LHOST}; set LPORT ${PORT}; run -j"
+  #   tool: msfconsole
+  #   isLocal: true
+effects:
+  - "c2.listen(${PORT}, ${PROTOCOL})"

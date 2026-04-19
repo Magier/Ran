@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use armory::Ttp;
 use c2::{C2Event, C2EventBus};
-use ran_domain::EntityId;
+use ran_domain::{AccessLevel, C2Server, Entity, EntityId, SessionChannel, SessionInfo, SessionStatus, UnknownSystem};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
@@ -303,6 +303,106 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             .collect(),
                     });
                 }
+                Ok(C2Event::ListenerStarted { port, protocol: _ }) => {
+                    let mut guard = match campaign.write() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            error!("campaign lock poisoned on ListenerStarted");
+                            continue;
+                        }
+                    };
+                    let c2_id = EntityId::new(c2::BUILTIN_C2_ID);
+                    if let Some(c2) = guard.entities.find_mut::<C2Server>(&c2_id) {
+                        let entry = port.to_string();
+                        if !c2.listeners.contains(&entry) {
+                            c2.listeners.push(entry);
+                        }
+                    }
+                    info!(port, "listener started; c2.listeners updated");
+                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                        cmd_id: format!("listener-{port}"),
+                        new_entities: vec![],
+                        new_relations: vec![],
+                    });
+                }
+                Ok(C2Event::SessionConnected { backend_id, target_entity_id, hostname, user, os, port }) => {
+                    info!(%backend_id, %target_entity_id, %hostname, %user, %os, "SessionConnected received by campaign processor");
+                    let mut guard = match campaign.write() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            error!("campaign lock poisoned on SessionConnected");
+                            continue;
+                        }
+                    };
+
+                    info!(%backend_id, %target_entity_id, %hostname, %user, %os, port, "session connected event received");
+
+                    // Build a K8sNode carrying the session and the probed system info.
+                    // If the node already exists (by name) the normal entity merge will
+                    // fold these fields in; if not, this creates it for the first time.
+                    let session_id = backend_id
+                        .strip_prefix("session/")
+                        .unwrap_or(&backend_id)
+                        .to_string();
+                    let sys_name = hostname.to_lowercase();
+                    let mut sys = UnknownSystem::new(&sys_name);
+                    sys.system.os = if os.is_empty() { None } else { Some(os) };
+                    sys.system.username = if user.is_empty() { None } else { Some(user) };
+                    sys.system.access_level = AccessLevel::Exec;
+                    sys.system.sessions.push(SessionInfo {
+                        id: session_id,
+                        kind: "tcp".to_string(),
+                        port,
+                        status: SessionStatus::Active,
+                    });
+
+                    guard.insert_entity(&sys);
+
+                    // C2Server → SessionChannel → UnknownSystem: live exec channel
+                    // routed through the active session backend.
+                    let c2_id = EntityId::new(c2::BUILTIN_C2_ID);
+                    let channel = SessionChannel::new(
+                        c2_id.0.clone(),
+                        sys.entity_id().0.clone(),
+                        &backend_id,
+                    );
+                    guard.insert_relation(&channel);
+                    info!(%backend_id, %hostname, "session connected; system entity created/updated");
+
+                    let sys_summary = EntitySummary {
+                        id: sys.entity_id(),
+                        kind: sys.entity_kind().to_string(),
+                        name: sys.entity_name().to_string(),
+                    };
+                    let relation_summary = ran_domain::RelationSummary::from_relation(&channel);
+                    // Publish entity first so the frontend node exists before the edge is added.
+                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                        cmd_id: backend_id.clone(),
+                        new_entities: vec![sys_summary],
+                        new_relations: vec![],
+                    });
+                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                        cmd_id: backend_id,
+                        new_entities: vec![],
+                        new_relations: vec![relation_summary],
+                    });
+                }
+                Ok(C2Event::SessionLost { backend_id, target_entity_id }) => {
+                    let mut guard = match campaign.write() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            error!("campaign lock poisoned on SessionLost");
+                            continue;
+                        }
+                    };
+                    update_session_status(&mut guard, &target_entity_id, &backend_id, SessionStatus::Lost);
+                    info!(%backend_id, %target_entity_id, "session lost");
+                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                        cmd_id: backend_id,
+                        new_entities: vec![],
+                        new_relations: vec![],
+                    });
+                }
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
                     warn!(skipped, "campaign c2 event processor lagged behind c2 event bus");
                 }
@@ -313,4 +413,30 @@ pub fn spawn_c2_event_processor_with_external_parser(
             }
         }
     })
+}
+
+fn update_session_status(campaign: &mut Campaign, target_entity_id: &str, backend_id: &str, status: SessionStatus) {
+    let Some(mut sys) = campaign.get_system_entity_mut(target_entity_id) else {
+        return;
+    };
+    let sessions = &mut sys.entity_mut().system_mut().sessions;
+
+    if let Some(s) = sessions.iter_mut().find(|s| s.backend_id() == backend_id) {
+        // Forward-only status transition.
+        use SessionStatus::*;
+        match (&s.status, &status) {
+            (Connecting, Active) | (Connecting, Lost) | (Active, Lost) => s.status = status,
+            _ => {}
+        }
+    } else if status == SessionStatus::Active {
+        // First time we hear about this session — the shell connected without a
+        // prior listener TTP (e.g. a manually triggered reverse shell).
+        let session_id = backend_id.strip_prefix("session/").unwrap_or(backend_id).to_string();
+        sessions.push(SessionInfo {
+            id: session_id,
+            kind: "tcp".to_string(),
+            port: None,
+            status: SessionStatus::Active,
+        });
+    }
 }

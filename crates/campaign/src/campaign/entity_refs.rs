@@ -1,7 +1,7 @@
 use ran_domain::{
     C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
     GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sNode, K8sSecret, K8sRole, K8sRoleBinding,
-    Namespace, Pod, ReplicaSet, ServiceAccount, StatefulSet, SystemEntity,
+    Namespace, Pod, ReplicaSet, ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
 };
 
 pub enum CampaignEntityRef<'a> {
@@ -24,11 +24,13 @@ pub enum CampaignEntityRef<'a> {
     GCPServiceAccount(&'a GCPServiceAccount),
     GCPBucket(&'a GCPBucket),
     K8sCredential(&'a K8sCredential),
+    UnknownSystem(&'a UnknownSystem),
 }
 
 pub enum CampaignSystemEntityRef<'a> {
     Node(&'a K8sNode),
     Pod(&'a Pod),
+    Unknown(&'a UnknownSystem),
 }
 
 impl<'a> CampaignSystemEntityRef<'a> {
@@ -36,6 +38,7 @@ impl<'a> CampaignSystemEntityRef<'a> {
         match self {
             CampaignSystemEntityRef::Node(e) => *e,
             CampaignSystemEntityRef::Pod(e) => *e,
+            CampaignSystemEntityRef::Unknown(e) => *e,
         }
     }
 }
@@ -43,6 +46,7 @@ impl<'a> CampaignSystemEntityRef<'a> {
 pub enum CampaignSystemEntityMut<'a> {
     Node(&'a mut K8sNode),
     Pod(&'a mut Pod),
+    Unknown(&'a mut UnknownSystem),
 }
 
 impl<'a> CampaignSystemEntityMut<'a> {
@@ -50,6 +54,7 @@ impl<'a> CampaignSystemEntityMut<'a> {
         match self {
             CampaignSystemEntityMut::Node(e) => *e,
             CampaignSystemEntityMut::Pod(e) => *e,
+            CampaignSystemEntityMut::Unknown(e) => *e,
         }
     }
 }
@@ -77,7 +82,7 @@ impl<'a> CampaignEntityRef<'a> {
     delegate_entity_methods!(
         C2Server, Cluster, Node, Namespace, Pod, ServiceAccount, Secret, ConfigMap, Deployment,
         Role, RoleBinding, CronJob, ReplicaSet, StatefulSet, DaemonSet, Job,
-        GCPServiceAccount, GCPBucket, K8sCredential,
+        GCPServiceAccount, GCPBucket, K8sCredential, UnknownSystem,
     );
 
     pub fn namespace(&self) -> Option<&str> {

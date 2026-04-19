@@ -40,4 +40,18 @@ pub struct TtpExecuted {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum C2Event {
     TtpExecuted { cmd: ExecTtp, event: TtpExecuted },
+    /// A TCP listener was successfully bound on the given port.
+    ListenerStarted { port: u16, protocol: String },
+    /// A reverse-shell connected, probed, and the session backend is now live.
+    SessionConnected {
+        backend_id: String,
+        /// `node/{hostname}` — the entity this session exits into.
+        target_entity_id: String,
+        hostname: String,
+        user: String,
+        os: String,
+        port: Option<u16>,
+    },
+    /// A session backend lost its connection.
+    SessionLost { backend_id: String, target_entity_id: String },
 }

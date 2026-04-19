@@ -183,6 +183,60 @@ pub enum GraphEntity {
 }
 
 // ---------------------------------------------------------------------------
+// UnknownSystem
+// ---------------------------------------------------------------------------
+
+/// A system whose type has not yet been determined (pod, node, VM, …).
+///
+/// Created when a reverse-shell session connects and we only know the hostname,
+/// user, and OS from initial probes. Further reconnaissance TTPs may reclassify
+/// this into a `K8sNode`, `Pod`, or other concrete type.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnknownSystem {
+    /// Hostname from the initial probe.
+    pub name: String,
+    #[serde(flatten)]
+    pub system: SystemInfo,
+}
+
+impl UnknownSystem {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            system: SystemInfo::default(),
+        }
+    }
+}
+
+impl Entity for UnknownSystem {
+    fn entity_id(&self) -> EntityId {
+        EntityId::new(format!("system/{}", self.name))
+    }
+
+    fn entity_name(&self) -> &str {
+        &self.name
+    }
+
+    fn entity_kind(&self) -> &str {
+        "UnknownSystem"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl SystemEntity for UnknownSystem {
+    fn system(&self) -> &SystemInfo {
+        &self.system
+    }
+
+    fn system_mut(&mut self) -> &mut SystemInfo {
+        &mut self.system
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Kubernetes Node
 // ---------------------------------------------------------------------------
 
@@ -1090,6 +1144,12 @@ fn merge_k8s_meta(existing: &mut K8sMeta, incoming: &K8sMeta) {
 fn merge_confidence(existing: &mut Confidence, incoming: Confidence) {
     if *existing == Confidence::Unknown {
         *existing = incoming;
+    }
+}
+
+impl Merge for UnknownSystem {
+    fn merge_from(&mut self, incoming: &Self) {
+        self.system.merge_from(&incoming.system);
     }
 }
 

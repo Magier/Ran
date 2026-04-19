@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use ran_domain::{
     C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
     GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sNode, K8sSecret, K8sRole, K8sRoleBinding,
-    Merge, Namespace, Pod, ReplicaSet, ServiceAccount, StatefulSet,
+    Merge, Namespace, Pod, ReplicaSet, ServiceAccount, StatefulSet, UnknownSystem,
 };
 use serde::de::MapAccess;
 use serde::ser::SerializeMap;
@@ -280,6 +280,7 @@ impl Default for EntityStore {
         s.register::<GCPServiceAccount>("gcp_service_accounts", |t| CampaignEntityRef::GCPServiceAccount(t));
         s.register::<GCPBucket>("gcp_buckets", |t| CampaignEntityRef::GCPBucket(t));
         s.register::<K8sCredential>("k8s_credentials", |t| CampaignEntityRef::K8sCredential(t));
+        s.register::<UnknownSystem>("unknown_systems", |t| CampaignEntityRef::UnknownSystem(t));
         s
     }
 }
