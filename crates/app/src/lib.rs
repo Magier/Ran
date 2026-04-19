@@ -591,18 +591,21 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(cfg.kubeconfig)?;
     let k8s = K8sService::from_kubeconfig(Some(kubeconfig_path.clone())).await?;
     let target_cluster = target_cluster_from_kubeconfig(Some(kubeconfig_path.clone()))?;
-    let armory_dir = resolve_armory_dir(cfg.armory_dir)?;
-    let armory = Armory::load_from_dir(&armory_dir)?;
+    let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
 
     // External script parsers live in armory/parsers/ (sibling to TTPs/).
-    let parsers_dir = armory_dir.parent().unwrap_or(&armory_dir).join("parsers");
-    let external_parser: Option<Arc<dyn ExternalParser>> = if parsers_dir.is_dir() {
-        info!(dir = %parsers_dir.display(), "script parser directory found");
-        Some(Arc::new(ScriptParserRunner::new(parsers_dir.clone())))
-    } else {
-        info!(dir = %parsers_dir.display(), "no script parser directory; external parsers disabled");
-        None
-    };
+    // Only available when the user provides an armory directory.
+    let external_parser: Option<Arc<dyn ExternalParser>> =
+        user_armory_dir.as_deref().and_then(|ttps_dir| {
+            let parsers_dir = ttps_dir.parent().unwrap_or(ttps_dir).join("parsers");
+            if parsers_dir.is_dir() {
+                info!(dir = %parsers_dir.display(), "script parser directory found");
+                Some(Arc::new(ScriptParserRunner::new(parsers_dir)) as Arc<dyn ExternalParser>)
+            } else {
+                info!(dir = %parsers_dir.display(), "no script parser directory; external parsers disabled");
+                None
+            }
+        });
 
     let campaign_cluster = K8sCluster::new(target_cluster.name)
         .with_context_name(target_cluster.context_name)
@@ -643,9 +646,14 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
         .unwrap_or_default();
     let armory_count = state.armory.ttps().len();
 
+    let mcp_parsers_dir = user_armory_dir
+        .as_deref()
+        .map(|d| d.parent().unwrap_or(d).join("parsers"))
+        .filter(|p| p.is_dir());
+
     let mcp_config = api::McpConfig {
         campaign_events: campaign_events.clone(),
-        parsers_dir: Some(parsers_dir),
+        parsers_dir: mcp_parsers_dir,
     };
 
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
@@ -654,7 +662,11 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
 
     info!("starting emulate API server");
     info!(kubeconfig = %kubeconfig_path.display(), "using kubeconfig");
-    info!(armory_dir = %armory_dir.display(), armory_ttps = armory_count, "armory loaded");
+    info!(
+        armory_dir = %user_armory_dir.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "<bundled>".to_string()),
+        armory_ttps = armory_count,
+        "armory loaded"
+    );
     info!(
         campaign_entities = campaign_entity_count,
         "campaign initialized"
@@ -675,12 +687,32 @@ async fn shutdown_signal() {
     info!("received shutdown signal");
 }
 
-fn resolve_armory_dir(arg: Option<PathBuf>) -> Result<PathBuf> {
-    if let Some(path) = arg {
-        return Ok(path);
-    }
-    let cwd = std::env::current_dir()?;
-    Ok(cwd.join("armory").join("TTPs"))
+/// Resolve the armory and the directory to search for external parsers.
+///
+/// Release builds (`bundled-armory`): built-in TTPs are always loaded; if
+/// `armory_dir` is given, its TTPs are appended (union, same as Go).
+///
+/// Dev builds: loads exclusively from `armory_dir` or the default
+/// `./armory/TTPs` fallback.
+///
+/// The returned `PathBuf` is the user directory (if any), used to locate the
+/// sibling `parsers/` directory for external script parsers.
+fn load_armory(armory_dir: Option<PathBuf>) -> Result<(Armory, Option<PathBuf>)> {
+    #[cfg(not(feature = "bundled-armory"))]
+    let resolved_dir = Some(
+        armory_dir.unwrap_or_else(|| {
+            std::env::current_dir()
+                .unwrap_or_default()
+                .join("armory")
+                .join("TTPs")
+        }),
+    );
+
+    #[cfg(feature = "bundled-armory")]
+    let resolved_dir = armory_dir;
+
+    let armory = Armory::load(resolved_dir.as_deref())?;
+    Ok((armory, resolved_dir))
 }
 
 // ---------------------------------------------------------------------------
@@ -714,15 +746,15 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(cfg.kubeconfig)?;
     let k8s = K8sService::from_kubeconfig(Some(kubeconfig_path.clone())).await?;
     let target_cluster = target_cluster_from_kubeconfig(Some(kubeconfig_path.clone()))?;
-    let armory_dir = resolve_armory_dir(cfg.armory_dir)?;
-    let armory = Armory::load_from_dir(&armory_dir)?;
+    let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
 
-    let parsers_dir = armory_dir.parent().unwrap_or(&armory_dir).join("parsers");
-    let external_parser: Option<Arc<dyn ExternalParser>> = if parsers_dir.is_dir() {
-        Some(Arc::new(ScriptParserRunner::new(parsers_dir)))
-    } else {
-        None
-    };
+    let external_parser: Option<Arc<dyn ExternalParser>> =
+        user_armory_dir.as_deref().and_then(|ttps_dir| {
+            let parsers_dir = ttps_dir.parent().unwrap_or(ttps_dir).join("parsers");
+            parsers_dir
+                .is_dir()
+                .then(|| Arc::new(ScriptParserRunner::new(parsers_dir)) as Arc<dyn ExternalParser>)
+        });
 
     let campaign_cluster = K8sCluster::new(target_cluster.name)
         .with_context_name(target_cluster.context_name)

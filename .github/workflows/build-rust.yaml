@@ -140,7 +140,7 @@ jobs:
       - name: Build binary
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: cargo build --release --package cli --target ${{ matrix.target }}
+        run: cargo build --release --package cli --features cli/bundled-armory --target ${{ matrix.target }}
 
       - name: Package binary
         shell: bash

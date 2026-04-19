@@ -3,7 +3,13 @@ name = "armory"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Embed armory/TTPs into the binary at compile time.
+# Enable only for release builds: cargo build --release --features bundled-armory
+bundled-armory = ["dep:rust-embed"]
+
 [dependencies]
+rust-embed = { version = "8", optional = true }
 serde = { workspace = true }
 serde_json = "1"
 serde_yaml = "0.9"
