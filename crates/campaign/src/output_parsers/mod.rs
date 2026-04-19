@@ -414,7 +414,11 @@ fn hash_results(results: &[String]) -> String {
         hasher.update([0x1e]);
     }
 
-    hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }
 
 fn truncate_preview(payload: &str) -> String {

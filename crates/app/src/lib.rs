@@ -728,10 +728,7 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
         .with_context_name(target_cluster.context_name)
         .with_server(target_cluster.server);
 
-    let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
-        "Ran",
-        campaign_cluster,
-    )));
+    let campaign = Arc::new(RwLock::new(Campaign::bootstrap("Ran", campaign_cluster)));
 
     let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s);
     let campaign_events = CampaignEventBus::new(256);
@@ -752,7 +749,9 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
 
     // Seed the target pod with a direct kubectl-exec channel from the C2 server.
     let pod_id = {
-        let mut c = campaign.write().map_err(|_| anyhow::anyhow!("campaign lock poisoned"))?;
+        let mut c = campaign
+            .write()
+            .map_err(|_| anyhow::anyhow!("campaign lock poisoned"))?;
         c.seed_pod_for_trigger(&pod_name, &pod_namespace)
     };
 
@@ -766,7 +765,9 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
 
     // Prepare and dispatch the action.
     let exec = {
-        let mut c = campaign.write().map_err(|_| anyhow::anyhow!("campaign lock poisoned"))?;
+        let mut c = campaign
+            .write()
+            .map_err(|_| anyhow::anyhow!("campaign lock poisoned"))?;
         let exec = c
             .prepare_action(
                 ExecuteActionRequest {
@@ -809,7 +810,11 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
                 fail_reason,
                 ..
             })) if eid == cmd_id => {
-                break TtpResult { results, success, fail_reason };
+                break TtpResult {
+                    results,
+                    success,
+                    fail_reason,
+                };
             }
             Ok(Ok(_)) => continue,
             Ok(Err(_)) | Err(_) => {
@@ -853,10 +858,7 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
 
     println!("\n--- Discovered Facts ---");
     // Filter out the seeded pod itself — it was already known.
-    let discovered_entities: Vec<_> = new_entities
-        .iter()
-        .filter(|e| e.id != pod_id)
-        .collect();
+    let discovered_entities: Vec<_> = new_entities.iter().filter(|e| e.id != pod_id).collect();
     println!("Entities ({}):", discovered_entities.len());
     for e in &discovered_entities {
         println!("  [{}] {}", e.kind, e.id);
