@@ -38,16 +38,21 @@ impl EdgeData {
 /// Relations not listed here are treated as structural (weight `0.0`, not exec).
 pub fn relation_defaults(name: &str) -> (f32, bool) {
     match name {
-        "k8s.can-exec"      => (1.0, true),
-        "kubelet-pod-exec"  => (1.5, true),
-        "container.escape"  => (2.0, true),
-        "rce.can-exec"      => (2.5, true),
-        _                   => (0.0, false),
+        "k8s.can-exec" => (1.0, true),
+        "kubelet-pod-exec" => (1.5, true),
+        "container.escape" => (2.0, true),
+        "rce.can-exec" => (2.5, true),
+        _ => (0.0, false),
     }
 }
 
 /// Build an [`EdgeData`] from a relation name using [`relation_defaults`].
 pub fn edge_data_for(relation_name: &str, envelope: Option<String>) -> EdgeData {
     let (weight, is_exec_channel) = relation_defaults(relation_name);
-    EdgeData { relation_name: relation_name.to_string(), weight, is_exec_channel, envelope }
+    EdgeData {
+        relation_name: relation_name.to_string(),
+        weight,
+        is_exec_channel,
+        envelope,
+    }
 }

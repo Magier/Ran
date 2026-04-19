@@ -3,7 +3,7 @@ name: Build (Rust)
 on:
   push:
     branches: [oxidation]
-    tags: ['v*']
+    tags: ['v0.[2-9]*', 'v0.[1-9][0-9]*', 'v[1-9]*']
   pull_request:
     branches: [oxidation]
   workflow_dispatch:
@@ -164,6 +164,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:

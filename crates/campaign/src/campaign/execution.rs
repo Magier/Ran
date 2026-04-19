@@ -19,7 +19,6 @@ use super::{
     ExecuteActionResult, ExecutedActionEvent, TtpExecutionProcessing,
 };
 
-
 // ---------------------------------------------------------------------------
 // Pipeline stage helpers (free functions)
 // ---------------------------------------------------------------------------
@@ -38,10 +37,9 @@ fn resolve_ttp_and_defaults(
     mut args: HashMap<String, String>,
     armory: &Armory,
 ) -> Result<(Ttp, HashMap<String, String>), ExecuteActionError> {
-    let ttp = armory
-        .get_ttp(action_id)
-        .cloned()
-        .ok_or_else(|| ExecuteActionError::NotFound(format!("No TTP with ID '{}' found", action_id)))?;
+    let ttp = armory.get_ttp(action_id).cloned().ok_or_else(|| {
+        ExecuteActionError::NotFound(format!("No TTP with ID '{}' found", action_id))
+    })?;
     for p in &ttp.params {
         if !args.contains_key(&p.name) && !p.default.is_empty() {
             args.insert(p.name.clone(), p.default.clone());
@@ -73,7 +71,7 @@ fn normalise_exec_hint(exec_system_id: Option<&str>, target_id: &str) -> Option<
 /// the full executed-command string from the args context.
 fn ground_procedure_and_effects(
     procedure: &mut Procedure,
-    effects: &mut Vec<String>,
+    effects: &mut [String],
     args: &mut HashMap<String, String>,
     ttp_id: &str,
 ) {
@@ -121,7 +119,10 @@ fn route_lateral_movement(
             "lateral movement exec source should have been resolved before routing".to_string(),
         )
     })?;
-    let exec_entity = ch.exec_target_id.clone().unwrap_or_else(|| target_id.to_string());
+    let exec_entity = ch
+        .exec_target_id
+        .clone()
+        .unwrap_or_else(|| target_id.to_string());
 
     tracing::info!(
         target_id = %target_id,
@@ -333,7 +334,11 @@ impl Campaign {
                 chain = %format_exec_chain(BUILTIN_C2_ID, &[], hint),
                 "using caller-supplied exec source entity"
             );
-            Ok((BUILTIN_C2_ID.to_string(), target_id.to_string(), hint.to_string()))
+            Ok((
+                BUILTIN_C2_ID.to_string(),
+                target_id.to_string(),
+                hint.to_string(),
+            ))
         } else {
             tracing::info!(
                 target_id = %target_id,
@@ -341,7 +346,11 @@ impl Campaign {
                 chain = %format_exec_chain(hint, &[], target_id),
                 "using caller-supplied exec backend"
             );
-            Ok((hint.to_string(), target_id.to_string(), target_id.to_string()))
+            Ok((
+                hint.to_string(),
+                target_id.to_string(),
+                target_id.to_string(),
+            ))
         }
     }
 
@@ -359,7 +368,10 @@ impl Campaign {
         let ch = self
             .resolve_exec_channel(target_id)
             .map_err(ExecuteActionError::NoExecChannel)?;
-        let exec_target = ch.exec_target_id.clone().unwrap_or_else(|| target_id.to_string());
+        let exec_target = ch
+            .exec_target_id
+            .clone()
+            .unwrap_or_else(|| target_id.to_string());
 
         tracing::warn!(
             target_id = %target_id,
@@ -395,7 +407,10 @@ impl Campaign {
     /// (the C2 side will execute directly against the target).
     ///
     /// Returns `(backend_id, semantic_target_id, exec_entity_id)`.
-    fn route_fallback(&self, target_id: &str) -> Result<(String, String, String), ExecuteActionError> {
+    fn route_fallback(
+        &self,
+        target_id: &str,
+    ) -> Result<(String, String, String), ExecuteActionError> {
         let target_eid = EntityId::new(target_id);
         if self.entities.contains::<Pod>(&target_eid) {
             tracing::warn!(
@@ -422,12 +437,7 @@ impl Campaign {
     /// Wrap `procedure.command` through each hop in reverse order so BuiltinC2
     /// can exec into the first hop and the nested command traverses the rest of
     /// the chain to the final execution target.
-    fn wrap_command_for_hops(
-        &self,
-        procedure: &mut Procedure,
-        hops: &[String],
-        exec_target: &str,
-    ) {
+    fn wrap_command_for_hops(&self, procedure: &mut Procedure, hops: &[String], exec_target: &str) {
         let full_chain: Vec<&str> = hops
             .iter()
             .map(String::as_str)
@@ -531,9 +541,10 @@ impl Campaign {
                         // Empty path → BinaryPresence::Absent; only written when
                         // currently Unknown (apply_system_update's existing guard).
                         let absent_update = SystemFieldUpdates {
-                            binaries: std::collections::HashMap::from([
-                                (binary.to_string(), String::new()),
-                            ]),
+                            binaries: std::collections::HashMap::from([(
+                                binary.to_string(),
+                                String::new(),
+                            )]),
                             ..Default::default()
                         };
                         let _ = self.apply_system_update(id, &absent_update);
@@ -542,7 +553,8 @@ impl Campaign {
             }
 
             self.parse_audits.extend(parse_audits.clone());
-            self.execution_records.push(ExecutionRecord::from_execution(cmd, event));
+            self.execution_records
+                .push(ExecutionRecord::from_execution(cmd, event));
             self.complete_open_step(&cmd.id);
             return Ok(TtpExecutionProcessing {
                 updates,
@@ -651,9 +663,10 @@ impl Campaign {
 
                 if !already_known {
                     let binary_updates = SystemFieldUpdates {
-                        binaries: std::collections::HashMap::from([
-                            (tool.to_string(), tool.to_string()),
-                        ]),
+                        binaries: std::collections::HashMap::from([(
+                            tool.to_string(),
+                            tool.to_string(),
+                        )]),
                         ..Default::default()
                     };
                     let _ = self.apply_system_update(id, &binary_updates);
@@ -679,7 +692,8 @@ impl Campaign {
             self.execution_records.push(record);
             (false, err_audit.detail.clone())
         } else {
-            self.execution_records.push(ExecutionRecord::from_execution(cmd, event));
+            self.execution_records
+                .push(ExecutionRecord::from_execution(cmd, event));
             (event.success, event.fail_reason.clone())
         };
         self.complete_open_step(&cmd.id);
@@ -736,8 +750,16 @@ impl Campaign {
             let (src, tgt) = updates.entity_aliases.iter().fold(
                 (rel.source_id().clone(), rel.target_id().clone()),
                 |(src, tgt), (stale, preferred)| {
-                    let src = if src == *stale { preferred.clone() } else { src };
-                    let tgt = if tgt == *stale { preferred.clone() } else { tgt };
+                    let src = if src == *stale {
+                        preferred.clone()
+                    } else {
+                        src
+                    };
+                    let tgt = if tgt == *stale {
+                        preferred.clone()
+                    } else {
+                        tgt
+                    };
                     (src, tgt)
                 },
             );
@@ -766,14 +788,13 @@ impl Campaign {
                             .find::<K8sNode>(&tgt)
                             .map(|n| n.name_confidence)
                             .unwrap_or(NameConfidence::Derived);
-                        let preferred_node =
-                            if tgt_confidence == NameConfidence::Authoritative
-                                && old_confidence != NameConfidence::Authoritative
-                            {
-                                tgt.clone()
-                            } else {
-                                old_node.clone()
-                            };
+                        let preferred_node = if tgt_confidence == NameConfidence::Authoritative
+                            && old_confidence != NameConfidence::Authoritative
+                        {
+                            tgt.clone()
+                        } else {
+                            old_node.clone()
+                        };
                         let stale_node = if preferred_node == old_node {
                             tgt.clone()
                         } else {
@@ -800,7 +821,6 @@ impl Campaign {
                 self.insert_relation_with_ids(&src, &tgt, rel.as_ref());
             }
         }
-
     }
 
     /// Insert a relation into the graph using explicit (possibly alias-resolved)
@@ -856,7 +876,9 @@ impl Campaign {
         if let Some(preferred_node) = self.entities.find_mut::<K8sNode>(&preferred) {
             preferred_node.merge_from(&stale_node);
         } else {
-            self.entities.get_mut::<K8sNode>().insert(preferred, stale_node);
+            self.entities
+                .get_mut::<K8sNode>()
+                .insert(preferred, stale_node);
         }
     }
 
@@ -998,7 +1020,6 @@ impl Campaign {
     }
 }
 
-
 /// Parse a pod entity ID in the canonical form `ns/<namespace>/pod/<name>` and
 /// return `(namespace, pod_name)`, or `None` if the format doesn't match.
 /// Used to build the inner `kubectl exec` when routing via an intermediate pod.
@@ -1033,7 +1054,10 @@ fn needs_remote_channel(procedure: &Procedure, tactic: &str) -> bool {
     if procedure.is_local_command == Some(true) {
         return false;
     }
-    !matches!(normalize_tactic(tactic).as_str(), "reconnaissance" | "resource development")
+    !matches!(
+        normalize_tactic(tactic).as_str(),
+        "reconnaissance" | "resource development"
+    )
 }
 
 fn normalize_tactic(tactic: &str) -> String {
@@ -1066,10 +1090,7 @@ fn generate_cmd_id() -> String {
 /// Return the tool name for a procedure, if one is set and non-empty.
 /// Matches Go's `Procedure.GetTool()`.
 fn procedure_tool(procedure: &Procedure) -> Option<&str> {
-    procedure
-        .tool
-        .as_deref()
-        .filter(|t| !t.trim().is_empty())
+    procedure.tool.as_deref().filter(|t| !t.trim().is_empty())
 }
 
 /// Return the name of the binary a procedure invokes, for use when recording

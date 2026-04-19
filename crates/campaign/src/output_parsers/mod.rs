@@ -1,9 +1,9 @@
-mod sys;
-mod k8s;
-mod iam;
-mod network;
-mod gcp;
 mod file;
+mod gcp;
+mod iam;
+mod k8s;
+mod network;
+mod sys;
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -93,8 +93,8 @@ pub fn parse_output_effect(
             // no stdout is needed. Let it fall through so the parser can record the binary.
             if normalized.starts_with("sys.has-binary(") {
                 let inner = sys::extract_effect_args(effect_id).unwrap_or("");
-                let is_output = inner.eq_ignore_ascii_case("${output}")
-                    || inner.eq_ignore_ascii_case("output");
+                let is_output =
+                    inner.eq_ignore_ascii_case("${output}") || inner.eq_ignore_ascii_case("output");
                 if !is_output {
                     "" // literal path — proceed without stdout
                 } else {
@@ -168,10 +168,13 @@ pub fn parse_output_effect(
         let target_id_opt = resolve_target_id(campaign, cmd);
         if let Some(ref tid) = target_id_opt {
             use crate::external_parser::SystemFieldUpdates;
-            let _ = campaign.apply_system_update(tid, &SystemFieldUpdates {
-                files: vec![path.to_string()],
-                ..Default::default()
-            });
+            let _ = campaign.apply_system_update(
+                tid,
+                &SystemFieldUpdates {
+                    files: vec![path.to_string()],
+                    ..Default::default()
+                },
+            );
         }
         // Step 2: check for kubeconfig content and emit credential entity if found.
         let source_id = target_id_opt.as_deref().unwrap_or("");
@@ -193,7 +196,14 @@ pub fn parse_output_effect(
         }),
         ParserOutput::UnknownFormat(detail) => Some(ParsedEffect {
             updates: FactsUpdate::default(),
-            audit: build_audit(effect_id, cmd, event, ParseResult::UnknownFormat, &detail, 0),
+            audit: build_audit(
+                effect_id,
+                cmd,
+                event,
+                ParseResult::UnknownFormat,
+                &detail,
+                0,
+            ),
         }),
         ParserOutput::SuccessWithFacts(facts, detail) => {
             let facts_written = facts.new_entities.len() + facts.new_relations.len();
@@ -419,8 +429,8 @@ fn truncate_preview(payload: &str) -> String {
 mod tests {
     use super::*;
     use armory::{Procedure, Ttp};
-    use ran_domain::{AccessLevel, Entity, Pod};
     use c2::ExecTtp;
+    use ran_domain::{AccessLevel, Entity, Pod};
     use std::collections::HashMap;
 
     fn sample_cmd() -> ExecTtp {
@@ -476,7 +486,10 @@ mod tests {
 
         let parsed = parse_output_effect(&mut campaign, "sys.envvar", &cmd, &event).unwrap();
 
-        assert!(matches!(parsed.audit.parse_result, ParseResult::UnknownFormat));
+        assert!(matches!(
+            parsed.audit.parse_result,
+            ParseResult::UnknownFormat
+        ));
     }
 
     #[test]
@@ -509,10 +522,7 @@ mod tests {
         let parsed = parse_output_effect(&mut campaign, "sys.envvar", &cmd, &event).unwrap();
 
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
-        assert!(parsed
-            .audit
-            .detail
-            .contains("stderr had non-fatal content"));
+        assert!(parsed.audit.detail.contains("stderr had non-fatal content"));
     }
 
     #[test]
@@ -600,7 +610,10 @@ mod tests {
 
         let parsed = parse_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
 
-        assert!(matches!(parsed.audit.parse_result, ParseResult::KnownFailure));
+        assert!(matches!(
+            parsed.audit.parse_result,
+            ParseResult::KnownFailure
+        ));
     }
 
     #[test]
@@ -612,7 +625,10 @@ mod tests {
 
         let parsed = parse_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
 
-        assert!(matches!(parsed.audit.parse_result, ParseResult::UnknownFormat));
+        assert!(matches!(
+            parsed.audit.parse_result,
+            ParseResult::UnknownFormat
+        ));
     }
 
     #[test]
@@ -720,7 +736,9 @@ mod tests {
         let event = sample_event(vec![String::new()]);
 
         // effect_id is the (already ground-template-substituted) string
-        let parsed = parse_output_effect(&mut campaign, "sys.has-binary(/usr/bin/curl)", &cmd, &event).unwrap();
+        let parsed =
+            parse_output_effect(&mut campaign, "sys.has-binary(/usr/bin/curl)", &cmd, &event)
+                .unwrap();
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
 
         let sys = campaign
@@ -729,7 +747,10 @@ mod tests {
             .entity()
             .system();
         use ran_domain::BinaryPresence;
-        assert_eq!(sys.has_binary("curl"), BinaryPresence::Present("/usr/bin/curl".to_string()));
+        assert_eq!(
+            sys.has_binary("curl"),
+            BinaryPresence::Present("/usr/bin/curl".to_string())
+        );
     }
 
     #[test]
@@ -745,7 +766,9 @@ mod tests {
         // No stdout at all — empty results vec
         let event = sample_event(vec![]);
 
-        let parsed = parse_output_effect(&mut campaign, "sys.has-binary(/tmp/ran-ws)", &cmd, &event).unwrap();
+        let parsed =
+            parse_output_effect(&mut campaign, "sys.has-binary(/tmp/ran-ws)", &cmd, &event)
+                .unwrap();
         assert!(
             matches!(parsed.audit.parse_result, ParseResult::Parsed),
             "expected Parsed, got {:?}: {}",
@@ -759,6 +782,9 @@ mod tests {
             .entity()
             .system();
         use ran_domain::BinaryPresence;
-        assert_eq!(sys.has_binary("ran-ws"), BinaryPresence::Present("/tmp/ran-ws".to_string()));
+        assert_eq!(
+            sys.has_binary("ran-ws"),
+            BinaryPresence::Present("/tmp/ran-ws".to_string())
+        );
     }
 }

@@ -1,9 +1,8 @@
 use ran_domain::{Entity, K8sCredential, Uses};
 use serde::Deserialize;
 
-use crate::FactsUpdate;
 use super::ParserOutput;
-
+use crate::FactsUpdate;
 
 // ---------------------------------------------------------------------------
 // Path extraction
@@ -94,9 +93,7 @@ fn credential_from_kubeconfig(content: &str) -> Option<K8sCredential> {
         .and_then(|c| c.first())
         .and_then(|e| e.cluster.as_ref());
 
-    let endpoint = cluster
-        .and_then(|c| c.server.clone())
-        .unwrap_or_default();
+    let endpoint = cluster.and_then(|c| c.server.clone()).unwrap_or_default();
 
     let ca_data = cluster.and_then(|c| c.certificate_authority_data.clone());
 
@@ -149,7 +146,11 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
 
     let detail = format!(
         "extracted K8sCredential for endpoint '{}' (token={}, cert={})",
-        if cred.endpoint.is_empty() { "unknown" } else { &cred.endpoint },
+        if cred.endpoint.is_empty() {
+            "unknown"
+        } else {
+            &cred.endpoint
+        },
         cred.token.is_some(),
         cred.cert_data.is_some(),
     );
@@ -177,11 +178,7 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
 /// - `SuccessWithFacts` — content is a kubeconfig; credential entity emitted
 /// - `Success(SystemFieldUpdates)` — plain file; path recorded in `system.files`
 /// - `KnownFailure` — empty stdout
-pub(super) fn parse_file_content(
-    stdout: &str,
-    path: &str,
-    source_id: &str,
-) -> ParserOutput {
+pub(super) fn parse_file_content(stdout: &str, path: &str, source_id: &str) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout for file:content".to_string());
     }
@@ -316,7 +313,10 @@ users:
         assert!(cred.ca_data.is_some());
         // Uses relation emitted
         assert_eq!(facts.new_relations.len(), 1);
-        let uses = facts.new_relations[0].as_any().downcast_ref::<Uses>().unwrap();
+        let uses = facts.new_relations[0]
+            .as_any()
+            .downcast_ref::<Uses>()
+            .unwrap();
         assert_eq!(uses.subject_id.0, "ns/default/pod/attacker");
     }
 
@@ -354,11 +354,16 @@ users:
 
     #[test]
     fn parse_file_kubeconfig_no_source_id_skips_uses_relation() {
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_file_kubeconfig(KUBECONFIG_TOKEN, "") else {
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_file_kubeconfig(KUBECONFIG_TOKEN, "")
+        else {
             panic!("expected SuccessWithFacts");
         };
         assert_eq!(facts.new_entities.len(), 1);
-        assert_eq!(facts.new_relations.len(), 0, "no Uses relation when source_id is empty");
+        assert_eq!(
+            facts.new_relations.len(),
+            0,
+            "no Uses relation when source_id is empty"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -377,12 +382,19 @@ users:
 
     #[test]
     fn parse_file_content_kubeconfig_emits_credential() {
-        let result = parse_file_content(KUBECONFIG_TOKEN, "/etc/kubernetes/admin.conf", "ns/kube-system/pod/p");
+        let result = parse_file_content(
+            KUBECONFIG_TOKEN,
+            "/etc/kubernetes/admin.conf",
+            "ns/kube-system/pod/p",
+        );
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts for kubeconfig content");
         };
         assert_eq!(facts.new_entities.len(), 1);
-        assert!(facts.new_entities[0].as_any().downcast_ref::<K8sCredential>().is_some());
+        assert!(facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<K8sCredential>()
+            .is_some());
     }
 
     #[test]

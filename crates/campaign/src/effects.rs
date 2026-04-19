@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use indexmap::IndexSet;
 use ran_domain::{
-    CanReach, ContainerEscape, CronJob, Entity, EntityId, K8sNode, K8sRole,
-    K8sRoleBinding, KubeletExecSource, Pod, PodExec, RbacPermission, RbacSubject, RceCanExec,
-    Relation, RunsOn, ServiceAccount,
+    CanReach, ContainerEscape, CronJob, Entity, EntityId, K8sNode, K8sRole, K8sRoleBinding,
+    KubeletExecSource, Pod, PodExec, RbacPermission, RbacSubject, RceCanExec, Relation, RunsOn,
+    ServiceAccount,
 };
 
 use crate::grounding::resolve_template;
@@ -51,10 +51,20 @@ impl FactsUpdate {
         let seen_relations: IndexSet<(String, EntityId, EntityId)> = self
             .new_relations
             .iter()
-            .map(|r| (r.relation_name().to_string(), r.source_id().clone(), r.target_id().clone()))
+            .map(|r| {
+                (
+                    r.relation_name().to_string(),
+                    r.source_id().clone(),
+                    r.target_id().clone(),
+                )
+            })
             .collect();
         for rel in other.new_relations {
-            let key = (rel.relation_name().to_string(), rel.source_id().clone(), rel.target_id().clone());
+            let key = (
+                rel.relation_name().to_string(),
+                rel.source_id().clone(),
+                rel.target_id().clone(),
+            );
             if !seen_relations.contains(&key) {
                 self.new_relations.push(rel);
             }
@@ -140,34 +150,29 @@ pub fn parse_effect_with_status(
 }
 
 fn parse_k8s_pod(args: &HashMap<String, String>) -> Result<FactsUpdate, String> {
-    let namespace = get_arg(args, &["Namespace", "NAMESPACE"]).ok_or_else(|| {
-        "k8s.Pod effect requires Namespace argument".to_string()
-    })?;
+    let namespace = get_arg(args, &["Namespace", "NAMESPACE"])
+        .ok_or_else(|| "k8s.Pod effect requires Namespace argument".to_string())?;
 
-    let pod_name = get_arg(args, &["PodName", "PODNAME", "POD_NAME"]).ok_or_else(|| {
-        "k8s.Pod effect requires PodName argument".to_string()
-    })?;
+    let pod_name = get_arg(args, &["PodName", "PODNAME", "POD_NAME"])
+        .ok_or_else(|| "k8s.Pod effect requires PodName argument".to_string())?;
 
     let mut pod = Pod::new(pod_name, namespace);
 
-    if let Some(node_name) = get_arg(args, &[
-        "NodeName",
-        "NODENAME",
-        "NODE_NAME",
-        "Node",
-        "NODE",
-    ]) {
+    if let Some(node_name) = get_arg(args, &["NodeName", "NODENAME", "NODE_NAME", "Node", "NODE"]) {
         if !node_name.trim().is_empty() {
             pod.node_name = Some(node_name.to_string());
         }
     }
 
-    if let Some(sa_name) = get_arg(args, &[
-        "ServiceAccount",
-        "SERVICEACCOUNT",
-        "SERVICE_ACCOUNT",
-        "ServiceAccountName",
-    ]) {
+    if let Some(sa_name) = get_arg(
+        args,
+        &[
+            "ServiceAccount",
+            "SERVICEACCOUNT",
+            "SERVICE_ACCOUNT",
+            "ServiceAccountName",
+        ],
+    ) {
         if !sa_name.trim().is_empty() {
             pod.service_account_name = Some(sa_name.to_string());
         }
@@ -188,8 +193,11 @@ fn parse_k8s_serviceaccount(args: &HashMap<String, String>) -> Result<FactsUpdat
     let namespace = get_arg(args, &["Namespace", "NAMESPACE"])
         .ok_or_else(|| "k8s.serviceaccount effect requires Namespace argument".to_string())?;
 
-    let sa_name = get_arg(args, &["ServiceAccountName", "SA_NAME", "SERVICEACCOUNTNAME"])
-        .ok_or_else(|| "k8s.serviceaccount effect requires ServiceAccountName argument".to_string())?;
+    let sa_name = get_arg(
+        args,
+        &["ServiceAccountName", "SA_NAME", "SERVICEACCOUNTNAME"],
+    )
+    .ok_or_else(|| "k8s.serviceaccount effect requires ServiceAccountName argument".to_string())?;
 
     let mut sa = ServiceAccount::new(sa_name, namespace);
 
@@ -197,7 +205,10 @@ fn parse_k8s_serviceaccount(args: &HashMap<String, String>) -> Result<FactsUpdat
         if !raw_token.is_empty() {
             use ran_domain::{JwToken, ServiceAccountToken};
             sa.token = Some(ServiceAccountToken {
-                jwt: JwToken { raw: raw_token.to_string(), ..Default::default() },
+                jwt: JwToken {
+                    raw: raw_token.to_string(),
+                    ..Default::default()
+                },
                 namespace: namespace.to_string(),
                 service_account_name: sa_name.to_string(),
                 ..Default::default()
@@ -332,7 +343,10 @@ fn parse_subjects_json(json: &str) -> Vec<RbacSubject> {
     serde_json::from_str::<Vec<RbacSubject>>(json).unwrap_or_default()
 }
 
-fn parse_relation_effect(effect: &str, ctx: &HashMap<String, String>) -> Result<ParsedStructuralEffect, String> {
+fn parse_relation_effect(
+    effect: &str,
+    ctx: &HashMap<String, String>,
+) -> Result<ParsedStructuralEffect, String> {
     let (name, args) = split_relation(effect)?;
 
     if let Some(handler) = resolve_relation_effect_handler(name) {
@@ -470,7 +484,10 @@ fn parse_rce_can_exec_relation(
     // command that was just run to establish this RCE path.  Store it as the
     // wrapping envelope so subsequent commands through this hop re-invoke the
     // same exploit with the new command substituted for ${CMD}.
-    let envelope = ctx.get("PROCEDURE_CMD").filter(|v| !v.trim().is_empty()).cloned();
+    let envelope = ctx
+        .get("PROCEDURE_CMD")
+        .filter(|v| !v.trim().is_empty())
+        .cloned();
     let rel = RceCanExec::new(args[0], args[1]).with_opt_envelope(envelope);
     Ok(FactsUpdate {
         new_entities: Vec::new(),
@@ -535,7 +552,10 @@ fn parse_container_escape_relation(
     // PROCEDURE_CMD is the grounded escape command (e.g. `nsenter -t 1 ... ${CMD}`).
     // Store it as the envelope so subsequent commands through this hop are
     // wrapped with the same escape primitive.
-    let envelope = ctx.get("PROCEDURE_CMD").filter(|v| !v.trim().is_empty()).cloned();
+    let envelope = ctx
+        .get("PROCEDURE_CMD")
+        .filter(|v| !v.trim().is_empty())
+        .cloned();
 
     Ok(FactsUpdate {
         new_entities: vec![Box::new(node)],
@@ -546,7 +566,6 @@ fn parse_container_escape_relation(
         entity_aliases: IndexSet::new(),
     })
 }
-
 
 fn split_relation(effect: &str) -> Result<(&str, Vec<&str>), String> {
     let open = effect
@@ -587,9 +606,11 @@ fn normalize_effect_name(name: &str) -> String {
 }
 
 fn parse_bool_like(v: &str) -> bool {
-    matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "running")
+    matches!(
+        v.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "running"
+    )
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -626,9 +647,11 @@ mod tests {
 
     #[test]
     fn k8s_can_reach_ids_containing_slashes_roundtrip_correctly() {
-        let update =
-            parse_effect("k8s.can-reach(ns/default/pod/frontend, ns/default/pod/backend)", &ctx())
-                .unwrap();
+        let update = parse_effect(
+            "k8s.can-reach(ns/default/pod/frontend, ns/default/pod/backend)",
+            &ctx(),
+        )
+        .unwrap();
         let rel = &update.new_relations[0];
         assert_eq!(rel.source_id().0, "ns/default/pod/frontend");
         assert_eq!(rel.target_id().0, "ns/default/pod/backend");
@@ -643,7 +666,10 @@ mod tests {
         args.insert("ServiceAccountName".into(), "my-sa".into());
         let update = parse_effect("k8s.serviceaccount", &args).unwrap();
         assert_eq!(update.new_entities.len(), 1);
-        let sa = update.new_entities[0].as_any().downcast_ref::<ran_domain::ServiceAccount>().unwrap();
+        let sa = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::ServiceAccount>()
+            .unwrap();
         assert_eq!(sa.entity_name(), "my-sa");
         assert_eq!(sa.namespace(), Some("default"));
     }
@@ -669,7 +695,10 @@ mod tests {
         args.insert("ServiceAccountName".into(), "my-sa".into());
         args.insert("Token".into(), "eyJhbGciOiJSUzI1NiJ9.test".into());
         let update = parse_effect("k8s.serviceaccount", &args).unwrap();
-        let sa = update.new_entities[0].as_any().downcast_ref::<ran_domain::ServiceAccount>().unwrap();
+        let sa = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::ServiceAccount>()
+            .unwrap();
         assert_eq!(sa.raw_token(), Some("eyJhbGciOiJSUzI1NiJ9.test"));
     }
 
@@ -681,7 +710,10 @@ mod tests {
         args.insert("Namespace".into(), "default".into());
         args.insert("RoleName".into(), "pod-reader".into());
         let update = parse_effect("k8s.role", &args).unwrap();
-        let role = update.new_entities[0].as_any().downcast_ref::<ran_domain::K8sRole>().unwrap();
+        let role = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::K8sRole>()
+            .unwrap();
         assert_eq!(role.entity_name(), "pod-reader");
         assert_eq!(role.namespace(), Some("default"));
         assert!(role.permissions.is_empty());
@@ -692,12 +724,24 @@ mod tests {
         let mut args = ctx();
         args.insert("Namespace".into(), "default".into());
         args.insert("RoleName".into(), "pod-reader".into());
-        args.insert("Rules".into(), r#"[{"verbs":["get","list"],"resources":["pods"],"apiGroups":[""]}]"#.into());
+        args.insert(
+            "Rules".into(),
+            r#"[{"verbs":["get","list"],"resources":["pods"],"apiGroups":[""]}]"#.into(),
+        );
         let update = parse_effect("k8s.role", &args).unwrap();
-        let role = update.new_entities[0].as_any().downcast_ref::<ran_domain::K8sRole>().unwrap();
+        let role = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::K8sRole>()
+            .unwrap();
         assert_eq!(role.permissions.len(), 2);
-        assert!(role.permissions.iter().any(|p| p.verb == "get" && p.resource_type == "pods"));
-        assert!(role.permissions.iter().any(|p| p.verb == "list" && p.resource_type == "pods"));
+        assert!(role
+            .permissions
+            .iter()
+            .any(|p| p.verb == "get" && p.resource_type == "pods"));
+        assert!(role
+            .permissions
+            .iter()
+            .any(|p| p.verb == "list" && p.resource_type == "pods"));
     }
 
     #[test]
@@ -707,7 +751,10 @@ mod tests {
         args.insert("RoleName".into(), "empty-role".into());
         args.insert("Rules".into(), "[]".into());
         let update = parse_effect("k8s.role", &args).unwrap();
-        let role = update.new_entities[0].as_any().downcast_ref::<ran_domain::K8sRole>().unwrap();
+        let role = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::K8sRole>()
+            .unwrap();
         assert!(role.permissions.is_empty());
     }
 
@@ -726,9 +773,15 @@ mod tests {
         args.insert("Namespace".into(), "default".into());
         args.insert("BindingName".into(), "pod-reader-binding".into());
         args.insert("RoleRef".into(), "pod-reader".into());
-        args.insert("Subjects".into(), r#"[{"kind":"ServiceAccount","name":"my-sa","namespace":"default"}]"#.into());
+        args.insert(
+            "Subjects".into(),
+            r#"[{"kind":"ServiceAccount","name":"my-sa","namespace":"default"}]"#.into(),
+        );
         let update = parse_effect("k8s.rolebinding", &args).unwrap();
-        let binding = update.new_entities[0].as_any().downcast_ref::<ran_domain::K8sRoleBinding>().unwrap();
+        let binding = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::K8sRoleBinding>()
+            .unwrap();
         assert_eq!(binding.entity_name(), "pod-reader-binding");
         assert_eq!(binding.role_ref, "pod-reader");
         assert_eq!(binding.subjects.len(), 1);
@@ -749,7 +802,10 @@ mod tests {
         args.insert("BindingName".into(), "empty-binding".into());
         args.insert("Subjects".into(), "[]".into());
         let update = parse_effect("k8s.rolebinding", &args).unwrap();
-        let binding = update.new_entities[0].as_any().downcast_ref::<ran_domain::K8sRoleBinding>().unwrap();
+        let binding = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::K8sRoleBinding>()
+            .unwrap();
         assert!(binding.subjects.is_empty());
     }
 
@@ -761,7 +817,10 @@ mod tests {
         args.insert("Namespace".into(), "default".into());
         args.insert("CronJobName".into(), "cleanup-job".into());
         let update = parse_effect("k8s.cronjob", &args).unwrap();
-        let cj = update.new_entities[0].as_any().downcast_ref::<ran_domain::CronJob>().unwrap();
+        let cj = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::CronJob>()
+            .unwrap();
         assert_eq!(cj.entity_name(), "cleanup-job");
         assert_eq!(cj.namespace(), Some("default"));
         assert!(cj.schedule.is_none());
@@ -774,7 +833,10 @@ mod tests {
         args.insert("CronJobName".into(), "nightly".into());
         args.insert("Schedule".into(), "0 2 * * *".into());
         let update = parse_effect("k8s.cronjob", &args).unwrap();
-        let cj = update.new_entities[0].as_any().downcast_ref::<ran_domain::CronJob>().unwrap();
+        let cj = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::CronJob>()
+            .unwrap();
         assert_eq!(cj.schedule.as_deref(), Some("0 2 * * *"));
     }
 
@@ -802,8 +864,7 @@ mod tests {
             "PROCEDURE_CMD".into(),
             "nsenter -t 1 -m -u -i -n -p -- ${CMD}".into(),
         );
-        let update =
-            parse_effect("container.escape(ns/default/pod/attacker)", &args).unwrap();
+        let update = parse_effect("container.escape(ns/default/pod/attacker)", &args).unwrap();
 
         // Emits a K8sNode entity.
         assert_eq!(update.new_entities.len(), 1);
@@ -815,31 +876,45 @@ mod tests {
 
         // Emits RunsOn + ContainerEscape relations.
         assert_eq!(update.new_relations.len(), 2);
-        let runs_on = update.new_relations.iter().find(|r| r.relation_name() == "runs-on").unwrap();
+        let runs_on = update
+            .new_relations
+            .iter()
+            .find(|r| r.relation_name() == "runs-on")
+            .unwrap();
         assert_eq!(runs_on.source_id().0, "ns/default/pod/attacker");
         assert_eq!(runs_on.target_id().0, "node/worker-1");
 
-        let escape = update.new_relations.iter()
+        let escape = update
+            .new_relations
+            .iter()
             .find(|r| r.relation_name() == "container.escape")
             .unwrap();
         let escape = escape.as_any().downcast_ref::<ContainerEscape>().unwrap();
         assert_eq!(escape.source_id.0, "ns/default/pod/attacker");
         assert_eq!(escape.target_id.0, "node/worker-1");
-        assert_eq!(escape.envelope.as_deref(), Some("nsenter -t 1 -m -u -i -n -p -- ${CMD}"));
+        assert_eq!(
+            escape.envelope.as_deref(),
+            Some("nsenter -t 1 -m -u -i -n -p -- ${CMD}")
+        );
         assert!(escape.is_exec_channel());
     }
 
     #[test]
     fn container_escape_creates_placeholder_node_when_node_unknown() {
-        let update =
-            parse_effect("container.escape(ns/default/pod/attacker)", &ctx()).unwrap();
+        let update = parse_effect("container.escape(ns/default/pod/attacker)", &ctx()).unwrap();
 
         // Should still create a node entity (placeholder).
         assert_eq!(update.new_entities.len(), 1);
         // And two relations: RunsOn + ContainerEscape.
         assert_eq!(update.new_relations.len(), 2);
-        assert!(update.new_relations.iter().any(|r| r.relation_name() == "runs-on"));
-        assert!(update.new_relations.iter().any(|r| r.relation_name() == "container.escape"));
+        assert!(update
+            .new_relations
+            .iter()
+            .any(|r| r.relation_name() == "runs-on"));
+        assert!(update
+            .new_relations
+            .iter()
+            .any(|r| r.relation_name() == "container.escape"));
     }
 
     #[test]
@@ -848,7 +923,9 @@ mod tests {
         args.insert("TARGET_ID".into(), "ns/default/pod/attacker".into());
         args.insert("TARGET_NODE_ID".into(), "node/worker-1".into());
         let update = parse_effect("container.escape(sys)", &args).unwrap();
-        let escape = update.new_relations.iter()
+        let escape = update
+            .new_relations
+            .iter()
             .find(|r| r.relation_name() == "container.escape")
             .unwrap();
         assert_eq!(escape.source_id().0, "ns/default/pod/attacker");
@@ -859,7 +936,9 @@ mod tests {
         let mut args = ctx();
         args.insert("TARGET_NODE_ID".into(), "node/worker-1".into());
         let update = parse_effect("container.escape(ns/default/pod/attacker)", &args).unwrap();
-        let escape = update.new_relations.iter()
+        let escape = update
+            .new_relations
+            .iter()
             .find(|r| r.relation_name() == "container.escape")
             .unwrap()
             .as_any()

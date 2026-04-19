@@ -562,7 +562,10 @@ mod tests {
 
         let classified = classify_failure(&cmd, &event);
 
-        assert!(matches!(classified.parse_result, ParseResult::UnknownFormat));
+        assert!(matches!(
+            classified.parse_result,
+            ParseResult::UnknownFormat
+        ));
         assert!(classified.detail.contains("unclassified"));
     }
 

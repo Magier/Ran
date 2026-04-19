@@ -2,15 +2,18 @@ use std::sync::{Arc, RwLock};
 
 use armory::Ttp;
 use c2::{C2Event, C2EventBus};
-use ran_domain::{AccessLevel, C2Server, Entity, EntityId, SessionChannel, SessionInfo, SessionStatus, UnknownSystem};
+use ran_domain::{
+    AccessLevel, C2Server, Entity, EntityId, SessionChannel, SessionInfo, SessionStatus,
+    UnknownSystem,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::external_parser::{ExternalParseRequest, ExternalParser};
-use crate::{Campaign, ParseAudit, ParseResult};
 use crate::output_parsers::build_parse_audit;
+use crate::{Campaign, ParseAudit, ParseResult};
 use ran_domain::RelationSummary;
 
 /// Lightweight, serialisable snapshot of a domain entity for use in events.
@@ -28,7 +31,7 @@ pub enum CampaignEvent {
         action_id: String,
         target_id: String,
         exec_system_id: String,
-        ttp: Ttp,
+        ttp: Box<Ttp>,
         args: std::collections::HashMap<String, String>,
         success: bool,
         fail_reason: String,
@@ -65,8 +68,8 @@ impl CampaignEventBus {
     pub fn publish(
         &self,
         event: CampaignEvent,
-    ) -> Result<usize, broadcast::error::SendError<CampaignEvent>> {
-        self.tx.send(event)
+    ) -> Result<usize, Box<broadcast::error::SendError<CampaignEvent>>> {
+        self.tx.send(event).map_err(Box::new)
     }
 }
 
@@ -202,10 +205,9 @@ pub fn spawn_c2_event_processor_with_external_parser(
                                             continue;
                                         }
                                     };
-                                    match guard.apply_system_update(
-                                        &cmd.target_id,
-                                        &response.system,
-                                    ) {
+                                    match guard
+                                        .apply_system_update(&cmd.target_id, &response.system)
+                                    {
                                         Ok(n) => n,
                                         Err(e) => {
                                             warn!(
@@ -257,7 +259,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         action_id,
                         target_id,
                         exec_system_id: cmd.exec_system_id,
-                        ttp: cmd.ttp,
+                        ttp: Box::new(cmd.ttp),
                         args: cmd.args,
                         // Use the effective success/fail_reason derived by the parser,
                         // which may override the raw transport-level success when a
@@ -325,7 +327,14 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         new_relations: vec![],
                     });
                 }
-                Ok(C2Event::SessionConnected { backend_id, target_entity_id, hostname, user, os, port }) => {
+                Ok(C2Event::SessionConnected {
+                    backend_id,
+                    target_entity_id,
+                    hostname,
+                    user,
+                    os,
+                    port,
+                }) => {
                     info!(%backend_id, %target_entity_id, %hostname, %user, %os, "SessionConnected received by campaign processor");
                     let mut guard = match campaign.write() {
                         Ok(g) => g,
@@ -387,7 +396,10 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         new_relations: vec![relation_summary],
                     });
                 }
-                Ok(C2Event::SessionLost { backend_id, target_entity_id }) => {
+                Ok(C2Event::SessionLost {
+                    backend_id,
+                    target_entity_id,
+                }) => {
                     let mut guard = match campaign.write() {
                         Ok(g) => g,
                         Err(_) => {
@@ -395,7 +407,12 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             continue;
                         }
                     };
-                    update_session_status(&mut guard, &target_entity_id, &backend_id, SessionStatus::Lost);
+                    update_session_status(
+                        &mut guard,
+                        &target_entity_id,
+                        &backend_id,
+                        SessionStatus::Lost,
+                    );
                     info!(%backend_id, %target_entity_id, "session lost");
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                         cmd_id: backend_id,
@@ -404,7 +421,10 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     });
                 }
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    warn!(skipped, "campaign c2 event processor lagged behind c2 event bus");
+                    warn!(
+                        skipped,
+                        "campaign c2 event processor lagged behind c2 event bus"
+                    );
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     info!("c2 event bus closed; stopping campaign c2 event processor");
@@ -415,7 +435,12 @@ pub fn spawn_c2_event_processor_with_external_parser(
     })
 }
 
-fn update_session_status(campaign: &mut Campaign, target_entity_id: &str, backend_id: &str, status: SessionStatus) {
+fn update_session_status(
+    campaign: &mut Campaign,
+    target_entity_id: &str,
+    backend_id: &str,
+    status: SessionStatus,
+) {
     let Some(mut sys) = campaign.get_system_entity_mut(target_entity_id) else {
         return;
     };
@@ -431,7 +456,10 @@ fn update_session_status(campaign: &mut Campaign, target_entity_id: &str, backen
     } else if status == SessionStatus::Active {
         // First time we hear about this session — the shell connected without a
         // prior listener TTP (e.g. a manually triggered reverse shell).
-        let session_id = backend_id.strip_prefix("session/").unwrap_or(backend_id).to_string();
+        let session_id = backend_id
+            .strip_prefix("session/")
+            .unwrap_or(backend_id)
+            .to_string();
         sessions.push(SessionInfo {
             id: session_id,
             kind: "tcp".to_string(),

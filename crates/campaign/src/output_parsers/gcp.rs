@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use ran_domain::{GCPBucket, GCPServiceAccount, GcpAccessToken};
 use serde::Deserialize;
 
-use crate::FactsUpdate;
 use super::ParserOutput;
+use crate::FactsUpdate;
 
 pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("gcp.serviceaccount", parse_gcp_serviceaccount);
@@ -92,7 +92,10 @@ fn parse_gcp_serviceaccount(stdout: &str, _stderr: &str) -> ParserOutput {
 
     ParserOutput::SuccessWithFacts(
         facts,
-        format!("discovered GCP service account: {}", if email.is_empty() { "default" } else { &email }),
+        format!(
+            "discovered GCP service account: {}",
+            if email.is_empty() { "default" } else { &email }
+        ),
     )
 }
 

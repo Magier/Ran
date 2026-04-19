@@ -40,10 +40,11 @@ impl Armory {
                 source,
             })?;
 
-            let raw_ttp: RawTtp = serde_yaml::from_str(&raw).map_err(|source| ArmoryError::ParseYaml {
-                path: file_path.display().to_string(),
-                source,
-            })?;
+            let raw_ttp: RawTtp =
+                serde_yaml::from_str(&raw).map_err(|source| ArmoryError::ParseYaml {
+                    path: file_path.display().to_string(),
+                    source,
+                })?;
 
             if let Some(ttp) = raw_ttp.into_ttp(file_path) {
                 ttps.push(ttp);

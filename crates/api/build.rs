@@ -51,12 +51,29 @@ fn main() -> Result<()> {
     );
     generated.push_str("use serde::{Deserialize, Serialize};\n\n");
 
-    generated.push_str(&generate_query_params(paths, "/api/pods/running", "get", "GetRunningPodsParams")?);
+    generated.push_str(&generate_query_params(
+        paths,
+        "/api/pods/running",
+        "get",
+        "GetRunningPodsParams",
+    )?);
     generated.push('\n');
-    generated.push_str(&generate_query_params(paths, "/api/armory", "get", "GetArmoryParams")?);
+    generated.push_str(&generate_query_params(
+        paths,
+        "/api/armory",
+        "get",
+        "GetArmoryParams",
+    )?);
     generated.push('\n');
 
-    for schema_name in ["K8sResource", "Error", "CampaignState", "Graph", "Node", "Edge"] {
+    for schema_name in [
+        "K8sResource",
+        "Error",
+        "CampaignState",
+        "Graph",
+        "Node",
+        "Edge",
+    ] {
         generated.push_str(&generate_object_schema_struct(schemas, schema_name)?);
         generated.push('\n');
     }
@@ -374,7 +391,11 @@ fn get_mapping<'a>(v: &'a Value, key: &str) -> Result<&'a Mapping> {
         .ok_or_else(|| anyhow!("missing mapping key '{}'", key))
 }
 
-fn ensure_schema_has_fields(schemas: &Mapping, schema_name: &str, required_fields: &[&str]) -> Result<()> {
+fn ensure_schema_has_fields(
+    schemas: &Mapping,
+    schema_name: &str,
+    required_fields: &[&str],
+) -> Result<()> {
     let schema = schemas
         .get(Value::String(schema_name.to_string()))
         .and_then(Value::as_mapping)

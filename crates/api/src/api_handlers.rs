@@ -5,12 +5,14 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tracing::debug;
 
-use campaign::ttp_applicability::{ttp_access_level_satisfied, ttp_exists_satisfied, ttp_has_token_satisfied, ttp_rbac_satisfied};
+use campaign::ttp_applicability::{
+    ttp_access_level_satisfied, ttp_exists_satisfied, ttp_has_token_satisfied, ttp_rbac_satisfied,
+};
 use campaign::CampaignEntityRef;
 use ran_domain::AccessLevel;
 
-use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
 use crate::sse::events_handler;
+use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
 use crate::{ApiError, ApiService, CampaignState, ErrorResponse, GetArmoryParams, Graph};
 
 #[cfg(debug_assertions)]
@@ -20,10 +22,7 @@ use axum::{
 };
 
 #[cfg(debug_assertions)]
-use axum::{
-    body::Body,
-    response::IntoResponse,
-};
+use axum::{body::Body, response::IntoResponse};
 
 #[cfg(debug_assertions)]
 use reqwest::Client;
@@ -160,9 +159,7 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
     State(service): State<S>,
     Query(params): Query<GetApplicableTtpsParams>,
 ) -> Result<axum::Json<Vec<armory::Ttp>>, ApiError> {
-    let all_ttps = service
-        .get_armory(GetArmoryParams { tactic: None })
-        .await?;
+    let all_ttps = service.get_armory(GetArmoryParams { tactic: None }).await?;
 
     let target_id = params
         .target_id
@@ -198,7 +195,9 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
         let kind = entity.entity_kind().to_string();
         let is_system = matches!(
             &entity,
-            CampaignEntityRef::Pod(_) | CampaignEntityRef::Node(_) | CampaignEntityRef::UnknownSystem(_)
+            CampaignEntityRef::Pod(_)
+                | CampaignEntityRef::Node(_)
+                | CampaignEntityRef::UnknownSystem(_)
         );
         let access_level = match &entity {
             CampaignEntityRef::Pod(p) => {
@@ -287,7 +286,10 @@ pub(crate) async fn execution_records_handler<S: ApiService>(
                 .filter(|a| a.cmd_id == record.id)
                 .cloned()
                 .collect();
-            ExecutionRecordEntry { record: record.clone(), parse_audits }
+            ExecutionRecordEntry {
+                record: record.clone(),
+                parse_audits,
+            }
         })
         .collect();
     Ok(axum::Json(entries))
@@ -316,7 +318,10 @@ pub(crate) async fn execution_record_by_id_handler<S: ApiService>(
         .filter(|a| a.cmd_id == id)
         .cloned()
         .collect();
-    Ok(axum::Json(ExecutionRecordEntry { record, parse_audits }))
+    Ok(axum::Json(ExecutionRecordEntry {
+        record,
+        parse_audits,
+    }))
 }
 
 pub(crate) async fn campaign_state_handler<S: ApiService>(

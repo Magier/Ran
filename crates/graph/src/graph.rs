@@ -35,7 +35,10 @@ impl Default for KnowledgeGraph {
 
 impl KnowledgeGraph {
     pub fn new() -> Self {
-        Self { graph: StableGraph::new(), index: HashMap::new() }
+        Self {
+            graph: StableGraph::new(),
+            index: HashMap::new(),
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -63,8 +66,7 @@ impl KnowledgeGraph {
     /// so it now touches `keep` instead.  Duplicate edges (same relation name)
     /// are dropped.  Entity *data* merging is the caller's responsibility.
     pub fn merge_entities(&mut self, keep: &EntityId, discard: &EntityId) {
-        let (Some(&keep_idx), Some(&discard_idx)) =
-            (self.index.get(keep), self.index.get(discard))
+        let (Some(&keep_idx), Some(&discard_idx)) = (self.index.get(keep), self.index.get(discard))
         else {
             return;
         };
@@ -189,7 +191,9 @@ impl KnowledgeGraph {
 
     /// Outgoing edges from `id` as `(target_id, &EdgeData)` pairs.
     pub fn outgoing(&self, id: &EntityId) -> Vec<(&EntityId, &EdgeData)> {
-        let Some(&idx) = self.index.get(id) else { return Vec::new() };
+        let Some(&idx) = self.index.get(id) else {
+            return Vec::new();
+        };
         self.graph
             .edges_directed(idx, Direction::Outgoing)
             .filter_map(|e| Some((self.graph.node_weight(e.target())?, e.weight())))
@@ -198,7 +202,9 @@ impl KnowledgeGraph {
 
     /// Incoming edges to `id` as `(source_id, &EdgeData)` pairs.
     pub fn incoming(&self, id: &EntityId) -> Vec<(&EntityId, &EdgeData)> {
-        let Some(&idx) = self.index.get(id) else { return Vec::new() };
+        let Some(&idx) = self.index.get(id) else {
+            return Vec::new();
+        };
         self.graph
             .edges_directed(idx, Direction::Incoming)
             .filter_map(|e| Some((self.graph.node_weight(e.source())?, e.weight())))
@@ -224,7 +230,11 @@ impl KnowledgeGraph {
                     return None;
                 }
                 let (si, ti) = self.graph.edge_endpoints(ei)?;
-                Some((self.graph.node_weight(si)?, self.graph.node_weight(ti)?, data))
+                Some((
+                    self.graph.node_weight(si)?,
+                    self.graph.node_weight(ti)?,
+                    data,
+                ))
             })
             .collect()
     }
@@ -232,10 +242,8 @@ impl KnowledgeGraph {
     /// All entity IDs reachable from any of `seeds` following exec-channel edges
     /// (BFS, seeds themselves are not included in the result).
     pub fn reachable_via_exec(&self, seeds: &[EntityId]) -> Vec<EntityId> {
-        let mut visited: std::collections::HashSet<NodeIndex> =
-            std::collections::HashSet::new();
-        let mut queue: std::collections::VecDeque<NodeIndex> =
-            std::collections::VecDeque::new();
+        let mut visited: std::collections::HashSet<NodeIndex> = std::collections::HashSet::new();
+        let mut queue: std::collections::VecDeque<NodeIndex> = std::collections::VecDeque::new();
 
         for seed in seeds {
             if let Some(&idx) = self.index.get(seed) {
@@ -276,7 +284,7 @@ impl KnowledgeGraph {
         seeds: &[EntityId],
         target: &EntityId,
     ) -> Option<(f32, Vec<EntityId>)> {
-        let Some(&target_idx) = self.index.get(target) else { return None };
+        let &target_idx = self.index.get(target)?;
 
         let exec_graph = EdgeFiltered::from_fn(
             &self.graph,
@@ -286,7 +294,9 @@ impl KnowledgeGraph {
         let mut best: Option<(f32, Vec<NodeIndex>)> = None;
 
         for seed in seeds {
-            let Some(&seed_idx) = self.index.get(seed) else { continue };
+            let Some(&seed_idx) = self.index.get(seed) else {
+                continue;
+            };
 
             let result = astar(
                 &exec_graph,
@@ -297,7 +307,7 @@ impl KnowledgeGraph {
             );
 
             if let Some((cost, path)) = result {
-                if best.as_ref().map_or(true, |(c, _)| cost < *c) {
+                if best.as_ref().is_none_or(|(c, _)| cost < *c) {
                     best = Some((cost, path));
                 }
             }

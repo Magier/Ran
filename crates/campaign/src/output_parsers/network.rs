@@ -3,8 +3,8 @@ use std::net::IpAddr;
 
 use ran_domain::{CanReach, Entity, Pod};
 
-use crate::FactsUpdate;
 use super::ParserOutput;
+use crate::FactsUpdate;
 
 pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("rdns", parse_rdns);
@@ -50,9 +50,7 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str) -> ParserOutput {
     };
 
     if hosts.is_empty() {
-        return ParserOutput::KnownFailure(
-            "no live hosts discovered in nmap output".to_string(),
-        );
+        return ParserOutput::KnownFailure("no live hosts discovered in nmap output".to_string());
     }
 
     let mut facts = FactsUpdate::default();
@@ -234,7 +232,9 @@ fn parse_rdns(stdout: &str, _stderr: &str) -> ParserOutput {
     }
 
     if entries.is_empty() {
-        return ParserOutput::KnownFailure("no valid IP,DNS entries found in rDNS output".to_string());
+        return ParserOutput::KnownFailure(
+            "no valid IP,DNS entries found in rDNS output".to_string(),
+        );
     }
 
     let mut facts = FactsUpdate::default();
@@ -267,7 +267,7 @@ fn parse_rdns(stdout: &str, _stderr: &str) -> ParserOutput {
         };
 
         // Skip service VIPs — only pod entries have the IP as the first label.
-        let is_pod = dns_parts.first().map_or(false, |&l| l == ip_kebab);
+        let is_pod = dns_parts.first().is_some_and(|&l| l == ip_kebab);
         if !is_pod {
             continue;
         }
@@ -284,10 +284,7 @@ fn parse_rdns(stdout: &str, _stderr: &str) -> ParserOutput {
         );
     }
 
-    ParserOutput::SuccessWithFacts(
-        facts,
-        format!("discovered {} pod(s) from rDNS", pod_count),
-    )
+    ParserOutput::SuccessWithFacts(facts, format!("discovered {} pod(s) from rDNS", pod_count))
 }
 
 #[cfg(test)]
@@ -306,9 +303,15 @@ mod tests {
         };
         assert_eq!(facts.new_entities.len(), 1);
         assert_eq!(facts.new_relations.len(), 1);
-        let pod = facts.new_entities[0].as_any().downcast_ref::<Pod>().unwrap();
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .unwrap();
         assert!(pod.system.ips.iter().any(|ip| ip.to_string() == "10.0.0.5"));
-        let rel = facts.new_relations[0].as_any().downcast_ref::<CanReach>().unwrap();
+        let rel = facts.new_relations[0]
+            .as_any()
+            .downcast_ref::<CanReach>()
+            .unwrap();
         assert_eq!(rel.source_id.0, "ns/default/pod/attacker");
         assert!(detail.contains("1 live host"));
     }
@@ -329,7 +332,10 @@ mod tests {
         let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "src") else {
             panic!("expected SuccessWithFacts");
         };
-        let pod = facts.new_entities[0].as_any().downcast_ref::<Pod>().unwrap();
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .unwrap();
         assert_eq!(pod.entity_name(), "redis.default.svc.cluster.local");
     }
 
@@ -342,26 +348,39 @@ mod tests {
 <address addr="10.0.0.5" addrtype="ipv4"/>
 </host>
 </nmaprun>"#;
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "ns/default/pod/scanner") else {
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "ns/default/pod/scanner")
+        else {
             panic!("expected SuccessWithFacts");
         };
         assert_eq!(facts.new_entities.len(), 1);
-        let pod = facts.new_entities[0].as_any().downcast_ref::<Pod>().unwrap();
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .unwrap();
         assert!(pod.system.ips.iter().any(|ip| ip.to_string() == "10.0.0.5"));
         assert_eq!(facts.new_relations.len(), 1);
-        let rel = facts.new_relations[0].as_any().downcast_ref::<CanReach>().unwrap();
+        let rel = facts.new_relations[0]
+            .as_any()
+            .downcast_ref::<CanReach>()
+            .unwrap();
         assert_eq!(rel.source_id.0, "ns/default/pod/scanner");
     }
 
     #[test]
     fn parse_nmap_empty_output_returns_known_failure() {
-        assert!(matches!(parse_nmap("", "src"), ParserOutput::KnownFailure(_)));
+        assert!(matches!(
+            parse_nmap("", "src"),
+            ParserOutput::KnownFailure(_)
+        ));
     }
 
     #[test]
     fn parse_nmap_grep_status_down_skipped() {
         let stdout = "Host: 10.0.0.1 ()\tStatus: Down\nHost: 10.0.0.2 ()\tStatus: Down\n";
-        assert!(matches!(parse_nmap(stdout, "src"), ParserOutput::KnownFailure(_)));
+        assert!(matches!(
+            parse_nmap(stdout, "src"),
+            ParserOutput::KnownFailure(_)
+        ));
     }
 
     // --- rdns ---
@@ -377,8 +396,12 @@ mod tests {
             panic!("expected SuccessWithFacts, got {:?}", result);
         };
         assert_eq!(facts.new_entities.len(), 2, "should discover 2 pods");
-        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "Pod" && e.entity_name() == "backend-service.10-244-1-4"));
-        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "Pod" && e.entity_name() == "argocd-notifications-controller-metrics.10-244-1-6"));
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|e| e.entity_kind() == "Pod" && e.entity_name() == "backend-service.10-244-1-4"));
+        assert!(facts.new_entities.iter().any(|e| e.entity_kind() == "Pod"
+            && e.entity_name() == "argocd-notifications-controller-metrics.10-244-1-6"));
         assert!(detail.contains("2 pod"));
     }
 
@@ -388,9 +411,17 @@ mod tests {
         let ParserOutput::SuccessWithFacts(facts, _) = parse_rdns(stdout, "") else {
             panic!("expected SuccessWithFacts");
         };
-        let pod = facts.new_entities.iter().find(|e| e.entity_kind() == "Pod").unwrap();
+        let pod = facts
+            .new_entities
+            .iter()
+            .find(|e| e.entity_kind() == "Pod")
+            .unwrap();
         let pod = pod.as_any().downcast_ref::<Pod>().unwrap();
-        assert!(pod.system.ips.iter().any(|ip| ip.to_string() == "10.244.1.4"));
+        assert!(pod
+            .system
+            .ips
+            .iter()
+            .any(|ip| ip.to_string() == "10.244.1.4"));
         assert_eq!(pod.namespace().unwrap(), "dev");
     }
 

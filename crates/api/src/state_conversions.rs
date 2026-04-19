@@ -22,7 +22,10 @@ pub(crate) fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
             Value::String(entity.entity_kind().to_string()),
         );
         if let Some(namespace) = entity.namespace() {
-            data.insert("namespace".to_string(), Value::String(namespace.to_string()));
+            data.insert(
+                "namespace".to_string(),
+                Value::String(namespace.to_string()),
+            );
         }
 
         if let Some(mut full_entity) = serialize_campaign_entity_map(&entity) {
@@ -91,7 +94,11 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
                     source_id: r.source_id.clone(),
                     target_id: r.target_id.clone(),
                     name: r.name.clone(),
-                    weight: if r.weight > 0.0 { Some(r.weight as f64) } else { None },
+                    weight: if r.weight > 0.0 {
+                        Some(r.weight as f64)
+                    } else {
+                        None
+                    },
                     relation: None,
                 });
             }
@@ -126,9 +133,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
             CampaignEntityRef::ServiceAccount(sa) => {
                 Some(sa.token.as_ref().is_some_and(|t| !t.jwt.is_empty()))
             }
-            CampaignEntityRef::Node(n) => {
-                Some(n.system.access_level >= AccessLevel::Exec)
-            }
+            CampaignEntityRef::Node(n) => Some(n.system.access_level >= AccessLevel::Exec),
             _ => None,
         };
 
@@ -145,7 +150,11 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
         });
     }
 
-    Graph { root_node_id, nodes, edges }
+    Graph {
+        root_node_id,
+        nodes,
+        edges,
+    }
 }
 
 fn serialize_entity_map<T: serde::Serialize>(entity: &T) -> Option<HashMap<String, Value>> {
@@ -244,9 +253,9 @@ fn rbac_permissions_to_ui(value: Value) -> Value {
                     let key = match k.as_str() {
                         "resource_type" => "resourceType",
                         "resource_name" => "resourceName",
-                        "api_group"     => "apiGroup",
-                        "source_role"   => "sourceRole",
-                        other           => {
+                        "api_group" => "apiGroup",
+                        "source_role" => "sourceRole",
+                        other => {
                             out.insert(other.to_string(), v);
                             continue;
                         }

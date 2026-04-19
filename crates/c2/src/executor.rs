@@ -40,8 +40,11 @@ impl C2EventBus {
         self.tx.subscribe()
     }
 
-    pub fn publish(&self, event: C2Event) -> Result<usize, broadcast::error::SendError<C2Event>> {
-        self.tx.send(event)
+    pub fn publish(
+        &self,
+        event: C2Event,
+    ) -> Result<usize, Box<broadcast::error::SendError<C2Event>>> {
+        self.tx.send(event).map_err(Box::new)
     }
 }
 
@@ -53,7 +56,6 @@ impl C2Handle {
             .map_err(|_| "failed to send ExecTtp command to c2 runtime".to_string())
     }
 }
-
 
 pub struct C2Manager {
     cmd_rx: mpsc::Receiver<ExecTtp>,
@@ -85,7 +87,10 @@ impl C2Manager {
         let backends: Backends = Arc::new(RwLock::new(map));
 
         (
-            C2Handle { cmd_tx, backends: backends.clone() },
+            C2Handle {
+                cmd_tx,
+                backends: backends.clone(),
+            },
             event_bus.clone(),
             Self {
                 cmd_rx,
@@ -105,7 +110,10 @@ impl C2Manager {
         let backends: Backends = Arc::new(RwLock::new(backends));
 
         (
-            C2Handle { cmd_tx, backends: backends.clone() },
+            C2Handle {
+                cmd_tx,
+                backends: backends.clone(),
+            },
             event_bus.clone(),
             Self {
                 cmd_rx,
@@ -120,7 +128,10 @@ impl C2Manager {
             let event = self.execute_command(&cmd).await;
             if self
                 .event_bus
-                .publish(C2Event::TtpExecuted { cmd, event })
+                .publish(C2Event::TtpExecuted {
+                    cmd: Box::new(cmd),
+                    event,
+                })
                 .is_err()
             {
                 debug!("no c2 event subscribers currently registered");
@@ -144,7 +155,12 @@ impl C2Manager {
 
         if let Some((port, protocol)) = parse_session_listen_command(trimmed) {
             let backend_id = session_backend_id_from_cmd(cmd);
-            let target_entity_id = cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or(&cmd.target_id).to_string();
+            let target_entity_id = cmd
+                .args
+                .get("TARGET_ID")
+                .map(String::as_str)
+                .unwrap_or(&cmd.target_id)
+                .to_string();
             self.spawn_session_listener(backend_id, target_entity_id, port, protocol);
             return TtpExecuted {
                 id: cmd.id.clone(),
@@ -159,11 +175,25 @@ impl C2Manager {
         backend.execute(cmd).await
     }
 
-    fn spawn_session_listener(&self, backend_id: String, target_entity_id: String, port: u16, protocol: String) {
+    fn spawn_session_listener(
+        &self,
+        backend_id: String,
+        target_entity_id: String,
+        port: u16,
+        protocol: String,
+    ) {
         let backends = self.backends.clone();
         let event_bus = self.event_bus.clone();
         tokio::spawn(async move {
-            accept_session_loop(backends, event_bus, backend_id, target_entity_id, port, protocol).await;
+            accept_session_loop(
+                backends,
+                event_bus,
+                backend_id,
+                target_entity_id,
+                port,
+                protocol,
+            )
+            .await;
         });
     }
 
@@ -200,15 +230,26 @@ fn parse_session_listen_command(cmd: &str) -> Option<(u16, String)> {
     let inner = cmd.strip_prefix("c2.listen(")?.strip_suffix(')')?;
     let mut parts = inner.splitn(2, ',');
     let port: u16 = parts.next()?.trim().parse().ok()?;
-    let protocol = parts.next().map(|p| p.trim().to_string()).unwrap_or_else(|| "tcp".to_string());
+    let protocol = parts
+        .next()
+        .map(|p| p.trim().to_string())
+        .unwrap_or_else(|| "tcp".to_string());
     Some((port, protocol))
 }
 
 /// Derive the session backend ID for a `session.listen` command from the
 /// execution context — uses the same deterministic scheme as the effect handler.
 fn session_backend_id_from_cmd(cmd: &ExecTtp) -> String {
-    let target_id = cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or(&cmd.target_id);
-    let port = cmd.args.get("PORT").and_then(|p| p.parse::<u16>().ok()).unwrap_or(0);
+    let target_id = cmd
+        .args
+        .get("TARGET_ID")
+        .map(String::as_str)
+        .unwrap_or(&cmd.target_id);
+    let port = cmd
+        .args
+        .get("PORT")
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(0);
     let slug = target_id.replace('/', "-");
     format!("session/{}-{}", slug, port)
 }
@@ -221,8 +262,8 @@ async fn accept_session_loop(
     port: u16,
     protocol: String,
 ) {
-    use std::net::{Ipv4Addr, SocketAddr};
     use crate::ShellSession;
+    use std::net::{Ipv4Addr, SocketAddr};
 
     let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, port));
     let listener = match tokio::net::TcpListener::bind(addr).await {
@@ -269,7 +310,10 @@ async fn accept_session_loop(
 
                 let target_entity_id = format!("node/{}", hostname.to_lowercase());
 
-                backends.write().await.insert(backend_id.clone(), Arc::new(session));
+                backends
+                    .write()
+                    .await
+                    .insert(backend_id.clone(), Arc::new(session));
                 let publish_result = event_bus.publish(C2Event::SessionConnected {
                     backend_id: backend_id.clone(),
                     target_entity_id,
@@ -351,7 +395,9 @@ mod tests {
         }
 
         drop(handle);
-        manager_task.await.expect("manager should shut down cleanly");
+        manager_task
+            .await
+            .expect("manager should shut down cleanly");
     }
 
     #[tokio::test]
@@ -391,7 +437,9 @@ mod tests {
         }
 
         drop(handle);
-        manager_task.await.expect("manager should shut down cleanly");
+        manager_task
+            .await
+            .expect("manager should shut down cleanly");
     }
 
     fn exec_cmd(exec_system_id: &str) -> ExecTtp {

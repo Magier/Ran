@@ -26,8 +26,8 @@ use std::time::{Duration, Instant};
 use campaign::{CampaignEventBus, ExecuteActionRequest};
 use ran_domain::{Entity, ServiceAccount};
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Content, Implementation, JsonObject,
-    ListToolsResult, ServerCapabilities, ServerInfo, Tool,
+    CallToolRequestParams, CallToolResult, Content, Implementation, JsonObject, ListToolsResult,
+    ServerCapabilities, ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler};
@@ -191,12 +191,14 @@ impl<S: ApiService> RanMcpHandler<S> {
                 e.entity_name().to_ascii_lowercase().contains(&name)
                     || e.entity_id().0.to_ascii_lowercase().contains(&name)
             })
-            .map(|e| json!({
-                "id": e.entity_id().0,
-                "kind": e.entity_kind(),
-                "name": e.entity_name(),
-                "namespace": e.namespace(),
-            }))
+            .map(|e| {
+                json!({
+                    "id": e.entity_id().0,
+                    "kind": e.entity_kind(),
+                    "name": e.entity_name(),
+                    "namespace": e.namespace(),
+                })
+            })
             .collect();
 
         json_result(json!({ "matches": matches }))
@@ -207,16 +209,18 @@ impl<S: ApiService> RanMcpHandler<S> {
         let records: Vec<_> = campaign
             .get_execution_records()
             .iter()
-            .map(|r| json!({
-                "id": r.id,
-                "ttp_id": r.ttp_id,
-                "ttp_name": r.ttp_name,
-                "tactic": r.tactic,
-                "target_id": r.target_id,
-                "success": r.success,
-                "exit_code": r.exit_code,
-                "fail_reason": r.fail_reason,
-            }))
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "ttp_id": r.ttp_id,
+                    "ttp_name": r.ttp_name,
+                    "tactic": r.tactic,
+                    "target_id": r.target_id,
+                    "success": r.success,
+                    "exit_code": r.exit_code,
+                    "fail_reason": r.fail_reason,
+                })
+            })
             .collect();
         json_result(json!({ "steps": records }))
     }
@@ -251,7 +255,10 @@ impl<S: ApiService> RanMcpHandler<S> {
             .ok_or_else(|| invalid_param(format!("entity `{target_id}` not found. For initial access, use the Cluster entity as target_id (not a pod ID) and pass the pod name as a parameter.")))?;
         let target_kind = entity.entity_kind().to_string();
         use campaign::CampaignEntityRef;
-        let is_system = matches!(&entity, CampaignEntityRef::Pod(_) | CampaignEntityRef::Node(_));
+        let is_system = matches!(
+            &entity,
+            CampaignEntityRef::Pod(_) | CampaignEntityRef::Node(_)
+        );
 
         let applicable: Vec<_> = all_ttps
             .into_iter()
@@ -292,7 +299,10 @@ impl<S: ApiService> RanMcpHandler<S> {
         // name (e.g. "entry-hall") instead of a real entity ID.
         let known = {
             let campaign = self.api.get_campaign().await.map_err(api_err)?;
-            campaign.get_entities().into_iter().any(|e| e.entity_id().0 == target_id)
+            campaign
+                .get_entities()
+                .into_iter()
+                .any(|e| e.entity_id().0 == target_id)
         };
         if !known {
             return Err(invalid_param(format!(
@@ -346,12 +356,14 @@ impl<S: ApiService> RanMcpHandler<S> {
                     .get_parse_audits()
                     .iter()
                     .filter(|a| a.cmd_id == record.id)
-                    .map(|a| json!({
-                        "effect_id": a.effect_id,
-                        "result": format!("{:?}", a.parse_result),
-                        "detail": a.detail,
-                        "raw_preview": a.raw_output_preview,
-                    }))
+                    .map(|a| {
+                        json!({
+                            "effect_id": a.effect_id,
+                            "result": format!("{:?}", a.parse_result),
+                            "detail": a.detail,
+                            "raw_preview": a.raw_output_preview,
+                        })
+                    })
                     .collect();
                 return json_result(json!({
                     "cmd_id": record.id,
@@ -367,7 +379,9 @@ impl<S: ApiService> RanMcpHandler<S> {
             }
 
             if Instant::now() >= deadline {
-                return Err(internal(format!("timeout: cmd `{cmd_id}` not completed within 60s")));
+                return Err(internal(format!(
+                    "timeout: cmd `{cmd_id}` not completed within 60s"
+                )));
             }
 
             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -381,20 +395,31 @@ impl<S: ApiService> RanMcpHandler<S> {
         let required_verbs: Vec<String> = args
             .get("verbs")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_else(|| vec!["*".to_owned()]);
         let required_resources: Vec<String> = args
             .get("resources")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_else(|| vec!["*".to_owned()]);
 
         // RBAC permissions live on ServiceAccount entities, not on the system
         // entity itself. Look for a SA with this id.
         let campaign = self.api.get_campaign().await.map_err(api_err)?;
-        let sa = campaign.entities.values::<ServiceAccount>().find(|sa| {
-            sa.entity_id().0 == entity_id
-        });
+        let sa = campaign
+            .entities
+            .values::<ServiceAccount>()
+            .find(|sa| sa.entity_id().0 == entity_id);
         let entitlements = sa.map(|sa| &sa.entitlements[..]).unwrap_or(&[]);
 
         let mut missing = Vec::new();
@@ -402,7 +427,9 @@ impl<S: ApiService> RanMcpHandler<S> {
             for resource in &required_resources {
                 let has = entitlements.iter().any(|p| {
                     (p.verb == *verb || p.verb == "*" || verb == "*")
-                        && (p.resource_type == *resource || p.resource_type == "*" || resource == "*")
+                        && (p.resource_type == *resource
+                            || p.resource_type == "*"
+                            || resource == "*")
                 });
                 if !has {
                     missing.push(json!({ "verb": verb, "resource": resource }));
@@ -422,9 +449,11 @@ impl<S: ApiService> RanMcpHandler<S> {
         let entity_id = req_str(args, "entity_id")?;
         let campaign = self.api.get_campaign().await.map_err(api_err)?;
 
-        let entity = campaign
-            .get_system_entity(entity_id)
-            .ok_or_else(|| invalid_param(format!("entity `{entity_id}` not found or not a system entity")))?;
+        let entity = campaign.get_system_entity(entity_id).ok_or_else(|| {
+            invalid_param(format!(
+                "entity `{entity_id}` not found or not a system entity"
+            ))
+        })?;
 
         let access_level = entity.entity().system().access_level;
         json_result(json!({
@@ -440,14 +469,16 @@ impl<S: ApiService> RanMcpHandler<S> {
         let audits: Vec<_> = campaign
             .get_parse_audits()
             .iter()
-            .map(|a| json!({
-                "effect_id": a.effect_id,
-                "ttp_id": a.ttp_id,
-                "target_id": a.target_id,
-                "result": format!("{:?}", a.parse_result),
-                "detail": a.detail,
-                "raw_preview": a.raw_output_preview,
-            }))
+            .map(|a| {
+                json!({
+                    "effect_id": a.effect_id,
+                    "ttp_id": a.ttp_id,
+                    "target_id": a.target_id,
+                    "result": format!("{:?}", a.parse_result),
+                    "detail": a.detail,
+                    "raw_preview": a.raw_output_preview,
+                })
+            })
             .collect();
         json_result(json!({ "audits": audits }))
     }
@@ -463,7 +494,13 @@ impl<S: ApiService> RanMcpHandler<S> {
         // Sanitise the effect_id so it can only produce a safe filename.
         let safe_name = effect_id
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect::<String>()
             .to_ascii_lowercase();
 
@@ -490,30 +527,39 @@ impl<S: ApiService> RanMcpHandler<S> {
         json_result(json!({ "reset": true }))
     }
 
-    async fn tool_get_initial_access_candidates(&self, args: &Value) -> Result<CallToolResult, McpError> {
+    async fn tool_get_initial_access_candidates(
+        &self,
+        args: &Value,
+    ) -> Result<CallToolResult, McpError> {
         let namespace = opt_str(args, "namespace").map(str::to_owned);
         let name_filter = opt_str(args, "name_filter");
 
-        let params = crate::GetRunningPodsParams { namespace: namespace.clone() };
+        let params = crate::GetRunningPodsParams {
+            namespace: namespace.clone(),
+        };
         let pods = self.api.get_running_pods(params).await.map_err(api_err)?;
 
         let candidates: Vec<_> = pods
             .into_iter()
             .filter(|p| {
                 if let Some(filter) = name_filter {
-                    p.name.to_ascii_lowercase().contains(&filter.to_ascii_lowercase())
+                    p.name
+                        .to_ascii_lowercase()
+                        .contains(&filter.to_ascii_lowercase())
                 } else {
                     true
                 }
             })
             .filter(|p| p.ready.unwrap_or(true))
-            .map(|p| json!({
-                "id": p.id,
-                "name": p.name,
-                "namespace": p.namespace,
-                "phase": p.phase,
-                "ready": p.ready,
-            }))
+            .map(|p| {
+                json!({
+                    "id": p.id,
+                    "name": p.name,
+                    "namespace": p.namespace,
+                    "phase": p.phase,
+                    "ready": p.ready,
+                })
+            })
             .collect();
 
         json_result(json!({
@@ -700,12 +746,8 @@ fn tool_defs() -> Vec<Tool> {
 
 impl<S: ApiService> ServerHandler for RanMcpHandler<S> {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(
-            ServerCapabilities::builder()
-                .enable_tools()
-                .build(),
-        )
-        .with_server_info(Implementation::new("ran-mcp", env!("CARGO_PKG_VERSION")))
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new("ran-mcp", env!("CARGO_PKG_VERSION")))
     }
 
     async fn list_tools(
@@ -762,8 +804,7 @@ impl<S: ApiService> ServerHandler for RanMcpHandler<S> {
 /// ```
 pub fn mcp_router<S: ApiService + 'static>(service: S, config: McpConfig) -> axum::Router {
     use rmcp::transport::streamable_http_server::{
-        StreamableHttpService, StreamableHttpServerConfig,
-        session::local::LocalSessionManager,
+        session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
     };
     use std::sync::Arc;
 

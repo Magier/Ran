@@ -121,7 +121,9 @@ impl InferenceRule for PodNamespaceRule {
                 });
 
             if !ns_exists {
-                inferred.new_entities.push(Box::new(Namespace::new(ns_name)));
+                inferred
+                    .new_entities
+                    .push(Box::new(Namespace::new(ns_name)));
             }
 
             inferred.new_relations.push(Box::new(Contains::new(
@@ -167,7 +169,9 @@ impl InferenceRule for ServiceAccountNamespaceRule {
                 });
 
             if !ns_exists {
-                inferred.new_entities.push(Box::new(Namespace::new(ns_name)));
+                inferred
+                    .new_entities
+                    .push(Box::new(Namespace::new(ns_name)));
             }
 
             inferred.new_relations.push(Box::new(Contains::new(
@@ -221,10 +225,9 @@ impl InferenceRule for PodNodeRule {
                 inferred.new_entities.push(Box::new(node));
             }
 
-            inferred.new_relations.push(Box::new(RunsOn::new(
-                pod.entity_id().0.clone(),
-                node_id.0,
-            )));
+            inferred
+                .new_relations
+                .push(Box::new(RunsOn::new(pod.entity_id().0.clone(), node_id.0)));
         }
 
         inferred
@@ -258,9 +261,10 @@ impl InferenceRule for ServiceAccountCanExecRule {
                     continue;
                 };
 
-                let can_exec = sa.entitlements.iter().any(|perm| {
-                    perm.satisfies("create", "pods/exec") && perm.is_in_scope(ns)
-                });
+                let can_exec = sa
+                    .entitlements
+                    .iter()
+                    .any(|perm| perm.satisfies("create", "pods/exec") && perm.is_in_scope(ns));
 
                 if can_exec {
                     inferred.new_relations.push(Box::new(PodExec::new(
@@ -386,7 +390,11 @@ pub fn run_rules_fixpoint(
 }
 
 fn collect_pods(campaign: &Campaign, update: &FactsUpdate) -> Vec<Pod> {
-    let mut pods = campaign.entities.values::<Pod>().cloned().collect::<Vec<_>>();
+    let mut pods = campaign
+        .entities
+        .values::<Pod>()
+        .cloned()
+        .collect::<Vec<_>>();
     for entity in &update.new_entities {
         if let Some(pod) = entity.as_any().downcast_ref::<Pod>() {
             if let Some(existing) = pods.iter_mut().find(|p| p.entity_id() == pod.entity_id()) {
@@ -400,7 +408,11 @@ fn collect_pods(campaign: &Campaign, update: &FactsUpdate) -> Vec<Pod> {
 }
 
 fn collect_service_accounts(campaign: &Campaign, update: &FactsUpdate) -> Vec<ServiceAccount> {
-    let mut sas = campaign.entities.values::<ServiceAccount>().cloned().collect::<Vec<_>>();
+    let mut sas = campaign
+        .entities
+        .values::<ServiceAccount>()
+        .cloned()
+        .collect::<Vec<_>>();
     for entity in &update.new_entities {
         if let Some(sa) = entity.as_any().downcast_ref::<ServiceAccount>() {
             if let Some(existing) = sas.iter_mut().find(|s| s.entity_id() == sa.entity_id()) {
@@ -444,7 +456,12 @@ mod tests {
     #[test]
     fn node_cluster_rule_infers_manages_node_relation() {
         let campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
-        let cluster_id = campaign.entities.values::<K8sCluster>().next().unwrap().entity_id();
+        let cluster_id = campaign
+            .entities
+            .values::<K8sCluster>()
+            .next()
+            .unwrap()
+            .entity_id();
 
         let node = K8sNode::new("node-1");
         let node_id = node.entity_id();
@@ -455,11 +472,12 @@ mod tests {
         let all = run_rules_fixpoint(&campaign, &rules, update);
 
         let rel = all.new_relations.iter().find(|r| {
-            r.is::<ManagesNode>()
-                && r.source_id().0 == cluster_id.0
-                && r.target_id().0 == node_id.0
+            r.is::<ManagesNode>() && r.source_id().0 == cluster_id.0 && r.target_id().0 == node_id.0
         });
-        assert!(rel.is_some(), "expected manages-node relation from cluster to node");
+        assert!(
+            rel.is_some(),
+            "expected manages-node relation from cluster to node"
+        );
     }
 
     #[test]
@@ -483,9 +501,7 @@ mod tests {
         let all = run_rules_fixpoint(&campaign, &rules, update);
 
         let has_runs_on = all.new_relations.iter().any(|r| {
-            r.is::<RunsOn>()
-                && r.source_id() == &target_pod_id
-                && r.target_id().0 == "node/node-a"
+            r.is::<RunsOn>() && r.source_id() == &target_pod_id && r.target_id().0 == "node/node-a"
         });
         let has_sink = all.new_relations.iter().any(|r| {
             r.is::<KubeletExecSink>()
@@ -522,9 +538,7 @@ mod tests {
         let all = run_rules_fixpoint(&campaign, &rules, update);
 
         let has_can_exec = all.new_relations.iter().any(|r| {
-            r.is::<PodExec>()
-                && r.source_id().0 == sa_id.0
-                && r.target_id() == &target_pod_id
+            r.is::<PodExec>() && r.source_id().0 == sa_id.0 && r.target_id() == &target_pod_id
         });
 
         assert!(has_can_exec, "expected k8s.can-exec inference in fixpoint");

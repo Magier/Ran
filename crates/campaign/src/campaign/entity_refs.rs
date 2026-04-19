@@ -1,6 +1,6 @@
 use ran_domain::{
     C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
-    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sNode, K8sSecret, K8sRole, K8sRoleBinding,
+    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sNode, K8sRole, K8sRoleBinding, K8sSecret,
     Namespace, Pod, ReplicaSet, ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
 };
 
@@ -80,9 +80,26 @@ macro_rules! delegate_entity_methods {
 
 impl<'a> CampaignEntityRef<'a> {
     delegate_entity_methods!(
-        C2Server, Cluster, Node, Namespace, Pod, ServiceAccount, Secret, ConfigMap, Deployment,
-        Role, RoleBinding, CronJob, ReplicaSet, StatefulSet, DaemonSet, Job,
-        GCPServiceAccount, GCPBucket, K8sCredential, UnknownSystem,
+        C2Server,
+        Cluster,
+        Node,
+        Namespace,
+        Pod,
+        ServiceAccount,
+        Secret,
+        ConfigMap,
+        Deployment,
+        Role,
+        RoleBinding,
+        CronJob,
+        ReplicaSet,
+        StatefulSet,
+        DaemonSet,
+        Job,
+        GCPServiceAccount,
+        GCPBucket,
+        K8sCredential,
+        UnknownSystem,
     );
 
     pub fn namespace(&self) -> Option<&str> {

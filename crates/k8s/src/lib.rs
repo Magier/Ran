@@ -203,14 +203,11 @@ impl K8sService {
             .exec(pod_name, command_vec, &attach_params)
             .await
             .with_context(|| {
-                format!(
-                    "failed to exec command in pod '{}/{}'",
-                    namespace, pod_name
-                )
+                format!("failed to exec command in pod '{}/{}'", namespace, pod_name)
             })?;
 
         let mut stdout = String::new();
-        if let Some(mut reader) = attached.stdout().take() {
+        if let Some(mut reader) = attached.stdout() {
             reader
                 .read_to_string(&mut stdout)
                 .await
@@ -218,7 +215,7 @@ impl K8sService {
         }
 
         let mut stderr = String::new();
-        if let Some(mut reader) = attached.stderr().take() {
+        if let Some(mut reader) = attached.stderr() {
             reader
                 .read_to_string(&mut stderr)
                 .await
@@ -287,12 +284,7 @@ pub fn target_cluster_from_kubeconfig(path: Option<PathBuf>) -> Result<TargetClu
         .context
         .as_ref()
         .map(|ctx| ctx.cluster.clone())
-        .ok_or_else(|| {
-            anyhow!(
-                "context '{}' does not reference a cluster",
-                context_name
-            )
-        })?;
+        .ok_or_else(|| anyhow!("context '{}' does not reference a cluster", context_name))?;
 
     let server = kubeconfig
         .clusters
