@@ -17,8 +17,8 @@ pub use identity::{JwToken, ServiceAccountToken};
 pub use rbac::RbacPermission;
 pub use relation::{C2Channel, Relation};
 pub use relations::{
-    CanReach, ContainerEscape, Contains, KubeletExecSink, KubeletExecSource, ManagesNode, Owns,
-    PodExec, RceCanExec, RelationSummary, RunsOn, SessionChannel, Uses,
+    BindsTo, CanReach, ContainerEscape, Contains, Grants, KubeletExecSink, KubeletExecSource,
+    ManagesNode, Owns, PodExec, RceCanExec, RelationSummary, RunsOn, SessionChannel, Uses,
 };
 pub use types::{
     AccessLevel, BinaryPresence, Confidence, Container, EntityId, K8sMeta, Mount, NameConfidence,

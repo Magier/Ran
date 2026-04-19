@@ -1,0 +1,30 @@
+id: get-clusterroles
+name: Get ClusterRoles via API Server
+description: Get a list of ClusterRoles via the K8s API server
+tactic: Discovery
+techniques: ["Container and Resource Discovery", T1613]
+preconditions:
+  rbac:
+    - verb: list
+      resource: clusterroles
+parameters:
+  TOKEN:
+    type: ServiceAccount
+    description: the ServiceAccount token used to authorize this request
+    optional: true
+    default: ""
+procedures:
+  - key: kubectl
+    command: >-
+      kubectl get clusterroles --token=${TOKEN} --output=json
+  - key: curl
+    command: >-
+      curl -XGET -k
+      -H "Accept: application/json"
+      -H "User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69"
+      -H "Authorization: Bearer ${TOKEN}"
+      --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      '${API_SERVER}/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=500'
+effects:
+  - k8s.clusterRoleList
+references:
