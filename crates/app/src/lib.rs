@@ -18,12 +18,12 @@ use tracing::{error, info, warn};
 use api::{ApiError, ApiService, GetRunningPodsParams, K8sResource};
 use campaign::{
     spawn_c2_event_processor_with_external_parser, Campaign, CampaignEvent, CampaignEventBus,
-    ExecuteActionError, ExecuteActionRequest, ExecuteActionResult, ExternalParseRequest,
-    ExternalParseResponse, ExternalParser,
+    EntitySummary, ExecuteActionError, ExecuteActionRequest, ExecuteActionResult,
+    ExternalParseRequest, ExternalParseResponse, ExternalParser,
 };
 use config::NamespaceFilter;
 use k8s::{kubeconfig_path_or_err, target_cluster_from_kubeconfig, K8sService};
-use ran_domain::K8sCluster;
+use ran_domain::{K8sCluster, RelationSummary};
 
 // ---------------------------------------------------------------------------
 // AppState — the ApiService implementation
@@ -681,6 +681,217 @@ fn resolve_armory_dir(arg: Option<PathBuf>) -> Result<PathBuf> {
     }
     let cwd = std::env::current_dir()?;
     Ok(cwd.join("armory").join("TTPs"))
+}
+
+// ---------------------------------------------------------------------------
+// Trigger — atomic one-shot execution mode
+// ---------------------------------------------------------------------------
+
+/// Configuration for a single atomic TTP execution (`ran trigger`).
+pub struct TriggerConfig {
+    /// Path to kubeconfig file. Defaults to the standard kubeconfig location.
+    pub kubeconfig: Option<PathBuf>,
+    /// Path to the armory TTPs directory. Defaults to `./armory/TTPs`.
+    pub armory_dir: Option<PathBuf>,
+    /// Namespace visibility filter loaded from `ran.yaml`.
+    pub namespace_filter: NamespaceFilter,
+    /// TTP ID to execute (from the armory).
+    pub action_id: String,
+    /// Target entity ID in the form `ns/<namespace>/pod/<name>`.
+    pub target_id: String,
+    /// Override the execution system ID (optional).
+    pub exec_system_id: Option<String>,
+    /// Override the procedure ID (optional).
+    pub procedure_id: Option<String>,
+    /// TTP parameters as key=value pairs.
+    pub args: std::collections::HashMap<String, String>,
+}
+
+/// Execute a single TTP atomically and print results with discovered facts.
+/// Seeds the target pod into the campaign (equivalent to Go's godMode), runs
+/// the full parser + analyzer + rules pipeline, then exits.
+pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
+    let kubeconfig_path = kubeconfig_path_or_err(cfg.kubeconfig)?;
+    let k8s = K8sService::from_kubeconfig(Some(kubeconfig_path.clone())).await?;
+    let target_cluster = target_cluster_from_kubeconfig(Some(kubeconfig_path.clone()))?;
+    let armory_dir = resolve_armory_dir(cfg.armory_dir)?;
+    let armory = Armory::load_from_dir(&armory_dir)?;
+
+    let parsers_dir = armory_dir.parent().unwrap_or(&armory_dir).join("parsers");
+    let external_parser: Option<Arc<dyn ExternalParser>> = if parsers_dir.is_dir() {
+        Some(Arc::new(ScriptParserRunner::new(parsers_dir)))
+    } else {
+        None
+    };
+
+    let campaign_cluster = K8sCluster::new(target_cluster.name)
+        .with_context_name(target_cluster.context_name)
+        .with_server(target_cluster.server);
+
+    let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
+        "Ran",
+        campaign_cluster,
+    )));
+
+    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s);
+    let campaign_events = CampaignEventBus::new(256);
+
+    // Subscribe before spawning the processor so no events are dropped.
+    let mut event_rx = campaign_events.subscribe();
+
+    tokio::spawn(c2_manager.run());
+    spawn_c2_event_processor_with_external_parser(
+        campaign.clone(),
+        c2_events,
+        campaign_events,
+        external_parser,
+    );
+
+    // Parse target ID and validate format.
+    let (pod_namespace, pod_name) = parse_pod_target_id(&cfg.target_id)?;
+
+    // Seed the target pod with a direct kubectl-exec channel from the C2 server.
+    let pod_id = {
+        let mut c = campaign.write().map_err(|_| anyhow::anyhow!("campaign lock poisoned"))?;
+        c.seed_pod_for_trigger(&pod_name, &pod_namespace)
+    };
+
+    info!(
+        action_id = %cfg.action_id,
+        target_id = %pod_id,
+        kubeconfig = %kubeconfig_path.display(),
+        armory_ttps = armory.ttps().len(),
+        "triggering action"
+    );
+
+    // Prepare and dispatch the action.
+    let exec = {
+        let mut c = campaign.write().map_err(|_| anyhow::anyhow!("campaign lock poisoned"))?;
+        let exec = c
+            .prepare_action(
+                ExecuteActionRequest {
+                    action_id: cfg.action_id.clone(),
+                    target_id: pod_id.0.clone(),
+                    exec_system_id: cfg.exec_system_id,
+                    procedure_id: cfg.procedure_id,
+                    args: cfg.args,
+                },
+                &armory,
+            )
+            .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        c.add_open_step(exec.clone());
+        exec
+    };
+
+    let cmd_id = exec.id.clone();
+    let grounded_command = exec.procedure.command.clone();
+
+    println!("Triggering {} on {}", cfg.action_id, pod_id);
+    println!("Command: {}", grounded_command);
+
+    c2_handle
+        .send(exec)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to dispatch action: {}", e))?;
+
+    // Phase 1: wait up to 60s for TtpExecuted with our cmd_id.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    let result = loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            anyhow::bail!("timed out waiting for action result after 60s");
+        }
+        match tokio::time::timeout(remaining, event_rx.recv()).await {
+            Ok(Ok(CampaignEvent::TtpExecuted {
+                cmd_id: eid,
+                results,
+                success,
+                fail_reason,
+                ..
+            })) if eid == cmd_id => {
+                break TtpResult { results, success, fail_reason };
+            }
+            Ok(Ok(_)) => continue,
+            Ok(Err(_)) | Err(_) => {
+                anyhow::bail!("timed out waiting for action result after 60s");
+            }
+        }
+    };
+
+    // Phase 2: collect FactsChanged events for a short window. The processor
+    // publishes them synchronously right after TtpExecuted, so 500ms is ample.
+    let mut new_entities: Vec<EntitySummary> = Vec::new();
+    let mut new_relations: Vec<RelationSummary> = Vec::new();
+    let facts_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    loop {
+        let remaining = facts_deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, event_rx.recv()).await {
+            Ok(Ok(CampaignEvent::FactsChanged {
+                cmd_id: eid,
+                new_entities: ne,
+                new_relations: nr,
+            })) if eid == cmd_id => {
+                new_entities.extend(ne);
+                new_relations.extend(nr);
+            }
+            Ok(Ok(_)) => continue,
+            Ok(Err(_)) | Err(_) => break,
+        }
+    }
+
+    println!("\n--- Output ---");
+    if result.results.is_empty() {
+        println!("(no output)");
+    } else {
+        for line in &result.results {
+            println!("{}", line);
+        }
+    }
+
+    println!("\n--- Discovered Facts ---");
+    // Filter out the seeded pod itself — it was already known.
+    let discovered_entities: Vec<_> = new_entities
+        .iter()
+        .filter(|e| e.id != pod_id)
+        .collect();
+    println!("Entities ({}):", discovered_entities.len());
+    for e in &discovered_entities {
+        println!("  [{}] {}", e.kind, e.id);
+    }
+    println!("Relations ({}):", new_relations.len());
+    for r in &new_relations {
+        println!("  {} --{}--> {}", r.source_id, r.name, r.target_id);
+    }
+
+    if result.success {
+        println!("\n✓ Success");
+    } else {
+        println!("\n✗ Failed: {}", result.fail_reason);
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+struct TtpResult {
+    results: Vec<String>,
+    success: bool,
+    fail_reason: String,
+}
+
+/// Parse `ns/<namespace>/pod/<name>` into `(namespace, name)`.
+fn parse_pod_target_id(target_id: &str) -> Result<(String, String)> {
+    let parts: Vec<&str> = target_id.splitn(4, '/').collect();
+    if parts.len() == 4 && parts[0] == "ns" && parts[2] == "pod" {
+        return Ok((parts[1].to_string(), parts[3].to_string()));
+    }
+    anyhow::bail!(
+        "invalid target format '{}'; expected ns/<namespace>/pod/<name>",
+        target_id
+    )
 }
 
 async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<CampaignEvent>) {

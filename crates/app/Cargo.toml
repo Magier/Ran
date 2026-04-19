@@ -8,12 +8,12 @@ anyhow = "1"
 armory = { path = "../armory" }
 async-trait = "0.1"
 api = { path = "../api" }
-axum = "0.7"
+axum = "0.8"
 c2 = { path = "../c2" }
 campaign = { path = "../campaign" }
 k8s = { path = "../k8s" }
 ran-domain = { path = "../domain" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", features = ["json"] }
 serde = { workspace = true }
 serde_json = "1"
 serde_yaml = "0.9"
