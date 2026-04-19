@@ -7,6 +7,9 @@ edition = "2021"
 name = "ran"
 path = "src/main.rs"
 
+[features]
+bundled-armory = ["app/bundled-armory"]
+
 [dependencies]
 anyhow = "1"
 app = { path = "../app" }

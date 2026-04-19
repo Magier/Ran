@@ -62,7 +62,23 @@ copy-frontend:
 .PHONY: prepare-assets
 prepare-assets: copy-armory copy-frontend
 
-# === Building ===
+# === Rust Release Builds ===
+# armory/TTPs is embedded into the binary via the bundled-armory feature.
+# Do NOT pass --features bundled-armory for dev/debug builds.
+RUST_RELEASE_FLAGS := --package cli --features cli/bundled-armory
+
+.PHONY: build-rust
+build-rust:
+	cargo build --release $(RUST_RELEASE_FLAGS)
+
+.PHONY: build-rust-target
+build-rust-target:
+ifndef RUST_TARGET
+	$(error RUST_TARGET is not set, e.g. RUST_TARGET=x86_64-unknown-linux-gnu)
+endif
+	cargo build --release $(RUST_RELEASE_FLAGS) --target $(RUST_TARGET)
+
+# === Legacy Go Builds ===
 
 
 .PHONY: build-binary
