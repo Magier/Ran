@@ -1,7 +1,8 @@
 use ran_domain::{
     C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
-    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sNode, K8sRole, K8sRoleBinding, K8sSecret,
-    Namespace, Pod, ReplicaSet, ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
+    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress,
+    K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Namespace, Pod, ReplicaSet,
+    ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
 };
 
 pub enum CampaignEntityRef<'a> {
@@ -25,6 +26,10 @@ pub enum CampaignEntityRef<'a> {
     GCPBucket(&'a GCPBucket),
     K8sCredential(&'a K8sCredential),
     UnknownSystem(&'a UnknownSystem),
+    Service(&'a K8sService),
+    Ingress(&'a K8sIngress),
+    Gateway(&'a K8sGateway),
+    HTTPRoute(&'a K8sHTTPRoute),
 }
 
 pub enum CampaignSystemEntityRef<'a> {
@@ -100,6 +105,10 @@ impl<'a> CampaignEntityRef<'a> {
         GCPBucket,
         K8sCredential,
         UnknownSystem,
+        Service,
+        Ingress,
+        Gateway,
+        HTTPRoute,
     );
 
     pub fn namespace(&self) -> Option<&str> {
@@ -116,6 +125,10 @@ impl<'a> CampaignEntityRef<'a> {
             CampaignEntityRef::StatefulSet(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::DaemonSet(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::Job(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::Service(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::Ingress(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::Gateway(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::HTTPRoute(e) => e.meta.namespace.as_deref(),
             _ => None,
         }
     }

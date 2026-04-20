@@ -1,7 +1,8 @@
 use ran_domain::{
-    Confidence, Contains, DaemonSet, Entity, EntityId, GCPServiceAccount, Job, K8sCluster, K8sNode,
-    K8sRole, K8sRoleBinding, KubeletExecSink, Namespace, Owns, Pod, PodExec, RbacPermission,
-    RbacSubject, RelationSummary, ReplicaSet, RunsOn, ServiceAccount, StatefulSet, Uses,
+    Confidence, Contains, DaemonSet, Entity, EntityId, GCPServiceAccount, Job, K8sCluster,
+    K8sGateway, K8sHTTPRoute, K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sService,
+    KubeletExecSink, Namespace, Owns, Pod, PodExec, RbacPermission, RbacSubject, RelationSummary,
+    ReplicaSet, RunsOn, ServiceAccount, StatefulSet, Uses,
 };
 
 use crate::{Campaign, FactsUpdate};
@@ -977,6 +978,65 @@ impl Analyzer for RoleBindingNamespaceAnalyzer {
 }
 
 // ---------------------------------------------------------------------------
+// Generic namespace-contains analyzer macro
+// ---------------------------------------------------------------------------
+
+/// Generates a namespace-contains analyzer for a namespaced K8s resource type.
+///
+/// Every namespaced resource must have a `Contains(namespace → resource)`
+/// relation in the graph.  The logic is identical across types — only the
+/// concrete type and struct name differ — so this macro eliminates the
+/// boilerplate.
+macro_rules! ns_contains_analyzer {
+    ($analyzer:ident, $entity_type:ty) => {
+        pub struct $analyzer;
+
+        impl Analyzer for $analyzer {
+            fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+                let mut inferred = FactsUpdate::default();
+                for entity in &update.new_entities {
+                    let Some(e) = entity.as_any().downcast_ref::<$entity_type>() else {
+                        continue;
+                    };
+                    let Some(ns_name) = e.namespace() else {
+                        continue;
+                    };
+                    if ns_name.is_empty() {
+                        continue;
+                    }
+                    let ns_id = EntityId::new(format!("ns/{}", ns_name));
+                    let ns = campaign
+                        .entities
+                        .find::<Namespace>(&ns_id)
+                        .cloned()
+                        .or_else(|| {
+                            update.new_entities.iter().find_map(|ue| {
+                                ue.as_any()
+                                    .downcast_ref::<Namespace>()
+                                    .filter(|n| n.entity_id() == ns_id)
+                                    .cloned()
+                            })
+                        })
+                        .unwrap_or_else(|| Namespace::new(ns_name));
+                    if !campaign.entities.contains::<Namespace>(&ns_id) {
+                        inferred.new_entities.push(Box::new(ns));
+                    }
+                    inferred
+                        .new_relations
+                        .push(Box::new(Contains::new(ns_id.0.clone(), e.entity_id().0.clone())));
+                }
+                inferred
+            }
+        }
+    };
+}
+
+ns_contains_analyzer!(ServiceNamespaceAnalyzer, K8sService);
+ns_contains_analyzer!(IngressNamespaceAnalyzer, K8sIngress);
+ns_contains_analyzer!(GatewayNamespaceAnalyzer, K8sGateway);
+ns_contains_analyzer!(HTTPRouteNamespaceAnalyzer, K8sHTTPRoute);
+
+// ---------------------------------------------------------------------------
 // Default analyzer pipeline
 // ---------------------------------------------------------------------------
 
@@ -1213,6 +1273,10 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(RoleBindingNamespaceAnalyzer),
         Box::new(RoleBindingAnalyzer),
         Box::new(GCPServiceAccountAnalyzer),
+        Box::new(ServiceNamespaceAnalyzer),
+        Box::new(IngressNamespaceAnalyzer),
+        Box::new(GatewayNamespaceAnalyzer),
+        Box::new(HTTPRouteNamespaceAnalyzer),
     ]
 }
 

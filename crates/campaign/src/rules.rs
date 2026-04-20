@@ -1,7 +1,7 @@
 use ran_domain::{
-    BindsTo, Contains, Entity, EntityId, Grants, K8sCluster, K8sNode, K8sRole, K8sRoleBinding,
-    KubeletExecSink, ManagesNode, Namespace, Pod, PodExec, RbacPermission,
-    RelationSummary, RunsOn, ServiceAccount,
+    BindsTo, Contains, Entity, EntityId, Grants, K8sCluster, K8sGateway, K8sHTTPRoute, K8sIngress,
+    K8sNode, K8sRole, K8sRoleBinding, K8sService, KubeletExecSink, ManagesNode, Namespace, Pod,
+    PodExec, RbacPermission, RelationSummary, RunsOn, ServiceAccount,
 };
 
 use crate::{Campaign, FactsUpdate};
@@ -32,6 +32,10 @@ pub struct ClusterRoleClusterRule;
 pub struct ClusterRoleBindingClusterRule;
 pub struct RoleBindingPermissionsRule;
 pub struct RoleBindingGraphRule;
+pub struct ServiceNamespaceRule;
+pub struct IngressNamespaceRule;
+pub struct GatewayNamespaceRule;
+pub struct HTTPRouteNamespaceRule;
 
 impl InferenceRule for NamespaceClusterRule {
     fn name(&self) -> &'static str {
@@ -683,6 +687,61 @@ impl InferenceRule for RoleBindingGraphRule {
     }
 }
 
+macro_rules! ns_contains_rule {
+    ($rule:ty, $entity_type:ty, $rule_name:literal, $kind:literal) => {
+        impl InferenceRule for $rule {
+            fn name(&self) -> &'static str {
+                $rule_name
+            }
+
+            fn triggers(&self) -> Vec<RuleTrigger> {
+                vec![RuleTrigger::EntityKind($kind.to_string())]
+            }
+
+            fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+                let mut inferred = FactsUpdate::default();
+
+                for entity in &update.new_entities {
+                    let Some(e) = entity.as_any().downcast_ref::<$entity_type>() else {
+                        continue;
+                    };
+                    let Some(ns_name) = e.namespace() else {
+                        continue;
+                    };
+                    if ns_name.is_empty() {
+                        continue;
+                    }
+
+                    let ns_id = EntityId::new(format!("ns/{}", ns_name));
+                    let ns_exists = campaign.entities.contains::<Namespace>(&ns_id)
+                        || update.new_entities.iter().any(|ue| {
+                            ue.as_any()
+                                .downcast_ref::<Namespace>()
+                                .map(|n| n.entity_id() == ns_id)
+                                .unwrap_or(false)
+                        });
+
+                    if !ns_exists {
+                        inferred.new_entities.push(Box::new(Namespace::new(ns_name)));
+                    }
+
+                    inferred.new_relations.push(Box::new(Contains::new(
+                        ns_id.0.clone(),
+                        e.entity_id().0.clone(),
+                    )));
+                }
+
+                inferred
+            }
+        }
+    };
+}
+
+ns_contains_rule!(ServiceNamespaceRule, K8sService, "service.namespace", "Service");
+ns_contains_rule!(IngressNamespaceRule, K8sIngress, "ingress.namespace", "Ingress");
+ns_contains_rule!(GatewayNamespaceRule, K8sGateway, "gateway.namespace", "Gateway");
+ns_contains_rule!(HTTPRouteNamespaceRule, K8sHTTPRoute, "httproute.namespace", "HTTPRoute");
+
 fn find_role_permissions(
     campaign: &Campaign,
     update: &FactsUpdate,
@@ -720,6 +779,10 @@ pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
         Box::new(ClusterRoleBindingClusterRule),
         Box::new(RoleBindingPermissionsRule),
         Box::new(RoleBindingGraphRule),
+        Box::new(ServiceNamespaceRule),
+        Box::new(IngressNamespaceRule),
+        Box::new(GatewayNamespaceRule),
+        Box::new(HTTPRouteNamespaceRule),
     ]
 }
 

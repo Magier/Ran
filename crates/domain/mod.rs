@@ -9,9 +9,11 @@ pub mod types;
 // `use ran_domain::{Pod, Namespace, ServiceAccount}` without long paths.
 pub use entities::{
     C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, GCPBucket, GCPServiceAccount,
-    GcpAccessToken, GraphEntity, Job, K8sCluster, K8sCredential, K8sNode, K8sRole, K8sRoleBinding,
-    K8sSecret, Merge, Namespace, Pod, PodPhase, PodSecurityAdmission, PssLevel, RbacSubject,
-    ReplicaSet, ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
+    GcpAccessToken, GraphEntity, Job, K8sCluster, K8sCredential, K8sGateway, K8sGatewayListener,
+    K8sHTTPBackend, K8sHTTPRoute, K8sIngress, K8sIngressPath, K8sIngressRule, K8sIngressTLS,
+    K8sNode, K8sParentRef, K8sRole, K8sRoleBinding, K8sSecret, K8sService, K8sServicePort, Merge,
+    Namespace, Pod, PodPhase, PodSecurityAdmission, PssLevel, RbacSubject, ReplicaSet,
+    ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
 };
 pub use identity::{JwToken, ServiceAccountToken};
 pub use rbac::RbacPermission;

@@ -2,8 +2,10 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use ran_domain::{
-    ConfigMap, Deployment, K8sNode, K8sRole, K8sRoleBinding, K8sSecret, Mount, NameConfidence,
-    Namespace, OwnerRef, Pod, PodPhase, RbacPermission, RbacSubject, ServiceAccount,
+    ConfigMap, Deployment, K8sGateway, K8sGatewayListener, K8sHTTPBackend, K8sHTTPRoute,
+    K8sIngress, K8sIngressPath, K8sIngressRule, K8sIngressTLS, K8sNode, K8sParentRef, K8sRole,
+    K8sRoleBinding, K8sSecret, K8sService, K8sServicePort, Mount, NameConfidence, Namespace,
+    OwnerRef, Pod, PodPhase, RbacPermission, RbacSubject, ServiceAccount,
 };
 
 use super::ParserOutput;
@@ -20,6 +22,10 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("k8s.rolebindinglist", parse_k8s_role_binding_list);
     m.insert("k8s.clusterrolelist", parse_k8s_cluster_role_list);
     m.insert("k8s.clusterrolebindinglist", parse_k8s_cluster_role_binding_list);
+    m.insert("k8s.servicelist", parse_k8s_service_list);
+    m.insert("k8s.ingresslist", parse_k8s_ingress_list);
+    m.insert("k8s.gatewaylist", parse_k8s_gateway_list);
+    m.insert("k8s.httproutelist", parse_k8s_http_route_list);
 }
 
 /// Minimal serde types for deserializing K8s API `kubectl --output=json` responses.
@@ -271,6 +277,278 @@ mod k8s_json {
     pub struct RoleBindingList {
         #[serde(default)]
         pub items: Vec<RoleBindingItem>,
+    }
+
+    // --- Service ---
+
+    #[derive(Deserialize, Default)]
+    pub struct ServicePort {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub protocol: String,
+        #[serde(default)]
+        pub port: i32,
+        #[serde(rename = "targetPort", default)]
+        pub target_port: serde_json::Value,
+        #[serde(rename = "nodePort", default)]
+        pub node_port: Option<i32>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct ServiceSpec {
+        #[serde(rename = "type", default)]
+        pub service_type: String,
+        #[serde(rename = "clusterIP", default)]
+        pub cluster_ip: Option<String>,
+        #[serde(default)]
+        pub ports: Vec<ServicePort>,
+        #[serde(default)]
+        pub selector: HashMap<String, String>,
+        #[serde(rename = "externalIPs", default)]
+        pub external_ips: Vec<String>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct ServiceStatus {
+        #[serde(rename = "loadBalancer", default)]
+        pub load_balancer: LoadBalancerStatus,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct LoadBalancerStatus {
+        #[serde(default)]
+        pub ingress: Vec<LoadBalancerIngress>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct LoadBalancerIngress {
+        #[serde(default)]
+        pub ip: Option<String>,
+        #[serde(default)]
+        pub hostname: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct ServiceItem {
+        pub metadata: Meta,
+        #[serde(default)]
+        pub spec: ServiceSpec,
+        #[serde(default)]
+        pub status: ServiceStatus,
+    }
+
+    #[derive(Deserialize)]
+    pub struct ServiceList {
+        #[serde(default)]
+        pub items: Vec<ServiceItem>,
+    }
+
+    // --- Ingress ---
+
+    #[derive(Deserialize, Default)]
+    pub struct IngressBackend {
+        #[serde(default)]
+        pub service: Option<IngressServiceBackend>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct IngressServiceBackend {
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub port: IngressServicePort,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct IngressServicePort {
+        #[serde(default)]
+        pub number: Option<i32>,
+        #[serde(default)]
+        pub name: Option<String>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct HttpIngressPath {
+        #[serde(default)]
+        pub path: Option<String>,
+        #[serde(rename = "pathType", default)]
+        pub path_type: String,
+        #[serde(default)]
+        pub backend: IngressBackend,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct HttpIngressRuleValue {
+        #[serde(default)]
+        pub paths: Vec<HttpIngressPath>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct IngressRule {
+        #[serde(default)]
+        pub host: Option<String>,
+        #[serde(default)]
+        pub http: Option<HttpIngressRuleValue>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct IngressTLS {
+        #[serde(default)]
+        pub hosts: Vec<String>,
+        #[serde(rename = "secretName", default)]
+        pub secret_name: Option<String>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct IngressSpec {
+        #[serde(rename = "ingressClassName", default)]
+        pub ingress_class_name: Option<String>,
+        #[serde(default)]
+        pub rules: Vec<IngressRule>,
+        #[serde(default)]
+        pub tls: Vec<IngressTLS>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct IngressLoadBalancerIngress {
+        #[serde(default)]
+        pub ip: Option<String>,
+        #[serde(default)]
+        pub hostname: Option<String>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct IngressLoadBalancerStatus {
+        #[serde(default)]
+        pub ingress: Vec<IngressLoadBalancerIngress>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct IngressStatus {
+        #[serde(rename = "loadBalancer", default)]
+        pub load_balancer: IngressLoadBalancerStatus,
+    }
+
+    #[derive(Deserialize)]
+    pub struct IngressItem {
+        pub metadata: Meta,
+        #[serde(default)]
+        pub spec: IngressSpec,
+        #[serde(default)]
+        pub status: IngressStatus,
+    }
+
+    #[derive(Deserialize)]
+    pub struct IngressList {
+        #[serde(default)]
+        pub items: Vec<IngressItem>,
+    }
+
+    // --- Gateway API: Gateway ---
+
+    #[derive(Deserialize, Default)]
+    pub struct GatewayListener {
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub port: i32,
+        #[serde(default)]
+        pub protocol: String,
+        #[serde(default)]
+        pub hostname: Option<String>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct GatewaySpec {
+        #[serde(rename = "gatewayClassName", default)]
+        pub gateway_class_name: String,
+        #[serde(default)]
+        pub listeners: Vec<GatewayListener>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct GatewayAddress {
+        // "type" field ("IPAddress" | "Hostname") omitted — both forms are
+        // stored identically in external_addresses.
+        #[serde(default)]
+        pub value: String,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct GatewayStatus {
+        #[serde(default)]
+        pub addresses: Vec<GatewayAddress>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct GatewayItem {
+        pub metadata: Meta,
+        #[serde(default)]
+        pub spec: GatewaySpec,
+        #[serde(default)]
+        pub status: GatewayStatus,
+    }
+
+    #[derive(Deserialize)]
+    pub struct GatewayList {
+        #[serde(default)]
+        pub items: Vec<GatewayItem>,
+    }
+
+    // --- Gateway API: HTTPRoute ---
+
+    #[derive(Deserialize, Default)]
+    pub struct ParentReference {
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub namespace: Option<String>,
+        #[serde(rename = "sectionName", default)]
+        pub section_name: Option<String>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct BackendObjectReference {
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub port: Option<serde_json::Value>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct HttpBackendRef {
+        #[serde(rename = "backendRef", default)]
+        pub backend_ref: Option<BackendObjectReference>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct HttpRouteRule {
+        #[serde(rename = "backendRefs", default)]
+        pub backend_refs: Vec<HttpBackendRef>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct HttpRouteSpec {
+        #[serde(rename = "parentRefs", default)]
+        pub parent_refs: Vec<ParentReference>,
+        #[serde(default)]
+        pub hostnames: Vec<String>,
+        #[serde(default)]
+        pub rules: Vec<HttpRouteRule>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct HttpRouteItem {
+        pub metadata: Meta,
+        #[serde(default)]
+        pub spec: HttpRouteSpec,
+    }
+
+    #[derive(Deserialize)]
+    pub struct HttpRouteList {
+        #[serde(default)]
+        pub items: Vec<HttpRouteItem>,
     }
 
     // --- API error response (e.g. 403 Forbidden) ---
@@ -767,6 +1045,85 @@ fn parse_k8s_role_binding_list(stdout: &str, _stderr: &str) -> ParserOutput {
     )
 }
 
+fn parse_k8s_service_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::ServiceList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("ServiceList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let mut svc = K8sService::new(name.clone(), ns.clone());
+        svc.service_type = if item.spec.service_type.is_empty() {
+            "ClusterIP".to_string()
+        } else {
+            item.spec.service_type.clone()
+        };
+
+        // "None" is the headless service sentinel — store as None.
+        svc.cluster_ip = item
+            .spec
+            .cluster_ip
+            .as_deref()
+            .filter(|ip| !ip.is_empty() && *ip != "None")
+            .map(str::to_string);
+
+        svc.ports = item
+            .spec
+            .ports
+            .iter()
+            .map(|p| K8sServicePort {
+                port: p.port,
+                target_port: p.target_port.to_string().trim_matches('"').to_string(),
+                protocol: if p.protocol.is_empty() {
+                    "TCP".to_string()
+                } else {
+                    p.protocol.clone()
+                },
+                name: p.name.clone(),
+                node_port: p.node_port,
+            })
+            .collect();
+
+        svc.selector = item.spec.selector.clone();
+
+        // Collect external IPs from spec and LoadBalancer ingress.
+        svc.external_ips = item.spec.external_ips.clone();
+        for ingress in &item.status.load_balancer.ingress {
+            let addr = ingress.ip.as_deref().or(ingress.hostname.as_deref());
+            if let Some(a) = addr {
+                if !svc.external_ips.contains(&a.to_string()) {
+                    svc.external_ips.push(a.to_string());
+                }
+            }
+        }
+
+        facts.new_entities.push(Box::new(svc));
+
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(facts, format!("parsed {} service(s) from ServiceList", count))
+}
+
 fn parse_k8s_cluster_role_binding_list(stdout: &str, _stderr: &str) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
@@ -797,5 +1154,218 @@ fn parse_k8s_cluster_role_binding_list(stdout: &str, _stderr: &str) -> ParserOut
             "parsed {} cluster role binding(s) from ClusterRoleBindingList",
             count
         ),
+    )
+}
+
+fn parse_k8s_ingress_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::IngressList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("IngressList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let mut ingress = K8sIngress::new(name.clone(), ns.clone());
+        ingress.ingress_class = item.spec.ingress_class_name.clone();
+
+        for rule in &item.spec.rules {
+            let paths = rule
+                .http
+                .as_ref()
+                .map(|h| &h.paths)
+                .map(|ps| {
+                    ps.iter()
+                        .filter_map(|p| {
+                            let svc = p.backend.service.as_ref()?;
+                            let port = svc
+                                .port
+                                .number
+                                .map(|n| n.to_string())
+                                .or_else(|| svc.port.name.clone())
+                                .unwrap_or_default();
+                            Some(K8sIngressPath {
+                                path: p.path.clone().unwrap_or_else(|| "/".to_string()),
+                                path_type: p.path_type.clone(),
+                                backend_service: svc.name.clone(),
+                                backend_port: port,
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            ingress.rules.push(K8sIngressRule {
+                host: rule.host.clone(),
+                paths,
+            });
+        }
+
+        ingress.tls = item
+            .spec
+            .tls
+            .iter()
+            .map(|t| K8sIngressTLS {
+                hosts: t.hosts.clone(),
+                secret_name: t.secret_name.clone(),
+            })
+            .collect();
+
+        for lb in &item.status.load_balancer.ingress {
+            let addr = lb.ip.as_deref().or(lb.hostname.as_deref());
+            if let Some(a) = addr {
+                ingress.external_addresses.push(a.to_string());
+            }
+        }
+
+        facts.new_entities.push(Box::new(ingress));
+
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(facts, format!("parsed {} ingress(es) from IngressList", count))
+}
+
+fn parse_k8s_gateway_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::GatewayList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("GatewayList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let mut gw = K8sGateway::new(name.clone(), ns.clone());
+        gw.gateway_class = item.spec.gateway_class_name.clone();
+
+        gw.listeners = item
+            .spec
+            .listeners
+            .iter()
+            .map(|l| K8sGatewayListener {
+                name: l.name.clone(),
+                port: l.port,
+                protocol: l.protocol.clone(),
+                hostname: l.hostname.clone(),
+            })
+            .collect();
+
+        for addr in &item.status.addresses {
+            if !addr.value.is_empty() {
+                gw.external_addresses.push(addr.value.clone());
+            }
+        }
+
+        facts.new_entities.push(Box::new(gw));
+
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(facts, format!("parsed {} gateway(s) from GatewayList", count))
+}
+
+fn parse_k8s_http_route_list(stdout: &str, _stderr: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(err) = check_k8s_api_error(stdout) {
+        return err;
+    }
+    let list: k8s_json::HttpRouteList = match serde_json::from_str(stdout) {
+        Ok(l) => l,
+        Err(e) => return ParserOutput::UnknownFormat(format!("JSON parse error: {e}")),
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("HTTPRouteList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in &list.items {
+        let name = &item.metadata.name;
+        let ns = item.metadata.namespace.as_deref().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let mut route = K8sHTTPRoute::new(name.clone(), ns.clone());
+
+        route.parent_refs = item
+            .spec
+            .parent_refs
+            .iter()
+            .map(|p| K8sParentRef {
+                name: p.name.clone(),
+                namespace: p.namespace.clone(),
+                section_name: p.section_name.clone(),
+            })
+            .collect();
+
+        route.hostnames = item.spec.hostnames.clone();
+
+        // Flatten all backend refs from all rules.
+        for rule in &item.spec.rules {
+            for bref in &rule.backend_refs {
+                if let Some(backend) = &bref.backend_ref {
+                    if backend.name.is_empty() {
+                        continue;
+                    }
+                    let port = backend
+                        .port
+                        .as_ref()
+                        .map(|p| p.to_string().trim_matches('"').to_string())
+                        .unwrap_or_default();
+                    route.backends.push(K8sHTTPBackend {
+                        service_name: backend.name.clone(),
+                        service_port: port,
+                    });
+                }
+            }
+        }
+
+        facts.new_entities.push(Box::new(route));
+
+        if !ns.is_empty() {
+            facts.new_entities.push(Box::new(Namespace::new(ns)));
+        }
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} HTTPRoute(s) from HTTPRouteList", count),
     )
 }
