@@ -987,6 +987,367 @@ impl Entity for Job {
 }
 
 // ---------------------------------------------------------------------------
+// K8sService
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes Service port mapping.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sServicePort {
+    pub port: i32,
+    pub target_port: String,
+    pub protocol: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub node_port: Option<i32>,
+}
+
+/// A Kubernetes Service discovered in the cluster.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sService {
+    pub meta: K8sMeta,
+    /// Service type: ClusterIP, NodePort, LoadBalancer, ExternalName.
+    pub service_type: String,
+    /// Virtual ClusterIP assigned by the control plane (`None` for headless / ExternalName).
+    #[serde(default)]
+    pub cluster_ip: Option<String>,
+    pub ports: Vec<K8sServicePort>,
+    /// Pod selector labels mapping this service to its backend pods.
+    pub selector: HashMap<String, String>,
+    /// External IPs assigned to LoadBalancer services.
+    #[serde(default)]
+    pub external_ips: Vec<String>,
+}
+
+impl K8sService {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        K8sService {
+            meta: K8sMeta::namespaced(name, namespace),
+            service_type: String::new(),
+            cluster_ip: None,
+            ports: Vec::new(),
+            selector: HashMap::new(),
+            external_ips: Vec::new(),
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+
+    pub fn is_externally_reachable(&self) -> bool {
+        matches!(self.service_type.as_str(), "LoadBalancer" | "NodePort")
+    }
+}
+
+impl Entity for K8sService {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/svc/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "Service"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl Merge for K8sService {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+        if self.service_type.is_empty() && !incoming.service_type.is_empty() {
+            self.service_type = incoming.service_type.clone();
+        }
+        if self.cluster_ip.is_none() {
+            self.cluster_ip = incoming.cluster_ip.clone();
+        }
+        if self.ports.is_empty() {
+            self.ports = incoming.ports.clone();
+        }
+        for (k, v) in &incoming.selector {
+            self.selector.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        for ip in &incoming.external_ips {
+            if !self.external_ips.contains(ip) {
+                self.external_ips.push(ip.clone());
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// K8sIngress
+// ---------------------------------------------------------------------------
+
+/// A single path rule within a K8s Ingress host rule.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sIngressPath {
+    pub path: String,
+    pub path_type: String,
+    /// Backend service name.
+    pub backend_service: String,
+    /// Backend service port (number or named port).
+    pub backend_port: String,
+}
+
+/// A host rule within a K8s Ingress.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sIngressRule {
+    pub host: Option<String>,
+    pub paths: Vec<K8sIngressPath>,
+}
+
+/// A TLS block within a K8s Ingress.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sIngressTLS {
+    pub hosts: Vec<String>,
+    pub secret_name: Option<String>,
+}
+
+/// A Kubernetes Ingress resource discovered in the cluster.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sIngress {
+    pub meta: K8sMeta,
+    /// IngressClass name (e.g. `nginx`, `traefik`).
+    #[serde(default)]
+    pub ingress_class: Option<String>,
+    pub rules: Vec<K8sIngressRule>,
+    pub tls: Vec<K8sIngressTLS>,
+    /// External addresses assigned by the ingress controller (IPs or hostnames).
+    #[serde(default)]
+    pub external_addresses: Vec<String>,
+}
+
+impl K8sIngress {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        K8sIngress {
+            meta: K8sMeta::namespaced(name, namespace),
+            ingress_class: None,
+            rules: Vec::new(),
+            tls: Vec::new(),
+            external_addresses: Vec::new(),
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+
+    /// Returns all distinct hostnames declared across all rules.
+    pub fn hostnames(&self) -> Vec<&str> {
+        self.rules
+            .iter()
+            .filter_map(|r| r.host.as_deref())
+            .collect()
+    }
+}
+
+impl Entity for K8sIngress {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/ingress/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "Ingress"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl Merge for K8sIngress {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+        if self.ingress_class.is_none() {
+            self.ingress_class = incoming.ingress_class.clone();
+        }
+        if self.rules.is_empty() {
+            self.rules = incoming.rules.clone();
+        }
+        if self.tls.is_empty() {
+            self.tls = incoming.tls.clone();
+        }
+        for addr in &incoming.external_addresses {
+            if !self.external_addresses.contains(addr) {
+                self.external_addresses.push(addr.clone());
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// K8sGateway (Gateway API)
+// ---------------------------------------------------------------------------
+
+/// A single listener on a Gateway API Gateway resource.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sGatewayListener {
+    pub name: String,
+    pub port: i32,
+    pub protocol: String,
+    #[serde(default)]
+    pub hostname: Option<String>,
+}
+
+/// A Kubernetes Gateway API Gateway resource.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sGateway {
+    pub meta: K8sMeta,
+    /// GatewayClass name (e.g. `istio`, `nginx`, `cilium`).
+    pub gateway_class: String,
+    pub listeners: Vec<K8sGatewayListener>,
+    /// External addresses assigned by the gateway controller.
+    #[serde(default)]
+    pub external_addresses: Vec<String>,
+}
+
+impl K8sGateway {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        K8sGateway {
+            meta: K8sMeta::namespaced(name, namespace),
+            gateway_class: String::new(),
+            listeners: Vec::new(),
+            external_addresses: Vec::new(),
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for K8sGateway {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/gateway/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "Gateway"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl Merge for K8sGateway {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+        if self.gateway_class.is_empty() && !incoming.gateway_class.is_empty() {
+            self.gateway_class = incoming.gateway_class.clone();
+        }
+        if self.listeners.is_empty() {
+            self.listeners = incoming.listeners.clone();
+        }
+        for addr in &incoming.external_addresses {
+            if !self.external_addresses.contains(addr) {
+                self.external_addresses.push(addr.clone());
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// K8sHTTPRoute (Gateway API)
+// ---------------------------------------------------------------------------
+
+/// A reference to a parent Gateway in an HTTPRoute.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sParentRef {
+    pub name: String,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub section_name: Option<String>,
+}
+
+/// A backend service reference within an HTTPRoute rule.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sHTTPBackend {
+    pub service_name: String,
+    pub service_port: String,
+}
+
+/// A Kubernetes Gateway API HTTPRoute resource.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sHTTPRoute {
+    pub meta: K8sMeta,
+    /// Parent Gateways this route attaches to.
+    pub parent_refs: Vec<K8sParentRef>,
+    /// Hostnames this route matches.
+    #[serde(default)]
+    pub hostnames: Vec<String>,
+    /// Backend services reachable via this route (flattened from all rules).
+    #[serde(default)]
+    pub backends: Vec<K8sHTTPBackend>,
+}
+
+impl K8sHTTPRoute {
+    pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
+        K8sHTTPRoute {
+            meta: K8sMeta::namespaced(name, namespace),
+            parent_refs: Vec::new(),
+            hostnames: Vec::new(),
+            backends: Vec::new(),
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for K8sHTTPRoute {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!("ns/{}/httproute/{}", ns, self.meta.name))
+    }
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+    fn entity_kind(&self) -> &str {
+        "HTTPRoute"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl Merge for K8sHTTPRoute {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+        for pref in &incoming.parent_refs {
+            if !self.parent_refs.iter().any(|p| p.name == pref.name) {
+                self.parent_refs.push(pref.clone());
+            }
+        }
+        for h in &incoming.hostnames {
+            if !self.hostnames.contains(h) {
+                self.hostnames.push(h.clone());
+            }
+        }
+        for b in &incoming.backends {
+            if !self
+                .backends
+                .iter()
+                .any(|eb| eb.service_name == b.service_name && eb.service_port == b.service_port)
+            {
+                self.backends.push(b.clone());
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // K8sCredential
 // ---------------------------------------------------------------------------
 

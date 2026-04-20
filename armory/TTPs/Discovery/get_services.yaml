@@ -1,0 +1,44 @@
+id: get-services
+name: Get Services via API Server
+description: Enumerate Kubernetes Services via the K8s API server to map internal service endpoints and identify externally exposed workloads
+tactic: Discovery
+techniques: ["Container and Resource Discovery", T1613]
+preconditions:
+  rbac:
+    - verb: list
+      resource: services
+parameters:
+  TOKEN:
+    type: ServiceAccount
+    description: the ServiceAccount token used to authorize this request
+    optional: true
+    default: ""
+  NS:
+    type: Namespace
+    description: namespace to enumerate
+    default: ${NS}
+  ALL_NS:
+    type: bool
+    description: enumerate services across all namespaces
+    default: false
+procedures:
+  - key: kubectl
+    command: >-
+      kubectl get services --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
+  - key: curl
+    command: >-
+      curl -XGET -k
+      -H "Accept: application/json"
+      -H "User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69"
+      -H "Authorization: Bearer ${TOKEN}"
+      --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      {% if ALL_NS %}
+      '${API_SERVER}/api/v1/services?limit=500'
+      {% else %}
+      '${API_SERVER}/api/v1/namespaces/${NS}/services?limit=500'
+      {% endif %}
+effects:
+  - k8s.servicelist
+references:
+  - https://kubernetes.io/docs/concepts/services-networking/service/
+  - https://attack.mitre.org/techniques/T1613/

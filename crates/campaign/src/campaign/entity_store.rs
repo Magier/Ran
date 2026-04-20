@@ -3,8 +3,9 @@ use std::collections::HashMap;
 
 use ran_domain::{
     C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
-    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sNode, K8sRole, K8sRoleBinding, K8sSecret,
-    Merge, Namespace, Pod, ReplicaSet, ServiceAccount, StatefulSet, UnknownSystem,
+    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress,
+    K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Merge, Namespace, Pod, ReplicaSet,
+    ServiceAccount, StatefulSet, UnknownSystem,
 };
 use serde::de::MapAccess;
 use serde::ser::SerializeMap;
@@ -294,6 +295,10 @@ impl Default for EntityStore {
         s.register::<GCPBucket>("gcp_buckets", |t| CampaignEntityRef::GCPBucket(t));
         s.register::<K8sCredential>("k8s_credentials", |t| CampaignEntityRef::K8sCredential(t));
         s.register::<UnknownSystem>("unknown_systems", |t| CampaignEntityRef::UnknownSystem(t));
+        s.register::<K8sService>("services", |t| CampaignEntityRef::Service(t));
+        s.register::<K8sIngress>("ingresses", |t| CampaignEntityRef::Ingress(t));
+        s.register::<K8sGateway>("gateways", |t| CampaignEntityRef::Gateway(t));
+        s.register::<K8sHTTPRoute>("http_routes", |t| CampaignEntityRef::HTTPRoute(t));
         s
     }
 }
