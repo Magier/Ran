@@ -176,7 +176,11 @@ pub fn parse_output_effect(
                 },
             );
         }
-        // Step 2: check for kubeconfig content and emit credential entity if found.
+        // Step 2: store the raw content so it can be retrieved via /api/files.
+        if !stdout.trim().is_empty() {
+            campaign.store_file_content(path, stdout);
+        }
+        // Step 3: check for kubeconfig content and emit credential entity if found.
         let source_id = target_id_opt.as_deref().unwrap_or("");
         file::parse_file_content(stdout, path, source_id)
     } else if normalized == "file:kubeconfig" {

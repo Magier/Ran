@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use campaign::{Campaign, CampaignEntityRef};
-use ran_domain::AccessLevel;
+use ran_domain::{AccessLevel, PodPhase};
 use serde_json::Value;
 
 use crate::{CampaignState, Graph, GraphEdge, GraphNode};
@@ -145,7 +145,13 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
             parent,
             access_level: None,
             compromised,
-            is_running: None,
+            is_running: match &entity {
+                CampaignEntityRef::Pod(pod) => Some(
+                    pod.is_running
+                        || !matches!(pod.phase, Some(PodPhase::Succeeded | PodPhase::Failed)),
+                ),
+                _ => None,
+            },
             entity: serialize_campaign_entity_map(&entity),
         });
     }

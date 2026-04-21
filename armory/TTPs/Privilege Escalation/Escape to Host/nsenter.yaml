@@ -1,12 +1,13 @@
 name: Escape container via NSenter
-description: Container escape via the nsenter built-in linux program that allows executing a binary into another namespace.
+description: Container escape via the nsenter built-in linux program that allows
+  executing a binary into another namespace.
 tactic: "Privilege Escalation"
-techniques: ["Escape to Host", T1611]
+techniques: [ "Escape to Host", T1611 ]
 preconditions:
-  # kind: Session
+  kind: System
   "Pod.securityContext.privileged": true
   accessLevel: "user-exec"
-effects: 
+effects:
   - container.escape(sys)
 parameters:
   CMD:

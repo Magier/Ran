@@ -339,6 +339,38 @@ pub(crate) async fn reset_campaign_handler<S: ApiService>(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct GetFileContentParams {
+    pub(crate) path: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct FileContentResponse {
+    pub(crate) path: String,
+    pub(crate) content: String,
+}
+
+pub(crate) async fn file_content_handler<S: ApiService>(
+    State(service): State<S>,
+    Query(params): Query<GetFileContentParams>,
+) -> Result<axum::Json<FileContentResponse>, ApiError> {
+    let campaign = service.get_campaign().await?;
+    let content = campaign
+        .get_file_content(&params.path)
+        .ok_or_else(|| ApiError {
+            status: axum::http::StatusCode::NOT_FOUND,
+            body: ErrorResponse {
+                error: format!("file content not found for path: {}", params.path),
+                details: None,
+            },
+        })?
+        .to_string();
+    Ok(axum::Json(FileContentResponse {
+        path: params.path,
+        content,
+    }))
+}
+
 fn ms_to_iso8601(ms: u64) -> String {
     DateTime::<Utc>::from_timestamp_millis(ms as i64)
         .map(|dt| dt.to_rfc3339())
@@ -430,7 +462,7 @@ impl From<&campaign::ExecTtp> for AttackStep {
             status: "Ongoing",
             started_at: ms_to_iso8601(exec.started_at_ms),
             completed_at: String::new(),
-            executed_on: exec.exec_system_id.clone(),
+            executed_on: exec.exec_entity().to_string(),
         }
     }
 }
