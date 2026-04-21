@@ -19,7 +19,7 @@ pub struct ExecutionRecord {
     pub tactic: String,
     /// ID of the entity that was targeted.
     pub target_id: String,
-    /// ID of the C2 system that ran the command (empty string for direct builtin exec).
+    /// ID of the entity the command physically executed on (pod, node, or C2 entity).
     pub exec_system_id: String,
     /// ID of the procedure variant that was selected.
     pub procedure_id: String,
@@ -54,7 +54,7 @@ impl ExecutionRecord {
             ttp_name: cmd.ttp.name.clone(),
             tactic: cmd.ttp.tactic.clone(),
             target_id: cmd.target_id.clone(),
-            exec_system_id: cmd.exec_system_id.clone(),
+            exec_system_id: cmd.exec_target().to_string(),
             procedure_id: cmd.procedure.id.clone(),
             command: cmd.procedure.command.clone(),
             args: cmd.args.clone(),

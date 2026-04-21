@@ -45,7 +45,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         },
         args: HashMap::new(),
         target_id: target_id.to_string(),
-        exec_entity_id: target_id.to_string(),
+        exec_chain: vec![target_id.to_string()],
         exec_system_id: String::new(),
         started_at_ms: 0,
     }
@@ -686,7 +686,7 @@ fn prepare_action_explicit_exec_source_entity_runs_from_that_system() {
         "semantic target must be the requested target"
     );
     assert_eq!(
-        exec.exec_entity_id, source_id,
+        exec.exec_entity(), source_id,
         "physical exec entity must be the supplied source"
     );
     assert_eq!(
@@ -780,7 +780,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         },
         args: HashMap::new(),
         target_id: target_id.to_string(),
-        exec_entity_id: target_id.to_string(),
+        exec_chain: vec![target_id.to_string()],
         exec_system_id: target_id.to_string(),
         started_at_ms: 0,
     }
@@ -819,6 +819,43 @@ fn command_not_found_marks_binary_absent_on_exec_system() {
 }
 
 #[test]
+fn command_not_found_in_output_with_exit_zero_marks_binary_absent_and_fails_step() {
+    // Regression: some shells (busybox sh) swallow the exit code and return 0
+    // even when the binary is missing. The "not found" message appears in the
+    // results instead of fail_reason, and event.success = true.
+    // The step must still be recorded as failed and the binary marked Absent.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let pod = Pod::new("redis-pod", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let mut cmd = nmap_exec_ttp(&target_id);
+    cmd.procedure.tool = Some("curl".to_string());
+    cmd.procedure.command = "curl -XPOST http://k8s-api/...".to_string();
+
+    let event = TtpExecuted {
+        id: "evt-1".to_string(),
+        success: true,
+        exit_code: 0,
+        results: vec!["sh: 1: curl: not found".to_string()],
+        fail_reason: String::new(),
+    };
+
+    let processing = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    assert!(!processing.effective_success, "step must be marked failed");
+    let record = campaign.get_execution_records().last().unwrap();
+    assert!(!record.success, "execution record must show failure");
+
+    let sys = campaign.get_system_entity(&target_id).unwrap();
+    assert_eq!(
+        sys.entity().system().has_binary("curl"),
+        ran_domain::BinaryPresence::Absent,
+        "curl must be marked Absent when 'not found' appears in output at exit 0"
+    );
+}
+
+#[test]
 fn command_not_found_does_not_overwrite_known_present_binary() {
     use ran_domain::BinaryPresence;
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
@@ -838,6 +875,31 @@ fn command_not_found_does_not_overwrite_known_present_binary() {
         sys.entity().system().has_binary("nmap"),
         BinaryPresence::Present("/usr/bin/nmap".to_string()),
         "confirmed Present should not be overwritten by a command-not-found failure"
+    );
+}
+
+#[test]
+fn command_not_found_marks_binary_absent_when_target_is_non_system_entity() {
+    // Regression: when the target is a ServiceAccount (not a system entity),
+    // the absent binary must be recorded on the pod that physically ran the command
+    // (exec_chain), not silently dropped.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let pod = Pod::new("runner", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let sa_id = "ns/default/sa/my-sa".to_string();
+    let mut cmd = nmap_exec_ttp(&sa_id);
+    cmd.exec_chain = vec![pod_id.clone()];
+
+    let event = command_not_found_event();
+    campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    let sys = campaign.get_system_entity(&pod_id).unwrap();
+    assert_eq!(
+        sys.entity().system().has_binary("nmap"),
+        ran_domain::BinaryPresence::Absent,
+        "absent binary must be recorded on the executing pod even when target is a SA"
     );
 }
 
@@ -936,7 +998,7 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
     );
     // The C2 kubectl-execs into the entry pod, which then runs the RCE envelope.
     assert_eq!(
-        exec.exec_entity_id, entry_id,
+        exec.exec_entity(), entry_id,
         "C2 should exec into entry-pod"
     );
 }
@@ -972,7 +1034,7 @@ fn prepare_action_exec_system_same_as_target_still_uses_channel_hops() {
         "semantic target must be the requested redis pod"
     );
     assert_eq!(
-        exec.exec_entity_id, entry_id,
+        exec.exec_entity(), entry_id,
         "physical exec entity must be the first hop, not target pod directly"
     );
 }
@@ -1030,7 +1092,7 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
 
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
     assert_eq!(
-        exec.exec_entity_id, entry_id,
+        exec.exec_entity(), entry_id,
         "fallback should exec into entry-hall, not redis directly"
     );
 }

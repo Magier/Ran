@@ -356,20 +356,22 @@ pub fn build_parse_audit(
 ///
 /// System-level facts (binary presence, env vars, IPs, mounts, …) are facts
 /// about the machine that **executed** the command, not the logical target.
-/// For lateral movement, `exec_system_id` is the source pod (where the command
-/// runs) and `target_id` is the victim/destination — so we must prefer
-/// `exec_system_id` when it is set.
+/// For lateral movement, the last element of `exec_chain` is the source pod
+/// (where the command runs) and `target_id` is the victim/destination — so we
+/// prefer the physical execution target (last in chain) when it resolves to a
+/// known system entity.
 ///
 /// Priority:
-/// 1. `exec_system_id` — the actual execution host; set for lateral movement
-///    and for actions routed through a hop chain.
+/// 1. `exec_chain` (last → first) — the actual execution host(s); last element
+///    for lateral movement and for actions routed through a hop chain.
 /// 2. `target_id` — used for direct (non-lateral) execution where the target
 ///    IS the execution host.
 fn resolve_target_id(campaign: &Campaign, cmd: &ExecTtp) -> Option<String> {
-    if !cmd.exec_system_id.trim().is_empty()
-        && campaign.get_system_entity(&cmd.exec_system_id).is_some()
-    {
-        return Some(cmd.exec_system_id.clone());
+    // Prefer the physical execution target (last in chain) — for lateral movement
+    // this is the source pod, for direct exec it's the target pod.
+    let exec_target = cmd.exec_target();
+    if !exec_target.is_empty() && campaign.get_system_entity(exec_target).is_some() {
+        return Some(exec_target.to_string());
     }
     if campaign.get_system_entity(&cmd.target_id).is_some() {
         return Some(cmd.target_id.clone());
@@ -466,7 +468,7 @@ mod tests {
             },
             args: HashMap::new(),
             target_id: "ns/default/pod/demo".to_string(),
-            exec_entity_id: "ns/default/pod/demo".to_string(),
+            exec_chain: vec!["ns/default/pod/demo".to_string()],
             exec_system_id: String::new(),
             started_at_ms: 0,
         }
@@ -530,14 +532,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_output_effect_falls_back_to_exec_system_id_for_updates() {
+    fn parse_output_effect_falls_back_to_exec_chain_for_updates() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
         campaign.entities.insert_typed(pod);
 
         let mut cmd = sample_cmd();
         cmd.target_id = "sa/default/demo".to_string();
-        cmd.exec_system_id = "ns/default/pod/demo".to_string();
+        cmd.exec_chain = vec!["ns/default/pod/demo".to_string()];
 
         let event = sample_event(vec!["HOME=/root\nPATH=/usr/bin".to_string()]);
 
@@ -555,10 +557,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_output_effect_prefers_exec_system_id_over_target_for_lateral_movement() {
+    fn parse_output_effect_prefers_exec_chain_over_target_for_lateral_movement() {
         // Regression: for lateral movement the command runs on src-pod but the
         // effect should NOT be written to dst-pod (the victim/target).
-        // exec_system_id (src) must take priority over target_id (dst).
+        // exec_chain (src) must take priority over target_id (dst).
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let src_pod = Pod::new("src-pod", "default");
         let dst_pod = Pod::new("dst-pod", "default");
@@ -567,7 +569,7 @@ mod tests {
 
         let mut cmd = sample_cmd();
         cmd.target_id = "ns/default/pod/dst-pod".to_string();
-        cmd.exec_system_id = "ns/default/pod/src-pod".to_string();
+        cmd.exec_chain = vec!["ns/default/pod/src-pod".to_string()];
         cmd.ttp.effects = vec!["sys.has-binary(/usr/bin/redis-cli)".to_string()];
         // Empty results simulates the tool being absent (exit non-zero / no stdout).
         let event = sample_event(vec![]);

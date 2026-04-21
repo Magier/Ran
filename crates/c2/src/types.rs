@@ -17,15 +17,24 @@ pub struct ExecTtp {
     /// Always the entity the operator is working with (e.g. a K8sNode after
     /// a container escape, or a ServiceAccount being exploited).
     pub target_id: String,
-    /// The physical entity the C2 backend execs into to deliver the command.
-    /// Equals `target_id` for direct pod targets; differs when the semantic
-    /// target is not itself an exec-capable system (e.g. a ServiceAccount is
-    /// resolved to its pod, or a K8sNode is reached via a container escape
-    /// hop through a pod).
-    pub exec_entity_id: String,
+    /// Ordered execution chain: first element = what BuiltinC2 execs into,
+    /// last element = where the command actually runs. Empty for purely
+    /// local/C2-side commands.
+    pub exec_chain: Vec<String>,
     pub exec_system_id: String,
     /// Unix timestamp (milliseconds) when the command was dispatched.
     pub started_at_ms: u64,
+}
+
+impl ExecTtp {
+    /// The entity BuiltinC2 directly execs into (first hop for routing).
+    pub fn exec_entity(&self) -> &str {
+        self.exec_chain.first().map(String::as_str).unwrap_or("")
+    }
+    /// The final entity where the command actually runs (for attribution).
+    pub fn exec_target(&self) -> &str {
+        self.exec_chain.last().map(String::as_str).unwrap_or("")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
