@@ -87,10 +87,9 @@ pub fn ttp_has_token_satisfied(ttp: &armory::Ttp, target_has_token: bool) -> boo
 
 /// Returns `true` when the target entity's access level satisfies the TTP's requirement.
 ///
-/// Three tactics are exempt and never require access: `Initial Access`,
-/// `Lateral Movement`, and `Resource Development`.  For all other tactics the
-/// target must have at least the level declared in `requires.accessLevel`.
-/// When no level is declared the default is `UserExec`.
+/// Access level is **opt-in**: when `requires.accessLevel` is absent the check
+/// always passes.  Three tactics are also unconditionally exempt: `Initial Access`,
+/// `Lateral Movement`, and `Resource Development`.
 ///
 /// Tactic names are normalised (spaces stripped, ASCII lower-cased) before
 /// comparison so `"InitialAccess"` (directory-derived) and `"Initial Access"`
@@ -111,14 +110,16 @@ pub fn ttp_access_level_satisfied(ttp: &armory::Ttp, target_access_level: Access
         return true;
     }
 
-    // Any declared accessLevel value other than "none" maps to Exec.
-    // Undeclared on a non-exempt tactic also requires Exec.
-    let requires_exec = !matches!(
-        ttp.requires.get("accessLevel").and_then(Value::as_str),
-        Some("none")
-    );
+    // Only enforce an access level when one is explicitly declared.
+    let Some(declared) = ttp.requires.get("accessLevel").and_then(Value::as_str) else {
+        return true;
+    };
 
-    !requires_exec || target_access_level >= AccessLevel::Exec
+    if declared == "none" {
+        return true;
+    }
+
+    target_access_level >= AccessLevel::Exec
 }
 
 #[cfg(test)]
@@ -238,14 +239,14 @@ mod tests {
     }
 
     #[test]
-    fn non_exempt_tactic_requires_exec_by_default() {
+    fn undeclared_access_level_is_always_satisfied() {
         let ttp = ttp_with_tactic_and_access("Discovery", None);
-        assert!(!ttp_access_level_satisfied(&ttp, AccessLevel::None));
+        assert!(ttp_access_level_satisfied(&ttp, AccessLevel::None));
         assert!(ttp_access_level_satisfied(&ttp, AccessLevel::Exec));
     }
 
     #[test]
-    fn any_non_none_access_level_declaration_requires_exec() {
+    fn declared_exec_requires_exec() {
         for declared in &[
             "user-exec",
             "user-read",
@@ -266,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn access_level_none_declaration_does_not_require_exec() {
+    fn declared_none_is_always_satisfied() {
         let ttp = ttp_with_tactic_and_access("Discovery", Some("none"));
         assert!(ttp_access_level_satisfied(&ttp, AccessLevel::None));
     }

@@ -67,6 +67,10 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             "/api/docs",
             axum::routing::get(api_handlers::swagger_ui_handler),
         )
+        .route(
+            "/api/files",
+            axum::routing::get(api_handlers::file_content_handler::<S>),
+        )
         .with_state(service.clone())
         .merge(router(service))
 }

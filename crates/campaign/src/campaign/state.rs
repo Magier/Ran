@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use cortex::KnowledgeGraph;
 use ran_domain::{
     C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, PodExec, RelationSummary, SessionStatus,
@@ -23,6 +25,9 @@ pub struct Campaign {
     pub execution_records: Vec<ExecutionRecord>,
     /// Steps that have been dispatched to C2 but not yet completed.
     pub open_steps: Vec<ExecTtp>,
+    /// Raw file contents captured by `file:content(path)` effects, keyed by path.
+    #[serde(default)]
+    pub file_contents: HashMap<String, String>,
 }
 
 impl Campaign {
@@ -45,6 +50,7 @@ impl Campaign {
             parse_audits: Vec::new(),
             execution_records: Vec::new(),
             open_steps: Vec::new(),
+            file_contents: HashMap::new(),
         }
     }
 
@@ -75,6 +81,14 @@ impl Campaign {
 
     pub fn get_open_steps(&self) -> &[ExecTtp] {
         &self.open_steps
+    }
+
+    pub fn store_file_content(&mut self, path: impl Into<String>, content: impl Into<String>) {
+        self.file_contents.insert(path.into(), content.into());
+    }
+
+    pub fn get_file_content(&self, path: &str) -> Option<&str> {
+        self.file_contents.get(path).map(String::as_str)
     }
 
     pub fn add_open_step(&mut self, exec: ExecTtp) {
