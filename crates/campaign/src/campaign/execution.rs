@@ -109,11 +109,11 @@ fn ground_procedure_and_effects(
 /// before grounding so that effect strings like
 /// `rce.can-exec(${SRC}, ${TARGET_ID})` are fully grounded.
 ///
-/// Returns `(backend_id, semantic_target_id, exec_entity_id)`.
+/// Returns `(backend_id, semantic_target_id, exec_chain)`.
 fn route_lateral_movement(
     lateral_src: Option<ExecChannel>,
     target_id: &str,
-) -> Result<(String, String, String), ExecuteActionError> {
+) -> Result<(String, String, Vec<String>), ExecuteActionError> {
     let ch = lateral_src.ok_or_else(|| {
         ExecuteActionError::InvariantViolation(
             "lateral movement exec source should have been resolved before routing".to_string(),
@@ -131,7 +131,7 @@ fn route_lateral_movement(
         chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_entity.as_str()),
         "selected lateral-movement execution chain"
     );
-    Ok((ch.backend_id, target_id.to_string(), exec_entity))
+    Ok((ch.backend_id, target_id.to_string(), vec![exec_entity.clone()]))
 }
 
 fn current_time_millis() -> u64 {
@@ -192,7 +192,7 @@ impl Campaign {
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
 
         // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
-        let (exec_system_id, target_id, exec_entity_id) = self.route_exec_channel(
+        let (exec_system_id, target_id, exec_chain) = self.route_exec_channel(
             &request.target_id,
             &ttp.tactic,
             &mut procedure,
@@ -208,7 +208,7 @@ impl Campaign {
             procedure,
             args,
             target_id,
-            exec_entity_id,
+            exec_chain,
             exec_system_id,
             started_at_ms: current_time_millis(),
         })
@@ -274,12 +274,12 @@ impl Campaign {
         Ok(Some(ch))
     }
 
-    /// Select a C2 backend and return `(backend_id, semantic_target_id, exec_entity_id)`.
+    /// Select a C2 backend and return `(backend_id, semantic_target_id, exec_chain)`.
     ///
     /// - `semantic_target_id` is always the original `target_id` from the request — used for
     ///   attribution (execution records, effect context `TARGET_ID`, knowledge graph updates).
-    /// - `exec_entity_id` is the physical entity `BuiltinC2` will exec into — may be the first
-    ///   hop of a multi-hop path or a resolved pod for SA/node targets.
+    /// - `exec_chain` is the ordered list of physical execution hops from the BuiltinC2 entry
+    ///   point to the final destination.
     ///
     /// Decision order (first matching branch wins):
     /// 1. Caller supplied a non-empty exec hint → [`route_caller_supplied`].
@@ -293,7 +293,7 @@ impl Campaign {
         procedure: &mut Procedure,
         exec_hint: Option<&str>,
         lateral_src: Option<ExecChannel>,
-    ) -> Result<(String, String, String), ExecuteActionError> {
+    ) -> Result<(String, String, Vec<String>), ExecuteActionError> {
         tracing::debug!(
             "exec_system_id before backend selection: '{}'",
             exec_hint.unwrap_or("")
@@ -320,12 +320,12 @@ impl Campaign {
     /// (via the builtin C2); otherwise it is treated as an explicit backend ID
     /// and the logical target is kept as the exec entity.
     ///
-    /// Returns `(backend_id, semantic_target_id, exec_entity_id)`.
+    /// Returns `(backend_id, semantic_target_id, exec_chain)`.
     fn route_caller_supplied(
         &self,
         hint: &str,
         target_id: &str,
-    ) -> Result<(String, String, String), ExecuteActionError> {
+    ) -> Result<(String, String, Vec<String>), ExecuteActionError> {
         if self.get_system_entity(hint).is_some() {
             tracing::info!(
                 logical_target = %target_id,
@@ -337,7 +337,7 @@ impl Campaign {
             Ok((
                 BUILTIN_C2_ID.to_string(),
                 target_id.to_string(),
-                hint.to_string(),
+                vec![hint.to_string()],
             ))
         } else {
             tracing::info!(
@@ -349,7 +349,7 @@ impl Campaign {
             Ok((
                 hint.to_string(),
                 target_id.to_string(),
-                target_id.to_string(),
+                vec![target_id.to_string()],
             ))
         }
     }
@@ -357,14 +357,14 @@ impl Campaign {
     /// Route through a graph-resolved exec channel, wrapping the command for
     /// any intermediate hops.
     ///
-    /// Returns `(backend_id, semantic_target_id, exec_entity_id)`.
-    /// `semantic_target_id` is always the original `target_id`; `exec_entity_id`
-    /// is the first hop for multi-hop paths or the resolved exec target for direct paths.
+    /// Returns `(backend_id, semantic_target_id, exec_chain)`.
+    /// The chain's first element is what BuiltinC2 directly execs into (first hop for
+    /// multi-hop paths), and the last element is the final pod where the command runs.
     fn route_remote(
         &mut self,
         target_id: &str,
         procedure: &mut Procedure,
-    ) -> Result<(String, String, String), ExecuteActionError> {
+    ) -> Result<(String, String, Vec<String>), ExecuteActionError> {
         let ch = self
             .resolve_exec_channel(target_id)
             .map_err(ExecuteActionError::NoExecChannel)?;
@@ -394,11 +394,11 @@ impl Campaign {
             if let Some(pod) = self.entities.find::<Pod>(&tgt_id) {
                 procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
             }
-            Ok((ch.backend_id, target_id.to_string(), exec_target))
+            Ok((ch.backend_id, target_id.to_string(), vec![exec_target.clone()]))
         } else {
-            let first_hop = ch.hops[0].clone();
             self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str());
-            Ok((ch.backend_id, target_id.to_string(), first_hop))
+            let exec_chain: Vec<String> = ch.hops.iter().cloned().chain(std::iter::once(exec_target)).collect();
+            Ok((ch.backend_id, target_id.to_string(), exec_chain))
         }
     }
 
@@ -406,11 +406,11 @@ impl Campaign {
     /// explicit channel was selected; all other targets get an empty backend
     /// (the C2 side will execute directly against the target).
     ///
-    /// Returns `(backend_id, semantic_target_id, exec_entity_id)`.
+    /// Returns `(backend_id, semantic_target_id, exec_chain)`.
     fn route_fallback(
         &self,
         target_id: &str,
-    ) -> Result<(String, String, String), ExecuteActionError> {
+    ) -> Result<(String, String, Vec<String>), ExecuteActionError> {
         let target_eid = EntityId::new(target_id);
         if self.entities.contains::<Pod>(&target_eid) {
             tracing::warn!(
@@ -428,9 +428,9 @@ impl Campaign {
                 chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_entity.as_str()),
                 "pod fallback source selected"
             );
-            Ok((ch.backend_id, target_id.to_string(), exec_entity))
+            Ok((ch.backend_id, target_id.to_string(), vec![exec_entity]))
         } else {
-            Ok((String::new(), target_id.to_string(), target_id.to_string()))
+            Ok((String::new(), target_id.to_string(), vec![]))
         }
     }
 
@@ -526,17 +526,14 @@ impl Campaign {
                     .or_else(|| procedure_binary_name(&cmd.procedure));
 
                 if let Some(binary) = binary {
-                    // args["TARGET_ID"] = the original request target, which is
-                    // the actual execution target even in multi-hop chains (where
-                    // cmd.target_id is the first hop, not the final destination).
-                    let target_id_arg = cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
-                    let system_id = if self.get_system_entity(target_id_arg).is_some() {
-                        Some(target_id_arg)
-                    } else if self.get_system_entity(&cmd.target_id).is_some() {
-                        Some(cmd.target_id.as_str())
-                    } else {
-                        None
-                    };
+                    let system_id = cmd.exec_chain.iter().rev()
+                        .map(String::as_str)
+                        .find(|id| self.get_system_entity(id).is_some())
+                        .or_else(|| {
+                            let target_id_arg = cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
+                            self.get_system_entity(target_id_arg).map(|_| target_id_arg)
+                        })
+                        .or_else(|| self.get_system_entity(&cmd.target_id).map(|_| cmd.target_id.as_str()));
                     if let Some(id) = system_id {
                         // Empty path → BinaryPresence::Absent; only written when
                         // currently Unknown (apply_system_update's existing guard).
@@ -561,6 +558,59 @@ impl Campaign {
                 parse_audits,
                 effective_success: false,
                 effective_fail_reason: event.fail_reason.clone(),
+            });
+        }
+
+        // Even when exit code is 0 some shells (busybox sh) swallow the real
+        // exit status and emit "not found" into stdout/stderr instead.
+        // Detect this before any inference so we don't incorrectly record the
+        // tool as Present and immediately return a failure result.
+        let early_missing = classify_failure(cmd, event);
+        if early_missing.is_binary_missing {
+            let binary = early_missing
+                .extracted_binary
+                .as_deref()
+                .or_else(|| procedure_binary_name(&cmd.procedure));
+            if let Some(binary) = binary {
+                let system_id = cmd.exec_chain.iter().rev()
+                    .map(String::as_str)
+                    .find(|id| self.get_system_entity(id).is_some())
+                    .or_else(|| {
+                        let target_id_arg = cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
+                        self.get_system_entity(target_id_arg).map(|_| target_id_arg)
+                    })
+                    .or_else(|| self.get_system_entity(&cmd.target_id).map(|_| cmd.target_id.as_str()));
+                if let Some(id) = system_id {
+                    let absent_update = SystemFieldUpdates {
+                        binaries: std::collections::HashMap::from([(
+                            binary.to_string(),
+                            String::new(),
+                        )]),
+                        ..Default::default()
+                    };
+                    let _ = self.apply_system_update(id, &absent_update);
+                }
+            }
+            let mut parse_audits = Vec::new();
+            parse_audits.push(build_parse_audit(
+                FAILURE_ANALYZER_EFFECT_ID,
+                cmd,
+                event,
+                early_missing.parse_result,
+                &early_missing.detail,
+                0,
+            ));
+            self.parse_audits.extend(parse_audits.clone());
+            let mut record = ExecutionRecord::from_execution(cmd, event);
+            record.success = false;
+            record.fail_reason = early_missing.detail.clone();
+            self.execution_records.push(record);
+            self.complete_open_step(&cmd.id);
+            return Ok(TtpExecutionProcessing {
+                updates: FactsUpdate::default(),
+                parse_audits,
+                effective_success: false,
+                effective_fail_reason: early_missing.detail,
             });
         }
 
@@ -647,13 +697,10 @@ impl Campaign {
         // Only records if currently Unknown — preserves more precise paths set by
         // sys.has-binary(${OUTPUT}) or from a real parser.
         if let Some(tool) = procedure_tool(&cmd.procedure) {
-            let system_id = if self.get_system_entity(&cmd.exec_system_id).is_some() {
-                Some(cmd.exec_system_id.as_str())
-            } else if self.get_system_entity(&cmd.target_id).is_some() {
-                Some(cmd.target_id.as_str())
-            } else {
-                None
-            };
+            let system_id = cmd.exec_chain.iter().rev()
+                .map(String::as_str)
+                .find(|id| self.get_system_entity(id).is_some())
+                .or_else(|| self.get_system_entity(&cmd.target_id).map(|_| cmd.target_id.as_str()));
 
             if let Some(id) = system_id {
                 let already_known = self

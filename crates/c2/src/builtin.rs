@@ -55,7 +55,7 @@ impl BuiltinC2 {
             return ok_result(&cmd.id, "ok".to_string());
         }
 
-        let routing_target = cmd.exec_entity_id.as_str();
+        let routing_target = cmd.exec_entity();
         if let Some((namespace, pod_name)) = parse_pod_target_id(routing_target) {
             debug!(
                 cmd_id = %cmd.id,
@@ -348,7 +348,7 @@ mod tests {
             },
             args: HashMap::new(),
             target_id: target_id.to_string(),
-            exec_entity_id: target_id.to_string(),
+            exec_chain: vec![target_id.to_string()],
             exec_system_id: exec_system_id.to_string(),
         }
     }

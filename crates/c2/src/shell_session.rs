@@ -415,7 +415,7 @@ mod tests {
             },
             args: HashMap::new(),
             target_id: "node/test-node".to_string(),
-            exec_entity_id: "node/test-node".to_string(),
+            exec_chain: vec!["node/test-node".to_string()],
             exec_system_id: exec_system_id.to_string(),
         }
     }
