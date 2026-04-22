@@ -449,8 +449,7 @@ class CampaignState {
 		const systemKinds = ['Pod', 'K8sNode', 'UnknownSystem'];
 		return this.entities.filter(
 			(entity) => systemKinds.includes(entity.kind ?? '') &&
-				entity.accessLevel != null &&
-				(entity.accessLevel === "user-exec" || (typeof entity.accessLevel === "object" && (entity.accessLevel.User > 0 || entity.accessLevel.Level > 0)))
+				typeof entity.accessLevel === 'string' && entity.accessLevel.endsWith('exec')
 		);
 	}
 

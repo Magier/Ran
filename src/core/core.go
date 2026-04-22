@@ -23,12 +23,13 @@ import (
 )
 
 type Ran struct {
-	Bus      bus.MessageBus
-	Armory   *armory.Armory
-	Campaign *campaign.Campaign
-	C2       *c2.C2Manager
-	target   string
-	ctx      context.Context
+	Bus            bus.MessageBus
+	Armory         *armory.Armory
+	Campaign       *campaign.Campaign
+	C2             *c2.C2Manager
+	target         string
+	ctx            context.Context
+	kubeconfigPath string
 }
 
 type Config struct {
@@ -37,7 +38,7 @@ type Config struct {
 	ArmoryDir        string
 }
 
-func InitRan(target, armoryDir string) Ran {
+func InitRan(target, armoryDir, kubeconfigPath string) Ran {
 	if armoryDir == "" {
 		armoryDir = "./armory/"
 	}
@@ -62,11 +63,12 @@ func InitRan(target, armoryDir string) Ran {
 	c2 := c2.InitC2Manager(mb)
 
 	ran := Ran{
-		Bus:      mb,
-		Armory:   a,
-		Campaign: c,
-		C2:       c2,
-		target:   target,
+		Bus:            mb,
+		Armory:         a,
+		Campaign:       c,
+		C2:             c2,
+		target:         target,
+		kubeconfigPath: kubeconfigPath,
 	}
 
 	return ran
@@ -165,7 +167,7 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) e
 		return fmt.Errorf("Couldn't initialize campaign: %s", err.Error())
 	}
 	r.Bus.Subscribe(domain.CampaignReset{}, func(ctx context.Context, msg domain.Message) (domain.Message, error) {
-		err := r.InitCampaign(ctx, loadKubeConfig)
+		err := r.InitCampaign(ctx, loadKubeConfig) //nolint:govet
 		return nil, err
 	})
 
@@ -194,7 +196,7 @@ func (r *Ran) Start(ctx context.Context, loadKubeConfig bool, planPath string) e
 func (r Ran) InitCampaign(ctx context.Context, loadKubeConfig bool) error {
 	namespaces := []string{}
 	initialFacts := make(chan MaybeNewFacts, 1)
-	go loadInitialEntities(ctx, initialFacts, loadKubeConfig, namespaces)
+	go loadInitialEntities(ctx, initialFacts, loadKubeConfig, namespaces, r.kubeconfigPath)
 	for update := range initialFacts {
 		if update.Error != nil {
 			_ = r.Bus.Publish(domain.ErrorMsg{
@@ -241,7 +243,7 @@ func (r *Ran) SetTarget(target string) error {
 	}
 	target = name
 
-	client, err := k8s.NewK8sClient("")
+	client, err := k8s.NewK8sClient(r.kubeconfigPath)
 	if err != nil {
 		return fmt.Errorf("could not create K8s client: %v", err.Error())
 	}
@@ -271,10 +273,10 @@ type MaybeNewFacts struct {
 	Error error
 }
 
-func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, loadAll bool, namespaces []string) {
+func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, loadAll bool, namespaces []string, kubeconfigPath string) {
 	defer close(results)
 
-	client, err := k8s.NewK8sClient("")
+	client, err := k8s.NewK8sClient(kubeconfigPath)
 	if err != nil {
 		results <- MaybeNewFacts{Error: fmt.Errorf("Couldn't create K8s client for context %s (%v)", client.Context.Name, err)}
 		return
@@ -322,7 +324,7 @@ func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, load
 	// gradually load all entities
 	if loadAll {
 		channel := make(chan MaybeEntity)
-		go populateEntities(ctx, namespaces, channel)
+		go populateEntities(ctx, namespaces, channel, kubeconfigPath)
 
 		entities = []domain.Entity{}
 		for maybeEntity := range channel {
@@ -340,9 +342,9 @@ func loadInitialEntities(ctx context.Context, results chan<- MaybeNewFacts, load
 	}
 }
 
-func populateEntities(ctx context.Context, namespaces []string, channel chan<- MaybeEntity) {
+func populateEntities(ctx context.Context, namespaces []string, channel chan<- MaybeEntity, kubeconfigPath string) {
 	defer close(channel)
-	client, err := k8s.NewK8sClient("")
+	client, err := k8s.NewK8sClient(kubeconfigPath)
 	if err != nil {
 		channel <- MaybeEntity{Entity: nil, Error: err}
 		return

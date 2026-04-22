@@ -77,13 +77,15 @@ type KubeContext struct {
 	ServerCA []uint8
 }
 
-func GetConfig() (*restclient.Config, KubeContext, error) {
-	home, exists := os.LookupEnv("HOME")
-	if !exists {
-		home = "/home"
+func GetConfig(kubeconfigPath string) (*restclient.Config, KubeContext, error) {
+	if kubeconfigPath == "" {
+		home, exists := os.LookupEnv("HOME")
+		if !exists {
+			home = "/home"
+		}
+		kubeconfigPath = filepath.Join(home, ".kube", "config")
 	}
-
-	configPath := filepath.Join(home, ".kube", "config")
+	configPath := kubeconfigPath
 	// use the current context in kubeconfig
 	config, err := clientcmd.BuildConfigFromFlags("", configPath)
 
@@ -162,7 +164,7 @@ func (client K8sClient) GetApiServer() (domain.ApiServer, error) {
 }
 
 func NewK8sClient(kubeConfigPath string) (K8sClient, error) {
-	config, context, err := GetConfig()
+	config, context, err := GetConfig(kubeConfigPath)
 	if err != nil {
 		return K8sClient{}, err
 	}

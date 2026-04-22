@@ -80,7 +80,7 @@ func loadTTPs(builtinFS embed.FS, userDefinedDir string) ([]domain.TTP, error) {
 	ttps := []domain.TTP{}
 
 	visitFn := func(path string, content []byte) error {
-		if strings.HasSuffix(path, "dummy.yaml") { // a hack to get empty embedded FS working
+		if !strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, "dummy.yaml") {
 			return nil
 		}
 
