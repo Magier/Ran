@@ -1,8 +1,8 @@
 use ran_domain::{
     Confidence, Contains, DaemonSet, Entity, EntityId, GCPServiceAccount, Job, K8sCluster,
     K8sGateway, K8sHTTPRoute, K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sService,
-    KubeletExecSink, Namespace, Owns, Pod, PodExec, RbacPermission, RbacSubject, RelationSummary,
-    ReplicaSet, RunsOn, ServiceAccount, StatefulSet, Uses,
+    KubeletExecSink, Namespace, Owns, Pod, PodExec, RbacPermission, RelationSummary, ReplicaSet,
+    RunsOn, ServiceAccount, StatefulSet, UnknownSystem, Uses,
 };
 
 use crate::{Campaign, FactsUpdate};
@@ -1021,9 +1021,10 @@ macro_rules! ns_contains_analyzer {
                     if !campaign.entities.contains::<Namespace>(&ns_id) {
                         inferred.new_entities.push(Box::new(ns));
                     }
-                    inferred
-                        .new_relations
-                        .push(Box::new(Contains::new(ns_id.0.clone(), e.entity_id().0.clone())));
+                    inferred.new_relations.push(Box::new(Contains::new(
+                        ns_id.0.clone(),
+                        e.entity_id().0.clone(),
+                    )));
                 }
                 inferred
             }
@@ -1251,6 +1252,97 @@ impl Analyzer for GCPServiceAccountAnalyzer {
     }
 }
 
+// ---------------------------------------------------------------------------
+// IpBasedSystemMergeAnalyzer
+// ---------------------------------------------------------------------------
+
+/// Merge `UnknownSystem` entities into the concrete Pod or Node that shares
+/// their IP address.
+///
+/// When a target is first reached via a network/port scan, an `UnknownSystem`
+/// keyed by its IP is created.  Later, the Kubernetes API server reveals the
+/// true pod/node identity including the same IP in `system.ips`.  This analyzer
+/// matches the two by IP and emits an `entity_alias` so `apply_facts` can
+/// transplant all relations and merge the accumulated runtime data.
+///
+/// Guard: a Pod's `host_ip` field is the IP of the *node* it runs on.  For
+/// pods with `host_network: Yes` that IP is shared with the node and therefore
+/// not a unique pod identifier.  IPs equal to `pod.host_ip` are skipped.
+pub struct IpBasedSystemMergeAnalyzer;
+
+impl Analyzer for IpBasedSystemMergeAnalyzer {
+    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        let unknown_systems: Vec<&UnknownSystem> =
+            campaign.entities.values::<UnknownSystem>().collect();
+        if unknown_systems.is_empty() {
+            return inferred;
+        }
+
+        for entity in &update.new_entities {
+            // Match new Pods against existing UnknownSystems.
+            if let Some(pod) = entity.as_any().downcast_ref::<Pod>() {
+                let pod_id = pod.entity_id();
+                for unknown in &unknown_systems {
+                    let unknown_id = unknown.entity_id();
+                    if already_aliased(&inferred, &unknown_id) {
+                        continue;
+                    }
+                    for &ip in &unknown.system.ips {
+                        // Skip the node IP — hostNetwork pods share it.
+                        if pod.host_ip == Some(ip) {
+                            continue;
+                        }
+                        if pod.system.ips.contains(&ip) {
+                            tracing::info!(
+                                unknown = %unknown_id.0,
+                                pod = %pod_id.0,
+                                %ip,
+                                "merging UnknownSystem into Pod by IP match"
+                            );
+                            inferred.entity_aliases.insert((unknown_id, pod_id.clone()));
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // Match new Nodes against existing UnknownSystems.
+            if let Some(node) = entity.as_any().downcast_ref::<K8sNode>() {
+                let node_id = node.entity_id();
+                for unknown in &unknown_systems {
+                    let unknown_id = unknown.entity_id();
+                    if already_aliased(&inferred, &unknown_id) {
+                        continue;
+                    }
+                    for &ip in &unknown.system.ips {
+                        if node.system.ips.contains(&ip) {
+                            tracing::info!(
+                                unknown = %unknown_id.0,
+                                node = %node_id.0,
+                                %ip,
+                                "merging UnknownSystem into Node by IP match"
+                            );
+                            inferred
+                                .entity_aliases
+                                .insert((unknown_id, node_id.clone()));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        inferred
+    }
+}
+
+fn already_aliased(update: &FactsUpdate, id: &EntityId) -> bool {
+    update.entity_aliases.iter().any(|(stale, _)| stale == id)
+}
+
 /// Returns the default set of analyzers that run after every effect parse.
 pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
     vec![
@@ -1277,6 +1369,7 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(IngressNamespaceAnalyzer),
         Box::new(GatewayNamespaceAnalyzer),
         Box::new(HTTPRouteNamespaceAnalyzer),
+        Box::new(IpBasedSystemMergeAnalyzer),
     ]
 }
 
@@ -1350,8 +1443,8 @@ fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<
 mod tests {
     use ran_domain::{
         AccessLevel, Confidence, Contains, K8sCluster, K8sNode, K8sRole, K8sRoleBinding,
-        KubeletExecSink, KubeletExecSource, ManagesNode, Namespace, Pod, PodExec, RbacPermission,
-        RbacSubject, RceCanExec, RunsOn, ServiceAccount, Uses,
+        KubeletExecSink, KubeletExecSource, Namespace, Pod, PodExec, RbacPermission, RbacSubject,
+        RceCanExec, RunsOn, ServiceAccount, Uses,
     };
 
     use super::*;

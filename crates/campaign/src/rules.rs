@@ -1,7 +1,7 @@
 use ran_domain::{
     BindsTo, Contains, Entity, EntityId, Grants, K8sCluster, K8sGateway, K8sHTTPRoute, K8sIngress,
-    K8sNode, K8sRole, K8sRoleBinding, K8sService, KubeletExecSink, ManagesNode, Namespace, Pod,
-    PodExec, RbacPermission, RelationSummary, RunsOn, ServiceAccount,
+    K8sNode, K8sRole, K8sRoleBinding, K8sService, KubeletExecSink, KubeletExecSource, ManagesNode,
+    Namespace, Pod, PodExec, RbacPermission, RelationSummary, RunsOn, ServiceAccount,
 };
 
 use crate::{Campaign, FactsUpdate};
@@ -21,6 +21,7 @@ pub trait InferenceRule: Send + Sync {
 
 pub struct NamespaceClusterRule;
 pub struct NodeClusterRule;
+pub struct KubeletExecSourceRule;
 pub struct PodNamespaceRule;
 pub struct ServiceAccountNamespaceRule;
 pub struct PodNodeRule;
@@ -764,6 +765,96 @@ fn find_role_permissions(
     Vec::new()
 }
 
+/// Tools whose presence on a pod enables kubelet execution via the API server.
+const KUBELET_EXEC_TOOLS: &[&str] = &["ran-ws"];
+
+/// Infer `KubeletExecSource(pod → node)` for every (pod, node) pair where:
+///   1. The pod has at least one kubelet-exec tool binary present.
+///   2. Any `ServiceAccount` in the campaign has `GET nodes/proxy` permission.
+///
+/// This mirrors the Go `KubeletExecRule`. Triggers on new pods (binary update),
+/// new nodes (auto-wire newly discovered nodes), and new SAs / RBAC grants.
+impl InferenceRule for KubeletExecSourceRule {
+    fn name(&self) -> &'static str {
+        "kubelet.exec-source"
+    }
+
+    fn triggers(&self) -> Vec<RuleTrigger> {
+        vec![
+            RuleTrigger::EntityKind("Pod".to_string()),
+            RuleTrigger::EntityKind("Node".to_string()),
+            RuleTrigger::EntityKind("ServiceAccount".to_string()),
+        ]
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        // Condition 2: any SA has GET nodes/proxy.
+        let has_nodes_proxy = collect_service_accounts(campaign, update)
+            .iter()
+            .any(|sa| {
+                sa.entitlements
+                    .iter()
+                    .any(|p| p.satisfies("get", "nodes/proxy"))
+            });
+        if !has_nodes_proxy {
+            return inferred;
+        }
+
+        // Collect pods that satisfy condition 1 (have a kubelet exec tool).
+        let qualifying_pods: Vec<EntityId> = collect_pods(campaign, update)
+            .into_iter()
+            .filter(|pod| {
+                pod.is_running
+                    && KUBELET_EXEC_TOOLS.iter().any(|tool| {
+                        matches!(pod.system.has_binary(tool), ran_domain::BinaryPresence::Present(_))
+                    })
+            })
+            .map(|p| p.entity_id())
+            .collect();
+
+        if qualifying_pods.is_empty() {
+            return inferred;
+        }
+
+        let nodes: Vec<EntityId> = {
+            let mut ns: Vec<EntityId> = campaign
+                .entities
+                .values::<K8sNode>()
+                .map(|n| n.entity_id())
+                .collect();
+            for entity in &update.new_entities {
+                if let Some(node) = entity.as_any().downcast_ref::<K8sNode>() {
+                    let id = node.entity_id();
+                    if !ns.contains(&id) {
+                        ns.push(id);
+                    }
+                }
+            }
+            ns
+        };
+
+        for pod_id in &qualifying_pods {
+            for node_id in &nodes {
+                if campaign
+                    .graph
+                    .targets_of(pod_id, "kubelet-exec")
+                    .contains(&node_id)
+                {
+                    continue;
+                }
+                inferred.new_relations.push(Box::new(KubeletExecSource::new(
+                    pod_id.0.clone(),
+                    node_id.0.clone(),
+                )));
+            }
+        }
+
+        inferred
+    }
+}
+
 pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
     vec![
         Box::new(NamespaceClusterRule),
@@ -772,6 +863,7 @@ pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
         Box::new(ServiceAccountNamespaceRule),
         Box::new(PodNodeRule),
         Box::new(ServiceAccountCanExecRule),
+        Box::new(KubeletExecSourceRule),
         Box::new(KubeletExecSinkRule),
         Box::new(RoleNamespaceRule),
         Box::new(RoleBindingNamespaceRule),

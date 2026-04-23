@@ -39,6 +39,7 @@ impl EdgeData {
 pub fn relation_defaults(name: &str) -> (f32, bool) {
     match name {
         "k8s.can-exec" => (1.0, true),
+        "kubelet-exec" => (1.25, true),
         "kubelet-pod-exec" => (1.5, true),
         "container.escape" => (2.0, true),
         "rce.can-exec" => (2.5, true),

