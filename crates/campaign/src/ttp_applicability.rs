@@ -125,7 +125,7 @@ pub fn ttp_access_level_satisfied(ttp: &armory::Ttp, target_access_level: Access
 #[cfg(test)]
 mod tests {
     use armory::Ttp;
-    use ran_domain::{C2Server, Entity, K8sCluster, RbacPermission, ServiceAccount};
+    use ran_domain::{C2Server, K8sCluster, RbacPermission, ServiceAccount};
     use serde_json::json;
 
     use ran_domain::AccessLevel;

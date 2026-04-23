@@ -208,7 +208,7 @@ pub(super) fn parse_file_content(stdout: &str, path: &str, source_id: &str) -> P
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ran_domain::{Entity, K8sCredential, Uses};
+    use ran_domain::{K8sCredential, Uses};
 
     // Minimal valid kubeconfig YAML with token auth.
     const KUBECONFIG_TOKEN: &str = r#"apiVersion: v1

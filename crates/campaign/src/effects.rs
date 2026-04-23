@@ -449,23 +449,16 @@ fn parse_kubelet_exec_source_relation(
     } else {
         args[0]
     };
-    // `all(k8s.Node)` is a placeholder meaning "the node the executing pod runs on".
-    // Kubelet exec is always node-local, so we resolve to the specific node via context.
+    // `all(k8s.Node)` means the executing pod has cluster-wide kubelet access.
+    // The actual per-node edges are inferred by KubeletExecSourceRule whenever
+    // conditions are met (pod has kubelet tool + SA has nodes/proxy permission),
+    // so no relation is emitted here — returning an empty update is intentional.
     let tgt_raw = args[1].trim();
-    let tgt = if tgt_raw.eq_ignore_ascii_case("all(k8s.node)") {
-        ctx.get("TARGET_NODE_ID")
-            .filter(|id| !id.is_empty())
-            .map(String::as_str)
-            .ok_or_else(|| {
-                "kubelet-exec: arg is 'all(k8s.Node)' but TARGET_NODE_ID not in context \
-                 (is the executing pod assigned to a node?)"
-                    .to_string()
-            })?
-    } else {
-        tgt_raw
-    };
+    if tgt_raw.eq_ignore_ascii_case("all(k8s.node)") {
+        return Ok(FactsUpdate::default());
+    }
 
-    let rel = KubeletExecSource::new(src, tgt);
+    let rel = KubeletExecSource::new(src, tgt_raw);
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],

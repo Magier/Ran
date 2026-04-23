@@ -211,6 +211,15 @@ impl KnowledgeGraph {
             .collect()
     }
 
+    /// All entities with a `relation_name` edge pointing at `id`.
+    pub fn sources_of(&self, id: &EntityId, relation_name: &str) -> Vec<&EntityId> {
+        self.incoming(id)
+            .into_iter()
+            .filter(|(_, d)| d.relation_name == relation_name)
+            .map(|(src, _)| src)
+            .collect()
+    }
+
     /// All entities pointed to by `relation_name` edges originating at `id`.
     pub fn targets_of(&self, id: &EntityId, relation_name: &str) -> Vec<&EntityId> {
         self.outgoing(id)

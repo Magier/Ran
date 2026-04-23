@@ -161,9 +161,11 @@ impl K8sService {
             let stream = watcher(api, watcher::Config::default());
             tokio::pin!(stream);
 
+            let mut consecutive_errors: u32 = 0;
             while let Some(event) = stream.next().await {
                 match event {
                     Ok(_) => {
+                        consecutive_errors = 0;
                         // Re-list on any event – mirrors the Go WatchPods behaviour.
                         match service.get_running_pods(namespace.as_deref()).await {
                             Ok(pods) => on_change(pods),
@@ -171,8 +173,14 @@ impl K8sService {
                         }
                     }
                     Err(e) => {
-                        // kube-runtime handles reconnects internally; just log.
-                        tracing::warn!("watch_pods: watcher error (will retry): {e}");
+                        consecutive_errors += 1;
+                        // Cap backoff at 30 s; first error waits 500 ms.
+                        let delay_ms = (500u64 * (1u64 << consecutive_errors.min(6))).min(30_000);
+                        tracing::warn!(
+                            "watch_pods: watcher error (will retry in {}ms, attempt {}): {e}",
+                            delay_ms, consecutive_errors
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                     }
                 }
             }

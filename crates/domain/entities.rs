@@ -432,7 +432,7 @@ impl Pod {
             volume_mounts: Vec::new(),
             host_paths: Vec::new(),
             phase: None,
-            is_running: false,
+            is_running: true,
         }
     }
 

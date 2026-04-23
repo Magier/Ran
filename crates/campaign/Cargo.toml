@@ -18,3 +18,5 @@ tokio = { version = "1", features = ["sync", "rt"] }
 tera = "1"
 tracing = "0.1"
 indexmap = "2"
+shell-words = "1"
+urlencoding = "2"

@@ -440,7 +440,7 @@ mod tests {
     use super::*;
     use armory::{Procedure, Ttp};
     use c2::ExecTtp;
-    use ran_domain::{AccessLevel, Entity, Pod};
+    use ran_domain::{AccessLevel, Pod};
     use std::collections::HashMap;
 
     fn sample_cmd() -> ExecTtp {
