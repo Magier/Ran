@@ -693,6 +693,14 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str) -> ParserOutput {
             }
         }
 
+        // When the pod's own IP equals the node IP, the pod uses host networking.
+        // Detect this as a fact even if spec.hostNetwork is not set explicitly.
+        if let (Some(host_ip), Some(&pod_ip)) = (pod.host_ip, pod.system.ips.first()) {
+            if host_ip == pod_ip {
+                pod.host_network = ran_domain::Confidence::Yes;
+            }
+        }
+
         facts.new_entities.push(Box::new(pod));
 
         // Ensure the namespace exists in the graph.

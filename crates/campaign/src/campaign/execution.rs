@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 
 use armory::{Armory, Procedure, Ttp};
-use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
+use c2::{ExecTtp, OutputTransform, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{BinaryPresence, EntityId, K8sNode, Merge, NameConfidence, Pod, UnknownSystem};
 
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
 use crate::failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
 use crate::grounding::{detect_ungrounded_vars, ground_args_from_context};
+use crate::shell_cmd::ground_binaries;
 use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
+use crate::analyzers::{default_analyzers as make_analyzers, run_analyzers};
 use crate::rules::{default_rules as make_rules, run_rules_fixpoint};
 use crate::{FactsUpdate, ParseResult};
 
@@ -109,11 +111,10 @@ fn ground_procedure_and_effects(
 /// before grounding so that effect strings like
 /// `rce.can-exec(${SRC}, ${TARGET_ID})` are fully grounded.
 ///
-/// Returns `(backend_id, semantic_target_id, exec_chain)`.
 fn route_lateral_movement(
     lateral_src: Option<ExecChannel>,
     target_id: &str,
-) -> Result<(String, String, Vec<String>), ExecuteActionError> {
+) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
     let ch = lateral_src.ok_or_else(|| {
         ExecuteActionError::InvariantViolation(
             "lateral movement exec source should have been resolved before routing".to_string(),
@@ -135,6 +136,7 @@ fn route_lateral_movement(
         ch.backend_id,
         target_id.to_string(),
         vec![exec_entity.clone()],
+        None,
     ))
 }
 
@@ -196,7 +198,7 @@ impl Campaign {
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
 
         // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
-        let (exec_system_id, target_id, exec_chain) = self.route_exec_channel(
+        let (exec_system_id, target_id, exec_chain, output_transform) = self.route_exec_channel(
             &request.target_id,
             &ttp.tactic,
             &mut procedure,
@@ -213,6 +215,7 @@ impl Campaign {
             exec_chain,
             exec_system_id,
             started_at_ms: current_time_millis(),
+            output_transform,
         })
     }
 
@@ -276,12 +279,14 @@ impl Campaign {
         Ok(Some(ch))
     }
 
-    /// Select a C2 backend and return `(backend_id, semantic_target_id, exec_chain)`.
+    /// Select a C2 backend and return `(backend_id, semantic_target_id, exec_chain, output_transform)`.
     ///
     /// - `semantic_target_id` is always the original `target_id` from the request — used for
     ///   attribution (execution records, effect context `TARGET_ID`, knowledge graph updates).
     /// - `exec_chain` is the ordered list of physical execution hops from the BuiltinC2 entry
     ///   point to the final destination.
+    /// - `output_transform` is set when the channel wraps its output (e.g. ran-ws JSON envelope)
+    ///   and the raw result must be post-processed before parsers run.
     ///
     /// Decision order (first matching branch wins):
     /// 1. Caller supplied a non-empty exec hint → [`route_caller_supplied`].
@@ -295,7 +300,7 @@ impl Campaign {
         procedure: &mut Procedure,
         exec_hint: Option<&str>,
         lateral_src: Option<ExecChannel>,
-    ) -> Result<(String, String, Vec<String>), ExecuteActionError> {
+    ) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
         if let Some(hint) = exec_hint.filter(|s| !s.trim().is_empty()) {
             return self.route_caller_supplied(hint, target_id);
         }
@@ -317,12 +322,11 @@ impl Campaign {
     /// (via the builtin C2); otherwise it is treated as an explicit backend ID
     /// and the logical target is kept as the exec entity.
     ///
-    /// Returns `(backend_id, semantic_target_id, exec_chain)`.
     fn route_caller_supplied(
         &self,
         hint: &str,
         target_id: &str,
-    ) -> Result<(String, String, Vec<String>), ExecuteActionError> {
+    ) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
         if self.get_system_entity(hint).is_some() {
             tracing::info!(
                 logical_target = %target_id,
@@ -335,6 +339,7 @@ impl Campaign {
                 BUILTIN_C2_ID.to_string(),
                 target_id.to_string(),
                 vec![hint.to_string()],
+                None,
             ))
         } else {
             tracing::info!(
@@ -347,6 +352,7 @@ impl Campaign {
                 hint.to_string(),
                 target_id.to_string(),
                 vec![target_id.to_string()],
+                None,
             ))
         }
     }
@@ -354,14 +360,13 @@ impl Campaign {
     /// Route through a graph-resolved exec channel, wrapping the command for
     /// any intermediate hops.
     ///
-    /// Returns `(backend_id, semantic_target_id, exec_chain)`.
     /// The chain's first element is what BuiltinC2 directly execs into (first hop for
     /// multi-hop paths), and the last element is the final pod where the command runs.
     fn route_remote(
         &mut self,
         target_id: &str,
         procedure: &mut Procedure,
-    ) -> Result<(String, String, Vec<String>), ExecuteActionError> {
+    ) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
         let ch = self
             .resolve_exec_channel(target_id)
             .map_err(ExecuteActionError::NoExecChannel)?;
@@ -385,38 +390,37 @@ impl Campaign {
 
         if ch.hops.is_empty() {
             // Direct path: C2 can reach the target without any hop.
-            // Ground the procedure binary against the target pod's binary
+            // Ground all command-name occurrences against the target pod's binary
             // map so non-standard install paths (e.g. /tmp/kubectl) are used correctly.
             let tgt_id = EntityId::new(exec_target.as_str());
             if let Some(pod) = self.entities.find::<Pod>(&tgt_id) {
-                procedure.command = ground_binary_in_cmd(&procedure.command, &pod.system.binaries);
+                procedure.command = ground_binaries(&procedure.command, &pod.system.binaries);
             }
             Ok((
                 ch.backend_id,
                 target_id.to_string(),
                 vec![exec_target.clone()],
+                None,
             ))
         } else {
-            self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str());
+            let output_transform = self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str());
             let exec_chain: Vec<String> = ch
                 .hops
                 .iter()
                 .cloned()
                 .chain(std::iter::once(exec_target))
                 .collect();
-            Ok((ch.backend_id, target_id.to_string(), exec_chain))
+            Ok((ch.backend_id, target_id.to_string(), exec_chain, output_transform))
         }
     }
 
     /// Safety fallback: pod targets get an in-cluster execution source when no
     /// explicit channel was selected; all other targets get an empty backend
     /// (the C2 side will execute directly against the target).
-    ///
-    /// Returns `(backend_id, semantic_target_id, exec_chain)`.
     fn route_fallback(
         &self,
         target_id: &str,
-    ) -> Result<(String, String, Vec<String>), ExecuteActionError> {
+    ) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
         let target_eid = EntityId::new(target_id);
         if self.entities.contains::<Pod>(&target_eid) {
             tracing::warn!(
@@ -434,21 +438,31 @@ impl Campaign {
                 chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_entity.as_str()),
                 "pod fallback source selected"
             );
-            Ok((ch.backend_id, target_id.to_string(), vec![exec_entity]))
+            Ok((ch.backend_id, target_id.to_string(), vec![exec_entity], None))
         } else {
-            Ok((String::new(), target_id.to_string(), vec![]))
+            Ok((String::new(), target_id.to_string(), vec![], None))
         }
     }
 
     /// Wrap `procedure.command` through each hop in reverse order so BuiltinC2
     /// can exec into the first hop and the nested command traverses the rest of
     /// the chain to the final execution target.
-    fn wrap_command_for_hops(&self, procedure: &mut Procedure, hops: &[String], exec_target: &str) {
+    ///
+    /// Returns the `OutputTransform` required to decode the raw output, if any.
+    /// Currently only `kubelet-pod-exec` hops produce wrapped output (ran-ws JSON envelope).
+    fn wrap_command_for_hops(
+        &self,
+        procedure: &mut Procedure,
+        hops: &[String],
+        exec_target: &str,
+    ) -> Option<OutputTransform> {
         let full_chain: Vec<&str> = hops
             .iter()
             .map(String::as_str)
             .chain(std::iter::once(exec_target))
             .collect();
+
+        let mut output_transform: Option<OutputTransform> = None;
 
         // Wrap from innermost (last pair) to outermost (second pair;
         // hops[0] is handled by BuiltinC2 itself).
@@ -456,11 +470,11 @@ impl Campaign {
             let src = full_chain[i - 1];
             let tgt = full_chain[i];
 
-            // Ground the inner command's binary against the target system's
-            // known paths before embedding it in the envelope.
+            // Ground all command-name occurrences in the inner command against
+            // the target system's binary map before embedding it in the envelope.
             if let Some(sys) = self.get_system_entity(tgt) {
                 procedure.command =
-                    ground_binary_in_cmd(&procedure.command, &sys.entity().system().binaries);
+                    ground_binaries(&procedure.command, &sys.entity().system().binaries);
             }
 
             let src_eid = EntityId::new(src);
@@ -481,12 +495,15 @@ impl Campaign {
             procedure.command = match found {
                 Some(ref rel) => {
                     if rel.name == "kubelet-pod-exec" {
+                        // kubelet-pod-exec uses ran-ws as its transport, which wraps the
+                        // response in a JSON envelope. Signal this to the caller so it can
+                        // unwrap the output before handing it to parsers.
                         match self.build_kubelet_exec_command(src, tgt, &procedure.command) {
-                            Some(cmd) => cmd,
+                            Some(cmd) => {
+                                output_transform = Some(OutputTransform::JsonEnvelope);
+                                cmd
+                            }
                             None => {
-                                // Legacy behavior: if kubelet envelope cannot be built,
-                                // keep the inner command unchanged rather than degrading
-                                // to kubectl-exec wrapping.
                                 tracing::warn!(
                                     src = %src,
                                     tgt = %tgt,
@@ -516,6 +533,8 @@ impl Campaign {
                     ground_binary_in_cmd(&procedure.command, &sys.entity().system().binaries);
             }
         }
+
+        output_transform
     }
 
     pub fn on_ttp_executed(
@@ -525,6 +544,28 @@ impl Campaign {
     ) -> Result<TtpExecutionProcessing, ExecuteActionError> {
         let mut updates = FactsUpdate::default();
         let mut parse_audits = Vec::new();
+
+        // If the channel wrapped its output (e.g. ran-ws JSON envelope from kubelet-pod-exec),
+        // unwrap it here before any parser sees the result.
+        let event_owned;
+        let event: &TtpExecuted =
+            if cmd.output_transform == Some(OutputTransform::JsonEnvelope)
+                && event.success
+                && !event.results.is_empty()
+            {
+                let raw = &event.results[0];
+                let (unwrapped, err) = crate::output_parsers::unwrap_kubelet_json_response(raw);
+                let mut patched = event.clone();
+                patched.results[0] = unwrapped;
+                if let Some(msg) = err {
+                    patched.success = false;
+                    patched.fail_reason = msg;
+                }
+                event_owned = patched;
+                &event_owned
+            } else {
+                event
+            };
 
         if !event.success {
             let classified = classify_failure(cmd, event);
@@ -790,6 +831,11 @@ impl Campaign {
         // revealed the real pod identity (e.g. via a service-account token).
         // Record the alias so apply_facts can transplant all relations.
         self.detect_pod_identity_merge(cmd, &mut updates);
+
+        // Run analyzers: emit entity_aliases (e.g. IP-based pod merges) against
+        // the campaign state that existed before this batch of updates was committed.
+        let analyzers = make_analyzers();
+        run_analyzers(self, &analyzers, &mut updates);
 
         self.apply_facts(&updates);
         self.parse_audits.extend(parse_audits.clone());
@@ -1202,7 +1248,7 @@ impl Campaign {
             return None;
         }
 
-        // Kubelet endpoint host/IP preference mirrors the legacy behavior.
+        // If host IP is known use this, to avoid possible issues with DNS resolution
         let node_host = node
             .system
             .ips
@@ -1227,6 +1273,8 @@ impl Campaign {
             return None;
         };
 
+        // ran-ws transport is intentionally fixed here; `encoded_cmd` comes from
+        // the current TTP procedure command (`inner_cmd`).
         Some(format!(
             r#"ran-ws --url "wss://{}:10250/exec/{}/{}/{}?output=1&error=1&command={}" --token {}"#,
             node_host, namespace, pod.meta.name, container, encoded_cmd, token
@@ -1443,3 +1491,5 @@ fn ground_binary_in_cmd(
 
     cmd.to_string()
 }
+
+

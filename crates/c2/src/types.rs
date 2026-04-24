@@ -6,6 +6,20 @@ use serde::{Deserialize, Serialize};
 /// The backend ID for the built-in Ran C2.
 pub const BUILTIN_C2_ID: &str = "c2/ran";
 
+/// Post-processing to apply to the raw command output before any parser sees it.
+///
+/// Each variant corresponds to a transport-level wrapping that a C2 channel may
+/// apply to its output.  The campaign layer inspects this field and unwraps the
+/// output before handing it to the output parsers, so parsers never need to know
+/// which channel transported the command.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputTransform {
+    /// The raw output is a JSON response envelope (produced by ran-ws / kubelet-pod-exec).
+    /// The actual stdout must be extracted from the JSON before parsing.
+    JsonEnvelope,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecTtp {
     pub id: String,
@@ -24,6 +38,10 @@ pub struct ExecTtp {
     pub exec_system_id: String,
     /// Unix timestamp (milliseconds) when the command was dispatched.
     pub started_at_ms: u64,
+    /// Output post-processing required before parsers run.
+    /// `None` means the raw output can be parsed directly.
+    #[serde(default)]
+    pub output_transform: Option<OutputTransform>,
 }
 
 impl ExecTtp {
