@@ -427,6 +427,52 @@ fn hash_results(results: &[String]) -> String {
         .collect()
 }
 
+/// Unwrap the JSON envelope emitted by `ran-ws` after a kubelet-pod-exec call.
+///
+/// `ran-ws` always writes a single JSON line:
+/// `{"result":"<stdout>","status":"Success|Failure","message":"..."}`.
+///
+/// Returns `(unwrapped_stdout, Some(err))` when the command failed inside the
+/// kubelet API, or `(raw, Some(err))` when the output is not valid JSON
+/// (the `ran-ws` binary itself likely failed to start).
+/// Returns `(unwrapped_stdout, None)` on clean success.
+///
+/// Mirrors Go `c2.parseJSONResponse`.
+pub fn unwrap_kubelet_json_response(stdout: &str) -> (String, Option<String>) {
+    #[derive(serde::Deserialize)]
+    struct Envelope {
+        #[serde(default)]
+        result: String,
+        #[serde(default)]
+        status: String,
+        #[serde(default)]
+        message: String,
+    }
+
+    let stdout = stdout.trim();
+    if stdout.is_empty() {
+        return (
+            String::new(),
+            Some("empty response from ran-ws (binary may have failed)".to_string()),
+        );
+    }
+
+    match serde_json::from_str::<Envelope>(stdout) {
+        Ok(env) if env.status == "Failure" => (
+            env.result,
+            Some(format!("command failed: {}", env.message)),
+        ),
+        Ok(env) => (env.result, None),
+        Err(_) => (
+            stdout.to_string(),
+            Some(format!(
+                "ran-ws output is not valid JSON (binary may have failed): {}",
+                stdout
+            )),
+        ),
+    }
+}
+
 fn truncate_preview(payload: &str) -> String {
     if payload.len() <= RAW_PREVIEW_MAX_LEN {
         return payload.to_string();
@@ -475,6 +521,7 @@ mod tests {
             exec_chain: vec!["ns/default/pod/demo".to_string()],
             exec_system_id: String::new(),
             started_at_ms: 0,
+            output_transform: None,
         }
     }
 

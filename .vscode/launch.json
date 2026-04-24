@@ -150,21 +150,6 @@
         "--namespace",
         "dev",
       ],
-      // "program": "${fileDirname}"
-    },
-    {
-      "name": "TUI: targeted",
-      "type": "go",
-      "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}/src",
-      "console": "integratedTerminal",
-      "args": [
-        "emulate",
-        "--target",
-        "default/kubelet-reader-pod"
-      ],
-      // "program": "${fileDirname}"
     },
     {
       "name": "Ran: serve",
@@ -178,75 +163,12 @@
         "RAN_DEBUG": "1"
       },
       "args": [
-        "emulate"
-      ],
-      // "program": "${fileDirname}"
-    },
-    {
-      "name": "TUI: Ran emulate plan",
-      "type": "go",
-      "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}/src",
-      "console": "integratedTerminal",
-      "args": [
         "emulate",
-        // "--target",
-        // "default/kubelet-reader-pod",
-        // "-p",
-        // "../campaign_2025-03-03T06-31-16.json",
+        "--kubeconfig",
+        "../ixi-config.yaml",
+        "--armory",
+        "../armory/TTPs"
       ],
-      // "program": "${fileDirname}"
     },
-    {
-      "name": "Wails: Debug frontend",
-      "type": "go",
-      "request": "launch",
-      "mode": "exec",
-      "program": "${workspaceFolder}/RanUI/build/bin/frontend",
-      "preLaunchTask": "build debug",
-      "cwd": "${workspaceFolder}",
-    },
-    // {
-    //     "name": "Wails: Debug myproject",
-    //     "type": "go",
-    //     "request": "launch",
-    //     "mode": "exec",
-    //     "program": "${workspaceFolder}/RanUI/build/bin/RanUI.app",
-    //     "preLaunchTask": "build",
-    //     "cwd": "${workspaceFolder}",
-    //     "env": {}
-    // },
-    {
-      "name": "Wails: Production frontend",
-      "type": "go",
-      "request": "launch",
-      "mode": "exec",
-      "program": "${workspaceFolder}/RanUI/build/bin/frontend",
-      "preLaunchTask": "build",
-      "cwd": "${workspaceFolder}",
-    },
-    {
-      "name": "Wails: Dev frontend",
-      "type": "go",
-      "request": "launch",
-      "mode": "exec",
-      "program": "${workspaceFolder}/RanUI/build/bin/frontend",
-      "preLaunchTask": "build dev",
-      "cwd": "${workspaceFolder}",
-    },
-    // {
-    //     "type": "julia",
-    //     "request": "launch",
-    //     "name": "Run Julia",
-    //     "program": "main.jl",
-    //     "stopOnEntry": false,
-    //     "args": [
-    //         "-t",
-    //         "auto"
-    //     ],
-    //     "cwd": "${workspaceFolder}/Ran",
-    //     "juliaEnv": "${workspaceFolder}/Ran",
-    // }
   ],
 }

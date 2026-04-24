@@ -235,9 +235,21 @@ fn init_tracing() {
         }
     }
 
+    struct HmsTimer;
+    impl tracing_subscriber::fmt::time::FormatTime for HmsTimer {
+        fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            write!(w, "{:02}:{:02}:{:02}", (secs / 3600) % 24, (secs / 60) % 60, secs % 60)
+        }
+    }
+
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(filter)
         .with_target(false)
+        .with_timer(HmsTimer)
         .finish();
     let _ = tracing::subscriber::set_global_default(subscriber);
 }

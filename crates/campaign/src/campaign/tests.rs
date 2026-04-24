@@ -49,6 +49,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         exec_chain: vec![target_id.to_string()],
         exec_system_id: String::new(),
         started_at_ms: 0,
+        output_transform: None,
     }
 }
 
@@ -861,6 +862,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         exec_chain: vec![target_id.to_string()],
         exec_system_id: target_id.to_string(),
         started_at_ms: 0,
+        output_transform: None,
     }
 }
 
@@ -1027,6 +1029,37 @@ fn prepare_action_grounds_binary_against_target_for_direct_path() {
     assert!(
         exec.procedure.command.starts_with("/tmp/kubectl"),
         "kubectl should be resolved to /tmp/kubectl, got: {}",
+        exec.procedure.command
+    );
+}
+
+#[test]
+fn prepare_action_grounds_declared_tool_when_not_first_word() {
+    // Regression: deploy_container uses `tool: kubectl` but the command starts
+    // with `export TOKEN=...; echo '...' | kubectl apply`. The declared tool
+    // must be grounded even when it is not the first word of the command.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut target = Pod::new("victim", "default");
+    target.system.set_binary("kubectl", "/tmp/kubectl");
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let cmd = "export TOKEN=abc; echo '{}' | kubectl apply --token=$TOKEN -f - && kubectl wait pod/foo";
+    let armory = armory_with_command("test-ttp", cmd, Some("kubectl"));
+    let exec = campaign
+        .prepare_action(action_request(&target_id, None), &armory)
+        .expect("should prepare action");
+
+    assert!(
+        exec.procedure.command.contains("/tmp/kubectl"),
+        "kubectl should be resolved to /tmp/kubectl, got: {}",
+        exec.procedure.command
+    );
+    assert!(
+        !exec.procedure.command.contains(" kubectl ") && !exec.procedure.command.contains("| kubectl"),
+        "bare kubectl should not remain in command, got: {}",
         exec.procedure.command
     );
 }

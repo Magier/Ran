@@ -1,8 +1,8 @@
 use ran_domain::{
     Confidence, Contains, DaemonSet, Entity, EntityId, GCPServiceAccount, Job, K8sCluster,
     K8sGateway, K8sHTTPRoute, K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sService,
-    KubeletExecSink, Namespace, Owns, Pod, PodExec, RbacPermission, RelationSummary, ReplicaSet,
-    RunsOn, ServiceAccount, StatefulSet, UnknownSystem, Uses,
+    KubeletExecSink, NameConfidence, Namespace, Owns, Pod, PodExec, RbacPermission,
+    RelationSummary, ReplicaSet, RunsOn, ServiceAccount, StatefulSet, UnknownSystem, Uses,
 };
 
 use crate::{Campaign, FactsUpdate};
@@ -61,13 +61,19 @@ impl Analyzer for PodNamespaceAnalyzer {
                 })
                 .unwrap_or_else(|| Namespace::new(ns_name));
 
-            let rel = Contains::new(ns_id.0.clone(), pod.entity_id().0.clone());
-
             // Only emit the namespace entity if it was not already known.
             if !campaign.entities.contains::<Namespace>(&ns_id) {
                 inferred.new_entities.push(Box::new(ns));
             }
-            inferred.new_relations.push(Box::new(rel));
+
+            // When the pod has an owner (ReplicaSet, StatefulSet, etc.) the
+            // hierarchy goes Namespace → Workload → Pod via the Owns relation.
+            // WorkloadOwnershipAnalyzer emits Contains(ns → workload), so we
+            // must not also wire Contains(ns → pod) or the pod appears twice.
+            if pod.owner_references.is_empty() {
+                let rel = Contains::new(ns_id.0.clone(), pod.entity_id().0.clone());
+                inferred.new_relations.push(Box::new(rel));
+            }
         }
 
         inferred
@@ -627,6 +633,10 @@ impl Analyzer for WorkloadOwnershipAnalyzer {
                             || inferred.new_entities.iter().any(|e| e.entity_id() == rs_id);
                         if !known {
                             inferred.new_entities.push(Box::new(rs));
+                            inferred.new_relations.push(Box::new(Contains::new(
+                                format!("ns/{}", ns),
+                                rs_id.0.clone(),
+                            )));
                         }
                         inferred
                             .new_relations
@@ -640,6 +650,10 @@ impl Analyzer for WorkloadOwnershipAnalyzer {
                             || inferred.new_entities.iter().any(|e| e.entity_id() == ss_id);
                         if !known {
                             inferred.new_entities.push(Box::new(ss));
+                            inferred.new_relations.push(Box::new(Contains::new(
+                                format!("ns/{}", ns),
+                                ss_id.0.clone(),
+                            )));
                         }
                         inferred
                             .new_relations
@@ -653,6 +667,10 @@ impl Analyzer for WorkloadOwnershipAnalyzer {
                             || inferred.new_entities.iter().any(|e| e.entity_id() == ds_id);
                         if !known {
                             inferred.new_entities.push(Box::new(ds));
+                            inferred.new_relations.push(Box::new(Contains::new(
+                                format!("ns/{}", ns),
+                                ds_id.0.clone(),
+                            )));
                         }
                         inferred
                             .new_relations
@@ -669,6 +687,10 @@ impl Analyzer for WorkloadOwnershipAnalyzer {
                                 .any(|e| e.entity_id() == job_id);
                         if !known {
                             inferred.new_entities.push(Box::new(job));
+                            inferred.new_relations.push(Box::new(Contains::new(
+                                format!("ns/{}", ns),
+                                job_id.0.clone(),
+                            )));
                         }
                         inferred
                             .new_relations
@@ -691,9 +713,11 @@ impl Analyzer for WorkloadOwnershipAnalyzer {
 /// connected by a `runs-on` relation.
 ///
 /// Triggers on two events:
-/// 1. **New Pod with `host_ip`** — if a `runs-on` edge already exists in the
-///    campaign graph (or in the current update from `PodNodeAnalyzer`), the IP
-///    is propagated to the target node immediately.
+/// 1. **New Pod with `host_ip` newly discovered** — fires only when the pod was
+///    not previously in the campaign, or it was present but without `host_ip`.
+///    Re-parsing a pod whose `host_ip` was already recorded is a no-op.  If a
+///    `runs-on` edge exists in the campaign graph (or in the current update from
+///    `PodNodeAnalyzer`), the IP is propagated to the target node immediately.
 /// 2. **New `runs-on` relation** — if the source pod (in campaign state or the
 ///    current update) already has `host_ip` set, the IP is propagated to the
 ///    target node.  This covers the case where the pod entity arrives first,
@@ -717,6 +741,18 @@ impl Analyzer for PropagateHostIPAnalyzer {
             };
 
             let pod_id = pod.entity_id();
+
+            // Only propagate when host_ip is newly discovered on this pod: skip
+            // if the campaign already recorded host_ip for it (a re-parse with
+            // no new information should not re-trigger propagation).
+            if campaign
+                .entities
+                .find::<Pod>(&pod_id)
+                .and_then(|p| p.host_ip)
+                .is_some()
+            {
+                continue;
+            }
 
             // Runs-on edges committed to the campaign graph.
             let node_ids: Vec<EntityId> = campaign
@@ -1276,60 +1312,132 @@ impl Analyzer for IpBasedSystemMergeAnalyzer {
 
         let unknown_systems: Vec<&UnknownSystem> =
             campaign.entities.values::<UnknownSystem>().collect();
-        if unknown_systems.is_empty() {
-            return inferred;
-        }
 
         for entity in &update.new_entities {
-            // Match new Pods against existing UnknownSystems.
-            if let Some(pod) = entity.as_any().downcast_ref::<Pod>() {
-                let pod_id = pod.entity_id();
-                for unknown in &unknown_systems {
-                    let unknown_id = unknown.entity_id();
-                    if already_aliased(&inferred, &unknown_id) {
-                        continue;
-                    }
-                    for &ip in &unknown.system.ips {
-                        // Skip the node IP — hostNetwork pods share it.
-                        if pod.host_ip == Some(ip) {
+            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
+                // Match new Nodes against existing UnknownSystems.
+                if let Some(node) = entity.as_any().downcast_ref::<K8sNode>() {
+                    let node_id = node.entity_id();
+                    for unknown in &unknown_systems {
+                        let unknown_id = unknown.entity_id();
+                        if already_aliased(&inferred, &unknown_id) {
                             continue;
                         }
-                        if pod.system.ips.contains(&ip) {
-                            tracing::info!(
-                                unknown = %unknown_id.0,
-                                pod = %pod_id.0,
-                                %ip,
-                                "merging UnknownSystem into Pod by IP match"
-                            );
-                            inferred.entity_aliases.insert((unknown_id, pod_id.clone()));
-                            break;
+                        for &ip in &unknown.system.ips {
+                            if node.system.ips.contains(&ip) {
+                                tracing::info!(
+                                    unknown = %unknown_id.0,
+                                    node = %node_id.0,
+                                    %ip,
+                                    "merging UnknownSystem into Node by IP match"
+                                );
+                                inferred
+                                    .entity_aliases
+                                    .insert((unknown_id, node_id.clone()));
+                                break;
+                            }
                         }
                     }
                 }
                 continue;
-            }
+            };
 
-            // Match new Nodes against existing UnknownSystems.
-            if let Some(node) = entity.as_any().downcast_ref::<K8sNode>() {
-                let node_id = node.entity_id();
-                for unknown in &unknown_systems {
-                    let unknown_id = unknown.entity_id();
-                    if already_aliased(&inferred, &unknown_id) {
+            let pod_id = pod.entity_id();
+
+            // Match new Pods against existing UnknownSystems.
+            for unknown in &unknown_systems {
+                let unknown_id = unknown.entity_id();
+                if already_aliased(&inferred, &unknown_id) {
+                    continue;
+                }
+                for &ip in &unknown.system.ips {
+                    // Skip the node IP — hostNetwork pods share it with the node.
+                    if pod.host_ip == Some(ip) {
                         continue;
                     }
-                    for &ip in &unknown.system.ips {
-                        if node.system.ips.contains(&ip) {
-                            tracing::info!(
-                                unknown = %unknown_id.0,
-                                node = %node_id.0,
-                                %ip,
-                                "merging UnknownSystem into Node by IP match"
-                            );
-                            inferred
-                                .entity_aliases
-                                .insert((unknown_id, node_id.clone()));
-                            break;
-                        }
+                    if pod.system.ips.contains(&ip) {
+                        tracing::info!(
+                            unknown = %unknown_id.0,
+                            pod = %pod_id.0,
+                            %ip,
+                            "merging UnknownSystem into Pod by IP match"
+                        );
+                        inferred.entity_aliases.insert((unknown_id, pod_id.clone()));
+                        break;
+                    }
+                }
+            }
+
+            // Match new authoritative Pods against existing placeholder Pods by IP.
+            // Placeholder pods (name_confidence != Authoritative) are created by
+            // network scanners before the real pod identity is known from the API server.
+            if pod.meta.name_confidence != NameConfidence::Authoritative {
+                continue;
+            }
+            for existing in campaign.entities.values::<Pod>() {
+                let existing_id = existing.entity_id();
+                if existing_id == pod_id {
+                    continue;
+                }
+                if existing.meta.name_confidence == NameConfidence::Authoritative {
+                    continue;
+                }
+                if already_aliased(&inferred, &existing_id) {
+                    continue;
+                }
+                for &ip in &existing.system.ips {
+                    // Guard: skip IPs that are the new pod's node IP — a hostNetwork
+                    // pod shares its node IP but is distinct from the K8sNode.
+                    if pod.host_ip == Some(ip) && !pod.system.ips.contains(&ip) {
+                        continue;
+                    }
+                    if pod.system.ips.contains(&ip) {
+                        tracing::info!(
+                            placeholder = %existing_id.0,
+                            pod = %pod_id.0,
+                            %ip,
+                            "merging placeholder Pod into authoritative Pod by IP match"
+                        );
+                        inferred.entity_aliases.insert((existing_id, pod_id.clone()));
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Match new placeholder Pods against authoritative Pods already in campaign.
+        // Handles the case where the API server was queried before the network scan.
+        for entity in &update.new_entities {
+            let Some(new_pod) = entity.as_any().downcast_ref::<Pod>() else {
+                continue;
+            };
+            if new_pod.meta.name_confidence == NameConfidence::Authoritative {
+                continue;
+            }
+            let new_pod_id = new_pod.entity_id();
+            if already_aliased(&inferred, &new_pod_id) {
+                continue;
+            }
+            for auth_pod in campaign.entities.values::<Pod>() {
+                let auth_id = auth_pod.entity_id();
+                if auth_pod.meta.name_confidence != NameConfidence::Authoritative {
+                    continue;
+                }
+                for &ip in &new_pod.system.ips {
+                    if auth_pod.host_ip == Some(ip) && !auth_pod.system.ips.contains(&ip) {
+                        continue;
+                    }
+                    if auth_pod.system.ips.contains(&ip) {
+                        tracing::info!(
+                            placeholder = %new_pod_id.0,
+                            pod = %auth_id.0,
+                            %ip,
+                            "merging placeholder Pod into authoritative Pod by IP match"
+                        );
+                        inferred
+                            .entity_aliases
+                            .insert((new_pod_id.clone(), auth_id.clone()));
+                        break;
                     }
                 }
             }
@@ -2001,6 +2109,14 @@ mod tests {
             }),
             "expected Owns(ReplicaSet → Pod) relation"
         );
+        assert!(
+            inferred.new_relations.iter().any(|r| {
+                r.is::<Contains>()
+                    && r.source_id().0 == "ns/default"
+                    && r.target_id().0 == rs.entity_id().0
+            }),
+            "expected Contains(ns/default → ReplicaSet) relation"
+        );
     }
 
     #[test]
@@ -2029,6 +2145,14 @@ mod tests {
                 .iter()
                 .any(|r| r.is::<Owns>() && r.source_id().0 == ss.entity_id().0),
             "expected Owns relation from StatefulSet"
+        );
+        assert!(
+            inferred.new_relations.iter().any(|r| {
+                r.is::<Contains>()
+                    && r.source_id().0 == "ns/default"
+                    && r.target_id().0 == ss.entity_id().0
+            }),
+            "expected Contains(ns/default → StatefulSet) relation"
         );
     }
 
@@ -2059,6 +2183,14 @@ mod tests {
                 .any(|r| r.is::<Owns>() && r.source_id().0 == ds.entity_id().0),
             "expected Owns relation from DaemonSet"
         );
+        assert!(
+            inferred.new_relations.iter().any(|r| {
+                r.is::<Contains>()
+                    && r.source_id().0 == "ns/kube-system"
+                    && r.target_id().0 == ds.entity_id().0
+            }),
+            "expected Contains(ns/kube-system → DaemonSet) relation"
+        );
     }
 
     #[test]
@@ -2087,6 +2219,14 @@ mod tests {
                 .iter()
                 .any(|r| r.is::<Owns>() && r.source_id().0 == job.entity_id().0),
             "expected Owns relation from Job"
+        );
+        assert!(
+            inferred.new_relations.iter().any(|r| {
+                r.is::<Contains>()
+                    && r.source_id().0 == "ns/default"
+                    && r.target_id().0 == job.entity_id().0
+            }),
+            "expected Contains(ns/default → Job) relation"
         );
     }
 
@@ -2135,6 +2275,32 @@ mod tests {
         assert!(inferred.new_relations.is_empty());
     }
 
+    #[test]
+    fn owned_pod_does_not_get_direct_namespace_contains_relation() {
+        let campaign = test_campaign();
+        let pod = make_pod_with_owner("rs-pod-abc", "default", "ReplicaSet", "my-rs");
+        let pod_id = pod.entity_id();
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+
+        let analyzers = default_analyzers();
+        run_analyzers(&campaign, &analyzers, &mut update);
+
+        assert!(
+            !update.new_relations.iter().any(|r| {
+                r.is::<Contains>() && r.target_id().0 == pod_id.0
+            }),
+            "owned pod must not receive a direct Contains(ns → pod) relation"
+        );
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<Contains>() && r.source_id().0 == "ns/default"
+            }),
+            "namespace must still contain the workload owner"
+        );
+    }
+
     // ---------------------------------------------------------------------------
     // PropagateHostIPAnalyzer tests
     // ---------------------------------------------------------------------------
@@ -2144,18 +2310,18 @@ mod tests {
         use std::net::IpAddr;
         let mut campaign = test_campaign();
 
+        // Pod is NOT yet in campaign (first discovery).
         let mut pod = Pod::new("web-pod", "default");
         pod.host_ip = Some("192.168.1.5".parse::<IpAddr>().unwrap());
         pod.is_running = true;
         let pod_id = pod.entity_id();
-        campaign.entities.insert_typed(pod.clone());
 
         let node = K8sNode::new("worker-1");
         let node_id = node.entity_id();
         campaign.entities.insert_typed(node);
         campaign.insert_relation(&RunsOn::new(pod_id.0.clone(), node_id.0.clone()));
 
-        // Pod arrives again (e.g. re-parsed), triggering the analyzer.
+        // Pod arrives for the first time, triggering the analyzer.
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod));
 
@@ -2183,6 +2349,7 @@ mod tests {
     #[test]
     fn no_update_when_host_ip_already_in_node_ips() {
         use std::net::IpAddr;
+        // Pod is new (not in campaign), but the node already knows the IP.
         let mut campaign = test_campaign();
 
         let host_ip: IpAddr = "10.0.0.1".parse().unwrap();
@@ -2191,7 +2358,6 @@ mod tests {
         pod.host_ip = Some(host_ip);
         pod.is_running = true;
         let pod_id = pod.entity_id();
-        campaign.entities.insert_typed(pod.clone());
 
         let mut node = K8sNode::new("node-1");
         node.system.ips.push(host_ip);
@@ -2207,7 +2373,73 @@ mod tests {
 
         assert!(
             inferred.new_entities.is_empty(),
-            "no update should be emitted when IP already present"
+            "no update should be emitted when IP already present in node"
+        );
+    }
+
+    #[test]
+    fn no_update_on_reparsed_pod_when_host_ip_was_already_known() {
+        use std::net::IpAddr;
+        // Pod already in campaign with host_ip — a re-parse must not re-trigger.
+        let mut campaign = test_campaign();
+
+        let host_ip: IpAddr = "10.0.0.2".parse().unwrap();
+
+        let mut pod = Pod::new("my-pod", "default");
+        pod.host_ip = Some(host_ip);
+        pod.is_running = true;
+        let pod_id = pod.entity_id();
+        campaign.entities.insert_typed(pod.clone());
+
+        let node = K8sNode::new("node-1");
+        let node_id = node.entity_id();
+        campaign.entities.insert_typed(node);
+        campaign.insert_relation(&RunsOn::new(pod_id.0.clone(), node_id.0.clone()));
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+
+        let inferred = PropagateHostIPAnalyzer.analyze(&campaign, &update);
+        assert!(
+            inferred.new_entities.is_empty(),
+            "re-parsing a pod whose host_ip was already known must not emit a node update"
+        );
+    }
+
+    #[test]
+    fn host_ip_propagated_when_pod_gains_host_ip_for_first_time() {
+        use std::net::IpAddr;
+        // Pod was in campaign without host_ip; now arrives with it.
+        let mut campaign = test_campaign();
+
+        let host_ip: IpAddr = "10.0.0.3".parse().unwrap();
+
+        let mut pod_no_ip = Pod::new("my-pod", "default");
+        pod_no_ip.is_running = true;
+        let pod_id = pod_no_ip.entity_id();
+        campaign.entities.insert_typed(pod_no_ip);
+
+        let node = K8sNode::new("node-1");
+        let node_id = node.entity_id();
+        campaign.entities.insert_typed(node);
+        campaign.insert_relation(&RunsOn::new(pod_id.0.clone(), node_id.0.clone()));
+
+        let mut pod_with_ip = Pod::new("my-pod", "default");
+        pod_with_ip.host_ip = Some(host_ip);
+        pod_with_ip.is_running = true;
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod_with_ip));
+
+        let inferred = PropagateHostIPAnalyzer.analyze(&campaign, &update);
+        let updated = inferred.new_entities.iter().find_map(|e| {
+            e.as_any()
+                .downcast_ref::<K8sNode>()
+                .filter(|n| n.entity_id() == node_id)
+        });
+        assert!(
+            updated.map(|n| n.system.ips.contains(&host_ip)).unwrap_or(false),
+            "node should gain the IP when pod gains host_ip for the first time"
         );
     }
 

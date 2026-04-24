@@ -1,6 +1,6 @@
-#[cfg(test)]
 mod analyzers;
 mod campaign;
+pub mod shell_cmd;
 pub mod effects;
 pub mod execution_record;
 pub mod external_parser;

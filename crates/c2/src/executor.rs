@@ -469,6 +469,7 @@ mod tests {
             target_id: "ns/default/pod/nginx".to_string(),
             exec_chain: vec!["ns/default/pod/nginx".to_string()],
             exec_system_id: exec_system_id.to_string(),
+            output_transform: None,
         }
     }
 }
