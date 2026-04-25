@@ -590,7 +590,7 @@ fn check_k8s_api_error(stdout: &str) -> Option<ParserOutput> {
     }
 }
 
-fn parse_k8s_pod_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_pod_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -713,7 +713,7 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str) -> ParserOutput {
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} pod(s) from PodList", count))
 }
 
-fn parse_k8s_node_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_node_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -742,7 +742,7 @@ fn parse_k8s_node_list(stdout: &str, _stderr: &str) -> ParserOutput {
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} node(s) from NodeList", count))
 }
 
-fn parse_k8s_service_account_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_service_account_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -783,7 +783,7 @@ fn parse_k8s_service_account_list(stdout: &str, _stderr: &str) -> ParserOutput {
     )
 }
 
-fn parse_k8s_secret_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_secret_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -819,7 +819,7 @@ fn parse_k8s_secret_list(stdout: &str, _stderr: &str) -> ParserOutput {
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} secret(s) from SecretList", count))
 }
 
-fn parse_k8s_deployment_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_deployment_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -909,7 +909,7 @@ fn parse_role_binding_item(
     Some(binding)
 }
 
-fn parse_k8s_config_map_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_config_map_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -948,7 +948,7 @@ fn parse_k8s_config_map_list(stdout: &str, _stderr: &str) -> ParserOutput {
     )
 }
 
-fn parse_k8s_role_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_role_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -984,7 +984,7 @@ fn parse_k8s_role_list(stdout: &str, _stderr: &str) -> ParserOutput {
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} role(s) from RoleList", count))
 }
 
-fn parse_k8s_cluster_role_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_cluster_role_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1018,7 +1018,7 @@ fn parse_k8s_cluster_role_list(stdout: &str, _stderr: &str) -> ParserOutput {
     )
 }
 
-fn parse_k8s_role_binding_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_role_binding_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1053,7 +1053,7 @@ fn parse_k8s_role_binding_list(stdout: &str, _stderr: &str) -> ParserOutput {
     )
 }
 
-fn parse_k8s_service_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_service_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1132,7 +1132,7 @@ fn parse_k8s_service_list(stdout: &str, _stderr: &str) -> ParserOutput {
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} service(s) from ServiceList", count))
 }
 
-fn parse_k8s_cluster_role_binding_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_cluster_role_binding_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1165,7 +1165,7 @@ fn parse_k8s_cluster_role_binding_list(stdout: &str, _stderr: &str) -> ParserOut
     )
 }
 
-fn parse_k8s_ingress_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_ingress_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1251,7 +1251,7 @@ fn parse_k8s_ingress_list(stdout: &str, _stderr: &str) -> ParserOutput {
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} ingress(es) from IngressList", count))
 }
 
-fn parse_k8s_gateway_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_gateway_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1306,7 +1306,7 @@ fn parse_k8s_gateway_list(stdout: &str, _stderr: &str) -> ParserOutput {
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} gateway(s) from GatewayList", count))
 }
 
-fn parse_k8s_http_route_list(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_k8s_http_route_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }

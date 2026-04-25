@@ -63,34 +63,72 @@ pub(super) fn parse_sys_has_binary(stdout: &str, inner: &str) -> ParserOutput {
     )
 }
 
-/// Parse a line-delimited file listing (e.g. `find / -maxdepth 3` output).
+/// Parse a line-delimited file listing.
 ///
-/// Lines ending in `*` (executable marker from `find -perm /111` or `ls -F`) are
-/// also recorded in `system.binaries` as present with an empty path — the same
-/// name-only sentinel used by `sys.has-binary` when the path is unknown.
-fn parse_sys_files(stdout: &str, _stderr: &str) -> ParserOutput {
+/// Handles two input formats:
+/// - `find`-style: one absolute path per line (optionally ending in `*` for executables)
+/// - `ls -l`-style: long listing with permissions, size, date, and name in field 8
+///
+/// Executable entries (filename ending in `*` via `ls -F`) are also recorded in
+/// `system.binaries` with an empty path sentinel (name known, path not resolvable).
+fn parse_sys_files(stdout: &str, _stderr: &str, args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty output from file listing command".to_string());
     }
 
     let mut files = Vec::new();
     let mut binaries: HashMap<String, String> = HashMap::new();
+    let ls_long = is_ls_long_format(stdout);
+    let dir = args
+        .get("DIR")
+        .map(String::as_str)
+        .unwrap_or("")
+        .trim_end_matches('/');
 
     for line in stdout.lines() {
         let line = line.trim();
-        if line.is_empty() {
+        if line.is_empty() || line.starts_with("total ") {
             continue;
         }
+
+        let raw = if ls_long {
+            match extract_ls_long_name(line) {
+                Some(n) => n,
+                None => continue,
+            }
+        } else {
+            line
+        };
+
+        // Skip . and .. directory entries produced by ls -a
+        let base = raw.trim_end_matches(|c| matches!(c, '/' | '@' | '=' | '|' | '>'));
+        if base == "." || base == ".." {
+            continue;
+        }
+
         // Lines ending in `*` mark executables (ls -F / find -perm /111 style).
-        let (path, is_exec) = if let Some(stripped) = line.strip_suffix('*') {
+        let (name, is_exec) = if let Some(stripped) = raw.strip_suffix('*') {
             (stripped.trim(), true)
         } else {
-            (line, false)
+            (base, false)
         };
-        files.push(path.to_string());
+
+        if name.is_empty() {
+            continue;
+        }
+
+        // Construct the full path: use the name as-is if it's already absolute
+        // or if no directory context is available; otherwise prepend DIR.
+        let path = if name.starts_with('/') || dir.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}/{}", dir, name)
+        };
+
+        files.push(path.clone());
         if is_exec {
-            let name = path.rsplit('/').next().unwrap_or(path).to_string();
-            binaries.entry(name).or_default();
+            let bin_name = path.rsplit('/').next().unwrap_or(&path).to_string();
+            binaries.entry(bin_name).or_insert_with(|| path.clone());
         }
     }
 
@@ -103,6 +141,47 @@ fn parse_sys_files(stdout: &str, _stderr: &str) -> ParserOutput {
         },
         detail,
     )
+}
+
+/// Detect whether stdout looks like `ls -l` long-listing format.
+///
+/// Heuristic: at least one of the first ten non-empty lines starts with "total "
+/// or has a 10-character permission field (e.g. `-rwxr-xr-x`).
+fn is_ls_long_format(stdout: &str) -> bool {
+    stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .take(10)
+        .any(|l| {
+            l.starts_with("total ")
+                || (l.len() >= 10
+                    && matches!(
+                        l.chars().next(),
+                        Some('-' | 'd' | 'l' | 'b' | 'c' | 'p' | 's')
+                    )
+                    && l.split_whitespace().count() >= 9)
+        })
+}
+
+/// Extract the filename from an `ls -l` line.
+///
+/// Format: `permissions links owner group size month day time name [-> target]`
+/// The filename is field index 8 (0-based). For symlinks (`name -> target`) only
+/// the source name is returned.
+fn extract_ls_long_name(line: &str) -> Option<&str> {
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    if fields.len() < 9 {
+        return None;
+    }
+    // Validate that field 0 looks like a permission string (length 10).
+    if fields[0].len() != 10 {
+        return None;
+    }
+    let name = fields[8];
+    // Strip symlink " -> target" suffix by returning only up to the first space
+    // (fields[8] from split_whitespace already excludes spaces, so name is clean).
+    Some(name)
 }
 
 /// Parametric effect: `sys.hasfile(PATH)`.
@@ -135,7 +214,7 @@ pub(super) fn parse_sys_hasfile(stdout: &str, path: &str) -> ParserOutput {
     )
 }
 
-fn parse_sys_envvar(stdout: &str, stderr: &str) -> ParserOutput {
+fn parse_sys_envvar(stdout: &str, stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     let vars = parse_env_vars(stdout);
     if vars.is_empty() && !stdout.trim().is_empty() {
         return ParserOutput::UnknownFormat(
@@ -158,7 +237,7 @@ fn parse_sys_envvar(stdout: &str, stderr: &str) -> ParserOutput {
     )
 }
 
-fn parse_sys_ip(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_sys_ip(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     let ips = parse_ip_addrs(stdout);
     if ips.is_empty() && !stdout.trim().is_empty() {
         return ParserOutput::UnknownFormat(
@@ -176,7 +255,7 @@ fn parse_sys_ip(stdout: &str, _stderr: &str) -> ParserOutput {
     )
 }
 
-fn parse_sys_processes(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_sys_processes(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     let lines: Vec<&str> = stdout.split('\n').collect();
     if lines.len() < 2 {
         return ParserOutput::KnownFailure("no process entries found in output".to_string());
@@ -243,7 +322,7 @@ fn parse_process_line(line: &str) -> Option<ran_domain::Process> {
 ///
 /// Extracts the numeric uid and the username in parentheses.  Sets
 /// Sets `access_level` to `Exec` for any uid.
-fn parse_sys_userid(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_sys_userid(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     let line = stdout.trim();
     if line.is_empty() {
         return ParserOutput::KnownFailure("empty output from id command".to_string());
@@ -300,7 +379,7 @@ fn parse_sys_userid(stdout: &str, _stderr: &str) -> ParserOutput {
 /// sysfs on /sys type sysfs (rw,nosuid,nodev)
 /// ```
 /// Pattern: `<source> on <mountpoint> type <fstype> (<options>)`
-fn parse_linux_mounts(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_linux_mounts(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty mount output".to_string());
     }
@@ -559,7 +638,7 @@ mod tests {
 
     #[test]
     fn parse_sys_processes_returns_known_failure_on_single_line() {
-        let result = parse_sys_processes("USER PID PPID CPU START TTY TIME CMD", "");
+        let result = parse_sys_processes("USER PID PPID CPU START TTY TIME CMD", "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 
@@ -568,7 +647,7 @@ mod tests {
         let stdout = "USER PID PPID CPU START TTY TIME CMD\n\
                       root 1 0 0 00:00 ? 0:00 /sbin/init\n\
                       root 649 1 0 20:28 pts/0 0:00 /usr/bin/bash";
-        let result = parse_sys_processes(stdout, "");
+        let result = parse_sys_processes(stdout, "", &HashMap::new());
         let ParserOutput::Success(updates, detail) = result else {
             panic!("expected Success");
         };
@@ -581,13 +660,13 @@ mod tests {
     #[test]
     fn parse_sys_processes_unknown_format_on_bad_line() {
         let stdout = "USER PID PPID CPU START TTY TIME CMD\nnot-a-process-line";
-        let result = parse_sys_processes(stdout, "");
+        let result = parse_sys_processes(stdout, "", &HashMap::new());
         assert!(matches!(result, ParserOutput::UnknownFormat(_)));
     }
 
     #[test]
     fn parse_sys_userid_root_sets_root_exec() {
-        let result = parse_sys_userid("uid=0(root) gid=0(root) groups=0(root)", "");
+        let result = parse_sys_userid("uid=0(root) gid=0(root) groups=0(root)", "", &HashMap::new());
         let ParserOutput::Success(updates, detail) = result else {
             panic!("expected Success, got {:?}", result);
         };
@@ -602,6 +681,7 @@ mod tests {
         let result = parse_sys_userid(
             "uid=1000(appuser) gid=1000(appuser) groups=1000(appuser)",
             "",
+            &HashMap::new(),
         );
         let ParserOutput::Success(updates, _) = result else {
             panic!("expected Success");
@@ -613,7 +693,7 @@ mod tests {
 
     #[test]
     fn parse_sys_userid_bare_uid_no_username() {
-        let result = parse_sys_userid("uid=500 gid=500", "");
+        let result = parse_sys_userid("uid=500 gid=500", "", &HashMap::new());
         let ParserOutput::Success(updates, _) = result else {
             panic!("expected Success");
         };
@@ -624,7 +704,7 @@ mod tests {
 
     #[test]
     fn parse_sys_userid_empty_returns_known_failure() {
-        let result = parse_sys_userid("", "");
+        let result = parse_sys_userid("", "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 
@@ -668,7 +748,7 @@ mod tests {
 22 28 0:21 / /sys rw shared:7 - sysfs sysfs rw\n\
 36 28 8:1 / / rw shared:1 - ext4 /dev/sda1 rw\n\
 256 255 8:1 /var/lib/kubelet /var/lib/kubelet rw shared:12 - ext4 /dev/sda1 rw\n";
-        let result = parse_linux_mounts(stdout, "");
+        let result = parse_linux_mounts(stdout, "", &HashMap::new());
         let ParserOutput::Success(updates, detail) = result else {
             panic!("expected Success");
         };
@@ -682,7 +762,7 @@ mod tests {
         let stdout = "\
 sysfs on /sys type sysfs (rw,nosuid)\n\
 /dev/sda1 on / type ext4 (rw,relatime)\n";
-        let result = parse_linux_mounts(stdout, "");
+        let result = parse_linux_mounts(stdout, "", &HashMap::new());
         let ParserOutput::Success(updates, _) = result else {
             panic!("expected Success");
         };
@@ -691,7 +771,7 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
 
     #[test]
     fn parse_linux_mounts_empty_returns_known_failure() {
-        let result = parse_linux_mounts("", "");
+        let result = parse_linux_mounts("", "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 
@@ -760,7 +840,7 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
     #[test]
     fn parse_sys_files_multi_line_listing_populates_files() {
         let stdout = "/etc/passwd\n/etc/hostname\n/tmp/app.conf\n";
-        let result = parse_sys_files(stdout, "");
+        let result = parse_sys_files(stdout, "", &HashMap::new());
         let ParserOutput::Success(updates, detail) = result else {
             panic!("expected Success, got {:?}", result);
         };
@@ -773,23 +853,78 @@ sysfs on /sys type sysfs (rw,nosuid)\n\
     #[test]
     fn parse_sys_files_executable_marker_records_binary() {
         let stdout = "/usr/bin/curl*\n/etc/passwd\n";
-        let result = parse_sys_files(stdout, "");
+        let result = parse_sys_files(stdout, "", &HashMap::new());
         let ParserOutput::Success(updates, _) = result else {
             panic!("expected Success");
         };
         // The stripped path (without `*`) should be in files.
         assert!(updates.files.contains(&"/usr/bin/curl".to_string()));
-        // The binary name should appear in binaries with empty path sentinel.
-        assert!(updates.binaries.contains_key("curl"));
-        assert_eq!(updates.binaries["curl"], "");
+        // The binary name maps to its full absolute path.
+        assert_eq!(updates.binaries.get("curl").map(String::as_str), Some("/usr/bin/curl"));
         // Non-executable path should not be in binaries.
         assert!(!updates.binaries.contains_key("passwd"));
     }
 
     #[test]
     fn parse_sys_files_empty_output_returns_known_failure() {
-        let result = parse_sys_files("", "");
+        let result = parse_sys_files("", "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
+    }
+
+    #[test]
+    fn parse_sys_files_ls_long_format_extracts_filenames() {
+        let stdout = "\
+total 65644\n\
+drwxrwxrwt 1 root root     4096 Apr 25 07:41 ./\n\
+drwxr-xr-x 1 root root     4096 Apr 25 06:09 ../\n\
+-rwxr-xr-x 1 root root 59502754 Apr 25 07:41 kubectl*\n\
+-rwxr-xr-x 1 root root  7697200 Apr 25 07:41 helm*\n\
+-rw-r--r-- 1 root root     1024 Apr 25 07:00 config.yaml\n";
+        // Without DIR the filename is used as-is.
+        let result = parse_sys_files(stdout, "", &HashMap::new());
+        let ParserOutput::Success(updates, detail) = result else {
+            panic!("expected Success, got {:?}", result);
+        };
+        assert_eq!(updates.files.len(), 3, "files: {:?}", updates.files);
+        assert!(updates.files.contains(&"kubectl".to_string()));
+        assert!(updates.files.contains(&"config.yaml".to_string()));
+        assert!(updates.binaries.contains_key("kubectl"));
+        assert_eq!(updates.binaries["kubectl"], "kubectl");
+        assert!(!updates.binaries.contains_key("config.yaml"));
+        assert!(detail.contains("3 file"));
+    }
+
+    #[test]
+    fn parse_sys_files_ls_long_with_dir_constructs_full_paths() {
+        let stdout = "\
+total 65644\n\
+drwxrwxrwt 1 root root     4096 Apr 25 07:41 ./\n\
+drwxr-xr-x 1 root root     4096 Apr 25 06:09 ../\n\
+-rwxr-xr-x 1 root root 59502754 Apr 25 07:41 kubectl*\n\
+-rw-r--r-- 1 root root     1024 Apr 25 07:00 config.yaml\n";
+        let mut args = HashMap::new();
+        args.insert("DIR".to_string(), "/tmp".to_string());
+        let result = parse_sys_files(stdout, "", &args);
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success, got {:?}", result);
+        };
+        assert!(updates.files.contains(&"/tmp/kubectl".to_string()));
+        assert!(updates.files.contains(&"/tmp/config.yaml".to_string()));
+        assert_eq!(updates.binaries.get("kubectl").map(String::as_str), Some("/tmp/kubectl"));
+    }
+
+    #[test]
+    fn parse_sys_files_ls_long_skips_dot_entries() {
+        let stdout = "\
+total 0\n\
+drwxr-xr-x 2 root root 40 Apr 25 07:00 ./\n\
+drwxr-xr-x 3 root root 60 Apr 25 07:00 ../\n\
+-rw-r--r-- 1 root root  0 Apr 25 07:00 empty.txt\n";
+        let result = parse_sys_files(stdout, "", &HashMap::new());
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success");
+        };
+        assert_eq!(updates.files, vec!["empty.txt".to_string()]);
     }
 
     // --- sys.hasfile ---

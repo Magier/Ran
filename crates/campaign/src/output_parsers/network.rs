@@ -207,7 +207,7 @@ fn extract_xml_attr(
 /// matches the IP in kebab-case form (e.g. `10-244-1-4`) are inferred to be
 /// Pod addresses; other entries (service VIPs, external hosts) are skipped
 /// because there is no Service domain type yet.
-fn parse_rdns(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_rdns(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     let data = stdout.trim();
     if data.is_empty() {
         return ParserOutput::KnownFailure("empty rDNS output".to_string());
@@ -391,7 +391,7 @@ mod tests {
             10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local\n\
             10.244.1.6,10-244-1-6.argocd-notifications-controller-metrics.argocd.svc.cluster.local\n\
             192.168.0.5,host.local\n";
-        let result = parse_rdns(stdout, "");
+        let result = parse_rdns(stdout, "", &HashMap::new());
         let ParserOutput::SuccessWithFacts(facts, detail) = result else {
             panic!("expected SuccessWithFacts, got {:?}", result);
         };
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn parse_rdns_pod_has_ip_set() {
         let stdout = "10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local\n";
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_rdns(stdout, "") else {
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_rdns(stdout, "", &HashMap::new()) else {
             panic!("expected SuccessWithFacts");
         };
         let pod = facts
@@ -428,19 +428,19 @@ mod tests {
     #[test]
     fn parse_rdns_skips_non_cluster_local() {
         let stdout = "ip,ptr\n192.168.0.5,host.local\n10.0.0.1,internal.example.com\n";
-        let result = parse_rdns(stdout, "");
+        let result = parse_rdns(stdout, "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 
     #[test]
     fn parse_rdns_empty_input() {
-        let result = parse_rdns("", "");
+        let result = parse_rdns("", "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 
     #[test]
     fn parse_rdns_header_only() {
-        let result = parse_rdns("ip,ptr\n", "");
+        let result = parse_rdns("ip,ptr\n", "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 
@@ -450,7 +450,7 @@ mod tests {
             not-an-ip,some.cluster.local\n\
             this-is-not-csv\n\
             10.0.0.1,10-0-0-1.backend.default.svc.cluster.local\n";
-        let result = parse_rdns(stdout, "");
+        let result = parse_rdns(stdout, "", &HashMap::new());
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts");
         };
@@ -461,7 +461,7 @@ mod tests {
     fn parse_rdns_without_header() {
         let stdout = "10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local\n\
             10.244.1.6,10-244-1-6.argocd-server.argocd.svc.cluster.local\n";
-        let result = parse_rdns(stdout, "");
+        let result = parse_rdns(stdout, "", &HashMap::new());
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts");
         };

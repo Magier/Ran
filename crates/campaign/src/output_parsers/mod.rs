@@ -57,7 +57,7 @@ pub(crate) enum ParserOutput {
     UnknownFormat(String),
 }
 
-pub(crate) type ParserFn = fn(&str, &str) -> ParserOutput;
+pub(crate) type ParserFn = fn(&str, &str, &HashMap<String, String>) -> ParserOutput;
 
 static REGISTRY: OnceLock<HashMap<&'static str, ParserFn>> = OnceLock::new();
 
@@ -85,6 +85,45 @@ pub fn parse_output_effect(
     // their argument inside the effect-ID string; extract it and call the pure fn
     // directly, then fall through to the shared merge path below.
     let normalized = effect_id.trim().to_ascii_lowercase();
+
+    // Arg-derived effects: facts are constructed from TTP parameters, not from
+    // command output. Handle before the stdout guard so they succeed even when
+    // the command produces no output.
+    if normalized == "create k8s.pod"
+        || normalized == "namespace($ns)"
+        || normalized == "ns.contains($p2)"
+        || normalized.starts_with("created(")
+    {
+        let parser_output = parse_deploy_container_effect(&normalized, cmd);
+        return match parser_output {
+            ParserOutput::SuccessWithFacts(facts, detail) => {
+                let facts_written = facts.new_entities.len() + facts.new_relations.len();
+                Some(ParsedEffect {
+                    updates: facts,
+                    audit: build_audit(
+                        effect_id,
+                        cmd,
+                        event,
+                        ParseResult::Parsed,
+                        &detail,
+                        facts_written,
+                    ),
+                })
+            }
+            ParserOutput::KnownFailure(detail) => Some(ParsedEffect {
+                updates: FactsUpdate::default(),
+                audit: build_audit(
+                    effect_id,
+                    cmd,
+                    event,
+                    ParseResult::KnownFailure,
+                    &detail,
+                    0,
+                ),
+            }),
+            _ => None,
+        };
+    }
 
     let stdout = match event.results.first() {
         Some(s) => s.as_str(),
@@ -190,7 +229,7 @@ pub fn parse_output_effect(
         parse_sys_node_name(campaign, cmd, stdout)
     } else {
         let parser = get_registry().get(normalized.trim())?;
-        parser(stdout, stderr)
+        parser(stdout, stderr, &cmd.args)
     };
 
     match parser_output {
@@ -479,6 +518,110 @@ fn truncate_preview(payload: &str) -> String {
     }
 
     format!("{}...", &payload[..RAW_PREVIEW_MAX_LEN])
+}
+
+/// Dispatch arg-derived effect parsers for the `deploy-container` TTP.
+///
+/// These effects declare facts about what the TTP accomplished (pod created,
+/// namespace ensured, containment relation established) rather than describing
+/// command output to parse. All facts are derived from TTP args.
+fn parse_deploy_container_effect(normalized: &str, cmd: &ExecTtp) -> ParserOutput {
+    if normalized == "create k8s.pod" {
+        parse_deploy_pod(cmd)
+    } else if normalized == "namespace($ns)" {
+        parse_deploy_namespace(cmd)
+    } else if normalized == "ns.contains($p2)" {
+        parse_deploy_contains(cmd)
+    } else {
+        // created(creator:$p1, target:$p2) — informational; the graph already
+        // links the attacker entity via the command record.
+        ParserOutput::SuccessWithFacts(FactsUpdate::default(), "created relation: no graph facts".to_string())
+    }
+}
+
+fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
+    use ran_domain::{Confidence, Container, Mount, NameConfidence, Pod, PodPhase};
+
+    let pod_name = cmd.args.get("PodName").map(String::as_str).unwrap_or("");
+    let ns = cmd.args.get("Namespace").map(String::as_str).unwrap_or("default");
+    let image = cmd.args.get("Image").map(String::as_str).unwrap_or("unknown");
+
+    if pod_name.is_empty() {
+        return ParserOutput::KnownFailure("deploy-container: PodName arg is empty".to_string());
+    }
+
+    let mut pod = Pod::new(pod_name.to_string(), ns.to_string());
+    pod.meta.name_confidence = NameConfidence::Authoritative;
+    pod.phase = Some(PodPhase::Running);
+    pod.is_running = true;
+
+    let bool_arg = |key: &str| cmd.args.get(key).map(|s| s == "true").unwrap_or(false);
+    if bool_arg("Privileged") { pod.privileged = Confidence::Yes; }
+    if bool_arg("HostPID")    { pod.host_pid    = Confidence::Yes; }
+    if bool_arg("HostIPC")    { pod.host_ipc    = Confidence::Yes; }
+    if bool_arg("HostNetwork") { pod.host_network = Confidence::Yes; }
+
+    pod.containers.push(Container {
+        name: pod_name.to_string(),
+        image: image.to_string(),
+    });
+
+    if let (Some(host_path), Some(mount_point)) = (
+        cmd.args.get("HostPath").filter(|s| !s.is_empty()),
+        cmd.args.get("Mount").filter(|s| !s.is_empty()),
+    ) {
+        pod.host_paths.push(host_path.clone());
+        pod.volume_mounts.push(Mount {
+            name: "hostmount".to_string(),
+            mount_root: host_path.clone(),
+            mount_point: mount_point.clone(),
+            mount_type: None,
+            is_host_path: true,
+            read_only: false,
+        });
+    }
+
+    if let Some(node_name) = cmd.args.get("NodeName").filter(|s| !s.is_empty()) {
+        pod.node_name = Some(node_name.clone());
+    }
+    if let Some(sa) = cmd.args.get("ServiceAccount").filter(|s| !s.is_empty()) {
+        pod.service_account_name = Some(sa.clone());
+    }
+
+    let mut facts = FactsUpdate::default();
+    facts.new_entities.push(Box::new(pod));
+    ParserOutput::SuccessWithFacts(facts, format!("deploy-container: pod {}/{} created", ns, pod_name))
+}
+
+fn parse_deploy_namespace(cmd: &ExecTtp) -> ParserOutput {
+    use ran_domain::Namespace;
+
+    let ns = cmd.args.get("Namespace").map(String::as_str).unwrap_or("");
+    if ns.is_empty() {
+        return ParserOutput::KnownFailure("deploy-container: Namespace arg is empty".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    facts.new_entities.push(Box::new(Namespace::new(ns.to_string())));
+    ParserOutput::SuccessWithFacts(facts, format!("deploy-container: namespace {} ensured", ns))
+}
+
+fn parse_deploy_contains(cmd: &ExecTtp) -> ParserOutput {
+    use ran_domain::Contains;
+
+    let pod_name = cmd.args.get("PodName").map(String::as_str).unwrap_or("");
+    let ns = cmd.args.get("Namespace").map(String::as_str).unwrap_or("default");
+
+    if pod_name.is_empty() {
+        return ParserOutput::KnownFailure("deploy-container: PodName arg is empty".to_string());
+    }
+
+    let ns_id = format!("ns/{}", ns);
+    let pod_id = format!("ns/{}/pod/{}", ns, pod_name);
+
+    let mut facts = FactsUpdate::default();
+    facts.new_relations.push(Box::new(Contains::new(ns_id, pod_id)));
+    ParserOutput::SuccessWithFacts(facts, format!("deploy-container: ns/{} contains pod/{}", ns, pod_name))
 }
 
 #[cfg(test)]
