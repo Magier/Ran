@@ -917,6 +917,46 @@ components:
         details:
           type: string
 
+    OwnerRef:
+      type: object
+      description: Reference to the Kubernetes owner of a resource (e.g. ReplicaSet → Pod).
+      required:
+        - name
+        - kind
+        - uid
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+        uid:
+          type: string
+
+    VolumeMount:
+      type: object
+      description: A volume mount on a pod — either a projected volume or a host-path bind mount.
+      required:
+        - name
+        - mount_point
+        - mount_root
+        - read_only
+        - is_host_path
+      properties:
+        name:
+          type: string
+        mount_point:
+          type: string
+          description: Path inside the container where the volume appears.
+        mount_root:
+          type: string
+          description: Path on the host that is bound (for hostPath mounts).
+        mount_type:
+          type: string
+        read_only:
+          type: boolean
+        is_host_path:
+          type: boolean
+
     TTPStatus:
       type: string
       enum:

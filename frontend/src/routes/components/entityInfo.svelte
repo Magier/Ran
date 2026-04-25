@@ -300,14 +300,28 @@
 						{/each}
 					</div>
 				</details>
-			{:else if (label === 'volumeMounts' || label === 'mounts') && Array.isArray(data) && data.length > 0}
-			<span>{ Array.isArray(data) && data.length > 0 }</span>
+			{:else if (label === 'volume_mounts' || label === 'volumeMounts' || label === 'mounts') && Array.isArray(data) && data.length > 0}
 				<details class="mb-1" class:field-changed={highlightedFields[label]}>
 					<summary>
-						<span class="font-bold">{label}</span>
-						<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : (typeof data === 'object' && data !== null ? Object.keys(data).length : 0)})</span>
+						<span class="font-bold">Volume Mounts</span>
+						<span class="text-xs text-surface-500">({data.length})</span>
 					</summary>
-					<Tree entries={Array.isArray(data) ? data : []} onLeafClick={readFile} />
+					<ul class="list-inside list-none pl-4 space-y-1 mt-1">
+						{#each data as m}
+							<li class="flex items-center gap-1 flex-wrap">
+								<span class="font-mono text-xs">{m.mount_point ?? m.mountPath}</span>
+								{#if m.name}
+									<span class="text-surface-400 text-xs">({m.name})</span>
+								{/if}
+								{#if m.read_only || m.readOnly}
+									<span class="badge bg-warning-100 text-warning-800 text-xs">ro</span>
+								{/if}
+								{#if m.is_host_path}
+									<span class="badge bg-error-100 text-error-800 text-xs">hostPath: {m.mount_root}</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
 				</details>
 			{:else if label === 'can'}
 				{#if typeof data === 'object' && data !== null && Object.keys(data).length > 0}
@@ -341,6 +355,16 @@
 						{/each}
 					</ul>
 				</details>
+			{:else if label === 'owner_references' && Array.isArray(data) && data.length > 0}
+				<div class="mb-1" class:field-changed={highlightedFields[label]}>
+					<span class="font-bold mr-1">Owner:</span>
+					{#each data as oref}
+						<span class="inline-flex items-center gap-1">
+							<span class="badge bg-indigo-100 text-indigo-800 text-xs">{oref.kind}</span>
+							<span class="font-mono text-xs">{oref.name}</span>
+						</span>
+					{/each}
+				</div>
 			{:else if Array.isArray(data) && data.length > 0}
 				{#if data.length === 1}
 					<div class="mb-1" class:field-changed={highlightedFields[label]}><span class="font-bold mr-1">{label}:</span>{prettyPrint(data[0])}</div>
