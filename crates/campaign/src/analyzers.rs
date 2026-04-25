@@ -1,23 +1,13 @@
 use ran_domain::{
-    Confidence, Contains, DaemonSet, Entity, EntityId, GCPServiceAccount, Job, K8sCluster,
-    K8sGateway, K8sHTTPRoute, K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sService,
-    KubeletExecSink, NameConfidence, Namespace, Owns, Pod, PodExec, RbacPermission,
-    RelationSummary, ReplicaSet, RunsOn, ServiceAccount, StatefulSet, UnknownSystem, Uses,
+    BindsTo, BinaryPresence, Confidence, Contains, DaemonSet, Entity, EntityId, GCPServiceAccount,
+    Grants, Job, K8sCluster, K8sGateway, K8sHTTPRoute, K8sIngress, K8sNode, K8sRole,
+    K8sRoleBinding, K8sService, KubeletExecSink, KubeletExecSource, NameConfidence, Namespace,
+    Owns, Pod, PodExec, RbacPermission, RelationSummary, ReplicaSet, RunsOn, ServiceAccount,
+    StatefulSet, UnknownSystem, Uses,
 };
 
 use crate::{Campaign, FactsUpdate};
-
-// ---------------------------------------------------------------------------
-// Analyzer trait
-// ---------------------------------------------------------------------------
-
-/// An `Analyzer` inspects newly-parsed entities and infers additional facts
-/// from existing campaign state.  Analyzers are cheap to construct and purely
-/// functional: they receive a read-only view of the campaign and the pending
-/// update, and return a supplementary `FactsUpdate` to be merged in.
-pub trait Analyzer: Send + Sync {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate;
-}
+use crate::rules::InferenceRule;
 
 // ---------------------------------------------------------------------------
 // Built-in analyzers
@@ -27,8 +17,9 @@ pub trait Analyzer: Send + Sync {
 /// `contains` relation from the Namespace to the Pod.
 pub struct PodNamespaceAnalyzer;
 
-impl Analyzer for PodNamespaceAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for PodNamespaceAnalyzer {
+    fn name(&self) -> &'static str { "pod.namespace" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         for entity in &update.new_entities {
@@ -84,8 +75,9 @@ impl Analyzer for PodNamespaceAnalyzer {
 /// a `contains` relation from the Namespace to the ServiceAccount.
 pub struct ServiceAccountNamespaceAnalyzer;
 
-impl Analyzer for ServiceAccountNamespaceAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for ServiceAccountNamespaceAnalyzer {
+    fn name(&self) -> &'static str { "serviceaccount.namespace" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         for entity in &update.new_entities {
@@ -133,8 +125,9 @@ impl Analyzer for ServiceAccountNamespaceAnalyzer {
 /// discovered).
 pub struct NamespaceClusterAnalyzer;
 
-impl Analyzer for NamespaceClusterAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for NamespaceClusterAnalyzer {
+    fn name(&self) -> &'static str { "namespace.cluster" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         // Only one cluster is currently supported; bail out if none is known.
@@ -162,8 +155,9 @@ impl Analyzer for NamespaceClusterAnalyzer {
 /// exists and infer a `runs-on` relation (Pod -> Node).
 pub struct PodNodeAnalyzer;
 
-impl Analyzer for PodNodeAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for PodNodeAnalyzer {
+    fn name(&self) -> &'static str { "pod.node" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         for entity in &update.new_entities {
@@ -213,8 +207,9 @@ impl Analyzer for PodNodeAnalyzer {
 /// explicitly `No`, no `uses` relation is emitted.
 pub struct ServiceAccountAnalyzer;
 
-impl Analyzer for ServiceAccountAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for ServiceAccountAnalyzer {
+    fn name(&self) -> &'static str { "pod.serviceaccount" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         for entity in &update.new_entities {
@@ -272,8 +267,9 @@ impl Analyzer for ServiceAccountAnalyzer {
 /// relation when the pod is not yet scheduled.
 pub struct ServiceAccountTokenAnalyzer;
 
-impl Analyzer for ServiceAccountTokenAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for ServiceAccountTokenAnalyzer {
+    fn name(&self) -> &'static str { "serviceaccount.token" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         for entity in &update.new_entities {
@@ -324,8 +320,9 @@ impl Analyzer for ServiceAccountTokenAnalyzer {
 /// and the target pod is running.
 pub struct ServiceAccountCanExecAnalyzer;
 
-impl Analyzer for ServiceAccountCanExecAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for ServiceAccountCanExecAnalyzer {
+    fn name(&self) -> &'static str { "serviceaccount.can-exec" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         let service_accounts = collect_service_accounts(campaign, update);
@@ -363,8 +360,9 @@ impl Analyzer for ServiceAccountCanExecAnalyzer {
 /// (source pod -> node) and `runs-on` (pod -> node) relations.
 pub struct KubeletExecSinkAnalyzer;
 
-impl Analyzer for KubeletExecSinkAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for KubeletExecSinkAnalyzer {
+    fn name(&self) -> &'static str { "kubelet.exec-sink" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         let pods = collect_pods(campaign, update)
@@ -430,8 +428,9 @@ impl Analyzer for KubeletExecSinkAnalyzer {
 /// running a `cat /proc/self/mountinfo` or `mount` command on the target.
 pub struct HostPathAnalyzer;
 
-impl Analyzer for HostPathAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for HostPathAnalyzer {
+    fn name(&self) -> &'static str { "pod.host-path" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         let pods = collect_pods(campaign, update);
@@ -499,8 +498,9 @@ impl Analyzer for HostPathAnalyzer {
 /// lateral-movement TTPs even before `sys.userid` output is available.
 pub struct CanExecAccessAnalyzer;
 
-impl Analyzer for CanExecAccessAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for CanExecAccessAnalyzer {
+    fn name(&self) -> &'static str { "kubelet.can-exec-access" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         let exec_target_ids: Vec<String> = update
@@ -608,8 +608,9 @@ impl Analyzer for CanExecAccessAnalyzer {
 /// Trigger: new `Pod` entities with non-empty `owner_references`.
 pub struct WorkloadOwnershipAnalyzer;
 
-impl Analyzer for WorkloadOwnershipAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for WorkloadOwnershipAnalyzer {
+    fn name(&self) -> &'static str { "workload.ownership" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         for entity in &update.new_entities {
@@ -727,8 +728,9 @@ impl Analyzer for WorkloadOwnershipAnalyzer {
 /// No update is emitted when the IP is already present in the node's `system.ips`.
 pub struct PropagateHostIPAnalyzer;
 
-impl Analyzer for PropagateHostIPAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for PropagateHostIPAnalyzer {
+    fn name(&self) -> &'static str { "pod.host-ip" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         // --- Case 1: new Pod with host_ip ----------------------------------
@@ -862,8 +864,9 @@ fn propagate_ip_to_node(
 /// relation from the cluster to the ClusterRole.
 pub struct ClusterRoleClusterAnalyzer;
 
-impl Analyzer for ClusterRoleClusterAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for ClusterRoleClusterAnalyzer {
+    fn name(&self) -> &'static str { "clusterrole.cluster" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
@@ -893,8 +896,9 @@ impl Analyzer for ClusterRoleClusterAnalyzer {
 /// ClusterRoleBinding.
 pub struct ClusterRoleBindingClusterAnalyzer;
 
-impl Analyzer for ClusterRoleBindingClusterAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for ClusterRoleBindingClusterAnalyzer {
+    fn name(&self) -> &'static str { "clusterrolebinding.cluster" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
@@ -924,8 +928,9 @@ impl Analyzer for ClusterRoleBindingClusterAnalyzer {
 /// and wire a `contains` relation from the Namespace to the Role.
 pub struct RoleNamespaceAnalyzer;
 
-impl Analyzer for RoleNamespaceAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for RoleNamespaceAnalyzer {
+    fn name(&self) -> &'static str { "role.namespace" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         for entity in &update.new_entities {
@@ -972,8 +977,9 @@ impl Analyzer for RoleNamespaceAnalyzer {
 /// exists and wire a `contains` relation from the Namespace to the RoleBinding.
 pub struct RoleBindingNamespaceAnalyzer;
 
-impl Analyzer for RoleBindingNamespaceAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for RoleBindingNamespaceAnalyzer {
+    fn name(&self) -> &'static str { "rolebinding.namespace" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         for entity in &update.new_entities {
@@ -1024,11 +1030,12 @@ impl Analyzer for RoleBindingNamespaceAnalyzer {
 /// concrete type and struct name differ — so this macro eliminates the
 /// boilerplate.
 macro_rules! ns_contains_analyzer {
-    ($analyzer:ident, $entity_type:ty) => {
+    ($analyzer:ident, $entity_type:ty, $rule_name:literal) => {
         pub struct $analyzer;
 
-        impl Analyzer for $analyzer {
-            fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        impl InferenceRule for $analyzer {
+            fn name(&self) -> &'static str { $rule_name }
+            fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
                 let mut inferred = FactsUpdate::default();
                 for entity in &update.new_entities {
                     let Some(e) = entity.as_any().downcast_ref::<$entity_type>() else {
@@ -1068,10 +1075,10 @@ macro_rules! ns_contains_analyzer {
     };
 }
 
-ns_contains_analyzer!(ServiceNamespaceAnalyzer, K8sService);
-ns_contains_analyzer!(IngressNamespaceAnalyzer, K8sIngress);
-ns_contains_analyzer!(GatewayNamespaceAnalyzer, K8sGateway);
-ns_contains_analyzer!(HTTPRouteNamespaceAnalyzer, K8sHTTPRoute);
+ns_contains_analyzer!(ServiceNamespaceAnalyzer, K8sService, "service.namespace");
+ns_contains_analyzer!(IngressNamespaceAnalyzer, K8sIngress, "ingress.namespace");
+ns_contains_analyzer!(GatewayNamespaceAnalyzer, K8sGateway, "gateway.namespace");
+ns_contains_analyzer!(HTTPRouteNamespaceAnalyzer, K8sHTTPRoute, "httproute.namespace");
 
 // ---------------------------------------------------------------------------
 // Default analyzer pipeline
@@ -1081,8 +1088,9 @@ ns_contains_analyzer!(HTTPRouteNamespaceAnalyzer, K8sHTTPRoute);
 /// cluster — nodes always belong to the cluster they were discovered in.
 pub struct NodeClusterAnalyzer;
 
-impl Analyzer for NodeClusterAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for NodeClusterAnalyzer {
+    fn name(&self) -> &'static str { "node.cluster" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
@@ -1127,8 +1135,9 @@ impl Analyzer for NodeClusterAnalyzer {
 /// are emitted — this is not an error, the role may arrive later.
 pub struct RoleBindingAnalyzer;
 
-impl Analyzer for RoleBindingAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for RoleBindingAnalyzer {
+    fn name(&self) -> &'static str { "rolebinding.permissions" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         for entity in &update.new_entities {
@@ -1237,8 +1246,9 @@ fn find_role_permissions(
 ///    a `gcp.serviceaccount` parse runs.
 pub struct GCPServiceAccountAnalyzer;
 
-impl Analyzer for GCPServiceAccountAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for GCPServiceAccountAnalyzer {
+    fn name(&self) -> &'static str { "serviceaccount.gcp" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         let gcp_sas: Vec<GCPServiceAccount> = campaign
@@ -1306,8 +1316,9 @@ impl Analyzer for GCPServiceAccountAnalyzer {
 /// not a unique pod identifier.  IPs equal to `pod.host_ip` are skipped.
 pub struct IpBasedSystemMergeAnalyzer;
 
-impl Analyzer for IpBasedSystemMergeAnalyzer {
-    fn analyze(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+impl InferenceRule for IpBasedSystemMergeAnalyzer {
+    fn name(&self) -> &'static str { "system.ip-merge" }
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
 
         let unknown_systems: Vec<&UnknownSystem> =
@@ -1451,8 +1462,192 @@ fn already_aliased(update: &FactsUpdate, id: &EntityId) -> bool {
     update.entity_aliases.iter().any(|(stale, _)| stale == id)
 }
 
-/// Returns the default set of analyzers that run after every effect parse.
-pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
+// ---------------------------------------------------------------------------
+// KubeletExecSourceAnalyzer
+// ---------------------------------------------------------------------------
+
+/// Tools whose presence on a pod enables kubelet execution via the API server.
+const KUBELET_EXEC_TOOLS: &[&str] = &["ran-ws"];
+
+/// Infer `KubeletExecSource(pod → node)` for every (pod, node) pair where:
+///   1. The pod has at least one kubelet-exec tool binary present.
+///   2. Any `ServiceAccount` in the campaign has `GET nodes/proxy` permission.
+pub struct KubeletExecSourceAnalyzer;
+
+impl InferenceRule for KubeletExecSourceAnalyzer {
+    fn name(&self) -> &'static str { "kubelet.exec-source" }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        // Condition 2: any SA has GET nodes/proxy.
+        let has_nodes_proxy = collect_service_accounts(campaign, update)
+            .iter()
+            .any(|sa| {
+                sa.entitlements
+                    .iter()
+                    .any(|p| p.satisfies("get", "nodes/proxy"))
+            });
+        if !has_nodes_proxy {
+            return inferred;
+        }
+
+        // Collect pods that satisfy condition 1 (have a kubelet exec tool).
+        let qualifying_pods: Vec<EntityId> = collect_pods(campaign, update)
+            .into_iter()
+            .filter(|pod| {
+                pod.is_running
+                    && KUBELET_EXEC_TOOLS.iter().any(|tool| {
+                        matches!(pod.system.has_binary(tool), BinaryPresence::Present(_))
+                    })
+            })
+            .map(|p| p.entity_id())
+            .collect();
+
+        if qualifying_pods.is_empty() {
+            return inferred;
+        }
+
+        let nodes: Vec<EntityId> = {
+            let mut ns: Vec<EntityId> = campaign
+                .entities
+                .values::<K8sNode>()
+                .map(|n| n.entity_id())
+                .collect();
+            for entity in &update.new_entities {
+                if let Some(node) = entity.as_any().downcast_ref::<K8sNode>() {
+                    let id = node.entity_id();
+                    if !ns.contains(&id) {
+                        ns.push(id);
+                    }
+                }
+            }
+            ns
+        };
+
+        for pod_id in &qualifying_pods {
+            for node_id in &nodes {
+                if campaign
+                    .graph
+                    .targets_of(pod_id, "kubelet-exec")
+                    .contains(&node_id)
+                {
+                    continue;
+                }
+                inferred.new_relations.push(Box::new(KubeletExecSource::new(
+                    pod_id.0.clone(),
+                    node_id.0.clone(),
+                )));
+            }
+        }
+
+        inferred
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RoleBindingGraphAnalyzer
+// ---------------------------------------------------------------------------
+
+/// Emit `BindsTo(binding → role)` and `Grants(binding → sa)` edges for every
+/// new `K8sRoleBinding` / `K8sClusterRoleBinding`.  Creates stub role and SA
+/// entities when they are not yet known in the campaign so the graph stays
+/// connected even if discovery runs out of order.
+pub struct RoleBindingGraphAnalyzer;
+
+impl InferenceRule for RoleBindingGraphAnalyzer {
+    fn name(&self) -> &'static str { "rolebinding.graph" }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
+                continue;
+            };
+
+            let binding_id = binding.entity_id();
+            let binding_ns = binding.meta.namespace.as_deref().unwrap_or("");
+            let is_cluster_scoped = binding_ns.is_empty();
+
+            // Determine whether the roleRef points to a ClusterRole or a Role.
+            let ref_is_cluster = binding.role_ref_kind.eq_ignore_ascii_case("ClusterRole")
+                || (binding.role_ref_kind.is_empty() && is_cluster_scoped);
+
+            // Build the target role entity_id the same way K8sRole::entity_id() does.
+            let role_entity_id = if ref_is_cluster {
+                EntityId(format!("clusterrole/{}", binding.role_ref))
+            } else {
+                EntityId(format!("ns/{}/role/{}", binding_ns, binding.role_ref))
+            };
+
+            // Create a stub role if not yet known.
+            let role_known = campaign
+                .entities
+                .values::<K8sRole>()
+                .any(|r| r.entity_id() == role_entity_id)
+                || update.new_entities.iter().any(|e| {
+                    e.as_any()
+                        .downcast_ref::<K8sRole>()
+                        .map(|r| r.entity_id() == role_entity_id)
+                        .unwrap_or(false)
+                });
+
+            if !role_known {
+                let mut stub = K8sRole::new(&binding.role_ref, binding_ns);
+                stub.is_cluster_role = ref_is_cluster;
+                inferred.new_entities.push(Box::new(stub));
+            }
+
+            inferred
+                .new_relations
+                .push(Box::new(BindsTo::new(binding_id.0.clone(), role_entity_id.0)));
+
+            // Emit Grants edges for ServiceAccount subjects.
+            for subject in &binding.subjects {
+                if !subject.kind.eq_ignore_ascii_case("ServiceAccount") {
+                    continue;
+                }
+                let sa_ns = if subject.namespace.is_empty() {
+                    binding_ns.to_string()
+                } else {
+                    subject.namespace.clone()
+                };
+                let sa_entity_id = EntityId(format!("ns/{}/sa/{}", sa_ns, subject.name));
+
+                let sa_known = campaign
+                    .entities
+                    .values::<ServiceAccount>()
+                    .any(|sa| sa.entity_id() == sa_entity_id)
+                    || update.new_entities.iter().any(|e| {
+                        e.as_any()
+                            .downcast_ref::<ServiceAccount>()
+                            .map(|sa| sa.entity_id() == sa_entity_id)
+                            .unwrap_or(false)
+                    });
+
+                if !sa_known {
+                    let stub = ServiceAccount::new(&subject.name, &sa_ns);
+                    inferred.new_entities.push(Box::new(stub));
+                }
+
+                inferred.new_relations.push(Box::new(Grants::new(
+                    binding_id.0.clone(),
+                    sa_entity_id.0,
+                )));
+            }
+        }
+
+        inferred
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Default rule pipeline
+// ---------------------------------------------------------------------------
+
+/// Returns the default set of inference rules that run in the fixpoint loop.
+pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
     vec![
         Box::new(NamespaceClusterAnalyzer),
         Box::new(NodeClusterAnalyzer),
@@ -1464,6 +1659,7 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(ServiceAccountTokenAnalyzer),
         Box::new(HostPathAnalyzer),
         Box::new(ServiceAccountCanExecAnalyzer),
+        Box::new(KubeletExecSourceAnalyzer),
         Box::new(KubeletExecSinkAnalyzer),
         Box::new(CanExecAccessAnalyzer),
         Box::new(WorkloadOwnershipAnalyzer),
@@ -1472,6 +1668,7 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(RoleNamespaceAnalyzer),
         Box::new(RoleBindingNamespaceAnalyzer),
         Box::new(RoleBindingAnalyzer),
+        Box::new(RoleBindingGraphAnalyzer),
         Box::new(GCPServiceAccountAnalyzer),
         Box::new(ServiceNamespaceAnalyzer),
         Box::new(IngressNamespaceAnalyzer),
@@ -1479,16 +1676,6 @@ pub fn default_analyzers() -> Vec<Box<dyn Analyzer>> {
         Box::new(HTTPRouteNamespaceAnalyzer),
         Box::new(IpBasedSystemMergeAnalyzer),
     ]
-}
-
-/// Run every analyzer against the current campaign state and accumulate their
-/// inferred updates into `base`.  Analyzers run against the *original* state
-/// so that their individual outputs combine additively without order-dependency.
-pub fn run_analyzers(campaign: &Campaign, analyzers: &[Box<dyn Analyzer>], base: &mut FactsUpdate) {
-    for analyzer in analyzers {
-        let inferred = analyzer.analyze(campaign, base);
-        base.merge(inferred);
-    }
 }
 
 fn collect_pods(campaign: &Campaign, update: &FactsUpdate) -> Vec<Pod> {
@@ -1550,13 +1737,14 @@ fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        AccessLevel, Confidence, Contains, K8sCluster, K8sNode, K8sRole, K8sRoleBinding,
-        KubeletExecSink, KubeletExecSource, Namespace, Pod, PodExec, RbacPermission, RbacSubject,
-        RceCanExec, RunsOn, ServiceAccount, Uses,
+        AccessLevel, Confidence, Contains, EntityId, K8sCluster, K8sNode, K8sRole, K8sRoleBinding,
+        KubeletExecSink, KubeletExecSource, Namespace, Pod, PodExec, RbacPermission,
+        RbacSubject, RceCanExec, RunsOn, ServiceAccount, Uses,
     };
 
     use super::*;
     use crate::Campaign;
+    use crate::rules::run_rules_fixpoint;
 
     fn test_campaign() -> Campaign {
         Campaign::bootstrap("ran", K8sCluster::new("test-cluster"))
@@ -1577,8 +1765,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(node));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         let rel = update.new_relations.iter().find(|r| {
             r.is::<Contains>() && r.source_id().0 == cluster_id.0 && r.target_id().0 == node_id.0
@@ -1596,8 +1784,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod.clone()));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         let rel = update
             .new_relations
@@ -1622,8 +1810,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod.clone()));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         let ns_entity = update
             .new_entities
@@ -1648,8 +1836,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(update.new_relations.is_empty());
     }
@@ -1662,8 +1850,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(ns.clone()));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         let rel = update.new_relations.iter().find(|r| {
             r.is::<Contains>()
@@ -1687,8 +1875,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(ns));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(update.new_relations.is_empty());
     }
@@ -1704,8 +1892,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod.clone()));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(update
             .new_entities
@@ -1728,8 +1916,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod.clone()));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(
             update
@@ -1758,8 +1946,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(
             !update.new_relations.iter().any(|r| r.is::<Uses>()),
@@ -1780,8 +1968,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod.clone()));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         let sa_entities: Vec<_> = update
             .new_entities
@@ -1815,8 +2003,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(sa.clone()));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(update.new_relations.iter().any(|r| {
             r.is::<PodExec>()
@@ -1849,8 +2037,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(sa.clone()));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(
             update
@@ -1891,8 +2079,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(sa));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         let pod_entities: Vec<_> = update
             .new_entities
@@ -1918,7 +2106,7 @@ mod tests {
         update.new_entities.push(Box::new(sa));
 
         let analyzer = super::ServiceAccountTokenAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         assert!(inferred.new_entities.is_empty());
         assert!(inferred.new_relations.is_empty());
@@ -1943,8 +2131,8 @@ mod tests {
         campaign.insert_relation(&KubeletExecSource::new(src_id.clone(), "node/worker-1"));
 
         let mut update = FactsUpdate::default();
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(update.new_relations.iter().any(|r| {
             r.is::<KubeletExecSink>()
@@ -1963,7 +2151,7 @@ mod tests {
     // ---------------------------------------------------------------------------
 
     fn run_can_exec_access(campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
-        CanExecAccessAnalyzer.analyze(campaign, update)
+        CanExecAccessAnalyzer.infer(campaign, update)
     }
 
     #[test]
@@ -2091,7 +2279,7 @@ mod tests {
         update.new_entities.push(Box::new(pod.clone()));
 
         let analyzer = WorkloadOwnershipAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         assert!(
             inferred
@@ -2129,7 +2317,7 @@ mod tests {
         update.new_entities.push(Box::new(pod.clone()));
 
         let analyzer = WorkloadOwnershipAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         assert!(
             inferred
@@ -2166,7 +2354,7 @@ mod tests {
         update.new_entities.push(Box::new(pod.clone()));
 
         let analyzer = WorkloadOwnershipAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         assert!(
             inferred
@@ -2203,7 +2391,7 @@ mod tests {
         update.new_entities.push(Box::new(pod.clone()));
 
         let analyzer = WorkloadOwnershipAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         assert!(
             inferred
@@ -2243,7 +2431,7 @@ mod tests {
         update.new_entities.push(Box::new(pod.clone()));
 
         let analyzer = WorkloadOwnershipAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         assert!(
             inferred
@@ -2269,7 +2457,7 @@ mod tests {
         update.new_entities.push(Box::new(pod));
 
         let analyzer = WorkloadOwnershipAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         assert!(inferred.new_entities.is_empty());
         assert!(inferred.new_relations.is_empty());
@@ -2284,8 +2472,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(
             !update.new_relations.iter().any(|r| {
@@ -2326,7 +2514,7 @@ mod tests {
         update.new_entities.push(Box::new(pod));
 
         let analyzer = PropagateHostIPAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         let updated_node = inferred
             .new_entities
@@ -2369,7 +2557,7 @@ mod tests {
         update.new_entities.push(Box::new(pod));
 
         let analyzer = PropagateHostIPAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         assert!(
             inferred.new_entities.is_empty(),
@@ -2399,7 +2587,7 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod));
 
-        let inferred = PropagateHostIPAnalyzer.analyze(&campaign, &update);
+        let inferred = PropagateHostIPAnalyzer.infer(&campaign, &update);
         assert!(
             inferred.new_entities.is_empty(),
             "re-parsing a pod whose host_ip was already known must not emit a node update"
@@ -2431,7 +2619,7 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod_with_ip));
 
-        let inferred = PropagateHostIPAnalyzer.analyze(&campaign, &update);
+        let inferred = PropagateHostIPAnalyzer.infer(&campaign, &update);
         let updated = inferred.new_entities.iter().find_map(|e| {
             e.as_any()
                 .downcast_ref::<K8sNode>()
@@ -2462,7 +2650,7 @@ mod tests {
         update.new_entities.push(Box::new(pod));
 
         let analyzer = PropagateHostIPAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         assert!(inferred.new_entities.is_empty());
     }
@@ -2492,7 +2680,7 @@ mod tests {
             .push(Box::new(RunsOn::new(pod_id.0, node_id.0.clone())));
 
         let analyzer = PropagateHostIPAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         let updated_node = inferred
             .new_entities
@@ -2557,7 +2745,7 @@ mod tests {
         update.new_entities.push(Box::new(binding));
 
         let analyzer = RoleBindingAnalyzer;
-        let inferred = analyzer.analyze(&campaign, &update);
+        let inferred = analyzer.infer(&campaign, &update);
 
         let sa = inferred
             .new_entities
@@ -2596,7 +2784,7 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(binding));
 
-        let inferred = RoleBindingAnalyzer.analyze(&campaign, &update);
+        let inferred = RoleBindingAnalyzer.infer(&campaign, &update);
 
         let sa = inferred
             .new_entities
@@ -2629,7 +2817,7 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(binding));
 
-        let inferred = RoleBindingAnalyzer.analyze(&campaign, &update);
+        let inferred = RoleBindingAnalyzer.infer(&campaign, &update);
 
         let sa = inferred
             .new_entities
@@ -2660,7 +2848,7 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(binding));
 
-        let inferred = RoleBindingAnalyzer.analyze(&campaign, &update);
+        let inferred = RoleBindingAnalyzer.infer(&campaign, &update);
 
         let sa = inferred
             .new_entities
@@ -2690,7 +2878,7 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(binding));
 
-        let inferred = RoleBindingAnalyzer.analyze(&campaign, &update);
+        let inferred = RoleBindingAnalyzer.infer(&campaign, &update);
 
         let sa_names: Vec<&str> = inferred
             .new_entities
@@ -2723,7 +2911,7 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(binding));
 
-        let inferred = RoleBindingAnalyzer.analyze(&campaign, &update);
+        let inferred = RoleBindingAnalyzer.infer(&campaign, &update);
 
         assert!(
             inferred.new_entities.is_empty(),
@@ -2747,8 +2935,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(role));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(
             update.new_relations.iter().any(|r| {
@@ -2770,8 +2958,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(binding));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(
             update.new_relations.iter().any(|r| {
@@ -2800,8 +2988,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(role));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(
             update.new_relations.iter().any(|r| {
@@ -2829,8 +3017,8 @@ mod tests {
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(binding));
 
-        let analyzers = default_analyzers();
-        run_analyzers(&campaign, &analyzers, &mut update);
+        let rules = default_rules();
+        update = run_rules_fixpoint(&campaign, &rules, update);
 
         assert!(
             update.new_relations.iter().any(|r| {
@@ -2840,5 +3028,100 @@ mod tests {
             }),
             "expected Contains(cluster → clusterrolebinding)"
         );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Fixpoint tests (moved from rules.rs)
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn node_cluster_rule_infers_contains_relation() {
+        let campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+        let cluster_id = campaign
+            .entities
+            .values::<K8sCluster>()
+            .next()
+            .unwrap()
+            .entity_id();
+
+        let node = K8sNode::new("node-1");
+        let node_id = node.entity_id();
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(node));
+
+        let rules = default_rules();
+        let all = run_rules_fixpoint(&campaign, &rules, update);
+
+        let rel = all.new_relations.iter().find(|r| {
+            r.is::<Contains>() && r.source_id().0 == cluster_id.0 && r.target_id().0 == node_id.0
+        });
+        assert!(
+            rel.is_some(),
+            "expected contains relation from cluster to node"
+        );
+    }
+
+    #[test]
+    fn fixpoint_runner_infers_runs_on_and_kubelet_sink_chain() {
+        let campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+
+        let mut update = FactsUpdate::default();
+        let mut pod = Pod::new("target-pod", "ns");
+        pod.node_name = Some("node-a".to_string());
+        pod.is_running = true;
+        let target_pod_id = pod.entity_id();
+        update.new_entities.push(Box::new(pod));
+
+        let source = EntityId::new("pod/ns:attacker");
+        update.new_relations.push(Box::new(KubeletExecSource::new(
+            source.0.clone(),
+            "node/node-a",
+        )));
+
+        let rules = default_rules();
+        let all = run_rules_fixpoint(&campaign, &rules, update);
+
+        let has_runs_on = all.new_relations.iter().any(|r| {
+            r.is::<RunsOn>() && r.source_id() == &target_pod_id && r.target_id().0 == "node/node-a"
+        });
+        let has_sink = all.new_relations.iter().any(|r| {
+            r.is::<KubeletExecSink>()
+                && r.source_id().0 == "node/node-a"
+                && r.target_id() == &target_pod_id
+        });
+
+        assert!(has_runs_on, "expected runs-on to be inferred in fixpoint");
+        assert!(
+            has_sink,
+            "expected kubelet-pod-exec to be inferred through fixpoint chaining"
+        );
+    }
+
+    #[test]
+    fn fixpoint_runner_infers_serviceaccount_can_exec() {
+        let campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+
+        let mut update = FactsUpdate::default();
+        let mut pod = Pod::new("nginx", "default");
+        pod.service_account_name = Some("sa-a".to_string());
+        pod.is_running = true;
+        let target_pod_id = pod.entity_id();
+        update.new_entities.push(Box::new(pod));
+
+        let mut sa = ServiceAccount::new("sa-a", "default");
+        let mut perm = RbacPermission::new("create", "pods/exec");
+        perm.scope = Some("default".to_string());
+        sa.entitlements.push(perm);
+        let sa_id = sa.entity_id();
+        update.new_entities.push(Box::new(sa));
+
+        let rules = default_rules();
+        let all = run_rules_fixpoint(&campaign, &rules, update);
+
+        let has_can_exec = all.new_relations.iter().any(|r| {
+            r.is::<PodExec>() && r.source_id().0 == sa_id.0 && r.target_id() == &target_pod_id
+        });
+
+        assert!(has_can_exec, "expected k8s.can-exec inference in fixpoint");
     }
 }

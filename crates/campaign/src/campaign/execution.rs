@@ -10,8 +10,8 @@ use crate::failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
 use crate::grounding::{detect_ungrounded_vars, ground_args_from_context};
 use crate::shell_cmd::ground_binaries;
 use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
-use crate::analyzers::{default_analyzers as make_analyzers, run_analyzers};
-use crate::rules::{default_rules as make_rules, run_rules_fixpoint};
+use crate::analyzers::default_rules;
+use crate::rules::run_rules_fixpoint;
 use crate::{FactsUpdate, ParseResult};
 
 use crate::execution_record::ExecutionRecord;
@@ -824,18 +824,13 @@ impl Campaign {
             }
         }
 
-        let rules = make_rules();
-        updates = run_rules_fixpoint(self, &rules, updates);
-
         // Detect when a TTP ran against an IP-placeholder pod and the output
         // revealed the real pod identity (e.g. via a service-account token).
         // Record the alias so apply_facts can transplant all relations.
         self.detect_pod_identity_merge(cmd, &mut updates);
 
-        // Run analyzers: emit entity_aliases (e.g. IP-based pod merges) against
-        // the campaign state that existed before this batch of updates was committed.
-        let analyzers = make_analyzers();
-        run_analyzers(self, &analyzers, &mut updates);
+        let rules = default_rules();
+        updates = run_rules_fixpoint(self, &rules, updates);
 
         self.apply_facts(&updates);
         self.parse_audits.extend(parse_audits.clone());

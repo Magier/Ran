@@ -98,7 +98,7 @@ struct SsrrNonResourceRule {
 ///
 /// Handles multi-line stdout: searches for the first line containing `ey`
 /// and `.`, which is the hallmark of a base64url-encoded JWT.
-fn parse_raw_service_account_token(stdout: &str, _stderr: &str) -> ParserOutput {
+fn parse_raw_service_account_token(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty output — no token provided".to_string());
     }
@@ -715,7 +715,7 @@ mod tests {
             "sub": "system:serviceaccount:prod:api-sa"
         }"#;
         let jwt = make_jwt(payload);
-        let result = parse_raw_service_account_token(&jwt, "");
+        let result = parse_raw_service_account_token(&jwt, "", &HashMap::new());
 
         let ParserOutput::SuccessWithFacts(facts, detail) = result else {
             panic!("expected SuccessWithFacts, got {:?}", result);
@@ -759,7 +759,7 @@ mod tests {
             "sub": "system:serviceaccount:default:default-sa"
         }"#;
         let jwt = make_jwt(payload);
-        let result = parse_raw_service_account_token(&jwt, "");
+        let result = parse_raw_service_account_token(&jwt, "", &HashMap::new());
 
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts");
@@ -786,7 +786,7 @@ mod tests {
             "sub": "system:serviceaccount:kube-system:coredns"
         }"#;
         let jwt = make_jwt(payload);
-        let result = parse_raw_service_account_token(&jwt, "");
+        let result = parse_raw_service_account_token(&jwt, "", &HashMap::new());
 
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts");
@@ -816,19 +816,19 @@ mod tests {
         let jwt = make_jwt(payload);
         // Wrap the token in noisy multi-line output.
         let stdout = format!("some noise\n{jwt}\nmore noise\n");
-        let result = parse_raw_service_account_token(&stdout, "");
+        let result = parse_raw_service_account_token(&stdout, "", &HashMap::new());
         assert!(matches!(result, ParserOutput::SuccessWithFacts(_, _)));
     }
 
     #[test]
     fn parse_raw_sa_token_empty_input_returns_known_failure() {
-        let result = parse_raw_service_account_token("", "");
+        let result = parse_raw_service_account_token("", "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 
     #[test]
     fn parse_raw_sa_token_invalid_base64_returns_unknown_format() {
-        let result = parse_raw_service_account_token("eyXXX.!!!.sig", "");
+        let result = parse_raw_service_account_token("eyXXX.!!!.sig", "", &HashMap::new());
         assert!(matches!(result, ParserOutput::UnknownFormat(_)));
     }
 
@@ -837,7 +837,7 @@ mod tests {
         // Valid JWT but payload has no kubernetes claims.
         let payload = r#"{"sub": "some-subject", "exp": 99999}"#;
         let jwt = make_jwt(payload);
-        let result = parse_raw_service_account_token(&jwt, "");
+        let result = parse_raw_service_account_token(&jwt, "", &HashMap::new());
         assert!(matches!(result, ParserOutput::UnknownFormat(_)));
     }
 
