@@ -43,6 +43,9 @@
 
 	const FILTER_NS_KEY = '_hiddenNamespaces';
 	const DEFAULT_HIDDEN_NAMESPACES = ['kube-system', 'local-path-storage'];
+	const FILTER_WORKLOADS_KEY = '_collapseWorkloads';
+	const WORKLOAD_KINDS = new Set(['ReplicaSet', 'StatefulSet', 'DaemonSet', 'Job']);
+	const WORKLOAD_FILTER_CLASS = 'workload-filtered';
 
 	function loadHiddenNamespaces(): Set<string> {
 		if (!browser) return new Set(DEFAULT_HIDDEN_NAMESPACES);
@@ -54,7 +57,18 @@
 		}
 	}
 
+	function loadCollapseWorkloads(): boolean {
+		if (!browser) return false;
+		try {
+			const stored = sessionStorage.getItem(FILTER_WORKLOADS_KEY);
+			return stored ? JSON.parse(stored) : false;
+		} catch {
+			return false;
+		}
+	}
+
 	let hiddenNamespaces: Set<string> = $state(loadHiddenNamespaces());
+	let collapseWorkloads: boolean = $state(loadCollapseWorkloads());
 
 	cytoscape.use(fcose);
 	if (typeof expandCollapse === 'function') {
@@ -205,14 +219,17 @@
 		previousCampaignId = currentCampaignId;
 	});
 
-	// Persist hidden namespaces to sessionStorage
+	// Persist filter state and re-apply whenever either filter changes
 	$effect(() => {
+		const ns = hiddenNamespaces;
+		const cw = collapseWorkloads;
 		if (browser) {
-			sessionStorage.setItem(FILTER_NS_KEY, JSON.stringify([...hiddenNamespaces]));
+			sessionStorage.setItem(FILTER_NS_KEY, JSON.stringify([...ns]));
+			sessionStorage.setItem(FILTER_WORKLOADS_KEY, JSON.stringify(cw));
 		}
-		// Re-apply filter whenever hidden namespaces change
 		if (cy) {
-			applyNamespaceFilters(cy, hiddenNamespaces);
+			applyNamespaceFilters(cy, ns);
+			applyWorkloadFilter(cy, cw);
 		}
 	});
 
@@ -484,6 +501,7 @@
 
 					applyCompromisedStyle(cy);
 					applyNamespaceFilters(cy, hiddenNamespaces);
+					applyWorkloadFilter(cy, collapseWorkloads);
 
 					// Reapply text color based on current theme
 					const textColor = theme.isDark ? 'white' : 'black';
@@ -763,6 +781,65 @@
 	}
 
 	/**
+	 * When `collapse` is true, hide workload nodes (ReplicaSet, StatefulSet, DaemonSet, Job)
+	 * that own exactly one pod, and re-parent that pod directly under the namespace so it
+	 * remains visible. This removes visual clutter for the common single-replica case.
+	 * Must be called AFTER applyNamespaceFilters so namespace-filtered nodes are already tagged.
+	 */
+	function applyWorkloadFilter(cy: cytoscape.Core, collapse: boolean) {
+		// --- Restore phase: undo any previous workload-filter moves ---
+		// Move pods back to their original workload parent before re-evaluating.
+		cy.nodes().forEach((n: any) => {
+			const originalParentId: string | undefined = n.data('parent');
+			if (!originalParentId) return;
+			const parentNode = cy.getElementById(originalParentId);
+			if (parentNode.length === 0 || !WORKLOAD_KINDS.has(parentNode.data('kind'))) return;
+			// If the pod was re-parented (current cytoscape parent differs from server parent), restore it.
+			const currentParent = n.parent();
+			if (currentParent.length === 0 || currentParent.id() !== originalParentId) {
+				n.move({ parent: originalParentId });
+			}
+		});
+		// Show and un-tag workload nodes and edges that were previously hidden by this filter.
+		cy.nodes('.' + WORKLOAD_FILTER_CLASS).forEach((n: any) => {
+			n.removeClass(WORKLOAD_FILTER_CLASS);
+			if (!n.hasClass('namespace-filtered')) n.show();
+		});
+		cy.edges('.' + WORKLOAD_FILTER_CLASS).forEach((e: any) => {
+			e.removeClass(WORKLOAD_FILTER_CLASS);
+			if (!e.hasClass('namespace-filtered')) e.show();
+		});
+
+		if (!collapse) return;
+
+		// --- Apply phase: hide workloads with exactly one pod child ---
+		cy.nodes().forEach((workload: any) => {
+			if (!WORKLOAD_KINDS.has(workload.data('kind'))) return;
+			if (workload.hasClass('namespace-filtered')) return;
+
+			const podChildren = workload.children().filter((c: any) => c.data('kind') === 'Pod');
+			if (podChildren.length !== 1) return;
+
+			const pod = podChildren[0];
+			const nsParent = workload.parent();
+			const nsParentId: string | null = nsParent.length > 0 ? nsParent.id() : null;
+
+			// Re-parent pod directly under the namespace so it stays visible.
+			pod.move({ parent: nsParentId });
+
+			// Hide the workload node and all its edges.
+			workload.addClass(WORKLOAD_FILTER_CLASS);
+			workload.hide();
+			workload.connectedEdges().forEach((e: any) => {
+				if (!e.hasClass('namespace-filtered')) {
+					e.addClass(WORKLOAD_FILTER_CLASS);
+					e.hide();
+				}
+			});
+		});
+	}
+
+	/**
 	 * Hide nodes (and their edges) belonging to the specified namespaces.
 	 * Uses the 'namespace-filtered' class to track which elements were hidden
 	 * by this filter, so other hide/show logic isn't affected.
@@ -860,7 +937,7 @@
 
 <div class={['graph-wrapper', className]}>
 	<div id="graph" bind:this={graphContainer}></div>
-	<GraphFilter {availableNamespaces} bind:hiddenNamespaces />
+	<GraphFilter {availableNamespaces} bind:hiddenNamespaces bind:collapseWorkloads />
 </div>
 
 <GraphNodeSelector {cy} bind:isOpen={searchOpen} />

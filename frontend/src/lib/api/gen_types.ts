@@ -228,6 +228,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/execution-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get execution records
+         * @description Returns all execution records for the current campaign session.
+         *     Each record includes the full raw stdout/stderr in `results`, resolved
+         *     arguments, timing, and the parse audits produced by each declared TTP
+         *     effect. Intended for use by Shuhari's Gap 2 scanner,
+         *     which cross-references raw stdout against declared effects to detect
+         *     undeclared structured output.
+         */
+        get: operations["getExecutionRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/execution-records/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get execution record by ID
+         * @description Returns a single execution record by command ID, joined with its parse audits.
+         */
+        get: operations["getExecutionRecordById"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/files": {
         parameters: {
             query?: never;
@@ -453,9 +498,95 @@ export interface components {
             /** @default true */
             isNamespaced: boolean;
         };
+        /**
+         * @description A completed TTP execution joined with the parse audits produced by its
+         *     declared effects. The record fields are flattened at the top level;
+         *     `parseAudits` is the list of per-effect audit entries.
+         */
+        ExecutionRecordEntry: {
+            /** @description Unique command ID, correlates with SSE `ttp-executed` and `parse-audited` events */
+            id: string;
+            ttp_id: string;
+            ttp_name: string;
+            tactic: string;
+            target_id: string;
+            /** @description ID of the system that ran the command; empty for direct builtin exec */
+            exec_system_id: string;
+            procedure_id: string;
+            /** @description Fully grounded command string sent to the C2 backend */
+            command: string;
+            /** @description Resolved arguments after default-filling and template substitution */
+            args: {
+                [key: string]: string;
+            };
+            success: boolean;
+            exit_code: number;
+            /** @description Raw output lines — first element is stdout, second (if present) is stderr */
+            results: string[];
+            fail_reason: string;
+            /**
+             * Format: int64
+             * @description Unix timestamp in milliseconds when the command was dispatched
+             */
+            started_at_ms: number;
+            /**
+             * Format: int64
+             * @description Unix timestamp in milliseconds when the result was received
+             */
+            completed_at_ms: number;
+            parseAudits: components["schemas"]["ParseAudit"][];
+        };
+        /**
+         * @description Audit record for a single effect parse attempt. `parse_result` indicates
+         *     whether the effect was parsed successfully; `NoParser` and `UnknownFormat`
+         *     are the two signals used by Shuhari's Gap 1 classifier.
+         */
+        ParseAudit: {
+            /** @description Command ID of the execution that produced this audit */
+            cmd_id: string;
+            /** @description Effect identifier as declared in the TTP (e.g. `sys.envvar`, `k8s.podlist`) */
+            effect_id: string;
+            ttp_id: string;
+            target_id: string;
+            parser_version: string;
+            /** @description SHA-256 of the raw stdout+stderr, for deduplication across episodes */
+            raw_output_hash: string;
+            /** @description First 1024 characters of combined stdout+stderr */
+            raw_output_preview: string;
+            /**
+             * @description - `Parsed`: effect was handled and facts were written to the campaign
+             *     - `KnownFailure`: effect ran but produced expected-empty output (e.g. command not found)
+             *     - `UnknownFormat`: output was present but the parser could not interpret it
+             *     - `NoParser`: no compiled or external parser is registered for this effect (Gap 1 signal)
+             *     - `ParserBug`: parser crashed or panicked
+             * @enum {string}
+             */
+            parse_result: "Parsed" | "KnownFailure" | "UnknownFormat" | "NoParser" | "ParserBug";
+            /** @description Human-readable explanation of the parse outcome */
+            detail: string;
+            /** @description Number of new entities or field updates written to the campaign graph */
+            inferred_facts_written: number;
+        };
         Error: {
             error: string;
             details?: string;
+        };
+        /** @description Reference to the Kubernetes owner of a resource (e.g. ReplicaSet → Pod). */
+        OwnerRef: {
+            name: string;
+            kind: string;
+            uid: string;
+        };
+        /** @description A volume mount on a pod — either a projected volume or a host-path bind mount. */
+        VolumeMount: {
+            name: string;
+            /** @description Path inside the container where the volume appears. */
+            mount_point: string;
+            /** @description Path on the host that is bound (for hostPath mounts). */
+            mount_root: string;
+            mount_type?: string;
+            read_only: boolean;
+            is_host_path: boolean;
         };
         /**
          * @description Status of a TTP - whether it is enabled or disabled
@@ -833,6 +964,58 @@ export interface operations {
                     "application/json": {
                         status?: string;
                     };
+                };
+            };
+        };
+    };
+    getExecutionRecords: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionRecordEntry"][];
+                };
+            };
+        };
+    };
+    getExecutionRecordById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Command ID (matches the `id` field in SSE `ttp-executed` and `parse-audited` events) */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionRecordEntry"];
+                };
+            };
+            /** @description No record found for the given ID */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };

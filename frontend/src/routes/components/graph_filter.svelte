@@ -4,14 +4,15 @@
 	type GraphFilterProps = {
 		availableNamespaces: string[];
 		hiddenNamespaces: Set<string>;
+		collapseWorkloads: boolean;
 	};
 
-	let { availableNamespaces, hiddenNamespaces = $bindable() }: GraphFilterProps = $props();
+	let { availableNamespaces, hiddenNamespaces = $bindable(), collapseWorkloads = $bindable() }: GraphFilterProps = $props();
 
 	let panelOpen = $state(false);
 	let customInput = $state('');
 
-	const activeFilterCount = $derived(hiddenNamespaces.size);
+	const activeFilterCount = $derived(hiddenNamespaces.size + (collapseWorkloads ? 1 : 0));
 
 	// Custom filters: those not in the detected namespace list
 	const customFilters = $derived([...hiddenNamespaces].filter((ns) => !availableNamespaces.includes(ns)));
@@ -98,6 +99,25 @@
 				<p class="text-xs text-surface-400-600 mb-3">No namespaces detected in graph.</p>
 			{/if}
 
+			<div class="border-t border-surface-300-700 pt-3 mb-1">
+				<h3 class="text-sm font-semibold text-surface-700-300 mb-2">Simplify</h3>
+				<label class="flex items-center gap-2 cursor-pointer group">
+					<input
+						type="checkbox"
+						checked={collapseWorkloads}
+						onchange={() => (collapseWorkloads = !collapseWorkloads)}
+						class="w-3.5 h-3.5 rounded checkbox cursor-pointer"
+					/>
+					<span
+						class="text-sm {collapseWorkloads
+							? 'text-surface-400-600'
+							: 'text-surface-700-300'} group-hover:text-surface-200-800 transition-colors"
+					>
+						Hide single-pod workloads
+					</span>
+				</label>
+			</div>
+
 			<!-- Custom filters -->
 			<!-- {#if customFilters.length > 0}
 				<div class="mb-3">
@@ -154,7 +174,7 @@
 
 			{#if activeFilterCount > 0}
 				<button
-					onclick={() => (hiddenNamespaces = new Set())}
+					onclick={() => { hiddenNamespaces = new Set(); collapseWorkloads = false; }}
 					class="mt-3 w-full text-xs text-surface-400-600 hover:text-red-400 transition-colors cursor-pointer text-left"
 				>
 					Clear all filters

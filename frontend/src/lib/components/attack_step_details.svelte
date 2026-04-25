@@ -27,11 +27,19 @@
 	const campaignState = getCampaignState();
 	const target = $derived(step?.targetId ? campaignState.getEntityById(step.targetId) : "?");
 
+	// JWTs always start with eyJ (base64url of '{"'). Replace with a short
+	// placeholder so commands stay readable; the full token is kept in data-source.
+	const JWT_RE = /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
+	function redactJwt(cmd: string): string {
+		return cmd.replace(JWT_RE, (tok) => `[jwt…${tok.slice(-6)}]`);
+	}
+
 	function handleCopy(event: MouseEvent) {
 		const button = event.currentTarget as HTMLButtonElement;
 		const codeEl = button.previousElementSibling as HTMLElement;
-		if (codeEl && codeEl.dataset.source !== undefined) {
-			const text = codeEl.textContent?.trim() ?? '';
+		if (codeEl) {
+			// data-source holds the original (unredacted) text when set as a value
+			const text = codeEl.dataset.source || codeEl.textContent?.trim() || '';
 			if (text) {
 				navigator.clipboard.writeText(text);
 			}
@@ -88,8 +96,8 @@
 		<div class="mt-4 justify-start">
 			<div class="pr-2">Command</div>
 				<div class="bg-surface-50-950 relative group">
-			<code class="h-10 w-full overflow-y-auto text-base overflow-x-hidden whitespace-pre-wrap break-all" data-source
-				>{step.command}</code>
+			<code class="h-10 w-full overflow-y-auto text-base overflow-x-hidden whitespace-pre-wrap break-all" data-source={step.command}
+				>{redactJwt(step.command)}</code>
 			<button
 				class="btn absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity px-1 py-0.5 bg-surface-200-800/40 hover:bg-surface-200-800/70"
 				data-trigger
