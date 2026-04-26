@@ -6,20 +6,25 @@
 //!    parameter names (NS, POD_NAME, NODE, RANDOM) from the campaign's
 //!    knowledge of the target entity.
 //!
-//! 2. **Tera template rendering** ([`resolve_tera_template`]) — evaluates
+//! 2. **Entity-reference property expansion** ([`ground_entity_ref_vars`]) —
+//!    expands `${REF.PROP}` placeholders (e.g. `${SRC.MOUNT_PATH}`) using the
+//!    entity whose ID is stored in the corresponding arg (`SRC`, `TARGET_ID`).
+//!    Must run after `SRC` is injected (Stage 4 of the execution pipeline).
+//!
+//! 3. **Tera template rendering** ([`resolve_template`]) — evaluates
 //!    `{% if VAR %}...{% else %}...{% endif %}` blocks and `{{ VAR }}`
 //!    substitutions that appear in procedure commands.
 //!
-//! 3. **`${KEY}` substitution** (already in [`crate::effects::ground_template`])
+//! 4. **`${KEY}` substitution** (already in [`crate::effects::ground_template`])
 //!    — replaces `${KEY}` with the corresponding arg value.
 //!
-//! 4. **Ungrounded variable detection** ([`detect_ungrounded_vars`]) — scans
+//! 5. **Ungrounded variable detection** ([`detect_ungrounded_vars`]) — scans
 //!    the final command for any `${…}` patterns that were not resolved, so
 //!    callers can log a warning.
 
 use std::collections::HashMap;
 
-use ran_domain::{Entity, EntityId, ServiceAccount};
+use ran_domain::{Entity, EntityId, Pod, ServiceAccount};
 
 use crate::campaign::{Campaign, CampaignEntityRef};
 
@@ -192,6 +197,136 @@ fn random_id() -> String {
         .map(|d| d.subsec_nanos())
         .unwrap_or(42_000);
     format!("{:05}", nanos % 100_000)
+}
+
+// ---------------------------------------------------------------------------
+// Entity-reference property expansion  (${SRC.PROP}, ${TARGET.PROP}, …)
+// ---------------------------------------------------------------------------
+
+/// Expand `${<REF>.<PROP>}` placeholders embedded in arg values.
+///
+/// Runs **after** `SRC` and `TARGET_ID` have been injected into `args` so that
+/// the entity IDs are already present.  The following references are supported:
+///
+/// | REF           | Entity looked up             |
+/// |---------------|------------------------------|
+/// | `SRC`         | `args["SRC"]` entity ID      |
+/// | `TARGET`      | `args["TARGET_ID"]` entity ID|
+///
+/// | PROP          | Resolution                               |
+/// |---------------|------------------------------------------|
+/// | `MOUNT_PATH`  | First host-path on a pod (`host_paths`)  |
+/// | `IP`          | First IP address on the entity's system  |
+/// | `NAME`        | Entity name                              |
+/// | `NS` / `NAMESPACE` | Entity namespace                    |
+/// | `NODE`        | Scheduled node name (pods only)          |
+///
+/// When a property resolves to multiple values (e.g. several host paths), the
+/// first is used and a warning is logged so the operator knows a choice was
+/// made automatically.  Unresolvable references are left as-is.
+pub fn ground_entity_ref_vars(args: &mut HashMap<String, String>, campaign: &Campaign) {
+    let refs: Vec<(&'static str, String)> = [("SRC", "SRC"), ("TARGET", "TARGET_ID")]
+        .iter()
+        .filter_map(|(ref_name, arg_key)| {
+            args.get(*arg_key).cloned().map(|id| (*ref_name, id))
+        })
+        .collect();
+
+    if refs.is_empty() {
+        return;
+    }
+
+    for value in args.values_mut() {
+        for (ref_name, entity_id) in &refs {
+            expand_entity_props(value, ref_name, entity_id, campaign);
+        }
+    }
+}
+
+/// Replace all `${REF.PROP}` occurrences in `value` in-place.
+fn expand_entity_props(value: &mut String, ref_name: &str, entity_id: &str, campaign: &Campaign) {
+    let prefix = format!("${{{ref_name}.");
+
+    if !value.contains(&prefix) {
+        return;
+    }
+
+    let entity_id = EntityId::new(entity_id);
+    let entity = campaign
+        .get_entities()
+        .into_iter()
+        .find(|e| e.entity_id() == entity_id);
+
+    let mut result = String::with_capacity(value.len());
+    let mut remaining = value.as_str();
+
+    while let Some(start) = remaining.find(&prefix) {
+        result.push_str(&remaining[..start]);
+        let after_prefix = &remaining[start + prefix.len()..];
+        if let Some(end) = after_prefix.find('}') {
+            let prop = &after_prefix[..end];
+            let resolved = entity
+                .as_ref()
+                .and_then(|e| resolve_entity_prop(e, prop));
+            match resolved {
+                Some(v) => result.push_str(&v),
+                None => {
+                    // Leave the original placeholder intact.
+                    result.push_str(&prefix);
+                    result.push_str(prop);
+                    result.push('}');
+                }
+            }
+            remaining = &after_prefix[end + 1..];
+        } else {
+            // Malformed placeholder — keep as-is.
+            result.push_str(&prefix);
+            remaining = after_prefix;
+        }
+    }
+    result.push_str(remaining);
+    *value = result;
+}
+
+/// Resolve a named property from an entity reference.
+///
+/// Returns `None` when the property is not applicable to the entity kind or
+/// the value is unavailable.
+fn resolve_entity_prop(entity: &CampaignEntityRef, prop: &str) -> Option<String> {
+    match prop.to_ascii_uppercase().as_str() {
+        "NAME" => Some(entity.entity_name().to_string()),
+        "NS" | "NAMESPACE" => entity.namespace().map(str::to_string),
+        "IP" => match entity {
+            CampaignEntityRef::Pod(p) => p.system.ips.first().map(|ip| ip.to_string()),
+            CampaignEntityRef::Node(n) => n.system.ips.first().map(|ip| ip.to_string()),
+            _ => None,
+        },
+        "NODE" => match entity {
+            CampaignEntityRef::Pod(p) => p.node_name.clone(),
+            _ => None,
+        },
+        "MOUNT_PATH" => match entity {
+            CampaignEntityRef::Pod(p) => resolve_mount_path(p),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn resolve_mount_path(pod: &Pod) -> Option<String> {
+    match pod.host_paths.len() {
+        0 => None,
+        1 => Some(pod.host_paths[0].clone()),
+        n => {
+            tracing::warn!(
+                pod = %pod.entity_name(),
+                count = n,
+                paths = ?pod.host_paths,
+                "multiple host paths found; using the first one"
+            );
+            Some(pod.host_paths[0].clone())
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -724,5 +859,95 @@ mod tests {
     fn detect_ungrounded_returns_empty_for_clean_command() {
         let vars = detect_ungrounded_vars("kubectl get pods -n=default");
         assert!(vars.is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // ground_entity_ref_vars
+    // ------------------------------------------------------------------
+
+    fn campaign_with_pod(pod: Pod) -> (Campaign, String) {
+        let mut c = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("test"));
+        let id = pod.entity_id().0.clone();
+        c.entities.insert_typed(pod);
+        (c, id)
+    }
+
+    #[test]
+    fn src_mount_path_resolves_to_first_host_path() {
+        let mut pod = Pod::new("attacker", "default");
+        pod.host_paths.push("/host/root".to_string());
+        let (campaign, pod_id) = campaign_with_pod(pod);
+
+        let mut args = HashMap::from([
+            ("SRC".to_string(), pod_id),
+            ("MOUNT_PATH".to_string(), "${SRC.MOUNT_PATH}/etc/kubernetes".to_string()),
+        ]);
+        ground_entity_ref_vars(&mut args, &campaign);
+        assert_eq!(args["MOUNT_PATH"], "/host/root/etc/kubernetes");
+    }
+
+    #[test]
+    fn src_mount_path_no_host_paths_leaves_placeholder() {
+        let pod = Pod::new("attacker", "default");
+        let (campaign, pod_id) = campaign_with_pod(pod);
+
+        let mut args = HashMap::from([
+            ("SRC".to_string(), pod_id),
+            ("MOUNT_PATH".to_string(), "${SRC.MOUNT_PATH}/etc".to_string()),
+        ]);
+        ground_entity_ref_vars(&mut args, &campaign);
+        assert_eq!(args["MOUNT_PATH"], "${SRC.MOUNT_PATH}/etc");
+    }
+
+    #[test]
+    fn src_name_and_ns_resolve() {
+        let pod = Pod::new("pivot-pod", "infra");
+        let (campaign, pod_id) = campaign_with_pod(pod);
+
+        let mut args = HashMap::from([
+            ("SRC".to_string(), pod_id),
+            ("LABEL".to_string(), "${SRC.NAME} in ${SRC.NS}".to_string()),
+        ]);
+        ground_entity_ref_vars(&mut args, &campaign);
+        assert_eq!(args["LABEL"], "pivot-pod in infra");
+    }
+
+    #[test]
+    fn src_node_resolves_for_pod() {
+        let mut pod = Pod::new("worker", "default");
+        pod.node_name = Some("node-1".to_string());
+        let (campaign, pod_id) = campaign_with_pod(pod);
+
+        let mut args = HashMap::from([
+            ("SRC".to_string(), pod_id),
+            ("NODE".to_string(), "${SRC.NODE}".to_string()),
+        ]);
+        ground_entity_ref_vars(&mut args, &campaign);
+        assert_eq!(args["NODE"], "node-1");
+    }
+
+    #[test]
+    fn unknown_ref_leaves_placeholder_intact() {
+        let pod = Pod::new("pod", "ns");
+        let (campaign, _pod_id) = campaign_with_pod(pod);
+
+        let mut args = HashMap::from([
+            ("CMD".to_string(), "${UNKNOWN.PROP}".to_string()),
+        ]);
+        ground_entity_ref_vars(&mut args, &campaign);
+        assert_eq!(args["CMD"], "${UNKNOWN.PROP}");
+    }
+
+    #[test]
+    fn no_src_in_args_is_a_noop() {
+        let pod = Pod::new("pod", "ns");
+        let (campaign, _) = campaign_with_pod(pod);
+
+        let mut args = HashMap::from([
+            ("CMD".to_string(), "${SRC.MOUNT_PATH}/etc".to_string()),
+        ]);
+        ground_entity_ref_vars(&mut args, &campaign);
+        // SRC not injected yet — placeholder must survive
+        assert_eq!(args["CMD"], "${SRC.MOUNT_PATH}/etc");
     }
 }

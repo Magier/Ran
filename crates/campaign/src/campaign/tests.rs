@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use armory::{Armory, Procedure, Ttp};
+use armory::{Armory, Procedure, Ttp, TtpParam};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
     AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, JwToken, K8sCluster,
@@ -1146,6 +1146,7 @@ fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
         service_account_name: "entry-hall-sa".to_string(),
         ..Default::default()
     });
+    sa.entitlements.push(RbacPermission::new("get", "nodes/proxy"));
     let sa_id = sa.entity_id().0.clone();
     campaign.entities.insert_typed(sa);
     push_relation(&mut campaign, &Uses::new(&attacker_id, &sa_id));
@@ -1771,4 +1772,67 @@ fn container_escape_effect_creates_placeholder_node_when_no_node_known() {
         .find(|r| r.relation_name() == "runs-on")
         .unwrap();
     assert_eq!(ro.target_id(), esc.target_id());
+}
+
+#[test]
+fn src_mount_path_grounded_for_non_lateral_ttp() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    // The exec system (pivot) — has a can-exec path to the target.
+    let exec_pod = Pod::new("pivot", "default");
+    let exec_id = exec_pod.entity_id().0.clone();
+    campaign.entities.insert_typed(exec_pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &exec_id);
+
+    // The target pod — this is where the command actually runs, so its
+    // host_paths are what ${SRC.MOUNT_PATH} should resolve to.
+    let mut target = Pod::new("target", "kube-system");
+    target.host_paths.push("/host".to_string());
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+    push_exec_edge(&mut campaign, &exec_id, &target_id);
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        id: "scan-node".to_string(),
+        name: "Search interesting Files".to_string(),
+        description: String::new(),
+        tactic: "Discovery".to_string(),
+        techniques: vec![],
+        status: "stable".to_string(),
+        params: vec![TtpParam {
+            name: "MOUNT_PATH".to_string(),
+            param_type: "string".to_string(),
+            description: "host mount path".to_string(),
+            required: false,
+            default: "${SRC.MOUNT_PATH}/etc/kubernetes".to_string(),
+        }],
+        requires: Default::default(),
+        effects: vec![],
+        procedures: vec![Procedure {
+            id: "grep".to_string(),
+            command: "grep -r ${MOUNT_PATH}".to_string(),
+            tool: None,
+            is_local_command: None,
+        }],
+        references: vec![],
+    }]);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "scan-node".to_string(),
+                target_id: target_id.clone(),
+                exec_system_id: Some(exec_id.clone()),
+                procedure_id: None,
+                args: HashMap::new(),
+            },
+            &armory,
+        )
+        .expect("should prepare action");
+
+    assert!(
+        exec.procedure.command.contains("/host/etc/kubernetes"),
+        "expected ${{SRC.MOUNT_PATH}} resolved to /host, got: {}",
+        exec.procedure.command
+    );
 }
