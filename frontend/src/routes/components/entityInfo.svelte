@@ -193,7 +193,7 @@
 			</div>
 		{/if}
 
-		{#each Object.entries(obj || {}).filter(([label, data]) => shouldShowField(label, data)) as [label, data]}
+		{#each Object.entries(obj || {}).filter(([label, data]) => shouldShowField(label, data)).sort(([a], [b]) => a.localeCompare(b)) as [label, data]}
 			{#if label === 'containers' && Array.isArray(data) && data.length > 0}
 				<!-- Special drill-down view for containers -->
 				<details class="mb-1" class:field-changed={highlightedFields[label]}>

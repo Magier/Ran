@@ -1,13 +1,17 @@
 <script lang="ts">
-	import { onMount, onDestroy, getContext } from 'svelte';
+	import { onMount, onDestroy, getContext, untrack } from 'svelte';
 	import { browser } from '$app/environment';
 	import cytoscape from 'cytoscape';
-	import fcose from 'cytoscape-fcose';
+	// @ts-ignore
+	import elk from 'cytoscape-elk';
 	// @ts-ignore
 	import expandCollapse from 'cytoscape-expand-collapse';
 	import { toaster } from '$lib/components/toaster';
 
-	import { getGraphStyle, layout, createLayout, applyCompromisedStyle } from './graph_style';
+	import { getGraphStyle, applyCompromisedStyle } from './graph_style';
+	import { createElkLayout, isValidPosition, DEFAULT_LAYOUT_PARAMS } from './elk_layout';
+	import type { LayoutParams } from './elk_layout';
+	import GraphLayoutPlayground from './GraphLayoutPlayground.svelte';
 	import { isInformational } from './edge_categories';
 	import type { Node, Edge } from '$lib/api/index';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
@@ -70,7 +74,7 @@
 	let hiddenNamespaces: Set<string> = $state(loadHiddenNamespaces());
 	let collapseWorkloads: boolean = $state(loadCollapseWorkloads());
 
-	cytoscape.use(fcose);
+	cytoscape.use(elk);
 	if (typeof expandCollapse === 'function') {
 		cytoscape.use(expandCollapse);
 	} else if (expandCollapse?.default) {
@@ -100,9 +104,21 @@
 	const ZOOM_KEY = '_zoom';
 	const COLLAPSED_KEY = '_collapsedNodes';
 
-	// keep track of the nodes before the layouting, to ensure consistent positioning of new nodes
-	let existingNodes: cytoscape.NodeCollection = cytoscape().collection();
 	let previousNodeIds: Set<string> = new Set();
+	let layoutParams: LayoutParams = $state({ ...DEFAULT_LAYOUT_PARAMS });
+
+	function runElkLayout() {
+		if (!cy || cy.nodes().length === 0) return;
+		const currentPan = cy.pan();
+		const currentZoom = cy.zoom();
+		const l = cy.elements(':visible').layout(createElkLayout(positions, layoutParams) as any);
+		l.one('layoutstop', () => {
+			cy.pan(currentPan);
+			cy.zoom(currentZoom);
+			savePositions();
+		});
+		l.run();
+	}
 
 	const theme: { isDark: boolean } = getContext('theme');
 
@@ -134,7 +150,7 @@
 				edges: edges
 			},
 			style: getGraphStyle(theme.isDark),
-			layout: layout,
+			layout: { name: 'preset' },
 			zoom: zoom,
 			wheelSensitivity: 0.1
 		});
@@ -339,9 +355,8 @@
 						});
 						cy.add(nodesToAdd);
 
-						// Sync pre-computed positions into the positions map so the upcoming
-						// existingNodes.lock() call will lock these nodes too. Without this,
-						// fcose's spring forces will fling them away from their intended spot.
+						// Sync pre-computed positions into the map and onto the live element so
+						// elk.position hints reflect the pre-positioned location on next layout run.
 						nodesToAdd.forEach((newNode: any) => {
 							if (newNode.position) {
 								const id = newNode.data.id as string;
@@ -368,133 +383,39 @@
 
 					// Only re-layout if there are new nodes or nodes were removed
 					if (hasNewNodes || hasFewerNodes || previousNodeIds.size === 0) {
-						console.log(`Graph changed: ${hasNewNodes ? 'new nodes added' : hasFewerNodes ? 'nodes removed' : 'initial load'}`);
+						console.log(`Graph changed: ${hasNewNodes ? 'new nodes' : hasFewerNodes ? 'nodes removed' : 'initial load'}`);
 
-					// Lock nodes that have saved positions, but exclude compound nodes with new children
-					// to allow their children to be properly laid out
-					existingNodes = cy.nodes().filter((n) => {
-						if (!positions.hasOwnProperty(n.id())) return false;
-						
-						// If this is a compound node (has children), check if it has new children
-						if (n.isParent()) {
-							const children = n.children();
-							const hasNewChild = children.some((child: any) => !previousNodeIds.has(child.id()));
-							// Don't lock compound nodes with new children
-							if (hasNewChild) {
-								console.log(`Not locking compound node ${n.id()} - has new children`);
-								return false;
-							}
-						}
-						
-						return true;
-					});
-					existingNodes.lock();
-
-					// Save current pan/zoom before layout
-					const currentPan = cy.pan();
-					const currentZoom = cy.zoom();
-
-						try {
-						// Validate graph state before layout
-						const nodeCount = cy.nodes().length;
-						const edgeCount = cy.edges().length;
-
-						if (nodeCount === 0) {
-							console.warn('Skipping layout: no nodes in graph');
-							return;
-						}
-
-						// Assert: all edges must reference existing nodes
-						// Use only visible nodes (not filtered or hidden by collapse)
-						const visibleNodes = cy.nodes(':visible');
-						const nodeIdSet = new Set(visibleNodes.map(n => n.id()));
-						
-						// Validate all edges reference visible nodes
-						let hasInvalidEdges = false;
-						cy.edges().forEach(e => {
-							const src = e.source().id();
-							const tgt = e.target().id();
-							if (!nodeIdSet.has(src) || !nodeIdSet.has(tgt)) {
-								console.warn(`Edge "${e.id()}" references hidden or non-existent node (${src} -> ${tgt})`);
-								hasInvalidEdges = true;
-							}
-						});
-
-						if (hasInvalidEdges) {
-							console.warn('Skipping layout due to invalid edges');
-							existingNodes.unlock();
-							return;
-						}
-
-						// Assert: container must have non-zero dimensions
 						const containerRect = graphContainer.getBoundingClientRect();
 						if (containerRect.width === 0 || containerRect.height === 0) {
-							throw new Error(`Graph container has zero dimensions (${containerRect.width}x${containerRect.height})`);
-						}
-
-						// Create layout with constraints using only visible nodes
-						// This prevents the layout from trying to process collapsed/filtered nodes
-						const enhancedLayout = createLayout(visibleNodes, positions);
-
-						// Validate layout configuration
-						console.log('Layout config:', enhancedLayout);
-						console.log('Graph state:', { nodes: nodeCount, edges: edgeCount });
-							const originalStop = enhancedLayout.stop;
-					const isInitialLoad = previousNodeIds.size === 0;
-					enhancedLayout.stop = () => {
-						existingNodes.unlock();
-
-						if (isInitialLoad) {
-							// Center and fit on initial load with reasonable zoom cap
-							console.log('Initial load: centering graph');
-							cy.fit(undefined, 50); // 50px padding to fit all nodes
-							
-							// Cap zoom to avoid being too zoomed in
-							const maxZoom = 2;
-							if (cy.zoom() > maxZoom) {
-								cy.zoom(maxZoom);
-							}
-							cy.center();
-						} else {
-							// Restore pan and zoom for subsequent updates
-							if (currentPan && (currentPan.x !== 0 || currentPan.y !== 0)) {
-								cy.pan(currentPan);
-							}
-							cy.zoom(currentZoom);
-						}
-						
-						// Save positions after layout completes to preserve them for future updates
-						savePositions();
-						
-						console.log('Layout complete, nodes unlocked');
-						if (originalStop) originalStop();
-					};
-
-							cy.layout(enhancedLayout).run();
-
-							// Update tracking
+							console.warn('Graph container has zero dimensions, skipping layout');
 							previousNodeIds = currentNodeIds;
-						} catch (layoutError) {
-							console.error('Layout error:', layoutError);
-							console.error('Node count:', cy.nodes().length);
-						console.error('Edge count:', cy.edges().length);
-						console.error('Positions:', positions);
-						existingNodes.unlock();
-						
-						// Clear invalid positions on error to allow fresh layout
-						const errorMsg = layoutError instanceof Error ? layoutError.message : String(layoutError);
-						if (errorMsg.includes('invalid array length')) {
-							console.warn('Clearing invalid positions due to array length error');
-							sessionStorage.removeItem(POS_KEY);
-							positions = {};
+							return;
 						}
-						
-						toaster.create({ 
-							title: "Layout error", 
-							description: 'Error during layout: ' + errorMsg, 
-							type: 'error' 
+
+						const currentPan = cy.pan();
+						const currentZoom = cy.zoom();
+						const isInitialLoad = previousNodeIds.size === 0;
+
+						const layoutOptions = createElkLayout(positions, untrack(() => layoutParams));
+						const l = cy.elements(':visible').layout(layoutOptions as any);
+
+						l.one('layoutstop', () => {
+							if (isInitialLoad) {
+								cy.fit(undefined, 50);
+								if (cy.zoom() > 2) cy.zoom(2);
+								cy.center();
+							} else {
+								if (currentPan && (currentPan.x !== 0 || currentPan.y !== 0)) {
+									cy.pan(currentPan);
+								}
+								cy.zoom(currentZoom);
+							}
+							savePositions();
+							console.log('ELK layout complete');
 						});
-						}
+
+						l.run();
+						previousNodeIds = currentNodeIds;
 					} else {
 						console.log('No new nodes, skipping layout');
 					}
@@ -568,30 +489,22 @@
 
 	function loadPositions(): PosMap {
 		if (!browser) return {};
-		try { 
+		try {
 			const stored = JSON.parse(sessionStorage.getItem(POS_KEY) ?? '{}');
-			// Validate loaded positions
 			const validated: PosMap = {};
 			for (const [id, pos] of Object.entries(stored)) {
-				if (pos && typeof pos === 'object') {
-					const { x, y } = pos as Pos;
-					if (typeof x === 'number' && typeof y === 'number' &&
-						isFinite(x) && isFinite(y) &&
-						!isNaN(x) && !isNaN(y) &&
-						Math.abs(x) < 1e6 && Math.abs(y) < 1e6) {
-						validated[id] = { x, y };
-					} else {
-						console.warn(`Invalid position for node ${id}, skipping`);
-					}
+				if (isValidPosition(pos)) {
+					validated[id] = pos;
+				} else {
+					console.warn(`Invalid position for node ${id}, skipping`);
 				}
 			}
 			return validated;
-		}
-		catch (e) { 
+		} catch (e) {
 			console.error('Error loading positions:', e);
-			return {}; 
+			return {};
 		}
-	}	
+	}
 
 	function getZoomLevelOrDefault(defaultValue: number) {
 		if (browser) {
@@ -938,6 +851,7 @@
 <div class={['graph-wrapper', className]}>
 	<div id="graph" bind:this={graphContainer}></div>
 	<GraphFilter {availableNamespaces} bind:hiddenNamespaces bind:collapseWorkloads />
+	<GraphLayoutPlayground bind:params={layoutParams} onRelayout={runElkLayout} />
 </div>
 
 <GraphNodeSelector {cy} bind:isOpen={searchOpen} />
