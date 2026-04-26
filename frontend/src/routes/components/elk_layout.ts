@@ -69,6 +69,39 @@ export const NODE_LAYER: Record<string, number> = {
   GCPMetadataServer: 8,
 };
 
+export type LayeringStrategy = 'NETWORK_SIMPLEX' | 'LONGEST_PATH' | 'INTERACTIVE' | 'MIN_WIDTH';
+export type NodePlacementStrategy = 'BRANDES_KOEPF' | 'NETWORK_SIMPLEX' | 'LINEAR_SEGMENTS' | 'SIMPLE';
+
+export type LayoutParams = {
+  // Spacing
+  layerSpacing: number;       // horizontal gap between attack-chain layers
+  nodeSpacing: number;        // vertical gap between nodes in the same layer
+  edgeNodeSpacing: number;    // gap between edges and nodes across layer boundaries
+  aspectRatio: number;        // target width/height ratio for the overall layout
+  // Compound (namespace) sub-layout
+  compoundEdgeLength: number; // stress target edge length within namespace compounds
+  compoundPadding: number;    // padding inside namespace compound nodes
+  stressIterations: number;   // max iterations of stress algorithm inside compounds
+  // Animation
+  animationDuration: number;  // ms; 0 = instant
+  // Strategies
+  layeringStrategy: LayeringStrategy;
+  nodePlacementStrategy: NodePlacementStrategy;
+};
+
+export const DEFAULT_LAYOUT_PARAMS: LayoutParams = {
+  layerSpacing: 130,
+  nodeSpacing: 40,
+  edgeNodeSpacing: 20,
+  aspectRatio: 1.6,
+  compoundEdgeLength: 55,
+  compoundPadding: 15,
+  stressIterations: 300,
+  animationDuration: 250,
+  layeringStrategy: 'NETWORK_SIMPLEX',
+  nodePlacementStrategy: 'BRANDES_KOEPF',
+};
+
 /** Serialise a position for the elk.position layout option. */
 function elkPos(x: number, y: number): string {
   return `(${Math.round(x)},${Math.round(y)})`;
@@ -79,27 +112,36 @@ function elkPos(x: number, y: number): string {
  *
  * @param positions - Saved positions from sessionStorage; used as hints for
  *                    elk.interactiveLayout so existing nodes don't move.
+ * @param params - Tunable spacing parameters (defaults to DEFAULT_LAYOUT_PARAMS).
  */
 export function createElkLayout(
-  positions: Record<string, { x: number; y: number }> = {}
+  positions: Record<string, { x: number; y: number }> = {},
+  params: LayoutParams = DEFAULT_LAYOUT_PARAMS
 ): cytoscape.LayoutOptions & Record<string, unknown> {
+  const p = params.compoundPadding;
+  const compoundPad = `[top=${p},left=${p},bottom=${p},right=${p}]`;
+
   return {
     name: 'elk',
     nodeDimensionsIncludeLabels: true,
     fit: false,
     padding: 60,
-    animate: true,
-    animationDuration: 250,
+    animate: params.animationDuration > 0,
+    animationDuration: params.animationDuration,
 
     elk: {
       'elk.algorithm': 'layered',
       'elk.direction': 'RIGHT',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '130',
-      'elk.spacing.nodeNode': '40',
+      'elk.aspectRatio': String(params.aspectRatio),
+      'elk.layered.spacing.nodeNodeBetweenLayers': String(params.layerSpacing),
+      'elk.spacing.nodeNode': String(params.nodeSpacing),
+      'elk.layered.spacing.edgeNodeBetweenLayers': String(params.edgeNodeSpacing),
       'elk.edgeRouting': 'SPLINES',
       'elk.interactiveLayout': 'true',
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.layered.layering.strategy': params.layeringStrategy,
+      'elk.layered.nodePlacement.strategy': params.nodePlacementStrategy,
       'elk.padding': '[top=20,left=20,bottom=20,right=20]',
     },
 
@@ -113,8 +155,9 @@ export function createElkLayout(
 
       if (node.isParent()) {
         opts['elk.algorithm'] = 'stress';
-        opts['elk.stress.desiredEdgeLength'] = '55';
-        opts['elk.padding'] = '[top=15,left=15,bottom=15,right=15]';
+        opts['elk.stress.desiredEdgeLength'] = String(params.compoundEdgeLength);
+        opts['elk.stress.iterations'] = String(params.stressIterations);
+        opts['elk.padding'] = compoundPad;
       } else {
         const kind: string = node.data('kind') ?? '';
         const layer = NODE_LAYER[kind];
