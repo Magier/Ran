@@ -1,12 +1,12 @@
 use ran_domain::{
-    BindsTo, BinaryPresence, Confidence, Contains, DaemonSet, Entity, EntityId, GCPServiceAccount,
-    Grants, Job, K8sCluster, K8sGateway, K8sHTTPRoute, K8sIngress, K8sNode, K8sRole,
-    K8sRoleBinding, K8sService, KubeletExecSink, KubeletExecSource, NameConfidence, Namespace,
-    Owns, Pod, PodExec, RbacPermission, RelationSummary, ReplicaSet, RunsOn, ServiceAccount,
+    BindsTo, BinaryPresence, Confidence, Contains, DaemonSet, Deployment, Entity, EntityId,
+    GCPServiceAccount, Grants, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute,
+    K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sService, KubeletExecSink, KubeletExecSource,
+    NameConfidence, Namespace, Owns, Pod, PodExec, RbacPermission, RunsOn, ServiceAccount,
     StatefulSet, UnknownSystem, Uses,
 };
 
-use crate::{Campaign, FactsUpdate};
+use crate::{Campaign, FactsUpdate, PendingView};
 use crate::rules::InferenceRule;
 
 // ---------------------------------------------------------------------------
@@ -21,39 +21,15 @@ impl InferenceRule for PodNamespaceAnalyzer {
     fn name(&self) -> &'static str { "pod.namespace" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         for entity in &update.new_entities {
-            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
-                continue;
-            };
-            let Some(ns_name) = pod.namespace() else {
-                continue;
-            };
-            if ns_name.is_empty() {
-                continue;
-            }
+            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else { continue };
+            let Some(ns_name) = pod.namespace() else { continue };
+            if ns_name.is_empty() { continue }
 
-            let ns_id = EntityId::new(format!("ns/{}", ns_name));
-
-            // Resolve namespace: prefer what is already in the campaign, then
-            // check whether a namespace was freshly added in this same update,
-            // and finally fall back to creating a minimal one.
-            let ns = campaign
-                .entities
-                .find::<Namespace>(&ns_id)
-                .cloned()
-                .or_else(|| {
-                    update.new_entities.iter().find_map(|e| {
-                        e.as_any()
-                            .downcast_ref::<Namespace>()
-                            .filter(|n| n.entity_id() == ns_id)
-                            .cloned()
-                    })
-                })
-                .unwrap_or_else(|| Namespace::new(ns_name));
-
-            // Only emit the namespace entity if it was not already known.
-            if !campaign.entities.contains::<Namespace>(&ns_id) {
+            let (ns_id, new_ns) = view.ensure_namespace(ns_name);
+            if let Some(ns) = new_ns {
                 inferred.new_entities.push(Box::new(ns));
             }
 
@@ -62,8 +38,10 @@ impl InferenceRule for PodNamespaceAnalyzer {
             // WorkloadOwnershipAnalyzer emits Contains(ns → workload), so we
             // must not also wire Contains(ns → pod) or the pod appears twice.
             if pod.owner_references.is_empty() {
-                let rel = Contains::new(ns_id.0.clone(), pod.entity_id().0.clone());
-                inferred.new_relations.push(Box::new(rel));
+                inferred.new_relations.push(Box::new(Contains::new(
+                    ns_id.0.clone(),
+                    pod.entity_id().0.clone(),
+                )));
             }
         }
 
@@ -79,40 +57,21 @@ impl InferenceRule for ServiceAccountNamespaceAnalyzer {
     fn name(&self) -> &'static str { "serviceaccount.namespace" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         for entity in &update.new_entities {
-            let Some(sa) = entity.as_any().downcast_ref::<ServiceAccount>() else {
-                continue;
-            };
-            let Some(ns_name) = sa.namespace() else {
-                continue;
-            };
-            if ns_name.is_empty() {
-                continue;
-            }
+            let Some(sa) = entity.as_any().downcast_ref::<ServiceAccount>() else { continue };
+            let Some(ns_name) = sa.namespace() else { continue };
+            if ns_name.is_empty() { continue }
 
-            let ns_id = EntityId::new(format!("ns/{}", ns_name));
-
-            let ns = campaign
-                .entities
-                .find::<Namespace>(&ns_id)
-                .cloned()
-                .or_else(|| {
-                    update.new_entities.iter().find_map(|e| {
-                        e.as_any()
-                            .downcast_ref::<Namespace>()
-                            .filter(|n| n.entity_id() == ns_id)
-                            .cloned()
-                    })
-                })
-                .unwrap_or_else(|| Namespace::new(ns_name));
-
-            let rel = Contains::new(ns_id.0.clone(), sa.entity_id().0.clone());
-
-            if !campaign.entities.contains::<Namespace>(&ns_id) {
+            let (ns_id, new_ns) = view.ensure_namespace(ns_name);
+            if let Some(ns) = new_ns {
                 inferred.new_entities.push(Box::new(ns));
             }
-            inferred.new_relations.push(Box::new(rel));
+            inferred.new_relations.push(Box::new(Contains::new(
+                ns_id.0.clone(),
+                sa.entity_id().0.clone(),
+            )));
         }
 
         inferred
@@ -159,39 +118,23 @@ impl InferenceRule for PodNodeAnalyzer {
     fn name(&self) -> &'static str { "pod.node" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         for entity in &update.new_entities {
-            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
-                continue;
-            };
-
-            if !pod.is_running {
-                continue;
-            }
-
-            let Some(node_name) = pod.node_name.as_deref() else {
-                continue;
-            };
-            if node_name.trim().is_empty() {
-                continue;
-            }
+            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else { continue };
+            if !pod.is_running { continue }
+            let Some(node_name) = pod.node_name.as_deref() else { continue };
+            if node_name.trim().is_empty() { continue }
 
             let node = K8sNode::new(node_name);
             let node_id = node.entity_id();
-            let node_exists = campaign.entities.contains::<K8sNode>(&node_id)
-                || update.new_entities.iter().any(|e| {
-                    e.as_any()
-                        .downcast_ref::<K8sNode>()
-                        .map(|n| n.entity_id() == node_id)
-                        .unwrap_or(false)
-                });
-
-            if !node_exists {
+            if !view.contains::<K8sNode>(&node_id) {
                 inferred.new_entities.push(Box::new(node));
             }
-            inferred
-                .new_relations
-                .push(Box::new(RunsOn::new(pod.entity_id().0.clone(), node_id.0)));
+            inferred.new_relations.push(Box::new(RunsOn::new(
+                pod.entity_id().0.clone(),
+                node_id.0,
+            )));
         }
 
         inferred
@@ -211,6 +154,7 @@ impl InferenceRule for ServiceAccountAnalyzer {
     fn name(&self) -> &'static str { "pod.serviceaccount" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         for entity in &update.new_entities {
             let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
@@ -238,11 +182,7 @@ impl InferenceRule for ServiceAccountAnalyzer {
 
             let sa = ServiceAccount::new(sa_name, ns_name);
             let sa_id = sa.entity_id();
-
-            // Only emit the SA entity if it is not already known.
-            let sa_known = campaign.entities.contains::<ServiceAccount>(&sa_id)
-                || update.new_entities.iter().any(|e| e.entity_id() == sa_id);
-            if !sa_known {
+            if !view.contains::<ServiceAccount>(&sa_id) {
                 inferred.new_entities.push(Box::new(sa));
             }
 
@@ -271,45 +211,29 @@ impl InferenceRule for ServiceAccountTokenAnalyzer {
     fn name(&self) -> &'static str { "serviceaccount.token" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         for entity in &update.new_entities {
-            let Some(sa) = entity.as_any().downcast_ref::<ServiceAccount>() else {
-                continue;
-            };
-            let Some(token) = &sa.token else {
-                continue;
-            };
-            let Some(pod_name) = &token.pod_name else {
-                continue;
-            };
-            if pod_name.is_empty() {
-                continue;
-            }
+            let Some(sa) = entity.as_any().downcast_ref::<ServiceAccount>() else { continue };
+            let Some(token) = &sa.token else { continue };
+            let Some(pod_name) = &token.pod_name else { continue };
+            if pod_name.is_empty() { continue }
 
             let ns_name = &token.namespace;
-            if ns_name.is_empty() {
-                continue;
-            }
+            if ns_name.is_empty() { continue }
 
             // Ensure a Pod entity exists for the token's pod claim.
             let mut pod = Pod::new(pod_name.as_str(), ns_name.as_str());
             pod.service_account_name = Some(token.service_account_name.clone());
-            // Mark the pod as running — the token was read from it, so it was alive.
             pod.is_running = true;
 
             let pod_id = pod.entity_id();
             let sa_id = sa.entity_id();
 
-            let pod_known = campaign.entities.contains::<Pod>(&pod_id)
-                || update.new_entities.iter().any(|e| e.entity_id() == pod_id);
-            if !pod_known {
+            if !view.contains::<Pod>(&pod_id) {
                 inferred.new_entities.push(Box::new(pod));
             }
-
-            // Wire pod → SA uses relation.
-            inferred
-                .new_relations
-                .push(Box::new(Uses::new(pod_id.0.clone(), sa_id.0.clone())));
+            inferred.new_relations.push(Box::new(Uses::new(pod_id.0.clone(), sa_id.0.clone())));
         }
 
         inferred
@@ -324,9 +248,10 @@ impl InferenceRule for ServiceAccountCanExecAnalyzer {
     fn name(&self) -> &'static str { "serviceaccount.can-exec" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
-        let service_accounts = collect_service_accounts(campaign, update);
-        let pods = collect_pods(campaign, update);
+        let service_accounts = view.collect::<ServiceAccount>();
+        let pods = view.collect::<Pod>();
 
         for sa in service_accounts {
             for pod in &pods {
@@ -364,13 +289,14 @@ impl InferenceRule for KubeletExecSinkAnalyzer {
     fn name(&self) -> &'static str { "kubelet.exec-sink" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
-        let pods = collect_pods(campaign, update)
+        let pods = view.collect::<Pod>()
             .into_iter()
             .map(|p| (p.entity_id().0.clone(), p))
             .collect::<std::collections::HashMap<_, _>>();
 
-        let relations = collect_relation_summaries(campaign, update);
+        let relations = view.relations();
         let runs_on = relations
             .iter()
             .filter(|r| r.name == "runs-on")
@@ -432,10 +358,9 @@ impl InferenceRule for HostPathAnalyzer {
     fn name(&self) -> &'static str { "pod.host-path" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
-        let pods = collect_pods(campaign, update);
-
-        for pod in pods {
+        for pod in view.collect::<Pod>() {
             let kubelet_mounts: Vec<_> = pod
                 .system
                 .mounts
@@ -502,38 +427,24 @@ impl InferenceRule for CanExecAccessAnalyzer {
     fn name(&self) -> &'static str { "kubelet.can-exec-access" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
-        let exec_target_ids: Vec<String> = update
+        let exec_target_ids: Vec<ran_domain::EntityId> = update
             .new_relations
             .iter()
             .filter(|r| r.is_exec_channel())
-            .map(|r| r.target_id().0.clone())
+            .map(|r| r.target_id().clone())
             .collect();
 
-        for target_id in exec_target_ids {
-            let eid = ran_domain::EntityId::new(&target_id);
-
-            // Resolve the target from the committed campaign state first, then
-            // fall back to entities pending in this same update (not yet stored).
+        for eid in exec_target_ids {
+            // Determine whether the target is a Pod or Node and read its current
+            // access level. Skip if it is neither (not a system entity).
             let (is_pod, current_level): (bool, ran_domain::AccessLevel) =
-                if let Some(pod) = campaign.entities.find::<ran_domain::Pod>(&eid) {
+                if let Some(pod) = view.find::<ran_domain::Pod>(&eid) {
                     (true, pod.system.access_level)
-                } else if let Some(node) = campaign.entities.find::<ran_domain::K8sNode>(&eid) {
-                    (false, node.system.access_level)
-                } else if let Some(pod) = update.new_entities.iter().find_map(|e| {
-                    e.as_any()
-                        .downcast_ref::<ran_domain::Pod>()
-                        .filter(|p| p.entity_id() == eid)
-                }) {
-                    (true, pod.system.access_level)
-                } else if let Some(node) = update.new_entities.iter().find_map(|e| {
-                    e.as_any()
-                        .downcast_ref::<ran_domain::K8sNode>()
-                        .filter(|n| n.entity_id() == eid)
-                }) {
+                } else if let Some(node) = view.find::<ran_domain::K8sNode>(&eid) {
                     (false, node.system.access_level)
                 } else {
-                    // Not a system entity — skip.
                     continue;
                 };
 
@@ -544,45 +455,21 @@ impl InferenceRule for CanExecAccessAnalyzer {
                 continue;
             }
 
-            // Emit a cloned entity with access_level = Exec.
-            // When committed via apply_facts → insert_entity → merge_from,
-            // the max(access_level) rule will raise the stored level.
+            // Emit a cloned entity with access_level = Exec. When committed via
+            // apply_facts → insert_entity → merge_from the max(access_level)
+            // rule raises the stored level.
             if is_pod {
-                let mut pod = ran_domain::Pod::new(eid.0.rsplit('/').next().unwrap_or(&eid.0), "");
-                pod.meta.name = eid.0.rsplit('/').next().unwrap_or(&eid.0).to_string();
-                // Reconstruct a minimal pod that will merge into the existing one.
-                // The only thing that matters for the merge is the entity ID and
-                // the elevated access_level.
-                let mut full_pod = campaign
-                    .entities
-                    .find::<ran_domain::Pod>(&eid)
-                    .cloned()
-                    .or_else(|| {
-                        update.new_entities.iter().find_map(|e| {
-                            e.as_any()
-                                .downcast_ref::<ran_domain::Pod>()
-                                .filter(|p| p.entity_id() == eid)
-                                .cloned()
-                        })
-                    })
-                    .unwrap_or(pod);
+                let mut full_pod = view.find_or_stub::<ran_domain::Pod>(&eid, || {
+                    let name = eid.0.rsplit('/').next().unwrap_or(&eid.0);
+                    ran_domain::Pod::new(name, "")
+                });
                 full_pod.system.access_level = ran_domain::AccessLevel::Exec;
                 inferred.new_entities.push(Box::new(full_pod));
             } else {
-                let node_name = eid.0.strip_prefix("node/").unwrap_or(&eid.0);
-                let mut full_node = campaign
-                    .entities
-                    .find::<ran_domain::K8sNode>(&eid)
-                    .cloned()
-                    .or_else(|| {
-                        update.new_entities.iter().find_map(|e| {
-                            e.as_any()
-                                .downcast_ref::<ran_domain::K8sNode>()
-                                .filter(|n| n.entity_id() == eid)
-                                .cloned()
-                        })
-                    })
-                    .unwrap_or_else(|| ran_domain::K8sNode::new(node_name));
+                let mut full_node = view.find_or_stub::<ran_domain::K8sNode>(&eid, || {
+                    let name = eid.0.strip_prefix("node/").unwrap_or(&eid.0);
+                    ran_domain::K8sNode::new(name)
+                });
                 full_node.system.access_level = ran_domain::AccessLevel::Exec;
                 inferred.new_entities.push(Box::new(full_node));
             }
@@ -600,7 +487,7 @@ impl InferenceRule for CanExecAccessAnalyzer {
 /// (if not already known) and emit an `owns` relation from the workload to the pod.
 ///
 /// Handles the following owner kinds from `metadata.ownerReferences`:
-/// - `ReplicaSet` → creates a `ReplicaSet` entity + `Owns(ReplicaSet → Pod)`
+/// - `ReplicaSet` → strips the trailing hash suffix and creates a `Deployment` entity + `Owns(Deployment → Pod)`
 /// - `StatefulSet` → creates a `StatefulSet` entity + `Owns(StatefulSet → Pod)`
 /// - `DaemonSet` → creates a `DaemonSet` entity + `Owns(DaemonSet → Pod)`
 /// - `Job` → creates a `Job` entity + `Owns(Job → Pod)`
@@ -612,14 +499,11 @@ impl InferenceRule for WorkloadOwnershipAnalyzer {
     fn name(&self) -> &'static str { "workload.ownership" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         for entity in &update.new_entities {
-            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
-                continue;
-            };
-            if pod.owner_references.is_empty() {
-                continue;
-            }
+            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else { continue };
+            if pod.owner_references.is_empty() { continue }
 
             let ns = pod.namespace().unwrap_or("").to_string();
             let pod_id = pod.entity_id().0.clone();
@@ -627,75 +511,63 @@ impl InferenceRule for WorkloadOwnershipAnalyzer {
             for owner_ref in &pod.owner_references {
                 match owner_ref.kind.as_str() {
                     "ReplicaSet" => {
-                        let rs = ReplicaSet::new(&owner_ref.name, &ns);
-                        let rs_id = rs.entity_id();
-                        let known = campaign.entities.contains::<ReplicaSet>(&rs_id)
-                            || update.new_entities.iter().any(|e| e.entity_id() == rs_id)
-                            || inferred.new_entities.iter().any(|e| e.entity_id() == rs_id);
-                        if !known {
-                            inferred.new_entities.push(Box::new(rs));
+                        let deploy_name = owner_ref.name.rsplit_once('-')
+                            .map(|(prefix, _)| prefix)
+                            .unwrap_or(&owner_ref.name);
+                        let deploy = Deployment::new(deploy_name, &ns);
+                        let deploy_id = deploy.entity_id();
+                        if !view.contains::<Deployment>(&deploy_id)
+                            && !inferred.new_entities.iter().any(|e| e.entity_id() == deploy_id)
+                        {
+                            inferred.new_entities.push(Box::new(deploy));
                             inferred.new_relations.push(Box::new(Contains::new(
                                 format!("ns/{}", ns),
-                                rs_id.0.clone(),
+                                deploy_id.0.clone(),
                             )));
                         }
-                        inferred
-                            .new_relations
-                            .push(Box::new(Owns::new(rs_id.0, pod_id.clone())));
+                        inferred.new_relations.push(Box::new(Owns::new(deploy_id.0, pod_id.clone())));
                     }
                     "StatefulSet" => {
                         let ss = StatefulSet::new(&owner_ref.name, &ns);
                         let ss_id = ss.entity_id();
-                        let known = campaign.entities.contains::<StatefulSet>(&ss_id)
-                            || update.new_entities.iter().any(|e| e.entity_id() == ss_id)
-                            || inferred.new_entities.iter().any(|e| e.entity_id() == ss_id);
-                        if !known {
+                        if !view.contains::<StatefulSet>(&ss_id)
+                            && !inferred.new_entities.iter().any(|e| e.entity_id() == ss_id)
+                        {
                             inferred.new_entities.push(Box::new(ss));
                             inferred.new_relations.push(Box::new(Contains::new(
                                 format!("ns/{}", ns),
                                 ss_id.0.clone(),
                             )));
                         }
-                        inferred
-                            .new_relations
-                            .push(Box::new(Owns::new(ss_id.0, pod_id.clone())));
+                        inferred.new_relations.push(Box::new(Owns::new(ss_id.0, pod_id.clone())));
                     }
                     "DaemonSet" => {
                         let ds = DaemonSet::new(&owner_ref.name, &ns);
                         let ds_id = ds.entity_id();
-                        let known = campaign.entities.contains::<DaemonSet>(&ds_id)
-                            || update.new_entities.iter().any(|e| e.entity_id() == ds_id)
-                            || inferred.new_entities.iter().any(|e| e.entity_id() == ds_id);
-                        if !known {
+                        if !view.contains::<DaemonSet>(&ds_id)
+                            && !inferred.new_entities.iter().any(|e| e.entity_id() == ds_id)
+                        {
                             inferred.new_entities.push(Box::new(ds));
                             inferred.new_relations.push(Box::new(Contains::new(
                                 format!("ns/{}", ns),
                                 ds_id.0.clone(),
                             )));
                         }
-                        inferred
-                            .new_relations
-                            .push(Box::new(Owns::new(ds_id.0, pod_id.clone())));
+                        inferred.new_relations.push(Box::new(Owns::new(ds_id.0, pod_id.clone())));
                     }
                     "Job" => {
                         let job = Job::new(&owner_ref.name, &ns);
                         let job_id = job.entity_id();
-                        let known = campaign.entities.contains::<Job>(&job_id)
-                            || update.new_entities.iter().any(|e| e.entity_id() == job_id)
-                            || inferred
-                                .new_entities
-                                .iter()
-                                .any(|e| e.entity_id() == job_id);
-                        if !known {
+                        if !view.contains::<Job>(&job_id)
+                            && !inferred.new_entities.iter().any(|e| e.entity_id() == job_id)
+                        {
                             inferred.new_entities.push(Box::new(job));
                             inferred.new_relations.push(Box::new(Contains::new(
                                 format!("ns/{}", ns),
                                 job_id.0.clone(),
                             )));
                         }
-                        inferred
-                            .new_relations
-                            .push(Box::new(Owns::new(job_id.0, pod_id.clone())));
+                        inferred.new_relations.push(Box::new(Owns::new(job_id.0, pod_id.clone())));
                     }
                     _ => {}
                 }
@@ -732,76 +604,42 @@ impl InferenceRule for PropagateHostIPAnalyzer {
     fn name(&self) -> &'static str { "pod.host-ip" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         // --- Case 1: new Pod with host_ip ----------------------------------
         for entity in &update.new_entities {
-            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
-                continue;
-            };
-            let Some(host_ip) = pod.host_ip else {
-                continue;
-            };
+            let Some(pod) = entity.as_any().downcast_ref::<Pod>() else { continue };
+            let Some(host_ip) = pod.host_ip else { continue };
 
             let pod_id = pod.entity_id();
 
             // Only propagate when host_ip is newly discovered on this pod: skip
             // if the campaign already recorded host_ip for it (a re-parse with
             // no new information should not re-trigger propagation).
-            if campaign
-                .entities
-                .find::<Pod>(&pod_id)
-                .and_then(|p| p.host_ip)
-                .is_some()
-            {
+            if campaign.entities.find::<Pod>(&pod_id).and_then(|p| p.host_ip).is_some() {
                 continue;
             }
 
-            // Runs-on edges committed to the campaign graph.
-            let node_ids: Vec<EntityId> = campaign
-                .graph
-                .targets_of(&pod_id, "runs-on")
-                .into_iter()
-                .cloned()
-                .collect();
-            for node_id in node_ids {
-                propagate_ip_to_node(&mut inferred, campaign, update, &node_id, host_ip);
+            for node_id in campaign.graph.targets_of(&pod_id, "runs-on").into_iter().cloned() {
+                propagate_ip_to_node(&mut inferred, &view, &node_id, host_ip);
             }
-
-            // Runs-on edges still pending in the current update (e.g. from PodNodeAnalyzer).
             for rel in &update.new_relations {
                 if rel.relation_name() == "runs-on" && rel.source_id() == &pod_id {
-                    let node_id = rel.target_id().clone();
-                    propagate_ip_to_node(&mut inferred, campaign, update, &node_id, host_ip);
+                    propagate_ip_to_node(&mut inferred, &view, rel.target_id(), host_ip);
                 }
             }
         }
 
         // --- Case 2: new RunsOn relation -----------------------------------
         for rel in &update.new_relations {
-            if rel.relation_name() != "runs-on" {
-                continue;
-            }
+            if rel.relation_name() != "runs-on" { continue }
             let pod_id = rel.source_id();
             let node_id = rel.target_id().clone();
 
-            // Find the pod's host_ip from campaign state or the current update.
-            let host_ip = campaign
-                .entities
-                .find::<Pod>(pod_id)
-                .and_then(|p| p.host_ip)
-                .or_else(|| {
-                    update.new_entities.iter().find_map(|e| {
-                        e.as_any()
-                            .downcast_ref::<Pod>()
-                            .filter(|p| &p.entity_id() == pod_id)
-                            .and_then(|p| p.host_ip)
-                    })
-                });
-
-            let Some(host_ip) = host_ip else {
-                continue;
+            let Some(host_ip) = view.find::<Pod>(pod_id).and_then(|p| p.host_ip) else {
+                continue
             };
-            propagate_ip_to_node(&mut inferred, campaign, update, &node_id, host_ip);
+            propagate_ip_to_node(&mut inferred, &view, &node_id, host_ip);
         }
 
         inferred
@@ -812,13 +650,12 @@ impl InferenceRule for PropagateHostIPAnalyzer {
 /// IP is already present in the node's stored IPs or in a pending inferred update.
 fn propagate_ip_to_node(
     inferred: &mut FactsUpdate,
-    campaign: &Campaign,
-    update: &FactsUpdate,
+    view: &PendingView<'_>,
     node_id: &EntityId,
     host_ip: std::net::IpAddr,
 ) {
     // Already committed to campaign state?
-    if let Some(node) = campaign.entities.find::<K8sNode>(node_id) {
+    if let Some(node) = view.find::<K8sNode>(node_id) {
         if node.system.ips.contains(&host_ip) {
             return;
         }
@@ -834,24 +671,10 @@ fn propagate_ip_to_node(
         return;
     }
 
-    // Resolve the node: campaign → update → fresh placeholder.
-    let mut node = campaign
-        .entities
-        .find::<K8sNode>(node_id)
-        .cloned()
-        .or_else(|| {
-            update.new_entities.iter().find_map(|e| {
-                e.as_any()
-                    .downcast_ref::<K8sNode>()
-                    .filter(|n| n.entity_id() == *node_id)
-                    .cloned()
-            })
-        })
-        .unwrap_or_else(|| {
-            let name = node_id.0.strip_prefix("node/").unwrap_or(&node_id.0);
-            K8sNode::new(name)
-        });
-
+    let mut node = view.find_or_stub::<K8sNode>(node_id, || {
+        let name = node_id.0.strip_prefix("node/").unwrap_or(&node_id.0);
+        K8sNode::new(name)
+    });
     node.system.ips.push(host_ip);
     inferred.new_entities.push(Box::new(node));
 }
@@ -932,41 +755,22 @@ impl InferenceRule for RoleNamespaceAnalyzer {
     fn name(&self) -> &'static str { "role.namespace" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         for entity in &update.new_entities {
-            let Some(role) = entity.as_any().downcast_ref::<K8sRole>() else {
-                continue;
-            };
-            if role.is_cluster_role {
-                continue;
-            }
-            let Some(ns_name) = role.namespace() else {
-                continue;
-            };
-            if ns_name.is_empty() {
-                continue;
-            }
+            let Some(role) = entity.as_any().downcast_ref::<K8sRole>() else { continue };
+            if role.is_cluster_role { continue }
+            let Some(ns_name) = role.namespace() else { continue };
+            if ns_name.is_empty() { continue }
 
-            let ns_id = EntityId::new(format!("ns/{}", ns_name));
-            let ns = campaign
-                .entities
-                .find::<Namespace>(&ns_id)
-                .cloned()
-                .or_else(|| {
-                    update.new_entities.iter().find_map(|e| {
-                        e.as_any()
-                            .downcast_ref::<Namespace>()
-                            .filter(|n| n.entity_id() == ns_id)
-                            .cloned()
-                    })
-                })
-                .unwrap_or_else(|| Namespace::new(ns_name));
-
-            let rel = Contains::new(ns_id.0.clone(), role.entity_id().0.clone());
-            if !campaign.entities.contains::<Namespace>(&ns_id) {
+            let (ns_id, new_ns) = view.ensure_namespace(ns_name);
+            if let Some(ns) = new_ns {
                 inferred.new_entities.push(Box::new(ns));
             }
-            inferred.new_relations.push(Box::new(rel));
+            inferred.new_relations.push(Box::new(Contains::new(
+                ns_id.0.clone(),
+                role.entity_id().0.clone(),
+            )));
         }
 
         inferred
@@ -981,38 +785,21 @@ impl InferenceRule for RoleBindingNamespaceAnalyzer {
     fn name(&self) -> &'static str { "rolebinding.namespace" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         for entity in &update.new_entities {
-            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
-                continue;
-            };
-            let Some(ns_name) = binding.namespace() else {
-                continue;
-            };
-            if ns_name.is_empty() {
-                continue;
-            }
+            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else { continue };
+            let Some(ns_name) = binding.namespace() else { continue };
+            if ns_name.is_empty() { continue }
 
-            let ns_id = EntityId::new(format!("ns/{}", ns_name));
-            let ns = campaign
-                .entities
-                .find::<Namespace>(&ns_id)
-                .cloned()
-                .or_else(|| {
-                    update.new_entities.iter().find_map(|e| {
-                        e.as_any()
-                            .downcast_ref::<Namespace>()
-                            .filter(|n| n.entity_id() == ns_id)
-                            .cloned()
-                    })
-                })
-                .unwrap_or_else(|| Namespace::new(ns_name));
-
-            let rel = Contains::new(ns_id.0.clone(), binding.entity_id().0.clone());
-            if !campaign.entities.contains::<Namespace>(&ns_id) {
+            let (ns_id, new_ns) = view.ensure_namespace(ns_name);
+            if let Some(ns) = new_ns {
                 inferred.new_entities.push(Box::new(ns));
             }
-            inferred.new_relations.push(Box::new(rel));
+            inferred.new_relations.push(Box::new(Contains::new(
+                ns_id.0.clone(),
+                binding.entity_id().0.clone(),
+            )));
         }
 
         inferred
@@ -1037,31 +824,13 @@ macro_rules! ns_contains_analyzer {
             fn name(&self) -> &'static str { $rule_name }
             fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
                 let mut inferred = FactsUpdate::default();
+                let view = PendingView::new(campaign, update);
                 for entity in &update.new_entities {
-                    let Some(e) = entity.as_any().downcast_ref::<$entity_type>() else {
-                        continue;
-                    };
-                    let Some(ns_name) = e.namespace() else {
-                        continue;
-                    };
-                    if ns_name.is_empty() {
-                        continue;
-                    }
-                    let ns_id = EntityId::new(format!("ns/{}", ns_name));
-                    let ns = campaign
-                        .entities
-                        .find::<Namespace>(&ns_id)
-                        .cloned()
-                        .or_else(|| {
-                            update.new_entities.iter().find_map(|ue| {
-                                ue.as_any()
-                                    .downcast_ref::<Namespace>()
-                                    .filter(|n| n.entity_id() == ns_id)
-                                    .cloned()
-                            })
-                        })
-                        .unwrap_or_else(|| Namespace::new(ns_name));
-                    if !campaign.entities.contains::<Namespace>(&ns_id) {
+                    let Some(e) = entity.as_any().downcast_ref::<$entity_type>() else { continue };
+                    let Some(ns_name) = e.namespace() else { continue };
+                    if ns_name.is_empty() { continue }
+                    let (ns_id, new_ns) = view.ensure_namespace(ns_name);
+                    if let Some(ns) = new_ns {
                         inferred.new_entities.push(Box::new(ns));
                     }
                     inferred.new_relations.push(Box::new(Contains::new(
@@ -1250,6 +1019,7 @@ impl InferenceRule for GCPServiceAccountAnalyzer {
     fn name(&self) -> &'static str { "serviceaccount.gcp" }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         let gcp_sas: Vec<GCPServiceAccount> = campaign
             .entities
@@ -1261,7 +1031,7 @@ impl InferenceRule for GCPServiceAccountAnalyzer {
             return inferred;
         }
 
-        let pods = collect_pods(campaign, update);
+        let pods = view.collect::<Pod>();
 
         for pod in &pods {
             if pod.system.env_vars.is_empty() {
@@ -1479,21 +1249,19 @@ impl InferenceRule for KubeletExecSourceAnalyzer {
 
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         // Condition 2: any SA has GET nodes/proxy.
-        let has_nodes_proxy = collect_service_accounts(campaign, update)
-            .iter()
-            .any(|sa| {
-                sa.entitlements
-                    .iter()
-                    .any(|p| p.satisfies("get", "nodes/proxy"))
-            });
+        let has_nodes_proxy = view.collect::<ServiceAccount>().iter().any(|sa| {
+            sa.entitlements.iter().any(|p| p.satisfies("get", "nodes/proxy"))
+        });
         if !has_nodes_proxy {
             return inferred;
         }
 
-        // Collect pods that satisfy condition 1 (have a kubelet exec tool).
-        let qualifying_pods: Vec<EntityId> = collect_pods(campaign, update)
+        // Condition 1: pod has a kubelet-exec tool binary present.
+        let qualifying_pods: Vec<EntityId> = view
+            .collect::<Pod>()
             .into_iter()
             .filter(|pod| {
                 pod.is_running
@@ -1508,22 +1276,7 @@ impl InferenceRule for KubeletExecSourceAnalyzer {
             return inferred;
         }
 
-        let nodes: Vec<EntityId> = {
-            let mut ns: Vec<EntityId> = campaign
-                .entities
-                .values::<K8sNode>()
-                .map(|n| n.entity_id())
-                .collect();
-            for entity in &update.new_entities {
-                if let Some(node) = entity.as_any().downcast_ref::<K8sNode>() {
-                    let id = node.entity_id();
-                    if !ns.contains(&id) {
-                        ns.push(id);
-                    }
-                }
-            }
-            ns
-        };
+        let nodes: Vec<EntityId> = view.collect::<K8sNode>().into_iter().map(|n| n.entity_id()).collect();
 
         for pod_id in &qualifying_pods {
             for node_id in &nodes {
@@ -1560,54 +1313,34 @@ impl InferenceRule for RoleBindingGraphAnalyzer {
 
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
 
         for entity in &update.new_entities {
-            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else {
-                continue;
-            };
+            let Some(binding) = entity.as_any().downcast_ref::<K8sRoleBinding>() else { continue };
 
             let binding_id = binding.entity_id();
             let binding_ns = binding.meta.namespace.as_deref().unwrap_or("");
             let is_cluster_scoped = binding_ns.is_empty();
 
-            // Determine whether the roleRef points to a ClusterRole or a Role.
             let ref_is_cluster = binding.role_ref_kind.eq_ignore_ascii_case("ClusterRole")
                 || (binding.role_ref_kind.is_empty() && is_cluster_scoped);
 
-            // Build the target role entity_id the same way K8sRole::entity_id() does.
             let role_entity_id = if ref_is_cluster {
                 EntityId(format!("clusterrole/{}", binding.role_ref))
             } else {
                 EntityId(format!("ns/{}/role/{}", binding_ns, binding.role_ref))
             };
 
-            // Create a stub role if not yet known.
-            let role_known = campaign
-                .entities
-                .values::<K8sRole>()
-                .any(|r| r.entity_id() == role_entity_id)
-                || update.new_entities.iter().any(|e| {
-                    e.as_any()
-                        .downcast_ref::<K8sRole>()
-                        .map(|r| r.entity_id() == role_entity_id)
-                        .unwrap_or(false)
-                });
-
-            if !role_known {
+            if !view.contains::<K8sRole>(&role_entity_id) {
                 let mut stub = K8sRole::new(&binding.role_ref, binding_ns);
                 stub.is_cluster_role = ref_is_cluster;
                 inferred.new_entities.push(Box::new(stub));
             }
 
-            inferred
-                .new_relations
-                .push(Box::new(BindsTo::new(binding_id.0.clone(), role_entity_id.0)));
+            inferred.new_relations.push(Box::new(BindsTo::new(binding_id.0.clone(), role_entity_id.0)));
 
-            // Emit Grants edges for ServiceAccount subjects.
             for subject in &binding.subjects {
-                if !subject.kind.eq_ignore_ascii_case("ServiceAccount") {
-                    continue;
-                }
+                if !subject.kind.eq_ignore_ascii_case("ServiceAccount") { continue }
                 let sa_ns = if subject.namespace.is_empty() {
                     binding_ns.to_string()
                 } else {
@@ -1615,26 +1348,50 @@ impl InferenceRule for RoleBindingGraphAnalyzer {
                 };
                 let sa_entity_id = EntityId(format!("ns/{}/sa/{}", sa_ns, subject.name));
 
-                let sa_known = campaign
-                    .entities
-                    .values::<ServiceAccount>()
-                    .any(|sa| sa.entity_id() == sa_entity_id)
-                    || update.new_entities.iter().any(|e| {
-                        e.as_any()
-                            .downcast_ref::<ServiceAccount>()
-                            .map(|sa| sa.entity_id() == sa_entity_id)
-                            .unwrap_or(false)
-                    });
-
-                if !sa_known {
-                    let stub = ServiceAccount::new(&subject.name, &sa_ns);
-                    inferred.new_entities.push(Box::new(stub));
+                if !view.contains::<ServiceAccount>(&sa_entity_id) {
+                    inferred.new_entities.push(Box::new(ServiceAccount::new(&subject.name, &sa_ns)));
                 }
+                inferred.new_relations.push(Box::new(Grants::new(binding_id.0.clone(), sa_entity_id.0)));
+            }
+        }
 
-                inferred.new_relations.push(Box::new(Grants::new(
-                    binding_id.0.clone(),
-                    sa_entity_id.0,
-                )));
+        inferred
+    }
+}
+
+// ---------------------------------------------------------------------------
+// KubeconfigCredentialAnalyzer
+// ---------------------------------------------------------------------------
+
+/// When a `K8sCredential` is discovered (via kubeconfig file read), derive a
+/// `K8sCluster` entity from its endpoint so that follow-on TTPs that target
+/// `kind: Cluster` (e.g. `use_external_kubeconfig`) become applicable.
+pub struct KubeconfigCredentialAnalyzer;
+
+impl InferenceRule for KubeconfigCredentialAnalyzer {
+    fn name(&self) -> &'static str { "kubeconfig.credential" }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(cred) = entity.as_any().downcast_ref::<K8sCredential>() else {
+                continue;
+            };
+
+            let cluster_name = if cred.endpoint.is_empty() {
+                "discovered".to_string()
+            } else {
+                cred.endpoint.clone()
+            };
+
+            let cluster = K8sCluster::new(&cluster_name).with_server(Some(cred.endpoint.clone()));
+            let cluster_id = cluster.entity_id();
+
+            if !campaign.entities.contains::<K8sCluster>(&cluster_id)
+                && !inferred.new_entities.iter().any(|e| e.entity_id() == cluster_id)
+            {
+                inferred.new_entities.push(Box::new(cluster));
             }
         }
 
@@ -1675,60 +1432,10 @@ pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
         Box::new(GatewayNamespaceAnalyzer),
         Box::new(HTTPRouteNamespaceAnalyzer),
         Box::new(IpBasedSystemMergeAnalyzer),
+        Box::new(KubeconfigCredentialAnalyzer),
     ]
 }
 
-fn collect_pods(campaign: &Campaign, update: &FactsUpdate) -> Vec<Pod> {
-    let mut pods = campaign
-        .entities
-        .values::<Pod>()
-        .cloned()
-        .collect::<Vec<_>>();
-    for entity in &update.new_entities {
-        if let Some(pod) = entity.as_any().downcast_ref::<Pod>() {
-            if let Some(existing) = pods.iter_mut().find(|p| p.entity_id() == pod.entity_id()) {
-                *existing = pod.clone();
-            } else {
-                pods.push(pod.clone());
-            }
-        }
-    }
-    pods
-}
-
-fn collect_service_accounts(campaign: &Campaign, update: &FactsUpdate) -> Vec<ServiceAccount> {
-    let mut sas = campaign
-        .entities
-        .values::<ServiceAccount>()
-        .cloned()
-        .collect::<Vec<_>>();
-    for entity in &update.new_entities {
-        if let Some(sa) = entity.as_any().downcast_ref::<ServiceAccount>() {
-            if let Some(existing) = sas.iter_mut().find(|s| s.entity_id() == sa.entity_id()) {
-                *existing = sa.clone();
-            } else {
-                sas.push(sa.clone());
-            }
-        }
-    }
-    sas
-}
-
-fn collect_relation_summaries(campaign: &Campaign, update: &FactsUpdate) -> Vec<RelationSummary> {
-    let mut rels = campaign.graph.to_relation_summaries();
-    for rel in &update.new_relations {
-        let summary = RelationSummary::from_relation(rel.as_ref());
-        let exists = rels.iter().any(|r| {
-            r.name == summary.name
-                && r.source_id == summary.source_id
-                && r.target_id == summary.target_id
-        });
-        if !exists {
-            rels.push(summary);
-        }
-    }
-    rels
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -2270,10 +1977,11 @@ mod tests {
     }
 
     #[test]
-    fn pod_owned_by_replicaset_creates_entity_and_owns_relation() {
-        use ran_domain::{Owns, ReplicaSet};
+    fn pod_owned_by_replicaset_creates_deployment_entity_and_owns_relation() {
+        use ran_domain::{Deployment, Owns};
         let campaign = test_campaign();
-        let pod = make_pod_with_owner("my-pod-abc", "default", "ReplicaSet", "my-rs");
+        // ReplicaSet name is "my-deploy-<hash>"; expected Deployment name is "my-deploy"
+        let pod = make_pod_with_owner("my-pod-abc", "default", "ReplicaSet", "my-deploy-7d9f4b");
 
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod.clone()));
@@ -2285,25 +1993,25 @@ mod tests {
             inferred
                 .new_entities
                 .iter()
-                .any(|e| e.entity_kind() == "ReplicaSet" && e.entity_name() == "my-rs"),
-            "expected ReplicaSet entity to be created"
+                .any(|e| e.entity_kind() == "Deployment" && e.entity_name() == "my-deploy"),
+            "expected Deployment entity to be created from ReplicaSet owner"
         );
-        let rs = ReplicaSet::new("my-rs", "default");
+        let deploy = Deployment::new("my-deploy", "default");
         assert!(
             inferred.new_relations.iter().any(|r| {
                 r.is::<Owns>()
-                    && r.source_id().0 == rs.entity_id().0
+                    && r.source_id().0 == deploy.entity_id().0
                     && r.target_id().0 == pod.entity_id().0
             }),
-            "expected Owns(ReplicaSet → Pod) relation"
+            "expected Owns(Deployment → Pod) relation"
         );
         assert!(
             inferred.new_relations.iter().any(|r| {
                 r.is::<Contains>()
                     && r.source_id().0 == "ns/default"
-                    && r.target_id().0 == rs.entity_id().0
+                    && r.target_id().0 == deploy.entity_id().0
             }),
-            "expected Contains(ns/default → ReplicaSet) relation"
+            "expected Contains(ns/default → Deployment) relation"
         );
     }
 
@@ -2419,14 +2127,15 @@ mod tests {
     }
 
     #[test]
-    fn already_known_replicaset_not_duplicated_owns_still_emitted() {
-        use ran_domain::{Owns, ReplicaSet};
+    fn already_known_deployment_not_duplicated_owns_still_emitted() {
+        use ran_domain::{Deployment, Owns};
         let mut campaign = test_campaign();
-        let rs = ReplicaSet::new("existing-rs", "default");
-        let rs_id = rs.entity_id();
-        campaign.entities.insert_typed(rs);
+        // Pre-populate the Deployment (suffix stripped from "existing-deploy-abc123")
+        let deploy = Deployment::new("existing-deploy", "default");
+        let deploy_id = deploy.entity_id();
+        campaign.entities.insert_typed(deploy);
 
-        let pod = make_pod_with_owner("my-pod", "default", "ReplicaSet", "existing-rs");
+        let pod = make_pod_with_owner("my-pod", "default", "ReplicaSet", "existing-deploy-abc123");
         let mut update = FactsUpdate::default();
         update.new_entities.push(Box::new(pod.clone()));
 
@@ -2437,12 +2146,12 @@ mod tests {
             inferred
                 .new_entities
                 .iter()
-                .all(|e| e.entity_kind() != "ReplicaSet"),
-            "should not emit ReplicaSet entity when already in campaign"
+                .all(|e| e.entity_kind() != "Deployment"),
+            "should not emit Deployment entity when already in campaign"
         );
         assert!(
             inferred.new_relations.iter().any(|r| {
-                r.is::<Owns>() && r.source_id().0 == rs_id.0 && r.target_id().0 == pod.entity_id().0
+                r.is::<Owns>() && r.source_id().0 == deploy_id.0 && r.target_id().0 == pod.entity_id().0
             }),
             "Owns relation must still be emitted even when owner already known"
         );
@@ -2486,6 +2195,54 @@ mod tests {
                 r.is::<Contains>() && r.source_id().0 == "ns/default"
             }),
             "namespace must still contain the workload owner"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // KubeconfigCredentialAnalyzer tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn k8s_credential_triggers_cluster_entity() {
+        let campaign = test_campaign();
+        let mut cred = K8sCredential::new("https://10.96.0.1:6443");
+        cred.token = Some("tok".to_string());
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(cred));
+
+        let inferred = KubeconfigCredentialAnalyzer.infer(&campaign, &update);
+
+        assert!(
+            inferred
+                .new_entities
+                .iter()
+                .any(|e| e.entity_kind() == "Cluster"),
+            "expected K8sCluster entity to be derived from K8sCredential"
+        );
+    }
+
+    #[test]
+    fn already_known_cluster_not_duplicated_by_credential_analyzer() {
+        let mut campaign = test_campaign();
+        let cluster = K8sCluster::new("https://10.96.0.1:6443");
+        let cluster_id = cluster.entity_id();
+        campaign.entities.insert_typed(cluster);
+
+        let mut cred = K8sCredential::new("https://10.96.0.1:6443");
+        cred.token = Some("tok".to_string());
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(cred));
+
+        let inferred = KubeconfigCredentialAnalyzer.infer(&campaign, &update);
+
+        assert!(
+            inferred
+                .new_entities
+                .iter()
+                .all(|e| e.entity_id() != cluster_id),
+            "should not re-emit K8sCluster when already in campaign"
         );
     }
 

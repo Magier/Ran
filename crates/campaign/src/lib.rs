@@ -1,5 +1,6 @@
 pub mod analyzers;
 mod campaign;
+pub mod pending_view;
 pub mod shell_cmd;
 pub mod effects;
 pub mod execution_record;
@@ -12,10 +13,11 @@ pub mod runtime;
 pub mod ttp_applicability;
 pub use c2::ExecTtp;
 pub use campaign::{
-    Campaign, CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef,
+    Campaign, CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef, EntityType,
     ExecuteActionError, ExecuteActionRequest, ExecuteActionResult, ExecutedActionEvent,
     TtpExecutionProcessing,
 };
+pub use pending_view::PendingView;
 pub use effects::FactsUpdate;
 pub use execution_record::ExecutionRecord;
 pub use external_parser::{ExternalParseRequest, ExternalParseResponse, ExternalParser};

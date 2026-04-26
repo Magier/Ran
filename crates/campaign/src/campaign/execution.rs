@@ -7,7 +7,7 @@ use ran_domain::{BinaryPresence, EntityId, K8sNode, Merge, NameConfidence, Pod, 
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
 use crate::failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
-use crate::grounding::{detect_ungrounded_vars, ground_args_from_context};
+use crate::grounding::{detect_ungrounded_vars, ground_args_from_context, ground_entity_ref_vars};
 use crate::shell_cmd::ground_binaries;
 use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
 use crate::analyzers::default_rules;
@@ -190,6 +190,18 @@ impl Campaign {
         // Stage 4: resolve lateral-movement source and inject SRC — single,
         // authoritative site.  For non-lateral TTPs this is a no-op.
         let lateral_src = self.resolve_lateral_src(&ttp.tactic, exec_hint.as_deref(), &mut args)?;
+
+        // For non-lateral TTPs resolve_lateral_src leaves SRC unset, but TTP
+        // authors may still use ${SRC.PROP} to reference properties of the
+        // executing entity (e.g. ${SRC.MOUNT_PATH} for host-path mounts).
+        // For non-lateral TTPs the command runs ON the target, so SRC = target.
+        if !args.contains_key("SRC") {
+            args.insert("SRC".to_string(), request.target_id.clone());
+        }
+
+        // Stage 4.5: expand ${REF.PROP} placeholders in arg values now that SRC
+        // and TARGET_ID are both present (e.g. ${SRC.MOUNT_PATH} → first host path).
+        ground_entity_ref_vars(&mut args, self);
 
         // Stage 5: inject TARGET_ID then ground the procedure command and effects.
         args.entry("TARGET_ID".to_string())
@@ -1276,15 +1288,22 @@ impl Campaign {
         ))
     }
 
-    /// Resolve a raw SA token for a pod by checking `uses` edges and then
-    /// falling back to the pod's `service_account_name` field.
+    /// Resolve a raw SA token for a pod that also has `GET nodes/proxy`
+    /// permission, checking `uses` edges then `service_account_name`.
     fn resolve_token_for_pod(&self, pod_id: &EntityId) -> Option<String> {
+        let resolve_sa = |sa: &ran_domain::ServiceAccount| -> Option<String> {
+            if !sa.entitlements.iter().any(has_nodes_proxy_permission) {
+                return None;
+            }
+            sa.raw_token()
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+        };
+
         for sa_id in self.graph.targets_of(pod_id, "uses") {
             if let Some(sa) = self.entities.find::<ran_domain::ServiceAccount>(sa_id) {
-                if let Some(raw) = sa.raw_token() {
-                    if !raw.is_empty() {
-                        return Some(raw.to_string());
-                    }
+                if let Some(raw) = resolve_sa(sa) {
+                    return Some(raw);
                 }
             }
         }
@@ -1294,7 +1313,7 @@ impl Campaign {
         let ns = pod.namespace()?;
         let sa_id = EntityId::new(format!("ns/{}/sa/{}", ns, sa_name));
         let sa = self.entities.find::<ran_domain::ServiceAccount>(&sa_id)?;
-        sa.raw_token().map(|t| t.to_string())
+        resolve_sa(sa)
     }
 
     /// Legacy-compatible fallback: any ServiceAccount token that can GET nodes/proxy.
