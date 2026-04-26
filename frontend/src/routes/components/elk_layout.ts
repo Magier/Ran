@@ -71,7 +71,7 @@ export const NODE_LAYER: Record<string, number> = {
 
 /** Serialise a position for the elk.position layout option. */
 function elkPos(x: number, y: number): string {
-  return `(${Math.round(x)}, ${Math.round(y)})`;
+  return `(${Math.round(x)},${Math.round(y)})`;
 }
 
 /**
@@ -92,7 +92,7 @@ export function createElkLayout(
     animationDuration: 250,
 
     elk: {
-      algorithm: 'layered',
+      'elk.algorithm': 'layered',
       'elk.direction': 'RIGHT',
       'elk.layered.spacing.nodeNodeBetweenLayers': '130',
       'elk.spacing.nodeNode': '40',
