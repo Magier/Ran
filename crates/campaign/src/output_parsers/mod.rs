@@ -86,9 +86,25 @@ pub fn parse_output_effect(
     // directly, then fall through to the shared merge path below.
     let normalized = effect_id.trim().to_ascii_lowercase();
 
-    // Arg-derived effects: facts are constructed from TTP parameters, not from
-    // command output. Handle before the stdout guard so they succeed even when
-    // the command produces no output.
+    // Arg-derived / event-sourced effects: facts are constructed from TTP
+    // parameters or from the C2 event bus, not from command output. Handle
+    // before the stdout guard so they succeed even when the command produces no output.
+    if normalized.starts_with("c2.listen(") {
+        // The listener port is recorded by C2Event::ListenerStarted in the
+        // event bus (runtime.rs). No additional facts are needed here.
+        return Some(ParsedEffect {
+            updates: FactsUpdate::default(),
+            audit: build_audit(
+                effect_id,
+                cmd,
+                event,
+                ParseResult::Parsed,
+                "c2 listener registered via event bus",
+                0,
+            ),
+        });
+    }
+
     if normalized == "create k8s.pod"
         || normalized == "namespace($ns)"
         || normalized == "ns.contains($p2)"

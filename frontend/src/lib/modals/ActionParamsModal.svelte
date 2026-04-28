@@ -49,7 +49,9 @@
 
 	const compromisedSystems = $derived(campaignState.getCompromisedSystems());
 	const execSystemOptions = $derived<ComboboxOption[]>(
-		compromisedSystems.map(e => ({ label: e.name, value: e.id, group: e.namespace }))
+		compromisedSystems
+			.map(e => ({ label: e.name, value: e.id, group: e.namespace }))
+			.sort((a, b) => a.label.localeCompare(b.label))
 	);
 	const selectedExecSystem = $derived(
 		compromisedSystems.find(e => e.id === selectedExecSystemId)
