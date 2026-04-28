@@ -100,7 +100,12 @@ class CampaignState {
 				return;
 			}
 
-			const problematic = audits.filter((a: ParseAuditUI) => a.parseResult !== 'Parsed');
+			const logOnly = new Set(['NoParser', 'KnownFailure']);
+			const problematic = audits.filter((a: ParseAuditUI) => a.parseResult !== 'Parsed' && !logOnly.has(a.parseResult));
+			const gaps = audits.filter((a: ParseAuditUI) => logOnly.has(a.parseResult));
+			if (gaps.length > 0) {
+				console.log('[parse-audited] parser gaps (log only):', gaps.map((a: ParseAuditUI) => `${a.effectId}: ${a.parseResult} (${a.detail})`));
+			}
 			if (problematic.length > 0) {
 				const details = problematic
 					.map((a: ParseAuditUI) => `${a.effectId}: ${a.parseResult} (${a.detail})`)

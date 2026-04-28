@@ -200,12 +200,16 @@ impl Campaign {
         }
 
         // Stage 4.5: expand ${REF.PROP} placeholders in arg values now that SRC
-        // and TARGET_ID are both present (e.g. ${SRC.MOUNT_PATH} → first host path).
-        ground_entity_ref_vars(&mut args, self);
-
-        // Stage 5: inject TARGET_ID then ground the procedure command and effects.
+        // and TARGET_ID are both present (e.g. ${SRC.MOUNT_PATH} → first host path,
+        // ${TARGET.IP} → target entity's IP address).
+        // TARGET_ID must be injected before ground_entity_ref_vars so that
+        // ${TARGET.*} references in parameter defaults (e.g. CIDR = "${TARGET.IP}/24")
+        // are resolved correctly.
         args.entry("TARGET_ID".to_string())
             .or_insert_with(|| request.target_id.clone());
+        ground_entity_ref_vars(&mut args, self);
+
+        // Stage 5: ground the procedure command and effects.
         let mut procedure = self.select_procedure(&ttp, request.procedure_id.as_deref())?;
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
 
