@@ -1,4 +1,4 @@
-use ran_domain::{AccessLevel, C2Server, ServiceAccount};
+use ran_domain::{AccessLevel, C2Server, Entity as _, Pod, ServiceAccount};
 use serde_json::Value;
 
 use crate::Campaign;
@@ -120,6 +120,65 @@ pub fn ttp_access_level_satisfied(ttp: &armory::Ttp, target_access_level: Access
     }
 
     target_access_level >= AccessLevel::Exec
+}
+
+/// Returns `true` when the TTP's `related` pre-conditions are met by entities
+/// in the campaign that are related to the selected target.
+///
+/// - No `related` in `requires` → satisfied.
+/// - Each entry must declare `kind`; `accessLevel` is optional.
+/// - Currently supported relationships:
+///   - target `ServiceAccount` + related `Pod`: finds pods that mount the SA
+///     and, if `accessLevel` is set, requires at least one to have exec access
+///     or be reachable via kubectl-exec.
+/// - Unknown `(target_kind, related_kind)` combinations → satisfied (fail open
+///   so future relationships can be added to YAMLs before the code lands).
+pub fn ttp_related_satisfied(
+    ttp: &armory::Ttp,
+    target_id: &str,
+    target_kind: &str,
+    campaign: &Campaign,
+) -> bool {
+    let Some(Value::Array(related)) = ttp.requires.get("related") else {
+        return true;
+    };
+    if related.is_empty() {
+        return true;
+    }
+
+    related.iter().all(|entry| {
+        let Some(obj) = entry.as_object() else {
+            return true;
+        };
+        let related_kind = obj.get("kind").and_then(Value::as_str).unwrap_or("");
+        let requires_access = obj.get("accessLevel").and_then(Value::as_str).unwrap_or("");
+
+        match (target_kind, related_kind) {
+            ("ServiceAccount", "Pod") => {
+                let Some(sa) = campaign
+                    .entities
+                    .values::<ServiceAccount>()
+                    .find(|sa| sa.entity_id().0 == target_id)
+                else {
+                    return false;
+                };
+                let sa_name = sa.entity_name();
+                let sa_ns = sa.namespace().unwrap_or("");
+                let reachable = campaign.reachable_pods();
+                campaign.entities.values::<Pod>().any(|pod| {
+                    let mounts_sa = pod.service_account_name.as_deref() == Some(sa_name)
+                        && pod.namespace() == Some(sa_ns);
+                    if !mounts_sa {
+                        return false;
+                    }
+                    requires_access.is_empty()
+                        || pod.system.access_level >= AccessLevel::Exec
+                        || reachable.contains(&pod.entity_id().0)
+                })
+            }
+            _ => true,
+        }
+    })
 }
 
 #[cfg(test)]

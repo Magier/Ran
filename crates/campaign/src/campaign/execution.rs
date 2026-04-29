@@ -334,16 +334,21 @@ impl Campaign {
 
     /// Route to a caller-supplied system entity or C2 backend ID.
     ///
-    /// If the hint resolves to a known system entity it becomes the exec entity
-    /// (via the builtin C2); otherwise it is treated as an explicit backend ID
-    /// and the logical target is kept as the exec entity.
+    /// If the hint resolves to a known system entity, or looks like an entity ID
+    /// (starts with `ns/` or `node/` — handles stale/merged pod references),
+    /// it becomes the exec entity via the builtin C2.  Otherwise it is treated as
+    /// an explicit C2 backend ID and the logical target is kept as the exec entity.
     ///
     fn route_caller_supplied(
         &self,
         hint: &str,
         target_id: &str,
     ) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
-        if self.get_system_entity(hint).is_some() {
+        let hint_is_exec_entity = self.get_system_entity(hint).is_some()
+            || hint.starts_with("ns/")
+            || hint.starts_with("node/");
+
+        if hint_is_exec_entity {
             tracing::info!(
                 logical_target = %target_id,
                 selected_source = %hint,
