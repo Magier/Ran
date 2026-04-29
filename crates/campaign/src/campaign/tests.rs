@@ -1132,6 +1132,7 @@ fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
     target.containers.push(Container {
         name: "main".to_string(),
         image: "argocd/controller".to_string(),
+        volume_mounts: vec![],
     });
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
@@ -1787,7 +1788,14 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
     // The target pod — this is where the command actually runs, so its
     // host_paths are what ${SRC.MOUNT_PATH} should resolve to.
     let mut target = Pod::new("target", "kube-system");
-    target.host_paths.push("/host".to_string());
+    target.volume_mounts.push(ran_domain::Mount {
+        name: "host".to_string(),
+        mount_root: "/".to_string(),
+        mount_point: "/host".to_string(),
+        mount_type: None,
+        is_host_path: true,
+        read_only: false,
+    });
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
     push_exec_edge(&mut campaign, &exec_id, &target_id);

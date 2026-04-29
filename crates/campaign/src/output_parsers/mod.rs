@@ -577,24 +577,30 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
     if bool_arg("HostIPC")    { pod.host_ipc    = Confidence::Yes; }
     if bool_arg("HostNetwork") { pod.host_network = Confidence::Yes; }
 
-    pod.containers.push(Container {
-        name: pod_name.to_string(),
-        image: image.to_string(),
-    });
-
-    if let (Some(host_path), Some(mount_point)) = (
+    let host_mount = if let (Some(host_path), Some(mount_point)) = (
         cmd.args.get("HostPath").filter(|s| !s.is_empty()),
         cmd.args.get("Mount").filter(|s| !s.is_empty()),
     ) {
-        pod.host_paths.push(host_path.clone());
-        pod.volume_mounts.push(Mount {
+        Some(Mount {
             name: "hostmount".to_string(),
             mount_root: host_path.clone(),
             mount_point: mount_point.clone(),
             mount_type: None,
             is_host_path: true,
             read_only: false,
-        });
+        })
+    } else {
+        None
+    };
+
+    pod.containers.push(Container {
+        name: pod_name.to_string(),
+        image: image.to_string(),
+        volume_mounts: host_mount.iter().cloned().collect(),
+    });
+
+    if let Some(m) = host_mount {
+        pod.volume_mounts.push(m);
     }
 
     if let Some(node_name) = cmd.args.get("NodeName").filter(|s| !s.is_empty()) {

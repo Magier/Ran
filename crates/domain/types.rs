@@ -382,6 +382,8 @@ impl<'de> serde::Deserialize<'de> for BinaryPresence {
 pub struct Container {
     pub name: String,
     pub image: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volume_mounts: Vec<Mount>,
 }
 
 // ---------------------------------------------------------------------------

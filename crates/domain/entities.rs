@@ -405,8 +405,6 @@ pub struct Pod {
     // --- Composition ---
     pub containers: Vec<Container>,
     pub volume_mounts: Vec<Mount>,
-    /// Host filesystem paths that are bind-mounted into this pod.
-    pub host_paths: Vec<String>,
 
     // --- Runtime state ---
     pub phase: Option<PodPhase>,
@@ -430,7 +428,6 @@ impl Pod {
             automount_service_account_token: Confidence::Unknown,
             containers: Vec::new(),
             volume_mounts: Vec::new(),
-            host_paths: Vec::new(),
             phase: None,
             is_running: true,
         }
@@ -443,6 +440,15 @@ impl Pod {
     /// Returns `true` if the pod has any host-path volume mounts.
     pub fn has_host_paths(&self) -> bool {
         self.volume_mounts.iter().any(|m| m.is_host_path)
+    }
+
+    /// Container-side mount points for all host-path volumes (e.g. `["/host"]`).
+    pub fn host_path_mount_points(&self) -> Vec<&str> {
+        self.volume_mounts
+            .iter()
+            .filter(|m| m.is_host_path)
+            .map(|m| m.mount_point.as_str())
+            .collect()
     }
 
     /// Whether this pod runs with any host namespace sharing.
@@ -1683,11 +1689,6 @@ impl Merge for Pod {
                 .any(|em| em.mount_point == m.mount_point)
             {
                 self.volume_mounts.push(m.clone());
-            }
-        }
-        for hp in &incoming.host_paths {
-            if !self.host_paths.contains(hp) {
-                self.host_paths.push(hp.clone());
             }
         }
     }

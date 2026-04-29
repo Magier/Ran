@@ -314,17 +314,18 @@ fn resolve_entity_prop(entity: &CampaignEntityRef, prop: &str) -> Option<String>
 }
 
 fn resolve_mount_path(pod: &Pod) -> Option<String> {
-    match pod.host_paths.len() {
+    let mount_points = pod.host_path_mount_points();
+    match mount_points.len() {
         0 => None,
-        1 => Some(pod.host_paths[0].clone()),
+        1 => Some(mount_points[0].to_string()),
         n => {
             tracing::warn!(
                 pod = %pod.entity_name(),
                 count = n,
-                paths = ?pod.host_paths,
+                paths = ?mount_points,
                 "multiple host paths found; using the first one"
             );
-            Some(pod.host_paths[0].clone())
+            Some(mount_points[0].to_string())
         }
     }
 }
@@ -875,7 +876,14 @@ mod tests {
     #[test]
     fn src_mount_path_resolves_to_first_host_path() {
         let mut pod = Pod::new("attacker", "default");
-        pod.host_paths.push("/host/root".to_string());
+        pod.volume_mounts.push(ran_domain::Mount {
+            name: "host-root".to_string(),
+            mount_root: "/".to_string(),
+            mount_point: "/host/root".to_string(),
+            mount_type: None,
+            is_host_path: true,
+            read_only: false,
+        });
         let (campaign, pod_id) = campaign_with_pod(pod);
 
         let mut args = HashMap::from([
