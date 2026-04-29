@@ -434,7 +434,13 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
                 techniques: Vec::new(),
                 description: String::new(),
             },
-            results: r.results.clone(),
+            results: {
+                let mut results: Vec<String> = r.results.iter().filter(|s| !s.is_empty()).cloned().collect();
+                if results.is_empty() && !r.fail_reason.is_empty() {
+                    results.push(r.fail_reason.clone());
+                }
+                results
+            },
             success: r.success,
             status: if r.success { "Success" } else { "Failed" },
             started_at: ms_to_iso8601(r.started_at_ms),
