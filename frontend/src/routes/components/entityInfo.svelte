@@ -21,8 +21,8 @@
 	const obj = $derived(campaignState.getObjectById(objectId));
 
 	const EFFECT_FIELD_MAP: Record<string, string[]> = {
-		'linux.mounts': ['volume_mounts'],
-		'sys.envVar':   ['env_vars', 'envVars'],
+		'linux.mounts': ['mounts'],
+		'sys.envVar':   ['envVars'],
 		'sys.ip':       ['ips'],
 		'sys.files':    ['files', 'binaries'],
 		'sys.userID':   ['user_id'],
@@ -39,6 +39,10 @@
 
 	$effect(() => {
 		const id = objectId;
+		// Track accessLevel and compromised so the TTP list refreshes when
+		// exec access is gained (e.g. after an exec relation is created).
+		const _track = obj?.accessLevel;
+		const _track2 = obj?.compromised;
 		if (!id) { applicableTtps = []; return; }
 		campaignState.api.GetApplicableTTPs(id)
 			.then((ttps) => { applicableTtps = ttps; })
@@ -457,10 +461,12 @@
 				{@const dictEmpty = Object.keys(data).length === 0}
 				<!-- Special formatting for binaries and envVars dictionary -->
 				<details class="mb-1" class:field-changed={highlightedFields[label]}>
-					<summary class="flex items-center gap-1">
-						<span class:font-bold={!dictEmpty} class:text-surface-400={dictEmpty} class:opacity-40={dictEmpty}>{label}</span>
-						<span class="text-xs text-surface-500" class:opacity-40={dictEmpty}>({Object.keys(data).length})</span>
-						{@render runBtn(label)}
+					<summary>
+						<span class="inline-flex items-center gap-1">
+							<span class:font-bold={!dictEmpty} class:text-surface-400={dictEmpty} class:opacity-40={dictEmpty}>{label}</span>
+							<span class="text-xs text-surface-500" class:opacity-40={dictEmpty}>({Object.keys(data).length})</span>
+							{@render runBtn(label)}
+						</span>
 					</summary>
 					<ul class="list-inside list-none pl-5">
 						{#each Object.entries(data).sort(([a], [b]) => a.localeCompare(b)) as [key, value]}
