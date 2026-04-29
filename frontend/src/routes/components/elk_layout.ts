@@ -82,6 +82,8 @@ export type LayoutParams = {
   compoundEdgeLength: number; // stress target edge length within namespace compounds
   compoundPadding: number;    // padding inside namespace compound nodes
   stressIterations: number;   // max iterations of stress algorithm inside compounds
+  // Edge behaviour
+  usesStraightness: number;   // 0–10: how hard ELK tries to align "uses" edge endpoints vertically
   // Animation
   animationDuration: number;  // ms; 0 = instant
   // Strategies
@@ -97,6 +99,7 @@ export const DEFAULT_LAYOUT_PARAMS: LayoutParams = {
   compoundEdgeLength: 55,
   compoundPadding: 15,
   stressIterations: 300,
+  usesStraightness: 3,
   animationDuration: 250,
   layeringStrategy: 'NETWORK_SIMPLEX',
   nodePlacementStrategy: 'BRANDES_KOEPF',
@@ -170,7 +173,11 @@ export function createElkLayout(
     },
 
     edgeLayoutOptions: (edge: cytoscape.EdgeSingular) => {
-      if (INFORMATIONAL_EDGES.has(edge.data('name'))) {
+      const name: string = edge.data('name');
+      if (name === 'uses') {
+        return { 'elk.layered.priority.straightness': String(params.usesStraightness) };
+      }
+      if (INFORMATIONAL_EDGES.has(name)) {
         return undefined;
       }
       return {};

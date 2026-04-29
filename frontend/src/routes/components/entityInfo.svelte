@@ -127,7 +127,12 @@
 	function shouldShowField(label: string, data: any): boolean {
 		if (HEADER_FIELDS.has(label)) return false;
 		if (data === undefined) return false;
-		if (label === 'isRunning' && data !== false) return false;
+		// Hide running state when positive — it's the default and duplicates phase
+		if ((label === 'isRunning' || label === 'is_running') && data !== false) return false;
+		// Hide phase: Running — same info as is_running: true
+		if (label === 'phase' && data === 'Running') return false;
+		// Hide empty owner_references
+		if (label === 'owner_references' && Array.isArray(data) && data.length === 0) return false;
 		return true;
 	}
 
@@ -171,7 +176,7 @@
 	{#if obj}
 		<!-- Header: name + kind badge + copy-ID button -->
 		<div class="flex items-center gap-2 mb-1">
-			<span class="font-bold truncate text-sm md:text-base" class:field-changed={highlightedFields['name']}>{obj.name}</span>
+			<span class="font-bold truncate text-sm md:text-base" class:field-changed={highlightedFields['name']}>{obj.name}{#if obj.meta?.name_confidence === 'derived'}<sup class="text-surface-400 dark:text-surface-600 cursor-help" title="Name is derived — inferred from heuristics or indirect sources, not confirmed by the Kubernetes API">*</sup>{/if}</span>
 			{#if obj.kind}
 				<span class="badge bg-indigo-200 text-indigo-800 text-xs shrink-0">{obj.kind}</span>
 			{/if}
@@ -221,18 +226,18 @@
 								{/if}
 
 								<!-- Second level: volumeMounts and ports -->
-								{#if container.volumeMounts && container.volumeMounts.length > 0}
+								{#if container.volume_mounts && container.volume_mounts.length > 0}
 									<details class="mt-2">
 										<summary class="text-sm text-surface-600 dark:text-surface-400 cursor-pointer">
-											Volume Mounts ({container.volumeMounts.length})
+											Volume Mounts ({container.volume_mounts.length})
 										</summary>
-										<ul class="list-inside list-disc pl-4 text-sm mt-1">
-											{#each container.volumeMounts as vm}
-												<li>
-													<span class="font-mono">{vm.name}</span> →
-													<span class="font-mono">{vm.mountPath}</span>
-													{#if vm.readOnly}<span class="text-xs text-warning-500">(ro)</span>{/if}
-													{#if vm.subPath}<span class="text-xs text-surface-500">[{vm.subPath}]</span>{/if}
+										<ul class="list-inside list-none pl-4 space-y-0.5 mt-1">
+											{#each container.volume_mounts as vm}
+												<li class="flex items-center gap-1 flex-wrap text-xs">
+													<span class="font-mono">{vm.mount_point}</span>
+													<span class="text-surface-400">({vm.name})</span>
+													{#if vm.read_only}<span class="badge bg-warning-100 text-warning-800 text-xs">ro</span>{/if}
+													{#if vm.is_host_path}<span class="badge bg-error-100 text-error-800 text-xs">hostPath: {vm.mount_root}</span>{/if}
 												</li>
 											{/each}
 										</ul>
@@ -355,6 +360,17 @@
 						{/each}
 					</ul>
 				</details>
+			{:else if label === 'host_ipc' || label === 'host_network' || label === 'host_pid'}
+				{#if data === 'Yes' || data === true}
+					<div class="mb-1 flex items-center gap-1" class:field-changed={highlightedFields[label]}>
+						<span class="badge bg-error-100 text-error-800 dark:bg-error-900 dark:text-error-200 text-xs font-bold">{label}</span>
+						<Icon icon="mdi:alert" width="14" class="text-error-500" />
+					</div>
+				{:else}
+					<div class="mb-1 text-surface-400 dark:text-surface-600" class:field-changed={highlightedFields[label]}>
+						<span class="font-semibold mr-1">{label}:</span>{data}
+					</div>
+				{/if}
 			{:else if label === 'owner_references' && Array.isArray(data) && data.length > 0}
 				<div class="mb-1" class:field-changed={highlightedFields[label]}>
 					<span class="font-bold mr-1">Owner:</span>
@@ -383,9 +399,9 @@
 				{/if }
 			{:else if (label === 'binaries' || label === 'envVars') && typeof data === 'object' && data !== null}
 				<!-- Special formatting for binaries and envVars dictionary -->
-				<details class="mb-1" class:field-changed={highlightedFields[label]}>
+				<details class="mb-1" class:field-changed={highlightedFields[label]} class:opacity-40={Object.keys(data).length === 0}>
 					<summary>
-						<span class="font-bold">{label}</span>
+						<span class:font-bold={Object.keys(data).length > 0} class:text-surface-400={Object.keys(data).length === 0}>{label}</span>
 						<span class="text-xs text-surface-500">({Object.keys(data).length})</span>
 					</summary>
 					<ul class="list-inside list-none pl-5">
@@ -403,6 +419,55 @@
 						{/each}
 					</ul>
 				</details>
+			{:else if label === 'meta' && typeof data === 'object' && data !== null}
+				{@const uid = data.uid}
+				{@const createdAt = data.created_at}
+				{@const labels = data.labels && Object.keys(data.labels).length > 0 ? data.labels : null}
+				{@const annotations = data.annotations && Object.keys(data.annotations).length > 0 ? data.annotations : null}
+				{@const owner = data.owner ?? null}
+				{#if uid || createdAt || labels || annotations || owner}
+					<div class="mb-1 space-y-0.5" class:field-changed={highlightedFields[label]}>
+						{#if createdAt}
+							<div><span class="font-semibold mr-1">Created:</span>{createdAt}</div>
+						{/if}
+						{#if uid}
+							<div><span class="font-semibold mr-1">UID:</span><span class="font-mono text-xs">{uid}</span></div>
+						{/if}
+						{#if owner}
+							<div>
+								<span class="font-semibold mr-1">Owner:</span>
+								<span class="badge bg-indigo-100 text-indigo-800 text-xs">{owner.kind}</span>
+								<span class="font-mono text-xs ml-1">{owner.name}</span>
+							</div>
+						{/if}
+						{#if labels}
+							<details>
+								<summary class="cursor-pointer">
+									<span class="font-semibold">Labels</span>
+									<span class="text-xs text-surface-500">({Object.keys(labels).length})</span>
+								</summary>
+								<ul class="pl-4 list-none font-mono text-xs space-y-0.5 mt-1">
+									{#each Object.entries(labels).sort(([a], [b]) => a.localeCompare(b)) as [k, v]}
+										<li><span class="text-surface-500">{k}=</span>{v}</li>
+									{/each}
+								</ul>
+							</details>
+						{/if}
+						{#if annotations}
+							<details>
+								<summary class="cursor-pointer">
+									<span class="font-semibold">Annotations</span>
+									<span class="text-xs text-surface-500">({Object.keys(annotations).length})</span>
+								</summary>
+								<ul class="pl-4 list-none font-mono text-xs space-y-0.5 mt-1">
+									{#each Object.entries(annotations).sort(([a], [b]) => a.localeCompare(b)) as [k, v]}
+										<li><span class="text-surface-500">{k}=</span>{v}</li>
+									{/each}
+								</ul>
+							</details>
+						{/if}
+					</div>
+				{/if}
 			{:else if label === 'token' && obj.kind === 'ServiceAccount' && typeof data === 'object' && data !== null && data.Raw}
 				<!-- Special handling for ServiceAccount token with copy button -->
 				<div class="mb-1 flex items-center gap-2" class:field-changed={highlightedFields[label]}>
@@ -426,10 +491,10 @@
 						</button>
 				</div>
 			{:else if typeof data === 'object' && data !== null}
-				<!-- Collapsible section for objects/arrays -->
-				<details class="mb-1" class:field-changed={highlightedFields[label]}>
+				{@const isEmpty = Array.isArray(data) ? data.length === 0 : Object.keys(data).length === 0}
+				<details class="mb-1" class:field-changed={highlightedFields[label]} class:opacity-40={isEmpty}>
 					<summary>
-						<span class="font-bold">{label}</span>
+						<span class:font-bold={!isEmpty} class:text-surface-400={isEmpty}>{label}</span>
 						<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : Object.keys(data).length})</span>
 					</summary>
 					<pre class="max-h-80 overflow-scroll">{JSON.stringify(data, null, 2)}</pre>
