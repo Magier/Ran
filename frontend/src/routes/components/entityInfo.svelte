@@ -19,6 +19,43 @@
 	const items = [];
 	// const tree = new Tree({ items });
 	const obj = $derived(campaignState.getObjectById(objectId));
+
+	const EFFECT_FIELD_MAP: Record<string, string[]> = {
+		'linux.mounts': ['volume_mounts'],
+		'sys.envVar':   ['env_vars', 'envVars'],
+		'sys.ip':       ['ips'],
+		'sys.files':    ['files', 'binaries'],
+		'sys.userID':   ['user_id'],
+	};
+
+	function isEmpty(data: any): boolean {
+		if (data === undefined || data === null || data === '') return true;
+		if (Array.isArray(data)) return data.length === 0;
+		if (typeof data === 'object') return Object.keys(data).length === 0;
+		return false;
+	}
+
+	let applicableTtps = $state<TTP[]>([]);
+
+	$effect(() => {
+		const id = objectId;
+		if (!id) { applicableTtps = []; return; }
+		campaignState.api.GetApplicableTTPs(id)
+			.then((ttps) => { applicableTtps = ttps; })
+			.catch(() => { applicableTtps = []; });
+	});
+
+	const fieldTtpIndex = $derived.by(() => {
+		const idx = new Map<string, TTP>();
+		for (const ttp of applicableTtps) {
+			for (const effect of ttp.effects ?? []) {
+				for (const field of EFFECT_FIELD_MAP[effect] ?? []) {
+					if (!idx.has(field)) idx.set(field, ttp);
+				}
+			}
+		}
+		return idx;
+	});
 	
 	// Track previous values and highlighted fields
 	let previousObjectId: string | null = null;
@@ -133,6 +170,8 @@
 		if (label === 'phase' && data === 'Running') return false;
 		// Hide empty owner_references
 		if (label === 'owner_references' && Array.isArray(data) && data.length === 0) return false;
+		// Empty field: only show if a TTP can discover it (the button is the point)
+		if (isEmpty(data)) return fieldTtpIndex.has(label);
 		return true;
 	}
 
@@ -155,6 +194,10 @@
 		});
 	}
 
+	function ttpForField(label: string): TTP | undefined {
+		return fieldTtpIndex.get(label);
+	}
+
 	function readFile(path: string) {
 		const ttp = campaignState.getTtpById('read-file')
 		if (ttp) {
@@ -174,6 +217,18 @@
 <!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
 <div class="{className} pointer-events-auto overflow-auto border border-surface-600 rounded-lg bg-surface-100-900 p-4 shadow-xl text-xs md:text-sm w-full" >
 	{#if obj}
+		{#snippet runBtn(label: string)}
+			{@const ttp = ttpForField(label)}
+			{#if ttp && sendAction}
+				<button
+					class="shrink-0 cursor-pointer rounded p-0.5 hover:bg-surface-300 dark:hover:bg-surface-700 transition-colors"
+					title="Run: {ttp.name}"
+					onclick={() => sendAction!(ttp!, {})}
+				>
+					<Icon icon="mdi:play-circle-outline" width="14" class="text-primary-500" />
+				</button>
+			{/if}
+		{/snippet}
 		<!-- Header: name + kind badge + copy-ID button -->
 		<div class="flex items-center gap-2 mb-1">
 			<span class="font-bold truncate text-sm md:text-base" class:field-changed={highlightedFields['name']}>{obj.name}{#if obj.meta?.name_confidence === 'derived'}<sup class="text-surface-400 dark:text-surface-600 cursor-help" title="Name is derived — inferred from heuristics or indirect sources, not confirmed by the Kubernetes API">*</sup>{/if}</span>
@@ -383,12 +438,13 @@
 				</div>
 			{:else if Array.isArray(data) && data.length > 0}
 				{#if data.length === 1}
-					<div class="mb-1" class:field-changed={highlightedFields[label]}><span class="font-bold mr-1">{label}:</span>{prettyPrint(data[0])}</div>
+					<div class="mb-1 flex items-center gap-1" class:field-changed={highlightedFields[label]}><span class="font-bold mr-1">{label}:</span>{prettyPrint(data[0])}{@render runBtn(label)}</div>
 				{:else}
 				<details class="mb-1" class:field-changed={highlightedFields[label]}>
-					<summary>
+					<summary class="flex items-center gap-1">
 						<span class="font-bold">{label}</span>
 						<span class="text-xs text-surface-500">({data.length})</span>
+						{@render runBtn(label)}
 					</summary>
 					<ul class="list-inside list-none pl-5">
 						{#each data as item}
@@ -493,15 +549,17 @@
 			{:else if typeof data === 'object' && data !== null}
 				{@const isEmpty = Array.isArray(data) ? data.length === 0 : Object.keys(data).length === 0}
 				<details class="mb-1" class:field-changed={highlightedFields[label]} class:opacity-40={isEmpty}>
-					<summary>
+					<summary class="flex items-center gap-1">
 						<span class:font-bold={!isEmpty} class:text-surface-400={isEmpty}>{label}</span>
 						<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : Object.keys(data).length})</span>
+						{@render runBtn(label)}
 					</summary>
 					<pre class="max-h-80 overflow-scroll">{JSON.stringify(data, null, 2)}</pre>
 				</details>
 			{:else if data !== undefined}
-				<div class="mb-1" class:field-changed={highlightedFields[label]}>
+				<div class="mb-1 flex items-center gap-1" class:field-changed={highlightedFields[label]}>
 					<span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}
+					{@render runBtn(label)}
 				</div>
 			{/if}
 		{/each}
