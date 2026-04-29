@@ -20,12 +20,19 @@
 	// const tree = new Tree({ items });
 	const obj = $derived(campaignState.getObjectById(objectId));
 
+	// Fields where the button should be suppressed for specific entity kinds.
+	const FIELD_KIND_EXCLUDE: Record<string, string[]> = {
+		'service_account_name': ['ServiceAccount'],
+	};
+
 	const EFFECT_FIELD_MAP: Record<string, string[]> = {
-		'linux.mounts': ['mounts'],
-		'sys.envVar':   ['envVars'],
-		'sys.ip':       ['ips'],
-		'sys.files':    ['files', 'binaries'],
-		'sys.userID':   ['user_id'],
+		'linux.mounts':            ['mounts'],
+		'sys.envVar':              ['envVars'],
+		'sys.ip':                  ['ips'],
+		'sys.files':               ['files', 'binaries'],
+		'sys.userID':              ['user_id'],
+		'rawServiceaccountToken':       ['service_account_name'],
+		'k8s.SelfSubjectRulesReview':   ['can'],
 	};
 
 	function isEmpty(data: any): boolean {
@@ -199,6 +206,8 @@
 	}
 
 	function ttpForField(label: string): TTP | undefined {
+		const excludedKinds = FIELD_KIND_EXCLUDE[label] ?? [];
+		if (obj?.kind && excludedKinds.includes(obj.kind)) return undefined;
 		return fieldTtpIndex.get(label);
 	}
 
@@ -572,8 +581,9 @@
 			{/if}
 		{/each}
 		<!-- Placeholder rows for discoverable fields not yet present on the entity -->
-		{#each [...fieldTtpIndex.entries()].filter(([field]) => !(field in (obj ?? {}))) as [field, ttp]}
-			{#if sendAction}
+		{#each [...fieldTtpIndex.entries()].filter(([field]) => !(field in (obj ?? {}))) as [field]}
+			{@const ttp = ttpForField(field)}
+			{#if ttp && sendAction}
 				<div class="mb-1 flex items-center gap-1">
 					<span class="opacity-40 text-surface-400 mr-1">{field}:</span>
 					<span class="opacity-40 italic text-surface-400">—</span>
