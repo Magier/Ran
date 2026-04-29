@@ -7,6 +7,7 @@ use tracing::debug;
 
 use campaign::ttp_applicability::{
     ttp_access_level_satisfied, ttp_exists_satisfied, ttp_has_token_satisfied, ttp_rbac_satisfied,
+    ttp_related_satisfied,
 };
 use campaign::CampaignEntityRef;
 use ran_domain::AccessLevel;
@@ -230,6 +231,7 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
                 && ttp_exists_satisfied(ttp, &campaign)
                 && (!is_system_target || ttp_access_level_satisfied(ttp, target_access_level))
                 && ttp_has_token_satisfied(ttp, target_has_token)
+                && ttp_related_satisfied(ttp, target_id, &target_kind, &campaign)
         })
         .collect::<Vec<_>>();
 

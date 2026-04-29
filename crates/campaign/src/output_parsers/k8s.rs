@@ -66,6 +66,16 @@ mod k8s_json {
     }
 
     #[derive(Deserialize, Default)]
+    pub struct ContainerVolumeMount {
+        #[serde(default)]
+        pub name: String,
+        #[serde(rename = "mountPath", default)]
+        pub mount_path: String,
+        #[serde(rename = "readOnly", default)]
+        pub read_only: bool,
+    }
+
+    #[derive(Deserialize, Default)]
     pub struct Container {
         #[serde(default)]
         pub name: String,
@@ -73,6 +83,8 @@ mod k8s_json {
         pub image: String,
         #[serde(rename = "securityContext", default)]
         pub security_context: Option<ContainerSecCtx>,
+        #[serde(rename = "volumeMounts", default)]
+        pub volume_mounts: Vec<ContainerVolumeMount>,
     }
 
     #[derive(Deserialize, Default)]
@@ -637,17 +649,16 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str, _args: &HashMap<String, Strin
         pod.host_ipc = item.spec.host_ipc.into();
         pod.host_network = item.spec.host_network.into();
 
-        // Security context: any container flagged as privileged makes the pod privileged.
-        let all_containers = item
+        // Build a volume-name → host path index (only host-path volumes for now).
+        let vol_host_paths: std::collections::HashMap<&str, &str> = item
             .spec
-            .containers
+            .volumes
             .iter()
-            .chain(item.spec.init_containers.iter());
-        for c in all_containers {
-            pod.containers.push(ran_domain::Container {
-                name: c.name.clone(),
-                image: c.image.clone(),
-            });
+            .filter_map(|v| v.host_path.as_ref().map(|hp| (v.name.as_str(), hp.path.as_str())))
+            .collect();
+
+        // Containers: security context + per-container volume mounts.
+        for c in item.spec.containers.iter().chain(item.spec.init_containers.iter()) {
             if let Some(sc) = &c.security_context {
                 if sc.privileged == Some(true) {
                     pod.privileged = true.into();
@@ -656,20 +667,41 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str, _args: &HashMap<String, Strin
                     pod.read_only_root_fs = rorf.into();
                 }
             }
+
+            let volume_mounts = c
+                .volume_mounts
+                .iter()
+                .map(|vm| {
+                    let (mount_root, is_host_path) = vol_host_paths
+                        .get(vm.name.as_str())
+                        .map(|hp| (hp.to_string(), true))
+                        .unwrap_or_default();
+                    Mount {
+                        name: vm.name.clone(),
+                        mount_point: vm.mount_path.clone(),
+                        mount_root,
+                        mount_type: None,
+                        is_host_path,
+                        read_only: vm.read_only,
+                    }
+                })
+                .collect();
+
+            pod.containers.push(ran_domain::Container {
+                name: c.name.clone(),
+                image: c.image.clone(),
+                volume_mounts,
+            });
         }
 
-        // Volumes — record host-path mounts.
-        for vol in &item.spec.volumes {
-            if let Some(hp) = &vol.host_path {
-                pod.host_paths.push(hp.path.clone());
-                pod.volume_mounts.push(Mount {
-                    name: vol.name.clone(),
-                    mount_root: hp.path.clone(),
-                    mount_point: String::new(), // mountPath lives on VolumeMount, not Volume
-                    mount_type: None,
-                    is_host_path: true,
-                    read_only: false,
-                });
+        // Pod-level host-path mounts — derived from containers, de-duplicated by
+        // volume name. Used by grounding (SRC.MOUNT_PATH) and has_host_paths().
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for c in &pod.containers {
+            for m in &c.volume_mounts {
+                if m.is_host_path && seen.insert(m.name.as_str()) {
+                    pod.volume_mounts.push(m.clone());
+                }
             }
         }
 
