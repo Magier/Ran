@@ -454,11 +454,13 @@
 				</details>
 				{/if }
 			{:else if (label === 'binaries' || label === 'envVars') && typeof data === 'object' && data !== null}
+				{@const dictEmpty = Object.keys(data).length === 0}
 				<!-- Special formatting for binaries and envVars dictionary -->
-				<details class="mb-1" class:field-changed={highlightedFields[label]} class:opacity-40={Object.keys(data).length === 0}>
-					<summary>
-						<span class:font-bold={Object.keys(data).length > 0} class:text-surface-400={Object.keys(data).length === 0}>{label}</span>
-						<span class="text-xs text-surface-500">({Object.keys(data).length})</span>
+				<details class="mb-1" class:field-changed={highlightedFields[label]}>
+					<summary class="flex items-center gap-1">
+						<span class:font-bold={!dictEmpty} class:text-surface-400={dictEmpty} class:opacity-40={dictEmpty}>{label}</span>
+						<span class="text-xs text-surface-500" class:opacity-40={dictEmpty}>({Object.keys(data).length})</span>
+						{@render runBtn(label)}
 					</summary>
 					<ul class="list-inside list-none pl-5">
 						{#each Object.entries(data).sort(([a], [b]) => a.localeCompare(b)) as [key, value]}
@@ -548,18 +550,34 @@
 				</div>
 			{:else if typeof data === 'object' && data !== null}
 				{@const isEmpty = Array.isArray(data) ? data.length === 0 : Object.keys(data).length === 0}
-				<details class="mb-1" class:field-changed={highlightedFields[label]} class:opacity-40={isEmpty}>
+				<details class="mb-1" class:field-changed={highlightedFields[label]}>
 					<summary class="flex items-center gap-1">
-						<span class:font-bold={!isEmpty} class:text-surface-400={isEmpty}>{label}</span>
-						<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : Object.keys(data).length})</span>
+						<span class:font-bold={!isEmpty} class:text-surface-400={isEmpty} class:opacity-40={isEmpty}>{label}</span>
+						<span class="text-xs text-surface-500 " class:opacity-40={isEmpty}>({Array.isArray(data) ? data.length : Object.keys(data).length})</span>
 						{@render runBtn(label)}
 					</summary>
-					<pre class="max-h-80 overflow-scroll">{JSON.stringify(data, null, 2)}</pre>
+					<pre class="max-h-80 overflow-scroll" class:opacity-40={isEmpty}>{JSON.stringify(data, null, 2)}</pre>
 				</details>
 			{:else if data !== undefined}
 				<div class="mb-1 flex items-center gap-1" class:field-changed={highlightedFields[label]}>
 					<span class="font-bold mr-1">{label}:</span>{prettyPrint(data)}
 					{@render runBtn(label)}
+				</div>
+			{/if}
+		{/each}
+		<!-- Placeholder rows for discoverable fields not yet present on the entity -->
+		{#each [...fieldTtpIndex.entries()].filter(([field]) => !(field in (obj ?? {}))) as [field, ttp]}
+			{#if sendAction}
+				<div class="mb-1 flex items-center gap-1">
+					<span class="opacity-40 text-surface-400 mr-1">{field}:</span>
+					<span class="opacity-40 italic text-surface-400">—</span>
+					<button
+						class="shrink-0 cursor-pointer rounded p-0.5 hover:bg-surface-300 dark:hover:bg-surface-700 transition-colors"
+						title="Run: {ttp.name}"
+						onclick={() => sendAction!(ttp, {})}
+					>
+						<Icon icon="mdi:play-circle-outline" width="14" class="text-primary-500" />
+					</button>
 				</div>
 			{/if}
 		{/each}
