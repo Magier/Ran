@@ -119,6 +119,85 @@ impl ApiService for AppState {
     }
 
     async fn reset_campaign(&self) -> Result<(), ApiError> {
+        // -----------------------------------------------------------------------
+        // Phase 1: build and dispatch cleanup actions
+        // -----------------------------------------------------------------------
+        let cleanup_actions: Vec<c2::ExecTtp> = {
+            let mut campaign = self
+                .campaign
+                .write()
+                .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
+            campaign.build_cleanup_actions(&self.armory)
+            // write lock released here
+        };
+
+        if !cleanup_actions.is_empty() {
+            let cleanup_ids: std::collections::HashSet<String> =
+                cleanup_actions.iter().map(|e| e.id.clone()).collect();
+
+            info!(
+                count = cleanup_ids.len(),
+                "dispatching cleanup actions before reset"
+            );
+
+            for exec in cleanup_actions {
+                if let Err(e) = self.c2.send(exec).await {
+                    warn!("failed to dispatch cleanup action: {}", e);
+                }
+            }
+
+            // Wait for all cleanup results to be recorded by the C2 event
+            // processor (which runs independently and holds the write lock
+            // briefly per result). Poll with 200 ms intervals, 30 s deadline.
+            let deadline =
+                tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
+
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    let remaining = {
+                        let guard = self
+                            .campaign
+                            .read()
+                            .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
+                        let completed: std::collections::HashSet<String> = guard
+                            .execution_records
+                            .iter()
+                            .filter(|r| r.is_cleanup)
+                            .map(|r| r.id.clone())
+                            .collect();
+                        cleanup_ids.difference(&completed).count()
+                    };
+                    warn!(
+                        remaining,
+                        "cleanup timed out after 30s; proceeding with reset"
+                    );
+                    break;
+                }
+
+                {
+                    let guard = self
+                        .campaign
+                        .read()
+                        .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
+                    let completed: std::collections::HashSet<String> = guard
+                        .execution_records
+                        .iter()
+                        .filter(|r| r.is_cleanup)
+                        .map(|r| r.id.clone())
+                        .collect();
+                    if cleanup_ids.is_subset(&completed) {
+                        info!("all cleanup actions completed");
+                        break;
+                    }
+                }
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Phase 2: wipe campaign state
+        // -----------------------------------------------------------------------
         let mut campaign = self
             .campaign
             .write()
