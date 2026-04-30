@@ -262,6 +262,65 @@ impl Campaign {
         })
     }
 
+    pub fn build_cleanup_actions(&mut self, armory: &Armory) -> Vec<ExecTtp> {
+        let records: Vec<crate::execution_record::ExecutionRecord> =
+            self.execution_records.clone();
+
+        let mut actions = Vec::new();
+
+        for record in records.iter().rev() {
+            if record.is_cleanup {
+                continue;
+            }
+
+            let Some(ttp) = armory.get_ttp(&record.ttp_id) else {
+                continue;
+            };
+
+            let Some(ref cleanup_proc) = ttp.cleanup else {
+                continue;
+            };
+
+            let cleanup_ttp = Ttp {
+                id: format!("{}_cleanup", ttp.id),
+                name: format!("{} Cleanup", ttp.name),
+                description: ttp.description.clone(),
+                tactic: ttp.tactic.clone(),
+                techniques: ttp.techniques.clone(),
+                status: ttp.status.clone(),
+                params: ttp.params.clone(),
+                requires: ttp.requires.clone(),
+                effects: vec![],
+                procedures: vec![cleanup_proc.clone()],
+                references: vec![],
+                cleanup: None,
+            };
+
+            match self.prepare_action_with_ttp(
+                record.target_id.clone(),
+                None,
+                Some(cleanup_proc.id.clone()),
+                cleanup_ttp,
+                record.args.clone(),
+            ) {
+                Ok(mut exec) => {
+                    exec.is_cleanup = true;
+                    actions.push(exec);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        ttp_id = %record.ttp_id,
+                        target_id = %record.target_id,
+                        error = ?e,
+                        "failed to build cleanup action; skipping"
+                    );
+                }
+            }
+        }
+
+        actions
+    }
+
     fn assert_target_exists(&self, target_id: &str) -> Result<(), ExecuteActionError> {
         let exists = self
             .get_entities()
