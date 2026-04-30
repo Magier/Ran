@@ -140,6 +140,8 @@ impl ApiService for AppState {
                 "dispatching cleanup actions before reset"
             );
 
+            // Cleanup ExecTtps are intentionally not registered in open_steps —
+            // we track completion by polling execution_records instead.
             for exec in cleanup_actions {
                 if let Err(e) = self.c2.send(exec).await {
                     warn!("failed to dispatch cleanup action: {}", e);
