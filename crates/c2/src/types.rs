@@ -42,6 +42,10 @@ pub struct ExecTtp {
     /// `None` means the raw output can be parsed directly.
     #[serde(default)]
     pub output_transform: Option<OutputTransform>,
+    /// True when this command was generated as part of post-emulation cleanup
+    /// rather than the primary attack sequence.
+    #[serde(default)]
+    pub is_cleanup: bool,
 }
 
 impl ExecTtp {

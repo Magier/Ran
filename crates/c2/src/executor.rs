@@ -457,6 +457,7 @@ mod tests {
                 requires: Default::default(),
                 effects: vec![],
                 procedures: vec![],
+                cleanup: None,
                 references: vec![],
             },
             procedure: Procedure {
@@ -470,6 +471,7 @@ mod tests {
             exec_chain: vec!["ns/default/pod/nginx".to_string()],
             exec_system_id: exec_system_id.to_string(),
             output_transform: None,
+            is_cleanup: false,
         }
     }
 }

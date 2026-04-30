@@ -158,10 +158,7 @@ impl Campaign {
     /// validate_request        — reject empty IDs immediately
     ///   → assert_target_exists  — target must be in the campaign
     ///   → resolve_ttp_and_defaults — TTP lookup + param default filling
-    ///   → ground_args_from_context — NS / NODE / TOKEN injection from entity
-    ///   → resolve_lateral_src  — unified SRC injection for Lateral Movement
-    ///   → ground_procedure_and_effects — Tera + ${} substitution, GroundingReport
-    ///   → route_exec_channel   — select C2 backend + optional hop wrapping
+    ///   → [delegate to prepare_action_with_ttp for stages 2-6]
     /// ```
     ///
     /// Each stage takes typed inputs and returns typed outputs; errors short-
@@ -176,16 +173,45 @@ impl Campaign {
         // Stage 1: validate inputs and look up static data.
         validate_request(&request)?;
         self.assert_target_exists(&request.target_id)?;
-        let (mut ttp, mut args) =
+        let (ttp, args) =
             resolve_ttp_and_defaults(&request.action_id, request.args, armory)?;
+        self.prepare_action_with_ttp(
+            request.target_id,
+            request.exec_system_id,
+            request.procedure_id,
+            ttp,
+            args,
+        )
+    }
+
+    /// Internal pipeline: stages 2-6 of action preparation.
+    ///
+    /// Called by both `prepare_action` (normal attack steps) and
+    /// `build_cleanup_actions` (synthesized cleanup TTPs).  Does NOT validate
+    /// that the target entity is in the campaign — the caller is responsible
+    /// for deciding whether to skip missing targets.
+    pub(super) fn prepare_action_with_ttp(
+        &mut self,
+        target_id: String,
+        exec_system_id: Option<String>,
+        procedure_id: Option<String>,
+        mut ttp: Ttp,
+        mut args: HashMap<String, String>,
+    ) -> Result<ExecTtp, ExecuteActionError> {
+        // Fill param defaults that weren't already in args.
+        for p in &ttp.params {
+            if !args.contains_key(&p.name) && !p.default.is_empty() {
+                args.insert(p.name.clone(), p.default.clone());
+            }
+        }
 
         // Stage 2: normalise the caller-supplied routing hint.
-        let exec_hint = normalise_exec_hint(request.exec_system_id.as_deref(), &request.target_id);
+        let exec_hint = normalise_exec_hint(exec_system_id.as_deref(), &target_id);
 
         // Stage 3: inject context args (NS / NODE / TOKEN) from the target entity
         // before template substitution so cross-param references like `${NS}` in
         // arg defaults resolve correctly.
-        ground_args_from_context(&mut args, &request.target_id, self);
+        ground_args_from_context(&mut args, &target_id, self);
 
         // Stage 4: resolve lateral-movement source and inject SRC — single,
         // authoritative site.  For non-lateral TTPs this is a no-op.
@@ -196,7 +222,7 @@ impl Campaign {
         // executing entity (e.g. ${SRC.MOUNT_PATH} for host-path mounts).
         // For non-lateral TTPs the command runs ON the target, so SRC = target.
         if !args.contains_key("SRC") {
-            args.insert("SRC".to_string(), request.target_id.clone());
+            args.insert("SRC".to_string(), target_id.clone());
         }
 
         // Stage 4.5: expand ${REF.PROP} placeholders in arg values now that SRC
@@ -206,16 +232,16 @@ impl Campaign {
         // ${TARGET.*} references in parameter defaults (e.g. CIDR = "${TARGET.IP}/24")
         // are resolved correctly.
         args.entry("TARGET_ID".to_string())
-            .or_insert_with(|| request.target_id.clone());
+            .or_insert_with(|| target_id.clone());
         ground_entity_ref_vars(&mut args, self);
 
         // Stage 5: ground the procedure command and effects.
-        let mut procedure = self.select_procedure(&ttp, request.procedure_id.as_deref())?;
+        let mut procedure = self.select_procedure(&ttp, procedure_id.as_deref())?;
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
 
         // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
         let (exec_system_id, target_id, exec_chain, output_transform) = self.route_exec_channel(
-            &request.target_id,
+            &target_id,
             &ttp.tactic,
             &mut procedure,
             exec_hint.as_deref(),
@@ -232,6 +258,7 @@ impl Campaign {
             exec_system_id,
             started_at_ms: current_time_millis(),
             output_transform,
+            is_cleanup: false,
         })
     }
 

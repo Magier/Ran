@@ -34,6 +34,8 @@ pub struct Ttp {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub effects: Vec<String>,
     pub procedures: Vec<Procedure>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cleanup: Option<Procedure>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub references: Vec<String>,
 }

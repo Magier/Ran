@@ -440,6 +440,7 @@ mod tests {
                     tool: None,
                     is_local_command: None,
                 }],
+                cleanup: None,
                 references: vec![],
             },
             procedure: Procedure {
@@ -454,6 +455,7 @@ mod tests {
             exec_system_id: String::new(),
             started_at_ms: 0,
             output_transform: None,
+            is_cleanup: false,
         }
     }
 

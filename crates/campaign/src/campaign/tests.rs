@@ -36,6 +36,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
                 tool: None,
                 is_local_command: None,
             }],
+            cleanup: None,
             references: vec![],
         },
         procedure: Procedure {
@@ -50,6 +51,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         exec_system_id: String::new(),
         started_at_ms: 0,
         output_transform: None,
+        is_cleanup: false,
     }
 }
 
@@ -422,6 +424,7 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
         fail_reason: String::new(),
         started_at_ms: 1,
         completed_at_ms: 2,
+        is_cleanup: false,
     });
 
     let ch = campaign
@@ -524,6 +527,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         fail_reason: String::new(),
         started_at_ms: 1,
         completed_at_ms: 2,
+        is_cleanup: false,
     });
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-2".to_string(),
@@ -541,6 +545,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         fail_reason: String::new(),
         started_at_ms: 3,
         completed_at_ms: 4,
+        is_cleanup: false,
     });
 
     let ch = campaign.resolve_exec_source().expect("should find source");
@@ -677,6 +682,7 @@ fn minimal_armory(ttp_id: &str) -> Armory {
             tool: None,
             is_local_command: None,
         }],
+        cleanup: None,
         references: vec![],
     }])
 }
@@ -802,6 +808,7 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
             tool: None,
             is_local_command: None,
         }],
+        cleanup: None,
         references: vec![],
     }]);
 
@@ -849,6 +856,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
             requires: Default::default(),
             effects: vec![],
             procedures: vec![],
+            cleanup: None,
             references: vec![],
         },
         procedure: Procedure {
@@ -863,6 +871,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         exec_system_id: target_id.to_string(),
         started_at_ms: 0,
         output_transform: None,
+        is_cleanup: false,
     }
 }
 
@@ -1005,6 +1014,7 @@ fn armory_with_command(ttp_id: &str, command: &str, tool: Option<&str>) -> Armor
             tool: tool.map(str::to_string),
             is_local_command: None,
         }],
+        cleanup: None,
         references: vec![],
     }])
 }
@@ -1260,6 +1270,7 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
             tool: None,
             is_local_command: Some(true),
         }],
+        cleanup: None,
         references: vec![],
     }]);
 
@@ -1822,6 +1833,7 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
             tool: None,
             is_local_command: None,
         }],
+        cleanup: None,
         references: vec![],
     }]);
 
@@ -1843,4 +1855,50 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
         "expected ${{SRC.MOUNT_PATH}} resolved to /host, got: {}",
         exec.procedure.command
     );
+}
+
+// ---------------------------------------------------------------------------
+// prepare_action_with_ttp — direct pipeline invocation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn prepare_action_with_ttp_produces_same_result_as_prepare_action() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("demo", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let ttp = Ttp {
+        id: "test-ttp".to_string(),
+        name: "Test TTP".to_string(),
+        description: String::new(),
+        tactic: "Discovery".to_string(),
+        techniques: vec![],
+        status: "stable".to_string(),
+        params: vec![],
+        requires: Default::default(),
+        effects: vec![],
+        procedures: vec![Procedure {
+            id: "shell".to_string(),
+            command: "id".to_string(),
+            tool: None,
+            is_local_command: None,
+        }],
+        references: vec![],
+        cleanup: None,
+    };
+
+    let exec = campaign
+        .prepare_action_with_ttp(
+            target_id.clone(),
+            None,
+            None,
+            ttp,
+            std::collections::HashMap::new(),
+        )
+        .expect("should prepare action");
+
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+    assert_eq!(exec.target_id, target_id);
 }
