@@ -24,5 +24,5 @@ pub use relations::{
 };
 pub use types::{
     AccessLevel, BinaryPresence, Confidence, Container, EntityId, K8sMeta, Mount, NameConfidence,
-    OwnerRef, Process, SessionInfo, SessionStatus, SystemInfo,
+    OutputTransformKind, OwnerRef, Process, SessionInfo, SessionStatus, SystemInfo,
 };

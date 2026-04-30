@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{relation::C2Channel, EntityId, Relation};
+use crate::{relation::C2Channel, EntityId, OutputTransformKind, Relation};
 
 // ---------------------------------------------------------------------------
 // Contains
@@ -133,10 +133,21 @@ impl Relation for RunsOn {
 // ---------------------------------------------------------------------------
 
 /// Pod→Node relation indicating source pod can invoke kubelet exec on node.
+///
+/// Carries the same `envelope` / `output_transform` fields as `RceCanExec` so
+/// the routing engine can wrap inner commands and post-process output
+/// without matching on the relation name.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KubeletExecSource {
     pub pod_id: EntityId,
     pub node_id: EntityId,
+    /// Command template with `${CMD}` as the inner-command placeholder, e.g.
+    /// `ran-ws --url "wss://…" --token … -- ${CMD}`.
+    /// Stored from `PROCEDURE_CMD` at effect-parse time so routing can call
+    /// `rel.wrap_command(inner_cmd)` without knowing about ran-ws.
+    pub envelope: Option<String>,
+    /// Output post-processing required for commands routed over this channel.
+    pub output_transform: Option<OutputTransformKind>,
 }
 
 impl KubeletExecSource {
@@ -144,7 +155,24 @@ impl KubeletExecSource {
         Self {
             pod_id: EntityId::new(pod_id),
             node_id: EntityId::new(node_id),
+            envelope: None,
+            output_transform: None,
         }
+    }
+
+    pub fn with_envelope(mut self, envelope: impl Into<String>) -> Self {
+        self.envelope = Some(envelope.into());
+        self
+    }
+
+    pub fn with_opt_envelope(mut self, envelope: Option<String>) -> Self {
+        self.envelope = envelope;
+        self
+    }
+
+    pub fn with_output_transform(mut self, t: OutputTransformKind) -> Self {
+        self.output_transform = Some(t);
+        self
     }
 }
 
@@ -647,10 +675,12 @@ pub struct RelationSummary {
     /// `true` when the source entity can execute commands on the target (i.e.
     /// the originating relation implements [`C2Channel`]).
     pub is_exec_channel: bool,
-    /// For `rce.can-exec` edges: the grounded exploit command template with
-    /// `${CMD}` as the placeholder for the command to inject.  `None` for all
-    /// other relation types.
+    /// For exec-channel edges: the grounded command template with `${CMD}` as
+    /// the placeholder for the inner command.  `None` for structural relations.
     pub envelope: Option<String>,
+    /// Output post-processing required after a command is routed over this
+    /// channel.  Read by the execution pipeline; `None` means raw output.
+    pub output_transform: Option<OutputTransformKind>,
     /// Edge cost for shortest-path queries. Populated from the graph layer;
     /// defaults to `0.0` for structural relations and positive values for
     /// exec-channel relations (lower = preferred path).
@@ -660,6 +690,7 @@ pub struct RelationSummary {
 
 impl RelationSummary {
     pub fn from_relation(r: &dyn Relation) -> Self {
+        // Extract envelope from known relation types that carry one.
         let envelope = r
             .as_any()
             .downcast_ref::<RceCanExec>()
@@ -668,13 +699,27 @@ impl RelationSummary {
                 r.as_any()
                     .downcast_ref::<ContainerEscape>()
                     .and_then(|e| e.envelope.clone())
+            })
+            .or_else(|| {
+                r.as_any()
+                    .downcast_ref::<KubeletExecSource>()
+                    .and_then(|k| k.envelope.clone())
             });
+
+        // Extract output_transform from KubeletExecSource (the only type that
+        // carries one today; extend here for future channel types).
+        let output_transform = r
+            .as_any()
+            .downcast_ref::<KubeletExecSource>()
+            .and_then(|k| k.output_transform.clone());
+
         Self {
             name: r.relation_name().to_string(),
             source_id: r.source_id().0.clone(),
             target_id: r.target_id().0.clone(),
             is_exec_channel: r.is_exec_channel(),
             envelope,
+            output_transform,
             weight: 0.0,
         }
     }

@@ -337,6 +337,30 @@ impl SystemInfo {
 
 /// Whether a binary is known to exist on a system and, if so, where.
 ///
+// ---------------------------------------------------------------------------
+// OutputTransformKind
+// ---------------------------------------------------------------------------
+
+/// Post-processing to apply to the raw command output before any parser sees it.
+///
+/// Stored on exec-channel graph edges so the routing layer can read the
+/// required transform directly from the relation, rather than pattern-matching
+/// on relation names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputTransformKind {
+    /// The raw output is a JSON response envelope (produced by ran-ws /
+    /// kubelet-pod-exec).  The actual stdout must be extracted from the JSON
+    /// before parsing.
+    JsonEnvelope,
+}
+
+// ---------------------------------------------------------------------------
+// BinaryPresence
+// ---------------------------------------------------------------------------
+
+/// Whether a binary is known to exist on a system and, if so, where.
+///
 /// Serialized as a plain string so the frontend can display it directly:
 /// `Present(path)` → `"path"`, `Absent` → `""`, `Unknown` → `null`.
 #[derive(Debug, Clone, PartialEq, Eq)]

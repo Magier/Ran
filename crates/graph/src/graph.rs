@@ -350,6 +350,7 @@ impl KnowledgeGraph {
                     target_id: tgt.0.clone(),
                     is_exec_channel: data.is_exec_channel,
                     envelope: data.envelope.clone(),
+                    output_transform: data.output_transform.clone(),
                     weight: data.weight,
                 })
             })
