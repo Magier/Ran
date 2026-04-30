@@ -1902,3 +1902,155 @@ fn prepare_action_with_ttp_produces_same_result_as_prepare_action() {
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
     assert_eq!(exec.target_id, target_id);
 }
+
+// ---------------------------------------------------------------------------
+// build_cleanup_actions tests
+// ---------------------------------------------------------------------------
+
+fn cleanup_armory() -> Armory {
+    Armory::from_ttps(vec![
+        Ttp {
+            id: "install-pkg".to_string(),
+            name: "Install Package".to_string(),
+            description: String::new(),
+            tactic: "Execution".to_string(),
+            techniques: vec![],
+            status: "stable".to_string(),
+            params: vec![TtpParam {
+                name: "PKG".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: false,
+                default: "curl".to_string(),
+            }],
+            requires: Default::default(),
+            effects: vec![],
+            procedures: vec![Procedure {
+                id: "ubuntu".to_string(),
+                command: "apt-get install -y ${PKG}".to_string(),
+                tool: Some("apt".to_string()),
+                is_local_command: None,
+            }],
+            references: vec![],
+            cleanup: Some(Procedure {
+                id: "ubuntu".to_string(),
+                command: "apt remove -y ${PKG}".to_string(),
+                tool: Some("apt".to_string()),
+                is_local_command: None,
+            }),
+        },
+        Ttp {
+            id: "no-cleanup".to_string(),
+            name: "No Cleanup TTP".to_string(),
+            description: String::new(),
+            tactic: "Discovery".to_string(),
+            techniques: vec![],
+            status: "stable".to_string(),
+            params: vec![],
+            requires: Default::default(),
+            effects: vec![],
+            procedures: vec![Procedure {
+                id: "shell".to_string(),
+                command: "id".to_string(),
+                tool: None,
+                is_local_command: None,
+            }],
+            references: vec![],
+            cleanup: None,
+        },
+    ])
+}
+
+#[test]
+fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
+    use crate::execution_record::ExecutionRecord;
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("victim", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &pod_id);
+
+    campaign.execution_records.push(ExecutionRecord {
+        id: "cmd-1".to_string(),
+        ttp_id: "install-pkg".to_string(),
+        ttp_name: "Install Package".to_string(),
+        tactic: "Execution".to_string(),
+        target_id: pod_id.clone(),
+        exec_system_id: BUILTIN_C2_ID.to_string(),
+        procedure_id: "ubuntu".to_string(),
+        command: "apt-get install -y curl".to_string(),
+        args: std::collections::HashMap::from([("PKG".to_string(), "curl".to_string())]),
+        success: true,
+        exit_code: 0,
+        results: vec![],
+        fail_reason: String::new(),
+        started_at_ms: 0,
+        completed_at_ms: 1,
+        is_cleanup: false,
+    });
+    campaign.execution_records.push(ExecutionRecord {
+        id: "cmd-2".to_string(),
+        ttp_id: "no-cleanup".to_string(),
+        ttp_name: "No Cleanup TTP".to_string(),
+        tactic: "Discovery".to_string(),
+        target_id: pod_id.clone(),
+        exec_system_id: BUILTIN_C2_ID.to_string(),
+        procedure_id: "shell".to_string(),
+        command: "id".to_string(),
+        args: std::collections::HashMap::new(),
+        success: true,
+        exit_code: 0,
+        results: vec![],
+        fail_reason: String::new(),
+        started_at_ms: 2,
+        completed_at_ms: 3,
+        is_cleanup: false,
+    });
+
+    let armory = cleanup_armory();
+    let actions = campaign.build_cleanup_actions(&armory);
+
+    assert_eq!(actions.len(), 1, "only the TTP with a cleanup procedure should produce an action");
+    assert!(actions[0].is_cleanup, "cleanup action must have is_cleanup=true");
+    assert_eq!(actions[0].ttp.id, "install-pkg_cleanup");
+    assert_eq!(actions[0].target_id, pod_id);
+}
+
+#[test]
+fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
+    use crate::execution_record::ExecutionRecord;
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("victim", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &pod_id);
+
+    campaign.execution_records.push(ExecutionRecord {
+        id: "cmd-1".to_string(),
+        ttp_id: "install-pkg".to_string(),
+        ttp_name: "Install Package".to_string(),
+        tactic: "Execution".to_string(),
+        target_id: pod_id.clone(),
+        exec_system_id: BUILTIN_C2_ID.to_string(),
+        procedure_id: "ubuntu".to_string(),
+        command: "apt-get install -y wget".to_string(),
+        args: std::collections::HashMap::from([("PKG".to_string(), "wget".to_string())]),
+        success: true,
+        exit_code: 0,
+        results: vec![],
+        fail_reason: String::new(),
+        started_at_ms: 0,
+        completed_at_ms: 1,
+        is_cleanup: false,
+    });
+
+    let armory = cleanup_armory();
+    let actions = campaign.build_cleanup_actions(&armory);
+
+    assert_eq!(actions.len(), 1);
+    assert!(
+        actions[0].procedure.command.contains("wget"),
+        "cleanup command should use original PKG=wget arg, got: {}",
+        actions[0].procedure.command
+    );
+}
