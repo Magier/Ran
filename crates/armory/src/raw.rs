@@ -16,6 +16,7 @@ pub(crate) struct RawTtp {
     status: Option<String>,
     parameters: BTreeMap<String, RawParam>,
     procedures: Vec<RawProcedure>,
+    cleanup: Option<RawProcedure>,
     preconditions: Option<JsonValue>,
     #[serde(alias = "requires")]
     requires: Option<JsonValue>,
@@ -133,6 +134,19 @@ impl RawTtp {
 
         let id = self.id.unwrap_or_else(|| slugify(&self.name));
 
+        let cleanup = self.cleanup.and_then(|p| {
+            if p.command.trim().is_empty() {
+                return None;
+            }
+            let id = p.id.or(p.key.clone()).unwrap_or_else(|| "cleanup".to_string());
+            Some(Procedure {
+                id,
+                command: p.command,
+                tool: p.tool.or(p.key),
+                is_local_command: p.is_local,
+            })
+        });
+
         Some(Ttp {
             id,
             name: self.name,
@@ -144,6 +158,7 @@ impl RawTtp {
             requires,
             effects: self.effects,
             procedures,
+            cleanup,
             references,
         })
     }
@@ -214,6 +229,70 @@ procedures:
             Some("Deployment")
         );
         assert_eq!(ttp.procedures[0].id, "kubectl");
+    }
+
+    #[test]
+    fn cleanup_with_no_id_defaults_to_cleanup_id() {
+        let yaml = r#"
+name: Install curl
+tactic: Execution
+procedures:
+  - command: apt install -y curl
+cleanup:
+  command: apt remove -y curl
+"#;
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw
+            .into_ttp(Path::new("Execution/install_curl.yaml"))
+            .unwrap();
+
+        let cleanup = ttp.cleanup.expect("cleanup should be present");
+        assert_eq!(cleanup.id, "cleanup");
+        assert_eq!(cleanup.command, "apt remove -y curl");
+        assert!(cleanup.tool.is_none());
+    }
+
+    #[test]
+    fn cleanup_with_key_sets_id_and_tool() {
+        let yaml = r#"
+name: Install curl
+tactic: Execution
+procedures:
+  - command: apt install -y curl
+cleanup:
+  key: ubuntu
+  command: apt remove -y curl
+"#;
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw
+            .into_ttp(Path::new("Execution/install_curl.yaml"))
+            .unwrap();
+
+        let cleanup = ttp.cleanup.expect("cleanup should be present");
+        assert_eq!(cleanup.id, "ubuntu");
+        assert_eq!(cleanup.tool.as_deref(), Some("ubuntu"));
+        assert_eq!(cleanup.command, "apt remove -y curl");
+    }
+
+    #[test]
+    fn cleanup_with_empty_command_produces_none() {
+        let yaml = r#"
+name: Install curl
+tactic: Execution
+procedures:
+  - command: apt install -y curl
+cleanup:
+  command: ""
+"#;
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw
+            .into_ttp(Path::new("Execution/install_curl.yaml"))
+            .unwrap();
+
+        assert!(
+            ttp.cleanup.is_none(),
+            "empty cleanup command should produce None"
+        );
     }
 
     #[test]

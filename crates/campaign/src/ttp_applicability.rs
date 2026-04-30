@@ -208,6 +208,7 @@ mod tests {
             requires,
             effects: vec![],
             procedures: vec![],
+            cleanup: None,
             references: vec![],
         }
     }
@@ -224,6 +225,7 @@ mod tests {
             requires: serde_json::Map::new(),
             effects: vec![],
             procedures: vec![],
+            cleanup: None,
             references: vec![],
         }
     }
@@ -255,6 +257,7 @@ mod tests {
             requires,
             effects: vec![],
             procedures: vec![],
+            cleanup: None,
             references: vec![],
         }
     }
@@ -275,6 +278,7 @@ mod tests {
             requires,
             effects: vec![],
             procedures: vec![],
+            cleanup: None,
             references: vec![],
         }
     }

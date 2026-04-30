@@ -39,6 +39,10 @@ pub struct ExecutionRecord {
     pub started_at_ms: u64,
     /// Unix timestamp (milliseconds) when the result was received.
     pub completed_at_ms: u64,
+    /// True when this record was produced by a cleanup procedure rather than
+    /// the primary attack step.
+    #[serde(default)]
+    pub is_cleanup: bool,
 }
 
 impl ExecutionRecord {
@@ -64,6 +68,7 @@ impl ExecutionRecord {
             fail_reason: event.fail_reason.clone(),
             started_at_ms: cmd.started_at_ms,
             completed_at_ms,
+            is_cleanup: cmd.is_cleanup,
         }
     }
 }
