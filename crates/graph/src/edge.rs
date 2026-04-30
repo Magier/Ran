@@ -1,5 +1,6 @@
 //! [`EdgeData`] and the relation-weight registry.
 
+use ran_domain::OutputTransformKind;
 use serde::{Deserialize, Serialize};
 
 /// Metadata stored on every directed edge in the knowledge graph.
@@ -15,6 +16,8 @@ pub struct EdgeData {
     /// For `rce.can-exec` edges: grounded exploit command template where
     /// `${CMD}` is the placeholder for the inner command. `None` otherwise.
     pub envelope: Option<String>,
+    /// Output post-processing required after routing commands over this edge.
+    pub output_transform: Option<OutputTransformKind>,
 }
 
 impl EdgeData {
@@ -24,11 +27,17 @@ impl EdgeData {
             weight,
             is_exec_channel,
             envelope: None,
+            output_transform: None,
         }
     }
 
     pub fn with_envelope(mut self, envelope: Option<String>) -> Self {
         self.envelope = envelope;
+        self
+    }
+
+    pub fn with_output_transform(mut self, output_transform: Option<OutputTransformKind>) -> Self {
+        self.output_transform = output_transform;
         self
     }
 }
@@ -48,12 +57,17 @@ pub fn relation_defaults(name: &str) -> (f32, bool) {
 }
 
 /// Build an [`EdgeData`] from a relation name using [`relation_defaults`].
-pub fn edge_data_for(relation_name: &str, envelope: Option<String>) -> EdgeData {
+pub fn edge_data_for(
+    relation_name: &str,
+    envelope: Option<String>,
+    output_transform: Option<OutputTransformKind>,
+) -> EdgeData {
     let (weight, is_exec_channel) = relation_defaults(relation_name);
     EdgeData {
         relation_name: relation_name.to_string(),
         weight,
         is_exec_channel,
         envelope,
+        output_transform,
     }
 }

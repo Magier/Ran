@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use armory::{Armory, Procedure, Ttp, TtpParam};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
-    AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, JwToken, K8sCluster,
-    K8sNode, KubeletExecSink, Pod, PodExec, RbacPermission, RceCanExec, RunsOn, ServiceAccount,
-    ServiceAccountToken, Uses,
+    AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, K8sCluster, K8sNode,
+    KubeletExecSink, OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn,
+    ServiceAccount, Uses,
 };
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
@@ -153,8 +153,8 @@ fn on_ttp_executed_marks_exec_pod_running_before_kubelet_source_inference() {
         .push(RbacPermission::new("get", "nodes/proxy"));
     campaign.entities.insert_typed(sa);
 
-    let mut cmd = sample_exec_ttp(&pod_id, vec![]);
-    cmd.procedure.tool = Some("ran-ws".to_string());
+    let mut cmd = sample_exec_ttp(&pod_id, vec!["k8s.kubelet-exec-source(sys, all(k8s.node))"]);
+    cmd.procedure.command = "ran-ws -- ${CMD}".to_string();
 
     let event = sample_event("ok\n");
     let _processed = campaign.on_ttp_executed(&cmd, &event).unwrap();
@@ -714,6 +714,56 @@ fn prepare_action_auto_resolves_channel_from_graph() {
 }
 
 #[test]
+fn prepare_action_wraps_hops_using_relation_metadata_and_sets_output_transform() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut attacker = Pod::new("entry", "default");
+    attacker.system.access_level = AccessLevel::Exec;
+    let attacker_id = attacker.entity_id().0.clone();
+    campaign.entities.insert_typed(attacker);
+    push_exec_edge(&mut campaign, "sa/default/ran", &attacker_id);
+
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0.clone();
+    campaign.entities.insert_typed(node);
+
+    let target = Pod::new("victim", "argocd");
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+
+    push_relation(
+        &mut campaign,
+        &ran_domain::KubeletExecSource::new(&attacker_id, &node_id)
+            .with_envelope("ran-ws --token test -- ${CMD}")
+            .with_output_transform(OutputTransformKind::JsonEnvelope),
+    );
+    push_kubelet_exec_edge(&mut campaign, &node_id, &target_id);
+
+    let armory = minimal_armory("test-ttp");
+    let exec = campaign
+        .prepare_action(action_request(&target_id, None), &armory)
+        .expect("should prepare action over kubelet chain");
+
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+    assert_eq!(exec.exec_chain, vec![attacker_id, node_id, target_id]);
+    assert_eq!(
+        exec.output_transform,
+        Some(c2::OutputTransform::JsonEnvelope),
+        "output transform should come from relation metadata"
+    );
+    assert!(
+        exec.procedure.command.contains("ran-ws --token test -- "),
+        "outer wrapper should use relation envelope"
+    );
+    assert!(
+        exec.procedure
+            .command
+            .contains("kubectl exec -n argocd victim -- id"),
+        "inner hop should target final pod"
+    );
+}
+
+#[test]
 fn prepare_action_errors_when_no_exec_channel_in_graph() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("demo", "default");
@@ -1056,7 +1106,8 @@ fn prepare_action_grounds_declared_tool_when_not_first_word() {
     campaign.entities.insert_typed(target);
     push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
 
-    let cmd = "export TOKEN=abc; echo '{}' | kubectl apply --token=$TOKEN -f - && kubectl wait pod/foo";
+    let cmd =
+        "export TOKEN=abc; echo '{}' | kubectl apply --token=$TOKEN -f - && kubectl wait pod/foo";
     let armory = armory_with_command("test-ttp", cmd, Some("kubectl"));
     let exec = campaign
         .prepare_action(action_request(&target_id, None), &armory)
@@ -1068,7 +1119,8 @@ fn prepare_action_grounds_declared_tool_when_not_first_word() {
         exec.procedure.command
     );
     assert!(
-        !exec.procedure.command.contains(" kubectl ") && !exec.procedure.command.contains("| kubectl"),
+        !exec.procedure.command.contains(" kubectl ")
+            && !exec.procedure.command.contains("| kubectl"),
         "bare kubectl should not remain in command, got: {}",
         exec.procedure.command
     );
@@ -1147,24 +1199,11 @@ fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
 
-    let mut sa = ServiceAccount::new("entry-hall-sa", "default");
-    sa.token = Some(ServiceAccountToken {
-        jwt: JwToken {
-            raw: "abc.jwt.token".to_string(),
-            ..Default::default()
-        },
-        namespace: "default".to_string(),
-        service_account_name: "entry-hall-sa".to_string(),
-        ..Default::default()
-    });
-    sa.entitlements.push(RbacPermission::new("get", "nodes/proxy"));
-    let sa_id = sa.entity_id().0.clone();
-    campaign.entities.insert_typed(sa);
-    push_relation(&mut campaign, &Uses::new(&attacker_id, &sa_id));
-
     push_relation(
         &mut campaign,
-        &ran_domain::KubeletExecSource::new(&attacker_id, &node_id),
+        &ran_domain::KubeletExecSource::new(&attacker_id, &node_id)
+            .with_envelope("ran-ws --token abc.jwt.token -- ${CMD}")
+            .with_output_transform(OutputTransformKind::JsonEnvelope),
     );
     push_kubelet_exec_edge(&mut campaign, &node_id, &target_id);
 
@@ -1187,13 +1226,17 @@ fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
         .expect("should prepare action through kubelet channel");
 
     assert!(
-        exec.procedure.command.starts_with("ran-ws --url \"wss://cplane-01:10250/exec/argocd/argocd-application-controller-0/main?output=1&error=1&command="),
+        exec.procedure
+            .command
+            .starts_with("ran-ws --token abc.jwt.token -- "),
         "expected ran-ws kubelet envelope, got: {}",
         exec.procedure.command
     );
     assert!(
-        exec.procedure.command.contains("&command=%2Fvar%2Frun%2Fsecrets%2Fkubernetes.io%2Fserviceaccount%2Ftoken\" --token abc.jwt.token"),
-        "expected encoded command args + token in ran-ws envelope, got: {}",
+        exec.procedure
+            .command
+            .contains("kubectl exec -n argocd argocd-application-controller-0 -- cat /var/run/secrets/kubernetes.io/serviceaccount/token"),
+        "expected wrapped kubectl inner command in ran-ws envelope, got: {}",
         exec.procedure.command
     );
 }
@@ -2010,8 +2053,15 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
     let armory = cleanup_armory();
     let actions = campaign.build_cleanup_actions(&armory);
 
-    assert_eq!(actions.len(), 1, "only the TTP with a cleanup procedure should produce an action");
-    assert!(actions[0].is_cleanup, "cleanup action must have is_cleanup=true");
+    assert_eq!(
+        actions.len(),
+        1,
+        "only the TTP with a cleanup procedure should produce an action"
+    );
+    assert!(
+        actions[0].is_cleanup,
+        "cleanup action must have is_cleanup=true"
+    );
     assert_eq!(actions[0].ttp.id, "install-pkg_cleanup");
     assert_eq!(actions[0].target_id, pod_id);
 }

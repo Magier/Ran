@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use indexmap::IndexSet;
 use ran_domain::{
     CanReach, ContainerEscape, CronJob, Entity, EntityId, K8sNode, K8sRole, K8sRoleBinding,
-    KubeletExecSource, Pod, PodExec, RbacPermission, RbacSubject, RceCanExec, Relation, RunsOn,
-    ServiceAccount,
+    KubeletExecSource, OutputTransformKind, Pod, PodExec, RbacPermission, RbacSubject, RceCanExec,
+    Relation, RunsOn, ServiceAccount,
 };
 
 use crate::grounding::resolve_template;
@@ -449,16 +449,18 @@ fn parse_kubelet_exec_source_relation(
     } else {
         args[0]
     };
-    // `all(k8s.Node)` means the executing pod has cluster-wide kubelet access.
-    // The actual per-node edges are inferred by KubeletExecSourceRule whenever
-    // conditions are met (pod has kubelet tool + SA has nodes/proxy permission),
-    // so no relation is emitted here — returning an empty update is intentional.
-    let tgt_raw = args[1].trim();
-    if tgt_raw.eq_ignore_ascii_case("all(k8s.node)") {
-        return Ok(FactsUpdate::default());
-    }
+    // Use PROCEDURE_CMD as the envelope template so subsequent command routing
+    // can wrap via RelationSummary::wrap_command with ${CMD} substitution.
+    let envelope = ctx
+        .get("PROCEDURE_CMD")
+        .filter(|v| !v.trim().is_empty())
+        .cloned();
 
-    let rel = KubeletExecSource::new(src, tgt_raw);
+    let tgt_raw = args[1].trim();
+    let mut rel = KubeletExecSource::new(src, tgt_raw).with_opt_envelope(envelope);
+    if rel.envelope.is_some() {
+        rel = rel.with_output_transform(OutputTransformKind::JsonEnvelope);
+    }
     Ok(FactsUpdate {
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
@@ -608,7 +610,7 @@ fn parse_bool_like(v: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ran_domain::CanReach;
+    use ran_domain::{CanReach, KubeletExecSource, OutputTransformKind};
 
     fn ctx() -> HashMap<String, String> {
         HashMap::new()
@@ -648,6 +650,44 @@ mod tests {
         let rel = &update.new_relations[0];
         assert_eq!(rel.source_id().0, "ns/default/pod/frontend");
         assert_eq!(rel.target_id().0, "ns/default/pod/backend");
+    }
+
+    #[test]
+    fn kubelet_exec_source_with_sys_preserves_marker_and_metadata() {
+        let mut args = ctx();
+        args.insert("TARGET_ID".into(), "ns/default/pod/attacker".into());
+        args.insert("PROCEDURE_CMD".into(), "ran-ws -- ${CMD}".into());
+
+        let update = parse_effect("k8s.kubelet-exec-source(sys, all(k8s.node))", &args).unwrap();
+        assert_eq!(update.new_relations.len(), 1);
+
+        let rel = update.new_relations[0]
+            .as_any()
+            .downcast_ref::<KubeletExecSource>()
+            .expect("expected KubeletExecSource relation");
+        assert_eq!(rel.source_id().0, "ns/default/pod/attacker");
+        assert_eq!(rel.target_id().0, "all(k8s.node)");
+        assert_eq!(rel.envelope.as_deref(), Some("ran-ws -- ${CMD}"));
+        assert_eq!(
+            rel.output_transform,
+            Some(OutputTransformKind::JsonEnvelope),
+            "envelope-backed kubelet channel should request JSON unwrapping"
+        );
+    }
+
+    #[test]
+    fn kubelet_exec_source_without_envelope_has_no_output_transform() {
+        let update = parse_effect(
+            "k8s.kubelet-exec-source(ns/default/pod/a, all(k8s.node))",
+            &ctx(),
+        )
+        .unwrap();
+        let rel = update.new_relations[0]
+            .as_any()
+            .downcast_ref::<KubeletExecSource>()
+            .expect("expected KubeletExecSource relation");
+        assert!(rel.envelope.is_none());
+        assert!(rel.output_transform.is_none());
     }
 
     // --- k8s.serviceaccount ---

@@ -4,14 +4,14 @@ use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, OutputTransform, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{BinaryPresence, EntityId, K8sNode, Merge, NameConfidence, Pod, UnknownSystem};
 
+use crate::analyzers::default_rules;
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
 use crate::failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
 use crate::grounding::{detect_ungrounded_vars, ground_args_from_context, ground_entity_ref_vars};
-use crate::shell_cmd::ground_binaries;
 use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
-use crate::analyzers::default_rules;
 use crate::rules::run_rules_fixpoint;
+use crate::shell_cmd::ground_binaries;
 use crate::{FactsUpdate, ParseResult};
 
 use crate::execution_record::ExecutionRecord;
@@ -173,8 +173,7 @@ impl Campaign {
         // Stage 1: validate inputs and look up static data.
         validate_request(&request)?;
         self.assert_target_exists(&request.target_id)?;
-        let (ttp, args) =
-            resolve_ttp_and_defaults(&request.action_id, request.args, armory)?;
+        let (ttp, args) = resolve_ttp_and_defaults(&request.action_id, request.args, armory)?;
         self.prepare_action_with_ttp(
             request.target_id,
             request.exec_system_id,
@@ -263,8 +262,7 @@ impl Campaign {
     }
 
     pub fn build_cleanup_actions(&mut self, armory: &Armory) -> Vec<ExecTtp> {
-        let records: Vec<crate::execution_record::ExecutionRecord> =
-            self.execution_records.clone();
+        let records: Vec<crate::execution_record::ExecutionRecord> = self.execution_records.clone();
 
         let mut actions = Vec::new();
 
@@ -510,14 +508,20 @@ impl Campaign {
                 None,
             ))
         } else {
-            let output_transform = self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str());
+            let output_transform =
+                self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str());
             let exec_chain: Vec<String> = ch
                 .hops
                 .iter()
                 .cloned()
                 .chain(std::iter::once(exec_target))
                 .collect();
-            Ok((ch.backend_id, target_id.to_string(), exec_chain, output_transform))
+            Ok((
+                ch.backend_id,
+                target_id.to_string(),
+                exec_chain,
+                output_transform,
+            ))
         }
     }
 
@@ -545,7 +549,12 @@ impl Campaign {
                 chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_entity.as_str()),
                 "pod fallback source selected"
             );
-            Ok((ch.backend_id, target_id.to_string(), vec![exec_entity], None))
+            Ok((
+                ch.backend_id,
+                target_id.to_string(),
+                vec![exec_entity],
+                None,
+            ))
         } else {
             Ok((String::new(), target_id.to_string(), vec![], None))
         }
@@ -597,31 +606,15 @@ impl Campaign {
                     target_id: t.0.clone(),
                     is_exec_channel: true,
                     envelope: d.envelope.clone(),
+                    output_transform: d.output_transform.clone(),
                     weight: d.weight,
                 });
             procedure.command = match found {
                 Some(ref rel) => {
-                    if rel.name == "kubelet-pod-exec" {
-                        // kubelet-pod-exec uses ran-ws as its transport, which wraps the
-                        // response in a JSON envelope. Signal this to the caller so it can
-                        // unwrap the output before handing it to parsers.
-                        match self.build_kubelet_exec_command(src, tgt, &procedure.command) {
-                            Some(cmd) => {
-                                output_transform = Some(OutputTransform::JsonEnvelope);
-                                cmd
-                            }
-                            None => {
-                                tracing::warn!(
-                                    src = %src,
-                                    tgt = %tgt,
-                                    "kubelet-pod-exec envelope unavailable; leaving inner command unchanged"
-                                );
-                                procedure.command.clone()
-                            }
-                        }
-                    } else {
-                        rel.wrap_command(&procedure.command)
+                    if let Some(ref transform) = rel.output_transform {
+                        output_transform = Some(transform.clone());
                     }
+                    rel.wrap_command(&procedure.command)
                 }
                 None => {
                     // Fallback: try kubectl exec via target entity ID.
@@ -655,24 +648,23 @@ impl Campaign {
         // If the channel wrapped its output (e.g. ran-ws JSON envelope from kubelet-pod-exec),
         // unwrap it here before any parser sees the result.
         let event_owned;
-        let event: &TtpExecuted =
-            if cmd.output_transform == Some(OutputTransform::JsonEnvelope)
-                && event.success
-                && !event.results.is_empty()
-            {
-                let raw = &event.results[0];
-                let (unwrapped, err) = crate::output_parsers::unwrap_kubelet_json_response(raw);
-                let mut patched = event.clone();
-                patched.results[0] = unwrapped;
-                if let Some(msg) = err {
-                    patched.success = false;
-                    patched.fail_reason = msg;
-                }
-                event_owned = patched;
-                &event_owned
-            } else {
-                event
-            };
+        let event: &TtpExecuted = if cmd.output_transform == Some(OutputTransform::JsonEnvelope)
+            && event.success
+            && !event.results.is_empty()
+        {
+            let raw = &event.results[0];
+            let (unwrapped, err) = crate::output_parsers::unwrap_kubelet_json_response(raw);
+            let mut patched = event.clone();
+            patched.results[0] = unwrapped;
+            if let Some(msg) = err {
+                patched.success = false;
+                patched.fail_reason = msg;
+            }
+            event_owned = patched;
+            &event_owned
+        } else {
+            event
+        };
 
         if !event.success {
             let classified = classify_failure(cmd, event);
@@ -1100,17 +1092,12 @@ impl Campaign {
         rel: &dyn ran_domain::Relation,
     ) {
         use cortex::edge_data_for;
-        use ran_domain::{ContainerEscape, RceCanExec};
-        let envelope = rel
-            .as_any()
-            .downcast_ref::<RceCanExec>()
-            .and_then(|r| r.envelope.clone())
-            .or_else(|| {
-                rel.as_any()
-                    .downcast_ref::<ContainerEscape>()
-                    .and_then(|r| r.envelope.clone())
-            });
-        let data = edge_data_for(rel.relation_name(), envelope);
+        let summary = ran_domain::RelationSummary::from_relation(rel);
+        let data = edge_data_for(
+            rel.relation_name(),
+            summary.envelope,
+            summary.output_transform,
+        );
         self.graph.insert_edge(src, tgt, data);
 
         // When a C2 channel relation is added to a system entity, ensure
@@ -1313,140 +1300,6 @@ impl Campaign {
             ExecuteActionError::InvalidInput(format!("No procedure found for action '{}'", ttp.id))
         })
     }
-
-    /// Build a kubelet node/proxy execution command for a `kubelet-pod-exec`
-    /// hop (`node -> pod`) by grounding the legacy ran-ws template with runtime
-    /// relation context (node, namespace, pod, container, token, encoded cmd).
-    fn build_kubelet_exec_command(
-        &self,
-        node_id: &str,
-        pod_id: &str,
-        inner_cmd: &str,
-    ) -> Option<String> {
-        let node_eid = EntityId::new(node_id);
-        let pod_eid = EntityId::new(pod_id);
-
-        let node = self.entities.find::<K8sNode>(&node_eid)?;
-        let pod = self.entities.find::<Pod>(&pod_eid)?;
-
-        let Some(container) = pod.containers.first().map(|c| c.name.as_str()) else {
-            tracing::warn!(
-                pod = %pod_id,
-                "kubelet-pod-exec envelope unavailable: target pod has no containers"
-            );
-            return None;
-        };
-        let namespace = pod.namespace()?;
-        if namespace.is_empty() || pod.meta.name.is_empty() || container.is_empty() {
-            tracing::warn!(
-                pod = %pod_id,
-                "kubelet-pod-exec envelope unavailable: missing namespace/pod/container metadata"
-            );
-            return None;
-        }
-
-        let encoded_cmd = encode_kubelet_command(inner_cmd);
-        if encoded_cmd.is_empty() {
-            return None;
-        }
-
-        // If host IP is known use this, to avoid possible issues with DNS resolution
-        let node_host = node
-            .system
-            .ips
-            .first()
-            .map(std::string::ToString::to_string)
-            .unwrap_or_else(|| node.name.clone());
-
-        // Find a source pod that has kubelet-exec to this node and carries an
-        // SA token we can use for the API call.
-        let token = self
-            .graph
-            .sources_of(&node_eid, "kubelet-exec")
-            .into_iter()
-            .find_map(|src_pod_id| self.resolve_token_for_pod(src_pod_id))
-            .or_else(|| self.resolve_kubelet_proxy_token());
-
-        let Some(token) = token else {
-            tracing::warn!(
-                node = %node_id,
-                "kubelet-pod-exec envelope unavailable: no service-account token with get nodes/proxy"
-            );
-            return None;
-        };
-
-        // ran-ws transport is intentionally fixed here; `encoded_cmd` comes from
-        // the current TTP procedure command (`inner_cmd`).
-        Some(format!(
-            r#"ran-ws --url "wss://{}:10250/exec/{}/{}/{}?output=1&error=1&command={}" --token {}"#,
-            node_host, namespace, pod.meta.name, container, encoded_cmd, token
-        ))
-    }
-
-    /// Resolve a raw SA token for a pod that also has `GET nodes/proxy`
-    /// permission, checking `uses` edges then `service_account_name`.
-    fn resolve_token_for_pod(&self, pod_id: &EntityId) -> Option<String> {
-        let resolve_sa = |sa: &ran_domain::ServiceAccount| -> Option<String> {
-            if !sa.entitlements.iter().any(has_nodes_proxy_permission) {
-                return None;
-            }
-            sa.raw_token()
-                .filter(|t| !t.is_empty())
-                .map(str::to_string)
-        };
-
-        for sa_id in self.graph.targets_of(pod_id, "uses") {
-            if let Some(sa) = self.entities.find::<ran_domain::ServiceAccount>(sa_id) {
-                if let Some(raw) = resolve_sa(sa) {
-                    return Some(raw);
-                }
-            }
-        }
-
-        let pod = self.entities.find::<Pod>(pod_id)?;
-        let sa_name = pod.service_account_name.as_deref()?;
-        let ns = pod.namespace()?;
-        let sa_id = EntityId::new(format!("ns/{}/sa/{}", ns, sa_name));
-        let sa = self.entities.find::<ran_domain::ServiceAccount>(&sa_id)?;
-        resolve_sa(sa)
-    }
-
-    /// Legacy-compatible fallback: any ServiceAccount token that can GET nodes/proxy.
-    fn resolve_kubelet_proxy_token(&self) -> Option<String> {
-        self.entities
-            .values::<ran_domain::ServiceAccount>()
-            .find_map(|sa| {
-                let has_perm = sa.entitlements.iter().any(has_nodes_proxy_permission);
-                if !has_perm {
-                    return None;
-                }
-                sa.raw_token().and_then(|t| {
-                    if t.is_empty() {
-                        None
-                    } else {
-                        Some(t.to_string())
-                    }
-                })
-            })
-    }
-}
-
-/// Accept canonical and split representations of kubelet-proxy RBAC.
-fn has_nodes_proxy_permission(p: &ran_domain::RbacPermission) -> bool {
-    let verb_ok = p.verb == "*" || p.verb.eq_ignore_ascii_case("get");
-    if !verb_ok {
-        return false;
-    }
-
-    if p.resource_type == "*" || p.resource_type.eq_ignore_ascii_case("nodes/proxy") {
-        return true;
-    }
-
-    p.resource_type.eq_ignore_ascii_case("nodes")
-        && p.resource_name
-            .as_deref()
-            .map(|n| n == "*" || n.eq_ignore_ascii_case("proxy"))
-            .unwrap_or(false)
 }
 
 /// Parse a pod entity ID in the canonical form `ns/<namespace>/pod/<name>` and
@@ -1465,21 +1318,6 @@ fn split_pod_entity_id(entity_id: &str) -> Option<(&str, &str)> {
         return None;
     }
     Some((namespace, pod_name))
-}
-
-/// Tokenize a shell command and emit kubelet API `command` query params
-/// (`arg1&command=arg2&...`) with URL-encoded tokens.
-fn encode_kubelet_command(cmd: &str) -> String {
-    let tokens = shell_words::split(cmd).unwrap_or_else(|_| {
-        cmd.split_whitespace()
-            .map(std::string::ToString::to_string)
-            .collect()
-    });
-    tokens
-        .iter()
-        .map(|t| urlencoding::encode(t).into_owned())
-        .collect::<Vec<_>>()
-        .join("&command=")
 }
 
 /// Returns `true` when the tactic creates a new execution edge rather than
@@ -1600,5 +1438,3 @@ fn ground_binary_in_cmd(
 
     cmd.to_string()
 }
-
-
