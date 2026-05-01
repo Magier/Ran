@@ -1,9 +1,9 @@
 name: List ConfigMaps
 description: Get a Kubernetes ConfigMaps via the API server
 tactic: Credential Access
-techniques: ["Unsecured Credentials: Container API", "T1552.007"]
+techniques: [ "Unsecured Credentials: Container API", "T1552.007" ]
 preconditions:
-  rbac: 
+  rbac:
     - verb: "get"
       resource: "configmap"
     - verb: "list"
@@ -26,13 +26,17 @@ procedures:
   - key: kubectl
     command: >-
       kubectl get configmap --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
-  - key: curl
-    command: >-
-      curl -XGET 
-      -H "Accept: application/json"
-      -H "User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69"
-      -H "Authorization: Bearer ${TOKEN}"
-      '${API_SERVER}/api/v1/namespaces/${NS}/configmaps?limit=500'
+  - key: http-request
+    tool: http-request
+    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
+    http_request:
+      url: >-
+        {% if ALL_NS %} ${API_SERVER}/api/v1/configmaps?limit=500 {% else %}
+        ${API_SERVER}/api/v1/namespaces/${NS}/configmaps?limit=500 {% endif %}
+      headers:
+        Accept: application/json
+        User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69
+        Authorization: Bearer ${TOKEN}
 effects:
   - k8s.configmaplist
 references:

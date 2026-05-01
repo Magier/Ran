@@ -2,8 +2,7 @@ name: Get GCP Project ID
 description: Get the GCP project ID from the metadata service
 tactic: Discovery
 status: disabled
-techniques:
-  ["Unsecured Credentials: Cloud Instance Metadata API ", T1552.005]
+techniques: [ "Unsecured Credentials: Cloud Instance Metadata API ", T1552.005 ]
 preconditions:
   kind: System
   # CSP: GCP
@@ -13,17 +12,14 @@ parameters:
     description: The metadata service host
     default: metadata.google.internal
 procedures:
-  - key: wget
-    tool: wget
-    command: >-
-      wget -qO- http://${HOST}/computeMetadata/v1/project/project-id 
-      --header="Metadata-Flavor: Google"
-  - key: curl
-    tool: curl
-    command: >-
-      curl http://${HOST}/computeMetadata/v1/project/project-id 
-      -H "Metadata-Flavor: Google"
-effects: ["GCP.projectID", "can-reach(169.254.169.254)"]
+  - key: http-request
+    tool: http-request
+    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
+    http_request:
+      url: http://${HOST}/computeMetadata/v1/project/project-id
+      headers:
+        Metadata-Flavor: Google
+effects: [ "GCP.projectID", "can-reach(169.254.169.254)" ]
 references:
   - https://attack.mitre.org/techniques/T1552/005/
   - https://hackingthe.cloud/gcp/general-knowledge/metadata_in_google_cloud_instances

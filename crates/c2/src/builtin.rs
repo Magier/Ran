@@ -346,6 +346,8 @@ mod tests {
                 command: command.to_string(),
                 tool: None,
                 is_local_command: None,
+                http_request: None,
+                    steps: None,
             },
             args: HashMap::new(),
             target_id: target_id.to_string(),

@@ -1,16 +1,16 @@
 name: Get Pods via Kubelet
 description: Get a list of pods on the node via the kubelet API
 tactic: Discovery
-techniques: ["Container and Resource Discovery", T1613]
+techniques: [ "Container and Resource Discovery", T1613 ]
 preconditions:
   kind: Node
   rbac:
-  - verb: get
-    resource: "nodes"
-  - verb: get
-    resource: "nodes/pods"
-  #rbac: system:authenticated
-  # accessLevel: user-read
+    - verb: get
+      resource: "nodes"
+    - verb: get
+      resource: "nodes/pods"
+    #rbac: system:authenticated
+    # accessLevel: user-read
 parameters:
   NODE:
     type: string
@@ -20,9 +20,14 @@ parameters:
     type: ServiceAccount
     description: the ServiceAccount token used to authenticate to the kubelet API
 procedures:
-  - key: curl
-    command: >-
-      curl -k -s -H "Authorization: Bearer ${TOKEN}" https://${NODE}:10250/pods
+  - key: http-request
+    tool: http-request
+    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
+    http_request:
+      url: https://${NODE}:10250/pods
+      headers:
+        Authorization: Bearer ${TOKEN}
+      use_ca: false
 
 effects:
   - k8s.podList

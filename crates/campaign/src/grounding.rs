@@ -25,6 +25,7 @@
 use std::collections::HashMap;
 
 use ran_domain::{Entity, EntityId, Pod, ServiceAccount};
+use serde_json::Value as JsonValue;
 
 use crate::campaign::{Campaign, CampaignEntityRef};
 
@@ -227,9 +228,7 @@ fn random_id() -> String {
 pub fn ground_entity_ref_vars(args: &mut HashMap<String, String>, campaign: &Campaign) {
     let refs: Vec<(&'static str, String)> = [("SRC", "SRC"), ("TARGET", "TARGET_ID")]
         .iter()
-        .filter_map(|(ref_name, arg_key)| {
-            args.get(*arg_key).cloned().map(|id| (*ref_name, id))
-        })
+        .filter_map(|(ref_name, arg_key)| args.get(*arg_key).cloned().map(|id| (*ref_name, id)))
         .collect();
 
     if refs.is_empty() {
@@ -265,9 +264,7 @@ fn expand_entity_props(value: &mut String, ref_name: &str, entity_id: &str, camp
         let after_prefix = &remaining[start + prefix.len()..];
         if let Some(end) = after_prefix.find('}') {
             let prop = &after_prefix[..end];
-            let resolved = entity
-                .as_ref()
-                .and_then(|e| resolve_entity_prop(e, prop));
+            let resolved = entity.as_ref().and_then(|e| resolve_entity_prop(e, prop));
             match resolved {
                 Some(v) => result.push_str(&v),
                 None => {
@@ -375,10 +372,22 @@ pub fn resolve_template(template: &str, args: &HashMap<String, String>) -> Strin
     // Insert actual arg values, coercing bool-like strings to real booleans so
     // that `{% if FLAG %}` evaluates correctly when FLAG = "false" / "true".
     for (key, value) in args {
-        match value.trim().to_ascii_lowercase().as_str() {
+        let trimmed = value.trim();
+        match trimmed.to_ascii_lowercase().as_str() {
             "true" | "yes" | "1" => context.insert(key, &true),
             "false" | "no" | "0" => context.insert(key, &false),
-            _ => context.insert(key, value),
+            _ => {
+                // Array/object defaults are stored as JSON strings in armory.
+                // Decode them so templates can iterate collections via Tera.
+                if (trimmed.starts_with('{') || trimmed.starts_with('['))
+                    && serde_json::from_str::<JsonValue>(trimmed)
+                        .map(|json| context.insert(key, &json))
+                        .is_ok()
+                {
+                    continue;
+                }
+                context.insert(key, value)
+            }
         }
     }
 
@@ -821,6 +830,21 @@ mod tests {
     }
 
     #[test]
+    fn tera_template_supports_json_object_iteration() {
+        let args = HashMap::from([(
+            "HEADERS".to_string(),
+            r#"{"Metadata-Flavor":"Google","Authorization":"Bearer token"}"#.to_string(),
+        )]);
+        let template =
+            r#"curl{% for name, value in HEADERS %} -H "{{ name }}: {{ value }}"{% endfor %}"#;
+        let result = resolve_template(template, &args);
+
+        assert!(result.starts_with("curl"));
+        assert!(result.contains(r#"-H "Metadata-Flavor: Google""#));
+        assert!(result.contains(r#"-H "Authorization: Bearer token""#));
+    }
+
+    #[test]
     fn tera_multiline_template_collapses_to_single_line() {
         // serde_yaml `>-` with extra-indented continuation lines preserves
         // newlines, so commands arrive as multiline strings.  Tera also leaves
@@ -888,7 +912,10 @@ mod tests {
 
         let mut args = HashMap::from([
             ("SRC".to_string(), pod_id),
-            ("MOUNT_PATH".to_string(), "${SRC.MOUNT_PATH}/etc/kubernetes".to_string()),
+            (
+                "MOUNT_PATH".to_string(),
+                "${SRC.MOUNT_PATH}/etc/kubernetes".to_string(),
+            ),
         ]);
         ground_entity_ref_vars(&mut args, &campaign);
         assert_eq!(args["MOUNT_PATH"], "/host/root/etc/kubernetes");
@@ -901,7 +928,10 @@ mod tests {
 
         let mut args = HashMap::from([
             ("SRC".to_string(), pod_id),
-            ("MOUNT_PATH".to_string(), "${SRC.MOUNT_PATH}/etc".to_string()),
+            (
+                "MOUNT_PATH".to_string(),
+                "${SRC.MOUNT_PATH}/etc".to_string(),
+            ),
         ]);
         ground_entity_ref_vars(&mut args, &campaign);
         assert_eq!(args["MOUNT_PATH"], "${SRC.MOUNT_PATH}/etc");
@@ -939,9 +969,7 @@ mod tests {
         let pod = Pod::new("pod", "ns");
         let (campaign, _pod_id) = campaign_with_pod(pod);
 
-        let mut args = HashMap::from([
-            ("CMD".to_string(), "${UNKNOWN.PROP}".to_string()),
-        ]);
+        let mut args = HashMap::from([("CMD".to_string(), "${UNKNOWN.PROP}".to_string())]);
         ground_entity_ref_vars(&mut args, &campaign);
         assert_eq!(args["CMD"], "${UNKNOWN.PROP}");
     }
@@ -951,9 +979,7 @@ mod tests {
         let pod = Pod::new("pod", "ns");
         let (campaign, _) = campaign_with_pod(pod);
 
-        let mut args = HashMap::from([
-            ("CMD".to_string(), "${SRC.MOUNT_PATH}/etc".to_string()),
-        ]);
+        let mut args = HashMap::from([("CMD".to_string(), "${SRC.MOUNT_PATH}/etc".to_string())]);
         ground_entity_ref_vars(&mut args, &campaign);
         // SRC not injected yet — placeholder must survive
         assert_eq!(args["CMD"], "${SRC.MOUNT_PATH}/etc");

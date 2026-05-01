@@ -1,10 +1,10 @@
 name: Get Roles via API Server
 description: Get a list of ServiceAccounts via the API server
 tactic: Discovery
-techniques: ["Container and Resource Discovery", T1613]
+techniques: [ "Container and Resource Discovery", T1613 ]
 preconditions:
   # accessLevel: user-read
-  rbac: 
+  rbac:
     - verb: get
       resource: roles
 parameters:
@@ -28,18 +28,25 @@ parameters:
 procedures:
   - key: kubectl
     command: >-
-      kubectl get roles --token=${TOKEN} {% if not CLUSTER_ROLE %} -n=${NS} -A=${ALL_NS} {% endif %} --output=json
-  - key: curl
-    command: >-
-      curl -XGET -k
-      -H "Accept: application/json"
-      -H "User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69"
-      -H "Authorization: Bearer ${TOKEN}"
-      {% if ALL_NS %}
-      '${API_SERVER}/api/v1/roles?limit=500'
-      {% else %}
-      '${API_SERVER}/api/v1/namespaces/${NS}/roles?limit=500'
-      {% endif %}
+      kubectl get roles --token=${TOKEN} {% if not CLUSTER_ROLE %} -n=${NS}
+      -A=${ALL_NS} {% endif %} --output=json
+  - key: http-request
+    tool: http-request
+    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
+    http_request:
+      url: >-
+        {% if CLUSTER_ROLE %}
+        ${API_SERVER}/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=500
+        {% elif ALL_NS %}
+        ${API_SERVER}/apis/rbac.authorization.k8s.io/v1/roles?limit=500 {% else
+        %}
+        ${API_SERVER}/apis/rbac.authorization.k8s.io/v1/namespaces/${NS}/roles?limit=500
+        {% endif %}
+      headers:
+        Accept: application/json
+        User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69
+        Authorization: Bearer ${TOKEN}
+      use_ca: false
 effects:
   - k8s.roleList
 # defend: {}
