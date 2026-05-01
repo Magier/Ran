@@ -35,6 +35,8 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
                 command: "env".to_string(),
                 tool: None,
                 is_local_command: None,
+                http_request: None,
+                steps: None,
             }],
             cleanup: None,
             references: vec![],
@@ -44,6 +46,8 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
             command: "env".to_string(),
             tool: None,
             is_local_command: None,
+            http_request: None,
+            steps: None,
         },
         args: HashMap::new(),
         target_id: target_id.to_string(),
@@ -243,6 +247,21 @@ fn resolve_exec_channel_returns_builtin_for_can_exec_relation() {
         .resolve_exec_channel(&target_id)
         .expect("should find channel");
     assert_eq!(ch, ExecChannel::direct(BUILTIN_C2_ID));
+}
+
+#[test]
+fn resolve_exec_channel_uses_c2_source_backend_from_direct_edge() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("target", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "c2/sliver", &target_id);
+
+    let ch = campaign
+        .resolve_exec_channel(&target_id)
+        .expect("should find direct c2 backend channel");
+    assert_eq!(ch.backend_id, "c2/sliver");
+    assert!(ch.hops.is_empty());
 }
 
 #[test]
@@ -681,6 +700,8 @@ fn minimal_armory(ttp_id: &str) -> Armory {
             command: "id".to_string(),
             tool: None,
             is_local_command: None,
+            http_request: None,
+            steps: None,
         }],
         cleanup: None,
         references: vec![],
@@ -760,6 +781,224 @@ fn prepare_action_wraps_hops_using_relation_metadata_and_sets_output_transform()
             .command
             .contains("kubectl exec -n argocd victim -- id"),
         "inner hop should target final pod"
+    );
+}
+
+#[test]
+fn prepare_action_expands_object_headers_into_multiple_flags() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("demo", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        id: "http-object-headers".to_string(),
+        name: "HTTP Object Headers".to_string(),
+        description: String::new(),
+        tactic: "Discovery".to_string(),
+        techniques: vec![],
+        status: "stable".to_string(),
+        params: vec![
+            TtpParam {
+                name: "URL".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: "https://metadata.google.internal/computeMetadata/v1/project/project-id"
+                    .to_string(),
+            },
+            TtpParam {
+                name: "HEADERS".to_string(),
+                param_type: "object".to_string(),
+                description: String::new(),
+                required: true,
+                default: "{\"Metadata-Flavor\":\"Google\",\"Authorization\":\"Bearer abc\"}"
+                    .to_string(),
+            },
+        ],
+        requires: Default::default(),
+        effects: vec![],
+        procedures: vec![Procedure {
+            id: "curl".to_string(),
+            command: "curl {% for name, value in HEADERS %} -H \"{{ name }}: {{ value }}\" {% endfor %} \"${URL}\""
+                .to_string(),
+            tool: Some("curl".to_string()),
+            is_local_command: None,
+            http_request: None,
+                    steps: None,
+        }],
+        cleanup: None,
+        references: vec![],
+    }]);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "http-object-headers".to_string(),
+                target_id: target_id.clone(),
+                exec_system_id: None,
+                procedure_id: Some("curl".to_string()),
+                args: HashMap::new(),
+            },
+            &armory,
+        )
+        .expect("should prepare action with header collection");
+
+    assert!(
+        exec.procedure
+            .command
+            .contains("-H \"Metadata-Flavor: Google\""),
+        "expected metadata header in command: {}",
+        exec.procedure.command
+    );
+    assert!(
+        exec.procedure
+            .command
+            .contains("-H \"Authorization: Bearer abc\""),
+        "expected authorization header in command: {}",
+        exec.procedure.command
+    );
+}
+
+#[test]
+fn prepare_action_materializes_abstract_http_request_procedure() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("demo", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        id: "http-abstract".to_string(),
+        name: "HTTP Abstract".to_string(),
+        description: String::new(),
+        tactic: "Discovery".to_string(),
+        techniques: vec![],
+        status: "stable".to_string(),
+        params: vec![],
+        requires: Default::default(),
+        effects: vec![],
+        procedures: vec![Procedure {
+            id: "http-request".to_string(),
+            tool: Some("http-request".to_string()),
+            command: String::new(),
+            is_local_command: None,
+            http_request: Some(serde_json::json!({
+                "method": "POST",
+                "url": "https://k8s-api.local/ssrr",
+                "headers": {"Authorization": "Bearer abc"},
+                "body": "{\"a\":1}",
+                "timeout_seconds": 15,
+                "use_ca": false,
+                "ca_path": ""
+            })),
+            steps: None,
+        }],
+        cleanup: None,
+        references: vec![],
+    }]);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "http-abstract".to_string(),
+                target_id,
+                exec_system_id: None,
+                procedure_id: Some("http-request".to_string()),
+                args: HashMap::new(),
+            },
+            &armory,
+        )
+        .expect("should prepare action with abstract http-request procedure");
+
+    assert!(
+        exec.procedure.command.contains("command -v curl"),
+        "abstract procedure should be materialized to runtime client selection: {}",
+        exec.procedure.command
+    );
+    assert!(
+        exec.procedure
+            .command
+            .contains("https://k8s-api.local/ssrr"),
+        "materialized command should contain request URL: {}",
+        exec.procedure.command
+    );
+}
+
+#[test]
+fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("demo", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        id: "steps-abstract".to_string(),
+        name: "Steps Abstract".to_string(),
+        description: String::new(),
+        tactic: "Execution".to_string(),
+        techniques: vec![],
+        status: "stable".to_string(),
+        params: vec![],
+        requires: Default::default(),
+        effects: vec![],
+        procedures: vec![Procedure {
+            id: "http-request".to_string(),
+            tool: Some("http-request".to_string()),
+            command: String::new(),
+            is_local_command: None,
+            http_request: None,
+            steps: Some(serde_json::json!([
+                {
+                    "fetch": {
+                        "url": "https://k8s-api.local/download",
+                        "to": "/tmp/bin",
+                        "follow_redirects": true,
+                        "headers": {
+                            "Authorization": "Bearer abc"
+                        }
+                    }
+                },
+                {
+                    "chmod": "+x /tmp/bin"
+                }
+            ])),
+        }],
+        cleanup: None,
+        references: vec![],
+    }]);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "steps-abstract".to_string(),
+                target_id,
+                exec_system_id: None,
+                procedure_id: Some("http-request".to_string()),
+                args: HashMap::new(),
+            },
+            &armory,
+        )
+        .expect("should prepare action with abstract steps procedure");
+
+    assert!(
+        exec.procedure
+            .command
+            .contains("-H 'Authorization: Bearer abc'"),
+        "materialized command should include fetch headers: {}",
+        exec.procedure.command
+    );
+    assert!(
+        exec.procedure.command.contains("-o '/tmp/bin'"),
+        "materialized command should include fetch output path: {}",
+        exec.procedure.command
+    );
+    assert!(
+        exec.procedure.command.contains("&& chmod +x /tmp/bin"),
+        "materialized command should chain chmod step: {}",
+        exec.procedure.command
     );
 }
 
@@ -857,6 +1096,8 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
             command: "id".to_string(),
             tool: None,
             is_local_command: None,
+            http_request: None,
+            steps: None,
         }],
         cleanup: None,
         references: vec![],
@@ -914,6 +1155,8 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
             command: "nmap -sT -sV -F 10.244.0.0/24".to_string(),
             tool: None,
             is_local_command: None,
+            http_request: None,
+            steps: None,
         },
         args: HashMap::new(),
         target_id: target_id.to_string(),
@@ -1063,6 +1306,8 @@ fn armory_with_command(ttp_id: &str, command: &str, tool: Option<&str>) -> Armor
             command: command.to_string(),
             tool: tool.map(str::to_string),
             is_local_command: None,
+            http_request: None,
+            steps: None,
         }],
         cleanup: None,
         references: vec![],
@@ -1312,6 +1557,8 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
             command: "echo hi".to_string(),
             tool: None,
             is_local_command: Some(true),
+            http_request: None,
+            steps: None,
         }],
         cleanup: None,
         references: vec![],
@@ -1875,6 +2122,8 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
             command: "grep -r ${MOUNT_PATH}".to_string(),
             tool: None,
             is_local_command: None,
+            http_request: None,
+            steps: None,
         }],
         cleanup: None,
         references: vec![],
@@ -1927,6 +2176,8 @@ fn prepare_action_with_ttp_produces_same_result_as_prepare_action() {
             command: "id".to_string(),
             tool: None,
             is_local_command: None,
+            http_request: None,
+            steps: None,
         }],
         references: vec![],
         cleanup: None,
@@ -1973,6 +2224,8 @@ fn cleanup_armory() -> Armory {
                 command: "apt-get install -y ${PKG}".to_string(),
                 tool: Some("apt".to_string()),
                 is_local_command: None,
+                http_request: None,
+                steps: None,
             }],
             references: vec![],
             cleanup: Some(Procedure {
@@ -1980,6 +2233,8 @@ fn cleanup_armory() -> Armory {
                 command: "apt remove -y ${PKG}".to_string(),
                 tool: Some("apt".to_string()),
                 is_local_command: None,
+                http_request: None,
+                steps: None,
             }),
         },
         Ttp {
@@ -1997,6 +2252,8 @@ fn cleanup_armory() -> Armory {
                 command: "id".to_string(),
                 tool: None,
                 is_local_command: None,
+                http_request: None,
+                steps: None,
             }],
             references: vec![],
             cleanup: None,

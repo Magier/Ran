@@ -1,0 +1,35 @@
+name: HTTP Request via wget
+description: Reusable HTTP request procedure using wget with conventional HTTP parameters
+tactic: Execution
+status: disabled
+techniques: [ "Command and Scripting Interpreter", T1059 ]
+parameters:
+  URL:
+    type: string
+    description: the full HTTP(S) URL to request
+  METHOD:
+    type: string
+    description: HTTP method to use
+    default: GET
+  HEADERS:
+    type: object
+    description: HTTP headers as key/value entries
+    default: {}
+  PAYLOAD:
+    type: string
+    description: request body content used for methods like POST/PUT/PATCH
+    default: ""
+  TIMEOUT:
+    type: int
+    description: request timeout in seconds
+    default: 30
+procedures:
+  - key: wget
+    tool: wget
+    command: >-
+      wget -qO- -T ${TIMEOUT} --method=${METHOD} {% for name, value in HEADERS
+      %} --header="{{ name }}: {{ value }}" {% endfor %} {% if PAYLOAD %}
+      --body-data='${PAYLOAD}' {% endif %} "${URL}"
+effects: []
+references:
+  - https://www.gnu.org/software/wget/manual/wget.html

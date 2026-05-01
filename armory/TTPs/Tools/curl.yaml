@@ -1,0 +1,35 @@
+name: HTTP Request via curl
+description: Reusable HTTP request procedure using curl with conventional HTTP parameters
+tactic: Execution
+status: disabled
+techniques: [ "Command and Scripting Interpreter", T1059 ]
+parameters:
+  URL:
+    type: string
+    description: the full HTTP(S) URL to request
+  METHOD:
+    type: string
+    description: HTTP method to use
+    default: GET
+  HEADERS:
+    type: object
+    description: HTTP headers as key/value entries
+    default: {}
+  PAYLOAD:
+    type: string
+    description: request body content used for methods like POST/PUT/PATCH
+    default: ""
+  TIMEOUT:
+    type: int
+    description: request timeout in seconds
+    default: 30
+procedures:
+  - key: curl
+    tool: curl
+    command: >-
+      curl -sS -m ${TIMEOUT} -X ${METHOD} {% for name, value in HEADERS %} -H
+      "{{ name }}: {{ value }}" {% endfor %} {% if PAYLOAD %} --data
+      '${PAYLOAD}' {% endif %} "${URL}"
+effects: []
+references:
+  - https://curl.se/docs/manpage.html

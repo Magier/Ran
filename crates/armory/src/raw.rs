@@ -46,6 +46,8 @@ struct RawProcedure {
     tool: Option<String>,
     #[serde(alias = "isLocal", alias = "isLocalCommand")]
     is_local: Option<bool>,
+    http_request: Option<JsonValue>,
+    steps: Option<JsonValue>,
 }
 
 impl RawTtp {
@@ -75,7 +77,7 @@ impl RawTtp {
             .into_iter()
             .enumerate()
             .filter_map(|(idx, p)| {
-                if p.command.trim().is_empty() {
+                if p.command.trim().is_empty() && p.http_request.is_none() && p.steps.is_none() {
                     return None;
                 }
                 let id =
@@ -86,6 +88,8 @@ impl RawTtp {
                     command: p.command,
                     tool: p.tool.or(p.key),
                     is_local_command: p.is_local,
+                    http_request: p.http_request,
+                    steps: p.steps,
                 })
             })
             .collect();
@@ -98,6 +102,8 @@ impl RawTtp {
                         command,
                         tool: None,
                         is_local_command: None,
+                        http_request: None,
+                        steps: None,
                     });
                 }
             }
@@ -135,15 +141,19 @@ impl RawTtp {
         let id = self.id.unwrap_or_else(|| slugify(&self.name));
 
         let cleanup = self.cleanup.and_then(|p| {
-            if p.command.trim().is_empty() {
+            if p.command.trim().is_empty() && p.http_request.is_none() && p.steps.is_none() {
                 return None;
             }
-            let id = p.id.or(p.key.clone()).unwrap_or_else(|| "cleanup".to_string());
+            let id =
+                p.id.or(p.key.clone())
+                    .unwrap_or_else(|| "cleanup".to_string());
             Some(Procedure {
                 id,
                 command: p.command,
                 tool: p.tool.or(p.key),
                 is_local_command: p.is_local,
+                http_request: p.http_request,
+                steps: p.steps,
             })
         });
 

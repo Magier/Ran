@@ -206,21 +206,27 @@ impl Campaign {
                     .iter()
                     .map(|id| id.0.clone())
                     .collect();
+                let backend_id = self.resolve_source_backend_id(source_id);
                 return Ok(ExecChannel {
-                    backend_id: BUILTIN_C2_ID.to_string(),
+                    backend_id,
                     hops,
                     exec_target_id: None,
                 });
             }
         }
 
-        let direct = self
+        if let Some((src, _, _)) = self
             .graph
             .exec_edges()
             .into_iter()
-            .any(|(src, tgt, _)| tgt == &target_eid && !self.is_system_entity_id(src));
-        if direct {
-            return Ok(ExecChannel::direct(BUILTIN_C2_ID));
+            .find(|(src, tgt, _)| tgt.0 == target_id && !self.is_system_entity_id(src))
+        {
+            let backend_id = if src.0.starts_with("c2/") {
+                src.0.clone()
+            } else {
+                BUILTIN_C2_ID.to_string()
+            };
+            return Ok(ExecChannel::direct(backend_id));
         }
 
         let seeds = self.direct_foothold_systems();
@@ -229,8 +235,12 @@ impl Campaign {
                 .iter()
                 .map(|id| id.0.clone())
                 .collect();
+            let backend_id = path
+                .first()
+                .map(|id| self.resolve_source_backend_id(&id.0))
+                .unwrap_or_else(|| BUILTIN_C2_ID.to_string());
             return Ok(ExecChannel {
-                backend_id: BUILTIN_C2_ID.to_string(),
+                backend_id,
                 hops,
                 exec_target_id: None,
             });
@@ -293,7 +303,7 @@ impl Campaign {
             .map(|r| &r.target_id)
             .find(|id| direct_reachable.contains(*id))
         {
-            let mut ch = ExecChannel::direct(BUILTIN_C2_ID);
+            let mut ch = ExecChannel::direct(self.resolve_source_backend_id(system_id));
             ch.exec_target_id = Some(system_id.clone());
             return Ok(ch);
         }
@@ -312,7 +322,7 @@ impl Campaign {
             .map(|(id, _)| id);
 
         if let Some(system_id) = best_access {
-            let mut ch = ExecChannel::direct(BUILTIN_C2_ID);
+            let mut ch = ExecChannel::direct(self.resolve_source_backend_id(&system_id));
             ch.exec_target_id = Some(system_id);
             return Ok(ch);
         }
@@ -323,7 +333,7 @@ impl Campaign {
             .cloned();
 
         if let Some(system_id) = any_system {
-            let mut ch = ExecChannel::direct(BUILTIN_C2_ID);
+            let mut ch = ExecChannel::direct(self.resolve_source_backend_id(&system_id));
             ch.exec_target_id = Some(system_id);
             return Ok(ch);
         }
@@ -359,5 +369,24 @@ impl Campaign {
         let src = rel.source_id().clone();
         let tgt = rel.target_id().clone();
         self.insert_relation_with_ids(&src, &tgt, rel);
+    }
+
+    /// Resolve which C2 backend should execute commands on `system_id`.
+    ///
+    /// If there is a direct exec-channel edge from a `c2/<name>` source into
+    /// this system, prefer that backend ID. Otherwise default to builtin.
+    fn resolve_source_backend_id(&self, system_id: &str) -> String {
+        let system_eid = EntityId::new(system_id);
+        if let Some((src, _)) = self
+            .graph
+            .incoming(&system_eid)
+            .into_iter()
+            .find(|(src, d)| {
+                d.is_exec_channel && !self.is_system_entity_id(src) && src.0.starts_with("c2/")
+            })
+        {
+            return src.0.clone();
+        }
+        BUILTIN_C2_ID.to_string()
     }
 }

@@ -1,8 +1,10 @@
 id: get-httproutes
 name: Get HTTPRoutes via API Server
-description: Enumerate Kubernetes Gateway API HTTPRoute resources to map routing rules, discover backend services reachable via Gateways, and identify hostname-to-service mappings
+description: Enumerate Kubernetes Gateway API HTTPRoute resources to map routing
+  rules, discover backend services reachable via Gateways, and identify
+  hostname-to-service mappings
 tactic: Discovery
-techniques: ["Container and Resource Discovery", T1613]
+techniques: [ "Container and Resource Discovery", T1613 ]
 preconditions:
   rbac:
     - verb: list
@@ -24,19 +26,23 @@ parameters:
 procedures:
   - key: kubectl
     command: >-
-      kubectl get httproutes.gateway.networking.k8s.io --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
-  - key: curl
-    command: >-
-      curl -XGET -k
-      -H "Accept: application/json"
-      -H "User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69"
-      -H "Authorization: Bearer ${TOKEN}"
-      --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-      {% if ALL_NS %}
-      '${API_SERVER}/apis/gateway.networking.k8s.io/v1/httproutes?limit=500'
-      {% else %}
-      '${API_SERVER}/apis/gateway.networking.k8s.io/v1/namespaces/${NS}/httproutes?limit=500'
-      {% endif %}
+      kubectl get httproutes.gateway.networking.k8s.io --token=${TOKEN} -n=${NS}
+      -A=${ALL_NS} --output=json
+  - key: http-request
+    tool: http-request
+    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
+    http_request:
+      url: >-
+        {% if ALL_NS %}
+        ${API_SERVER}/apis/gateway.networking.k8s.io/v1/httproutes?limit=500 {%
+        else %}
+        ${API_SERVER}/apis/gateway.networking.k8s.io/v1/namespaces/${NS}/httproutes?limit=500
+        {% endif %}
+      headers:
+        Accept: application/json
+        User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69
+        Authorization: Bearer ${TOKEN}
+      use_ca: false
 effects:
   - k8s.httproutelist
 references:

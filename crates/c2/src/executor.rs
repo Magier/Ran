@@ -212,6 +212,18 @@ impl C2Manager {
             return backend.clone();
         }
 
+        // Accept `c2/<name>` and `<name>` as aliases when looking up backends.
+        if let Some(stripped) = key.strip_prefix("c2/") {
+            if let Some(backend) = backends.get(stripped) {
+                return backend.clone();
+            }
+        } else {
+            let prefixed = format!("c2/{key}");
+            if let Some(backend) = backends.get(&prefixed) {
+                return backend.clone();
+            }
+        }
+
         warn!(
             exec_system_id = %cmd.exec_system_id,
             "c2 backend not found; falling back to builtin c2"
@@ -442,6 +454,44 @@ mod tests {
             .expect("manager should shut down cleanly");
     }
 
+    #[tokio::test]
+    async fn c2_prefixed_backend_key_routes_to_unprefixed_registration() {
+        let builtin_backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "builtin".to_string(),
+        });
+        let mut backends: HashMap<String, Arc<dyn C2Backend>> = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), builtin_backend.clone());
+        backends.insert("ran".to_string(), builtin_backend);
+        backends.insert(
+            "sliver".to_string(),
+            Arc::new(MockBackend {
+                marker: "sliver".to_string(),
+            }),
+        );
+
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let mut rx = events.subscribe();
+        let manager_task = tokio::spawn(manager.run());
+
+        handle
+            .send(exec_cmd("c2/sliver"))
+            .await
+            .expect("send should succeed");
+
+        match rx.recv().await.expect("event should be published") {
+            C2Event::TtpExecuted { event, .. } => {
+                assert_eq!(event.results, vec!["sliver"]);
+                assert!(event.success);
+            }
+            other => panic!("unexpected event: {:?}", other),
+        }
+
+        drop(handle);
+        manager_task
+            .await
+            .expect("manager should shut down cleanly");
+    }
+
     fn exec_cmd(exec_system_id: &str) -> ExecTtp {
         ExecTtp {
             id: "cmd-fallback".to_string(),
@@ -465,6 +515,8 @@ mod tests {
                 command: "id".to_string(),
                 tool: None,
                 is_local_command: None,
+                http_request: None,
+                    steps: None,
             },
             args: HashMap::new(),
             target_id: "ns/default/pod/nginx".to_string(),

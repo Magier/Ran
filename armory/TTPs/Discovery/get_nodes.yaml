@@ -1,10 +1,10 @@
 name: Get Nodes via API Server
 description: Get a list of nodes in the cluster via the API server
 tactic: Discovery
-techniques: ["Cloud Infrastructure Discovery", T1580]
+techniques: [ "Cloud Infrastructure Discovery", T1580 ]
 preconditions:
   # accessLevel: user-read
-  rbac: 
+  rbac:
     - verb: get
       resource: nodes
 parameters:
@@ -17,14 +17,16 @@ procedures:
   - key: kubectl
     command: >-
       kubectl get nodes --token=${TOKEN} --output=json
-  - key: curl
-    command: >-
-      curl -XGET 
-      -H "Accept: application/json"
-      -H "User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69"
-      -H "Authorization: Bearer ${TOKEN}"
-      --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-      '${API_SERVER}/api/v1/nodes?limit=500'
+  - key: http-request
+    tool: http-request
+    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
+    http_request:
+      url: ${API_SERVER}/api/v1/nodes?limit=500
+      headers:
+        Accept: application/json
+        User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69
+        Authorization: Bearer ${TOKEN}
+      ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 effects:
   - k8s.nodeList
 # defend: {}

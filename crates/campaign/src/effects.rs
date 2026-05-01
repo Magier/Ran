@@ -4,7 +4,7 @@ use indexmap::IndexSet;
 use ran_domain::{
     CanReach, ContainerEscape, CronJob, Entity, EntityId, K8sNode, K8sRole, K8sRoleBinding,
     KubeletExecSource, OutputTransformKind, Pod, PodExec, RbacPermission, RbacSubject, RceCanExec,
-    Relation, RunsOn, ServiceAccount,
+    Relation, RunsOn, ServiceAccount, SessionChannel,
 };
 
 use crate::grounding::resolve_template;
@@ -379,10 +379,62 @@ fn resolve_relation_effect_handler(effect_name: &str) -> Option<RelationEffectHa
         "k8s.can-reach" => Some(parse_k8s_can_reach_relation),
         "k8s.runs-on" | "runs-on" => Some(parse_runs_on_relation),
         "k8s.kubelet-exec-source" | "k8s.kubelet-exec" => Some(parse_kubelet_exec_source_relation),
+        "c2.session" => Some(parse_c2_session_relation),
         "rce.can-exec" => Some(parse_rce_can_exec_relation),
         "container.escape" => Some(parse_container_escape_relation),
         _ => None,
     }
+}
+
+fn parse_c2_session_relation(
+    args: &[&str],
+    ctx: &HashMap<String, String>,
+) -> Result<FactsUpdate, String> {
+    if args.len() != 2 {
+        return Err("c2.session effect expects exactly 2 args: backend and target".to_string());
+    }
+
+    let backend_raw = args[0].trim();
+    if backend_raw.is_empty() {
+        return Err("c2.session backend cannot be empty".to_string());
+    }
+
+    // `sys` resolves to the entity the TTP executed on.
+    let target_id = if args[1].eq_ignore_ascii_case("sys") {
+        ctx.get("TARGET_ID")
+            .filter(|id| !id.is_empty())
+            .map(String::as_str)
+            .ok_or_else(|| "c2.session: 'sys' requires TARGET_ID in context".to_string())?
+    } else {
+        args[1]
+    };
+
+    // First arg accepts one of:
+    // - `sliver`            => source `c2/sliver`, session backend `session/sliver`
+    // - `c2/sliver`         => source `c2/sliver`, session backend `session/c2/sliver`
+    // - `session/sliver-1`  => source `c2/sliver-1`, session backend `session/sliver-1`
+    let (source_id, session_id) = if let Some(rest) = backend_raw.strip_prefix("session/") {
+        let source = if rest.starts_with("c2/") {
+            rest.to_string()
+        } else {
+            format!("c2/{}", rest)
+        };
+        (source, backend_raw.to_string())
+    } else if backend_raw.starts_with("c2/") {
+        (backend_raw.to_string(), format!("session/{}", backend_raw))
+    } else {
+        (
+            format!("c2/{}", backend_raw),
+            format!("session/{}", backend_raw),
+        )
+    };
+
+    let rel = SessionChannel::new(source_id, target_id, session_id);
+    Ok(FactsUpdate {
+        new_entities: Vec::new(),
+        new_relations: vec![Box::new(rel)],
+        entity_aliases: IndexSet::new(),
+    })
 }
 
 fn parse_k8s_can_exec_relation(
@@ -610,7 +662,7 @@ fn parse_bool_like(v: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ran_domain::{CanReach, KubeletExecSource, OutputTransformKind};
+    use ran_domain::{CanReach, KubeletExecSource, OutputTransformKind, SessionChannel};
 
     fn ctx() -> HashMap<String, String> {
         HashMap::new()
@@ -650,6 +702,53 @@ mod tests {
         let rel = &update.new_relations[0];
         assert_eq!(rel.source_id().0, "ns/default/pod/frontend");
         assert_eq!(rel.target_id().0, "ns/default/pod/backend");
+    }
+
+    #[test]
+    fn c2_session_creates_session_channel_relation() {
+        let update = parse_effect("c2.session(sliver, ns/default/pod/victim)", &ctx()).unwrap();
+        assert_eq!(update.new_relations.len(), 1);
+        let rel = update.new_relations[0]
+            .as_any()
+            .downcast_ref::<SessionChannel>()
+            .expect("expected SessionChannel relation");
+        assert_eq!(rel.source_id().0, "c2/sliver");
+        assert_eq!(rel.target_id().0, "ns/default/pod/victim");
+        assert_eq!(rel.session_id, "session/sliver");
+    }
+
+    #[test]
+    fn c2_session_accepts_explicit_session_backend_id() {
+        let update = parse_effect(
+            "c2.session(session/sliver-operator-1, ns/default/pod/victim)",
+            &ctx(),
+        )
+        .unwrap();
+        let rel = update.new_relations[0]
+            .as_any()
+            .downcast_ref::<SessionChannel>()
+            .expect("expected SessionChannel relation");
+        assert_eq!(rel.source_id().0, "c2/sliver-operator-1");
+        assert_eq!(rel.session_id, "session/sliver-operator-1");
+    }
+
+    #[test]
+    fn c2_session_resolves_sys_target_from_context() {
+        let mut args = ctx();
+        args.insert("TARGET_ID".into(), "node/worker-1".into());
+
+        let update = parse_effect("c2.session(sliver, sys)", &args).unwrap();
+        let rel = update.new_relations[0]
+            .as_any()
+            .downcast_ref::<SessionChannel>()
+            .expect("expected SessionChannel relation");
+        assert_eq!(rel.target_id().0, "node/worker-1");
+    }
+
+    #[test]
+    fn c2_session_wrong_arg_count_returns_err() {
+        assert!(parse_effect("c2.session(sliver)", &ctx()).is_err());
+        assert!(parse_effect("c2.session(a, b, c)", &ctx()).is_err());
     }
 
     #[test]

@@ -1,12 +1,12 @@
 name: Get Deployments via API Server
 description: Get a list of deployments via the API server
 tactic: Discovery
-techniques: ["Container and Resource Discovery", T1613]
+techniques: [ "Container and Resource Discovery", T1613 ]
 preconditions:
   # accessLevel: user-read
-  rbac: 
-     - verb: get
-       resource: deployments
+  rbac:
+    - verb: get
+      resource: deployments
 parameters:
   TOKEN:
     type: ServiceAccount
@@ -24,18 +24,20 @@ parameters:
 procedures:
   - key: kubectl
     command: >-
-      kubectl get deployments --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
-  - key: curl
-    command: >-
-      curl -XGET 
-      -H "Accept: application/json"
-      -H "Authorization: Bearer ${TOKEN}" 
-      --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-      {% if ALL_NS %}
-      '${API_SERVER}/api/v1/deployments?limit=500'
-      {% else %}
-      '${API_SERVER}/apis/apps/v1/namespaces/${NS}/deployments?limit=500'
-      {% endif %}
+      kubectl get deployments --token=${TOKEN} -n=${NS} -A=${ALL_NS}
+      --output=json
+  - key: http-request
+    tool: http-request
+    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
+    http_request:
+      url: >-
+        {% if ALL_NS %} ${API_SERVER}/apis/apps/v1/deployments?limit=500 {% else
+        %} ${API_SERVER}/apis/apps/v1/namespaces/${NS}/deployments?limit=500 {%
+        endif %}
+      headers:
+        Accept: application/json
+        Authorization: Bearer ${TOKEN}
+      ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 effects:
   - k8s.deploymentList
 # defend: {}

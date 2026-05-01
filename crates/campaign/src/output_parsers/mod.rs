@@ -128,14 +128,7 @@ pub fn parse_output_effect(
             }
             ParserOutput::KnownFailure(detail) => Some(ParsedEffect {
                 updates: FactsUpdate::default(),
-                audit: build_audit(
-                    effect_id,
-                    cmd,
-                    event,
-                    ParseResult::KnownFailure,
-                    &detail,
-                    0,
-                ),
+                audit: build_audit(effect_id, cmd, event, ParseResult::KnownFailure, &detail, 0),
             }),
             _ => None,
         };
@@ -513,10 +506,9 @@ pub fn unwrap_kubelet_json_response(stdout: &str) -> (String, Option<String>) {
     }
 
     match serde_json::from_str::<Envelope>(stdout) {
-        Ok(env) if env.status == "Failure" => (
-            env.result,
-            Some(format!("command failed: {}", env.message)),
-        ),
+        Ok(env) if env.status == "Failure" => {
+            (env.result, Some(format!("command failed: {}", env.message)))
+        }
         Ok(env) => (env.result, None),
         Err(_) => (
             stdout.to_string(),
@@ -551,7 +543,10 @@ fn parse_deploy_container_effect(normalized: &str, cmd: &ExecTtp) -> ParserOutpu
     } else {
         // created(creator:$p1, target:$p2) — informational; the graph already
         // links the attacker entity via the command record.
-        ParserOutput::SuccessWithFacts(FactsUpdate::default(), "created relation: no graph facts".to_string())
+        ParserOutput::SuccessWithFacts(
+            FactsUpdate::default(),
+            "created relation: no graph facts".to_string(),
+        )
     }
 }
 
@@ -559,8 +554,16 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
     use ran_domain::{Confidence, Container, Mount, NameConfidence, Pod, PodPhase};
 
     let pod_name = cmd.args.get("PodName").map(String::as_str).unwrap_or("");
-    let ns = cmd.args.get("Namespace").map(String::as_str).unwrap_or("default");
-    let image = cmd.args.get("Image").map(String::as_str).unwrap_or("unknown");
+    let ns = cmd
+        .args
+        .get("Namespace")
+        .map(String::as_str)
+        .unwrap_or("default");
+    let image = cmd
+        .args
+        .get("Image")
+        .map(String::as_str)
+        .unwrap_or("unknown");
 
     if pod_name.is_empty() {
         return ParserOutput::KnownFailure("deploy-container: PodName arg is empty".to_string());
@@ -572,10 +575,18 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
     pod.is_running = true;
 
     let bool_arg = |key: &str| cmd.args.get(key).map(|s| s == "true").unwrap_or(false);
-    if bool_arg("Privileged") { pod.privileged = Confidence::Yes; }
-    if bool_arg("HostPID")    { pod.host_pid    = Confidence::Yes; }
-    if bool_arg("HostIPC")    { pod.host_ipc    = Confidence::Yes; }
-    if bool_arg("HostNetwork") { pod.host_network = Confidence::Yes; }
+    if bool_arg("Privileged") {
+        pod.privileged = Confidence::Yes;
+    }
+    if bool_arg("HostPID") {
+        pod.host_pid = Confidence::Yes;
+    }
+    if bool_arg("HostIPC") {
+        pod.host_ipc = Confidence::Yes;
+    }
+    if bool_arg("HostNetwork") {
+        pod.host_network = Confidence::Yes;
+    }
 
     let host_mount = if let (Some(host_path), Some(mount_point)) = (
         cmd.args.get("HostPath").filter(|s| !s.is_empty()),
@@ -612,7 +623,10 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
 
     let mut facts = FactsUpdate::default();
     facts.new_entities.push(Box::new(pod));
-    ParserOutput::SuccessWithFacts(facts, format!("deploy-container: pod {}/{} created", ns, pod_name))
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("deploy-container: pod {}/{} created", ns, pod_name),
+    )
 }
 
 fn parse_deploy_namespace(cmd: &ExecTtp) -> ParserOutput {
@@ -624,7 +638,9 @@ fn parse_deploy_namespace(cmd: &ExecTtp) -> ParserOutput {
     }
 
     let mut facts = FactsUpdate::default();
-    facts.new_entities.push(Box::new(Namespace::new(ns.to_string())));
+    facts
+        .new_entities
+        .push(Box::new(Namespace::new(ns.to_string())));
     ParserOutput::SuccessWithFacts(facts, format!("deploy-container: namespace {} ensured", ns))
 }
 
@@ -632,7 +648,11 @@ fn parse_deploy_contains(cmd: &ExecTtp) -> ParserOutput {
     use ran_domain::Contains;
 
     let pod_name = cmd.args.get("PodName").map(String::as_str).unwrap_or("");
-    let ns = cmd.args.get("Namespace").map(String::as_str).unwrap_or("default");
+    let ns = cmd
+        .args
+        .get("Namespace")
+        .map(String::as_str)
+        .unwrap_or("default");
 
     if pod_name.is_empty() {
         return ParserOutput::KnownFailure("deploy-container: PodName arg is empty".to_string());
@@ -642,8 +662,13 @@ fn parse_deploy_contains(cmd: &ExecTtp) -> ParserOutput {
     let pod_id = format!("ns/{}/pod/{}", ns, pod_name);
 
     let mut facts = FactsUpdate::default();
-    facts.new_relations.push(Box::new(Contains::new(ns_id, pod_id)));
-    ParserOutput::SuccessWithFacts(facts, format!("deploy-container: ns/{} contains pod/{}", ns, pod_name))
+    facts
+        .new_relations
+        .push(Box::new(Contains::new(ns_id, pod_id)));
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("deploy-container: ns/{} contains pod/{}", ns, pod_name),
+    )
 }
 
 #[cfg(test)]
@@ -672,6 +697,8 @@ mod tests {
                     command: "env".to_string(),
                     tool: None,
                     is_local_command: None,
+                    http_request: None,
+                    steps: None,
                 }],
                 cleanup: None,
                 references: vec![],
@@ -681,6 +708,8 @@ mod tests {
                 command: "env".to_string(),
                 tool: None,
                 is_local_command: None,
+                http_request: None,
+                    steps: None,
             },
             args: HashMap::new(),
             target_id: "ns/default/pod/demo".to_string(),
