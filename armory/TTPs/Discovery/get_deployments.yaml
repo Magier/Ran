@@ -26,17 +26,15 @@ procedures:
     command: >-
       kubectl get deployments --token=${TOKEN} -n=${NS} -A=${ALL_NS}
       --output=json
-  - key: http-request
-    tool: http-request
-    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
-    http_request:
-      url: >-
-        {% if ALL_NS %} ${API_SERVER}/apis/apps/v1/deployments?limit=500 {% else
-        %} ${API_SERVER}/apis/apps/v1/namespaces/${NS}/deployments?limit=500 {%
-        endif %}
-      headers:
-        Accept: application/json
-        Authorization: Bearer ${TOKEN}
+  - key: k8s-request
+    k8s_request:
+      api_server: ${API_SERVER}
+      api: /apis/apps/v1
+      resource: deployments
+      namespace: ${NS}
+      cluster_scoped: ${ALL_NS}
+      query: limit=500
+      token: ${TOKEN}
       ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 effects:
   - k8s.deploymentList

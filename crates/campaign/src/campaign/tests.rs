@@ -36,6 +36,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
                 tool: None,
                 is_local_command: None,
                 http_request: None,
+                k8s_request: None,
                 steps: None,
             }],
             cleanup: None,
@@ -47,6 +48,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
             tool: None,
             is_local_command: None,
             http_request: None,
+            k8s_request: None,
             steps: None,
         },
         args: HashMap::new(),
@@ -701,6 +703,7 @@ fn minimal_armory(ttp_id: &str) -> Armory {
             tool: None,
             is_local_command: None,
             http_request: None,
+            k8s_request: None,
             steps: None,
         }],
         cleanup: None,
@@ -826,7 +829,8 @@ fn prepare_action_expands_object_headers_into_multiple_flags() {
             tool: Some("curl".to_string()),
             is_local_command: None,
             http_request: None,
-                    steps: None,
+            k8s_request: None,
+            steps: None,
         }],
         cleanup: None,
         references: vec![],
@@ -893,6 +897,7 @@ fn prepare_action_materializes_abstract_http_request_procedure() {
                 "use_ca": false,
                 "ca_path": ""
             })),
+            k8s_request: None,
             steps: None,
         }],
         cleanup: None,
@@ -950,6 +955,7 @@ fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
             command: String::new(),
             is_local_command: None,
             http_request: None,
+            k8s_request: None,
             steps: Some(serde_json::json!([
                 {
                     "fetch": {
@@ -1097,6 +1103,7 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
             tool: None,
             is_local_command: None,
             http_request: None,
+            k8s_request: None,
             steps: None,
         }],
         cleanup: None,
@@ -1156,6 +1163,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
             tool: None,
             is_local_command: None,
             http_request: None,
+            k8s_request: None,
             steps: None,
         },
         args: HashMap::new(),
@@ -1307,6 +1315,7 @@ fn armory_with_command(ttp_id: &str, command: &str, tool: Option<&str>) -> Armor
             tool: tool.map(str::to_string),
             is_local_command: None,
             http_request: None,
+            k8s_request: None,
             steps: None,
         }],
         cleanup: None,
@@ -1558,6 +1567,7 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
             tool: None,
             is_local_command: Some(true),
             http_request: None,
+            k8s_request: None,
             steps: None,
         }],
         cleanup: None,
@@ -2123,6 +2133,7 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
             tool: None,
             is_local_command: None,
             http_request: None,
+            k8s_request: None,
             steps: None,
         }],
         cleanup: None,
@@ -2177,6 +2188,7 @@ fn prepare_action_with_ttp_produces_same_result_as_prepare_action() {
             tool: None,
             is_local_command: None,
             http_request: None,
+            k8s_request: None,
             steps: None,
         }],
         references: vec![],
@@ -2225,6 +2237,7 @@ fn cleanup_armory() -> Armory {
                 tool: Some("apt".to_string()),
                 is_local_command: None,
                 http_request: None,
+                k8s_request: None,
                 steps: None,
             }],
             references: vec![],
@@ -2234,6 +2247,7 @@ fn cleanup_armory() -> Armory {
                 tool: Some("apt".to_string()),
                 is_local_command: None,
                 http_request: None,
+                k8s_request: None,
                 steps: None,
             }),
         },
@@ -2253,6 +2267,7 @@ fn cleanup_armory() -> Armory {
                 tool: None,
                 is_local_command: None,
                 http_request: None,
+                k8s_request: None,
                 steps: None,
             }],
             references: vec![],
@@ -2359,5 +2374,173 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
         actions[0].procedure.command.contains("wget"),
         "cleanup command should use original PKG=wget arg, got: {}",
         actions[0].procedure.command
+    );
+}
+
+// ---------------------------------------------------------------------------
+// materialize_k8s_request tests
+// ---------------------------------------------------------------------------
+
+use super::execution::materialize_k8s_request;
+
+#[test]
+fn materialize_k8s_request_namespaced_url() {
+    let mut procedure = Procedure {
+        id: "k8s-request".to_string(),
+        command: String::new(),
+        tool: None,
+        is_local_command: None,
+        http_request: None,
+        k8s_request: Some(serde_json::json!({
+            "api_server": "https://10.0.0.1:6443",
+            "api": "/api/v1",
+            "resource": "pods",
+            "namespace": "default",
+            "cluster_scoped": "false",
+            "query": "limit=500",
+            "token": "mytoken",
+            "use_ca": false
+        })),
+        steps: None,
+    };
+    materialize_k8s_request(&mut procedure).unwrap();
+    assert!(
+        procedure
+            .command
+            .contains("10.0.0.1:6443/api/v1/namespaces/default/pods?limit=500"),
+        "command was: {}",
+        procedure.command
+    );
+    assert!(procedure.command.contains("Bearer mytoken"));
+    assert!(
+        procedure.k8s_request.is_none(),
+        "k8s_request should be consumed"
+    );
+}
+
+#[test]
+fn materialize_k8s_request_cluster_scoped_when_flag_true() {
+    let mut procedure = Procedure {
+        id: "k8s-request".to_string(),
+        command: String::new(),
+        tool: None,
+        is_local_command: None,
+        http_request: None,
+        k8s_request: Some(serde_json::json!({
+            "api_server": "https://10.0.0.1:6443",
+            "api": "/api/v1",
+            "resource": "pods",
+            "namespace": "default",
+            "cluster_scoped": "true",
+            "query": "limit=500",
+            "token": "tok",
+            "use_ca": false
+        })),
+        steps: None,
+    };
+    materialize_k8s_request(&mut procedure).unwrap();
+    assert!(
+        procedure
+            .command
+            .contains("10.0.0.1:6443/api/v1/pods?limit=500"),
+        "command was: {}",
+        procedure.command
+    );
+    assert!(
+        !procedure.command.contains("namespaces"),
+        "cluster-scoped URL must not contain 'namespaces', got: {}",
+        procedure.command
+    );
+}
+
+#[test]
+fn materialize_k8s_request_cluster_scoped_when_namespace_empty() {
+    let mut procedure = Procedure {
+        id: "k8s-request".to_string(),
+        command: String::new(),
+        tool: None,
+        is_local_command: None,
+        http_request: None,
+        k8s_request: Some(serde_json::json!({
+            "api_server": "https://10.0.0.1:6443",
+            "api": "/apis/rbac.authorization.k8s.io/v1",
+            "resource": "clusterroles",
+            "token": "tok",
+            "use_ca": false
+        })),
+        steps: None,
+    };
+    materialize_k8s_request(&mut procedure).unwrap();
+    assert!(
+        procedure
+            .command
+            .contains("10.0.0.1:6443/apis/rbac.authorization.k8s.io/v1/clusterroles"),
+        "command was: {}",
+        procedure.command
+    );
+    assert!(!procedure.command.contains("namespaces"));
+}
+
+#[test]
+fn materialize_k8s_request_no_token_no_auth_header() {
+    let mut procedure = Procedure {
+        id: "k8s-request".to_string(),
+        command: String::new(),
+        tool: None,
+        is_local_command: None,
+        http_request: None,
+        k8s_request: Some(serde_json::json!({
+            "api_server": "https://10.0.0.1:6443",
+            "api": "/api/v1",
+            "resource": "nodes",
+            "use_ca": false
+        })),
+        steps: None,
+    };
+    materialize_k8s_request(&mut procedure).unwrap();
+    assert!(
+        !procedure.command.contains("Authorization"),
+        "empty token must not produce Authorization header, got: {}",
+        procedure.command
+    );
+}
+
+#[test]
+fn materialize_k8s_request_noop_when_field_absent() {
+    let mut procedure = Procedure {
+        id: "kubectl".to_string(),
+        command: "kubectl get pods".to_string(),
+        tool: None,
+        is_local_command: None,
+        http_request: None,
+        k8s_request: None,
+        steps: None,
+    };
+    materialize_k8s_request(&mut procedure).unwrap();
+    assert_eq!(procedure.command, "kubectl get pods");
+}
+
+#[test]
+fn materialize_k8s_request_namespaced_when_cluster_scoped_omitted() {
+    let mut procedure = Procedure {
+        id: "k8s-request".to_string(),
+        command: String::new(),
+        tool: None,
+        is_local_command: None,
+        http_request: None,
+        k8s_request: Some(serde_json::json!({
+            "api_server": "https://10.0.0.1:6443",
+            "api": "/api/v1",
+            "resource": "pods",
+            "namespace": "kube-system",
+            "use_ca": false
+        })),
+        steps: None,
+    };
+    materialize_k8s_request(&mut procedure).unwrap();
+    assert!(
+        procedure.command.contains("namespaces/kube-system/pods"),
+        "omitting cluster_scoped must default to namespaced; got: {}",
+        procedure.command
     );
 }
