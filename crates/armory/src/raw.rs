@@ -47,6 +47,7 @@ struct RawProcedure {
     #[serde(alias = "isLocal", alias = "isLocalCommand")]
     is_local: Option<bool>,
     http_request: Option<JsonValue>,
+    k8s_request: Option<JsonValue>,
     steps: Option<JsonValue>,
 }
 
@@ -77,7 +78,11 @@ impl RawTtp {
             .into_iter()
             .enumerate()
             .filter_map(|(idx, p)| {
-                if p.command.trim().is_empty() && p.http_request.is_none() && p.steps.is_none() {
+                if p.command.trim().is_empty()
+                    && p.http_request.is_none()
+                    && p.k8s_request.is_none()
+                    && p.steps.is_none()
+                {
                     return None;
                 }
                 let id =
@@ -89,6 +94,7 @@ impl RawTtp {
                     tool: p.tool.or(p.key),
                     is_local_command: p.is_local,
                     http_request: p.http_request,
+                    k8s_request: p.k8s_request,
                     steps: p.steps,
                 })
             })
@@ -103,6 +109,7 @@ impl RawTtp {
                         tool: None,
                         is_local_command: None,
                         http_request: None,
+                        k8s_request: None,
                         steps: None,
                     });
                 }
@@ -141,7 +148,11 @@ impl RawTtp {
         let id = self.id.unwrap_or_else(|| slugify(&self.name));
 
         let cleanup = self.cleanup.and_then(|p| {
-            if p.command.trim().is_empty() && p.http_request.is_none() && p.steps.is_none() {
+            if p.command.trim().is_empty()
+                && p.http_request.is_none()
+                && p.k8s_request.is_none()
+                && p.steps.is_none()
+            {
                 return None;
             }
             let id =
@@ -153,6 +164,7 @@ impl RawTtp {
                 tool: p.tool.or(p.key),
                 is_local_command: p.is_local,
                 http_request: p.http_request,
+                k8s_request: p.k8s_request,
                 steps: p.steps,
             })
         });
@@ -345,5 +357,90 @@ procedures:
         );
         assert_eq!(entry["verb"].as_str(), Some("delete"));
         assert_eq!(entry["resourceType"].as_str(), Some("events"));
+    }
+
+    #[test]
+    fn k8s_request_procedure_is_preserved_through_into_ttp() {
+        let yaml = r#"
+name: Get Pods
+tactic: Discovery
+procedures:
+  - key: k8s-request
+    k8s_request:
+      api_server: https://10.0.0.1:6443
+      api: /api/v1
+      resource: pods
+      namespace: default
+      cluster_scoped: "false"
+      query: limit=500
+      token: mytoken
+      use_ca: false
+"#;
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw.into_ttp(Path::new("Discovery/get_pods.yaml")).unwrap();
+        assert_eq!(ttp.procedures.len(), 1);
+        let proc = &ttp.procedures[0];
+        assert_eq!(proc.id, "k8s-request");
+        assert!(
+            proc.k8s_request.is_some(),
+            "k8s_request should be preserved"
+        );
+        assert!(proc.http_request.is_none());
+        assert!(proc.command.is_empty());
+    }
+
+    #[test]
+    fn k8s_request_procedure_without_key_gets_positional_id() {
+        let yaml = r#"
+name: Get Pods
+tactic: Discovery
+procedures:
+  - k8s_request:
+      api: /api/v1
+      resource: pods
+"#;
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw.into_ttp(Path::new("Discovery/get_pods.yaml")).unwrap();
+        assert_eq!(ttp.procedures.len(), 1);
+        assert_eq!(ttp.procedures[0].id, "proc-1");
+        assert!(ttp.procedures[0].k8s_request.is_some());
+    }
+
+    #[test]
+    fn procedure_with_only_k8s_request_is_not_filtered_out() {
+        // Regression: the empty-check filter must treat k8s_request as non-empty
+        let yaml = r#"
+name: Test
+tactic: Discovery
+procedures:
+  - k8s_request:
+      api: /api/v1
+      resource: nodes
+"#;
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw.into_ttp(Path::new("Discovery/test.yaml")).unwrap();
+        assert_eq!(ttp.procedures.len(), 1);
+    }
+
+    #[test]
+    fn cleanup_with_only_k8s_request_is_not_filtered_out() {
+        let yaml = r#"
+name: Test
+tactic: Discovery
+procedures:
+  - command: kubectl get nodes
+cleanup:
+  k8s_request:
+    api: /api/v1
+    resource: nodes
+"#;
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw.into_ttp(Path::new("Discovery/test.yaml")).unwrap();
+        assert!(
+            ttp.cleanup.is_some(),
+            "cleanup with k8s_request should not be filtered out"
+        );
+        let cleanup = ttp.cleanup.unwrap();
+        assert!(cleanup.k8s_request.is_some());
     }
 }
