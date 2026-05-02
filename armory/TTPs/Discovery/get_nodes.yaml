@@ -17,15 +17,13 @@ procedures:
   - key: kubectl
     command: >-
       kubectl get nodes --token=${TOKEN} --output=json
-  - key: http-request
-    tool: http-request
-    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
-    http_request:
-      url: ${API_SERVER}/api/v1/nodes?limit=500
-      headers:
-        Accept: application/json
-        User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69
-        Authorization: Bearer ${TOKEN}
+  - key: k8s-request
+    k8s_request:
+      api_server: ${API_SERVER}
+      api: /api/v1
+      resource: nodes
+      query: limit=500
+      token: ${TOKEN}
       ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 effects:
   - k8s.nodeList
