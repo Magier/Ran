@@ -10,7 +10,7 @@ use kube::{
     Api, Client, Config,
 };
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Cancellation handle for a running pod watch. The background task is aborted when this is
 /// dropped.
@@ -247,6 +247,68 @@ impl K8sService {
             stderr,
             exit_code,
         })
+    }
+
+    /// Open a long-lived interactive exec session into a pod and return a
+    /// [`tokio::io::DuplexStream`] that acts as the session's stdin/stdout.
+    ///
+    /// Internally starts `/bin/sh` in the pod with `stdin=true, stdout=true,
+    /// tty=false` and bridges the `AttachedProcess` to the duplex stream via a
+    /// background proxy task.  Dropping the returned stream tears down the
+    /// proxy task and closes the exec channel.
+    pub async fn open_exec_session(
+        &self,
+        namespace: &str,
+        pod: &str,
+        container: Option<&str>,
+    ) -> Result<tokio::io::DuplexStream> {
+        let api: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
+
+        let mut params = AttachParams::default()
+            .stdin(true)
+            .stdout(true)
+            .stderr(false)
+            .tty(false);
+        if let Some(c) = container {
+            params = params.container(c);
+        }
+
+        let mut attached = api
+            .exec(pod, ["/bin/sh"], &params)
+            .await
+            .with_context(|| {
+                format!("kubectl exec session failed for pod '{}/{}'", namespace, pod)
+            })?;
+
+        let mut stdin_w = attached
+            .stdin()
+            .ok_or_else(|| anyhow!("kubectl exec: stdin channel unavailable"))?;
+        let stdout_r = attached
+            .stdout()
+            .ok_or_else(|| anyhow!("kubectl exec: stdout channel unavailable"))?;
+
+        let (client, server) = tokio::io::duplex(64 * 1024);
+
+        tokio::spawn(async move {
+            let (mut server_rx, mut server_tx) = tokio::io::split(server);
+            let mut stdout_r = stdout_r;
+
+            let copy_in = async {
+                let _ = tokio::io::copy(&mut server_rx, &mut stdin_w).await;
+                // Signal EOF to the shell when the client side closes.
+                let _ = stdin_w.shutdown().await;
+            };
+            let copy_out = tokio::io::copy(&mut stdout_r, &mut server_tx);
+
+            tokio::select! {
+                _ = copy_in => {}
+                _ = copy_out => {}
+            }
+
+            drop(attached);
+        });
+
+        Ok(client)
     }
 }
 

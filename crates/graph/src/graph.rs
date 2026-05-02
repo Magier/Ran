@@ -335,6 +335,53 @@ impl KnowledgeGraph {
     // Serialization view
     // -----------------------------------------------------------------------
 
+    /// Set `session_id` on the first incoming exec-channel edge pointing to `tgt`.
+    /// Returns `true` when a matching edge was found and updated.
+    ///
+    /// This is used when a session is established over an existing exec path
+    /// (e.g. `k8s.can-exec`, `rce.can-exec`, `c2.session`) so the session
+    /// state lives on the edge that already represents the execution channel,
+    /// instead of creating a redundant new relation.
+    pub fn activate_session_on_incoming_exec(&mut self, tgt: &EntityId, session_id: String) -> bool {
+        let Some(&ti) = self.index.get(tgt) else {
+            return false;
+        };
+        let idxs: Vec<petgraph::stable_graph::EdgeIndex> = self
+            .graph
+            .edges_directed(ti, petgraph::Direction::Incoming)
+            .filter(|e| e.weight().is_exec_channel)
+            .map(|e| e.id())
+            .collect();
+        let found = !idxs.is_empty();
+        for idx in idxs {
+            if let Some(data) = self.graph.edge_weight_mut(idx) {
+                data.session_id = Some(session_id.clone());
+            }
+        }
+        found
+    }
+
+    /// Clear `session_id` from every edge where `session_id == Some(backend_id)`.
+    /// Called when a session is lost so the exec-channel edges revert to
+    /// their inactive (one-shot) appearance.
+    pub fn deactivate_session(&mut self, backend_id: &str) {
+        let idxs: Vec<petgraph::stable_graph::EdgeIndex> = self
+            .graph
+            .edge_indices()
+            .filter(|&ei| {
+                self.graph
+                    .edge_weight(ei)
+                    .and_then(|d| d.session_id.as_deref())
+                    == Some(backend_id)
+            })
+            .collect();
+        for idx in idxs {
+            if let Some(data) = self.graph.edge_weight_mut(idx) {
+                data.session_id = None;
+            }
+        }
+    }
+
     /// Snapshot all edges as [`RelationSummary`] values for serialization.
     pub fn to_relation_summaries(&self) -> Vec<RelationSummary> {
         self.graph
@@ -352,6 +399,7 @@ impl KnowledgeGraph {
                     envelope: data.envelope.clone(),
                     output_transform: data.output_transform.clone(),
                     weight: data.weight,
+                    session_id: data.session_id.clone(),
                 })
             })
             .collect()

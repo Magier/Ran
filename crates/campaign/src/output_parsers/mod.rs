@@ -730,6 +730,7 @@ mod tests {
             results,
             exit_code: 0,
             fail_reason: String::new(),
+            session_connected: None,
         }
     }
 

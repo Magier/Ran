@@ -463,6 +463,9 @@ components:
           type: string
         targetId:
           type: string
+        sessionId:
+          type: string
+          description: Backend ID of the active persistent session on this exec-channel edge, if any.
 
     CampaignState:
       type: object

@@ -49,6 +49,19 @@ impl ExecTtp {
     }
 }
 
+/// Session probe data collected when a synchronous exec session is opened as
+/// part of a TTP execution (e.g. `setTarget` with `Interactive=true`).
+/// Embedded in `TtpExecuted` so the campaign can apply it after TTP effects,
+/// avoiding the ordering problems of a separate `SessionConnected` event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionConnectedData {
+    pub backend_id: String,
+    pub target_entity_id: String,
+    pub hostname: String,
+    pub user: String,
+    pub os: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtpExecuted {
     pub id: String,
@@ -56,6 +69,11 @@ pub struct TtpExecuted {
     pub results: Vec<String>,
     pub exit_code: i32,
     pub fail_reason: String,
+    /// Populated when a synchronous exec session was opened during TTP execution.
+    /// The campaign processes this after applying TTP effects so the exec-channel
+    /// edge created by those effects is available for session activation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_connected: Option<SessionConnectedData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

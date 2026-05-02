@@ -52,6 +52,9 @@ pub(crate) fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
                 m.insert("name".to_string(), Value::String(r.name.clone()));
                 m.insert("sourceId".to_string(), Value::String(r.source_id.clone()));
                 m.insert("targetId".to_string(), Value::String(r.target_id.clone()));
+                if let Some(ref sid) = r.session_id {
+                    m.insert("sessionId".to_string(), Value::String(sid.clone()));
+                }
                 m
             })
             .collect(),
@@ -100,6 +103,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
                         None
                     },
                     relation: None,
+                    session_id: r.session_id.clone(),
                 });
             }
         }
