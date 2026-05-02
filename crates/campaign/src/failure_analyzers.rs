@@ -472,6 +472,7 @@ mod tests {
             results: vec![stderr.to_string()],
             exit_code: 1,
             fail_reason: String::new(),
+            session_connected: None,
         }
     }
 
@@ -482,6 +483,7 @@ mod tests {
             results: vec![],
             exit_code: 1,
             fail_reason: fail_reason.to_string(),
+            session_connected: None,
         }
     }
 
@@ -496,6 +498,7 @@ mod tests {
             results: vec!["Error from server (Forbidden)".to_string()],
             exit_code: 1,
             fail_reason: "Forbidden".to_string(),
+            session_connected: None,
         };
 
         let classified = classify_failure(&cmd, &event);
@@ -542,6 +545,7 @@ mod tests {
             results: vec!["'/usr/local/bin' is not writeable".to_string()],
             exit_code: 23,
             fail_reason: "command terminated with non-zero exit code: error executing command [/bin/sh -lc ...], exit code 23".to_string(),
+            session_connected: None,
         };
         event.exit_code = 23;
 
@@ -629,6 +633,7 @@ mod tests {
             ],
             exit_code: 1,
             fail_reason: String::new(),
+            session_connected: None,
         };
 
         let classified = classify_failure(&cmd, &event);
@@ -705,6 +710,7 @@ mod tests {
             results: vec![],
             exit_code: 127,
             fail_reason: String::new(),
+            session_connected: None,
         };
         event.exit_code = 127;
 

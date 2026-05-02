@@ -68,7 +68,7 @@ impl ShellSession {
         Self::from_rw(rx, tx, entity_id)
     }
 
-    fn from_rw<R, W>(reader: R, writer: W, entity_id: impl Into<String>) -> Self
+    pub(crate) fn from_rw<R, W>(reader: R, writer: W, entity_id: impl Into<String>) -> Self
     where
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
@@ -257,6 +257,7 @@ impl C2Backend for ShellSession {
             },
             exit_code,
             fail_reason,
+            session_connected: None,
         }
     }
 }
@@ -268,6 +269,7 @@ fn exec_error(cmd_id: &str, reason: String) -> TtpExecuted {
         results: vec![reason.clone()],
         exit_code: 1,
         fail_reason: reason,
+            session_connected: None,
     }
 }
 

@@ -68,6 +68,7 @@ fn sample_event(stdout: &str) -> TtpExecuted {
         results: vec![stdout.to_string(), String::new()],
         exit_code: 0,
         fail_reason: String::new(),
+            session_connected: None,
     }
 }
 
@@ -78,6 +79,7 @@ fn sample_failed_event(fail_reason: &str) -> TtpExecuted {
         results: vec![fail_reason.to_string()],
         exit_code: 1,
         fail_reason: fail_reason.to_string(),
+            session_connected: None,
     }
 }
 
@@ -1185,6 +1187,7 @@ fn command_not_found_event() -> TtpExecuted {
         fail_reason: "command terminated with non-zero exit code: error executing command \
             [/bin/sh -lc nmap -sT -sV -F 10.244.0.0/24], exit code 127"
             .to_string(),
+        session_connected: None,
     }
 }
 
@@ -1229,6 +1232,7 @@ fn command_not_found_in_output_with_exit_zero_marks_binary_absent_and_fails_step
         exit_code: 0,
         results: vec!["sh: 1: curl: not found".to_string()],
         fail_reason: String::new(),
+            session_connected: None,
     };
 
     let processing = campaign.on_ttp_executed(&cmd, &event).unwrap();

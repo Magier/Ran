@@ -1,4 +1,7 @@
 {
     "julia.environmentPath": "/Users/me/Dev/Ran/Ran",
-    "makefile.configureOnOpen": false
+    "makefile.configureOnOpen": false,
+    "chat.tools.terminal.autoApprove": {
+        "cargo test": true
+    }
 }

@@ -983,6 +983,7 @@ impl Campaign {
                     envelope: d.envelope.clone(),
                     output_transform: d.output_transform.clone(),
                     weight: d.weight,
+                    session_id: d.session_id.clone(),
                 });
             procedure.command = match found {
                 Some(ref rel) => {

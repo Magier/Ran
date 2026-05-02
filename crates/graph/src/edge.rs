@@ -18,6 +18,11 @@ pub struct EdgeData {
     pub envelope: Option<String>,
     /// Output post-processing required after routing commands over this edge.
     pub output_transform: Option<OutputTransformKind>,
+    /// For `k8s.can-exec` edges: the C2 backend ID of an active persistent
+    /// kubectl exec session, if one is currently open. `None` means the channel
+    /// is used in one-shot (per-command kubectl exec) mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 impl EdgeData {
@@ -28,6 +33,7 @@ impl EdgeData {
             is_exec_channel,
             envelope: None,
             output_transform: None,
+            session_id: None,
         }
     }
 
@@ -69,5 +75,6 @@ pub fn edge_data_for(
         is_exec_channel,
         envelope,
         output_transform,
+        session_id: None,
     }
 }

@@ -357,6 +357,26 @@ impl Campaign {
         pod_id
     }
 
+    /// Activate a session on any existing exec-channel edge pointing to `target_id`.
+    /// Sets `session_id` on the edge so the frontend can render it as active.
+    /// Returns `true` when a matching edge was found; the caller should only
+    /// create a new `SessionChannel` relation when this returns `false`.
+    pub fn activate_session_on_exec_channel(
+        &mut self,
+        target_id: &str,
+        backend_id: &str,
+    ) -> bool {
+        let target_eid = EntityId::new(target_id);
+        self.graph
+            .activate_session_on_incoming_exec(&target_eid, backend_id.to_string())
+    }
+
+    /// Clear `session_id` from every exec-channel edge that carries `backend_id`.
+    /// Called when a session is lost regardless of how it was established.
+    pub fn deactivate_session(&mut self, backend_id: &str) {
+        self.graph.deactivate_session(backend_id);
+    }
+
     /// Insert an entity into the store and register its node in the graph.
     pub(crate) fn insert_entity(&mut self, entity: &dyn Entity) {
         let id = entity.entity_id();

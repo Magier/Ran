@@ -686,6 +686,10 @@ pub struct RelationSummary {
     /// exec-channel relations (lower = preferred path).
     #[serde(default)]
     pub weight: f32,
+    /// For `k8s.can-exec` edges: C2 backend ID of the active persistent kubectl
+    /// exec session, if one is open. `None` = one-shot per-command exec mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 impl RelationSummary {
@@ -713,6 +717,11 @@ impl RelationSummary {
             .downcast_ref::<KubeletExecSource>()
             .and_then(|k| k.output_transform.clone());
 
+        let session_id = r
+            .as_any()
+            .downcast_ref::<SessionChannel>()
+            .map(|s| s.session_id.clone());
+
         Self {
             name: r.relation_name().to_string(),
             source_id: r.source_id().0.clone(),
@@ -721,6 +730,7 @@ impl RelationSummary {
             envelope,
             output_transform,
             weight: 0.0,
+            session_id,
         }
     }
 

@@ -61,6 +61,7 @@ pub struct C2Manager {
     cmd_rx: mpsc::Receiver<ExecTtp>,
     event_bus: C2EventBus,
     backends: Backends,
+    k8s: Option<K8sService>,
 }
 
 #[async_trait]
@@ -80,7 +81,7 @@ impl C2Manager {
         let (cmd_tx, cmd_rx) = mpsc::channel(buffer_size);
         let event_bus = C2EventBus::new(buffer_size);
 
-        let builtin: Arc<dyn C2Backend> = Arc::new(BuiltinC2::new(k8s));
+        let builtin: Arc<dyn C2Backend> = Arc::new(BuiltinC2::new(k8s.clone()));
         let mut map: HashMap<String, Arc<dyn C2Backend>> = HashMap::new();
         map.insert(BUILTIN_C2_ID.to_string(), builtin.clone());
         map.insert("ran".to_string(), builtin);
@@ -96,6 +97,7 @@ impl C2Manager {
                 cmd_rx,
                 event_bus,
                 backends,
+                k8s: Some(k8s),
             },
         )
     }
@@ -119,6 +121,7 @@ impl C2Manager {
                 cmd_rx,
                 event_bus,
                 backends,
+                k8s: None,
             },
         )
     }
@@ -144,12 +147,59 @@ impl C2Manager {
         let trimmed = cmd.procedure.command.trim_start();
 
         if trimmed.starts_with("setTarget(") || trimmed == "noop" {
+            if args_flag(&cmd.args, "Interactive") {
+                if let Some(pod_entity_id) = parse_set_target_pod_entity(trimmed) {
+                    let backend_id = kubectl_exec_backend_id(&pod_entity_id, None);
+                    let container = args_str(&cmd.args, "Container");
+                    let Some(k8s) = self.k8s.clone() else {
+                        return TtpExecuted {
+                            id: cmd.id.clone(),
+                            success: false,
+                            results: vec!["no K8s client configured".to_string()],
+                            exit_code: 1,
+                            fail_reason: "no K8s client configured".to_string(),
+                            session_connected: None,
+                        };
+                    };
+                    match open_kubectl_exec_session(
+                        self.backends.clone(),
+                        k8s,
+                        backend_id,
+                        pod_entity_id,
+                        container,
+                    )
+                    .await
+                    {
+                        Ok(session_data) => {
+                            return TtpExecuted {
+                                id: cmd.id.clone(),
+                                success: true,
+                                results: vec!["ok".to_string()],
+                                exit_code: 0,
+                                fail_reason: String::new(),
+                                session_connected: Some(session_data),
+                            };
+                        }
+                        Err(e) => {
+                            return TtpExecuted {
+                                id: cmd.id.clone(),
+                                success: false,
+                                results: vec![e.clone()],
+                                exit_code: 1,
+                                fail_reason: e,
+                                session_connected: None,
+                            };
+                        }
+                    }
+                }
+            }
             return TtpExecuted {
                 id: cmd.id.clone(),
                 success: true,
                 results: vec!["ok".to_string()],
                 exit_code: 0,
                 fail_reason: String::new(),
+                session_connected: None,
             };
         }
 
@@ -168,11 +218,32 @@ impl C2Manager {
                 results: vec![format!("listener starting on port {}", port)],
                 exit_code: 0,
                 fail_reason: String::new(),
+                session_connected: None,
             };
         }
 
-        let backend = self.select_backend(cmd).await;
-        backend.execute(cmd).await
+        if let Some(container) = parse_kubectl_exec_command(trimmed) {
+            let target_entity_id = cmd
+                .args
+                .get("TARGET_ID")
+                .map(String::as_str)
+                .unwrap_or(&cmd.target_id)
+                .to_string();
+            let backend_id = kubectl_exec_backend_id(&target_entity_id, container.as_deref());
+            self.spawn_kubectl_exec_session(backend_id, target_entity_id, container);
+            return TtpExecuted {
+                id: cmd.id.clone(),
+                success: true,
+                results: vec!["kubectl exec session opening".to_string()],
+                exit_code: 0,
+                fail_reason: String::new(),
+                session_connected: None,
+            };
+        }
+
+        let mut event = self.select_backend(cmd).await.execute(cmd).await;
+        event.session_connected = None;
+        event
     }
 
     fn spawn_session_listener(
@@ -194,6 +265,38 @@ impl C2Manager {
                 protocol,
             )
             .await;
+        });
+    }
+
+    fn spawn_kubectl_exec_session(
+        &self,
+        backend_id: String,
+        target_entity_id: String,
+        container: Option<String>,
+    ) {
+        let backends = self.backends.clone();
+        let event_bus = self.event_bus.clone();
+        let Some(k8s) = self.k8s.clone() else {
+            tracing::error!("c2.kubectl_exec: no K8s client available");
+            return;
+        };
+        tokio::spawn(async move {
+            match open_kubectl_exec_session(backends, k8s, backend_id.clone(), target_entity_id.clone(), container).await {
+                Ok(data) => {
+                    let _ = event_bus.publish(C2Event::SessionConnected {
+                        backend_id: data.backend_id,
+                        target_entity_id: data.target_entity_id,
+                        hostname: data.hostname,
+                        user: data.user,
+                        os: data.os,
+                        port: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::error!(%backend_id, error = %e, "kubectl exec session failed");
+                    let _ = event_bus.publish(C2Event::SessionLost { backend_id, target_entity_id });
+                }
+            }
         });
     }
 
@@ -234,6 +337,137 @@ impl C2Manager {
             .expect("builtin c2 backend must always be registered")
             .clone()
     }
+}
+
+/// Look up a boolean arg by name, case-insensitively. Returns true only for
+/// the exact string `"true"` (case-insensitive).
+fn args_flag(args: &HashMap<String, String>, key: &str) -> bool {
+    let key_lower = key.to_ascii_lowercase();
+    args.iter()
+        .find(|(k, _)| k.to_ascii_lowercase() == key_lower)
+        .map(|(_, v)| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Look up a string arg by name, case-insensitively. Returns `None` when
+/// the key is absent or the value is empty.
+fn args_str(args: &HashMap<String, String>, key: &str) -> Option<String> {
+    let key_lower = key.to_ascii_lowercase();
+    args.iter()
+        .find(|(k, _)| k.to_ascii_lowercase() == key_lower)
+        .map(|(_, v)| v.clone())
+        .filter(|v| !v.is_empty())
+}
+
+/// Open a kubectl exec session and register it as a backend. Returns the probe
+/// data (hostname, user, os) for the caller to embed in `TtpExecuted` so the
+/// campaign can process it after TTP effects rather than as a separate event.
+async fn open_kubectl_exec_session(
+    backends: Backends,
+    k8s: K8sService,
+    backend_id: String,
+    target_entity_id: String,
+    container: Option<String>,
+) -> Result<crate::types::SessionConnectedData, String> {
+    let (ns, pod) = split_pod_entity_id(&target_entity_id).ok_or_else(|| {
+        format!(
+            "target '{}' is not a pod entity (expected ns/<ns>/pod/<name>)",
+            target_entity_id
+        )
+    })?;
+    let (ns, pod) = (ns.to_string(), pod.to_string());
+
+    let stream = k8s
+        .open_exec_session(&ns, &pod, container.as_deref())
+        .await
+        .map_err(|e| format!("kubectl exec open failed for {target_entity_id}: {e}"))?;
+
+    let (rx, tx) = tokio::io::split(stream);
+    let session = crate::ShellSession::from_rw(rx, tx, &backend_id);
+
+    if let Err(e) = session.init().await {
+        tracing::warn!(%backend_id, error = %e, "kubectl exec session init warning; proceeding");
+    }
+
+    let hostname = session.run_raw("hostname").await.unwrap_or_else(|e| {
+        tracing::warn!(%backend_id, error = %e, "hostname probe failed");
+        pod.clone()
+    });
+    let user = session.run_raw("whoami").await.unwrap_or_else(|e| {
+        tracing::warn!(%backend_id, error = %e, "whoami probe failed");
+        String::new()
+    });
+    let os = session.run_raw("uname").await.unwrap_or_else(|e| {
+        tracing::warn!(%backend_id, error = %e, "uname probe failed");
+        String::new()
+    });
+
+    tracing::info!(%backend_id, %hostname, %user, %os, "kubectl exec session ready");
+
+    backends
+        .write()
+        .await
+        .insert(backend_id.clone(), Arc::new(session));
+
+    Ok(crate::types::SessionConnectedData {
+        backend_id,
+        target_entity_id,
+        hostname,
+        user,
+        os,
+    })
+}
+
+/// Parse `setTarget(namespace, pod)` and return the canonical pod entity ID
+/// `ns/<namespace>/pod/<pod>`, or `None` when the format doesn't match.
+fn parse_set_target_pod_entity(cmd: &str) -> Option<String> {
+    let inner = cmd.strip_prefix("setTarget(")?.strip_suffix(')')?;
+    let mut parts = inner.splitn(2, ',');
+    let namespace = parts.next()?.trim();
+    let pod = parts.next()?.trim();
+    if namespace.is_empty() || pod.is_empty() {
+        return None;
+    }
+    Some(format!("ns/{}/pod/{}", namespace, pod))
+}
+
+/// Parse `c2.kubectl_exec()` or `c2.kubectl_exec(container)` from a procedure
+/// command string.  Returns `Some(None)` for no-container form, `Some(Some(name))`
+/// when a container name is given, `None` when the command doesn't match.
+fn parse_kubectl_exec_command(cmd: &str) -> Option<Option<String>> {
+    let inner = cmd.strip_prefix("c2.kubectl_exec(")?.strip_suffix(')')?;
+    let container = if inner.trim().is_empty() {
+        None
+    } else {
+        Some(inner.trim().to_string())
+    };
+    Some(container)
+}
+
+/// Derive a deterministic session backend ID for a kubectl exec session.
+fn kubectl_exec_backend_id(target_id: &str, container: Option<&str>) -> String {
+    let slug = target_id.replace('/', "-");
+    match container {
+        Some(c) => format!("session/{}-{}", slug, c),
+        None => format!("session/{}", slug),
+    }
+}
+
+/// Parse a pod entity ID in canonical form `ns/<namespace>/pod/<name>` and
+/// return `(namespace, pod_name)`, or `None` if the format doesn't match.
+fn split_pod_entity_id(entity_id: &str) -> Option<(&str, &str)> {
+    let mut parts = entity_id.splitn(5, '/');
+    let kind_a = parts.next()?;
+    let namespace = parts.next()?;
+    let kind_b = parts.next()?;
+    let pod_name = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if kind_a != "ns" || kind_b != "pod" || namespace.is_empty() || pod_name.is_empty() {
+        return None;
+    }
+    Some((namespace, pod_name))
 }
 
 /// Parse `c2.listen(port, protocol)` or `c2.listen(port)` from a procedure
@@ -370,6 +604,7 @@ mod tests {
                 results: vec![self.marker.clone()],
                 exit_code: 0,
                 fail_reason: String::new(),
+                session_connected: None,
             }
         }
     }

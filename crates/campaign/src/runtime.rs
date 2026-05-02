@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use armory::Ttp;
-use c2::{C2Event, C2EventBus};
+use c2::{C2Event, C2EventBus, SessionConnectedData};
 use ran_domain::{
     AccessLevel, C2Server, Entity, EntityId, SessionChannel, SessionInfo, SessionStatus,
     UnknownSystem,
@@ -119,7 +119,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         "Action result"
                     );
 
-                    let processing = {
+                    let (processing, session_entity_summary) = {
                         let mut campaign_guard = match campaign.write() {
                             Ok(guard) => guard,
                             Err(_) => {
@@ -128,13 +128,22 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             }
                         };
 
-                        match campaign_guard.on_ttp_executed(&cmd, &event) {
+                        let processing = match campaign_guard.on_ttp_executed(&cmd, &event) {
                             Ok(processing) => processing,
                             Err(err) => {
                                 error!("failed to process c2 ttp result: {:?}", err);
                                 continue;
                             }
-                        }
+                        };
+
+                        // After effects are applied, activate any synchronous session
+                        // that was opened during this TTP execution. The exec-channel
+                        // edge (e.g. k8s.can-exec) now exists so activation will find it.
+                        let session_summary = event.session_connected.as_ref().map(|s| {
+                            apply_session_connected(&mut campaign_guard, s)
+                        });
+
+                        (processing, session_summary)
                     };
 
                     if processing.parse_audits.is_empty() {
@@ -286,7 +295,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     }
 
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
-                        cmd_id: cmd.id,
+                        cmd_id: cmd.id.clone(),
                         new_entities: processing
                             .updates
                             .new_entities
@@ -304,6 +313,15 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             .map(|r| RelationSummary::from_relation(r.as_ref()))
                             .collect(),
                     });
+
+                    // Notify frontend of session activation on the exec-channel edge.
+                    if let Some(entity_summary) = session_entity_summary {
+                        let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                            cmd_id: cmd.id,
+                            new_entities: entity_summary.into_iter().collect(),
+                            new_relations: vec![],
+                        });
+                    }
                 }
                 Ok(C2Event::ListenerStarted { port, protocol: _ }) => {
                     let mut guard = match campaign.write() {
@@ -335,7 +353,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     os,
                     port,
                 }) => {
-                    info!(%backend_id, %target_entity_id, %hostname, %user, %os, "SessionConnected received by campaign processor");
+                    info!(%backend_id, %target_entity_id, %hostname, %user, %os, port, "session connected");
                     let mut guard = match campaign.write() {
                         Ok(g) => g,
                         Err(_) => {
@@ -344,56 +362,87 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         }
                     };
 
-                    info!(%backend_id, %target_entity_id, %hostname, %user, %os, port, "session connected event received");
-
-                    // Build a K8sNode carrying the session and the probed system info.
-                    // If the node already exists (by name) the normal entity merge will
-                    // fold these fields in; if not, this creates it for the first time.
-                    let session_id = backend_id
+                    let session_kind = if port.is_some() { "tcp" } else { "kubectl-exec" };
+                    let session_short_id = backend_id
                         .strip_prefix("session/")
                         .unwrap_or(&backend_id)
                         .to_string();
-                    let sys_name = hostname.to_lowercase();
-                    let mut sys = UnknownSystem::new(&sys_name);
-                    sys.system.os = if os.is_empty() { None } else { Some(os) };
-                    sys.system.username = if user.is_empty() { None } else { Some(user) };
-                    sys.system.access_level = AccessLevel::Exec;
-                    sys.system.sessions.push(SessionInfo {
-                        id: session_id,
-                        kind: "tcp".to_string(),
-                        port,
-                        status: SessionStatus::Active,
-                    });
 
-                    guard.insert_entity(&sys);
+                    // Resolve or create the target system entity.
+                    let channel_entity_id =
+                        if guard.get_system_entity(&target_entity_id).is_some() {
+                            if let Some(mut sys) =
+                                guard.get_system_entity_mut(&target_entity_id)
+                            {
+                                let system = sys.entity_mut().system_mut();
+                                if !os.is_empty() {
+                                    system.os = Some(os.clone());
+                                }
+                                if !user.is_empty() {
+                                    system.username = Some(user.clone());
+                                }
+                                system.access_level = AccessLevel::Exec;
+                                system.sessions.push(SessionInfo {
+                                    id: session_short_id,
+                                    kind: session_kind.to_string(),
+                                    port,
+                                    status: SessionStatus::Active,
+                                });
+                            }
+                            target_entity_id.clone()
+                        } else {
+                            let sys_name = hostname.to_lowercase();
+                            let mut sys = UnknownSystem::new(&sys_name);
+                            sys.system.os = if os.is_empty() { None } else { Some(os) };
+                            sys.system.username =
+                                if user.is_empty() { None } else { Some(user) };
+                            sys.system.access_level = AccessLevel::Exec;
+                            sys.system.sessions.push(SessionInfo {
+                                id: session_short_id,
+                                kind: session_kind.to_string(),
+                                port,
+                                status: SessionStatus::Active,
+                            });
+                            let entity_id = sys.entity_id().0.clone();
+                            guard.insert_entity(&sys);
+                            entity_id
+                        };
 
-                    // C2Server → SessionChannel → UnknownSystem: live exec channel
-                    // routed through the active session backend.
-                    let c2_id = EntityId::new(c2::BUILTIN_C2_ID);
-                    let channel = SessionChannel::new(
-                        c2_id.0.clone(),
-                        sys.entity_id().0.clone(),
-                        &backend_id,
-                    );
-                    guard.insert_relation(&channel);
-                    info!(%backend_id, %hostname, "session connected; system entity created/updated");
+                    // If the target already has an exec-channel edge, mark it as
+                    // active so the session state lives on the existing relation.
+                    // Only create a SessionChannel when no exec path exists yet
+                    // (e.g. a reverse shell from a completely unknown host).
+                    let has_existing_channel = guard
+                        .activate_session_on_exec_channel(&channel_entity_id, &backend_id);
 
-                    let sys_summary = EntitySummary {
-                        id: sys.entity_id(),
-                        kind: sys.entity_kind().to_string(),
-                        name: sys.entity_name().to_string(),
+                    let new_relation_summary = if !has_existing_channel {
+                        let c2_id = EntityId::new(c2::BUILTIN_C2_ID);
+                        let channel = SessionChannel::new(
+                            c2_id.0.clone(),
+                            channel_entity_id.clone(),
+                            &backend_id,
+                        );
+                        guard.insert_relation(&channel);
+                        info!(%backend_id, %channel_entity_id, "no prior exec channel; SessionChannel created");
+                        Some(ran_domain::RelationSummary::from_relation(&channel))
+                    } else {
+                        info!(%backend_id, %channel_entity_id, "session activated on existing exec-channel edge");
+                        None
                     };
-                    let relation_summary = ran_domain::RelationSummary::from_relation(&channel);
-                    // Publish entity first so the frontend node exists before the edge is added.
+
+                    let entity_summary =
+                        guard.get_system_entity(&channel_entity_id).map(|e| {
+                            EntitySummary {
+                                id: e.entity().entity_id(),
+                                kind: e.entity().entity_kind().to_string(),
+                                name: e.entity().entity_name().to_string(),
+                            }
+                        });
+
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                         cmd_id: backend_id.clone(),
-                        new_entities: vec![sys_summary],
-                        new_relations: vec![],
-                    });
-                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
-                        cmd_id: backend_id,
-                        new_entities: vec![],
-                        new_relations: vec![relation_summary],
+                        new_entities: entity_summary.into_iter().collect(),
+                        new_relations: new_relation_summary.into_iter().collect(),
                     });
                 }
                 Ok(C2Event::SessionLost {
@@ -413,6 +462,9 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         &backend_id,
                         SessionStatus::Lost,
                     );
+                    // Clear session_id from any exec-channel edge that carried
+                    // this session, regardless of edge type or transport.
+                    guard.deactivate_session(&backend_id);
                     info!(%backend_id, %target_entity_id, "session lost");
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                         cmd_id: backend_id,
@@ -432,6 +484,46 @@ pub fn spawn_c2_event_processor_with_external_parser(
                 }
             }
         }
+    })
+}
+
+/// Apply a synchronous session connection to the campaign graph after TTP effects
+/// have been processed. Updates the target system entity and activates the
+/// session on any existing exec-channel edge. Returns an entity summary if the
+/// frontend should be notified of entity changes.
+fn apply_session_connected(
+    campaign: &mut Campaign,
+    data: &SessionConnectedData,
+) -> Option<EntitySummary> {
+    let session_short_id = data
+        .backend_id
+        .strip_prefix("session/")
+        .unwrap_or(&data.backend_id)
+        .to_string();
+
+    if let Some(mut sys) = campaign.get_system_entity_mut(&data.target_entity_id) {
+        let system = sys.entity_mut().system_mut();
+        if !data.os.is_empty() {
+            system.os = Some(data.os.clone());
+        }
+        if !data.user.is_empty() {
+            system.username = Some(data.user.clone());
+        }
+        system.access_level = AccessLevel::Exec;
+        system.sessions.push(SessionInfo {
+            id: session_short_id,
+            kind: "kubectl-exec".to_string(),
+            port: None,
+            status: SessionStatus::Active,
+        });
+    }
+
+    campaign.activate_session_on_exec_channel(&data.target_entity_id, &data.backend_id);
+
+    campaign.get_system_entity(&data.target_entity_id).map(|e| EntitySummary {
+        id: e.entity().entity_id(),
+        kind: e.entity().entity_kind().to_string(),
+        name: e.entity().entity_name().to_string(),
     })
 }
 
