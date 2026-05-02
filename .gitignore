@@ -20,4 +20,5 @@ Cargo.lock
 dist
 
 sliver_cfg.json
-ran.yaml
+ran.yaml.worktrees
+.worktrees
