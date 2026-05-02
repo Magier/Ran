@@ -12,10 +12,7 @@ parameters:
     description: The metadata service host
     default: metadata.google.internal
 procedures:
-  - key: http-request
-    tool: http-request
-    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
-    http_request:
+  - http_request:
       url: http://${HOST}/computeMetadata/v1/project/project-id
       headers:
         Metadata-Flavor: Google
