@@ -91,6 +91,9 @@ fn ground_procedure_and_effects(
     if let Some(http_req) = procedure.http_request.as_mut() {
         ground_json_value(http_req, args);
     }
+    if let Some(k8s_req) = procedure.k8s_request.as_mut() {
+        ground_json_value(k8s_req, args);
+    }
     if let Some(steps) = procedure.steps.as_mut() {
         ground_json_value(steps, args);
     }
@@ -151,6 +154,49 @@ struct HttpRequestSpec {
 }
 
 #[derive(Debug, Deserialize)]
+struct KubernetesRequestSpec {
+    api_server: String,
+    api: String,
+    resource: String,
+    #[serde(default)]
+    namespace: String,
+    #[serde(default = "default_cluster_scoped")]
+    cluster_scoped: BoolOrString,
+    #[serde(default)]
+    query: String,
+    #[serde(default)]
+    token: String,
+    #[serde(default = "default_http_method")]
+    method: String,
+    #[serde(default)]
+    use_ca: BoolOrString,
+    #[serde(default)]
+    ca_path: String,
+    #[serde(default = "default_timeout_seconds")]
+    timeout_seconds: u64,
+}
+
+fn build_k8s_url(spec: &KubernetesRequestSpec) -> String {
+    let api_server = spec.api_server.trim_end_matches('/');
+    let api = spec.api.trim_matches('/');
+    let resource = spec.resource.trim_matches('/');
+
+    let base = format!("{}/{}", api_server, api);
+
+    let resource_path = if spec.cluster_scoped.is_true() || spec.namespace.trim().is_empty() {
+        format!("{}/{}", base, resource)
+    } else {
+        format!("{}/namespaces/{}/{}", base, spec.namespace.trim(), resource)
+    };
+
+    if spec.query.trim().is_empty() {
+        resource_path
+    } else {
+        format!("{}?{}", resource_path, spec.query.trim())
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct FetchStep {
     url: String,
     #[serde(default)]
@@ -203,6 +249,10 @@ fn default_http_method() -> String {
 
 fn default_timeout_seconds() -> u64 {
     30
+}
+
+fn default_cluster_scoped() -> BoolOrString {
+    BoolOrString::Bool(false)
 }
 
 fn shell_single_quote(value: &str) -> String {
@@ -341,6 +391,51 @@ fn materialize_steps(procedure: &mut Procedure) -> Result<(), ExecuteActionError
     }
 
     procedure.command = parts.join(" && ");
+    Ok(())
+}
+
+pub(super) fn materialize_k8s_request(procedure: &mut Procedure) -> Result<(), ExecuteActionError> {
+    let k8s_req_val = match procedure.k8s_request.take() {
+        Some(v) => v,
+        None => return Ok(()),
+    };
+
+    let spec: KubernetesRequestSpec = serde_json::from_value(k8s_req_val).map_err(|e| {
+        ExecuteActionError::InvalidInput(format!(
+            "invalid k8s_request in procedure '{}': {}",
+            procedure.id, e
+        ))
+    })?;
+
+    let url = build_k8s_url(&spec);
+
+    let mut headers = HashMap::new();
+    headers.insert("Accept".to_string(), "application/json".to_string());
+    if !spec.token.trim().is_empty() {
+        headers.insert(
+            "Authorization".to_string(),
+            format!("Bearer {}", spec.token.trim()),
+        );
+    }
+
+    let method = if spec.method.trim().is_empty() {
+        "GET".to_string()
+    } else {
+        spec.method.trim().to_string()
+    };
+
+    procedure.command = build_http_command(
+        &method,
+        &url,
+        &headers,
+        "",
+        spec.timeout_seconds,
+        &spec.use_ca,
+        &spec.ca_path,
+        None,
+        false,
+    );
+
     Ok(())
 }
 
@@ -514,6 +609,7 @@ impl Campaign {
         // Stage 5: ground the procedure command and effects.
         let mut procedure = self.select_procedure(&ttp, procedure_id.as_deref())?;
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
+        materialize_k8s_request(&mut procedure)?;
         materialize_steps(&mut procedure)?;
         materialize_abstract_http_request(&mut procedure)?;
 
