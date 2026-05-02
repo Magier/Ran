@@ -26,17 +26,16 @@ procedures:
   - key: kubectl
     command: >-
       kubectl get configmap --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
-  - key: http-request
-    tool: http-request
-    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
-    http_request:
-      url: >-
-        {% if ALL_NS %} ${API_SERVER}/api/v1/configmaps?limit=500 {% else %}
-        ${API_SERVER}/api/v1/namespaces/${NS}/configmaps?limit=500 {% endif %}
-      headers:
-        Accept: application/json
-        User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69
-        Authorization: Bearer ${TOKEN}
+  - key: k8s-request
+    k8s_request:
+      api_server: ${API_SERVER}
+      api: /api/v1
+      resource: configmaps
+      namespace: ${NS}
+      cluster_scoped: ${ALL_NS}
+      query: limit=500
+      token: ${TOKEN}
+      use_ca: false
 effects:
   - k8s.configmaplist
 references:
