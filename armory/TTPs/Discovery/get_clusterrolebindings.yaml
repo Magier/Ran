@@ -17,15 +17,13 @@ procedures:
   - key: kubectl
     command: >-
       kubectl get clusterrolebindings --token=${TOKEN} --output=json
-  - key: http-request
-    tool: http-request
-    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
-    http_request:
-      url: ${API_SERVER}/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?limit=500
-      headers:
-        Accept: application/json
-        User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69
-        Authorization: Bearer ${TOKEN}
+  - key: k8s-request
+    k8s_request:
+      api_server: ${API_SERVER}
+      api: /apis/rbac.authorization.k8s.io/v1
+      resource: clusterrolebindings
+      query: limit=500
+      token: ${TOKEN}
       use_ca: false
 effects:
   - k8s.clusterRoleBindingList
