@@ -27,10 +27,7 @@ preconditions:
 procedures:
   - key: kubectl
     command: kubectl auth can-i --list --token=${TOKEN}
-  - key: http-request
-    tool: http-request
-    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
-    http_request:
+  - http_request:
       method: POST
       url: "${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews"
       headers:

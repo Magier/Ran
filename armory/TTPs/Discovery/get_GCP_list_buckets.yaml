@@ -14,10 +14,7 @@ parameters:
     description: The GCP project ID
     default: adls-152q5v4ovh2urxs17pnkwnlwl
 procedures:
-  - key: http-request
-    tool: http-request
-    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
-    http_request:
+  - http_request:
       url: https://storage.googleapis.com/storage/v1/b?project=${PROJECT_ID}
       headers:
         Authorization: Bearer ${TOKEN}

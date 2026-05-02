@@ -20,10 +20,7 @@ parameters:
     type: ServiceAccount
     description: the ServiceAccount token used to authenticate to the kubelet API
 procedures:
-  - key: http-request
-    tool: http-request
-    note: Abstract HTTP request. Runtime selects the concrete HTTP client.
-    http_request:
+  - http_request:
       url: https://${NODE}:10250/pods
       headers:
         Authorization: Bearer ${TOKEN}
