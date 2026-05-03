@@ -241,7 +241,27 @@ impl C2Manager {
             };
         }
 
-        let mut event = self.select_backend(cmd).await.execute(cmd).await;
+        // Transparent session upgrade: if the operator root (c2/ran) is the
+        // designated backend but we have an open interactive session for the
+        // first exec-chain hop, route through that session instead.  This
+        // means nsenter-wrapped commands for container escapes travel through
+        // the live shell — the session backend_id never surfaces to callers.
+        let first_hop = cmd.exec_entity();
+        let session_key = kubectl_exec_backend_id(first_hop, None);
+        let session_backend = if cmd.exec_system_id.is_empty()
+            || cmd.exec_system_id == BUILTIN_C2_ID
+        {
+            let backends = self.backends.read().await;
+            backends.get(&session_key).cloned()
+        } else {
+            None
+        };
+
+        let mut event = if let Some(backend) = session_backend {
+            backend.execute(cmd).await
+        } else {
+            self.select_backend(cmd).await.execute(cmd).await
+        };
         event.session_connected = None;
         event
     }
