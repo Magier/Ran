@@ -5,7 +5,7 @@ use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
     AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, K8sCluster, K8sNode,
     KubeletExecSink, OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn,
-    ServiceAccount, Uses,
+    ServiceAccount, SessionInfo, SessionStatus, Uses,
 };
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
@@ -1767,7 +1767,8 @@ fn sys_node_name_merges_placeholder_node_into_real_node_when_target_is_node() {
     campaign.entities.insert_typed(pod);
     push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
 
-    let placeholder = K8sNode::new("escape-host-ns-default-pod-attacker");
+    // Placeholder uses escape_<pod-name> format.
+    let placeholder = K8sNode::new("escape_attacker");
     let placeholder_id = placeholder.entity_id().0.clone();
     campaign.entities.insert_typed(placeholder);
     push_relation(&mut campaign, &RunsOn::new(&pod_id, &placeholder_id));
@@ -1821,7 +1822,7 @@ fn sys_node_name_merges_placeholder_when_target_is_pod_after_escape() {
     campaign.entities.insert_typed(pod);
     push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
 
-    let placeholder = K8sNode::new("escape-host-ns-default-pod-attacker");
+    let placeholder = K8sNode::new("escape_attacker");
     let placeholder_id = placeholder.entity_id().0.clone();
     campaign.entities.insert_typed(placeholder);
     push_relation(&mut campaign, &RunsOn::new(&pod_id, &placeholder_id));
@@ -1864,7 +1865,7 @@ fn sys_node_name_preserves_access_level_from_placeholder_node() {
     campaign.entities.insert_typed(pod);
     push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
 
-    let placeholder = K8sNode::new("escape-host-ns-default-pod-victim");
+    let placeholder = K8sNode::new("escape_victim");
     let placeholder_id = placeholder.entity_id().0.clone();
     campaign.entities.insert_typed(placeholder);
     push_relation(&mut campaign, &RunsOn::new(&pod_id, &placeholder_id));
@@ -1942,6 +1943,106 @@ fn container_escape_relation_routes_to_node() {
 
     assert_eq!(ch.backend_id, BUILTIN_C2_ID);
     assert_eq!(ch.hops, vec![pod_id], "should hop through attacker pod");
+}
+
+#[test]
+fn container_escape_routes_node_through_pod_session_when_active() {
+    // When the pod has an active kubectl-exec session, routing to the node via
+    // ContainerEscape should use that session as the backend so nsenter-wrapped
+    // commands travel through the interactive shell instead of a fresh exec.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut pod = Pod::new("attacker", "default");
+    let session_id = "ns-default-pod-attacker";
+    pod.system.sessions.push(SessionInfo {
+        id: session_id.to_string(),
+        kind: "kubectl-exec".to_string(),
+        port: None,
+        status: SessionStatus::Active,
+    });
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "c2/ran", &pod_id);
+
+    let node = K8sNode::new("worker-1");
+    let node_id = node.entity_id().0.clone();
+    campaign.entities.insert_typed(node);
+
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &node_id)
+            .with_envelope("nsenter -t 1 -m -u -i -n -p -- ${CMD}"),
+    );
+    push_relation(&mut campaign, &RunsOn::new(&pod_id, &node_id));
+
+    let ch = campaign
+        .resolve_exec_channel(&node_id)
+        .expect("should route to node via container escape edge");
+
+    assert_eq!(
+        ch.backend_id, BUILTIN_C2_ID,
+        "campaign routing should stay on c2/ran; session upgrade happens in C2 manager"
+    );
+    assert_eq!(ch.hops, vec![pod_id], "should still hop through attacker pod");
+}
+
+#[test]
+fn hostname_on_placeholder_node_updates_entity_id_after_escape() {
+    // After a container escape the placeholder node is named after the pod's
+    // short name.  Running hostname (sys.node-name) on the placeholder should
+    // alias it to the real node and migrate all edges.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut pod = Pod::new("attacker", "default");
+    pod.system.sessions.push(SessionInfo {
+        id: "ns-default-pod-attacker".to_string(),
+        kind: "kubectl-exec".to_string(),
+        port: None,
+        status: SessionStatus::Active,
+    });
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "c2/ran", &pod_id);
+
+    // Placeholder node produced by container.escape when no node name was known.
+    let placeholder = K8sNode::new("escape_attacker");
+    let placeholder_id = placeholder.entity_id().0.clone();
+    campaign.entities.insert_typed(placeholder);
+    push_relation(&mut campaign, &RunsOn::new(&pod_id, &placeholder_id));
+    push_relation(
+        &mut campaign,
+        &ContainerEscape::new(&pod_id, &placeholder_id)
+            .with_envelope("nsenter -t 1 -m -u -i -n -p -- ${CMD}"),
+    );
+
+    // hostname is targeted at the placeholder node; returns the real node name.
+    let cmd = sample_exec_ttp(&placeholder_id, vec!["sys.node-name"]);
+    let event = sample_event("gke-cluster-worker-1");
+    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+
+    let real_id = EntityId::new("node/gke-cluster-worker-1");
+    assert!(
+        campaign.entities.contains::<K8sNode>(&real_id),
+        "real node should exist after hostname update"
+    );
+    assert!(
+        !campaign.entities.contains::<K8sNode>(&EntityId::new(&placeholder_id)),
+        "placeholder node/escape_attacker should be removed"
+    );
+
+    // ContainerEscape and RunsOn edges should point at the real node.
+    let pod_eid = EntityId::new(&pod_id);
+    let escape_targets = campaign.graph.targets_of(&pod_eid, "container.escape");
+    assert!(
+        escape_targets.iter().any(|t| *t == &real_id),
+        "ContainerEscape edge should target the real node after hostname update"
+    );
+
+    // Routing to the real node should still go through the pod's session.
+    let ch = campaign
+        .resolve_exec_channel(&real_id.0)
+        .expect("should route via ContainerEscape");
+    assert_eq!(ch.hops, vec![pod_id], "should hop through the pod");
 }
 
 #[test]
@@ -2088,6 +2189,60 @@ fn container_escape_effect_creates_placeholder_node_when_no_node_known() {
         .find(|r| r.relation_name() == "runs-on")
         .unwrap();
     assert_eq!(ro.target_id(), esc.target_id());
+}
+
+#[test]
+fn container_escape_node_is_authoritative_when_pod_has_node_name() {
+    // When the pod entity has node_name set (from the K8s API), the node
+    // created by container.escape should carry NameConfidence::Authoritative.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut pod = Pod::new("attacker", "default");
+    pod.node_name = Some("worker-1".to_string());
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
+
+    let cmd = sample_exec_ttp(&pod_id, vec!["container.escape(sys)"]);
+    let event = sample_event("ok");
+    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+
+    let node_eid = EntityId::new("node/worker-1");
+    let node = campaign
+        .entities
+        .find::<K8sNode>(&node_eid)
+        .expect("node/worker-1 should exist");
+    assert_eq!(
+        node.name_confidence,
+        ran_domain::NameConfidence::Authoritative,
+        "node from pod.node_name should be authoritative"
+    );
+}
+
+#[test]
+fn container_escape_placeholder_node_is_derived_when_pod_has_no_node_name() {
+    // When the pod has no node_name, the placeholder node should be Derived.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let pod = Pod::new("attacker", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
+
+    let cmd = sample_exec_ttp(&pod_id, vec!["container.escape(sys)"]);
+    let event = sample_event("ok");
+    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+
+    let placeholder_eid = EntityId::new("node/escape_attacker");
+    let node = campaign
+        .entities
+        .find::<K8sNode>(&placeholder_eid)
+        .expect("node/escape_attacker should exist");
+    assert_eq!(
+        node.name_confidence,
+        ran_domain::NameConfidence::Derived,
+        "placeholder node should be derived"
+    );
 }
 
 #[test]

@@ -393,8 +393,15 @@ impl Campaign {
 
     /// Resolve which C2 backend should execute commands on `system_id`.
     ///
-    /// If there is a direct exec-channel edge from a `c2/<name>` source into
-    /// this system, prefer that backend ID. Otherwise default to builtin.
+    /// Priority:
+    /// 1. An active session on the entity (live shell — most direct path).
+    /// 2. A direct exec-channel edge from a `c2/<name>` source.
+    /// 3. Built-in C2 (fresh kubectl exec).
+    ///
+    /// Preferring the active session here means that when this entity is used
+    /// as an intermediate hop (e.g. pod → node via container.escape), the
+    /// nsenter-wrapped command is sent through the interactive shell rather
+    /// than a separate one-shot kubectl exec.
     fn resolve_source_backend_id(&self, system_id: &str) -> String {
         let system_eid = EntityId::new(system_id);
         if let Some((src, _)) = self
@@ -407,6 +414,7 @@ impl Campaign {
         {
             return src.0.clone();
         }
+
         BUILTIN_C2_ID.to_string()
     }
 }

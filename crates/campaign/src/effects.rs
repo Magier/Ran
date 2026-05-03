@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use indexmap::IndexSet;
 use ran_domain::{
     CanReach, ContainerEscape, CronJob, Entity, EntityId, K8sNode, K8sRole, K8sRoleBinding,
-    KubeletExecSource, OutputTransformKind, Pod, PodExec, RbacPermission, RbacSubject, RceCanExec,
-    Relation, RunsOn, ServiceAccount, SessionChannel,
+    KubeletExecSource, NameConfidence, OutputTransformKind, Pod, PodExec, RbacPermission,
+    RbacSubject, RceCanExec, Relation, RunsOn, ServiceAccount, SessionChannel,
 };
 
 use crate::grounding::resolve_template;
@@ -568,16 +568,23 @@ fn parse_container_escape_relation(
     // Resolve the node entity ID. The pipeline injects TARGET_NODE_ID from
     // pod.node_name (if known) or from an existing runs-on graph edge.
     // If neither is available, the pod is running on an unknown node — create a
-    // deterministic placeholder so the graph stays consistent. The placeholder
-    // can be aliased to the real node once its name is discovered.
+    // placeholder using the pod's short name as the best available guess.
+    // The placeholder is aliased to the real node once its name is discovered
+    // (e.g. via sys.node-name after running hostname on the host).
     let node_entity_id: String = ctx
         .get("TARGET_NODE_ID")
         .filter(|id| !id.is_empty())
         .map(|id| id.to_string())
         .unwrap_or_else(|| {
-            // No node is known yet; derive a deterministic placeholder from the
-            // source pod ID so repeated escapes are idempotent.
-            format!("node/escape-host-{}", src.replace('/', "-"))
+            // Infer the node name from the pod's short name (the segment after
+            // "/pod/" in the entity ID). Falls back to the last path component
+            // for non-standard entity IDs.
+            let pod_name = src
+                .split("/pod/")
+                .nth(1)
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| src.rsplit('/').next().unwrap_or("unknown"));
+            format!("node/escape_{}", pod_name)
         });
 
     // Parse the node name from `node/<name>` to construct the typed entity.
@@ -594,7 +601,15 @@ fn parse_container_escape_relation(
 
     // Ensure the node entity exists. If a runs-on relation already references
     // this node, the campaign merges rather than duplicates it.
-    let node = K8sNode::new(&node_name);
+    // Mark the name authoritative when it came from pod.node_name (K8s API).
+    let authoritative = ctx
+        .get("TARGET_NODE_AUTHORITATIVE")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let mut node = K8sNode::new(&node_name);
+    if authoritative {
+        node.name_confidence = NameConfidence::Authoritative;
+    }
 
     // PROCEDURE_CMD is the grounded escape command (e.g. `nsenter -t 1 ... ${CMD}`).
     // Store it as the envelope so subsequent commands through this hop are
@@ -1032,21 +1047,54 @@ mod tests {
     }
 
     #[test]
+    fn container_escape_node_is_authoritative_when_target_node_authoritative_flag_set() {
+        let mut args = ctx();
+        args.insert("TARGET_NODE_ID".into(), "node/worker-1".into());
+        args.insert("TARGET_NODE_AUTHORITATIVE".into(), "true".into());
+        let update = parse_effect("container.escape(ns/default/pod/attacker)", &args).unwrap();
+        let node = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::K8sNode>()
+            .unwrap();
+        assert_eq!(node.name_confidence, NameConfidence::Authoritative);
+    }
+
+    #[test]
+    fn container_escape_node_is_derived_without_authoritative_flag() {
+        let mut args = ctx();
+        args.insert("TARGET_NODE_ID".into(), "node/worker-1".into());
+        let update = parse_effect("container.escape(ns/default/pod/attacker)", &args).unwrap();
+        let node = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::K8sNode>()
+            .unwrap();
+        assert_eq!(node.name_confidence, NameConfidence::Derived);
+    }
+
+    #[test]
     fn container_escape_creates_placeholder_node_when_node_unknown() {
         let update = parse_effect("container.escape(ns/default/pod/attacker)", &ctx()).unwrap();
 
-        // Should still create a node entity (placeholder).
+        // Should still create a node entity (placeholder) named after the pod's
+        // short name — the best available guess before hostname is run.
         assert_eq!(update.new_entities.len(), 1);
-        // And two relations: RunsOn + ContainerEscape.
+        let node = update.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::K8sNode>()
+            .unwrap();
+        assert_eq!(node.entity_name(), "escape_attacker", "placeholder should be escape_<pod-short-name>");
+        assert_eq!(node.entity_id().0, "node/escape_attacker");
+
+        // And two relations: RunsOn + ContainerEscape both targeting the placeholder.
         assert_eq!(update.new_relations.len(), 2);
         assert!(update
             .new_relations
             .iter()
-            .any(|r| r.relation_name() == "runs-on"));
+            .any(|r| r.relation_name() == "runs-on" && r.target_id().0 == "node/escape_attacker"));
         assert!(update
             .new_relations
             .iter()
-            .any(|r| r.relation_name() == "container.escape"));
+            .any(|r| r.relation_name() == "container.escape" && r.target_id().0 == "node/escape_attacker"));
     }
 
     #[test]

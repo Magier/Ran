@@ -1187,6 +1187,7 @@ impl Campaign {
         //   1. pod.node_name (set when the pod was parsed from the K8s API)
         //   2. runs-on graph edge from the pod (set when a RunsOn relation exists)
         if let Some(CampaignSystemEntityRef::Pod(pod)) = self.get_system_entity(&cmd.target_id) {
+            let from_node_name = pod.node_name.is_some();
             let node_id = pod
                 .node_name
                 .as_ref()
@@ -1202,6 +1203,11 @@ impl Campaign {
                 effect_ctx
                     .entry("TARGET_NODE_ID".to_string())
                     .or_insert(node_id);
+                if from_node_name {
+                    effect_ctx
+                        .entry("TARGET_NODE_AUTHORITATIVE".to_string())
+                        .or_insert_with(|| "true".to_string());
+                }
             }
         }
 
