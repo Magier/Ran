@@ -550,6 +550,10 @@ impl InferenceRule for KubeletMountAnalyzer {
                     continue;
                 }
 
+                if parts[1] != "volumes" {
+                    continue;
+                }
+
                 let uid_str = parts[0];
                 if !is_valid_pod_uuid(uid_str) {
                     tracing::warn!(
@@ -3440,6 +3444,8 @@ mod tests {
             make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/volumes"),
             // Non-UUID pod segment
             make_mount("/var/lib/kubelet/pods/not-a-uuid/volumes/kubernetes.io~projected/kube-api-access-abc"),
+            // containers/ path — should be silently skipped, not warned about
+            make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/containers/some-container/etc-hosts"),
         ];
 
         let mut update = FactsUpdate::default();
@@ -3488,5 +3494,9 @@ mod tests {
             new_pods.is_empty(),
             "should not re-emit a pod already in the campaign"
         );
+        let dup_runs_on = update.new_relations.iter().any(|r| {
+            r.is::<RunsOn>() && r.source_id().0 == "ns/?/pod/argocd-84cc979b"
+        });
+        assert!(!dup_runs_on, "should not re-emit RunsOn for a pod already in the campaign");
     }
 }
