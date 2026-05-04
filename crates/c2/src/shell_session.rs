@@ -218,23 +218,33 @@ impl C2Backend for ShellSession {
         let exit_code;
         let mut line = String::new();
 
-        loop {
-            line.clear();
-            match guard.rx.read_line(&mut line).await {
-                Ok(0) => {
-                    warn!(entity_id = %self.entity_id, "shell session EOF");
-                    return exec_error(&cmd.id, "shell session closed unexpectedly".to_string());
+        let read_fut = async {
+            loop {
+                line.clear();
+                match guard.rx.read_line(&mut line).await {
+                    Ok(0) => {
+                        warn!(entity_id = %self.entity_id, "shell session EOF");
+                        return Err("shell session closed unexpectedly".to_string());
+                    }
+                    Err(e) => return Err(format!("shell read failed: {e}")),
+                    Ok(_) => {}
                 }
-                Err(e) => return exec_error(&cmd.id, format!("shell read failed: {e}")),
-                Ok(_) => {}
-            }
 
-            let trimmed = line.trim_end_matches(['\r', '\n']);
-            if let Some(code_str) = trimmed.strip_prefix(&format!("{marker}:")) {
-                exit_code = code_str.parse().unwrap_or(1i32);
-                break;
+                let trimmed = line.trim_end_matches(['\r', '\n']);
+                if let Some(code_str) = trimmed.strip_prefix(&format!("{marker}:")) {
+                    return Ok((code_str.parse().unwrap_or(1i32), output.clone()));
+                }
+                output.push_str(&line);
             }
-            output.push_str(&line);
+        };
+
+        match tokio::time::timeout(Duration::from_secs(60), read_fut).await {
+            Ok(Ok((code, out))) => {
+                exit_code = code;
+                output = out;
+            }
+            Ok(Err(e)) => return exec_error(&cmd.id, e),
+            Err(_) => return exec_error(&cmd.id, "shell command timed out after 60s".to_string()),
         }
 
         let stdout = output.trim_end().to_string();
