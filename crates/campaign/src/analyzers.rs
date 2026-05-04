@@ -513,13 +513,61 @@ fn derive_pod_display_name(uid: &str, volume_names: &[String]) -> String {
 // KubeletMountAnalyzer
 // ---------------------------------------------------------------------------
 
-/// Discovers pods running on the same node as the observing pod by parsing
-/// kubelet volume mount paths from `system.mounts`.
+/// Scans a mount list for kubelet pod volume paths and groups volume names by
+/// pod UID. Paths not matching `/var/lib/kubelet/pods/{uuid}/volumes/{type}/{name}`
+/// are skipped; malformed paths log a warning.
+fn collect_kubelet_pod_mounts(
+    mounts: &[ran_domain::Mount],
+) -> std::collections::HashMap<String, Vec<String>> {
+    let mut pods_by_uid: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+
+    for mount in mounts {
+        let Some(rest) = mount.mount_point.strip_prefix("/var/lib/kubelet/pods/") else {
+            continue;
+        };
+
+        let parts: Vec<&str> = rest.split('/').collect();
+        if parts.len() < 4 {
+            tracing::warn!(
+                mount_point = %mount.mount_point,
+                "kubelet mount path has fewer than 4 segments after prefix, skipping"
+            );
+            continue;
+        }
+
+        if parts[1] != "volumes" {
+            continue;
+        }
+
+        let uid_str = parts[0];
+        if !is_valid_pod_uuid(uid_str) {
+            tracing::warn!(
+                mount_point = %mount.mount_point,
+                uid = uid_str,
+                "kubelet mount path has non-UUID pod segment, skipping"
+            );
+            continue;
+        }
+
+        let vol_name = parts[3].to_string();
+        pods_by_uid
+            .entry(uid_str.to_string())
+            .or_default()
+            .push(vol_name);
+    }
+
+    pods_by_uid
+}
+
+/// Discovers pods running on the same node by parsing kubelet volume mount
+/// paths from `system.mounts`.
 ///
-/// For every mount path matching `/var/lib/kubelet/pods/{uid}/volumes/{type}/{name}`,
-/// it extracts the pod UID, groups volume names per UID, derives a display name,
-/// and emits a `Pod` entity with namespace `"?"` and a `RunsOn` relation to
-/// the same node the observing pod runs on.
+/// Fires on both `Pod` entities (privileged pods that can see host mounts) and
+/// `K8sNode` entities (nodes reached via container escape). For every mount path
+/// matching `/var/lib/kubelet/pods/{uid}/volumes/{type}/{name}`, it groups
+/// volume names by pod UID, derives a display name, and emits a `Pod` entity
+/// with namespace `"?"` and a `RunsOn` relation to the observing node.
 pub struct KubeletMountAnalyzer;
 
 impl InferenceRule for KubeletMountAnalyzer {
@@ -531,51 +579,16 @@ impl InferenceRule for KubeletMountAnalyzer {
         let mut inferred = FactsUpdate::default();
         let view = PendingView::new(campaign, update);
 
+        // Collect (node_id, pods_by_uid) pairs from both pods and nodes.
+        // Pods: node may need to be created; Nodes: the observing entity IS the node.
+        let mut work: Vec<(EntityId, std::collections::HashMap<String, Vec<String>>)> = Vec::new();
+
         for pod in view.collect::<Pod>() {
-            // Group volume names by pod UID discovered from kubelet mount paths.
-            let mut pods_by_uid: std::collections::HashMap<String, Vec<String>> =
-                std::collections::HashMap::new();
-
-            for mount in &pod.system.mounts {
-                let Some(rest) = mount.mount_point.strip_prefix("/var/lib/kubelet/pods/") else {
-                    continue;
-                };
-
-                let parts: Vec<&str> = rest.split('/').collect();
-                if parts.len() < 4 {
-                    tracing::warn!(
-                        mount_point = %mount.mount_point,
-                        "kubelet mount path has fewer than 4 segments after prefix, skipping"
-                    );
-                    continue;
-                }
-
-                if parts[1] != "volumes" {
-                    continue;
-                }
-
-                let uid_str = parts[0];
-                if !is_valid_pod_uuid(uid_str) {
-                    tracing::warn!(
-                        mount_point = %mount.mount_point,
-                        uid = uid_str,
-                        "kubelet mount path has non-UUID pod segment, skipping"
-                    );
-                    continue;
-                }
-
-                let vol_name = parts[3].to_string();
-                pods_by_uid
-                    .entry(uid_str.to_string())
-                    .or_default()
-                    .push(vol_name);
-            }
-
+            let pods_by_uid = collect_kubelet_pod_mounts(&pod.system.mounts);
             if pods_by_uid.is_empty() {
                 continue;
             }
 
-            // Determine node (same logic as HostPathAnalyzer).
             let node_name = pod.node_name.as_deref().unwrap_or("?");
             let node = K8sNode::new(node_name);
             let node_id = node.entity_id();
@@ -586,7 +599,19 @@ impl InferenceRule for KubeletMountAnalyzer {
                 inferred.new_entities.push(Box::new(node));
             }
 
-            // Emit one Pod entity + RunsOn per discovered pod UID.
+            work.push((node_id, pods_by_uid));
+        }
+
+        for node in view.collect::<K8sNode>() {
+            let pods_by_uid = collect_kubelet_pod_mounts(&node.system.mounts);
+            if pods_by_uid.is_empty() {
+                continue;
+            }
+            work.push((node.entity_id(), pods_by_uid));
+        }
+
+        // Emit one Pod entity + RunsOn per discovered pod UID.
+        for (node_id, pods_by_uid) in work {
             for (uid, vol_names) in pods_by_uid {
                 let display_name = derive_pod_display_name(&uid, &vol_names);
                 let mut discovered = Pod::new(&display_name, "?");
@@ -3498,5 +3523,51 @@ mod tests {
             r.is::<RunsOn>() && r.source_id().0 == "ns/?/pod/argocd-84cc979b"
         });
         assert!(!dup_runs_on, "should not re-emit RunsOn for a pod already in the campaign");
+    }
+
+    #[test]
+    fn kubelet_mount_analyzer_discovers_pods_from_node_mounts() {
+        // After a container escape, mounts are stored on the K8sNode entity, not a pod.
+        let campaign = test_campaign();
+
+        let mut node = K8sNode::new("cplane-01");
+        node.system.mounts = vec![
+            make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/volumes/kubernetes.io~secret/argocd-dex-server-tls"),
+            make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/volumes/kubernetes.io~secret/argocd-repo-server-tls"),
+            make_mount("/var/lib/kubelet/pods/430772bd-a94b-40c0-a21e-075a62ff46cc/volumes/kubernetes.io~projected/kube-api-access-z7h85"),
+        ];
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(node));
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, update);
+
+        let pod_names: Vec<&str> = update
+            .new_entities
+            .iter()
+            .filter(|e| e.entity_kind() == "Pod")
+            .map(|e| e.entity_name())
+            .collect();
+
+        assert!(
+            pod_names.contains(&"argocd-84cc979b"),
+            "expected argocd-84cc979b from node mounts, got: {:?}",
+            pod_names
+        );
+        assert!(
+            pod_names.contains(&"430772bd"),
+            "expected 430772bd from node mounts, got: {:?}",
+            pod_names
+        );
+
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<RunsOn>()
+                    && r.source_id().0 == "ns/?/pod/argocd-84cc979b"
+                    && r.target_id().0 == "node/cplane-01"
+            }),
+            "expected RunsOn(argocd-84cc979b → node/cplane-01)"
+        );
     }
 }
