@@ -451,6 +451,65 @@ impl InferenceRule for HostPathAnalyzer {
 }
 
 // ---------------------------------------------------------------------------
+// KubeletMountAnalyzer helpers
+// ---------------------------------------------------------------------------
+
+fn is_valid_pod_uuid(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 5 {
+        return false;
+    }
+    let expected_lens = [8usize, 4, 4, 4, 12];
+    parts
+        .iter()
+        .zip(expected_lens.iter())
+        .all(|(p, &len)| p.len() == len && p.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+fn is_generic_volume_name(name: &str) -> bool {
+    name.starts_with("kube-api-access-")
+}
+
+fn longest_common_prefix(names: &[&str]) -> String {
+    if names.is_empty() {
+        return String::new();
+    }
+    let first = names[0];
+    let common_len = first
+        .char_indices()
+        .take_while(|&(i, c)| names.iter().all(|&n| n[i..].starts_with(c)))
+        .map(|(i, c)| i + c.len_utf8())
+        .last()
+        .unwrap_or(0);
+    first[..common_len].to_string()
+}
+
+fn derive_pod_display_name(uid: &str, volume_names: &[String]) -> String {
+    let first_segment = uid.split('-').next().unwrap_or(uid);
+
+    let non_generic: Vec<&str> = volume_names
+        .iter()
+        .filter(|n| !is_generic_volume_name(n))
+        .map(|s| s.as_str())
+        .collect();
+
+    if non_generic.is_empty() {
+        return first_segment.to_string();
+    }
+
+    let lcp = longest_common_prefix(&non_generic);
+    if lcp.is_empty() {
+        return first_segment.to_string();
+    }
+
+    if lcp.ends_with('-') {
+        format!("{}{}", lcp, first_segment)
+    } else {
+        format!("{}-{}", lcp, first_segment)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CanExecAccessAnalyzer
 // ---------------------------------------------------------------------------
 
@@ -3065,5 +3124,102 @@ mod tests {
         });
 
         assert!(has_can_exec, "expected k8s.can-exec inference in fixpoint");
+    }
+
+    // --- KubeletMountAnalyzer helpers ---
+
+    #[test]
+    fn valid_pod_uuid_accepted() {
+        assert!(super::is_valid_pod_uuid(
+            "84cc979b-9ad8-4418-8b97-24a959833ce7"
+        ));
+        assert!(super::is_valid_pod_uuid(
+            "293aba3c-f29f-4cd7-a4fe-233b4d111654"
+        ));
+    }
+
+    #[test]
+    fn invalid_pod_uuid_rejected() {
+        assert!(!super::is_valid_pod_uuid("not-a-uuid"));
+        assert!(!super::is_valid_pod_uuid(""));
+        assert!(!super::is_valid_pod_uuid(
+            "84cc979b-9ad8-4418-8b97-24a959833ce"  // 11 chars in last segment
+        ));
+        assert!(!super::is_valid_pod_uuid(
+            "84cc979b-9ad8-4418-8b97-24a959833ceg"  // non-hex char
+        ));
+        assert!(!super::is_valid_pod_uuid(
+            "gggggggg-9ad8-4418-8b97-24a959833ce7"  // non-hex first segment
+        ));
+    }
+
+    #[test]
+    fn lcp_of_multiple_names() {
+        assert_eq!(
+            super::longest_common_prefix(&["argocd-dex-server-tls", "argocd-repo-server-tls"]),
+            "argocd-"
+        );
+        assert_eq!(
+            super::longest_common_prefix(&["clustermesh-secrets", "hubble-tls"]),
+            ""
+        );
+        assert_eq!(
+            super::longest_common_prefix(&["argocd-dex-server-tls"]),
+            "argocd-dex-server-tls"
+        );
+        assert_eq!(super::longest_common_prefix(&[]), "");
+    }
+
+    #[test]
+    fn generic_volume_names_identified() {
+        assert!(super::is_generic_volume_name("kube-api-access-b245w"));
+        assert!(super::is_generic_volume_name("kube-api-access-"));
+        assert!(!super::is_generic_volume_name("clustermesh-secrets"));
+        assert!(!super::is_generic_volume_name("argocd-dex-server-tls"));
+        assert!(!super::is_generic_volume_name("hubble-tls"));
+    }
+
+    #[test]
+    fn display_name_with_shared_prefix() {
+        let names = vec![
+            "argocd-dex-server-tls".to_string(),
+            "argocd-repo-server-tls".to_string(),
+            "kube-api-access-28sp8".to_string(),
+        ];
+        assert_eq!(
+            super::derive_pod_display_name("84cc979b-9ad8-4418-8b97-24a959833ce7", &names),
+            "argocd-84cc979b"
+        );
+    }
+
+    #[test]
+    fn display_name_with_no_shared_prefix() {
+        let names = vec![
+            "clustermesh-secrets".to_string(),
+            "hubble-tls".to_string(),
+        ];
+        assert_eq!(
+            super::derive_pod_display_name("293aba3c-f29f-4cd7-a4fe-233b4d111654", &names),
+            "293aba3c"
+        );
+    }
+
+    #[test]
+    fn display_name_all_generic() {
+        let names = vec!["kube-api-access-z7h85".to_string()];
+        assert_eq!(
+            super::derive_pod_display_name("430772bd-a94b-40c0-a21e-075a62ff46cc", &names),
+            "430772bd"
+        );
+    }
+
+    #[test]
+    fn display_name_single_non_generic_no_trailing_dash() {
+        // LCP of a single name is that name; it doesn't end with '-' so one is inserted
+        let names = vec!["hubble-tls".to_string()];
+        assert_eq!(
+            super::derive_pod_display_name("293aba3c-f29f-4cd7-a4fe-233b4d111654", &names),
+            "hubble-tls-293aba3c"
+        );
     }
 }
