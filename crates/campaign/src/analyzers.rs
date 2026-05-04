@@ -477,7 +477,7 @@ fn longest_common_prefix(names: &[&str]) -> String {
     let first = names[0];
     let common_len = first
         .char_indices()
-        .take_while(|&(i, c)| names.iter().all(|&n| n[i..].starts_with(c)))
+        .take_while(|&(i, c)| names.iter().all(|&n| n.get(i..).unwrap_or("").starts_with(c)))
         .map(|(i, c)| i + c.len_utf8())
         .last()
         .unwrap_or(0);
