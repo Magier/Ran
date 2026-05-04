@@ -510,6 +510,112 @@ fn derive_pod_display_name(uid: &str, volume_names: &[String]) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// KubeletMountAnalyzer
+// ---------------------------------------------------------------------------
+
+/// Discovers pods running on the same node as the observing pod by parsing
+/// kubelet volume mount paths from `system.mounts`.
+///
+/// For every mount path matching `/var/lib/kubelet/pods/{uid}/volumes/{type}/{name}`,
+/// it extracts the pod UID, groups volume names per UID, derives a display name,
+/// and emits a `Pod` entity with namespace `"?"` and a `RunsOn` relation to
+/// the same node the observing pod runs on.
+pub struct KubeletMountAnalyzer;
+
+impl InferenceRule for KubeletMountAnalyzer {
+    fn name(&self) -> &'static str {
+        "kubelet.mount-pods"
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
+
+        for pod in view.collect::<Pod>() {
+            // Group volume names by pod UID discovered from kubelet mount paths.
+            let mut pods_by_uid: std::collections::HashMap<String, Vec<String>> =
+                std::collections::HashMap::new();
+
+            for mount in &pod.system.mounts {
+                let Some(rest) = mount.mount_point.strip_prefix("/var/lib/kubelet/pods/") else {
+                    continue;
+                };
+
+                let parts: Vec<&str> = rest.split('/').collect();
+                if parts.len() < 4 {
+                    tracing::warn!(
+                        mount_point = %mount.mount_point,
+                        "kubelet mount path has fewer than 4 segments after prefix, skipping"
+                    );
+                    continue;
+                }
+
+                let uid_str = parts[0];
+                if !is_valid_pod_uuid(uid_str) {
+                    tracing::warn!(
+                        mount_point = %mount.mount_point,
+                        uid = uid_str,
+                        "kubelet mount path has non-UUID pod segment, skipping"
+                    );
+                    continue;
+                }
+
+                let vol_name = parts[3].to_string();
+                pods_by_uid
+                    .entry(uid_str.to_string())
+                    .or_default()
+                    .push(vol_name);
+            }
+
+            if pods_by_uid.is_empty() {
+                continue;
+            }
+
+            // Determine node (same logic as HostPathAnalyzer).
+            let node_name = pod.node_name.as_deref().unwrap_or("?");
+            let node = K8sNode::new(node_name);
+            let node_id = node.entity_id();
+            let node_known = campaign.entities.contains::<K8sNode>(&node_id)
+                || update.new_entities.iter().any(|e| e.entity_id() == node_id)
+                || inferred.new_entities.iter().any(|e| e.entity_id() == node_id);
+            if !node_known {
+                inferred.new_entities.push(Box::new(node));
+            }
+
+            // Emit one Pod entity + RunsOn per discovered pod UID.
+            for (uid, vol_names) in pods_by_uid {
+                let display_name = derive_pod_display_name(&uid, &vol_names);
+                let mut discovered = Pod::new(&display_name, "?");
+                discovered.meta.uid = Some(uid);
+
+                let discovered_id = discovered.entity_id();
+                let already_known = campaign.entities.contains::<Pod>(&discovered_id)
+                    || update
+                        .new_entities
+                        .iter()
+                        .any(|e| e.entity_id() == discovered_id)
+                    || inferred
+                        .new_entities
+                        .iter()
+                        .any(|e| e.entity_id() == discovered_id);
+
+                if already_known {
+                    continue;
+                }
+
+                inferred.new_relations.push(Box::new(RunsOn::new(
+                    discovered_id.0.clone(),
+                    node_id.0.clone(),
+                )));
+                inferred.new_entities.push(Box::new(discovered));
+            }
+        }
+
+        inferred
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CanExecAccessAnalyzer
 // ---------------------------------------------------------------------------
 
@@ -1617,6 +1723,7 @@ pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
         Box::new(ServiceAccountAnalyzer),
         Box::new(ServiceAccountTokenAnalyzer),
         Box::new(HostPathAnalyzer),
+        Box::new(KubeletMountAnalyzer),
         Box::new(ServiceAccountCanExecAnalyzer),
         Box::new(KubeletExecSourceAnalyzer),
         Box::new(KubeletExecSinkAnalyzer),
@@ -3220,6 +3327,166 @@ mod tests {
         assert_eq!(
             super::derive_pod_display_name("293aba3c-f29f-4cd7-a4fe-233b4d111654", &names),
             "hubble-tls-293aba3c"
+        );
+    }
+
+    fn make_mount(mount_point: &str) -> ran_domain::Mount {
+        ran_domain::Mount {
+            name: String::new(),
+            mount_point: mount_point.to_string(),
+            mount_root: String::new(),
+            mount_type: None,
+            read_only: false,
+            is_host_path: false,
+        }
+    }
+
+    #[test]
+    fn kubelet_mount_analyzer_discovers_pods_from_mounts() {
+        let campaign = test_campaign();
+
+        // Observing pod with kubelet mounts for two sibling pods
+        let mut observer = Pod::new("observer", "default");
+        observer.system.mounts = vec![
+            // Pod 84cc979b: two named secret mounts + one generic SA token
+            make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/volumes/kubernetes.io~secret/argocd-dex-server-tls"),
+            make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/volumes/kubernetes.io~secret/argocd-repo-server-tls"),
+            make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/volumes/kubernetes.io~projected/kube-api-access-28sp8"),
+            // Pod 430772bd: only a generic SA token
+            make_mount("/var/lib/kubelet/pods/430772bd-a94b-40c0-a21e-075a62ff46cc/volumes/kubernetes.io~projected/kube-api-access-z7h85"),
+            // Unrelated mount — should be ignored
+            make_mount("/proc/sys/fs/binfmt_misc"),
+        ];
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(observer));
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, update);
+
+        // Expect two discovered Pod entities
+        let pod_names: Vec<&str> = update
+            .new_entities
+            .iter()
+            .filter(|e| e.entity_kind() == "Pod")
+            .map(|e| e.entity_name())
+            .collect();
+
+        assert!(
+            pod_names.contains(&"argocd-84cc979b"),
+            "expected argocd-84cc979b pod, got: {:?}",
+            pod_names
+        );
+        assert!(
+            pod_names.contains(&"430772bd"),
+            "expected 430772bd pod, got: {:?}",
+            pod_names
+        );
+
+        // Expect RunsOn relations for both discovered pods
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<RunsOn>()
+                    && r.source_id().0 == "ns/?/pod/argocd-84cc979b"
+                    && r.target_id().0 == "node/?"
+            }),
+            "expected RunsOn(argocd-84cc979b → node/?)"
+        );
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<RunsOn>()
+                    && r.source_id().0 == "ns/?/pod/430772bd"
+                    && r.target_id().0 == "node/?"
+            }),
+            "expected RunsOn(430772bd → node/?)"
+        );
+    }
+
+    #[test]
+    fn kubelet_mount_analyzer_uses_observer_node_name_when_known() {
+        let campaign = test_campaign();
+
+        let mut observer = Pod::new("observer", "default");
+        observer.node_name = Some("worker-1".to_string());
+        observer.system.mounts = vec![make_mount(
+            "/var/lib/kubelet/pods/293aba3c-f29f-4cd7-a4fe-233b4d111654/volumes/kubernetes.io~projected/kube-api-access-b245w",
+        )];
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(observer));
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, update);
+
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<RunsOn>()
+                    && r.source_id().0 == "ns/?/pod/293aba3c"
+                    && r.target_id().0 == "node/worker-1"
+            }),
+            "expected RunsOn to node/worker-1"
+        );
+    }
+
+    #[test]
+    fn kubelet_mount_analyzer_skips_malformed_paths_with_warning() {
+        // Just verifying no panic and no entity emitted for malformed paths.
+        // Warning emission is verified by log inspection in manual testing.
+        let campaign = test_campaign();
+
+        let mut observer = Pod::new("observer", "default");
+        observer.system.mounts = vec![
+            // Too few segments after prefix
+            make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/volumes"),
+            // Non-UUID pod segment
+            make_mount("/var/lib/kubelet/pods/not-a-uuid/volumes/kubernetes.io~projected/kube-api-access-abc"),
+        ];
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(observer));
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, update);
+
+        let discovered_pods: Vec<_> = update
+            .new_entities
+            .iter()
+            .filter(|e| e.entity_kind() == "Pod" && e.entity_name() != "observer")
+            .collect();
+        assert!(
+            discovered_pods.is_empty(),
+            "expected no pods from malformed paths, got: {:?}",
+            discovered_pods.iter().map(|e| e.entity_name()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn kubelet_mount_analyzer_does_not_duplicate_existing_pod() {
+        let mut campaign = test_campaign();
+
+        // Pre-insert the pod that would be discovered
+        let existing = Pod::new("argocd-84cc979b", "?");
+        campaign.entities.insert_typed(existing);
+
+        let mut observer = Pod::new("observer", "default");
+        observer.system.mounts = vec![make_mount(
+            "/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/volumes/kubernetes.io~secret/argocd-dex-server-tls",
+        )];
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(observer));
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, update);
+
+        let new_pods: Vec<_> = update
+            .new_entities
+            .iter()
+            .filter(|e| e.entity_kind() == "Pod" && e.entity_name() == "argocd-84cc979b")
+            .collect();
+        assert!(
+            new_pods.is_empty(),
+            "should not re-emit a pod already in the campaign"
         );
     }
 }
