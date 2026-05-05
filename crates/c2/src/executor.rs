@@ -241,27 +241,7 @@ impl C2Manager {
             };
         }
 
-        // Transparent session upgrade: if the operator root (c2/ran) is the
-        // designated backend but we have an open interactive session for the
-        // first exec-chain hop, route through that session instead.  This
-        // means nsenter-wrapped commands for container escapes travel through
-        // the live shell — the session backend_id never surfaces to callers.
-        let first_hop = cmd.exec_entity();
-        let session_key = kubectl_exec_backend_id(first_hop, None);
-        let session_backend = if cmd.exec_system_id.is_empty()
-            || cmd.exec_system_id == BUILTIN_C2_ID
-        {
-            let backends = self.backends.read().await;
-            backends.get(&session_key).cloned()
-        } else {
-            None
-        };
-
-        let mut event = if let Some(backend) = session_backend {
-            backend.execute(cmd).await
-        } else {
-            self.select_backend(cmd).await.execute(cmd).await
-        };
+        let mut event = self.select_backend(cmd).await.execute(cmd).await;
         event.session_connected = None;
         event
     }
@@ -325,6 +305,12 @@ impl C2Manager {
         let backends = self.backends.read().await;
 
         if key.is_empty() {
+            debug!(
+                cmd_id = %cmd.id,
+                target_id = %cmd.target_id,
+                exec_chain = ?cmd.exec_chain,
+                "select_backend: empty exec_system_id → builtin c2"
+            );
             return backends
                 .get(BUILTIN_C2_ID)
                 .expect("builtin c2 backend must always be registered")
@@ -332,24 +318,48 @@ impl C2Manager {
         }
 
         if let Some(backend) = backends.get(&key) {
+            debug!(
+                cmd_id = %cmd.id,
+                target_id = %cmd.target_id,
+                exec_system_id = %cmd.exec_system_id,
+                exec_chain = ?cmd.exec_chain,
+                "select_backend: exact match"
+            );
             return backend.clone();
         }
 
         // Accept `c2/<name>` and `<name>` as aliases when looking up backends.
         if let Some(stripped) = key.strip_prefix("c2/") {
             if let Some(backend) = backends.get(stripped) {
+                debug!(
+                    cmd_id = %cmd.id,
+                    target_id = %cmd.target_id,
+                    exec_system_id = %cmd.exec_system_id,
+                    exec_chain = ?cmd.exec_chain,
+                    "select_backend: matched via c2/ strip"
+                );
                 return backend.clone();
             }
         } else {
             let prefixed = format!("c2/{key}");
             if let Some(backend) = backends.get(&prefixed) {
+                debug!(
+                    cmd_id = %cmd.id,
+                    target_id = %cmd.target_id,
+                    exec_system_id = %cmd.exec_system_id,
+                    exec_chain = ?cmd.exec_chain,
+                    "select_backend: matched via c2/ prefix"
+                );
                 return backend.clone();
             }
         }
 
         warn!(
+            cmd_id = %cmd.id,
+            target_id = %cmd.target_id,
             exec_system_id = %cmd.exec_system_id,
-            "c2 backend not found; falling back to builtin c2"
+            exec_chain = ?cmd.exec_chain,
+            "select_backend: backend not found; falling back to builtin c2"
         );
 
         backends

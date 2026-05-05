@@ -785,7 +785,12 @@ impl Campaign {
         }
 
         if needs_remote_channel(procedure, tactic) {
-            return self.route_remote(target_id, procedure);
+            // Credential Access TTPs read container-filesystem paths (e.g. SA tokens
+            // mounted at /var/run/secrets/...).  Active sessions may be running in host
+            // namespace after a container escape, so force a fresh kubectl exec that
+            // always targets the container's own mount namespace.
+            let prefer_session = normalize_tactic(tactic) != "credential access";
+            return self.route_remote(target_id, procedure, prefer_session);
         }
 
         self.route_fallback(target_id)
@@ -846,9 +851,10 @@ impl Campaign {
         &mut self,
         target_id: &str,
         procedure: &mut Procedure,
+        prefer_session: bool,
     ) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
         let ch = self
-            .resolve_exec_channel(target_id)
+            .resolve_exec_channel_inner(target_id, prefer_session)
             .map_err(ExecuteActionError::NoExecChannel)?;
         let exec_target = ch
             .exec_target_id

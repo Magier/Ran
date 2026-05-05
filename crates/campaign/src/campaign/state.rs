@@ -166,25 +166,49 @@ impl Campaign {
 
     /// Query the knowledge graph and return the best execution channel for `target_id`.
     pub fn resolve_exec_channel(&self, target_id: &str) -> Result<ExecChannel, String> {
+        self.resolve_exec_channel_inner(target_id, true)
+    }
+
+    /// Inner resolver. When `prefer_session` is false the active-session fast-path
+    /// is skipped, forcing graph-based channel resolution (used for SA credential
+    /// reads that must run inside the container's mount namespace, not a host-side
+    /// session that may have escaped the container).
+    pub(super) fn resolve_exec_channel_inner(
+        &self,
+        target_id: &str,
+        prefer_session: bool,
+    ) -> Result<ExecChannel, String> {
         let target_eid = EntityId::new(target_id);
 
         // Prefer an Active session on the target system — it is a live shell
         // already exiting into this entity, so no graph traversal is needed.
-        let active_session = self.get_system_entity(target_id).and_then(|sys| {
-            sys.entity()
-                .system()
-                .sessions
-                .iter()
-                .find(|s| s.status == SessionStatus::Active)
-                .map(|s| s.backend_id())
-        });
-
-        if let Some(backend_id) = active_session {
-            return Ok(ExecChannel {
-                backend_id,
-                hops: vec![],
-                exec_target_id: None,
+        if prefer_session {
+            let active_session = self.get_system_entity(target_id).and_then(|sys| {
+                sys.entity()
+                    .system()
+                    .sessions
+                    .iter()
+                    .find(|s| s.status == SessionStatus::Active)
+                    .map(|s| s.backend_id())
             });
+
+            if let Some(ref backend_id) = active_session {
+                tracing::debug!(
+                    target_id = %target_id,
+                    backend_id = %backend_id,
+                    "resolve_exec_channel: using active session"
+                );
+                return Ok(ExecChannel {
+                    backend_id: backend_id.clone(),
+                    hops: vec![],
+                    exec_target_id: None,
+                });
+            }
+        } else {
+            tracing::debug!(
+                target_id = %target_id,
+                "resolve_exec_channel: session preference skipped (credential access path)"
+            );
         }
 
         let direct_footholds: std::collections::HashSet<String> = self
@@ -254,10 +278,15 @@ impl Campaign {
             .map(|(src, _)| src.clone());
 
         if let Some(pod_id) = sa_pod_id {
-            return self.resolve_exec_channel(&pod_id.0).map(|mut ch| {
-                ch.exec_target_id = Some(pod_id.0);
-                ch
-            });
+            // Use graph-based routing (not any active session) for the pod so the command
+            // runs inside the container's mount namespace where the SA token is mounted.
+            // Active sessions may be in host namespace after a container escape.
+            return self
+                .resolve_exec_channel_inner(&pod_id.0, false)
+                .map(|mut ch| {
+                    ch.exec_target_id = Some(pod_id.0);
+                    ch
+                });
         }
 
         Err(format!(
