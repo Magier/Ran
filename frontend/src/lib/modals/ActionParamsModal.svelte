@@ -379,15 +379,13 @@
 			// Also reset procedureId when TTP changes
 			procedureId = ttpProcedures?.[0]?.id || '';
 
-			// Default execution system: prefer target if compromised, else first available
+			// Default execution system: use the target itself when it is already
+			// compromised (direct access). For everything else leave it empty —
+			// the backend resolves the path via the knowledge graph.
 			const systems = campaignState.getCompromisedSystems();
-			if (systems.some(s => s.id === currentTargetId)) {
-				selectedExecSystemId = currentTargetId;
-			} else if (systems.length > 0) {
-				selectedExecSystemId = systems[0].id;
-			} else {
-				selectedExecSystemId = '';
-			}
+			selectedExecSystemId = systems.some(s => s.id === currentTargetId)
+				? currentTargetId
+				: '';
 
 			console.log(args);
 			console.groupEnd();
@@ -692,12 +690,12 @@
 						<option
 							value={procedure.id}
 							disabled={!executingSystemHasTool(procedureToolName(procedure))}
-							>{procedure.id}{!executingSystemHasTool(procedureToolName(procedure)) ? ' ❌' : ''}
+							>{procedureToolName(procedure)}{!executingSystemHasTool(procedureToolName(procedure)) ? ' ❌' : ''}
 						</option>
 					{/each}
 				</select>
 			{:else}
-				<code id="procedure" class="label mt-2 text-xs md:text-sm lg:text-base">{procedureId}</code>
+				<code id="procedure" class="label mt-2 text-xs md:text-sm lg:text-base">{procedureToolName(ttp.procedures?.[0] ?? { id: procedureId })}</code>
 			{/if}
 			<!-- <label class="label mt-5">
 				<span class="label-text">Target</span>
