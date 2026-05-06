@@ -443,4 +443,96 @@ cleanup:
         let cleanup = ttp.cleanup.unwrap();
         assert!(cleanup.k8s_request.is_some());
     }
+
+    #[test]
+    fn copyfail_ttp_parses_correctly() {
+        let yaml = r#"
+name: Escape container via CopyFail (CVE-2026-31431)
+description: >
+  Exploit a Linux kernel page-cache Copy-on-Write race (CVE-2026-31431) to
+  escape an unprivileged container.
+tactic: "Privilege Escalation"
+techniques: ["Escape to Host", "T1611"]
+status: draft
+effects:
+  - container.escape(sys)
+parameters:
+  KERNEL_VERSION:
+    type: string
+    required: false
+    description: "Kernel version of the target node (vulnerable: <6.6.89 or <6.12.80)"
+  PAYLOAD:
+    type: string
+    required: false
+    default: hostname
+    description: "Command to run in host context after a privileged binary is corrupted"
+preconditions:
+  accessLevel: "user-exec"
+procedures:
+  - key: copyfail-poc
+    command: python3
+    isLocal: true
+  - key: ran-implant
+    command: ran-implant --exploit copyfail --payload ${PAYLOAD}
+references:
+  - https://github.com/Percivalll/Copy-Fail-CVE-2026-31431-Kubernetes-PoC
+  - https://attack.mitre.org/techniques/T1611/
+"#;
+
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw
+            .into_ttp(Path::new(
+                "Privilege Escalation/Escape to Host/copyfail.yaml",
+            ))
+            .unwrap();
+
+        assert_eq!(ttp.name, "Escape container via CopyFail (CVE-2026-31431)");
+        assert_eq!(ttp.tactic, "Privilege Escalation");
+        assert_eq!(ttp.status, "draft");
+        assert!(
+            ttp.techniques.iter().any(|t| t == "T1611"),
+            "should include T1611"
+        );
+        assert!(
+            ttp.effects.iter().any(|e| e == "container.escape(sys)"),
+            "should have escape effect"
+        );
+        assert!(
+            ttp.requires
+                .get("accessLevel")
+                .and_then(|v| v.as_str())
+                == Some("user-exec"),
+            "precondition accessLevel should be user-exec"
+        );
+
+        let kernel_param = ttp.params.iter().find(|p| p.name == "KERNEL_VERSION");
+        assert!(kernel_param.is_some(), "KERNEL_VERSION param should exist");
+        assert!(!kernel_param.unwrap().required, "KERNEL_VERSION should be optional");
+
+        let payload_param = ttp.params.iter().find(|p| p.name == "PAYLOAD");
+        assert!(payload_param.is_some(), "PAYLOAD param should exist");
+        assert_eq!(payload_param.unwrap().default, "hostname");
+
+        assert_eq!(ttp.procedures.len(), 2, "should have two procedures");
+        assert_eq!(ttp.procedures[0].id, "copyfail-poc");
+        assert_eq!(ttp.procedures[0].command, "python3");
+        assert_eq!(ttp.procedures[1].id, "ran-implant");
+        assert_eq!(
+            ttp.procedures[0].is_local_command,
+            Some(true),
+            "copyfail-poc should be marked as a local command"
+        );
+        assert!(
+            ttp.procedures[1].is_local_command.is_none(),
+            "ran-implant should not be marked as local"
+        );
+        assert!(
+            ttp.procedures[1]
+                .command
+                .contains("ran-implant --exploit copyfail"),
+            "ran-implant procedure should reference the implant binary"
+        );
+
+        assert_eq!(ttp.references.len(), 2);
+    }
 }
