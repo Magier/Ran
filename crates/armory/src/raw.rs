@@ -87,6 +87,7 @@ impl RawTtp {
                 }
                 let id =
                     p.id.or(p.key.clone())
+                        .or(p.tool.clone())
                         .unwrap_or_else(|| format!("proc-{}", idx + 1));
                 Some(Procedure {
                     id,
