@@ -22,3 +22,6 @@ dist
 sliver_cfg.json
 ran.yaml.worktrees
 .worktrees
+
+# mdBook build output
+docs/book/book/
