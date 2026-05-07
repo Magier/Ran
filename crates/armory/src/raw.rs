@@ -25,6 +25,7 @@ pub(crate) struct RawTtp {
     #[serde(alias = "refernces")]
     references_typo: Vec<String>,
     command: Option<String>,
+    tool_slot: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -51,124 +52,73 @@ struct RawProcedure {
     steps: Option<JsonValue>,
 }
 
+impl RawParam {
+    fn into_ttp_param(self, name: String) -> TtpParam {
+        TtpParam {
+            name,
+            param_type: if self.param_type.trim().is_empty() {
+                "string".to_string()
+            } else {
+                self.param_type
+            },
+            description: self.description,
+            required: self.required.unwrap_or(true),
+            default: json_to_string(self.default),
+        }
+    }
+}
+
+impl RawProcedure {
+    fn is_empty(&self) -> bool {
+        self.command.trim().is_empty()
+            && self.http_request.is_none()
+            && self.k8s_request.is_none()
+            && self.steps.is_none()
+    }
+
+    fn into_procedure(self, fallback_id: impl FnOnce() -> String) -> Option<Procedure> {
+        if self.is_empty() {
+            return None;
+        }
+        let id = self
+            .id
+            .or(self.key.clone())
+            .or(self.tool.clone())
+            .unwrap_or_else(fallback_id);
+        Some(Procedure {
+            tool: self.tool.or(self.key),
+            is_local_command: self.is_local,
+            http_request: self.http_request,
+            k8s_request: self.k8s_request,
+            steps: self.steps,
+            ..Procedure::new(id, self.command)
+        })
+    }
+}
+
 impl RawTtp {
     pub(crate) fn into_ttp(self, file_path: &Path) -> Option<Ttp> {
         if self.name.trim().is_empty() {
             return None;
         }
-
+        let id = self.id.unwrap_or_else(|| slugify(&self.name));
+        let tactic = resolve_tactic(self.tactic, file_path);
         let params = self
             .parameters
             .into_iter()
-            .map(|(name, p)| TtpParam {
-                name,
-                param_type: if p.param_type.trim().is_empty() {
-                    "string".to_string()
-                } else {
-                    p.param_type
-                },
-                description: p.description,
-                required: p.required.unwrap_or(true),
-                default: json_to_string(p.default),
-            })
+            .map(|(name, p)| p.into_ttp_param(name))
             .collect();
-
-        let mut procedures: Vec<Procedure> = self
-            .procedures
-            .into_iter()
-            .enumerate()
-            .filter_map(|(idx, p)| {
-                if p.command.trim().is_empty()
-                    && p.http_request.is_none()
-                    && p.k8s_request.is_none()
-                    && p.steps.is_none()
-                {
-                    return None;
-                }
-                let id =
-                    p.id.or(p.key.clone())
-                        .or(p.tool.clone())
-                        .unwrap_or_else(|| format!("proc-{}", idx + 1));
-                Some(Procedure {
-                    id,
-                    command: p.command,
-                    tool: p.tool.or(p.key),
-                    is_local_command: p.is_local,
-                    http_request: p.http_request,
-                    k8s_request: p.k8s_request,
-                    steps: p.steps,
-                })
-            })
-            .collect();
-
-        if procedures.is_empty() {
-            if let Some(command) = self.command {
-                if !command.trim().is_empty() {
-                    procedures.push(Procedure {
-                        id: "default".to_string(),
-                        command,
-                        tool: None,
-                        is_local_command: None,
-                        http_request: None,
-                        k8s_request: None,
-                        steps: None,
-                    });
-                }
-            }
-        }
-
+        let procedures = build_procedures(self.procedures, self.command);
+        let cleanup = self
+            .cleanup
+            .and_then(|p| p.into_procedure(|| "cleanup".to_string()));
         let references = if !self.references.is_empty() {
             self.references
         } else {
             self.references_typo
         };
-
-        let mut requires = match self.preconditions.or(self.requires) {
-            Some(JsonValue::Object(map)) => map,
-            Some(other) => {
-                let mut map = JsonMap::new();
-                map.insert("value".to_string(), other);
-                map
-            }
-            None => JsonMap::new(),
-        };
+        let mut requires = build_requires(self.preconditions, self.requires);
         normalize_requires(&mut requires);
-
-        let tactic = self
-            .tactic
-            .filter(|t| !t.trim().is_empty())
-            .or_else(|| {
-                file_path
-                    .parent()
-                    .and_then(|p| p.file_name())
-                    .and_then(|n| n.to_str())
-                    .map(ToOwned::to_owned)
-            })
-            .unwrap_or_else(|| "Other".to_string());
-
-        let id = self.id.unwrap_or_else(|| slugify(&self.name));
-
-        let cleanup = self.cleanup.and_then(|p| {
-            if p.command.trim().is_empty()
-                && p.http_request.is_none()
-                && p.k8s_request.is_none()
-                && p.steps.is_none()
-            {
-                return None;
-            }
-            let id =
-                p.id.or(p.key.clone())
-                    .unwrap_or_else(|| "cleanup".to_string());
-            Some(Procedure {
-                id,
-                command: p.command,
-                tool: p.tool.or(p.key),
-                is_local_command: p.is_local,
-                http_request: p.http_request,
-                k8s_request: p.k8s_request,
-                steps: p.steps,
-            })
-        });
 
         Some(Ttp {
             id,
@@ -183,7 +133,51 @@ impl RawTtp {
             procedures,
             cleanup,
             references,
+            tool_slot: self.tool_slot,
         })
+    }
+}
+
+fn resolve_tactic(tactic: Option<String>, file_path: &Path) -> String {
+    tactic
+        .filter(|t| !t.trim().is_empty())
+        .or_else(|| {
+            file_path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_else(|| "Other".to_string())
+}
+
+fn build_procedures(raw: Vec<RawProcedure>, fallback_command: Option<String>) -> Vec<Procedure> {
+    let mut procedures: Vec<Procedure> = raw
+        .into_iter()
+        .enumerate()
+        .filter_map(|(idx, p)| p.into_procedure(|| format!("proc-{}", idx + 1)))
+        .collect();
+
+    if procedures.is_empty() {
+        if let Some(cmd) = fallback_command.filter(|c| !c.trim().is_empty()) {
+            procedures.push(Procedure::new("default", cmd));
+        }
+    }
+    procedures
+}
+
+fn build_requires(
+    preconditions: Option<JsonValue>,
+    requires: Option<JsonValue>,
+) -> JsonMap<String, JsonValue> {
+    match preconditions.or(requires) {
+        Some(JsonValue::Object(map)) => map,
+        Some(other) => {
+            let mut map = JsonMap::new();
+            map.insert("value".to_string(), other);
+            map
+        }
+        None => JsonMap::new(),
     }
 }
 

@@ -1,6 +1,8 @@
+id: curl
 name: HTTP Request via curl
-description: Reusable HTTP request procedure using curl with conventional HTTP parameters
+description: Reusable HTTP request procedure using curl
 tactic: Execution
+tool_slot: http-request
 status: disabled
 techniques: [ "Command and Scripting Interpreter", T1059 ]
 parameters:
@@ -23,13 +25,31 @@ parameters:
     type: int
     description: request timeout in seconds
     default: 30
+  USE_CA:
+    type: bool
+    description: verify TLS using the system CA bundle or CA_PATH
+    default: "true"
+  CA_PATH:
+    type: string
+    description: path to a CA certificate file; only used when USE_CA is true
+    default: ""
+  OUTPUT:
+    type: string
+    description: save response body to this path instead of stdout
+    default: ""
+  FOLLOW_REDIRECTS:
+    type: bool
+    description: follow HTTP redirects
+    default: "true"
 procedures:
   - key: curl
     tool: curl
     command: >-
-      curl -sS -m ${TIMEOUT} -X ${METHOD} {% for name, value in HEADERS %} -H
-      "{{ name }}: {{ value }}" {% endfor %} {% if PAYLOAD %} --data
-      '${PAYLOAD}' {% endif %} "${URL}"
+      curl -sS {% if FOLLOW_REDIRECTS %}-L {% endif %} -m ${TIMEOUT} -X
+      ${METHOD} {% if USE_CA %}{% if CA_PATH %}--cacert '${CA_PATH}' {% endif
+      %}{% else %}--insecure {% endif %} {% for name, value in HEADERS %}-H "{{
+      name }}: {{ value }}" {% endfor %} {% if PAYLOAD %}--data '${PAYLOAD}' {%
+      endif %} {% if OUTPUT %}-o '${OUTPUT}' {% endif %} '${URL}'
 effects: []
 references:
   - https://curl.se/docs/manpage.html

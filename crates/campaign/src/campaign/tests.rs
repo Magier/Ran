@@ -21,36 +21,12 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
     ExecTtp {
         id: "cmd-1".to_string(),
         ttp: Ttp {
-            id: "ttp-test".to_string(),
-            name: "Test TTP".to_string(),
             description: "test".to_string(),
-            tactic: "Discovery".to_string(),
-            techniques: vec![],
-            status: "stable".to_string(),
-            params: vec![],
-            requires: Default::default(),
             effects: effects.into_iter().map(str::to_string).collect(),
-            procedures: vec![Procedure {
-                id: "shell".to_string(),
-                command: "env".to_string(),
-                tool: None,
-                is_local_command: None,
-                http_request: None,
-                k8s_request: None,
-                steps: None,
-            }],
-            cleanup: None,
-            references: vec![],
+            procedures: vec![Procedure::new("shell", "env")],
+            ..Ttp::new("ttp-test", "Test TTP", "Discovery")
         },
-        procedure: Procedure {
-            id: "shell".to_string(),
-            command: "env".to_string(),
-            tool: None,
-            is_local_command: None,
-            http_request: None,
-            k8s_request: None,
-            steps: None,
-        },
+        procedure: Procedure::new("shell", "env"),
         args: HashMap::new(),
         target_id: target_id.to_string(),
         exec_chain: vec![target_id.to_string()],
@@ -690,26 +666,8 @@ fn resolve_exec_channel_seeds_include_node_for_dijkstra() {
 
 fn minimal_armory(ttp_id: &str) -> Armory {
     Armory::from_ttps(vec![Ttp {
-        id: ttp_id.to_string(),
-        name: "Test TTP".to_string(),
-        description: String::new(),
-        tactic: "Discovery".to_string(),
-        techniques: vec![],
-        status: "stable".to_string(),
-        params: vec![],
-        requires: Default::default(),
-        effects: vec![],
-        procedures: vec![Procedure {
-            id: "shell".to_string(),
-            command: "id".to_string(),
-            tool: None,
-            is_local_command: None,
-            http_request: None,
-            k8s_request: None,
-            steps: None,
-        }],
-        cleanup: None,
-        references: vec![],
+        procedures: vec![Procedure::new("shell", "id")],
+        ..Ttp::new(ttp_id, "Test TTP", "Discovery")
     }])
 }
 
@@ -798,12 +756,6 @@ fn prepare_action_expands_object_headers_into_multiple_flags() {
     push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
 
     let armory = Armory::from_ttps(vec![Ttp {
-        id: "http-object-headers".to_string(),
-        name: "HTTP Object Headers".to_string(),
-        description: String::new(),
-        tactic: "Discovery".to_string(),
-        techniques: vec![],
-        status: "stable".to_string(),
         params: vec![
             TtpParam {
                 name: "URL".to_string(),
@@ -822,20 +774,14 @@ fn prepare_action_expands_object_headers_into_multiple_flags() {
                     .to_string(),
             },
         ],
-        requires: Default::default(),
-        effects: vec![],
         procedures: vec![Procedure {
-            id: "curl".to_string(),
-            command: "curl {% for name, value in HEADERS %} -H \"{{ name }}: {{ value }}\" {% endfor %} \"${URL}\""
-                .to_string(),
             tool: Some("curl".to_string()),
-            is_local_command: None,
-            http_request: None,
-            k8s_request: None,
-            steps: None,
+            ..Procedure::new(
+                "curl",
+                "curl {% for name, value in HEADERS %} -H \"{{ name }}: {{ value }}\" {% endfor %} \"${URL}\"",
+            )
         }],
-        cleanup: None,
-        references: vec![],
+        ..Ttp::new("http-object-headers", "HTTP Object Headers", "Discovery")
     }]);
 
     let exec = campaign
@@ -875,21 +821,10 @@ fn prepare_action_materializes_abstract_http_request_procedure() {
     campaign.entities.insert_typed(pod);
     push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
 
-    let armory = Armory::from_ttps(vec![Ttp {
-        id: "http-abstract".to_string(),
-        name: "HTTP Abstract".to_string(),
-        description: String::new(),
-        tactic: "Discovery".to_string(),
-        techniques: vec![],
-        status: "stable".to_string(),
-        params: vec![],
-        requires: Default::default(),
-        effects: vec![],
+    let mut ttps = curl_armory().ttps().to_vec();
+    ttps.push(Ttp {
         procedures: vec![Procedure {
-            id: "http-request".to_string(),
-            tool: Some("http-request".to_string()),
-            command: String::new(),
-            is_local_command: None,
+            tool: Some("curl".to_string()),
             http_request: Some(serde_json::json!({
                 "method": "POST",
                 "url": "https://k8s-api.local/ssrr",
@@ -899,12 +834,11 @@ fn prepare_action_materializes_abstract_http_request_procedure() {
                 "use_ca": false,
                 "ca_path": ""
             })),
-            k8s_request: None,
-            steps: None,
+            ..Procedure::new("curl", "")
         }],
-        cleanup: None,
-        references: vec![],
-    }]);
+        ..Ttp::new("http-abstract", "HTTP Abstract", "Discovery")
+    });
+    let armory = Armory::from_ttps(ttps);
 
     let exec = campaign
         .prepare_action(
@@ -912,7 +846,7 @@ fn prepare_action_materializes_abstract_http_request_procedure() {
                 action_id: "http-abstract".to_string(),
                 target_id,
                 exec_system_id: None,
-                procedure_id: Some("http-request".to_string()),
+                procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
             },
             &armory,
@@ -920,8 +854,8 @@ fn prepare_action_materializes_abstract_http_request_procedure() {
         .expect("should prepare action with abstract http-request procedure");
 
     assert!(
-        exec.procedure.command.contains("command -v curl"),
-        "abstract procedure should be materialized to runtime client selection: {}",
+        exec.procedure.command.starts_with("curl "),
+        "http_request procedure should be materialized via curl tool: {}",
         exec.procedure.command
     );
     assert!(
@@ -941,23 +875,10 @@ fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
     campaign.entities.insert_typed(pod);
     push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
 
-    let armory = Armory::from_ttps(vec![Ttp {
-        id: "steps-abstract".to_string(),
-        name: "Steps Abstract".to_string(),
-        description: String::new(),
-        tactic: "Execution".to_string(),
-        techniques: vec![],
-        status: "stable".to_string(),
-        params: vec![],
-        requires: Default::default(),
-        effects: vec![],
+    let mut ttps = curl_armory().ttps().to_vec();
+    ttps.push(Ttp {
         procedures: vec![Procedure {
-            id: "http-request".to_string(),
-            tool: Some("http-request".to_string()),
-            command: String::new(),
-            is_local_command: None,
-            http_request: None,
-            k8s_request: None,
+            tool: Some("curl".to_string()),
             steps: Some(serde_json::json!([
                 {
                     "fetch": {
@@ -973,10 +894,11 @@ fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
                     "chmod": "+x /tmp/bin"
                 }
             ])),
+            ..Procedure::new("curl", "")
         }],
-        cleanup: None,
-        references: vec![],
-    }]);
+        ..Ttp::new("steps-abstract", "Steps Abstract", "Execution")
+    });
+    let armory = Armory::from_ttps(ttps);
 
     let exec = campaign
         .prepare_action(
@@ -984,7 +906,7 @@ fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
                 action_id: "steps-abstract".to_string(),
                 target_id,
                 exec_system_id: None,
-                procedure_id: Some("http-request".to_string()),
+                procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
             },
             &armory,
@@ -992,9 +914,7 @@ fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
         .expect("should prepare action with abstract steps procedure");
 
     assert!(
-        exec.procedure
-            .command
-            .contains("-H 'Authorization: Bearer abc'"),
+        exec.procedure.command.contains("-H \"Authorization: Bearer abc\""),
         "materialized command should include fetch headers: {}",
         exec.procedure.command
     );
@@ -1090,26 +1010,9 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
     campaign.entities.insert_typed(target);
 
     let armory = Armory::from_ttps(vec![Ttp {
-        id: "lateral-test".to_string(),
-        name: "Lateral Test".to_string(),
-        description: String::new(),
-        tactic: "Lateral Movement".to_string(),
-        techniques: vec![],
-        status: "stable".to_string(),
-        params: vec![],
-        requires: Default::default(),
         effects: vec!["rce.can-exec(${src}, ${TARGET_ID})".to_string()],
-        procedures: vec![Procedure {
-            id: "shell".to_string(),
-            command: "id".to_string(),
-            tool: None,
-            is_local_command: None,
-            http_request: None,
-            k8s_request: None,
-            steps: None,
-        }],
-        cleanup: None,
-        references: vec![],
+        procedures: vec![Procedure::new("shell", "id")],
+        ..Ttp::new("lateral-test", "Lateral Test", "Lateral Movement")
     }]);
 
     let exec = campaign
@@ -1146,28 +1049,10 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
     ExecTtp {
         id: "cmd-nmap".to_string(),
         ttp: Ttp {
-            id: "network-scan".to_string(),
-            name: "Network Scan".to_string(),
             description: "scan".to_string(),
-            tactic: "Discovery".to_string(),
-            techniques: vec![],
-            status: "stable".to_string(),
-            params: vec![],
-            requires: Default::default(),
-            effects: vec![],
-            procedures: vec![],
-            cleanup: None,
-            references: vec![],
+            ..Ttp::new("network-scan", "Network Scan", "Discovery")
         },
-        procedure: Procedure {
-            id: "nmap".to_string(),
-            command: "nmap -sT -sV -F 10.244.0.0/24".to_string(),
-            tool: None,
-            is_local_command: None,
-            http_request: None,
-            k8s_request: None,
-            steps: None,
-        },
+        procedure: Procedure::new("nmap", "nmap -sT -sV -F 10.244.0.0/24"),
         args: HashMap::new(),
         target_id: target_id.to_string(),
         exec_chain: vec![target_id.to_string()],
@@ -1304,26 +1189,11 @@ fn command_not_found_marks_binary_absent_when_target_is_non_system_entity() {
 /// Build an armory with a single TTP whose command uses a named binary.
 fn armory_with_command(ttp_id: &str, command: &str, tool: Option<&str>) -> Armory {
     Armory::from_ttps(vec![Ttp {
-        id: ttp_id.to_string(),
-        name: "Test TTP".to_string(),
-        description: String::new(),
-        tactic: "Discovery".to_string(),
-        techniques: vec![],
-        status: "stable".to_string(),
-        params: vec![],
-        requires: Default::default(),
-        effects: vec![],
         procedures: vec![Procedure {
-            id: "shell".to_string(),
-            command: command.to_string(),
             tool: tool.map(str::to_string),
-            is_local_command: None,
-            http_request: None,
-            k8s_request: None,
-            steps: None,
+            ..Procedure::new("shell", command)
         }],
-        cleanup: None,
-        references: vec![],
+        ..Ttp::new(ttp_id, "Test TTP", "Discovery")
     }])
 }
 
@@ -1556,26 +1426,11 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
 
     // Local command procedure; without the fix this would run directly on redis.
     let armory = Armory::from_ttps(vec![Ttp {
-        id: "test-local-fallback".to_string(),
-        name: "Test Local Fallback".to_string(),
-        description: String::new(),
-        tactic: "Discovery".to_string(),
-        techniques: vec![],
-        status: "stable".to_string(),
-        params: vec![],
-        requires: Default::default(),
-        effects: vec![],
         procedures: vec![Procedure {
-            id: "shell".to_string(),
-            command: "echo hi".to_string(),
-            tool: None,
             is_local_command: Some(true),
-            http_request: None,
-            k8s_request: None,
-            steps: None,
+            ..Procedure::new("shell", "echo hi")
         }],
-        cleanup: None,
-        references: vec![],
+        ..Ttp::new("test-local-fallback", "Test Local Fallback", "Discovery")
     }]);
 
     let exec = campaign
@@ -2271,12 +2126,6 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
     push_exec_edge(&mut campaign, &exec_id, &target_id);
 
     let armory = Armory::from_ttps(vec![Ttp {
-        id: "scan-node".to_string(),
-        name: "Search interesting Files".to_string(),
-        description: String::new(),
-        tactic: "Discovery".to_string(),
-        techniques: vec![],
-        status: "stable".to_string(),
         params: vec![TtpParam {
             name: "MOUNT_PATH".to_string(),
             param_type: "string".to_string(),
@@ -2284,19 +2133,8 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
             required: false,
             default: "${SRC.MOUNT_PATH}/etc/kubernetes".to_string(),
         }],
-        requires: Default::default(),
-        effects: vec![],
-        procedures: vec![Procedure {
-            id: "grep".to_string(),
-            command: "grep -r ${MOUNT_PATH}".to_string(),
-            tool: None,
-            is_local_command: None,
-            http_request: None,
-            k8s_request: None,
-            steps: None,
-        }],
-        cleanup: None,
-        references: vec![],
+        procedures: vec![Procedure::new("grep", "grep -r ${MOUNT_PATH}")],
+        ..Ttp::new("scan-node", "Search interesting Files", "Discovery")
     }]);
 
     let exec = campaign
@@ -2332,26 +2170,8 @@ fn prepare_action_with_ttp_produces_same_result_as_prepare_action() {
     push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
 
     let ttp = Ttp {
-        id: "test-ttp".to_string(),
-        name: "Test TTP".to_string(),
-        description: String::new(),
-        tactic: "Discovery".to_string(),
-        techniques: vec![],
-        status: "stable".to_string(),
-        params: vec![],
-        requires: Default::default(),
-        effects: vec![],
-        procedures: vec![Procedure {
-            id: "shell".to_string(),
-            command: "id".to_string(),
-            tool: None,
-            is_local_command: None,
-            http_request: None,
-            k8s_request: None,
-            steps: None,
-        }],
-        references: vec![],
-        cleanup: None,
+        procedures: vec![Procedure::new("shell", "id")],
+        ..Ttp::new("test-ttp", "Test TTP", "Discovery")
     };
 
     let exec = campaign
@@ -2361,6 +2181,7 @@ fn prepare_action_with_ttp_produces_same_result_as_prepare_action() {
             None,
             ttp,
             std::collections::HashMap::new(),
+            &Armory::from_ttps(vec![]),
         )
         .expect("should prepare action");
 
@@ -2375,12 +2196,6 @@ fn prepare_action_with_ttp_produces_same_result_as_prepare_action() {
 fn cleanup_armory() -> Armory {
     Armory::from_ttps(vec![
         Ttp {
-            id: "install-pkg".to_string(),
-            name: "Install Package".to_string(),
-            description: String::new(),
-            tactic: "Execution".to_string(),
-            techniques: vec![],
-            status: "stable".to_string(),
             params: vec![TtpParam {
                 name: "PKG".to_string(),
                 param_type: "string".to_string(),
@@ -2388,49 +2203,19 @@ fn cleanup_armory() -> Armory {
                 required: false,
                 default: "curl".to_string(),
             }],
-            requires: Default::default(),
-            effects: vec![],
             procedures: vec![Procedure {
-                id: "ubuntu".to_string(),
-                command: "apt-get install -y ${PKG}".to_string(),
                 tool: Some("apt".to_string()),
-                is_local_command: None,
-                http_request: None,
-                k8s_request: None,
-                steps: None,
+                ..Procedure::new("ubuntu", "apt-get install -y ${PKG}")
             }],
-            references: vec![],
             cleanup: Some(Procedure {
-                id: "ubuntu".to_string(),
-                command: "apt remove -y ${PKG}".to_string(),
                 tool: Some("apt".to_string()),
-                is_local_command: None,
-                http_request: None,
-                k8s_request: None,
-                steps: None,
+                ..Procedure::new("ubuntu", "apt remove -y ${PKG}")
             }),
+            ..Ttp::new("install-pkg", "Install Package", "Execution")
         },
         Ttp {
-            id: "no-cleanup".to_string(),
-            name: "No Cleanup TTP".to_string(),
-            description: String::new(),
-            tactic: "Discovery".to_string(),
-            techniques: vec![],
-            status: "stable".to_string(),
-            params: vec![],
-            requires: Default::default(),
-            effects: vec![],
-            procedures: vec![Procedure {
-                id: "shell".to_string(),
-                command: "id".to_string(),
-                tool: None,
-                is_local_command: None,
-                http_request: None,
-                k8s_request: None,
-                steps: None,
-            }],
-            references: vec![],
-            cleanup: None,
+            procedures: vec![Procedure::new("shell", "id")],
+            ..Ttp::new("no-cleanup", "No Cleanup TTP", "Discovery")
         },
     ])
 }
@@ -2542,14 +2327,35 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
 
 use super::execution::materialize_k8s_request;
 
+/// Minimal armory with a curl tool TTP for use in k8s_request and http_request tests.
+fn curl_armory() -> Armory {
+    Armory::from_ttps(vec![Ttp {
+        status: "disabled".to_string(),
+        procedures: vec![Procedure {
+            tool: Some("curl".to_string()),
+            ..Procedure::new(
+                "curl",
+                concat!(
+                    "curl -sS",
+                    " {% if FOLLOW_REDIRECTS %}-L {% endif %}",
+                    " -m ${TIMEOUT} -X ${METHOD}",
+                    " {% if USE_CA %}{% if CA_PATH %}--cacert '${CA_PATH}' {% endif %}",
+                    " {% else %}--insecure {% endif %}",
+                    " {% for name, value in HEADERS %}-H \"{{ name }}: {{ value }}\" {% endfor %}",
+                    " {% if PAYLOAD %}--data '${PAYLOAD}' {% endif %}",
+                    " {% if OUTPUT %}-o '${OUTPUT}' {% endif %}",
+                    " '${URL}'"
+                ),
+            )
+        }],
+        tool_slot: Some("http-request".to_string()),
+        ..Ttp::new("curl", "curl", "Execution")
+    }])
+}
+
 #[test]
 fn materialize_k8s_request_namespaced_url() {
     let mut procedure = Procedure {
-        id: "k8s-request".to_string(),
-        command: String::new(),
-        tool: None,
-        is_local_command: None,
-        http_request: None,
         k8s_request: Some(serde_json::json!({
             "api_server": "https://10.0.0.1:6443",
             "api": "/api/v1",
@@ -2560,9 +2366,9 @@ fn materialize_k8s_request_namespaced_url() {
             "token": "mytoken",
             "use_ca": false
         })),
-        steps: None,
+        ..Procedure::new("k8s-request", "")
     };
-    materialize_k8s_request(&mut procedure).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
     assert!(
         procedure
             .command
@@ -2580,11 +2386,6 @@ fn materialize_k8s_request_namespaced_url() {
 #[test]
 fn materialize_k8s_request_cluster_scoped_when_flag_true() {
     let mut procedure = Procedure {
-        id: "k8s-request".to_string(),
-        command: String::new(),
-        tool: None,
-        is_local_command: None,
-        http_request: None,
         k8s_request: Some(serde_json::json!({
             "api_server": "https://10.0.0.1:6443",
             "api": "/api/v1",
@@ -2595,9 +2396,9 @@ fn materialize_k8s_request_cluster_scoped_when_flag_true() {
             "token": "tok",
             "use_ca": false
         })),
-        steps: None,
+        ..Procedure::new("k8s-request", "")
     };
-    materialize_k8s_request(&mut procedure).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
     assert!(
         procedure
             .command
@@ -2615,11 +2416,6 @@ fn materialize_k8s_request_cluster_scoped_when_flag_true() {
 #[test]
 fn materialize_k8s_request_cluster_scoped_when_namespace_empty() {
     let mut procedure = Procedure {
-        id: "k8s-request".to_string(),
-        command: String::new(),
-        tool: None,
-        is_local_command: None,
-        http_request: None,
         k8s_request: Some(serde_json::json!({
             "api_server": "https://10.0.0.1:6443",
             "api": "/apis/rbac.authorization.k8s.io/v1",
@@ -2627,9 +2423,9 @@ fn materialize_k8s_request_cluster_scoped_when_namespace_empty() {
             "token": "tok",
             "use_ca": false
         })),
-        steps: None,
+        ..Procedure::new("k8s-request", "")
     };
-    materialize_k8s_request(&mut procedure).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
     assert!(
         procedure
             .command
@@ -2643,20 +2439,15 @@ fn materialize_k8s_request_cluster_scoped_when_namespace_empty() {
 #[test]
 fn materialize_k8s_request_no_token_no_auth_header() {
     let mut procedure = Procedure {
-        id: "k8s-request".to_string(),
-        command: String::new(),
-        tool: None,
-        is_local_command: None,
-        http_request: None,
         k8s_request: Some(serde_json::json!({
             "api_server": "https://10.0.0.1:6443",
             "api": "/api/v1",
             "resource": "nodes",
             "use_ca": false
         })),
-        steps: None,
+        ..Procedure::new("k8s-request", "")
     };
-    materialize_k8s_request(&mut procedure).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
     assert!(
         !procedure.command.contains("Authorization"),
         "empty token must not produce Authorization header, got: {}",
@@ -2666,27 +2457,14 @@ fn materialize_k8s_request_no_token_no_auth_header() {
 
 #[test]
 fn materialize_k8s_request_noop_when_field_absent() {
-    let mut procedure = Procedure {
-        id: "kubectl".to_string(),
-        command: "kubectl get pods".to_string(),
-        tool: None,
-        is_local_command: None,
-        http_request: None,
-        k8s_request: None,
-        steps: None,
-    };
-    materialize_k8s_request(&mut procedure).unwrap();
+    let mut procedure = Procedure::new("kubectl", "kubectl get pods");
+    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
     assert_eq!(procedure.command, "kubectl get pods");
 }
 
 #[test]
 fn materialize_k8s_request_namespaced_when_cluster_scoped_omitted() {
     let mut procedure = Procedure {
-        id: "k8s-request".to_string(),
-        command: String::new(),
-        tool: None,
-        is_local_command: None,
-        http_request: None,
         k8s_request: Some(serde_json::json!({
             "api_server": "https://10.0.0.1:6443",
             "api": "/api/v1",
@@ -2694,9 +2472,9 @@ fn materialize_k8s_request_namespaced_when_cluster_scoped_omitted() {
             "namespace": "kube-system",
             "use_ca": false
         })),
-        steps: None,
+        ..Procedure::new("k8s-request", "")
     };
-    materialize_k8s_request(&mut procedure).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
     assert!(
         procedure.command.contains("namespaces/kube-system/pods"),
         "omitting cluster_scoped must default to namespaced; got: {}",

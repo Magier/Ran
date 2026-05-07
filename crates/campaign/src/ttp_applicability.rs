@@ -197,37 +197,11 @@ mod tests {
             "rbacPermissions".to_string(),
             json!([{"verb": verb, "resourceType": resource_type}]),
         );
-        Ttp {
-            id: "test".to_string(),
-            name: "Test".to_string(),
-            description: String::new(),
-            tactic: "Discovery".to_string(),
-            techniques: vec![],
-            status: "enabled".to_string(),
-            params: vec![],
-            requires,
-            effects: vec![],
-            procedures: vec![],
-            cleanup: None,
-            references: vec![],
-        }
+        Ttp { status: "enabled".to_string(), requires, ..Ttp::new("test", "Test", "Discovery") }
     }
 
     fn ttp_no_rbac() -> Ttp {
-        Ttp {
-            id: "test".to_string(),
-            name: "Test".to_string(),
-            description: String::new(),
-            tactic: "Discovery".to_string(),
-            techniques: vec![],
-            status: "enabled".to_string(),
-            params: vec![],
-            requires: serde_json::Map::new(),
-            effects: vec![],
-            procedures: vec![],
-            cleanup: None,
-            references: vec![],
-        }
+        Ttp { status: "enabled".to_string(), ..Ttp::new("test", "Test", "Discovery") }
     }
 
     fn empty_campaign() -> crate::Campaign {
@@ -247,18 +221,9 @@ mod tests {
         let mut requires = serde_json::Map::new();
         requires.insert("exists".to_string(), json!([kind]));
         Ttp {
-            id: "test".to_string(),
-            name: "Test".to_string(),
-            description: String::new(),
-            tactic: "Resource Development".to_string(),
-            techniques: vec![],
             status: "enabled".to_string(),
-            params: vec![],
             requires,
-            effects: vec![],
-            procedures: vec![],
-            cleanup: None,
-            references: vec![],
+            ..Ttp::new("test", "Test", "Resource Development")
         }
     }
 
@@ -267,20 +232,7 @@ mod tests {
         if let Some(level) = access_level {
             requires.insert("accessLevel".to_string(), json!(level));
         }
-        Ttp {
-            id: "test".to_string(),
-            name: "Test".to_string(),
-            description: String::new(),
-            tactic: tactic.to_string(),
-            techniques: vec![],
-            status: "enabled".to_string(),
-            params: vec![],
-            requires,
-            effects: vec![],
-            procedures: vec![],
-            cleanup: None,
-            references: vec![],
-        }
+        Ttp { status: "enabled".to_string(), requires, ..Ttp::new("test", "Test", tactic) }
     }
 
     #[test]

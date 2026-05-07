@@ -10,7 +10,9 @@ use crate::analyzers::default_rules;
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
 use crate::failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
-use crate::grounding::{detect_ungrounded_vars, ground_args_from_context, ground_entity_ref_vars};
+use crate::grounding::{
+    detect_ungrounded_vars, ground_args_from_context, ground_entity_ref_vars, resolve_template,
+};
 use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
 use crate::rules::run_rules_fixpoint;
 use crate::shell_cmd::ground_binaries;
@@ -151,6 +153,12 @@ struct HttpRequestSpec {
     use_ca: BoolOrString,
     #[serde(default)]
     ca_path: String,
+    /// Save response body to this path; empty string means stdout.
+    /// The alias `to` matches the `steps: [{fetch:}]` field name.
+    #[serde(default, alias = "to")]
+    output: String,
+    #[serde(default)]
+    follow_redirects: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,30 +205,9 @@ fn build_k8s_url(spec: &KubernetesRequestSpec) -> String {
 }
 
 #[derive(Debug, Deserialize)]
-struct FetchStep {
-    url: String,
-    #[serde(default)]
-    to: String,
-    #[serde(default = "default_http_method")]
-    method: String,
-    #[serde(default)]
-    headers: HashMap<String, String>,
-    #[serde(default)]
-    body: String,
-    #[serde(default = "default_timeout_seconds")]
-    timeout_seconds: u64,
-    #[serde(default)]
-    use_ca: BoolOrString,
-    #[serde(default)]
-    ca_path: String,
-    #[serde(default)]
-    follow_redirects: bool,
-}
-
-#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum StepSpec {
-    Fetch { fetch: FetchStep },
+    Fetch { fetch: HttpRequestSpec },
     Chmod { chmod: String },
     Run { run: String },
 }
@@ -255,88 +242,41 @@ fn default_cluster_scoped() -> BoolOrString {
     BoolOrString::Bool(false)
 }
 
-fn shell_single_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
+/// Render an HTTP request command using the tool TTP identified by `tool_id`.
+///
+/// Maps `spec` fields to the tool TTP's parameter names, renders the Tera
+/// template from the tool's first procedure, and returns the fully grounded
+/// shell command.  Returns `None` when the tool is not found in the armory.
+fn render_http_via_tool(spec: &HttpRequestSpec, tool_id: &str, armory: &Armory) -> Option<String> {
+    let tool_ttp = armory.get_tool_ttp(tool_id)?;
+    let tool_proc = tool_ttp.procedures.first()?;
+
+    let headers_json =
+        serde_json::to_string(&spec.headers).unwrap_or_else(|_| "{}".to_string());
+
+    let mut args: HashMap<String, String> = HashMap::new();
+    args.insert("URL".to_string(), spec.url.clone());
+    args.insert(
+        "METHOD".to_string(),
+        if spec.method.trim().is_empty() {
+            "GET".to_string()
+        } else {
+            spec.method.trim().to_string()
+        },
+    );
+    args.insert("HEADERS".to_string(), headers_json);
+    args.insert("PAYLOAD".to_string(), spec.body.clone());
+    args.insert("TIMEOUT".to_string(), spec.timeout_seconds.max(1).to_string());
+    args.insert("USE_CA".to_string(), spec.use_ca.is_true().to_string());
+    args.insert("CA_PATH".to_string(), spec.ca_path.clone());
+    args.insert("OUTPUT".to_string(), spec.output.clone());
+    args.insert("FOLLOW_REDIRECTS".to_string(), spec.follow_redirects.to_string());
+
+    let rendered = resolve_template(&tool_proc.command, &args);
+    Some(ground_template(&rendered, &args))
 }
 
-fn build_http_command(
-    method: &str,
-    url: &str,
-    headers: &HashMap<String, String>,
-    body: &str,
-    timeout_seconds: u64,
-    use_ca: &BoolOrString,
-    ca_path: &str,
-    output_to_path: Option<&str>,
-    follow_redirects: bool,
-) -> String {
-    let mut curl_header_flags = String::new();
-    let mut wget_header_flags = String::new();
-    for (name, value) in headers {
-        let hdr = format!("{}: {}", name, value);
-        curl_header_flags.push_str(" -H ");
-        curl_header_flags.push_str(&shell_single_quote(&hdr));
-        wget_header_flags.push_str(" --header=");
-        wget_header_flags.push_str(&shell_single_quote(&hdr));
-    }
-
-    let curl_body = if body.is_empty() {
-        String::new()
-    } else {
-        format!(" --data {}", shell_single_quote(body))
-    };
-    let wget_body = if body.is_empty() {
-        String::new()
-    } else {
-        format!(" --body-data={}", shell_single_quote(body))
-    };
-
-    let curl_output = match output_to_path {
-        Some(path) if !path.trim().is_empty() => format!(" -o {}", shell_single_quote(path.trim())),
-        _ => String::new(),
-    };
-    let wget_output = match output_to_path {
-        Some(path) if !path.trim().is_empty() => {
-            format!(" -qO {}", shell_single_quote(path.trim()))
-        }
-        _ => " -qO-".to_string(),
-    };
-
-    let curl_redirects = if follow_redirects {
-        " -L".to_string()
-    } else {
-        String::new()
-    };
-
-    let curl_tls = if use_ca.is_true() {
-        if ca_path.trim().is_empty() {
-            String::new()
-        } else {
-            format!(" --cacert {}", shell_single_quote(ca_path.trim()))
-        }
-    } else {
-        " --insecure".to_string()
-    };
-    let wget_tls = if use_ca.is_true() {
-        if ca_path.trim().is_empty() {
-            String::new()
-        } else {
-            format!(" --ca-certificate={}", shell_single_quote(ca_path.trim()))
-        }
-    } else {
-        " --no-check-certificate".to_string()
-    };
-
-    let url_q = shell_single_quote(url.trim());
-    let timeout = timeout_seconds.max(1);
-
-    format!(
-        "if command -v curl >/dev/null 2>&1; then curl -sS{curl_redirects} -m {timeout} -X {method}{curl_tls}{curl_header_flags}{curl_body}{curl_output} {url_q}; elif command -v wget >/dev/null 2>&1; then wget -T {timeout}{wget_output} --method={method}{wget_tls}{wget_header_flags}{wget_body} {url_q}; else echo 'no supported HTTP client found (curl/wget)' >&2; exit 127; fi",
-        method = shell_single_quote(method),
-    )
-}
-
-fn materialize_steps(procedure: &mut Procedure) -> Result<(), ExecuteActionError> {
+fn materialize_steps(procedure: &mut Procedure, armory: &Armory) -> Result<(), ExecuteActionError> {
     let steps_value = match procedure.steps.take() {
         Some(v) => v,
         None => return Ok(()),
@@ -356,30 +296,18 @@ fn materialize_steps(procedure: &mut Procedure) -> Result<(), ExecuteActionError
         )));
     }
 
+    let tool_id = procedure.tool.as_deref().unwrap_or("curl");
+
     let mut parts: Vec<String> = Vec::with_capacity(steps.len());
     for step in steps {
         match step {
             StepSpec::Fetch { fetch } => {
-                let method = if fetch.method.trim().is_empty() {
-                    "GET".to_string()
-                } else {
-                    fetch.method.trim().to_string()
-                };
-                parts.push(build_http_command(
-                    &method,
-                    &fetch.url,
-                    &fetch.headers,
-                    &fetch.body,
-                    fetch.timeout_seconds,
-                    &fetch.use_ca,
-                    &fetch.ca_path,
-                    if fetch.to.trim().is_empty() {
-                        None
-                    } else {
-                        Some(fetch.to.trim())
-                    },
-                    fetch.follow_redirects,
-                ));
+                let cmd = render_http_via_tool(&fetch, tool_id, armory)
+                    .ok_or_else(|| ExecuteActionError::InvalidInput(format!(
+                        "tool '{}' not found for fetch step in procedure '{}'",
+                        tool_id, procedure.id
+                    )))?;
+                parts.push(cmd);
             }
             StepSpec::Chmod { chmod } => {
                 parts.push(format!("chmod {}", chmod.trim()));
@@ -394,7 +322,10 @@ fn materialize_steps(procedure: &mut Procedure) -> Result<(), ExecuteActionError
     Ok(())
 }
 
-pub(super) fn materialize_k8s_request(procedure: &mut Procedure) -> Result<(), ExecuteActionError> {
+pub(super) fn materialize_k8s_request(
+    procedure: &mut Procedure,
+    armory: &Armory,
+) -> Result<(), ExecuteActionError> {
     let k8s_req_val = match procedure.k8s_request.take() {
         Some(v) => v,
         None => return Ok(()),
@@ -418,28 +349,37 @@ pub(super) fn materialize_k8s_request(procedure: &mut Procedure) -> Result<(), E
         );
     }
 
-    let method = if spec.method.trim().is_empty() {
-        "GET".to_string()
-    } else {
-        spec.method.trim().to_string()
+    let http_spec = HttpRequestSpec {
+        url,
+        method: if spec.method.trim().is_empty() {
+            "GET".to_string()
+        } else {
+            spec.method.trim().to_string()
+        },
+        headers,
+        body: String::new(),
+        timeout_seconds: spec.timeout_seconds,
+        use_ca: spec.use_ca,
+        ca_path: spec.ca_path,
+        output: String::new(),
+        follow_redirects: false,
     };
 
-    procedure.command = build_http_command(
-        &method,
-        &url,
-        &headers,
-        "",
-        spec.timeout_seconds,
-        &spec.use_ca,
-        &spec.ca_path,
-        None,
-        false,
-    );
+    let tool_id = procedure.tool.as_deref().unwrap_or("curl");
+
+    procedure.command = render_http_via_tool(&http_spec, tool_id, armory)
+        .ok_or_else(|| ExecuteActionError::InvalidInput(format!(
+            "tool '{}' not found for k8s_request in procedure '{}'",
+            tool_id, procedure.id
+        )))?;
 
     Ok(())
 }
 
-fn materialize_abstract_http_request(procedure: &mut Procedure) -> Result<(), ExecuteActionError> {
+fn materialize_abstract_http_request(
+    procedure: &mut Procedure,
+    armory: &Armory,
+) -> Result<(), ExecuteActionError> {
     let http_req_val = match procedure.http_request.take() {
         Some(v) => v,
         None => return Ok(()),
@@ -452,25 +392,13 @@ fn materialize_abstract_http_request(procedure: &mut Procedure) -> Result<(), Ex
         ))
     })?;
 
-    let method = if spec.method.trim().is_empty() {
-        "GET".to_string()
-    } else {
-        spec.method.trim().to_string()
-    };
+    let tool_id = procedure.tool.as_deref().unwrap_or("curl");
 
-    let command = build_http_command(
-        &method,
-        &spec.url,
-        &spec.headers,
-        &spec.body,
-        spec.timeout_seconds,
-        &spec.use_ca,
-        &spec.ca_path,
-        None,
-        false,
-    );
-
-    procedure.command = command;
+    procedure.command = render_http_via_tool(&spec, tool_id, armory)
+        .ok_or_else(|| ExecuteActionError::InvalidInput(format!(
+            "tool '{}' not found for http_request in procedure '{}'",
+            tool_id, procedure.id
+        )))?;
 
     Ok(())
 }
@@ -552,6 +480,7 @@ impl Campaign {
             request.procedure_id,
             ttp,
             args,
+            armory,
         )
     }
 
@@ -568,6 +497,7 @@ impl Campaign {
         procedure_id: Option<String>,
         mut ttp: Ttp,
         mut args: HashMap<String, String>,
+        armory: &Armory,
     ) -> Result<ExecTtp, ExecuteActionError> {
         // Fill param defaults that weren't already in args.
         for p in &ttp.params {
@@ -609,9 +539,9 @@ impl Campaign {
         // Stage 5: ground the procedure command and effects.
         let mut procedure = self.select_procedure(&ttp, procedure_id.as_deref())?;
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
-        materialize_k8s_request(&mut procedure)?;
-        materialize_steps(&mut procedure)?;
-        materialize_abstract_http_request(&mut procedure)?;
+        materialize_k8s_request(&mut procedure, armory)?;
+        materialize_steps(&mut procedure, armory)?;
+        materialize_abstract_http_request(&mut procedure, armory)?;
 
         // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
         let (exec_system_id, target_id, exec_chain, output_transform) = self.route_exec_channel(
@@ -655,18 +585,17 @@ impl Campaign {
             };
 
             let cleanup_ttp = Ttp {
-                id: format!("{}_cleanup", ttp.id),
-                name: format!("{} Cleanup", ttp.name),
                 description: ttp.description.clone(),
-                tactic: ttp.tactic.clone(),
                 techniques: ttp.techniques.clone(),
                 status: ttp.status.clone(),
                 params: ttp.params.clone(),
                 requires: ttp.requires.clone(),
-                effects: vec![],
                 procedures: vec![cleanup_proc.clone()],
-                references: vec![],
-                cleanup: None,
+                ..Ttp::new(
+                    format!("{}_cleanup", ttp.id),
+                    format!("{} Cleanup", ttp.name),
+                    ttp.tactic.clone(),
+                )
             };
 
             match self.prepare_action_with_ttp(
@@ -675,6 +604,7 @@ impl Campaign {
                 Some(cleanup_proc.id.clone()),
                 cleanup_ttp,
                 record.args.clone(),
+                armory,
             ) {
                 Ok(mut exec) => {
                     exec.is_cleanup = true;
