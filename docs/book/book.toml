@@ -1,0 +1,12 @@
+[book]
+title = "Ran — Kubernetes Adversary Emulation"
+authors = ["Manifold Security"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/magier/ran"
+edit-url-template = "https://github.com/magier/ran/edit/main/docs/book/src/{path}"
