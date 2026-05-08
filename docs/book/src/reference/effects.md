@@ -96,8 +96,16 @@ Kubernetes JSON response.
 | `k8s.serviceAccountList` | Extract `ServiceAccount` entities |
 | `k8s.nodeList` | Extract `Node` entities |
 | `k8s.secretList` | Extract `Secret` metadata |
+| `k8s.deploymentList` | Extract `Deployment` entities |
+| `k8s.configMapList` | Extract `ConfigMap` metadata |
 | `k8s.roleList` | Extract `K8sRole` entities |
 | `k8s.roleBindingList` | Extract `K8sRoleBinding` entities |
+| `k8s.clusterRoleList` | Extract `K8sClusterRole` entities |
+| `k8s.clusterRoleBindingList` | Extract `K8sClusterRoleBinding` entities |
+| `k8s.serviceList` | Extract `Service` entities |
+| `k8s.ingressList` | Extract `Ingress` entities |
+| `k8s.gatewayList` | Extract `Gateway` entities (Gateway API) |
+| `k8s.httpRouteList` | Extract `HTTPRoute` entities (Gateway API) |
 
 ---
 
