@@ -17,7 +17,7 @@ replaces, depending on IDs) the built-in armory.
 
 Follow the same tactic-directory convention as the built-in armory:
 
-```
+```text
 my-ttps/
 ├── Discovery/
 │   └── enumerate_custom_crds.yaml

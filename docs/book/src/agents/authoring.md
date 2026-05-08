@@ -68,7 +68,7 @@ A TTP that has no remaining procedures after filtering will fail at dispatch.
 
 ## Effect expression grammar
 
-```
+```text
 effect      := simple_effect | relation_effect
 simple_effect  := effect_name                          # e.g. k8s.pod
 relation_effect := effect_name "(" arg ("," arg)* ")"  # e.g. container.escape(sys)

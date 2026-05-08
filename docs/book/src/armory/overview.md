@@ -9,7 +9,7 @@ execute it, and what it reveals about the target environment once it succeeds.
 
 Techniques are grouped by MITRE tactic:
 
-```
+```text
 armory/TTPs/
 ├── CommandAndControl/
 ├── CredentialAccess/

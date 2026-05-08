@@ -24,7 +24,7 @@ Write a new TTP when:
 
 Place custom TTPs under the relevant tactic directory in your custom armory:
 
-```
+```text
 my-ttps/
 └── Privilege Escalation/
     └── exploit_internal_webhook.yaml
