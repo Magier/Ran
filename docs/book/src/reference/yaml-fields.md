@@ -14,7 +14,7 @@ except `name`. Fields marked **repeatable** accept a list.
 | `description` | string | no | One or two sentences describing the technique. |
 | `tactic` | string | no | MITRE ATT&CK tactic. Defaults to the parent directory name. |
 | `techniques` | list | no | MITRE technique names and/or IDs, e.g. `["T1613", "Container and Resource Discovery"]`. |
-| `status` | string | no | `enabled` (default), `stable`, `draft`, or `disabled`. |
+| `status` | string | no | `enabled` (default), `draft`, or `disabled`. |
 | `parameters` | map | no | Named input variables. See [Parameters](#parameters). |
 | `preconditions` | map | no | Gate conditions. Also accepted as `requires:`. See [Preconditions](#preconditions). |
 | `procedures` | list | no | Execution methods. See [Procedures](#procedures). |
@@ -35,7 +35,7 @@ parameters:
     type: string
     description: What this parameter means
     default: some-default
-    required: false   # optional: true also accepted
+    required: false
 ```
 
 | Field | Type | Default | Description |
@@ -43,7 +43,7 @@ parameters:
 | `type` | string | `string` | Parameter type. One of: `string`, `Namespace`, `ServiceAccount`, `bool`, `int`. |
 | `description` | string | `""` | Shown in the UI tooltip and CLI help. |
 | `default` | any | `""` | Default value. Can reference built-in variables like `${NS}`. |
-| `required` / `optional` | bool | `true` / `false` | Whether the parameter must be provided. `optional: true` is equivalent to `required: false`. |
+| `required` | bool | `true` | Whether the parameter must be provided. Set to `false` to make it optional. |
 
 **Built-in variable defaults:**
 
@@ -97,6 +97,13 @@ http_request:
   body: '{"key":"${VALUE}"}'
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `method` | string | HTTP method: `GET`, `POST`, `PUT`, `DELETE`, etc. |
+| `url` | string | Target URL. Supports parameter placeholders. |
+| `headers` | map | Optional HTTP headers as key-value pairs. |
+| `body` | string | Optional request body. Supports parameter placeholders. |
+
 ### K8s Request
 
 ```yaml
@@ -108,8 +115,21 @@ k8s_request:
   cluster_scoped: false       # true = all namespaces
   query: limit=500            # appended as URL query string
   token: ${TOKEN}
-  use_ca: false               # validate server CA
+  use_ca: false               # skip CA verification
+  ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `api_server` | string | Kubernetes API server URL. Defaults to `${API_SERVER}`. |
+| `api` | string | API group path, e.g. `/api/v1` or `/apis/apps/v1`. |
+| `resource` | string | Resource type, e.g. `pods`, `secrets`, `serviceaccounts`. |
+| `namespace` | string | Target namespace. Omit for cluster-scoped resources. |
+| `cluster_scoped` | bool | If `true`, list resources across all namespaces. |
+| `query` | string | URL query string appended to the request, e.g. `limit=500`. |
+| `token` | string | Bearer token for authentication. Defaults to `${TOKEN}`. |
+| `use_ca` | bool | If `true`, verify the server CA certificate. Default: `false`. |
+| `ca_path` | string | Path to CA bundle for server verification when `use_ca: true`. |
 
 ### Steps
 
@@ -125,7 +145,7 @@ steps:
       command: /tmp/binary --flag ${PARAM}
 ```
 
-Supported step types: `fetch`, `chmod`, `run`, `write`, `delete`.
+Supported step types: `fetch`, `chmod`, `run`.
 
 ---
 
