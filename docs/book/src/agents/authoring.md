@@ -9,8 +9,10 @@ A YAML file is a valid Ran TTP if and only if:
 
 1. It is valid YAML.
 2. It contains a non-empty `name:` string at the top level.
-3. Every declared parameter is referenced as `${PARAM_NAME}` in at least one
-   procedure command, or explicitly documented as unused.
+3. Every `${PARAM_NAME}` placeholder used in a procedure command or effect string
+   has a matching entry in `parameters:` or is a built-in variable. Declared
+   parameters that do not appear in any command are allowed (they may serve as
+   context for effect grounding or have defaults).
 4. Every effect expression references a valid built-in effect (see [Effect Catalog](../reference/effects.md)).
 5. Every precondition key is from the supported set (see [Precondition Types](../reference/preconditions.md)).
 
@@ -61,7 +63,8 @@ Every procedure must have at least one of:
 - A non-null `http_request:` map
 - A non-empty `steps:` list
 
-An empty procedure (all fields absent or empty) is silently dropped.
+A procedure with all fields absent or empty is filtered out during YAML parsing.
+A TTP that has no remaining procedures after filtering will fail at dispatch.
 
 ## Effect expression grammar
 
