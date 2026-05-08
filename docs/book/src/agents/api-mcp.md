@@ -31,7 +31,7 @@ raw OpenAPI spec at `/api/openapi.yaml`.
 
 ### Invoking a TTP via API
 
-```
+```http
 POST /api/action/execute
 Content-Type: application/json
 
