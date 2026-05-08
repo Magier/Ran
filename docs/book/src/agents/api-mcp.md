@@ -24,6 +24,7 @@ raw OpenAPI spec at `/api/openapi.yaml`.
 | `GET` | `/api/execution-records/{id}` | Single execution record by command ID |
 | `POST` | `/api/campaign/reset` | Clear all campaign state (entities, relations, execution records) |
 | `GET` | `/api/files` | Read a file captured in campaign state; use `?path=<path>` |
+| `GET` | `/api/pods/running` | Live running pods from Kubernetes; use `?namespace=<ns>` for a single namespace |
 | `POST` | `/api/pods/watch` | Start a live pod watch; optional `?namespace=<ns>` |
 | `DELETE` | `/api/pods/watch` | Stop the live pod watch |
 | `GET` | `/events` | Server-sent events stream for real-time campaign updates |
