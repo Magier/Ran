@@ -29,7 +29,8 @@ Omitting `kind` means the TTP is applicable to any entity type.
 **Type:** list of `{verb, resource}` objects
 
 At least one service account captured in the campaign must hold *all* listed
-permissions.
+permissions. Use `resource` as the YAML key (the runtime normalises it to
+`resourceType` internally).
 
 ```yaml
 rbac:
