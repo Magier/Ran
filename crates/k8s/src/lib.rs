@@ -6,7 +6,7 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{AttachParams, ListParams},
     config::{KubeConfigOptions, Kubeconfig},
-    runtime::watcher,
+    runtime::{reflector, watcher},
     Api, Client, Config,
 };
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,45 @@ pub struct TargetCluster {
     pub server: Option<String>,
 }
 
+fn pod_to_running_pod(pod: &Pod) -> Option<RunningPod> {
+    let name = pod.metadata.name.clone().unwrap_or_default();
+    let namespace = pod.metadata.namespace.clone().unwrap_or_default();
+    let phase = pod.status.as_ref().and_then(|s| s.phase.clone())?;
+    if phase != "Running" {
+        return None;
+    }
+
+    let not_ready_cs = pod
+        .status
+        .as_ref()
+        .and_then(|s| s.container_statuses.as_deref())
+        .unwrap_or_default()
+        .iter()
+        .find(|cs| !cs.ready);
+
+    let (ready, state_reason) = match not_ready_cs {
+        None => (true, None),
+        Some(cs) => {
+            let reason = cs.state.as_ref().and_then(|s| {
+                s.waiting
+                    .as_ref()
+                    .and_then(|w| w.reason.clone())
+                    .or_else(|| s.terminated.as_ref().and_then(|t| t.reason.clone()))
+            });
+            (false, reason)
+        }
+    };
+
+    Some(RunningPod {
+        id: format!("ns/{}/pod/{}", namespace, name),
+        name,
+        namespace: if namespace.is_empty() { None } else { Some(namespace) },
+        phase: Some(phase),
+        ready: Some(ready),
+        state_reason,
+    })
+}
+
 #[derive(Clone)]
 pub struct K8sService {
     client: Client,
@@ -84,94 +123,41 @@ impl K8sService {
                 .items
         };
 
-        let mut out = Vec::new();
-        for pod in pods {
-            let name = pod.metadata.name.unwrap_or_default();
-            let namespace = pod.metadata.namespace.clone().unwrap_or_default();
-            let phase = pod.status.as_ref().and_then(|s| s.phase.clone());
-
-            if phase.as_deref() != Some("Running") {
-                continue;
-            }
-
-            let mut ready = true;
-            let mut state_reason: Option<String> = None;
-
-            if let Some(status) = &pod.status {
-                if let Some(container_statuses) = &status.container_statuses {
-                    for cs in container_statuses {
-                        if !cs.ready {
-                            ready = false;
-                            if let Some(state) = &cs.state {
-                                if let Some(waiting) = &state.waiting {
-                                    if let Some(reason) = &waiting.reason {
-                                        state_reason = Some(reason.clone());
-                                        break;
-                                    }
-                                }
-                                if let Some(terminated) = &state.terminated {
-                                    if let Some(reason) = &terminated.reason {
-                                        state_reason = Some(reason.clone());
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            out.push(RunningPod {
-                id: format!("ns/{}/pod/{}", namespace, name),
-                name,
-                namespace: if namespace.is_empty() {
-                    None
-                } else {
-                    Some(namespace)
-                },
-                phase,
-                ready: Some(ready),
-                state_reason,
-            });
-        }
-
-        Ok(out)
+        Ok(pods.iter().filter_map(pod_to_running_pod).collect())
     }
 
     /// Start a live watch on pods in the given namespace (or all namespaces if `None`/empty).
-    /// Calls `on_change` with the current pod list immediately, then again on every
-    /// add/update/delete event. The watch runs until the returned `WatchHandle` is dropped.
+    /// Calls `on_change` once the initial list is complete, then again on every add/update/delete.
+    /// The watch runs until the returned `WatchHandle` is dropped.
     pub fn watch_pods<F>(&self, namespace: Option<String>, on_change: F) -> WatchHandle
     where
         F: Fn(Vec<RunningPod>) + Send + 'static,
     {
-        let service = self.clone();
+        let client = self.client.clone();
         let jh = tokio::spawn(async move {
             let api: Api<Pod> = match namespace.as_deref().filter(|ns| !ns.is_empty()) {
-                Some(ns) => Api::namespaced(service.client.clone(), ns),
-                None => Api::all(service.client.clone()),
+                Some(ns) => Api::namespaced(client, ns),
+                None => Api::all(client),
             };
 
-            // Send initial state before entering the watch loop.
-            match service.get_running_pods(namespace.as_deref()).await {
-                Ok(pods) => on_change(pods),
-                Err(e) => tracing::error!("watch_pods: initial list failed: {e}"),
-            }
-
-            let stream = watcher(api, watcher::Config::default());
+            // reflector keeps an in-memory store so state reads require no HTTP requests.
+            let (store, writer) = reflector::store();
+            let stream = reflector::reflector(writer, watcher(api, watcher::Config::default()));
             tokio::pin!(stream);
 
             let mut consecutive_errors: u32 = 0;
             while let Some(event) = stream.next().await {
                 match event {
-                    Ok(_) => {
+                    Ok(
+                        watcher::Event::Apply(_)
+                        | watcher::Event::Delete(_)
+                        | watcher::Event::InitDone,
+                    ) => {
                         consecutive_errors = 0;
-                        // Re-list on any event – mirrors the Go WatchPods behaviour.
-                        match service.get_running_pods(namespace.as_deref()).await {
-                            Ok(pods) => on_change(pods),
-                            Err(e) => tracing::error!("watch_pods: re-list failed: {e}"),
-                        }
+                        let pods = store.state().into_iter().filter_map(|p| pod_to_running_pod(&p)).collect();
+                        on_change(pods);
                     }
+                    Ok(_) => consecutive_errors = 0,
                     Err(e) => {
                         consecutive_errors += 1;
                         // Cap backoff at 30 s; first error waits 500 ms.
