@@ -449,6 +449,25 @@
 						</span>
 					{/each}
 				</div>
+			{:else if label === 'sessions' && Array.isArray(data) && data.length > 0}
+				<details class="mb-1" class:field-changed={highlightedFields[label]}>
+					<summary>
+						<span class="font-bold">{label}</span>
+						<span class="text-xs text-surface-500">({data.length})</span>
+					</summary>
+					<ul class="list-inside list-none pl-4 space-y-1 mt-1">
+						{#each data as session}
+							<li class="flex items-center gap-1 flex-wrap text-xs">
+								<span class="badge text-xs {session.status === 'Active' ? 'bg-success-100 text-success-800' : session.status === 'Lost' ? 'bg-error-100 text-error-800' : 'bg-warning-100 text-warning-800'}">{session.status}</span>
+								<span class="font-mono">{session.kind}</span>
+								{#if session.port}
+									<span class="text-surface-400">:{session.port}</span>
+								{/if}
+								<span class="text-surface-400 font-mono truncate">{session.id}</span>
+							</li>
+						{/each}
+					</ul>
+				</details>
 			{:else if Array.isArray(data) && data.length > 0}
 				{#if data.length === 1}
 					<div class="mb-1 flex items-center gap-1" class:field-changed={highlightedFields[label]}><span class="font-bold mr-1">{label}:</span>{prettyPrint(data[0])}{@render runBtn(label)}</div>
