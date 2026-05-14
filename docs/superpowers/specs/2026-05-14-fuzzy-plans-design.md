@@ -308,14 +308,42 @@ The applicability checks currently in the UI (filter procedures where required t
 A campaign's execution history can be exported as a reusable plan via:
 
 ```
-GET /campaigns/{id}/export-plan
+GET /campaigns/{id}/export-plan?include_failed=false
 ```
 
 The exporter reads the campaign's `execution_records` in order and produces a plan YAML.
 
 ### What gets exported
 
-Only **successful** steps (`success: true`) are included. Failed attempts belong to the historical audit trail, not to a reusable plan.
+By default, only **successful** steps (`success: true`) are included. Pass `include_failed=true` to also export failed attempts — useful for emulation replay and detection engineering (generating telemetry for both successful and failed techniques).
+
+**Failed steps are never on the critical path.** When included, they:
+- Depend on the same preceding successful step as their nearest successful successor (same execution context)
+- Are not depended on by any other step — plan flow is never gated on them
+- Carry a `note: "recorded: failed"` metadata field so the operator knows these are expected to fail in replay
+
+This means failed steps run as side branches off the success chain, producing telemetry without blocking the emulation.
+
+```yaml
+steps:
+  - id: step_0_exec_into_pod        # succeeded
+    ...
+
+  - id: step_1_attempt_privesc      # failed — included with include_failed=true
+    action: container.exploit-cve-xyz
+    target: ...
+    note: "recorded: failed"
+    depends_on:
+      - step: step_0_exec_into_pod  # same context as the successful successor
+        require: success
+    # nothing depends on this step
+
+  - id: step_2_check_capabilities   # succeeded — not blocked by step_1
+    ...
+    depends_on:
+      - step: step_0_exec_into_pod
+        require: success
+```
 
 ### Chaining
 
