@@ -180,6 +180,8 @@ Asset queries are resolved against the campaign `EntityStore` at the moment a st
 
 **Fan-out and joins:** when a step uses `select: all`, downstream steps that `depend_on` it default to `require: any_success`. Override with `require: all_success` to enforce that every fan-out instance succeeded before the dependent step runs.
 
+**Graph predicates with fan-out:** when the referenced asset resolves to multiple entities (because an earlier fan-out step populated the graph), `graph: "nginx has:rce.can-exec"` is satisfied if **any** of the matched entities holds the relation. Use `graph: "nginx all_have:rce.can-exec"` to require all of them.
+
 ---
 
 ## Online Dispatch Loop
