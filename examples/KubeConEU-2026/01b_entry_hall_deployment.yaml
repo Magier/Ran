@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: entry-hall
+  namespace: dungeon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: player
+  template:
+    metadata:
+      labels:
+        role: player
+        kubescape.io/user-defined-profile: entry-hall
+    spec:
+      serviceAccountName: player
+      containers:
+      - name: shell
+        image: nginx:latest
+        command: ["/bin/sh", "-c", "--"]
+        args: ["while true; do sleep 30; done;"]
+        env:
+          - name: SECRET_KEY
+            value: "You Shall Not Pass!  :P"
+        securityContext:
+          privileged: false

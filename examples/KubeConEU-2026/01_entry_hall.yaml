@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dungeon
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: player
+  namespace: dungeon
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: entry-hall
+  namespace: dungeon
+  labels:
+    role: player
+    kubescape.io/user-defined-profile: entry-hall
+spec:
+  serviceAccountName: player
+  containers:
+  - name: shell
+    image: nginx:latest
+    command: ["/bin/sh", "-c", "--"]
+    args: ["while true; do sleep 30; done;"]
+    env:
+      - name: SECRET_KEY
+        value: "Nice try!"
+    securityContext:
+      privileged: false
