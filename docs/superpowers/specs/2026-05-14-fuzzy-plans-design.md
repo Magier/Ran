@@ -38,7 +38,7 @@ steps:
       kind: Pod                      # entity kind: Pod | Node | ServiceAccount | ...
       namespace: default             # optional; omit to match any namespace
       name: "nginx-.*"               # regex against the name component of entity IDs
-      select: random                 # random (default) | first | all
+      select: random                 # optional: random (default) | first | all
     args:
       interactive: "true"            # passed through to ExecuteActionRequest.args
     procedure: stealth-exec          # preferred procedure_id; falls back if not applicable
@@ -57,7 +57,7 @@ steps:
 | `kind` | yes | Entity kind to match (case-insensitive) |
 | `namespace` | no | Namespace filter; omit to match across all namespaces |
 | `name` | yes | Regex pattern matched against the name component of the entity ID |
-| `select` | no | `random` (default) \| `first` \| `all` |
+| `select` | no | `random` \| `first` \| `all`; omit to use `random` |
 
 `name` is a full regex (e.g., `nginx-.*`, `^jump-[a-z0-9]+$`). The planner matches it against the name component of entity IDs: `ns/{ns}/pod/{name}` → matches against `{name}`.
 
@@ -257,7 +257,7 @@ pub struct TargetQuery {
     pub kind: String,
     pub namespace: Option<String>,
     pub name: String,               // regex pattern
-    pub select: SelectStrategy,
+    pub select: Option<SelectStrategy>,  // None => Random
 }
 
 pub enum SelectStrategy { Random, First, All }
