@@ -303,6 +303,112 @@ The applicability checks currently in the UI (filter procedures where required t
 
 ---
 
+## Recording and Export
+
+A campaign's execution history can be exported as a reusable plan via:
+
+```
+GET /campaigns/{id}/export-plan
+```
+
+The exporter reads the campaign's `execution_records` in order and produces a plan YAML.
+
+### What gets exported
+
+Only **successful** steps (`success: true`) are included. Failed attempts belong to the historical audit trail, not to a reusable plan.
+
+### Chaining
+
+Each exported step depends on the previous exported step with `require: success`, producing a linear success chain. This is the conservative default; the operator can loosen dependencies (add parallelism, remove unnecessary deps) by editing the exported YAML.
+
+```yaml
+steps:
+  - id: step_0_exec_into_pod
+    ...
+    # no depends_on — first step
+
+  - id: step_1_check_capabilities
+    ...
+    depends_on:
+      - step: step_0_exec_into_pod
+        require: success
+
+  - id: step_2_escape_to_host
+    ...
+    depends_on:
+      - step: step_1_check_capabilities
+        require: success
+      # + exported preconditions (see below)
+```
+
+### Target fuzzification
+
+Entity IDs are converted to `TargetQuery` patterns automatically:
+
+| Entity type | Example ID | Exported target |
+|---|---|---|
+| Deployment pod | `ns/default/pod/nginx-7d4b9f-xk2jp` | `kind: Pod, namespace: default, name: "nginx-.*"` |
+| DaemonSet pod | `ns/default/pod/fluentd-node-k9z2m` | `kind: Pod, namespace: default, name: "fluentd-node-.*"` |
+| StatefulSet pod | `ns/default/pod/postgres-0` | `kind: Pod, namespace: default, name: "postgres-.*"` |
+| Node | `node/worker-1` | `kind: Node, name: "worker-1"` (stable, no fuzz) |
+| ServiceAccount | `sa/default/nginx` | `kind: ServiceAccount, namespace: default, name: "nginx"` (stable) |
+
+**Fuzzification heuristic for pods:** strip trailing segments that match k8s-generated suffixes:
+- `-[a-z0-9]{5}` — pod hash (Deployment)
+- `-[a-z0-9]{10}` — ReplicaSet hash
+- `-[0-9]+` — StatefulSet ordinal
+- Any combination of the above
+
+The inferred pattern is shown to the operator in the API response alongside the original entity ID so it can be reviewed before saving.
+
+### Precondition export
+
+Each TTP's `requires` block is translated into `depends_on.graph` entries on the step. These are exported as **best-effort starting conditions** for the operator to refine — they capture what was true at the time of the recording.
+
+| TTP `requires` field | Exported as |
+|---|---|
+| `accessLevel: "root-exec"` | `graph: "step:<prev> has:access.root-exec"` |
+| `accessLevel: "exec"` | `graph: "step:<prev> has:access.exec"` |
+| `exists: ["Listener"]` | `graph: "step:<prev> has:listener.active"` |
+| `has-token: true` | `graph: "step:<prev> has:sa.has-token"` |
+
+`<prev>` is the immediately preceding step in the success chain — the step whose execution established the condition.
+
+Example exported step with preconditions:
+
+```yaml
+- id: step_2_escape_to_host
+  action: container.escape-to-host
+  target:
+    kind: Pod
+    namespace: default
+    name: "nginx-.*"
+  depends_on:
+    - step: step_1_check_capabilities
+      require: success
+    - graph: "step:step_1_check_capabilities has:access.root-exec"   # from requires.accessLevel
+    - graph: "step:step_0_exec_into_pod has:access.exec"             # from requires.exists
+```
+
+### Export API response
+
+```json
+{
+  "plan": "<yaml string>",
+  "fuzzification_report": [
+    {
+      "original": "ns/default/pod/nginx-7d4b9f-xk2jp",
+      "pattern": "nginx-.*",
+      "confidence": "high"
+    }
+  ]
+}
+```
+
+`confidence` is `high` when a known k8s suffix pattern was detected, `low` when the heuristic was uncertain (operator should review).
+
+---
+
 ## Open Questions
 
 None — all design decisions resolved during brainstorming.
