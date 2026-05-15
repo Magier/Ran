@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 pub struct PlanDefinition {
     pub id: String,
     pub name: String,
-    #[serde(default)]
     pub description: Option<String>,
     pub version: String,
     pub steps: Vec<StepDefinition>,
@@ -40,7 +39,6 @@ pub struct StepDefinition {
     pub retry: RetryStrategy,
     #[serde(default)]
     pub depends_on: Vec<Dependency>,
-    #[serde(default)]
     pub note: Option<String>,
 }
 
@@ -78,7 +76,7 @@ enum RawDep {
 
 // Parsed form of a Graph dependency
 #[derive(Debug, Clone)]
-pub struct ParsedGraphDep {
+pub(crate) struct ParsedGraphDep {
     pub step_ref: String,
     pub relation: String,
     pub all: bool,
@@ -106,9 +104,9 @@ impl ParsedGraphDep {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Dependency {
-    Step { id: String, require: Require },
+    Step { step: String, require: Require },
     Graph {
         step_ref: String,
         relation: String,
@@ -123,7 +121,7 @@ impl<'de> Deserialize<'de> for Dependency {
     {
         let raw = RawDep::deserialize(deserializer)?;
         match raw {
-            RawDep::Step { step, require } => Ok(Dependency::Step { id: step, require }),
+            RawDep::Step { step, require } => Ok(Dependency::Step { step, require }),
             RawDep::Graph { graph } => {
                 let parsed = ParsedGraphDep::parse(&graph)
                     .ok_or_else(|| serde::de::Error::custom(format!("invalid graph predicate: {graph}")))?;
@@ -144,11 +142,11 @@ impl Serialize for Dependency {
     {
         use serde::ser::SerializeMap;
         match self {
-            Dependency::Step { id, require } => {
+            Dependency::Step { step, require } => {
                 let mut map = serializer.serialize_map(Some(2))?;
-                map.serialize_entry("step", id)?;
+                map.serialize_entry("step", step)?;
                 if require != &Require::Completion {
-                    map.serialize_entry("require", &format!("{:?}", require).to_lowercase())?;
+                    map.serialize_entry("require", require)?;
                 }
                 map.end()
             }
@@ -223,7 +221,7 @@ steps:
         assert_eq!(step_b.depends_on.len(), 2);
         assert!(matches!(
             &step_b.depends_on[0],
-            Dependency::Step { id, require: Require::Success } if id == "step_a"
+            Dependency::Step { step, require: Require::Success } if step == "step_a"
         ));
         assert!(matches!(
             &step_b.depends_on[1],
