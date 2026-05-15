@@ -5,12 +5,12 @@ use crate::model::{SelectStrategy, TargetQuery};
 /// Entity ID formats:
 ///   ns/{namespace}/pod/{name}           → "pod"
 ///   node/{name}                         → "node"
-///   sa/{namespace}/{name}               → "serviceaccount"
+///   ns/{namespace}/sa/{name}            → "serviceaccount"
 pub fn entity_kind(entity_id: &str) -> &str {
     let parts: Vec<&str> = entity_id.splitn(4, '/').collect();
     match parts.as_slice() {
         ["node", ..] => "node",
-        ["sa", ..] => "serviceaccount",
+        ["ns", _, "sa", ..] => "serviceaccount",
         ["ns", _, kind, ..] => kind,
         _ => "unknown",
     }
@@ -20,7 +20,6 @@ fn entity_namespace(entity_id: &str) -> Option<&str> {
     let parts: Vec<&str> = entity_id.splitn(4, '/').collect();
     match parts.as_slice() {
         ["ns", ns, ..] => Some(ns),
-        ["sa", ns, ..] => Some(ns),
         _ => None,
     }
 }
@@ -35,7 +34,10 @@ fn entity_name(entity_id: &str) -> &str {
 pub fn resolve_target(query: &TargetQuery, entity_ids: &[String]) -> Vec<String> {
     let pattern = match Regex::new(&format!("^{}$", query.name)) {
         Ok(r) => r,
-        Err(_) => return vec![],
+        Err(e) => {
+            tracing::warn!("invalid regex in target query name {:?}: {}", query.name, e);
+            return vec![];
+        }
     };
 
     let mut matches: Vec<String> = entity_ids
@@ -167,6 +169,6 @@ mod tests {
     fn parses_entity_id_kinds() {
         assert_eq!(entity_kind("ns/default/pod/nginx-abc"), "pod");
         assert_eq!(entity_kind("node/worker-1"), "node");
-        assert_eq!(entity_kind("sa/default/my-sa"), "serviceaccount");
+        assert_eq!(entity_kind("ns/default/sa/my-sa"), "serviceaccount");
     }
 }
