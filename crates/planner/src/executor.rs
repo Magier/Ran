@@ -112,7 +112,7 @@ impl PlanExecutor {
     fn all_deps_satisfied(
         &self,
         step_id: &str,
-        entity_ids: &[String],
+        _entity_ids: &[String],
         graph_check: &impl Fn(&str, &str) -> bool,
     ) -> bool {
         let step = self.plan.steps.iter().find(|s| s.id == step_id).unwrap();
