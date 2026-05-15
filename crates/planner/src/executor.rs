@@ -4,7 +4,7 @@ use campaign::{Campaign, ExecuteActionRequest};
 use armory::Armory;
 use crate::{
     error::PlanError,
-    model::{Dependency, PlanDefinition, Require},
+    model::{Dependency, PlanDefinition, Require, RetryStrategy},
     resolver::resolve_target,
     state::{PlanExecutionState, StepStatus},
 };
@@ -150,6 +150,136 @@ impl PlanExecutor {
             }
         }
         true
+    }
+}
+
+impl PlanExecutor {
+    /// Inner handler for a completed execution.
+    /// Returns plan events to publish. Call tick() afterward to dispatch newly-unblocked steps.
+    pub fn on_ttp_executed_inner(
+        &mut self,
+        cmd_id: &str,
+        success: bool,
+        _procedure_id: Option<&str>,
+        armory: Option<&Armory>,
+    ) -> Vec<PlanEvent> {
+        let mut events = Vec::new();
+
+        let step_id = match self.state.step_for_cmd(cmd_id) {
+            Some(id) => id.to_string(),
+            None => return events,
+        };
+
+        // Record outcome; if the caller already recorded it the step may already
+        // be Completed — in that case use the existing status directly.
+        let completed: Option<StepStatus> = match self.state.record_outcome(cmd_id, success) {
+            Some(status) => Some(status),
+            None => {
+                // Outcome was pre-recorded (e.g. in tests); grab current status.
+                match self.state.get(&step_id) {
+                    Some(StepStatus::Completed { .. }) => self.state.get(&step_id).cloned(),
+                    _ => None,
+                }
+            }
+        };
+
+        if let Some(StepStatus::Completed { ref outcomes }) = completed {
+            let overall_success = outcomes.iter().any(|&o| o);
+
+            let step = self.plan.steps.iter().find(|s| s.id == step_id).unwrap().clone();
+            if !overall_success
+                && step.retry == RetryStrategy::NextProcedure
+                && armory.is_some()
+            {
+                let attempt = {
+                    let a = self.retry_attempts.entry(step_id.clone()).or_insert(0);
+                    *a += 1;
+                    *a
+                };
+                let next = self.retry_procedure_id_with_armory(&step.action, attempt, armory.unwrap());
+                if next.is_some() {
+                    self.state.mark_pending_retry(&step_id, attempt, next.clone());
+                    return events; // tick() will handle re-dispatch
+                }
+                self.state.mark_failed(&step_id, "all procedures exhausted");
+                events.push(PlanEvent::StepFailed {
+                    step_id: step_id.clone(),
+                    reason: "all procedures exhausted".into(),
+                });
+            } else if overall_success {
+                events.push(PlanEvent::StepCompleted { step_id: step_id.clone(), success: true });
+            } else {
+                events.push(PlanEvent::StepCompleted { step_id: step_id.clone(), success: false });
+            }
+
+            events.extend(self.propagate_skips());
+
+            if self.state.is_complete() {
+                events.push(PlanEvent::PlanComplete);
+            }
+        }
+
+        events
+    }
+
+    /// Public on_ttp_executed — call from the API layer with the Armory for retry support.
+    pub fn on_ttp_executed(
+        &mut self,
+        cmd_id: &str,
+        success: bool,
+        procedure_id: Option<&str>,
+        armory: &Armory,
+    ) -> Vec<PlanEvent> {
+        self.on_ttp_executed_inner(cmd_id, success, procedure_id, Some(armory))
+    }
+
+    fn propagate_skips(&mut self) -> Vec<PlanEvent> {
+        let mut events = Vec::new();
+        let mut changed = true;
+        while changed {
+            changed = false;
+            let step_ids: Vec<String> = self.plan.steps.iter().map(|s| s.id.clone()).collect();
+            for step_id in &step_ids {
+                if !matches!(self.state.get(step_id), Some(StepStatus::Pending)) {
+                    continue;
+                }
+                if self.should_skip(step_id) {
+                    self.state.mark_skipped(step_id, "hard dependency failed or skipped");
+                    events.push(PlanEvent::StepSkipped {
+                        step_id: step_id.clone(),
+                        reason: "hard dependency failed or skipped".into(),
+                    });
+                    changed = true;
+                }
+            }
+        }
+        events
+    }
+
+    fn should_skip(&self, step_id: &str) -> bool {
+        let step = self.plan.steps.iter().find(|s| s.id == step_id).unwrap();
+        for dep in &step.depends_on {
+            if let Dependency::Step { step: dep_id, require } = dep {
+                if matches!(require, Require::Completion) {
+                    continue;
+                }
+                match self.state.get(dep_id) {
+                    Some(StepStatus::Failed { .. }) | Some(StepStatus::Skipped { .. }) => {
+                        return true;
+                    }
+                    Some(StepStatus::Completed { outcomes }) if !outcomes.iter().any(|&o| o) => {
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    fn retry_procedure_id_with_armory(&self, action_id: &str, attempt: usize, armory: &Armory) -> Option<String> {
+        let ttp = armory.get_ttp(action_id)?;
+        ttp.procedures.get(attempt).map(|p| p.id.clone())
     }
 }
 
@@ -389,5 +519,67 @@ mod tests {
         let mut exec = PlanExecutor::new(plan).unwrap();
         let d = exec.tick_inner(&[], no_relations);
         assert!(d.is_empty());
+    }
+
+    #[test]
+    fn hard_dep_on_failed_step_skips_dependent() {
+        let plan = make_plan(vec![
+            make_step("a", vec![]),
+            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Success }]),
+        ]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        exec.tick_inner(&entity_ids(), no_relations);
+        exec.state.mark_dispatched("a", vec!["cmd-1".into()]);
+        exec.state.record_outcome("cmd-1", false);
+
+        let events = exec.on_ttp_executed_inner("cmd-1", false, None, None);
+        let skipped: Vec<_> = events.iter().filter(|e| matches!(e, PlanEvent::StepSkipped { .. })).collect();
+        assert_eq!(skipped.len(), 1);
+        assert!(matches!(&skipped[0], PlanEvent::StepSkipped { step_id, .. } if step_id == "b"));
+    }
+
+    #[test]
+    fn skip_propagates_transitively() {
+        let plan = make_plan(vec![
+            make_step("a", vec![]),
+            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Success }]),
+            make_step("c", vec![Dependency::Step { step: "b".into(), require: Require::Success }]),
+        ]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        exec.tick_inner(&entity_ids(), no_relations);
+        exec.state.mark_dispatched("a", vec!["cmd-1".into()]);
+        exec.state.record_outcome("cmd-1", false);
+
+        let events = exec.on_ttp_executed_inner("cmd-1", false, None, None);
+        let skipped: Vec<_> = events.iter()
+            .filter_map(|e| if let PlanEvent::StepSkipped { step_id, .. } = e { Some(step_id.as_str()) } else { None })
+            .collect();
+        assert!(skipped.contains(&"b"));
+        assert!(skipped.contains(&"c"));
+    }
+
+    #[test]
+    fn fan_out_select_all_dispatches_multiple() {
+        let mut step = make_step("a", vec![]);
+        step.target.select = Some(SelectStrategy::All);
+        let plan = make_plan(vec![step]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        let all_ids = vec![
+            "ns/default/pod/nginx-aaa".to_string(),
+            "ns/default/pod/nginx-bbb".to_string(),
+        ];
+        let dispatches = exec.tick_inner(&all_ids, no_relations);
+        assert_eq!(dispatches.len(), 2);
+    }
+
+    #[test]
+    fn plan_complete_event_emitted_when_all_terminal() {
+        let plan = make_plan(vec![make_step("a", vec![])]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        exec.tick_inner(&entity_ids(), no_relations);
+        exec.state.mark_dispatched("a", vec!["cmd-1".into()]);
+        exec.state.record_outcome("cmd-1", true);
+        let events = exec.on_ttp_executed_inner("cmd-1", true, None, None);
+        assert!(events.iter().any(|e| matches!(e, PlanEvent::PlanComplete)));
     }
 }
