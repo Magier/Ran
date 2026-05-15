@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use campaign::ExecuteActionRequest;
+use campaign::{Campaign, ExecuteActionRequest};
 #[allow(unused_imports)]
 use armory::Armory;
 use crate::{
     error::PlanError,
-    model::{Dependency, PlanDefinition},
-    state::PlanExecutionState,
+    model::{Dependency, PlanDefinition, Require},
+    resolver::resolve_target,
+    state::{PlanExecutionState, StepStatus},
 };
 
 #[derive(Debug)]
@@ -47,6 +48,108 @@ impl PlanExecutor {
 
     pub fn is_complete(&self) -> bool {
         self.state.is_complete()
+    }
+
+    /// Testable inner tick — takes resolved entity IDs and a graph predicate function.
+    pub fn tick_inner(
+        &mut self,
+        entity_ids: &[String],
+        graph_check: impl Fn(&str, &str) -> bool,
+    ) -> Vec<PlanDispatch> {
+        let mut dispatches = Vec::new();
+
+        for step in self.plan.steps.clone().iter() {
+            match self.state.get(&step.id) {
+                Some(StepStatus::Pending) | Some(StepStatus::PendingRetry { .. }) => {}
+                _ => continue,
+            }
+
+            if !self.all_deps_satisfied(&step.id, entity_ids, &graph_check) {
+                continue;
+            }
+
+            let targets = resolve_target(&step.target, entity_ids);
+            if targets.is_empty() {
+                continue;
+            }
+
+            self.state.set_targets(&step.id, targets.clone());
+
+            let procedure = match self.state.get(&step.id) {
+                Some(StepStatus::PendingRetry { next_procedure, .. }) => next_procedure.clone(),
+                _ => step.procedure.clone(),
+            };
+
+            let cmd_ids_placeholder: Vec<String> = targets
+                .iter()
+                .map(|t| format!("pending-{}-{}", step.id, t))
+                .collect();
+            self.state.mark_dispatched(&step.id, cmd_ids_placeholder);
+
+            for target_id in targets {
+                dispatches.push(PlanDispatch {
+                    step_id: step.id.clone(),
+                    request: ExecuteActionRequest {
+                        action_id: step.action.clone(),
+                        exec_system_id: None,
+                        target_id,
+                        procedure_id: procedure.clone(),
+                        args: step.args.clone(),
+                    },
+                });
+            }
+        }
+
+        dispatches
+    }
+
+    /// Public tick — takes a Campaign reference. Call this from the API layer.
+    pub fn tick(&mut self, campaign: &Campaign) -> Vec<PlanDispatch> {
+        let entity_ids = campaign.all_entity_ids();
+        self.tick_inner(&entity_ids, |eid, rel| campaign.entity_has_relation(eid, rel))
+    }
+
+    fn all_deps_satisfied(
+        &self,
+        step_id: &str,
+        entity_ids: &[String],
+        graph_check: &impl Fn(&str, &str) -> bool,
+    ) -> bool {
+        let step = self.plan.steps.iter().find(|s| s.id == step_id).unwrap();
+
+        for dep in &step.depends_on {
+            match dep {
+                Dependency::Step { step: dep_id, require } => {
+                    match self.state.get(dep_id) {
+                        Some(StepStatus::Completed { outcomes }) => {
+                            let ok = match require {
+                                Require::Completion => true,
+                                Require::Success | Require::AnySuccess => outcomes.iter().any(|&o| o),
+                                Require::AllSuccess => outcomes.iter().all(|&o| o),
+                            };
+                            if !ok { return false; }
+                        }
+                        Some(StepStatus::Skipped { .. }) | Some(StepStatus::Failed { .. }) => {
+                            if !matches!(require, Require::Completion) {
+                                return false;
+                            }
+                        }
+                        _ => return false,
+                    }
+                }
+                Dependency::Graph { step_ref, relation, all } => {
+                    let targets = self.state.targets_for(step_ref);
+                    if targets.is_empty() { return false; }
+                    let satisfied = if *all {
+                        targets.iter().all(|t| graph_check(t, relation))
+                    } else {
+                        targets.iter().any(|t| graph_check(t, relation))
+                    };
+                    if !satisfied { return false; }
+                }
+            }
+        }
+        true
     }
 }
 
@@ -187,5 +290,104 @@ mod tests {
             }]),
         ]);
         assert!(matches!(PlanExecutor::new(plan), Err(PlanError::UnknownStepRef(_))));
+    }
+
+    fn entity_ids() -> Vec<String> {
+        vec!["ns/default/pod/nginx-abc123".to_string()]
+    }
+
+    fn no_relations(_: &str, _: &str) -> bool { false }
+    fn has_rce(entity_id: &str, relation: &str) -> bool {
+        entity_id.contains("nginx") && relation == "rce.can-exec"
+    }
+
+    #[test]
+    fn steps_with_no_deps_are_dispatched_on_first_tick() {
+        let plan = make_plan(vec![
+            make_step("a", vec![]),
+            make_step("b", vec![]),
+        ]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        let dispatches = exec.tick_inner(&entity_ids(), no_relations);
+        assert_eq!(dispatches.len(), 2);
+        let ids: Vec<_> = dispatches.iter().map(|d| d.step_id.as_str()).collect();
+        assert!(ids.contains(&"a"));
+        assert!(ids.contains(&"b"));
+    }
+
+    #[test]
+    fn step_with_dep_stays_pending_until_predecessor_done() {
+        let plan = make_plan(vec![
+            make_step("a", vec![]),
+            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Success }]),
+        ]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        let dispatches = exec.tick_inner(&entity_ids(), no_relations);
+        // Only "a" dispatched
+        assert_eq!(dispatches.len(), 1);
+        assert_eq!(dispatches[0].step_id, "a");
+    }
+
+    #[test]
+    fn step_dispatched_after_predecessor_succeeds() {
+        let plan = make_plan(vec![
+            make_step("a", vec![]),
+            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Success }]),
+        ]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        let d1 = exec.tick_inner(&entity_ids(), no_relations);
+        assert_eq!(d1.len(), 1);
+        exec.state.mark_dispatched("a", vec!["cmd-1".into()]);
+        exec.state.record_outcome("cmd-1", true);
+        let d2 = exec.tick_inner(&entity_ids(), no_relations);
+        assert_eq!(d2.len(), 1);
+        assert_eq!(d2[0].step_id, "b");
+    }
+
+    #[test]
+    fn soft_dep_unblocks_on_any_outcome() {
+        let plan = make_plan(vec![
+            make_step("a", vec![]),
+            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Completion }]),
+        ]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        exec.tick_inner(&entity_ids(), no_relations);
+        exec.state.mark_dispatched("a", vec!["cmd-1".into()]);
+        exec.state.record_outcome("cmd-1", false); // failed
+        let d2 = exec.tick_inner(&entity_ids(), no_relations);
+        assert_eq!(d2.len(), 1);
+        assert_eq!(d2[0].step_id, "b");
+    }
+
+    #[test]
+    fn graph_predicate_blocks_until_satisfied() {
+        let dep = Dependency::Graph { step_ref: "a".into(), relation: "rce.can-exec".into(), all: false };
+        let plan = make_plan(vec![
+            make_step("a", vec![]),
+            make_step("b", vec![
+                Dependency::Step { step: "a".into(), require: Require::Success },
+                dep,
+            ]),
+        ]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        exec.tick_inner(&entity_ids(), no_relations);
+        exec.state.mark_dispatched("a", vec!["cmd-1".into()]);
+        exec.state.set_targets("a", entity_ids());
+        exec.state.record_outcome("cmd-1", true);
+        // Without the relation, b stays pending
+        let d2 = exec.tick_inner(&entity_ids(), no_relations);
+        assert!(d2.is_empty());
+        // With the relation, b dispatches
+        let d3 = exec.tick_inner(&entity_ids(), has_rce);
+        assert_eq!(d3.len(), 1);
+        assert_eq!(d3[0].step_id, "b");
+    }
+
+    #[test]
+    fn step_stays_pending_when_no_matching_entities() {
+        let plan = make_plan(vec![make_step("a", vec![])]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        let d = exec.tick_inner(&[], no_relations);
+        assert!(d.is_empty());
     }
 }
