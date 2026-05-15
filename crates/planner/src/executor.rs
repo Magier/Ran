@@ -50,6 +50,12 @@ impl PlanExecutor {
         self.state.is_complete()
     }
 
+    /// Called by the API layer after dispatching the requests returned by tick().
+    /// Replaces placeholder cmd_ids with the real ones from C2.
+    pub fn record_dispatched(&mut self, step_id: &str, real_cmd_ids: Vec<String>) {
+        self.state.mark_dispatched(step_id, real_cmd_ids);
+    }
+
     /// Testable inner tick — takes resolved entity IDs and a graph predicate function.
     pub fn tick_inner(
         &mut self,
@@ -581,5 +587,19 @@ mod tests {
         exec.state.record_outcome("cmd-1", true);
         let events = exec.on_ttp_executed_inner("cmd-1", true, None, None);
         assert!(events.iter().any(|e| matches!(e, PlanEvent::PlanComplete)));
+    }
+
+    #[test]
+    fn record_dispatched_replaces_placeholder_cmd_ids() {
+        let plan = make_plan(vec![make_step("a", vec![])]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        let dispatches = exec.tick_inner(&entity_ids(), no_relations);
+        assert_eq!(dispatches.len(), 1);
+        assert_eq!(dispatches[0].step_id, "a");
+
+        // Simulate: API dispatched and got real cmd_id back
+        exec.record_dispatched("a", vec!["real-cmd-001".into()]);
+        assert_eq!(exec.state().step_for_cmd("real-cmd-001"), Some("a"));
+        assert_eq!(exec.state().step_for_cmd("pending-a-ns/default/pod/nginx-abc123"), None);
     }
 }
