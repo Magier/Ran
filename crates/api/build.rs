@@ -96,6 +96,26 @@ impl ApiError {
             },
         }
     }
+
+    pub fn bad_request(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            body: ErrorResponse {
+                error: msg.into(),
+                details: None,
+            },
+        }
+    }
+
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            body: ErrorResponse {
+                error: msg.into(),
+                details: None,
+            },
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -125,6 +145,12 @@ pub trait ApiService: Clone + Send + Sync + 'static {
     async fn start_pod_watch(&self, namespace: Option<String>) -> Result<(), ApiError>;
 
     async fn stop_pod_watch(&self);
+
+    async fn execute_plan(&self, plan_yaml: String) -> Result<String, ApiError>;
+
+    async fn get_plan_status(&self, plan_id: &str) -> Result<serde_json::Value, ApiError>;
+
+    async fn export_plan(&self, include_failed: bool) -> Result<String, ApiError>;
 }
 
 pub fn router<S: ApiService>(service: S) -> Router {

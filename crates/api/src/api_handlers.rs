@@ -542,6 +542,34 @@ pub(crate) async fn stop_pod_watch_handler<S: ApiService>(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Plan handlers
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn execute_plan_handler<S: ApiService>(
+    State(service): State<S>,
+    body: String,
+) -> Result<axum::Json<serde_json::Value>, ApiError> {
+    let plan_id = service.execute_plan(body).await?;
+    Ok(axum::Json(serde_json::json!({ "plan_id": plan_id })))
+}
+
+pub(crate) async fn plan_status_handler<S: ApiService>(
+    State(service): State<S>,
+    axum::extract::Path(plan_id): axum::extract::Path<String>,
+) -> Result<axum::Json<serde_json::Value>, ApiError> {
+    let status = service.get_plan_status(&plan_id).await?;
+    Ok(axum::Json(status))
+}
+
+pub(crate) async fn export_plan_handler<S: ApiService>(
+    State(service): State<S>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<String, ApiError> {
+    let include_failed = params.get("include_failed").map(|v| v == "true").unwrap_or(false);
+    service.export_plan(include_failed).await
+}
+
 pub(crate) fn ttp_is_applicable_for_target_kind(
     ttp: &armory::Ttp,
     target_kind: &str,

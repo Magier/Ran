@@ -40,6 +40,7 @@ pub struct AppState {
     target_cluster: K8sCluster,
     campaign_events: CampaignEventBus,
     pod_watch: Arc<Mutex<Option<k8s::WatchHandle>>>,
+    plan_executors: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<planner::PlanExecutor>>>>>,
 }
 
 impl AppState {
@@ -64,6 +65,7 @@ impl AppState {
             target_cluster,
             campaign_events,
             pod_watch: Arc::new(Mutex::new(None)),
+            plan_executors: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 }
@@ -372,6 +374,134 @@ impl ApiService for AppState {
                 fail_reason: String::new(),
             },
         })
+    }
+
+    async fn execute_plan(&self, plan_yaml: String) -> Result<String, ApiError> {
+        let plan: planner::PlanDefinition = serde_yaml::from_str(&plan_yaml)
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        let plan_id = plan.id.clone();
+        let executor = planner::PlanExecutor::new(plan)
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        let executor = Arc::new(Mutex::new(executor));
+
+        self.plan_executors
+            .lock()
+            .unwrap()
+            .insert(plan_id.clone(), executor.clone());
+
+        let this = self.clone();
+        let plan_id_bg = plan_id.clone();
+        tokio::spawn(async move {
+            let mut events = this.campaign_events.subscribe();
+
+            loop {
+                // Run tick
+                let dispatches = {
+                    let campaign = this.campaign.read().unwrap();
+                    executor.lock().unwrap().tick(&*campaign)
+                };
+
+                for dispatch in dispatches {
+                    let step_id = dispatch.step_id.clone();
+                    match this.execute_action(dispatch.request).await {
+                        Ok(result) => {
+                            executor.lock().unwrap()
+                                .record_dispatched(&step_id, vec![result.cmd_id.clone()]);
+                            let _ = this.campaign_events.publish(
+                                CampaignEvent::PlanStepDispatched {
+                                    plan_id: plan_id_bg.clone(),
+                                    step_id,
+                                    exec_count: 1,
+                                }
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!("plan dispatch error for step {}: {}", step_id, e.body.error);
+                        }
+                    }
+                }
+
+                if executor.lock().unwrap().is_complete() {
+                    break;
+                }
+
+                // Wait for the next TtpExecuted event
+                let (cmd_id, success) = loop {
+                    match events.recv().await {
+                        Ok(CampaignEvent::TtpExecuted { cmd_id, success, .. }) => {
+                            break (cmd_id, success);
+                        }
+                        Err(_) => return,
+                        _ => continue,
+                    }
+                };
+
+                let armory = this.armory.clone();
+                let plan_events = executor.lock().unwrap()
+                    .on_ttp_executed(&cmd_id, success, None, &armory);
+
+                for event in &plan_events {
+                    use planner::PlanEvent;
+                    let campaign_event = match event {
+                        PlanEvent::StepCompleted { step_id, success } => Some(
+                            CampaignEvent::PlanStepCompleted {
+                                plan_id: plan_id_bg.clone(),
+                                step_id: step_id.clone(),
+                                success: *success,
+                            }
+                        ),
+                        PlanEvent::StepSkipped { step_id, reason } => Some(
+                            CampaignEvent::PlanStepSkipped {
+                                plan_id: plan_id_bg.clone(),
+                                step_id: step_id.clone(),
+                                reason: reason.clone(),
+                            }
+                        ),
+                        PlanEvent::StepFailed { step_id, reason } => Some(
+                            CampaignEvent::PlanStepFailed {
+                                plan_id: plan_id_bg.clone(),
+                                step_id: step_id.clone(),
+                                reason: reason.clone(),
+                            }
+                        ),
+                        PlanEvent::PlanComplete => Some(
+                            CampaignEvent::PlanComplete { plan_id: plan_id_bg.clone() }
+                        ),
+                        _ => None,
+                    };
+                    if let Some(e) = campaign_event {
+                        let _ = this.campaign_events.publish(e);
+                    }
+                }
+
+                if executor.lock().unwrap().is_complete() {
+                    break;
+                }
+            }
+        });
+
+        Ok(plan_id)
+    }
+
+    async fn get_plan_status(&self, plan_id: &str) -> Result<serde_json::Value, ApiError> {
+        let executors = self.plan_executors.lock().unwrap();
+        let executor = executors.get(plan_id)
+            .ok_or_else(|| ApiError::not_found(format!("plan '{}' not found", plan_id)))?;
+        let executor = executor.lock().unwrap();
+        Ok(serde_json::json!({
+            "plan_id": plan_id,
+            "is_complete": executor.is_complete(),
+        }))
+    }
+
+    async fn export_plan(&self, include_failed: bool) -> Result<String, ApiError> {
+        let campaign = self.campaign.read()
+            .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
+        let opts = planner::ExportOptions { include_failed };
+        let plan = planner::export_plan(&campaign.execution_records, &opts);
+        let yaml = serde_yaml::to_string(&plan)
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+        Ok(yaml)
     }
 }
 
@@ -1077,6 +1207,56 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                 api::publish_sse_event(
                     "reset-campaign",
                     serde_json::json!({ "type": "reset-campaign" }).to_string(),
+                );
+            }
+            Ok(CampaignEvent::PlanStepDispatched { plan_id, step_id, exec_count }) => {
+                api::publish_sse_event(
+                    "plan-step-dispatched",
+                    serde_json::json!({
+                        "type": "plan-step-dispatched",
+                        "data": { "planId": plan_id, "stepId": step_id, "execCount": exec_count },
+                    })
+                    .to_string(),
+                );
+            }
+            Ok(CampaignEvent::PlanStepCompleted { plan_id, step_id, success }) => {
+                api::publish_sse_event(
+                    "plan-step-completed",
+                    serde_json::json!({
+                        "type": "plan-step-completed",
+                        "data": { "planId": plan_id, "stepId": step_id, "success": success },
+                    })
+                    .to_string(),
+                );
+            }
+            Ok(CampaignEvent::PlanStepSkipped { plan_id, step_id, reason }) => {
+                api::publish_sse_event(
+                    "plan-step-skipped",
+                    serde_json::json!({
+                        "type": "plan-step-skipped",
+                        "data": { "planId": plan_id, "stepId": step_id, "reason": reason },
+                    })
+                    .to_string(),
+                );
+            }
+            Ok(CampaignEvent::PlanStepFailed { plan_id, step_id, reason }) => {
+                api::publish_sse_event(
+                    "plan-step-failed",
+                    serde_json::json!({
+                        "type": "plan-step-failed",
+                        "data": { "planId": plan_id, "stepId": step_id, "reason": reason },
+                    })
+                    .to_string(),
+                );
+            }
+            Ok(CampaignEvent::PlanComplete { plan_id }) => {
+                api::publish_sse_event(
+                    "plan-complete",
+                    serde_json::json!({
+                        "type": "plan-complete",
+                        "data": { "planId": plan_id },
+                    })
+                    .to_string(),
                 );
             }
             Err(broadcast::error::RecvError::Lagged(skipped)) => {
