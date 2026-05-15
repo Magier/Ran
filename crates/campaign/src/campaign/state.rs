@@ -446,4 +446,47 @@ impl Campaign {
 
         BUILTIN_C2_ID.to_string()
     }
+
+    pub fn all_entity_ids(&self) -> Vec<String> {
+        self.entities
+            .all_entities()
+            .into_iter()
+            .map(|e| e.entity_id().0)
+            .collect()
+    }
+
+    pub fn entity_has_relation(&self, entity_id: &str, relation: &str) -> bool {
+        let eid = EntityId::new(entity_id);
+        !self.graph.targets_of(&eid, relation).is_empty()
+    }
+}
+
+#[cfg(test)]
+mod planner_helper_tests {
+    use super::*;
+
+    fn minimal_campaign() -> Campaign {
+        Campaign {
+            entities: EntityStore::default(),
+            graph: KnowledgeGraph::new(),
+            parse_audits: Vec::new(),
+            execution_records: Vec::new(),
+            open_steps: Vec::new(),
+            file_contents: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn all_entity_ids_returns_empty_for_new_campaign() {
+        let c = minimal_campaign();
+        let ids = c.all_entity_ids();
+        // A new campaign has no entities — the method must not panic.
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn entity_has_relation_false_when_no_relation() {
+        let c = minimal_campaign();
+        assert!(!c.entity_has_relation("ns/default/pod/nginx-abc", "rce.can-exec"));
+    }
 }
