@@ -48,6 +48,29 @@ pub enum CampaignEvent {
         audits: Vec<ParseAudit>,
     },
     Reset,
+    PlanStepDispatched {
+        plan_id: String,
+        step_id: String,
+        exec_count: usize,
+    },
+    PlanStepCompleted {
+        plan_id: String,
+        step_id: String,
+        success: bool,
+    },
+    PlanStepSkipped {
+        plan_id: String,
+        step_id: String,
+        reason: String,
+    },
+    PlanStepFailed {
+        plan_id: String,
+        step_id: String,
+        reason: String,
+    },
+    PlanComplete {
+        plan_id: String,
+    },
 }
 
 #[derive(Clone)]
