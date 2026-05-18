@@ -5,7 +5,7 @@
 
 ## Overview
 
-Add "Save as Plan" and "Save as Plan (with failed steps)" menu items to the attack flow view. These call the existing `/api/plans/export` endpoint and download the resulting YAML to the user's machine.
+Replace the flat "Save" menu item in the attack flow view with a submenu that offers three save formats: JSON (existing), Plan (success-only), and Plan (with failed steps).
 
 ---
 
@@ -22,18 +22,36 @@ Add one new method: `ExportAsPlan(includeFailed: boolean): Promise<void>`
 
 ### `frontend/src/lib/components/app_menu.svelte`
 
-Add two menu items to the Flow section, after the existing "Save" item:
+Replace the flat `<Menu.Item value="save_flow">` with a nested `<Menu>` component using `Menu.TriggerItem`. Skeleton UI's `Menu.Root` automatically wires parent/child menus via Svelte context — no manual plumbing needed.
+
+```svelte
+<Menu onSelect={onMenuClick}>
+    <Menu.TriggerItem>
+        <Menu.ItemText>Save</Menu.ItemText>
+    </Menu.TriggerItem>
+    <Portal>
+        <Menu.Positioner>
+            <Menu.Content>
+                <Menu.Item value="save_flow">
+                    <Menu.ItemText>Save as JSON</Menu.ItemText>
+                </Menu.Item>
+                <Menu.Item value="save_plan">
+                    <Menu.ItemText>Save as Plan</Menu.ItemText>
+                </Menu.Item>
+                <Menu.Item value="save_plan_failed">
+                    <Menu.ItemText>Save as Plan (with failed steps)</Menu.ItemText>
+                </Menu.Item>
+            </Menu.Content>
+        </Menu.Positioner>
+    </Portal>
+</Menu>
+```
+
+Add two cases to the existing `onMenuClick` switch (the nested Menu uses the same handler):
 
 ```
-{ label: 'Save as Plan', value: 'save-plan' }
-{ label: 'Save as Plan (with failed steps)', value: 'save-plan-failed' }
-```
-
-Add two cases to the `onMenuClick` switch:
-
-```
-case 'save-plan':         campaignState.ExportAsPlan(false); break;
-case 'save-plan-failed':  campaignState.ExportAsPlan(true);  break;
+case 'save_plan':        campaignState.ExportAsPlan(false); break;
+case 'save_plan_failed': campaignState.ExportAsPlan(true);  break;
 ```
 
 ---
@@ -46,4 +64,4 @@ The endpoint `GET /api/plans/export?include_failed=false|true` already exists. N
 
 ## Scope
 
-Two files changed, no new components, no new state. The download and error handling patterns are identical to the existing `ExportAttackFlow` flow.
+Two files changed, no new components, no new state.
