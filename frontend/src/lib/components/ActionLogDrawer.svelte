@@ -15,8 +15,9 @@
 </script>
 
 <div
-    class="fixed bottom-0 left-0 right-0 z-40 bg-surface-100-900 border-t border-surface-200-800 flex flex-col"
-    style="height: 240px;"
+    class="fixed bottom-0 left-0 right-0 z-40 bg-surface-100-900 border-t border-surface-200-800 flex flex-col h-60"
+    role="region"
+    aria-label="Action log"
 >
     <!-- Header -->
     <div class="flex items-center px-3 py-1.5 border-b border-surface-200-800 shrink-0">
@@ -25,7 +26,7 @@
     </div>
 
     <!-- Entry list -->
-    <div class="overflow-y-auto flex-1">
+    <div class="overflow-y-auto flex-1 flex flex-col">
         {#if entries.length === 0}
             <div class="flex items-center justify-center h-full text-surface-500 text-sm">
                 No actions yet
@@ -36,11 +37,11 @@
                     <!-- Status icon -->
                     <div class="mt-0.5 shrink-0">
                         {#if entry.status === 'pending'}
-                            <Icon icon="svg-spinners:90-ring-with-bg" class="size-4" />
+                            <Icon icon="svg-spinners:90-ring-with-bg" class="size-4" aria-hidden="true" />
                         {:else if entry.status === 'success'}
-                            <Icon icon="mdi:check-circle" class="size-4 text-success-500" />
+                            <Icon icon="mdi:check-circle" class="size-4 text-success-500" aria-hidden="true" />
                         {:else}
-                            <Icon icon="mdi:close-circle" class="size-4 text-error-500" />
+                            <Icon icon="mdi:close-circle" class="size-4 text-error-500" aria-hidden="true" />
                         {/if}
                     </div>
 
@@ -50,7 +51,9 @@
                             <span class="font-medium">{entry.ttpName}</span>
                             <span class="text-surface-500">on</span>
                             <button
+                                type="button"
                                 class="text-primary-500 hover:underline truncate"
+                                title={entry.targetName}
                                 onclick={() => onfocusentity(entry.targetId)}
                             >
                                 {entry.targetName}
