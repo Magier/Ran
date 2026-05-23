@@ -10,7 +10,7 @@
     let { entries, onfocusentity }: Props = $props();
 
     function formatTime(d: Date): string {
-        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     }
 </script>
 
