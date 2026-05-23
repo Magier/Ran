@@ -75,4 +75,13 @@ describe('ActionLogStore', () => {
         store.clear();
         expect(store.entries).toHaveLength(0);
     });
+
+    it('resolveEntry resolves the most recent pending entry when multiple share the same ttpId', () => {
+        store.addEntry(makeEntry({ id: 'first', ttpId: 'list-env', status: 'pending' }));
+        store.addEntry(makeEntry({ id: 'second', ttpId: 'list-env', status: 'pending' }));
+        // entries[0] is 'second' (newest), entries[1] is 'first'
+        store.resolveEntry('list-env', true);
+        expect(store.entries[0].status).toBe('success'); // 'second' resolved
+        expect(store.entries[1].status).toBe('pending'); // 'first' untouched
+    });
 });

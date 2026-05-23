@@ -25,7 +25,7 @@ export class ActionLogStore {
         const entry = this.entries.find((e) => e.ttpId === ttpId && e.status === 'pending');
         if (!entry) return;
         entry.status = success ? 'success' : 'failed';
-        if (!success && failReason) entry.failReason = failReason;
+        if (!success && failReason !== undefined) entry.failReason = failReason;
     }
 
     clear(): void {
