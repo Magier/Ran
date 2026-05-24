@@ -327,7 +327,7 @@
 		});
 
 		ranAPI.on('ttp-executed', (data) => {
-			actionLog.resolveEntry(data.TTP?.id, data.Success, data.FailReason);
+			actionLog.resolveEntry(data.TTP?.id ?? '', data.Success, data.FailReason);
 
 			if (data.Success && data.TTP?.id === 'read-file' && data.Args?.PATH) {
 				ranAPI.GetFileContent(data.Args.PATH).then((file) => {
@@ -395,7 +395,7 @@
 	}
 </script>
 
-<div class="relative flex h-[calc(100vh-35px)] gap-x-0">
+<div class="relative flex h-[calc(100vh-35px)] gap-x-0" class:pb-60={actionLog.drawerOpen}>
 	{#if campaignState.isReady()}
 		<!-- Armory panel -->
 		<div
