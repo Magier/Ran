@@ -395,7 +395,7 @@
 	}
 </script>
 
-<div class="relative flex h-[calc(100vh-35px)] gap-x-0" class:pb-60={actionLog.drawerOpen}>
+<div class="relative flex h-[calc(100vh-35px)] gap-x-0">
 	{#if campaignState.isReady()}
 		<!-- Armory panel -->
 		<div
@@ -423,9 +423,9 @@
 
 		<!-- Collapse/Expand button -->
 		<button
-			class="absolute left-0 bottom-2 z-50 bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-r-md px-0.5 py-2 opacity-30 hover:opacity-100 transition-all duration-200"
+			class="absolute left-0 z-50 bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-r-md px-0.5 py-2 opacity-30 hover:opacity-100 transition-all duration-200"
 			class:armory-transition={!isResizing}
-			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`};"
+			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`}; bottom: {actionLog.drawerOpen ? 'calc(15rem + 0.5rem)' : '0.5rem'};"
 			onclick={toggleArmoryCollapse}
 			title={armoryCollapsed ? 'Expand armory' : 'Collapse armory'}
 		>
@@ -436,28 +436,37 @@
 			/>
 		</button>
 
-<!-- Graph area with EntityInfo overlay -->
-	<div class="flex-1 min-w-0 relative">
-		<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="h-full" />
-		
-		{#if selectedObjectId !== ''}
-			<svelte:boundary onerror={handleError}>
-				<div 
-					bind:this={entityInfoContainer}
-					class="absolute top-2 right-2 flex flex-col z-50"
-					class:max-w-[800px]={!hasManuallyResizedEntityInfo}
-					class:max-h-[calc(100vh-80px)]={!hasManuallyResizedEntityInfo}
-					style={hasManuallyResizedEntityInfo ? `width: ${entityInfoWidth}px; height: ${entityInfoHeight}px;` : 'width: fit-content; height: fit-content;'}
-				>
-					<EntityInfo class={hasManuallyResizedEntityInfo ? "overflow-auto flex-1" : "overflow-auto"} objectId={selectedObjectId} {sendAction} />
-					<!-- Resize handle at bottom-left corner -->
-					<button
-					class="absolute bottom-0 left-0 w-4 h-4 cursor-nwse-resize opacity-30 hover:opacity-100 transition-opacity bg-gradient-to-bl from-transparent from-50% to-current to-50% rounded-bl-lg"
-						onmousedown={startResizeEntityInfo}
-						aria-label="Resize entity info panel"
-					></button>
-				</div>
-			</svelte:boundary>
+<!-- Graph area with EntityInfo overlay and Action Log drawer -->
+	<div class="flex-1 min-w-0 flex flex-col min-h-0">
+		<div class="flex-1 min-h-0 relative">
+			<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="h-full" />
+
+			{#if selectedObjectId !== ''}
+				<svelte:boundary onerror={handleError}>
+					<div
+						bind:this={entityInfoContainer}
+						class="absolute top-2 right-2 flex flex-col z-50"
+						class:max-w-[800px]={!hasManuallyResizedEntityInfo}
+						class:max-h-[calc(100vh-80px)]={!hasManuallyResizedEntityInfo}
+						style={hasManuallyResizedEntityInfo ? `width: ${entityInfoWidth}px; height: ${entityInfoHeight}px;` : 'width: fit-content; height: fit-content;'}
+					>
+						<EntityInfo class={hasManuallyResizedEntityInfo ? "overflow-auto flex-1" : "overflow-auto"} objectId={selectedObjectId} {sendAction} />
+						<!-- Resize handle at bottom-left corner -->
+						<button
+						class="absolute bottom-0 left-0 w-4 h-4 cursor-nwse-resize opacity-30 hover:opacity-100 transition-opacity bg-gradient-to-bl from-transparent from-50% to-current to-50% rounded-bl-lg"
+							onmousedown={startResizeEntityInfo}
+							aria-label="Resize entity info panel"
+						></button>
+					</div>
+				</svelte:boundary>
+			{/if}
+		</div>
+
+		{#if actionLog.drawerOpen}
+			<ActionLogDrawer
+				entries={actionLog.entries}
+				onfocusentity={(id) => { selectedObjectId = id; }}
+			/>
 		{/if}
 	</div>
 
@@ -506,12 +515,6 @@
 		</div>
 	{/if}
 
-	{#if actionLog.drawerOpen}
-		<ActionLogDrawer
-			entries={actionLog.entries}
-			onfocusentity={(id) => { selectedObjectId = id; }}
-		/>
-	{/if}
 </div>
 
 <style>

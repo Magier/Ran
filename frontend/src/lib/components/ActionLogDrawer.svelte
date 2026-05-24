@@ -15,7 +15,7 @@
 </script>
 
 <div
-    class="fixed bottom-0 left-0 right-0 z-40 bg-surface-100-900 border-t border-surface-200-800 flex flex-col h-60"
+    class="h-60 shrink-0 bg-surface-100-900 border-t border-surface-200-800 flex flex-col"
     role="region"
     aria-label="Action log"
 >
