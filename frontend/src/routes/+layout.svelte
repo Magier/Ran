@@ -95,6 +95,7 @@
                 onclick={() => (actionLog.drawerOpen = !actionLog.drawerOpen)}
                 title="Toggle action log"
                 aria-label="Toggle action log"
+                aria-pressed={actionLog.drawerOpen}
             >
                 <Icon icon="mdi:history" class="size-5" />
                 {#if actionLog.pendingCount > 0 && !actionLog.drawerOpen}
