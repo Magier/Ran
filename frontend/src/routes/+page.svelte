@@ -8,6 +8,8 @@
 	import FileViewerModal from '$lib/modals/FileViewerModal.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { toaster } from '$lib/components/toaster';
+	import { actionLog } from '$lib/stores/actionLogStore.svelte';
+	import ActionLogDrawer from '$lib/components/ActionLogDrawer.svelte';
 	import EntityInfo from './components/entityInfo.svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { ExecuteAction, getRanAPI } from '$lib/ran_api';
@@ -259,25 +261,24 @@
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
-			const toastId = toaster.create({
-				title: `Executing "${ttp.id}"`,
-				type: 'info',
-				duration: Infinity,
-				meta: { spinner: true }
+			const targetName = campaignState.getEntityById(selectedObjectId)?.name ?? selectedObjectId;
+			actionLog.addEntry({
+				id: crypto.randomUUID(),
+				ttpId: ttp.id,
+				ttpName: ttp.name,
+				targetId: selectedObjectId,
+				targetName,
+				status: 'pending',
+				startedAt: new Date()
 			});
-			ToastMapping[ttp.id] = toastId;
 
-			ExecuteAction({actionId: ttp.id, targetId: selectedObjectId, procedureId: '', args: {}})
+			ExecuteAction({ actionId: ttp.id, targetId: selectedObjectId, procedureId: '', args: {} })
 				.catch((err) => {
-					const id = ToastMapping[ttp.id];
-					delete ToastMapping[ttp.id];
-					toaster.dismiss(id);
-					toaster.create({
-						title: `Error executing "${ttp.id}"`,
-						description: typeof err === 'string' ? err : (err?.message ?? 'Unknown error'),
-						type: 'error',
-						duration: 5000
-					});
+					actionLog.resolveEntry(
+						ttp.id,
+						false,
+						typeof err === 'string' ? err : (err?.message ?? 'Unknown error')
+					);
 				});
 		}
 	}
@@ -326,36 +327,14 @@
 		});
 
 		ranAPI.on('ttp-executed', (data) => {
-			console.log('TTP Executed Event', data);
-			const key = data.TTP?.id;
-			const toastId = ToastMapping[key];
-			if (!toastId) return;
-			delete ToastMapping[key];
+			actionLog.resolveEntry(data.TTP?.id, data.Success, data.FailReason);
 
-			toaster.dismiss(toastId);
-
-			if (data.Success) {
-				toaster.create({
-					title: `"${data.TTP.name}" executed successfully`,
-					description: 'Executed successfully',
-					type: 'success',
-					duration: 5000
-				});
-
-				if (data.TTP?.id === 'read-file' && data.Args?.PATH) {
-					ranAPI.GetFileContent(data.Args.PATH).then((file) => {
-						fileViewerPath = file.path ?? data.Args.PATH;
-						fileViewerContent = file.content ?? '';
-						showFileViewer = true;
-					}).catch(() => {});
-				}
-			} else {
-				toaster.create({
-					title: `"${data.TTP.name}" failed`,
-					description: data.FailReason ?? 'Failed for unknown reason',
-					type: 'error',
-					duration: 5000
-				});
+			if (data.Success && data.TTP?.id === 'read-file' && data.Args?.PATH) {
+				ranAPI.GetFileContent(data.Args.PATH).then((file) => {
+					fileViewerPath = file.path ?? data.Args.PATH;
+					fileViewerContent = file.content ?? '';
+					showFileViewer = true;
+				}).catch(() => {});
 			}
 		});
 	});
@@ -373,29 +352,28 @@
 		}
 	});
 
-	const ToastMapping: Record<string, string> = {};
 	function onExecuteTTP(ttpId: string, execSystemId: string, procedureId: string, args: Record<string, string>) {
-		const toastId = toaster.create({
-			title: `Executing "${ttpId}"`,
-			type: 'info',
-			duration: Infinity,
-			meta: { spinner: true }
+		const ttp = campaignState.getTtpById(ttpId);
+		const targetName = campaignState.getEntityById(selectedObjectId)?.name ?? selectedObjectId;
+		actionLog.addEntry({
+			id: crypto.randomUUID(),
+			ttpId,
+			ttpName: ttp?.name ?? ttpId,
+			targetId: selectedObjectId,
+			targetName,
+			status: 'pending',
+			startedAt: new Date()
 		});
-		ToastMapping[ttpId] = toastId;
 
 		closeModal();
 
-		ExecuteAction({actionId: ttpId, execSystemId, targetId: selectedObjectId, procedureId, args})
+		ExecuteAction({ actionId: ttpId, execSystemId, targetId: selectedObjectId, procedureId, args })
 			.catch((err) => {
-				const id = ToastMapping[ttpId];
-				delete ToastMapping[ttpId];
-				toaster.dismiss(id);
-				toaster.create({
-					title: `Error executing "${ttpId}"`,
-					description: typeof err === 'string' ? err : (err?.message ?? 'Unknown error'),
-					type: 'error',
-					duration: 5000
-				});
+				actionLog.resolveEntry(
+					ttpId,
+					false,
+					typeof err === 'string' ? err : (err?.message ?? 'Unknown error')
+				);
 			});
 	}
 
@@ -526,6 +504,13 @@
 				<div class="mt-4 text-surface-600-400">Loading campaign...</div>
 			</div>
 		</div>
+	{/if}
+
+	{#if actionLog.drawerOpen}
+		<ActionLogDrawer
+			entries={actionLog.entries}
+			onfocusentity={(id) => { selectedObjectId = id; }}
+		/>
 	{/if}
 </div>
 
