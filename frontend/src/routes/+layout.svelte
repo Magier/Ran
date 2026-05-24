@@ -13,6 +13,7 @@
     import '../app.css';
     import { setCampaignState } from '$lib/components/CampaignState.svelte';
 	import AppMenu from '$lib/components/app_menu.svelte';
+    import { actionLog } from '$lib/stores/actionLogStore.svelte';
     let { children } = $props();
 
     setCampaignState();
@@ -88,6 +89,22 @@
                     Flow
                 </a>
             </nav>
+            <button
+                class="btn btn-sm relative p-1"
+                type="button"
+                onclick={() => (actionLog.drawerOpen = !actionLog.drawerOpen)}
+                title="Toggle action log"
+                aria-label="Toggle action log"
+            >
+                <Icon icon="mdi:history" class="size-5" />
+                {#if actionLog.pendingCount > 0 && !actionLog.drawerOpen}
+                    <span
+                        class="absolute -top-1 -right-1 bg-warning-500 text-warning-contrast-500 text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold"
+                    >
+                        {actionLog.pendingCount}
+                    </span>
+                {/if}
+            </button>
         <Switch checked={isDark} onCheckedChange={toggle} class="mx-2">
             <Switch.Control>
                 <Switch.Thumb>
