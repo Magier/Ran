@@ -4,6 +4,7 @@
     import { saveFile } from '$lib/io';
 	import { Menu, Portal } from '@skeletonlabs/skeleton-svelte';
     import { getCampaignState } from '$lib/components/CampaignState.svelte';
+    import { actionLog } from '$lib/stores/actionLogStore.svelte';
 
     const campaignState = getCampaignState();
 
@@ -12,7 +13,8 @@
 
         switch (value) {
             case 'reset':
-                 campaignState.reset()
+                 campaignState.reset();
+                 actionLog.clear();
                 break;
             case 'save_flow':
                 campaignState.ExportAttackFlow().then((flow) => {
