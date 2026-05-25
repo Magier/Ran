@@ -1190,6 +1190,26 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     })
                     .to_string(),
                 );
+
+                for entity in &new_entities {
+                    let category = match entity.kind.as_str() {
+                        "Secret" | "K8sCredential" => "credential",
+                        _ => "discovery",
+                    };
+                    api::publish_sse_event(
+                        "entity-discovered",
+                        serde_json::json!({
+                            "type": "entity-discovered",
+                            "data": {
+                                "entityId": entity.id.0,
+                                "entityName": entity.name,
+                                "entityKind": entity.kind,
+                                "category": category,
+                            },
+                        })
+                        .to_string(),
+                    );
+                }
             }
             Ok(CampaignEvent::ParseAudited { audits, .. }) => {
                 api::publish_sse_event(
