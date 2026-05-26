@@ -16,7 +16,6 @@
     function entryLabel(entry: EntityEntry): string {
         if (entry.kind === 'credential') {
             if (entry.entityKind === 'Secret') return `Found secret ${entry.entityName}`;
-            if (entry.entityKind === 'K8sCredential') return `Found credential ${entry.entityName}`;
             return `Found credential ${entry.entityName}`;
         }
         if (entry.kind === 'access-gained') {

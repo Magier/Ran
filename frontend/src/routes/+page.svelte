@@ -269,7 +269,7 @@
 					procedureId: '',
 					args: {}
 				});
-				const cmdId = (result as any)?.cmd_id ?? crypto.randomUUID();
+				const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
 				timeline.addTtpAction({
 					id: cmdId,
 					ttpId: ttp.id,
@@ -373,7 +373,7 @@
 
 		try {
 			const result = await ExecuteAction({ actionId: ttpId, execSystemId, targetId: selectedObjectId, procedureId, args });
-			const cmdId = (result as any)?.cmd_id ?? crypto.randomUUID();
+			const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
 			timeline.addTtpAction({
 				id: cmdId,
 				ttpId,
