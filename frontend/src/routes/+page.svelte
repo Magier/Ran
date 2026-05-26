@@ -8,8 +8,8 @@
 	import FileViewerModal from '$lib/modals/FileViewerModal.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { toaster } from '$lib/components/toaster';
-	import { actionLog } from '$lib/stores/actionLogStore.svelte';
-	import ActionLogDrawer from '$lib/components/ActionLogDrawer.svelte';
+	import { timeline } from '$lib/stores/timelineStore.svelte';
+	import OperationTimeline from '$lib/components/OperationTimeline.svelte';
 	import EntityInfo from './components/entityInfo.svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { ExecuteAction, getRanAPI } from '$lib/ran_api';
@@ -253,7 +253,7 @@
 		}
 	});
 
-	function sendAction(ttp: TTP, args = {}) {
+	async function sendAction(ttp: TTP, args = {}) {
 		selectedTTP = ttp;
 		ttpArgContext = { ...args, ...activeGlobalConditions };
 		if (ttp.params) {
@@ -262,24 +262,26 @@
 			showParamModal = true;
 		} else {
 			const targetName = campaignState.getEntityById(selectedObjectId)?.name ?? selectedObjectId;
-			actionLog.addEntry({
-				id: crypto.randomUUID(),
-				ttpId: ttp.id,
-				ttpName: ttp.name,
-				targetId: selectedObjectId,
-				targetName,
-				status: 'pending',
-				startedAt: new Date()
-			});
-
-			ExecuteAction({ actionId: ttp.id, targetId: selectedObjectId, procedureId: '', args: {} })
-				.catch((err) => {
-					actionLog.resolveEntry(
-						ttp.id,
-						false,
-						typeof err === 'string' ? err : (err?.message ?? 'Unknown error')
-					);
+			try {
+				const result = await ExecuteAction({
+					actionId: ttp.id,
+					targetId: selectedObjectId,
+					procedureId: '',
+					args: {}
 				});
+				const cmdId = (result as any)?.cmd_id ?? crypto.randomUUID();
+				timeline.addTtpAction({
+					id: cmdId,
+					ttpId: ttp.id,
+					ttpName: ttp.name,
+					targetId: selectedObjectId,
+					targetName,
+					status: 'pending',
+					timestamp: new Date()
+				});
+			} catch (err) {
+				handleError(err);
+			}
 		}
 	}
 
@@ -327,7 +329,7 @@
 		});
 
 		ranAPI.on('ttp-executed', (data) => {
-			actionLog.resolveEntry(data.TTP?.id ?? '', data.Success, data.FailReason);
+			timeline.resolveTtpAction(data.CmdId ?? data.ID ?? '', data.Success, data.FailReason);
 
 			if (data.Success && data.TTP?.id === 'read-file' && data.Args?.PATH) {
 				ranAPI.GetFileContent(data.Args.PATH).then((file) => {
@@ -336,6 +338,17 @@
 					showFileViewer = true;
 				}).catch(() => {});
 			}
+		});
+
+		ranAPI.on('entity-discovered', (data) => {
+			timeline.addEntityEvent({
+				kind: data.category ?? 'discovery',
+				id: data.entityId,
+				entityId: data.entityId,
+				entityName: data.entityName,
+				entityKind: data.entityKind,
+				timestamp: new Date()
+			});
 		});
 	});
 
@@ -352,29 +365,27 @@
 		}
 	});
 
-	function onExecuteTTP(ttpId: string, execSystemId: string, procedureId: string, args: Record<string, string>) {
+	async function onExecuteTTP(ttpId: string, execSystemId: string, procedureId: string, args: Record<string, string>) {
 		const ttp = campaignState.getTtpById(ttpId);
 		const targetName = campaignState.getEntityById(selectedObjectId)?.name ?? selectedObjectId;
-		actionLog.addEntry({
-			id: crypto.randomUUID(),
-			ttpId,
-			ttpName: ttp?.name ?? ttpId,
-			targetId: selectedObjectId,
-			targetName,
-			status: 'pending',
-			startedAt: new Date()
-		});
 
 		closeModal();
 
-		ExecuteAction({ actionId: ttpId, execSystemId, targetId: selectedObjectId, procedureId, args })
-			.catch((err) => {
-				actionLog.resolveEntry(
-					ttpId,
-					false,
-					typeof err === 'string' ? err : (err?.message ?? 'Unknown error')
-				);
+		try {
+			const result = await ExecuteAction({ actionId: ttpId, execSystemId, targetId: selectedObjectId, procedureId, args });
+			const cmdId = (result as any)?.cmd_id ?? crypto.randomUUID();
+			timeline.addTtpAction({
+				id: cmdId,
+				ttpId,
+				ttpName: ttp?.name ?? ttpId,
+				targetId: selectedObjectId,
+				targetName,
+				status: 'pending',
+				timestamp: new Date()
 			});
+		} catch (err) {
+			handleError(err);
+		}
 	}
 
 	function handleError(e: unknown) {
@@ -425,7 +436,7 @@
 		<button
 			class="absolute left-0 z-50 bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-r-md px-0.5 py-2 opacity-30 hover:opacity-100 transition-all duration-200"
 			class:armory-transition={!isResizing}
-			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`}; bottom: {actionLog.drawerOpen ? 'calc(15rem + 0.5rem)' : '0.5rem'};"
+			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`}; bottom: {timeline.open ? 'calc(15rem + 0.5rem)' : '0.5rem'};"
 			onclick={toggleArmoryCollapse}
 			title={armoryCollapsed ? 'Expand armory' : 'Collapse armory'}
 		>
@@ -462,9 +473,9 @@
 			{/if}
 		</div>
 
-		{#if actionLog.drawerOpen}
-			<ActionLogDrawer
-				entries={actionLog.entries}
+		{#if timeline.open}
+			<OperationTimeline
+				entries={timeline.entries}
 				onfocusentity={(id) => { selectedObjectId = id; }}
 			/>
 		{/if}
