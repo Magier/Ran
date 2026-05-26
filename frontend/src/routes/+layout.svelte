@@ -13,7 +13,7 @@
     import '../app.css';
     import { setCampaignState } from '$lib/components/CampaignState.svelte';
 	import AppMenu from '$lib/components/app_menu.svelte';
-    import { actionLog } from '$lib/stores/actionLogStore.svelte';
+    import { timeline } from '$lib/stores/timelineStore.svelte';
     let { children } = $props();
 
     setCampaignState();
@@ -92,17 +92,17 @@
             <button
                 class="btn btn-sm relative p-1"
                 type="button"
-                onclick={() => (actionLog.drawerOpen = !actionLog.drawerOpen)}
-                title="Toggle action log"
-                aria-label="Toggle action log"
-                aria-pressed={actionLog.drawerOpen}
+                onclick={() => (timeline.open = !timeline.open)}
+                title="Operation timeline"
+                aria-label="Toggle operation timeline"
+                aria-pressed={timeline.open}
             >
                 <Icon icon="mdi:history" class="size-5" />
-                {#if actionLog.pendingCount > 0 && !actionLog.drawerOpen}
+                {#if timeline.pendingCount > 0 && !timeline.open}
                     <span
                         class="absolute -top-1 -right-1 bg-warning-500 text-warning-contrast-500 text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold"
                     >
-                        {actionLog.pendingCount}
+                        {timeline.pendingCount}
                     </span>
                 {/if}
             </button>
