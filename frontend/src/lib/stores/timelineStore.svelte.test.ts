@@ -126,6 +126,15 @@ describe('TimelineStore', () => {
         expect(store.entries).toHaveLength(0);
     });
 
+    it('addEntityEvent does not suppress entity when a ttp-action has the same id', () => {
+        // Add a ttp-action whose cmd id happens to equal an entity id
+        store.addTtpAction(makeTtpEntry({ id: 'ns/default/pod/web-app' }));
+        // Entity with same id should still be added (different kind)
+        store.addEntityEvent(makeEntityEntry({ entityId: 'ns/default/pod/web-app', id: 'ns/default/pod/web-app' }));
+        expect(store.entries).toHaveLength(2);
+        expect(store.entries.some((e) => e.kind === 'discovery')).toBe(true);
+    });
+
     it('mixed entries interleave by insertion order, newest first', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
         store.addEntityEvent(makeEntityEntry({ entityId: 'pod-a', id: 'pod-a' }));

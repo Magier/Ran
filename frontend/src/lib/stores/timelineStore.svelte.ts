@@ -36,7 +36,7 @@ export class TimelineStore {
     }
 
     addEntityEvent(entry: EntityEntry): void {
-        if (this.entries.some((e) => e.id === entry.entityId)) return;
+        if (this.entries.some((e) => e.kind !== 'ttp-action' && e.id === entry.id)) return;
         this.entries = [entry, ...this.entries];
     }
 
