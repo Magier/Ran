@@ -1,6 +1,6 @@
 <script lang="ts">
     import Icon from '@iconify/svelte';
-    import type { TimelineEntry, TtpActionEntry, EntityEntry } from '$lib/stores/timelineStore.svelte';
+    import type { TimelineEntry, EntityEntry } from '$lib/stores/timelineStore.svelte';
 
     interface Props {
         entries: TimelineEntry[];
@@ -13,10 +13,7 @@
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     }
 
-    function entryLabel(entry: TimelineEntry): string {
-        if (entry.kind === 'ttp-action') {
-            return `${entry.ttpName} on ${entry.targetName}`;
-        }
+    function entryLabel(entry: EntityEntry): string {
         if (entry.kind === 'credential') {
             if (entry.entityKind === 'Secret') return `Found secret ${entry.entityName}`;
             if (entry.entityKind === 'K8sCredential') return `Found credential ${entry.entityName}`;
@@ -32,9 +29,7 @@
         return `Discovered ${entry.entityKind} ${entry.entityName}`;
     }
 
-    function entryTimestamp(entry: TimelineEntry): Date {
-        return entry.timestamp;
-    }
+
 </script>
 
 <div
@@ -102,7 +97,7 @@
                     </div>
 
                     <!-- Timestamp -->
-                    <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(entryTimestamp(entry))}</span>
+                    <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(entry.timestamp)}</span>
                 </div>
             {/each}
         {/if}
