@@ -347,6 +347,7 @@
 				entityId: data.entityId,
 				entityName: data.entityName,
 				entityKind: data.entityKind,
+				cmdId: data.cmdId,
 				timestamp: new Date()
 			});
 		});
@@ -374,12 +375,17 @@
 		try {
 			const result = await ExecuteAction({ actionId: ttpId, execSystemId, targetId: selectedObjectId, procedureId, args });
 			const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
+			const differsFromTarget = execSystemId && execSystemId !== selectedObjectId;
 			timeline.addTtpAction({
 				id: cmdId,
 				ttpId,
 				ttpName: ttp?.name ?? ttpId,
 				targetId: selectedObjectId,
 				targetName,
+				execSystemId: differsFromTarget ? execSystemId : undefined,
+				execSystemName: differsFromTarget
+					? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
+					: undefined,
 				status: 'pending',
 				timestamp: new Date()
 			});
@@ -475,8 +481,9 @@
 
 		{#if timeline.open}
 			<OperationTimeline
-				entries={timeline.entries}
+				entries={timeline.topEntries}
 				onfocusentity={(id) => { selectedObjectId = id; }}
+				ontogglegroup={(cmdId) => timeline.toggleGroup(cmdId)}
 			/>
 		{/if}
 	</div>
