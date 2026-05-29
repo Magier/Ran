@@ -58,6 +58,8 @@ export class TimelineStore {
     }
 
     addEntityEvent(entry: EntityEntry): void {
+        // Global dedup: each entity id appears at most once across all groups and standalone rows.
+        // This matches the previous flat-list dedup behaviour. Reset on clear().
         if (this.seenEntityIds.has(entry.id)) return;
         this.seenEntityIds.add(entry.id);
 

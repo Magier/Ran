@@ -33,7 +33,7 @@
         for (const e of group.effects) {
             if (e.kind === 'discovery') counts.discovery++;
             else if (e.kind === 'credential') counts.credential++;
-            else counts.access++;
+            else if (e.kind === 'access-gained') counts.access++;
         }
         return counts;
     }
