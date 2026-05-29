@@ -39,11 +39,11 @@ export class TimelineStore {
     private index = new Map<string, ActionGroup>();
     private seenEntityIds = new Set<string>();
 
-    get pendingCount(): number {
-        return this.topEntries.filter(
+    pendingCount = $derived(
+        this.topEntries.filter(
             (e): e is ActionGroup => e.kind === 'action-group' && e.action.status === 'pending'
-        ).length;
-    }
+        ).length
+    );
 
     addTtpAction(entry: Omit<TtpActionEntry, 'kind'>): void {
         const group: ActionGroup = {
