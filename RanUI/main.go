@@ -22,7 +22,11 @@ func main() {
 
 	// AppMenu := menu.AppMenu()
 	AppMenu := menu.NewMenu()
-	AppMenu.Append(menu.EditMenu())
+	// Wails' Linux menu backend crashes on role-only top-level menus like EditMenu().
+	// Keep the explicit File menu below and only attach the built-in role menus where supported.
+	if runtime.GOOS != "linux" {
+		AppMenu.Append(menu.EditMenu())
+	}
 
 	slog.Info("Starting RanUI application", runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "darwin" {
