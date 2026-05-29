@@ -5,6 +5,8 @@ export type TtpActionEntry = {
     ttpName: string;
     targetId: string;
     targetName: string;
+    execSystemId?: string;
+    execSystemName?: string;
     status: 'pending' | 'success' | 'failed';
     failReason?: string;
     timestamp: Date;
@@ -16,41 +18,77 @@ export type EntityEntry = {
     entityId: string;
     entityName: string;
     entityKind: string;
+    cmdId?: string;
     timestamp: Date;
 };
 
-export type TimelineEntry = TtpActionEntry | EntityEntry;
+export type ActionGroup = {
+    kind: 'action-group';
+    action: TtpActionEntry;
+    effects: EntityEntry[];
+    collapsed: boolean;
+    score?: number;
+};
+
+export type TopEntry = ActionGroup | EntityEntry;
 
 export class TimelineStore {
-    entries = $state<TimelineEntry[]>([]);
+    topEntries = $state<TopEntry[]>([]);
     open = $state(false);
 
+    private index = new Map<string, ActionGroup>();
+    private seenEntityIds = new Set<string>();
+
     get pendingCount(): number {
-        return this.entries.filter(
-            (e): e is TtpActionEntry => e.kind === 'ttp-action' && e.status === 'pending'
+        return this.topEntries.filter(
+            (e): e is ActionGroup => e.kind === 'action-group' && e.action.status === 'pending'
         ).length;
     }
 
     addTtpAction(entry: Omit<TtpActionEntry, 'kind'>): void {
-        this.entries = [{ kind: 'ttp-action', ...entry }, ...this.entries];
+        const group: ActionGroup = {
+            kind: 'action-group',
+            action: { kind: 'ttp-action', ...entry },
+            effects: [],
+            collapsed: true
+        };
+        this.topEntries = [group, ...this.topEntries];
+        // Store the reactive proxy from topEntries (index 0) so mutations propagate
+        this.index.set(entry.id, this.topEntries[0] as ActionGroup);
     }
 
     addEntityEvent(entry: EntityEntry): void {
-        if (this.entries.some((e) => e.kind !== 'ttp-action' && e.id === entry.id)) return;
-        this.entries = [entry, ...this.entries];
+        if (this.seenEntityIds.has(entry.id)) return;
+        this.seenEntityIds.add(entry.id);
+
+        if (entry.cmdId) {
+            const group = this.index.get(entry.cmdId);
+            if (group) {
+                group.effects.push(entry);
+                return;
+            }
+        }
+
+        this.topEntries = [entry, ...this.topEntries];
     }
 
     resolveTtpAction(id: string, success: boolean, failReason?: string): void {
-        const entry = this.entries.find(
-            (e): e is TtpActionEntry => e.kind === 'ttp-action' && e.id === id && e.status === 'pending'
-        );
-        if (!entry) return;
-        entry.status = success ? 'success' : 'failed';
-        if (!success && failReason !== undefined) entry.failReason = failReason;
+        const group = this.index.get(id);
+        if (!group || group.action.status !== 'pending') return;
+        group.action.status = success ? 'success' : 'failed';
+        if (!success && failReason !== undefined) group.action.failReason = failReason;
+    }
+
+    toggleGroup(cmdId: string): void {
+        const group = this.index.get(cmdId);
+        if (!group) return;
+        group.collapsed = !group.collapsed;
     }
 
     clear(): void {
-        this.entries = [];
+        this.topEntries = [];
+        this.index.clear();
+        this.seenEntityIds.clear();
     }
 }
 

@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TimelineStore, type TtpActionEntry, type EntityEntry } from '$lib/stores/timelineStore.svelte';
+import {
+    TimelineStore,
+    type TtpActionEntry,
+    type EntityEntry,
+    type ActionGroup,
+    type TopEntry
+} from '$lib/stores/timelineStore.svelte';
 
 function makeTtpEntry(overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}): Omit<TtpActionEntry, 'kind'> {
     return {
@@ -34,113 +40,177 @@ describe('TimelineStore', () => {
     });
 
     it('starts empty with timeline closed', () => {
-        expect(store.entries).toHaveLength(0);
+        expect(store.topEntries).toHaveLength(0);
         expect(store.open).toBe(false);
         expect(store.pendingCount).toBe(0);
     });
 
-    it('addTtpAction prepends entry with kind ttp-action (newest first)', () => {
+    // addTtpAction
+    it('addTtpAction creates an ActionGroup prepended to topEntries', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
+        expect(store.topEntries).toHaveLength(1);
+        const entry = store.topEntries[0];
+        expect(entry.kind).toBe('action-group');
+        if (entry.kind === 'action-group') {
+            expect(entry.action.id).toBe('cmd-1');
+            expect(entry.effects).toHaveLength(0);
+            expect(entry.collapsed).toBe(true);
+        }
+    });
+
+    it('addTtpAction prepends newest first', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
         store.addTtpAction(makeTtpEntry({ id: 'cmd-2' }));
-        expect(store.entries).toHaveLength(2);
-        expect(store.entries[0].id).toBe('cmd-2');
-        expect(store.entries[0].kind).toBe('ttp-action');
-        expect(store.entries[1].id).toBe('cmd-1');
+        expect(store.topEntries[0].kind).toBe('action-group');
+        if (store.topEntries[0].kind === 'action-group') {
+            expect(store.topEntries[0].action.id).toBe('cmd-2');
+        }
     });
 
-    it('addEntityEvent prepends discovery entries', () => {
-        store.addEntityEvent(makeEntityEntry({ entityId: 'ns/default/pod/web-app' }));
-        expect(store.entries).toHaveLength(1);
-        expect(store.entries[0].kind).toBe('discovery');
+    // addEntityEvent — grouping
+    it('addEntityEvent with matching cmdId appends to group effects', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+        store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-abc' }));
+        expect(store.topEntries).toHaveLength(1); // still one top-level entry
+        const entry = store.topEntries[0];
+        if (entry.kind === 'action-group') {
+            expect(entry.effects).toHaveLength(1);
+            expect(entry.effects[0].entityName).toBe('web-app');
+        }
     });
 
-    it('addEntityEvent prepends credential entries', () => {
-        store.addEntityEvent(makeEntityEntry({ kind: 'credential', entityId: 'ns/default/secret/db-pass', id: 'ns/default/secret/db-pass', entityKind: 'Secret', entityName: 'db-pass' }));
-        expect(store.entries[0].kind).toBe('credential');
+    it('addEntityEvent without cmdId prepends as standalone', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+        store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
+        expect(store.topEntries).toHaveLength(2);
+        expect(store.topEntries[0].kind).toBe('discovery');
     });
 
-    it('addEntityEvent deduplicates by entityId', () => {
-        store.addEntityEvent(makeEntityEntry({ entityId: 'ns/default/pod/web-app' }));
-        store.addEntityEvent(makeEntityEntry({ entityId: 'ns/default/pod/web-app' }));
-        expect(store.entries).toHaveLength(1);
+    it('addEntityEvent with unmatched cmdId prepends as standalone', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+        store.addEntityEvent(makeEntityEntry({ id: 'x', entityId: 'x', cmdId: 'cmd-unknown' }));
+        expect(store.topEntries).toHaveLength(2);
+        expect(store.topEntries[0].kind).toBe('discovery');
     });
 
-    it('addEntityEvent does not deduplicate different entityIds', () => {
-        store.addEntityEvent(makeEntityEntry({ entityId: 'ns/default/pod/web-app', id: 'ns/default/pod/web-app' }));
-        store.addEntityEvent(makeEntityEntry({ entityId: 'ns/default/pod/api', id: 'ns/default/pod/api' }));
-        expect(store.entries).toHaveLength(2);
+    // deduplication
+    it('addEntityEvent deduplicates standalone entries by id', () => {
+        store.addEntityEvent(makeEntityEntry({ id: 'pod-a', entityId: 'pod-a', cmdId: undefined }));
+        store.addEntityEvent(makeEntityEntry({ id: 'pod-a', entityId: 'pod-a', cmdId: undefined }));
+        expect(store.topEntries).toHaveLength(1);
     });
 
-    it('pendingCount counts only pending ttp-action entries', () => {
+    it('addEntityEvent deduplicates group effects by id', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+        store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-abc' }));
+        store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-abc' })); // same id
+        const entry = store.topEntries[0];
+        if (entry.kind === 'action-group') {
+            expect(entry.effects).toHaveLength(1);
+        }
+    });
+
+    it('addEntityEvent does not suppress entity when a group has the same id as the entity', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'ns/default/pod/web-app' }));
+        store.addEntityEvent(makeEntityEntry({ id: 'ns/default/pod/web-app', entityId: 'ns/default/pod/web-app', cmdId: undefined }));
+        expect(store.topEntries).toHaveLength(2);
+        expect(store.topEntries[0].kind).toBe('discovery');
+    });
+
+    // pendingCount
+    it('pendingCount counts only pending action groups', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-1', status: 'pending' }));
         store.addTtpAction(makeTtpEntry({ id: 'cmd-2', status: 'pending' }));
-        store.addEntityEvent(makeEntityEntry());
+        store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
         expect(store.pendingCount).toBe(2);
         store.resolveTtpAction('cmd-1', true);
         expect(store.pendingCount).toBe(1);
     });
 
-    it('resolveTtpAction marks matching entry as success', () => {
+    // resolveTtpAction
+    it('resolveTtpAction marks matching group action as success', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
         store.resolveTtpAction('cmd-abc', true);
-        const entry = store.entries[0];
-        expect(entry.kind).toBe('ttp-action');
-        if (entry.kind === 'ttp-action') {
-            expect(entry.status).toBe('success');
-            expect(entry.failReason).toBeUndefined();
+        const entry = store.topEntries[0];
+        if (entry.kind === 'action-group') {
+            expect(entry.action.status).toBe('success');
+            expect(entry.action.failReason).toBeUndefined();
         }
     });
 
     it('resolveTtpAction marks entry as failed with reason', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
         store.resolveTtpAction('cmd-abc', false, 'permission denied');
-        const entry = store.entries[0];
-        if (entry.kind === 'ttp-action') {
-            expect(entry.status).toBe('failed');
-            expect(entry.failReason).toBe('permission denied');
+        const entry = store.topEntries[0];
+        if (entry.kind === 'action-group') {
+            expect(entry.action.status).toBe('failed');
+            expect(entry.action.failReason).toBe('permission denied');
         }
     });
 
     it('resolveTtpAction with unknown id is a no-op', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
         store.resolveTtpAction('cmd-unknown', true);
-        const entry = store.entries[0];
-        if (entry.kind === 'ttp-action') {
-            expect(entry.status).toBe('pending');
+        const entry = store.topEntries[0];
+        if (entry.kind === 'action-group') {
+            expect(entry.action.status).toBe('pending');
         }
     });
 
     it('resolveTtpAction on already-resolved entry is a no-op', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'success' }));
         store.resolveTtpAction('cmd-abc', false, 'should not change');
-        const entry = store.entries[0];
-        if (entry.kind === 'ttp-action') {
-            expect(entry.status).toBe('success');
+        const entry = store.topEntries[0];
+        if (entry.kind === 'action-group') {
+            expect(entry.action.status).toBe('success');
         }
     });
 
+    // toggleGroup
+    it('toggleGroup flips collapsed from true to false', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+        store.toggleGroup('cmd-abc');
+        const entry = store.topEntries[0];
+        if (entry.kind === 'action-group') {
+            expect(entry.collapsed).toBe(false);
+        }
+    });
+
+    it('toggleGroup flips collapsed from false to true', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+        store.toggleGroup('cmd-abc'); // false
+        store.toggleGroup('cmd-abc'); // true
+        const entry = store.topEntries[0];
+        if (entry.kind === 'action-group') {
+            expect(entry.collapsed).toBe(true);
+        }
+    });
+
+    it('toggleGroup with unknown id is a no-op', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+        expect(() => store.toggleGroup('cmd-unknown')).not.toThrow();
+    });
+
+    // clear
     it('clear removes all entries', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
-        store.addEntityEvent(makeEntityEntry());
+        store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
         store.clear();
-        expect(store.entries).toHaveLength(0);
+        expect(store.topEntries).toHaveLength(0);
+        // index is also cleared: new entity with old cmdId goes to standalone
+        store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-1' }));
+        expect(store.topEntries).toHaveLength(1);
+        expect(store.topEntries[0].kind).toBe('discovery');
     });
 
-    it('addEntityEvent does not suppress entity when a ttp-action has the same id', () => {
-        // Add a ttp-action whose cmd id happens to equal an entity id
-        store.addTtpAction(makeTtpEntry({ id: 'ns/default/pod/web-app' }));
-        // Entity with same id should still be added (different kind)
-        store.addEntityEvent(makeEntityEntry({ entityId: 'ns/default/pod/web-app', id: 'ns/default/pod/web-app' }));
-        expect(store.entries).toHaveLength(2);
-        expect(store.entries.some((e) => e.kind === 'discovery')).toBe(true);
-    });
-
+    // mixed ordering
     it('mixed entries interleave by insertion order, newest first', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
-        store.addEntityEvent(makeEntityEntry({ entityId: 'pod-a', id: 'pod-a' }));
+        store.addEntityEvent(makeEntityEntry({ id: 'pod-a', entityId: 'pod-a', cmdId: undefined }));
         store.addTtpAction(makeTtpEntry({ id: 'cmd-2' }));
-        expect(store.entries[0].id).toBe('cmd-2');
-        expect(store.entries[1].id).toBe('pod-a');
-        expect(store.entries[2].id).toBe('cmd-1');
+        const ids = store.topEntries.map((e) =>
+            e.kind === 'action-group' ? e.action.id : e.id
+        );
+        expect(ids).toEqual(['cmd-2', 'pod-a', 'cmd-1']);
     });
 });
