@@ -158,7 +158,7 @@ for each topEntry in entries:
 
 - **`on [targetName]`** — `text-primary-500 hover:underline`, clicking fires `onfocusentity(action.targetId)`
 - **`via [execSystemName]`** — only shown when `execSystemId` is set and differs from `targetId`; rendered as `text-surface-500 text-xs` (lower salience)
-- **Effect chips** — only counts > 0 are shown; hidden entirely while `action.status === 'pending'`
+- **Effect chips** — only counts > 0 are rendered; a pending action with no effects yet shows nothing here
   - Discovery: `mdi:magnify` `text-primary-400`
   - Credential: `mdi:key` `text-warning-500`
   - Access: `mdi:shield-check` `text-success-400`
