@@ -1,14 +1,14 @@
 <script lang="ts">
     import Icon from '@iconify/svelte';
     import type { TopEntry, EntityEntry, ActionGroup } from '$lib/stores/timelineStore.svelte';
-    import { timeline } from '$lib/stores/timelineStore.svelte';
 
     interface Props {
         entries: TopEntry[];
         onfocusentity: (targetId: string) => void;
+        ontogglegroup: (cmdId: string) => void;
     }
 
-    let { entries, onfocusentity }: Props = $props();
+    let { entries, onfocusentity, ontogglegroup }: Props = $props();
 
     function formatTime(d: Date): string {
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
@@ -29,11 +29,13 @@
     }
 
     function effectCounts(group: ActionGroup) {
-        return {
-            discovery: group.effects.filter(e => e.kind === 'discovery').length,
-            credential: group.effects.filter(e => e.kind === 'credential').length,
-            access: group.effects.filter(e => e.kind === 'access-gained').length,
-        };
+        const counts = { discovery: 0, credential: 0, access: 0 };
+        for (const e of group.effects) {
+            if (e.kind === 'discovery') counts.discovery++;
+            else if (e.kind === 'credential') counts.credential++;
+            else counts.access++;
+        }
+        return counts;
     }
 
     function entityIcon(kind: EntityEntry['kind']): string {
@@ -141,7 +143,7 @@
                             <button
                                 type="button"
                                 class="mt-0.5 shrink-0 text-surface-500 hover:text-surface-300"
-                                onclick={() => timeline.toggleGroup(entry.action.id)}
+                                onclick={() => ontogglegroup(entry.action.id)}
                                 aria-label={entry.collapsed ? 'Expand effects' : 'Collapse effects'}
                             >
                                 <Icon
