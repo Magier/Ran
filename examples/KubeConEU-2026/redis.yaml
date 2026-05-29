@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vulnerable-redis
+  labels:
+    app: vulnerable-redis
+spec:
+  containers:
+    - name: redis
+      image: ghcr.io/dorkamotorka/redis-exploit:latest
+      ports:
+        - containerPort: 6379
+      resources:
+        requests:
+          memory: "128Mi"
+          cpu: "100m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
+    # 🧪 Dummy Application Container
+    - name: writer
+      image: python:3.11-slim
+      command: ["/bin/sh"]
+      args:
+        - -c
+        - |
+          pip install redis && \
+          python - <<EOF
+          import time
+          import redis
+
+          print("Connecting to Redis on localhost:6379...")
+          r = redis.Redis(host="127.0.0.1", port=6379)
+
+          while True:
+              value = r.incr("lab-counter")
+              print(f"[Writer] Counter value: {value}")
+              time.sleep(5)
+          EOF
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vulnerable-redis
+spec:
+  selector:
+    app: vulnerable-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+  type: ClusterIP

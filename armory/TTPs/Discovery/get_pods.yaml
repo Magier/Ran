@@ -2,11 +2,11 @@ id: get-pods
 name: Get Pods via K8s API
 description: Get a list of pods via the K8s API server
 tactic: Discovery
-techniques: ["Container and Resource Discovery", T1613]
+techniques: [ "Container and Resource Discovery", T1613 ]
 preconditions:
   # accessLevel: user-read
-  rbac: 
-    - verb: list 
+  rbac:
+    - verb: list
       resource: pods
 parameters:
   TOKEN:
@@ -26,18 +26,16 @@ procedures:
   - key: kubectl
     command: >-
       kubectl get pods --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
-  - key: curl
-    command: >-
-      curl -XGET 
-      -H "Accept: application/json"
-      -H "User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69"
-      -H "Authorization: Bearer ${TOKEN}"
-      --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-      {{ if .ALL_NS }}
-      '${API_SERVER}/api/v1/pods?limit=500'
-      {{ else }}
-      '${API_SERVER}/api/v1/namespaces/${NS}/pods?limit=500'
-      {{ end }}
+  - key: k8s-request
+    k8s_request:
+      api_server: ${API_SERVER}
+      api: /api/v1
+      resource: pods
+      namespace: ${NS}
+      cluster_scoped: ${ALL_NS}
+      query: limit=500
+      token: ${TOKEN}
+      ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 effects:
   - k8s.podList
 # defend: {}

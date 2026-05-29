@@ -5,9 +5,11 @@ techniques: ["User Execution"]
 parameters:
   URL:
     type: string
+    default: https://tinyurl.com/ran-ws
     description: the url from where to download the binary
   NAME:
     type: string
+    default: ran-ws
     description: the name of the binary to execute in memory.  The name is used for tracking the binary in the system as the fileless version has only a number
 procedures:
   - key: perl

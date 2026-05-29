@@ -13,6 +13,7 @@
     import '../app.css';
     import { setCampaignState } from '$lib/components/CampaignState.svelte';
 	import AppMenu from '$lib/components/app_menu.svelte';
+    import { timeline } from '$lib/stores/timelineStore.svelte';
     let { children } = $props();
 
     setCampaignState();
@@ -37,6 +38,7 @@
     setContext('theme', { get isDark() { return isDark }, toggle });
 
     let mediaQuery: MediaQueryList | null = $state(null);
+	let mediaQueryHandler: ((event: MediaQueryListEvent) => void) | null = null;
     onMount(() => {
         if (browser) {
             // Priority: localStorage > system preference
@@ -48,20 +50,22 @@
                 mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
                 isDark = mediaQuery.matches;
 
-                const handler = (event: MediaQueryListEvent) => {
+                mediaQueryHandler = (event: MediaQueryListEvent) => {
                     // Only update from system preference if user hasn't set explicit preference
                     if (!localStorage.getItem('theme')) {
                         isDark = event.matches;
                         updateBodyTheme();
                     }
                 };
-                mediaQuery.addEventListener("change", handler);
+                mediaQuery.addEventListener("change", mediaQueryHandler);
             }
 
             updateBodyTheme();
 
             return () => {
-                mediaQuery?.removeEventListener("change", handler);
+				if (mediaQuery && mediaQueryHandler) {
+					mediaQuery.removeEventListener("change", mediaQueryHandler);
+				}
             };
         }
     });
@@ -85,6 +89,23 @@
                     Flow
                 </a>
             </nav>
+            <button
+                class="btn btn-sm relative p-1"
+                type="button"
+                onclick={() => (timeline.open = !timeline.open)}
+                title="Operation timeline"
+                aria-label="Toggle operation timeline"
+                aria-pressed={timeline.open}
+            >
+                <Icon icon="mdi:history" class="size-5" />
+                {#if timeline.pendingCount > 0 && !timeline.open}
+                    <span
+                        class="absolute -top-1 -right-1 bg-warning-500 text-warning-contrast-500 text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold"
+                    >
+                        {timeline.pendingCount}
+                    </span>
+                {/if}
+            </button>
         <Switch checked={isDark} onCheckedChange={toggle} class="mx-2">
             <Switch.Control>
                 <Switch.Thumb>

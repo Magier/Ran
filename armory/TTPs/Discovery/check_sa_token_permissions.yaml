@@ -1,8 +1,7 @@
 name: Check Token Permissions
 description: Query the K8s API server for the permissions of this provided token
 tactic: Discovery
-techniques: ["Permission Groups Discovery", "T1069.003"]
-# preconditions:
+techniques: [ "Permission Groups Discovery", "T1069.003" ]
 parameters:
   NS:
     type: Namespace
@@ -19,7 +18,8 @@ parameters:
     default: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
   USE_CA:
     type: bool
-    description: whether to use the CA certificate for the request (true) or skip certificate verification (false)
+    description: whether to use the CA certificate for the request (true) or skip
+      certificate verification (false)
     default: true
 preconditions:
   kind: ServiceAccount
@@ -27,37 +27,16 @@ preconditions:
 procedures:
   - key: kubectl
     command: kubectl auth can-i --list --token=${TOKEN}
-  - key: curl
-    command: >-
-      curl -XPOST
-            ${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews
-            --cacert ${CA_PATH}
-            -H "Authorization: Bearer ${TOKEN}"
-            -H "Content-Type: application/json"
-            --data '{
-              "kind": "SelfSubjectRulesReview",
-              "apiVersion": "authorization.k8s.io/v1",
-              "spec": { "namespace": "${NS}" }
-            }'
-  - key: wget
-    tool: wget
-    note: Busybox' version of `wget` may not support the `ca-certificate` option. No CA must be used instead.
-    command: >-
-      wget -O- --post-data='{
-          "kind": "SelfSubjectRulesReview",
-          "apiVersion": "authorization.k8s.io/v1",
-          "spec": { "namespace": "${NS}" }
-        }'
-        --header="Authorization: Bearer ${TOKEN}"
-        --header="Content-Type: application/json"
-        {{ if .USE_CA }}
-        --ca-certificate=${CA_PATH}
-        {{ else }}
-        --no-check-certificate
-        {{ end }}
-        ${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews
+  - http_request:
+      method: POST
+      url: "${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews"
+      headers:
+        Authorization: "Bearer ${TOKEN}"
+        Content-Type: application/json
+      body: "{\"kind\":\"SelfSubjectRulesReview\",\"apiVersion\":\"authorization.k8s.\
+        io/v1\",\"spec\":{\"namespace\":\"${NS}\"}}"
+      use_ca: "${USE_CA}"
+      ca_path: "${CA_PATH}"
 effects:
   - k8s.SelfSubjectRulesReview
-# effects:
-# defend: {}
-references:
+references: []

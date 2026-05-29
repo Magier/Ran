@@ -1,3 +1,4 @@
+id: install-kubectl-c2
 name: Install Kubectl
 description: .
 tactic: Command And Control
@@ -22,41 +23,41 @@ parameters:
 procedures:
   - key: curl
     command: >
-      {{ if .DST_PATH }}
-      DEST_DIR=`dirname ${DST_PATH}`;  
-      {{ else }}
-      DEST_DIR=`pwd`;  
-      {{ end }}
-      if [ ! -w $DEST_DIR ]; then echo "'$DEST_DIR' is not writeable"; exit 23; fi;  
-      curl -sL ${SRC_PATH} {{ if .DST_PATH }} -o ${DST_PATH} {{ else }} -O {{ end }}; 
-      retVal=$?;  
-      if [ $retVal -ne 0 ]; then   
-          echo "Error $retVal";  
-          exit $retVal;  
-      fi;  
-      {{ if .DST_PATH }}
-      f=${DST_PATH}; 
-      {{ else }}
-      f=`ls -t | head -n1`; 
-      {{ end }}
-      echo "file: $f"; 
-      if [ ! -f "$f" ]; then echo "Could not identify downloaded file." && exit 1; fi;  
-      {{ if .Unpack }}
+      {% if DST_PATH %}
+      DEST_DIR=`dirname ${DST_PATH}`;
+      {% else %}
+      DEST_DIR=`pwd`;
+      {% endif %}
+      if [ ! -w $DEST_DIR ]; then echo "'$DEST_DIR' is not writeable"; exit 23; fi;
+      curl -sL ${SRC_PATH} {% if DST_PATH %} -o ${DST_PATH} {% else %} -O {% endif %};
+      retVal=$?;
+      if [ $retVal -ne 0 ]; then
+          echo "Error $retVal";
+          exit $retVal;
+      fi;
+      {% if DST_PATH %}
+      f=${DST_PATH};
+      {% else %}
+      f=`ls -t | head -n1`;
+      {% endif %}
+      echo "file: $f";
+      if [ ! -f "$f" ]; then echo "Could not identify downloaded file." && exit 1; fi;
+      {% if Unpack %}
       case "$f" in
-        *.tar.gz|*.tgz) out=`tar -xzf "$f"` ;; 
-        *.tar.bz2|*.tbz2) out=`tar -xjf "$f"` ;; 
-        *.tar.xz|*.txz) out=`tar -xJf "$f"` ;; 
-        *.zip) out=`unzip -q "$f"` ;; 
-        *.gz) out=`basename "$f" .gz`; gunzip "$f" ;; 
-        *.bz2) out=`basename "$f" .bz2`; bunzip2 "$f" ;; 
-        *.xz) out=`basename "$f" .xz`; unxz "$f" ;; 
-        *.7z) out=`7z x "$f" | awk '/Extracting  / {print $2}'` ;; 
-        *.rar) out=`unrar x -idq "$f" | awk '/Extracting  / {print $2}'` ;; 
-      esac; 
+        *.tar.gz|*.tgz) out=`tar -xzf "$f"` ;;
+        *.tar.bz2|*.tbz2) out=`tar -xjf "$f"` ;;
+        *.tar.xz|*.txz) out=`tar -xJf "$f"` ;;
+        *.zip) out=`unzip -q "$f"` ;;
+        *.gz) out=`basename "$f" .gz`; gunzip "$f" ;;
+        *.bz2) out=`basename "$f" .bz2`; bunzip2 "$f" ;;
+        *.xz) out=`basename "$f" .xz`; unxz "$f" ;;
+        *.7z) out=`7z x "$f" | awk '/Extracting  / {print $2}'` ;;
+        *.rar) out=`unrar x -idq "$f" | awk '/Extracting  / {print $2}'` ;;
+      esac;
       for x in $out; do [ -f "$x" ] && chmod +x "$x"; done;
-      {{ else }}
+      {% else %}
       chmod +x "$f";
-      {{ end}}
+      {% endif %}
     isLocal: false
   # - key: curl
   #   command: curl -F 'data=@${SRC_PATH}' ${DST_PATH}

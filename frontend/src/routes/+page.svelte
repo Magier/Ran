@@ -8,6 +8,8 @@
 	import FileViewerModal from '$lib/modals/FileViewerModal.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { toaster } from '$lib/components/toaster';
+	import { timeline } from '$lib/stores/timelineStore.svelte';
+	import OperationTimeline from '$lib/components/OperationTimeline.svelte';
 	import EntityInfo from './components/entityInfo.svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { ExecuteAction, getRanAPI } from '$lib/ran_api';
@@ -251,7 +253,7 @@
 		}
 	});
 
-	function sendAction(ttp: TTP, args = {}) {
+	async function sendAction(ttp: TTP, args = {}) {
 		selectedTTP = ttp;
 		ttpArgContext = { ...args, ...activeGlobalConditions };
 		if (ttp.params) {
@@ -259,26 +261,27 @@
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
-			const toastId = toaster.create({
-				title: `Executing "${ttp.id}"`,
-				type: 'info',
-				duration: Infinity,
-				meta: { spinner: true }
-			});
-			ToastMapping[ttp.id] = toastId;
-
-			ExecuteAction({actionId: ttp.id, targetId: selectedObjectId, procedureId: '', args: {}})
-				.catch((err) => {
-					const id = ToastMapping[ttp.id];
-					delete ToastMapping[ttp.id];
-					toaster.dismiss(id);
-					toaster.create({
-						title: `Error executing "${ttp.id}"`,
-						description: typeof err === 'string' ? err : (err?.message ?? 'Unknown error'),
-						type: 'error',
-						duration: 5000
-					});
+			const targetName = campaignState.getEntityById(selectedObjectId)?.name ?? selectedObjectId;
+			try {
+				const result = await ExecuteAction({
+					actionId: ttp.id,
+					targetId: selectedObjectId,
+					procedureId: '',
+					args: {}
 				});
+				const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
+				timeline.addTtpAction({
+					id: cmdId,
+					ttpId: ttp.id,
+					ttpName: ttp.name,
+					targetId: selectedObjectId,
+					targetName,
+					status: 'pending',
+					timestamp: new Date()
+				});
+			} catch (err) {
+				handleError(err);
+			}
 		}
 	}
 
@@ -326,37 +329,27 @@
 		});
 
 		ranAPI.on('ttp-executed', (data) => {
-			console.log('TTP Executed Event', data);
-			const key = data.TTP?.id;
-			const toastId = ToastMapping[key];
-			if (!toastId) return;
-			delete ToastMapping[key];
+			timeline.resolveTtpAction(data.CmdId ?? data.ID ?? '', data.Success, data.FailReason);
 
-			toaster.dismiss(toastId);
-
-			if (data.Success) {
-				toaster.create({
-					title: `"${data.TTP.name}" executed successfully`,
-					description: 'Executed successfully',
-					type: 'success',
-					duration: 5000
-				});
-
-				if (data.TTP?.id === 'read-file' && data.Args?.PATH) {
-					ranAPI.GetFileContent(data.Args.PATH).then((file) => {
-						fileViewerPath = file.path ?? data.Args.PATH;
-						fileViewerContent = file.content ?? '';
-						showFileViewer = true;
-					}).catch(() => {});
-				}
-			} else {
-				toaster.create({
-					title: `"${data.TTP.name}" failed`,
-					description: data.FailReason ?? 'Failed for unknown reason',
-					type: 'error',
-					duration: 5000
-				});
+			if (data.Success && data.TTP?.id === 'read-file' && data.Args?.PATH) {
+				ranAPI.GetFileContent(data.Args.PATH).then((file) => {
+					fileViewerPath = file.path ?? data.Args.PATH;
+					fileViewerContent = file.content ?? '';
+					showFileViewer = true;
+				}).catch(() => {});
 			}
+		});
+
+		ranAPI.on('entity-discovered', (data) => {
+			timeline.addEntityEvent({
+				kind: data.category ?? 'discovery',
+				id: data.entityId,
+				entityId: data.entityId,
+				entityName: data.entityName,
+				entityKind: data.entityKind,
+				cmdId: data.cmdId,
+				timestamp: new Date()
+			});
 		});
 	});
 
@@ -373,30 +366,32 @@
 		}
 	});
 
-	const ToastMapping: Record<string, string> = {};
-	function onExecuteTTP(ttpId: string, execSystemId: string, procedureId: string, args: Record<string, string>) {
-		const toastId = toaster.create({
-			title: `Executing "${ttpId}"`,
-			type: 'info',
-			duration: Infinity,
-			meta: { spinner: true }
-		});
-		ToastMapping[ttpId] = toastId;
+	async function onExecuteTTP(ttpId: string, execSystemId: string, procedureId: string, args: Record<string, string>) {
+		const ttp = campaignState.getTtpById(ttpId);
+		const targetName = campaignState.getEntityById(selectedObjectId)?.name ?? selectedObjectId;
 
 		closeModal();
 
-		ExecuteAction({actionId: ttpId, execSystemId, targetId: selectedObjectId, procedureId, args})
-			.catch((err) => {
-				const id = ToastMapping[ttpId];
-				delete ToastMapping[ttpId];
-				toaster.dismiss(id);
-				toaster.create({
-					title: `Error executing "${ttpId}"`,
-					description: typeof err === 'string' ? err : (err?.message ?? 'Unknown error'),
-					type: 'error',
-					duration: 5000
-				});
+		try {
+			const result = await ExecuteAction({ actionId: ttpId, execSystemId, targetId: selectedObjectId, procedureId, args });
+			const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
+			const differsFromTarget = execSystemId && execSystemId !== selectedObjectId;
+			timeline.addTtpAction({
+				id: cmdId,
+				ttpId,
+				ttpName: ttp?.name ?? ttpId,
+				targetId: selectedObjectId,
+				targetName,
+				execSystemId: differsFromTarget ? execSystemId : undefined,
+				execSystemName: differsFromTarget
+					? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
+					: undefined,
+				status: 'pending',
+				timestamp: new Date()
 			});
+		} catch (err) {
+			handleError(err);
+		}
 	}
 
 	function handleError(e: unknown) {
@@ -418,7 +413,7 @@
 </script>
 
 <div class="relative flex h-[calc(100vh-35px)] gap-x-0">
-	{#if campaignState.armory.size > 0}
+	{#if campaignState.isReady()}
 		<!-- Armory panel -->
 		<div
 			class="bg-surface-100-900 flex-shrink-0"
@@ -445,9 +440,9 @@
 
 		<!-- Collapse/Expand button -->
 		<button
-			class="absolute left-0 bottom-2 z-50 bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-r-md px-0.5 py-2 opacity-30 hover:opacity-100 transition-all duration-200"
+			class="absolute left-0 z-50 bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-r-md px-0.5 py-2 opacity-30 hover:opacity-100 transition-all duration-200"
 			class:armory-transition={!isResizing}
-			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`};"
+			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`}; bottom: {timeline.open ? 'calc(15rem + 0.5rem)' : '0.5rem'};"
 			onclick={toggleArmoryCollapse}
 			title={armoryCollapsed ? 'Expand armory' : 'Collapse armory'}
 		>
@@ -458,28 +453,38 @@
 			/>
 		</button>
 
-<!-- Graph area with EntityInfo overlay -->
-	<div class="flex-1 min-w-0 relative">
-		<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="h-full" />
-		
-		{#if selectedObjectId !== ''}
-			<svelte:boundary onerror={handleError}>
-				<div 
-					bind:this={entityInfoContainer}
-					class="absolute top-2 right-2 flex flex-col z-50"
-					class:max-w-[800px]={!hasManuallyResizedEntityInfo}
-					class:max-h-[calc(100vh-80px)]={!hasManuallyResizedEntityInfo}
-					style={hasManuallyResizedEntityInfo ? `width: ${entityInfoWidth}px; height: ${entityInfoHeight}px;` : 'width: fit-content; height: fit-content;'}
-				>
-					<EntityInfo class={hasManuallyResizedEntityInfo ? "overflow-auto flex-1" : "overflow-auto"} objectId={selectedObjectId} {sendAction} />
-					<!-- Resize handle at bottom-left corner -->
-					<button
-					class="absolute bottom-0 left-0 w-4 h-4 cursor-nwse-resize opacity-30 hover:opacity-100 transition-opacity bg-gradient-to-bl from-transparent from-50% to-current to-50% rounded-bl-lg"
-						onmousedown={startResizeEntityInfo}
-						aria-label="Resize entity info panel"
-					></button>
-				</div>
-			</svelte:boundary>
+<!-- Graph area with EntityInfo overlay and Action Log drawer -->
+	<div class="flex-1 min-w-0 flex flex-col min-h-0">
+		<div class="flex-1 min-h-0 relative">
+			<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="h-full" />
+
+			{#if selectedObjectId !== ''}
+				<svelte:boundary onerror={handleError}>
+					<div
+						bind:this={entityInfoContainer}
+						class="absolute top-2 right-2 flex flex-col z-50"
+						class:max-w-[800px]={!hasManuallyResizedEntityInfo}
+						class:max-h-[calc(100vh-80px)]={!hasManuallyResizedEntityInfo}
+						style={hasManuallyResizedEntityInfo ? `width: ${entityInfoWidth}px; height: ${entityInfoHeight}px;` : 'width: fit-content; height: fit-content;'}
+					>
+						<EntityInfo class={hasManuallyResizedEntityInfo ? "overflow-auto flex-1" : "overflow-auto"} objectId={selectedObjectId} {sendAction} />
+						<!-- Resize handle at bottom-left corner -->
+						<button
+						class="absolute bottom-0 left-0 w-4 h-4 cursor-nwse-resize opacity-30 hover:opacity-100 transition-opacity bg-gradient-to-bl from-transparent from-50% to-current to-50% rounded-bl-lg"
+							onmousedown={startResizeEntityInfo}
+							aria-label="Resize entity info panel"
+						></button>
+					</div>
+				</svelte:boundary>
+			{/if}
+		</div>
+
+		{#if timeline.open}
+			<OperationTimeline
+				entries={timeline.topEntries}
+				onfocusentity={(id) => { selectedObjectId = id; }}
+				ontogglegroup={(cmdId) => timeline.toggleGroup(cmdId)}
+			/>
 		{/if}
 	</div>
 
@@ -527,6 +532,7 @@
 			</div>
 		</div>
 	{/if}
+
 </div>
 
 <style>

@@ -18,13 +18,14 @@ import (
 func newAtomicTestCmd(rootCmd *cobra.Command) *cobra.Command {
 	var ttpID string
 	var target string
+	var kubeconfigPath string
 	cmd := &cobra.Command{
 		Use:   "invoke [ttpID]",
 		Short: "Run an atomic test in a Kubernetes cluster",
 		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			ttpID = args[0]
-			ran := core.InitRan(target, "../armory/")
+			ran := core.InitRan(target, "../armory/", kubeconfigPath)
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer cancel()
 			err := ran.ExecuteAtomicTTP(ctx, ttpID, target)
@@ -54,6 +55,7 @@ func newAtomicTestCmd(rootCmd *cobra.Command) *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&target, "target", "t", "", `set the initial target for the emulation. In the pattern "<ns>/<service or pod>" or a URL`)
+	cmd.Flags().StringVar(&kubeconfigPath, "kubeconfig", "", "path to the kubeconfig file (default: $HOME/.kube/config)")
 	cmd.RegisterFlagCompletionFunc("target", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		// Dynamically compute suggestions based on toComplete or context
 		podIDs, err := k8s.GetIDsOfRunningPods(context.Background(), "")

@@ -1,9 +1,9 @@
 name: List Content of a GCP Bucket
-description: List the Contents of a GCP Storage Bucket using the GCP service account token and project ID
+description: List the Contents of a GCP Storage Bucket using the GCP service
+  account token and project ID
 tactic: Discovery
 status: disabled
-techniques:
-  ["Cloud Infrastructure Discovery", T1580]
+techniques: [ "Cloud Infrastructure Discovery", T1580 ]
 preconditions:
   kind: GCPBucket
 parameters:
@@ -15,16 +15,10 @@ parameters:
     description: The name of the GCP bucket
     default: ${TARGET}
 procedures:
-  - key: wget
-    tool: wget
-    command: >-
-      wget -qO- https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o
-      --header="Authorization: Bearer ${TOKEN}"
-  - key: curl
-    tool: curl
-    command: >-
-      curl https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o
-      -H "Authorization: Bearer ${TOKEN}"
-effects: ["GCP.Buckets"]
+  - http_request:
+      url: https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o
+      headers:
+        Authorization: Bearer ${TOKEN}
+effects: [ "GCP.Buckets" ]
 references:
   - https://attack.mitre.org/techniques/T1580/

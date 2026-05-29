@@ -1,0 +1,46 @@
+id: get-httproutes
+name: Get HTTPRoutes via API Server
+description: Enumerate Kubernetes Gateway API HTTPRoute resources to map routing
+  rules, discover backend services reachable via Gateways, and identify
+  hostname-to-service mappings
+tactic: Discovery
+techniques: [ "Container and Resource Discovery", T1613 ]
+preconditions:
+  rbac:
+    - verb: list
+      resource: httproutes
+parameters:
+  TOKEN:
+    type: ServiceAccount
+    description: the ServiceAccount token used to authorize this request
+    optional: true
+    default: ""
+  NS:
+    type: Namespace
+    description: namespace to enumerate
+    default: ${NS}
+  ALL_NS:
+    type: bool
+    description: enumerate HTTPRoutes across all namespaces
+    default: false
+procedures:
+  - key: kubectl
+    command: >-
+      kubectl get httproutes.gateway.networking.k8s.io --token=${TOKEN} -n=${NS}
+      -A=${ALL_NS} --output=json
+  - key: k8s-request
+    k8s_request:
+      api_server: ${API_SERVER}
+      api: /apis/gateway.networking.k8s.io/v1
+      resource: httproutes
+      namespace: ${NS}
+      cluster_scoped: ${ALL_NS}
+      query: limit=500
+      token: ${TOKEN}
+      use_ca: false
+effects:
+  - k8s.httproutelist
+references:
+  - https://kubernetes.io/docs/concepts/services-networking/gateway/
+  - https://gateway-api.sigs.k8s.io/api-types/httproute/
+  - https://attack.mitre.org/techniques/T1613/

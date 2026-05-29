@@ -9,7 +9,8 @@ preconditions:
 procedures:
   - key: shell
     command: env
-  - key: cat
+  - key: read /proc/*/environ
+    tool: cat
     command: cat /proc/self/environ
 effects: ["sys.envVar"]
 # effects:

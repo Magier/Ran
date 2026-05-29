@@ -1,0 +1,23 @@
+[package]
+name = "campaign"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+armory  = { path = "../armory" }
+cortex  = { path = "../graph" }
+async-trait = "0.1"
+c2 = { path = "../c2" }
+ran-domain = { path = "../domain" }
+base64 = "0.22"
+serde = { workspace = true }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.11"
+tokio = { version = "1", features = ["sync", "rt"] }
+tera = "1"
+tracing = "0.1"
+indexmap = "2"
+shell-words = "1"
+yash-syntax = "0.19"
+urlencoding = "2"

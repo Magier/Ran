@@ -172,27 +172,11 @@
 		gap: 0.125rem;
 		position: relative;
 		white-space: nowrap;
-		width: 22px;
-		overflow: visible;
-		transition: width 0.3s ease-in-out;
 		z-index: 10;
 		padding: 0.125rem 0.25rem;
 	}
 
-	.req-badge:hover {
-		width: auto;
-		min-width: 22px;
-	}
-
 	.req-text {
-		opacity: 0;
-		max-width: 0;
-		overflow: hidden;
-		transition: opacity 0.2s ease-in-out, max-width 0.3s ease-in-out;
-	}
-
-	.req-badge:hover .req-text {
 		opacity: 1;
-		max-width: 200px;
 	}
 </style>

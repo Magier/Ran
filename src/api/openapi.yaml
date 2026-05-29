@@ -294,6 +294,53 @@ paths:
                   status:
                     type: string
 
+  /api/execution-records:
+    get:
+      summary: Get execution records
+      description: |
+        Returns all execution records for the current campaign session.
+        Each record includes the full raw stdout/stderr in `results`, resolved
+        arguments, timing, and the parse audits produced by each declared TTP
+        effect. Intended for use by Shuhari's Gap 2 scanner,
+        which cross-references raw stdout against declared effects to detect
+        undeclared structured output.
+      operationId: getExecutionRecords
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExecutionRecordEntry'
+
+  /api/execution-records/{id}:
+    get:
+      summary: Get execution record by ID
+      description: Returns a single execution record by command ID, joined with its parse audits.
+      operationId: getExecutionRecordById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Command ID (matches the `id` field in SSE `ttp-executed` and `parse-audited` events)
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionRecordEntry'
+        '404':
+          description: No record found for the given ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/files:
     get:
       summary: Get file content
@@ -416,6 +463,9 @@ components:
           type: string
         targetId:
           type: string
+        sessionId:
+          type: string
+          description: Backend ID of the active persistent session on this exec-channel edge, if any.
 
     CampaignState:
       type: object
@@ -731,6 +781,135 @@ components:
         isNamespaced:
           type: boolean
           default: true
+    ExecutionRecordEntry:
+      type: object
+      description: |
+        A completed TTP execution joined with the parse audits produced by its
+        declared effects. The record fields are flattened at the top level;
+        `parseAudits` is the list of per-effect audit entries.
+      required:
+        - id
+        - ttp_id
+        - ttp_name
+        - tactic
+        - target_id
+        - exec_system_id
+        - procedure_id
+        - command
+        - args
+        - success
+        - exit_code
+        - results
+        - fail_reason
+        - started_at_ms
+        - completed_at_ms
+        - parseAudits
+      properties:
+        id:
+          type: string
+          description: Unique command ID, correlates with SSE `ttp-executed` and `parse-audited` events
+        ttp_id:
+          type: string
+        ttp_name:
+          type: string
+        tactic:
+          type: string
+        target_id:
+          type: string
+        exec_system_id:
+          type: string
+          description: ID of the system that ran the command; empty for direct builtin exec
+        procedure_id:
+          type: string
+        command:
+          type: string
+          description: Fully grounded command string sent to the C2 backend
+        args:
+          type: object
+          additionalProperties:
+            type: string
+          description: Resolved arguments after default-filling and template substitution
+        success:
+          type: boolean
+        exit_code:
+          type: integer
+        results:
+          type: array
+          items:
+            type: string
+          description: Raw output lines — first element is stdout, second (if present) is stderr
+        fail_reason:
+          type: string
+        started_at_ms:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds when the command was dispatched
+        completed_at_ms:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds when the result was received
+        parseAudits:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParseAudit'
+
+    ParseAudit:
+      type: object
+      description: |
+        Audit record for a single effect parse attempt. `parse_result` indicates
+        whether the effect was parsed successfully; `NoParser` and `UnknownFormat`
+        are the two signals used by Shuhari's Gap 1 classifier.
+      required:
+        - cmd_id
+        - effect_id
+        - ttp_id
+        - target_id
+        - parser_version
+        - raw_output_hash
+        - raw_output_preview
+        - parse_result
+        - detail
+        - inferred_facts_written
+      properties:
+        cmd_id:
+          type: string
+          description: Command ID of the execution that produced this audit
+        effect_id:
+          type: string
+          description: Effect identifier as declared in the TTP (e.g. `sys.envvar`, `k8s.podlist`)
+        ttp_id:
+          type: string
+        target_id:
+          type: string
+        parser_version:
+          type: string
+        raw_output_hash:
+          type: string
+          description: SHA-256 of the raw stdout+stderr, for deduplication across episodes
+        raw_output_preview:
+          type: string
+          description: First 1024 characters of combined stdout+stderr
+        parse_result:
+          type: string
+          enum:
+            - Parsed
+            - KnownFailure
+            - UnknownFormat
+            - NoParser
+            - ParserBug
+          description: |
+            - `Parsed`: effect was handled and facts were written to the campaign
+            - `KnownFailure`: effect ran but produced expected-empty output (e.g. command not found)
+            - `UnknownFormat`: output was present but the parser could not interpret it
+            - `NoParser`: no compiled or external parser is registered for this effect (Gap 1 signal)
+            - `ParserBug`: parser crashed or panicked
+        detail:
+          type: string
+          description: Human-readable explanation of the parse outcome
+        inferred_facts_written:
+          type: integer
+          description: Number of new entities or field updates written to the campaign graph
+
     Error:
       type: object
       required:
@@ -740,6 +919,46 @@ components:
           type: string
         details:
           type: string
+
+    OwnerRef:
+      type: object
+      description: Reference to the Kubernetes owner of a resource (e.g. ReplicaSet → Pod).
+      required:
+        - name
+        - kind
+        - uid
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+        uid:
+          type: string
+
+    VolumeMount:
+      type: object
+      description: A volume mount on a pod — either a projected volume or a host-path bind mount.
+      required:
+        - name
+        - mount_point
+        - mount_root
+        - read_only
+        - is_host_path
+      properties:
+        name:
+          type: string
+        mount_point:
+          type: string
+          description: Path inside the container where the volume appears.
+        mount_root:
+          type: string
+          description: Path on the host that is bound (for hostPath mounts).
+        mount_type:
+          type: string
+        read_only:
+          type: boolean
+        is_host_path:
+          type: boolean
 
     TTPStatus:
       type: string

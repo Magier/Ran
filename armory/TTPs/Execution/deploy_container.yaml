@@ -59,41 +59,41 @@ procedures:
   - key: kubectl
     tool: kubectl
     command: |+
-      export TOKEN=${TOKEN}; 
+      export TOKEN=${TOKEN};
       echo '{
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {
-          "name": "{{.PodName}}",
-          "namespace": "{{.Namespace}}"
+          "name": "{{ PodName }}",
+          "namespace": "{{ Namespace }}"
         },
         "spec": {
-          "hostPID": {{ .HostPID }},
-          "hostIPC": {{ .HostIPC }},
-          "hostNetwork": {{.HostNetwork }},
-          "serviceAccountName": "{{.ServiceAccount }}",
-          "nodeName": "{{.NodeName}}",
+          "hostPID": {{ HostPID }},
+          "hostIPC": {{ HostIPC }},
+          "hostNetwork": {{ HostNetwork }},
+          "serviceAccountName": "{{ ServiceAccount }}",
+          "nodeName": "{{ NodeName }}",
           "containers": [{
-              "name": "{{.PodName}}",
-              "image": "{{.Image}}",
+              "name": "{{ PodName }}",
+              "image": "{{ Image }}",
               "command": ["sleep", "infinity"],
                 "securityContext": {
-                  "privileged": {{.Privileged }}
+                  "privileged": {{ Privileged }}
               }
-              {{if .Mount}}
-              , "volumeMounts": [{"name": "hostmount", "mountPath": "{{ .Mount }}"} ]
-              {{end}}
+              {% if Mount %}
+              , "volumeMounts": [{"name": "hostmount", "mountPath": "{{ Mount }}"} ]
+              {% endif %}
           }]
 
-          {{if .HostPath }}
+          {% if HostPath %}
           , "volumes": [{
-            "name": "hostmount", "hostPath": {"path": "{{.HostPath}}" }
-          }] 
-          {{ end }}
+            "name": "hostmount", "hostPath": {"path": "{{ HostPath }}" }
+          }]
+          {% endif %}
         }
-      }' | kubectl apply --token=$TOKEN -f -  
-      && 
-      kubectl wait --token=$TOKEN --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/{{.PodName}}
+      }' | kubectl apply --token=$TOKEN -f -
+      &&
+      kubectl wait --token=$TOKEN --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/{{ PodName }}
 preconditions:
   rbac: 
     - verb: create

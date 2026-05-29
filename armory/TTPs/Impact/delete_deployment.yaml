@@ -20,7 +20,7 @@ parameters:
 procedures:
   - key: kubectl
     command: >
-      kubectl delete deployment {{ .Name }}  --namespace={{ .Namespace}} --token={{ .Token }}
+      kubectl delete deployment {{ Name }}  --namespace={{ Namespace }} --token={{ Token }}
 preconditions:
   kind: Deployment
   rbac: 

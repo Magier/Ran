@@ -4,10 +4,12 @@ tactic: "Privilege Escalation"
 techniques: ["Escape to Host", T1611]
 staatus: disabled
 preconditions:
-  "kind": Session
+  kind: Session
   "Pod.securityContext.privileged": true
   "Container.securityContext.capabilities": CAP_SYS_MODULE
-effects: []
+  accessLevel: "user-exec"
+effects: 
+  - container.escape(sys)
 command: "EscapeHost"
 procedures:
   - key: curl

@@ -49,7 +49,9 @@
 
 	const compromisedSystems = $derived(campaignState.getCompromisedSystems());
 	const execSystemOptions = $derived<ComboboxOption[]>(
-		compromisedSystems.map(e => ({ label: e.name, value: e.id, group: e.namespace }))
+		compromisedSystems
+			.map(e => ({ label: e.name, value: e.id, group: e.namespace }))
+			.sort((a, b) => a.label.localeCompare(b.label))
 	);
 	const selectedExecSystem = $derived(
 		compromisedSystems.find(e => e.id === selectedExecSystemId)
@@ -329,7 +331,7 @@
 						}
 						console.log("Setting target", param.name, "to value", value);
 					} else if (value.indexOf('${TARGET.IP}') >= 0 && target?.ips?.length > 0) {
-						value = value.replace("${TARGET.IP}", target?.ips[0].IP);
+						value = value.replace("${TARGET.IP}", target.ips[0]);
 					}
 
 					if (param.type === 'Namespace') {
@@ -377,15 +379,13 @@
 			// Also reset procedureId when TTP changes
 			procedureId = ttpProcedures?.[0]?.id || '';
 
-			// Default execution system: prefer target if compromised, else first available
+			// Default execution system: use the target itself when it is already
+			// compromised (direct access). For everything else leave it empty —
+			// the backend resolves the path via the knowledge graph.
 			const systems = campaignState.getCompromisedSystems();
-			if (systems.some(s => s.id === currentTargetId)) {
-				selectedExecSystemId = currentTargetId;
-			} else if (systems.length > 0) {
-				selectedExecSystemId = systems[0].id;
-			} else {
-				selectedExecSystemId = '';
-			}
+			selectedExecSystemId = systems.some(s => s.id === currentTargetId)
+				? currentTargetId
+				: '';
 
 			console.log(args);
 			console.groupEnd();
@@ -690,12 +690,12 @@
 						<option
 							value={procedure.id}
 							disabled={!executingSystemHasTool(procedureToolName(procedure))}
-							>{procedure.id}{!executingSystemHasTool(procedureToolName(procedure)) ? ' ❌' : ''}
+							>{procedureToolName(procedure)}{!executingSystemHasTool(procedureToolName(procedure)) ? ' ❌' : ''}
 						</option>
 					{/each}
 				</select>
 			{:else}
-				<code id="procedure" class="label mt-2 text-xs md:text-sm lg:text-base">{procedureId}</code>
+				<code id="procedure" class="label mt-2 text-xs md:text-sm lg:text-base">{procedureToolName(ttp.procedures?.[0] ?? { id: procedureId })}</code>
 			{/if}
 			<!-- <label class="label mt-5">
 				<span class="label-text">Target</span>
@@ -737,7 +737,7 @@
 						<Combobox.Trigger />
 					</Combobox.Control>
 					<Combobox.Positioner>
-						<Combobox.Content class="z-50 bg-surface-100-900 text-xs md:text-sm lg:text-base">
+						<Combobox.Content class="z-50 bg-surface-100-900 text-xs md:text-sm lg:text-base max-h-64 overflow-y-auto">
 							{#each getArgOptions(arg.Name) as item (item)}
 								<Combobox.Item {item} class="text-surface-contrast-100-900 data-[highlighted]:preset-tonal-surface data-[selected]:preset-tonal {item.disabled ? 'opacity-40 line-through' : ''}">
 									<Combobox.ItemText>{item.label}</Combobox.ItemText>

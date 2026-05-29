@@ -1,0 +1,183 @@
+# daemonset.yaml — Deploys the Oopservability agent on every node.
+#
+# The DaemonSet pattern is common for observability agents (Datadog, Falco,
+# Fluentd, Node Exporter).  Running on every node makes the attack surface
+# cluster-wide — compromise one pod, compromise the whole node fleet.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: oopservability
+  labels:
+    # Label for easy cleanup: kubectl delete ns oopservability
+    app.kubernetes.io/name: oopservability
+    app.kubernetes.io/component: tutorial
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oopservability-agent
+  namespace: oopservability
+  labels:
+    app.kubernetes.io/name: oopservability
+automountServiceAccountToken: true   # default true — token is mounted into the pod
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: oopservability-agent
+  labels:
+    app.kubernetes.io/name: oopservability
+rules:
+  # ── The permission that makes this dangerous ─────────────────────────────
+  # nodes/proxy: transparent HTTP tunnel to the kubelet API.
+  # GET is all you need to reach /run (exec), /pods, /configz, /metrics, etc.
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]
+
+  # ── Standard read permissions an observability agent might legitimately need
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oopservability-agent
+  labels:
+    app.kubernetes.io/name: oopservability
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: oopservability-agent
+subjects:
+  - kind: ServiceAccount
+    name: oopservability-agent
+    namespace: oopservability
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: oopservability-agent
+  namespace: oopservability
+  labels:
+    app.kubernetes.io/name: oopservability
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oopservability
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oopservability
+        app.kubernetes.io/component: agent
+    spec:
+      serviceAccountName: oopservability-agent
+      containers:
+        - name: agent
+          image: ghcr.io/magier/oopservability:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # Expose node name so the agent can build kubelet proxy URLs.
+            # This is standard practice for DaemonSets.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: PORT
+              value: "8080"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          # The SA token is automatically mounted at:
+          #   /var/run/secrets/kubernetes.io/serviceaccount/token
+          # Do NOT set automountServiceAccountToken: false — that is the point.
+          volumeMounts:
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true   # agent only reads logs ... supposedly
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+
+      volumes:
+        # Mount host /var/log so the log search endpoint has something to grep.
+        - name: varlog
+          hostPath:
+            path: /var/log
+            type: Directory
+
+      tolerations:
+        # Run on control-plane nodes too — interesting for tutorial purposes.
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+
+---
+# Optional: expose the agent on every node via a NodePort for easy access
+# during the tutorial (not for production use).
+apiVersion: v1
+kind: Service
+metadata:
+  name: oopservability-agent
+  namespace: oopservability
+  labels:
+    app.kubernetes.io/name: oopservability
+spec:
+  selector:
+    app.kubernetes.io/name: oopservability
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+# rbac.yaml — Service account and RBAC for the Oopservability agent.
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │  THE DANGEROUS PERMISSION                                               │
+# │                                                                         │
+# │  resources: ["nodes/proxy"]                                             │
+# │  verbs:     ["get"]                                                     │
+# │                                                                         │
+# │  At first glance this looks safe:  read-only, scoped to nodes, needed  │
+# │  to scrape kubelet /metrics.  In practice it is a transparent HTTP     │
+# │  tunnel to the kubelet API (port 10250) on every node.                 │
+# │                                                                         │
+# │  The kubelet API trusts the API server to have already authorised the  │
+# │  caller, so any holder of this SA token can:                           │
+# │                                                                         │
+# │    • List all pods on the node   GET  /pods                            │
+# │    • Run commands in any pod     POST /run/<ns>/<pod>/<ctr>            │
+# │    • Read kubelet config         GET  /configz                         │
+# │    • Fetch node-level metrics    GET  /metrics                         │
+# │    • Get container logs          GET  /containerLogs/<ns>/<pod>/<ctr>  │
+# └─────────────────────────────────────────────────────────────────────────┘

@@ -1,0 +1,44 @@
+id: get-ingresses
+name: Get Ingresses via API Server
+description: Enumerate Kubernetes Ingress resources to map externally exposed
+  HTTP/HTTPS entry points, identify backend services, and discover TLS secret
+  references
+tactic: Discovery
+techniques: [ "Container and Resource Discovery", T1613 ]
+preconditions:
+  rbac:
+    - verb: list
+      resource: ingresses
+parameters:
+  TOKEN:
+    type: ServiceAccount
+    description: the ServiceAccount token used to authorize this request
+    optional: true
+    default: ""
+  NS:
+    type: Namespace
+    description: namespace to enumerate
+    default: ${NS}
+  ALL_NS:
+    type: bool
+    description: enumerate ingresses across all namespaces
+    default: false
+procedures:
+  - key: kubectl
+    command: >-
+      kubectl get ingresses --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
+  - key: k8s-request
+    k8s_request:
+      api_server: ${API_SERVER}
+      api: /apis/networking.k8s.io/v1
+      resource: ingresses
+      namespace: ${NS}
+      cluster_scoped: ${ALL_NS}
+      query: limit=500
+      token: ${TOKEN}
+      use_ca: false
+effects:
+  - k8s.ingresslist
+references:
+  - https://kubernetes.io/docs/concepts/services-networking/ingress/
+  - https://attack.mitre.org/techniques/T1613/

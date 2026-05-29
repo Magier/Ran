@@ -1,0 +1,95 @@
+include!(concat!(env!("OUT_DIR"), "/openapi_generated.rs"));
+
+mod api_handlers;
+pub mod mcp;
+mod sse;
+mod state_conversions;
+
+pub use api_handlers::frontend_handler;
+pub use mcp::McpConfig;
+pub use sse::publish_sse_event;
+
+pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
+    axum::Router::new()
+        .route(
+            "/events",
+            axum::routing::get(api_handlers::events_sse_handler::<S>),
+        )
+        .route(
+            "/api/pods/watch",
+            axum::routing::post(api_handlers::start_pod_watch_handler::<S>),
+        )
+        .route(
+            "/api/pods/watch",
+            axum::routing::delete(api_handlers::stop_pod_watch_handler::<S>),
+        )
+        .route(
+            "/api/graph",
+            axum::routing::get(api_handlers::graph_handler::<S>),
+        )
+        .route(
+            "/api/armory",
+            axum::routing::get(api_handlers::armory_handler::<S>),
+        )
+        .route(
+            "/api/applicable-ttps",
+            axum::routing::get(api_handlers::applicable_ttps_handler::<S>),
+        )
+        .route(
+            "/api/action/execute",
+            axum::routing::post(api_handlers::execute_action_handler::<S>),
+        )
+        .route(
+            "/api/campaign-state",
+            axum::routing::get(api_handlers::campaign_state_handler::<S>),
+        )
+        .route(
+            "/api/campaign/reset",
+            axum::routing::post(api_handlers::reset_campaign_handler::<S>),
+        )
+        .route(
+            "/api/flow",
+            axum::routing::get(api_handlers::flow_handler::<S>),
+        )
+        .route(
+            "/api/execution-records",
+            axum::routing::get(api_handlers::execution_records_handler::<S>),
+        )
+        .route(
+            "/api/execution-records/{id}",
+            axum::routing::get(api_handlers::execution_record_by_id_handler::<S>),
+        )
+        .route(
+            "/api/openapi.yaml",
+            axum::routing::get(api_handlers::openapi_spec_handler),
+        )
+        .route(
+            "/api/docs",
+            axum::routing::get(api_handlers::swagger_ui_handler),
+        )
+        .route(
+            "/api/files",
+            axum::routing::get(api_handlers::file_content_handler::<S>),
+        )
+        .route(
+            "/api/plans",
+            axum::routing::post(api_handlers::execute_plan_handler::<S>),
+        )
+        .route(
+            "/api/plans/export",
+            axum::routing::get(api_handlers::export_plan_handler::<S>),
+        )
+        .route(
+            "/api/plans/{plan_id}",
+            axum::routing::get(api_handlers::plan_status_handler::<S>),
+        )
+        .with_state(service.clone())
+        .merge(router(service))
+}
+
+pub fn router_with_sse_and_mcp<S: ApiService + 'static>(
+    service: S,
+    mcp_config: McpConfig,
+) -> axum::Router {
+    router_with_sse(service.clone()).merge(mcp::mcp_router(service, mcp_config))
+}

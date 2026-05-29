@@ -1,0 +1,57 @@
+id: wget
+name: HTTP Request via wget
+description: Reusable HTTP request procedure using wget
+tactic: Execution
+tool_slot: http-request
+status: disabled
+techniques: [ "Command and Scripting Interpreter", T1059 ]
+parameters:
+  URL:
+    type: string
+    description: the full HTTP(S) URL to request
+  METHOD:
+    type: string
+    description: HTTP method to use
+    default: GET
+  HEADERS:
+    type: object
+    description: HTTP headers as key/value entries
+    default: {}
+  PAYLOAD:
+    type: string
+    description: request body content used for methods like POST/PUT/PATCH
+    default: ""
+  TIMEOUT:
+    type: int
+    description: request timeout in seconds
+    default: 30
+  USE_CA:
+    type: bool
+    description: verify TLS using the system CA bundle or CA_PATH
+    default: "true"
+  CA_PATH:
+    type: string
+    description: path to a CA certificate file; only used when USE_CA is true
+    default: ""
+  OUTPUT:
+    type: string
+    description: save response body to this path instead of stdout; defaults to stdout
+    default: ""
+  FOLLOW_REDIRECTS:
+    type: bool
+    description: follow HTTP redirects
+    default: "true"
+procedures:
+  - key: wget
+    tool: wget
+    command: >-
+      wget -T ${TIMEOUT} {% if not FOLLOW_REDIRECTS %}--max-redirect=0 {% endif
+      %} --method=${METHOD} {% if USE_CA %}{% if CA_PATH
+      %}--ca-certificate='${CA_PATH}' {% endif %}{% else
+      %}--no-check-certificate {% endif %} {% for name, value in HEADERS
+      %}--header="{{ name }}: {{ value }}" {% endfor %} {% if PAYLOAD
+      %}--body-data='${PAYLOAD}' {% endif %} {% if OUTPUT %}-O '${OUTPUT}' {%
+      else %}-qO- {% endif %} '${URL}'
+effects: []
+references:
+  - https://www.gnu.org/software/wget/manual/wget.html

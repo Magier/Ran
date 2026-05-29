@@ -1,0 +1,111 @@
+# Redis 7.2.10 — vulnerable to CVE-2025-49844 + CVE-2022-0543
+#
+# CVE-2025-49844: Use-After-Free in Lua parser lparser.c (all Redis < 7.2.11)
+# CVE-2022-0543: Lua sandbox escape via package.loadlib (Debian packaging issue)
+#
+# This uses a custom image built from Dockerfile.redis-vulnerable that patches
+# the Lua sandbox to reproduce the CVE-2022-0543 condition, enabling full
+# sandbox escape via EVAL → package.loadlib → io.popen → shell.
+#
+# Deploys into its own "redis" namespace with:
+#   Namespace, ServiceAccount, Role, RoleBinding, Deployment, Service
+#
+# Apply:  kubectl apply -f redis-vulnerable.yaml
+# Verify: kubectl -n redis get pods
+# Test:   kubectl -n redis exec deploy/redis -- redis-cli PING
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: oopservability
+data:
+  redis.conf: |
+    # Disable protected mode (no auth, no bind restriction)
+    protected-mode no
+    bind 0.0.0.0
+    port 6379
+
+    # Persistence off — ephemeral for testing
+    save ""
+    appendonly no
+
+    # Memory limit
+    maxmemory 256mb
+    maxmemory-policy allkeys-lru
+
+    # Logging
+    loglevel notice
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: oopservability
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: "7.2.10"
+    cve: CVE-2025-49844
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/version: "7.2.10"
+    spec:
+      serviceAccountName: oopservability-agent
+      containers:
+        - name: redis
+          # image: ghcr.io/k8sstormcenter/redis-vulnerable:7.2.10
+          image: ghcr.io/k8sstormcenter/redis-vulnerable:latest
+          command: ["redis-server", "/etc/redis/redis.conf"]
+          ports:
+            - containerPort: 6379
+              name: redis
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/redis
+              readOnly: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: redis-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: oopservability
+  labels:
+    app.kubernetes.io/name: redis
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+      name: redis

@@ -19,7 +19,7 @@ parameters:
 procedures:
   - key: kubectl
     command: >
-      kubectl delete pod {{ .Name }}  --namespace={{ .Namespace}} --token={{ .Token }}
+      kubectl delete pod {{ Name }}  --namespace={{ Namespace }} --token={{ Token }}
 preconditions:
   kind: Pod
   rbac: 

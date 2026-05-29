@@ -16,12 +16,13 @@ func newEmulationCmd() *cobra.Command {
 	var godMode bool
 	var planPath string
 	var armoryPath string
+	var kubeconfigPath string
 	var port int
 	cmd := &cobra.Command{
 		Use:   "emulate",
 		Short: "Emulate adversary behavior against a Kubernetes cluster",
 		Run: func(cmd *cobra.Command, args []string) {
-			ran := core.InitRan(target, armoryPath)
+			ran := core.InitRan(target, armoryPath, kubeconfigPath)
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 			api := api.NewAPI(&ran, ctx)
 			// t := tui.SetupTUI(ran)
@@ -45,6 +46,7 @@ func newEmulationCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&planPath, "path", "f", "", `path to the file of the plan`)
 	cmd.Flags().IntVarP(&port, "port", "p", 8080, "port to run the server on")
 	cmd.Flags().StringVarP(&armoryPath, "armory", "a", "", `path to the armory containing TTPs`)
+	cmd.Flags().StringVar(&kubeconfigPath, "kubeconfig", "", "path to the kubeconfig file (default: $HOME/.kube/config)")
 
 	return cmd
 }

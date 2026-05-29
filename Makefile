@@ -1,3 +1,10 @@
+# === Dev Setup ===
+.PHONY: install-hooks
+install-hooks:
+	@printf '#!/bin/sh\nset -e\ncargo fmt --check || { echo "Run: make fmt"; exit 1; }\ncargo clippy --workspace -- -D warnings\n' > .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "pre-commit hook installed"
+
 # === Code Generation ===
 .PHONY: generate-api
 generate-api:
@@ -7,10 +14,30 @@ generate-api:
 .PHONY: generate
 generate: generate-api
 
+# === Linting ===
+.PHONY: fmt
+fmt:
+	cargo fmt
+
+.PHONY: fmt-check
+fmt-check:
+	cargo fmt --check
+
+.PHONY: clippy
+clippy:
+	cargo clippy --workspace -- -D warnings
+
+.PHONY: lint
+lint: fmt-check clippy
+
 # === Testing ===
 .PHONY: test-go
 test-go:
 	cd src && go test -v ./...
+
+.PHONY: test-rust
+test-rust:
+	cargo test --workspace
 
 .PHONY: test-frontend
 test-frontend:
@@ -35,7 +62,23 @@ copy-frontend:
 .PHONY: prepare-assets
 prepare-assets: copy-armory copy-frontend
 
-# === Building ===
+# === Rust Release Builds ===
+# armory/TTPs is embedded into the binary via the bundled-armory feature.
+# Do NOT pass --features bundled-armory for dev/debug builds.
+RUST_RELEASE_FLAGS := --package cli --features cli/bundled-armory
+
+.PHONY: build-rust
+build-rust:
+	cargo build --release $(RUST_RELEASE_FLAGS)
+
+.PHONY: build-rust-target
+build-rust-target:
+ifndef RUST_TARGET
+	$(error RUST_TARGET is not set, e.g. RUST_TARGET=x86_64-unknown-linux-gnu)
+endif
+	cargo build --release $(RUST_RELEASE_FLAGS) --target $(RUST_TARGET)
+
+# === Legacy Go Builds ===
 
 
 .PHONY: build-binary

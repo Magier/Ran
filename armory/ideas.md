@@ -12,6 +12,8 @@ https://github.com/beserkerbob/KubernetesEnumerationTool (Powershell)
 - [Demystifying The First Few Minutes After Compromising A Container - Stuart McMurray](https://www.youtube.com/watch?v=j4757Q06ev8)
 
 
+- support [Nerva](https://github.com/praetorian-inc/nerva) to understand service behind a port: Fast service fingerprinting CLI for 170+ protocols (TCP/UDP/SCTP) 
+
 ## Privilege Escalation
 - SentinelOne [Climbing The Ladder | Kubernetes Privilege Escalation (Part 1)](https://www.sentinelone.com/blog/climbing-the-ladder-kubernetes-privilege-escalation-part-1)  
 - SentinelOne [Climbing The Ladder | Kubernetes Privilege Escalation (Part 2)](https://www.sentinelone.com/blog/climbing-the-ladder-kubernetes-privilege-escalation-part-2/)

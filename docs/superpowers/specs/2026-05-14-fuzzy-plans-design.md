@@ -1,0 +1,442 @@
+# Fuzzy Plan Execution
+
+**Date:** 2026-05-14
+**Status:** Approved for implementation
+
+## Overview
+
+A plan is a YAML/JSON document that describes a sequence of TTP executions against targets, with fuzzy target resolution, conditional execution, and parallelism. Plans are executed by an online planner that continuously resolves targets and evaluates conditions against the live campaign graph as the emulation proceeds.
+
+The format is inspired by the MITRE ATT&CK Flow concepts (action → condition → branching) without requiring full STIX 2.1 compliance.
+
+There is no separate asset registry. Each step declares its target inline; the planner resolves it against the live campaign graph at dispatch time.
+
+---
+
+## Plan Document Format
+
+### Top-level structure
+
+```yaml
+id: nginx-container-escape
+name: Nginx Container Escape
+description: Exec into nginx pod, verify capabilities, escape to host
+version: "1.0"
+
+steps:
+  - <StepDefinition>
+  ...
+```
+
+### Step definitions
+
+```yaml
+steps:
+  - id: exec_pod
+    action: k8s.exec-into-pod        # TTP ID from the armory
+    target:
+      kind: Pod                      # entity kind: Pod | Node | ServiceAccount | ...
+      namespace: default             # optional; omit to match any namespace
+      name: "nginx-.*"               # regex against the name component of entity IDs
+      select: random                 # optional: random (default) | first | all
+    args:
+      interactive: "true"            # passed through to ExecuteActionRequest.args
+    procedure: stealth-exec          # preferred procedure_id; falls back if not applicable
+    retry: next_procedure            # on failure, try next applicable procedure in TTP order
+    depends_on:
+      - step: prior_step
+        require: success             # hard: prior_step must have succeeded (exit code 0)
+      - step: other_step             # soft: wait for completion, any outcome
+      - graph: "step:prior_step has:rce.can-exec"   # graph predicate on a prior step's target
+```
+
+#### `target` fields
+
+| Field | Required | Description |
+|---|---|---|
+| `kind` | yes | Entity kind to match (case-insensitive) |
+| `namespace` | no | Namespace filter; omit to match across all namespaces |
+| `name` | yes | Regex pattern matched against the name component of the entity ID |
+| `select` | no | `random` \| `first` \| `all`; omit to use `random` |
+
+`name` is a full regex (e.g., `nginx-.*`, `^jump-[a-z0-9]+$`). The planner matches it against the name component of entity IDs: `ns/{ns}/pod/{name}` → matches against `{name}`.
+
+#### `depends_on` reference
+
+| Form | Meaning |
+|---|---|
+| `step: X` | Wait for step X to complete (any outcome) |
+| `step: X, require: success` | Step X must have `success: true` |
+| `step: X, require: any_success` | At least one fan-out instance of X succeeded |
+| `step: X, require: all_success` | All fan-out instances of X succeeded |
+| `graph: "step:X has:<relation>"` | The entity targeted by step X must have this relation in the campaign graph |
+| `graph: "step:X all_have:<relation>"` | All entities targeted by step X (fan-out) must have this relation |
+
+All `depends_on` entries are AND-ed.
+
+#### `retry` options
+
+| Value | Behaviour |
+|---|---|
+| `next_procedure` | On step failure, advance to the next applicable procedure in the TTP's ordered list |
+| _(absent)_ | No retry; step is marked failed immediately |
+
+### Full example
+
+```yaml
+id: nginx-recon-and-escape
+name: Network Recon then Nginx Escape
+version: "1.0"
+
+steps:
+  # Recon and enumeration run in parallel (no depends_on)
+  - id: net_discovery
+    action: recon.network-scan
+    target:
+      kind: Pod
+      namespace: default
+      name: "jump-.*"
+      select: random
+    args:
+      subnet: "10.0.0.0/24"
+
+  - id: enum_secrets
+    action: k8s.list-secrets
+    target:
+      kind: Pod
+      namespace: default
+      name: "jump-.*"
+      select: random
+
+  - id: enum_env
+    action: container.read-env
+    target:
+      kind: Pod
+      namespace: default
+      name: "jump-.*"
+      select: random
+
+  # Exec into nginx — waits for net_discovery to have populated the graph
+  # (stays Pending until a Pod matching nginx-.* appears in the campaign)
+  - id: exec_nginx
+    action: k8s.exec-into-pod
+    target:
+      kind: Pod
+      namespace: default
+      name: "nginx-.*"
+      select: first
+    args:
+      interactive: "true"
+    procedure: stealth-exec
+    retry: next_procedure
+    depends_on:
+      - step: net_discovery
+        require: success
+
+  # Check capabilities — hard dep on exec succeeding
+  - id: check_caps
+    action: container.check-capabilities
+    target:
+      kind: Pod
+      namespace: default
+      name: "nginx-.*"
+      select: first
+    depends_on:
+      - step: exec_nginx
+        require: success
+
+  # Escape — hard dep on check_caps AND graph condition on exec_nginx's target
+  - id: escape
+    action: container.escape-to-host
+    target:
+      kind: Pod
+      namespace: default
+      name: "nginx-.*"
+      select: first
+    depends_on:
+      - step: check_caps
+        require: success
+      - graph: "step:exec_nginx has:rce.can-exec"
+
+  # Post-enum join — waits for both enum steps (soft deps)
+  - id: post_enum
+    action: reporting.summarize
+    target:
+      kind: Pod
+      namespace: default
+      name: "jump-.*"
+      select: random
+    depends_on:
+      - step: enum_secrets
+      - step: enum_env
+```
+
+---
+
+## Target Resolution
+
+Step targets are resolved against the campaign `EntityStore` at the moment a step becomes eligible for dispatch.
+
+**Resolution algorithm:**
+
+1. Filter entities by `kind` (case-insensitive)
+2. Filter by `namespace` if specified
+3. Apply regex `name` against the name component of the entity ID (`ns/{ns}/pod/{name}` → match against `{name}`)
+4. If no entities match → step remains `Pending`; re-evaluated after each subsequent step completes
+5. Apply `select` strategy to the matching set
+
+**Select strategies:**
+
+| strategy | behaviour |
+|---|---|
+| `random` (default) | one entity chosen at random |
+| `first` | lexicographically first match |
+| `all` | fan-out: one `ExecuteActionRequest` per entity, all dispatched in parallel |
+
+**Fan-out and joins:** when a step uses `select: all`, downstream steps that `depend_on` it default to `require: any_success`. Override with `require: all_success` to require every instance succeeded.
+
+---
+
+## Online Dispatch Loop
+
+The planner is **online** — it re-evaluates all pending steps after every step completes and after the campaign graph updates.
+
+```
+on plan start:
+  build step DAG from depends_on edges
+  tick()
+
+tick(campaign):
+  for each Pending step:
+    if all depends_on satisfied:
+      entities = resolve_target(step.target, campaign)
+      if entities non-empty:
+        dispatch ExecuteActionRequest(s)
+        mark step Dispatched
+
+on TtpExecuted(record):
+  update step status (Completed or retry)
+  if retry=next_procedure and failed:
+    find next applicable procedure via armory applicability checks
+    if found: re-dispatch with new procedure_id
+    if none remain: mark step Failed
+  propagate skips to dependents whose only unsatisfied deps were hard-failed steps
+  tick(campaign)
+```
+
+**Skip propagation:** when a hard requirement (`require: success`) is unmet because the prerequisite is `Failed` or `Skipped`, the dependent step is marked `Skipped`. Skipped steps do not block downstream steps that have alternative satisfied paths.
+
+---
+
+## Execution Engine Architecture
+
+New crate: **`crates/planner/`**, depending on `crates/campaign` and `crates/armory`.
+
+```
+crates/planner/
+  src/
+    model.rs      — PlanDefinition, TargetQuery, StepDefinition, Dependency, SelectStrategy
+    resolver.rs   — regex resolution against campaign EntityStore
+    executor.rs   — PlanExecutor, dispatch loop, retry logic
+    state.rs      — PlanExecutionState, StepStatus
+```
+
+### Key types
+
+```rust
+// model.rs
+pub struct PlanDefinition {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub version: String,
+    pub steps: Vec<StepDefinition>,
+}
+
+pub struct TargetQuery {
+    pub kind: String,
+    pub namespace: Option<String>,
+    pub name: String,               // regex pattern
+    pub select: Option<SelectStrategy>,  // None => Random
+}
+
+pub enum SelectStrategy { Random, First, All }
+
+pub struct StepDefinition {
+    pub id: String,
+    pub action: String,
+    pub target: TargetQuery,
+    pub args: HashMap<String, String>,
+    pub procedure: Option<String>,
+    pub retry: RetryStrategy,
+    pub depends_on: Vec<Dependency>,
+}
+
+pub enum Dependency {
+    Step { id: String, require: Require },
+    Graph { step_ref: String, relation: String, all: bool },
+}
+
+pub enum Require { Completion, Success, AnySuccess, AllSuccess }
+pub enum RetryStrategy { None, NextProcedure }
+
+// state.rs
+pub enum StepStatus {
+    Pending,
+    Dispatched { exec_ids: Vec<String> },
+    Completed { outcomes: Vec<bool> },
+    Failed { reason: String },
+    Skipped { reason: String },
+}
+```
+
+### API integration
+
+- `POST /campaigns/{id}/plans` — submit a plan YAML/JSON body, returns a plan execution ID
+- `GET /campaigns/{id}/plans/{plan_id}` — returns current `PlanExecutionState`
+- Events streamed on the existing `CampaignEvent` bus as `CampaignEvent::PlanStepDispatched`, `PlanStepCompleted`, `PlanStepSkipped`
+- MCP tool: `execute_plan` (parallel to the existing `execute_action` tool)
+
+### Procedure applicability
+
+The applicability checks currently in the UI (filter procedures where required tools are absent) move server-side into the planner's retry logic. On first dispatch, the planner selects the first applicable procedure from the TTP's ordered list. On `retry: next_procedure`, it advances through the list using the same applicability functions from `crates/campaign/src/ttp_applicability.rs`.
+
+---
+
+## Recording and Export
+
+A campaign's execution history can be exported as a reusable plan via:
+
+```
+GET /campaigns/{id}/export-plan?include_failed=false
+```
+
+The exporter reads the campaign's `execution_records` in order and produces a plan YAML.
+
+### What gets exported
+
+By default, only **successful** steps (`success: true`) are included. Pass `include_failed=true` to also export failed attempts — useful for emulation replay and detection engineering (generating telemetry for both successful and failed techniques).
+
+**Failed steps are never on the critical path.** When included, they:
+- Depend on the same preceding successful step as their nearest successful successor (same execution context)
+- Are not depended on by any other step — plan flow is never gated on them
+- Carry a `note: "recorded: failed"` metadata field so the operator knows these are expected to fail in replay
+
+This means failed steps run as side branches off the success chain, producing telemetry without blocking the emulation.
+
+```yaml
+steps:
+  - id: step_0_exec_into_pod        # succeeded
+    ...
+
+  - id: step_1_attempt_privesc      # failed — included with include_failed=true
+    action: container.exploit-cve-xyz
+    target: ...
+    note: "recorded: failed"
+    depends_on:
+      - step: step_0_exec_into_pod  # same context as the successful successor
+        require: success
+    # nothing depends on this step
+
+  - id: step_2_check_capabilities   # succeeded — not blocked by step_1
+    ...
+    depends_on:
+      - step: step_0_exec_into_pod
+        require: success
+```
+
+### Chaining
+
+Each exported step depends on the previous exported step with `require: success`, producing a linear success chain. This is the conservative default; the operator can loosen dependencies (add parallelism, remove unnecessary deps) by editing the exported YAML.
+
+```yaml
+steps:
+  - id: step_0_exec_into_pod
+    ...
+    # no depends_on — first step
+
+  - id: step_1_check_capabilities
+    ...
+    depends_on:
+      - step: step_0_exec_into_pod
+        require: success
+
+  - id: step_2_escape_to_host
+    ...
+    depends_on:
+      - step: step_1_check_capabilities
+        require: success
+      # + exported preconditions (see below)
+```
+
+### Target fuzzification
+
+Entity IDs are converted to `TargetQuery` patterns automatically:
+
+| Entity type | Example ID | Exported target |
+|---|---|---|
+| Deployment pod | `ns/default/pod/nginx-7d4b9f-xk2jp` | `kind: Pod, namespace: default, name: "nginx-.*"` |
+| DaemonSet pod | `ns/default/pod/fluentd-node-k9z2m` | `kind: Pod, namespace: default, name: "fluentd-node-.*"` |
+| StatefulSet pod | `ns/default/pod/postgres-0` | `kind: Pod, namespace: default, name: "postgres-.*"` |
+| Node | `node/worker-1` | `kind: Node, name: "worker-1"` (stable, no fuzz) |
+| ServiceAccount | `sa/default/nginx` | `kind: ServiceAccount, namespace: default, name: "nginx"` (stable) |
+
+**Fuzzification heuristic for pods:** strip trailing segments that match k8s-generated suffixes:
+- `-[a-z0-9]{5}` — pod hash (Deployment)
+- `-[a-z0-9]{10}` — ReplicaSet hash
+- `-[0-9]+` — StatefulSet ordinal
+- Any combination of the above
+
+The inferred pattern is shown to the operator in the API response alongside the original entity ID so it can be reviewed before saving.
+
+### Precondition export
+
+Each TTP's `requires` block is translated into `depends_on.graph` entries on the step. These are exported as **best-effort starting conditions** for the operator to refine — they capture what was true at the time of the recording.
+
+| TTP `requires` field | Exported as |
+|---|---|
+| `accessLevel: "root-exec"` | `graph: "step:<prev> has:access.root-exec"` |
+| `accessLevel: "exec"` | `graph: "step:<prev> has:access.exec"` |
+| `exists: ["Listener"]` | `graph: "step:<prev> has:listener.active"` |
+| `has-token: true` | `graph: "step:<prev> has:sa.has-token"` |
+
+`<prev>` is the immediately preceding step in the success chain — the step whose execution established the condition.
+
+Example exported step with preconditions:
+
+```yaml
+- id: step_2_escape_to_host
+  action: container.escape-to-host
+  target:
+    kind: Pod
+    namespace: default
+    name: "nginx-.*"
+  depends_on:
+    - step: step_1_check_capabilities
+      require: success
+    - graph: "step:step_1_check_capabilities has:access.root-exec"   # from requires.accessLevel
+    - graph: "step:step_0_exec_into_pod has:access.exec"             # from requires.exists
+```
+
+### Export API response
+
+```json
+{
+  "plan": "<yaml string>",
+  "fuzzification_report": [
+    {
+      "original": "ns/default/pod/nginx-7d4b9f-xk2jp",
+      "pattern": "nginx-.*",
+      "confidence": "high"
+    }
+  ]
+}
+```
+
+`confidence` is `high` when a known k8s suffix pattern was detected, `low` when the heuristic was uncertain (operator should review).
+
+---
+
+## Open Questions
+
+None — all design decisions resolved during brainstorming.

@@ -1,0 +1,9 @@
+[package]
+name    = "cortex"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ran-domain = { path = "../domain" }
+petgraph   = "0.8"
+serde      = { workspace = true }

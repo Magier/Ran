@@ -15,6 +15,7 @@ export type Entity = {
 	namespace?: string;
 	accessLevel?: { User: number; Level: number } | string;
 	binaries?: Record<string, string>;
+	envVars?: Record<string, string>;
 	phase?: string;
 	ready?: boolean;
 	stateReason?: string;
@@ -39,6 +40,22 @@ type BackendError = {
 	code: string;
 	message: string;
 };
+
+type ParseAuditUI = {
+	effectId: string;
+	parseResult: string;
+	detail: string;
+	inferredFactsWritten: number;
+};
+
+function normalizeParseAudit(raw: any): ParseAuditUI {
+	return {
+		effectId: raw?.effectId ?? raw?.effect_id ?? 'unknown effect',
+		parseResult: raw?.parseResult ?? raw?.parse_result ?? 'UnknownFormat',
+		detail: raw?.detail ?? 'no additional parser detail',
+		inferredFactsWritten: raw?.inferredFactsWritten ?? raw?.inferred_facts_written ?? 0
+	};
+}
 
 class CampaignState {
 	campaignId: number = $state(0);
@@ -75,6 +92,27 @@ class CampaignState {
 			}).catch((err) => {
 				console.error(`❌ [Event ${eventId}->Call ${stateCallId}] GetCampaignState failed:`, err);
 			});
+		});
+		this.api.on('parse-audited', (data: any) => {
+			const audits = (data?.audits ?? []).map(normalizeParseAudit);
+			if (!Array.isArray(audits) || audits.length === 0) {
+				showToast('Parsing coverage', 'No parse audits were emitted for this action', 'error');
+				return;
+			}
+
+			const logOnly = new Set(['NoParser', 'KnownFailure']);
+			const problematic = audits.filter((a: ParseAuditUI) => a.parseResult !== 'Parsed' && !logOnly.has(a.parseResult));
+			const gaps = audits.filter((a: ParseAuditUI) => logOnly.has(a.parseResult));
+			if (gaps.length > 0) {
+				console.log('[parse-audited] parser gaps (log only):', gaps.map((a: ParseAuditUI) => `${a.effectId}: ${a.parseResult} (${a.detail})`));
+			}
+			if (problematic.length > 0) {
+				const details = problematic
+					.map((a: ParseAuditUI) => `${a.effectId}: ${a.parseResult} (${a.detail})`)
+					.join('\n');
+				showToast('Parsing gap detected', details, 'error');
+				return;
+			}
 		});
 		this.api.on('reset-campaign', () => this.onReset());
 		this.api.on('error-msg', (rawMsg: string) => {
@@ -127,6 +165,10 @@ class CampaignState {
 				})
 				.catch(this.showError);
 		});
+	}
+
+	isReady(): boolean {
+		return this.graph && this.entities.length > 0;
 	}
 
 	handleMessage(event: MessageEvent) {
@@ -412,8 +454,7 @@ class CampaignState {
 		const systemKinds = ['Pod', 'K8sNode', 'UnknownSystem'];
 		return this.entities.filter(
 			(entity) => systemKinds.includes(entity.kind ?? '') &&
-				entity.accessLevel != null &&
-				(entity.accessLevel === "user-exec" || (typeof entity.accessLevel === "object" && (entity.accessLevel.User > 0 || entity.accessLevel.Level > 0)))
+				typeof entity.accessLevel === 'string' && entity.accessLevel.endsWith('exec')
 		);
 	}
 
