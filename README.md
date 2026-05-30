@@ -13,7 +13,7 @@
   <a href="https://github.com/magier/ran/actions/workflows/build.yaml"><img src="https://img.shields.io/github/actions/workflow/status/magier/ran/build.yaml?label=build&logo=github" alt="Build Status"/></a>
   <a href="https://github.com/magier/ran/releases/latest"><img src="https://img.shields.io/github/v/release/magier/ran?logo=github" alt="Latest Release"/></a>
   <a href="https://github.com/magier/ran/pkgs/container/ran"><img src="https://img.shields.io/badge/container-ghcr.io-blue?logo=github" alt="Container Registry"/></a>
-  <img src="https://img.shields.io/badge/go-1.24-00ADD8?logo=go" alt="Go 1.24"/>
+  <img src="https://img.shields.io/badge/rust-1.93-CE422B?logo=rust" alt="Rust 1.93"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License"/></a>
 </p>
 
@@ -98,13 +98,13 @@ Then open `http://localhost:8080` in your browser.
 
 ### Build from source
 
-**Prerequisites:** Go 1.24+, Node.js 20+, pnpm
+**Prerequisites:** Rust 1.93+, Node.js 20+, pnpm
 
 ```sh
 git clone https://github.com/magier/ran.git
 cd ran
-make build
-./dist/ran --help
+make build-rust
+./target/release/ran --help
 ```
 
 ---
