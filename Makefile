@@ -8,8 +8,8 @@ install-hooks:
 # === Code Generation ===
 .PHONY: generate-api
 generate-api:
-	cd src && go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest -package api -generate chi-server,models,embedded-spec -o api/api.gen.go api/openapi.yaml
-	cd frontend && pnpm exec openapi-typescript ../src/api/openapi.yaml -o src/lib/api/gen_types.ts
+	cd legacy/src && go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest -package api -generate chi-server,models,embedded-spec -o api/api.gen.go api/openapi.yaml
+	cd frontend && pnpm exec openapi-typescript ../legacy/src/api/openapi.yaml -o src/lib/api/gen_types.ts
 
 .PHONY: generate
 generate: generate-api
@@ -33,7 +33,7 @@ lint: fmt-check clippy
 # === Testing ===
 .PHONY: test-go
 test-go:
-	cd src && go test -v ./...
+	cd legacy/src && go test -v ./...
 
 .PHONY: test-rust
 test-rust:
@@ -50,14 +50,14 @@ build-frontend:
 
 .PHONY: copy-armory
 copy-armory:
-	mkdir -p src/armory/builtin
-	rm -rf src/armory/builtin/*
-	cp -a armory/TTPs/. src/armory/builtin/
+	mkdir -p legacy/src/armory/builtin
+	rm -rf legacy/src/armory/builtin/*
+	cp -a armory/TTPs/. legacy/src/armory/builtin/
 
 .PHONY: copy-frontend
 copy-frontend:
-	mkdir -p src/api/static
-	cp -r frontend/build/. src/api/static/
+	mkdir -p legacy/src/api/static
+	cp -r frontend/build/. legacy/src/api/static/
 
 .PHONY: prepare-assets
 prepare-assets: copy-armory copy-frontend
@@ -90,8 +90,8 @@ ifndef GOARCH
 	$(error GOARCH is not set)
 endif
 	mkdir -p dist/$(GOOS)-$(GOARCH)
-	cd src && \
-	DEST=../dist/$(GOOS)-$(GOARCH)/ran$(if $(filter windows,$(GOOS)),.exe,) && \
+	cd legacy/src && \
+	DEST=../../dist/$(GOOS)-$(GOARCH)/ran$(if $(filter windows,$(GOOS)),.exe,) && \
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $$DEST . && chmod +x $$DEST
 
 # Local development
@@ -99,7 +99,7 @@ endif
 
 .PHONY: build
 build: prepare-assets
-	cd src && go build -o ../dist/ran . && chmod +x ../dist/ran
+	cd legacy/src && go build -o ../../dist/ran . && chmod +x ../../dist/ran
 
 .PHONY: build-all
 build-all: prepare-assets

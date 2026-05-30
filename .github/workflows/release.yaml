@@ -59,7 +59,7 @@ jobs:
       env:
         APP_NAME: RanUI
         WAILS_VERSION: latest
-        WORKING_DIR: RanUI
+        WORKING_DIR: legacy/RanUI
         DIST_DIR: dist
         VERSION: ${{ github.ref_name }}
         WAILS_WEBVIEW_INSTALL: download
@@ -125,8 +125,8 @@ jobs:
           with:
             check-latest: true
             cache: true
-            cache-dependency-path: 'RanUI/go.sum'
-            go-version-file: "RanUI/go.mod"
+            cache-dependency-path: 'legacy/RanUI/go.sum'
+            go-version-file: "legacy/RanUI/go.mod"
         # - name: Install Garble
         #   if: inputs.build-obfuscate == 'true'
         #   run: go install mvdan.cc/garble@latest
@@ -256,14 +256,14 @@ jobs:
         runs-on: ubuntu-latest
         needs: [build, build-wails]
         env: 
-          RANUI_DIST_DIR: RanUI/dist  # this path must match with goreleasers `release.extra_files`
+          RANUI_DIST_DIR: legacy/RanUI/dist  # this path must match with goreleasers `release.extra_files`
         steps: 
           - name: Checkout
             uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
           - name: Setup Go
             uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
             with:
-              go-version-file: "src/go.mod"
+              go-version-file: "legacy/src/go.mod"
           - name: Download RanUI artifacts
             uses: actions/download-artifact@v4
             with:

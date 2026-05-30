@@ -9,7 +9,7 @@ WORKDIR /app
 # Copy everything needed for the build
 COPY Makefile ./
 COPY frontend/ ./frontend/
-COPY src/ ./src/
+COPY legacy/src/ ./legacy/src/
 COPY armory/ ./armory/
 
 # Install frontend dependencies

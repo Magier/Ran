@@ -41,7 +41,7 @@ on:
       app-working-directory:
         description: "This gets run into bash, use the full command"
         required: false
-        default: "RanUI"
+        default: "legacy/RanUI"
 
 permissions:
   contents: write
@@ -50,7 +50,7 @@ jobs:
     build-wails:
       defaults:
           run: 
-            working-directory: RanUI
+            working-directory: legacy/RanUI
       strategy:
       # Failure in one platform build won't impact the others
         fail-fast: false
@@ -104,8 +104,8 @@ jobs:
           with:
             check-latest: true
             cache: true
-            cache-dependency-path: 'RanUI/go.sum'
-            go-version-file: "RanUI/go.mod"
+            cache-dependency-path: 'legacy/RanUI/go.sum'
+            go-version-file: "legacy/RanUI/go.mod"
         # - name: Install Garble
         #   if: inputs.build-obfuscate == 'true'
         #   run: go install mvdan.cc/garble@latest
