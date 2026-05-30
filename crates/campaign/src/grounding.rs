@@ -63,32 +63,30 @@ pub fn ground_args_from_context(
 
     for (key, value) in args.iter_mut() {
         match key.to_ascii_uppercase().as_str() {
-            "NS" | "NAMESPACE" => {
-                if value.is_empty() || value == "${NS}" || value == "${NAMESPACE}" {
-                    *value = target_ns.clone().unwrap_or_default();
-                }
+            "NS" | "NAMESPACE"
+                if value.is_empty() || value == "${NS}" || value == "${NAMESPACE}" =>
+            {
+                *value = target_ns.clone().unwrap_or_default();
             }
-            "POD_NAME" | "PODNAME" => {
-                if value.contains("${POD_NAME}") {
-                    let name = target_name.as_deref().unwrap_or("ran");
-                    *value = value.replace("${POD_NAME}", name);
-                }
+            "NS" | "NAMESPACE" => {}
+            "POD_NAME" | "PODNAME" if value.contains("${POD_NAME}") => {
+                let name = target_name.as_deref().unwrap_or("ran");
+                *value = value.replace("${POD_NAME}", name);
             }
-            "NODE" | "NODENAME" | "NODE_NAME" => {
-                if value.is_empty() || value == "${NODE_NAME}" {
-                    *value = target_node.clone().unwrap_or_default();
-                }
+            "POD_NAME" | "PODNAME" => {}
+            "NODE" | "NODENAME" | "NODE_NAME" if value.is_empty() || value == "${NODE_NAME}" => {
+                *value = target_node.clone().unwrap_or_default();
             }
+            "NODE" | "NODENAME" | "NODE_NAME" => {}
             "TOKEN" => {
                 if let Some(raw) = resolve_token_arg(value, target.as_ref(), campaign) {
                     *value = raw;
                 }
             }
-            "API_SERVER" => {
-                if value.is_empty() || value == "${API_SERVER}" {
-                    *value = "https://kubernetes.default.svc".to_string();
-                }
+            "API_SERVER" if value.is_empty() || value == "${API_SERVER}" => {
+                *value = "https://kubernetes.default.svc".to_string();
             }
+            "API_SERVER" => {}
             _ => {}
         }
 

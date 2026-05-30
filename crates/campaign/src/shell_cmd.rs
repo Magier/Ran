@@ -139,7 +139,7 @@ impl ShellCmd {
         }
 
         // Apply from end to start so earlier char indices stay valid.
-        replacements.sort_by(|a, b| b.0.start.cmp(&a.0.start));
+        replacements.sort_by_key(|b| std::cmp::Reverse(b.0.start));
 
         // The AST location ranges are char-indexed; Rust strings are byte-indexed.
         let char_indices: Vec<usize> = self
