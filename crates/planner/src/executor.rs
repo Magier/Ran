@@ -212,24 +212,30 @@ impl PlanExecutor {
                 .find(|s| s.id == step_id)
                 .unwrap()
                 .clone();
-            if !overall_success && step.retry == RetryStrategy::NextProcedure && armory.is_some() {
-                let attempt = {
-                    let a = self.retry_attempts.entry(step_id.clone()).or_insert(0);
-                    *a += 1;
-                    *a
-                };
-                let next =
-                    self.retry_procedure_id_with_armory(&step.action, attempt, armory.unwrap());
-                if next.is_some() {
-                    self.state
-                        .mark_pending_retry(&step_id, attempt, next.clone());
-                    return events; // tick() will handle re-dispatch
+            if !overall_success && step.retry == RetryStrategy::NextProcedure {
+                if let Some(armory) = armory {
+                    let attempt = {
+                        let a = self.retry_attempts.entry(step_id.clone()).or_insert(0);
+                        *a += 1;
+                        *a
+                    };
+                    let next = self.retry_procedure_id_with_armory(&step.action, attempt, armory);
+                    if next.is_some() {
+                        self.state
+                            .mark_pending_retry(&step_id, attempt, next.clone());
+                        return events; // tick() will handle re-dispatch
+                    }
+                    self.state.mark_failed(&step_id, "all procedures exhausted");
+                    events.push(PlanEvent::StepFailed {
+                        step_id: step_id.clone(),
+                        reason: "all procedures exhausted".into(),
+                    });
+                } else {
+                    events.push(PlanEvent::StepCompleted {
+                        step_id: step_id.clone(),
+                        success: false,
+                    });
                 }
-                self.state.mark_failed(&step_id, "all procedures exhausted");
-                events.push(PlanEvent::StepFailed {
-                    step_id: step_id.clone(),
-                    reason: "all procedures exhausted".into(),
-                });
             } else if overall_success {
                 events.push(PlanEvent::StepCompleted {
                     step_id: step_id.clone(),

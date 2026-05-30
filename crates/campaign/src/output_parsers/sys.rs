@@ -101,7 +101,7 @@ fn parse_sys_files(stdout: &str, _stderr: &str, args: &HashMap<String, String>) 
         };
 
         // Skip . and .. directory entries produced by ls -a
-        let base = raw.trim_end_matches(|c| matches!(c, '/' | '@' | '=' | '|' | '>'));
+        let base = raw.trim_end_matches(['/', '@', '=', '|', '>']);
         if base == "." || base == ".." {
             continue;
         }

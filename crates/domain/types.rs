@@ -335,8 +335,8 @@ impl SystemInfo {
 // BinaryPresence
 // ---------------------------------------------------------------------------
 
-/// Whether a binary is known to exist on a system and, if so, where.
-///
+// Whether a binary is known to exist on a system and, if so, where.
+
 // ---------------------------------------------------------------------------
 // OutputTransformKind
 // ---------------------------------------------------------------------------

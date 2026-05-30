@@ -398,7 +398,7 @@ impl ApiService for AppState {
                 // Run tick
                 let dispatches = {
                     let campaign = this.campaign.read().unwrap();
-                    executor.lock().unwrap().tick(&*campaign)
+                    executor.lock().unwrap().tick(&campaign)
                 };
 
                 for dispatch in dispatches {

@@ -901,13 +901,8 @@ impl InferenceRule for PropagateHostIPAnalyzer {
                 continue;
             }
 
-            for node_id in campaign
-                .graph
-                .targets_of(&pod_id, "runs-on")
-                .into_iter()
-                .cloned()
-            {
-                propagate_ip_to_node(&mut inferred, &view, &node_id, host_ip);
+            for node_id in campaign.graph.targets_of(&pod_id, "runs-on").into_iter() {
+                propagate_ip_to_node(&mut inferred, &view, node_id, host_ip);
             }
             for rel in &update.new_relations {
                 if rel.relation_name() == "runs-on" && rel.source_id() == &pod_id {
@@ -1605,8 +1600,7 @@ impl InferenceRule for KubeletExecSourceAnalyzer {
                 if campaign
                     .graph
                     .targets_of(&pod_id, "kubelet-exec")
-                    .iter()
-                    .any(|existing| *existing == node_id)
+                    .contains(&node_id)
                 {
                     continue;
                 }

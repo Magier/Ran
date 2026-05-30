@@ -1090,15 +1090,14 @@ impl Campaign {
                     let _ = self.apply_system_update(id, &absent_update);
                 }
             }
-            let mut parse_audits = Vec::new();
-            parse_audits.push(build_parse_audit(
+            let parse_audits = vec![build_parse_audit(
                 FAILURE_ANALYZER_EFFECT_ID,
                 cmd,
                 event,
                 early_missing.parse_result,
                 &early_missing.detail,
                 0,
-            ));
+            )];
             self.parse_audits.extend(parse_audits.clone());
             let mut record = ExecutionRecord::from_execution(cmd, event);
             record.success = false;

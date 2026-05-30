@@ -140,7 +140,7 @@ impl Armory {
     /// known slot (e.g. `"http-request"`) with one cloned procedure per
     /// concrete tool that fills that slot.  The clone receives the concrete
     /// tool's ID as both its `id` and `tool` field.
-    fn expand_slot_procedures(ttps: &mut Vec<Ttp>) {
+    fn expand_slot_procedures(ttps: &mut [Ttp]) {
         // Build slot → [concrete tool IDs] map from tool TTPs.
         let mut slot_map: HashMap<String, Vec<String>> = HashMap::new();
         for ttp in ttps.iter() {

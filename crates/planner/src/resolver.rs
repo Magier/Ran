@@ -25,7 +25,7 @@ fn entity_namespace(entity_id: &str) -> Option<&str> {
 }
 
 fn entity_name(entity_id: &str) -> &str {
-    entity_id.rsplitn(2, '/').next().unwrap_or(entity_id)
+    entity_id.rsplit('/').next().unwrap_or(entity_id)
 }
 
 /// Resolve a TargetQuery against a list of entity ID strings.

@@ -26,7 +26,7 @@ pub struct ExportOptions {
 }
 
 pub fn fuzzify_entity_id(entity_id: &str) -> FuzzResult {
-    let name = entity_id.rsplitn(2, '/').next().unwrap_or(entity_id);
+    let name = entity_id.rsplit('/').next().unwrap_or(entity_id);
     let kind = entity_kind_from_id(entity_id);
 
     if kind != "pod" {
@@ -91,7 +91,7 @@ fn entity_namespace_from_id(entity_id: &str) -> Option<&str> {
 }
 
 fn step_id_from_record(ttp_id: &str, index: usize) -> String {
-    let slug = ttp_id.replace('.', "_").replace('-', "_");
+    let slug = ttp_id.replace(['.', '-'], "_");
     format!("step_{}_{}", index, slug)
 }
 

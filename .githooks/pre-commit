@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+cargo fmt --check || {
+  echo "Formatting issues found. Run 'cargo fmt' and re-stage."
+  exit 1
+}
+
+cargo clippy --workspace -- -D warnings
