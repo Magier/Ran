@@ -95,7 +95,7 @@ impl BuiltinC2 {
                         results,
                         exit_code: 0,
                         fail_reason: String::new(),
-            session_connected: None,
+                        session_connected: None,
                     };
                 }
                 Ok(output) => {
@@ -143,7 +143,7 @@ impl BuiltinC2 {
                         results: vec![reason.clone()],
                         exit_code: 1,
                         fail_reason: reason,
-            session_connected: None,
+                        session_connected: None,
                     };
                 }
             }
@@ -161,7 +161,7 @@ impl BuiltinC2 {
                 results: vec![reason.clone()],
                 exit_code: 1,
                 fail_reason: reason,
-            session_connected: None,
+                session_connected: None,
             };
         }
 
@@ -206,7 +206,7 @@ fn ok_result(cmd_id: &str, output: String) -> TtpExecuted {
         results: vec![payload],
         exit_code: 0,
         fail_reason: String::new(),
-            session_connected: None,
+        session_connected: None,
     }
 }
 

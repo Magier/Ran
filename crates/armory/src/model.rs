@@ -93,11 +93,7 @@ impl Ttp {
     ///     ..Ttp::new("list-pods", "List Pods", "Discovery")
     /// }
     /// ```
-    pub fn new(
-        id: impl Into<String>,
-        name: impl Into<String>,
-        tactic: impl Into<String>,
-    ) -> Self {
+    pub fn new(id: impl Into<String>, name: impl Into<String>, tactic: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             name: name.into(),

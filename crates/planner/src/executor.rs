@@ -1,13 +1,13 @@
-use std::collections::{HashMap, HashSet};
-use campaign::{Campaign, ExecuteActionRequest};
-#[allow(unused_imports)]
-use armory::Armory;
 use crate::{
     error::PlanError,
     model::{Dependency, PlanDefinition, Require, RetryStrategy},
     resolver::resolve_target,
     state::{PlanExecutionState, StepStatus},
 };
+#[allow(unused_imports)]
+use armory::Armory;
+use campaign::{Campaign, ExecuteActionRequest};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug)]
 pub struct PlanDispatch {
@@ -112,7 +112,9 @@ impl PlanExecutor {
     /// Public tick — takes a Campaign reference. Call this from the API layer.
     pub fn tick(&mut self, campaign: &Campaign) -> Vec<PlanDispatch> {
         let entity_ids = campaign.all_entity_ids();
-        self.tick_inner(&entity_ids, |eid, rel| campaign.entity_has_relation(eid, rel))
+        self.tick_inner(&entity_ids, |eid, rel| {
+            campaign.entity_has_relation(eid, rel)
+        })
     }
 
     fn all_deps_satisfied(
@@ -125,33 +127,44 @@ impl PlanExecutor {
 
         for dep in &step.depends_on {
             match dep {
-                Dependency::Step { step: dep_id, require } => {
-                    match self.state.get(dep_id) {
-                        Some(StepStatus::Completed { outcomes }) => {
-                            let ok = match require {
-                                Require::Completion => true,
-                                Require::Success | Require::AnySuccess => outcomes.iter().any(|&o| o),
-                                Require::AllSuccess => outcomes.iter().all(|&o| o),
-                            };
-                            if !ok { return false; }
+                Dependency::Step {
+                    step: dep_id,
+                    require,
+                } => match self.state.get(dep_id) {
+                    Some(StepStatus::Completed { outcomes }) => {
+                        let ok = match require {
+                            Require::Completion => true,
+                            Require::Success | Require::AnySuccess => outcomes.iter().any(|&o| o),
+                            Require::AllSuccess => outcomes.iter().all(|&o| o),
+                        };
+                        if !ok {
+                            return false;
                         }
-                        Some(StepStatus::Skipped { .. }) | Some(StepStatus::Failed { .. }) => {
-                            if !matches!(require, Require::Completion) {
-                                return false;
-                            }
-                        }
-                        _ => return false,
                     }
-                }
-                Dependency::Graph { step_ref, relation, all } => {
+                    Some(StepStatus::Skipped { .. }) | Some(StepStatus::Failed { .. }) => {
+                        if !matches!(require, Require::Completion) {
+                            return false;
+                        }
+                    }
+                    _ => return false,
+                },
+                Dependency::Graph {
+                    step_ref,
+                    relation,
+                    all,
+                } => {
                     let targets = self.state.targets_for(step_ref);
-                    if targets.is_empty() { return false; }
+                    if targets.is_empty() {
+                        return false;
+                    }
                     let satisfied = if *all {
                         targets.iter().all(|t| graph_check(t, relation))
                     } else {
                         targets.iter().any(|t| graph_check(t, relation))
                     };
-                    if !satisfied { return false; }
+                    if !satisfied {
+                        return false;
+                    }
                 }
             }
         }
@@ -192,19 +205,24 @@ impl PlanExecutor {
         if let Some(StepStatus::Completed { ref outcomes }) = completed {
             let overall_success = outcomes.iter().any(|&o| o);
 
-            let step = self.plan.steps.iter().find(|s| s.id == step_id).unwrap().clone();
-            if !overall_success
-                && step.retry == RetryStrategy::NextProcedure
-                && armory.is_some()
-            {
+            let step = self
+                .plan
+                .steps
+                .iter()
+                .find(|s| s.id == step_id)
+                .unwrap()
+                .clone();
+            if !overall_success && step.retry == RetryStrategy::NextProcedure && armory.is_some() {
                 let attempt = {
                     let a = self.retry_attempts.entry(step_id.clone()).or_insert(0);
                     *a += 1;
                     *a
                 };
-                let next = self.retry_procedure_id_with_armory(&step.action, attempt, armory.unwrap());
+                let next =
+                    self.retry_procedure_id_with_armory(&step.action, attempt, armory.unwrap());
                 if next.is_some() {
-                    self.state.mark_pending_retry(&step_id, attempt, next.clone());
+                    self.state
+                        .mark_pending_retry(&step_id, attempt, next.clone());
                     return events; // tick() will handle re-dispatch
                 }
                 self.state.mark_failed(&step_id, "all procedures exhausted");
@@ -213,9 +231,15 @@ impl PlanExecutor {
                     reason: "all procedures exhausted".into(),
                 });
             } else if overall_success {
-                events.push(PlanEvent::StepCompleted { step_id: step_id.clone(), success: true });
+                events.push(PlanEvent::StepCompleted {
+                    step_id: step_id.clone(),
+                    success: true,
+                });
             } else {
-                events.push(PlanEvent::StepCompleted { step_id: step_id.clone(), success: false });
+                events.push(PlanEvent::StepCompleted {
+                    step_id: step_id.clone(),
+                    success: false,
+                });
             }
 
             events.extend(self.propagate_skips());
@@ -250,7 +274,8 @@ impl PlanExecutor {
                     continue;
                 }
                 if self.should_skip(step_id) {
-                    self.state.mark_skipped(step_id, "hard dependency failed or skipped");
+                    self.state
+                        .mark_skipped(step_id, "hard dependency failed or skipped");
                     events.push(PlanEvent::StepSkipped {
                         step_id: step_id.clone(),
                         reason: "hard dependency failed or skipped".into(),
@@ -265,7 +290,11 @@ impl PlanExecutor {
     fn should_skip(&self, step_id: &str) -> bool {
         let step = self.plan.steps.iter().find(|s| s.id == step_id).unwrap();
         for dep in &step.depends_on {
-            if let Dependency::Step { step: dep_id, require } = dep {
+            if let Dependency::Step {
+                step: dep_id,
+                require,
+            } = dep
+            {
                 if matches!(require, Require::Completion) {
                     continue;
                 }
@@ -283,7 +312,12 @@ impl PlanExecutor {
         false
     }
 
-    fn retry_procedure_id_with_armory(&self, action_id: &str, attempt: usize, armory: &Armory) -> Option<String> {
+    fn retry_procedure_id_with_armory(
+        &self,
+        action_id: &str,
+        attempt: usize,
+        armory: &Armory,
+    ) -> Option<String> {
         let ttp = armory.get_ttp(action_id)?;
         ttp.procedures.get(attempt).map(|p| p.id.clone())
     }
@@ -318,10 +352,14 @@ fn validate_plan(plan: &PlanDefinition) -> Result<(), PlanError> {
 fn detect_cycles(plan: &PlanDefinition) -> Result<(), String> {
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for step in &plan.steps {
-        let deps: Vec<&str> = step.depends_on.iter().filter_map(|d| match d {
-            Dependency::Step { step, .. } => Some(step.as_str()),
-            _ => None,
-        }).collect();
+        let deps: Vec<&str> = step
+            .depends_on
+            .iter()
+            .filter_map(|d| match d {
+                Dependency::Step { step, .. } => Some(step.as_str()),
+                _ => None,
+            })
+            .collect();
         adj.entry(step.id.as_str()).or_default().extend(deps);
     }
 
@@ -334,8 +372,12 @@ fn detect_cycles(plan: &PlanDefinition) -> Result<(), String> {
         visited: &mut HashSet<&'a str>,
         in_stack: &mut HashSet<&'a str>,
     ) -> Option<&'a str> {
-        if in_stack.contains(node) { return Some(node); }
-        if visited.contains(node) { return None; }
+        if in_stack.contains(node) {
+            return Some(node);
+        }
+        if visited.contains(node) {
+            return None;
+        }
         visited.insert(node);
         in_stack.insert(node);
         for &dep in adj.get(node).map(|v| v.as_slice()).unwrap_or(&[]) {
@@ -393,56 +435,89 @@ mod tests {
     fn valid_plan_creates_executor() {
         let plan = make_plan(vec![
             make_step("a", vec![]),
-            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Success }]),
+            make_step(
+                "b",
+                vec![Dependency::Step {
+                    step: "a".into(),
+                    require: Require::Success,
+                }],
+            ),
         ]);
         assert!(PlanExecutor::new(plan).is_ok());
     }
 
     #[test]
     fn unknown_step_ref_fails_validation() {
-        let plan = make_plan(vec![
-            make_step("a", vec![Dependency::Step { step: "nonexistent".into(), require: Require::Success }]),
-        ]);
-        assert!(matches!(PlanExecutor::new(plan), Err(PlanError::UnknownStepRef(_))));
+        let plan = make_plan(vec![make_step(
+            "a",
+            vec![Dependency::Step {
+                step: "nonexistent".into(),
+                require: Require::Success,
+            }],
+        )]);
+        assert!(matches!(
+            PlanExecutor::new(plan),
+            Err(PlanError::UnknownStepRef(_))
+        ));
     }
 
     #[test]
     fn circular_dependency_fails_validation() {
         let plan = make_plan(vec![
-            make_step("a", vec![Dependency::Step { step: "b".into(), require: Require::Success }]),
-            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Success }]),
+            make_step(
+                "a",
+                vec![Dependency::Step {
+                    step: "b".into(),
+                    require: Require::Success,
+                }],
+            ),
+            make_step(
+                "b",
+                vec![Dependency::Step {
+                    step: "a".into(),
+                    require: Require::Success,
+                }],
+            ),
         ]);
-        assert!(matches!(PlanExecutor::new(plan), Err(PlanError::CircularDependency(_))));
+        assert!(matches!(
+            PlanExecutor::new(plan),
+            Err(PlanError::CircularDependency(_))
+        ));
     }
 
     #[test]
     fn graph_dep_with_unknown_step_ref_fails_validation() {
         let plan = make_plan(vec![
             make_step("a", vec![]),
-            make_step("b", vec![Dependency::Graph {
-                step_ref: "nonexistent".into(),
-                relation: "rce.can-exec".into(),
-                all: false,
-            }]),
+            make_step(
+                "b",
+                vec![Dependency::Graph {
+                    step_ref: "nonexistent".into(),
+                    relation: "rce.can-exec".into(),
+                    all: false,
+                }],
+            ),
         ]);
-        assert!(matches!(PlanExecutor::new(plan), Err(PlanError::UnknownStepRef(_))));
+        assert!(matches!(
+            PlanExecutor::new(plan),
+            Err(PlanError::UnknownStepRef(_))
+        ));
     }
 
     fn entity_ids() -> Vec<String> {
         vec!["ns/default/pod/nginx-abc123".to_string()]
     }
 
-    fn no_relations(_: &str, _: &str) -> bool { false }
+    fn no_relations(_: &str, _: &str) -> bool {
+        false
+    }
     fn has_rce(entity_id: &str, relation: &str) -> bool {
         entity_id.contains("nginx") && relation == "rce.can-exec"
     }
 
     #[test]
     fn steps_with_no_deps_are_dispatched_on_first_tick() {
-        let plan = make_plan(vec![
-            make_step("a", vec![]),
-            make_step("b", vec![]),
-        ]);
+        let plan = make_plan(vec![make_step("a", vec![]), make_step("b", vec![])]);
         let mut exec = PlanExecutor::new(plan).unwrap();
         let dispatches = exec.tick_inner(&entity_ids(), no_relations);
         assert_eq!(dispatches.len(), 2);
@@ -455,7 +530,13 @@ mod tests {
     fn step_with_dep_stays_pending_until_predecessor_done() {
         let plan = make_plan(vec![
             make_step("a", vec![]),
-            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Success }]),
+            make_step(
+                "b",
+                vec![Dependency::Step {
+                    step: "a".into(),
+                    require: Require::Success,
+                }],
+            ),
         ]);
         let mut exec = PlanExecutor::new(plan).unwrap();
         let dispatches = exec.tick_inner(&entity_ids(), no_relations);
@@ -468,7 +549,13 @@ mod tests {
     fn step_dispatched_after_predecessor_succeeds() {
         let plan = make_plan(vec![
             make_step("a", vec![]),
-            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Success }]),
+            make_step(
+                "b",
+                vec![Dependency::Step {
+                    step: "a".into(),
+                    require: Require::Success,
+                }],
+            ),
         ]);
         let mut exec = PlanExecutor::new(plan).unwrap();
         let d1 = exec.tick_inner(&entity_ids(), no_relations);
@@ -484,7 +571,13 @@ mod tests {
     fn soft_dep_unblocks_on_any_outcome() {
         let plan = make_plan(vec![
             make_step("a", vec![]),
-            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Completion }]),
+            make_step(
+                "b",
+                vec![Dependency::Step {
+                    step: "a".into(),
+                    require: Require::Completion,
+                }],
+            ),
         ]);
         let mut exec = PlanExecutor::new(plan).unwrap();
         exec.tick_inner(&entity_ids(), no_relations);
@@ -497,13 +590,23 @@ mod tests {
 
     #[test]
     fn graph_predicate_blocks_until_satisfied() {
-        let dep = Dependency::Graph { step_ref: "a".into(), relation: "rce.can-exec".into(), all: false };
+        let dep = Dependency::Graph {
+            step_ref: "a".into(),
+            relation: "rce.can-exec".into(),
+            all: false,
+        };
         let plan = make_plan(vec![
             make_step("a", vec![]),
-            make_step("b", vec![
-                Dependency::Step { step: "a".into(), require: Require::Success },
-                dep,
-            ]),
+            make_step(
+                "b",
+                vec![
+                    Dependency::Step {
+                        step: "a".into(),
+                        require: Require::Success,
+                    },
+                    dep,
+                ],
+            ),
         ]);
         let mut exec = PlanExecutor::new(plan).unwrap();
         exec.tick_inner(&entity_ids(), no_relations);
@@ -531,7 +634,13 @@ mod tests {
     fn hard_dep_on_failed_step_skips_dependent() {
         let plan = make_plan(vec![
             make_step("a", vec![]),
-            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Success }]),
+            make_step(
+                "b",
+                vec![Dependency::Step {
+                    step: "a".into(),
+                    require: Require::Success,
+                }],
+            ),
         ]);
         let mut exec = PlanExecutor::new(plan).unwrap();
         exec.tick_inner(&entity_ids(), no_relations);
@@ -539,7 +648,10 @@ mod tests {
         exec.state.record_outcome("cmd-1", false);
 
         let events = exec.on_ttp_executed_inner("cmd-1", false, None, None);
-        let skipped: Vec<_> = events.iter().filter(|e| matches!(e, PlanEvent::StepSkipped { .. })).collect();
+        let skipped: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, PlanEvent::StepSkipped { .. }))
+            .collect();
         assert_eq!(skipped.len(), 1);
         assert!(matches!(&skipped[0], PlanEvent::StepSkipped { step_id, .. } if step_id == "b"));
     }
@@ -548,8 +660,20 @@ mod tests {
     fn skip_propagates_transitively() {
         let plan = make_plan(vec![
             make_step("a", vec![]),
-            make_step("b", vec![Dependency::Step { step: "a".into(), require: Require::Success }]),
-            make_step("c", vec![Dependency::Step { step: "b".into(), require: Require::Success }]),
+            make_step(
+                "b",
+                vec![Dependency::Step {
+                    step: "a".into(),
+                    require: Require::Success,
+                }],
+            ),
+            make_step(
+                "c",
+                vec![Dependency::Step {
+                    step: "b".into(),
+                    require: Require::Success,
+                }],
+            ),
         ]);
         let mut exec = PlanExecutor::new(plan).unwrap();
         exec.tick_inner(&entity_ids(), no_relations);
@@ -557,8 +681,15 @@ mod tests {
         exec.state.record_outcome("cmd-1", false);
 
         let events = exec.on_ttp_executed_inner("cmd-1", false, None, None);
-        let skipped: Vec<_> = events.iter()
-            .filter_map(|e| if let PlanEvent::StepSkipped { step_id, .. } = e { Some(step_id.as_str()) } else { None })
+        let skipped: Vec<_> = events
+            .iter()
+            .filter_map(|e| {
+                if let PlanEvent::StepSkipped { step_id, .. } = e {
+                    Some(step_id.as_str())
+                } else {
+                    None
+                }
+            })
             .collect();
         assert!(skipped.contains(&"b"));
         assert!(skipped.contains(&"c"));
@@ -600,6 +731,10 @@ mod tests {
         // Simulate: API dispatched and got real cmd_id back
         exec.record_dispatched("a", vec!["real-cmd-001".into()]);
         assert_eq!(exec.state().step_for_cmd("real-cmd-001"), Some("a"));
-        assert_eq!(exec.state().step_for_cmd("pending-a-ns/default/pod/nginx-abc123"), None);
+        assert_eq!(
+            exec.state()
+                .step_for_cmd("pending-a-ns/default/pod/nginx-abc123"),
+            None
+        );
     }
 }

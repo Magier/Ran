@@ -342,7 +342,11 @@ impl KnowledgeGraph {
     /// (e.g. `k8s.can-exec`, `rce.can-exec`, `c2.session`) so the session
     /// state lives on the edge that already represents the execution channel,
     /// instead of creating a redundant new relation.
-    pub fn activate_session_on_incoming_exec(&mut self, tgt: &EntityId, session_id: String) -> bool {
+    pub fn activate_session_on_incoming_exec(
+        &mut self,
+        tgt: &EntityId,
+        session_id: String,
+    ) -> bool {
         let Some(&ti) = self.index.get(tgt) else {
             return false;
         };

@@ -81,7 +81,11 @@ fn pod_to_running_pod(pod: &Pod) -> Option<RunningPod> {
     Some(RunningPod {
         id: format!("ns/{}/pod/{}", namespace, name),
         name,
-        namespace: if namespace.is_empty() { None } else { Some(namespace) },
+        namespace: if namespace.is_empty() {
+            None
+        } else {
+            Some(namespace)
+        },
         phase: Some(phase),
         ready: Some(ready),
         state_reason,
@@ -154,7 +158,11 @@ impl K8sService {
                         | watcher::Event::InitDone,
                     ) => {
                         consecutive_errors = 0;
-                        let pods = store.state().into_iter().filter_map(|p| pod_to_running_pod(&p)).collect();
+                        let pods = store
+                            .state()
+                            .into_iter()
+                            .filter_map(|p| pod_to_running_pod(&p))
+                            .collect();
                         on_change(pods);
                     }
                     Ok(_) => consecutive_errors = 0,
@@ -164,7 +172,8 @@ impl K8sService {
                         let delay_ms = (500u64 * (1u64 << consecutive_errors.min(6))).min(30_000);
                         tracing::warn!(
                             "watch_pods: watcher error (will retry in {}ms, attempt {}): {e}",
-                            delay_ms, consecutive_errors
+                            delay_ms,
+                            consecutive_errors
                         );
                         tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                     }
@@ -259,12 +268,12 @@ impl K8sService {
             params = params.container(c);
         }
 
-        let mut attached = api
-            .exec(pod, ["/bin/sh"], &params)
-            .await
-            .with_context(|| {
-                format!("kubectl exec session failed for pod '{}/{}'", namespace, pod)
-            })?;
+        let mut attached = api.exec(pod, ["/bin/sh"], &params).await.with_context(|| {
+            format!(
+                "kubectl exec session failed for pod '{}/{}'",
+                namespace, pod
+            )
+        })?;
 
         let mut stdin_w = attached
             .stdin()

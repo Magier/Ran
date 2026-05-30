@@ -1,9 +1,15 @@
-use regex::Regex;
+use crate::model::{
+    Dependency, PlanDefinition, Require, RetryStrategy, StepDefinition, TargetQuery,
+};
 use campaign::ExecutionRecord;
-use crate::model::{Dependency, PlanDefinition, Require, RetryStrategy, StepDefinition, TargetQuery};
+use regex::Regex;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Confidence { High, Low, Stable }
+pub enum Confidence {
+    High,
+    Low,
+    Stable,
+}
 
 #[derive(Debug, Clone)]
 pub struct FuzzResult {
@@ -36,9 +42,8 @@ pub fn fuzzify_entity_id(entity_id: &str) -> FuzzResult {
     //   DaemonSet:    <name>-<node-hash(5)>
     //   StatefulSet:  <name>-<ordinal>
     static K8S_HASH: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let re = K8S_HASH.get_or_init(|| {
-        Regex::new(r"-([a-z0-9]{5,6}|[a-z0-9]{9,10}|[0-9]+)$").unwrap()
-    });
+    let re =
+        K8S_HASH.get_or_init(|| Regex::new(r"-([a-z0-9]{5,6}|[a-z0-9]{9,10}|[0-9]+)$").unwrap());
 
     let mut base = name.to_string();
     let mut stripped = false;
@@ -91,12 +96,16 @@ fn step_id_from_record(ttp_id: &str, index: usize) -> String {
 }
 
 pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDefinition {
-    let successful: Vec<&ExecutionRecord> = records.iter()
+    let successful: Vec<&ExecutionRecord> = records
+        .iter()
         .filter(|r| r.success && !r.is_cleanup)
         .collect();
 
     let failed: Vec<&ExecutionRecord> = if opts.include_failed {
-        records.iter().filter(|r| !r.success && !r.is_cleanup).collect()
+        records
+            .iter()
+            .filter(|r| !r.success && !r.is_cleanup)
+            .collect()
     } else {
         vec![]
     };
@@ -147,7 +156,9 @@ pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDef
 
         // Find last successful record that appears before this failed one
         let record_pos = records.iter().position(|r| r.id == rec.id).unwrap_or(0);
-        let last_success_step_id = records[..record_pos].iter().rev()
+        let last_success_step_id = records[..record_pos]
+            .iter()
+            .rev()
             .find(|r| r.success && !r.is_cleanup)
             .and_then(|r| {
                 let idx = successful.iter().position(|s| s.id == r.id)?;
@@ -155,7 +166,10 @@ pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDef
             });
 
         let depends_on = match last_success_step_id {
-            Some(sid) => vec![Dependency::Step { step: sid, require: Require::Success }],
+            Some(sid) => vec![Dependency::Step {
+                step: sid,
+                require: Require::Success,
+            }],
             None => vec![],
         };
 
@@ -232,11 +246,31 @@ mod tests {
     #[test]
     fn export_success_only_plan() {
         let records = vec![
-            make_record("cmd-1", "k8s.exec-into-pod", "ns/default/pod/nginx-abc-xyz", "proc-1", true),
-            make_record("cmd-2", "container.check-caps", "ns/default/pod/nginx-abc-xyz", "proc-1", false),
-            make_record("cmd-3", "container.escape", "ns/default/pod/nginx-abc-xyz", "proc-1", true),
+            make_record(
+                "cmd-1",
+                "k8s.exec-into-pod",
+                "ns/default/pod/nginx-abc-xyz",
+                "proc-1",
+                true,
+            ),
+            make_record(
+                "cmd-2",
+                "container.check-caps",
+                "ns/default/pod/nginx-abc-xyz",
+                "proc-1",
+                false,
+            ),
+            make_record(
+                "cmd-3",
+                "container.escape",
+                "ns/default/pod/nginx-abc-xyz",
+                "proc-1",
+                true,
+            ),
         ];
-        let opts = ExportOptions { include_failed: false };
+        let opts = ExportOptions {
+            include_failed: false,
+        };
         let plan = export_plan(&records, &opts);
         assert_eq!(plan.steps.len(), 2); // only cmd-1 and cmd-3
         assert_eq!(plan.steps[0].id, "step_0_k8s_exec_into_pod");
@@ -249,15 +283,39 @@ mod tests {
     #[test]
     fn export_include_failed_adds_side_branches() {
         let records = vec![
-            make_record("cmd-1", "k8s.exec-into-pod", "ns/default/pod/nginx-abc-xyz", "proc-1", true),
-            make_record("cmd-2", "container.exploit-cve", "ns/default/pod/nginx-abc-xyz", "proc-1", false),
-            make_record("cmd-3", "container.escape", "ns/default/pod/nginx-abc-xyz", "proc-1", true),
+            make_record(
+                "cmd-1",
+                "k8s.exec-into-pod",
+                "ns/default/pod/nginx-abc-xyz",
+                "proc-1",
+                true,
+            ),
+            make_record(
+                "cmd-2",
+                "container.exploit-cve",
+                "ns/default/pod/nginx-abc-xyz",
+                "proc-1",
+                false,
+            ),
+            make_record(
+                "cmd-3",
+                "container.escape",
+                "ns/default/pod/nginx-abc-xyz",
+                "proc-1",
+                true,
+            ),
         ];
-        let opts = ExportOptions { include_failed: true };
+        let opts = ExportOptions {
+            include_failed: true,
+        };
         let plan = export_plan(&records, &opts);
         assert_eq!(plan.steps.len(), 3);
         // The failed step depends on cmd-1's step (same predecessor as cmd-3), not on cmd-3
-        let failed_step = plan.steps.iter().find(|s| s.note.as_deref() == Some("recorded: failed")).unwrap();
+        let failed_step = plan
+            .steps
+            .iter()
+            .find(|s| s.note.as_deref() == Some("recorded: failed"))
+            .unwrap();
         assert!(failed_step.depends_on.iter().any(|d| {
             matches!(d, crate::model::Dependency::Step { step, .. } if step == "step_0_k8s_exec_into_pod")
         }));

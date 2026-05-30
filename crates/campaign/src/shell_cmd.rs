@@ -276,8 +276,7 @@ mod tests {
 
     #[test]
     fn parses_and_or_chain() {
-        let sc =
-            ShellCmd::parse("kubectl apply -f - && kubectl wait pod/foo").unwrap();
+        let sc = ShellCmd::parse("kubectl apply -f - && kubectl wait pod/foo").unwrap();
         let cmds: Vec<_> = sc.commands().collect();
         assert_eq!(cmds.len(), 2);
         assert!(cmds.iter().all(|c| c.name.as_deref() == Some("kubectl")));
@@ -333,8 +332,7 @@ mod tests {
 
     #[test]
     fn tool_names_returns_bare_names() {
-        let sc = ShellCmd::parse("echo '{}' | kubectl apply -f - && kubectl wait pod/foo")
-            .unwrap();
+        let sc = ShellCmd::parse("echo '{}' | kubectl apply -f - && kubectl wait pod/foo").unwrap();
         let names = sc.tool_names();
         assert_eq!(names, ["echo", "kubectl", "kubectl"]);
     }

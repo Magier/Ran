@@ -40,7 +40,8 @@ pub struct AppState {
     target_cluster: K8sCluster,
     campaign_events: CampaignEventBus,
     pod_watch: Arc<Mutex<Option<k8s::WatchHandle>>>,
-    plan_executors: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<planner::PlanExecutor>>>>>,
+    plan_executors:
+        Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<planner::PlanExecutor>>>>>,
 }
 
 impl AppState {
@@ -153,8 +154,7 @@ impl ApiService for AppState {
             // Wait for all cleanup results to be recorded by the C2 event
             // processor (which runs independently and holds the write lock
             // briefly per result). Poll with 200 ms intervals, 30 s deadline.
-            let deadline =
-                tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
+            let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
 
             loop {
                 if tokio::time::Instant::now() >= deadline {
@@ -377,11 +377,11 @@ impl ApiService for AppState {
     }
 
     async fn execute_plan(&self, plan_yaml: String) -> Result<String, ApiError> {
-        let plan: planner::PlanDefinition = serde_yaml::from_str(&plan_yaml)
-            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        let plan: planner::PlanDefinition =
+            serde_yaml::from_str(&plan_yaml).map_err(|e| ApiError::bad_request(e.to_string()))?;
         let plan_id = plan.id.clone();
-        let executor = planner::PlanExecutor::new(plan)
-            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        let executor =
+            planner::PlanExecutor::new(plan).map_err(|e| ApiError::bad_request(e.to_string()))?;
         let executor = Arc::new(Mutex::new(executor));
 
         self.plan_executors
@@ -405,18 +405,24 @@ impl ApiService for AppState {
                     let step_id = dispatch.step_id.clone();
                     match this.execute_action(dispatch.request).await {
                         Ok(result) => {
-                            executor.lock().unwrap()
+                            executor
+                                .lock()
+                                .unwrap()
                                 .record_dispatched(&step_id, vec![result.cmd_id.clone()]);
-                            let _ = this.campaign_events.publish(
-                                CampaignEvent::PlanStepDispatched {
-                                    plan_id: plan_id_bg.clone(),
-                                    step_id,
-                                    exec_count: 1,
-                                }
-                            );
+                            let _ =
+                                this.campaign_events
+                                    .publish(CampaignEvent::PlanStepDispatched {
+                                        plan_id: plan_id_bg.clone(),
+                                        step_id,
+                                        exec_count: 1,
+                                    });
                         }
                         Err(e) => {
-                            tracing::error!("plan dispatch error for step {}: {}", step_id, e.body.error);
+                            tracing::error!(
+                                "plan dispatch error for step {}: {}",
+                                step_id,
+                                e.body.error
+                            );
                         }
                     }
                 }
@@ -428,7 +434,9 @@ impl ApiService for AppState {
                 // Wait for the next TtpExecuted event
                 let (cmd_id, success) = loop {
                     match events.recv().await {
-                        Ok(CampaignEvent::TtpExecuted { cmd_id, success, .. }) => {
+                        Ok(CampaignEvent::TtpExecuted {
+                            cmd_id, success, ..
+                        }) => {
                             break (cmd_id, success);
                         }
                         Err(_) => return,
@@ -437,36 +445,38 @@ impl ApiService for AppState {
                 };
 
                 let armory = this.armory.clone();
-                let plan_events = executor.lock().unwrap()
+                let plan_events = executor
+                    .lock()
+                    .unwrap()
                     .on_ttp_executed(&cmd_id, success, None, &armory);
 
                 for event in &plan_events {
                     use planner::PlanEvent;
                     let campaign_event = match event {
-                        PlanEvent::StepCompleted { step_id, success } => Some(
-                            CampaignEvent::PlanStepCompleted {
+                        PlanEvent::StepCompleted { step_id, success } => {
+                            Some(CampaignEvent::PlanStepCompleted {
                                 plan_id: plan_id_bg.clone(),
                                 step_id: step_id.clone(),
                                 success: *success,
-                            }
-                        ),
-                        PlanEvent::StepSkipped { step_id, reason } => Some(
-                            CampaignEvent::PlanStepSkipped {
+                            })
+                        }
+                        PlanEvent::StepSkipped { step_id, reason } => {
+                            Some(CampaignEvent::PlanStepSkipped {
                                 plan_id: plan_id_bg.clone(),
                                 step_id: step_id.clone(),
                                 reason: reason.clone(),
-                            }
-                        ),
-                        PlanEvent::StepFailed { step_id, reason } => Some(
-                            CampaignEvent::PlanStepFailed {
+                            })
+                        }
+                        PlanEvent::StepFailed { step_id, reason } => {
+                            Some(CampaignEvent::PlanStepFailed {
                                 plan_id: plan_id_bg.clone(),
                                 step_id: step_id.clone(),
                                 reason: reason.clone(),
-                            }
-                        ),
-                        PlanEvent::PlanComplete => Some(
-                            CampaignEvent::PlanComplete { plan_id: plan_id_bg.clone() }
-                        ),
+                            })
+                        }
+                        PlanEvent::PlanComplete => Some(CampaignEvent::PlanComplete {
+                            plan_id: plan_id_bg.clone(),
+                        }),
                         _ => None,
                     };
                     if let Some(e) = campaign_event {
@@ -485,7 +495,8 @@ impl ApiService for AppState {
 
     async fn get_plan_status(&self, plan_id: &str) -> Result<serde_json::Value, ApiError> {
         let executors = self.plan_executors.lock().unwrap();
-        let executor = executors.get(plan_id)
+        let executor = executors
+            .get(plan_id)
             .ok_or_else(|| ApiError::not_found(format!("plan '{}' not found", plan_id)))?;
         let executor = executor.lock().unwrap();
         Ok(serde_json::json!({
@@ -495,12 +506,13 @@ impl ApiService for AppState {
     }
 
     async fn export_plan(&self, include_failed: bool) -> Result<String, ApiError> {
-        let campaign = self.campaign.read()
+        let campaign = self
+            .campaign
+            .read()
             .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
         let opts = planner::ExportOptions { include_failed };
         let plan = planner::export_plan(&campaign.execution_records, &opts);
-        let yaml = serde_yaml::to_string(&plan)
-            .map_err(|e| ApiError::internal(e.to_string()))?;
+        let yaml = serde_yaml::to_string(&plan).map_err(|e| ApiError::internal(e.to_string()))?;
         Ok(yaml)
     }
 }
@@ -910,14 +922,12 @@ async fn shutdown_signal() {
 /// sibling `parsers/` directory for external script parsers.
 fn load_armory(armory_dir: Option<PathBuf>) -> Result<(Armory, Option<PathBuf>)> {
     #[cfg(not(feature = "bundled-armory"))]
-    let resolved_dir = Some(
-        armory_dir.unwrap_or_else(|| {
-            std::env::current_dir()
-                .unwrap_or_default()
-                .join("armory")
-                .join("TTPs")
-        }),
-    );
+    let resolved_dir = Some(armory_dir.unwrap_or_else(|| {
+        std::env::current_dir()
+            .unwrap_or_default()
+            .join("armory")
+            .join("TTPs")
+    }));
 
     #[cfg(feature = "bundled-armory")]
     let resolved_dir = armory_dir;
@@ -1175,9 +1185,9 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                 );
             }
             Ok(CampaignEvent::FactsChanged {
+                cmd_id,
                 new_entities,
                 new_relations,
-                ..
             }) => {
                 api::publish_sse_event(
                     "facts-changed",
@@ -1205,6 +1215,7 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                                 "entityName": entity.name,
                                 "entityKind": entity.kind,
                                 "category": category,
+                                "cmdId": cmd_id,
                             },
                         })
                         .to_string(),
@@ -1229,7 +1240,11 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     serde_json::json!({ "type": "reset-campaign" }).to_string(),
                 );
             }
-            Ok(CampaignEvent::PlanStepDispatched { plan_id, step_id, exec_count }) => {
+            Ok(CampaignEvent::PlanStepDispatched {
+                plan_id,
+                step_id,
+                exec_count,
+            }) => {
                 api::publish_sse_event(
                     "plan-step-dispatched",
                     serde_json::json!({
@@ -1239,7 +1254,11 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     .to_string(),
                 );
             }
-            Ok(CampaignEvent::PlanStepCompleted { plan_id, step_id, success }) => {
+            Ok(CampaignEvent::PlanStepCompleted {
+                plan_id,
+                step_id,
+                success,
+            }) => {
                 api::publish_sse_event(
                     "plan-step-completed",
                     serde_json::json!({
@@ -1249,7 +1268,11 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     .to_string(),
                 );
             }
-            Ok(CampaignEvent::PlanStepSkipped { plan_id, step_id, reason }) => {
+            Ok(CampaignEvent::PlanStepSkipped {
+                plan_id,
+                step_id,
+                reason,
+            }) => {
                 api::publish_sse_event(
                     "plan-step-skipped",
                     serde_json::json!({
@@ -1259,7 +1282,11 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     .to_string(),
                 );
             }
-            Ok(CampaignEvent::PlanStepFailed { plan_id, step_id, reason }) => {
+            Ok(CampaignEvent::PlanStepFailed {
+                plan_id,
+                step_id,
+                reason,
+            }) => {
                 api::publish_sse_event(
                     "plan-step-failed",
                     serde_json::json!({

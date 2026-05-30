@@ -435,7 +435,12 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
                 description: String::new(),
             },
             results: {
-                let mut results: Vec<String> = r.results.iter().filter(|s| !s.is_empty()).cloned().collect();
+                let mut results: Vec<String> = r
+                    .results
+                    .iter()
+                    .filter(|s| !s.is_empty())
+                    .cloned()
+                    .collect();
                 if results.is_empty() && !r.fail_reason.is_empty() {
                     results.push(r.fail_reason.clone());
                 }
@@ -566,7 +571,10 @@ pub(crate) async fn export_plan_handler<S: ApiService>(
     State(service): State<S>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<String, ApiError> {
-    let include_failed = params.get("include_failed").map(|v| v == "true").unwrap_or(false);
+    let include_failed = params
+        .get("include_failed")
+        .map(|v| v == "true")
+        .unwrap_or(false);
     service.export_plan(include_failed).await
 }
 

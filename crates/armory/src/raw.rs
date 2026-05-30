@@ -497,16 +497,16 @@ references:
             "should have escape effect"
         );
         assert!(
-            ttp.requires
-                .get("accessLevel")
-                .and_then(|v| v.as_str())
-                == Some("user-exec"),
+            ttp.requires.get("accessLevel").and_then(|v| v.as_str()) == Some("user-exec"),
             "precondition accessLevel should be user-exec"
         );
 
         let kernel_param = ttp.params.iter().find(|p| p.name == "KERNEL_VERSION");
         assert!(kernel_param.is_some(), "KERNEL_VERSION param should exist");
-        assert!(!kernel_param.unwrap().required, "KERNEL_VERSION should be optional");
+        assert!(
+            !kernel_param.unwrap().required,
+            "KERNEL_VERSION should be optional"
+        );
 
         let payload_param = ttp.params.iter().find(|p| p.name == "PAYLOAD");
         assert!(payload_param.is_some(), "PAYLOAD param should exist");

@@ -390,11 +390,7 @@ impl Campaign {
     /// Sets `session_id` on the edge so the frontend can render it as active.
     /// Returns `true` when a matching edge was found; the caller should only
     /// create a new `SessionChannel` relation when this returns `false`.
-    pub fn activate_session_on_exec_channel(
-        &mut self,
-        target_id: &str,
-        backend_id: &str,
-    ) -> bool {
+    pub fn activate_session_on_exec_channel(&mut self, target_id: &str, backend_id: &str) -> bool {
         let target_eid = EntityId::new(target_id);
         self.graph
             .activate_session_on_incoming_exec(&target_eid, backend_id.to_string())

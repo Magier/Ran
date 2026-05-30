@@ -281,7 +281,15 @@ impl C2Manager {
             return;
         };
         tokio::spawn(async move {
-            match open_kubectl_exec_session(backends, k8s, backend_id.clone(), target_entity_id.clone(), container).await {
+            match open_kubectl_exec_session(
+                backends,
+                k8s,
+                backend_id.clone(),
+                target_entity_id.clone(),
+                container,
+            )
+            .await
+            {
                 Ok(data) => {
                     let _ = event_bus.publish(C2Event::SessionConnected {
                         backend_id: data.backend_id,
@@ -294,7 +302,10 @@ impl C2Manager {
                 }
                 Err(e) => {
                     tracing::error!(%backend_id, error = %e, "kubectl exec session failed");
-                    let _ = event_bus.publish(C2Event::SessionLost { backend_id, target_entity_id });
+                    let _ = event_bus.publish(C2Event::SessionLost {
+                        backend_id,
+                        target_entity_id,
+                    });
                 }
             }
         });

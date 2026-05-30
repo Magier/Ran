@@ -21,7 +21,10 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
     m.insert("k8s.rolelist", parse_k8s_role_list);
     m.insert("k8s.rolebindinglist", parse_k8s_role_binding_list);
     m.insert("k8s.clusterrolelist", parse_k8s_cluster_role_list);
-    m.insert("k8s.clusterrolebindinglist", parse_k8s_cluster_role_binding_list);
+    m.insert(
+        "k8s.clusterrolebindinglist",
+        parse_k8s_cluster_role_binding_list,
+    );
     m.insert("k8s.servicelist", parse_k8s_service_list);
     m.insert("k8s.ingresslist", parse_k8s_ingress_list);
     m.insert("k8s.gatewaylist", parse_k8s_gateway_list);
@@ -602,7 +605,11 @@ fn check_k8s_api_error(stdout: &str) -> Option<ParserOutput> {
     }
 }
 
-fn parse_k8s_pod_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_pod_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -654,11 +661,20 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str, _args: &HashMap<String, Strin
             .spec
             .volumes
             .iter()
-            .filter_map(|v| v.host_path.as_ref().map(|hp| (v.name.as_str(), hp.path.as_str())))
+            .filter_map(|v| {
+                v.host_path
+                    .as_ref()
+                    .map(|hp| (v.name.as_str(), hp.path.as_str()))
+            })
             .collect();
 
         // Containers: security context + per-container volume mounts.
-        for c in item.spec.containers.iter().chain(item.spec.init_containers.iter()) {
+        for c in item
+            .spec
+            .containers
+            .iter()
+            .chain(item.spec.init_containers.iter())
+        {
             if let Some(sc) = &c.security_context {
                 if sc.privileged == Some(true) {
                     pod.privileged = true.into();
@@ -745,7 +761,11 @@ fn parse_k8s_pod_list(stdout: &str, _stderr: &str, _args: &HashMap<String, Strin
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} pod(s) from PodList", count))
 }
 
-fn parse_k8s_node_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_node_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -774,7 +794,11 @@ fn parse_k8s_node_list(stdout: &str, _stderr: &str, _args: &HashMap<String, Stri
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} node(s) from NodeList", count))
 }
 
-fn parse_k8s_service_account_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_service_account_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -815,7 +839,11 @@ fn parse_k8s_service_account_list(stdout: &str, _stderr: &str, _args: &HashMap<S
     )
 }
 
-fn parse_k8s_secret_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_secret_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -851,7 +879,11 @@ fn parse_k8s_secret_list(stdout: &str, _stderr: &str, _args: &HashMap<String, St
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} secret(s) from SecretList", count))
 }
 
-fn parse_k8s_deployment_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_deployment_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -941,7 +973,11 @@ fn parse_role_binding_item(
     Some(binding)
 }
 
-fn parse_k8s_config_map_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_config_map_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -980,7 +1016,11 @@ fn parse_k8s_config_map_list(stdout: &str, _stderr: &str, _args: &HashMap<String
     )
 }
 
-fn parse_k8s_role_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_role_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1016,7 +1056,11 @@ fn parse_k8s_role_list(stdout: &str, _stderr: &str, _args: &HashMap<String, Stri
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} role(s) from RoleList", count))
 }
 
-fn parse_k8s_cluster_role_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_cluster_role_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1050,7 +1094,11 @@ fn parse_k8s_cluster_role_list(stdout: &str, _stderr: &str, _args: &HashMap<Stri
     )
 }
 
-fn parse_k8s_role_binding_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_role_binding_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1085,7 +1133,11 @@ fn parse_k8s_role_binding_list(stdout: &str, _stderr: &str, _args: &HashMap<Stri
     )
 }
 
-fn parse_k8s_service_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_service_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1161,10 +1213,17 @@ fn parse_k8s_service_list(stdout: &str, _stderr: &str, _args: &HashMap<String, S
     }
 
     let count = facts.new_entities.len();
-    ParserOutput::SuccessWithFacts(facts, format!("parsed {} service(s) from ServiceList", count))
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} service(s) from ServiceList", count),
+    )
 }
 
-fn parse_k8s_cluster_role_binding_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_cluster_role_binding_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1197,7 +1256,11 @@ fn parse_k8s_cluster_role_binding_list(stdout: &str, _stderr: &str, _args: &Hash
     )
 }
 
-fn parse_k8s_ingress_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_ingress_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1280,10 +1343,17 @@ fn parse_k8s_ingress_list(stdout: &str, _stderr: &str, _args: &HashMap<String, S
     }
 
     let count = facts.new_entities.len();
-    ParserOutput::SuccessWithFacts(facts, format!("parsed {} ingress(es) from IngressList", count))
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} ingress(es) from IngressList", count),
+    )
 }
 
-fn parse_k8s_gateway_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_gateway_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }
@@ -1335,10 +1405,17 @@ fn parse_k8s_gateway_list(stdout: &str, _stderr: &str, _args: &HashMap<String, S
     }
 
     let count = facts.new_entities.len();
-    ParserOutput::SuccessWithFacts(facts, format!("parsed {} gateway(s) from GatewayList", count))
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {} gateway(s) from GatewayList", count),
+    )
 }
 
-fn parse_k8s_http_route_list(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_k8s_http_route_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout".to_string());
     }

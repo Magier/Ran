@@ -33,7 +33,11 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
 ///
 /// The project is inferred from the email domain when it follows the standard
 /// `<name>@<project>.iam.gserviceaccount.com` pattern.
-fn parse_gcp_serviceaccount(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_gcp_serviceaccount(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty gcp.serviceaccount output".to_string());
     }
@@ -203,7 +207,9 @@ mod tests {
             "email": "svc@proj.iam.gserviceaccount.com",
             "token": {"access_token": "ya29.tok", "expires_in": 3599, "token_type": "Bearer"}
         }"#;
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_gcp_serviceaccount(stdout, "", &HashMap::new()) else {
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_gcp_serviceaccount(stdout, "", &HashMap::new())
+        else {
             panic!("expected SuccessWithFacts");
         };
         let sa = facts.new_entities[0]
@@ -219,7 +225,9 @@ mod tests {
     #[test]
     fn parse_gcp_serviceaccount_compute_default_sa() {
         let stdout = r#"{"email":"1234567890-compute@developer.gserviceaccount.com"}"#;
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_gcp_serviceaccount(stdout, "", &HashMap::new()) else {
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_gcp_serviceaccount(stdout, "", &HashMap::new())
+        else {
             panic!("expected SuccessWithFacts");
         };
         let sa = facts.new_entities[0]
@@ -232,7 +240,9 @@ mod tests {
     #[test]
     fn parse_gcp_serviceaccount_empty_json_object() {
         // Empty JSON {} is valid (email defaults to ""); entity created with empty email.
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_gcp_serviceaccount("{}", "", &HashMap::new()) else {
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_gcp_serviceaccount("{}", "", &HashMap::new())
+        else {
             panic!("expected SuccessWithFacts");
         };
         assert_eq!(facts.new_entities.len(), 1);
@@ -267,7 +277,9 @@ mod tests {
             {"id":"bucket1","name":"my-bucket-1","location":"US-CENTRAL1"},
             {"id":"bucket2","name":"my-bucket-2","location":"EU"}
         ]}"#;
-        let ParserOutput::SuccessWithFacts(facts, detail) = parse_gcp_buckets(stdout, "", &HashMap::new()) else {
+        let ParserOutput::SuccessWithFacts(facts, detail) =
+            parse_gcp_buckets(stdout, "", &HashMap::new())
+        else {
             panic!("expected SuccessWithFacts");
         };
         assert_eq!(facts.new_entities.len(), 2);

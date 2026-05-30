@@ -408,7 +408,8 @@ mod tests {
     #[test]
     fn parse_rdns_pod_has_ip_set() {
         let stdout = "10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local\n";
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_rdns(stdout, "", &HashMap::new()) else {
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_rdns(stdout, "", &HashMap::new())
+        else {
             panic!("expected SuccessWithFacts");
         };
         let pod = facts

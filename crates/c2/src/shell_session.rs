@@ -279,7 +279,7 @@ fn exec_error(cmd_id: &str, reason: String) -> TtpExecuted {
         results: vec![reason.clone()],
         exit_code: 1,
         fail_reason: reason,
-            session_connected: None,
+        session_connected: None,
     }
 }
 

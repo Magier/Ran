@@ -98,7 +98,11 @@ struct SsrrNonResourceRule {
 ///
 /// Handles multi-line stdout: searches for the first line containing `ey`
 /// and `.`, which is the hallmark of a base64url-encoded JWT.
-fn parse_raw_service_account_token(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_raw_service_account_token(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty output — no token provided".to_string());
     }

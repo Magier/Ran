@@ -55,7 +55,11 @@ impl<'a> PendingView<'a> {
     /// the convention used throughout the analyzers before this helper existed.
     pub fn contains<T: EntityType>(&self, id: &EntityId) -> bool {
         self.campaign.entities.contains::<T>(id)
-            || self.update.new_entities.iter().any(|e| e.entity_id() == *id)
+            || self
+                .update
+                .new_entities
+                .iter()
+                .any(|e| e.entity_id() == *id)
     }
 
     /// Return the entity for `id` if it exists, or call `make_stub` to produce

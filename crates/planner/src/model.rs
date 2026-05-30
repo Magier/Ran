@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanDefinition {
@@ -106,7 +106,10 @@ impl ParsedGraphDep {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Dependency {
-    Step { step: String, require: Require },
+    Step {
+        step: String,
+        require: Require,
+    },
     Graph {
         step_ref: String,
         relation: String,
@@ -123,8 +126,9 @@ impl<'de> Deserialize<'de> for Dependency {
         match raw {
             RawDep::Step { step, require } => Ok(Dependency::Step { step, require }),
             RawDep::Graph { graph } => {
-                let parsed = ParsedGraphDep::parse(&graph)
-                    .ok_or_else(|| serde::de::Error::custom(format!("invalid graph predicate: {graph}")))?;
+                let parsed = ParsedGraphDep::parse(&graph).ok_or_else(|| {
+                    serde::de::Error::custom(format!("invalid graph predicate: {graph}"))
+                })?;
                 Ok(Dependency::Graph {
                     step_ref: parsed.step_ref,
                     relation: parsed.relation,

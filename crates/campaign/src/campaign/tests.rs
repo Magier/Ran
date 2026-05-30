@@ -44,7 +44,7 @@ fn sample_event(stdout: &str) -> TtpExecuted {
         results: vec![stdout.to_string(), String::new()],
         exit_code: 0,
         fail_reason: String::new(),
-            session_connected: None,
+        session_connected: None,
     }
 }
 
@@ -55,7 +55,7 @@ fn sample_failed_event(fail_reason: &str) -> TtpExecuted {
         results: vec![fail_reason.to_string()],
         exit_code: 1,
         fail_reason: fail_reason.to_string(),
-            session_connected: None,
+        session_connected: None,
     }
 }
 
@@ -914,7 +914,9 @@ fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
         .expect("should prepare action with abstract steps procedure");
 
     assert!(
-        exec.procedure.command.contains("-H \"Authorization: Bearer abc\""),
+        exec.procedure
+            .command
+            .contains("-H \"Authorization: Bearer abc\""),
         "materialized command should include fetch headers: {}",
         exec.procedure.command
     );
@@ -1117,7 +1119,7 @@ fn command_not_found_in_output_with_exit_zero_marks_binary_absent_and_fails_step
         exit_code: 0,
         results: vec!["sh: 1: curl: not found".to_string()],
         fail_reason: String::new(),
-            session_connected: None,
+        session_connected: None,
     };
 
     let processing = campaign.on_ttp_executed(&cmd, &event).unwrap();
@@ -1838,7 +1840,11 @@ fn container_escape_routes_node_through_pod_session_when_active() {
         ch.backend_id, BUILTIN_C2_ID,
         "campaign routing should stay on c2/ran; session upgrade happens in C2 manager"
     );
-    assert_eq!(ch.hops, vec![pod_id], "should still hop through attacker pod");
+    assert_eq!(
+        ch.hops,
+        vec![pod_id],
+        "should still hop through attacker pod"
+    );
 }
 
 #[test]
@@ -1873,7 +1879,9 @@ fn hostname_on_placeholder_node_updates_entity_id_after_escape() {
     // hostname is targeted at the placeholder node; returns the real node name.
     let cmd = sample_exec_ttp(&placeholder_id, vec!["sys.node-name"]);
     let event = sample_event("gke-cluster-worker-1");
-    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+    campaign
+        .on_ttp_executed(&cmd, &event)
+        .expect("should succeed");
 
     let real_id = EntityId::new("node/gke-cluster-worker-1");
     assert!(
@@ -1881,7 +1889,9 @@ fn hostname_on_placeholder_node_updates_entity_id_after_escape() {
         "real node should exist after hostname update"
     );
     assert!(
-        !campaign.entities.contains::<K8sNode>(&EntityId::new(&placeholder_id)),
+        !campaign
+            .entities
+            .contains::<K8sNode>(&EntityId::new(&placeholder_id)),
         "placeholder node/escape_attacker should be removed"
     );
 
@@ -2060,7 +2070,9 @@ fn container_escape_node_is_authoritative_when_pod_has_node_name() {
 
     let cmd = sample_exec_ttp(&pod_id, vec!["container.escape(sys)"]);
     let event = sample_event("ok");
-    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+    campaign
+        .on_ttp_executed(&cmd, &event)
+        .expect("should succeed");
 
     let node_eid = EntityId::new("node/worker-1");
     let node = campaign
@@ -2086,7 +2098,9 @@ fn container_escape_placeholder_node_is_derived_when_pod_has_no_node_name() {
 
     let cmd = sample_exec_ttp(&pod_id, vec!["container.escape(sys)"]);
     let event = sample_event("ok");
-    campaign.on_ttp_executed(&cmd, &event).expect("should succeed");
+    campaign
+        .on_ttp_executed(&cmd, &event)
+        .expect("should succeed");
 
     let placeholder_eid = EntityId::new("node/escape_attacker");
     let node = campaign

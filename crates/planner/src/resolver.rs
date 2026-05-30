@@ -1,5 +1,5 @@
-use regex::Regex;
 use crate::model::{SelectStrategy, TargetQuery};
+use regex::Regex;
 
 /// Extract the entity "kind" from an entity ID string.
 /// Entity ID formats:
@@ -44,7 +44,9 @@ pub fn resolve_target(query: &TargetQuery, entity_ids: &[String]) -> Vec<String>
         .iter()
         .filter(|id| {
             entity_kind(id).eq_ignore_ascii_case(&query.kind)
-                && query.namespace.as_deref()
+                && query
+                    .namespace
+                    .as_deref()
                     .map(|ns| entity_namespace(id) == Some(ns))
                     .unwrap_or(true)
                 && pattern.is_match(entity_name(id))
@@ -73,7 +75,12 @@ mod tests {
     use super::*;
     use crate::model::{SelectStrategy, TargetQuery};
 
-    fn query(kind: &str, ns: Option<&str>, name: &str, select: Option<SelectStrategy>) -> TargetQuery {
+    fn query(
+        kind: &str,
+        ns: Option<&str>,
+        name: &str,
+        select: Option<SelectStrategy>,
+    ) -> TargetQuery {
         TargetQuery {
             kind: kind.into(),
             namespace: ns.map(Into::into),
@@ -102,10 +109,7 @@ mod tests {
 
     #[test]
     fn namespace_filter_applied() {
-        let entity_ids = ids(&[
-            "ns/default/pod/nginx-abc",
-            "ns/kube-system/pod/nginx-def",
-        ]);
+        let entity_ids = ids(&["ns/default/pod/nginx-abc", "ns/kube-system/pod/nginx-def"]);
         let q = query("Pod", Some("default"), "nginx-.*", None);
         let results = resolve_target(&q, &entity_ids);
         assert_eq!(results.len(), 1);
@@ -114,10 +118,7 @@ mod tests {
 
     #[test]
     fn no_namespace_matches_all_but_random_returns_one() {
-        let entity_ids = ids(&[
-            "ns/default/pod/nginx-abc",
-            "ns/kube-system/pod/nginx-def",
-        ]);
+        let entity_ids = ids(&["ns/default/pod/nginx-abc", "ns/kube-system/pod/nginx-def"]);
         let q = query("Pod", None, "nginx-.*", None);
         let results = resolve_target(&q, &entity_ids);
         assert_eq!(results.len(), 1); // Random returns 1
@@ -125,10 +126,7 @@ mod tests {
 
     #[test]
     fn no_namespace_select_all_returns_all() {
-        let entity_ids = ids(&[
-            "ns/default/pod/nginx-abc",
-            "ns/kube-system/pod/nginx-def",
-        ]);
+        let entity_ids = ids(&["ns/default/pod/nginx-abc", "ns/kube-system/pod/nginx-def"]);
         let q = query("Pod", None, "nginx-.*", Some(SelectStrategy::All));
         let results = resolve_target(&q, &entity_ids);
         assert_eq!(results.len(), 2);
@@ -136,10 +134,7 @@ mod tests {
 
     #[test]
     fn select_first_returns_one() {
-        let entity_ids = ids(&[
-            "ns/default/pod/nginx-bbb",
-            "ns/default/pod/nginx-aaa",
-        ]);
+        let entity_ids = ids(&["ns/default/pod/nginx-bbb", "ns/default/pod/nginx-aaa"]);
         let q = query("Pod", None, "nginx-.*", Some(SelectStrategy::First));
         let results = resolve_target(&q, &entity_ids);
         assert_eq!(results.len(), 1);
@@ -148,10 +143,7 @@ mod tests {
 
     #[test]
     fn select_all_returns_all() {
-        let entity_ids = ids(&[
-            "ns/default/pod/nginx-aaa",
-            "ns/default/pod/nginx-bbb",
-        ]);
+        let entity_ids = ids(&["ns/default/pod/nginx-aaa", "ns/default/pod/nginx-bbb"]);
         let q = query("Pod", None, "nginx-.*", Some(SelectStrategy::All));
         let results = resolve_target(&q, &entity_ids);
         assert_eq!(results.len(), 2);

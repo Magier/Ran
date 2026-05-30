@@ -197,11 +197,18 @@ mod tests {
             "rbacPermissions".to_string(),
             json!([{"verb": verb, "resourceType": resource_type}]),
         );
-        Ttp { status: "enabled".to_string(), requires, ..Ttp::new("test", "Test", "Discovery") }
+        Ttp {
+            status: "enabled".to_string(),
+            requires,
+            ..Ttp::new("test", "Test", "Discovery")
+        }
     }
 
     fn ttp_no_rbac() -> Ttp {
-        Ttp { status: "enabled".to_string(), ..Ttp::new("test", "Test", "Discovery") }
+        Ttp {
+            status: "enabled".to_string(),
+            ..Ttp::new("test", "Test", "Discovery")
+        }
     }
 
     fn empty_campaign() -> crate::Campaign {
@@ -232,7 +239,11 @@ mod tests {
         if let Some(level) = access_level {
             requires.insert("accessLevel".to_string(), json!(level));
         }
-        Ttp { status: "enabled".to_string(), requires, ..Ttp::new("test", "Test", tactic) }
+        Ttp {
+            status: "enabled".to_string(),
+            requires,
+            ..Ttp::new("test", "Test", tactic)
+        }
     }
 
     #[test]

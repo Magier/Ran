@@ -92,6 +92,12 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
                     .or_insert_with(|| r.source_id.clone());
             }
             _ => {
+                // Skip marker relations whose target is a wildcard like `all(k8s.node)`.
+                // These are internal inference hints expanded by analyzers into concrete
+                // edges; the wildcard target does not exist as a graph node.
+                if r.target_id.starts_with("all(") {
+                    continue;
+                }
                 edges.push(GraphEdge {
                     id: format!("{}-[{}]->{}", r.source_id, r.name, r.target_id),
                     source_id: r.source_id.clone(),

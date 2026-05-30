@@ -477,7 +477,11 @@ fn longest_common_prefix(names: &[&str]) -> String {
     let first = names[0];
     let common_len = first
         .char_indices()
-        .take_while(|&(i, c)| names.iter().all(|&n| n.get(i..).unwrap_or("").starts_with(c)))
+        .take_while(|&(i, c)| {
+            names
+                .iter()
+                .all(|&n| n.get(i..).unwrap_or("").starts_with(c))
+        })
         .map(|(i, c)| i + c.len_utf8())
         .last()
         .unwrap_or(0);
@@ -594,7 +598,10 @@ impl InferenceRule for KubeletMountAnalyzer {
             let node_id = node.entity_id();
             let node_known = campaign.entities.contains::<K8sNode>(&node_id)
                 || update.new_entities.iter().any(|e| e.entity_id() == node_id)
-                || inferred.new_entities.iter().any(|e| e.entity_id() == node_id);
+                || inferred
+                    .new_entities
+                    .iter()
+                    .any(|e| e.entity_id() == node_id);
             if !node_known {
                 inferred.new_entities.push(Box::new(node));
             }
@@ -3279,13 +3286,13 @@ mod tests {
         assert!(!super::is_valid_pod_uuid("not-a-uuid"));
         assert!(!super::is_valid_pod_uuid(""));
         assert!(!super::is_valid_pod_uuid(
-            "84cc979b-9ad8-4418-8b97-24a959833ce"  // 11 chars in last segment
+            "84cc979b-9ad8-4418-8b97-24a959833ce" // 11 chars in last segment
         ));
         assert!(!super::is_valid_pod_uuid(
-            "84cc979b-9ad8-4418-8b97-24a959833ceg"  // non-hex char
+            "84cc979b-9ad8-4418-8b97-24a959833ceg" // non-hex char
         ));
         assert!(!super::is_valid_pod_uuid(
-            "gggggggg-9ad8-4418-8b97-24a959833ce7"  // non-hex first segment
+            "gggggggg-9ad8-4418-8b97-24a959833ce7" // non-hex first segment
         ));
     }
 
@@ -3330,10 +3337,7 @@ mod tests {
 
     #[test]
     fn display_name_with_no_shared_prefix() {
-        let names = vec![
-            "clustermesh-secrets".to_string(),
-            "hubble-tls".to_string(),
-        ];
+        let names = vec!["clustermesh-secrets".to_string(), "hubble-tls".to_string()];
         assert_eq!(
             super::derive_pod_display_name("293aba3c-f29f-4cd7-a4fe-233b4d111654", &names),
             "293aba3c"
@@ -3487,7 +3491,10 @@ mod tests {
         assert!(
             discovered_pods.is_empty(),
             "expected no pods from malformed paths, got: {:?}",
-            discovered_pods.iter().map(|e| e.entity_name()).collect::<Vec<_>>()
+            discovered_pods
+                .iter()
+                .map(|e| e.entity_name())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -3519,10 +3526,14 @@ mod tests {
             new_pods.is_empty(),
             "should not re-emit a pod already in the campaign"
         );
-        let dup_runs_on = update.new_relations.iter().any(|r| {
-            r.is::<RunsOn>() && r.source_id().0 == "ns/?/pod/argocd-84cc979b"
-        });
-        assert!(!dup_runs_on, "should not re-emit RunsOn for a pod already in the campaign");
+        let dup_runs_on = update
+            .new_relations
+            .iter()
+            .any(|r| r.is::<RunsOn>() && r.source_id().0 == "ns/?/pod/argocd-84cc979b");
+        assert!(
+            !dup_runs_on,
+            "should not re-emit RunsOn for a pod already in the campaign"
+        );
     }
 
     #[test]

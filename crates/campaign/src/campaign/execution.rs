@@ -251,8 +251,7 @@ fn render_http_via_tool(spec: &HttpRequestSpec, tool_id: &str, armory: &Armory) 
     let tool_ttp = armory.get_tool_ttp(tool_id)?;
     let tool_proc = tool_ttp.procedures.first()?;
 
-    let headers_json =
-        serde_json::to_string(&spec.headers).unwrap_or_else(|_| "{}".to_string());
+    let headers_json = serde_json::to_string(&spec.headers).unwrap_or_else(|_| "{}".to_string());
 
     let mut args: HashMap<String, String> = HashMap::new();
     args.insert("URL".to_string(), spec.url.clone());
@@ -266,11 +265,17 @@ fn render_http_via_tool(spec: &HttpRequestSpec, tool_id: &str, armory: &Armory) 
     );
     args.insert("HEADERS".to_string(), headers_json);
     args.insert("PAYLOAD".to_string(), spec.body.clone());
-    args.insert("TIMEOUT".to_string(), spec.timeout_seconds.max(1).to_string());
+    args.insert(
+        "TIMEOUT".to_string(),
+        spec.timeout_seconds.max(1).to_string(),
+    );
     args.insert("USE_CA".to_string(), spec.use_ca.is_true().to_string());
     args.insert("CA_PATH".to_string(), spec.ca_path.clone());
     args.insert("OUTPUT".to_string(), spec.output.clone());
-    args.insert("FOLLOW_REDIRECTS".to_string(), spec.follow_redirects.to_string());
+    args.insert(
+        "FOLLOW_REDIRECTS".to_string(),
+        spec.follow_redirects.to_string(),
+    );
 
     let rendered = resolve_template(&tool_proc.command, &args);
     Some(ground_template(&rendered, &args))
@@ -302,11 +307,12 @@ fn materialize_steps(procedure: &mut Procedure, armory: &Armory) -> Result<(), E
     for step in steps {
         match step {
             StepSpec::Fetch { fetch } => {
-                let cmd = render_http_via_tool(&fetch, tool_id, armory)
-                    .ok_or_else(|| ExecuteActionError::InvalidInput(format!(
+                let cmd = render_http_via_tool(&fetch, tool_id, armory).ok_or_else(|| {
+                    ExecuteActionError::InvalidInput(format!(
                         "tool '{}' not found for fetch step in procedure '{}'",
                         tool_id, procedure.id
-                    )))?;
+                    ))
+                })?;
                 parts.push(cmd);
             }
             StepSpec::Chmod { chmod } => {
@@ -367,11 +373,12 @@ pub(super) fn materialize_k8s_request(
 
     let tool_id = procedure.tool.as_deref().unwrap_or("curl");
 
-    procedure.command = render_http_via_tool(&http_spec, tool_id, armory)
-        .ok_or_else(|| ExecuteActionError::InvalidInput(format!(
+    procedure.command = render_http_via_tool(&http_spec, tool_id, armory).ok_or_else(|| {
+        ExecuteActionError::InvalidInput(format!(
             "tool '{}' not found for k8s_request in procedure '{}'",
             tool_id, procedure.id
-        )))?;
+        ))
+    })?;
 
     Ok(())
 }
@@ -394,11 +401,12 @@ fn materialize_abstract_http_request(
 
     let tool_id = procedure.tool.as_deref().unwrap_or("curl");
 
-    procedure.command = render_http_via_tool(&spec, tool_id, armory)
-        .ok_or_else(|| ExecuteActionError::InvalidInput(format!(
+    procedure.command = render_http_via_tool(&spec, tool_id, armory).ok_or_else(|| {
+        ExecuteActionError::InvalidInput(format!(
             "tool '{}' not found for http_request in procedure '{}'",
             tool_id, procedure.id
-        )))?;
+        ))
+    })?;
 
     Ok(())
 }

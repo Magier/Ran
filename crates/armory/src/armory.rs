@@ -165,10 +165,7 @@ impl Armory {
             let mut expanded: Vec<Procedure> = Vec::with_capacity(original.len());
 
             for proc in original {
-                let slot_tools = proc
-                    .tool
-                    .as_deref()
-                    .and_then(|t| slot_map.get(t));
+                let slot_tools = proc.tool.as_deref().and_then(|t| slot_map.get(t));
 
                 match slot_tools {
                     Some(tool_ids) => {

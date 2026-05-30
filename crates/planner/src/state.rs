@@ -4,16 +4,30 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub enum StepStatus {
     Pending,
-    Dispatched { exec_ids: Vec<String> },
-    PendingRetry { attempt: usize, next_procedure: Option<String> },
-    Completed { outcomes: Vec<bool> },
-    Failed { reason: String },
-    Skipped { reason: String },
+    Dispatched {
+        exec_ids: Vec<String>,
+    },
+    PendingRetry {
+        attempt: usize,
+        next_procedure: Option<String>,
+    },
+    Completed {
+        outcomes: Vec<bool>,
+    },
+    Failed {
+        reason: String,
+    },
+    Skipped {
+        reason: String,
+    },
 }
 
 impl StepStatus {
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Completed { .. } | Self::Failed { .. } | Self::Skipped { .. })
+        matches!(
+            self,
+            Self::Completed { .. } | Self::Failed { .. } | Self::Skipped { .. }
+        )
     }
 
     pub fn succeeded(&self) -> Option<bool> {
@@ -33,7 +47,10 @@ pub struct PlanExecutionState {
 
 impl PlanExecutionState {
     pub fn new(step_ids: Vec<String>) -> Self {
-        let steps = step_ids.into_iter().map(|id| (id, StepStatus::Pending)).collect();
+        let steps = step_ids
+            .into_iter()
+            .map(|id| (id, StepStatus::Pending))
+            .collect();
         Self {
             steps,
             cmd_to_step: HashMap::new(),
@@ -58,7 +75,8 @@ impl PlanExecutionState {
         for cmd_id in &cmd_ids {
             self.cmd_to_step.insert(cmd_id.clone(), step_id.to_string());
         }
-        self.pending_outcomes.insert(step_id.to_string(), vec![None; n]);
+        self.pending_outcomes
+            .insert(step_id.to_string(), vec![None; n]);
         self.set(step_id, StepStatus::Dispatched { exec_ids: cmd_ids });
     }
 
@@ -82,7 +100,9 @@ impl PlanExecutionState {
 
         if outcomes.iter().all(|o| o.is_some()) {
             let final_outcomes: Vec<bool> = outcomes.iter().map(|o| o.unwrap()).collect();
-            let status = StepStatus::Completed { outcomes: final_outcomes };
+            let status = StepStatus::Completed {
+                outcomes: final_outcomes,
+            };
             self.set(&step_id, status.clone());
             self.pending_outcomes.remove(&step_id);
             Some(status)
@@ -92,15 +112,36 @@ impl PlanExecutionState {
     }
 
     pub fn mark_skipped(&mut self, step_id: &str, reason: &str) {
-        self.set(step_id, StepStatus::Skipped { reason: reason.to_string() });
+        self.set(
+            step_id,
+            StepStatus::Skipped {
+                reason: reason.to_string(),
+            },
+        );
     }
 
     pub fn mark_failed(&mut self, step_id: &str, reason: &str) {
-        self.set(step_id, StepStatus::Failed { reason: reason.to_string() });
+        self.set(
+            step_id,
+            StepStatus::Failed {
+                reason: reason.to_string(),
+            },
+        );
     }
 
-    pub fn mark_pending_retry(&mut self, step_id: &str, attempt: usize, next_procedure: Option<String>) {
-        self.set(step_id, StepStatus::PendingRetry { attempt, next_procedure });
+    pub fn mark_pending_retry(
+        &mut self,
+        step_id: &str,
+        attempt: usize,
+        next_procedure: Option<String>,
+    ) {
+        self.set(
+            step_id,
+            StepStatus::PendingRetry {
+                attempt,
+                next_procedure,
+            },
+        );
         self.pending_outcomes.remove(step_id);
     }
 
@@ -109,7 +150,10 @@ impl PlanExecutionState {
     }
 
     pub fn targets_for(&self, step_id: &str) -> &[String] {
-        self.step_targets.get(step_id).map(Vec::as_slice).unwrap_or(&[])
+        self.step_targets
+            .get(step_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn is_complete(&self) -> bool {
@@ -155,17 +199,16 @@ mod tests {
         state.mark_dispatched("step_a", vec!["cmd-1".into(), "cmd-2".into()]);
         assert!(state.record_outcome("cmd-1", true).is_none());
         let status = state.record_outcome("cmd-2", false).unwrap();
-        assert!(matches!(status, StepStatus::Completed { outcomes } if outcomes == vec![true, false]));
+        assert!(
+            matches!(status, StepStatus::Completed { outcomes } if outcomes == vec![true, false])
+        );
     }
 
     #[test]
     fn step_targets_stored_and_retrieved() {
         let mut state = PlanExecutionState::new(vec!["step_a".into()]);
         state.set_targets("step_a", vec!["ns/default/pod/nginx-abc".into()]);
-        assert_eq!(
-            state.targets_for("step_a"),
-            &["ns/default/pod/nginx-abc"]
-        );
+        assert_eq!(state.targets_for("step_a"), &["ns/default/pod/nginx-abc"]);
     }
 
     #[test]

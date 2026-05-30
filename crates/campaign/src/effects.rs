@@ -1082,7 +1082,11 @@ mod tests {
             .as_any()
             .downcast_ref::<ran_domain::K8sNode>()
             .unwrap();
-        assert_eq!(node.entity_name(), "escape_attacker", "placeholder should be escape_<pod-short-name>");
+        assert_eq!(
+            node.entity_name(),
+            "escape_attacker",
+            "placeholder should be escape_<pod-short-name>"
+        );
         assert_eq!(node.entity_id().0, "node/escape_attacker");
 
         // And two relations: RunsOn + ContainerEscape both targeting the placeholder.
@@ -1094,7 +1098,8 @@ mod tests {
         assert!(update
             .new_relations
             .iter()
-            .any(|r| r.relation_name() == "container.escape" && r.target_id().0 == "node/escape_attacker"));
+            .any(|r| r.relation_name() == "container.escape"
+                && r.target_id().0 == "node/escape_attacker"));
     }
 
     #[test]

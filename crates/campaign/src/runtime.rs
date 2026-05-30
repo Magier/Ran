@@ -162,9 +162,10 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         // After effects are applied, activate any synchronous session
                         // that was opened during this TTP execution. The exec-channel
                         // edge (e.g. k8s.can-exec) now exists so activation will find it.
-                        let session_summary = event.session_connected.as_ref().map(|s| {
-                            apply_session_connected(&mut campaign_guard, s)
-                        });
+                        let session_summary = event
+                            .session_connected
+                            .as_ref()
+                            .map(|s| apply_session_connected(&mut campaign_guard, s));
 
                         (processing, session_summary)
                     };
@@ -385,58 +386,59 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         }
                     };
 
-                    let session_kind = if port.is_some() { "tcp" } else { "kubectl-exec" };
+                    let session_kind = if port.is_some() {
+                        "tcp"
+                    } else {
+                        "kubectl-exec"
+                    };
                     let session_short_id = backend_id
                         .strip_prefix("session/")
                         .unwrap_or(&backend_id)
                         .to_string();
 
                     // Resolve or create the target system entity.
-                    let channel_entity_id =
-                        if guard.get_system_entity(&target_entity_id).is_some() {
-                            if let Some(mut sys) =
-                                guard.get_system_entity_mut(&target_entity_id)
-                            {
-                                let system = sys.entity_mut().system_mut();
-                                if !os.is_empty() {
-                                    system.os = Some(os.clone());
-                                }
-                                if !user.is_empty() {
-                                    system.username = Some(user.clone());
-                                }
-                                system.access_level = AccessLevel::Exec;
-                                system.sessions.push(SessionInfo {
-                                    id: session_short_id,
-                                    kind: session_kind.to_string(),
-                                    port,
-                                    status: SessionStatus::Active,
-                                });
+                    let channel_entity_id = if guard.get_system_entity(&target_entity_id).is_some()
+                    {
+                        if let Some(mut sys) = guard.get_system_entity_mut(&target_entity_id) {
+                            let system = sys.entity_mut().system_mut();
+                            if !os.is_empty() {
+                                system.os = Some(os.clone());
                             }
-                            target_entity_id.clone()
-                        } else {
-                            let sys_name = hostname.to_lowercase();
-                            let mut sys = UnknownSystem::new(&sys_name);
-                            sys.system.os = if os.is_empty() { None } else { Some(os) };
-                            sys.system.username =
-                                if user.is_empty() { None } else { Some(user) };
-                            sys.system.access_level = AccessLevel::Exec;
-                            sys.system.sessions.push(SessionInfo {
+                            if !user.is_empty() {
+                                system.username = Some(user.clone());
+                            }
+                            system.access_level = AccessLevel::Exec;
+                            system.sessions.push(SessionInfo {
                                 id: session_short_id,
                                 kind: session_kind.to_string(),
                                 port,
                                 status: SessionStatus::Active,
                             });
-                            let entity_id = sys.entity_id().0.clone();
-                            guard.insert_entity(&sys);
-                            entity_id
-                        };
+                        }
+                        target_entity_id.clone()
+                    } else {
+                        let sys_name = hostname.to_lowercase();
+                        let mut sys = UnknownSystem::new(&sys_name);
+                        sys.system.os = if os.is_empty() { None } else { Some(os) };
+                        sys.system.username = if user.is_empty() { None } else { Some(user) };
+                        sys.system.access_level = AccessLevel::Exec;
+                        sys.system.sessions.push(SessionInfo {
+                            id: session_short_id,
+                            kind: session_kind.to_string(),
+                            port,
+                            status: SessionStatus::Active,
+                        });
+                        let entity_id = sys.entity_id().0.clone();
+                        guard.insert_entity(&sys);
+                        entity_id
+                    };
 
                     // If the target already has an exec-channel edge, mark it as
                     // active so the session state lives on the existing relation.
                     // Only create a SessionChannel when no exec path exists yet
                     // (e.g. a reverse shell from a completely unknown host).
-                    let has_existing_channel = guard
-                        .activate_session_on_exec_channel(&channel_entity_id, &backend_id);
+                    let has_existing_channel =
+                        guard.activate_session_on_exec_channel(&channel_entity_id, &backend_id);
 
                     let new_relation_summary = if !has_existing_channel {
                         let c2_id = EntityId::new(c2::BUILTIN_C2_ID);
@@ -454,13 +456,13 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     };
 
                     let entity_summary =
-                        guard.get_system_entity(&channel_entity_id).map(|e| {
-                            EntitySummary {
+                        guard
+                            .get_system_entity(&channel_entity_id)
+                            .map(|e| EntitySummary {
                                 id: e.entity().entity_id(),
                                 kind: e.entity().entity_kind().to_string(),
                                 name: e.entity().entity_name().to_string(),
-                            }
-                        });
+                            });
 
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                         cmd_id: backend_id.clone(),
@@ -543,11 +545,13 @@ fn apply_session_connected(
 
     campaign.activate_session_on_exec_channel(&data.target_entity_id, &data.backend_id);
 
-    campaign.get_system_entity(&data.target_entity_id).map(|e| EntitySummary {
-        id: e.entity().entity_id(),
-        kind: e.entity().entity_kind().to_string(),
-        name: e.entity().entity_name().to_string(),
-    })
+    campaign
+        .get_system_entity(&data.target_entity_id)
+        .map(|e| EntitySummary {
+            id: e.entity().entity_id(),
+            kind: e.entity().entity_kind().to_string(),
+            name: e.entity().entity_name().to_string(),
+        })
 }
 
 fn update_session_status(
