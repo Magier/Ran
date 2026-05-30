@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/magier/ran/actions/workflows/build.yaml"><img src="https://img.shields.io/github/actions/workflow/status/magier/ran/build.yaml?label=build&logo=github" alt="Build Status"/></a>
+  <a href="https://github.com/magier/ran/actions/workflows/build-rust.yaml"><img src="https://img.shields.io/github/actions/workflow/status/magier/ran/build-rust.yaml?label=build&logo=github" alt="Build Status"/></a>
   <a href="https://github.com/magier/ran/releases/latest"><img src="https://img.shields.io/github/v/release/magier/ran?logo=github" alt="Latest Release"/></a>
   <a href="https://github.com/magier/ran/pkgs/container/ran"><img src="https://img.shields.io/badge/container-ghcr.io-blue?logo=github" alt="Container Registry"/></a>
   <img src="https://img.shields.io/badge/rust-1.93-CE422B?logo=rust" alt="Rust 1.93"/>
