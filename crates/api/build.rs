@@ -6,7 +6,7 @@ use serde_yaml::{Mapping, Value};
 fn main() -> Result<()> {
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").context("missing CARGO_MANIFEST_DIR")?);
-    let spec_path = manifest_dir.join("../../src/api/openapi.yaml");
+    let spec_path = manifest_dir.join("../../api/openapi.yaml");
     println!("cargo:rerun-if-changed={}", spec_path.display());
 
     let spec_text = fs::read_to_string(&spec_path)

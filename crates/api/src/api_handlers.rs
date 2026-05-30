@@ -42,7 +42,7 @@ use rust_embed::RustEmbed;
 // OpenAPI spec + Swagger UI (no State needed — purely static content)
 // ---------------------------------------------------------------------------
 
-const OPENAPI_SPEC: &str = include_str!("../../../src/api/openapi.yaml");
+const OPENAPI_SPEC: &str = include_str!("../../../api/openapi.yaml");
 
 const SWAGGER_UI_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en">
