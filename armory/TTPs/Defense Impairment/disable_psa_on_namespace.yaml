@@ -1,7 +1,7 @@
 name: Disable PSA on Namespace
 description: Disables Pod Security Admission on a namespace by overwriting the enforced PodSecurityStandard to `privileged`.
-tactic: Defense Evasion
-techniques: ["Impair Defenses", "T1562"]
+tactic: Defense Impairment
+techniques: ["Disable or Modify Tools", "T1685"]
 parameters:
   NAMESPACE:
     type: string
@@ -14,7 +14,7 @@ effects:
   - k8s.Namespace.enforcedPSS=privileged
 preconditions:
   kind: Namespace
-  rbac: 
+  rbac:
     - verb: update
       resource: namespace
 # effects: []
