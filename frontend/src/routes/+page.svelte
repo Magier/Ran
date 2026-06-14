@@ -329,7 +329,26 @@
 		});
 
 		ranAPI.on('ttp-executed', (data) => {
-			timeline.resolveTtpAction(data.CmdId ?? data.ID ?? '', data.Success, data.FailReason);
+			const cmdId = data.CmdId ?? data.ID ?? '';
+			const targetId = data.TargetID ?? '';
+			const execSystemId = data.ExecSystemID ?? '';
+			const differsFromTarget = execSystemId && execSystemId !== targetId;
+			// Resolves the pending entry for UI-initiated actions, or creates the
+			// entry outright for actions driven via MCP / autonomous plans.
+			timeline.recordExecutedTtp({
+				id: cmdId,
+				ttpId: data.TTP?.id ?? '',
+				ttpName: data.TTP?.name ?? data.TTP?.id ?? cmdId,
+				targetId,
+				targetName: campaignState.getEntityById(targetId)?.name ?? targetId,
+				execSystemId: differsFromTarget ? execSystemId : undefined,
+				execSystemName: differsFromTarget
+					? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
+					: undefined,
+				status: data.Success ? 'success' : 'failed',
+				failReason: data.Success ? undefined : data.FailReason,
+				timestamp: new Date()
+			});
 
 			if (data.Success && data.TTP?.id === 'read-file' && data.Args?.PATH) {
 				ranAPI.GetFileContent(data.Args.PATH).then((file) => {

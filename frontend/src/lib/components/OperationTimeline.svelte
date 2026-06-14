@@ -14,18 +14,16 @@
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     }
 
-    function entityLabel(entry: EntityEntry): string {
+    function entityPrefix(entry: EntityEntry): string {
         if (entry.kind === 'credential') {
-            if (entry.entityKind === 'Secret') return `Found secret ${entry.entityName}`;
-            return `Found credential ${entry.entityName}`;
+            if (entry.entityKind === 'Secret') return 'Found secret';
+            return 'Found credential';
         }
-        if (entry.kind === 'access-gained') {
-            return `Gained exec access to ${entry.entityName}`;
-        }
-        if (entry.entityKind === 'Pod') return `Discovered pod ${entry.entityName}`;
-        if (entry.entityKind === 'Namespace') return `Discovered namespace ${entry.entityName}`;
-        if (entry.entityKind === 'ServiceAccount') return `Discovered service account ${entry.entityName}`;
-        return `Discovered ${entry.entityKind} ${entry.entityName}`;
+        if (entry.kind === 'access-gained') return 'Gained exec access to';
+        if (entry.entityKind === 'Pod') return 'Discovered pod';
+        if (entry.entityKind === 'Namespace') return 'Discovered namespace';
+        if (entry.entityKind === 'ServiceAccount') return 'Discovered service account';
+        return `Discovered ${entry.entityKind}`;
     }
 
     function effectCounts(group: ActionGroup) {
@@ -80,7 +78,25 @@
                 {#if entry.kind === 'action-group'}
                     {@const counts = effectCounts(entry)}
                     <!-- Action group header row -->
-                    <div class="flex items-start gap-2 px-3 py-2 border-b border-surface-200-800 text-sm hover:bg-surface-200-800">
+                    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                    <div
+                        class="flex items-start gap-2 px-3 py-2 border-b border-surface-200-800 text-sm hover:bg-surface-200-800 cursor-pointer select-none"
+                        onclick={() => ontogglegroup(entry.action.id)}
+                        aria-expanded={!entry.collapsed}
+                    >
+                        <!-- Chevron (far left) -->
+                        <div class="mt-0.5 shrink-0 text-surface-500">
+                            {#if entry.effects.length > 0}
+                                <Icon
+                                    icon={entry.collapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'}
+                                    class="size-4"
+                                    aria-hidden="true"
+                                />
+                            {:else}
+                                <div class="size-4"></div>
+                            {/if}
+                        </div>
+
                         <!-- Status icon -->
                         <div class="mt-0.5 shrink-0">
                             {#if entry.action.status === 'pending'}
@@ -101,7 +117,7 @@
                                     type="button"
                                     class="text-primary-500 hover:underline truncate"
                                     title={entry.action.targetName}
-                                    onclick={() => onfocusentity(entry.action.targetId)}
+                                    onclick={(e) => { e.stopPropagation(); onfocusentity(entry.action.targetId); }}
                                 >
                                     {entry.action.targetName}
                                 </button>
@@ -138,24 +154,6 @@
                             {/if}
                         </div>
 
-                        <!-- Chevron toggle -->
-                        {#if entry.effects.length > 0}
-                            <button
-                                type="button"
-                                class="mt-0.5 shrink-0 text-surface-500 hover:text-surface-300"
-                                onclick={() => ontogglegroup(entry.action.id)}
-                                aria-label={entry.collapsed ? 'Expand effects' : 'Collapse effects'}
-                            >
-                                <Icon
-                                    icon={entry.collapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'}
-                                    class="size-4"
-                                    aria-hidden="true"
-                                />
-                            </button>
-                        {:else}
-                            <div class="size-4 shrink-0 mt-0.5"></div>
-                        {/if}
-
                         <!-- Timestamp -->
                         <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(entry.action.timestamp)}</span>
                     </div>
@@ -168,7 +166,11 @@
                                     <Icon icon={entityIcon(effect.kind)} class={entityIconClass(effect.kind)} aria-hidden="true" />
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <span class="font-medium">{entityLabel(effect)}</span>
+                                    <span class="font-medium">{entityPrefix(effect)}</span> <button
+                                        type="button"
+                                        class="font-medium text-left hover:underline text-primary-500"
+                                        onclick={() => onfocusentity(effect.entityId)}
+                                    >{effect.entityName}</button>
                                 </div>
                                 <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(effect.timestamp)}</span>
                             </div>
@@ -182,7 +184,11 @@
                             <Icon icon={entityIcon(entry.kind)} class={entityIconClass(entry.kind)} aria-hidden="true" />
                         </div>
                         <div class="flex-1 min-w-0">
-                            <span class="font-medium">{entityLabel(entry)}</span>
+                            <span class="font-medium">{entityPrefix(entry)}</span> <button
+                                type="button"
+                                class="font-medium text-left hover:underline text-primary-500"
+                                onclick={() => onfocusentity(entry.entityId)}
+                            >{entry.entityName}</button>
                         </div>
                         <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(entry.timestamp)}</span>
                     </div>

@@ -20,6 +20,10 @@ function makeTtpEntry(overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}): Om
     };
 }
 
+function makeExecutedEntry(overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}): Omit<TtpActionEntry, 'kind'> {
+    return makeTtpEntry({ status: 'success', ...overrides });
+}
+
 function makeEntityEntry(overrides: Partial<EntityEntry> = {}): EntityEntry {
     return {
         kind: 'discovery',
@@ -41,7 +45,7 @@ describe('TimelineStore', () => {
 
     it('starts empty with timeline closed', () => {
         expect(store.topEntries).toHaveLength(0);
-        expect(store.open).toBe(false);
+        expect(store.open).toBe(true);
         expect(store.pendingCount).toBe(0);
     });
 
@@ -123,14 +127,15 @@ describe('TimelineStore', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-2', status: 'pending' }));
         store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
         expect(store.pendingCount).toBe(2);
-        store.resolveTtpAction('cmd-1', true);
+        store.recordExecutedTtp(makeExecutedEntry({ id: 'cmd-1', status: 'success' }));
         expect(store.pendingCount).toBe(1);
     });
 
-    // resolveTtpAction
-    it('resolveTtpAction marks matching group action as success', () => {
+    // recordExecutedTtp
+    it('recordExecutedTtp marks matching pending group as success', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
-        store.resolveTtpAction('cmd-abc', true);
+        store.recordExecutedTtp(makeExecutedEntry({ id: 'cmd-abc', status: 'success' }));
+        expect(store.topEntries).toHaveLength(1);
         const entry = store.topEntries[0];
         if (entry.kind === 'action-group') {
             expect(entry.action.status).toBe('success');
@@ -138,9 +143,11 @@ describe('TimelineStore', () => {
         }
     });
 
-    it('resolveTtpAction marks entry as failed with reason', () => {
+    it('recordExecutedTtp marks matching pending group as failed with reason', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
-        store.resolveTtpAction('cmd-abc', false, 'permission denied');
+        store.recordExecutedTtp(
+            makeExecutedEntry({ id: 'cmd-abc', status: 'failed', failReason: 'permission denied' })
+        );
         const entry = store.topEntries[0];
         if (entry.kind === 'action-group') {
             expect(entry.action.status).toBe('failed');
@@ -148,21 +155,61 @@ describe('TimelineStore', () => {
         }
     });
 
-    it('resolveTtpAction with unknown id is a no-op', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
-        store.resolveTtpAction('cmd-unknown', true);
-        const entry = store.topEntries[0];
-        if (entry.kind === 'action-group') {
-            expect(entry.action.status).toBe('pending');
-        }
-    });
-
-    it('resolveTtpAction on already-resolved entry is a no-op', () => {
+    it('recordExecutedTtp on already-resolved entry is a no-op', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'success' }));
-        store.resolveTtpAction('cmd-abc', false, 'should not change');
+        store.recordExecutedTtp(
+            makeExecutedEntry({ id: 'cmd-abc', status: 'failed', failReason: 'should not change' })
+        );
         const entry = store.topEntries[0];
         if (entry.kind === 'action-group') {
             expect(entry.action.status).toBe('success');
+        }
+    });
+
+    // recordExecutedTtp creating entries for non-UI actions (MCP / autonomous plans)
+    it('recordExecutedTtp creates a resolved entry when no pending entry exists', () => {
+        store.recordExecutedTtp(
+            makeExecutedEntry({ id: 'cmd-mcp', ttpName: 'List Pods', status: 'success' })
+        );
+        expect(store.topEntries).toHaveLength(1);
+        const entry = store.topEntries[0];
+        expect(entry.kind).toBe('action-group');
+        if (entry.kind === 'action-group') {
+            expect(entry.action.id).toBe('cmd-mcp');
+            expect(entry.action.ttpName).toBe('List Pods');
+            expect(entry.action.status).toBe('success');
+        }
+    });
+
+    it('recordExecutedTtp-created entry groups subsequent effects by cmdId', () => {
+        store.recordExecutedTtp(makeExecutedEntry({ id: 'cmd-mcp', status: 'success' }));
+        store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-mcp' }));
+        expect(store.topEntries).toHaveLength(1);
+        const entry = store.topEntries[0];
+        if (entry.kind === 'action-group') {
+            expect(entry.effects).toHaveLength(1);
+            expect(entry.effects[0].entityName).toBe('web-app');
+        }
+    });
+
+    it('recordExecutedTtp before addTtpAction (SSE beats HTTP) keeps resolved status and enriches names', () => {
+        // SSE arrives first with the target id but no friendly target name.
+        store.recordExecutedTtp(
+            makeExecutedEntry({
+                id: 'cmd-abc',
+                targetName: 'pod-1',
+                status: 'failed',
+                failReason: 'shell write failed: broken pipe'
+            })
+        );
+        // HTTP response follows with the names the UI knows.
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', targetName: 'my-pod', status: 'pending' }));
+        expect(store.topEntries).toHaveLength(1);
+        const entry = store.topEntries[0];
+        if (entry.kind === 'action-group') {
+            expect(entry.action.status).toBe('failed');
+            expect(entry.action.failReason).toBe('shell write failed: broken pipe');
+            expect(entry.action.targetName).toBe('my-pod');
         }
     });
 

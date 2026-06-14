@@ -1154,6 +1154,7 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
         match campaign_rx.recv().await {
             Ok(CampaignEvent::TtpExecuted {
                 cmd_id,
+                target_id,
                 exec_system_id,
                 ttp,
                 args,
@@ -1168,6 +1169,7 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     "CmdId": cmd_id,
                     "TTP": ttp,
                     "Args": args,
+                    "TargetID": target_id,
                     "ExecSystemID": exec_system_id,
                     "Success": success,
                     "FailReason": fail_reason,
