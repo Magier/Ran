@@ -1,6 +1,6 @@
 mod entity_refs;
 mod entity_store;
-mod execution;
+pub(crate) mod execution;
 mod state;
 #[cfg(test)]
 mod tests;

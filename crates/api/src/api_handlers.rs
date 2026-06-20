@@ -2,15 +2,9 @@ use std::collections::HashMap;
 
 use axum::extract::{Query, State};
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 use tracing::debug;
 
-use campaign::ttp_applicability::{
-    ttp_access_level_satisfied, ttp_exists_satisfied, ttp_has_token_satisfied, ttp_rbac_satisfied,
-    ttp_related_satisfied,
-};
-use campaign::CampaignEntityRef;
-use ran_domain::AccessLevel;
+use campaign::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
 
 use crate::sse::events_handler;
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
@@ -103,6 +97,15 @@ pub(crate) struct GetApplicableTtpsParams {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct GetRecommendationsParams {
+    /// Optional: restrict recommendations to a single target entity.
+    #[serde(rename = "targetId")]
+    pub(crate) target_id: Option<String>,
+    /// Optional: cap the number of ranked candidates returned.
+    pub(crate) limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
 pub(crate) struct ExecuteActionCmdPayload {
     #[serde(rename = "actionId")]
     pub(crate) action_id: String,
@@ -178,64 +181,54 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
 
     let campaign = service.get_campaign().await?;
 
-    // Resolve the target entity – we need its kind string (for exact-kind
-    // matching), whether it is a SystemEntity (for abstract "System" matching),
-    // and its current access level (for the access-level pre-condition check).
-    let (target_kind, is_system_target, target_access_level, target_has_token) = {
-        let entities = campaign.get_entities();
-        let entity = entities
-            .into_iter()
-            .find(|e| e.entity_id().0 == target_id)
-            .ok_or_else(|| ApiError {
-                status: axum::http::StatusCode::NOT_FOUND,
-                body: ErrorResponse {
-                    error: format!("failed to get target entity: {}", target_id),
-                    details: None,
-                },
-            })?;
-        let kind = entity.entity_kind().to_string();
-        let is_system = matches!(
-            &entity,
-            CampaignEntityRef::Pod(_)
-                | CampaignEntityRef::Node(_)
-                | CampaignEntityRef::UnknownSystem(_)
-        );
-        let access_level = match &entity {
-            CampaignEntityRef::Pod(p) => {
-                // A reachable pod (kubectl-exec channel exists) implies exec access
-                // even before a TTP has explicitly updated the access_level field.
-                if p.system.access_level == AccessLevel::None
-                    && campaign.reachable_pods().contains(&entity.entity_id().0)
-                {
-                    AccessLevel::Exec
-                } else {
-                    p.system.access_level
-                }
-            }
-            CampaignEntityRef::Node(n) => n.system.access_level,
-            CampaignEntityRef::UnknownSystem(s) => s.system.access_level,
-            _ => AccessLevel::None,
-        };
-        let has_token = match &entity {
-            CampaignEntityRef::ServiceAccount(sa) => sa.raw_token().is_some(),
-            _ => false,
-        };
-        (kind, is_system, access_level, has_token)
+    // Resolve the target's facts once, then gate every candidate TTP through the
+    // shared aggregate applicability check (campaign::ttp_applicability).
+    let Some(tc) = resolve_target_context(&campaign, target_id) else {
+        return Err(ApiError {
+            status: axum::http::StatusCode::NOT_FOUND,
+            body: ErrorResponse {
+                error: format!("failed to get target entity: {}", target_id),
+                details: None,
+            },
+        });
     };
 
     let ttps = all_ttps
         .into_iter()
-        .filter(|ttp| {
-            ttp_is_applicable_for_target_kind(ttp, &target_kind, is_system_target)
-                && ttp_rbac_satisfied(ttp, &campaign)
-                && ttp_exists_satisfied(ttp, &campaign)
-                && (!is_system_target || ttp_access_level_satisfied(ttp, target_access_level))
-                && ttp_has_token_satisfied(ttp, target_has_token)
-                && ttp_related_satisfied(ttp, target_id, &target_kind, &campaign)
-        })
+        .filter(|ttp| ttp_applicable_for_target(ttp, &campaign, &tc))
         .collect::<Vec<_>>();
 
     Ok(axum::Json(ttps))
+}
+
+/// Rank applicable `(TTP × target)` actions by utility for the current campaign
+/// state, using the default scoring profile. Advisory: the caller chooses what
+/// (if anything) to execute. Each candidate carries a per-consideration
+/// breakdown for explainability.
+pub(crate) async fn recommendations_handler<S: ApiService>(
+    State(service): State<S>,
+    Query(params): Query<GetRecommendationsParams>,
+) -> Result<axum::Json<Vec<campaign::ScoredCandidate>>, ApiError> {
+    let all_ttps = service.get_armory(GetArmoryParams { tactic: None }).await?;
+    let campaign = service.get_campaign().await?;
+
+    let scorer = campaign::Scorer::with_defaults(service.scoring_profile());
+    let mut ranked = scorer.rank(&campaign, &all_ttps);
+
+    if let Some(target_id) = params
+        .target_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        ranked.retain(|c| c.target_id == target_id);
+    }
+
+    if let Some(limit) = params.limit {
+        ranked.truncate(limit);
+    }
+
+    Ok(axum::Json(ranked))
 }
 
 pub(crate) async fn execute_action_handler<S: ApiService>(
@@ -576,78 +569,6 @@ pub(crate) async fn export_plan_handler<S: ApiService>(
         .map(|v| v == "true")
         .unwrap_or(false);
     service.export_plan(include_failed).await
-}
-
-pub(crate) fn ttp_is_applicable_for_target_kind(
-    ttp: &armory::Ttp,
-    target_kind: &str,
-    is_system_target: bool,
-) -> bool {
-    if ttp.status.eq_ignore_ascii_case("disabled") {
-        return false;
-    }
-
-    let Some(kind_req) = ttp.requires.get("kind") else {
-        return true;
-    };
-
-    match kind_req {
-        Value::String(kind) => kind_matches_target_kind(kind, target_kind, is_system_target),
-        Value::Array(kinds) => kinds.iter().any(|k| {
-            k.as_str()
-                .map(|s| kind_matches_target_kind(s, target_kind, is_system_target))
-                .unwrap_or(true)
-        }),
-        _ => true,
-    }
-}
-
-/// Returns `true` if `required_kind` (from a TTP's `requires.kind`) is satisfied
-/// by the target entity.
-///
-/// `required_kind == "System"` is an abstract requirement satisfied by any entity
-/// that implements [`SystemEntity`] – i.e. wherever `is_system_target` is `true`.
-/// This is driven by the trait rather than a hardcoded list of kind strings, so
-/// future `SystemEntity` implementors (e.g. `UnknownSystem`) are picked up
-/// automatically without touching this function.
-fn kind_matches_target_kind(
-    required_kind: &str,
-    target_kind: &str,
-    is_system_target: bool,
-) -> bool {
-    if required_kind.eq_ignore_ascii_case(target_kind) {
-        return true;
-    }
-
-    required_kind.eq_ignore_ascii_case("System") && is_system_target
-}
-
-#[cfg(test)]
-mod tests {
-    use super::kind_matches_target_kind;
-
-    #[test]
-    fn system_kind_matches_any_system_entity_target() {
-        // is_system_target=true represents anything implementing SystemEntity
-        assert!(kind_matches_target_kind("System", "Pod", true));
-        assert!(kind_matches_target_kind("System", "Node", true));
-        // A hypothetical future type also matches as long as it is a SystemEntity
-        assert!(kind_matches_target_kind("System", "UnknownSystem", true));
-    }
-
-    #[test]
-    fn system_kind_does_not_match_non_system_entities() {
-        assert!(!kind_matches_target_kind("System", "ServiceAccount", false));
-        assert!(!kind_matches_target_kind("System", "Namespace", false));
-    }
-
-    #[test]
-    fn exact_kind_matching_still_works() {
-        assert!(kind_matches_target_kind("Pod", "Pod", false));
-        assert!(!kind_matches_target_kind("Pod", "Node", false));
-        // is_system_target flag is irrelevant for non-System requirements
-        assert!(!kind_matches_target_kind("Pod", "Node", true));
-    }
 }
 
 // --- Frontend handler -------------------------------------------------------

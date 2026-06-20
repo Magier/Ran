@@ -362,26 +362,208 @@ fn parse_relation_effect(
     })
 }
 
+/// The canonical taxonomy of effects the campaign understands.
+///
+/// This is the **single source of truth** for effect names: both the parser
+/// (which maps a kind to a [`FactsUpdate`]-producing handler below) and the
+/// action scorer (which maps a kind to a value via [`EffectKind::categories`])
+/// resolve through [`EffectKind::parse`]. Adding a new effect kind is one edit
+/// here that the exhaustive `categories` match forces you to classify — a kind
+/// can never be parseable yet unvalued, so the two never drift.
+///
+/// The set is intentionally **not closed**: more effects will be added. An
+/// effect string that doesn't match any variant returns `None` (fail-soft —
+/// the parser treats it as `handled: false`, the scorer values it at zero).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectKind {
+    // Simple, entity-producing effects (have a structural FactsUpdate handler).
+    K8sPod,
+    K8sServiceAccount,
+    K8sRole,
+    K8sRoleBinding,
+    K8sCronJob,
+    // Resource enumeration / discovery (parser-driven; no structural handler,
+    // but still part of the vocabulary so the scorer can value them).
+    PodList,
+    NodeList,
+    ServiceList,
+    ServiceAccountList,
+    SecretList,
+    RoleList,
+    RoleBindingList,
+    ClusterRoleList,
+    ClusterRoleBindingList,
+    ConfigMapList,
+    DeploymentList,
+    IngressList,
+    HttpRouteList,
+    GatewayList,
+    SelfSubjectRulesReview,
+    RawServiceAccountToken,
+    // Host / system discovery.
+    SysFiles,
+    SysProcesses,
+    SysIp,
+    SysHasFile,
+    SysHasBinary,
+    LinuxMounts,
+    ReverseDns,
+    FileContent,
+    FileKubeconfig,
+    // Relation-producing effects.
+    K8sCanExec,
+    K8sCanReach,
+    RunsOn,
+    KubeletExecSource,
+    C2Session,
+    RceCanExec,
+    ContainerEscape,
+    // Imperative RBAC creation — privilege escalation.
+    CreateRole,
+    CreateRoleBinding,
+}
+
+/// What executing an effect *does to the belief state* — the basis the scorer
+/// derives value from, so effects sharing a category are valued consistently.
+/// An effect may fall in more than one category (e.g. enumerating Services is
+/// both `Discovery` and `Reachability`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectCategory {
+    /// Adds entities/facts about the world — reduces uncertainty (POMDP).
+    Discovery,
+    /// Adds execution or escape capability — raises effective privilege.
+    PrivilegeEdge,
+    /// Adds a session/route or reveals network & adjacent entities — extends
+    /// where we can operate next.
+    Reachability,
+}
+
+impl EffectKind {
+    /// Parse an effect string (with or without a `(args)` suffix) into its kind.
+    /// Returns `None` for effects outside the current taxonomy.
+    pub fn parse(effect: &str) -> Option<Self> {
+        // Drop any relation argument list, then normalize the bare name.
+        let name = effect.trim();
+        let name = name.split('(').next().unwrap_or(name).trim();
+        let kind = match name.to_ascii_lowercase().as_str() {
+            "k8s.pod" => Self::K8sPod,
+            "k8s.serviceaccount" => Self::K8sServiceAccount,
+            "k8s.role" => Self::K8sRole,
+            "k8s.rolebinding" => Self::K8sRoleBinding,
+            "k8s.cronjob" => Self::K8sCronJob,
+            "k8s.podlist" => Self::PodList,
+            "k8s.nodelist" => Self::NodeList,
+            "k8s.servicelist" => Self::ServiceList,
+            "k8s.serviceaccountlist" => Self::ServiceAccountList,
+            "k8s.secretlist" => Self::SecretList,
+            "k8s.rolelist" => Self::RoleList,
+            "k8s.rolebindinglist" => Self::RoleBindingList,
+            "k8s.clusterrolelist" => Self::ClusterRoleList,
+            "k8s.clusterrolebindinglist" => Self::ClusterRoleBindingList,
+            "k8s.configmaplist" => Self::ConfigMapList,
+            "k8s.deploymentlist" => Self::DeploymentList,
+            "k8s.ingresslist" => Self::IngressList,
+            "k8s.httproutelist" => Self::HttpRouteList,
+            "k8s.gatewaylist" => Self::GatewayList,
+            "k8s.selfsubjectrulesreview" => Self::SelfSubjectRulesReview,
+            "rawserviceaccounttoken" => Self::RawServiceAccountToken,
+            "sys.files" => Self::SysFiles,
+            "sys.processes" => Self::SysProcesses,
+            "sys.ip" => Self::SysIp,
+            "sys.hasfile" => Self::SysHasFile,
+            "sys.hasbinary" | "sys.has-binary" => Self::SysHasBinary,
+            "linux.mounts" => Self::LinuxMounts,
+            "rdns" => Self::ReverseDns,
+            "file:content" => Self::FileContent,
+            "file:kubeconfig" => Self::FileKubeconfig,
+            "k8s.can-exec" => Self::K8sCanExec,
+            "k8s.can-reach" => Self::K8sCanReach,
+            "k8s.runs-on" | "runs-on" => Self::RunsOn,
+            "k8s.kubelet-exec-source" | "k8s.kubelet-exec" => Self::KubeletExecSource,
+            "c2.session" => Self::C2Session,
+            "rce.can-exec" => Self::RceCanExec,
+            "container.escape" => Self::ContainerEscape,
+            "create k8s.role" => Self::CreateRole,
+            "create k8s.rolebinding" => Self::CreateRoleBinding,
+            _ => return None,
+        };
+        Some(kind)
+    }
+
+    /// The categories this effect contributes to. Exhaustive by construction —
+    /// adding a variant forces a classification here, so value can't drift.
+    pub fn categories(self) -> &'static [EffectCategory] {
+        use EffectCategory::{Discovery, PrivilegeEdge, Reachability};
+        match self {
+            // Execution / escape capability, plus RBAC self-grants.
+            Self::K8sCanExec
+            | Self::KubeletExecSource
+            | Self::RceCanExec
+            | Self::ContainerEscape
+            | Self::CreateRole
+            | Self::CreateRoleBinding => &[PrivilegeEdge],
+            // Pure network reach.
+            Self::C2Session | Self::K8sCanReach => &[Reachability],
+            // Network & adjacent-entity discovery — informs both *what's out
+            // there* and *where we can move next*.
+            Self::K8sPod
+            | Self::PodList
+            | Self::NodeList
+            | Self::ServiceList
+            | Self::IngressList
+            | Self::HttpRouteList
+            | Self::GatewayList
+            | Self::DeploymentList
+            | Self::ReverseDns
+            | Self::SysIp
+            | Self::RunsOn => &[Discovery, Reachability],
+            // Pure discovery (RBAC, secrets, config, host facts, credentials).
+            Self::K8sServiceAccount
+            | Self::K8sRole
+            | Self::K8sRoleBinding
+            | Self::K8sCronJob
+            | Self::ServiceAccountList
+            | Self::SecretList
+            | Self::RoleList
+            | Self::RoleBindingList
+            | Self::ClusterRoleList
+            | Self::ClusterRoleBindingList
+            | Self::ConfigMapList
+            | Self::SelfSubjectRulesReview
+            | Self::RawServiceAccountToken
+            | Self::SysFiles
+            | Self::SysProcesses
+            | Self::SysHasFile
+            | Self::SysHasBinary
+            | Self::LinuxMounts
+            | Self::FileContent
+            | Self::FileKubeconfig => &[Discovery],
+        }
+    }
+}
+
 fn resolve_simple_effect_handler(effect_name: &str) -> Option<SimpleEffectHandler> {
-    match normalize_effect_name(effect_name).as_str() {
-        "k8s.pod" => Some(parse_k8s_pod),
-        "k8s.serviceaccount" => Some(parse_k8s_serviceaccount),
-        "k8s.role" => Some(parse_k8s_role),
-        "k8s.rolebinding" => Some(parse_k8s_rolebinding),
-        "k8s.cronjob" => Some(parse_k8s_cronjob),
+    match EffectKind::parse(effect_name)? {
+        EffectKind::K8sPod => Some(parse_k8s_pod),
+        EffectKind::K8sServiceAccount => Some(parse_k8s_serviceaccount),
+        EffectKind::K8sRole => Some(parse_k8s_role),
+        EffectKind::K8sRoleBinding => Some(parse_k8s_rolebinding),
+        EffectKind::K8sCronJob => Some(parse_k8s_cronjob),
+        // Relation-producing kinds have no simple handler.
         _ => None,
     }
 }
 
 fn resolve_relation_effect_handler(effect_name: &str) -> Option<RelationEffectHandler> {
-    match normalize_effect_name(effect_name).as_str() {
-        "k8s.can-exec" => Some(parse_k8s_can_exec_relation),
-        "k8s.can-reach" => Some(parse_k8s_can_reach_relation),
-        "k8s.runs-on" | "runs-on" => Some(parse_runs_on_relation),
-        "k8s.kubelet-exec-source" | "k8s.kubelet-exec" => Some(parse_kubelet_exec_source_relation),
-        "c2.session" => Some(parse_c2_session_relation),
-        "rce.can-exec" => Some(parse_rce_can_exec_relation),
-        "container.escape" => Some(parse_container_escape_relation),
+    match EffectKind::parse(effect_name)? {
+        EffectKind::K8sCanExec => Some(parse_k8s_can_exec_relation),
+        EffectKind::K8sCanReach => Some(parse_k8s_can_reach_relation),
+        EffectKind::RunsOn => Some(parse_runs_on_relation),
+        EffectKind::KubeletExecSource => Some(parse_kubelet_exec_source_relation),
+        EffectKind::C2Session => Some(parse_c2_session_relation),
+        EffectKind::RceCanExec => Some(parse_rce_can_exec_relation),
+        EffectKind::ContainerEscape => Some(parse_container_escape_relation),
+        // Entity-producing kinds have no relation handler.
         _ => None,
     }
 }
@@ -661,10 +843,6 @@ fn get_arg<'a>(args: &'a HashMap<String, String>, keys: &[&str]) -> Option<&'a s
     }
 
     None
-}
-
-fn normalize_effect_name(name: &str) -> String {
-    name.trim().to_ascii_lowercase()
 }
 
 fn parse_bool_like(v: &str) -> bool {
@@ -1137,5 +1315,97 @@ mod tests {
         assert!(parse_effect("container.escape(a, b)", &ctx()).is_err());
         assert!(parse_effect("container.escape(a, b, c)", &ctx()).is_err());
         assert!(parse_effect("container.escape()", &ctx()).is_err());
+    }
+
+    // --- EffectKind taxonomy ---
+
+    #[test]
+    fn effect_kind_parse_strips_relation_args_and_normalizes_case() {
+        assert_eq!(
+            EffectKind::parse("c2.session(sliver, sys)"),
+            Some(EffectKind::C2Session)
+        );
+        assert_eq!(EffectKind::parse("k8s.Pod"), Some(EffectKind::K8sPod));
+        assert_eq!(EffectKind::parse("runs-on(a, b)"), Some(EffectKind::RunsOn));
+        assert_eq!(EffectKind::parse("totally.unknown"), None);
+    }
+
+    #[test]
+    fn every_dispatchable_effect_name_parses_to_a_kind() {
+        // Every name the parser dispatches on must resolve through the taxonomy,
+        // so the parser and the scorer can never see different vocabularies.
+        for name in [
+            "k8s.pod",
+            "k8s.serviceaccount",
+            "k8s.role",
+            "k8s.rolebinding",
+            "k8s.cronjob",
+            "k8s.can-exec",
+            "k8s.can-reach",
+            "k8s.runs-on",
+            "runs-on",
+            "k8s.kubelet-exec-source",
+            "k8s.kubelet-exec",
+            "c2.session",
+            "rce.can-exec",
+            "container.escape",
+        ] {
+            let kind =
+                EffectKind::parse(name).unwrap_or_else(|| panic!("no EffectKind for {name}"));
+            // categories() is total — must classify every variant, non-empty.
+            assert!(!kind.categories().is_empty());
+        }
+    }
+
+    #[test]
+    fn discovery_list_effects_classify_as_discovery() {
+        for name in [
+            "k8s.serviceAccountList",
+            "k8s.secretList",
+            "k8s.roleList",
+            "k8s.SelfSubjectRulesReview",
+            "rawServiceaccountToken",
+            "sys.files",
+            "file:content",
+        ] {
+            let kind = EffectKind::parse(name).unwrap_or_else(|| panic!("no kind for {name}"));
+            assert!(
+                kind.categories().contains(&EffectCategory::Discovery),
+                "{name} should be Discovery"
+            );
+        }
+    }
+
+    #[test]
+    fn rbac_creation_effects_classify_as_privilege() {
+        for name in ["create k8s.RoleBinding", "create k8s.Role"] {
+            let kind = EffectKind::parse(name).unwrap_or_else(|| panic!("no kind for {name}"));
+            assert!(
+                kind.categories().contains(&EffectCategory::PrivilegeEdge),
+                "{name} should be PrivilegeEdge"
+            );
+        }
+    }
+
+    #[test]
+    fn network_and_adjacent_effects_classify_as_reachability() {
+        for name in [
+            "k8s.servicelist",
+            "k8s.ingresslist",
+            "k8s.gatewaylist",
+            "k8s.httproutelist",
+            "k8s.podList",
+            "k8s.nodeList",
+            "rDNS",
+            "sys.ip",
+        ] {
+            let kind = EffectKind::parse(name).unwrap_or_else(|| panic!("no kind for {name}"));
+            assert!(
+                kind.categories().contains(&EffectCategory::Reachability),
+                "{name} should be Reachability"
+            );
+            // network/adjacent enumeration is still information.
+            assert!(kind.categories().contains(&EffectCategory::Discovery));
+        }
     }
 }

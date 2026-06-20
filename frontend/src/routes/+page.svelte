@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Armory from './components/armory.svelte';
-	import type { Node, TTP } from '$lib/api/index';
+	import Recommendations from './components/recommendations.svelte';
+	import type { Node, TTP, ScoredCandidate } from '$lib/api/index';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
 	import { Dialog, Popover, Portal } from '@skeletonlabs/skeleton-svelte';
@@ -285,6 +286,19 @@
 		}
 	}
 
+	// Execute a recommendation against its own target. Selects that target, then
+	// reuses the standard action flow (param modal for parameterized TTPs,
+	// direct execution otherwise).
+	function runRecommendation(rec: ScoredCandidate) {
+		const ttp = campaignState.getTtpById(rec.ttp_id);
+		if (!ttp) {
+			handleError(new Error(`Unknown TTP: ${rec.ttp_id}`));
+			return;
+		}
+		selectedObjectId = rec.target_id;
+		sendAction(ttp);
+	}
+
 	function closeModal() {
 		showParamModal = false;
 	}
@@ -476,6 +490,13 @@
 	<div class="flex-1 min-w-0 flex flex-col min-h-0">
 		<div class="flex-1 min-h-0 relative">
 			<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="h-full" />
+
+			<!-- Recommendations overlay (top-left; EntityInfo occupies top-right) -->
+			<div class="absolute top-2 left-2 w-80 z-40">
+				<svelte:boundary onerror={handleError}>
+					<Recommendations run={runRecommendation} />
+				</svelte:boundary>
+			</div>
 
 			{#if selectedObjectId !== ''}
 				<svelte:boundary onerror={handleError}>

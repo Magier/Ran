@@ -115,6 +115,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         armory_dir: args.armory,
         port: args.port,
         namespace_filter: cfg.namespaces,
+        scoring: cfg.scoring,
     })
     .await
 }

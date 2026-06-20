@@ -84,6 +84,38 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/recommendations:
+    get:
+      summary: Rank recommended next actions
+      description: >-
+        Returns applicable (TTP × target) actions ranked by utility for the
+        current campaign state, using the default scoring profile. Advisory only
+        — the caller decides what to execute. Each candidate includes a
+        per-consideration breakdown for explainability.
+      operationId: getRecommendations
+      parameters:
+        - name: targetId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional — restrict recommendations to a single target entity.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Optional — cap the number of ranked candidates returned.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredCandidate'
+
   /api/flow:
     get:
       summary: Get attack flow
@@ -919,6 +951,57 @@ components:
           type: string
         details:
           type: string
+
+    ConsiderationScore:
+      type: object
+      description: One consideration's contribution to a candidate's utility.
+      required:
+        - name
+        - raw
+        - curved
+        - weight
+        - veto
+      properties:
+        name:
+          type: string
+          description: Consideration identifier (e.g. "privilege_gain").
+        raw:
+          type: number
+          format: float
+          description: Raw measurement in [0, 1].
+        curved:
+          type: number
+          format: float
+          description: Measurement after the profile's response curve.
+        weight:
+          type: number
+          format: float
+          description: Weight applied from the profile.
+        veto:
+          type: boolean
+          description: Whether this consideration acted as a multiplicative veto.
+
+    ScoredCandidate:
+      type: object
+      description: A scored, grounded (TTP × target) action.
+      required:
+        - ttp_id
+        - target_id
+        - utility
+        - breakdown
+      properties:
+        ttp_id:
+          type: string
+        target_id:
+          type: string
+        utility:
+          type: number
+          format: float
+          description: Final utility in [0, 1].
+        breakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsiderationScore'
 
     OwnerRef:
       type: object

@@ -84,6 +84,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rank recommended next actions
+         * @description Returns applicable (TTP × target) actions ranked by utility for the current campaign state, using the default scoring profile. Advisory only — the caller decides what to execute. Each candidate includes a per-consideration breakdown for explainability.
+         */
+        get: operations["getRecommendations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/flow": {
         parameters: {
             query?: never;
@@ -377,6 +397,8 @@ export interface components {
             };
             sourceId: string;
             targetId: string;
+            /** @description Backend ID of the active persistent session on this exec-channel edge, if any. */
+            sessionId?: string;
         };
         CampaignState: {
             entities: {
@@ -571,6 +593,39 @@ export interface components {
             error: string;
             details?: string;
         };
+        /** @description One consideration's contribution to a candidate's utility. */
+        ConsiderationScore: {
+            /** @description Consideration identifier (e.g. "privilege_gain"). */
+            name: string;
+            /**
+             * Format: float
+             * @description Raw measurement in [0, 1].
+             */
+            raw: number;
+            /**
+             * Format: float
+             * @description Measurement after the profile's response curve.
+             */
+            curved: number;
+            /**
+             * Format: float
+             * @description Weight applied from the profile.
+             */
+            weight: number;
+            /** @description Whether this consideration acted as a multiplicative veto. */
+            veto: boolean;
+        };
+        /** @description A scored, grounded (TTP × target) action. */
+        ScoredCandidate: {
+            ttp_id: string;
+            target_id: string;
+            /**
+             * Format: float
+             * @description Final utility in [0, 1].
+             */
+            utility: number;
+            breakdown: components["schemas"]["ConsiderationScore"][];
+        };
         /** @description Reference to the Kubernetes owner of a resource (e.g. ReplicaSet → Pod). */
         OwnerRef: {
             name: string;
@@ -693,6 +748,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getRecommendations: {
+        parameters: {
+            query?: {
+                /** @description Optional — restrict recommendations to a single target entity. */
+                targetId?: string;
+                /** @description Optional — cap the number of ranked candidates returned. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoredCandidate"][];
                 };
             };
         };

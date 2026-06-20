@@ -9,6 +9,27 @@ use tracing::debug;
 #[serde(default)]
 pub struct Config {
     pub namespaces: NamespaceFilter,
+    pub scoring: ScoringConfig,
+}
+
+/// Action-selection (utility AI) configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScoringConfig {
+    /// How per-consideration scores are combined into a single utility:
+    /// `weighted_arithmetic` (default), `weighted_geometric`, or
+    /// `iaus_multiplicative`.
+    pub combination: campaign::CombinationMode,
+}
+
+impl ScoringConfig {
+    /// Build the scoring [`campaign::Profile`] this config describes.
+    pub fn to_profile(&self) -> campaign::Profile {
+        campaign::Profile {
+            combination: self.combination,
+            ..campaign::Profile::default()
+        }
+    }
 }
 
 /// Controls which namespaces are visible during discovery.
@@ -68,4 +89,30 @@ pub fn load(path: Option<PathBuf>) -> Result<Config> {
 
     debug!(path = %path.display(), "config loaded");
     Ok(cfg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use campaign::CombinationMode;
+
+    #[test]
+    fn scoring_defaults_to_weighted_arithmetic() {
+        let cfg: Config = serde_yaml::from_str("namespaces: {}").unwrap();
+        assert_eq!(cfg.scoring.combination, CombinationMode::WeightedArithmetic);
+    }
+
+    #[test]
+    fn scoring_combination_parses_each_mode() {
+        for (yaml, mode) in [
+            ("weighted_arithmetic", CombinationMode::WeightedArithmetic),
+            ("weighted_geometric", CombinationMode::WeightedGeometric),
+            ("iaus_multiplicative", CombinationMode::IausMultiplicative),
+        ] {
+            let cfg: Config =
+                serde_yaml::from_str(&format!("scoring:\n  combination: {yaml}")).unwrap();
+            assert_eq!(cfg.scoring.combination, mode);
+            assert_eq!(cfg.scoring.to_profile().combination, mode);
+        }
+    }
 }

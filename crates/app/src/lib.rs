@@ -36,6 +36,7 @@ pub struct AppState {
     c2: C2Handle,
     armory: Armory,
     namespace_filter: NamespaceFilter,
+    scoring_profile: campaign::Profile,
     ran_name: String,
     target_cluster: K8sCluster,
     campaign_events: CampaignEventBus,
@@ -52,6 +53,7 @@ impl AppState {
         c2: C2Handle,
         armory: Armory,
         namespace_filter: NamespaceFilter,
+        scoring_profile: campaign::Profile,
         ran_name: String,
         target_cluster: K8sCluster,
         campaign_events: CampaignEventBus,
@@ -62,6 +64,7 @@ impl AppState {
             c2,
             armory,
             namespace_filter,
+            scoring_profile,
             ran_name,
             target_cluster,
             campaign_events,
@@ -119,6 +122,10 @@ impl ApiService for AppState {
             .read()
             .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
         Ok(guard.clone())
+    }
+
+    fn scoring_profile(&self) -> campaign::Profile {
+        self.scoring_profile.clone()
     }
 
     async fn reset_campaign(&self) -> Result<(), ApiError> {
@@ -806,6 +813,8 @@ pub struct ServerConfig {
     pub port: u16,
     /// Namespace visibility filter loaded from `ran.yaml`.
     pub namespace_filter: NamespaceFilter,
+    /// Action-selection scoring configuration loaded from `ran.yaml`.
+    pub scoring: config::ScoringConfig,
 }
 
 /// Start the Ran emulation API server. This is the primary entry point for
@@ -857,6 +866,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
         c2_handle,
         armory,
         cfg.namespace_filter,
+        cfg.scoring.to_profile(),
         "Ran".to_string(),
         campaign_cluster,
         campaign_events.clone(),

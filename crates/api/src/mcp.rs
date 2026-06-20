@@ -33,7 +33,6 @@ use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler};
 use serde_json::{json, Value};
 
-use crate::api_handlers::ttp_is_applicable_for_target_kind;
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
 use crate::{ApiError, ApiService, GetArmoryParams};
 
@@ -246,27 +245,15 @@ impl<S: ApiService> RanMcpHandler<S> {
             .map_err(api_err)?;
         let campaign = self.api.get_campaign().await.map_err(api_err)?;
 
-        use campaign::ttp_applicability::{ttp_exists_satisfied, ttp_rbac_satisfied};
+        use campaign::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
 
-        let entities = campaign.get_entities();
-        let entity = entities
-            .into_iter()
-            .find(|e| e.entity_id().0 == target_id)
-            .ok_or_else(|| invalid_param(format!("entity `{target_id}` not found. For initial access, use the Cluster entity as target_id (not a pod ID) and pass the pod name as a parameter.")))?;
-        let target_kind = entity.entity_kind().to_string();
-        use campaign::CampaignEntityRef;
-        let is_system = matches!(
-            &entity,
-            CampaignEntityRef::Pod(_) | CampaignEntityRef::Node(_)
-        );
+        let tc = resolve_target_context(&campaign, target_id).ok_or_else(|| {
+            invalid_param(format!("entity `{target_id}` not found. For initial access, use the Cluster entity as target_id (not a pod ID) and pass the pod name as a parameter."))
+        })?;
 
         let applicable: Vec<_> = all_ttps
             .into_iter()
-            .filter(|ttp| {
-                ttp_is_applicable_for_target_kind(ttp, &target_kind, is_system)
-                    && ttp_rbac_satisfied(ttp, &campaign)
-                    && ttp_exists_satisfied(ttp, &campaign)
-            })
+            .filter(|ttp| ttp_applicable_for_target(ttp, &campaign, &tc))
             .collect();
 
         json_result(applicable)

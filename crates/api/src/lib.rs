@@ -36,6 +36,10 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             axum::routing::get(api_handlers::applicable_ttps_handler::<S>),
         )
         .route(
+            "/api/recommendations",
+            axum::routing::get(api_handlers::recommendations_handler::<S>),
+        )
+        .route(
             "/api/action/execute",
             axum::routing::post(api_handlers::execute_action_handler::<S>),
         )

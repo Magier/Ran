@@ -140,6 +140,10 @@ pub trait ApiService: Clone + Send + Sync + 'static {
 
     async fn get_campaign(&self) -> Result<campaign::Campaign, ApiError>;
 
+    /// The scoring profile (combination mode + weights) for action selection,
+    /// sourced from configuration.
+    fn scoring_profile(&self) -> campaign::Profile;
+
     async fn reset_campaign(&self) -> Result<(), ApiError>;
 
     async fn start_pod_watch(&self, namespace: Option<String>) -> Result<(), ApiError>;

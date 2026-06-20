@@ -1723,6 +1723,51 @@ fn procedure_binary_name(procedure: &Procedure) -> Option<&str> {
     procedure.command.split_whitespace().next()
 }
 
+/// Readiness of an unseen (`Unknown`) tool — a base-rate prior that a tool we
+/// haven't checked is present. Below 1.0 so the scorer prefers tools we've
+/// *confirmed* present over ones we merely haven't ruled out.
+const UNKNOWN_TOOL_READINESS: f32 = 0.7;
+
+/// How runnable a single procedure is on `sys`, in `[0, 1]`:
+/// `1.0` if it runs operator-side (no target binary) or its tool is confirmed
+/// present, `UNKNOWN_TOOL_READINESS` if the tool's presence is unknown, `0.0` if
+/// the tool is known absent.
+fn procedure_readiness(procedure: &Procedure, tactic: &str, sys: &ran_domain::SystemInfo) -> f32 {
+    if !needs_remote_channel(procedure, tactic) {
+        return 1.0; // runs on the C2 side — no target binary required
+    }
+    match procedure_binary_name(procedure) {
+        None => 1.0, // can't identify a binary — don't penalize
+        Some(tool) => match sys.has_binary(tool) {
+            ran_domain::BinaryPresence::Present(_) => 1.0,
+            ran_domain::BinaryPresence::Unknown => UNKNOWN_TOOL_READINESS,
+            ran_domain::BinaryPresence::Absent => 0.0,
+        },
+    }
+}
+
+/// Best-case tool readiness for a TTP against `target_id`, i.e. the readiness of
+/// the most-runnable procedure (the runtime falls back to whichever procedure
+/// can run). Returns `1.0` when the target isn't a system entity (no binary map
+/// to assess) or the TTP has no procedures.
+///
+/// Shared by the applicability gate ([`ttp_tool_satisfied`](crate::ttp_applicability::ttp_tool_satisfied),
+/// which treats `> 0.0` as runnable) and the `reliability` consideration (which
+/// uses the value to prefer confirmed-runnable actions) so the two never drift.
+pub(crate) fn best_tool_readiness(ttp: &armory::Ttp, campaign: &Campaign, target_id: &str) -> f32 {
+    let Some(sys_ref) = campaign.get_system_entity(target_id) else {
+        return 1.0;
+    };
+    if ttp.procedures.is_empty() {
+        return 1.0;
+    }
+    let sys = sys_ref.entity().system();
+    ttp.procedures
+        .iter()
+        .map(|p| procedure_readiness(p, &ttp.tactic, sys))
+        .fold(0.0_f32, f32::max)
+}
+
 /// Resolve the first word of `cmd` using a system's binary map.
 ///
 /// If the first word of `cmd` is a known binary with a `Present` path that
