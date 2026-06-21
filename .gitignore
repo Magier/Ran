@@ -28,3 +28,5 @@ ran.yaml.worktrees
 # mdBook build output
 docs/book/book/
 ran.yaml
+# tuned scoring profile sidecar (written by the scoring tuner UI)
+ran.scoring.yaml
