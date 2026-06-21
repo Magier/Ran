@@ -16,10 +16,14 @@ args: # default values if none is provided
 procedures:
   - key: ubuntu
     tool: apt
-    command: apt-get update && apt-get install -y ${PKG}; results=$(dpkg -L ${PKG} 2>/dev/null | while read f; do [ -f "$f" ] && [ -x "$f" ] && echo "$f"; done); echo "$results"; [ -n "$results" ]
+    # `apt-get update` is flaky in pods and often exits non-zero after fetching
+    # repo metadata; don't let that short-circuit the install (use `;`, not `&&`).
+    # Success is decided solely by the post-install verification: at least one
+    # installed, executable file for the package exists.
+    command: apt-get update 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get install -y ${PKG}; results=$(dpkg -L ${PKG} 2>/dev/null | while read f; do [ -f "$f" ] && [ -x "$f" ] && echo "$f"; done); echo "$results"; [ -n "$results" ]
   - key: alpine
     tool: apk
-    command: apk update -q && apk add -q ${PKG}; results=$(apk info -L ${PKG} 2>/dev/null | while read f; do [ -f "$f" ] && [ -x "$f" ] && echo "$f"; done); echo "$results"; [ -n "$results" ]
+    command: apk update -q 2>/dev/null; apk add -q ${PKG}; results=$(apk info -L ${PKG} 2>/dev/null | while read f; do [ -f "$f" ] && [ -x "$f" ] && echo "$f"; done); echo "$results"; [ -n "$results" ]
     # cleanup: apk del ${PKG}
 effects: ["sys.has-binary(${PKG})", "sys.has-binary(${OUTPUT})"]
 cleanup:
