@@ -64,6 +64,28 @@ pub fn epistemic_freshness(ttp: &armory::Ttp, target_id: &str, campaign: &crate:
     1.0 - 1.0 / (1.0 + changes as f32)
 }
 
+/// **Pragmatic freshness** — `1.0` if the capability this action grants is not
+/// yet held, `0.0` once it is. The pragmatic mirror of [`epistemic_freshness`]:
+/// where knowledge can go stale, a *capability* (exec, escape, a session) is
+/// held permanently once achieved, so this never recovers — re-running an
+/// already-succeeded privilege/reachability action accomplishes nothing.
+///
+/// Held is proxied by "this `(TTP, target)` already succeeded" — the same
+/// history signal used elsewhere. (A graph-state check on the specific
+/// capability edge would also catch a *lost* session; that's the precise
+/// upgrade, mirroring the epistemic over-approximation note.)
+fn pragmatic_freshness(ttp: &armory::Ttp, target_id: &str, campaign: &crate::Campaign) -> f32 {
+    let achieved = campaign
+        .get_execution_records()
+        .iter()
+        .any(|r| !r.is_cleanup && r.success && r.ttp_id == ttp.id && r.target_id == target_id);
+    if achieved {
+        0.0
+    } else {
+        1.0
+    }
+}
+
 /// Confidence the action will actually work. Blends a status-derived prior with
 /// the observed success rate of this TTP across the campaign (small pseudo-count
 /// so a single run doesn't swing it), then multiplies by **tool readiness** —
@@ -219,7 +241,9 @@ fn is_information_tactic(tactic: &str) -> bool {
 
 /// Value of the privilege the action would gain — effects that add execution or
 /// escape capability ([`EffectCategory::PrivilegeEdge`]). Usually the dominant
-/// signal for an offensive scorer.
+/// signal for an offensive scorer. State-aware: gated by
+/// [`pragmatic_freshness`], so a capability already held (the action already
+/// succeeded here) scores `0` — no point re-escaping a host you're already on.
 pub struct PrivilegeGain;
 
 impl Consideration for PrivilegeGain {
@@ -229,6 +253,7 @@ impl Consideration for PrivilegeGain {
 
     fn measure(&self, ctx: &ScoringContext) -> f32 {
         category_score(ctx.ttp, EffectCategory::PrivilegeEdge)
+            * pragmatic_freshness(ctx.ttp, &ctx.tc.target_id, ctx.campaign)
     }
 }
 
@@ -256,9 +281,9 @@ fn discovery_magnitude(ttp: &armory::Ttp) -> f32 {
 /// of **epistemic foraging** — seek what resolves uncertainty, ignore the known.
 ///
 /// Consolidates the former `information_gain` (magnitude) and `novelty`
-/// (freshness) axes into one. Note it covers *epistemic* satiation only: the
-/// pragmatic anti-loop for already-achieved capabilities (e.g. re-running an
-/// exploit) belongs to state-aware pragmatic value, not here.
+/// (freshness) axes into one. Covers *epistemic* satiation; the symmetric
+/// pragmatic anti-loop (already-achieved capabilities) lives in
+/// [`PrivilegeGain`]/[`Reachability`] via [`pragmatic_freshness`].
 pub struct EpistemicValue;
 
 impl Consideration for EpistemicValue {
@@ -291,7 +316,8 @@ impl Consideration for InputReadiness {
 }
 
 /// Value of new operating positions — effects that add a session or network
-/// route to further systems ([`EffectCategory::Reachability`]).
+/// route to further systems ([`EffectCategory::Reachability`]). State-aware:
+/// gated by [`pragmatic_freshness`], so a route already established scores `0`.
 pub struct Reachability;
 
 impl Consideration for Reachability {
@@ -301,6 +327,7 @@ impl Consideration for Reachability {
 
     fn measure(&self, ctx: &ScoringContext) -> f32 {
         category_score(ctx.ttp, EffectCategory::Reachability)
+            * pragmatic_freshness(ctx.ttp, &ctx.tc.target_id, ctx.campaign)
     }
 }
 
@@ -619,5 +646,50 @@ mod tests {
             .push(record("get-ip", &tc.target_id, true));
         let after = EpistemicValue.measure(&ctx_for(&c, &ttp, &tc));
         assert_eq!(after, 0.0, "known idempotent fact has no epistemic value");
+    }
+
+    #[test]
+    fn privilege_gain_drops_to_zero_once_capability_held() {
+        let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        let escape = Ttp {
+            effects: vec!["container.escape(sys)".to_string()],
+            ..Ttp::new("escape", "Escape to Host", "Privilege Escalation")
+        };
+        // Before escaping: full privilege value.
+        let before = PrivilegeGain.measure(&ctx_for(&c, &escape, &tc));
+        assert!(before > 0.0);
+        // After a successful escape, re-escaping the same target is worthless.
+        c.execution_records
+            .push(record("escape", &tc.target_id, true));
+        assert_eq!(PrivilegeGain.measure(&ctx_for(&c, &escape, &tc)), 0.0);
+    }
+
+    #[test]
+    fn reachability_drops_to_zero_once_route_established() {
+        let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        let session = Ttp {
+            effects: vec!["c2.session(sliver, sys)".to_string()],
+            ..Ttp::new("sess", "Open Session", "Lateral Movement")
+        };
+        assert!(Reachability.measure(&ctx_for(&c, &session, &tc)) > 0.0);
+        c.execution_records
+            .push(record("sess", &tc.target_id, true));
+        assert_eq!(Reachability.measure(&ctx_for(&c, &session, &tc)), 0.0);
+    }
+
+    #[test]
+    fn failed_capability_attempt_keeps_pragmatic_value() {
+        let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        let escape = Ttp {
+            effects: vec!["container.escape(sys)".to_string()],
+            ..Ttp::new("escape", "Escape to Host", "Privilege Escalation")
+        };
+        // A failed attempt does not count as "held" → still worth retrying.
+        c.execution_records
+            .push(record("escape", &tc.target_id, false));
+        assert!(PrivilegeGain.measure(&ctx_for(&c, &escape, &tc)) > 0.0);
     }
 }
