@@ -68,6 +68,8 @@ class CampaignState {
 	armory = $state<ArmoryType>(new Map());
 	graph = $state<Graph>({} as Graph);
 	allPods: Entity[] = $state([]);
+	/// Bumped whenever the scoring profile changes, so recommendation views refetch.
+	scoringVersion = $state(0);
 	pendingMessages: string[] = [];
 	api: RanAPI = $state(getRanAPI());
 	private factsChangedCounter = 0;

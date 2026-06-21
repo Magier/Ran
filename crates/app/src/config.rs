@@ -20,6 +20,9 @@ pub struct ScoringConfig {
     /// `weighted_arithmetic` (default), `weighted_geometric`, or
     /// `iaus_multiplicative`.
     pub combination: campaign::CombinationMode,
+    /// Feature flag: when `true`, the frontend exposes the live response-curve /
+    /// weight tuning flyout for the scoring considerations.
+    pub tuning_ui: bool,
 }
 
 impl ScoringConfig {

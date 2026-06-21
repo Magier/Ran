@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// runs that succeeded") be defined independently of *how much we care* as that
 /// measurement changes. The output is always clamped to `[0, 1]`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponseCurve {
     /// `slope * x + intercept`. The identity curve is `slope = 1, intercept = 0`.
     Linear { slope: f32, intercept: f32 },

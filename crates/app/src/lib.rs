@@ -36,7 +36,10 @@ pub struct AppState {
     c2: C2Handle,
     armory: Armory,
     namespace_filter: NamespaceFilter,
-    scoring_profile: campaign::Profile,
+    /// Live scoring profile — mutable at runtime via the tuning API.
+    scoring_profile: Arc<RwLock<campaign::Profile>>,
+    /// Feature flag enabling the frontend tuning UI.
+    scoring_tuning: bool,
     ran_name: String,
     target_cluster: K8sCluster,
     campaign_events: CampaignEventBus,
@@ -54,6 +57,7 @@ impl AppState {
         armory: Armory,
         namespace_filter: NamespaceFilter,
         scoring_profile: campaign::Profile,
+        scoring_tuning: bool,
         ran_name: String,
         target_cluster: K8sCluster,
         campaign_events: CampaignEventBus,
@@ -64,7 +68,8 @@ impl AppState {
             c2,
             armory,
             namespace_filter,
-            scoring_profile,
+            scoring_profile: Arc::new(RwLock::new(scoring_profile)),
+            scoring_tuning,
             ran_name,
             target_cluster,
             campaign_events,
@@ -125,7 +130,20 @@ impl ApiService for AppState {
     }
 
     fn scoring_profile(&self) -> campaign::Profile {
-        self.scoring_profile.clone()
+        self.scoring_profile
+            .read()
+            .map(|p| p.clone())
+            .unwrap_or_default()
+    }
+
+    fn set_scoring_profile(&self, profile: campaign::Profile) {
+        if let Ok(mut guard) = self.scoring_profile.write() {
+            *guard = profile;
+        }
+    }
+
+    fn scoring_tuning_enabled(&self) -> bool {
+        self.scoring_tuning
     }
 
     async fn reset_campaign(&self) -> Result<(), ApiError> {
@@ -867,6 +885,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
         armory,
         cfg.namespace_filter,
         cfg.scoring.to_profile(),
+        cfg.scoring.tuning_ui,
         "Ran".to_string(),
         campaign_cluster,
         campaign_events.clone(),

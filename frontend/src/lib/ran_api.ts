@@ -33,7 +33,9 @@ import type {
 	AttackFlow,
 	ExecuteActionCmd,
 	K8sResource,
-	ScoredCandidate
+	ScoredCandidate,
+	ScoringProfile,
+	ScoringProfileUpdate
 } from '$lib/api';
 
 type PendingRequest = {
@@ -322,6 +324,26 @@ export class RanAPI {
 		if (error) {
 			console.warn('Failed to get recommendations', error);
 			return [];
+		}
+		return data;
+	}
+
+	async GetScoringProfile(): Promise<ScoringProfile | null> {
+		const { data, error } = await this.restClient.GET('/api/scoring/profile');
+		if (error) {
+			console.warn('Failed to get scoring profile', error);
+			return null;
+		}
+		return data;
+	}
+
+	async UpdateScoringProfile(update: ScoringProfileUpdate): Promise<ScoringProfile | null> {
+		const { data, error } = await this.restClient.PUT('/api/scoring/profile', {
+			body: update
+		});
+		if (error) {
+			console.warn('Failed to update scoring profile', error);
+			return null;
 		}
 		return data;
 	}

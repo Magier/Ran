@@ -140,9 +140,15 @@ pub trait ApiService: Clone + Send + Sync + 'static {
 
     async fn get_campaign(&self) -> Result<campaign::Campaign, ApiError>;
 
-    /// The scoring profile (combination mode + weights) for action selection,
-    /// sourced from configuration.
+    /// The live scoring profile (combination mode + per-consideration config)
+    /// for action selection.
     fn scoring_profile(&self) -> campaign::Profile;
+
+    /// Replace the live scoring profile (runtime tuning).
+    fn set_scoring_profile(&self, profile: campaign::Profile);
+
+    /// Whether the frontend scoring-tuning UI is enabled (feature flag).
+    fn scoring_tuning_enabled(&self) -> bool;
 
     async fn reset_campaign(&self) -> Result<(), ApiError>;
 

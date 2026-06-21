@@ -116,6 +116,47 @@ paths:
                 items:
                   $ref: '#/components/schemas/ScoredCandidate'
 
+  /api/scoring/profile:
+    get:
+      summary: Get the live scoring profile
+      description: >-
+        Returns the current scoring profile — combination mode, the tuning
+        feature flag, and every registered consideration's weight, response
+        curve, and enabled/veto flags.
+      operationId: getScoringProfile
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoringProfile'
+    put:
+      summary: Update the live scoring profile
+      description: >-
+        Replace the live scoring profile (runtime tuning). Gated on the
+        scoring.tuning_ui feature flag; returns 403 when disabled.
+      operationId: updateScoringProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoringProfileUpdate'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoringProfile'
+        '403':
+          description: Tuning disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/flow:
     get:
       summary: Get attack flow
@@ -1002,6 +1043,100 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ConsiderationScore'
+
+    CombinationMode:
+      type: string
+      description: How per-consideration scores are combined into one utility.
+      enum:
+        - weighted_arithmetic
+        - weighted_geometric
+        - iaus_multiplicative
+
+    ResponseCurve:
+      type: object
+      description: >-
+        A response curve mapping a raw measurement in [0,1] to a tuned score in
+        [0,1], internally tagged by `type`. Only the fields for the active type
+        are meaningful (linear: slope/intercept; polynomial: exponent/slope/
+        intercept; logistic: steepness/midpoint; step: threshold).
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [linear, polynomial, logistic, step]
+        slope:
+          type: number
+          format: float
+        intercept:
+          type: number
+          format: float
+        exponent:
+          type: number
+          format: float
+        steepness:
+          type: number
+          format: float
+        midpoint:
+          type: number
+          format: float
+        threshold:
+          type: number
+          format: float
+
+    NamedConsideration:
+      type: object
+      description: A consideration's tunable config, tagged with its name.
+      required:
+        - name
+        - weight
+        - curve
+        - enabled
+        - veto
+      properties:
+        name:
+          type: string
+        weight:
+          type: number
+          format: float
+        curve:
+          $ref: '#/components/schemas/ResponseCurve'
+        enabled:
+          type: boolean
+        veto:
+          type: boolean
+
+    ScoringProfile:
+      type: object
+      description: The live scoring profile.
+      required:
+        - combination
+        - tuningEnabled
+        - considerations
+      properties:
+        combination:
+          $ref: '#/components/schemas/CombinationMode'
+        tuningEnabled:
+          type: boolean
+          description: Whether the tuning UI feature flag is enabled.
+        considerations:
+          type: array
+          items:
+            $ref: '#/components/schemas/NamedConsideration'
+
+    ScoringProfileUpdate:
+      type: object
+      description: A scoring-profile update (runtime tuning).
+      required:
+        - combination
+        - considerations
+      properties:
+        combination:
+          $ref: '#/components/schemas/CombinationMode'
+        considerations:
+          type: array
+          items:
+            $ref: '#/components/schemas/NamedConsideration'
 
     OwnerRef:
       type: object

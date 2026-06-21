@@ -231,6 +231,113 @@ pub(crate) async fn recommendations_handler<S: ApiService>(
     Ok(axum::Json(ranked))
 }
 
+// ---------------------------------------------------------------------------
+// Scoring profile (response-curve / weight tuning)
+// ---------------------------------------------------------------------------
+
+/// One consideration's tunable config, tagged with its name.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct NamedConsideration {
+    pub name: String,
+    pub weight: f32,
+    pub curve: campaign::ResponseCurve,
+    pub enabled: bool,
+    pub veto: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct ScoringProfileResponse {
+    pub combination: campaign::CombinationMode,
+    #[serde(rename = "tuningEnabled")]
+    pub tuning_enabled: bool,
+    pub considerations: Vec<NamedConsideration>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct ScoringProfileUpdate {
+    pub combination: campaign::CombinationMode,
+    pub considerations: Vec<NamedConsideration>,
+}
+
+fn profile_to_response(
+    profile: &campaign::Profile,
+    tuning_enabled: bool,
+) -> ScoringProfileResponse {
+    let considerations = campaign::consideration_names()
+        .into_iter()
+        .map(|name| {
+            let cfg = profile.config(name);
+            NamedConsideration {
+                name: name.to_string(),
+                weight: cfg.weight,
+                curve: cfg.curve,
+                enabled: cfg.enabled,
+                veto: cfg.veto,
+            }
+        })
+        .collect();
+    ScoringProfileResponse {
+        combination: profile.combination,
+        tuning_enabled,
+        considerations,
+    }
+}
+
+/// Return the live scoring profile: combination mode, the tuning feature flag,
+/// and every registered consideration's current weight/curve/enabled/veto.
+pub(crate) async fn get_scoring_profile_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<ScoringProfileResponse>, ApiError> {
+    let profile = service.scoring_profile();
+    Ok(axum::Json(profile_to_response(
+        &profile,
+        service.scoring_tuning_enabled(),
+    )))
+}
+
+/// Replace the live scoring profile. Gated on the tuning feature flag. Returns
+/// the resulting profile so the client can confirm what was applied.
+pub(crate) async fn update_scoring_profile_handler<S: ApiService>(
+    State(service): State<S>,
+    axum::Json(update): axum::Json<ScoringProfileUpdate>,
+) -> Result<axum::Json<ScoringProfileResponse>, ApiError> {
+    if !service.scoring_tuning_enabled() {
+        return Err(ApiError {
+            status: axum::http::StatusCode::FORBIDDEN,
+            body: ErrorResponse {
+                error: "scoring tuning is disabled (set scoring.tuning_ui: true in ran.yaml)"
+                    .to_string(),
+                details: None,
+            },
+        });
+    }
+
+    let considerations = update
+        .considerations
+        .into_iter()
+        .map(|c| {
+            (
+                c.name,
+                campaign::ConsiderationConfig {
+                    weight: c.weight,
+                    curve: c.curve,
+                    enabled: c.enabled,
+                    veto: c.veto,
+                },
+            )
+        })
+        .collect();
+
+    let profile = campaign::Profile {
+        name: "tuned".to_string(),
+        combination: update.combination,
+        considerations,
+    };
+    service.set_scoring_profile(profile.clone());
+
+    Ok(axum::Json(profile_to_response(&profile, true)))
+}
+
 pub(crate) async fn execute_action_handler<S: ApiService>(
     State(service): State<S>,
     axum::Json(cmd): axum::Json<ExecuteActionCmdPayload>,

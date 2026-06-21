@@ -30,6 +30,6 @@ pub use runtime::{
     CampaignEventBus, EntitySummary,
 };
 pub use scoring::{
-    CombinationMode, Consideration, ConsiderationConfig, ConsiderationScore, Profile,
-    ResponseCurve, ScoredCandidate, Scorer, ScoringContext,
+    consideration_names, CombinationMode, Consideration, ConsiderationConfig, ConsiderationScore,
+    Profile, ResponseCurve, ScoredCandidate, Scorer, ScoringContext,
 };

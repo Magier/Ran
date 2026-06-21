@@ -23,6 +23,11 @@ export type ApiError = components['schemas']['Error'];
 
 export type ScoredCandidate = components['schemas']['ScoredCandidate'];
 export type ConsiderationScore = components['schemas']['ConsiderationScore'];
+export type ScoringProfile = components['schemas']['ScoringProfile'];
+export type ScoringProfileUpdate = components['schemas']['ScoringProfileUpdate'];
+export type NamedConsideration = components['schemas']['NamedConsideration'];
+export type ResponseCurve = components['schemas']['ResponseCurve'];
+export type CombinationMode = components['schemas']['CombinationMode'];
 
 export type RBACPermission = components['schemas']['RBACPermission'];
 

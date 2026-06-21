@@ -104,6 +104,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scoring/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the live scoring profile
+         * @description Returns the current scoring profile — combination mode, the tuning feature flag, and every registered consideration's weight, response curve, and enabled/veto flags.
+         */
+        get: operations["getScoringProfile"];
+        /**
+         * Update the live scoring profile
+         * @description Replace the live scoring profile (runtime tuning). Gated on the scoring.tuning_ui feature flag; returns 403 when disabled.
+         */
+        put: operations["updateScoringProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/flow": {
         parameters: {
             query?: never;
@@ -626,6 +650,49 @@ export interface components {
             utility: number;
             breakdown: components["schemas"]["ConsiderationScore"][];
         };
+        /**
+         * @description How per-consideration scores are combined into one utility.
+         * @enum {string}
+         */
+        CombinationMode: "weighted_arithmetic" | "weighted_geometric" | "iaus_multiplicative";
+        /** @description A response curve mapping a raw measurement in [0,1] to a tuned score in [0,1], internally tagged by `type`. Only the fields for the active type are meaningful (linear: slope/intercept; polynomial: exponent/slope/ intercept; logistic: steepness/midpoint; step: threshold). */
+        ResponseCurve: {
+            /** @enum {string} */
+            type: "linear" | "polynomial" | "logistic" | "step";
+            /** Format: float */
+            slope?: number;
+            /** Format: float */
+            intercept?: number;
+            /** Format: float */
+            exponent?: number;
+            /** Format: float */
+            steepness?: number;
+            /** Format: float */
+            midpoint?: number;
+            /** Format: float */
+            threshold?: number;
+        };
+        /** @description A consideration's tunable config, tagged with its name. */
+        NamedConsideration: {
+            name: string;
+            /** Format: float */
+            weight: number;
+            curve: components["schemas"]["ResponseCurve"];
+            enabled: boolean;
+            veto: boolean;
+        };
+        /** @description The live scoring profile. */
+        ScoringProfile: {
+            combination: components["schemas"]["CombinationMode"];
+            /** @description Whether the tuning UI feature flag is enabled. */
+            tuningEnabled: boolean;
+            considerations: components["schemas"]["NamedConsideration"][];
+        };
+        /** @description A scoring-profile update (runtime tuning). */
+        ScoringProfileUpdate: {
+            combination: components["schemas"]["CombinationMode"];
+            considerations: components["schemas"]["NamedConsideration"][];
+        };
         /** @description Reference to the Kubernetes owner of a resource (e.g. ReplicaSet → Pod). */
         OwnerRef: {
             name: string;
@@ -773,6 +840,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScoredCandidate"][];
+                };
+            };
+        };
+    };
+    getScoringProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoringProfile"];
+                };
+            };
+        };
+    };
+    updateScoringProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScoringProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoringProfile"];
+                };
+            };
+            /** @description Tuning disabled */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };

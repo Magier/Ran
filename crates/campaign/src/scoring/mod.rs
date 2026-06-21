@@ -17,6 +17,7 @@ mod profile;
 mod scorer;
 
 pub use consideration::{Consideration, ScoringContext};
+pub use considerations::consideration_names;
 pub use curve::ResponseCurve;
 pub use profile::{CombinationMode, ConsiderationConfig, Profile};
 pub use scorer::{ConsiderationScore, ScoredCandidate, Scorer};

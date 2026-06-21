@@ -345,6 +345,12 @@ pub fn default_considerations() -> Vec<Box<dyn Consideration>> {
     ]
 }
 
+/// Names of the built-in considerations, in scoring order. Used by the tuning UI
+/// to enumerate what can be configured.
+pub fn consideration_names() -> Vec<&'static str> {
+    default_considerations().iter().map(|c| c.name()).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
