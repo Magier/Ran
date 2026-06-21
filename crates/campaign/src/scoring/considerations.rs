@@ -1,11 +1,13 @@
 //! The built-in considerations.
 //!
-//! Two families: *structural* signals derived from the TTP's own shape, the
-//! campaign's execution history, and input availability (novelty, reliability,
-//! cost, input readiness), and *effect-derived* signals that value a TTP's
-//! declared effects via the canonical
-//! [`EffectKind`](crate::effects::EffectKind) taxonomy (privilege gain,
-//! information gain, reachability).
+//! Three families:
+//! - *structural* signals from the TTP's shape and execution history —
+//!   reliability, cost, input readiness;
+//! - the *epistemic* axis — an active-inference style value = information
+//!   magnitude × freshness (uncertainty), driving epistemic foraging;
+//! - *pragmatic* effect-derived signals via the canonical
+//!   [`EffectKind`](crate::effects::EffectKind) taxonomy — privilege gain,
+//!   reachability.
 
 use super::{Consideration, ScoringContext};
 use crate::effects::{EffectCategory, EffectKind};
@@ -36,8 +38,8 @@ fn action_is_volatile(ttp: &armory::Ttp) -> bool {
 /// direction (assume volatile info may be stale once the world moves); scoping
 /// to overlapping effects is a precise upgrade for later.
 ///
-/// Factored out so a future consolidated epistemic-value consideration (≈
-/// generality × freshness) can reuse it directly.
+/// Supplies the uncertainty half of [`EpistemicValue`] (the other half being
+/// [`discovery_magnitude`]).
 pub fn epistemic_freshness(ttp: &armory::Ttp, target_id: &str, campaign: &crate::Campaign) -> f32 {
     let records = campaign.get_execution_records();
 
@@ -60,22 +62,6 @@ pub fn epistemic_freshness(ttp: &armory::Ttp, target_id: &str, campaign: &crate:
         .filter(|r| !r.is_cleanup && r.success)
         .count();
     1.0 - 1.0 / (1.0 + changes as f32)
-}
-
-/// Epistemic-freshness signal (named `novelty` for profile compatibility):
-/// prefer actions that would reveal something new. Idempotent actions collapse
-/// to `0` once learned; volatile ones recover as the world changes. See
-/// [`epistemic_freshness`].
-pub struct Novelty;
-
-impl Consideration for Novelty {
-    fn name(&self) -> &'static str {
-        "novelty"
-    }
-
-    fn measure(&self, ctx: &ScoringContext) -> f32 {
-        epistemic_freshness(ctx.ttp, &ctx.tc.target_id, ctx.campaign)
-    }
 }
 
 /// Confidence the action will actually work. Blends a status-derived prior with
@@ -246,28 +232,42 @@ impl Consideration for PrivilegeGain {
     }
 }
 
-/// Value of the information the action would reveal — effects that add entities
-/// or facts ([`EffectCategory::Discovery`]), each weighted by how *foundational*
-/// it is (see [`discovery_score`]). First-class in this POMDP setting: reducing
-/// uncertainty has direct utility, and learning a broadly-useful fact (an IP, a
-/// token) is worth more than a narrow one. Discovery/Reconnaissance TTPs get a
-/// baseline floor so every discovery action scores, even if its effects aren't
-/// in the taxonomy yet.
-pub struct InformationGain;
+/// Magnitude of the knowledge an action would reveal if run now — *ignoring*
+/// whether we already know it. Generality-weighted discovery effects (see
+/// [`discovery_score`]) with a baseline floor for inherently information-
+/// gathering tactics. This is the "how much could I learn" half of epistemic
+/// value; freshness supplies the "how much of it is still unknown" half.
+fn discovery_magnitude(ttp: &armory::Ttp) -> f32 {
+    let effect = discovery_score(ttp);
+    let baseline = if is_information_tactic(&ttp.tactic) {
+        DISCOVERY_BASELINE
+    } else {
+        0.0
+    };
+    effect.max(baseline)
+}
 
-impl Consideration for InformationGain {
+/// **Epistemic value** — expected information gain from running this action now,
+/// in `[0, 1]`. Active-inference framing: value = how much the action would
+/// reveal ([`discovery_magnitude`]) × how uncertain we currently are about it
+/// ([`epistemic_freshness`]). A foundational fact you already hold has *zero*
+/// epistemic value (high magnitude × zero freshness); a never-seen one has full
+/// value; a volatile one regains value as the world drifts. This is the engine
+/// of **epistemic foraging** — seek what resolves uncertainty, ignore the known.
+///
+/// Consolidates the former `information_gain` (magnitude) and `novelty`
+/// (freshness) axes into one. Note it covers *epistemic* satiation only: the
+/// pragmatic anti-loop for already-achieved capabilities (e.g. re-running an
+/// exploit) belongs to state-aware pragmatic value, not here.
+pub struct EpistemicValue;
+
+impl Consideration for EpistemicValue {
     fn name(&self) -> &'static str {
-        "information_gain"
+        "epistemic_value"
     }
 
     fn measure(&self, ctx: &ScoringContext) -> f32 {
-        let effect = discovery_score(ctx.ttp);
-        let baseline = if is_information_tactic(&ctx.ttp.tactic) {
-            DISCOVERY_BASELINE
-        } else {
-            0.0
-        };
-        effect.max(baseline)
+        discovery_magnitude(ctx.ttp) * epistemic_freshness(ctx.ttp, &ctx.tc.target_id, ctx.campaign)
     }
 }
 
@@ -304,17 +304,16 @@ impl Consideration for Reachability {
     }
 }
 
-/// The built-in consideration set: structural signals (novelty, reliability,
-/// cost, input readiness) plus effect-derived signals (privilege/information
-/// gain, reachability).
+/// The built-in consideration set: structural signals (reliability, cost, input
+/// readiness), the unified epistemic axis (magnitude × freshness), and the
+/// pragmatic effect-derived signals (privilege gain, reachability).
 pub fn default_considerations() -> Vec<Box<dyn Consideration>> {
     vec![
-        Box::new(Novelty),
+        Box::new(EpistemicValue),
         Box::new(Reliability),
         Box::new(Cost),
         Box::new(InputReadiness),
         Box::new(PrivilegeGain),
-        Box::new(InformationGain),
         Box::new(Reachability),
     ]
 }
@@ -360,16 +359,16 @@ mod tests {
         let tc = tc();
         let ttp = ttp_with_effects(&["container.escape(sys)"]);
         assert!(PrivilegeGain.measure(&ctx_for(&c, &ttp, &tc)) > 0.0);
-        // No discovery effect → information gain is zero.
-        assert_eq!(InformationGain.measure(&ctx_for(&c, &ttp, &tc)), 0.0);
+        // No discovery effect → epistemic magnitude is zero.
+        assert_eq!(discovery_magnitude(&ttp), 0.0);
     }
 
     #[test]
-    fn information_gain_scores_discovery_effect() {
+    fn epistemic_magnitude_scores_discovery_effect() {
         let c = Campaign::bootstrap("t", K8sCluster::new("t"));
         let tc = tc();
         let ttp = ttp_with_effects(&["k8s.Pod"]);
-        assert!(InformationGain.measure(&ctx_for(&c, &ttp, &tc)) > 0.0);
+        assert!(discovery_magnitude(&ttp) > 0.0);
         assert_eq!(PrivilegeGain.measure(&ctx_for(&c, &ttp, &tc)), 0.0);
     }
 
@@ -382,16 +381,14 @@ mod tests {
     }
 
     #[test]
-    fn every_discovery_tactic_ttp_yields_information_gain() {
-        let c = Campaign::bootstrap("t", K8sCluster::new("t"));
-        let tc = tc();
+    fn every_discovery_tactic_ttp_yields_epistemic_magnitude() {
         // A Discovery TTP with no taxonomy-classified effects still scores,
         // thanks to the tactic baseline.
         let discovery = Ttp::new("t", "t", "Discovery");
-        assert!(InformationGain.measure(&ctx_for(&c, &discovery, &tc)) > 0.0);
+        assert!(discovery_magnitude(&discovery) > 0.0);
         // A non-information tactic with no discovery effect scores zero.
         let other = Ttp::new("t", "t", "Execution");
-        assert_eq!(InformationGain.measure(&ctx_for(&c, &other, &tc)), 0.0);
+        assert_eq!(discovery_magnitude(&other), 0.0);
     }
 
     #[test]
@@ -401,7 +398,7 @@ mod tests {
         // Service / ingress enumeration explores network & adjacent entities.
         let ttp = ttp_with_effects(&["k8s.servicelist", "k8s.ingresslist"]);
         assert!(Reachability.measure(&ctx_for(&c, &ttp, &tc)) > 0.0);
-        assert!(InformationGain.measure(&ctx_for(&c, &ttp, &tc)) > 0.0);
+        assert!(discovery_magnitude(&ttp) > 0.0);
     }
 
     #[test]
@@ -410,7 +407,7 @@ mod tests {
         let tc = tc();
         let ttp = ttp_with_effects(&["totally.unknown.effect"]);
         assert_eq!(PrivilegeGain.measure(&ctx_for(&c, &ttp, &tc)), 0.0);
-        assert_eq!(InformationGain.measure(&ctx_for(&c, &ttp, &tc)), 0.0);
+        assert_eq!(discovery_magnitude(&ttp), 0.0);
         assert_eq!(Reachability.measure(&ctx_for(&c, &ttp, &tc)), 0.0);
     }
 
@@ -423,15 +420,13 @@ mod tests {
     }
 
     #[test]
-    fn information_gain_weights_foundational_above_specialized() {
-        let c = Campaign::bootstrap("t", K8sCluster::new("t"));
-        let tc = tc();
+    fn epistemic_magnitude_weights_foundational_above_specialized() {
         // Both Execution tactic → no baseline floor, so the generality weight
         // is what differentiates them.
         let foundational = ttp_with_effects(&["sys.ip"]); // generality 1.0
         let specialized = ttp_with_effects(&["linux.mounts"]); // generality 0.3
-        let f = InformationGain.measure(&ctx_for(&c, &foundational, &tc));
-        let s = InformationGain.measure(&ctx_for(&c, &specialized, &tc));
+        let f = discovery_magnitude(&foundational);
+        let s = discovery_magnitude(&specialized);
         assert!(
             f > s,
             "foundational ({f}) should outscore specialized ({s})"
@@ -548,7 +543,7 @@ mod tests {
         let c = Campaign::bootstrap("t", K8sCluster::new("t"));
         let tc = tc();
         let ttp = ttp_with_effects(&["sys.ip"]);
-        assert_eq!(Novelty.measure(&ctx_for(&c, &ttp, &tc)), 1.0);
+        assert_eq!(epistemic_freshness(&ttp, &tc.target_id, &c), 1.0);
     }
 
     #[test]
@@ -565,7 +560,7 @@ mod tests {
         // Even after other actions happen, an idempotent fact stays at 0.
         c.execution_records
             .push(record("other", &tc.target_id, true));
-        assert_eq!(Novelty.measure(&ctx_for(&c, &ttp, &tc)), 0.0);
+        assert_eq!(epistemic_freshness(&ttp, &tc.target_id, &c), 0.0);
     }
 
     #[test]
@@ -578,7 +573,7 @@ mod tests {
         };
         c.execution_records
             .push(record("get-ip", &tc.target_id, false)); // failed
-        assert_eq!(Novelty.measure(&ctx_for(&c, &ttp, &tc)), 1.0);
+        assert_eq!(epistemic_freshness(&ttp, &tc.target_id, &c), 1.0);
     }
 
     #[test]
@@ -593,14 +588,36 @@ mod tests {
         c.execution_records
             .push(record("list-pods", &tc.target_id, true));
         // Immediately after, nothing has changed → 0.
-        assert_eq!(Novelty.measure(&ctx_for(&c, &ttp, &tc)), 0.0);
+        assert_eq!(epistemic_freshness(&ttp, &tc.target_id, &c), 0.0);
         // After two state-changing actions, freshness recovers above 0.
         c.execution_records.push(record("a", &tc.target_id, true));
         c.execution_records.push(record("b", &tc.target_id, true));
-        let recovered = Novelty.measure(&ctx_for(&c, &ttp, &tc));
+        let recovered = epistemic_freshness(&ttp, &tc.target_id, &c);
         assert!(
             recovered > 0.0,
             "volatile freshness should recover, got {recovered}"
         );
+    }
+
+    #[test]
+    fn epistemic_value_is_magnitude_times_freshness() {
+        // An idempotent discovery (get-IP) has full epistemic value the first
+        // time and zero once learned — magnitude high, freshness collapses.
+        let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        let ttp = Ttp {
+            effects: vec!["sys.ip".to_string()],
+            ..Ttp::new("get-ip", "Get IP", "Discovery")
+        };
+
+        let before = EpistemicValue.measure(&ctx_for(&c, &ttp, &tc));
+        assert!(before > 0.0);
+        // Equals magnitude × freshness(=1.0) before any run.
+        assert!((before - discovery_magnitude(&ttp)).abs() < 1e-6);
+
+        c.execution_records
+            .push(record("get-ip", &tc.target_id, true));
+        let after = EpistemicValue.measure(&ctx_for(&c, &ttp, &tc));
+        assert_eq!(after, 0.0, "known idempotent fact has no epistemic value");
     }
 }

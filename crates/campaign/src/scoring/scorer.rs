@@ -295,8 +295,8 @@ mod tests {
         let ranked = scorer.rank(&campaign, &armory);
         assert_eq!(ranked.len(), 1);
         assert!(ranked[0].breakdown.iter().all(|b| b.name != "cost"));
-        // 7 built-in considerations minus the disabled `cost`.
-        assert_eq!(ranked[0].breakdown.len(), 6);
+        // 6 built-in considerations minus the disabled `cost`.
+        assert_eq!(ranked[0].breakdown.len(), 5);
     }
 
     #[test]
@@ -304,11 +304,11 @@ mod tests {
         let (campaign, _) = campaign_with_reachable_pod();
         let armory = vec![system_ttp("ttp-a")];
 
-        // Force novelty to act as a veto with a step curve that yields 0 unless
-        // the measurement is >= 1.1 (impossible) → veto multiplier is 0.
+        // Force epistemic_value to act as a veto with a step curve that yields 0
+        // unless the measurement is >= 1.1 (impossible) → veto multiplier is 0.
         let mut profile = Profile::default();
         profile.considerations.insert(
-            "novelty".to_string(),
+            "epistemic_value".to_string(),
             super::super::ConsiderationConfig {
                 veto: true,
                 curve: super::super::ResponseCurve::Step { threshold: 1.1 },
