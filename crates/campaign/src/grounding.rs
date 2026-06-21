@@ -495,6 +495,44 @@ pub fn detect_ungrounded_vars(cmd: &str) -> Vec<String> {
     vars
 }
 
+/// Fraction of a TTP's **required** parameters that current campaign state can
+/// supply without the operator guessing, in `[0, 1]`.
+///
+/// For each required param we seed its declared default, ground it against the
+/// campaign + target (the same context the real execution uses), then count it
+/// *ready* when the result is non-empty with no residual `${VAR}`. A param the
+/// campaign can't fill (e.g. an `nmap` CIDR that hasn't been discovered) stays
+/// ungrounded and drags the score down. A TTP with no required params is fully
+/// ready (`1.0`).
+pub fn input_readiness(ttp: &armory::Ttp, target_id: &str, campaign: &Campaign) -> f32 {
+    let required: Vec<&armory::TtpParam> = ttp.params.iter().filter(|p| p.required).collect();
+    if required.is_empty() {
+        return 1.0;
+    }
+
+    // Seed args from declared defaults, plus TARGET_ID so entity-ref vars
+    // (e.g. `${TARGET.IP}`) can resolve during grounding.
+    let mut args: HashMap<String, String> = required
+        .iter()
+        .map(|p| (p.name.clone(), p.default.clone()))
+        .collect();
+    args.insert("TARGET_ID".to_string(), target_id.to_string());
+
+    ground_args_from_context(&mut args, target_id, campaign);
+    ground_entity_ref_vars(&mut args, campaign);
+
+    let ready = required
+        .iter()
+        .filter(|p| {
+            args.get(&p.name)
+                .map(|v| !v.trim().is_empty() && detect_ungrounded_vars(v).is_empty())
+                .unwrap_or(false)
+        })
+        .count();
+
+    ready as f32 / required.len() as f32
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

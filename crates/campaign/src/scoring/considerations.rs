@@ -1,19 +1,71 @@
 //! The built-in considerations.
 //!
-//! Two families: *structural* signals derived from the TTP's own shape and the
-//! campaign's execution history (novelty, reliability, cost), and *effect-derived*
-//! signals that value a TTP's declared effects via the canonical
+//! Two families: *structural* signals derived from the TTP's own shape, the
+//! campaign's execution history, and input availability (novelty, reliability,
+//! cost, input readiness), and *effect-derived* signals that value a TTP's
+//! declared effects via the canonical
 //! [`EffectKind`](crate::effects::EffectKind) taxonomy (privilege gain,
 //! information gain, reachability).
 
 use super::{Consideration, ScoringContext};
 use crate::effects::{EffectCategory, EffectKind};
 
-/// Prefer actions not already run against this target. Penalizes re-running the
-/// same `(TTP, target)` pair so the scorer doesn't loop on one move.
+/// Whether running an action against a TTP's effects is *volatile* — i.e. any of
+/// its declared effects can go stale. An action with no volatile effect is
+/// **idempotent**: once it has succeeded, re-running reveals nothing new.
+fn action_is_volatile(ttp: &armory::Ttp) -> bool {
+    ttp.effects
+        .iter()
+        .filter_map(|e| EffectKind::parse(e))
+        .any(|k| k.is_volatile())
+}
+
+/// **Epistemic freshness** — how much *new* knowledge running this action would
+/// yield right now, in `[0, 1]`. This is the active-inference flavored notion of
+/// novelty: value comes from resolving uncertainty, not from the act itself.
 ///
-/// `1 / (1 + n)` where `n` is the number of prior non-cleanup runs: never run →
-/// `1.0`, once → `0.5`, twice → `0.33`, …
+/// - Never succeeded here → `1.0` (fully novel).
+/// - Succeeded and the action is **idempotent** (no volatile effect) → `0.0`,
+///   forever: the facts can't go stale, so there is nothing left to learn.
+/// - Succeeded but **volatile** → decays to `0.0` immediately after the run,
+///   then *recovers* toward `1.0` as later actions change the world and the
+///   prior reading becomes potentially stale.
+///
+/// Recovery is an over-approximation: it counts *any* successful action since the
+/// last read, not only ones that touch this action's specific facts. Safe
+/// direction (assume volatile info may be stale once the world moves); scoping
+/// to overlapping effects is a precise upgrade for later.
+///
+/// Factored out so a future consolidated epistemic-value consideration (≈
+/// generality × freshness) can reuse it directly.
+pub fn epistemic_freshness(ttp: &armory::Ttp, target_id: &str, campaign: &crate::Campaign) -> f32 {
+    let records = campaign.get_execution_records();
+
+    // Index of the last *successful* non-cleanup run of this (TTP, target).
+    let last_success = records.iter().rposition(|r| {
+        !r.is_cleanup && r.success && r.ttp_id == ttp.id && r.target_id == target_id
+    });
+
+    let Some(idx) = last_success else {
+        return 1.0; // never learned this
+    };
+
+    if !action_is_volatile(ttp) {
+        return 0.0; // idempotent — knowledge can't go stale
+    }
+
+    // Volatile: recover as state-changing (successful) actions happen since.
+    let changes = records[idx + 1..]
+        .iter()
+        .filter(|r| !r.is_cleanup && r.success)
+        .count();
+    1.0 - 1.0 / (1.0 + changes as f32)
+}
+
+/// Epistemic-freshness signal (named `novelty` for profile compatibility):
+/// prefer actions that would reveal something new. Idempotent actions collapse
+/// to `0` once learned; volatile ones recover as the world changes. See
+/// [`epistemic_freshness`].
 pub struct Novelty;
 
 impl Consideration for Novelty {
@@ -22,13 +74,7 @@ impl Consideration for Novelty {
     }
 
     fn measure(&self, ctx: &ScoringContext) -> f32 {
-        let n = ctx
-            .campaign
-            .get_execution_records()
-            .iter()
-            .filter(|r| !r.is_cleanup && r.ttp_id == ctx.ttp.id && r.target_id == ctx.tc.target_id)
-            .count();
-        1.0 / (1.0 + n as f32)
+        epistemic_freshness(ctx.ttp, &ctx.tc.target_id, ctx.campaign)
     }
 }
 
@@ -130,14 +176,14 @@ impl Consideration for Cost {
     }
 }
 
-/// Saturating score for a count of category-matching effects: `0 → 0.0`,
-/// `1 → 0.5`, `2 → 0.75`, `3 → 0.875`, … More effects in the category score
-/// higher but with diminishing returns, keeping the result in `[0, 1)`.
-fn saturating(count: usize) -> f32 {
-    if count == 0 {
+/// Saturating map from an effect "amount" to `[0, 1)`: `0 → 0.0`, `1 → 0.5`,
+/// `2 → 0.75`, … Diminishing returns as the amount grows. Accepts a fractional
+/// amount so generality-weighted sums (not just integer counts) work.
+fn saturating(amount: f32) -> f32 {
+    if amount <= 0.0 {
         0.0
     } else {
-        1.0 - 0.5f32.powi(count as i32)
+        1.0 - 0.5f32.powf(amount)
     }
 }
 
@@ -151,13 +197,29 @@ fn category_score(ttp: &armory::Ttp, want: EffectCategory) -> f32 {
         .filter_map(|e| EffectKind::parse(e))
         .filter(|k| k.categories().contains(&want))
         .count();
-    saturating(count)
+    saturating(count as f32)
+}
+
+/// Discovery value, weighting each discovered fact by its
+/// [generality](EffectKind::generality): a foundational fact (an IP, a token)
+/// counts for more than a specialized one (a capability check) because it
+/// enables more downstream actions. The weighted sum is then saturated.
+fn discovery_score(ttp: &armory::Ttp) -> f32 {
+    let weighted: f32 = ttp
+        .effects
+        .iter()
+        .filter_map(|e| EffectKind::parse(e))
+        .filter(|k| k.categories().contains(&EffectCategory::Discovery))
+        .map(|k| k.generality())
+        .sum();
+    saturating(weighted)
 }
 
 /// Information floor for inherently information-gathering tactics, so every
 /// discovery action scores positive even when its specific effects aren't in
-/// the taxonomy yet.
-const DISCOVERY_BASELINE: f32 = 0.5;
+/// the taxonomy yet. Kept low (a floor, not a target) so it doesn't mask the
+/// generality signal for actions whose effects *are* classified.
+const DISCOVERY_BASELINE: f32 = 0.3;
 
 /// Whether a tactic is inherently about gathering information.
 fn is_information_tactic(tactic: &str) -> bool {
@@ -185,8 +247,10 @@ impl Consideration for PrivilegeGain {
 }
 
 /// Value of the information the action would reveal — effects that add entities
-/// or facts ([`EffectCategory::Discovery`]). First-class in this POMDP setting:
-/// reducing uncertainty has direct utility. Discovery/Reconnaissance TTPs get a
+/// or facts ([`EffectCategory::Discovery`]), each weighted by how *foundational*
+/// it is (see [`discovery_score`]). First-class in this POMDP setting: reducing
+/// uncertainty has direct utility, and learning a broadly-useful fact (an IP, a
+/// token) is worth more than a narrow one. Discovery/Reconnaissance TTPs get a
 /// baseline floor so every discovery action scores, even if its effects aren't
 /// in the taxonomy yet.
 pub struct InformationGain;
@@ -197,13 +261,32 @@ impl Consideration for InformationGain {
     }
 
     fn measure(&self, ctx: &ScoringContext) -> f32 {
-        let effect = category_score(ctx.ttp, EffectCategory::Discovery);
+        let effect = discovery_score(ctx.ttp);
         let baseline = if is_information_tactic(&ctx.ttp.tactic) {
             DISCOVERY_BASELINE
         } else {
             0.0
         };
         effect.max(baseline)
+    }
+}
+
+/// Prefer actions whose required inputs are already known. A required parameter
+/// the campaign can't supply forces the operator to guess, lowering utility —
+/// e.g. an `nmap`/`rDNS` scan needs a network CIDR the campaign hasn't
+/// discovered yet, whereas an action that reads the current pod's IP needs
+/// nothing and scores `1.0`. Delegates to
+/// [`grounding::input_readiness`](crate::grounding::input_readiness) so the
+/// measure matches what the real execution can actually fill.
+pub struct InputReadiness;
+
+impl Consideration for InputReadiness {
+    fn name(&self) -> &'static str {
+        "input_readiness"
+    }
+
+    fn measure(&self, ctx: &ScoringContext) -> f32 {
+        crate::grounding::input_readiness(ctx.ttp, &ctx.tc.target_id, ctx.campaign)
     }
 }
 
@@ -222,12 +305,14 @@ impl Consideration for Reachability {
 }
 
 /// The built-in consideration set: structural signals (novelty, reliability,
-/// cost) plus effect-derived signals (privilege/information gain, reachability).
+/// cost, input readiness) plus effect-derived signals (privilege/information
+/// gain, reachability).
 pub fn default_considerations() -> Vec<Box<dyn Consideration>> {
     vec![
         Box::new(Novelty),
         Box::new(Reliability),
         Box::new(Cost),
+        Box::new(InputReadiness),
         Box::new(PrivilegeGain),
         Box::new(InformationGain),
         Box::new(Reachability),
@@ -331,10 +416,63 @@ mod tests {
 
     #[test]
     fn more_effects_in_category_saturate_higher() {
-        assert_eq!(saturating(0), 0.0);
-        assert_eq!(saturating(1), 0.5);
-        assert_eq!(saturating(2), 0.75);
-        assert!(saturating(3) > saturating(2));
+        assert_eq!(saturating(0.0), 0.0);
+        assert_eq!(saturating(1.0), 0.5);
+        assert_eq!(saturating(2.0), 0.75);
+        assert!(saturating(3.0) > saturating(2.0));
+    }
+
+    #[test]
+    fn information_gain_weights_foundational_above_specialized() {
+        let c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        // Both Execution tactic → no baseline floor, so the generality weight
+        // is what differentiates them.
+        let foundational = ttp_with_effects(&["sys.ip"]); // generality 1.0
+        let specialized = ttp_with_effects(&["linux.mounts"]); // generality 0.3
+        let f = InformationGain.measure(&ctx_for(&c, &foundational, &tc));
+        let s = InformationGain.measure(&ctx_for(&c, &specialized, &tc));
+        assert!(
+            f > s,
+            "foundational ({f}) should outscore specialized ({s})"
+        );
+        assert!(s > 0.0);
+    }
+
+    #[test]
+    fn input_readiness_penalizes_unknown_required_param() {
+        use crate::ttp_applicability::resolve_target_context;
+        use ran_domain::{Entity as _, Pod};
+
+        let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let mut pod = Pod::new("nginx", "default");
+        let id = pod.entity_id().0;
+        // Give the pod a namespace-derived context; CIDR is still unknowable.
+        pod.is_running = true;
+        c.entities.insert_typed(pod);
+        let target = resolve_target_context(&c, &id).unwrap();
+
+        // A scan needs a CIDR the campaign can't supply → must be guessed.
+        let scan = Ttp {
+            params: vec![armory::TtpParam {
+                name: "CIDR".to_string(),
+                param_type: "string".to_string(),
+                description: "network range".to_string(),
+                required: true,
+                default: String::new(),
+            }],
+            ..Ttp::new("scan", "Network Scan", "Discovery")
+        };
+        // Reading the pod IP needs no required inputs.
+        let read_ip = Ttp::new("read-ip", "Get Pod IP", "Discovery");
+
+        let scan_r = InputReadiness.measure(&ctx_for(&c, &scan, &target));
+        let read_r = InputReadiness.measure(&ctx_for(&c, &read_ip, &target));
+        assert_eq!(read_r, 1.0);
+        assert!(
+            scan_r < read_r,
+            "scan readiness ({scan_r}) should be below read-ip ({read_r})"
+        );
     }
 
     #[test]
@@ -379,6 +517,90 @@ mod tests {
         assert!(
             r_present > r_unknown,
             "present-tool reliability ({r_present}) should beat unknown ({r_unknown})"
+        );
+    }
+
+    // --- epistemic freshness (novelty) ---
+
+    fn record(ttp_id: &str, target_id: &str, success: bool) -> crate::ExecutionRecord {
+        crate::ExecutionRecord {
+            id: format!("{ttp_id}-rec"),
+            ttp_id: ttp_id.to_string(),
+            ttp_name: ttp_id.to_string(),
+            tactic: "Discovery".to_string(),
+            target_id: target_id.to_string(),
+            exec_system_id: target_id.to_string(),
+            procedure_id: "p".to_string(),
+            command: "x".to_string(),
+            args: std::collections::HashMap::new(),
+            success,
+            exit_code: 0,
+            results: vec![],
+            fail_reason: String::new(),
+            started_at_ms: 0,
+            completed_at_ms: 0,
+            is_cleanup: false,
+        }
+    }
+
+    #[test]
+    fn freshness_full_when_never_run() {
+        let c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        let ttp = ttp_with_effects(&["sys.ip"]);
+        assert_eq!(Novelty.measure(&ctx_for(&c, &ttp, &tc)), 1.0);
+    }
+
+    #[test]
+    fn idempotent_action_collapses_to_zero_after_success() {
+        let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        // sys.ip is stable → idempotent.
+        let ttp = Ttp {
+            effects: vec!["sys.ip".to_string()],
+            ..Ttp::new("get-ip", "Get IP", "Discovery")
+        };
+        c.execution_records
+            .push(record("get-ip", &tc.target_id, true));
+        // Even after other actions happen, an idempotent fact stays at 0.
+        c.execution_records
+            .push(record("other", &tc.target_id, true));
+        assert_eq!(Novelty.measure(&ctx_for(&c, &ttp, &tc)), 0.0);
+    }
+
+    #[test]
+    fn failed_run_does_not_reduce_freshness() {
+        let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        let ttp = Ttp {
+            effects: vec!["sys.ip".to_string()],
+            ..Ttp::new("get-ip", "Get IP", "Discovery")
+        };
+        c.execution_records
+            .push(record("get-ip", &tc.target_id, false)); // failed
+        assert_eq!(Novelty.measure(&ctx_for(&c, &ttp, &tc)), 1.0);
+    }
+
+    #[test]
+    fn volatile_action_recovers_as_world_changes() {
+        let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        // k8s.podList is volatile → freshness recovers after later actions.
+        let ttp = Ttp {
+            effects: vec!["k8s.podList".to_string()],
+            ..Ttp::new("list-pods", "List Pods", "Discovery")
+        };
+        c.execution_records
+            .push(record("list-pods", &tc.target_id, true));
+        // Immediately after, nothing has changed → 0.
+        assert_eq!(Novelty.measure(&ctx_for(&c, &ttp, &tc)), 0.0);
+        // After two state-changing actions, freshness recovers above 0.
+        c.execution_records.push(record("a", &tc.target_id, true));
+        c.execution_records.push(record("b", &tc.target_id, true));
+        let recovered = Novelty.measure(&ctx_for(&c, &ttp, &tc));
+        assert!(
+            recovered > 0.0,
+            "volatile freshness should recover, got {recovered}"
         );
     }
 }

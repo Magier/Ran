@@ -271,8 +271,8 @@ mod tests {
 
         let ranked = scorer.rank(&campaign, &armory);
         assert_eq!(ranked.len(), 2);
-        // Equal cost; ttp-a is novel (1.0) vs ttp-b (0.5), which outweighs
-        // ttp-b's slightly higher observed reliability.
+        // Equal cost; ttp-a is fully novel (freshness 1.0) while ttp-b already
+        // succeeded once and is idempotent (no volatile effect) → freshness 0.0.
         assert_eq!(ranked[0].ttp_id, "ttp-a");
         assert!(ranked[0].utility > ranked[1].utility);
     }
@@ -295,8 +295,8 @@ mod tests {
         let ranked = scorer.rank(&campaign, &armory);
         assert_eq!(ranked.len(), 1);
         assert!(ranked[0].breakdown.iter().all(|b| b.name != "cost"));
-        // 6 built-in considerations minus the disabled `cost`.
-        assert_eq!(ranked[0].breakdown.len(), 5);
+        // 7 built-in considerations minus the disabled `cost`.
+        assert_eq!(ranked[0].breakdown.len(), 6);
     }
 
     #[test]

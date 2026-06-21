@@ -400,6 +400,11 @@ pub enum EffectKind {
     GatewayList,
     SelfSubjectRulesReview,
     RawServiceAccountToken,
+    // Identity facts — learning a named entity's identity (e.g. discovered
+    // alongside a token read). Distinct from the `k8s.*` entity-creating effects.
+    PodName,
+    ServiceAccountName,
+    NamespaceName,
     // Host / system discovery.
     SysFiles,
     SysProcesses,
@@ -467,6 +472,9 @@ impl EffectKind {
             "k8s.gatewaylist" => Self::GatewayList,
             "k8s.selfsubjectrulesreview" => Self::SelfSubjectRulesReview,
             "rawserviceaccounttoken" => Self::RawServiceAccountToken,
+            "pod.name" => Self::PodName,
+            "serviceaccount.name" => Self::ServiceAccountName,
+            "namespace.name" => Self::NamespaceName,
             "sys.files" => Self::SysFiles,
             "sys.processes" => Self::SysProcesses,
             "sys.ip" => Self::SysIp,
@@ -531,6 +539,9 @@ impl EffectKind {
             | Self::ConfigMapList
             | Self::SelfSubjectRulesReview
             | Self::RawServiceAccountToken
+            | Self::PodName
+            | Self::ServiceAccountName
+            | Self::NamespaceName
             | Self::SysFiles
             | Self::SysProcesses
             | Self::SysHasFile
@@ -540,7 +551,139 @@ impl EffectKind {
             | Self::FileKubeconfig => &[Discovery],
         }
     }
+
+    /// How broadly the knowledge this effect produces tends to enable *other*
+    /// actions — a static, per-effect prior (not a count of consumers, so it
+    /// stays decoupled from the rest of the armory). Used to weight discovery
+    /// value: foundational facts (an IP, a token, an identity) ground many
+    /// downstream actions; specialized ones (a capability check, one file's
+    /// contents) ground almost none.
+    ///
+    /// The anchor for "foundational" is non-arbitrary: these are the facts the
+    /// grounding system injects as well-known variables (IP, token, namespace,
+    /// pod/node identity). Only meaningful for `Discovery` effects; the scorer
+    /// queries it after filtering to that category.
+    pub fn generality(self) -> f32 {
+        match self {
+            // Foundational: identity / address / credential facts that feed
+            // grounding variables and thus enable many later actions.
+            Self::SysIp
+            | Self::ReverseDns
+            | Self::K8sPod
+            | Self::NodeList
+            | Self::RunsOn
+            | Self::K8sServiceAccount
+            | Self::RawServiceAccountToken
+            | Self::PodName
+            | Self::ServiceAccountName
+            | Self::NamespaceName
+            | Self::FileKubeconfig => GENERALITY_FOUNDATIONAL,
+            // Standard: resource enumerations and common host facts.
+            Self::PodList
+            | Self::ServiceList
+            | Self::ServiceAccountList
+            | Self::SecretList
+            | Self::RoleList
+            | Self::RoleBindingList
+            | Self::ClusterRoleList
+            | Self::ClusterRoleBindingList
+            | Self::ConfigMapList
+            | Self::DeploymentList
+            | Self::IngressList
+            | Self::HttpRouteList
+            | Self::GatewayList
+            | Self::K8sRole
+            | Self::K8sRoleBinding
+            | Self::K8sCronJob
+            | Self::SysFiles
+            | Self::SysProcesses => GENERALITY_STANDARD,
+            // Specialized: narrow, single-purpose facts.
+            Self::SysHasFile
+            | Self::SysHasBinary
+            | Self::LinuxMounts
+            | Self::SelfSubjectRulesReview
+            | Self::FileContent => GENERALITY_SPECIALIZED,
+            // Non-discovery effects: generality is unused (the scorer filters to
+            // Discovery before querying it); neutral value for completeness.
+            Self::K8sCanExec
+            | Self::K8sCanReach
+            | Self::KubeletExecSource
+            | Self::C2Session
+            | Self::RceCanExec
+            | Self::ContainerEscape
+            | Self::CreateRole
+            | Self::CreateRoleBinding => GENERALITY_STANDARD,
+        }
+    }
+
+    /// Whether the fact this effect produces can go **stale** — i.e. its answer
+    /// changes over time or as other actions mutate the cluster.
+    ///
+    /// `false` (stable / idempotent): point-in-time facts that don't change
+    /// without deliberate action — an IP, a hostname, an identity, a capability,
+    /// an achieved capability (exec/escape). Re-learning them yields nothing.
+    ///
+    /// `true` (volatile): set memberships and mutable state — resource
+    /// enumerations, the current RBAC view, running processes, directory
+    /// listings. These can be invalidated by later actions, so re-reading can
+    /// regain epistemic value. Tunable per-effect, like the generality tiers.
+    pub fn is_volatile(self) -> bool {
+        match self {
+            // Volatile: enumerations and mutable state.
+            Self::PodList
+            | Self::NodeList
+            | Self::ServiceList
+            | Self::ServiceAccountList
+            | Self::SecretList
+            | Self::RoleList
+            | Self::RoleBindingList
+            | Self::ClusterRoleList
+            | Self::ClusterRoleBindingList
+            | Self::ConfigMapList
+            | Self::DeploymentList
+            | Self::IngressList
+            | Self::HttpRouteList
+            | Self::GatewayList
+            | Self::SelfSubjectRulesReview
+            | Self::SysProcesses
+            | Self::SysFiles => true,
+            // Stable / idempotent: identities, addresses, capabilities, and
+            // achieved-capability relations.
+            Self::K8sPod
+            | Self::K8sServiceAccount
+            | Self::K8sRole
+            | Self::K8sRoleBinding
+            | Self::K8sCronJob
+            | Self::RawServiceAccountToken
+            | Self::PodName
+            | Self::ServiceAccountName
+            | Self::NamespaceName
+            | Self::SysIp
+            | Self::SysHasFile
+            | Self::SysHasBinary
+            | Self::LinuxMounts
+            | Self::ReverseDns
+            | Self::FileContent
+            | Self::FileKubeconfig
+            | Self::K8sCanExec
+            | Self::K8sCanReach
+            | Self::RunsOn
+            | Self::KubeletExecSource
+            | Self::C2Session
+            | Self::RceCanExec
+            | Self::ContainerEscape
+            | Self::CreateRole
+            | Self::CreateRoleBinding => false,
+        }
+    }
 }
+
+/// Generality tiers — how broadly a produced fact enables further actions.
+/// Tunable: raise/lower to change how much foundational discoveries outrank
+/// specialized ones.
+const GENERALITY_FOUNDATIONAL: f32 = 1.0;
+const GENERALITY_STANDARD: f32 = 0.6;
+const GENERALITY_SPECIALIZED: f32 = 0.3;
 
 fn resolve_simple_effect_handler(effect_name: &str) -> Option<SimpleEffectHandler> {
     match EffectKind::parse(effect_name)? {
@@ -1374,6 +1517,41 @@ mod tests {
                 "{name} should be Discovery"
             );
         }
+    }
+
+    #[test]
+    fn volatility_split_stable_vs_volatile() {
+        // Stable / idempotent facts.
+        assert!(!EffectKind::parse("sys.ip").unwrap().is_volatile());
+        assert!(!EffectKind::parse("rDNS").unwrap().is_volatile());
+        assert!(!EffectKind::parse("container.escape(sys)")
+            .unwrap()
+            .is_volatile());
+        // Volatile enumerations / mutable state.
+        assert!(EffectKind::parse("k8s.podList").unwrap().is_volatile());
+        assert!(EffectKind::parse("k8s.secretList").unwrap().is_volatile());
+        assert!(EffectKind::parse("sys.processes").unwrap().is_volatile());
+    }
+
+    #[test]
+    fn identity_facts_are_foundational_discovery() {
+        // Environment facts learned alongside a token read (point b): they feed
+        // grounding variables, so they're foundational discovery, never volatile.
+        for name in ["Pod.name", "ServiceAccount.name", "Namespace.name"] {
+            let k = EffectKind::parse(name).unwrap_or_else(|| panic!("no kind for {name}"));
+            assert!(k.categories().contains(&EffectCategory::Discovery));
+            assert_eq!(k.generality(), 1.0);
+            assert!(!k.is_volatile());
+        }
+    }
+
+    #[test]
+    fn generality_tiers_rank_foundational_above_specialized() {
+        let ip = EffectKind::parse("sys.ip").unwrap();
+        let secrets = EffectKind::parse("k8s.secretList").unwrap();
+        let mounts = EffectKind::parse("linux.mounts").unwrap();
+        assert!(ip.generality() > secrets.generality());
+        assert!(secrets.generality() > mounts.generality());
     }
 
     #[test]
