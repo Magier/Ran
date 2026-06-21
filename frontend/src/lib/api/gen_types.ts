@@ -128,6 +128,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scoring/profile/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Persist the live scoring profile
+         * @description Writes the live scoring profile to its sidecar file (ran.scoring.yaml) so it survives restarts. Gated on the scoring.tuning_ui flag.
+         */
+        post: operations["saveScoringProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scoring/profile/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset the live scoring profile
+         * @description Reverts the live scoring profile to the configured base and removes any persisted overrides. Gated on the scoring.tuning_ui flag.
+         */
+        post: operations["resetScoringProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/flow": {
         parameters: {
             query?: never;
@@ -878,6 +918,64 @@ export interface operations {
         };
         responses: {
             /** @description Updated profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoringProfile"];
+                };
+            };
+            /** @description Tuning disabled */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    saveScoringProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoringProfile"];
+                };
+            };
+            /** @description Tuning disabled */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    resetScoringProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reset profile */
             200: {
                 headers: {
                     [name: string]: unknown;

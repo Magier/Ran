@@ -38,6 +38,10 @@ pub struct AppState {
     namespace_filter: NamespaceFilter,
     /// Live scoring profile — mutable at runtime via the tuning API.
     scoring_profile: Arc<RwLock<campaign::Profile>>,
+    /// Configured base profile (from ran.yaml), used by reset.
+    scoring_base: campaign::Profile,
+    /// Sidecar file persisting tuned overrides across restarts.
+    scoring_sidecar: Option<PathBuf>,
     /// Feature flag enabling the frontend tuning UI.
     scoring_tuning: bool,
     ran_name: String,
@@ -57,6 +61,8 @@ impl AppState {
         armory: Armory,
         namespace_filter: NamespaceFilter,
         scoring_profile: campaign::Profile,
+        scoring_base: campaign::Profile,
+        scoring_sidecar: Option<PathBuf>,
         scoring_tuning: bool,
         ran_name: String,
         target_cluster: K8sCluster,
@@ -69,6 +75,8 @@ impl AppState {
             armory,
             namespace_filter,
             scoring_profile: Arc::new(RwLock::new(scoring_profile)),
+            scoring_base,
+            scoring_sidecar,
             scoring_tuning,
             ran_name,
             target_cluster,
@@ -140,6 +148,32 @@ impl ApiService for AppState {
         if let Ok(mut guard) = self.scoring_profile.write() {
             *guard = profile;
         }
+    }
+
+    fn save_scoring_profile(&self) -> Result<(), String> {
+        let path = self
+            .scoring_sidecar
+            .as_ref()
+            .ok_or_else(|| "no scoring sidecar path configured".to_string())?;
+        let profile = self
+            .scoring_profile
+            .read()
+            .map_err(|_| "scoring profile lock poisoned".to_string())?
+            .clone();
+        let yaml = serde_yaml::to_string(&profile).map_err(|e| e.to_string())?;
+        std::fs::write(path, yaml).map_err(|e| format!("failed to write {}: {e}", path.display()))
+    }
+
+    fn reset_scoring_profile(&self) -> campaign::Profile {
+        let base = self.scoring_base.clone();
+        if let Ok(mut guard) = self.scoring_profile.write() {
+            *guard = base.clone();
+        }
+        // Drop persisted overrides so the reset survives a restart too.
+        if let Some(path) = &self.scoring_sidecar {
+            let _ = std::fs::remove_file(path);
+        }
+        base
     }
 
     fn scoring_tuning_enabled(&self) -> bool {
@@ -833,6 +867,29 @@ pub struct ServerConfig {
     pub namespace_filter: NamespaceFilter,
     /// Action-selection scoring configuration loaded from `ran.yaml`.
     pub scoring: config::ScoringConfig,
+    /// Path to the config file, used to locate the scoring sidecar
+    /// (`ran.scoring.yaml`). Defaults to `ran.yaml` when `None`.
+    pub config_path: Option<PathBuf>,
+}
+
+/// Locate the scoring sidecar file (tuned-profile persistence) next to the
+/// config file: e.g. `ran.yaml` → `ran.scoring.yaml`.
+fn scoring_sidecar_path(config_path: Option<&std::path::Path>) -> PathBuf {
+    config_path
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("ran.yaml"))
+        .with_extension("scoring.yaml")
+}
+
+fn load_sidecar_profile(path: &std::path::Path) -> Option<campaign::Profile> {
+    let data = std::fs::read(path).ok()?;
+    match serde_yaml::from_slice::<campaign::Profile>(&data) {
+        Ok(p) => Some(p),
+        Err(e) => {
+            warn!(path = %path.display(), error = %e, "ignoring unparseable scoring sidecar");
+            None
+        }
+    }
 }
 
 /// Start the Ran emulation API server. This is the primary entry point for
@@ -878,13 +935,23 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     );
     tokio::spawn(bridge_campaign_events_to_sse(campaign_events.subscribe()));
 
+    // Base profile from ran.yaml; if a tuned sidecar exists, it overrides it.
+    let scoring_base = cfg.scoring.to_profile();
+    let sidecar = scoring_sidecar_path(cfg.config_path.as_deref());
+    let live_profile = load_sidecar_profile(&sidecar).unwrap_or_else(|| scoring_base.clone());
+    if live_profile.name == "tuned" {
+        info!(path = %sidecar.display(), "loaded tuned scoring profile from sidecar");
+    }
+
     let state = AppState::new(
         k8s,
         campaign,
         c2_handle,
         armory,
         cfg.namespace_filter,
-        cfg.scoring.to_profile(),
+        live_profile,
+        scoring_base,
+        Some(sidecar),
         cfg.scoring.tuning_ui,
         "Ran".to_string(),
         campaign_cluster,

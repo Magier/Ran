@@ -95,6 +95,8 @@ async fn app_state_get_and_reset_campaign_without_cli() {
         armory,
         app::config::NamespaceFilter::default(),
         campaign::Profile::default(),
+        campaign::Profile::default(),
+        None,
         false,
         "Test".to_string(),
         campaign_cluster,

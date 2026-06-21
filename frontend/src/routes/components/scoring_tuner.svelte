@@ -121,6 +121,21 @@
 		c.curve = defaultCurve(type);
 		scheduleSave();
 	}
+
+	// Persist the current live profile to the sidecar (survives restart).
+	async function persist() {
+		const saved = await campaign.api.SaveScoringProfile();
+		if (saved) profile = saved;
+	}
+
+	// Revert to the configured base profile and drop persisted overrides.
+	async function reset() {
+		const base = await campaign.api.ResetScoringProfile();
+		if (base) {
+			profile = base;
+			campaign.scoringVersion += 1;
+		}
+	}
 </script>
 
 {#if profile?.tuningEnabled}
@@ -143,6 +158,20 @@
 				<Icon icon="mdi:tune-variant" width="18" class="text-primary-500" />
 				<span class="text-sm font-semibold flex-1">Scoring Tuner</span>
 				{#if saving}<span class="text-xs text-surface-500">saving…</span>{/if}
+				<button
+					class="text-xs px-2 py-0.5 rounded bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600"
+					title="Persist to ran.scoring.yaml (survives restart)"
+					onclick={persist}
+				>
+					Save
+				</button>
+				<button
+					class="text-xs px-2 py-0.5 rounded bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600"
+					title="Revert to configured defaults and drop saved overrides"
+					onclick={reset}
+				>
+					Reset
+				</button>
 				<button aria-label="Close" onclick={() => (open = false)}>
 					<Icon icon="mdi:close" width="18" class="text-surface-500 hover:text-error-500" />
 				</button>

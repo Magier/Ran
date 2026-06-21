@@ -45,6 +45,14 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
                 .put(api_handlers::update_scoring_profile_handler::<S>),
         )
         .route(
+            "/api/scoring/profile/save",
+            axum::routing::post(api_handlers::save_scoring_profile_handler::<S>),
+        )
+        .route(
+            "/api/scoring/profile/reset",
+            axum::routing::post(api_handlers::reset_scoring_profile_handler::<S>),
+        )
+        .route(
             "/api/action/execute",
             axum::routing::post(api_handlers::execute_action_handler::<S>),
         )

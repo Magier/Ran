@@ -348,6 +348,24 @@ export class RanAPI {
 		return data;
 	}
 
+	async SaveScoringProfile(): Promise<ScoringProfile | null> {
+		const { data, error } = await this.restClient.POST('/api/scoring/profile/save');
+		if (error) {
+			console.warn('Failed to save scoring profile', error);
+			return null;
+		}
+		return data;
+	}
+
+	async ResetScoringProfile(): Promise<ScoringProfile | null> {
+		const { data, error } = await this.restClient.POST('/api/scoring/profile/reset');
+		if (error) {
+			console.warn('Failed to reset scoring profile', error);
+			return null;
+		}
+		return data;
+	}
+
 	async GetFlow(): Promise<AttackFlow> {
 		const { data, error } = await this.restClient.GET('/api/flow');
 		if (error) throw new Error('Failed to get flow');

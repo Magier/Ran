@@ -102,6 +102,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run_emulate(args: EmulateArgs) -> Result<()> {
+    let config_path = args.config.clone();
     let cfg = app::config::load(args.config)?;
 
     if let Some(ns) = &args.namespace {
@@ -116,6 +117,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         port: args.port,
         namespace_filter: cfg.namespaces,
         scoring: cfg.scoring,
+        config_path,
     })
     .await
 }

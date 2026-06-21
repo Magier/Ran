@@ -157,6 +157,48 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/scoring/profile/save:
+    post:
+      summary: Persist the live scoring profile
+      description: >-
+        Writes the live scoring profile to its sidecar file (ran.scoring.yaml)
+        so it survives restarts. Gated on the scoring.tuning_ui flag.
+      operationId: saveScoringProfile
+      responses:
+        '200':
+          description: Saved profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoringProfile'
+        '403':
+          description: Tuning disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/scoring/profile/reset:
+    post:
+      summary: Reset the live scoring profile
+      description: >-
+        Reverts the live scoring profile to the configured base and removes any
+        persisted overrides. Gated on the scoring.tuning_ui flag.
+      operationId: resetScoringProfile
+      responses:
+        '200':
+          description: Reset profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoringProfile'
+        '403':
+          description: Tuning disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/flow:
     get:
       summary: Get attack flow

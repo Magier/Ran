@@ -147,6 +147,14 @@ pub trait ApiService: Clone + Send + Sync + 'static {
     /// Replace the live scoring profile (runtime tuning).
     fn set_scoring_profile(&self, profile: campaign::Profile);
 
+    /// Persist the live scoring profile to its sidecar file so it survives
+    /// restarts.
+    fn save_scoring_profile(&self) -> Result<(), String>;
+
+    /// Revert the live scoring profile to the configured base and drop any
+    /// persisted overrides. Returns the resulting profile.
+    fn reset_scoring_profile(&self) -> campaign::Profile;
+
     /// Whether the frontend scoring-tuning UI is enabled (feature flag).
     fn scoring_tuning_enabled(&self) -> bool;
 

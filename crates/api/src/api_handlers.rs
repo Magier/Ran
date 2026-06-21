@@ -301,16 +301,7 @@ pub(crate) async fn update_scoring_profile_handler<S: ApiService>(
     State(service): State<S>,
     axum::Json(update): axum::Json<ScoringProfileUpdate>,
 ) -> Result<axum::Json<ScoringProfileResponse>, ApiError> {
-    if !service.scoring_tuning_enabled() {
-        return Err(ApiError {
-            status: axum::http::StatusCode::FORBIDDEN,
-            body: ErrorResponse {
-                error: "scoring tuning is disabled (set scoring.tuning_ui: true in ran.yaml)"
-                    .to_string(),
-                details: None,
-            },
-        });
-    }
+    require_tuning(&service)?;
 
     let considerations = update
         .considerations
@@ -335,6 +326,43 @@ pub(crate) async fn update_scoring_profile_handler<S: ApiService>(
     };
     service.set_scoring_profile(profile.clone());
 
+    Ok(axum::Json(profile_to_response(&profile, true)))
+}
+
+fn require_tuning<S: ApiService>(service: &S) -> Result<(), ApiError> {
+    if service.scoring_tuning_enabled() {
+        Ok(())
+    } else {
+        Err(ApiError {
+            status: axum::http::StatusCode::FORBIDDEN,
+            body: ErrorResponse {
+                error: "scoring tuning is disabled (set scoring.tuning_ui: true in ran.yaml)"
+                    .to_string(),
+                details: None,
+            },
+        })
+    }
+}
+
+/// Persist the live scoring profile to its sidecar file so it survives restarts.
+pub(crate) async fn save_scoring_profile_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<ScoringProfileResponse>, ApiError> {
+    require_tuning(&service)?;
+    service.save_scoring_profile().map_err(ApiError::internal)?;
+    Ok(axum::Json(profile_to_response(
+        &service.scoring_profile(),
+        true,
+    )))
+}
+
+/// Revert the live scoring profile to the configured base and drop persisted
+/// overrides.
+pub(crate) async fn reset_scoring_profile_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<ScoringProfileResponse>, ApiError> {
+    require_tuning(&service)?;
+    let profile = service.reset_scoring_profile();
     Ok(axum::Json(profile_to_response(&profile, true)))
 }
 
