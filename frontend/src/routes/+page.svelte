@@ -384,6 +384,33 @@
 				timestamp: new Date()
 			});
 		});
+
+		// Seed the timeline with the campaign's existing execution history so a
+		// session attached to an already-running campaign isn't blank. The id-index
+		// dedup makes this safe alongside the live `ttp-executed` handler above.
+		ranAPI.GetExecutionRecords()
+			.then((records) => {
+				timeline.backfill(
+					records.map((r) => {
+						const differsFromTarget = r.exec_system_id && r.exec_system_id !== r.target_id;
+						return {
+							id: r.id,
+							ttpId: r.ttp_id,
+							ttpName: r.ttp_name || r.ttp_id || r.id,
+							targetId: r.target_id,
+							targetName: campaignState.getEntityById(r.target_id)?.name ?? r.target_id,
+							execSystemId: differsFromTarget ? r.exec_system_id : undefined,
+							execSystemName: differsFromTarget
+								? (campaignState.getEntityById(r.exec_system_id)?.name ?? r.exec_system_id)
+								: undefined,
+							success: r.success,
+							failReason: r.fail_reason,
+							timestampMs: r.completed_at_ms || r.started_at_ms
+						};
+					})
+				);
+			})
+			.catch((err) => console.error('Timeline backfill failed', err));
 	});
 
 	onDestroy(() => {

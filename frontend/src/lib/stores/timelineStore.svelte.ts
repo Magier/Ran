@@ -32,6 +32,20 @@ export type ActionGroup = {
 
 export type TopEntry = ActionGroup | EntityEntry;
 
+/** A historical execution distilled to what the timeline needs to replay it. */
+export type BackfillRecord = {
+    id: string;
+    ttpId: string;
+    ttpName: string;
+    targetId: string;
+    targetName: string;
+    execSystemId?: string;
+    execSystemName?: string;
+    success: boolean;
+    failReason?: string;
+    timestampMs: number;
+};
+
 export class TimelineStore {
     topEntries = $state<TopEntry[]>([]);
     open = $state(true);
@@ -109,6 +123,34 @@ export class TimelineStore {
             return;
         }
         this.createGroup(entry);
+    }
+
+    /**
+     * Seed the timeline with the campaign's existing execution history.
+     *
+     * The store is otherwise live-only: it just listens to SSE events that
+     * arrive after the UI connects, so a session attached to an already-running
+     * campaign would start blank. This replays the persisted records — newest
+     * last so the prepend in `recordExecutedTtp` leaves them newest-first — and
+     * is idempotent via the per-id index, so it's safe to call alongside any
+     * live `ttp-executed` events that race in.
+     */
+    backfill(records: BackfillRecord[]): void {
+        const ordered = [...records].sort((a, b) => a.timestampMs - b.timestampMs);
+        for (const r of ordered) {
+            this.recordExecutedTtp({
+                id: r.id,
+                ttpId: r.ttpId,
+                ttpName: r.ttpName,
+                targetId: r.targetId,
+                targetName: r.targetName,
+                execSystemId: r.execSystemId,
+                execSystemName: r.execSystemName,
+                status: r.success ? 'success' : 'failed',
+                failReason: r.success ? undefined : r.failReason,
+                timestamp: new Date(r.timestampMs)
+            });
+        }
     }
 
     toggleGroup(cmdId: string): void {

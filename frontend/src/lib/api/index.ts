@@ -18,6 +18,7 @@ export type TTPParam = components['schemas']['TTPParam'];
 export type TTPDefense = components['schemas']['TTPDefense'];
 export type SigmaRule = components['schemas']['SigmaRule'];
 export type ExecuteActionCmd = components['schemas']['ExecuteActionCmd'];
+export type ExecutionRecordEntry = components['schemas']['ExecutionRecordEntry'];
 export type K8sResource = components['schemas']['K8sResource'];
 export type ApiError = components['schemas']['Error'];
 

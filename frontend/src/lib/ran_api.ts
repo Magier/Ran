@@ -32,6 +32,7 @@ import type {
 	TTP,
 	AttackFlow,
 	ExecuteActionCmd,
+	ExecutionRecordEntry,
 	K8sResource,
 	ScoredCandidate,
 	ScoringProfile,
@@ -369,6 +370,12 @@ export class RanAPI {
 	async GetFlow(): Promise<AttackFlow> {
 		const { data, error } = await this.restClient.GET('/api/flow');
 		if (error) throw new Error('Failed to get flow');
+		return data;
+	}
+
+	async GetExecutionRecords(): Promise<ExecutionRecordEntry[]> {
+		const { data, error } = await this.restClient.GET('/api/execution-records');
+		if (error) throw new Error('Failed to get execution records');
 		return data;
 	}
 
