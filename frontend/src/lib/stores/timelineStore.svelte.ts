@@ -46,6 +46,9 @@ export type BackfillRecord = {
     timestampMs: number;
 };
 
+/** An in-flight (dispatched, not yet completed) action to seed as pending. */
+export type PendingRecord = Omit<BackfillRecord, 'success' | 'failReason'>;
+
 export class TimelineStore {
     topEntries = $state<TopEntry[]>([]);
     open = $state(true);
@@ -148,6 +151,30 @@ export class TimelineStore {
                 execSystemName: r.execSystemName,
                 status: r.success ? 'success' : 'failed',
                 failReason: r.success ? undefined : r.failReason,
+                timestamp: new Date(r.timestampMs)
+            });
+        }
+    }
+
+    /**
+     * Seed in-flight actions as pending entries (driven by `/api/flow`'s
+     * `Ongoing` steps on load). Routed through `addTtpAction` so it's idempotent
+     * against a live `ttp-dispatched` for the same id, and so the eventual
+     * `ttp-executed` resolves the entry in place. Oldest-first so the prepend
+     * leaves the most recently dispatched on top.
+     */
+    backfillPending(records: PendingRecord[]): void {
+        const ordered = [...records].sort((a, b) => a.timestampMs - b.timestampMs);
+        for (const r of ordered) {
+            this.addTtpAction({
+                id: r.id,
+                ttpId: r.ttpId,
+                ttpName: r.ttpName,
+                targetId: r.targetId,
+                targetName: r.targetName,
+                execSystemId: r.execSystemId,
+                execSystemName: r.execSystemName,
+                status: 'pending',
                 timestamp: new Date(r.timestampMs)
             });
         }

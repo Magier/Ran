@@ -385,9 +385,34 @@
 			});
 		});
 
-		// Seed the timeline with the campaign's existing execution history so a
-		// session attached to an already-running campaign isn't blank. The id-index
-		// dedup makes this safe alongside the live `ttp-executed` handler above.
+		// Show actions as in-progress the moment they're dispatched — by this UI, an
+		// autonomous plan, MCP, or the CLI — rather than only once they complete.
+		// addTtpAction is idempotent: a UI-initiated action already has a pending
+		// entry, so this enriches it; an externally-driven one creates a fresh one.
+		ranAPI.on('ttp-dispatched', (data) => {
+			const cmdId = data.CmdId ?? data.ID ?? '';
+			const targetId = data.TargetID ?? '';
+			const execSystemId = data.ExecSystemID ?? '';
+			const differsFromTarget = execSystemId && execSystemId !== targetId;
+			timeline.addTtpAction({
+				id: cmdId,
+				ttpId: data.TTP?.id ?? '',
+				ttpName: data.TTP?.name ?? data.TTP?.id ?? cmdId,
+				targetId,
+				targetName: campaignState.getEntityById(targetId)?.name ?? targetId,
+				execSystemId: differsFromTarget ? execSystemId : undefined,
+				execSystemName: differsFromTarget
+					? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
+					: undefined,
+				status: 'pending',
+				timestamp: new Date()
+			});
+		});
+
+		// Seed the timeline from the campaign's existing state so a session attached
+		// to an already-running campaign isn't blank: completed actions from the
+		// execution log, then any in-flight (Ongoing) steps as pending on top. The
+		// id-index dedup makes this safe alongside the live handlers above.
 		ranAPI.GetExecutionRecords()
 			.then((records) => {
 				timeline.backfill(
@@ -410,7 +435,32 @@
 					})
 				);
 			})
-			.catch((err) => console.error('Timeline backfill failed', err));
+			.catch((err) => console.error('Timeline backfill failed', err))
+			.finally(() => {
+				ranAPI.GetFlow()
+					.then((flow) => {
+						timeline.backfillPending(
+							flow.steps
+								.filter((s) => s.status === 'Ongoing')
+								.map((s) => {
+									const differsFromTarget = s.executedOn && s.executedOn !== s.targetId;
+									return {
+										id: s.id,
+										ttpId: s.TTP.id,
+										ttpName: s.TTP.name || s.TTP.id || s.id,
+										targetId: s.targetId,
+										targetName: campaignState.getEntityById(s.targetId)?.name ?? s.targetId,
+										execSystemId: differsFromTarget ? s.executedOn : undefined,
+										execSystemName: differsFromTarget
+											? (campaignState.getEntityById(s.executedOn)?.name ?? s.executedOn)
+											: undefined,
+										timestampMs: Date.parse(s.startedAt) || 0
+									};
+								})
+						);
+					})
+					.catch((err) => console.error('Timeline pending backfill failed', err));
+			});
 	});
 
 	onDestroy(() => {

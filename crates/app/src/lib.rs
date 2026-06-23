@@ -409,6 +409,8 @@ impl ApiService for AppState {
             exec
         };
 
+        publish_ttp_dispatched(&exec);
+
         self.c2.send(exec.clone()).await.map_err(|message| {
             error!("failed to enqueue exec_ttp command: {}", message);
             ApiError::internal(message)
@@ -1133,6 +1135,8 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
         exec
     };
 
+    publish_ttp_dispatched(&exec);
+
     let cmd_id = exec.id.clone();
     let grounded_command = exec.procedure.command.clone();
 
@@ -1243,6 +1247,30 @@ fn parse_pod_target_id(target_id: &str) -> Result<(String, String)> {
         "invalid target format '{}'; expected ns/<namespace>/pod/<name>",
         target_id
     )
+}
+
+/// Publish a `ttp-dispatched` SSE event the moment an action is enqueued, so the
+/// UI can show it as in-progress before the completing `ttp-executed` arrives.
+/// Field names mirror the `ttp-executed` payload so the frontend handlers stay
+/// symmetric. Emitted from every dispatch path that registers an open step.
+fn publish_ttp_dispatched(exec: &c2::ExecTtp) {
+    let differs = !exec.exec_system_id.is_empty() && exec.exec_system_id != exec.target_id;
+    api::publish_sse_event(
+        "ttp-dispatched",
+        serde_json::json!({
+            "type": "ttp-dispatched",
+            "data": {
+                "ID": exec.id,
+                "CmdId": exec.id,
+                "TTP": exec.ttp,
+                "Args": exec.args,
+                "TargetID": exec.target_id,
+                "ExecSystemID": if differs { exec.exec_system_id.clone() } else { String::new() },
+                "StartedAtMs": exec.started_at_ms,
+            },
+        })
+        .to_string(),
+    );
 }
 
 async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<CampaignEvent>) {
