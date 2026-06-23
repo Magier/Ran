@@ -10,6 +10,61 @@
 
     let { entries, onfocusentity, ontogglegroup }: Props = $props();
 
+    const MIN_HEIGHT = 120;
+    const MAX_HEIGHT = 800;
+    const DEFAULT_HEIGHT = 240; // matches the previous fixed h-60
+    const STORAGE_KEY = 'operationTimeline.height';
+
+    function loadHeight(): number {
+        if (typeof localStorage === 'undefined') return DEFAULT_HEIGHT;
+        const raw = Number(localStorage.getItem(STORAGE_KEY));
+        if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_HEIGHT;
+        return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, raw));
+    }
+
+    let height = $state(loadHeight());
+
+    function startResize(event: PointerEvent) {
+        event.preventDefault();
+        const startY = event.clientY;
+        const startHeight = height;
+
+        function onMove(e: PointerEvent) {
+            // Dragging up (smaller clientY) grows the panel.
+            const next = startHeight + (startY - e.clientY);
+            height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, next));
+        }
+        function onUp() {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(STORAGE_KEY, String(Math.round(height)));
+            }
+        }
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+    }
+
+    function onHandleKeydown(event: KeyboardEvent) {
+        const step = event.shiftKey ? 48 : 16;
+        if (event.key === 'ArrowUp') {
+            height = Math.min(MAX_HEIGHT, height + step);
+        } else if (event.key === 'ArrowDown') {
+            height = Math.max(MIN_HEIGHT, height - step);
+        } else {
+            return;
+        }
+        event.preventDefault();
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(STORAGE_KEY, String(Math.round(height)));
+        }
+    }
+
     function formatTime(d: Date): string {
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     }
@@ -57,10 +112,28 @@
 </script>
 
 <div
-    class="h-60 shrink-0 bg-surface-100-900 border-t border-surface-200-800 flex flex-col"
+    class="shrink-0 bg-surface-100-900 border-t border-surface-200-800 flex flex-col relative"
+    style="height: {height}px"
     role="region"
     aria-label="Operation timeline"
 >
+    <!-- Resize handle -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+        class="absolute -top-1 left-0 right-0 h-2 cursor-row-resize z-10 group"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize operation timeline"
+        aria-valuemin={MIN_HEIGHT}
+        aria-valuemax={MAX_HEIGHT}
+        aria-valuenow={Math.round(height)}
+        tabindex="0"
+        onpointerdown={startResize}
+        onkeydown={onHandleKeydown}
+    >
+        <div class="absolute inset-x-0 top-1 h-0.5 bg-transparent group-hover:bg-primary-500 transition-colors"></div>
+    </div>
+
     <!-- Header -->
     <div class="flex items-center px-3 py-1.5 border-b border-surface-200-800 shrink-0">
         <span class="text-sm font-semibold">Operation Timeline</span>
