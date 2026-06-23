@@ -109,6 +109,33 @@
             return n + 1;
         }, 0)
     );
+
+    // The store keeps entries newest-first; render oldest→newest so the latest
+    // sits at the bottom, like a log/chat view.
+    let ordered = $derived([...entries].reverse());
+
+    let scrollEl: HTMLDivElement | undefined = $state();
+    // Pinned to the bottom by default so the newest events stay in view. Flips
+    // off once the user scrolls up into the history, and back on when they
+    // return to the bottom.
+    let stickToBottom = $state(true);
+
+    function onTimelineScroll() {
+        if (!scrollEl) return;
+        const slack = 24; // px tolerance — near-bottom still counts as bottom
+        stickToBottom =
+            scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - slack;
+    }
+
+    // Follow new events to the bottom while pinned. Depends on totalEvents so it
+    // also fires when an expanded group gains child effect rows, and on scrollEl
+    // so the initial (backfilled) list lands at the bottom once mounted.
+    $effect(() => {
+        totalEvents;
+        if (stickToBottom && scrollEl) {
+            scrollEl.scrollTop = scrollEl.scrollHeight;
+        }
+    });
 </script>
 
 <div
@@ -141,13 +168,13 @@
     </div>
 
     <!-- Entry list -->
-    <div class="overflow-y-auto flex-1 flex flex-col">
+    <div class="overflow-y-auto flex-1 flex flex-col" bind:this={scrollEl} onscroll={onTimelineScroll}>
         {#if entries.length === 0}
             <div class="flex items-center justify-center h-full text-surface-500 text-sm">
                 No events yet
             </div>
         {:else}
-            {#each entries as entry (entry.kind === 'action-group' ? entry.action.id : entry.id)}
+            {#each ordered as entry (entry.kind === 'action-group' ? entry.action.id : entry.id)}
                 {#if entry.kind === 'action-group'}
                     {@const counts = effectCounts(entry)}
                     <!-- Action group header row -->
