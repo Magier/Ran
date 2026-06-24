@@ -554,6 +554,8 @@ export interface components {
             args?: {
                 [key: string]: string;
             };
+            /** @description Free-text rationale for choosing this action at this point in the assessment — why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
+            reasoning?: string;
         };
         K8sResource: {
             id: string;
@@ -620,6 +622,8 @@ export interface components {
              * @description Unix timestamp in milliseconds when the result was received
              */
             completed_at_ms: number;
+            /** @description Caller-supplied rationale for why this action was run, as passed to the execute-action request. Empty when none was given. */
+            reasoning?: string;
             parseAudits: components["schemas"]["ParseAudit"][];
         };
         /**

@@ -234,6 +234,7 @@ mod tests {
             started_at_ms: 0,
             completed_at_ms: 0,
             is_cleanup: false,
+            reasoning: String::new(),
         }
     }
 

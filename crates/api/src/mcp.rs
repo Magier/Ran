@@ -309,6 +309,10 @@ impl<S: ApiService> RanMcpHandler<S> {
             })
             .unwrap_or_default();
 
+        let reasoning = opt_str(args, "reasoning")
+            .map(str::to_owned)
+            .filter(|s| !s.trim().is_empty());
+
         let result = self
             .api
             .execute_action(ExecuteActionRequest {
@@ -317,6 +321,7 @@ impl<S: ApiService> RanMcpHandler<S> {
                 exec_system_id,
                 procedure_id,
                 args: extra_args,
+                reasoning,
             })
             .await
             .map_err(api_err)?;
@@ -645,7 +650,9 @@ fn tool_defs() -> Vec<Tool> {
         ),
         Tool::new(
             "execute_action",
-            "Execute a TTP against a target entity. Returns a cmd_id to track the execution.",
+            "Execute a TTP against a target entity. Returns a cmd_id to track the execution. \
+             ALWAYS pass `reasoning` explaining why you chose this action now — it is recorded \
+             on the execution timeline and is essential for an auditable, explainable assessment.",
             schema(json!({
                 "type": "object",
                 "required": ["action_id", "target_id"],
@@ -654,7 +661,8 @@ fn tool_defs() -> Vec<Tool> {
                     "target_id": { "type": "string", "description": "Entity ID to execute against" },
                     "exec_system_id": { "type": "string", "description": "ID of the system to run the command from (optional)" },
                     "procedure_id": { "type": "string", "description": "Specific procedure variant to use (optional)" },
-                    "args": { "type": "object", "description": "TTP parameter overrides (key-value string pairs)", "additionalProperties": { "type": "string" } }
+                    "args": { "type": "object", "description": "TTP parameter overrides (key-value string pairs)", "additionalProperties": { "type": "string" } },
+                    "reasoning": { "type": "string", "description": "STRONGLY ENCOURAGED. Your rationale for running this action at this point in the assessment: what you expect it to reveal or achieve, why this target, and how it follows from prior findings. Recorded on the execution record for audit and replay. Provide it on every call unless truly trivial." }
                 }
             })),
         ),

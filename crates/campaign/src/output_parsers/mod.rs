@@ -198,7 +198,8 @@ pub fn parse_output_effect(
             .get("TARGET_ID")
             .map(String::as_str)
             .unwrap_or(&cmd.target_id);
-        network::parse_nmap(stdout, source_id)
+        let cidr = cmd.args.get("CIDR").map(String::as_str);
+        network::parse_nmap(stdout, source_id, cidr)
     } else if normalized == "k8s.selfsubjectrulesreview" {
         let token_arg = cmd.args.get("TOKEN").map(String::as_str).unwrap_or("");
         // When an exec system is selected, cmd.target_id is rewritten to the pod ID.
@@ -695,6 +696,7 @@ mod tests {
             started_at_ms: 0,
             output_transform: None,
             is_cleanup: false,
+            reasoning: String::new(),
         }
     }
 

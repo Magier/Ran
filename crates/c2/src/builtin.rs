@@ -408,6 +408,7 @@ mod tests {
             exec_system_id: exec_system_id.to_string(),
             output_transform: None,
             is_cleanup: false,
+            reasoning: String::new(),
         }
     }
 }

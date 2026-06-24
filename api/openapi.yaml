@@ -825,6 +825,14 @@ components:
           type: object
           additionalProperties:
             type: string
+        reasoning:
+          type: string
+          description: >
+            Free-text rationale for choosing this action at this point in the
+            assessment — why this TTP against this target now. Optional, but
+            strongly encouraged when driving the campaign programmatically: it
+            is stored on the resulting execution record so the timeline is
+            self-explaining and auditable.
 
     K8sResource:
       type: object
@@ -963,6 +971,11 @@ components:
           type: integer
           format: int64
           description: Unix timestamp in milliseconds when the result was received
+        reasoning:
+          type: string
+          description: >
+            Caller-supplied rationale for why this action was run, as passed to
+            the execute-action request. Empty when none was given.
         parseAudits:
           type: array
           items:

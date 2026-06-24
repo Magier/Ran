@@ -438,6 +438,7 @@ mod tests {
             started_at_ms: 0,
             output_transform: None,
             is_cleanup: false,
+            reasoning: String::new(),
         }
     }
 

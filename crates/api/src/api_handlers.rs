@@ -116,6 +116,10 @@ pub(crate) struct ExecuteActionCmdPayload {
     #[serde(rename = "procedureId")]
     pub(crate) procedure_id: Option<String>,
     pub(crate) args: Option<HashMap<String, String>>,
+    /// Optional free-text rationale for this step, recorded on the resulting
+    /// execution record. Strongly encouraged when driving the campaign
+    /// programmatically so the timeline explains itself.
+    pub(crate) reasoning: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -377,6 +381,7 @@ pub(crate) async fn execute_action_handler<S: ApiService>(
             target_id: cmd.target_id,
             procedure_id: cmd.procedure_id,
             args: cmd.args.unwrap_or_default(),
+            reasoning: cmd.reasoning,
         })
         .await?;
 
@@ -553,6 +558,8 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
             id: r.id.clone(),
             target_id: r.target_id.clone(),
             command: r.command.clone(),
+            traversal: r.traversal.iter().map(AttackStepHop::from).collect(),
+            inner_command: r.inner_command.clone(),
             args: r.args.clone(),
             procedure_id: r.procedure_id.clone(),
             ttp: AttackStepTTP {

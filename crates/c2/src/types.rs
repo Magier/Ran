@@ -36,6 +36,11 @@ pub struct ExecTtp {
     /// rather than the primary attack sequence.
     #[serde(default)]
     pub is_cleanup: bool,
+    /// Operator/agent rationale for running this command — why this step was
+    /// chosen. Set from `ExecuteActionRequest.reasoning`; empty when none was
+    /// supplied. Carried through to the audit record.
+    #[serde(default)]
+    pub reasoning: String,
 }
 
 impl ExecTtp {

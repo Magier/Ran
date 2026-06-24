@@ -43,6 +43,10 @@ pub struct ExecutionRecord {
     /// the primary attack step.
     #[serde(default)]
     pub is_cleanup: bool,
+    /// Free-text rationale supplied by the caller for why this action was run
+    /// (via `ExecuteActionRequest.reasoning`). Empty when none was given.
+    #[serde(default)]
+    pub reasoning: String,
 }
 
 impl ExecutionRecord {
@@ -69,6 +73,7 @@ impl ExecutionRecord {
             started_at_ms: cmd.started_at_ms,
             completed_at_ms,
             is_cleanup: cmd.is_cleanup,
+            reasoning: cmd.reasoning.clone(),
         }
     }
 }
