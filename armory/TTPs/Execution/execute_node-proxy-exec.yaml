@@ -24,7 +24,7 @@ parameters:
     description: Name of the target container in the pod
   NODE:
     type: Node
-    description: Name or IP of the node on which the pod is running.
+    description: Preferred node endpoint host. Grounding resolves to node IP first, then falls back to node name.
   COMMAND:
     type: string
     description: the command to execute in the shell
@@ -35,9 +35,11 @@ parameters:
 procedures:
   - key: ran-ws
     tool: ran-ws
+    description: "Uses ${NODE} (IP-first, name-fallback). Explicit placeholders available: ${NODE.IP}, ${NODE.NAME}."
     command: >
       ran-ws --url "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=${COMMAND}" --token ${TOKEN}
   - key: python-ws
     tool: python3
+    description: "Uses ${NODE} (IP-first, name-fallback). Explicit placeholders available: ${NODE.IP}, ${NODE.NAME}."
     command: >
       TOKEN=${TOKEN} python3 ws.py "wss://${NODE}:10250/exec/${NAMESPACE}/${POD_NAME}/${CONTAINER}?output=1&error=1&command=${COMMAND}"

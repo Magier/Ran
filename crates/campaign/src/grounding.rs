@@ -24,7 +24,7 @@
 
 use std::collections::HashMap;
 
-use ran_domain::{Entity, EntityId, Pod, ServiceAccount};
+use ran_domain::{Entity, EntityId, K8sNode, Pod, ServiceAccount};
 use serde_json::Value as JsonValue;
 
 use crate::campaign::{Campaign, CampaignEntityRef};
@@ -39,7 +39,9 @@ use crate::campaign::{Campaign, CampaignEntityRef};
 /// |------------------------------|------------|
 /// | `NS` / `NAMESPACE`           | Target entity's namespace. Only replaced when the current value is empty or exactly `"${NS}"` / `"${NAMESPACE}"`. |
 /// | `POD_NAME` / `PODNAME`       | Target entity's name. Replaces the `${POD_NAME}` token wherever it appears in the value. |
-/// | `NODE` / `NODENAME` / `NODE_NAME` | The pod's scheduled node name. Only replaced when the current value is empty or exactly `"${NODE_NAME}"`. |
+/// | `NODE`                       | Preferred node endpoint for pod targets: node IP first, node name fallback. |
+/// | `NODENAME` / `NODE_NAME`     | The pod's scheduled node name. |
+/// | `NODE.IP` / `NODE.NAME`      | Explicit node endpoint variants for templates that need deterministic host selection. |
 /// | `TOKEN`                      | ServiceAccount reference → raw JWT. Accepts SA entity ID (`ns/<ns>/sa/<name>`), SA name (resolved in target namespace), or empty value (resolved from target pod/SA). Raw JWT values are preserved as-is. |
 /// | `API_SERVER`                 | Empty or template-var → `https://kubernetes.default.svc`. |
 /// | *(any)*                      | Any value containing `${RANDOM}` is replaced with a 5-digit pseudo-random number. |
@@ -59,7 +61,40 @@ pub fn ground_args_from_context(
 
     let target_ns = target.as_ref().and_then(entity_namespace);
     let target_name = target.as_ref().map(|e| e.entity_name().to_string());
-    let target_node = target.as_ref().and_then(pod_node_name);
+    let target_node_name = target.as_ref().and_then(target_node_name);
+    let target_node_ip = target
+        .as_ref()
+        .and_then(|entity| target_node_ip(entity, campaign));
+    let target_node_preferred = target_node_ip
+        .clone()
+        .or_else(|| target_node_name.clone());
+
+    // Auto-inject context-derived defaults for absent parameters so that plan
+    // steps can target a pod directly without repeating Namespace/PodName args.
+    // `or_insert_with` preserves any value the caller already supplied.
+    if let Some(ns) = &target_ns {
+        args.entry("NAMESPACE".to_string()).or_insert_with(|| ns.clone());
+        args.entry("NS".to_string()).or_insert_with(|| ns.clone());
+    }
+    // PODNAME/POD_NAME: only inject for pod entities (ns/<ns>/pod/<name>).
+    let target_is_pod = {
+        let p: Vec<&str> = target_id.splitn(4, '/').collect();
+        matches!(p.as_slice(), ["ns", _, "pod", _])
+    };
+    if target_is_pod {
+        if let Some(name) = &target_name {
+            args.entry("PODNAME".to_string()).or_insert_with(|| name.clone());
+            args.entry("POD_NAME".to_string()).or_insert_with(|| name.clone());
+        }
+    }
+    if let Some(name) = &target_node_name {
+        args.entry("NODE.NAME".to_string())
+            .or_insert_with(|| name.clone());
+    }
+    if let Some(ip) = &target_node_ip {
+        args.entry("NODE.IP".to_string())
+            .or_insert_with(|| ip.clone());
+    }
 
     for (key, value) in args.iter_mut() {
         match key.to_ascii_uppercase().as_str() {
@@ -74,10 +109,24 @@ pub fn ground_args_from_context(
                 *value = value.replace("${POD_NAME}", name);
             }
             "POD_NAME" | "PODNAME" => {}
-            "NODE" | "NODENAME" | "NODE_NAME" if value.is_empty() || value == "${NODE_NAME}" => {
-                *value = target_node.clone().unwrap_or_default();
+            "NODE" if value.is_empty() || value == "${NODE}" || value == "${NODE_NAME}" => {
+                *value = target_node_preferred.clone().unwrap_or_default();
             }
-            "NODE" | "NODENAME" | "NODE_NAME" => {}
+            "NODE" => {}
+            "NODENAME" | "NODE_NAME"
+                if value.is_empty() || value == "${NODE_NAME}" || value == "${NODENAME}" =>
+            {
+                *value = target_node_name.clone().unwrap_or_default();
+            }
+            "NODENAME" | "NODE_NAME" => {}
+            "NODE.IP" if value.is_empty() || value == "${NODE.IP}" => {
+                *value = target_node_ip.clone().unwrap_or_default();
+            }
+            "NODE.IP" => {}
+            "NODE.NAME" if value.is_empty() || value == "${NODE.NAME}" => {
+                *value = target_node_name.clone().unwrap_or_default();
+            }
+            "NODE.NAME" => {}
             "TOKEN" => {
                 if let Some(raw) = resolve_token_arg(value, target.as_ref(), campaign) {
                     *value = raw;
@@ -113,9 +162,29 @@ fn entity_namespace(entity: &CampaignEntityRef) -> Option<String> {
     entity.namespace().map(str::to_string)
 }
 
-fn pod_node_name(entity: &CampaignEntityRef) -> Option<String> {
+fn target_node_name(entity: &CampaignEntityRef) -> Option<String> {
     match entity {
         CampaignEntityRef::Pod(pod) => pod.node_name.clone(),
+        CampaignEntityRef::Node(node) if !node.name.trim().is_empty() => Some(node.name.clone()),
+        _ => None,
+    }
+}
+
+fn target_node_ip(entity: &CampaignEntityRef, campaign: &Campaign) -> Option<String> {
+    match entity {
+        CampaignEntityRef::Node(node) => node.system.ips.first().map(|ip| ip.to_string()),
+        CampaignEntityRef::Pod(pod) => {
+            if let Some(ip) = pod.host_ip {
+                return Some(ip.to_string());
+            }
+
+            let node_name = pod.node_name.as_deref()?;
+            let node_id = EntityId::new(format!("node/{}", node_name));
+            campaign
+                .entities
+                .find::<K8sNode>(&node_id)
+                .and_then(|node| node.system.ips.first().map(|ip| ip.to_string()))
+        }
         _ => None,
     }
 }
@@ -616,6 +685,52 @@ mod tests {
         ground_args_from_context(&mut args, &target_id, &campaign);
 
         assert_eq!(args["NodeName"], "worker-1");
+    }
+
+    #[test]
+    fn ground_args_prefers_node_ip_for_node_key() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut pod = pod_on_node("runner", "default", "worker-1");
+        pod.host_ip = Some("10.42.0.11".parse().expect("valid IP"));
+        let target_id = pod.entity_id().0.clone();
+        campaign.entities.insert_typed(pod);
+
+        let mut args = HashMap::from([
+            ("NODE".to_string(), "${NODE}".to_string()),
+            ("NODE_NAME".to_string(), "${NODE_NAME}".to_string()),
+            ("NODE.IP".to_string(), "${NODE.IP}".to_string()),
+            ("NODE.NAME".to_string(), "${NODE.NAME}".to_string()),
+        ]);
+        ground_args_from_context(&mut args, &target_id, &campaign);
+
+        assert_eq!(args["NODE"], "10.42.0.11");
+        assert_eq!(args["NODE_NAME"], "worker-1");
+        assert_eq!(args["NODE.IP"], "10.42.0.11");
+        assert_eq!(args["NODE.NAME"], "worker-1");
+    }
+
+    #[test]
+    fn ground_args_prefers_node_ip_when_target_is_node() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut node = K8sNode::new("worker-2");
+        node.system
+            .ips
+            .push("10.42.0.22".parse().expect("valid IP"));
+        let target_id = node.entity_id().0.clone();
+        campaign.entities.insert_typed(node);
+
+        let mut args = HashMap::from([
+            ("NODE".to_string(), "${NODE}".to_string()),
+            ("NODE_NAME".to_string(), "${NODE_NAME}".to_string()),
+            ("NODE.IP".to_string(), "${NODE.IP}".to_string()),
+            ("NODE.NAME".to_string(), "${NODE.NAME}".to_string()),
+        ]);
+        ground_args_from_context(&mut args, &target_id, &campaign);
+
+        assert_eq!(args["NODE"], "10.42.0.22");
+        assert_eq!(args["NODE_NAME"], "worker-2");
+        assert_eq!(args["NODE.IP"], "10.42.0.22");
+        assert_eq!(args["NODE.NAME"], "worker-2");
     }
 
     #[test]
