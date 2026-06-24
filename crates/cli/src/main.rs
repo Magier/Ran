@@ -84,6 +84,15 @@ struct EmulateArgs {
 
     #[arg(short = 'p', long = "port", default_value_t = 8080)]
     port: u16,
+
+    /// Execute this plan YAML on startup (alternative to POST /api/plans). When
+    /// it finishes, you're offered cleanup and the server stops afterwards.
+    #[arg(long = "plan")]
+    plan: Option<PathBuf>,
+
+    /// Run cleanup automatically when the --plan finishes instead of prompting.
+    #[arg(long = "cleanup", default_value_t = false)]
+    cleanup: bool,
 }
 
 #[tokio::main]
@@ -118,6 +127,8 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         namespace_filter: cfg.namespaces,
         scoring: cfg.scoring,
         config_path,
+        plan: args.plan,
+        auto_cleanup: args.cleanup,
     })
     .await
 }
