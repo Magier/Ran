@@ -481,6 +481,10 @@ export interface components {
             id: string;
             targetId: string;
             command: string;
+            /** @description Per-hop breakdown of a multi-system command traversal, ordered from the C2 entry point (outermost envelope) to the final target (innermost). Empty for direct/single-hop commands. */
+            traversal: components["schemas"]["TraversalHop"][];
+            /** @description The bare inner command as it runs on the final target system, before any hop envelopes wrap it. Empty when there is no multi-hop traversal. */
+            innerCommand: string;
             args: {
                 [key: string]: string;
             };
@@ -496,6 +500,19 @@ export interface components {
             status: "Unknown" | "Failed" | "Success" | "Ongoing";
             observables: string[];
             defense?: components["schemas"]["TTPDefense"];
+        };
+        /** @description One segment of a multi-hop command traversal: the command as it is handed from `fromId` to `toId`, and the envelope template applied at this layer. */
+        TraversalHop: {
+            /** @description Entity executing this segment; the C2 backend id for the first hop. */
+            fromId: string;
+            /** @description Entity reached by this segment. */
+            toId: string;
+            /** @description Relation/channel name driving this hop (e.g. `kubelet-exec`, `rce.can-exec`, `kubectl-exec`, or `builtin-exec` for the C2 entry). */
+            relation: string;
+            /** @description The command-wrapping template with `${CMD}` placeholder applied at this hop. Absent for the C2 entry hop and pass-through segments. */
+            envelope?: string;
+            /** @description The full command string sent across this segment — what `fromId` runs. */
+            command: string;
         };
         TTP: {
             id: string;

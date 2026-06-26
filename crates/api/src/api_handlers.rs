@@ -521,6 +521,31 @@ pub(crate) struct FlowEdge {
     pub target_id: String,
 }
 
+/// One segment of a multi-hop command traversal, surfaced to the timeline UI.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct AttackStepHop {
+    #[serde(rename = "fromId")]
+    pub from_id: String,
+    #[serde(rename = "toId")]
+    pub to_id: String,
+    pub relation: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<String>,
+    pub command: String,
+}
+
+impl From<&campaign::TraversalHop> for AttackStepHop {
+    fn from(h: &campaign::TraversalHop) -> Self {
+        Self {
+            from_id: h.from_id.clone(),
+            to_id: h.to_id.clone(),
+            relation: h.relation.clone(),
+            envelope: h.envelope.clone(),
+            command: h.command.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct AttackStepTTP {
     pub id: String,
@@ -536,6 +561,13 @@ pub(crate) struct AttackStep {
     #[serde(rename = "targetId")]
     pub target_id: String,
     pub command: String,
+    /// Per-hop traversal breakdown for multi-system commands, outermost (C2) →
+    /// innermost (target). Empty for direct/single-hop commands.
+    pub traversal: Vec<AttackStepHop>,
+    /// The bare inner command as it runs on the final target, before envelopes.
+    /// Empty when there is no multi-hop traversal.
+    #[serde(rename = "innerCommand")]
+    pub inner_command: String,
     pub args: std::collections::HashMap<String, String>,
     #[serde(rename = "procedureId")]
     pub procedure_id: String,
@@ -558,8 +590,9 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
             id: r.id.clone(),
             target_id: r.target_id.clone(),
             command: r.command.clone(),
-            traversal: r.traversal.iter().map(AttackStepHop::from).collect(),
-            inner_command: r.inner_command.clone(),
+            // Traversal is joined separately from the campaign side map by id.
+            traversal: Vec::new(),
+            inner_command: String::new(),
             args: r.args.clone(),
             procedure_id: r.procedure_id.clone(),
             ttp: AttackStepTTP {
@@ -596,6 +629,9 @@ impl From<&campaign::ExecTtp> for AttackStep {
             id: exec.id.clone(),
             target_id: exec.target_id.clone(),
             command: exec.procedure.command.clone(),
+            // Traversal is joined separately from the campaign side map by id.
+            traversal: Vec::new(),
+            inner_command: String::new(),
             args: exec.args.clone(),
             procedure_id: exec.procedure.id.clone(),
             ttp: AttackStepTTP {
@@ -630,6 +666,15 @@ pub(crate) async fn flow_handler<S: ApiService>(
 
     let mut steps: Vec<AttackStep> = records.iter().map(AttackStep::from).collect();
     steps.extend(open.iter().map(AttackStep::from));
+
+    // Join the multi-hop traversal breakdown (campaign side map, keyed by
+    // command id) onto each step — kept off the execution record itself.
+    for step in &mut steps {
+        if let Some(ct) = campaign.command_traversal(&step.id) {
+            step.traversal = ct.hops.iter().map(AttackStepHop::from).collect();
+            step.inner_command = ct.inner_command.clone();
+        }
+    }
 
     let mut edges = Vec::new();
     let mut last_success_id: Option<String> = None;

@@ -162,10 +162,14 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         // After effects are applied, activate any synchronous session
                         // that was opened during this TTP execution. The exec-channel
                         // edge (e.g. k8s.can-exec) now exists so activation will find it.
-                        let session_summary = event
-                            .session_connected
-                            .as_ref()
-                            .map(|s| apply_session_connected(&mut campaign_guard, s));
+                        let session_summary = event.session_connected.as_ref().map(|s| {
+                            let summary = apply_session_connected(&mut campaign_guard, s);
+                            // Record the hop path that established this session so
+                            // later commands tunneling over it can display the same
+                            // traversal (the session itself routes opaquely).
+                            record_session_path(&mut campaign_guard, &cmd.id, &s.backend_id);
+                            summary
+                        });
 
                         (processing, session_summary)
                     };
@@ -516,6 +520,25 @@ pub fn spawn_c2_event_processor_with_external_parser(
 /// have been processed. Updates the target system entity and activates the
 /// session on any existing exec-channel edge. Returns an entity summary if the
 /// frontend should be notified of entity changes.
+/// Carry the multi-hop traversal of the command that opened a session over to
+/// that session's backend id, so every later command routed over the session
+/// (which resolves to empty graph hops) can replay the same path. No-op when
+/// the establishing command was direct/single-hop.
+fn record_session_path(campaign: &mut Campaign, establishing_cmd_id: &str, backend_id: &str) {
+    let session_backend = if backend_id.starts_with("session/") {
+        backend_id.to_string()
+    } else {
+        format!("session/{}", backend_id)
+    };
+    if let Some(hops) = campaign
+        .command_traversals
+        .get(establishing_cmd_id)
+        .map(|ct| ct.hops.clone())
+    {
+        campaign.session_traversals.insert(session_backend, hops);
+    }
+}
+
 fn apply_session_connected(
     campaign: &mut Campaign,
     data: &SessionConnectedData,

@@ -28,6 +28,16 @@ pub struct Campaign {
     /// Raw file contents captured by `file:content(path)` effects, keyed by path.
     #[serde(default)]
     pub file_contents: HashMap<String, String>,
+    /// Per-command multi-hop traversal breakdown, keyed by command id.
+    /// Presentation/audit side data (see [`crate::traversal`]) kept off
+    /// `ExecTtp`/`ExecutionRecord`; surfaced by the flow API by joining on id.
+    #[serde(default)]
+    pub command_traversals: HashMap<String, crate::traversal::CommandTraversal>,
+    /// Hop path each active session tunnels through, keyed by session backend
+    /// id, captured when the session was established. Replayed for every command
+    /// that later routes over that session.
+    #[serde(default)]
+    pub session_traversals: HashMap<String, Vec<crate::traversal::TraversalHop>>,
 }
 
 impl Campaign {
@@ -51,7 +61,16 @@ impl Campaign {
             execution_records: Vec::new(),
             open_steps: Vec::new(),
             file_contents: HashMap::new(),
+            command_traversals: HashMap::new(),
+            session_traversals: HashMap::new(),
         }
+    }
+
+    /// The recorded multi-hop traversal breakdown for a dispatched command, if
+    /// any. Used by the flow API to annotate steps without storing traversal on
+    /// the execution record itself.
+    pub fn command_traversal(&self, cmd_id: &str) -> Option<&crate::traversal::CommandTraversal> {
+        self.command_traversals.get(cmd_id)
     }
 
     /// Reset all campaign state back to the initial bootstrap state.
@@ -469,6 +488,8 @@ mod planner_helper_tests {
             execution_records: Vec::new(),
             open_steps: Vec::new(),
             file_contents: std::collections::HashMap::new(),
+            command_traversals: std::collections::HashMap::new(),
+            session_traversals: std::collections::HashMap::new(),
         }
     }
 

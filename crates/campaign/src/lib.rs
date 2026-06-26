@@ -11,6 +11,7 @@ pub mod rules;
 pub mod runtime;
 pub mod scoring;
 pub mod shell_cmd;
+pub mod traversal;
 pub mod ttp_applicability;
 pub use analyzers::default_rules;
 pub use c2::ExecTtp;
@@ -33,3 +34,4 @@ pub use scoring::{
     consideration_names, CombinationMode, Consideration, ConsiderationConfig, ConsiderationScore,
     Profile, ResponseCurve, ScoredCandidate, Scorer, ScoringContext,
 };
+pub use traversal::{CommandTraversal, TraversalHop};

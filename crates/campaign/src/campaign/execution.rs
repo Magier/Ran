@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use armory::{Armory, Procedure, Ttp};
-use c2::{ExecTtp, OutputTransform, TraversalHop, TtpExecuted, BUILTIN_C2_ID};
+use c2::{ExecTtp, OutputTransform, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{BinaryPresence, EntityId, K8sNode, Merge, NameConfidence, Pod, UnknownSystem};
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -20,6 +20,7 @@ use crate::shell_cmd::ground_binaries;
 use crate::{FactsUpdate, ParseResult};
 
 use crate::execution_record::ExecutionRecord;
+use crate::traversal::{CommandTraversal, TraversalHop};
 
 use super::{
     Campaign, CampaignSystemEntityRef, ExecChannel, ExecuteActionError, ExecuteActionRequest,
@@ -620,16 +621,23 @@ impl Campaign {
             lateral_src,
         )?;
 
+        let cmd_id = generate_cmd_id();
+
+        // Record the traversal breakdown as side data keyed by command id — kept
+        // off `ExecTtp`/`ExecutionRecord` so it never touches the execution or
+        // scoring data model. Surfaced by the flow API by joining on id.
+        if let Some(traversal) = self.build_command_traversal(&route, &procedure.command) {
+            self.command_traversals.insert(cmd_id.clone(), traversal);
+        }
+
         Ok(ExecTtp {
-            id: generate_cmd_id(),
+            id: cmd_id,
             ttp,
             procedure,
             args,
             target_id: route.target_id,
             exec_chain: route.exec_chain,
             exec_system_id: route.backend_id,
-            traversal: route.traversal,
-            inner_command: route.inner_command,
             started_at_ms: current_time_millis(),
             output_transform: route.output_transform,
             is_cleanup: false,
@@ -867,7 +875,6 @@ impl Campaign {
                     }
                     let wrap = self.wrap_command_for_hops(
                         procedure,
-                        ch.backend_id.as_str(),
                         &[hint.to_string()],
                         exec_target.as_str(),
                         args,
@@ -882,13 +889,8 @@ impl Campaign {
                     });
                 }
 
-                let wrap = self.wrap_command_for_hops(
-                    procedure,
-                    ch.backend_id.as_str(),
-                    &ch.hops,
-                    exec_target.as_str(),
-                    args,
-                );
+                let wrap =
+                    self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str(), args);
                 let exec_chain: Vec<String> = ch
                     .hops
                     .iter()
@@ -983,13 +985,7 @@ impl Campaign {
                 None,
             ))
         } else {
-            let wrap = self.wrap_command_for_hops(
-                procedure,
-                ch.backend_id.as_str(),
-                &ch.hops,
-                exec_target.as_str(),
-                args,
-            );
+            let wrap = self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str(), args);
             let exec_chain: Vec<String> = ch
                 .hops
                 .iter()
@@ -1010,10 +1006,7 @@ impl Campaign {
     /// Safety fallback: pod targets get an in-cluster execution source when no
     /// explicit channel was selected; all other targets get an empty backend
     /// (the C2 side will execute directly against the target).
-    fn route_fallback(
-        &self,
-        target_id: &str,
-    ) -> Result<ExecRoute, ExecuteActionError> {
+    fn route_fallback(&self, target_id: &str) -> Result<ExecRoute, ExecuteActionError> {
         let target_eid = EntityId::new(target_id);
         if self.entities.contains::<Pod>(&target_eid) {
             tracing::warn!(
@@ -1047,19 +1040,72 @@ impl Campaign {
         }
     }
 
+    /// Assemble the traversal breakdown for a routed command, for display in the
+    /// operation timeline. The chain always begins with the C2 entry hop
+    /// (C2 → first system), so a direct single-hop command (e.g. a pod-exec the
+    /// backend performs) is shown consistently with a multi-system pivot.
+    ///
+    /// Returns `None` only for local C2-side commands that don't run on any
+    /// remote system.
+    fn build_command_traversal(
+        &self,
+        route: &ExecRoute,
+        final_command: &str,
+    ) -> Option<CommandTraversal> {
+        // A command tunneling over an established session: replay the full path
+        // captured when the session was set up, with this command as the inner.
+        if route.traversal.is_empty() {
+            if let Some(hops) = self.session_traversals.get(&route.backend_id) {
+                return Some(CommandTraversal {
+                    hops: hops.clone(),
+                    inner_command: final_command.to_string(),
+                });
+            }
+        }
+
+        // Local C2-side command (empty backend / no exec chain) — nothing runs
+        // on a remote system, so there is no traversal to show.
+        let first = route.exec_chain.first()?;
+        if route.backend_id.is_empty() {
+            return None;
+        }
+
+        // C2 entry hop (C2 → first system), then the system-to-system graph hops
+        // captured by `wrap_command_for_hops` (empty for a direct command).
+        let mut hops = Vec::with_capacity(route.traversal.len() + 1);
+        hops.push(TraversalHop {
+            from_id: route.backend_id.clone(),
+            to_id: first.clone(),
+            relation: entry_relation(&route.backend_id, first).to_string(),
+            envelope: None,
+            command: final_command.to_string(),
+        });
+        hops.extend(route.traversal.iter().cloned());
+
+        let inner_command = if route.inner_command.is_empty() {
+            // Direct command: the bare command runs on the target itself.
+            final_command.to_string()
+        } else {
+            route.inner_command.clone()
+        };
+        Some(CommandTraversal {
+            hops,
+            inner_command,
+        })
+    }
+
     /// Wrap `procedure.command` through each hop in reverse order so BuiltinC2
     /// can exec into the first hop and the nested command traverses the rest of
     /// the chain to the final execution target.
     ///
     /// Returns the `OutputTransform` required to decode the raw output (if any),
-    /// the bare inner command as it runs on the final target, and the per-hop
-    /// [`TraversalHop`] breakdown ordered from the C2 entry point (outermost) to
-    /// the target (innermost) for display in the operation timeline.
+    /// the bare inner command as it runs on the final target, and the
+    /// system-to-system [`TraversalHop`] breakdown (excluding the C2 entry hop,
+    /// which is prepended uniformly in `build_command_traversal`).
     /// Currently only `kubelet-pod-exec` hops produce wrapped output (ran-ws JSON envelope).
     fn wrap_command_for_hops(
         &self,
         procedure: &mut Procedure,
-        backend_id: &str,
         hops: &[String],
         exec_target: &str,
         args: &HashMap<String, String>,
@@ -1187,23 +1233,11 @@ impl Campaign {
             });
         }
 
-        // Loop recorded hops innermost-first; flip to outermost-first so the
-        // timeline reads C2 → … → target.
+        // Loop recorded the system-to-system hops innermost-first; flip to
+        // outermost-first so the timeline reads first-system → … → target. The
+        // C2 entry hop (C2 → first system) is prepended later, uniformly for
+        // both direct and multi-hop commands, in `build_command_traversal`.
         traversal.reverse();
-        // Prepend the C2 entry hop: BuiltinC2 execs into the first chain entry
-        // with the fully-wrapped outermost command.
-        if let Some(&first) = full_chain.first() {
-            traversal.insert(
-                0,
-                TraversalHop {
-                    from_id: backend_id.to_string(),
-                    to_id: first.to_string(),
-                    relation: "builtin-exec".to_string(),
-                    envelope: None,
-                    command: procedure.command.clone(),
-                },
-            );
-        }
 
         HopWrap {
             output_transform,
@@ -2040,6 +2074,19 @@ fn normalize_tactic(tactic: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Label for the C2-entry traversal hop, reflecting how the backend reaches the
+/// first system: over an established session, via a pod-exec (k8s exec API), or
+/// a generic remote exec.
+fn entry_relation(backend_id: &str, first_hop: &str) -> &'static str {
+    if backend_id.starts_with("session/") {
+        "session"
+    } else if first_hop.contains("/pod/") {
+        "pod-exec"
+    } else {
+        "exec"
+    }
 }
 
 fn format_exec_chain(backend_id: &str, hops: &[String], exec_target: &str) -> String {

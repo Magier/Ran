@@ -13,6 +13,7 @@ export type Edge = components['schemas']['Edge'];
 export type CampaignState = components['schemas']['CampaignState'];
 export type AttackFlow = components['schemas']['AttackFlow'];
 export type AttackStep = components['schemas']['AttackStep'];
+export type TraversalHop = components['schemas']['TraversalHop'];
 export type TTP = components['schemas']['TTP'];
 export type TTPParam = components['schemas']['TTPParam'];
 export type TTPDefense = components['schemas']['TTPDefense'];
