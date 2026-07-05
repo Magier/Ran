@@ -37,9 +37,9 @@ pub struct AppState {
     armory: Armory,
     namespace_filter: NamespaceFilter,
     /// Live scoring profile — mutable at runtime via the tuning API.
-    scoring_profile: Arc<RwLock<campaign::Profile>>,
+    scoring_profile: Arc<RwLock<utility_ai::Profile>>,
     /// Configured base profile (from ran.yaml), used by reset.
-    scoring_base: campaign::Profile,
+    scoring_base: utility_ai::Profile,
     /// Sidecar file persisting tuned overrides across restarts.
     scoring_sidecar: Option<PathBuf>,
     /// Feature flag enabling the frontend tuning UI.
@@ -60,8 +60,8 @@ impl AppState {
         c2: C2Handle,
         armory: Armory,
         namespace_filter: NamespaceFilter,
-        scoring_profile: campaign::Profile,
-        scoring_base: campaign::Profile,
+        scoring_profile: utility_ai::Profile,
+        scoring_base: utility_ai::Profile,
         scoring_sidecar: Option<PathBuf>,
         scoring_tuning: bool,
         ran_name: String,
@@ -202,14 +202,14 @@ impl ApiService for AppState {
         Ok(guard.clone())
     }
 
-    fn scoring_profile(&self) -> campaign::Profile {
+    fn scoring_profile(&self) -> utility_ai::Profile {
         self.scoring_profile
             .read()
             .map(|p| p.clone())
             .unwrap_or_default()
     }
 
-    fn set_scoring_profile(&self, profile: campaign::Profile) {
+    fn set_scoring_profile(&self, profile: utility_ai::Profile) {
         if let Ok(mut guard) = self.scoring_profile.write() {
             *guard = profile;
         }
@@ -229,7 +229,7 @@ impl ApiService for AppState {
         std::fs::write(path, yaml).map_err(|e| format!("failed to write {}: {e}", path.display()))
     }
 
-    fn reset_scoring_profile(&self) -> campaign::Profile {
+    fn reset_scoring_profile(&self) -> utility_ai::Profile {
         let base = self.scoring_base.clone();
         if let Ok(mut guard) = self.scoring_profile.write() {
             *guard = base.clone();
@@ -534,7 +534,12 @@ impl ApiService for AppState {
                                             c.parse_audits
                                                 .iter()
                                                 .filter(|a| a.cmd_id == cmd_id)
-                                                .filter(|a| matches!(a.parse_result, campaign::ParseResult::Parsed))
+                                                .filter(|a| {
+                                                    matches!(
+                                                        a.parse_result,
+                                                        campaign::ParseResult::Parsed
+                                                    )
+                                                })
                                                 .map(|a| a.inferred_facts_written)
                                                 .sum()
                                         })
@@ -561,10 +566,12 @@ impl ApiService for AppState {
                         }
 
                         let armory = this.armory.clone();
-                        executor
-                            .lock()
-                            .unwrap()
-                            .on_ttp_executed(&cmd_id, effective_success, None, &armory)
+                        executor.lock().unwrap().on_ttp_executed(
+                            &cmd_id,
+                            effective_success,
+                            None,
+                            &armory,
+                        )
                     }
                     None => {
                         // An action may genuinely still be running — keep waiting.
@@ -993,9 +1000,9 @@ fn scoring_sidecar_path(config_path: Option<&std::path::Path>) -> PathBuf {
         .with_extension("scoring.yaml")
 }
 
-fn load_sidecar_profile(path: &std::path::Path) -> Option<campaign::Profile> {
+fn load_sidecar_profile(path: &std::path::Path) -> Option<utility_ai::Profile> {
     let data = std::fs::read(path).ok()?;
-    match serde_yaml::from_slice::<campaign::Profile>(&data) {
+    match serde_yaml::from_slice::<utility_ai::Profile>(&data) {
         Ok(p) => Some(p),
         Err(e) => {
             warn!(path = %path.display(), error = %e, "ignoring unparseable scoring sidecar");
@@ -1162,11 +1169,7 @@ async fn wait_for_discovery(state: &AppState) {
     let mut last = 0usize;
     let mut stable = 0u8;
     loop {
-        let count = state
-            .campaign
-            .read()
-            .map(|c| c.entity_count())
-            .unwrap_or(0);
+        let count = state.campaign.read().map(|c| c.entity_count()).unwrap_or(0);
         // Bootstrap starts with 2 entities (Cluster + C2). Consider discovery
         // settled only once at least one additional entity appears.
         if count > 2 && count == last {
@@ -1190,10 +1193,7 @@ async fn wait_for_discovery(state: &AppState) {
 /// `depends_on`). Only pods in the step's declared namespace whose names match
 /// the step's target pattern are inserted — everything else stays undiscovered
 /// so the emulation can find it organically.
-async fn seed_initial_access_targets(
-    state: &AppState,
-    plan: &planner::PlanDefinition,
-) {
+async fn seed_initial_access_targets(state: &AppState, plan: &planner::PlanDefinition) {
     // Collect unique (namespace, pattern) pairs from root steps.
     let root_targets: Vec<_> = plan
         .steps
@@ -1217,7 +1217,6 @@ async fn seed_initial_access_targets(
     for (step_id, ns, pattern) in root_targets {
         // Build a fake entity-id list from cluster pods and use the planner's
         // resolver to match names — avoids a direct `regex` dep in this crate.
-        let candidate_ids: Vec<String>;
         let pods = match state.k8s.get_running_pods(Some(&ns)).await {
             Ok(p) => p,
             Err(e) => {
@@ -1226,11 +1225,11 @@ async fn seed_initial_access_targets(
                 continue;
             }
         };
-        candidate_ids = pods
+        let candidate_ids: Vec<String> = pods
             .iter()
-            .filter_map(|p| {
+            .map(|p| {
                 let pod_ns = p.namespace.as_deref().unwrap_or(&ns);
-                Some(format!("ns/{}/pod/{}", pod_ns, p.name))
+                format!("ns/{}/pod/{}", pod_ns, p.name)
             })
             .collect();
 

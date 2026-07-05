@@ -1,0 +1,16 @@
+[package]
+name = "utility-ai"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "utility_ai"
+
+[dependencies]
+armory = { path = "../armory" }
+campaign = { path = "../campaign" }
+serde = { workspace = true }
+
+[dev-dependencies]
+ran-domain = { path = "../domain" }
+serde_json = "1"

@@ -142,10 +142,10 @@ pub trait ApiService: Clone + Send + Sync + 'static {
 
     /// The live scoring profile (combination mode + per-consideration config)
     /// for action selection.
-    fn scoring_profile(&self) -> campaign::Profile;
+    fn scoring_profile(&self) -> utility_ai::Profile;
 
     /// Replace the live scoring profile (runtime tuning).
-    fn set_scoring_profile(&self, profile: campaign::Profile);
+    fn set_scoring_profile(&self, profile: utility_ai::Profile);
 
     /// Persist the live scoring profile to its sidecar file so it survives
     /// restarts.
@@ -153,7 +153,7 @@ pub trait ApiService: Clone + Send + Sync + 'static {
 
     /// Revert the live scoring profile to the configured base and drop any
     /// persisted overrides. Returns the resulting profile.
-    fn reset_scoring_profile(&self) -> campaign::Profile;
+    fn reset_scoring_profile(&self) -> utility_ai::Profile;
 
     /// Whether the frontend scoring-tuning UI is enabled (feature flag).
     fn scoring_tuning_enabled(&self) -> bool;

@@ -6,11 +6,11 @@
 //! - the *epistemic* axis — an active-inference style value = information
 //!   magnitude × freshness (uncertainty), driving epistemic foraging;
 //! - *pragmatic* effect-derived signals via the canonical
-//!   [`EffectKind`](crate::effects::EffectKind) taxonomy — privilege gain,
+//!   [`EffectKind`](campaign::effects::EffectKind) taxonomy — privilege gain,
 //!   reachability.
 
 use super::{Consideration, ScoringContext};
-use crate::effects::{EffectCategory, EffectKind};
+use campaign::effects::{EffectCategory, EffectKind};
 
 /// Whether running an action against a TTP's effects is *volatile* — i.e. any of
 /// its declared effects can go stale. An action with no volatile effect is
@@ -40,7 +40,11 @@ fn action_is_volatile(ttp: &armory::Ttp) -> bool {
 ///
 /// Supplies the uncertainty half of [`EpistemicValue`] (the other half being
 /// [`discovery_magnitude`]).
-pub fn epistemic_freshness(ttp: &armory::Ttp, target_id: &str, campaign: &crate::Campaign) -> f32 {
+pub fn epistemic_freshness(
+    ttp: &armory::Ttp,
+    target_id: &str,
+    campaign: &campaign::Campaign,
+) -> f32 {
     let records = campaign.get_execution_records();
 
     // Index of the last *successful* non-cleanup run of this (TTP, target).
@@ -74,7 +78,7 @@ pub fn epistemic_freshness(ttp: &armory::Ttp, target_id: &str, campaign: &crate:
 /// history signal used elsewhere. (A graph-state check on the specific
 /// capability edge would also catch a *lost* session; that's the precise
 /// upgrade, mirroring the epistemic over-approximation note.)
-fn pragmatic_freshness(ttp: &armory::Ttp, target_id: &str, campaign: &crate::Campaign) -> f32 {
+fn pragmatic_freshness(ttp: &armory::Ttp, target_id: &str, campaign: &campaign::Campaign) -> f32 {
     let achieved = campaign
         .get_execution_records()
         .iter()
@@ -130,11 +134,7 @@ impl Consideration for Reliability {
 
         // Multiply by tool readiness (confirmed-present 1.0, unknown < 1.0):
         // P(success) ≈ P(technique works) · P(tool present).
-        let readiness = crate::campaign::execution::best_tool_readiness(
-            ctx.ttp,
-            ctx.campaign,
-            &ctx.tc.target_id,
-        );
+        let readiness = campaign::best_tool_readiness(ctx.ttp, ctx.campaign, &ctx.tc.target_id);
         history * readiness
     }
 }
@@ -301,7 +301,7 @@ impl Consideration for EpistemicValue {
 /// e.g. an `nmap`/`rDNS` scan needs a network CIDR the campaign hasn't
 /// discovered yet, whereas an action that reads the current pod's IP needs
 /// nothing and scores `1.0`. Delegates to
-/// [`grounding::input_readiness`](crate::grounding::input_readiness) so the
+/// [`grounding::input_readiness`](campaign::grounding::input_readiness) so the
 /// measure matches what the real execution can actually fill.
 pub struct InputReadiness;
 
@@ -311,7 +311,7 @@ impl Consideration for InputReadiness {
     }
 
     fn measure(&self, ctx: &ScoringContext) -> f32 {
-        crate::grounding::input_readiness(ctx.ttp, &ctx.tc.target_id, ctx.campaign)
+        campaign::grounding::input_readiness(ctx.ttp, &ctx.tc.target_id, ctx.campaign)
     }
 }
 
@@ -354,9 +354,9 @@ pub fn consideration_names() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ttp_applicability::TargetContext;
-    use crate::Campaign;
     use armory::Ttp;
+    use campaign::ttp_applicability::TargetContext;
+    use campaign::Campaign;
     use ran_domain::{AccessLevel, K8sCluster};
 
     fn ctx_for<'a>(
@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn input_readiness_penalizes_unknown_required_param() {
-        use crate::ttp_applicability::resolve_target_context;
+        use campaign::ttp_applicability::resolve_target_context;
         use ran_domain::{Entity as _, Pod};
 
         let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn reliability_prefers_present_tool_over_unknown() {
-        use crate::ttp_applicability::resolve_target_context;
+        use campaign::ttp_applicability::resolve_target_context;
         use ran_domain::{BinaryPresence, Entity as _, Pod};
 
         fn tool_ttp(tool: &str) -> Ttp {
@@ -550,8 +550,8 @@ mod tests {
 
     // --- epistemic freshness (novelty) ---
 
-    fn record(ttp_id: &str, target_id: &str, success: bool) -> crate::ExecutionRecord {
-        crate::ExecutionRecord {
+    fn record(ttp_id: &str, target_id: &str, success: bool) -> campaign::ExecutionRecord {
+        campaign::ExecutionRecord {
             id: format!("{ttp_id}-rec"),
             ttp_id: ttp_id.to_string(),
             ttp_name: ttp_id.to_string(),

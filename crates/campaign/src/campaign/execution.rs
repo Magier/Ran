@@ -2169,7 +2169,7 @@ fn procedure_readiness(procedure: &Procedure, tactic: &str, sys: &ran_domain::Sy
 /// Shared by the applicability gate ([`ttp_tool_satisfied`](crate::ttp_applicability::ttp_tool_satisfied),
 /// which treats `> 0.0` as runnable) and the `reliability` consideration (which
 /// uses the value to prefer confirmed-runnable actions) so the two never drift.
-pub(crate) fn best_tool_readiness(ttp: &armory::Ttp, campaign: &Campaign, target_id: &str) -> f32 {
+pub fn best_tool_readiness(ttp: &armory::Ttp, campaign: &Campaign, target_id: &str) -> f32 {
     let Some(sys_ref) = campaign.get_system_entity(target_id) else {
         return 1.0;
     };

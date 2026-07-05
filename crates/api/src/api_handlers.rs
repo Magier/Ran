@@ -212,11 +212,11 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
 pub(crate) async fn recommendations_handler<S: ApiService>(
     State(service): State<S>,
     Query(params): Query<GetRecommendationsParams>,
-) -> Result<axum::Json<Vec<campaign::ScoredCandidate>>, ApiError> {
+) -> Result<axum::Json<Vec<utility_ai::ScoredCandidate>>, ApiError> {
     let all_ttps = service.get_armory(GetArmoryParams { tactic: None }).await?;
     let campaign = service.get_campaign().await?;
 
-    let scorer = campaign::Scorer::with_defaults(service.scoring_profile());
+    let scorer = utility_ai::Scorer::with_defaults(service.scoring_profile());
     let mut ranked = scorer.rank(&campaign, &all_ttps);
 
     if let Some(target_id) = params
@@ -244,14 +244,14 @@ pub(crate) async fn recommendations_handler<S: ApiService>(
 pub(crate) struct NamedConsideration {
     pub name: String,
     pub weight: f32,
-    pub curve: campaign::ResponseCurve,
+    pub curve: utility_ai::ResponseCurve,
     pub enabled: bool,
     pub veto: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct ScoringProfileResponse {
-    pub combination: campaign::CombinationMode,
+    pub combination: utility_ai::CombinationMode,
     #[serde(rename = "tuningEnabled")]
     pub tuning_enabled: bool,
     pub considerations: Vec<NamedConsideration>,
@@ -259,15 +259,15 @@ pub(crate) struct ScoringProfileResponse {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub(crate) struct ScoringProfileUpdate {
-    pub combination: campaign::CombinationMode,
+    pub combination: utility_ai::CombinationMode,
     pub considerations: Vec<NamedConsideration>,
 }
 
 fn profile_to_response(
-    profile: &campaign::Profile,
+    profile: &utility_ai::Profile,
     tuning_enabled: bool,
 ) -> ScoringProfileResponse {
-    let considerations = campaign::consideration_names()
+    let considerations = utility_ai::consideration_names()
         .into_iter()
         .map(|name| {
             let cfg = profile.config(name);
@@ -313,7 +313,7 @@ pub(crate) async fn update_scoring_profile_handler<S: ApiService>(
         .map(|c| {
             (
                 c.name,
-                campaign::ConsiderationConfig {
+                utility_ai::ConsiderationConfig {
                     weight: c.weight,
                     curve: c.curve,
                     enabled: c.enabled,
@@ -323,7 +323,7 @@ pub(crate) async fn update_scoring_profile_handler<S: ApiService>(
         })
         .collect();
 
-    let profile = campaign::Profile {
+    let profile = utility_ai::Profile {
         name: "tuned".to_string(),
         combination: update.combination,
         considerations,

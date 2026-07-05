@@ -19,18 +19,18 @@ pub struct ScoringConfig {
     /// How per-consideration scores are combined into a single utility:
     /// `weighted_arithmetic` (default), `weighted_geometric`, or
     /// `iaus_multiplicative`.
-    pub combination: campaign::CombinationMode,
+    pub combination: utility_ai::CombinationMode,
     /// Feature flag: when `true`, the frontend exposes the live response-curve /
     /// weight tuning flyout for the scoring considerations.
     pub tuning_ui: bool,
 }
 
 impl ScoringConfig {
-    /// Build the scoring [`campaign::Profile`] this config describes.
-    pub fn to_profile(&self) -> campaign::Profile {
-        campaign::Profile {
+    /// Build the scoring [`utility_ai::Profile`] this config describes.
+    pub fn to_profile(&self) -> utility_ai::Profile {
+        utility_ai::Profile {
             combination: self.combination,
-            ..campaign::Profile::default()
+            ..utility_ai::Profile::default()
         }
     }
 }
@@ -97,7 +97,7 @@ pub fn load(path: Option<PathBuf>) -> Result<Config> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use campaign::CombinationMode;
+    use utility_ai::CombinationMode;
 
     #[test]
     fn scoring_defaults_to_weighted_arithmetic() {

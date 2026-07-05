@@ -1,7 +1,7 @@
 use serde::Serialize;
 
-use crate::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
-use crate::Campaign;
+use campaign::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
+use campaign::Campaign;
 
 use super::considerations::default_considerations;
 use super::{CombinationMode, Consideration, Profile, ScoringContext};
@@ -199,8 +199,8 @@ fn iaus_combine(curves: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ExecutionRecord;
     use armory::{Procedure, Ttp};
+    use campaign::ExecutionRecord;
     use ran_domain::K8sCluster;
     use serde_json::json;
     use std::collections::HashMap;

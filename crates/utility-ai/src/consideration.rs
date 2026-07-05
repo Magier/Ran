@@ -1,5 +1,5 @@
-use crate::ttp_applicability::TargetContext;
-use crate::Campaign;
+use campaign::ttp_applicability::TargetContext;
+use campaign::Campaign;
 
 /// Everything a [`Consideration`] needs to score one grounded candidate: the
 /// current belief state, the candidate TTP, and the resolved facts about its
