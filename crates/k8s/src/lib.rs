@@ -181,8 +181,8 @@ impl K8sService {
                         }
 
                         // Cap backoff at WATCH_RETRY_MAX_MS; first error waits WATCH_RETRY_BASE_MS.
-                        let delay_ms =
-                            (WATCH_RETRY_BASE_MS * (1u64 << consecutive_errors.min(6))).min(WATCH_RETRY_MAX_MS);
+                        let delay_ms = (WATCH_RETRY_BASE_MS * (1u64 << consecutive_errors.min(6)))
+                            .min(WATCH_RETRY_MAX_MS);
                         tracing::warn!(
                             "watch_pods: watcher error (will retry in {}ms, attempt {}): {e}",
                             delay_ms,

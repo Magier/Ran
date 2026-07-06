@@ -289,7 +289,10 @@ mod tests {
             kind: "Cluster".into(),
             ..Default::default()
         };
-        assert_eq!(resolve_target(&q, &entity_ids), vec!["k8s/cluster/ixi-prod"]);
+        assert_eq!(
+            resolve_target(&q, &entity_ids),
+            vec!["k8s/cluster/ixi-prod"]
+        );
     }
 
     fn workload_query(kind: &str, ns: Option<&str>, wl_kind: &str, wl_name: &str) -> TargetQuery {
@@ -312,7 +315,10 @@ mod tests {
             id: Some("ns/web/pod/app-7d4b9f-xk2jp".into()),
             ..Default::default()
         };
-        assert_eq!(resolve_target(&q, &entity_ids), vec!["ns/web/pod/app-7d4b9f-xk2jp"]);
+        assert_eq!(
+            resolve_target(&q, &entity_ids),
+            vec!["ns/web/pod/app-7d4b9f-xk2jp"]
+        );
     }
 
     #[test]
@@ -336,7 +342,10 @@ mod tests {
         let q = workload_query("Pod", Some("web"), "Deployment", "app");
         let mut got = resolve_target(&q, &entity_ids);
         got.sort();
-        assert_eq!(got, vec!["ns/web/pod/app-7d4b9f-aa111", "ns/web/pod/app-7d4b9f-xk2jp"]);
+        assert_eq!(
+            got,
+            vec!["ns/web/pod/app-7d4b9f-aa111", "ns/web/pod/app-7d4b9f-xk2jp"]
+        );
     }
 
     #[test]
@@ -350,7 +359,10 @@ mod tests {
             select: Some(SelectStrategy::All),
             ..Default::default()
         };
-        assert_eq!(resolve_target(&q, &entity_ids), vec!["ns/web/pod/app-7d4b9f-xk2jp"]);
+        assert_eq!(
+            resolve_target(&q, &entity_ids),
+            vec!["ns/web/pod/app-7d4b9f-xk2jp"]
+        );
     }
 
     #[test]
@@ -406,8 +418,14 @@ mod tests {
 
     #[test]
     fn derive_pod_pattern_shapes() {
-        assert_eq!(derive_pod_pattern("Deployment", "app"), "app-[a-z0-9]+-[a-z0-9]{5}");
-        assert_eq!(derive_pod_pattern("DaemonSet", "node-exp"), "node\\-exp-[a-z0-9]{5}");
+        assert_eq!(
+            derive_pod_pattern("Deployment", "app"),
+            "app-[a-z0-9]+-[a-z0-9]{5}"
+        );
+        assert_eq!(
+            derive_pod_pattern("DaemonSet", "node-exp"),
+            "node\\-exp-[a-z0-9]{5}"
+        );
         assert_eq!(derive_pod_pattern("StatefulSet", "pg"), "pg-[0-9]+");
         assert_eq!(derive_pod_pattern("Pod", "lone"), "lone");
     }
