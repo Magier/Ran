@@ -30,6 +30,8 @@ export type ScoringProfileUpdate = components['schemas']['ScoringProfileUpdate']
 export type NamedConsideration = components['schemas']['NamedConsideration'];
 export type ResponseCurve = components['schemas']['ResponseCurve'];
 export type CombinationMode = components['schemas']['CombinationMode'];
+export type CalibrationResult = components['schemas']['CalibrationResult'];
+export type CalibrationMetrics = components['schemas']['CalibrationMetrics'];
 
 export type RBACPermission = components['schemas']['RBACPermission'];
 

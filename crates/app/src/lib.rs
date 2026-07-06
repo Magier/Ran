@@ -44,6 +44,11 @@ pub struct AppState {
     scoring_sidecar: Option<PathBuf>,
     /// Feature flag enabling the frontend tuning UI.
     scoring_tuning: bool,
+    /// Live-captured operator decisions (pre-action candidate set + the chosen
+    /// action) for calibration. Appended on every executed action.
+    decision_log: Arc<RwLock<Vec<utility_ai::DecisionPoint>>>,
+    /// Sidecar file (JSONL) persisting the decision log across restarts.
+    decisions_sidecar: Option<PathBuf>,
     ran_name: String,
     target_cluster: K8sCluster,
     campaign_events: CampaignEventBus,
@@ -68,6 +73,15 @@ impl AppState {
         target_cluster: K8sCluster,
         campaign_events: CampaignEventBus,
     ) -> Self {
+        // The decision log lives next to the scoring sidecar so both share the
+        // config's directory and lifecycle.
+        let decisions_sidecar = scoring_sidecar
+            .as_ref()
+            .map(|p| p.with_extension("decisions.jsonl"));
+        let decision_log = decisions_sidecar
+            .as_ref()
+            .map(|p| load_decision_log(p))
+            .unwrap_or_default();
         Self {
             k8s,
             campaign,
@@ -78,12 +92,61 @@ impl AppState {
             scoring_base,
             scoring_sidecar,
             scoring_tuning,
+            decision_log: Arc::new(RwLock::new(decision_log)),
+            decisions_sidecar,
             ran_name,
             target_cluster,
             campaign_events,
             pod_watch: Arc::new(Mutex::new(None)),
             plan_executors: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
+    }
+
+    /// Append a captured operator decision to the in-memory log and, if a sidecar
+    /// is configured, the JSONL file. Best-effort: a persistence failure is logged,
+    /// never fatal to the action being executed.
+    fn record_decision(&self, dp: utility_ai::DecisionPoint) {
+        if let Some(path) = &self.decisions_sidecar {
+            match serde_json::to_string(&dp) {
+                Ok(line) => {
+                    use std::io::Write;
+                    match std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                    {
+                        Ok(mut f) => {
+                            if let Err(e) = writeln!(f, "{line}") {
+                                warn!(path = %path.display(), error = %e, "failed to append decision log");
+                            }
+                        }
+                        Err(e) => {
+                            warn!(path = %path.display(), error = %e, "failed to open decision log")
+                        }
+                    }
+                }
+                Err(e) => warn!(error = %e, "failed to serialize captured decision"),
+            }
+        }
+        if let Ok(mut log) = self.decision_log.write() {
+            log.push(dp);
+        }
+    }
+
+    /// Fit a scoring profile from the operator decisions captured so far, so the
+    /// utility AI reproduces those choices under the same conditions. Returns
+    /// `None` if nothing has been captured yet.
+    pub fn calibrate(&self) -> Option<utility_ai::Calibration> {
+        let log = self.decision_log.read().ok()?;
+        if log.is_empty() {
+            return None;
+        }
+        let names = utility_ai::consideration_names();
+        Some(utility_ai::fit(
+            &names,
+            &log,
+            &utility_ai::FitOptions::default(),
+        ))
     }
 
     /// Build, dispatch, and await cleanup actions for everything executed so far
@@ -245,6 +308,10 @@ impl ApiService for AppState {
         self.scoring_tuning
     }
 
+    fn calibrate_scoring(&self) -> Option<utility_ai::Calibration> {
+        self.calibrate()
+    }
+
     async fn reset_campaign(&self) -> Result<(), ApiError> {
         // Phase 1: run cleanup actions for everything executed so far.
         self.run_cleanup().await?;
@@ -396,9 +463,23 @@ impl ApiService for AppState {
                         }
                     }
                 })?;
+            // Capture the decision under the operator's *actual* pre-action
+            // conditions (zero reconstruction) for calibration. `prepare_action`
+            // only grounded the command — no effects applied yet — so this is the
+            // exact state the choice was made in.
+            let captured = utility_ai::decision_point(
+                &campaign,
+                self.armory.ttps(),
+                &exec.ttp.id,
+                &exec.target_id,
+            );
             campaign.add_open_step(exec.clone());
-            exec
+            (exec, captured)
         };
+        let (exec, captured) = exec;
+        if let Some(dp) = captured {
+            self.record_decision(dp);
+        }
 
         publish_ttp_dispatched(&exec);
 
@@ -998,6 +1079,28 @@ fn scoring_sidecar_path(config_path: Option<&std::path::Path>) -> PathBuf {
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("ran.yaml"))
         .with_extension("scoring.yaml")
+}
+
+/// Load a persisted decision log (one JSON [`utility_ai::DecisionPoint`] per
+/// line). Missing file → empty log; unparseable lines are skipped with a warning
+/// so a partially-corrupt log doesn't lose everything.
+fn load_decision_log(path: &std::path::Path) -> Vec<utility_ai::DecisionPoint> {
+    let Ok(data) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (i, line) in data.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<utility_ai::DecisionPoint>(line) {
+            Ok(dp) => out.push(dp),
+            Err(e) => {
+                warn!(path = %path.display(), line = i + 1, error = %e, "skipping unparseable decision log entry")
+            }
+        }
+    }
+    out
 }
 
 fn load_sidecar_profile(path: &std::path::Path) -> Option<utility_ai::Profile> {

@@ -53,6 +53,10 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             axum::routing::post(api_handlers::reset_scoring_profile_handler::<S>),
         )
         .route(
+            "/api/scoring/calibrate",
+            axum::routing::post(api_handlers::calibrate_scoring_handler::<S>),
+        )
+        .route(
             "/api/action/execute",
             axum::routing::post(api_handlers::execute_action_handler::<S>),
         )

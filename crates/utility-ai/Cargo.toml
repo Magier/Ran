@@ -8,6 +8,7 @@ name = "utility_ai"
 
 [dependencies]
 armory = { path = "../armory" }
+c2 = { path = "../c2" }
 campaign = { path = "../campaign" }
 serde = { workspace = true }
 

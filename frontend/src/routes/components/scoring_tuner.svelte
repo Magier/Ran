@@ -5,7 +5,8 @@
 		ScoringProfile,
 		NamedConsideration,
 		ResponseCurve,
-		CombinationMode
+		CombinationMode,
+		CalibrationResult
 	} from '$lib/api';
 
 	const campaign = getCampaignState();
@@ -13,6 +14,11 @@
 	let profile: ScoringProfile | null = $state(null);
 	let open: boolean = $state(false);
 	let saving: boolean = $state(false);
+	// Pending calibration preview (fitted from captured operator decisions),
+	// shown for review before the operator applies it.
+	let calibration: CalibrationResult | null = $state(null);
+	let calibrating: boolean = $state(false);
+	let calibrateError: string | null = $state(null);
 
 	// Load the live profile on mount; the component renders nothing unless the
 	// tuning feature flag is on.
@@ -136,6 +142,33 @@
 			campaign.scoringVersion += 1;
 		}
 	}
+
+	// Fit weights from the operator decisions captured so far. Shows a preview;
+	// the operator reviews the fit quality before applying.
+	async function calibrate() {
+		calibrating = true;
+		calibrateError = null;
+		const result = await campaign.api.CalibrateScoring();
+		calibrating = false;
+		if (result) {
+			calibration = result;
+		} else {
+			calibrateError = 'No captured decisions yet — execute some actions first.';
+		}
+	}
+
+	// Apply the previewed calibration to the live profile (via the normal update
+	// path, so it flows through the same save/version bump as manual edits).
+	async function applyCalibration() {
+		if (!calibration) return;
+		profile = { ...calibration.profile };
+		calibration = null;
+		await save();
+	}
+
+	function pct(x: number): string {
+		return `${Math.round(x * 100)}%`;
+	}
 </script>
 
 {#if profile?.tuningEnabled}
@@ -172,10 +205,70 @@
 				>
 					Reset
 				</button>
+				<button
+					class="text-xs px-2 py-0.5 rounded bg-primary-500/20 hover:bg-primary-500/30 border border-primary-500/50 disabled:opacity-50"
+					title="Fit weights from the operator decisions captured this and prior sessions"
+					disabled={calibrating}
+					onclick={calibrate}
+				>
+					{calibrating ? 'Calibrating…' : 'Calibrate'}
+				</button>
 				<button aria-label="Close" onclick={() => (open = false)}>
 					<Icon icon="mdi:close" width="18" class="text-surface-500 hover:text-error-500" />
 				</button>
 			</div>
+
+			{#if calibrateError}
+				<div class="px-3 py-2 text-xs text-error-400 border-b border-surface-200-800 shrink-0">
+					{calibrateError}
+				</div>
+			{/if}
+
+			{#if calibration}
+				{@const m = calibration.metrics}
+				<div class="px-3 py-2 border-b border-surface-200-800 shrink-0 bg-primary-500/5 space-y-1.5">
+					<div class="flex items-center gap-2">
+						<Icon icon="mdi:auto-fix" width="15" class="text-primary-500" />
+						<span class="text-xs font-semibold flex-1">Calibration preview</span>
+						<button
+							class="text-xs px-2 py-0.5 rounded bg-primary-500 text-white hover:bg-primary-600"
+							title="Apply the fitted weights to the live profile"
+							onclick={applyCalibration}
+						>
+							Apply
+						</button>
+						<button
+							class="text-xs px-2 py-0.5 rounded bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600"
+							onclick={() => (calibration = null)}
+						>
+							Dismiss
+						</button>
+					</div>
+					<div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-surface-600-400">
+						<span title="Fraction of decisions where the operator's choice ranks first"
+							>Match (top-1): <span class="font-mono text-surface-900-100">{pct(m.top1Accuracy)}</span></span
+						>
+						<span title="Mean probability the fitted model assigns the operator's choices"
+							>Confidence: <span class="font-mono text-surface-900-100">{pct(m.meanChosenProb)}</span></span
+						>
+						<span>Decisions: <span class="font-mono text-surface-900-100">{m.decisions}</span></span>
+						<span
+							title="Choices no non-negative weighting can reproduce — a missing consideration"
+							>Unreproducible:
+							<span
+								class="font-mono {m.infeasible > 0 ? 'text-warning-500' : 'text-surface-900-100'}"
+								>{m.infeasible}</span
+							></span
+						>
+					</div>
+					{#if m.infeasible > 0}
+						<p class="text-[11px] text-warning-500/90 leading-snug">
+							{m.infeasible} decision{m.infeasible === 1 ? '' : 's'} can't be reproduced by any weighting
+							— the operator valued something the current considerations don't measure.
+						</p>
+					{/if}
+				</div>
+			{/if}
 
 			<div class="overflow-y-auto flex-1 p-3 space-y-3">
 				<!-- Combination mode -->
@@ -255,7 +348,7 @@
 										<input
 											type="number"
 											step="0.1"
-											class="flex-1 w-0 bg-surface-200-800 border border-surface-300-700 rounded px-1"
+											class="num-input flex-1 w-0 h-5 text-[10px] leading-none bg-surface-200-800 border border-surface-300-700 rounded px-1"
 											value={(c.curve as unknown as Record<string, number>)[key] ?? 0}
 											oninput={(e) => {
 												(c.curve as unknown as Record<string, number>)[key] =
@@ -287,3 +380,17 @@
 		</div>
 	{/if}
 {/if}
+
+<style>
+	/* Drop native number spinners so the param fields stay compact and in line
+	   with the other controls. */
+	.num-input::-webkit-outer-spin-button,
+	.num-input::-webkit-inner-spin-button {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+	.num-input {
+		-moz-appearance: textfield;
+		appearance: textfield;
+	}
+</style>

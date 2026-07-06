@@ -36,7 +36,8 @@ import type {
 	K8sResource,
 	ScoredCandidate,
 	ScoringProfile,
-	ScoringProfileUpdate
+	ScoringProfileUpdate,
+	CalibrationResult
 } from '$lib/api';
 
 type PendingRequest = {
@@ -362,6 +363,17 @@ export class RanAPI {
 		const { data, error } = await this.restClient.POST('/api/scoring/profile/reset');
 		if (error) {
 			console.warn('Failed to reset scoring profile', error);
+			return null;
+		}
+		return data;
+	}
+
+	/** Fit a profile from captured operator decisions. Returns the preview +
+	 * metrics, or null if calibration isn't possible yet (no decisions / disabled). */
+	async CalibrateScoring(): Promise<CalibrationResult | null> {
+		const { data, error } = await this.restClient.POST('/api/scoring/calibrate');
+		if (error) {
+			console.warn('Failed to calibrate scoring profile', error);
 			return null;
 		}
 		return data;

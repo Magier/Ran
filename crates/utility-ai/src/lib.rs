@@ -10,14 +10,20 @@
 //! reliability, cost). Effect-derived considerations (privilege/information
 //! gain, reachability) land in Phase 2 alongside the canonical effect taxonomy.
 
+pub mod calibration;
 mod consideration;
 pub mod considerations;
 mod curve;
 mod profile;
+pub mod replay;
 mod scorer;
 
+pub use calibration::{fit, Calibration, CandidateSample, DecisionFit, DecisionPoint, FitOptions};
 pub use consideration::{Consideration, ScoringContext};
 pub use considerations::consideration_names;
 pub use curve::ResponseCurve;
 pub use profile::{CombinationMode, ConsiderationConfig, Profile};
+pub use replay::{
+    candidate_samples, decision_point, replay_trace, ReplayResult, UnseenReason, UnseenStep,
+};
 pub use scorer::{ConsiderationScore, ScoredCandidate, Scorer};

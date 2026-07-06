@@ -370,6 +370,64 @@ pub(crate) async fn reset_scoring_profile_handler<S: ApiService>(
     Ok(axum::Json(profile_to_response(&profile, true)))
 }
 
+/// Fit-quality metrics returned alongside a calibration preview.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct CalibrationMetrics {
+    pub decisions: usize,
+    #[serde(rename = "top1Accuracy")]
+    pub top1_accuracy: f32,
+    #[serde(rename = "meanChosenProb")]
+    pub mean_chosen_prob: f32,
+    #[serde(rename = "minChosenProb")]
+    pub min_chosen_prob: f32,
+    #[serde(rename = "logLikelihood")]
+    pub log_likelihood: f32,
+    pub infeasible: usize,
+    pub converged: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct CalibrationResult {
+    pub profile: ScoringProfileResponse,
+    pub metrics: CalibrationMetrics,
+}
+
+/// Fit a scoring profile from captured operator decisions and return it as a
+/// preview (not applied) plus fit metrics. Gated on the tuning flag; 409 when no
+/// decisions have been captured.
+pub(crate) async fn calibrate_scoring_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<CalibrationResult>, ApiError> {
+    require_tuning(&service)?;
+
+    let calibration = service.calibrate_scoring().ok_or_else(|| ApiError {
+        status: axum::http::StatusCode::CONFLICT,
+        body: ErrorResponse {
+            error: "no operator decisions captured yet — execute some actions first".to_string(),
+            details: None,
+        },
+    })?;
+
+    // Preview the fitted weights in the live combination mode, without applying.
+    let combination = service.scoring_profile().combination;
+    let profile = calibration.into_profile("calibrated", combination);
+
+    let metrics = CalibrationMetrics {
+        decisions: calibration.per_decision.len(),
+        top1_accuracy: calibration.top1_accuracy,
+        mean_chosen_prob: calibration.mean_chosen_prob,
+        min_chosen_prob: calibration.min_chosen_prob,
+        log_likelihood: calibration.log_likelihood,
+        infeasible: calibration.infeasible.len(),
+        converged: calibration.converged,
+    };
+
+    Ok(axum::Json(CalibrationResult {
+        profile: profile_to_response(&profile, true),
+        metrics,
+    }))
+}
+
 pub(crate) async fn execute_action_handler<S: ApiService>(
     State(service): State<S>,
     axum::Json(cmd): axum::Json<ExecuteActionCmdPayload>,

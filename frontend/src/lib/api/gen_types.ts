@@ -168,6 +168,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scoring/calibrate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Calibrate the scoring profile from captured operator decisions
+         * @description Fit consideration weights from the operator decisions captured during this and prior sessions, so the utility AI reproduces those choices under the same conditions. Returns the fitted profile as a *preview* (not applied) plus fit-quality metrics; apply it via PUT /api/scoring/profile. Gated on the scoring.tuning_ui flag. Returns 409 if no decisions have been captured yet.
+         */
+        post: operations["calibrateScoring"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/flow": {
         parameters: {
             query?: never;
@@ -754,6 +774,36 @@ export interface components {
             combination: components["schemas"]["CombinationMode"];
             considerations: components["schemas"]["NamedConsideration"][];
         };
+        /** @description Fit-quality metrics from a calibration run. */
+        CalibrationMetrics: {
+            /** @description Number of captured decisions the fit used. */
+            decisions: number;
+            /**
+             * Format: float
+             * @description Fraction of decisions where the operator's choice ranks first.
+             */
+            top1Accuracy: number;
+            /**
+             * Format: float
+             * @description Mean probability the fitted model assigns the operator's choices.
+             */
+            meanChosenProb: number;
+            /**
+             * Format: float
+             * @description Worst per-decision probability assigned to an operator choice.
+             */
+            minChosenProb: number;
+            /** Format: float */
+            logLikelihood: number;
+            /** @description Decisions whose choice is Pareto-dominated — unreproducible by any non-negative weighting, signalling a missing consideration. */
+            infeasible: number;
+            converged: boolean;
+        };
+        /** @description A calibration preview — the fitted profile plus fit metrics. */
+        CalibrationResult: {
+            profile: components["schemas"]["ScoringProfile"];
+            metrics: components["schemas"]["CalibrationMetrics"];
+        };
         /** @description Reference to the Kubernetes owner of a resource (e.g. ReplicaSet → Pod). */
         OwnerRef: {
             name: string;
@@ -1007,6 +1057,44 @@ export interface operations {
             };
             /** @description Tuning disabled */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    calibrateScoring: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fitted profile preview and metrics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalibrationResult"];
+                };
+            };
+            /** @description Tuning disabled */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No captured decisions to calibrate from */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

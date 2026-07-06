@@ -199,6 +199,37 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/scoring/calibrate:
+    post:
+      summary: Calibrate the scoring profile from captured operator decisions
+      description: >-
+        Fit consideration weights from the operator decisions captured during
+        this and prior sessions, so the utility AI reproduces those choices under
+        the same conditions. Returns the fitted profile as a *preview* (not
+        applied) plus fit-quality metrics; apply it via PUT /api/scoring/profile.
+        Gated on the scoring.tuning_ui flag. Returns 409 if no decisions have been
+        captured yet.
+      operationId: calibrateScoring
+      responses:
+        '200':
+          description: Fitted profile preview and metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalibrationResult'
+        '403':
+          description: Tuning disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: No captured decisions to calibrate from
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/flow:
     get:
       summary: Get attack flow
@@ -1240,6 +1271,56 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/NamedConsideration'
+
+    CalibrationMetrics:
+      type: object
+      description: Fit-quality metrics from a calibration run.
+      required:
+        - decisions
+        - top1Accuracy
+        - meanChosenProb
+        - minChosenProb
+        - logLikelihood
+        - infeasible
+        - converged
+      properties:
+        decisions:
+          type: integer
+          description: Number of captured decisions the fit used.
+        top1Accuracy:
+          type: number
+          format: float
+          description: Fraction of decisions where the operator's choice ranks first.
+        meanChosenProb:
+          type: number
+          format: float
+          description: Mean probability the fitted model assigns the operator's choices.
+        minChosenProb:
+          type: number
+          format: float
+          description: Worst per-decision probability assigned to an operator choice.
+        logLikelihood:
+          type: number
+          format: float
+        infeasible:
+          type: integer
+          description: >-
+            Decisions whose choice is Pareto-dominated — unreproducible by any
+            non-negative weighting, signalling a missing consideration.
+        converged:
+          type: boolean
+
+    CalibrationResult:
+      type: object
+      description: A calibration preview — the fitted profile plus fit metrics.
+      required:
+        - profile
+        - metrics
+      properties:
+        profile:
+          $ref: '#/components/schemas/ScoringProfile'
+        metrics:
+          $ref: '#/components/schemas/CalibrationMetrics'
 
     OwnerRef:
       type: object

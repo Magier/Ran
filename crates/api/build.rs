@@ -155,6 +155,10 @@ pub trait ApiService: Clone + Send + Sync + 'static {
     /// persisted overrides. Returns the resulting profile.
     fn reset_scoring_profile(&self) -> utility_ai::Profile;
 
+    /// Fit a scoring profile from the operator decisions captured so far.
+    /// `None` when nothing has been captured yet.
+    fn calibrate_scoring(&self) -> Option<utility_ai::Calibration>;
+
     /// Whether the frontend scoring-tuning UI is enabled (feature flag).
     fn scoring_tuning_enabled(&self) -> bool;
 
