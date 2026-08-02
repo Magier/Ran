@@ -138,11 +138,15 @@ pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDef
                 namespace,
                 name: fuzz.pattern,
                 select: None,
+                ..Default::default()
             },
+            exec_target: None,
+            token: None,
             args: rec.args.clone(),
             procedure: Some(rec.procedure_id.clone()).filter(|s| !s.is_empty()),
-            retry: RetryStrategy::None,
+            retry: RetryStrategy::NextProcedure,
             depends_on,
+            expect: None,
             note: None,
         });
         success_step_ids.push(step_id);
@@ -184,11 +188,15 @@ pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDef
                 namespace,
                 name: fuzz.pattern,
                 select: None,
+                ..Default::default()
             },
+            exec_target: None,
+            token: None,
             args: rec.args.clone(),
             procedure: Some(rec.procedure_id.clone()).filter(|s| !s.is_empty()),
-            retry: RetryStrategy::None,
+            retry: RetryStrategy::NextProcedure,
             depends_on,
+            expect: None,
             note: Some("recorded: failed".into()),
         });
     }
@@ -354,6 +362,7 @@ mod tests {
             started_at_ms: 0,
             completed_at_ms: 0,
             is_cleanup: false,
+            reasoning: String::new(),
         }
     }
 }

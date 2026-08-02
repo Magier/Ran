@@ -9,6 +9,51 @@ use tracing::debug;
 #[serde(default)]
 pub struct Config {
     pub namespaces: NamespaceFilter,
+    pub scoring: ScoringConfig,
+    pub plans: PlansConfig,
+}
+
+impl Config {
+    /// Directory to read pre-defined plans from, defaulting to `plans` in the
+    /// current working directory when unset.
+    pub fn plans_dir(&self) -> PathBuf {
+        self.plans
+            .dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("plans"))
+    }
+}
+
+/// Where the web UI and CLI look for pre-defined plan files.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PlansConfig {
+    /// Directory containing `*.plan.yaml` files. Defaults to `plans` in the
+    /// current working directory when unset. See [`Config::plans_dir`].
+    pub dir: Option<PathBuf>,
+}
+
+/// Action-selection (utility AI) configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScoringConfig {
+    /// How per-consideration scores are combined into a single utility:
+    /// `weighted_arithmetic` (default), `weighted_geometric`, or
+    /// `iaus_multiplicative`.
+    pub combination: utility_ai::CombinationMode,
+    /// Feature flag: when `true`, the frontend exposes the live response-curve /
+    /// weight tuning flyout for the scoring considerations.
+    pub tuning_ui: bool,
+}
+
+impl ScoringConfig {
+    /// Build the scoring [`utility_ai::Profile`] this config describes.
+    pub fn to_profile(&self) -> utility_ai::Profile {
+        utility_ai::Profile {
+            combination: self.combination,
+            ..utility_ai::Profile::default()
+        }
+    }
 }
 
 /// Controls which namespaces are visible during discovery.
@@ -68,4 +113,42 @@ pub fn load(path: Option<PathBuf>) -> Result<Config> {
 
     debug!(path = %path.display(), "config loaded");
     Ok(cfg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use utility_ai::CombinationMode;
+
+    #[test]
+    fn plans_dir_defaults_to_plans() {
+        let cfg = Config::default();
+        assert_eq!(cfg.plans_dir(), PathBuf::from("plans"));
+    }
+
+    #[test]
+    fn plans_dir_honors_configured_value() {
+        let cfg: Config = serde_yaml::from_str("plans:\n  dir: /custom/plans").unwrap();
+        assert_eq!(cfg.plans_dir(), PathBuf::from("/custom/plans"));
+    }
+
+    #[test]
+    fn scoring_defaults_to_weighted_arithmetic() {
+        let cfg: Config = serde_yaml::from_str("namespaces: {}").unwrap();
+        assert_eq!(cfg.scoring.combination, CombinationMode::WeightedArithmetic);
+    }
+
+    #[test]
+    fn scoring_combination_parses_each_mode() {
+        for (yaml, mode) in [
+            ("weighted_arithmetic", CombinationMode::WeightedArithmetic),
+            ("weighted_geometric", CombinationMode::WeightedGeometric),
+            ("iaus_multiplicative", CombinationMode::IausMultiplicative),
+        ] {
+            let cfg: Config =
+                serde_yaml::from_str(&format!("scoring:\n  combination: {yaml}")).unwrap();
+            assert_eq!(cfg.scoring.combination, mode);
+            assert_eq!(cfg.scoring.to_profile().combination, mode);
+        }
+    }
 }

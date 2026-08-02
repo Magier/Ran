@@ -23,7 +23,7 @@ use campaign::{
 };
 use config::NamespaceFilter;
 use k8s::{kubeconfig_path_or_err, target_cluster_from_kubeconfig, K8sService};
-use ran_domain::{K8sCluster, RelationSummary};
+use ran_domain::{K8sCluster, Pod, RelationSummary};
 
 // ---------------------------------------------------------------------------
 // AppState — the ApiService implementation
@@ -36,12 +36,27 @@ pub struct AppState {
     c2: C2Handle,
     armory: Armory,
     namespace_filter: NamespaceFilter,
+    /// Live scoring profile — mutable at runtime via the tuning API.
+    scoring_profile: Arc<RwLock<utility_ai::Profile>>,
+    /// Configured base profile (from ran.yaml), used by reset.
+    scoring_base: utility_ai::Profile,
+    /// Sidecar file persisting tuned overrides across restarts.
+    scoring_sidecar: Option<PathBuf>,
+    /// Feature flag enabling the frontend tuning UI.
+    scoring_tuning: bool,
+    /// Live-captured operator decisions (pre-action candidate set + the chosen
+    /// action) for calibration. Appended on every executed action.
+    decision_log: Arc<RwLock<Vec<utility_ai::DecisionPoint>>>,
+    /// Sidecar file (JSONL) persisting the decision log across restarts.
+    decisions_sidecar: Option<PathBuf>,
     ran_name: String,
     target_cluster: K8sCluster,
     campaign_events: CampaignEventBus,
     pod_watch: Arc<Mutex<Option<k8s::WatchHandle>>>,
     plan_executors:
         Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<planner::PlanExecutor>>>>>,
+    /// Directory pre-defined plans are listed and loaded from by the web UI.
+    plans_dir: PathBuf,
 }
 
 impl AppState {
@@ -52,23 +67,188 @@ impl AppState {
         c2: C2Handle,
         armory: Armory,
         namespace_filter: NamespaceFilter,
+        scoring_profile: utility_ai::Profile,
+        scoring_base: utility_ai::Profile,
+        scoring_sidecar: Option<PathBuf>,
+        scoring_tuning: bool,
         ran_name: String,
         target_cluster: K8sCluster,
         campaign_events: CampaignEventBus,
+        plans_dir: PathBuf,
     ) -> Self {
+        // The decision log lives next to the scoring sidecar so both share the
+        // config's directory and lifecycle.
+        let decisions_sidecar = scoring_sidecar
+            .as_ref()
+            .map(|p| p.with_extension("decisions.jsonl"));
+        let decision_log = decisions_sidecar
+            .as_ref()
+            .map(|p| load_decision_log(p))
+            .unwrap_or_default();
         Self {
             k8s,
             campaign,
             c2,
             armory,
             namespace_filter,
+            scoring_profile: Arc::new(RwLock::new(scoring_profile)),
+            scoring_base,
+            scoring_sidecar,
+            scoring_tuning,
+            decision_log: Arc::new(RwLock::new(decision_log)),
+            decisions_sidecar,
             ran_name,
             target_cluster,
             campaign_events,
             pod_watch: Arc::new(Mutex::new(None)),
             plan_executors: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            plans_dir,
         }
     }
+
+    /// Append a captured operator decision to the in-memory log and, if a sidecar
+    /// is configured, the JSONL file. Best-effort: a persistence failure is logged,
+    /// never fatal to the action being executed.
+    fn record_decision(&self, dp: utility_ai::DecisionPoint) {
+        if let Some(path) = &self.decisions_sidecar {
+            match serde_json::to_string(&dp) {
+                Ok(line) => {
+                    use std::io::Write;
+                    match std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                    {
+                        Ok(mut f) => {
+                            if let Err(e) = writeln!(f, "{line}") {
+                                warn!(path = %path.display(), error = %e, "failed to append decision log");
+                            }
+                        }
+                        Err(e) => {
+                            warn!(path = %path.display(), error = %e, "failed to open decision log")
+                        }
+                    }
+                }
+                Err(e) => warn!(error = %e, "failed to serialize captured decision"),
+            }
+        }
+        if let Ok(mut log) = self.decision_log.write() {
+            log.push(dp);
+        }
+    }
+
+    /// Fit a scoring profile from the operator decisions captured so far, so the
+    /// utility AI reproduces those choices under the same conditions. Returns
+    /// `None` if nothing has been captured yet.
+    pub fn calibrate(&self) -> Option<utility_ai::Calibration> {
+        let log = self.decision_log.read().ok()?;
+        if log.is_empty() {
+            return None;
+        }
+        let names = utility_ai::utility_consideration_names();
+        let calibration = utility_ai::fit(&names, &log, &utility_ai::FitOptions::default());
+
+        // `fit` drops decisions whose feature width doesn't match the current
+        // consideration set (a log spanning a considerations change). If none
+        // remain, there's nothing meaningful to calibrate from.
+        let used = calibration.per_decision.len();
+        if used == 0 {
+            warn!(
+                captured = log.len(),
+                "no captured decisions match the current consideration set (stale decision log); nothing to calibrate"
+            );
+            return None;
+        }
+        if used < log.len() {
+            warn!(
+                used,
+                captured = log.len(),
+                "calibrating on decisions matching the current consideration set; older/mismatched entries dropped"
+            );
+        }
+        Some(calibration)
+    }
+
+    /// Build, dispatch, and await cleanup actions for everything executed so far
+    /// (TTPs that declare a `cleanup` procedure — e.g. deleting created pods).
+    /// Shared by `reset_campaign` and the launch-time plan runner. Waits up to
+    /// 30s for the cleanup results to be recorded, then returns.
+    pub(crate) async fn run_cleanup(&self) -> Result<(), ApiError> {
+        let cleanup_actions: Vec<c2::ExecTtp> = {
+            let mut campaign = self
+                .campaign
+                .write()
+                .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
+            campaign.build_cleanup_actions(&self.armory)
+            // write lock released here
+        };
+
+        if cleanup_actions.is_empty() {
+            info!("no cleanup actions to run");
+            return Ok(());
+        }
+
+        let cleanup_ids: std::collections::HashSet<String> =
+            cleanup_actions.iter().map(|e| e.id.clone()).collect();
+
+        info!(count = cleanup_ids.len(), "dispatching cleanup actions");
+
+        // Cleanup ExecTtps are intentionally not registered in open_steps —
+        // we track completion by polling execution_records instead.
+        for exec in cleanup_actions {
+            if let Err(e) = self.c2.send(exec).await {
+                warn!("failed to dispatch cleanup action: {}", e);
+            }
+        }
+
+        // Wait for all cleanup results to be recorded by the C2 event processor.
+        // Poll with 200 ms intervals, 30 s deadline.
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
+        loop {
+            let completed: std::collections::HashSet<String> = {
+                let guard = self
+                    .campaign
+                    .read()
+                    .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
+                guard
+                    .execution_records
+                    .iter()
+                    .filter(|r| r.is_cleanup)
+                    .map(|r| r.id.clone())
+                    .collect()
+            };
+            if cleanup_ids.is_subset(&completed) {
+                info!("all cleanup actions completed");
+                break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                warn!(
+                    remaining = cleanup_ids.difference(&completed).count(),
+                    "cleanup timed out after 30s"
+                );
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        }
+
+        Ok(())
+    }
+}
+
+/// Lightweight summary of a plan file on disk, listed by the web UI so the
+/// operator can pick one to load without downloading the full YAML.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PlanSummary {
+    /// File name within the plans directory (what `load_plan` expects).
+    pub filename: String,
+    /// Plan `id` from the YAML.
+    pub id: String,
+    /// Human-readable plan name.
+    pub name: String,
+    /// Optional plan description.
+    pub description: Option<String>,
+    /// Number of steps in the plan.
+    pub steps: usize,
 }
 
 #[async_trait::async_trait]
@@ -121,83 +301,56 @@ impl ApiService for AppState {
         Ok(guard.clone())
     }
 
-    async fn reset_campaign(&self) -> Result<(), ApiError> {
-        // -----------------------------------------------------------------------
-        // Phase 1: build and dispatch cleanup actions
-        // -----------------------------------------------------------------------
-        let cleanup_actions: Vec<c2::ExecTtp> = {
-            let mut campaign = self
-                .campaign
-                .write()
-                .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
-            campaign.build_cleanup_actions(&self.armory)
-            // write lock released here
-        };
+    fn scoring_profile(&self) -> utility_ai::Profile {
+        self.scoring_profile
+            .read()
+            .map(|p| p.clone())
+            .unwrap_or_default()
+    }
 
-        if !cleanup_actions.is_empty() {
-            let cleanup_ids: std::collections::HashSet<String> =
-                cleanup_actions.iter().map(|e| e.id.clone()).collect();
-
-            info!(
-                count = cleanup_ids.len(),
-                "dispatching cleanup actions before reset"
-            );
-
-            // Cleanup ExecTtps are intentionally not registered in open_steps —
-            // we track completion by polling execution_records instead.
-            for exec in cleanup_actions {
-                if let Err(e) = self.c2.send(exec).await {
-                    warn!("failed to dispatch cleanup action: {}", e);
-                }
-            }
-
-            // Wait for all cleanup results to be recorded by the C2 event
-            // processor (which runs independently and holds the write lock
-            // briefly per result). Poll with 200 ms intervals, 30 s deadline.
-            let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
-
-            loop {
-                if tokio::time::Instant::now() >= deadline {
-                    let remaining = {
-                        let guard = self
-                            .campaign
-                            .read()
-                            .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
-                        let completed: std::collections::HashSet<String> = guard
-                            .execution_records
-                            .iter()
-                            .filter(|r| r.is_cleanup)
-                            .map(|r| r.id.clone())
-                            .collect();
-                        cleanup_ids.difference(&completed).count()
-                    };
-                    warn!(
-                        remaining,
-                        "cleanup timed out after 30s; proceeding with reset"
-                    );
-                    break;
-                }
-
-                {
-                    let guard = self
-                        .campaign
-                        .read()
-                        .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
-                    let completed: std::collections::HashSet<String> = guard
-                        .execution_records
-                        .iter()
-                        .filter(|r| r.is_cleanup)
-                        .map(|r| r.id.clone())
-                        .collect();
-                    if cleanup_ids.is_subset(&completed) {
-                        info!("all cleanup actions completed");
-                        break;
-                    }
-                }
-
-                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-            }
+    fn set_scoring_profile(&self, profile: utility_ai::Profile) {
+        if let Ok(mut guard) = self.scoring_profile.write() {
+            *guard = profile;
         }
+    }
+
+    fn save_scoring_profile(&self) -> Result<(), String> {
+        let path = self
+            .scoring_sidecar
+            .as_ref()
+            .ok_or_else(|| "no scoring sidecar path configured".to_string())?;
+        let profile = self
+            .scoring_profile
+            .read()
+            .map_err(|_| "scoring profile lock poisoned".to_string())?
+            .clone();
+        let yaml = serde_yaml::to_string(&profile).map_err(|e| e.to_string())?;
+        std::fs::write(path, yaml).map_err(|e| format!("failed to write {}: {e}", path.display()))
+    }
+
+    fn reset_scoring_profile(&self) -> utility_ai::Profile {
+        let base = self.scoring_base.clone();
+        if let Ok(mut guard) = self.scoring_profile.write() {
+            *guard = base.clone();
+        }
+        // Drop persisted overrides so the reset survives a restart too.
+        if let Some(path) = &self.scoring_sidecar {
+            let _ = std::fs::remove_file(path);
+        }
+        base
+    }
+
+    fn scoring_tuning_enabled(&self) -> bool {
+        self.scoring_tuning
+    }
+
+    fn calibrate_scoring(&self) -> Option<utility_ai::Calibration> {
+        self.calibrate()
+    }
+
+    async fn reset_campaign(&self) -> Result<(), ApiError> {
+        // Phase 1: run cleanup actions for everything executed so far.
+        self.run_cleanup().await?;
 
         // -----------------------------------------------------------------------
         // Phase 2: wipe campaign state
@@ -346,9 +499,25 @@ impl ApiService for AppState {
                         }
                     }
                 })?;
+            // Capture the decision under the operator's *actual* pre-action
+            // conditions (zero reconstruction) for calibration. `prepare_action`
+            // only grounded the command — no effects applied yet — so this is the
+            // exact state the choice was made in.
+            let captured = utility_ai::decision_point(
+                &campaign,
+                self.armory.ttps(),
+                &exec.ttp.id,
+                &exec.target_id,
+            );
             campaign.add_open_step(exec.clone());
-            exec
+            (exec, captured)
         };
+        let (exec, captured) = exec;
+        if let Some(dp) = captured {
+            self.record_decision(dp);
+        }
+
+        publish_ttp_dispatched(&exec);
 
         self.c2.send(exec.clone()).await.map_err(|message| {
             error!("failed to enqueue exec_ttp command: {}", message);
@@ -392,6 +561,9 @@ impl ApiService for AppState {
         let this = self.clone();
         let plan_id_bg = plan_id.clone();
         tokio::spawn(async move {
+            // How long to wait for a step outcome before treating the plan as
+            // stalled (no in-flight work, yet steps remain that can't resolve).
+            const PLAN_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
             let mut events = this.campaign_events.subscribe();
 
             loop {
@@ -403,8 +575,18 @@ impl ApiService for AppState {
 
                 for dispatch in dispatches {
                     let step_id = dispatch.step_id.clone();
+                    let action_id = dispatch.request.action_id.clone();
+                    let target_id = dispatch.request.target_id.clone();
                     match this.execute_action(dispatch.request).await {
                         Ok(result) => {
+                            info!(
+                                plan_id = %plan_id_bg,
+                                step_id = %step_id,
+                                action_id = %action_id,
+                                target_id = %target_id,
+                                cmd_id = %result.cmd_id,
+                                "plan step dispatched"
+                            );
                             executor
                                 .lock()
                                 .unwrap()
@@ -431,27 +613,132 @@ impl ApiService for AppState {
                     break;
                 }
 
-                // Wait for the next TtpExecuted event
-                let (cmd_id, success) = loop {
-                    match events.recv().await {
-                        Ok(CampaignEvent::TtpExecuted {
-                            cmd_id, success, ..
-                        }) => {
-                            break (cmd_id, success);
+                // Wait for the next TtpExecuted event, with a stall deadline so a
+                // plan whose remaining steps can never resolve (missing target,
+                // unmet graph predicate) terminates instead of hanging forever.
+                // Also watch for Ctrl-C: axum's graceful shutdown waits for SSE
+                // connections to drain, so the runtime may not drop this task
+                // promptly — we need to observe the signal ourselves.
+                let next = loop {
+                    tokio::select! {
+                        _ = tokio::signal::ctrl_c() => {
+                            tracing::info!(plan_id = %plan_id_bg, "plan runner stopping on shutdown signal");
+                            return;
                         }
-                        Err(_) => return,
-                        _ => continue,
+                        result = tokio::time::timeout(PLAN_STALL_TIMEOUT, events.recv()) => {
+                            match result {
+                                Ok(Ok(CampaignEvent::TtpExecuted {
+                                    cmd_id, success, ..
+                                })) => break Some((cmd_id, success)),
+                                Ok(Ok(_)) => continue,
+                                Ok(Err(_)) => return, // event channel closed
+                                Err(_) => break None, // timed out
+                            }
+                        }
                     }
                 };
 
-                let armory = this.armory.clone();
-                let plan_events = executor
-                    .lock()
-                    .unwrap()
-                    .on_ttp_executed(&cmd_id, success, None, &armory);
+                let plan_events = match next {
+                    Some((cmd_id, success)) => {
+                        let (effective_success, expect_reason) = {
+                            let expect = executor.lock().unwrap().expectation_for_cmd(&cmd_id);
+                            if let Some(expect) = expect {
+                                if expect.min_facts_written > 0 {
+                                    let facts_written: usize = this
+                                        .campaign
+                                        .read()
+                                        .map(|c| {
+                                            c.parse_audits
+                                                .iter()
+                                                .filter(|a| a.cmd_id == cmd_id)
+                                                .filter(|a| {
+                                                    matches!(
+                                                        a.parse_result,
+                                                        campaign::ParseResult::Parsed
+                                                    )
+                                                })
+                                                .map(|a| a.inferred_facts_written)
+                                                .sum()
+                                        })
+                                        .unwrap_or(0);
+                                    if facts_written < expect.min_facts_written {
+                                        let reason = format!(
+                                            "expectation unmet: inferred_facts_written={} < required {}",
+                                            facts_written, expect.min_facts_written
+                                        );
+                                        (false, Some(reason))
+                                    } else {
+                                        (success, None)
+                                    }
+                                } else {
+                                    (success, None)
+                                }
+                            } else {
+                                (success, None)
+                            }
+                        };
+
+                        if let Some(reason) = expect_reason {
+                            tracing::warn!(plan_id = %plan_id_bg, cmd_id = %cmd_id, %reason, "plan step expectation failed");
+                        }
+
+                        let armory = this.armory.clone();
+                        executor.lock().unwrap().on_ttp_executed(
+                            &cmd_id,
+                            effective_success,
+                            None,
+                            &armory,
+                        )
+                    }
+                    None => {
+                        // An action may genuinely still be running — keep waiting.
+                        // Otherwise the plan is stalled: drive the unresolvable
+                        // steps terminal so it can complete.
+                        if executor.lock().unwrap().has_in_flight() {
+                            continue;
+                        }
+                        tracing::warn!(
+                            plan_id = %plan_id_bg,
+                            "plan stalled with no in-flight actions; failing unresolvable steps"
+                        );
+                        let campaign = this.campaign.read().unwrap();
+                        executor.lock().unwrap().fail_stalled(&campaign)
+                    }
+                };
 
                 for event in &plan_events {
                     use planner::PlanEvent;
+                    match event {
+                        PlanEvent::StepCompleted { step_id, success } => {
+                            info!(
+                                plan_id = %plan_id_bg,
+                                step_id = %step_id,
+                                success = *success,
+                                "plan step completed"
+                            );
+                        }
+                        PlanEvent::StepSkipped { step_id, reason } => {
+                            info!(
+                                plan_id = %plan_id_bg,
+                                step_id = %step_id,
+                                reason = %reason,
+                                "plan step skipped"
+                            );
+                        }
+                        PlanEvent::StepFailed { step_id, reason } => {
+                            warn!(
+                                plan_id = %plan_id_bg,
+                                step_id = %step_id,
+                                reason = %reason,
+                                "plan step failed"
+                            );
+                        }
+                        PlanEvent::PlanComplete => {
+                            info!(plan_id = %plan_id_bg, "plan complete");
+                        }
+                        _ => {}
+                    }
+
                     let campaign_event = match event {
                         PlanEvent::StepCompleted { step_id, success } => {
                             Some(CampaignEvent::PlanStepCompleted {
@@ -514,6 +801,98 @@ impl ApiService for AppState {
         let plan = planner::export_plan(&campaign.execution_records, &opts);
         let yaml = serde_yaml::to_string(&plan).map_err(|e| ApiError::internal(e.to_string()))?;
         Ok(yaml)
+    }
+
+    async fn list_plans(&self) -> Result<Vec<serde_json::Value>, ApiError> {
+        // Recursively collect candidate YAML files. A missing plans directory is
+        // not an error — just an empty list.
+        let mut files = Vec::new();
+        match collect_yaml_files(&self.plans_dir, &mut files) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => {
+                return Err(ApiError::internal(format!(
+                    "failed to read plans directory {}: {}",
+                    self.plans_dir.display(),
+                    e
+                )))
+            }
+        }
+
+        let mut summaries = Vec::new();
+        for path in files {
+            // `filename` is the path relative to the plans directory, using `/`
+            // separators, so nested plans round-trip through `load_plan`.
+            let Some(filename) = path
+                .strip_prefix(&self.plans_dir)
+                .ok()
+                .and_then(|rel| rel.to_str())
+                .map(|s| s.replace('\\', "/"))
+            else {
+                continue;
+            };
+
+            // Best-effort: skip files that don't parse as a plan.
+            let text = match std::fs::read_to_string(&path) {
+                Ok(t) => t,
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "failed to read plan file; skipping");
+                    continue;
+                }
+            };
+            let plan = match serde_yaml::from_str::<planner::PlanDefinition>(&text) {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "not a valid plan; skipping");
+                    continue;
+                }
+            };
+
+            let summary = PlanSummary {
+                filename,
+                id: plan.id,
+                name: plan.name,
+                description: plan.description,
+                steps: plan.steps.len(),
+            };
+            match serde_json::to_value(summary) {
+                Ok(v) => summaries.push(v),
+                Err(e) => warn!(error = %e, "failed to serialize plan summary; skipping"),
+            }
+        }
+
+        // Stable order so the UI list doesn't shuffle between requests.
+        summaries.sort_by(|a, b| {
+            a.get("filename")
+                .and_then(|v| v.as_str())
+                .cmp(&b.get("filename").and_then(|v| v.as_str()))
+        });
+        Ok(summaries)
+    }
+
+    async fn load_plan(&self, filename: String) -> Result<String, ApiError> {
+        let path = resolve_plan_path(&self.plans_dir, &filename)?;
+        let yaml = match std::fs::read_to_string(&path) {
+            Ok(y) => y,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ApiError::not_found(format!("plan '{filename}' not found")))
+            }
+            Err(e) => {
+                return Err(ApiError::internal(format!(
+                    "failed to read plan {}: {}",
+                    path.display(),
+                    e
+                )))
+            }
+        };
+
+        // Seed root-step targets from the live cluster (same as the CLI launch
+        // path) so plans loaded from the UI behave identically.
+        if let Ok(plan) = serde_yaml::from_str::<planner::PlanDefinition>(&yaml) {
+            seed_initial_access_targets(self, &plan).await;
+        }
+
+        self.execute_plan(yaml).await
     }
 }
 
@@ -806,6 +1185,64 @@ pub struct ServerConfig {
     pub port: u16,
     /// Namespace visibility filter loaded from `ran.yaml`.
     pub namespace_filter: NamespaceFilter,
+    /// Action-selection scoring configuration loaded from `ran.yaml`.
+    pub scoring: config::ScoringConfig,
+    /// Path to the config file, used to locate the scoring sidecar
+    /// (`ran.scoring.yaml`). Defaults to `ran.yaml` when `None`.
+    pub config_path: Option<PathBuf>,
+    /// Optional plan YAML to execute automatically once the server is up — an
+    /// alternative to `POST /api/plans`. When the plan finishes, the operator is
+    /// offered cleanup (or it runs automatically if `auto_cleanup` is set), and
+    /// the server shuts down after cleanup completes.
+    pub plan: Option<PathBuf>,
+    /// Run cleanup automatically when the launch-time plan finishes, instead of
+    /// prompting on the terminal. Only meaningful together with `plan`.
+    pub auto_cleanup: bool,
+    /// Directory the web UI lists pre-defined plans from (`ran.yaml`'s
+    /// `plans.dir`, defaulting to `plans` in the current working directory).
+    pub plans_dir: PathBuf,
+}
+
+/// Locate the scoring sidecar file (tuned-profile persistence) next to the
+/// config file: e.g. `ran.yaml` → `ran.scoring.yaml`.
+fn scoring_sidecar_path(config_path: Option<&std::path::Path>) -> PathBuf {
+    config_path
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("ran.yaml"))
+        .with_extension("scoring.yaml")
+}
+
+/// Load a persisted decision log (one JSON [`utility_ai::DecisionPoint`] per
+/// line). Missing file → empty log; unparseable lines are skipped with a warning
+/// so a partially-corrupt log doesn't lose everything.
+fn load_decision_log(path: &std::path::Path) -> Vec<utility_ai::DecisionPoint> {
+    let Ok(data) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (i, line) in data.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<utility_ai::DecisionPoint>(line) {
+            Ok(dp) => out.push(dp),
+            Err(e) => {
+                warn!(path = %path.display(), line = i + 1, error = %e, "skipping unparseable decision log entry")
+            }
+        }
+    }
+    out
+}
+
+fn load_sidecar_profile(path: &std::path::Path) -> Option<utility_ai::Profile> {
+    let data = std::fs::read(path).ok()?;
+    match serde_yaml::from_slice::<utility_ai::Profile>(&data) {
+        Ok(p) => Some(p),
+        Err(e) => {
+            warn!(path = %path.display(), error = %e, "ignoring unparseable scoring sidecar");
+            None
+        }
+    }
 }
 
 /// Start the Ran emulation API server. This is the primary entry point for
@@ -851,15 +1288,28 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     );
     tokio::spawn(bridge_campaign_events_to_sse(campaign_events.subscribe()));
 
+    // Base profile from ran.yaml; if a tuned sidecar exists, it overrides it.
+    let scoring_base = cfg.scoring.to_profile();
+    let sidecar = scoring_sidecar_path(cfg.config_path.as_deref());
+    let live_profile = load_sidecar_profile(&sidecar).unwrap_or_else(|| scoring_base.clone());
+    if live_profile.name == "tuned" {
+        info!(path = %sidecar.display(), "loaded tuned scoring profile from sidecar");
+    }
+
     let state = AppState::new(
         k8s,
         campaign,
         c2_handle,
         armory,
         cfg.namespace_filter,
+        live_profile,
+        scoring_base,
+        Some(sidecar),
+        cfg.scoring.tuning_ui,
         "Ran".to_string(),
         campaign_cluster,
         campaign_events.clone(),
+        cfg.plans_dir.clone(),
     );
 
     let campaign_entity_count = state
@@ -878,6 +1328,10 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
         campaign_events: campaign_events.clone(),
         parsers_dir: mcp_parsers_dir,
     };
+
+    // Clone the state for the launch-time plan runner before the router takes
+    // ownership of it. Cheap — AppState is a bundle of Arcs.
+    let orchestrator_state = state.clone();
 
     let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
     let app: Router =
@@ -898,9 +1352,42 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    // Programmatic shutdown trigger, fired by the launch-time plan runner once
+    // cleanup is done. Ctrl-C still works independently.
+    let shutdown = Arc::new(tokio::sync::Notify::new());
+
+    if let Some(plan_path) = cfg.plan.clone() {
+        let events = campaign_events.clone();
+        let trigger = shutdown.clone();
+        tokio::spawn(run_launch_plan(
+            orchestrator_state,
+            events,
+            plan_path,
+            cfg.auto_cleanup,
+            trigger,
+        ));
+    }
+
+    let shutdown_fut = {
+        let shutdown = shutdown.clone();
+        async move {
+            tokio::select! {
+                _ = shutdown_signal() => {}
+                _ = shutdown.notified() => info!("shutting down after plan cleanup"),
+            }
+        }
+    };
+
+    // Race the server against the shutdown signal. `with_graceful_shutdown` alone
+    // is not enough: it stops accepting new connections but waits for *all* open
+    // ones (including long-lived SSE streams) to drain before returning, so the
+    // process would hang indefinitely when the browser is still connected. By
+    // selecting directly, we drop the server — and close every connection — the
+    // moment the signal fires.
+    tokio::select! {
+        result = axum::serve(listener, app) => { result?; }
+        _ = shutdown_fut => { info!("server stopped"); }
+    }
 
     Ok(())
 }
@@ -908,6 +1395,284 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
     info!("received shutdown signal");
+}
+
+/// Wait until cluster discovery has populated the campaign and stopped growing,
+/// so a launch-time plan's first targets resolve. Bounded to ~20s.
+async fn wait_for_discovery(state: &AppState) {
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(20);
+    let mut last = 0usize;
+    let mut stable = 0u8;
+    loop {
+        let count = state.campaign.read().map(|c| c.entity_count()).unwrap_or(0);
+        // Bootstrap starts with 2 entities (Cluster + C2). Consider discovery
+        // settled only once at least one additional entity appears.
+        if count > 2 && count == last {
+            stable += 1;
+            if stable >= 3 {
+                break;
+            }
+        } else {
+            stable = 0;
+        }
+        last = count;
+        if tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+    info!(entities = last, "cluster discovery settled; launching plan");
+}
+
+/// Seed campaign Pod entities for the root steps of a plan (steps with no
+/// `depends_on`). Only pods in the step's declared namespace whose names match
+/// the step's target pattern are inserted — everything else stays undiscovered
+/// so the emulation can find it organically.
+/// Recursively collect files with a `.yaml`/`.yml` extension under `dir`,
+/// appending their absolute paths to `out`. Symlinked directories are not
+/// followed. Propagates the top-level read error (so a missing plans directory
+/// surfaces as `NotFound`); errors reading nested subdirectories are logged and
+/// skipped so one unreadable folder doesn't hide the rest.
+fn collect_yaml_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)?.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            if let Err(e) = collect_yaml_files(&path, out) {
+                warn!(path = %path.display(), error = %e, "failed to read plans subdirectory; skipping");
+            }
+        } else if file_type.is_file() {
+            let is_yaml = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
+                .unwrap_or(false);
+            if is_yaml {
+                out.push(path);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Resolve a (possibly nested) plan filename against the plans directory,
+/// rejecting anything that could escape it. Subdirectory separators are allowed;
+/// absolute paths and `..` components are not.
+fn resolve_plan_path(plans_dir: &std::path::Path, filename: &str) -> Result<PathBuf, ApiError> {
+    use std::path::Component;
+    let rel = PathBuf::from(filename);
+    let invalid = filename.is_empty()
+        || rel
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir));
+    if invalid {
+        return Err(ApiError::bad_request(format!(
+            "invalid plan filename: {filename}"
+        )));
+    }
+    Ok(plans_dir.join(&rel))
+}
+
+async fn seed_initial_access_targets(state: &AppState, plan: &planner::PlanDefinition) {
+    // Collect unique (namespace, pattern) pairs from root steps.
+    let root_targets: Vec<_> = plan
+        .steps
+        .iter()
+        .filter(|s| s.depends_on.is_empty())
+        .filter_map(|s| {
+            let ns = s.target.namespace.as_deref().filter(|n| !n.is_empty())?;
+            let kind = s.target.kind.to_ascii_lowercase();
+            if !kind.is_empty() && kind != "pod" {
+                return None; // only pod targets need seeding
+            }
+            let pattern = if s.target.name.is_empty() {
+                ".*".to_string()
+            } else {
+                s.target.name.clone()
+            };
+            Some((s.id.clone(), ns.to_string(), pattern))
+        })
+        .collect();
+
+    for (step_id, ns, pattern) in root_targets {
+        // Build a fake entity-id list from cluster pods and use the planner's
+        // resolver to match names — avoids a direct `regex` dep in this crate.
+        let pods = match state.k8s.get_running_pods(Some(&ns)).await {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(step_id = %step_id, namespace = %ns, error = %e,
+                    "failed to query cluster for initial target seed");
+                continue;
+            }
+        };
+        let candidate_ids: Vec<String> = pods
+            .iter()
+            .map(|p| {
+                let pod_ns = p.namespace.as_deref().unwrap_or(&ns);
+                format!("ns/{}/pod/{}", pod_ns, p.name)
+            })
+            .collect();
+
+        let query = planner::TargetQuery {
+            namespace: Some(ns.clone()),
+            name: pattern.clone(),
+            select: Some(planner::SelectStrategy::All),
+            ..Default::default()
+        };
+        let matched = planner::resolve_target(&query, &candidate_ids);
+
+        if matched.is_empty() {
+            warn!(step_id = %step_id, namespace = %ns, pattern = %pattern,
+                "no cluster pods matched initial access target pattern");
+            continue;
+        }
+
+        let mut campaign = match state.campaign.write() {
+            Ok(c) => c,
+            Err(_) => break,
+        };
+
+        for entity_id in &matched {
+            // entity_id is "ns/<ns>/pod/<name>"
+            let pod_name = entity_id.rsplit('/').next().unwrap_or_default();
+            campaign.entities.insert_typed(Pod::new(pod_name, &ns));
+            info!(step_id = %step_id, pod = %pod_name, namespace = %ns,
+                "seeded initial access target from cluster");
+        }
+    }
+}
+
+enum PromptAnswer {
+    Yes,
+    No,
+    Interrupted,
+}
+
+/// Prompt the operator on the terminal for a yes/no answer.
+///
+/// Returns `No` on EOF / non-interactive stdin.
+async fn prompt_yes_no(prompt: &str) -> PromptAnswer {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let mut stdout = tokio::io::stdout();
+    let _ = stdout.write_all(prompt.as_bytes()).await;
+    let _ = stdout.flush().await;
+
+    let mut line = String::new();
+    let mut stdin_reader = BufReader::new(tokio::io::stdin());
+
+    // Keep the prompt responsive to Ctrl-C so launch-time plan flows cannot
+    // get stuck waiting on stdin after shutdown has already started.
+    let read_result = tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            info!("cleanup prompt interrupted by shutdown signal");
+            return PromptAnswer::Interrupted;
+        }
+        res = stdin_reader.read_line(&mut line) => res,
+    };
+
+    if read_result.unwrap_or(0) == 0 {
+        return PromptAnswer::No;
+    }
+
+    if matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+        PromptAnswer::Yes
+    } else {
+        PromptAnswer::No
+    }
+}
+
+/// Run a plan supplied on the CLI: wait for discovery, execute it, wait for it
+/// to finish, then offer/auto-run cleanup and trigger shutdown afterwards.
+async fn run_launch_plan(
+    state: AppState,
+    events_bus: CampaignEventBus,
+    plan_path: PathBuf,
+    auto_cleanup: bool,
+    shutdown: Arc<tokio::sync::Notify>,
+) {
+    let yaml = match std::fs::read_to_string(&plan_path) {
+        Ok(y) => y,
+        Err(e) => {
+            error!(path = %plan_path.display(), error = %e, "failed to read plan file");
+            return;
+        }
+    };
+
+    // Parse the plan to find root steps and seed only their matching pods from
+    // the live cluster. Everything else stays undiscovered until the emulation
+    // finds it, preserving the discovery narrative.
+    if let Ok(plan) = serde_yaml::from_str::<planner::PlanDefinition>(&yaml) {
+        seed_initial_access_targets(&state, &plan).await;
+    }
+
+    // Keep the pod watch for UI updates while the launch plan runs.
+    if let Err(e) = state.start_pod_watch(None).await {
+        warn!(error = %e.body.error, "pod watch failed to start; UI pod updates disabled");
+    }
+
+    wait_for_discovery(&state).await;
+
+    // Subscribe before dispatching so we don't miss the completion event.
+    let mut events = events_bus.subscribe();
+
+    let plan_id = match state.execute_plan(yaml).await {
+        Ok(id) => id,
+        Err(e) => {
+            error!(error = %e.body.error, "failed to start launch-time plan");
+            return;
+        }
+    };
+    info!(%plan_id, "launch-time plan started");
+
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                info!(%plan_id, "launch-time plan runner interrupted by shutdown signal");
+                return;
+            }
+            result = events.recv() => {
+                match result {
+                    Ok(CampaignEvent::PlanComplete { plan_id: done }) if done == plan_id => break,
+                    Ok(_) => continue,
+                    Err(_) => {
+                        warn!("event bus closed before plan completed");
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    info!(%plan_id, "launch-time plan complete");
+
+    let do_cleanup = if auto_cleanup {
+        info!("--cleanup set: running cleanup automatically");
+        true
+    } else {
+        match prompt_yes_no("\nPlan complete. Run cleanup and shut down? [y/N] ").await {
+            PromptAnswer::Yes => true,
+            PromptAnswer::No => false,
+            PromptAnswer::Interrupted => {
+                info!("cleanup prompt interrupted; shutting down emulation");
+                shutdown.notify_one();
+                return;
+            }
+        }
+    };
+
+    if !do_cleanup {
+        info!("leaving emulation running for inspection; press Ctrl-C to stop");
+        return;
+    }
+
+    if let Err(e) = state.run_cleanup().await {
+        error!(error = %e.body.error, "cleanup failed; leaving emulation running");
+        return;
+    }
+
+    info!("cleanup complete; stopping emulation");
+    shutdown.notify_one();
 }
 
 /// Resolve the armory and the directory to search for external parsers.
@@ -1029,6 +1794,7 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
                     exec_system_id: cfg.exec_system_id,
                     procedure_id: cfg.procedure_id,
                     args: cfg.args,
+                    reasoning: Some("cli trigger".to_string()),
                 },
                 &armory,
             )
@@ -1036,6 +1802,8 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
         c.add_open_step(exec.clone());
         exec
     };
+
+    publish_ttp_dispatched(&exec);
 
     let cmd_id = exec.id.clone();
     let grounded_command = exec.procedure.command.clone();
@@ -1149,11 +1917,36 @@ fn parse_pod_target_id(target_id: &str) -> Result<(String, String)> {
     )
 }
 
+/// Publish a `ttp-dispatched` SSE event the moment an action is enqueued, so the
+/// UI can show it as in-progress before the completing `ttp-executed` arrives.
+/// Field names mirror the `ttp-executed` payload so the frontend handlers stay
+/// symmetric. Emitted from every dispatch path that registers an open step.
+fn publish_ttp_dispatched(exec: &c2::ExecTtp) {
+    let differs = !exec.exec_system_id.is_empty() && exec.exec_system_id != exec.target_id;
+    api::publish_sse_event(
+        "ttp-dispatched",
+        serde_json::json!({
+            "type": "ttp-dispatched",
+            "data": {
+                "ID": exec.id,
+                "CmdId": exec.id,
+                "TTP": exec.ttp,
+                "Args": exec.args,
+                "TargetID": exec.target_id,
+                "ExecSystemID": if differs { exec.exec_system_id.clone() } else { String::new() },
+                "StartedAtMs": exec.started_at_ms,
+            },
+        })
+        .to_string(),
+    );
+}
+
 async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<CampaignEvent>) {
     loop {
         match campaign_rx.recv().await {
             Ok(CampaignEvent::TtpExecuted {
                 cmd_id,
+                target_id,
                 exec_system_id,
                 ttp,
                 args,
@@ -1168,6 +1961,7 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     "CmdId": cmd_id,
                     "TTP": ttp,
                     "Args": args,
+                    "TargetID": target_id,
                     "ExecSystemID": exec_system_id,
                     "Success": success,
                     "FailReason": fail_reason,

@@ -106,13 +106,8 @@ impl BuiltinC2 {
                     if !output.stderr.trim().is_empty() {
                         results.push(output.stderr.trim().to_string());
                     }
-                    let fail_reason = if !output.stderr.trim().is_empty() {
-                        output.stderr.trim().to_string()
-                    } else if !output.stdout.trim().is_empty() {
-                        output.stdout.trim().to_string()
-                    } else {
-                        format!("command exited with code {}", output.exit_code)
-                    };
+                    let fail_reason =
+                        derive_fail_reason(&output.stderr, &output.stdout, output.exit_code);
                     warn!(
                         cmd_id = %cmd.id,
                         target_id = %cmd.target_id,
@@ -174,6 +169,51 @@ impl BuiltinC2 {
     }
 }
 
+/// Lines that package managers and shells emit as routine progress — never a
+/// real failure reason, even when they land on stderr.
+fn is_benign_noise(line: &str) -> bool {
+    let l = line.trim();
+    if l.is_empty() {
+        return true;
+    }
+    const BENIGN_PREFIXES: &[&str] = &[
+        "Reading package lists",
+        "Reading state information",
+        "Building dependency tree",
+        "Get:",
+        "Hit:",
+        "Ign:",
+        "Fetched ",
+        "WARNING: apt does not have a stable CLI",
+        "debconf:",
+        "Selecting previously unselected",
+        "Preparing to unpack",
+        "Unpacking ",
+        "Setting up ",
+        "Processing triggers",
+    ];
+    BENIGN_PREFIXES.iter().any(|p| l.starts_with(p))
+}
+
+/// Pick a meaningful failure reason from a failed command's output.
+///
+/// Package managers write routine progress (e.g. "Reading state information…")
+/// to stderr even on success, so naively taking the first stderr line surfaces
+/// noise instead of the real error. Prefer the *last* non-benign stderr line,
+/// then the last non-benign stdout line, then a generic exit-code message.
+fn derive_fail_reason(stderr: &str, stdout: &str, exit_code: i32) -> String {
+    let meaningful_last = |text: &str| -> Option<String> {
+        text.lines()
+            .map(str::trim)
+            .rfind(|l| !is_benign_noise(l))
+            .map(ToString::to_string)
+    };
+
+    meaningful_last(stderr)
+        .or_else(|| meaningful_last(stdout))
+        .unwrap_or_else(|| format!("command exited with code {exit_code}"))
+}
+
 fn parse_pod_target_id(target_id: &str) -> Option<(&str, &str)> {
     let mut parts = target_id.split('/');
     let kind_a = parts.next()?;
@@ -219,8 +259,33 @@ mod tests {
 
     use k8s::PodExecOutput;
 
-    use super::{BuiltinC2, PodExecClient};
+    use super::{derive_fail_reason, BuiltinC2, PodExecClient};
     use crate::types::ExecTtp;
+
+    #[test]
+    fn fail_reason_skips_benign_apt_noise() {
+        // apt writes progress to stderr even when the real failure is elsewhere;
+        // the reason should be the actual error, not "Reading state information".
+        let stderr = "Reading package lists...\nReading state information...\nE: Unable to locate package bogus-pkg";
+        assert_eq!(
+            derive_fail_reason(stderr, "", 100),
+            "E: Unable to locate package bogus-pkg"
+        );
+    }
+
+    #[test]
+    fn fail_reason_falls_back_to_stdout_then_exit_code() {
+        // Only benign stderr → use a meaningful stdout line.
+        assert_eq!(
+            derive_fail_reason("Reading state information...", "boom: it broke", 1),
+            "boom: it broke"
+        );
+        // Nothing meaningful anywhere → generic exit-code message.
+        assert_eq!(
+            derive_fail_reason("Reading state information...", "", 1),
+            "command exited with code 1"
+        );
+    }
 
     struct FakePodExecClient {
         calls: Mutex<Vec<(String, String, String)>>,
@@ -343,6 +408,7 @@ mod tests {
             exec_system_id: exec_system_id.to_string(),
             output_transform: None,
             is_cleanup: false,
+            reasoning: String::new(),
         }
     }
 }

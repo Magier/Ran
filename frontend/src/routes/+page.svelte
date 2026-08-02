@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Armory from './components/armory.svelte';
-	import type { Node, TTP } from '$lib/api/index';
+	import type { Node, TTP, ScoredCandidate } from '$lib/api/index';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
 	import { Dialog, Popover, Portal } from '@skeletonlabs/skeleton-svelte';
@@ -285,6 +285,19 @@
 		}
 	}
 
+	// Execute a recommendation against its own target. Selects that target, then
+	// reuses the standard action flow (param modal for parameterized TTPs,
+	// direct execution otherwise).
+	function runRecommendation(rec: ScoredCandidate) {
+		const ttp = campaignState.getTtpById(rec.ttp_id);
+		if (!ttp) {
+			handleError(new Error(`Unknown TTP: ${rec.ttp_id}`));
+			return;
+		}
+		selectedObjectId = rec.target_id;
+		sendAction(ttp);
+	}
+
 	function closeModal() {
 		showParamModal = false;
 	}
@@ -329,7 +342,26 @@
 		});
 
 		ranAPI.on('ttp-executed', (data) => {
-			timeline.resolveTtpAction(data.CmdId ?? data.ID ?? '', data.Success, data.FailReason);
+			const cmdId = data.CmdId ?? data.ID ?? '';
+			const targetId = data.TargetID ?? '';
+			const execSystemId = data.ExecSystemID ?? '';
+			const differsFromTarget = execSystemId && execSystemId !== targetId;
+			// Resolves the pending entry for UI-initiated actions, or creates the
+			// entry outright for actions driven via MCP / autonomous plans.
+			timeline.recordExecutedTtp({
+				id: cmdId,
+				ttpId: data.TTP?.id ?? '',
+				ttpName: data.TTP?.name ?? data.TTP?.id ?? cmdId,
+				targetId,
+				targetName: campaignState.getEntityById(targetId)?.name ?? targetId,
+				execSystemId: differsFromTarget ? execSystemId : undefined,
+				execSystemName: differsFromTarget
+					? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
+					: undefined,
+				status: data.Success ? 'success' : 'failed',
+				failReason: data.Success ? undefined : data.FailReason,
+				timestamp: new Date()
+			});
 
 			if (data.Success && data.TTP?.id === 'read-file' && data.Args?.PATH) {
 				ranAPI.GetFileContent(data.Args.PATH).then((file) => {
@@ -351,6 +383,83 @@
 				timestamp: new Date()
 			});
 		});
+
+		// Show actions as in-progress the moment they're dispatched — by this UI, an
+		// autonomous plan, MCP, or the CLI — rather than only once they complete.
+		// addTtpAction is idempotent: a UI-initiated action already has a pending
+		// entry, so this enriches it; an externally-driven one creates a fresh one.
+		ranAPI.on('ttp-dispatched', (data) => {
+			const cmdId = data.CmdId ?? data.ID ?? '';
+			const targetId = data.TargetID ?? '';
+			const execSystemId = data.ExecSystemID ?? '';
+			const differsFromTarget = execSystemId && execSystemId !== targetId;
+			timeline.addTtpAction({
+				id: cmdId,
+				ttpId: data.TTP?.id ?? '',
+				ttpName: data.TTP?.name ?? data.TTP?.id ?? cmdId,
+				targetId,
+				targetName: campaignState.getEntityById(targetId)?.name ?? targetId,
+				execSystemId: differsFromTarget ? execSystemId : undefined,
+				execSystemName: differsFromTarget
+					? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
+					: undefined,
+				status: 'pending',
+				timestamp: new Date()
+			});
+		});
+
+		// Seed the timeline from the campaign's existing state so a session attached
+		// to an already-running campaign isn't blank: completed actions from the
+		// execution log, then any in-flight (Ongoing) steps as pending on top. The
+		// id-index dedup makes this safe alongside the live handlers above.
+		ranAPI.GetExecutionRecords()
+			.then((records) => {
+				timeline.backfill(
+					records.map((r) => {
+						const differsFromTarget = r.exec_system_id && r.exec_system_id !== r.target_id;
+						return {
+							id: r.id,
+							ttpId: r.ttp_id,
+							ttpName: r.ttp_name || r.ttp_id || r.id,
+							targetId: r.target_id,
+							targetName: campaignState.getEntityById(r.target_id)?.name ?? r.target_id,
+							execSystemId: differsFromTarget ? r.exec_system_id : undefined,
+							execSystemName: differsFromTarget
+								? (campaignState.getEntityById(r.exec_system_id)?.name ?? r.exec_system_id)
+								: undefined,
+							success: r.success,
+							failReason: r.fail_reason,
+							timestampMs: r.completed_at_ms || r.started_at_ms
+						};
+					})
+				);
+			})
+			.catch((err) => console.error('Timeline backfill failed', err))
+			.finally(() => {
+				ranAPI.GetFlow()
+					.then((flow) => {
+						timeline.backfillPending(
+							flow.steps
+								.filter((s) => s.status === 'Ongoing')
+								.map((s) => {
+									const differsFromTarget = s.executedOn && s.executedOn !== s.targetId;
+									return {
+										id: s.id,
+										ttpId: s.TTP.id,
+										ttpName: s.TTP.name || s.TTP.id || s.id,
+										targetId: s.targetId,
+										targetName: campaignState.getEntityById(s.targetId)?.name ?? s.targetId,
+										execSystemId: differsFromTarget ? s.executedOn : undefined,
+										execSystemName: differsFromTarget
+											? (campaignState.getEntityById(s.executedOn)?.name ?? s.executedOn)
+											: undefined,
+										timestampMs: Date.parse(s.startedAt) || 0
+									};
+								})
+						);
+					})
+					.catch((err) => console.error('Timeline pending backfill failed', err));
+			});
 	});
 
 	onDestroy(() => {
@@ -416,13 +525,13 @@
 	{#if campaignState.isReady()}
 		<!-- Armory panel -->
 		<div
-			class="bg-surface-100-900 flex-shrink-0"
-			class:armory-transition={!isResizing}
+			class="bg-surface-100-900 flex-shrink-0 {isResizing ? '' : 'transition-[width] duration-300 ease-in-out'}"
 			style="width: {armoryCollapsed ? '0px' : `${armoryWidth}px`}; overflow: hidden;"
 		>
 			<Armory
 				class="h-full min-h-0 w-full"
 				action={sendAction}
+				runRecommendation={runRecommendation}
 				targetId={selectedObjectId}
 				target={selectedObject}
 				bind:focusSearch={focusArmorySearch}
@@ -432,7 +541,7 @@
 		<!-- Resize handle -->
 		{#if !armoryCollapsed}
 			<button
-				class="resize-handle w-2 cursor-col-resize flex-shrink-0 border-0 p-0"
+				class="w-px shrink-0 cursor-col-resize border-0 p-0 bg-surface-200-800 hover:bg-primary-500 transition-colors"
 				onmousedown={startResize}
 				aria-label="Resize armory panel"
 			></button>
@@ -441,7 +550,6 @@
 		<!-- Collapse/Expand button -->
 		<button
 			class="absolute left-0 z-50 bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-r-md px-0.5 py-2 opacity-30 hover:opacity-100 transition-all duration-200"
-			class:armory-transition={!isResizing}
 			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`}; bottom: {timeline.open ? 'calc(15rem + 0.5rem)' : '0.5rem'};"
 			onclick={toggleArmoryCollapse}
 			title={armoryCollapsed ? 'Expand armory' : 'Collapse armory'}
@@ -534,24 +642,3 @@
 	{/if}
 
 </div>
-
-<style>
-	.armory-transition {
-		transition: width 0.3s ease-in-out;
-	}
-
-	.resize-handle {
-		background-color: transparent;
-		border-left: 1px solid rgba(128, 128, 128, 0.2);
-		transition: opacity 0.2s ease, border-color 0.2s ease;
-		opacity: 0.6;
-	}
-
-	.resize-handle:hover {
-		opacity: 1;
-		border-color: rgba(128, 128, 128, 0.5);
-	}
-
-
-</style>
-

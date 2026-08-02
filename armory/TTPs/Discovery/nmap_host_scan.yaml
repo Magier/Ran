@@ -29,5 +29,5 @@ procedures:
     command: nmap -sT -sV -F ${CIDR}
     # command: nmap {{if .PingScan}} -sn {{ else }} -sT -sV -F {{end}} ${CIDR}
 effects:
-  - rDNS
+  - network.discovery
 references:

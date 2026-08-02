@@ -36,6 +36,27 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             axum::routing::get(api_handlers::applicable_ttps_handler::<S>),
         )
         .route(
+            "/api/recommendations",
+            axum::routing::get(api_handlers::recommendations_handler::<S>),
+        )
+        .route(
+            "/api/scoring/profile",
+            axum::routing::get(api_handlers::get_scoring_profile_handler::<S>)
+                .put(api_handlers::update_scoring_profile_handler::<S>),
+        )
+        .route(
+            "/api/scoring/profile/save",
+            axum::routing::post(api_handlers::save_scoring_profile_handler::<S>),
+        )
+        .route(
+            "/api/scoring/profile/reset",
+            axum::routing::post(api_handlers::reset_scoring_profile_handler::<S>),
+        )
+        .route(
+            "/api/scoring/calibrate",
+            axum::routing::post(api_handlers::calibrate_scoring_handler::<S>),
+        )
+        .route(
             "/api/action/execute",
             axum::routing::post(api_handlers::execute_action_handler::<S>),
         )
@@ -74,6 +95,14 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
         .route(
             "/api/plans",
             axum::routing::post(api_handlers::execute_plan_handler::<S>),
+        )
+        .route(
+            "/api/plans/available",
+            axum::routing::get(api_handlers::list_plans_handler::<S>),
+        )
+        .route(
+            "/api/plans/load",
+            axum::routing::post(api_handlers::load_plan_handler::<S>),
         )
         .route(
             "/api/plans/export",

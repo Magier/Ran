@@ -84,6 +84,152 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/recommendations:
+    get:
+      summary: Rank recommended next actions
+      description: >-
+        Returns applicable (TTP × target) actions ranked by utility for the
+        current campaign state, using the default scoring profile. Advisory only
+        — the caller decides what to execute. Each candidate includes a
+        per-consideration breakdown for explainability.
+      operationId: getRecommendations
+      parameters:
+        - name: targetId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional — restrict recommendations to a single target entity.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Optional — cap the number of ranked candidates returned.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredCandidate'
+
+  /api/scoring/profile:
+    get:
+      summary: Get the live scoring profile
+      description: >-
+        Returns the current scoring profile — combination mode, the tuning
+        feature flag, and every registered consideration's weight, response
+        curve, and enabled/veto flags.
+      operationId: getScoringProfile
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoringProfile'
+    put:
+      summary: Update the live scoring profile
+      description: >-
+        Replace the live scoring profile (runtime tuning). Gated on the
+        scoring.tuning_ui feature flag; returns 403 when disabled.
+      operationId: updateScoringProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoringProfileUpdate'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoringProfile'
+        '403':
+          description: Tuning disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/scoring/profile/save:
+    post:
+      summary: Persist the live scoring profile
+      description: >-
+        Writes the live scoring profile to its sidecar file (ran.scoring.yaml)
+        so it survives restarts. Gated on the scoring.tuning_ui flag.
+      operationId: saveScoringProfile
+      responses:
+        '200':
+          description: Saved profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoringProfile'
+        '403':
+          description: Tuning disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/scoring/profile/reset:
+    post:
+      summary: Reset the live scoring profile
+      description: >-
+        Reverts the live scoring profile to the configured base and removes any
+        persisted overrides. Gated on the scoring.tuning_ui flag.
+      operationId: resetScoringProfile
+      responses:
+        '200':
+          description: Reset profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoringProfile'
+        '403':
+          description: Tuning disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/scoring/calibrate:
+    post:
+      summary: Calibrate the scoring profile from captured operator decisions
+      description: >-
+        Fit consideration weights from the operator decisions captured during
+        this and prior sessions, so the utility AI reproduces those choices under
+        the same conditions. Returns the fitted profile as a *preview* (not
+        applied) plus fit-quality metrics; apply it via PUT /api/scoring/profile.
+        Gated on the scoring.tuning_ui flag. Returns 409 if no decisions have been
+        captured yet.
+      operationId: calibrateScoring
+      responses:
+        '200':
+          description: Fitted profile preview and metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalibrationResult'
+        '403':
+          description: Tuning disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: No captured decisions to calibrate from
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/flow:
     get:
       summary: Get attack flow
@@ -372,7 +518,62 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-webhooks: 
+  /api/plans/available:
+    get:
+      summary: List available plans
+      description: Lists pre-defined plans found in the configured plans directory (ran.yaml `plans.dir`, defaulting to `plans/`).
+      operationId: listPlans
+      responses:
+        '200':
+          description: Available plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlanSummary'
+        '500':
+          description: Failed to read the plans directory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/plans/load:
+    post:
+      summary: Load and execute a plan
+      description: Reads a plan by file name from the configured plans directory and starts executing it. Returns the started plan's id.
+      operationId: loadPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadPlanRequest'
+      responses:
+        '200':
+          description: Plan started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plan_id:
+                    type: string
+        '400':
+          description: Invalid plan filename or plan failed to parse
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Plan not found in the plans directory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+webhooks:
   armory-loaded:
     post:
       summary: Armory loaded webhook
@@ -395,6 +596,35 @@ webhooks:
 
 components:
   schemas:
+    PlanSummary:
+      type: object
+      required:
+        - filename
+        - id
+        - name
+        - steps
+      properties:
+        filename:
+          type: string
+          description: File name within the plans directory (pass to /api/plans/load)
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        steps:
+          type: integer
+          description: Number of steps in the plan
+    LoadPlanRequest:
+      type: object
+      required:
+        - filename
+      properties:
+        filename:
+          type: string
+          description: File name of the plan within the configured plans directory
     Graph:
       type: object
       required:
@@ -508,6 +738,8 @@ components:
         - actionId
         - targetId
         - command
+        - traversal
+        - innerCommand
         - TTP
         - procedureId
         - executedOn
@@ -525,6 +757,20 @@ components:
           type: string
         command:
           type: string
+        traversal:
+          type: array
+          description: >-
+            Per-hop breakdown of a multi-system command traversal, ordered from
+            the C2 entry point (outermost envelope) to the final target
+            (innermost). Empty for direct/single-hop commands.
+          items:
+            $ref: '#/components/schemas/TraversalHop'
+        innerCommand:
+          type: string
+          description: >-
+            The bare inner command as it runs on the final target system,
+            before any hop envelopes wrap it. Empty when there is no multi-hop
+            traversal.
         args:
           type: object
           additionalProperties:
@@ -558,6 +804,38 @@ components:
             type: string
         defense:
           $ref: '#/components/schemas/TTPDefense'
+
+    TraversalHop:
+      type: object
+      description: >-
+        One segment of a multi-hop command traversal: the command as it is
+        handed from `fromId` to `toId`, and the envelope template applied at
+        this layer.
+      required:
+        - fromId
+        - toId
+        - relation
+        - command
+      properties:
+        fromId:
+          type: string
+          description: Entity executing this segment; the C2 backend id for the first hop.
+        toId:
+          type: string
+          description: Entity reached by this segment.
+        relation:
+          type: string
+          description: >-
+            Relation/channel name driving this hop (e.g. `kubelet-exec`,
+            `rce.can-exec`, `kubectl-exec`, or `builtin-exec` for the C2 entry).
+        envelope:
+          type: string
+          description: >-
+            The command-wrapping template with `${CMD}` placeholder applied at
+            this hop. Absent for the C2 entry hop and pass-through segments.
+        command:
+          type: string
+          description: The full command string sent across this segment — what `fromId` runs.
 
     TTP:
       type: object
@@ -710,6 +988,14 @@ components:
           type: object
           additionalProperties:
             type: string
+        reasoning:
+          type: string
+          description: >
+            Free-text rationale for choosing this action at this point in the
+            assessment — why this TTP against this target now. Optional, but
+            strongly encouraged when driving the campaign programmatically: it
+            is stored on the resulting execution record so the timeline is
+            self-explaining and auditable.
 
     K8sResource:
       type: object
@@ -848,6 +1134,11 @@ components:
           type: integer
           format: int64
           description: Unix timestamp in milliseconds when the result was received
+        reasoning:
+          type: string
+          description: >
+            Caller-supplied rationale for why this action was run, as passed to
+            the execute-action request. Empty when none was given.
         parseAudits:
           type: array
           items:
@@ -919,6 +1210,218 @@ components:
           type: string
         details:
           type: string
+
+    ConsiderationScore:
+      type: object
+      description: One consideration's contribution to a candidate's score.
+      required:
+        - name
+        - kind
+        - raw
+        - curved
+        - weight
+        - veto
+      properties:
+        name:
+          type: string
+          description: Consideration identifier (e.g. "privilege_gain").
+        kind:
+          type: string
+          description: Whether this consideration contributes to utility or belief state.
+          enum:
+            - utility
+            - belief
+        raw:
+          type: number
+          format: float
+          description: Raw measurement in [0, 1].
+        curved:
+          type: number
+          format: float
+          description: Measurement after the profile's response curve.
+        weight:
+          type: number
+          format: float
+          description: Weight applied from the profile.
+        veto:
+          type: boolean
+          description: Whether this consideration acted as a multiplicative veto.
+
+    ScoredCandidate:
+      type: object
+      description: A scored, grounded (TTP × target) action.
+      required:
+        - ttp_id
+        - target_id
+        - utility
+        - utility_score
+        - success_probability
+        - breakdown
+      properties:
+        ttp_id:
+          type: string
+        target_id:
+          type: string
+        utility:
+          type: number
+          format: float
+          description: Final ranking score in [0, 1], equal to utility_score × success_probability.
+        utility_score:
+          type: number
+          format: float
+          description: Intrinsic desirability of the action if it succeeds.
+        success_probability:
+          type: number
+          format: float
+          description: Belief-state probability that the action can be grounded and succeed.
+        breakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsiderationScore'
+
+    CombinationMode:
+      type: string
+      description: How per-consideration scores are combined into one utility.
+      enum:
+        - weighted_arithmetic
+        - weighted_geometric
+        - iaus_multiplicative
+
+    ResponseCurve:
+      type: object
+      description: >-
+        A response curve mapping a raw measurement in [0,1] to a tuned score in
+        [0,1], internally tagged by `type`. Only the fields for the active type
+        are meaningful (linear: slope/intercept; polynomial: exponent/slope/
+        intercept; logistic: steepness/midpoint; step: threshold).
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [linear, polynomial, logistic, step]
+        slope:
+          type: number
+          format: float
+        intercept:
+          type: number
+          format: float
+        exponent:
+          type: number
+          format: float
+        steepness:
+          type: number
+          format: float
+        midpoint:
+          type: number
+          format: float
+        threshold:
+          type: number
+          format: float
+
+    NamedConsideration:
+      type: object
+      description: A consideration's tunable config, tagged with its name.
+      required:
+        - name
+        - weight
+        - curve
+        - enabled
+        - veto
+      properties:
+        name:
+          type: string
+        weight:
+          type: number
+          format: float
+        curve:
+          $ref: '#/components/schemas/ResponseCurve'
+        enabled:
+          type: boolean
+        veto:
+          type: boolean
+
+    ScoringProfile:
+      type: object
+      description: The live scoring profile.
+      required:
+        - combination
+        - tuningEnabled
+        - considerations
+      properties:
+        combination:
+          $ref: '#/components/schemas/CombinationMode'
+        tuningEnabled:
+          type: boolean
+          description: Whether the tuning UI feature flag is enabled.
+        considerations:
+          type: array
+          items:
+            $ref: '#/components/schemas/NamedConsideration'
+
+    ScoringProfileUpdate:
+      type: object
+      description: A scoring-profile update (runtime tuning).
+      required:
+        - combination
+        - considerations
+      properties:
+        combination:
+          $ref: '#/components/schemas/CombinationMode'
+        considerations:
+          type: array
+          items:
+            $ref: '#/components/schemas/NamedConsideration'
+
+    CalibrationMetrics:
+      type: object
+      description: Fit-quality metrics from a calibration run.
+      required:
+        - decisions
+        - top1Accuracy
+        - meanChosenProb
+        - minChosenProb
+        - logLikelihood
+        - infeasible
+        - converged
+      properties:
+        decisions:
+          type: integer
+          description: Number of captured decisions the fit used.
+        top1Accuracy:
+          type: number
+          format: float
+          description: Fraction of decisions where the operator's choice ranks first.
+        meanChosenProb:
+          type: number
+          format: float
+          description: Mean probability the fitted model assigns the operator's choices.
+        minChosenProb:
+          type: number
+          format: float
+          description: Worst per-decision probability assigned to an operator choice.
+        logLikelihood:
+          type: number
+          format: float
+        infeasible:
+          type: integer
+          description: >-
+            Decisions whose choice is Pareto-dominated — unreproducible by any
+            non-negative weighting, signalling a missing consideration.
+        converged:
+          type: boolean
+
+    CalibrationResult:
+      type: object
+      description: A calibration preview — the fitted profile plus fit metrics.
+      required:
+        - profile
+        - metrics
+      properties:
+        profile:
+          $ref: '#/components/schemas/ScoringProfile'
+        metrics:
+          $ref: '#/components/schemas/CalibrationMetrics'
 
     OwnerRef:
       type: object

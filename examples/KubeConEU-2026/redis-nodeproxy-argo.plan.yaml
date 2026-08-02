@@ -1,0 +1,205 @@
+# KubeCon EU 2026 — Redis → Node/Proxy → Argo → Node takeover
+#
+# Executable Ran plan generated from redis-nodeproxy-argo.txt.
+# Run with:  POST /api/plans   (body = this YAML)
+#
+# Conventions used here:
+#   - `action` is the TTP id, which Ran derives as slugify(name) when a TTP has
+#     no explicit `id:` field (true for every TTP below).
+#   - Targets use the minimal form: `namespace:` + `name:` regex (kind defaults
+#     to Pod when omitted). For workload-managed pods the name is a prefix
+#     pattern (e.g. `entry-hall-.*`); for stable names an exact string suffices.
+#   - Most parameters (TOKEN, API_SERVER, ${TARGET.IP}, ${NODE_NAME}, …) are left
+#     unset so the campaign grounds them from the target/source context at exec
+#     time. Literal args are given only where the scenario dictates a value.
+#   - Ordering is expressed with depends_on. `require: success` is a hard gate
+#     (dependents are skipped if it fails); the rce edge also uses a graph
+#     predicate so the redis-token read only fires once the exec edge exists.
+#
+# See redis-nodeproxy-argo.README.md for the full action-id table and the
+# assumptions you must confirm against the live cluster (marked ⚠ in notes).
+
+id: redis-nodeproxy-argo
+name: "Redis → Node/Proxy → Argo → Node takeover"
+description: >
+  Kill chain from an unprivileged foothold in the dungeon/entry-hall pod to a
+  */* token: situational awareness, lateral movement to redis via an RCE CVE,
+  node/proxy enumeration to reach argo behind a network policy, and token theft
+  up to cluster-admin-equivalent permissions. The optional escape to the host
+  node for the super-admin kubeconfig is the chained node-escalation.plan.yaml.
+version: "1.0"
+
+steps:
+  # ── Phase 0: initial access — establish the foothold ────────────────────────
+  # The campaign starts knowing only the Cluster and the C2; the entry-hall pod
+  # is NOT yet a known entity. Initial access targets the Cluster and names the
+  # pod as a parameter; its effect creates the pod entity and a can-exec edge, so
+  # every later step can target `dungeon/entry-hall`.
+  - id: initial_access
+    action: initial-access-pod-exec
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    note: "Initial access: kubectl-exec into the dungeon/entry-hall foothold pod."
+
+  # ── Phase 1: situational awareness (foothold = dungeon/entry-hall) ──────────
+  - id: recon_env
+    action: read-environment-variables
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    depends_on:
+      - { step: initial_access, require: success }
+    note: "Learn we're in a k8s pod — read /proc/self/environ + env."
+
+  - id: recon_user
+    action: get-user-id
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    depends_on:
+      - { step: initial_access, require: success }
+    note: "whoami / id."
+
+  - id: read_entry_token
+    action: read-service-account-token
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    depends_on:
+      - { step: recon_env, require: completion }
+    note: >
+      Read the mounted SA token; effect also yields Pod/ServiceAccount/Namespace
+      names and the node the pod runs on. ⚠ slug collision: two TTPs are named
+      "Read Service Account Token" (own-pod and remote-pod variants) → both slug
+      to `read-service-account-token`; only the first-loaded one is reachable by
+      id. See README.
+
+  - id: check_entry_token
+    action: check-token-permissions
+    target: { kind: ServiceAccount, namespace: dungeon, name: player }
+    retry: next_procedure
+    depends_on:
+      - { step: read_entry_token, require: success }
+    note: "SelfSubjectRulesReview on the foothold token → expected: no useful creds."
+
+  # Optional deeper discovery
+  - id: recon_mounts
+    action: get-volumemounts
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    depends_on:
+      - { step: recon_env, require: completion }
+    note: "Optional: enumerate volume mounts."
+
+  # ── Phase 2: lateral movement to redis (oopservability) ─────────────────────
+  - id: get_ip
+    action: get-local-ip-address
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    depends_on:
+      - { step: initial_access, require: success }
+    note: "Local IP → seeds the CIDR for scanning."
+
+  - id: nmap_attempt
+    action: nmap-host-scan
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    depends_on:
+      - { step: get_ip, require: success }
+    note: >
+      First nmap attempt — expected to FAIL: nmap isn't installed (precondition
+      sys.has-binary=nmap unmet). Models the live demo beat. Dependents below do
+      NOT depend on this step's success.
+
+  - id: install_nmap
+    action: install-package
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    args: { PKG: nmap }
+    depends_on:
+      - { step: get_ip, require: success }
+    note: "apt/apk install nmap → effect sys.has-binary(nmap)."
+
+  - id: nmap_scan
+    action: nmap-host-scan
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    depends_on:
+      - { step: install_nmap, require: success }
+    note: "Re-run nmap now that it's installed → discovers redis in oopservability."
+
+  - id: install_redis_tools
+    action: install-package
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    args: { PKG: redis-tools }
+    depends_on:
+      - { step: nmap_scan, require: success }
+    note: "redis-cli for fingerprinting + the RCE."
+
+  - id: exploit_redis
+    action: exploit-redis-cve-2022-0543
+    target: { namespace: oopservability, name: "redis.*" }
+    depends_on:
+      - { step: install_redis_tools, require: success }
+    note: >
+      Redis RCE → establishes an exec edge (effect rce.can-exec). ⚠ scenario text
+      names CVE-2025-49844; the armory only ships exploit-redis-cve-2022-0543
+      (the closest redis RCE). Swap the action once a 49844 TTP is added.
+
+  - id: read_redis_token
+    action: read-service-account-token
+    target: { namespace: oopservability, name: "redis.*" }
+    depends_on:
+      - { step: exploit_redis, require: success }
+    note: "Read the redis pod's SA token over the new exec edge."
+
+  - id: check_redis_token
+    action: check-token-permissions
+    target: { kind: ServiceAccount, namespace: oopservability, name: "redis.*" }
+    exec_target: { namespace: dungeon, name: "entry-hall-.*" }
+    retry: next_procedure
+    depends_on:
+      - { step: read_redis_token, require: success }
+    note: >
+      Check the stolen token's permissions. Per the scenario the check can't run
+      on the redis pod (no curl/kubectl) and is performed from the entry-hall
+      context; Ran grounds the exec channel. Expected to reveal GET nodes/proxy.
+
+  # ── Phase 3: node/proxy → reach argo behind the network policy ──────────────
+  - id: node_proxy_pods
+    action: get-pods-via-node-proxy
+    target: { kind: Node, select: all }
+    exec_target: { namespace: dungeon, name: "entry-hall-.*" }
+    token: { kind: ServiceAccount, namespace: oopservability, name: "redis.*" }
+    args:
+      NODE: ${TARGET.NAME}
+    depends_on:
+      - { step: check_redis_token, require: success }
+    note: >
+      Use GET nodes/proxy to list pods on the node via the kubelet → surfaces the
+      argo install that the network policy hid. ⚠ target picks the first Node;
+      pin a name if the demo runs multi-node.
+
+  - id: drop_ranws
+    action: drop-ran-ws-binary
+    target: { namespace: dungeon, name: "entry-hall-.*" }
+    retry: same_procedure
+    depends_on:
+      - { step: node_proxy_pods, require: success }
+    note: "Drop ran-ws → effect k8s.kubelet-exec on all nodes (RCE on pods via kubelet)."
+
+  - id: read_argo_token
+    action: read-service-account-token
+    target: { kind: ServiceAccount, namespace: argocd, name: argocd-application-controller }
+    exec_target: { kind: Pod, namespace: argocd, name: "argocd-application-controller.*" }
+    depends_on:
+      - { step: node_proxy_pods, require: success }
+      - { step: drop_ranws, require: success }
+    note: >
+      Read the argocd-application-controller SA token from inside the controller
+      pod by explicitly setting exec_target to the controller pod (matches the
+      manual UI flow that succeeds in environments where kubelet proxy exec is
+      RBAC-blocked). Default Argo CD *core* install: namespace argocd,
+      controller is a StatefulSet (stable pod argocd-application-controller-0),
+      SA argocd-application-controller.
+
+  - id: check_argo_token
+    action: check-token-permissions
+    target: { kind: ServiceAccount, namespace: argocd, name: argocd-application-controller }
+    exec_target: { namespace: dungeon, name: "entry-hall-.*" }
+    retry: next_procedure
+    depends_on:
+      - { step: read_argo_token, require: success }
+    note: >
+      Check the argo controller token → expected */* (cluster-admin-equivalent).
+      End of this plan. The optional escape to the underlying node (deploy a
+      host-mounted pod → read the super-admin kubeconfig) is a separate, chained
+      plan: node-escalation.plan.yaml — run it in the same campaign afterwards.

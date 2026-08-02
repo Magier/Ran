@@ -34,6 +34,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         started_at_ms: 0,
         output_transform: None,
         is_cleanup: false,
+        reasoning: String::new(),
     }
 }
 
@@ -424,6 +425,7 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
         started_at_ms: 1,
         completed_at_ms: 2,
         is_cleanup: false,
+        reasoning: String::new(),
     });
 
     let ch = campaign
@@ -527,6 +529,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         started_at_ms: 1,
         completed_at_ms: 2,
         is_cleanup: false,
+        reasoning: String::new(),
     });
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-2".to_string(),
@@ -545,6 +548,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         started_at_ms: 3,
         completed_at_ms: 4,
         is_cleanup: false,
+        reasoning: String::new(),
     });
 
     let ch = campaign.resolve_exec_source().expect("should find source");
@@ -678,6 +682,7 @@ fn action_request(target_id: &str, exec_system_id: Option<&str>) -> ExecuteActio
         exec_system_id: exec_system_id.map(str::to_string),
         procedure_id: None,
         args: HashMap::new(),
+        reasoning: None,
     }
 }
 
@@ -740,10 +745,8 @@ fn prepare_action_wraps_hops_using_relation_metadata_and_sets_output_transform()
         "outer wrapper should use relation envelope"
     );
     assert!(
-        exec.procedure
-            .command
-            .contains("kubectl exec -n argocd victim -- id"),
-        "inner hop should target final pod"
+        exec.procedure.command.contains("ran-ws --token test -- id"),
+        "inner command should be passed through directly for kubelet sink hop"
     );
 }
 
@@ -792,6 +795,7 @@ fn prepare_action_expands_object_headers_into_multiple_flags() {
                 exec_system_id: None,
                 procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
+                reasoning: None,
             },
             &armory,
         )
@@ -848,6 +852,7 @@ fn prepare_action_materializes_abstract_http_request_procedure() {
                 exec_system_id: None,
                 procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
+                reasoning: None,
             },
             &armory,
         )
@@ -908,6 +913,7 @@ fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
                 exec_system_id: None,
                 procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
+                reasoning: None,
             },
             &armory,
         )
@@ -1025,6 +1031,7 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
                 exec_system_id: Some(source_id.clone()),
                 procedure_id: None,
                 args: HashMap::new(),
+                reasoning: None,
             },
             &armory,
         )
@@ -1062,6 +1069,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         started_at_ms: 0,
         output_transform: None,
         is_cleanup: false,
+        reasoning: String::new(),
     }
 }
 
@@ -1350,6 +1358,7 @@ fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
                 exec_system_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                reasoning: None,
             },
             &armory,
         )
@@ -1365,9 +1374,209 @@ fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
     assert!(
         exec.procedure
             .command
-            .contains("kubectl exec -n argocd argocd-application-controller-0 -- cat /var/run/secrets/kubernetes.io/serviceaccount/token"),
-        "expected wrapped kubectl inner command in ran-ws envelope, got: {}",
+            .contains("ran-ws --token abc.jwt.token -- cat /var/run/secrets/kubernetes.io/serviceaccount/token"),
+        "expected direct inner command in ran-ws envelope, got: {}",
         exec.procedure.command
+    );
+    assert!(
+        !exec.procedure.command.contains("kubectl exec -n argocd"),
+        "kubelet sink hop should not inject kubectl exec, got: {}",
+        exec.procedure.command
+    );
+}
+
+#[test]
+fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let attacker = Pod::new("entry-hall-pod", "default");
+    let attacker_id = attacker.entity_id().0.clone();
+    campaign.entities.insert_typed(attacker);
+    push_exec_edge(&mut campaign, "sa/default/ran", &attacker_id);
+
+    let node = K8sNode::new("cplane-01");
+    let node_id = node.entity_id().0.clone();
+    campaign.entities.insert_typed(node);
+
+    let mut target = Pod::new("argocd-application-controller-0", "argocd");
+    target.containers.push(Container {
+        name: "main".to_string(),
+        image: "argocd/controller".to_string(),
+        volume_mounts: vec![],
+    });
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+
+    // Historical edge shape: kubelet source relation exists but carries no
+    // envelope metadata (e.g. from drop-ran-ws marker expansion).
+    push_relation(
+        &mut campaign,
+        &ran_domain::KubeletExecSource::new(&attacker_id, &node_id),
+    );
+    push_kubelet_exec_edge(&mut campaign, &node_id, &target_id);
+
+    let armory = armory_with_command(
+        "test-kubelet-fallback",
+        "cat /var/run/secrets/kubernetes.io/serviceaccount/token",
+        None,
+    );
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "test-kubelet-fallback".to_string(),
+                target_id: target_id.clone(),
+                exec_system_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("should build kubelet sink fallback command");
+
+    assert!(
+        exec.procedure.command.contains("ran-ws --url"),
+        "expected ran-ws direct kubelet command, got: {}",
+        exec.procedure.command
+    );
+    assert!(
+        exec.procedure
+            .command
+            .contains("--token \"$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\""),
+        "expected fallback ran-ws token sourcing from pod SA token, got: {}",
+        exec.procedure.command
+    );
+    assert!(
+        exec.procedure.command.contains(
+            "/exec/argocd/argocd-application-controller-0/main?output=1&error=1&command="
+        ),
+        "expected kubelet exec endpoint for target pod, got: {}",
+        exec.procedure.command
+    );
+    assert!(
+        exec.procedure
+            .command
+            .contains("cat%20%2Fvar%2Frun%2Fsecrets%2Fkubernetes.io%2Fserviceaccount%2Ftoken"),
+        "expected URL-encoded inner command, got: {}",
+        exec.procedure.command
+    );
+    assert!(
+        !exec.procedure.command.contains("kubectl exec -n argocd"),
+        "fallback should avoid kubectl sink wrapping, got: {}",
+        exec.procedure.command
+    );
+    assert_eq!(
+        exec.output_transform,
+        Some(c2::OutputTransform::JsonEnvelope),
+        "kubelet fallback should set JSON envelope output transform"
+    );
+}
+
+#[test]
+fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_serviceaccount_target() {
+    // Regression: when target is a ServiceAccount and caller provides an
+    // explicit exec source pod, execution should stay on that source (legacy
+    // behavior), not auto-route to a pod that uses the target SA.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let entry = Pod::new("entry-hall", "dungeon");
+    let entry_id = entry.entity_id().0.clone();
+    campaign.entities.insert_typed(entry);
+    push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
+
+    let target_pod = Pod::new("argocd-application-controller-0", "argocd");
+    let target_pod_id = target_pod.entity_id().0.clone();
+    campaign.entities.insert_typed(target_pod);
+
+    let sa = ServiceAccount::new("argocd-application-controller", "argocd");
+    let sa_id = sa.entity_id().0.clone();
+    campaign.entities.insert_typed(sa);
+    push_relation(&mut campaign, &Uses::new(&target_pod_id, &sa_id));
+
+    let armory = armory_with_command(
+        "read-token",
+        "cat /var/run/secrets/kubernetes.io/serviceaccount/token",
+        None,
+    );
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "read-token".to_string(),
+                target_id: sa_id.clone(),
+                exec_system_id: Some(entry_id.clone()),
+                procedure_id: None,
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("should route from caller-supplied source to SA pod");
+
+    assert_eq!(exec.target_id, sa_id, "semantic target must stay the SA");
+    assert_eq!(
+        exec.exec_entity(),
+        entry_id,
+        "caller-selected source must stay the execution entity"
+    );
+    assert_eq!(
+        exec.exec_chain,
+        vec![entry_id.clone()],
+        "non-system target with caller-supplied source should execute directly on source"
+    );
+}
+
+#[test]
+fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_node_target() {
+    // Regression: node-proxy actions target a Node semantically but should run
+    // on the caller-selected foothold pod. Do not require an exec-channel path
+    // from source pod to node.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let entry = Pod::new("entry-hall", "dungeon");
+    let entry_id = entry.entity_id().0.clone();
+    campaign.entities.insert_typed(entry);
+    push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
+
+    let node = K8sNode::new("cplane-01");
+    let node_id = node.entity_id().0.clone();
+    campaign.entities.insert_typed(node);
+
+    let armory = armory_with_command(
+        "node-proxy-check",
+        "kubectl get --raw /api/v1/nodes/${NODE}/proxy/pods",
+        None,
+    );
+
+    let mut args = HashMap::new();
+    args.insert("NODE".to_string(), "cplane-01".to_string());
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "node-proxy-check".to_string(),
+                target_id: node_id.clone(),
+                exec_system_id: Some(entry_id.clone()),
+                procedure_id: None,
+                args,
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("node target with caller source should execute from source pod");
+
+    assert_eq!(
+        exec.target_id, node_id,
+        "semantic target must stay the node"
+    );
+    assert_eq!(
+        exec.exec_entity(),
+        entry_id,
+        "caller-selected source must remain execution entity"
+    );
+    assert_eq!(
+        exec.exec_chain,
+        vec![entry_id.clone()],
+        "node target should not force source->node exec-channel traversal"
     );
 }
 
@@ -1443,6 +1652,7 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
                 target_id: redis_id,
                 procedure_id: None,
                 args: HashMap::new(),
+                reasoning: None,
             },
             &armory,
         )
@@ -2159,6 +2369,7 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
                 exec_system_id: Some(exec_id.clone()),
                 procedure_id: None,
                 args: HashMap::new(),
+                reasoning: None,
             },
             &armory,
         )
@@ -2260,6 +2471,7 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         started_at_ms: 0,
         completed_at_ms: 1,
         is_cleanup: false,
+        reasoning: String::new(),
     });
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-2".to_string(),
@@ -2278,6 +2490,7 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         started_at_ms: 2,
         completed_at_ms: 3,
         is_cleanup: false,
+        reasoning: String::new(),
     });
 
     let armory = cleanup_armory();
@@ -2322,6 +2535,7 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
         started_at_ms: 0,
         completed_at_ms: 1,
         is_cleanup: false,
+        reasoning: String::new(),
     });
 
     let armory = cleanup_armory();

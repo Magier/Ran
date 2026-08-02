@@ -1498,7 +1498,7 @@ impl InferenceRule for IpBasedSystemMergeAnalyzer {
                         continue;
                     }
                     if pod.system.ips.contains(&ip) {
-                        tracing::info!(
+                        tracing::debug!(
                             placeholder = %existing_id.0,
                             pod = %pod_id.0,
                             %ip,
@@ -1536,7 +1536,7 @@ impl InferenceRule for IpBasedSystemMergeAnalyzer {
                         continue;
                     }
                     if auth_pod.system.ips.contains(&ip) {
-                        tracing::info!(
+                        tracing::debug!(
                             placeholder = %new_pod_id.0,
                             pod = %auth_id.0,
                             %ip,

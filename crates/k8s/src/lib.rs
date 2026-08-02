@@ -139,6 +139,10 @@ impl K8sService {
     {
         let client = self.client.clone();
         let jh = tokio::spawn(async move {
+            const WATCH_RETRY_BASE_MS: u64 = 500;
+            const WATCH_RETRY_MAX_MS: u64 = 30_000;
+            const WATCH_RETRY_MAX_ATTEMPTS: u32 = 8;
+
             let api: Api<Pod> = match namespace.as_deref().filter(|ns| !ns.is_empty()) {
                 Some(ns) => Api::namespaced(client, ns),
                 None => Api::all(client),
@@ -168,8 +172,17 @@ impl K8sService {
                     Ok(_) => consecutive_errors = 0,
                     Err(e) => {
                         consecutive_errors += 1;
-                        // Cap backoff at 30 s; first error waits 500 ms.
-                        let delay_ms = (500u64 * (1u64 << consecutive_errors.min(6))).min(30_000);
+                        if consecutive_errors >= WATCH_RETRY_MAX_ATTEMPTS {
+                            tracing::error!(
+                                "watch_pods: giving up after {} consecutive errors: {e}",
+                                consecutive_errors
+                            );
+                            break;
+                        }
+
+                        // Cap backoff at WATCH_RETRY_MAX_MS; first error waits WATCH_RETRY_BASE_MS.
+                        let delay_ms = (WATCH_RETRY_BASE_MS * (1u64 << consecutive_errors.min(6)))
+                            .min(WATCH_RETRY_MAX_MS);
                         tracing::warn!(
                             "watch_pods: watcher error (will retry in {}ms, attempt {}): {e}",
                             delay_ms,

@@ -99,9 +99,6 @@ importers:
       eslint-plugin-svelte:
         specifier: ^3.17.1
         version: 3.17.1(eslint@9.39.4(jiti@2.6.1))(svelte@5.55.5(@typescript-eslint/types@8.59.0))
-      game-icons:treasure-map:
-        specifier: link:@iconify-json/game-icons:treasure-map
-        version: link:@iconify-json/game-icons:treasure-map
       globals:
         specifier: ^16.5.0
         version: 16.5.0

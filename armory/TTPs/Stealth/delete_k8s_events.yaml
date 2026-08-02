@@ -1,6 +1,6 @@
 name: Delete Kubernetes Events
 description: Deletes all Kubernetes events to avoid detection of malicious activity
-tactic: Defense Evasion
+tactic: Stealth
 techniques: ["Indicator Removal", "T1070"]
 parameters:
   NAMESPACE:
@@ -16,7 +16,7 @@ procedures:
     command: kubectl delete events --all -n ${NAMESPACE}
 preconditions:
   kind: ServiceAccount
-  rbac: 
+  rbac:
     - verb: delete
       resource: events
 # effects: []

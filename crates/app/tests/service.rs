@@ -94,9 +94,14 @@ async fn app_state_get_and_reset_campaign_without_cli() {
         c2_handle,
         armory,
         app::config::NamespaceFilter::default(),
+        utility_ai::Profile::default(),
+        utility_ai::Profile::default(),
+        None,
+        false,
         "Test".to_string(),
         campaign_cluster,
         campaign_events,
+        std::path::PathBuf::from("plans"),
     );
 
     // get_campaign — should return a freshly bootstrapped campaign.

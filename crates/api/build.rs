@@ -140,6 +140,28 @@ pub trait ApiService: Clone + Send + Sync + 'static {
 
     async fn get_campaign(&self) -> Result<campaign::Campaign, ApiError>;
 
+    /// The live scoring profile (combination mode + per-consideration config)
+    /// for action selection.
+    fn scoring_profile(&self) -> utility_ai::Profile;
+
+    /// Replace the live scoring profile (runtime tuning).
+    fn set_scoring_profile(&self, profile: utility_ai::Profile);
+
+    /// Persist the live scoring profile to its sidecar file so it survives
+    /// restarts.
+    fn save_scoring_profile(&self) -> Result<(), String>;
+
+    /// Revert the live scoring profile to the configured base and drop any
+    /// persisted overrides. Returns the resulting profile.
+    fn reset_scoring_profile(&self) -> utility_ai::Profile;
+
+    /// Fit a scoring profile from the operator decisions captured so far.
+    /// `None` when nothing has been captured yet.
+    fn calibrate_scoring(&self) -> Option<utility_ai::Calibration>;
+
+    /// Whether the frontend scoring-tuning UI is enabled (feature flag).
+    fn scoring_tuning_enabled(&self) -> bool;
+
     async fn reset_campaign(&self) -> Result<(), ApiError>;
 
     async fn start_pod_watch(&self, namespace: Option<String>) -> Result<(), ApiError>;
@@ -151,6 +173,13 @@ pub trait ApiService: Clone + Send + Sync + 'static {
     async fn get_plan_status(&self, plan_id: &str) -> Result<serde_json::Value, ApiError>;
 
     async fn export_plan(&self, include_failed: bool) -> Result<String, ApiError>;
+
+    /// List pre-defined plans available in the configured plans directory.
+    async fn list_plans(&self) -> Result<Vec<serde_json::Value>, ApiError>;
+
+    /// Load a plan by file name from the plans directory and start executing it.
+    /// Returns the started plan's id.
+    async fn load_plan(&self, filename: String) -> Result<String, ApiError>;
 }
 
 pub fn router<S: ApiService>(service: S) -> Router {

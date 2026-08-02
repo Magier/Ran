@@ -12,6 +12,15 @@ pub struct ExecuteActionRequest {
     pub target_id: String,
     pub procedure_id: Option<String>,
     pub args: HashMap<String, String>,
+    /// Free-text rationale for choosing this action at this point in the
+    /// assessment — why this TTP against this target now. Captured for the
+    /// audit trail; carried through to the [`ExecutionRecord`]. Optional, but
+    /// strongly encouraged when driving the campaign programmatically (API /
+    /// MCP) so the resulting timeline is self-explaining.
+    ///
+    /// [`ExecutionRecord`]: crate::ExecutionRecord
+    #[serde(default)]
+    pub reasoning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

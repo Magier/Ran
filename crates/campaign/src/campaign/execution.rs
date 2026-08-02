@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, OutputTransform, TtpExecuted, BUILTIN_C2_ID};
@@ -19,6 +20,7 @@ use crate::shell_cmd::ground_binaries;
 use crate::{FactsUpdate, ParseResult};
 
 use crate::execution_record::ExecutionRecord;
+use crate::traversal::{CommandTraversal, TraversalHop};
 
 use super::{
     Campaign, CampaignSystemEntityRef, ExecChannel, ExecuteActionError, ExecuteActionRequest,
@@ -64,6 +66,12 @@ fn normalise_exec_hint(exec_system_id: Option<&str>, target_id: &str) -> Option<
         .map(str::trim)
         .filter(|s| !s.is_empty() && *s != target_id)
         .map(str::to_string)
+}
+
+/// Local C2-side control commands that should never require an exec channel.
+fn is_local_control_command(cmd: &str) -> bool {
+    let trimmed = cmd.trim_start();
+    trimmed.starts_with("setTarget(") || trimmed == "noop"
 }
 
 /// Ground the procedure command and all TTP effects with the collected args.
@@ -419,10 +427,59 @@ fn materialize_abstract_http_request(
 /// before grounding so that effect strings like
 /// `rce.can-exec(${SRC}, ${TARGET_ID})` are fully grounded.
 ///
+/// Resolved execution routing: where a command runs, how its output must be
+/// decoded, and — for multi-hop paths — the per-hop traversal breakdown.
+struct ExecRoute {
+    /// C2 backend id to dispatch through.
+    backend_id: String,
+    /// Semantic target entity id (attribution); always the request's target.
+    target_id: String,
+    /// Ordered physical execution hops from the C2 entry point to the target.
+    exec_chain: Vec<String>,
+    /// Output post-processing required before parsers run.
+    output_transform: Option<OutputTransform>,
+    /// Per-hop traversal breakdown for multi-hop routing, ordered from the C2
+    /// entry point (outermost envelope) to the final target (innermost). Empty
+    /// for direct/single-hop and local commands.
+    traversal: Vec<TraversalHop>,
+    /// Bare inner command on the final target, before any hop envelopes wrap
+    /// it. Empty when there is no multi-hop traversal.
+    inner_command: String,
+}
+
+/// Result of wrapping a command across intermediate hops.
+struct HopWrap {
+    /// Output post-processing required before parsers run.
+    output_transform: Option<OutputTransform>,
+    /// Per-hop traversal breakdown, outermost (C2) → innermost (target).
+    traversal: Vec<TraversalHop>,
+    /// Bare inner command on the final target, before any hop envelopes.
+    inner_command: String,
+}
+
+impl ExecRoute {
+    /// A direct/single-hop or local route with no per-hop traversal.
+    fn direct(
+        backend_id: String,
+        target_id: String,
+        exec_chain: Vec<String>,
+        output_transform: Option<OutputTransform>,
+    ) -> Self {
+        Self {
+            backend_id,
+            target_id,
+            exec_chain,
+            output_transform,
+            traversal: Vec::new(),
+            inner_command: String::new(),
+        }
+    }
+}
+
 fn route_lateral_movement(
     lateral_src: Option<ExecChannel>,
     target_id: &str,
-) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
+) -> Result<ExecRoute, ExecuteActionError> {
     let ch = lateral_src.ok_or_else(|| {
         ExecuteActionError::InvariantViolation(
             "lateral movement exec source should have been resolved before routing".to_string(),
@@ -440,7 +497,7 @@ fn route_lateral_movement(
         chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_entity.as_str()),
         "selected lateral-movement execution chain"
     );
-    Ok((
+    Ok(ExecRoute::direct(
         ch.backend_id,
         target_id.to_string(),
         vec![exec_entity.clone()],
@@ -481,15 +538,18 @@ impl Campaign {
         // Stage 1: validate inputs and look up static data.
         validate_request(&request)?;
         self.assert_target_exists(&request.target_id)?;
+        let reasoning = request.reasoning.unwrap_or_default();
         let (ttp, args) = resolve_ttp_and_defaults(&request.action_id, request.args, armory)?;
-        self.prepare_action_with_ttp(
+        let mut exec = self.prepare_action_with_ttp(
             request.target_id,
             request.exec_system_id,
             request.procedure_id,
             ttp,
             args,
             armory,
-        )
+        )?;
+        exec.reasoning = reasoning;
+        Ok(exec)
     }
 
     /// Internal pipeline: stages 2-6 of action preparation.
@@ -552,25 +612,36 @@ impl Campaign {
         materialize_abstract_http_request(&mut procedure, armory)?;
 
         // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
-        let (exec_system_id, target_id, exec_chain, output_transform) = self.route_exec_channel(
+        let route = self.route_exec_channel(
             &target_id,
             &ttp.tactic,
             &mut procedure,
+            &args,
             exec_hint.as_deref(),
             lateral_src,
         )?;
 
+        let cmd_id = generate_cmd_id();
+
+        // Record the traversal breakdown as side data keyed by command id — kept
+        // off `ExecTtp`/`ExecutionRecord` so it never touches the execution or
+        // scoring data model. Surfaced by the flow API by joining on id.
+        if let Some(traversal) = self.build_command_traversal(&route, &procedure.command) {
+            self.command_traversals.insert(cmd_id.clone(), traversal);
+        }
+
         Ok(ExecTtp {
-            id: generate_cmd_id(),
+            id: cmd_id,
             ttp,
             procedure,
             args,
-            target_id,
-            exec_chain,
-            exec_system_id,
+            target_id: route.target_id,
+            exec_chain: route.exec_chain,
+            exec_system_id: route.backend_id,
             started_at_ms: current_time_millis(),
-            output_transform,
+            output_transform: route.output_transform,
             is_cleanup: false,
+            reasoning: String::new(),
         })
     }
 
@@ -711,11 +782,26 @@ impl Campaign {
         target_id: &str,
         tactic: &str,
         procedure: &mut Procedure,
+        args: &HashMap<String, String>,
         exec_hint: Option<&str>,
         lateral_src: Option<ExecChannel>,
-    ) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
+    ) -> Result<ExecRoute, ExecuteActionError> {
+        if is_local_control_command(&procedure.command) {
+            tracing::info!(
+                target_id = %target_id,
+                command = %procedure.command,
+                "routing local control command via builtin c2"
+            );
+            return Ok(ExecRoute::direct(
+                String::new(),
+                target_id.to_string(),
+                vec![],
+                None,
+            ));
+        }
+
         if let Some(hint) = exec_hint.filter(|s| !s.trim().is_empty()) {
-            return self.route_caller_supplied(hint, target_id);
+            return self.route_caller_supplied(hint, target_id, procedure, args);
         }
 
         if is_lateral_movement_tactic(tactic) {
@@ -728,7 +814,7 @@ impl Campaign {
             // namespace after a container escape, so force a fresh kubectl exec that
             // always targets the container's own mount namespace.
             let prefer_session = normalize_tactic(tactic) != "credential access";
-            return self.route_remote(target_id, procedure, prefer_session);
+            return self.route_remote(target_id, procedure, prefer_session, args);
         }
 
         self.route_fallback(target_id)
@@ -745,12 +831,83 @@ impl Campaign {
         &self,
         hint: &str,
         target_id: &str,
-    ) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
+        procedure: &mut Procedure,
+        args: &HashMap<String, String>,
+    ) -> Result<ExecRoute, ExecuteActionError> {
         let hint_is_exec_entity = self.get_system_entity(hint).is_some()
             || hint.starts_with("ns/")
             || hint.starts_with("node/");
 
         if hint_is_exec_entity {
+            let target_is_pod = self.entities.contains::<Pod>(&EntityId::new(target_id));
+
+            // Legacy-compatible semantics: for non-system targets (e.g.
+            // ServiceAccounts), a caller-supplied exec source pins execution to
+            // that source directly. Actions such as check-token-permissions are
+            // expected to run from the selected foothold and use token args,
+            // rather than being auto-routed to a pod that uses the target SA.
+            if hint != target_id && target_is_pod {
+                let ch = self
+                    .resolve_exec_channel_from_source_inner(hint, target_id)
+                    .map_err(ExecuteActionError::NoExecChannel)?;
+
+                let exec_target = ch
+                    .exec_target_id
+                    .clone()
+                    .unwrap_or_else(|| target_id.to_string());
+
+                tracing::info!(
+                    logical_target = %target_id,
+                    selected_source = %hint,
+                    backend_id = %ch.backend_id,
+                    chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_target.as_str()),
+                    "using caller-supplied exec source as route origin"
+                );
+
+                if ch.hops.is_empty() {
+                    if exec_target == hint {
+                        return Ok(ExecRoute::direct(
+                            ch.backend_id,
+                            target_id.to_string(),
+                            vec![hint.to_string()],
+                            None,
+                        ));
+                    }
+                    let wrap = self.wrap_command_for_hops(
+                        procedure,
+                        &[hint.to_string()],
+                        exec_target.as_str(),
+                        args,
+                    );
+                    return Ok(ExecRoute {
+                        backend_id: ch.backend_id,
+                        target_id: target_id.to_string(),
+                        exec_chain: vec![hint.to_string(), exec_target],
+                        output_transform: wrap.output_transform,
+                        traversal: wrap.traversal,
+                        inner_command: wrap.inner_command,
+                    });
+                }
+
+                let wrap =
+                    self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str(), args);
+                let exec_chain: Vec<String> = ch
+                    .hops
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(exec_target))
+                    .collect();
+
+                return Ok(ExecRoute {
+                    backend_id: ch.backend_id,
+                    target_id: target_id.to_string(),
+                    exec_chain,
+                    output_transform: wrap.output_transform,
+                    traversal: wrap.traversal,
+                    inner_command: wrap.inner_command,
+                });
+            }
+
             tracing::info!(
                 logical_target = %target_id,
                 selected_source = %hint,
@@ -758,7 +915,7 @@ impl Campaign {
                 chain = %format_exec_chain(BUILTIN_C2_ID, &[], hint),
                 "using caller-supplied exec source entity"
             );
-            Ok((
+            Ok(ExecRoute::direct(
                 BUILTIN_C2_ID.to_string(),
                 target_id.to_string(),
                 vec![hint.to_string()],
@@ -771,7 +928,7 @@ impl Campaign {
                 chain = %format_exec_chain(hint, &[], target_id),
                 "using caller-supplied exec backend"
             );
-            Ok((
+            Ok(ExecRoute::direct(
                 hint.to_string(),
                 target_id.to_string(),
                 vec![target_id.to_string()],
@@ -790,7 +947,8 @@ impl Campaign {
         target_id: &str,
         procedure: &mut Procedure,
         prefer_session: bool,
-    ) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
+        args: &HashMap<String, String>,
+    ) -> Result<ExecRoute, ExecuteActionError> {
         let ch = self
             .resolve_exec_channel_inner(target_id, prefer_session)
             .map_err(ExecuteActionError::NoExecChannel)?;
@@ -820,37 +978,35 @@ impl Campaign {
             if let Some(pod) = self.entities.find::<Pod>(&tgt_id) {
                 procedure.command = ground_binaries(&procedure.command, &pod.system.binaries);
             }
-            Ok((
+            Ok(ExecRoute::direct(
                 ch.backend_id,
                 target_id.to_string(),
                 vec![exec_target.clone()],
                 None,
             ))
         } else {
-            let output_transform =
-                self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str());
+            let wrap = self.wrap_command_for_hops(procedure, &ch.hops, exec_target.as_str(), args);
             let exec_chain: Vec<String> = ch
                 .hops
                 .iter()
                 .cloned()
                 .chain(std::iter::once(exec_target))
                 .collect();
-            Ok((
-                ch.backend_id,
-                target_id.to_string(),
+            Ok(ExecRoute {
+                backend_id: ch.backend_id,
+                target_id: target_id.to_string(),
                 exec_chain,
-                output_transform,
-            ))
+                output_transform: wrap.output_transform,
+                traversal: wrap.traversal,
+                inner_command: wrap.inner_command,
+            })
         }
     }
 
     /// Safety fallback: pod targets get an in-cluster execution source when no
     /// explicit channel was selected; all other targets get an empty backend
     /// (the C2 side will execute directly against the target).
-    fn route_fallback(
-        &self,
-        target_id: &str,
-    ) -> Result<(String, String, Vec<String>, Option<OutputTransform>), ExecuteActionError> {
+    fn route_fallback(&self, target_id: &str) -> Result<ExecRoute, ExecuteActionError> {
         let target_eid = EntityId::new(target_id);
         if self.entities.contains::<Pod>(&target_eid) {
             tracing::warn!(
@@ -868,29 +1024,92 @@ impl Campaign {
                 chain = %format_exec_chain(ch.backend_id.as_str(), &ch.hops, exec_entity.as_str()),
                 "pod fallback source selected"
             );
-            Ok((
+            Ok(ExecRoute::direct(
                 ch.backend_id,
                 target_id.to_string(),
                 vec![exec_entity],
                 None,
             ))
         } else {
-            Ok((String::new(), target_id.to_string(), vec![], None))
+            Ok(ExecRoute::direct(
+                String::new(),
+                target_id.to_string(),
+                vec![],
+                None,
+            ))
         }
+    }
+
+    /// Assemble the traversal breakdown for a routed command, for display in the
+    /// operation timeline. The chain always begins with the C2 entry hop
+    /// (C2 → first system), so a direct single-hop command (e.g. a pod-exec the
+    /// backend performs) is shown consistently with a multi-system pivot.
+    ///
+    /// Returns `None` only for local C2-side commands that don't run on any
+    /// remote system.
+    fn build_command_traversal(
+        &self,
+        route: &ExecRoute,
+        final_command: &str,
+    ) -> Option<CommandTraversal> {
+        // A command tunneling over an established session: replay the full path
+        // captured when the session was set up, with this command as the inner.
+        if route.traversal.is_empty() {
+            if let Some(hops) = self.session_traversals.get(&route.backend_id) {
+                return Some(CommandTraversal {
+                    hops: hops.clone(),
+                    inner_command: final_command.to_string(),
+                });
+            }
+        }
+
+        // Local C2-side command (empty backend / no exec chain) — nothing runs
+        // on a remote system, so there is no traversal to show.
+        let first = route.exec_chain.first()?;
+        if route.backend_id.is_empty() {
+            return None;
+        }
+
+        // C2 entry hop (C2 → first system), then the system-to-system graph hops
+        // captured by `wrap_command_for_hops` (empty for a direct command).
+        let mut hops = Vec::with_capacity(route.traversal.len() + 1);
+        hops.push(TraversalHop {
+            from_id: route.backend_id.clone(),
+            to_id: first.clone(),
+            relation: entry_relation(&route.backend_id, first).to_string(),
+            envelope: None,
+            command: final_command.to_string(),
+        });
+        hops.extend(route.traversal.iter().cloned());
+
+        let inner_command = if route.inner_command.is_empty() {
+            // Direct command: the bare command runs on the target itself.
+            final_command.to_string()
+        } else {
+            route.inner_command.clone()
+        };
+        Some(CommandTraversal {
+            hops,
+            inner_command,
+        })
     }
 
     /// Wrap `procedure.command` through each hop in reverse order so BuiltinC2
     /// can exec into the first hop and the nested command traverses the rest of
     /// the chain to the final execution target.
     ///
-    /// Returns the `OutputTransform` required to decode the raw output, if any.
+    /// Returns the `OutputTransform` required to decode the raw output (if any),
+    /// the bare inner command as it runs on the final target, and the
+    /// system-to-system [`TraversalHop`] breakdown (excluding the C2 entry hop,
+    /// which is prepended uniformly in `build_command_traversal`).
     /// Currently only `kubelet-pod-exec` hops produce wrapped output (ran-ws JSON envelope).
     fn wrap_command_for_hops(
         &self,
         procedure: &mut Procedure,
         hops: &[String],
         exec_target: &str,
-    ) -> Option<OutputTransform> {
+        args: &HashMap<String, String>,
+    ) -> HopWrap {
         let full_chain: Vec<&str> = hops
             .iter()
             .map(String::as_str)
@@ -898,6 +1117,10 @@ impl Campaign {
             .collect();
 
         let mut output_transform: Option<OutputTransform> = None;
+        // Hops are recorded innermost-first as the loop wraps from the inside
+        // out; reversed and prefixed with the C2 entry hop before returning.
+        let mut traversal: Vec<TraversalHop> = Vec::new();
+        let mut inner_command = String::new();
 
         // Wrap from innermost (last pair) to outermost (second pair;
         // hops[0] is handled by BuiltinC2 itself).
@@ -910,6 +1133,12 @@ impl Campaign {
             if let Some(sys) = self.get_system_entity(tgt) {
                 procedure.command =
                     ground_binaries(&procedure.command, &sys.entity().system().binaries);
+            }
+
+            // The first iteration handles the innermost pair; the freshly
+            // grounded command is what physically runs on the final target.
+            if i == full_chain.len() - 1 {
+                inner_command = procedure.command.clone();
             }
 
             let src_eid = EntityId::new(src);
@@ -929,12 +1158,52 @@ impl Campaign {
                     weight: d.weight,
                     session_id: d.session_id.clone(),
                 });
+            // Capture the relation name and envelope template for this hop
+            // before the match consumes `found` to rewrite the command.
+            let hop_relation = found
+                .as_ref()
+                .map(|r| r.name.clone())
+                .unwrap_or_else(|| "kubectl-exec".to_string());
+            let hop_envelope = found.as_ref().and_then(|r| r.envelope.clone());
             procedure.command = match found {
                 Some(ref rel) => {
                     if let Some(ref transform) = rel.output_transform {
                         output_transform = Some(transform.clone());
                     }
-                    rel.wrap_command(&procedure.command)
+
+                    // For chained kubelet routing (pod -> node via kubelet-exec
+                    // envelope, then node -> pod via kubelet-pod-exec), the
+                    // sink hop is structural: the outer envelope already executes
+                    // the inner command inside the final pod. Wrapping the sink
+                    // with RelationSummary::wrap_command would fall back to
+                    // `kubectl exec ...` (because kubelet-pod-exec has no
+                    // envelope), causing token reads to run with a missing
+                    // kubectl binary in the target pod.
+                    if rel.name == "kubelet-pod-exec" && rel.envelope.is_none() && i > 1 {
+                        let outer_src = full_chain[i - 2];
+                        let outer_rel_has_envelope = self
+                            .graph
+                            .outgoing(&EntityId::new(outer_src))
+                            .into_iter()
+                            .find(|(t, d)| *t == &src_eid && d.is_exec_channel)
+                            .and_then(|(_, d)| d.envelope.clone())
+                            .is_some();
+
+                        if outer_rel_has_envelope {
+                            // Modern channel edges with envelope metadata on the
+                            // outer kubelet hop can pass the command through.
+                            procedure.command.clone()
+                        } else if let Some(cmd) =
+                            self.build_kubelet_exec_command(src, tgt, &procedure.command, args)
+                        {
+                            output_transform = Some(OutputTransform::JsonEnvelope);
+                            cmd
+                        } else {
+                            procedure.command.clone()
+                        }
+                    } else {
+                        rel.wrap_command(&procedure.command)
+                    }
                 }
                 None => {
                     // Fallback: try kubectl exec via target entity ID.
@@ -952,9 +1221,139 @@ impl Campaign {
                 procedure.command =
                     ground_binary_in_cmd(&procedure.command, &sys.entity().system().binaries);
             }
+
+            // Record this hop with the command `src` runs to reach `tgt`. The
+            // snapshot is taken before any outer layer wraps it further.
+            traversal.push(TraversalHop {
+                from_id: src.to_string(),
+                to_id: tgt.to_string(),
+                relation: hop_relation,
+                envelope: hop_envelope,
+                command: procedure.command.clone(),
+            });
         }
 
-        output_transform
+        // Loop recorded the system-to-system hops innermost-first; flip to
+        // outermost-first so the timeline reads first-system → … → target. The
+        // C2 entry hop (C2 → first system) is prepended later, uniformly for
+        // both direct and multi-hop commands, in `build_command_traversal`.
+        traversal.reverse();
+
+        HopWrap {
+            output_transform,
+            traversal,
+            inner_command,
+        }
+    }
+
+    /// Build a direct ran-ws kubelet exec command for `node -> pod` sink hops.
+    ///
+    /// Used as a compatibility fallback when historical graph edges lack
+    /// envelope metadata on `kubelet-exec` relations.
+    fn build_kubelet_exec_command(
+        &self,
+        node_id: &str,
+        pod_id: &str,
+        inner_cmd: &str,
+        args: &HashMap<String, String>,
+    ) -> Option<String> {
+        let (namespace, pod_name) = split_pod_entity_id(pod_id)?;
+        let node_host = self
+            .preferred_kubelet_host(node_id, pod_id, args)
+            .unwrap_or_else(|| node_id.strip_prefix("node/").unwrap_or(node_id).to_string());
+
+        let container = self
+            .entities
+            .find::<Pod>(&EntityId::new(pod_id))
+            .and_then(|p| p.containers.first().map(|c| c.name.clone()))
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| "main".to_string());
+
+        let encoded_cmd = urlencoding::encode(inner_cmd);
+        let url = format!(
+            "wss://{}:10250/exec/{}/{}/{}?output=1&error=1&command={}",
+            node_host, namespace, pod_name, container, encoded_cmd
+        );
+
+        let mut cmd = format!("ran-ws --url {}", shell_words::quote(&url));
+
+        if let Some(token) = args
+            .get("TOKEN")
+            .map(|t| t.trim())
+            .filter(|t| !t.is_empty() && !t.contains("${"))
+        {
+            cmd.push_str(&format!(" --token {}", shell_words::quote(token)));
+        } else {
+            // Compatibility fallback: when TOKEN is not grounded yet, use the
+            // currently executing pod's mounted service-account token.
+            cmd.push_str(" --token \"$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\"");
+        }
+
+        Some(cmd)
+    }
+
+    fn preferred_kubelet_host(
+        &self,
+        node_id: &str,
+        pod_id: &str,
+        args: &HashMap<String, String>,
+    ) -> Option<String> {
+        if let Some(host_ip) = self
+            .get_system_entity(pod_id)
+            .and_then(|entity| match entity {
+                CampaignSystemEntityRef::Pod(pod) => pod.host_ip.map(|ip| ip.to_string()),
+                _ => None,
+            })
+        {
+            return Some(host_ip);
+        }
+
+        if let Some(node_ip) = args
+            .get("NODE.IP")
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty() && !v.contains("${"))
+        {
+            return Some(node_ip.to_string());
+        }
+
+        if let Some(node_host) = args
+            .get("NODE")
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty() && !v.contains("${"))
+        {
+            return Some(node_host.to_string());
+        }
+
+        self.preferred_node_endpoint(node_id)
+    }
+
+    fn preferred_node_endpoint(&self, node_id: &str) -> Option<String> {
+        let bare = node_id.strip_prefix("node/").unwrap_or(node_id).trim();
+
+        let mut candidates = vec![node_id.to_string()];
+        if !bare.is_empty() {
+            let prefixed = format!("node/{}", bare);
+            if prefixed != node_id {
+                candidates.push(prefixed);
+            }
+        }
+
+        for candidate in candidates {
+            if let Some(CampaignSystemEntityRef::Node(node)) = self.get_system_entity(&candidate) {
+                if let Some(ip) = node.system.ips.first() {
+                    return Some(ip.to_string());
+                }
+                if !node.name.trim().is_empty() {
+                    return Some(node.name.clone());
+                }
+            }
+        }
+
+        if bare.is_empty() {
+            None
+        } else {
+            Some(bare.to_string())
+        }
     }
 
     pub fn on_ttp_executed(
@@ -1677,6 +2076,19 @@ fn normalize_tactic(tactic: &str) -> String {
         .join(" ")
 }
 
+/// Label for the C2-entry traversal hop, reflecting how the backend reaches the
+/// first system: over an established session, via a pod-exec (k8s exec API), or
+/// a generic remote exec.
+fn entry_relation(backend_id: &str, first_hop: &str) -> &'static str {
+    if backend_id.starts_with("session/") {
+        "session"
+    } else if first_hop.contains("/pod/") {
+        "pod-exec"
+    } else {
+        "exec"
+    }
+}
+
 fn format_exec_chain(backend_id: &str, hops: &[String], exec_target: &str) -> String {
     let mut parts: Vec<String> = vec![backend_id.to_string()];
     parts.extend(hops.iter().cloned());
@@ -1686,12 +2098,15 @@ fn format_exec_chain(backend_id: &str, hops: &[String], exec_target: &str) -> St
     parts.join(" -> ")
 }
 
+static CMD_ID_NONCE: AtomicU64 = AtomicU64::new(1);
+
 fn generate_cmd_id() -> String {
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or_default();
-    format!("cmd-{}", millis)
+    let nonce = CMD_ID_NONCE.fetch_add(1, Ordering::Relaxed);
+    format!("cmd-{}-{}", millis, nonce)
 }
 
 /// Return the tool name for a procedure, if one is set and non-empty.
@@ -1721,6 +2136,51 @@ fn procedure_binary_name(procedure: &Procedure) -> Option<&str> {
 
     // Fall back to the first word of the command.
     procedure.command.split_whitespace().next()
+}
+
+/// Readiness of an unseen (`Unknown`) tool — a base-rate prior that a tool we
+/// haven't checked is present. Below 1.0 so the scorer prefers tools we've
+/// *confirmed* present over ones we merely haven't ruled out.
+const UNKNOWN_TOOL_READINESS: f32 = 0.7;
+
+/// How runnable a single procedure is on `sys`, in `[0, 1]`:
+/// `1.0` if it runs operator-side (no target binary) or its tool is confirmed
+/// present, `UNKNOWN_TOOL_READINESS` if the tool's presence is unknown, `0.0` if
+/// the tool is known absent.
+fn procedure_readiness(procedure: &Procedure, tactic: &str, sys: &ran_domain::SystemInfo) -> f32 {
+    if !needs_remote_channel(procedure, tactic) {
+        return 1.0; // runs on the C2 side — no target binary required
+    }
+    match procedure_binary_name(procedure) {
+        None => 1.0, // can't identify a binary — don't penalize
+        Some(tool) => match sys.has_binary(tool) {
+            ran_domain::BinaryPresence::Present(_) => 1.0,
+            ran_domain::BinaryPresence::Unknown => UNKNOWN_TOOL_READINESS,
+            ran_domain::BinaryPresence::Absent => 0.0,
+        },
+    }
+}
+
+/// Best-case tool readiness for a TTP against `target_id`, i.e. the readiness of
+/// the most-runnable procedure (the runtime falls back to whichever procedure
+/// can run). Returns `1.0` when the target isn't a system entity (no binary map
+/// to assess) or the TTP has no procedures.
+///
+/// Shared by the applicability gate ([`ttp_tool_satisfied`](crate::ttp_applicability::ttp_tool_satisfied),
+/// which treats `> 0.0` as runnable) and the `reliability` consideration (which
+/// uses the value to prefer confirmed-runnable actions) so the two never drift.
+pub fn best_tool_readiness(ttp: &armory::Ttp, campaign: &Campaign, target_id: &str) -> f32 {
+    let Some(sys_ref) = campaign.get_system_entity(target_id) else {
+        return 1.0;
+    };
+    if ttp.procedures.is_empty() {
+        return 1.0;
+    }
+    let sys = sys_ref.entity().system();
+    ttp.procedures
+        .iter()
+        .map(|p| procedure_readiness(p, &ttp.tactic, sys))
+        .fold(0.0_f32, f32::max)
 }
 
 /// Resolve the first word of `cmd` using a system's binary map.

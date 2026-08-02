@@ -160,6 +160,13 @@ impl PlanExecutionState {
         self.steps.values().all(|s| s.is_terminal())
     }
 
+    /// True when at least one step has been dispatched and is awaiting its outcome.
+    pub fn has_in_flight(&self) -> bool {
+        self.steps
+            .values()
+            .any(|s| matches!(s, StepStatus::Dispatched { .. }))
+    }
+
     pub fn pending_steps(&self) -> impl Iterator<Item = &str> {
         self.steps.iter().filter_map(|(id, s)| {
             matches!(s, StepStatus::Pending | StepStatus::PendingRetry { .. })

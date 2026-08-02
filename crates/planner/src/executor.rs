@@ -1,6 +1,6 @@
 use crate::{
     error::PlanError,
-    model::{Dependency, PlanDefinition, Require, RetryStrategy},
+    model::{Dependency, PlanDefinition, Require, RetryStrategy, StepExpectation},
     resolver::resolve_target,
     state::{PlanExecutionState, StepStatus},
 };
@@ -50,6 +50,11 @@ impl PlanExecutor {
         self.state.is_complete()
     }
 
+    /// True when a step has been dispatched and its outcome is still pending.
+    pub fn has_in_flight(&self) -> bool {
+        self.state.has_in_flight()
+    }
+
     /// Called by the API layer after dispatching the requests returned by tick().
     /// Replaces placeholder cmd_ids with the real ones from C2.
     pub fn record_dispatched(&mut self, step_id: &str, real_cmd_ids: Vec<String>) {
@@ -79,6 +84,28 @@ impl PlanExecutor {
                 continue;
             }
 
+            let exec_system_id = if let Some(exec_q) = &step.exec_target {
+                let exec_matches = resolve_target(exec_q, entity_ids);
+                if exec_matches.is_empty() {
+                    // Execution source is explicit and not yet resolvable.
+                    continue;
+                }
+                exec_matches.into_iter().next()
+            } else {
+                None
+            };
+
+            let token_target_id = if let Some(token_q) = &step.token {
+                let token_matches = resolve_target(token_q, entity_ids);
+                if token_matches.is_empty() {
+                    // Token source is explicit and not yet resolvable.
+                    continue;
+                }
+                token_matches.into_iter().next()
+            } else {
+                None
+            };
+
             self.state.set_targets(&step.id, targets.clone());
 
             let procedure = match self.state.get(&step.id) {
@@ -93,14 +120,23 @@ impl PlanExecutor {
             self.state.mark_dispatched(&step.id, cmd_ids_placeholder);
 
             for target_id in targets {
+                let mut args = step.args.clone();
+                if let Some(token_id) = &token_target_id {
+                    args.entry("TOKEN".to_string())
+                        .or_insert_with(|| token_id.clone());
+                }
                 dispatches.push(PlanDispatch {
                     step_id: step.id.clone(),
                     request: ExecuteActionRequest {
                         action_id: step.action.clone(),
-                        exec_system_id: None,
+                        exec_system_id: exec_system_id.clone(),
                         target_id,
                         procedure_id: procedure.clone(),
-                        args: step.args.clone(),
+                        args,
+                        reasoning: step
+                            .note
+                            .clone()
+                            .or_else(|| Some(format!("plan step '{}'", step.id))),
                     },
                 });
             }
@@ -204,6 +240,7 @@ impl PlanExecutor {
 
         if let Some(StepStatus::Completed { ref outcomes }) = completed {
             let overall_success = outcomes.iter().any(|&o| o);
+            const SAME_PROCEDURE_MAX_RETRIES: usize = 1;
 
             let step = self
                 .plan
@@ -236,6 +273,25 @@ impl PlanExecutor {
                         success: false,
                     });
                 }
+            } else if !overall_success && step.retry == RetryStrategy::SameProcedure {
+                let attempt = {
+                    let a = self.retry_attempts.entry(step_id.clone()).or_insert(0);
+                    *a += 1;
+                    *a
+                };
+
+                if attempt <= SAME_PROCEDURE_MAX_RETRIES {
+                    self.state
+                        .mark_pending_retry(&step_id, attempt, step.procedure.clone());
+                    return events; // tick() will handle re-dispatch
+                }
+
+                self.state
+                    .mark_failed(&step_id, "same-procedure retries exhausted");
+                events.push(PlanEvent::StepFailed {
+                    step_id: step_id.clone(),
+                    reason: "same-procedure retries exhausted".into(),
+                });
             } else if overall_success {
                 events.push(PlanEvent::StepCompleted {
                     step_id: step_id.clone(),
@@ -267,6 +323,104 @@ impl PlanExecutor {
         armory: &Armory,
     ) -> Vec<PlanEvent> {
         self.on_ttp_executed_inner(cmd_id, success, procedure_id, Some(armory))
+    }
+
+    /// Return the step id associated with a command id, if any.
+    pub fn step_for_cmd(&self, cmd_id: &str) -> Option<&str> {
+        self.state.step_for_cmd(cmd_id)
+    }
+
+    /// Return expectation config for the step associated with `cmd_id`.
+    pub fn expectation_for_cmd(&self, cmd_id: &str) -> Option<StepExpectation> {
+        let step_id = self.state.step_for_cmd(cmd_id)?;
+        self.plan
+            .steps
+            .iter()
+            .find(|s| s.id == step_id)
+            .and_then(|s| s.expect.clone())
+    }
+
+    /// Force every still-pending step to a terminal state so a stalled run can
+    /// finish instead of hanging forever. Call this when the run loop observes a
+    /// stall: nothing in flight, yet the plan isn't complete (e.g. a step's target
+    /// never appeared, or a graph predecessor relation never materialised).
+    ///
+    /// A pending step whose dependencies *are* satisfied could only be stuck
+    /// because its target didn't resolve → `target not found`; otherwise it's
+    /// blocked on an unmet dependency → `dependencies unmet`. Skips then propagate.
+    pub fn fail_stalled_inner(
+        &mut self,
+        entity_ids: &[String],
+        graph_check: impl Fn(&str, &str) -> bool,
+    ) -> Vec<PlanEvent> {
+        let mut events = Vec::new();
+        let step_ids: Vec<String> = self.plan.steps.iter().map(|s| s.id.clone()).collect();
+
+        let is_pending = |state: &PlanExecutionState, id: &str| {
+            matches!(
+                state.get(id),
+                Some(StepStatus::Pending) | Some(StepStatus::PendingRetry { .. })
+            )
+        };
+
+        loop {
+            // Let dependents of already-failed/skipped hard deps become Skipped
+            // first, so they aren't mislabelled as failures below.
+            events.extend(self.propagate_skips());
+
+            // Fail steps whose deps are satisfied yet still pending: at a stall
+            // that can only mean the target never resolved (a dispatchable step
+            // would already be Dispatched, not Pending).
+            let mut progressed = false;
+            for step_id in &step_ids {
+                if is_pending(&self.state, step_id)
+                    && self.all_deps_satisfied(step_id, entity_ids, &graph_check)
+                {
+                    let reason = "target not found: no matching entity (stalled)";
+                    self.state.mark_failed(step_id, reason);
+                    events.push(PlanEvent::StepFailed {
+                        step_id: step_id.clone(),
+                        reason: reason.to_string(),
+                    });
+                    progressed = true;
+                }
+            }
+            if progressed {
+                continue; // re-propagate skips, re-evaluate
+            }
+
+            // Anything still pending is blocked on a dependency that will never be
+            // satisfied (e.g. a graph predicate that never held).
+            let remaining: Vec<String> = step_ids
+                .iter()
+                .filter(|id| is_pending(&self.state, id))
+                .cloned()
+                .collect();
+            if remaining.is_empty() {
+                break;
+            }
+            for step_id in remaining {
+                let reason = "dependencies unmet (stalled)";
+                self.state.mark_failed(&step_id, reason);
+                events.push(PlanEvent::StepFailed {
+                    step_id,
+                    reason: reason.to_string(),
+                });
+            }
+        }
+
+        if self.state.is_complete() {
+            events.push(PlanEvent::PlanComplete);
+        }
+        events
+    }
+
+    /// Public fail_stalled — call from the API layer with a Campaign reference.
+    pub fn fail_stalled(&mut self, campaign: &Campaign) -> Vec<PlanEvent> {
+        let entity_ids = campaign.all_entity_ids();
+        self.fail_stalled_inner(&entity_ids, |eid, rel| {
+            campaign.entity_has_relation(eid, rel)
+        })
     }
 
     fn propagate_skips(&mut self) -> Vec<PlanEvent> {
@@ -418,11 +572,15 @@ mod tests {
                 namespace: Some("default".into()),
                 name: "nginx-.*".into(),
                 select: None,
+                ..Default::default()
             },
+            exec_target: None,
+            token: None,
             args: HashMap::new(),
             procedure: None,
             retry: RetryStrategy::None,
             depends_on: deps,
+            expect: None,
             note: None,
         }
     }
@@ -724,6 +882,61 @@ mod tests {
         exec.state.record_outcome("cmd-1", true);
         let events = exec.on_ttp_executed_inner("cmd-1", true, None, None);
         assert!(events.iter().any(|e| matches!(e, PlanEvent::PlanComplete)));
+    }
+
+    #[test]
+    fn has_in_flight_tracks_dispatched_steps() {
+        let plan = make_plan(vec![make_step("a", vec![])]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        assert!(!exec.has_in_flight());
+        exec.tick_inner(&entity_ids(), no_relations);
+        exec.state.mark_dispatched("a", vec!["cmd-1".into()]);
+        assert!(exec.has_in_flight());
+        exec.state.record_outcome("cmd-1", true);
+        assert!(!exec.has_in_flight());
+    }
+
+    #[test]
+    fn fail_stalled_terminates_unresolvable_step() {
+        // A step whose target never resolves (no matching entities) stays pending
+        // forever; fail_stalled must drive it terminal so the plan can complete.
+        let plan = make_plan(vec![make_step("a", vec![])]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        exec.tick_inner(&[], no_relations); // no entities → nothing dispatched
+        assert!(!exec.is_complete());
+
+        let events = exec.fail_stalled_inner(&[], no_relations);
+        assert!(exec.is_complete());
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, PlanEvent::StepFailed { step_id, .. } if step_id == "a")));
+        assert!(events.iter().any(|e| matches!(e, PlanEvent::PlanComplete)));
+    }
+
+    #[test]
+    fn fail_stalled_skips_dependent_of_unmet_dep() {
+        let plan = make_plan(vec![
+            make_step("a", vec![]),
+            make_step(
+                "b",
+                vec![Dependency::Step {
+                    step: "a".into(),
+                    require: Require::Success,
+                }],
+            ),
+        ]);
+        let mut exec = PlanExecutor::new(plan).unwrap();
+        // No entities: "a" can't resolve, "b" is blocked on "a".
+        exec.tick_inner(&[], no_relations);
+        let events = exec.fail_stalled_inner(&[], no_relations);
+        assert!(exec.is_complete());
+        // a → failed (target not found), b → skipped (hard dep failed).
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, PlanEvent::StepFailed { step_id, .. } if step_id == "a")));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, PlanEvent::StepSkipped { step_id, .. } if step_id == "b")));
     }
 
     #[test]

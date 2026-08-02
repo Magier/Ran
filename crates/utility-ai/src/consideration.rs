@@ -1,0 +1,43 @@
+use campaign::ttp_applicability::TargetContext;
+use campaign::Campaign;
+
+/// Everything a [`Consideration`] needs to score one grounded candidate: the
+/// current belief state, the candidate TTP, and the resolved facts about its
+/// target. Cheap to construct (all borrows) — one per `(TTP × target)` pair.
+pub struct ScoringContext<'a> {
+    pub campaign: &'a Campaign,
+    pub ttp: &'a armory::Ttp,
+    pub tc: &'a TargetContext,
+}
+
+/// Which scoring layer a consideration contributes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsiderationKind {
+    /// Preference/value axis: how desirable the action is if it succeeds.
+    Utility,
+    /// Belief-state factor: how likely the action is to be executable or succeed.
+    Belief,
+}
+
+/// A single, independent scoring axis. Each consideration produces a raw,
+/// curve-free measurement normalized to `[0, 1]`; the [`Scorer`](super::Scorer)
+/// applies the profile's response curve and weight on top.
+///
+/// Keep `measure` pure and side-effect free — it is called once per candidate
+/// and must be deterministic (no clocks, no RNG) so rankings are reproducible.
+pub trait Consideration: Send + Sync {
+    /// Stable identifier used to look up this consideration's weight/curve in a
+    /// [`Profile`](super::Profile). Must be unique across registered considerations.
+    fn name(&self) -> &'static str;
+
+    /// The scoring layer this consideration belongs to. Utility axes are
+    /// combined by the profile; belief factors multiply into success probability.
+    fn kind(&self) -> ConsiderationKind {
+        ConsiderationKind::Utility
+    }
+
+    /// Raw measurement in `[0, 1]`. Values outside the range are clamped by the
+    /// scorer, but returning in-range keeps curves predictable.
+    fn measure(&self, ctx: &ScoringContext) -> f32;
+}

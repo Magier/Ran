@@ -10,15 +10,16 @@ pub mod pending_view;
 pub mod rules;
 pub mod runtime;
 pub mod shell_cmd;
+pub mod traversal;
 pub mod ttp_applicability;
 pub use analyzers::default_rules;
 pub use c2::ExecTtp;
 pub use campaign::{
-    Campaign, CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef, EntityType,
-    ExecuteActionError, ExecuteActionRequest, ExecuteActionResult, ExecutedActionEvent,
-    TtpExecutionProcessing,
+    best_tool_readiness, Campaign, CampaignEntityRef, CampaignSystemEntityMut,
+    CampaignSystemEntityRef, EntityType, ExecuteActionError, ExecuteActionRequest,
+    ExecuteActionResult, ExecutedActionEvent, TtpExecutionProcessing,
 };
-pub use effects::FactsUpdate;
+pub use effects::{EffectCategory, EffectKind, FactsUpdate};
 pub use execution_record::ExecutionRecord;
 pub use external_parser::{ExternalParseRequest, ExternalParseResponse, ExternalParser};
 pub use output_parsers::{ParseAudit, ParseResult};
@@ -28,3 +29,4 @@ pub use runtime::{
     spawn_c2_event_processor, spawn_c2_event_processor_with_external_parser, CampaignEvent,
     CampaignEventBus, EntitySummary,
 };
+pub use traversal::{CommandTraversal, TraversalHop};

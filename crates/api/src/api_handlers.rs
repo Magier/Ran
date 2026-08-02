@@ -2,15 +2,9 @@ use std::collections::HashMap;
 
 use axum::extract::{Query, State};
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 use tracing::debug;
 
-use campaign::ttp_applicability::{
-    ttp_access_level_satisfied, ttp_exists_satisfied, ttp_has_token_satisfied, ttp_rbac_satisfied,
-    ttp_related_satisfied,
-};
-use campaign::CampaignEntityRef;
-use ran_domain::AccessLevel;
+use campaign::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
 
 use crate::sse::events_handler;
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
@@ -103,6 +97,15 @@ pub(crate) struct GetApplicableTtpsParams {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct GetRecommendationsParams {
+    /// Optional: restrict recommendations to a single target entity.
+    #[serde(rename = "targetId")]
+    pub(crate) target_id: Option<String>,
+    /// Optional: cap the number of ranked candidates returned.
+    pub(crate) limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
 pub(crate) struct ExecuteActionCmdPayload {
     #[serde(rename = "actionId")]
     pub(crate) action_id: String,
@@ -113,6 +116,10 @@ pub(crate) struct ExecuteActionCmdPayload {
     #[serde(rename = "procedureId")]
     pub(crate) procedure_id: Option<String>,
     pub(crate) args: Option<HashMap<String, String>>,
+    /// Optional free-text rationale for this step, recorded on the resulting
+    /// execution record. Strongly encouraged when driving the campaign
+    /// programmatically so the timeline explains itself.
+    pub(crate) reasoning: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -178,64 +185,247 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
 
     let campaign = service.get_campaign().await?;
 
-    // Resolve the target entity – we need its kind string (for exact-kind
-    // matching), whether it is a SystemEntity (for abstract "System" matching),
-    // and its current access level (for the access-level pre-condition check).
-    let (target_kind, is_system_target, target_access_level, target_has_token) = {
-        let entities = campaign.get_entities();
-        let entity = entities
-            .into_iter()
-            .find(|e| e.entity_id().0 == target_id)
-            .ok_or_else(|| ApiError {
-                status: axum::http::StatusCode::NOT_FOUND,
-                body: ErrorResponse {
-                    error: format!("failed to get target entity: {}", target_id),
-                    details: None,
-                },
-            })?;
-        let kind = entity.entity_kind().to_string();
-        let is_system = matches!(
-            &entity,
-            CampaignEntityRef::Pod(_)
-                | CampaignEntityRef::Node(_)
-                | CampaignEntityRef::UnknownSystem(_)
-        );
-        let access_level = match &entity {
-            CampaignEntityRef::Pod(p) => {
-                // A reachable pod (kubectl-exec channel exists) implies exec access
-                // even before a TTP has explicitly updated the access_level field.
-                if p.system.access_level == AccessLevel::None
-                    && campaign.reachable_pods().contains(&entity.entity_id().0)
-                {
-                    AccessLevel::Exec
-                } else {
-                    p.system.access_level
-                }
-            }
-            CampaignEntityRef::Node(n) => n.system.access_level,
-            CampaignEntityRef::UnknownSystem(s) => s.system.access_level,
-            _ => AccessLevel::None,
-        };
-        let has_token = match &entity {
-            CampaignEntityRef::ServiceAccount(sa) => sa.raw_token().is_some(),
-            _ => false,
-        };
-        (kind, is_system, access_level, has_token)
+    // Resolve the target's facts once, then gate every candidate TTP through the
+    // shared aggregate applicability check (campaign::ttp_applicability).
+    let Some(tc) = resolve_target_context(&campaign, target_id) else {
+        return Err(ApiError {
+            status: axum::http::StatusCode::NOT_FOUND,
+            body: ErrorResponse {
+                error: format!("failed to get target entity: {}", target_id),
+                details: None,
+            },
+        });
     };
 
     let ttps = all_ttps
         .into_iter()
-        .filter(|ttp| {
-            ttp_is_applicable_for_target_kind(ttp, &target_kind, is_system_target)
-                && ttp_rbac_satisfied(ttp, &campaign)
-                && ttp_exists_satisfied(ttp, &campaign)
-                && (!is_system_target || ttp_access_level_satisfied(ttp, target_access_level))
-                && ttp_has_token_satisfied(ttp, target_has_token)
-                && ttp_related_satisfied(ttp, target_id, &target_kind, &campaign)
-        })
+        .filter(|ttp| ttp_applicable_for_target(ttp, &campaign, &tc))
         .collect::<Vec<_>>();
 
     Ok(axum::Json(ttps))
+}
+
+/// Rank applicable `(TTP × target)` actions by utility for the current campaign
+/// state, using the default scoring profile. Advisory: the caller chooses what
+/// (if anything) to execute. Each candidate carries a per-consideration
+/// breakdown for explainability.
+pub(crate) async fn recommendations_handler<S: ApiService>(
+    State(service): State<S>,
+    Query(params): Query<GetRecommendationsParams>,
+) -> Result<axum::Json<Vec<utility_ai::ScoredCandidate>>, ApiError> {
+    let all_ttps = service.get_armory(GetArmoryParams { tactic: None }).await?;
+    let campaign = service.get_campaign().await?;
+
+    let scorer = utility_ai::Scorer::with_defaults(service.scoring_profile());
+    let mut ranked = scorer.rank(&campaign, &all_ttps);
+
+    if let Some(target_id) = params
+        .target_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        ranked.retain(|c| c.target_id == target_id);
+    }
+
+    if let Some(limit) = params.limit {
+        ranked.truncate(limit);
+    }
+
+    Ok(axum::Json(ranked))
+}
+
+// ---------------------------------------------------------------------------
+// Scoring profile (response-curve / weight tuning)
+// ---------------------------------------------------------------------------
+
+/// One consideration's tunable config, tagged with its name.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct NamedConsideration {
+    pub name: String,
+    pub weight: f32,
+    pub curve: utility_ai::ResponseCurve,
+    pub enabled: bool,
+    pub veto: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct ScoringProfileResponse {
+    pub combination: utility_ai::CombinationMode,
+    #[serde(rename = "tuningEnabled")]
+    pub tuning_enabled: bool,
+    pub considerations: Vec<NamedConsideration>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct ScoringProfileUpdate {
+    pub combination: utility_ai::CombinationMode,
+    pub considerations: Vec<NamedConsideration>,
+}
+
+fn profile_to_response(
+    profile: &utility_ai::Profile,
+    tuning_enabled: bool,
+) -> ScoringProfileResponse {
+    let considerations = utility_ai::consideration_names()
+        .into_iter()
+        .map(|name| {
+            let cfg = profile.config(name);
+            NamedConsideration {
+                name: name.to_string(),
+                weight: cfg.weight,
+                curve: cfg.curve,
+                enabled: cfg.enabled,
+                veto: cfg.veto,
+            }
+        })
+        .collect();
+    ScoringProfileResponse {
+        combination: profile.combination,
+        tuning_enabled,
+        considerations,
+    }
+}
+
+/// Return the live scoring profile: combination mode, the tuning feature flag,
+/// and every registered consideration's current weight/curve/enabled/veto.
+pub(crate) async fn get_scoring_profile_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<ScoringProfileResponse>, ApiError> {
+    let profile = service.scoring_profile();
+    Ok(axum::Json(profile_to_response(
+        &profile,
+        service.scoring_tuning_enabled(),
+    )))
+}
+
+/// Replace the live scoring profile. Gated on the tuning feature flag. Returns
+/// the resulting profile so the client can confirm what was applied.
+pub(crate) async fn update_scoring_profile_handler<S: ApiService>(
+    State(service): State<S>,
+    axum::Json(update): axum::Json<ScoringProfileUpdate>,
+) -> Result<axum::Json<ScoringProfileResponse>, ApiError> {
+    require_tuning(&service)?;
+
+    let considerations = update
+        .considerations
+        .into_iter()
+        .map(|c| {
+            (
+                c.name,
+                utility_ai::ConsiderationConfig {
+                    weight: c.weight,
+                    curve: c.curve,
+                    enabled: c.enabled,
+                    veto: c.veto,
+                },
+            )
+        })
+        .collect();
+
+    let profile = utility_ai::Profile {
+        name: "tuned".to_string(),
+        combination: update.combination,
+        considerations,
+    };
+    service.set_scoring_profile(profile.clone());
+
+    Ok(axum::Json(profile_to_response(&profile, true)))
+}
+
+fn require_tuning<S: ApiService>(service: &S) -> Result<(), ApiError> {
+    if service.scoring_tuning_enabled() {
+        Ok(())
+    } else {
+        Err(ApiError {
+            status: axum::http::StatusCode::FORBIDDEN,
+            body: ErrorResponse {
+                error: "scoring tuning is disabled (set scoring.tuning_ui: true in ran.yaml)"
+                    .to_string(),
+                details: None,
+            },
+        })
+    }
+}
+
+/// Persist the live scoring profile to its sidecar file so it survives restarts.
+pub(crate) async fn save_scoring_profile_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<ScoringProfileResponse>, ApiError> {
+    require_tuning(&service)?;
+    service.save_scoring_profile().map_err(ApiError::internal)?;
+    Ok(axum::Json(profile_to_response(
+        &service.scoring_profile(),
+        true,
+    )))
+}
+
+/// Revert the live scoring profile to the configured base and drop persisted
+/// overrides.
+pub(crate) async fn reset_scoring_profile_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<ScoringProfileResponse>, ApiError> {
+    require_tuning(&service)?;
+    let profile = service.reset_scoring_profile();
+    Ok(axum::Json(profile_to_response(&profile, true)))
+}
+
+/// Fit-quality metrics returned alongside a calibration preview.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct CalibrationMetrics {
+    pub decisions: usize,
+    #[serde(rename = "top1Accuracy")]
+    pub top1_accuracy: f32,
+    #[serde(rename = "meanChosenProb")]
+    pub mean_chosen_prob: f32,
+    #[serde(rename = "minChosenProb")]
+    pub min_chosen_prob: f32,
+    #[serde(rename = "logLikelihood")]
+    pub log_likelihood: f32,
+    pub infeasible: usize,
+    pub converged: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct CalibrationResult {
+    pub profile: ScoringProfileResponse,
+    pub metrics: CalibrationMetrics,
+}
+
+/// Fit a scoring profile from captured operator decisions and return it as a
+/// preview (not applied) plus fit metrics. Gated on the tuning flag; 409 when no
+/// decisions have been captured.
+pub(crate) async fn calibrate_scoring_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<CalibrationResult>, ApiError> {
+    require_tuning(&service)?;
+
+    let calibration = service.calibrate_scoring().ok_or_else(|| ApiError {
+        status: axum::http::StatusCode::CONFLICT,
+        body: ErrorResponse {
+            error: "no operator decisions captured yet — execute some actions first".to_string(),
+            details: None,
+        },
+    })?;
+
+    // Preview the fitted weights in the live combination mode, without applying.
+    let combination = service.scoring_profile().combination;
+    let profile = calibration.into_profile("calibrated", combination);
+
+    let metrics = CalibrationMetrics {
+        decisions: calibration.per_decision.len(),
+        top1_accuracy: calibration.top1_accuracy,
+        mean_chosen_prob: calibration.mean_chosen_prob,
+        min_chosen_prob: calibration.min_chosen_prob,
+        log_likelihood: calibration.log_likelihood,
+        infeasible: calibration.infeasible.len(),
+        converged: calibration.converged,
+    };
+
+    Ok(axum::Json(CalibrationResult {
+        profile: profile_to_response(&profile, true),
+        metrics,
+    }))
 }
 
 pub(crate) async fn execute_action_handler<S: ApiService>(
@@ -249,6 +439,7 @@ pub(crate) async fn execute_action_handler<S: ApiService>(
             target_id: cmd.target_id,
             procedure_id: cmd.procedure_id,
             args: cmd.args.unwrap_or_default(),
+            reasoning: cmd.reasoning,
         })
         .await?;
 
@@ -388,6 +579,31 @@ pub(crate) struct FlowEdge {
     pub target_id: String,
 }
 
+/// One segment of a multi-hop command traversal, surfaced to the timeline UI.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct AttackStepHop {
+    #[serde(rename = "fromId")]
+    pub from_id: String,
+    #[serde(rename = "toId")]
+    pub to_id: String,
+    pub relation: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<String>,
+    pub command: String,
+}
+
+impl From<&campaign::TraversalHop> for AttackStepHop {
+    fn from(h: &campaign::TraversalHop) -> Self {
+        Self {
+            from_id: h.from_id.clone(),
+            to_id: h.to_id.clone(),
+            relation: h.relation.clone(),
+            envelope: h.envelope.clone(),
+            command: h.command.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct AttackStepTTP {
     pub id: String,
@@ -403,6 +619,13 @@ pub(crate) struct AttackStep {
     #[serde(rename = "targetId")]
     pub target_id: String,
     pub command: String,
+    /// Per-hop traversal breakdown for multi-system commands, outermost (C2) →
+    /// innermost (target). Empty for direct/single-hop commands.
+    pub traversal: Vec<AttackStepHop>,
+    /// The bare inner command as it runs on the final target, before envelopes.
+    /// Empty when there is no multi-hop traversal.
+    #[serde(rename = "innerCommand")]
+    pub inner_command: String,
     pub args: std::collections::HashMap<String, String>,
     #[serde(rename = "procedureId")]
     pub procedure_id: String,
@@ -425,6 +648,9 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
             id: r.id.clone(),
             target_id: r.target_id.clone(),
             command: r.command.clone(),
+            // Traversal is joined separately from the campaign side map by id.
+            traversal: Vec::new(),
+            inner_command: String::new(),
             args: r.args.clone(),
             procedure_id: r.procedure_id.clone(),
             ttp: AttackStepTTP {
@@ -461,6 +687,9 @@ impl From<&campaign::ExecTtp> for AttackStep {
             id: exec.id.clone(),
             target_id: exec.target_id.clone(),
             command: exec.procedure.command.clone(),
+            // Traversal is joined separately from the campaign side map by id.
+            traversal: Vec::new(),
+            inner_command: String::new(),
             args: exec.args.clone(),
             procedure_id: exec.procedure.id.clone(),
             ttp: AttackStepTTP {
@@ -495,6 +724,15 @@ pub(crate) async fn flow_handler<S: ApiService>(
 
     let mut steps: Vec<AttackStep> = records.iter().map(AttackStep::from).collect();
     steps.extend(open.iter().map(AttackStep::from));
+
+    // Join the multi-hop traversal breakdown (campaign side map, keyed by
+    // command id) onto each step — kept off the execution record itself.
+    for step in &mut steps {
+        if let Some(ct) = campaign.command_traversal(&step.id) {
+            step.traversal = ct.hops.iter().map(AttackStepHop::from).collect();
+            step.inner_command = ct.inner_command.clone();
+        }
+    }
 
     let mut edges = Vec::new();
     let mut last_success_id: Option<String> = None;
@@ -578,76 +816,24 @@ pub(crate) async fn export_plan_handler<S: ApiService>(
     service.export_plan(include_failed).await
 }
 
-pub(crate) fn ttp_is_applicable_for_target_kind(
-    ttp: &armory::Ttp,
-    target_kind: &str,
-    is_system_target: bool,
-) -> bool {
-    if ttp.status.eq_ignore_ascii_case("disabled") {
-        return false;
-    }
-
-    let Some(kind_req) = ttp.requires.get("kind") else {
-        return true;
-    };
-
-    match kind_req {
-        Value::String(kind) => kind_matches_target_kind(kind, target_kind, is_system_target),
-        Value::Array(kinds) => kinds.iter().any(|k| {
-            k.as_str()
-                .map(|s| kind_matches_target_kind(s, target_kind, is_system_target))
-                .unwrap_or(true)
-        }),
-        _ => true,
-    }
+#[derive(serde::Deserialize)]
+pub(crate) struct LoadPlanRequest {
+    filename: String,
 }
 
-/// Returns `true` if `required_kind` (from a TTP's `requires.kind`) is satisfied
-/// by the target entity.
-///
-/// `required_kind == "System"` is an abstract requirement satisfied by any entity
-/// that implements [`SystemEntity`] – i.e. wherever `is_system_target` is `true`.
-/// This is driven by the trait rather than a hardcoded list of kind strings, so
-/// future `SystemEntity` implementors (e.g. `UnknownSystem`) are picked up
-/// automatically without touching this function.
-fn kind_matches_target_kind(
-    required_kind: &str,
-    target_kind: &str,
-    is_system_target: bool,
-) -> bool {
-    if required_kind.eq_ignore_ascii_case(target_kind) {
-        return true;
-    }
-
-    required_kind.eq_ignore_ascii_case("System") && is_system_target
+pub(crate) async fn list_plans_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<Vec<serde_json::Value>>, ApiError> {
+    let plans = service.list_plans().await?;
+    Ok(axum::Json(plans))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::kind_matches_target_kind;
-
-    #[test]
-    fn system_kind_matches_any_system_entity_target() {
-        // is_system_target=true represents anything implementing SystemEntity
-        assert!(kind_matches_target_kind("System", "Pod", true));
-        assert!(kind_matches_target_kind("System", "Node", true));
-        // A hypothetical future type also matches as long as it is a SystemEntity
-        assert!(kind_matches_target_kind("System", "UnknownSystem", true));
-    }
-
-    #[test]
-    fn system_kind_does_not_match_non_system_entities() {
-        assert!(!kind_matches_target_kind("System", "ServiceAccount", false));
-        assert!(!kind_matches_target_kind("System", "Namespace", false));
-    }
-
-    #[test]
-    fn exact_kind_matching_still_works() {
-        assert!(kind_matches_target_kind("Pod", "Pod", false));
-        assert!(!kind_matches_target_kind("Pod", "Node", false));
-        // is_system_target flag is irrelevant for non-System requirements
-        assert!(!kind_matches_target_kind("Pod", "Node", true));
-    }
+pub(crate) async fn load_plan_handler<S: ApiService>(
+    State(service): State<S>,
+    axum::Json(body): axum::Json<LoadPlanRequest>,
+) -> Result<axum::Json<serde_json::Value>, ApiError> {
+    let plan_id = service.load_plan(body.filename).await?;
+    Ok(axum::Json(serde_json::json!({ "plan_id": plan_id })))
 }
 
 // --- Frontend handler -------------------------------------------------------

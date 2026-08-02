@@ -28,6 +28,16 @@ pub struct Campaign {
     /// Raw file contents captured by `file:content(path)` effects, keyed by path.
     #[serde(default)]
     pub file_contents: HashMap<String, String>,
+    /// Per-command multi-hop traversal breakdown, keyed by command id.
+    /// Presentation/audit side data (see [`crate::traversal`]) kept off
+    /// `ExecTtp`/`ExecutionRecord`; surfaced by the flow API by joining on id.
+    #[serde(default)]
+    pub command_traversals: HashMap<String, crate::traversal::CommandTraversal>,
+    /// Hop path each active session tunnels through, keyed by session backend
+    /// id, captured when the session was established. Replayed for every command
+    /// that later routes over that session.
+    #[serde(default)]
+    pub session_traversals: HashMap<String, Vec<crate::traversal::TraversalHop>>,
 }
 
 impl Campaign {
@@ -51,7 +61,16 @@ impl Campaign {
             execution_records: Vec::new(),
             open_steps: Vec::new(),
             file_contents: HashMap::new(),
+            command_traversals: HashMap::new(),
+            session_traversals: HashMap::new(),
         }
+    }
+
+    /// The recorded multi-hop traversal breakdown for a dispatched command, if
+    /// any. Used by the flow API to annotate steps without storing traversal on
+    /// the execution record itself.
+    pub fn command_traversal(&self, cmd_id: &str) -> Option<&crate::traversal::CommandTraversal> {
+        self.command_traversals.get(cmd_id)
     }
 
     /// Reset all campaign state back to the initial bootstrap state.
@@ -296,6 +315,83 @@ impl Campaign {
         ))
     }
 
+    /// Resolve an execution channel to `target_id`, constrained to start from
+    /// the caller-supplied system entity `source_id`.
+    ///
+    /// This is used when the user explicitly chooses an executing system in the
+    /// UI: that system should be treated as the source foothold for path
+    /// routing, not as the final execution destination unless it is also the
+    /// target.
+    pub(super) fn resolve_exec_channel_from_source_inner(
+        &self,
+        source_id: &str,
+        target_id: &str,
+    ) -> Result<ExecChannel, String> {
+        let source_eid = EntityId::new(source_id);
+        if !self.is_system_entity_id(&source_eid) {
+            return Err(format!(
+                "caller-supplied execution source '{}' is not a system entity",
+                source_id
+            ));
+        }
+
+        // Degenerate case: explicit source equals target system.
+        if source_id == target_id {
+            return Ok(ExecChannel {
+                backend_id: self.resolve_source_backend_id(source_id),
+                hops: vec![],
+                exec_target_id: None,
+            });
+        }
+
+        let target_eid = EntityId::new(target_id);
+        if let Some((_cost, path)) = self
+            .graph
+            .shortest_exec_path(std::slice::from_ref(&source_eid), &target_eid)
+        {
+            let hops = path[..path.len().saturating_sub(1)]
+                .iter()
+                .map(|id| id.0.clone())
+                .collect();
+            return Ok(ExecChannel {
+                backend_id: self.resolve_source_backend_id(source_id),
+                hops,
+                exec_target_id: None,
+            });
+        }
+
+        // Non-system targets (e.g. ServiceAccount) can be reached by first
+        // routing to a pod that uses them.
+        let sa_pod_id = self
+            .graph
+            .incoming(&target_eid)
+            .into_iter()
+            .find(|(_, d)| d.relation_name == "uses")
+            .map(|(src, _)| src.clone());
+
+        if let Some(pod_id) = sa_pod_id {
+            if let Some((_cost, path)) = self
+                .graph
+                .shortest_exec_path(std::slice::from_ref(&source_eid), &pod_id)
+            {
+                let hops = path[..path.len().saturating_sub(1)]
+                    .iter()
+                    .map(|id| id.0.clone())
+                    .collect();
+                return Ok(ExecChannel {
+                    backend_id: self.resolve_source_backend_id(source_id),
+                    hops,
+                    exec_target_id: Some(pod_id.0),
+                });
+            }
+        }
+
+        Err(format!(
+            "no viable execution channel from '{}' to '{}' found in the knowledge graph",
+            source_id, target_id
+        ))
+    }
+
     pub fn reachable_pods(&self) -> std::collections::HashSet<String> {
         let seeds = self.direct_foothold_systems();
         let mut reachable: std::collections::HashSet<String> =
@@ -469,6 +565,8 @@ mod planner_helper_tests {
             execution_records: Vec::new(),
             open_steps: Vec::new(),
             file_contents: std::collections::HashMap::new(),
+            command_traversals: std::collections::HashMap::new(),
+            session_traversals: std::collections::HashMap::new(),
         }
     }
 

@@ -84,6 +84,15 @@ struct EmulateArgs {
 
     #[arg(short = 'p', long = "port", default_value_t = 8080)]
     port: u16,
+
+    /// Execute this plan YAML on startup (alternative to POST /api/plans). When
+    /// it finishes, you're offered cleanup and the server stops afterwards.
+    #[arg(long = "plan")]
+    plan: Option<PathBuf>,
+
+    /// Run cleanup automatically when the --plan finishes instead of prompting.
+    #[arg(long = "cleanup", default_value_t = false)]
+    cleanup: bool,
 }
 
 #[tokio::main]
@@ -102,6 +111,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run_emulate(args: EmulateArgs) -> Result<()> {
+    let config_path = args.config.clone();
     let cfg = app::config::load(args.config)?;
 
     if let Some(ns) = &args.namespace {
@@ -110,11 +120,18 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         }
     }
 
+    let plans_dir = cfg.plans_dir();
+
     app::start(app::ServerConfig {
         kubeconfig: args.kubeconfig,
         armory_dir: args.armory,
         port: args.port,
         namespace_filter: cfg.namespaces,
+        scoring: cfg.scoring,
+        config_path,
+        plan: args.plan,
+        auto_cleanup: args.cleanup,
+        plans_dir,
     })
     .await
 }

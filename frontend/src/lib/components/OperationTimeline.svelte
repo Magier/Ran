@@ -10,22 +10,75 @@
 
     let { entries, onfocusentity, ontogglegroup }: Props = $props();
 
+    const MIN_HEIGHT = 120;
+    const MAX_HEIGHT = 800;
+    const DEFAULT_HEIGHT = 240; // matches the previous fixed h-60
+    const STORAGE_KEY = 'operationTimeline.height';
+
+    function loadHeight(): number {
+        if (typeof localStorage === 'undefined') return DEFAULT_HEIGHT;
+        const raw = Number(localStorage.getItem(STORAGE_KEY));
+        if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_HEIGHT;
+        return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, raw));
+    }
+
+    let height = $state(loadHeight());
+
+    function startResize(event: PointerEvent) {
+        event.preventDefault();
+        const startY = event.clientY;
+        const startHeight = height;
+
+        function onMove(e: PointerEvent) {
+            // Dragging up (smaller clientY) grows the panel.
+            const next = startHeight + (startY - e.clientY);
+            height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, next));
+        }
+        function onUp() {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(STORAGE_KEY, String(Math.round(height)));
+            }
+        }
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+    }
+
+    function onHandleKeydown(event: KeyboardEvent) {
+        const step = event.shiftKey ? 48 : 16;
+        if (event.key === 'ArrowUp') {
+            height = Math.min(MAX_HEIGHT, height + step);
+        } else if (event.key === 'ArrowDown') {
+            height = Math.max(MIN_HEIGHT, height - step);
+        } else {
+            return;
+        }
+        event.preventDefault();
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(STORAGE_KEY, String(Math.round(height)));
+        }
+    }
+
     function formatTime(d: Date): string {
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     }
 
-    function entityLabel(entry: EntityEntry): string {
+    function entityPrefix(entry: EntityEntry): string {
         if (entry.kind === 'credential') {
-            if (entry.entityKind === 'Secret') return `Found secret ${entry.entityName}`;
-            return `Found credential ${entry.entityName}`;
+            if (entry.entityKind === 'Secret') return 'Found secret';
+            return 'Found credential';
         }
-        if (entry.kind === 'access-gained') {
-            return `Gained exec access to ${entry.entityName}`;
-        }
-        if (entry.entityKind === 'Pod') return `Discovered pod ${entry.entityName}`;
-        if (entry.entityKind === 'Namespace') return `Discovered namespace ${entry.entityName}`;
-        if (entry.entityKind === 'ServiceAccount') return `Discovered service account ${entry.entityName}`;
-        return `Discovered ${entry.entityKind} ${entry.entityName}`;
+        if (entry.kind === 'access-gained') return 'Gained exec access to';
+        if (entry.entityKind === 'Pod') return 'Discovered pod';
+        if (entry.entityKind === 'Namespace') return 'Discovered namespace';
+        if (entry.entityKind === 'ServiceAccount') return 'Discovered service account';
+        return `Discovered ${entry.entityKind}`;
     }
 
     function effectCounts(group: ActionGroup) {
@@ -56,13 +109,58 @@
             return n + 1;
         }, 0)
     );
+
+    // The store keeps entries newest-first; render oldest→newest so the latest
+    // sits at the bottom, like a log/chat view.
+    let ordered = $derived([...entries].reverse());
+
+    let scrollEl: HTMLDivElement | undefined = $state();
+    // Pinned to the bottom by default so the newest events stay in view. Flips
+    // off once the user scrolls up into the history, and back on when they
+    // return to the bottom.
+    let stickToBottom = $state(true);
+
+    function onTimelineScroll() {
+        if (!scrollEl) return;
+        const slack = 24; // px tolerance — near-bottom still counts as bottom
+        stickToBottom =
+            scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - slack;
+    }
+
+    // Follow new events to the bottom while pinned. Depends on totalEvents so it
+    // also fires when an expanded group gains child effect rows, and on scrollEl
+    // so the initial (backfilled) list lands at the bottom once mounted.
+    $effect(() => {
+        totalEvents;
+        if (stickToBottom && scrollEl) {
+            scrollEl.scrollTop = scrollEl.scrollHeight;
+        }
+    });
 </script>
 
 <div
-    class="h-60 shrink-0 bg-surface-100-900 border-t border-surface-200-800 flex flex-col"
+    class="shrink-0 bg-surface-100-900 border-t border-surface-200-800 flex flex-col relative"
+    style="height: {height}px"
     role="region"
     aria-label="Operation timeline"
 >
+    <!-- Resize handle -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+        class="absolute -top-1 left-0 right-0 h-2 cursor-row-resize z-10 group"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize operation timeline"
+        aria-valuemin={MIN_HEIGHT}
+        aria-valuemax={MAX_HEIGHT}
+        aria-valuenow={Math.round(height)}
+        tabindex="0"
+        onpointerdown={startResize}
+        onkeydown={onHandleKeydown}
+    >
+        <div class="absolute inset-x-0 top-1 h-0.5 bg-transparent group-hover:bg-primary-500 transition-colors"></div>
+    </div>
+
     <!-- Header -->
     <div class="flex items-center px-3 py-1.5 border-b border-surface-200-800 shrink-0">
         <span class="text-sm font-semibold">Operation Timeline</span>
@@ -70,17 +168,35 @@
     </div>
 
     <!-- Entry list -->
-    <div class="overflow-y-auto flex-1 flex flex-col">
+    <div class="overflow-y-auto flex-1 flex flex-col" bind:this={scrollEl} onscroll={onTimelineScroll}>
         {#if entries.length === 0}
             <div class="flex items-center justify-center h-full text-surface-500 text-sm">
                 No events yet
             </div>
         {:else}
-            {#each entries as entry (entry.kind === 'action-group' ? entry.action.id : entry.id)}
+            {#each ordered as entry (entry.kind === 'action-group' ? entry.action.id : entry.id)}
                 {#if entry.kind === 'action-group'}
                     {@const counts = effectCounts(entry)}
                     <!-- Action group header row -->
-                    <div class="flex items-start gap-2 px-3 py-2 border-b border-surface-200-800 text-sm hover:bg-surface-200-800">
+                    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                    <div
+                        class="flex items-start gap-2 px-3 py-2 border-b border-surface-200-800 text-sm hover:bg-surface-200-800 cursor-pointer select-none"
+                        onclick={() => ontogglegroup(entry.action.id)}
+                        aria-expanded={!entry.collapsed}
+                    >
+                        <!-- Chevron (far left) -->
+                        <div class="mt-0.5 shrink-0 text-surface-500">
+                            {#if entry.effects.length > 0}
+                                <Icon
+                                    icon={entry.collapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'}
+                                    class="size-4"
+                                    aria-hidden="true"
+                                />
+                            {:else}
+                                <div class="size-4"></div>
+                            {/if}
+                        </div>
+
                         <!-- Status icon -->
                         <div class="mt-0.5 shrink-0">
                             {#if entry.action.status === 'pending'}
@@ -101,7 +217,7 @@
                                     type="button"
                                     class="text-primary-500 hover:underline truncate"
                                     title={entry.action.targetName}
-                                    onclick={() => onfocusentity(entry.action.targetId)}
+                                    onclick={(e) => { e.stopPropagation(); onfocusentity(entry.action.targetId); }}
                                 >
                                     {entry.action.targetName}
                                 </button>
@@ -138,24 +254,6 @@
                             {/if}
                         </div>
 
-                        <!-- Chevron toggle -->
-                        {#if entry.effects.length > 0}
-                            <button
-                                type="button"
-                                class="mt-0.5 shrink-0 text-surface-500 hover:text-surface-300"
-                                onclick={() => ontogglegroup(entry.action.id)}
-                                aria-label={entry.collapsed ? 'Expand effects' : 'Collapse effects'}
-                            >
-                                <Icon
-                                    icon={entry.collapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'}
-                                    class="size-4"
-                                    aria-hidden="true"
-                                />
-                            </button>
-                        {:else}
-                            <div class="size-4 shrink-0 mt-0.5"></div>
-                        {/if}
-
                         <!-- Timestamp -->
                         <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(entry.action.timestamp)}</span>
                     </div>
@@ -168,7 +266,11 @@
                                     <Icon icon={entityIcon(effect.kind)} class={entityIconClass(effect.kind)} aria-hidden="true" />
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <span class="font-medium">{entityLabel(effect)}</span>
+                                    <span class="font-medium">{entityPrefix(effect)}</span> <button
+                                        type="button"
+                                        class="font-medium text-left hover:underline text-primary-500"
+                                        onclick={() => onfocusentity(effect.entityId)}
+                                    >{effect.entityName}</button>
                                 </div>
                                 <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(effect.timestamp)}</span>
                             </div>
@@ -182,7 +284,11 @@
                             <Icon icon={entityIcon(entry.kind)} class={entityIconClass(entry.kind)} aria-hidden="true" />
                         </div>
                         <div class="flex-1 min-w-0">
-                            <span class="font-medium">{entityLabel(entry)}</span>
+                            <span class="font-medium">{entityPrefix(entry)}</span> <button
+                                type="button"
+                                class="font-medium text-left hover:underline text-primary-500"
+                                onclick={() => onfocusentity(entry.entityId)}
+                            >{entry.entityName}</button>
                         </div>
                         <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(entry.timestamp)}</span>
                     </div>

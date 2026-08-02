@@ -81,11 +81,12 @@ https://github.com/beserkerbob/KubernetesEnumerationTool (Powershell)
 
 - [k8s-sniff-https](https://github.com/ofirc/k8s-sniff-https)
 
-### LolBINS
+### LOL*
 - [GTFOBins](https://gtfobins.github.io): list of Unix binaries that can be used to bypass local security restrictions in misconfigured systems
 - [LOTTunnels](https://lottunnels.github.io): Living Off The Land Tunnels
 - [LOLC2](https://lolc2.github.io/)
 - [LOLRMM](https://lolrmm.io/)
+- [LOLGlobs](https://0xv1n.github.io/LOLGlobs/)
 
 #### Tools for potential support
 - https://github.com/vulsio/go-exploitdb
@@ -97,6 +98,10 @@ https://github.com/beserkerbob/KubernetesEnumerationTool (Powershell)
 - [MTKPI](https://github.com/r0binak/MTKPI) Multi Tool Kubernetes Pentest Image 
 - [deepce](https://github.com/stealthcopter/deepce)
 - [ctrsploit](https://github.com/ctrsploit/ctrsploit)
+
+
+### Container Escape
+- [CopyFail Exploit](https://xint.io/blog/copy-fail-linux-distributions)
 
 
 ## Catalog of interesting TTPs

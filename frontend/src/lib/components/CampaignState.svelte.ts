@@ -3,6 +3,7 @@ import type { ArmoryType, Node } from '$lib/model';
 import type { AttackFlow, CampaignState as State, Graph, TTP, ExecuteActionRequest } from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
 import { getRanAPI, RanAPI } from '$lib/ran_api';
+import { timeline } from '$lib/stores/timelineStore.svelte';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
 
@@ -68,6 +69,8 @@ class CampaignState {
 	armory = $state<ArmoryType>(new Map());
 	graph = $state<Graph>({} as Graph);
 	allPods: Entity[] = $state([]);
+	/// Bumped whenever the scoring profile changes, so recommendation views refetch.
+	scoringVersion = $state(0);
 	pendingMessages: string[] = [];
 	api: RanAPI = $state(getRanAPI());
 	private factsChangedCounter = 0;
@@ -287,6 +290,13 @@ class CampaignState {
 
 	async onReset(): Promise<void> {
 		console.log('Received reset-campaign event from backend');
+		// Clear the in-memory operation timeline so a reset/restart from any path
+		// (backend restart, autonomous loop, CLI) doesn't carry previous
+		// iterations' logs into the new campaign. The app-menu Reset clears it
+		// directly; this covers every reset signalled via the SSE event. Sharing
+		// the single reset-campaign handler is required — ran_api's `on()` keeps
+		// one handler per event type, so a second listener would clobber this one.
+		timeline.clear();
 		await this.api.GetGraph().then((g: Graph) => {
 			this.graph = g;
 		});

@@ -84,6 +84,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rank recommended next actions
+         * @description Returns applicable (TTP × target) actions ranked by utility for the current campaign state, using the default scoring profile. Advisory only — the caller decides what to execute. Each candidate includes a per-consideration breakdown for explainability.
+         */
+        get: operations["getRecommendations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scoring/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the live scoring profile
+         * @description Returns the current scoring profile — combination mode, the tuning feature flag, and every registered consideration's weight, response curve, and enabled/veto flags.
+         */
+        get: operations["getScoringProfile"];
+        /**
+         * Update the live scoring profile
+         * @description Replace the live scoring profile (runtime tuning). Gated on the scoring.tuning_ui feature flag; returns 403 when disabled.
+         */
+        put: operations["updateScoringProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scoring/profile/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Persist the live scoring profile
+         * @description Writes the live scoring profile to its sidecar file (ran.scoring.yaml) so it survives restarts. Gated on the scoring.tuning_ui flag.
+         */
+        post: operations["saveScoringProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scoring/profile/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset the live scoring profile
+         * @description Reverts the live scoring profile to the configured base and removes any persisted overrides. Gated on the scoring.tuning_ui flag.
+         */
+        post: operations["resetScoringProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scoring/calibrate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Calibrate the scoring profile from captured operator decisions
+         * @description Fit consideration weights from the operator decisions captured during this and prior sessions, so the utility AI reproduces those choices under the same conditions. Returns the fitted profile as a *preview* (not applied) plus fit-quality metrics; apply it via PUT /api/scoring/profile. Gated on the scoring.tuning_ui flag. Returns 409 if no decisions have been captured yet.
+         */
+        post: operations["calibrateScoring"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/flow": {
         parameters: {
             query?: never;
@@ -293,6 +397,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plans/available": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List available plans
+         * @description Lists pre-defined plans found in the configured plans directory (ran.yaml `plans.dir`, defaulting to `plans/`).
+         */
+        get: operations["listPlans"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load and execute a plan
+         * @description Reads a plan by file name from the configured plans directory and starts executing it. Returns the started plan's id.
+         */
+        post: operations["loadPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export interface webhooks {
     "armory-loaded": {
@@ -349,6 +493,19 @@ export interface webhooks {
 }
 export interface components {
     schemas: {
+        PlanSummary: {
+            /** @description File name within the plans directory (pass to /api/plans/load) */
+            filename: string;
+            id: string;
+            name: string;
+            description?: string | null;
+            /** @description Number of steps in the plan */
+            steps: number;
+        };
+        LoadPlanRequest: {
+            /** @description File name of the plan within the configured plans directory */
+            filename: string;
+        };
         Graph: {
             nodes: components["schemas"]["Node"][];
             edges: components["schemas"]["Edge"][];
@@ -377,6 +534,8 @@ export interface components {
             };
             sourceId: string;
             targetId: string;
+            /** @description Backend ID of the active persistent session on this exec-channel edge, if any. */
+            sessionId?: string;
         };
         CampaignState: {
             entities: {
@@ -395,6 +554,10 @@ export interface components {
             id: string;
             targetId: string;
             command: string;
+            /** @description Per-hop breakdown of a multi-system command traversal, ordered from the C2 entry point (outermost envelope) to the final target (innermost). Empty for direct/single-hop commands. */
+            traversal: components["schemas"]["TraversalHop"][];
+            /** @description The bare inner command as it runs on the final target system, before any hop envelopes wrap it. Empty when there is no multi-hop traversal. */
+            innerCommand: string;
             args: {
                 [key: string]: string;
             };
@@ -410,6 +573,19 @@ export interface components {
             status: "Unknown" | "Failed" | "Success" | "Ongoing";
             observables: string[];
             defense?: components["schemas"]["TTPDefense"];
+        };
+        /** @description One segment of a multi-hop command traversal: the command as it is handed from `fromId` to `toId`, and the envelope template applied at this layer. */
+        TraversalHop: {
+            /** @description Entity executing this segment; the C2 backend id for the first hop. */
+            fromId: string;
+            /** @description Entity reached by this segment. */
+            toId: string;
+            /** @description Relation/channel name driving this hop (e.g. `kubelet-exec`, `rce.can-exec`, `kubectl-exec`, or `builtin-exec` for the C2 entry). */
+            relation: string;
+            /** @description The command-wrapping template with `${CMD}` placeholder applied at this hop. Absent for the C2 entry hop and pass-through segments. */
+            envelope?: string;
+            /** @description The full command string sent across this segment — what `fromId` runs. */
+            command: string;
         };
         TTP: {
             id: string;
@@ -468,6 +644,8 @@ export interface components {
             args?: {
                 [key: string]: string;
             };
+            /** @description Free-text rationale for choosing this action at this point in the assessment — why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
+            reasoning?: string;
         };
         K8sResource: {
             id: string;
@@ -534,6 +712,8 @@ export interface components {
              * @description Unix timestamp in milliseconds when the result was received
              */
             completed_at_ms: number;
+            /** @description Caller-supplied rationale for why this action was run, as passed to the execute-action request. Empty when none was given. */
+            reasoning?: string;
             parseAudits: components["schemas"]["ParseAudit"][];
         };
         /**
@@ -570,6 +750,127 @@ export interface components {
         Error: {
             error: string;
             details?: string;
+        };
+        /** @description One consideration's contribution to a candidate's score. */
+        ConsiderationScore: {
+            /** @description Consideration identifier (e.g. "privilege_gain"). */
+            name: string;
+            /**
+             * @description Whether this consideration contributes to utility or belief state.
+             * @enum {string}
+             */
+            kind: "utility" | "belief";
+            /**
+             * Format: float
+             * @description Raw measurement in [0, 1].
+             */
+            raw: number;
+            /**
+             * Format: float
+             * @description Measurement after the profile's response curve.
+             */
+            curved: number;
+            /**
+             * Format: float
+             * @description Weight applied from the profile.
+             */
+            weight: number;
+            /** @description Whether this consideration acted as a multiplicative veto. */
+            veto: boolean;
+        };
+        /** @description A scored, grounded (TTP × target) action. */
+        ScoredCandidate: {
+            ttp_id: string;
+            target_id: string;
+            /**
+             * Format: float
+             * @description Final ranking score in [0, 1], equal to utility_score × success_probability.
+             */
+            utility: number;
+            /**
+             * Format: float
+             * @description Intrinsic desirability of the action if it succeeds.
+             */
+            utility_score: number;
+            /**
+             * Format: float
+             * @description Belief-state probability that the action can be grounded and succeed.
+             */
+            success_probability: number;
+            breakdown: components["schemas"]["ConsiderationScore"][];
+        };
+        /**
+         * @description How per-consideration scores are combined into one utility.
+         * @enum {string}
+         */
+        CombinationMode: "weighted_arithmetic" | "weighted_geometric" | "iaus_multiplicative";
+        /** @description A response curve mapping a raw measurement in [0,1] to a tuned score in [0,1], internally tagged by `type`. Only the fields for the active type are meaningful (linear: slope/intercept; polynomial: exponent/slope/ intercept; logistic: steepness/midpoint; step: threshold). */
+        ResponseCurve: {
+            /** @enum {string} */
+            type: "linear" | "polynomial" | "logistic" | "step";
+            /** Format: float */
+            slope?: number;
+            /** Format: float */
+            intercept?: number;
+            /** Format: float */
+            exponent?: number;
+            /** Format: float */
+            steepness?: number;
+            /** Format: float */
+            midpoint?: number;
+            /** Format: float */
+            threshold?: number;
+        };
+        /** @description A consideration's tunable config, tagged with its name. */
+        NamedConsideration: {
+            name: string;
+            /** Format: float */
+            weight: number;
+            curve: components["schemas"]["ResponseCurve"];
+            enabled: boolean;
+            veto: boolean;
+        };
+        /** @description The live scoring profile. */
+        ScoringProfile: {
+            combination: components["schemas"]["CombinationMode"];
+            /** @description Whether the tuning UI feature flag is enabled. */
+            tuningEnabled: boolean;
+            considerations: components["schemas"]["NamedConsideration"][];
+        };
+        /** @description A scoring-profile update (runtime tuning). */
+        ScoringProfileUpdate: {
+            combination: components["schemas"]["CombinationMode"];
+            considerations: components["schemas"]["NamedConsideration"][];
+        };
+        /** @description Fit-quality metrics from a calibration run. */
+        CalibrationMetrics: {
+            /** @description Number of captured decisions the fit used. */
+            decisions: number;
+            /**
+             * Format: float
+             * @description Fraction of decisions where the operator's choice ranks first.
+             */
+            top1Accuracy: number;
+            /**
+             * Format: float
+             * @description Mean probability the fitted model assigns the operator's choices.
+             */
+            meanChosenProb: number;
+            /**
+             * Format: float
+             * @description Worst per-decision probability assigned to an operator choice.
+             */
+            minChosenProb: number;
+            /** Format: float */
+            logLikelihood: number;
+            /** @description Decisions whose choice is Pareto-dominated — unreproducible by any non-negative weighting, signalling a missing consideration. */
+            infeasible: number;
+            converged: boolean;
+        };
+        /** @description A calibration preview — the fitted profile plus fit metrics. */
+        CalibrationResult: {
+            profile: components["schemas"]["ScoringProfile"];
+            metrics: components["schemas"]["CalibrationMetrics"];
         };
         /** @description Reference to the Kubernetes owner of a resource (e.g. ReplicaSet → Pod). */
         OwnerRef: {
@@ -688,6 +989,180 @@ export interface operations {
             };
             /** @description Target not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getRecommendations: {
+        parameters: {
+            query?: {
+                /** @description Optional — restrict recommendations to a single target entity. */
+                targetId?: string;
+                /** @description Optional — cap the number of ranked candidates returned. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoredCandidate"][];
+                };
+            };
+        };
+    };
+    getScoringProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoringProfile"];
+                };
+            };
+        };
+    };
+    updateScoringProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScoringProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoringProfile"];
+                };
+            };
+            /** @description Tuning disabled */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    saveScoringProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoringProfile"];
+                };
+            };
+            /** @description Tuning disabled */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    resetScoringProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reset profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScoringProfile"];
+                };
+            };
+            /** @description Tuning disabled */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    calibrateScoring: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fitted profile preview and metrics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalibrationResult"];
+                };
+            };
+            /** @description Tuning disabled */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No captured decisions to calibrate from */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1045,6 +1520,79 @@ export interface operations {
                 };
             };
             /** @description File content not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPlans: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Available plans */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanSummary"][];
+                };
+            };
+            /** @description Failed to read the plans directory */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    loadPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoadPlanRequest"];
+            };
+        };
+        responses: {
+            /** @description Plan started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        plan_id?: string;
+                    };
+                };
+            };
+            /** @description Invalid plan filename or plan failed to parse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Plan not found in the plans directory */
             404: {
                 headers: {
                     [name: string]: unknown;

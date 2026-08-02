@@ -1,13 +1,45 @@
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 
-use ran_domain::{CanReach, Entity, Pod};
+use ran_domain::{CanReach, Entity, Pod, UnknownSystem};
 
 use super::ParserOutput;
 use crate::FactsUpdate;
 
 pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
-    m.insert("rdns", parse_rdns);
+    m.insert("network.discovery", parse_network_discovery);
+    // Backward-compat for legacy effect IDs.
+    m.insert("rdns", parse_network_discovery);
+}
+
+/// Semantic parser for network host discovery.
+///
+/// Dynamically dispatches based on payload shape:
+/// - nmap standard / grep / XML -> nmap parser
+/// - `ip,ptr` CSV (reverse DNS output) -> rDNS parser
+fn parse_network_discovery(
+    stdout: &str,
+    stderr: &str,
+    args: &HashMap<String, String>,
+) -> ParserOutput {
+    let data = stdout.trim();
+    if data.is_empty() {
+        return ParserOutput::KnownFailure("empty network discovery output".to_string());
+    }
+
+    // Heuristics for nmap output families.
+    let looks_like_nmap = data.starts_with("Starting Nmap")
+        || data.contains("Nmap scan report for")
+        || data.contains("<nmaprun")
+        || data.contains("Host:");
+    if looks_like_nmap {
+        let source_id = args.get("TARGET_ID").map(String::as_str).unwrap_or("");
+        let cidr = args.get("CIDR").map(String::as_str);
+        return parse_nmap(data, source_id, cidr);
+    }
+
+    // Otherwise treat as reverse-DNS CSV-like output.
+    parse_rdns_csv(data, stderr, args)
 }
 
 /// Parser for the `nmap` effect — network host discovery.
@@ -34,7 +66,7 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
 /// `source_id` is passed explicitly because the registry `ParserFn` type only
 /// carries `(stdout, stderr)` — the caller in `parse_output_effect` resolves
 /// it from `cmd.target_id`.
-pub(super) fn parse_nmap(stdout: &str, source_id: &str) -> ParserOutput {
+pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty nmap output".to_string());
     }
@@ -43,9 +75,12 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str) -> ParserOutput {
         parse_nmap_xml(stdout)
     } else if stdout.contains("Host:") {
         parse_nmap_grep(stdout)
+    } else if stdout.contains("Nmap scan report for") {
+        parse_nmap_normal(stdout)
     } else {
         return ParserOutput::UnknownFormat(
-            "nmap output is neither greppable (-oG) nor XML (-oX) format".to_string(),
+            "nmap output is not recognized (expected standard, greppable -oG, or XML -oX format)"
+                .to_string(),
         );
     };
 
@@ -54,31 +89,149 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str) -> ParserOutput {
     }
 
     let mut facts = FactsUpdate::default();
+    let source_ns = source_namespace(source_id);
     for (ip, hostname) in &hosts {
-        let ip_kebab = ip.replace('.', "-");
-        let pod_name = format!("pod-{}", ip_kebab);
+        let Ok(ip_addr) = ip.parse::<IpAddr>() else {
+            continue;
+        };
 
-        // Use hostname as pod name when available, so entities can merge with
-        // rdns-discovered placeholders that use the same naming convention.
-        let name = hostname.as_deref().unwrap_or(&pod_name);
-        let mut pod = Pod::new(name, "");
-        if let Ok(ip_addr) = ip.parse::<IpAddr>() {
-            pod.system.ips.push(ip_addr);
+        // Private discoveries should stay in the scanner's network segment when
+        // a CIDR context is available.
+        if !is_ip_in_scope(ip_addr, cidr) {
+            continue;
         }
-        let pod_id = pod.entity_id().0.clone();
-        facts.new_entities.push(Box::new(pod));
+
+        let discovered = classify_discovered_host(ip_addr, hostname.as_deref(), source_ns);
+        let entity_id = discovered.entity_id().0.clone();
+        facts.new_entities.push(discovered);
 
         if !source_id.is_empty() {
             facts
                 .new_relations
-                .push(Box::new(CanReach::new(source_id, pod_id)));
+                .push(Box::new(CanReach::new(source_id, entity_id)));
         }
+    }
+
+    if facts.new_entities.is_empty() {
+        return ParserOutput::KnownFailure(
+            "no in-scope live hosts discovered in nmap output".to_string(),
+        );
     }
 
     ParserOutput::SuccessWithFacts(
         facts,
         format!("discovered {} live host(s) via nmap", hosts.len()),
     )
+}
+
+fn source_namespace(source_id: &str) -> Option<&str> {
+    let parts: Vec<&str> = source_id.splitn(4, '/').collect();
+    if parts.len() == 4 && parts[0] == "ns" && parts[2] == "pod" && !parts[1].is_empty() {
+        Some(parts[1])
+    } else {
+        None
+    }
+}
+
+fn parse_cidr_v4(cidr: &str) -> Option<(Ipv4Addr, u8)> {
+    let (base, prefix) = cidr.split_once('/')?;
+    let base = base.trim().parse::<Ipv4Addr>().ok()?;
+    let prefix = prefix.trim().parse::<u8>().ok()?;
+    if prefix > 32 {
+        return None;
+    }
+    Some((base, prefix))
+}
+
+fn ipv4_in_cidr(ip: Ipv4Addr, base: Ipv4Addr, prefix: u8) -> bool {
+    let mask = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix)
+    };
+    (u32::from(ip) & mask) == (u32::from(base) & mask)
+}
+
+fn is_private_ipv4(ip: Ipv4Addr) -> bool {
+    ip.is_private() || ip.is_link_local()
+}
+
+fn is_ip_in_scope(ip: IpAddr, cidr: Option<&str>) -> bool {
+    let IpAddr::V4(ipv4) = ip else {
+        return true;
+    };
+
+    if !is_private_ipv4(ipv4) {
+        return true;
+    }
+
+    let Some(cidr) = cidr else {
+        return true;
+    };
+    let Some((base, prefix)) = parse_cidr_v4(cidr) else {
+        return true;
+    };
+    ipv4_in_cidr(ipv4, base, prefix)
+}
+
+fn classify_discovered_host(
+    ip: IpAddr,
+    hostname: Option<&str>,
+    source_ns: Option<&str>,
+) -> Box<dyn Entity> {
+    let ip_str = ip.to_string();
+    let ip_kebab = ip_str.replace('.', "-");
+
+    if let Some(hostname) = hostname {
+        if let Some((name, ns)) = derive_cluster_pod_identity(hostname, &ip_kebab) {
+            let mut pod = Pod::new(name, ns);
+            pod.system.ips.push(ip);
+            return Box::new(pod);
+        }
+    }
+
+    if matches!(ip, IpAddr::V4(v4) if is_private_ipv4(v4)) {
+        let name = hostname
+            .filter(|h| !h.trim().is_empty())
+            .map(|h| h.to_string())
+            .unwrap_or_else(|| format!("pod-{}", ip_kebab));
+        let ns = source_ns.unwrap_or("");
+        let mut pod = Pod::new(name, ns);
+        pod.system.ips.push(ip);
+        return Box::new(pod);
+    }
+
+    let mut system = UnknownSystem::new(
+        hostname
+            .filter(|h| !h.trim().is_empty())
+            .unwrap_or(&ip_str)
+            .to_string(),
+    );
+    system.system.ips.push(ip);
+    Box::new(system)
+}
+
+fn derive_cluster_pod_identity(hostname: &str, ip_kebab: &str) -> Option<(String, String)> {
+    if !hostname.ends_with("cluster.local") {
+        return None;
+    }
+    let parts: Vec<&str> = hostname.split('.').collect();
+    let first = parts.first().copied().unwrap_or("");
+    if first != ip_kebab {
+        return None;
+    }
+
+    let (name, ns) = match parts.len() {
+        4 => (parts[0].to_string(), parts[0].to_string()),
+        5 => (parts[0].to_string(), parts[1].to_string()),
+        6 => (format!("{}.{}", parts[1], parts[0]), parts[2].to_string()),
+        n if n > 6 => (parts[0].to_string(), parts[2].to_string()),
+        _ => return None,
+    };
+    if ns.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some((name, ns))
 }
 
 /// Parse nmap greppable (`-oG`) output.
@@ -117,6 +270,49 @@ fn parse_nmap_grep(stdout: &str) -> Vec<(String, Option<String>)> {
         let is_up = line.contains("Status: Up") || line.contains("Ports:");
         if is_up {
             hosts.push((ip_str.to_string(), hostname));
+        }
+    }
+
+    hosts
+}
+
+/// Parse standard nmap text output (`nmap ...`).
+///
+/// Recognized host lines:
+/// - `Nmap scan report for 10.0.0.5`
+/// - `Nmap scan report for redis.default.svc.cluster.local (10.0.0.6)`
+///
+/// Returns `(ip, Option<hostname>)`.
+fn parse_nmap_normal(stdout: &str) -> Vec<(String, Option<String>)> {
+    let mut hosts = Vec::new();
+
+    for line in stdout.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("Nmap scan report for ") else {
+            continue;
+        };
+
+        // Form: "hostname (ip)"
+        if let Some((host, tail)) = rest.rsplit_once(" (") {
+            if let Some(ip) = tail.strip_suffix(')') {
+                let ip = ip.trim();
+                if ip.parse::<IpAddr>().is_ok() {
+                    let hostname = host.trim();
+                    let hostname = if hostname.is_empty() || hostname == ip {
+                        None
+                    } else {
+                        Some(hostname.to_string())
+                    };
+                    hosts.push((ip.to_string(), hostname));
+                    continue;
+                }
+            }
+        }
+
+        // Form: "ip"
+        let candidate = rest.trim();
+        if candidate.parse::<IpAddr>().is_ok() {
+            hosts.push((candidate.to_string(), None));
         }
     }
 
@@ -207,7 +403,7 @@ fn extract_xml_attr(
 /// matches the IP in kebab-case form (e.g. `10-244-1-4`) are inferred to be
 /// Pod addresses; other entries (service VIPs, external hosts) are skipped
 /// because there is no Service domain type yet.
-fn parse_rdns(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
+fn parse_rdns_csv(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) -> ParserOutput {
     let data = stdout.trim();
     if data.is_empty() {
         return ParserOutput::KnownFailure("empty rDNS output".to_string());
@@ -297,7 +493,7 @@ mod tests {
     #[test]
     fn parse_nmap_grep_single_status_up_emits_pod_and_can_reach() {
         let stdout = "Host: 10.0.0.5 ()\tStatus: Up\n";
-        let result = parse_nmap(stdout, "ns/default/pod/attacker");
+        let result = parse_nmap(stdout, "ns/default/pod/attacker", None);
         let ParserOutput::SuccessWithFacts(facts, detail) = result else {
             panic!("expected SuccessWithFacts, got {:?}", result);
         };
@@ -319,7 +515,7 @@ mod tests {
     #[test]
     fn parse_nmap_grep_multiple_hosts() {
         let stdout = "Host: 10.0.0.5 ()\tStatus: Up\nHost: 10.0.0.6 ()\tStatus: Up\nHost: 10.0.0.7 ()\tStatus: Down\n";
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "src") else {
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "src", None) else {
             panic!("expected SuccessWithFacts");
         };
         assert_eq!(facts.new_entities.len(), 2);
@@ -329,7 +525,7 @@ mod tests {
     #[test]
     fn parse_nmap_grep_hostname_used_as_pod_name() {
         let stdout = "Host: 10.0.0.6 (redis.default.svc.cluster.local)\tPorts: 6379/open/tcp\n";
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "src") else {
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "src", None) else {
             panic!("expected SuccessWithFacts");
         };
         let pod = facts.new_entities[0]
@@ -348,7 +544,8 @@ mod tests {
 <address addr="10.0.0.5" addrtype="ipv4"/>
 </host>
 </nmaprun>"#;
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "ns/default/pod/scanner")
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_nmap(stdout, "ns/default/pod/scanner", None)
         else {
             panic!("expected SuccessWithFacts");
         };
@@ -369,18 +566,59 @@ mod tests {
     #[test]
     fn parse_nmap_empty_output_returns_known_failure() {
         assert!(matches!(
-            parse_nmap("", "src"),
+            parse_nmap("", "src", None),
             ParserOutput::KnownFailure(_)
         ));
+    }
+
+    #[test]
+    fn parse_nmap_standard_output_discovers_hosts() {
+        let stdout = "Starting Nmap 7.95\nNmap scan report for 10-0-0-13.oopservability-agent.oopservability.svc.cluster.local (10.0.0.13)\nHost is up\nNmap scan report for 10.0.0.44\nHost is up\n";
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "src", None) else {
+            panic!("expected SuccessWithFacts");
+        };
+        assert_eq!(facts.new_entities.len(), 2);
     }
 
     #[test]
     fn parse_nmap_grep_status_down_skipped() {
         let stdout = "Host: 10.0.0.1 ()\tStatus: Down\nHost: 10.0.0.2 ()\tStatus: Down\n";
         assert!(matches!(
-            parse_nmap(stdout, "src"),
+            parse_nmap(stdout, "src", None),
             ParserOutput::KnownFailure(_)
         ));
+    }
+
+    #[test]
+    fn parse_nmap_private_hosts_filtered_by_cidr_scope() {
+        let stdout = "Host: 10.0.0.5 ()\tStatus: Up\nHost: 10.0.1.6 ()\tStatus: Up\n";
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_nmap(stdout, "ns/dungeon/pod/scanner", Some("10.0.0.0/24"))
+        else {
+            panic!("expected SuccessWithFacts");
+        };
+        assert_eq!(facts.new_entities.len(), 1);
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .unwrap();
+        assert_eq!(pod.namespace(), Some("dungeon"));
+        assert!(pod.system.ips.iter().any(|ip| ip.to_string() == "10.0.0.5"));
+    }
+
+    #[test]
+    fn parse_nmap_cluster_local_hostname_derives_namespace() {
+        let stdout = "Nmap scan report for 10-0-0-13.oopservability-agent.oopservability.svc.cluster.local (10.0.0.13)\nHost is up\n";
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_nmap(stdout, "ns/dungeon/pod/scanner", None)
+        else {
+            panic!("expected SuccessWithFacts");
+        };
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .unwrap();
+        assert_eq!(pod.namespace(), Some("oopservability"));
     }
 
     // --- rdns ---
@@ -391,7 +629,7 @@ mod tests {
             10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local\n\
             10.244.1.6,10-244-1-6.argocd-notifications-controller-metrics.argocd.svc.cluster.local\n\
             192.168.0.5,host.local\n";
-        let result = parse_rdns(stdout, "", &HashMap::new());
+        let result = parse_network_discovery(stdout, "", &HashMap::new());
         let ParserOutput::SuccessWithFacts(facts, detail) = result else {
             panic!("expected SuccessWithFacts, got {:?}", result);
         };
@@ -408,7 +646,8 @@ mod tests {
     #[test]
     fn parse_rdns_pod_has_ip_set() {
         let stdout = "10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local\n";
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_rdns(stdout, "", &HashMap::new())
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_network_discovery(stdout, "", &HashMap::new())
         else {
             panic!("expected SuccessWithFacts");
         };
@@ -429,19 +668,19 @@ mod tests {
     #[test]
     fn parse_rdns_skips_non_cluster_local() {
         let stdout = "ip,ptr\n192.168.0.5,host.local\n10.0.0.1,internal.example.com\n";
-        let result = parse_rdns(stdout, "", &HashMap::new());
+        let result = parse_network_discovery(stdout, "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 
     #[test]
     fn parse_rdns_empty_input() {
-        let result = parse_rdns("", "", &HashMap::new());
+        let result = parse_network_discovery("", "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 
     #[test]
     fn parse_rdns_header_only() {
-        let result = parse_rdns("ip,ptr\n", "", &HashMap::new());
+        let result = parse_network_discovery("ip,ptr\n", "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
     }
 
@@ -451,7 +690,7 @@ mod tests {
             not-an-ip,some.cluster.local\n\
             this-is-not-csv\n\
             10.0.0.1,10-0-0-1.backend.default.svc.cluster.local\n";
-        let result = parse_rdns(stdout, "", &HashMap::new());
+        let result = parse_network_discovery(stdout, "", &HashMap::new());
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts");
         };
@@ -462,7 +701,7 @@ mod tests {
     fn parse_rdns_without_header() {
         let stdout = "10.244.1.4,10-244-1-4.backend-service.dev.svc.cluster.local\n\
             10.244.1.6,10-244-1-6.argocd-server.argocd.svc.cluster.local\n";
-        let result = parse_rdns(stdout, "", &HashMap::new());
+        let result = parse_network_discovery(stdout, "", &HashMap::new());
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts");
         };
