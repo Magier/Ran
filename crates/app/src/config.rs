@@ -10,6 +10,27 @@ use tracing::debug;
 pub struct Config {
     pub namespaces: NamespaceFilter,
     pub scoring: ScoringConfig,
+    pub plans: PlansConfig,
+}
+
+impl Config {
+    /// Directory to read pre-defined plans from, defaulting to `plans` in the
+    /// current working directory when unset.
+    pub fn plans_dir(&self) -> PathBuf {
+        self.plans
+            .dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("plans"))
+    }
+}
+
+/// Where the web UI and CLI look for pre-defined plan files.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PlansConfig {
+    /// Directory containing `*.plan.yaml` files. Defaults to `plans` in the
+    /// current working directory when unset. See [`Config::plans_dir`].
+    pub dir: Option<PathBuf>,
 }
 
 /// Action-selection (utility AI) configuration.
@@ -98,6 +119,18 @@ pub fn load(path: Option<PathBuf>) -> Result<Config> {
 mod tests {
     use super::*;
     use utility_ai::CombinationMode;
+
+    #[test]
+    fn plans_dir_defaults_to_plans() {
+        let cfg = Config::default();
+        assert_eq!(cfg.plans_dir(), PathBuf::from("plans"));
+    }
+
+    #[test]
+    fn plans_dir_honors_configured_value() {
+        let cfg: Config = serde_yaml::from_str("plans:\n  dir: /custom/plans").unwrap();
+        assert_eq!(cfg.plans_dir(), PathBuf::from("/custom/plans"));
+    }
 
     #[test]
     fn scoring_defaults_to_weighted_arithmetic() {

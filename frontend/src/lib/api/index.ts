@@ -35,6 +35,9 @@ export type CalibrationMetrics = components['schemas']['CalibrationMetrics'];
 
 export type RBACPermission = components['schemas']['RBACPermission'];
 
+export type PlanSummary = components['schemas']['PlanSummary'];
+export type LoadPlanRequest = components['schemas']['LoadPlanRequest'];
+
 // Operation types for request/response
 export type GetGraphResponse =
 	operations['getGraph']['responses']['200']['content']['application/json'];

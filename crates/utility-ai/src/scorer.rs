@@ -4,7 +4,7 @@ use campaign::ttp_applicability::{resolve_target_context, ttp_applicable_for_tar
 use campaign::Campaign;
 
 use super::considerations::default_considerations;
-use super::{CombinationMode, Consideration, Profile, ScoringContext};
+use super::{CombinationMode, Consideration, ConsiderationKind, Profile, ScoringContext};
 
 /// Floor applied to value inputs before taking logs in geometric mode, so a
 /// legitimately-zero value axis (e.g. a recon TTP with no privilege effect)
@@ -16,6 +16,8 @@ const GEOMETRIC_EPS: f32 = 1e-3;
 #[derive(Debug, Clone, Serialize)]
 pub struct ConsiderationScore {
     pub name: &'static str,
+    /// Whether this is a utility axis or belief-state factor.
+    pub kind: ConsiderationKind,
     /// Raw measurement in `[0, 1]`.
     pub raw: f32,
     /// After the profile's response curve.
@@ -31,18 +33,22 @@ pub struct ConsiderationScore {
 pub struct ScoredCandidate {
     pub ttp_id: String,
     pub target_id: String,
-    /// Final utility in `[0, 1]`.
+    /// Final ranking score in `[0, 1]`: `utility_score × success_probability`.
     pub utility: f32,
+    /// Intrinsic desirability of the action if it succeeds.
+    pub utility_score: f32,
+    /// Belief-state probability that the action can be grounded and succeed.
+    pub success_probability: f32,
     /// Per-consideration breakdown, in registration order.
     pub breakdown: Vec<ConsiderationScore>,
 }
 
-/// Ranks applicable grounded actions by utility for a given [`Profile`].
+/// Ranks applicable grounded actions by expected utility for a given [`Profile`].
 ///
 /// The profile's [`CombinationMode`] decides how the per-consideration scores
-/// are merged (weighted arithmetic/geometric mean over value axes × gate axes,
-/// or faithful IAUS multiplication). A profile is otherwise just a weight/curve
-/// vector — swapping it changes preferences without touching scoring code.
+/// are merged for utility axes (weighted arithmetic/geometric mean over value
+/// axes × gate axes, or faithful IAUS multiplication). Belief factors are kept
+/// out of that preference model and multiply into success probability.
 pub struct Scorer {
     considerations: Vec<Box<dyn Consideration>>,
     profile: Profile,
@@ -69,6 +75,7 @@ impl Scorer {
         let mut value_axes: Vec<(f32, f32)> = Vec::new();
         let mut gate_curves: Vec<f32> = Vec::new();
         let mut all_curves: Vec<f32> = Vec::new();
+        let mut belief_curves: Vec<f32> = Vec::new();
 
         for c in &self.considerations {
             let cfg = self.profile.config(c.name());
@@ -77,16 +84,23 @@ impl Scorer {
             }
             let raw = c.measure(ctx).clamp(0.0, 1.0);
             let curved = cfg.curve.apply(raw);
+            let kind = c.kind();
 
-            all_curves.push(curved);
-            if cfg.veto {
-                gate_curves.push(curved);
-            } else {
-                value_axes.push((cfg.weight, curved));
+            match kind {
+                ConsiderationKind::Utility => {
+                    all_curves.push(curved);
+                    if cfg.veto {
+                        gate_curves.push(curved);
+                    } else {
+                        value_axes.push((cfg.weight, curved));
+                    }
+                }
+                ConsiderationKind::Belief => belief_curves.push(curved),
             }
 
             breakdown.push(ConsiderationScore {
                 name: c.name(),
+                kind,
                 raw,
                 curved,
                 weight: cfg.weight,
@@ -94,7 +108,7 @@ impl Scorer {
             });
         }
 
-        let utility = match self.profile.combination {
+        let utility_score = match self.profile.combination {
             // Faithful IAUS: every axis multiplies, with compensation.
             CombinationMode::IausMultiplicative => iaus_combine(&all_curves),
             // Hybrid: value mean × gate product.
@@ -105,11 +119,15 @@ impl Scorer {
                 weighted_geometric(&value_axes) * product(&gate_curves)
             }
         };
+        let success_probability = product(&belief_curves);
+        let utility = utility_score * success_probability;
 
         ScoredCandidate {
             ttp_id: ctx.ttp.id.clone(),
             target_id: ctx.tc.target_id.clone(),
             utility,
+            utility_score,
+            success_probability,
             breakdown,
         }
     }
@@ -298,6 +316,28 @@ mod tests {
         assert!(ranked[0].breakdown.iter().all(|b| b.name != "cost"));
         // 6 built-in considerations minus the disabled `cost`.
         assert_eq!(ranked[0].breakdown.len(), 5);
+    }
+
+    #[test]
+    fn belief_factors_multiply_utility_without_joining_value_mean() {
+        let (campaign, _) = campaign_with_reachable_pod();
+        let armory = vec![system_ttp("ttp-a")];
+        let scorer = Scorer::with_defaults(Profile::default());
+
+        let ranked = scorer.rank(&campaign, &armory);
+        assert_eq!(ranked.len(), 1);
+        let sc = &ranked[0];
+        assert!(sc.utility_score > 0.0);
+        assert!(sc.success_probability > 0.0 && sc.success_probability <= 1.0);
+        assert!((sc.utility - sc.utility_score * sc.success_probability).abs() < 1e-6);
+        assert_eq!(
+            sc.breakdown
+                .iter()
+                .find(|b| b.name == "reliability")
+                .unwrap()
+                .kind,
+            ConsiderationKind::Belief
+        );
     }
 
     #[test]

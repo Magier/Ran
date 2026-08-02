@@ -70,6 +70,14 @@ pub struct DecisionPoint {
     pub candidates: Vec<CandidateSample>,
     /// Index into `candidates` of the demonstrated choice.
     pub chosen: usize,
+    /// Consideration names, in feature order, this decision's features were
+    /// measured against. Lets a persisted log survive a change to the
+    /// consideration set: [`fit`] drops any decision whose schema differs from
+    /// the current considerations (even at the same width — a swapped axis is
+    /// still incomparable). Empty means unknown (a legacy entry written before
+    /// this field existed); those are matched on feature width alone.
+    #[serde(default)]
+    pub considerations: Vec<String>,
 }
 
 /// Knobs for [`fit`]. `Default` is a sensible starting point.
@@ -199,8 +207,27 @@ pub fn fit(names: &[&str], points: &[DecisionPoint], opts: &FitOptions) -> Calib
         opts.curves.clone()
     };
 
-    // Pre-curve every candidate's features once: model input is the curved vector.
-    let curved: Vec<Vec<Vec<f32>>> = points
+    // Only well-formed decisions participate: a real, in-range choice, and every
+    // candidate's feature vector matching the consideration count `k`. Decisions
+    // captured under a *different* consideration set — a stale log after the
+    // considerations changed — have the wrong feature width; their entries describe
+    // different axes and can't be compared here, so they're dropped rather than
+    // indexed out of bounds. `per_decision` therefore covers only the used subset.
+    let valid: Vec<&DecisionPoint> = points
+        .iter()
+        .filter(|d| {
+            !d.candidates.is_empty()
+                && d.chosen < d.candidates.len()
+                && d.candidates.iter().all(|c| c.features.len() == k)
+                // Schema must match the current considerations. A recorded schema
+                // that differs (a changed *or swapped* axis) is incomparable and
+                // dropped; an empty schema (legacy entry) falls back to width.
+                && (d.considerations.is_empty() || schema_eq(&d.considerations, names))
+        })
+        .collect();
+
+    // Pre-curve every valid candidate's features once (model input is the curve).
+    let curved: Vec<Vec<Vec<f32>>> = valid
         .iter()
         .map(|d| {
             d.candidates
@@ -215,10 +242,12 @@ pub fn fit(names: &[&str], points: &[DecisionPoint], opts: &FitOptions) -> Calib
                 .collect()
         })
         .collect();
+    // Index of the chosen candidate per valid decision, aligned with `curved`.
+    let chosen: Vec<usize> = valid.iter().map(|d| d.chosen).collect();
 
     // Only decisions with a real choice (>= 2 candidates) contribute to the fit.
-    let active: Vec<usize> = (0..points.len())
-        .filter(|&d| points[d].candidates.len() >= 2)
+    let active: Vec<usize> = (0..curved.len())
+        .filter(|&d| curved[d].len() >= 2)
         .collect();
 
     let mut w = vec![0.0f32; k];
@@ -227,11 +256,11 @@ pub fn fit(names: &[&str], points: &[DecisionPoint], opts: &FitOptions) -> Calib
 
     if !active.is_empty() {
         let mut lr = 1.0f32;
-        let mut cur_nll = nll(&w, &curved, &active, points, opts.l2);
+        let mut cur_nll = nll(&w, &curved, &active, &chosen, opts.l2);
 
         for it in 0..opts.max_iters {
             iters = it + 1;
-            let grad = gradient(&w, &curved, &active, points, opts.l2);
+            let grad = gradient(&w, &curved, &active, &chosen, opts.l2);
 
             // Projected-gradient convergence: for a clamped (active) coordinate a
             // positive gradient can't move it further, so ignore that component.
@@ -251,7 +280,7 @@ pub fn fit(names: &[&str], points: &[DecisionPoint], opts: &FitOptions) -> Calib
                         cand[j] = 0.0;
                     }
                 }
-                let cand_nll = nll(&cand, &curved, &active, points, opts.l2);
+                let cand_nll = nll(&cand, &curved, &active, &chosen, opts.l2);
                 if cand_nll <= cur_nll {
                     // Negligible relative improvement → we're effectively at the
                     // (unique, thanks to L2) minimum, even if the raw gradient is
@@ -274,26 +303,22 @@ pub fn fit(names: &[&str], points: &[DecisionPoint], opts: &FitOptions) -> Calib
         }
     }
 
-    let mut report = build_report(names, &curves, &w, &curved, points);
+    let mut report = build_report(names, &curves, &w, &curved, &chosen);
     report.iters = iters;
     report.converged = converged;
     report
 }
 
 /// Negative log-likelihood + L2 penalty at `w` over the active decisions.
-fn nll(
-    w: &[f32],
-    curved: &[Vec<Vec<f32>>],
-    active: &[usize],
-    points: &[DecisionPoint],
-    l2: f32,
-) -> f32 {
+/// `chosen[d]` is the winning candidate index for decision `d` (guaranteed in
+/// range by [`fit`]'s validity filter).
+fn nll(w: &[f32], curved: &[Vec<Vec<f32>>], active: &[usize], chosen: &[usize], l2: f32) -> f32 {
     let mut total = 0.0f32;
     for &d in active {
         let cands = &curved[d];
         let scores: Vec<f32> = cands.iter().map(|c| dot(w, c)).collect();
         let logz = log_sum_exp(&scores);
-        total += logz - scores[points[d].chosen];
+        total += logz - scores[chosen[d]];
     }
     let reg: f32 = l2 * w.iter().map(|v| v * v).sum::<f32>();
     total + reg
@@ -304,7 +329,7 @@ fn gradient(
     w: &[f32],
     curved: &[Vec<Vec<f32>>],
     active: &[usize],
-    points: &[DecisionPoint],
+    chosen: &[usize],
     l2: f32,
 ) -> Vec<f32> {
     let k = w.len();
@@ -314,10 +339,10 @@ fn gradient(
         let scores: Vec<f32> = cands.iter().map(|c| dot(w, c)).collect();
         let probs = softmax(&scores);
         // Expected feature vector under the model minus the chosen feature vector.
-        let chosen = &cands[points[d].chosen];
+        let chosen_feat = &cands[chosen[d]];
         for j in 0..k {
             let expected: f32 = cands.iter().zip(&probs).map(|(c, p)| p * c[j]).sum();
-            g[j] += expected - chosen[j];
+            g[j] += expected - chosen_feat[j];
         }
     }
     for j in 0..k {
@@ -346,9 +371,9 @@ fn build_report(
     curves: &[ResponseCurve],
     w: &[f32],
     curved: &[Vec<Vec<f32>>],
-    points: &[DecisionPoint],
+    chosen: &[usize],
 ) -> Calibration {
-    let mut per_decision = Vec::with_capacity(points.len());
+    let mut per_decision = Vec::with_capacity(curved.len());
     let mut infeasible = Vec::new();
     let mut ll = 0.0f32;
     let mut prob_sum = 0.0f32;
@@ -357,9 +382,8 @@ fn build_report(
     let mut top1 = 0usize;
     let mut ranked_count = 0usize;
 
-    for (d, point) in points.iter().enumerate() {
-        let cands = &curved[d];
-        let chosen = point.chosen;
+    for (d, cands) in curved.iter().enumerate() {
+        let chosen = chosen[d];
         let dominated = is_dominated(cands, chosen);
         if dominated {
             infeasible.push(d);
@@ -448,6 +472,12 @@ fn is_dominated(cands: &[Vec<f32>], chosen: usize) -> bool {
     })
 }
 
+/// Whether a decision's recorded consideration schema matches the current one
+/// (same names, same order).
+fn schema_eq(recorded: &[String], names: &[&str]) -> bool {
+    recorded.len() == names.len() && recorded.iter().zip(names).all(|(a, b)| a == b)
+}
+
 fn dot(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
@@ -472,7 +502,13 @@ mod tests {
     use super::*;
 
     fn dp(candidates: Vec<CandidateSample>, chosen: usize) -> DecisionPoint {
-        DecisionPoint { candidates, chosen }
+        // No recorded schema → matched on feature width (legacy-entry behavior),
+        // which keeps these width-based tests focused on the fit itself.
+        DecisionPoint {
+            candidates,
+            chosen,
+            considerations: Vec::new(),
+        }
     }
 
     fn cand(features: Vec<f32>) -> CandidateSample {
@@ -594,6 +630,71 @@ mod tests {
         // Rescaled to average 1.0 across the two considerations.
         let sum: f32 = profile.considerations.values().map(|c| c.weight).sum();
         assert!((sum - 2.0).abs() < 1e-3, "sum {sum}");
+    }
+
+    #[test]
+    fn mixed_feature_widths_drop_stale_entries_without_panicking() {
+        // A decision log spanning a consideration-set change: some decisions carry
+        // 6-wide feature vectors, others 5-wide. Fitting against a 6-name set must
+        // drop the 5-wide (stale-schema) decisions rather than index out of bounds.
+        let names6 = ["a", "b", "c", "d", "e", "f"];
+        let dp6 = dp(
+            vec![
+                cand(vec![0.9, 0.1, 0.2, 0.3, 0.4, 0.5]),
+                cand(vec![0.1, 0.8, 0.2, 0.1, 0.0, 0.3]),
+            ],
+            0,
+        );
+        let dp5 = dp(
+            vec![
+                cand(vec![0.9, 0.1, 0.2, 0.3, 0.4]),
+                cand(vec![0.1, 0.8, 0.2, 0.1, 0.0]),
+            ],
+            1,
+        );
+        let cal = fit(&names6, &[dp6, dp5], &FitOptions::default());
+
+        // Only the 6-wide decision participates; the 5-wide one is dropped.
+        assert_eq!(cal.per_decision.len(), 1);
+        assert_eq!(cal.weights.len(), 6);
+
+        // All-stale input yields an empty (but panic-free) report.
+        let only_stale = fit(
+            &names6,
+            std::slice::from_ref(&dp5_clone()),
+            &FitOptions::default(),
+        );
+        assert!(only_stale.per_decision.is_empty());
+    }
+
+    #[test]
+    fn same_width_but_different_consideration_set_is_dropped() {
+        // A decision captured under a *different* 2-consideration set than the
+        // one we're fitting for. Same width, so a width-only guard would wrongly
+        // fit it; the schema check must drop it (the axes aren't comparable).
+        let mut stale = dp(vec![cand(vec![0.9, 0.1]), cand(vec![0.1, 0.9])], 0);
+        stale.considerations = vec!["stealth".into(), "cost".into()];
+
+        let mut current = dp(vec![cand(vec![0.9, 0.1]), cand(vec![0.1, 0.9])], 0);
+        current.considerations = vec!["novelty".into(), "cost".into()];
+
+        let cal = fit(
+            &["novelty", "cost"],
+            &[stale, current],
+            &FitOptions::default(),
+        );
+        // Only the schema-matching decision is used.
+        assert_eq!(cal.per_decision.len(), 1);
+    }
+
+    fn dp5_clone() -> DecisionPoint {
+        dp(
+            vec![
+                cand(vec![0.9, 0.1, 0.2, 0.3, 0.4]),
+                cand(vec![0.1, 0.8, 0.2, 0.1, 0.0]),
+            ],
+            1,
+        )
     }
 
     #[test]

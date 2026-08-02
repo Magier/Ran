@@ -37,7 +37,8 @@ import type {
 	ScoredCandidate,
 	ScoringProfile,
 	ScoringProfileUpdate,
-	CalibrationResult
+	CalibrationResult,
+	PlanSummary
 } from '$lib/api';
 
 type PendingRequest = {
@@ -445,6 +446,20 @@ export class RanAPI {
 		if (error) throw new Error(error.error);
 		return data;
 	}
+
+	async ListPlans(): Promise<Array<PlanSummary>> {
+		const { data, error } = await this.restClient.GET('/api/plans/available');
+		if (error) throw new Error(error.error || 'Failed to list plans');
+		return data;
+	}
+
+	async LoadPlan(filename: string): Promise<{ plan_id?: string }> {
+		const { data, error } = await this.restClient.POST('/api/plans/load', {
+			body: { filename }
+		});
+		if (error) throw new Error(error.error || 'Failed to load plan');
+		return data;
+	}
 }
 
 // export const ranSocket = new RanSocket(`ws://${window.location.host}/ws`);
@@ -486,3 +501,5 @@ export const ResetCampaign = ranAPI.ResetCampaign.bind(ranAPI);
 export const GetRunningPods = ranAPI.GetRunningPods.bind(ranAPI);
 export const StartPodWatch = ranAPI.StartPodWatch.bind(ranAPI);
 export const StopPodWatch = ranAPI.StopPodWatch.bind(ranAPI);
+export const ListPlans = ranAPI.ListPlans.bind(ranAPI);
+export const LoadPlan = ranAPI.LoadPlan.bind(ranAPI);

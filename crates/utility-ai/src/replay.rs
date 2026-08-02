@@ -19,15 +19,17 @@
 //! exact. The one gap: an `ExecutionRecord` doesn't persist the physical
 //! `exec_chain` or `session_connected` probe, so effects that build exec-channel
 //! edges or activate sessions are not replayed — later reachability/applicability
-//! can drift from the original run. Steps whose demonstrated action isn't in the
-//! reconstructed applicable set are reported in [`ReplayResult::unseen`] rather
-//! than silently dropped.
+//! can drift from the original run. Calibration exports only utility-axis
+//! features; belief factors still shape candidate ranking during capture/replay
+//! but are not fitted as operator preferences. Steps whose demonstrated action
+//! isn't in the reconstructed applicable set are reported in
+//! [`ReplayResult::unseen`] rather than silently dropped.
 
 use armory::Ttp;
 use c2::{ExecTtp, TtpExecuted};
 use campaign::{Campaign, ExecutionRecord};
 
-use crate::{consideration_names, CandidateSample, DecisionPoint, Profile, Scorer};
+use crate::{utility_consideration_names, CandidateSample, DecisionPoint, Profile, Scorer};
 
 /// Why a demonstrated step couldn't be turned into a decision point.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +60,7 @@ pub struct ReplayResult {
     pub points: Vec<DecisionPoint>,
     /// Steps that couldn't be located as candidates (see [`UnseenReason`]).
     pub unseen: Vec<UnseenStep>,
-    /// Consideration names the [`points`](Self::points) features are aligned to;
+    /// Utility consideration names the [`points`](Self::points) features are aligned to;
     /// pass straight to [`fit`](crate::fit).
     pub names: Vec<String>,
 }
@@ -70,12 +72,12 @@ impl ReplayResult {
     }
 }
 
-/// Every applicable `(TTP × target)` candidate in `campaign` with its raw
-/// per-consideration feature vector, aligned to [`consideration_names`]. Uses the
-/// real [`Scorer`] with a neutral profile, so applicability and measurements match
-/// production exactly.
+/// Every applicable `(TTP × target)` candidate in `campaign` with its raw utility
+/// feature vector, aligned to [`utility_consideration_names`]. Uses the real
+/// [`Scorer`] with a neutral profile, so applicability, belief factors, and
+/// measurements match production exactly while calibration remains preference-only.
 pub fn candidate_samples(campaign: &Campaign, armory: &[Ttp]) -> Vec<CandidateSample> {
-    let names = consideration_names();
+    let names = utility_consideration_names();
     let scorer = Scorer::with_defaults(Profile::default());
     scorer
         .rank(campaign, armory)
@@ -114,7 +116,17 @@ pub fn decision_point(
     let chosen = candidates
         .iter()
         .position(|c| c.ttp_id == chosen_ttp_id && c.target_id == chosen_target_id)?;
-    Some(DecisionPoint { candidates, chosen })
+    // Stamp the consideration set the features were measured against, so a fit
+    // later drops this decision if the considerations have since changed.
+    let considerations = utility_consideration_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    Some(DecisionPoint {
+        candidates,
+        chosen,
+        considerations,
+    })
 }
 
 /// Replay `trace` from `initial` (a campaign bootstrapped the same way the trace
@@ -129,7 +141,7 @@ pub fn replay_trace(
     armory: &[Ttp],
     trace: &[ExecutionRecord],
 ) -> (ReplayResult, Campaign) {
-    let names = consideration_names();
+    let names = utility_consideration_names();
 
     let mut points = Vec::new();
     let mut unseen = Vec::new();
@@ -274,9 +286,12 @@ mod tests {
 
         assert_eq!(res.points.len(), 1);
         assert!(res.unseen.is_empty());
-        // Feature vector has one entry per consideration, in canonical order.
+        // Feature vector has one entry per utility consideration, in canonical order.
         let dp = &res.points[0];
-        assert_eq!(dp.candidates[0].features.len(), consideration_names().len());
+        assert_eq!(
+            dp.candidates[0].features.len(),
+            utility_consideration_names().len()
+        );
         // The chosen candidate is the demonstrated (ttp-a, pod).
         assert_eq!(dp.candidates[dp.chosen].ttp_id, "ttp-a");
         assert_eq!(dp.candidates[dp.chosen].target_id, pod);
@@ -293,7 +308,7 @@ mod tests {
         let (res, _) = replay_trace(campaign, &armory, &trace);
         assert_eq!(res.points.len(), 2);
 
-        let epi = consideration_names()
+        let epi = utility_consideration_names()
             .iter()
             .position(|n| *n == "epistemic_value")
             .unwrap();
@@ -334,6 +349,9 @@ mod tests {
         assert_eq!(cal.top1_accuracy, 1.0);
         // The fitted profile round-trips into a usable Profile.
         let profile = cal.into_profile("fitted", crate::CombinationMode::WeightedArithmetic);
-        assert_eq!(profile.considerations.len(), consideration_names().len());
+        assert_eq!(
+            profile.considerations.len(),
+            utility_consideration_names().len()
+        );
     }
 }

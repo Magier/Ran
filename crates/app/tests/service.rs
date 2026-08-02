@@ -101,6 +101,7 @@ async fn app_state_get_and_reset_campaign_without_cli() {
         "Test".to_string(),
         campaign_cluster,
         campaign_events,
+        std::path::PathBuf::from("plans"),
     );
 
     // get_campaign — should return a freshly bootstrapped campaign.

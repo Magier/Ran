@@ -32,8 +32,6 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         exec_chain: vec![target_id.to_string()],
         exec_system_id: String::new(),
         started_at_ms: 0,
-        traversal: vec![],
-        inner_command: String::new(),
         output_transform: None,
         is_cleanup: false,
         reasoning: String::new(),
@@ -419,8 +417,6 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
         exec_system_id: BUILTIN_C2_ID.to_string(),
         procedure_id: "shell".to_string(),
         command: "id".to_string(),
-        traversal: vec![],
-        inner_command: String::new(),
         args: HashMap::new(),
         success: true,
         exit_code: 0,
@@ -525,8 +521,6 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         exec_system_id: BUILTIN_C2_ID.to_string(),
         procedure_id: "shell".to_string(),
         command: "id".to_string(),
-        traversal: vec![],
-        inner_command: String::new(),
         args: HashMap::new(),
         success: true,
         exit_code: 0,
@@ -546,8 +540,6 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         exec_system_id: BUILTIN_C2_ID.to_string(),
         procedure_id: "shell".to_string(),
         command: "hostname".to_string(),
-        traversal: vec![],
-        inner_command: String::new(),
         args: HashMap::new(),
         success: true,
         exit_code: 0,
@@ -1075,8 +1067,6 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         exec_chain: vec![target_id.to_string()],
         exec_system_id: target_id.to_string(),
         started_at_ms: 0,
-        traversal: vec![],
-        inner_command: String::new(),
         output_transform: None,
         is_cleanup: false,
         reasoning: String::new(),
@@ -1457,9 +1447,9 @@ fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
         exec.procedure.command
     );
     assert!(
-        exec.procedure
-            .command
-            .contains("/exec/argocd/argocd-application-controller-0/main?output=1&error=1&command="),
+        exec.procedure.command.contains(
+            "/exec/argocd/argocd-application-controller-0/main?output=1&error=1&command="
+        ),
         "expected kubelet exec endpoint for target pod, got: {}",
         exec.procedure.command
     );
@@ -1574,7 +1564,10 @@ fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_node_ta
         )
         .expect("node target with caller source should execute from source pod");
 
-    assert_eq!(exec.target_id, node_id, "semantic target must stay the node");
+    assert_eq!(
+        exec.target_id, node_id,
+        "semantic target must stay the node"
+    );
     assert_eq!(
         exec.exec_entity(),
         entry_id,
@@ -2470,8 +2463,6 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         exec_system_id: BUILTIN_C2_ID.to_string(),
         procedure_id: "ubuntu".to_string(),
         command: "apt-get install -y curl".to_string(),
-        traversal: vec![],
-        inner_command: String::new(),
         args: std::collections::HashMap::from([("PKG".to_string(), "curl".to_string())]),
         success: true,
         exit_code: 0,
@@ -2491,8 +2482,6 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         exec_system_id: BUILTIN_C2_ID.to_string(),
         procedure_id: "shell".to_string(),
         command: "id".to_string(),
-        traversal: vec![],
-        inner_command: String::new(),
         args: std::collections::HashMap::new(),
         success: true,
         exit_code: 0,
@@ -2538,8 +2527,6 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
         exec_system_id: BUILTIN_C2_ID.to_string(),
         procedure_id: "ubuntu".to_string(),
         command: "apt-get install -y wget".to_string(),
-        traversal: vec![],
-        inner_command: String::new(),
         args: std::collections::HashMap::from([("PKG".to_string(), "wget".to_string())]),
         success: true,
         exit_code: 0,

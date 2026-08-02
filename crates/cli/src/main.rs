@@ -120,6 +120,8 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         }
     }
 
+    let plans_dir = cfg.plans_dir();
+
     app::start(app::ServerConfig {
         kubeconfig: args.kubeconfig,
         armory_dir: args.armory,
@@ -129,6 +131,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         config_path,
         plan: args.plan,
         auto_cleanup: args.cleanup,
+        plans_dir,
     })
     .await
 }

@@ -518,7 +518,62 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-webhooks: 
+  /api/plans/available:
+    get:
+      summary: List available plans
+      description: Lists pre-defined plans found in the configured plans directory (ran.yaml `plans.dir`, defaulting to `plans/`).
+      operationId: listPlans
+      responses:
+        '200':
+          description: Available plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlanSummary'
+        '500':
+          description: Failed to read the plans directory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/plans/load:
+    post:
+      summary: Load and execute a plan
+      description: Reads a plan by file name from the configured plans directory and starts executing it. Returns the started plan's id.
+      operationId: loadPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadPlanRequest'
+      responses:
+        '200':
+          description: Plan started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plan_id:
+                    type: string
+        '400':
+          description: Invalid plan filename or plan failed to parse
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Plan not found in the plans directory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+webhooks:
   armory-loaded:
     post:
       summary: Armory loaded webhook
@@ -541,6 +596,35 @@ webhooks:
 
 components:
   schemas:
+    PlanSummary:
+      type: object
+      required:
+        - filename
+        - id
+        - name
+        - steps
+      properties:
+        filename:
+          type: string
+          description: File name within the plans directory (pass to /api/plans/load)
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        steps:
+          type: integer
+          description: Number of steps in the plan
+    LoadPlanRequest:
+      type: object
+      required:
+        - filename
+      properties:
+        filename:
+          type: string
+          description: File name of the plan within the configured plans directory
     Graph:
       type: object
       required:
@@ -1129,9 +1213,10 @@ components:
 
     ConsiderationScore:
       type: object
-      description: One consideration's contribution to a candidate's utility.
+      description: One consideration's contribution to a candidate's score.
       required:
         - name
+        - kind
         - raw
         - curved
         - weight
@@ -1140,6 +1225,12 @@ components:
         name:
           type: string
           description: Consideration identifier (e.g. "privilege_gain").
+        kind:
+          type: string
+          description: Whether this consideration contributes to utility or belief state.
+          enum:
+            - utility
+            - belief
         raw:
           type: number
           format: float
@@ -1163,6 +1254,8 @@ components:
         - ttp_id
         - target_id
         - utility
+        - utility_score
+        - success_probability
         - breakdown
       properties:
         ttp_id:
@@ -1172,7 +1265,15 @@ components:
         utility:
           type: number
           format: float
-          description: Final utility in [0, 1].
+          description: Final ranking score in [0, 1], equal to utility_score × success_probability.
+        utility_score:
+          type: number
+          format: float
+          description: Intrinsic desirability of the action if it succeeds.
+        success_probability:
+          type: number
+          format: float
+          description: Belief-state probability that the action can be grounded and succeed.
         breakdown:
           type: array
           items:

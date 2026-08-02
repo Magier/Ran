@@ -150,7 +150,8 @@ fn parse_raw_service_account_token(
     // ServiceAccount entity (ns/<ns>/sa/<name>), the decoded token must match
     // that identity. Otherwise the command likely ran on the wrong pod.
     if let Some(expected_target) = args.get("TARGET_ID") {
-        if let Some((expected_sa_name, expected_ns)) = parse_sa_identity_from_target(expected_target)
+        if let Some((expected_sa_name, expected_ns)) =
+            parse_sa_identity_from_target(expected_target)
         {
             if expected_sa_name != sa_name || expected_ns != namespace {
                 return ParserOutput::KnownFailure(format!(

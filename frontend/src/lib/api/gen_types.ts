@@ -397,6 +397,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plans/available": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List available plans
+         * @description Lists pre-defined plans found in the configured plans directory (ran.yaml `plans.dir`, defaulting to `plans/`).
+         */
+        get: operations["listPlans"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load and execute a plan
+         * @description Reads a plan by file name from the configured plans directory and starts executing it. Returns the started plan's id.
+         */
+        post: operations["loadPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export interface webhooks {
     "armory-loaded": {
@@ -453,6 +493,19 @@ export interface webhooks {
 }
 export interface components {
     schemas: {
+        PlanSummary: {
+            /** @description File name within the plans directory (pass to /api/plans/load) */
+            filename: string;
+            id: string;
+            name: string;
+            description?: string | null;
+            /** @description Number of steps in the plan */
+            steps: number;
+        };
+        LoadPlanRequest: {
+            /** @description File name of the plan within the configured plans directory */
+            filename: string;
+        };
         Graph: {
             nodes: components["schemas"]["Node"][];
             edges: components["schemas"]["Edge"][];
@@ -698,10 +751,15 @@ export interface components {
             error: string;
             details?: string;
         };
-        /** @description One consideration's contribution to a candidate's utility. */
+        /** @description One consideration's contribution to a candidate's score. */
         ConsiderationScore: {
             /** @description Consideration identifier (e.g. "privilege_gain"). */
             name: string;
+            /**
+             * @description Whether this consideration contributes to utility or belief state.
+             * @enum {string}
+             */
+            kind: "utility" | "belief";
             /**
              * Format: float
              * @description Raw measurement in [0, 1].
@@ -726,9 +784,19 @@ export interface components {
             target_id: string;
             /**
              * Format: float
-             * @description Final utility in [0, 1].
+             * @description Final ranking score in [0, 1], equal to utility_score × success_probability.
              */
             utility: number;
+            /**
+             * Format: float
+             * @description Intrinsic desirability of the action if it succeeds.
+             */
+            utility_score: number;
+            /**
+             * Format: float
+             * @description Belief-state probability that the action can be grounded and succeed.
+             */
+            success_probability: number;
             breakdown: components["schemas"]["ConsiderationScore"][];
         };
         /**
@@ -1452,6 +1520,79 @@ export interface operations {
                 };
             };
             /** @description File content not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPlans: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Available plans */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanSummary"][];
+                };
+            };
+            /** @description Failed to read the plans directory */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    loadPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoadPlanRequest"];
+            };
+        };
+        responses: {
+            /** @description Plan started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        plan_id?: string;
+                    };
+                };
+            };
+            /** @description Invalid plan filename or plan failed to parse */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Plan not found in the plans directory */
             404: {
                 headers: {
                     [name: string]: unknown;

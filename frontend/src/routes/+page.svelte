@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Armory from './components/armory.svelte';
-	import Recommendations from './components/recommendations.svelte';
 	import type { Node, TTP, ScoredCandidate } from '$lib/api/index';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
@@ -526,13 +525,13 @@
 	{#if campaignState.isReady()}
 		<!-- Armory panel -->
 		<div
-			class="bg-surface-100-900 flex-shrink-0"
-			class:armory-transition={!isResizing}
+			class="bg-surface-100-900 flex-shrink-0 {isResizing ? '' : 'transition-[width] duration-300 ease-in-out'}"
 			style="width: {armoryCollapsed ? '0px' : `${armoryWidth}px`}; overflow: hidden;"
 		>
 			<Armory
 				class="h-full min-h-0 w-full"
 				action={sendAction}
+				runRecommendation={runRecommendation}
 				targetId={selectedObjectId}
 				target={selectedObject}
 				bind:focusSearch={focusArmorySearch}
@@ -542,7 +541,7 @@
 		<!-- Resize handle -->
 		{#if !armoryCollapsed}
 			<button
-				class="resize-handle w-2 cursor-col-resize flex-shrink-0 border-0 p-0"
+				class="w-px shrink-0 cursor-col-resize border-0 p-0 bg-surface-200-800 hover:bg-primary-500 transition-colors"
 				onmousedown={startResize}
 				aria-label="Resize armory panel"
 			></button>
@@ -551,7 +550,6 @@
 		<!-- Collapse/Expand button -->
 		<button
 			class="absolute left-0 z-50 bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-r-md px-0.5 py-2 opacity-30 hover:opacity-100 transition-all duration-200"
-			class:armory-transition={!isResizing}
 			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`}; bottom: {timeline.open ? 'calc(15rem + 0.5rem)' : '0.5rem'};"
 			onclick={toggleArmoryCollapse}
 			title={armoryCollapsed ? 'Expand armory' : 'Collapse armory'}
@@ -567,13 +565,6 @@
 	<div class="flex-1 min-w-0 flex flex-col min-h-0">
 		<div class="flex-1 min-h-0 relative">
 			<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="h-full" />
-
-			<!-- Recommendations overlay (top-left; EntityInfo occupies top-right) -->
-			<div class="absolute top-2 left-2 w-80 z-40">
-				<svelte:boundary onerror={handleError}>
-					<Recommendations run={runRecommendation} />
-				</svelte:boundary>
-			</div>
 
 			{#if selectedObjectId !== ''}
 				<svelte:boundary onerror={handleError}>
@@ -651,24 +642,3 @@
 	{/if}
 
 </div>
-
-<style>
-	.armory-transition {
-		transition: width 0.3s ease-in-out;
-	}
-
-	.resize-handle {
-		background-color: transparent;
-		border-left: 1px solid rgba(128, 128, 128, 0.2);
-		transition: opacity 0.2s ease, border-color 0.2s ease;
-		opacity: 0.6;
-	}
-
-	.resize-handle:hover {
-		opacity: 1;
-		border-color: rgba(128, 128, 128, 0.5);
-	}
-
-
-</style>
-

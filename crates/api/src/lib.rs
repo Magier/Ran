@@ -97,6 +97,14 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             axum::routing::post(api_handlers::execute_plan_handler::<S>),
         )
         .route(
+            "/api/plans/available",
+            axum::routing::get(api_handlers::list_plans_handler::<S>),
+        )
+        .route(
+            "/api/plans/load",
+            axum::routing::post(api_handlers::load_plan_handler::<S>),
+        )
+        .route(
             "/api/plans/export",
             axum::routing::get(api_handlers::export_plan_handler::<S>),
         )

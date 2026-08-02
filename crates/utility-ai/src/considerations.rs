@@ -1,15 +1,16 @@
 //! The built-in considerations.
 //!
-//! Three families:
-//! - *structural* signals from the TTP's shape and execution history —
-//!   reliability, cost, input readiness;
+//! Four utility families plus a belief layer:
+//! - *belief-state* factors — reliability and input readiness;
+//! - *structural utility* signals from the TTP's shape — cost;
 //! - the *epistemic* axis — an active-inference style value = information
 //!   magnitude × freshness (uncertainty), driving epistemic foraging;
 //! - *pragmatic* effect-derived signals via the canonical
 //!   [`EffectKind`](campaign::effects::EffectKind) taxonomy — privilege gain,
-//!   reachability.
+//!   reachability;
+//! - *operational-risk* signals — stealth, the inverse of detection risk.
 
-use super::{Consideration, ScoringContext};
+use super::{Consideration, ConsiderationKind, ScoringContext};
 use campaign::effects::{EffectCategory, EffectKind};
 
 /// Whether running an action against a TTP's effects is *volatile* — i.e. any of
@@ -118,6 +119,10 @@ impl Consideration for Reliability {
         "reliability"
     }
 
+    fn kind(&self) -> ConsiderationKind {
+        ConsiderationKind::Belief
+    }
+
     fn measure(&self, ctx: &ScoringContext) -> f32 {
         let prior = Self::status_prior(&ctx.ttp.status);
 
@@ -181,6 +186,167 @@ impl Consideration for Cost {
             // No procedures (shouldn't happen for a real TTP) — neutral.
             0.5
         }
+    }
+}
+
+fn json_str<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value.get(key)?.as_str()
+}
+
+fn normalized_resource(resource: &str) -> String {
+    resource
+        .trim_matches('/')
+        .split('/')
+        .next()
+        .unwrap_or(resource)
+        .trim()
+        .to_ascii_lowercase()
+}
+
+/// Detection risk inferred from structured Kubernetes API usage. Kubernetes API
+/// calls are audit-visible, but common read-only enumeration can blend into
+/// normal cluster noise; sensitive reads and mutating actions stand out.
+fn k8s_request_detection_risk(req: &serde_json::Value) -> f32 {
+    let verb = json_str(req, "verb")
+        .unwrap_or("get")
+        .trim()
+        .to_ascii_lowercase();
+    let resource = normalized_resource(json_str(req, "resource").unwrap_or(""));
+
+    let read_only = matches!(verb.as_str(), "get" | "list" | "watch");
+    if read_only {
+        return match resource.as_str() {
+            // Audit-visible but common inventory reads.
+            "pods" | "services" | "deployments" | "configmaps" | "ingresses" | "httproutes"
+            | "gateways" => 0.25,
+            // Cluster/RBAC inventory is still read-only, but more security-relevant.
+            "nodes"
+            | "serviceaccounts"
+            | "roles"
+            | "rolebindings"
+            | "clusterroles"
+            | "clusterrolebindings" => 0.45,
+            // Credential-bearing resources are high-salience even when read-only.
+            "secrets" => 0.75,
+            _ => 0.35,
+        };
+    }
+
+    match resource.as_str() {
+        "secrets" | "roles" | "rolebindings" | "clusterroles" | "clusterrolebindings" => 0.90,
+        "pods" | "deployments" | "serviceaccounts" | "cronjobs" => 0.80,
+        _ => 0.70,
+    }
+}
+
+fn command_detection_risk(command: &str) -> f32 {
+    let c = command.to_ascii_lowercase();
+    if c.contains("/var/run/secrets/kubernetes.io/serviceaccount")
+        || c.contains("kubectl get secrets")
+    {
+        0.70
+    } else if c.contains("kubectl")
+        && (c.contains(" create ") || c.contains(" patch ") || c.contains(" delete "))
+    {
+        0.75
+    } else if c.contains("kubectl get pods") || c.contains("kubectl get services") {
+        0.30
+    } else {
+        0.15
+    }
+}
+
+fn procedure_detection_risk(p: &armory::Procedure) -> f32 {
+    let mut risk = command_detection_risk(&p.command);
+    if let Some(req) = &p.k8s_request {
+        risk = risk.max(k8s_request_detection_risk(req));
+    }
+    if p.http_request.is_some() {
+        risk = risk.max(0.45);
+    }
+    if p.steps.is_some() {
+        risk = risk.max(0.50);
+    }
+    risk
+}
+
+fn effect_detection_risk(kind: EffectKind) -> f32 {
+    match kind {
+        EffectKind::PodList
+        | EffectKind::ServiceList
+        | EffectKind::DeploymentList
+        | EffectKind::IngressList
+        | EffectKind::HttpRouteList
+        | EffectKind::GatewayList => 0.25,
+        EffectKind::NodeList
+        | EffectKind::ServiceAccountList
+        | EffectKind::RoleList
+        | EffectKind::RoleBindingList
+        | EffectKind::ClusterRoleList
+        | EffectKind::ClusterRoleBindingList
+        | EffectKind::ConfigMapList
+        | EffectKind::SelfSubjectRulesReview => 0.45,
+        EffectKind::SecretList
+        | EffectKind::RawServiceAccountToken
+        | EffectKind::FileKubeconfig => 0.75,
+        EffectKind::K8sCanExec
+        | EffectKind::KubeletExecSource
+        | EffectKind::C2Session
+        | EffectKind::RceCanExec => 0.80,
+        EffectKind::ContainerEscape | EffectKind::CreateRole | EffectKind::CreateRoleBinding => {
+            0.90
+        }
+        EffectKind::K8sPod
+        | EffectKind::K8sServiceAccount
+        | EffectKind::K8sRole
+        | EffectKind::K8sRoleBinding
+        | EffectKind::K8sCronJob
+        | EffectKind::PodName
+        | EffectKind::ServiceAccountName
+        | EffectKind::NamespaceName
+        | EffectKind::SysFiles
+        | EffectKind::SysProcesses
+        | EffectKind::SysIp
+        | EffectKind::SysHasFile
+        | EffectKind::SysHasBinary
+        | EffectKind::LinuxMounts
+        | EffectKind::ReverseDns
+        | EffectKind::FileContent
+        | EffectKind::K8sCanReach
+        | EffectKind::RunsOn => 0.20,
+    }
+}
+
+fn detection_risk(ttp: &armory::Ttp) -> f32 {
+    let procedure_risk = ttp
+        .procedures
+        .iter()
+        .map(procedure_detection_risk)
+        .fold(0.0f32, f32::max);
+    let effect_risk = ttp
+        .effects
+        .iter()
+        .filter_map(|e| EffectKind::parse(e))
+        .map(effect_detection_risk)
+        .fold(0.0f32, f32::max);
+    procedure_risk.max(effect_risk)
+}
+
+/// How quietly this action is expected to blend into the environment. This is
+/// the positive utility-AI form of detection risk: `1.0` means low exposure /
+/// low salience, `0.0` means very noisy or security-relevant. The initial model
+/// is an inferred prior from procedure shape and effect salience; explicit
+/// armory annotations can override or refine it later without changing the
+/// scoring surface.
+pub struct Stealth;
+
+impl Consideration for Stealth {
+    fn name(&self) -> &'static str {
+        "stealth"
+    }
+
+    fn measure(&self, ctx: &ScoringContext) -> f32 {
+        1.0 - detection_risk(ctx.ttp).clamp(0.0, 1.0)
     }
 }
 
@@ -296,25 +462,6 @@ impl Consideration for EpistemicValue {
     }
 }
 
-/// Prefer actions whose required inputs are already known. A required parameter
-/// the campaign can't supply forces the operator to guess, lowering utility —
-/// e.g. an `nmap`/`rDNS` scan needs a network CIDR the campaign hasn't
-/// discovered yet, whereas an action that reads the current pod's IP needs
-/// nothing and scores `1.0`. Delegates to
-/// [`grounding::input_readiness`](campaign::grounding::input_readiness) so the
-/// measure matches what the real execution can actually fill.
-pub struct InputReadiness;
-
-impl Consideration for InputReadiness {
-    fn name(&self) -> &'static str {
-        "input_readiness"
-    }
-
-    fn measure(&self, ctx: &ScoringContext) -> f32 {
-        campaign::grounding::input_readiness(ctx.ttp, &ctx.tc.target_id, ctx.campaign)
-    }
-}
-
 /// Value of new operating positions — effects that add a session or network
 /// route to further systems ([`EffectCategory::Reachability`]). State-aware:
 /// gated by [`pragmatic_freshness`], so a route already established scores `0`.
@@ -331,15 +478,16 @@ impl Consideration for Reachability {
     }
 }
 
-/// The built-in consideration set: structural signals (reliability, cost, input
-/// readiness), the unified epistemic axis (magnitude × freshness), and the
-/// pragmatic effect-derived signals (privilege gain, reachability).
+/// The built-in consideration set: utility axes (epistemic value, cost,
+/// stealth, privilege gain, reachability) plus belief-state factors
+/// (reliability). The scorer keeps those layers separate:
+/// final ranking score = utility × success probability.
 pub fn default_considerations() -> Vec<Box<dyn Consideration>> {
     vec![
         Box::new(EpistemicValue),
         Box::new(Reliability),
         Box::new(Cost),
-        Box::new(InputReadiness),
+        Box::new(Stealth),
         Box::new(PrivilegeGain),
         Box::new(Reachability),
     ]
@@ -349,6 +497,16 @@ pub fn default_considerations() -> Vec<Box<dyn Consideration>> {
 /// to enumerate what can be configured.
 pub fn consideration_names() -> Vec<&'static str> {
     default_considerations().iter().map(|c| c.name()).collect()
+}
+
+/// Names of built-in utility axes only. Used for calibration so operator
+/// preference fitting does not learn weights for belief-state factors.
+pub fn utility_consideration_names() -> Vec<&'static str> {
+    default_considerations()
+        .iter()
+        .filter(|c| c.kind() == ConsiderationKind::Utility)
+        .map(|c| c.name())
+        .collect()
 }
 
 #[cfg(test)]
@@ -435,6 +593,64 @@ mod tests {
     }
 
     #[test]
+    fn stealth_treats_common_k8s_reads_as_quieter_than_secret_reads() {
+        let c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        let pods = Ttp {
+            effects: vec!["k8s.podList".to_string()],
+            procedures: vec![armory::Procedure {
+                k8s_request: Some(serde_json::json!({ "verb": "list", "resource": "pods" })),
+                ..armory::Procedure::new("p", "")
+            }],
+            ..Ttp::new("pods", "List Pods", "Discovery")
+        };
+        let secrets = Ttp {
+            effects: vec!["k8s.secretList".to_string()],
+            procedures: vec![armory::Procedure {
+                k8s_request: Some(serde_json::json!({ "verb": "list", "resource": "secrets" })),
+                ..armory::Procedure::new("s", "")
+            }],
+            ..Ttp::new("secrets", "List Secrets", "Credential Access")
+        };
+
+        let pod_stealth = Stealth.measure(&ctx_for(&c, &pods, &tc));
+        let secret_stealth = Stealth.measure(&ctx_for(&c, &secrets, &tc));
+        assert!(
+            pod_stealth > secret_stealth,
+            "common pod read stealth ({pod_stealth}) should beat secret read ({secret_stealth})"
+        );
+    }
+
+    #[test]
+    fn stealth_penalizes_mutating_privilege_actions() {
+        let c = Campaign::bootstrap("t", K8sCluster::new("t"));
+        let tc = tc();
+        let read_services = Ttp {
+            effects: vec!["k8s.serviceList".to_string()],
+            procedures: vec![armory::Procedure {
+                k8s_request: Some(serde_json::json!({ "verb": "list", "resource": "services" })),
+                ..armory::Procedure::new("read", "")
+            }],
+            ..Ttp::new("read-services", "List Services", "Discovery")
+        };
+        let bind_role = Ttp {
+            effects: vec!["create k8s.rolebinding".to_string()],
+            procedures: vec![armory::Procedure {
+                k8s_request: Some(
+                    serde_json::json!({ "verb": "create", "resource": "rolebindings" }),
+                ),
+                ..armory::Procedure::new("bind", "")
+            }],
+            ..Ttp::new("bind", "Create RoleBinding", "Privilege Escalation")
+        };
+
+        assert!(
+            Stealth.measure(&ctx_for(&c, &read_services, &tc))
+                > Stealth.measure(&ctx_for(&c, &bind_role, &tc))
+        );
+    }
+
+    #[test]
     fn unknown_effect_contributes_nothing() {
         let c = Campaign::bootstrap("t", K8sCluster::new("t"));
         let tc = tc();
@@ -465,42 +681,6 @@ mod tests {
             "foundational ({f}) should outscore specialized ({s})"
         );
         assert!(s > 0.0);
-    }
-
-    #[test]
-    fn input_readiness_penalizes_unknown_required_param() {
-        use campaign::ttp_applicability::resolve_target_context;
-        use ran_domain::{Entity as _, Pod};
-
-        let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
-        let mut pod = Pod::new("nginx", "default");
-        let id = pod.entity_id().0;
-        // Give the pod a namespace-derived context; CIDR is still unknowable.
-        pod.is_running = true;
-        c.entities.insert_typed(pod);
-        let target = resolve_target_context(&c, &id).unwrap();
-
-        // A scan needs a CIDR the campaign can't supply → must be guessed.
-        let scan = Ttp {
-            params: vec![armory::TtpParam {
-                name: "CIDR".to_string(),
-                param_type: "string".to_string(),
-                description: "network range".to_string(),
-                required: true,
-                default: String::new(),
-            }],
-            ..Ttp::new("scan", "Network Scan", "Discovery")
-        };
-        // Reading the pod IP needs no required inputs.
-        let read_ip = Ttp::new("read-ip", "Get Pod IP", "Discovery");
-
-        let scan_r = InputReadiness.measure(&ctx_for(&c, &scan, &target));
-        let read_r = InputReadiness.measure(&ctx_for(&c, &read_ip, &target));
-        assert_eq!(read_r, 1.0);
-        assert!(
-            scan_r < read_r,
-            "scan readiness ({scan_r}) should be below read-ip ({read_r})"
-        );
     }
 
     #[test]

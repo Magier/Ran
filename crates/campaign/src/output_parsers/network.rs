@@ -79,7 +79,8 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> P
         parse_nmap_normal(stdout)
     } else {
         return ParserOutput::UnknownFormat(
-            "nmap output is not recognized (expected standard, greppable -oG, or XML -oX format)".to_string(),
+            "nmap output is not recognized (expected standard, greppable -oG, or XML -oX format)"
+                .to_string(),
         );
     };
 

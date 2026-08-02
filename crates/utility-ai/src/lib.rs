@@ -19,8 +19,8 @@ pub mod replay;
 mod scorer;
 
 pub use calibration::{fit, Calibration, CandidateSample, DecisionFit, DecisionPoint, FitOptions};
-pub use consideration::{Consideration, ScoringContext};
-pub use considerations::consideration_names;
+pub use consideration::{Consideration, ConsiderationKind, ScoringContext};
+pub use considerations::{consideration_names, utility_consideration_names};
 pub use curve::ResponseCurve;
 pub use profile::{CombinationMode, ConsiderationConfig, Profile};
 pub use replay::{

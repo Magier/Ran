@@ -55,6 +55,8 @@ pub struct AppState {
     pod_watch: Arc<Mutex<Option<k8s::WatchHandle>>>,
     plan_executors:
         Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<planner::PlanExecutor>>>>>,
+    /// Directory pre-defined plans are listed and loaded from by the web UI.
+    plans_dir: PathBuf,
 }
 
 impl AppState {
@@ -72,6 +74,7 @@ impl AppState {
         ran_name: String,
         target_cluster: K8sCluster,
         campaign_events: CampaignEventBus,
+        plans_dir: PathBuf,
     ) -> Self {
         // The decision log lives next to the scoring sidecar so both share the
         // config's directory and lifecycle.
@@ -99,6 +102,7 @@ impl AppState {
             campaign_events,
             pod_watch: Arc::new(Mutex::new(None)),
             plan_executors: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            plans_dir,
         }
     }
 
@@ -141,12 +145,28 @@ impl AppState {
         if log.is_empty() {
             return None;
         }
-        let names = utility_ai::consideration_names();
-        Some(utility_ai::fit(
-            &names,
-            &log,
-            &utility_ai::FitOptions::default(),
-        ))
+        let names = utility_ai::utility_consideration_names();
+        let calibration = utility_ai::fit(&names, &log, &utility_ai::FitOptions::default());
+
+        // `fit` drops decisions whose feature width doesn't match the current
+        // consideration set (a log spanning a considerations change). If none
+        // remain, there's nothing meaningful to calibrate from.
+        let used = calibration.per_decision.len();
+        if used == 0 {
+            warn!(
+                captured = log.len(),
+                "no captured decisions match the current consideration set (stale decision log); nothing to calibrate"
+            );
+            return None;
+        }
+        if used < log.len() {
+            warn!(
+                used,
+                captured = log.len(),
+                "calibrating on decisions matching the current consideration set; older/mismatched entries dropped"
+            );
+        }
+        Some(calibration)
     }
 
     /// Build, dispatch, and await cleanup actions for everything executed so far
@@ -213,6 +233,22 @@ impl AppState {
 
         Ok(())
     }
+}
+
+/// Lightweight summary of a plan file on disk, listed by the web UI so the
+/// operator can pick one to load without downloading the full YAML.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PlanSummary {
+    /// File name within the plans directory (what `load_plan` expects).
+    pub filename: String,
+    /// Plan `id` from the YAML.
+    pub id: String,
+    /// Human-readable plan name.
+    pub name: String,
+    /// Optional plan description.
+    pub description: Option<String>,
+    /// Number of steps in the plan.
+    pub steps: usize,
 }
 
 #[async_trait::async_trait]
@@ -766,6 +802,98 @@ impl ApiService for AppState {
         let yaml = serde_yaml::to_string(&plan).map_err(|e| ApiError::internal(e.to_string()))?;
         Ok(yaml)
     }
+
+    async fn list_plans(&self) -> Result<Vec<serde_json::Value>, ApiError> {
+        // Recursively collect candidate YAML files. A missing plans directory is
+        // not an error — just an empty list.
+        let mut files = Vec::new();
+        match collect_yaml_files(&self.plans_dir, &mut files) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => {
+                return Err(ApiError::internal(format!(
+                    "failed to read plans directory {}: {}",
+                    self.plans_dir.display(),
+                    e
+                )))
+            }
+        }
+
+        let mut summaries = Vec::new();
+        for path in files {
+            // `filename` is the path relative to the plans directory, using `/`
+            // separators, so nested plans round-trip through `load_plan`.
+            let Some(filename) = path
+                .strip_prefix(&self.plans_dir)
+                .ok()
+                .and_then(|rel| rel.to_str())
+                .map(|s| s.replace('\\', "/"))
+            else {
+                continue;
+            };
+
+            // Best-effort: skip files that don't parse as a plan.
+            let text = match std::fs::read_to_string(&path) {
+                Ok(t) => t,
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "failed to read plan file; skipping");
+                    continue;
+                }
+            };
+            let plan = match serde_yaml::from_str::<planner::PlanDefinition>(&text) {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "not a valid plan; skipping");
+                    continue;
+                }
+            };
+
+            let summary = PlanSummary {
+                filename,
+                id: plan.id,
+                name: plan.name,
+                description: plan.description,
+                steps: plan.steps.len(),
+            };
+            match serde_json::to_value(summary) {
+                Ok(v) => summaries.push(v),
+                Err(e) => warn!(error = %e, "failed to serialize plan summary; skipping"),
+            }
+        }
+
+        // Stable order so the UI list doesn't shuffle between requests.
+        summaries.sort_by(|a, b| {
+            a.get("filename")
+                .and_then(|v| v.as_str())
+                .cmp(&b.get("filename").and_then(|v| v.as_str()))
+        });
+        Ok(summaries)
+    }
+
+    async fn load_plan(&self, filename: String) -> Result<String, ApiError> {
+        let path = resolve_plan_path(&self.plans_dir, &filename)?;
+        let yaml = match std::fs::read_to_string(&path) {
+            Ok(y) => y,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ApiError::not_found(format!("plan '{filename}' not found")))
+            }
+            Err(e) => {
+                return Err(ApiError::internal(format!(
+                    "failed to read plan {}: {}",
+                    path.display(),
+                    e
+                )))
+            }
+        };
+
+        // Seed root-step targets from the live cluster (same as the CLI launch
+        // path) so plans loaded from the UI behave identically.
+        if let Ok(plan) = serde_yaml::from_str::<planner::PlanDefinition>(&yaml) {
+            seed_initial_access_targets(self, &plan).await;
+        }
+
+        self.execute_plan(yaml).await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1070,6 +1198,9 @@ pub struct ServerConfig {
     /// Run cleanup automatically when the launch-time plan finishes, instead of
     /// prompting on the terminal. Only meaningful together with `plan`.
     pub auto_cleanup: bool,
+    /// Directory the web UI lists pre-defined plans from (`ran.yaml`'s
+    /// `plans.dir`, defaulting to `plans` in the current working directory).
+    pub plans_dir: PathBuf,
 }
 
 /// Locate the scoring sidecar file (tuned-profile persistence) next to the
@@ -1178,6 +1309,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
         "Ran".to_string(),
         campaign_cluster,
         campaign_events.clone(),
+        cfg.plans_dir.clone(),
     );
 
     let campaign_entity_count = state
@@ -1296,6 +1428,53 @@ async fn wait_for_discovery(state: &AppState) {
 /// `depends_on`). Only pods in the step's declared namespace whose names match
 /// the step's target pattern are inserted — everything else stays undiscovered
 /// so the emulation can find it organically.
+/// Recursively collect files with a `.yaml`/`.yml` extension under `dir`,
+/// appending their absolute paths to `out`. Symlinked directories are not
+/// followed. Propagates the top-level read error (so a missing plans directory
+/// surfaces as `NotFound`); errors reading nested subdirectories are logged and
+/// skipped so one unreadable folder doesn't hide the rest.
+fn collect_yaml_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)?.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            if let Err(e) = collect_yaml_files(&path, out) {
+                warn!(path = %path.display(), error = %e, "failed to read plans subdirectory; skipping");
+            }
+        } else if file_type.is_file() {
+            let is_yaml = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
+                .unwrap_or(false);
+            if is_yaml {
+                out.push(path);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Resolve a (possibly nested) plan filename against the plans directory,
+/// rejecting anything that could escape it. Subdirectory separators are allowed;
+/// absolute paths and `..` components are not.
+fn resolve_plan_path(plans_dir: &std::path::Path, filename: &str) -> Result<PathBuf, ApiError> {
+    use std::path::Component;
+    let rel = PathBuf::from(filename);
+    let invalid = filename.is_empty()
+        || rel
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir));
+    if invalid {
+        return Err(ApiError::bad_request(format!(
+            "invalid plan filename: {filename}"
+        )));
+    }
+    Ok(plans_dir.join(&rel))
+}
+
 async fn seed_initial_access_targets(state: &AppState, plan: &planner::PlanDefinition) {
     // Collect unique (namespace, pattern) pairs from root steps.
     let root_targets: Vec<_> = plan

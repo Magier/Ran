@@ -315,6 +315,83 @@ impl Campaign {
         ))
     }
 
+    /// Resolve an execution channel to `target_id`, constrained to start from
+    /// the caller-supplied system entity `source_id`.
+    ///
+    /// This is used when the user explicitly chooses an executing system in the
+    /// UI: that system should be treated as the source foothold for path
+    /// routing, not as the final execution destination unless it is also the
+    /// target.
+    pub(super) fn resolve_exec_channel_from_source_inner(
+        &self,
+        source_id: &str,
+        target_id: &str,
+    ) -> Result<ExecChannel, String> {
+        let source_eid = EntityId::new(source_id);
+        if !self.is_system_entity_id(&source_eid) {
+            return Err(format!(
+                "caller-supplied execution source '{}' is not a system entity",
+                source_id
+            ));
+        }
+
+        // Degenerate case: explicit source equals target system.
+        if source_id == target_id {
+            return Ok(ExecChannel {
+                backend_id: self.resolve_source_backend_id(source_id),
+                hops: vec![],
+                exec_target_id: None,
+            });
+        }
+
+        let target_eid = EntityId::new(target_id);
+        if let Some((_cost, path)) = self
+            .graph
+            .shortest_exec_path(std::slice::from_ref(&source_eid), &target_eid)
+        {
+            let hops = path[..path.len().saturating_sub(1)]
+                .iter()
+                .map(|id| id.0.clone())
+                .collect();
+            return Ok(ExecChannel {
+                backend_id: self.resolve_source_backend_id(source_id),
+                hops,
+                exec_target_id: None,
+            });
+        }
+
+        // Non-system targets (e.g. ServiceAccount) can be reached by first
+        // routing to a pod that uses them.
+        let sa_pod_id = self
+            .graph
+            .incoming(&target_eid)
+            .into_iter()
+            .find(|(_, d)| d.relation_name == "uses")
+            .map(|(src, _)| src.clone());
+
+        if let Some(pod_id) = sa_pod_id {
+            if let Some((_cost, path)) = self
+                .graph
+                .shortest_exec_path(std::slice::from_ref(&source_eid), &pod_id)
+            {
+                let hops = path[..path.len().saturating_sub(1)]
+                    .iter()
+                    .map(|id| id.0.clone())
+                    .collect();
+                return Ok(ExecChannel {
+                    backend_id: self.resolve_source_backend_id(source_id),
+                    hops,
+                    exec_target_id: Some(pod_id.0),
+                });
+            }
+        }
+
+        Err(format!(
+            "no viable execution channel from '{}' to '{}' found in the knowledge graph",
+            source_id, target_id
+        ))
+    }
+
     pub fn reachable_pods(&self) -> std::collections::HashSet<String> {
         let seeds = self.direct_foothold_systems();
         let mut reachable: std::collections::HashSet<String> =

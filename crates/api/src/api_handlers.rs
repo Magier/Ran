@@ -816,6 +816,26 @@ pub(crate) async fn export_plan_handler<S: ApiService>(
     service.export_plan(include_failed).await
 }
 
+#[derive(serde::Deserialize)]
+pub(crate) struct LoadPlanRequest {
+    filename: String,
+}
+
+pub(crate) async fn list_plans_handler<S: ApiService>(
+    State(service): State<S>,
+) -> Result<axum::Json<Vec<serde_json::Value>>, ApiError> {
+    let plans = service.list_plans().await?;
+    Ok(axum::Json(plans))
+}
+
+pub(crate) async fn load_plan_handler<S: ApiService>(
+    State(service): State<S>,
+    axum::Json(body): axum::Json<LoadPlanRequest>,
+) -> Result<axum::Json<serde_json::Value>, ApiError> {
+    let plan_id = service.load_plan(body.filename).await?;
+    Ok(axum::Json(serde_json::json!({ "plan_id": plan_id })))
+}
+
 // --- Frontend handler -------------------------------------------------------
 
 #[cfg(not(debug_assertions))]
