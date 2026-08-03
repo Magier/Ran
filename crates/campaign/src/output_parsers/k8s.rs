@@ -12,6 +12,7 @@ use super::ParserOutput;
 use crate::FactsUpdate;
 
 pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
+    m.insert("k8s.namespacelist", parse_k8s_namespace_list);
     m.insert("k8s.podlist", parse_k8s_pod_list);
     m.insert("k8s.nodelist", parse_k8s_node_list);
     m.insert("k8s.serviceaccountlist", parse_k8s_service_account_list);
@@ -57,6 +58,21 @@ mod k8s_json {
         pub uid: Option<String>,
         #[serde(rename = "ownerReferences", default)]
         pub owner_references: Vec<OwnerReference>,
+        #[serde(default)]
+        pub labels: HashMap<String, String>,
+    }
+
+    // --- Namespace ---
+
+    #[derive(Deserialize)]
+    pub struct NamespaceItem {
+        pub metadata: Meta,
+    }
+
+    #[derive(Deserialize)]
+    pub struct NamespaceList {
+        #[serde(default)]
+        pub items: Vec<NamespaceItem>,
     }
 
     // --- Pod ---
@@ -603,6 +619,44 @@ fn check_k8s_api_error(stdout: &str) -> Option<ParserOutput> {
     } else {
         None
     }
+}
+
+fn parse_k8s_namespace_list(
+    stdout: &str,
+    _stderr: &str,
+    _args: &HashMap<String, String>,
+) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout".to_string());
+    }
+    if let Some(error) = check_k8s_api_error(stdout) {
+        return error;
+    }
+    let list: k8s_json::NamespaceList = match serde_json::from_str(stdout) {
+        Ok(list) => list,
+        Err(error) => {
+            return ParserOutput::UnknownFormat(format!("JSON parse error: {error}"));
+        }
+    };
+    if list.items.is_empty() {
+        return ParserOutput::KnownFailure("NamespaceList contained no items".to_string());
+    }
+
+    let mut facts = FactsUpdate::default();
+    for item in list.items {
+        if item.metadata.name.is_empty() {
+            continue;
+        }
+        let mut namespace = Namespace::new(item.metadata.name);
+        namespace.labels = item.metadata.labels;
+        facts.new_entities.push(Box::new(namespace));
+    }
+
+    let count = facts.new_entities.len();
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("parsed {count} namespace(s) from NamespaceList"),
+    )
 }
 
 fn parse_k8s_pod_list(
@@ -1485,4 +1539,43 @@ fn parse_k8s_http_route_list(
         facts,
         format!("parsed {} HTTPRoute(s) from HTTPRouteList", count),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn namespace_list_emits_namespace_entities_with_labels() {
+        let output = r#"{
+            "kind": "NamespaceList",
+            "items": [
+                {"metadata": {"name": "default", "labels": {"environment": "shared"}}},
+                {"metadata": {"name": "dungeon", "labels": {"team": "red"}}}
+            ]
+        }"#;
+
+        let result = parse_k8s_namespace_list(output, "", &HashMap::new());
+        let ParserOutput::SuccessWithFacts(facts, detail) = result else {
+            panic!("expected namespace facts, got {result:?}");
+        };
+
+        assert_eq!(detail, "parsed 2 namespace(s) from NamespaceList");
+        let namespaces: Vec<&Namespace> = facts
+            .new_entities
+            .iter()
+            .filter_map(|entity| entity.as_any().downcast_ref::<Namespace>())
+            .collect();
+        assert_eq!(namespaces.len(), 2);
+        assert!(namespaces.iter().any(|namespace| {
+            namespace.name == "dungeon"
+                && namespace.labels.get("team").map(String::as_str) == Some("red")
+        }));
+    }
+
+    #[test]
+    fn namespace_list_rejects_empty_items() {
+        let result = parse_k8s_namespace_list(r#"{"items": []}"#, "", &HashMap::new());
+        assert!(matches!(result, ParserOutput::KnownFailure(_)));
+    }
 }
