@@ -4,6 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use c2::{ExecTtp, TtpExecuted};
 use serde::{Deserialize, Serialize};
 
+use crate::ExecuteActionRequest;
+
 /// A single recorded execution — the grounded command, its arguments, and the
 /// raw results returned by the C2 backend.  This forms the append-only audit
 /// trail for a campaign session.
@@ -50,6 +52,41 @@ pub struct ExecutionRecord {
 }
 
 impl ExecutionRecord {
+    /// Build an audit record for an action that failed before it could be
+    /// grounded or dispatched to a C2 backend.
+    pub fn from_preparation_failure(
+        cmd_id: String,
+        request: &ExecuteActionRequest,
+        ttp_name: String,
+        tactic: String,
+        reason: String,
+    ) -> Self {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        Self {
+            id: cmd_id,
+            ttp_id: request.action_id.clone(),
+            ttp_name,
+            tactic,
+            target_id: request.target_id.clone(),
+            exec_system_id: request.exec_system_id.clone().unwrap_or_default(),
+            procedure_id: request.procedure_id.clone().unwrap_or_default(),
+            command: String::new(),
+            args: request.args.clone(),
+            success: false,
+            exit_code: -1,
+            results: vec![reason.clone()],
+            fail_reason: reason,
+            started_at_ms: now_ms,
+            completed_at_ms: now_ms,
+            is_cleanup: false,
+            reasoning: request.reasoning.clone().unwrap_or_default(),
+        }
+    }
+
     pub fn from_execution(cmd: &ExecTtp, event: &TtpExecuted) -> Self {
         let completed_at_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)

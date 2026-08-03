@@ -687,6 +687,95 @@ fn action_request(target_id: &str, exec_system_id: Option<&str>) -> ExecuteActio
 }
 
 #[test]
+fn record_preparation_failure_preserves_known_ttp_and_request_context() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let armory = Armory::from_ttps(vec![Ttp::new(
+        "test-ttp",
+        "Test Preparation Failure",
+        "Discovery",
+    )]);
+    let request = ExecuteActionRequest {
+        action_id: "test-ttp".to_string(),
+        target_id: "ns/default/pod/demo".to_string(),
+        exec_system_id: Some("custom-backend".to_string()),
+        procedure_id: Some("shell".to_string()),
+        args: HashMap::from([("Namespace".to_string(), "default".to_string())]),
+        reasoning: Some("verify unavailable channel".to_string()),
+    };
+    let error = ExecuteActionError::NoExecChannel("no route to target".to_string());
+
+    let (record, ttp) = campaign.record_preparation_failure(&request, &armory, &error);
+
+    assert!(record.id.starts_with("cmd-"));
+    assert_eq!(record.ttp_id, "test-ttp");
+    assert_eq!(record.ttp_name, "Test Preparation Failure");
+    assert_eq!(record.tactic, "Discovery");
+    assert_eq!(record.target_id, "ns/default/pod/demo");
+    assert_eq!(record.exec_system_id, "custom-backend");
+    assert_eq!(record.procedure_id, "shell");
+    assert_eq!(record.args, request.args);
+    assert_eq!(record.reasoning, "verify unavailable channel");
+    assert!(record.command.is_empty());
+    assert!(!record.success);
+    assert_eq!(record.exit_code, -1);
+    assert_eq!(record.results, vec!["no route to target"]);
+    assert_eq!(record.fail_reason, "no route to target");
+    assert_eq!(record.started_at_ms, record.completed_at_ms);
+    assert!(!record.is_cleanup);
+    assert_eq!(ttp.id, "test-ttp");
+    assert_eq!(ttp.name, "Test Preparation Failure");
+    assert_eq!(campaign.get_execution_records().len(), 1);
+    assert_eq!(campaign.get_execution_records()[0].id, record.id);
+    assert!(campaign.get_open_steps().is_empty());
+}
+
+#[test]
+fn record_preparation_failure_synthesizes_ttp_for_every_error_variant() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let armory = Armory::from_ttps(Vec::new());
+    let request = ExecuteActionRequest {
+        action_id: "unknown-ttp".to_string(),
+        target_id: "unknown-target".to_string(),
+        exec_system_id: None,
+        procedure_id: None,
+        args: HashMap::new(),
+        reasoning: None,
+    };
+    let errors = [
+        ExecuteActionError::InvalidInput("invalid input".to_string()),
+        ExecuteActionError::NotFound("not found".to_string()),
+        ExecuteActionError::NoExecChannel("no channel".to_string()),
+        ExecuteActionError::InvariantViolation("invariant violation".to_string()),
+    ];
+
+    for (index, error) in errors.iter().enumerate() {
+        let expected_reason = match error {
+            ExecuteActionError::InvalidInput(reason)
+            | ExecuteActionError::NotFound(reason)
+            | ExecuteActionError::NoExecChannel(reason)
+            | ExecuteActionError::InvariantViolation(reason) => reason,
+        };
+        let (record, ttp) = campaign.record_preparation_failure(&request, &armory, error);
+
+        assert_eq!(record.fail_reason, *expected_reason);
+        assert_eq!(record.results, vec![expected_reason.clone()]);
+        assert_eq!(record.ttp_id, "unknown-ttp");
+        assert_eq!(record.ttp_name, "unknown-ttp");
+        assert!(record.tactic.is_empty());
+        assert!(record.exec_system_id.is_empty());
+        assert!(record.procedure_id.is_empty());
+        assert!(!record.success);
+        assert_eq!(record.exit_code, -1);
+        assert_eq!(ttp.id, "unknown-ttp");
+        assert_eq!(ttp.name, "unknown-ttp");
+        assert!(ttp.tactic.is_empty());
+        assert_eq!(campaign.get_execution_records().len(), index + 1);
+    }
+
+    assert!(campaign.get_open_steps().is_empty());
+}
+
+#[test]
 fn prepare_action_auto_resolves_channel_from_graph() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("demo", "default");
