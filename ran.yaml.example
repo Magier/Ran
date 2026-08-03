@@ -20,3 +20,24 @@ namespaces:
 #
 # Note: If 'included' has items, it takes precedence over 'excluded'
 # (only included namespaces will be shown, excluded list is ignored)
+
+# Optional scenario-provided knowledge. Relative paths are resolved from this file.
+# seedKnowledge:
+#   - type: credential
+#     credentialType: kubeconfig
+#     id: developer-kubeconfig
+#     path: kubeconfigs/developer.yaml
+#     context: developer-context # optional; defaults to current-context
+#     provenance: scenario
+#
+# To assign the cluster a stable scenario ID, declare it and reference the alias:
+#   - type: cluster
+#     id: target-cluster
+#     server: https://cluster.example
+#     provenance: scenario
+#   - type: credential
+#     credentialType: kubeconfig
+#     id: developer-kubeconfig
+#     path: kubeconfigs/developer.yaml
+#     cluster: target-cluster
+#     provenance: scenario

@@ -132,6 +132,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         plan: args.plan,
         auto_cleanup: args.cleanup,
         plans_dir,
+        seed_knowledge: cfg.seed_knowledge,
     })
     .await
 }
@@ -151,6 +152,7 @@ async fn run_trigger(args: TriggerArgs) -> Result<()> {
         kubeconfig: args.kubeconfig,
         armory_dir: args.armory,
         namespace_filter: cfg.namespaces,
+        seed_knowledge: cfg.seed_knowledge,
         action_id: args.action_id,
         target_id: args.target_id,
         exec_system_id: args.exec_system_id,

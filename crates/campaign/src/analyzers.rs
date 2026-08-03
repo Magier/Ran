@@ -1,8 +1,9 @@
 use ran_domain::{
-    BindsTo, Confidence, Contains, DaemonSet, Deployment, Entity, EntityId, GCPServiceAccount,
-    Grants, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress, K8sNode, K8sRole,
-    K8sRoleBinding, K8sService, KubeletExecSink, KubeletExecSource, NameConfidence, Namespace,
-    Owns, Pod, PodExec, RbacPermission, RunsOn, ServiceAccount, StatefulSet, UnknownSystem, Uses,
+    AuthenticatesTo, BindsTo, Confidence, Contains, DaemonSet, Deployment, Entity, EntityId,
+    GCPServiceAccount, Grants, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute,
+    K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sService, KubeletExecSink, KubeletExecSource,
+    NameConfidence, Namespace, Owns, Pod, PodExec, RbacPermission, RunsOn, ServiceAccount,
+    StatefulSet, UnknownSystem, Uses,
 };
 
 use crate::rules::InferenceRule;
@@ -1708,19 +1709,30 @@ impl InferenceRule for KubeconfigCredentialAnalyzer {
 
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let relations = PendingView::new(campaign, update).relations();
 
         for entity in &update.new_entities {
             let Some(cred) = entity.as_any().downcast_ref::<K8sCredential>() else {
                 continue;
             };
+            let credential_id = cred.entity_id();
 
-            let cluster_name = if cred.endpoint.is_empty() {
-                "discovered".to_string()
-            } else {
-                cred.endpoint.clone()
-            };
+            // An existing credential may be re-emitted as a partial entity when
+            // new facts such as RBAC entitlements are learned. Its established
+            // authenticates-to edge is authoritative; do not derive another
+            // cluster from an incomplete update.
+            if relations.iter().any(|relation| {
+                relation.name == "authenticates-to" && relation.source_id == credential_id.0
+            }) {
+                continue;
+            }
 
-            let cluster = K8sCluster::new(&cluster_name).with_server(Some(cred.endpoint.clone()));
+            // Without an endpoint there is no stable cluster identity to infer.
+            if cred.endpoint.is_empty() {
+                continue;
+            }
+
+            let cluster = K8sCluster::new(&cred.endpoint).with_server(Some(cred.endpoint.clone()));
             let cluster_id = cluster.entity_id();
 
             if !campaign.entities.contains::<K8sCluster>(&cluster_id)
@@ -1730,6 +1742,16 @@ impl InferenceRule for KubeconfigCredentialAnalyzer {
                     .any(|e| e.entity_id() == cluster_id)
             {
                 inferred.new_entities.push(Box::new(cluster));
+            }
+            let already_related = campaign
+                .graph
+                .targets_of(&credential_id, "authenticates-to")
+                .contains(&&cluster_id);
+            if !already_related {
+                inferred.new_relations.push(Box::new(AuthenticatesTo::new(
+                    credential_id.0,
+                    cluster_id.0,
+                )));
             }
         }
 
@@ -2623,6 +2645,42 @@ mod tests {
                 .all(|e| e.entity_id() != cluster_id),
             "should not re-emit K8sCluster when already in campaign"
         );
+    }
+
+    #[test]
+    fn permission_update_does_not_infer_second_cluster_for_existing_credential() {
+        let mut campaign = test_campaign();
+        let cluster_id = campaign
+            .entities
+            .values::<K8sCluster>()
+            .next()
+            .expect("bootstrap cluster")
+            .entity_id();
+        let credential =
+            K8sCredential::new("https://10.96.0.1:6443").with_name("developer-kubeconfig");
+        let credential_id = credential.entity_id();
+        campaign.insert_entity(&credential);
+        campaign.insert_relation(&AuthenticatesTo::new(credential_id.0.clone(), cluster_id.0));
+
+        // SelfSubjectRulesReview emits a partial entity carrying only identity
+        // and newly learned entitlements.
+        let mut permission_update = K8sCredential::new("").with_name("developer-kubeconfig");
+        permission_update
+            .entitlements
+            .push(RbacPermission::new("list", "pods"));
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(permission_update));
+
+        let inferred = KubeconfigCredentialAnalyzer.infer(&campaign, &update);
+
+        assert!(inferred
+            .new_entities
+            .iter()
+            .all(|entity| entity.entity_kind() != "Cluster"));
+        assert!(inferred
+            .new_relations
+            .iter()
+            .all(|relation| relation.relation_name() != "authenticates-to"));
     }
 
     // ---------------------------------------------------------------------------

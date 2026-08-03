@@ -9,6 +9,8 @@ use crate::{FactsUpdate, ParseAudit};
 pub struct ExecuteActionRequest {
     pub action_id: String,
     pub exec_system_id: Option<String>,
+    #[serde(default)]
+    pub auth_identity_id: Option<String>,
     pub target_id: String,
     pub procedure_id: Option<String>,
     pub args: HashMap<String, String>,

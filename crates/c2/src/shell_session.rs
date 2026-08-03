@@ -412,6 +412,7 @@ mod tests {
             target_id: "node/test-node".to_string(),
             exec_chain: vec!["node/test-node".to_string()],
             exec_system_id: exec_system_id.to_string(),
+            auth_identity_id: None,
             output_transform: None,
             is_cleanup: false,
             reasoning: String::new(),

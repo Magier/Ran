@@ -1,4 +1,4 @@
-use crate::{Campaign, FactsUpdate};
+use crate::{Campaign, FactsUpdate, KnowledgeProvenance};
 
 pub trait InferenceRule: Send + Sync {
     fn name(&self) -> &'static str;
@@ -23,7 +23,8 @@ pub fn run_rules_fixpoint(
         let mut next = FactsUpdate::default();
 
         for rule in rules {
-            let inferred = rule.infer(campaign, &acc);
+            let mut inferred = rule.infer(campaign, &acc);
+            inferred.attribute_unattributed(KnowledgeProvenance::Inference);
             let has_output = !inferred.new_entities.is_empty()
                 || !inferred.new_relations.is_empty()
                 || !inferred.entity_aliases.is_empty();

@@ -21,6 +21,7 @@ export type Entity = {
 	ready?: boolean;
 	stateReason?: string;
 	ips?: string[];
+	provenance?: string[];
 };
 
 export type Relation = {

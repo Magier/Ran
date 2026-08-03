@@ -8,6 +8,7 @@ armory  = { path = "../armory" }
 cortex  = { path = "../graph" }
 async-trait = "0.1"
 c2 = { path = "../c2" }
+k8s = { path = "../k8s" }
 ran-domain = { path = "../domain" }
 base64 = "0.22"
 serde = { workspace = true }

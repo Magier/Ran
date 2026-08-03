@@ -352,6 +352,7 @@ mod tests {
             tactic: "Execution".to_string(),
             target_id: target_id.to_string(),
             exec_system_id: target_id.to_string(),
+            auth_identity_id: None,
             procedure_id: procedure_id.to_string(),
             command: "echo test".to_string(),
             args: HashMap::new(),

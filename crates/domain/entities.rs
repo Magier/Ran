@@ -118,6 +118,8 @@ impl Entity for C2Server {
 /// Target Kubernetes cluster from kubeconfig context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct K8sCluster {
+    #[serde(default)]
+    pub id: Option<String>,
     pub name: String,
     pub context_name: Option<String>,
     pub server: Option<String>,
@@ -126,6 +128,7 @@ pub struct K8sCluster {
 impl K8sCluster {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
+            id: None,
             name: name.into(),
             context_name: None,
             server: None,
@@ -137,6 +140,11 @@ impl K8sCluster {
         self
     }
 
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
     pub fn with_server(mut self, server: Option<String>) -> Self {
         self.server = server;
         self
@@ -145,7 +153,10 @@ impl K8sCluster {
 
 impl Entity for K8sCluster {
     fn entity_id(&self) -> EntityId {
-        EntityId::new(format!("k8s/cluster/{}", slugify(&self.name)))
+        EntityId::new(format!(
+            "k8s/cluster/{}",
+            slugify(self.id.as_deref().unwrap_or(&self.name))
+        ))
     }
 
     fn entity_name(&self) -> &str {
@@ -1359,10 +1370,35 @@ impl Merge for K8sHTTPRoute {
 
 /// A Kubernetes API credential extracted from a kubeconfig file.
 ///
-/// Populated by the `file:kubeconfig` and `file:content` output parsers when
-/// they detect kubeconfig YAML in captured file content.
+/// Populated during campaign bootstrap or by the `file:kubeconfig` and
+/// `file:content` output parsers when they detect kubeconfig YAML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct K8sCredential {
+    /// Stable display/identity name. Discovered credentials default to the
+    /// endpoint; scenario seeds can provide a human-readable identifier.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "default_kubeconfig_credential_type")]
+    pub credential_type: String,
+    #[serde(default)]
+    pub context_name: Option<String>,
+    #[serde(default)]
+    pub user_name: Option<String>,
+    #[serde(default)]
+    pub auth_method: String,
+    #[serde(default)]
+    pub has_token: bool,
+    #[serde(default)]
+    pub has_client_certificate: bool,
+    #[serde(default)]
+    pub has_client_key: bool,
+    /// Whether this credential backs the Kubernetes client used by the current
+    /// Ran process. Seeded/discovered kubeconfigs remain knowledge-only.
+    #[serde(default)]
+    pub active: bool,
+    /// RBAC permissions observed by a SelfSubjectRulesReview for this identity.
+    #[serde(default)]
+    pub entitlements: Vec<RbacPermission>,
     /// API server URL (e.g. `https://10.96.0.1:6443`).
     pub endpoint: String,
     /// Base64-encoded CA certificate from the kubeconfig cluster entry.
@@ -1382,28 +1418,57 @@ pub struct K8sCredential {
 
 impl K8sCredential {
     pub fn new(endpoint: impl Into<String>) -> Self {
+        let endpoint = endpoint.into();
         Self {
-            endpoint: endpoint.into(),
+            name: endpoint.clone(),
+            credential_type: default_kubeconfig_credential_type(),
+            context_name: None,
+            user_name: None,
+            auth_method: String::new(),
+            has_token: false,
+            has_client_certificate: false,
+            has_client_key: false,
+            active: false,
+            entitlements: Vec::new(),
+            endpoint,
             ca_data: None,
             token: None,
             cert_data: None,
             key_data: None,
         }
     }
+
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+}
+
+fn default_kubeconfig_credential_type() -> String {
+    "kubeconfig".to_string()
 }
 
 impl Entity for K8sCredential {
     fn entity_id(&self) -> EntityId {
-        let slug = if self.endpoint.is_empty() {
+        let identity = if self.name.is_empty() {
+            &self.endpoint
+        } else {
+            &self.name
+        };
+        let slug = if identity.is_empty() {
             "unknown".to_string()
         } else {
-            slugify(&self.endpoint)
+            slugify(identity)
         };
         EntityId::new(format!("k8s/credential/{}", slug))
     }
 
     fn entity_name(&self) -> &str {
-        &self.endpoint
+        if self.name.is_empty() {
+            &self.endpoint
+        } else {
+            &self.name
+        }
     }
 
     fn entity_kind(&self) -> &str {
@@ -1809,6 +1874,27 @@ impl Merge for Job {
 
 impl Merge for K8sCredential {
     fn merge_from(&mut self, incoming: &Self) {
+        if self.name.is_empty() {
+            self.name = incoming.name.clone();
+        }
+        if self.context_name.is_none() {
+            self.context_name = incoming.context_name.clone();
+        }
+        if self.user_name.is_none() {
+            self.user_name = incoming.user_name.clone();
+        }
+        if self.auth_method.is_empty() {
+            self.auth_method = incoming.auth_method.clone();
+        }
+        self.has_token |= incoming.has_token;
+        self.has_client_certificate |= incoming.has_client_certificate;
+        self.has_client_key |= incoming.has_client_key;
+        self.active |= incoming.active;
+        for permission in &incoming.entitlements {
+            if !self.entitlements.contains(permission) {
+                self.entitlements.push(permission.clone());
+            }
+        }
         if self.ca_data.is_none() {
             self.ca_data = incoming.ca_data.clone();
         }

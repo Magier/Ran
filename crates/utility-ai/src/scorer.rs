@@ -242,6 +242,7 @@ mod tests {
             tactic: "Discovery".to_string(),
             target_id: target_id.to_string(),
             exec_system_id: target_id.to_string(),
+            auth_identity_id: None,
             procedure_id: "shell".to_string(),
             command: "id".to_string(),
             args: HashMap::new(),

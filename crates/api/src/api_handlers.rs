@@ -4,7 +4,9 @@ use axum::extract::{Query, State};
 use chrono::{DateTime, Utc};
 use tracing::debug;
 
-use campaign::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
+use campaign::ttp_applicability::{
+    eligible_auth_identities, resolve_target_context, ttp_applicable_for_target,
+};
 
 use crate::sse::events_handler;
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
@@ -97,6 +99,14 @@ pub(crate) struct GetApplicableTtpsParams {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct GetEligibleAuthIdentitiesParams {
+    #[serde(rename = "actionId")]
+    pub(crate) action_id: String,
+    #[serde(rename = "targetId")]
+    pub(crate) target_id: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
 pub(crate) struct GetRecommendationsParams {
     /// Optional: restrict recommendations to a single target entity.
     #[serde(rename = "targetId")]
@@ -111,6 +121,8 @@ pub(crate) struct ExecuteActionCmdPayload {
     pub(crate) action_id: String,
     #[serde(rename = "execSystemId")]
     pub(crate) exec_system_id: Option<String>,
+    #[serde(rename = "authIdentityId")]
+    pub(crate) auth_identity_id: Option<String>,
     #[serde(rename = "targetId")]
     pub(crate) target_id: String,
     #[serde(rename = "procedureId")]
@@ -203,6 +215,34 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
         .collect::<Vec<_>>();
 
     Ok(axum::Json(ttps))
+}
+
+pub(crate) async fn eligible_auth_identities_handler<S: ApiService>(
+    State(service): State<S>,
+    Query(params): Query<GetEligibleAuthIdentitiesParams>,
+) -> Result<axum::Json<Vec<campaign::AuthIdentitySummary>>, ApiError> {
+    let ttp = service
+        .get_armory(GetArmoryParams { tactic: None })
+        .await?
+        .into_iter()
+        .find(|ttp| ttp.id == params.action_id)
+        .ok_or_else(|| ApiError::not_found(format!("unknown action '{}'", params.action_id)))?;
+    let campaign = service.get_campaign().await?;
+    if !campaign
+        .get_entities()
+        .iter()
+        .any(|entity| entity.entity_id().0 == params.target_id)
+    {
+        return Err(ApiError::not_found(format!(
+            "unknown target '{}'",
+            params.target_id
+        )));
+    }
+    Ok(axum::Json(eligible_auth_identities(
+        &ttp,
+        &campaign,
+        &params.target_id,
+    )))
 }
 
 /// Rank applicable `(TTP × target)` actions by utility for the current campaign
@@ -436,6 +476,7 @@ pub(crate) async fn execute_action_handler<S: ApiService>(
         .execute_action(campaign::ExecuteActionRequest {
             action_id: cmd.action_id,
             exec_system_id: cmd.exec_system_id,
+            auth_identity_id: cmd.auth_identity_id,
             target_id: cmd.target_id,
             procedure_id: cmd.procedure_id,
             args: cmd.args.unwrap_or_default(),

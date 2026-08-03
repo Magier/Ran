@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k8s::{K8sService, PodExecOutput};
+use k8s::{Client, PodExecOutput};
 use tracing::{debug, warn};
 
 use crate::types::{ExecTtp, TtpExecuted};
@@ -17,7 +17,7 @@ pub(crate) trait PodExecClient: Send + Sync {
 }
 
 #[async_trait]
-impl PodExecClient for K8sService {
+impl PodExecClient for Client {
     async fn exec_pod_command(
         &self,
         namespace: &str,
@@ -34,7 +34,7 @@ pub struct BuiltinC2 {
 }
 
 impl BuiltinC2 {
-    pub fn new(k8s: K8sService) -> Self {
+    pub fn new(k8s: Client) -> Self {
         Self {
             pod_exec_client: Arc::new(k8s),
         }
@@ -406,6 +406,7 @@ mod tests {
             target_id: target_id.to_string(),
             exec_chain: vec![target_id.to_string()],
             exec_system_id: exec_system_id.to_string(),
+            auth_identity_id: None,
             output_transform: None,
             is_cleanup: false,
             reasoning: String::new(),

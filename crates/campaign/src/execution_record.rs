@@ -23,6 +23,9 @@ pub struct ExecutionRecord {
     pub target_id: String,
     /// ID of the entity the command physically executed on (pod, node, or C2 entity).
     pub exec_system_id: String,
+    /// Kubernetes authentication identity selected for this action.
+    #[serde(default)]
+    pub auth_identity_id: Option<String>,
     /// ID of the procedure variant that was selected.
     pub procedure_id: String,
     /// The fully-grounded command string that was sent to the C2 backend.
@@ -73,6 +76,7 @@ impl ExecutionRecord {
             tactic,
             target_id: request.target_id.clone(),
             exec_system_id: request.exec_system_id.clone().unwrap_or_default(),
+            auth_identity_id: request.auth_identity_id.clone(),
             procedure_id: request.procedure_id.clone().unwrap_or_default(),
             command: String::new(),
             args: request.args.clone(),
@@ -100,6 +104,7 @@ impl ExecutionRecord {
             tactic: cmd.ttp.tactic.clone(),
             target_id: cmd.target_id.clone(),
             exec_system_id: cmd.exec_target().to_string(),
+            auth_identity_id: cmd.auth_identity_id.clone(),
             procedure_id: cmd.procedure.id.clone(),
             command: cmd.procedure.command.clone(),
             args: cmd.args.clone(),

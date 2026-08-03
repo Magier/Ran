@@ -2,7 +2,7 @@
 	import { Combobox, useListCollection } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId } from '$lib/model';
-	import type { TTP, TTPParam, RBACPermission } from '$lib/api/index';
+	import type { TTP, TTPParam, RBACPermission, AuthIdentity } from '$lib/api/index';
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
 	import { getRanAPI } from '$lib/ran_api';
 	import { untrack } from 'svelte';
@@ -11,7 +11,7 @@
 		targetId: string;
 		ttp: TTP;
 		argContext: Record<string, any>;
-		onExecute: (ttpId: string, execSystemId: string, procedureId: string, args: Record<string, string>) => void;
+		onExecute: (ttpId: string, execSystemId: string, authIdentityId: string, procedureId: string, args: Record<string, string>) => void;
 		onCancel: () => void;
 	}
 	let { targetId = $bindable(), ttp, argContext, onExecute, onCancel }: ParamProps = $props();
@@ -45,6 +45,8 @@
 	let availableEntities: Entity[] = $state([]);
 	let namespaceArgName: string = "";
 	let selectedExecSystemId = $state('');
+	let eligibleAuthIdentities = $state<AuthIdentity[]>([]);
+	let selectedAuthIdentityId = $state('');
 	let formElement: HTMLFormElement | undefined = $state();
 
 	const compromisedSystems = $derived(campaignState.getCompromisedSystems());
@@ -56,6 +58,48 @@
 	const selectedExecSystem = $derived(
 		compromisedSystems.find(e => e.id === selectedExecSystemId)
 	);
+	const selectedAuthIdentity = $derived(
+		eligibleAuthIdentities.find(identity => identity.id === selectedAuthIdentityId)
+	);
+
+	$effect(() => {
+		const actionId = ttp?.id;
+		const selectedTargetId = targetId;
+		if (!actionId || !selectedTargetId) {
+			eligibleAuthIdentities = [];
+			selectedAuthIdentityId = '';
+			return;
+		}
+		ranAPI.GetEligibleAuthIdentities(actionId, selectedTargetId)
+			.then((identities) => {
+				eligibleAuthIdentities = identities;
+				if (!identities.some(identity => identity.id === selectedAuthIdentityId)) {
+					selectedAuthIdentityId = identities.find(identity => identity.id === selectedTargetId)?.id
+						?? (identities.length === 1 ? identities[0].id : '');
+				}
+			})
+			.catch(() => {
+				eligibleAuthIdentities = [];
+				selectedAuthIdentityId = '';
+			});
+	});
+
+	$effect(() => {
+		const identity = selectedAuthIdentity;
+		if (!identity) return;
+		if (identity.kind === 'K8sCredential') {
+			const native = ttp.procedures.find(procedure => procedure.id === 'k8s-request')
+				?? ttp.procedures.find(procedure => procedure.id === 'kubectl');
+			if (native) procedureId = native.id;
+		} else if (identity.kind === 'ServiceAccount') {
+			const tokenIndex = args.findIndex(arg => arg.Name === 'TOKEN');
+			if (tokenIndex !== -1) {
+				args[tokenIndex] = { ...args[tokenIndex], Value: identity.id };
+				args = [...args];
+				bumpArgVersion('TOKEN');
+			}
+		}
+	});
 
 	const target = $derived.by(() => { return campaignState.getObjectById(targetId); });
 
@@ -565,7 +609,10 @@
 			{} as { [key: string]: string }
 		);
 
-		onExecute(ttp.id, selectedExecSystemId, procedureId, argsDict);
+		if (selectedAuthIdentity?.kind === 'K8sCredential') {
+			delete argsDict.TOKEN;
+		}
+		onExecute(ttp.id, selectedExecSystemId, selectedAuthIdentityId, procedureId, argsDict);
 	}
 
 	function executingSystemHasTool(tool: string): boolean {
@@ -668,6 +715,19 @@
 			<span class="h6 label text-xs md:text-sm lg:text-base">Description</span>
 			{ttp.description}
 		</div>
+			{#if eligibleAuthIdentities.length > 0}
+				<label class="label mt-5">
+					<span class="h6 label-text text-xs md:text-sm lg:text-base">Authenticate As</span>
+					<select id="authIdentity" class="input mt-2 text-xs md:text-sm lg:text-base" bind:value={selectedAuthIdentityId} required>
+						{#if eligibleAuthIdentities.length > 1}
+							<option value="" disabled>Select an identity…</option>
+						{/if}
+						{#each eligibleAuthIdentities as identity (identity.id)}
+							<option value={identity.id}>{identity.kind}: {identity.name}</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
 			{#if execSystemOptions.length > 0}
 				<label class="label mt-5">
 					<span class="h6 label-text text-xs md:text-sm lg:text-base">Execute On</span>

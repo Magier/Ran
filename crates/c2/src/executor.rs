@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k8s::K8sService;
+use k8s::{Client, PodExecOutput};
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{debug, warn};
 
@@ -61,7 +61,7 @@ pub struct C2Manager {
     cmd_rx: mpsc::Receiver<ExecTtp>,
     event_bus: C2EventBus,
     backends: Backends,
-    k8s: Option<K8sService>,
+    k8s: Option<Client>,
 }
 
 #[async_trait]
@@ -77,7 +77,7 @@ impl C2Backend for BuiltinC2 {
 }
 
 impl C2Manager {
-    pub fn new(buffer_size: usize, k8s: K8sService) -> (C2Handle, C2EventBus, Self) {
+    pub fn new(buffer_size: usize, k8s: Client) -> (C2Handle, C2EventBus, Self) {
         let (cmd_tx, cmd_rx) = mpsc::channel(buffer_size);
         let event_bus = C2EventBus::new(buffer_size);
 
@@ -145,6 +145,71 @@ impl C2Manager {
 
     async fn execute_command(&self, cmd: &ExecTtp) -> TtpExecuted {
         let trimmed = cmd.procedure.command.trim_start();
+
+        if let Some(namespace) = parse_kubeconfig_permission_command(trimmed) {
+            let Some(k8s) = self.k8s.as_ref() else {
+                let reason = "no K8s client configured".to_string();
+                return TtpExecuted {
+                    id: cmd.id.clone(),
+                    success: false,
+                    results: vec![reason.clone()],
+                    exit_code: 1,
+                    fail_reason: reason,
+                    session_connected: None,
+                };
+            };
+            return match k8s.self_subject_rules_review(namespace).await {
+                Ok(response) => TtpExecuted {
+                    id: cmd.id.clone(),
+                    success: true,
+                    results: vec![response],
+                    exit_code: 0,
+                    fail_reason: String::new(),
+                    session_connected: None,
+                },
+                Err(error) => {
+                    let reason = error.to_string();
+                    TtpExecuted {
+                        id: cmd.id.clone(),
+                        success: false,
+                        results: vec![reason.clone()],
+                        exit_code: 1,
+                        fail_reason: reason,
+                        session_connected: None,
+                    }
+                }
+            };
+        }
+
+        if cmd
+            .auth_identity_id
+            .as_deref()
+            .is_some_and(|identity| identity.starts_with("k8s/credential/"))
+        {
+            let Some(k8s) = self.k8s.as_ref() else {
+                return failed_result(cmd, "no active Kubernetes client configured");
+            };
+            let result = if let Some(request) = cmd.procedure.k8s_request.as_ref() {
+                k8s.execute_request(request)
+                    .await
+                    .map(|stdout| PodExecOutput {
+                        stdout,
+                        stderr: String::new(),
+                        exit_code: 0,
+                    })
+            } else if trimmed.contains("kubectl ") || trimmed.starts_with("kubectl") {
+                k8s.execute_kubectl_command(trimmed).await
+            } else {
+                return failed_result(
+                    cmd,
+                    "selected procedure does not support kubeconfig authentication",
+                );
+            };
+            return match result {
+                Ok(output) => command_output_result(cmd, output),
+                Err(error) => failed_result(cmd, &error.to_string()),
+            };
+        }
 
         if trimmed.starts_with("setTarget(") || trimmed == "noop" {
             if args_flag(&cmd.args, "Interactive") {
@@ -380,6 +445,56 @@ impl C2Manager {
     }
 }
 
+fn parse_kubeconfig_permission_command(command: &str) -> Option<&str> {
+    command
+        .trim()
+        .strip_prefix("k8sSelfSubjectRulesReview(")?
+        .strip_suffix(')')
+        .map(str::trim)
+        .filter(|namespace| !namespace.is_empty())
+}
+
+fn failed_result(cmd: &ExecTtp, reason: &str) -> TtpExecuted {
+    TtpExecuted {
+        id: cmd.id.clone(),
+        success: false,
+        results: vec![reason.to_string()],
+        exit_code: 1,
+        fail_reason: reason.to_string(),
+        session_connected: None,
+    }
+}
+
+fn command_output_result(cmd: &ExecTtp, output: k8s::PodExecOutput) -> TtpExecuted {
+    let mut results = Vec::new();
+    if !output.stdout.trim().is_empty() {
+        results.push(output.stdout.trim().to_string());
+    }
+    if !output.stderr.trim().is_empty() {
+        if results.is_empty() {
+            results.push(String::new());
+        }
+        results.push(output.stderr.trim().to_string());
+    }
+    TtpExecuted {
+        id: cmd.id.clone(),
+        success: output.exit_code == 0,
+        results,
+        exit_code: output.exit_code,
+        fail_reason: if output.exit_code == 0 {
+            String::new()
+        } else {
+            output
+                .stderr
+                .lines()
+                .last()
+                .unwrap_or("kubectl command failed")
+                .to_string()
+        },
+        session_connected: None,
+    }
+}
+
 /// Look up a boolean arg by name, case-insensitively. Returns true only for
 /// the exact string `"true"` (case-insensitive).
 fn args_flag(args: &HashMap<String, String>, key: &str) -> bool {
@@ -405,7 +520,7 @@ fn args_str(args: &HashMap<String, String>, key: &str) -> Option<String> {
 /// campaign can process it after TTP effects rather than as a separate event.
 async fn open_kubectl_exec_session(
     backends: Backends,
-    k8s: K8sService,
+    k8s: Client,
     backend_id: String,
     target_entity_id: String,
     container: Option<String>,
@@ -630,10 +745,27 @@ mod tests {
 
     use armory::{Procedure, Ttp};
 
+    use super::parse_kubeconfig_permission_command;
     use super::{C2Backend, C2Event, C2Manager, ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 
     struct MockBackend {
         marker: String,
+    }
+
+    #[test]
+    fn parses_kubeconfig_permission_control_command() {
+        assert_eq!(
+            parse_kubeconfig_permission_command("k8sSelfSubjectRulesReview(dungeon)"),
+            Some("dungeon")
+        );
+        assert_eq!(
+            parse_kubeconfig_permission_command("k8sSelfSubjectRulesReview()"),
+            None
+        );
+        assert_eq!(
+            parse_kubeconfig_permission_command("kubectl get pods"),
+            None
+        );
     }
 
     #[async_trait::async_trait]
@@ -781,6 +913,7 @@ mod tests {
             target_id: "ns/default/pod/nginx".to_string(),
             exec_chain: vec!["ns/default/pod/nginx".to_string()],
             exec_system_id: exec_system_id.to_string(),
+            auth_identity_id: None,
             output_transform: None,
             is_cleanup: false,
             reasoning: String::new(),

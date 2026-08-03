@@ -405,6 +405,44 @@ impl Relation for Uses {
     }
 }
 
+// ---------------------------------------------------------------------------
+// AuthenticatesTo
+// ---------------------------------------------------------------------------
+
+/// A credential is valid for authentication to a Kubernetes cluster.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthenticatesTo {
+    pub credential_id: EntityId,
+    pub cluster_id: EntityId,
+}
+
+impl AuthenticatesTo {
+    pub fn new(credential_id: impl Into<String>, cluster_id: impl Into<String>) -> Self {
+        Self {
+            credential_id: EntityId::new(credential_id),
+            cluster_id: EntityId::new(cluster_id),
+        }
+    }
+}
+
+impl Relation for AuthenticatesTo {
+    fn relation_name(&self) -> &str {
+        "authenticates-to"
+    }
+
+    fn source_id(&self) -> &EntityId {
+        &self.credential_id
+    }
+
+    fn target_id(&self) -> &EntityId {
+        &self.cluster_id
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 // ManagesNode
 // ---------------------------------------------------------------------------
 

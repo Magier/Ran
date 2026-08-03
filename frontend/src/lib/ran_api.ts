@@ -316,6 +316,14 @@ export class RanAPI {
 		return data;
 	}
 
+	async GetEligibleAuthIdentities(actionId: string, targetId: string) {
+		const { data, error } = await this.restClient.GET('/api/eligible-auth-identities', {
+			params: { query: { actionId, targetId } }
+		});
+		if (error) throw new Error(error.error || 'Failed to get eligible authentication identities');
+		return data;
+	}
+
 	async GetRecommendations(targetId?: string, limit?: number): Promise<Array<ScoredCandidate>> {
 		const query: { targetId?: string; limit?: number } = {};
 		if (targetId) query.targetId = targetId;

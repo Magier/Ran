@@ -435,6 +435,7 @@ mod tests {
             target_id: "ns/default/pod/demo".to_string(),
             exec_chain: vec!["ns/default/pod/demo".to_string()],
             exec_system_id: String::new(),
+            auth_identity_id: None,
             started_at_ms: 0,
             output_transform: None,
             is_cleanup: false,

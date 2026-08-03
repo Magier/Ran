@@ -7,6 +7,7 @@
 	// @ts-ignore
 	import expandCollapse from 'cytoscape-expand-collapse';
 	import { toaster } from '$lib/components/toaster';
+	import { hasKnowledgeProvenance } from '$lib/knowledgeProvenance';
 
 	import { getGraphStyle, applyCompromisedStyle } from './graph_style';
 	import { createElkLayout, isValidPosition, DEFAULT_LAYOUT_PARAMS } from './elk_layout';
@@ -29,7 +30,7 @@
 	type CyNode = {
 		id: string;
 		label: string;
-		data: Node;
+		data: Node & { scenarioProvided: boolean };
 		position?: { x: number; y: number };
 	};
 	type Pos = { x: number; y: number };
@@ -541,7 +542,7 @@
 		let cyNode: CyNode = {
 			id: n.id,
 			label: n.name,
-			data: { ...n }
+			data: { ...n, scenarioProvided: hasKnowledgeProvenance(n.provenance, 'scenario') }
 		};
 
 		// Add parent relationship if exists (required for expand-collapse)
@@ -568,6 +569,7 @@
 				source: e.sourceId,
 				target: e.targetId,
 				...e,
+				scenarioProvided: hasKnowledgeProvenance(e.provenance, 'scenario'),
 				informational: isInformational(e.name)
 			}
 		};

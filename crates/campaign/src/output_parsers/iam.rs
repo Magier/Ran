@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ran_domain::{
-    Contains, Entity, JwToken, K8sNode, NameConfidence, Namespace, Pod, RbacPermission, RunsOn,
-    ServiceAccount, ServiceAccountToken, Uses,
+    Contains, Entity, JwToken, K8sCredential, K8sNode, NameConfidence, Namespace, Pod,
+    RbacPermission, RunsOn, ServiceAccount, ServiceAccountToken, Uses,
 };
 use serde::Deserialize;
 
@@ -363,6 +363,7 @@ pub(super) fn parse_self_subject_rules_review(
     _stderr: &str,
     target_id: &str,
     token_arg: &str,
+    namespace_arg: &str,
 ) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty output".to_string());
@@ -394,19 +395,28 @@ pub(super) fn parse_self_subject_rules_review(
     };
     let (resource_rules, non_resource_rules) = rules;
 
-    // Resolve SA identity from the TOKEN arg (preferred — the JWT identifies the
-    // exact SA whose permissions were reviewed) or from the target_id entity ID
-    // string (for SA targets like `ns/default/sa/mysa`).
-    // Pod targets require a TOKEN arg; without one the namespace/name cannot be
-    // determined without campaign access, which parsers must not use.
-    let Some((sa_name, sa_namespace)) =
+    // Kubeconfig reviews are attributed directly to the selected credential.
+    // Service-account reviews retain the existing JWT/target-ID resolution.
+    let credential_name = target_id.strip_prefix("k8s/credential/");
+    let service_account = if credential_name.is_some() {
+        None
+    } else {
         resolve_sa_from_token(token_arg).or_else(|| parse_sa_identity_from_target(target_id))
-    else {
-        return ParserOutput::KnownFailure(format!(
-            "cannot resolve a ServiceAccount for target '{target_id}': \
-             no valid TOKEN arg and target is not an SA entity ID (ns/…/sa/…)"
-        ));
     };
+    if credential_name.is_none() && service_account.is_none() {
+        return ParserOutput::KnownFailure(format!(
+            "cannot resolve an RBAC identity for target '{target_id}': \
+             target is neither a K8sCredential nor a ServiceAccount and TOKEN is invalid"
+        ));
+    }
+    let permission_namespace = credential_name
+        .map(|_| namespace_arg.trim())
+        .or_else(|| {
+            service_account
+                .as_ref()
+                .map(|(_, namespace)| namespace.as_str())
+        })
+        .unwrap_or("");
     let mut entitlements: Vec<RbacPermission> = Vec::new();
 
     for rule in &resource_rules {
@@ -427,9 +437,9 @@ pub(super) fn parse_self_subject_rules_review(
 
                 for api_group in &effective_groups {
                     let scope = if is_namespaced_resource(resource, api_group)
-                        && !sa_namespace.is_empty()
+                        && !permission_namespace.is_empty()
                     {
-                        Some(sa_namespace.clone())
+                        Some(permission_namespace.to_string())
                     } else {
                         None
                     };
@@ -464,11 +474,16 @@ pub(super) fn parse_self_subject_rules_review(
     }
 
     let perm_count = entitlements.len();
-    let mut sa = ServiceAccount::new(&sa_name, &sa_namespace);
-    sa.entitlements = entitlements;
-
     let mut facts = FactsUpdate::default();
-    facts.new_entities.push(Box::new(sa));
+    if let Some(name) = credential_name {
+        let mut credential = K8sCredential::new("").with_name(name);
+        credential.entitlements = entitlements;
+        facts.new_entities.push(Box::new(credential));
+    } else if let Some((sa_name, sa_namespace)) = service_account {
+        let mut sa = ServiceAccount::new(sa_name, sa_namespace);
+        sa.entitlements = entitlements;
+        facts.new_entities.push(Box::new(sa));
+    }
 
     ParserOutput::SuccessWithFacts(
         facts,
@@ -998,6 +1013,7 @@ mod tests {
             "",
             "ns/default/pod/some-other-pod", // target_id is a pod — SA comes from JWT
             &jwt,
+            "",
         );
 
         let ParserOutput::SuccessWithFacts(facts, detail) = result else {
@@ -1035,8 +1051,13 @@ mod tests {
 
         // target_id is the SA entity ID — identity is parsed from the string directly,
         // no campaign lookup required.
-        let result =
-            parse_self_subject_rules_review(kubectl_output, "", "ns/default/sa/mysa", &non_k8s_jwt);
+        let result = parse_self_subject_rules_review(
+            kubectl_output,
+            "",
+            "ns/default/sa/mysa",
+            &non_k8s_jwt,
+            "",
+        );
 
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts, got {:?}", result);
@@ -1064,6 +1085,7 @@ mod tests {
             "",
             "ns/default/pod/some-pod",
             "", // no token
+            "",
         );
 
         assert!(
@@ -1071,5 +1093,46 @@ mod tests {
             "expected KnownFailure for pod target without TOKEN, got {:?}",
             result
         );
+    }
+
+    #[test]
+    fn ssrr_parser_attributes_permissions_to_kubeconfig_credential() {
+        let response = r#"{
+            "status": {
+                "resourceRules": [{
+                    "verbs": ["get", "list"],
+                    "apiGroups": [""],
+                    "resources": ["pods"],
+                    "resourceNames": []
+                }],
+                "nonResourceRules": [],
+                "incomplete": false
+            }
+        }"#;
+
+        let result = parse_self_subject_rules_review(
+            response,
+            "",
+            "k8s/credential/developer-kubeconfig",
+            "",
+            "dungeon",
+        );
+
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected SuccessWithFacts, got {:?}", result);
+        };
+        let credential = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<K8sCredential>()
+            .expect("permissions should update the K8sCredential");
+        assert_eq!(
+            credential.entity_id().0,
+            "k8s/credential/developer-kubeconfig"
+        );
+        assert!(credential.entitlements.iter().any(|permission| {
+            permission.verb == "list"
+                && permission.resource_type == "pods"
+                && permission.scope.as_deref() == Some("dungeon")
+        }));
     }
 }

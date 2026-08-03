@@ -8,6 +8,11 @@ anyhow = "1"
 futures = "0.3"
 k8s-openapi = { version = "0.27", features = ["v1_32"] }
 kube = { version = "3.1", default-features = true, features = ["ws", "runtime"] }
+http = "1"
+regex = "1"
 serde = { workspace = true }
-tokio = { version = "1", features = ["io-util", "rt", "time"] }
+serde_json = "1"
+serde_yaml = "0.9"
+secrecy = "0.10.2"
+tokio = { version = "1", features = ["io-util", "process", "rt", "time"] }
 tracing = "0.1"

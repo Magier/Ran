@@ -26,6 +26,10 @@ pub struct ExecTtp {
     /// local/C2-side commands.
     pub exec_chain: Vec<String>,
     pub exec_system_id: String,
+    /// Authentication identity selected for Kubernetes API/kubectl operations.
+    /// This is an entity ID only; credential material is never serialized here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_identity_id: Option<String>,
     /// Unix timestamp (milliseconds) when the command was dispatched.
     pub started_at_ms: u64,
     /// Output post-processing required before parsers run.

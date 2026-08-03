@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use armory::{Armory, Procedure, Ttp, TtpParam};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
-    AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, K8sCluster, K8sNode,
-    KubeletExecSink, OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn,
-    ServiceAccount, SessionInfo, SessionStatus, Uses,
+    AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, K8sCluster, K8sCredential,
+    K8sNode, KubeletExecSink, OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec,
+    RunsOn, ServiceAccount, SessionInfo, SessionStatus, Uses,
 };
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
@@ -31,6 +31,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         target_id: target_id.to_string(),
         exec_chain: vec![target_id.to_string()],
         exec_system_id: String::new(),
+        auth_identity_id: None,
         started_at_ms: 0,
         output_transform: None,
         is_cleanup: false,
@@ -415,6 +416,7 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
         tactic: "Discovery".to_string(),
         target_id: entry_id.clone(),
         exec_system_id: BUILTIN_C2_ID.to_string(),
+        auth_identity_id: None,
         procedure_id: "shell".to_string(),
         command: "id".to_string(),
         args: HashMap::new(),
@@ -519,6 +521,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         tactic: "Execution".to_string(),
         target_id: id_a.clone(),
         exec_system_id: BUILTIN_C2_ID.to_string(),
+        auth_identity_id: None,
         procedure_id: "shell".to_string(),
         command: "id".to_string(),
         args: HashMap::new(),
@@ -538,6 +541,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         tactic: "Discovery".to_string(),
         target_id: id_b.clone(),
         exec_system_id: BUILTIN_C2_ID.to_string(),
+        auth_identity_id: None,
         procedure_id: "shell".to_string(),
         command: "hostname".to_string(),
         args: HashMap::new(),
@@ -680,6 +684,7 @@ fn action_request(target_id: &str, exec_system_id: Option<&str>) -> ExecuteActio
         action_id: "test-ttp".to_string(),
         target_id: target_id.to_string(),
         exec_system_id: exec_system_id.map(str::to_string),
+        auth_identity_id: None,
         procedure_id: None,
         args: HashMap::new(),
         reasoning: None,
@@ -698,6 +703,7 @@ fn record_preparation_failure_preserves_known_ttp_and_request_context() {
         action_id: "test-ttp".to_string(),
         target_id: "ns/default/pod/demo".to_string(),
         exec_system_id: Some("custom-backend".to_string()),
+        auth_identity_id: Some("operator-kubeconfig".to_string()),
         procedure_id: Some("shell".to_string()),
         args: HashMap::from([("Namespace".to_string(), "default".to_string())]),
         reasoning: Some("verify unavailable channel".to_string()),
@@ -712,6 +718,10 @@ fn record_preparation_failure_preserves_known_ttp_and_request_context() {
     assert_eq!(record.tactic, "Discovery");
     assert_eq!(record.target_id, "ns/default/pod/demo");
     assert_eq!(record.exec_system_id, "custom-backend");
+    assert_eq!(
+        record.auth_identity_id.as_deref(),
+        Some("operator-kubeconfig")
+    );
     assert_eq!(record.procedure_id, "shell");
     assert_eq!(record.args, request.args);
     assert_eq!(record.reasoning, "verify unavailable channel");
@@ -737,6 +747,7 @@ fn record_preparation_failure_synthesizes_ttp_for_every_error_variant() {
         action_id: "unknown-ttp".to_string(),
         target_id: "unknown-target".to_string(),
         exec_system_id: None,
+        auth_identity_id: None,
         procedure_id: None,
         args: HashMap::new(),
         reasoning: None,
@@ -882,6 +893,7 @@ fn prepare_action_expands_object_headers_into_multiple_flags() {
                 action_id: "http-object-headers".to_string(),
                 target_id: target_id.clone(),
                 exec_system_id: None,
+                auth_identity_id: None,
                 procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
                 reasoning: None,
@@ -939,6 +951,7 @@ fn prepare_action_materializes_abstract_http_request_procedure() {
                 action_id: "http-abstract".to_string(),
                 target_id,
                 exec_system_id: None,
+                auth_identity_id: None,
                 procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
                 reasoning: None,
@@ -1000,6 +1013,7 @@ fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
                 action_id: "steps-abstract".to_string(),
                 target_id,
                 exec_system_id: None,
+                auth_identity_id: None,
                 procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
                 reasoning: None,
@@ -1118,6 +1132,7 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
                 action_id: "lateral-test".to_string(),
                 target_id: target_id.clone(),
                 exec_system_id: Some(source_id.clone()),
+                auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
                 reasoning: None,
@@ -1155,6 +1170,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         target_id: target_id.to_string(),
         exec_chain: vec![target_id.to_string()],
         exec_system_id: target_id.to_string(),
+        auth_identity_id: None,
         started_at_ms: 0,
         output_transform: None,
         is_cleanup: false,
@@ -1445,6 +1461,7 @@ fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
                 action_id: "test-kubelet-wrap".to_string(),
                 target_id: target_id.clone(),
                 exec_system_id: None,
+                auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
                 reasoning: None,
@@ -1515,6 +1532,7 @@ fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
                 action_id: "test-kubelet-fallback".to_string(),
                 target_id: target_id.clone(),
                 exec_system_id: None,
+                auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
                 reasoning: None,
@@ -1593,6 +1611,7 @@ fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_service
                 action_id: "read-token".to_string(),
                 target_id: sa_id.clone(),
                 exec_system_id: Some(entry_id.clone()),
+                auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
                 reasoning: None,
@@ -1645,6 +1664,7 @@ fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_node_ta
                 action_id: "node-proxy-check".to_string(),
                 target_id: node_id.clone(),
                 exec_system_id: Some(entry_id.clone()),
+                auth_identity_id: None,
                 procedure_id: None,
                 args,
                 reasoning: None,
@@ -1738,6 +1758,7 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
             ExecuteActionRequest {
                 action_id: "test-local-fallback".to_string(),
                 exec_system_id: None,
+                auth_identity_id: None,
                 target_id: redis_id,
                 procedure_id: None,
                 args: HashMap::new(),
@@ -2456,6 +2477,7 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
                 action_id: "scan-node".to_string(),
                 target_id: target_id.clone(),
                 exec_system_id: Some(exec_id.clone()),
+                auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
                 reasoning: None,
@@ -2491,6 +2513,7 @@ fn prepare_action_with_ttp_produces_same_result_as_prepare_action() {
     let exec = campaign
         .prepare_action_with_ttp(
             target_id.clone(),
+            None,
             None,
             None,
             ttp,
@@ -2550,6 +2573,7 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         tactic: "Execution".to_string(),
         target_id: pod_id.clone(),
         exec_system_id: BUILTIN_C2_ID.to_string(),
+        auth_identity_id: None,
         procedure_id: "ubuntu".to_string(),
         command: "apt-get install -y curl".to_string(),
         args: std::collections::HashMap::from([("PKG".to_string(), "curl".to_string())]),
@@ -2569,6 +2593,7 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         tactic: "Discovery".to_string(),
         target_id: pod_id.clone(),
         exec_system_id: BUILTIN_C2_ID.to_string(),
+        auth_identity_id: None,
         procedure_id: "shell".to_string(),
         command: "id".to_string(),
         args: std::collections::HashMap::new(),
@@ -2614,6 +2639,7 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
         tactic: "Execution".to_string(),
         target_id: pod_id.clone(),
         exec_system_id: BUILTIN_C2_ID.to_string(),
+        auth_identity_id: None,
         procedure_id: "ubuntu".to_string(),
         command: "apt-get install -y wget".to_string(),
         args: std::collections::HashMap::from([("PKG".to_string(), "wget".to_string())]),
@@ -2643,6 +2669,59 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
 // ---------------------------------------------------------------------------
 
 use super::execution::materialize_k8s_request;
+
+#[test]
+fn active_kubeconfig_keeps_structured_request_for_native_execution() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target_id = campaign
+        .entities
+        .values::<K8sCluster>()
+        .next()
+        .expect("cluster")
+        .entity_id()
+        .0;
+    let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
+    credential.active = true;
+    let credential_id = credential.entity_id().0;
+    campaign.entities.insert_typed(credential);
+    let ttp = Ttp {
+        status: "enabled".to_string(),
+        procedures: vec![Procedure {
+            k8s_request: Some(serde_json::json!({
+                "api_server": "https://cluster.example",
+                "api": "/api/v1",
+                "resource": "namespaces",
+                "cluster_scoped": true
+            })),
+            ..Procedure::new("k8s-request", "")
+        }],
+        ..Ttp::new("get-namespaces", "Get Namespaces", "Discovery")
+    };
+    let armory = Armory::from_ttps(vec![ttp]);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "get-namespaces".to_string(),
+                exec_system_id: None,
+                auth_identity_id: Some(credential_id.clone()),
+                target_id,
+                procedure_id: Some("k8s-request".to_string()),
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("active kubeconfig should prepare native request");
+
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(credential_id.as_str())
+    );
+    assert!(exec.procedure.k8s_request.is_some());
+    assert!(exec.exec_chain.is_empty());
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+}
 
 /// Minimal armory with a curl tool TTP for use in k8s_request and http_request tests.
 fn curl_armory() -> Armory {

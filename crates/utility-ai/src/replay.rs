@@ -205,6 +205,7 @@ fn reconstruct_cmd(rec: &ExecutionRecord, armory: &[Ttp]) -> Option<ExecTtp> {
         // reconstruct. Semantic (target_id-keyed) effects still apply.
         exec_chain: Vec::new(),
         exec_system_id: rec.exec_system_id.clone(),
+        auth_identity_id: rec.auth_identity_id.clone(),
         started_at_ms: rec.started_at_ms,
         // Stored `results` are already post-unwrap, so no transform on replay.
         output_transform: None,
@@ -252,6 +253,7 @@ mod tests {
             tactic: "Discovery".to_string(),
             target_id: target_id.to_string(),
             exec_system_id: target_id.to_string(),
+            auth_identity_id: None,
             procedure_id: "shell".to_string(),
             command: "id".to_string(),
             args: HashMap::new(),
