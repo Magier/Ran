@@ -552,6 +552,40 @@ impl Campaign {
         Ok(exec)
     }
 
+    /// Persist a failed execution attempt that never reached dispatch.
+    ///
+    /// Preparation can fail before an [`ExecTtp`] exists, so this records the
+    /// original request and returns a TTP description suitable for the
+    /// terminal campaign event published by the caller.
+    pub fn record_preparation_failure(
+        &mut self,
+        request: &ExecuteActionRequest,
+        armory: &Armory,
+        error: &ExecuteActionError,
+    ) -> (ExecutionRecord, Ttp) {
+        let cmd_id = generate_cmd_id();
+        let ttp = armory
+            .get_ttp(&request.action_id)
+            .cloned()
+            .unwrap_or_else(|| Ttp::new(&request.action_id, &request.action_id, ""));
+        let reason = match error {
+            ExecuteActionError::InvalidInput(reason)
+            | ExecuteActionError::NotFound(reason)
+            | ExecuteActionError::NoExecChannel(reason)
+            | ExecuteActionError::InvariantViolation(reason) => reason.clone(),
+        };
+        let record = ExecutionRecord::from_preparation_failure(
+            cmd_id,
+            request,
+            ttp.name.clone(),
+            ttp.tactic.clone(),
+            reason,
+        );
+
+        self.execution_records.push(record.clone());
+        (record, ttp)
+    }
+
     /// Internal pipeline: stages 2-6 of action preparation.
     ///
     /// Called by both `prepare_action` (normal attack steps) and

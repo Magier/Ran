@@ -449,56 +449,79 @@ impl ApiService for AppState {
             "Executing action"
         );
 
+        let request_ctx = cmd.clone();
+
         let exec = {
             let mut campaign = self.campaign.write().map_err(|_| {
                 error!("campaign lock poisoned while executing action");
                 ApiError::internal("campaign lock poisoned")
             })?;
 
-            let exec = campaign
-                .prepare_action(cmd, &self.armory)
-                .map_err(|err| match err {
-                    ExecuteActionError::InvalidInput(message) => {
-                        error!("execute_action invalid input: {}", message);
-                        ApiError {
-                            status: axum::http::StatusCode::BAD_REQUEST,
-                            body: api::ErrorResponse {
-                                error: message,
-                                details: None,
-                            },
+            let exec = match campaign.prepare_action(cmd, &self.armory) {
+                Ok(exec) => exec,
+                Err(err) => {
+                    let (record, ttp) =
+                        campaign.record_preparation_failure(&request_ctx, &self.armory, &err);
+                    drop(campaign);
+
+                    let _ = self.campaign_events.publish(CampaignEvent::TtpExecuted {
+                        cmd_id: record.id,
+                        action_id: record.ttp_id,
+                        target_id: record.target_id,
+                        exec_system_id: record.exec_system_id,
+                        ttp: Box::new(ttp),
+                        args: record.args,
+                        success: false,
+                        fail_reason: record.fail_reason,
+                        results: record.results,
+                        exit_code: -1,
+                    });
+
+                    let api_error = match err {
+                        ExecuteActionError::InvalidInput(message) => {
+                            error!("execute_action invalid input: {}", message);
+                            ApiError {
+                                status: axum::http::StatusCode::BAD_REQUEST,
+                                body: api::ErrorResponse {
+                                    error: message,
+                                    details: None,
+                                },
+                            }
                         }
-                    }
-                    ExecuteActionError::NotFound(message) => {
-                        error!("execute_action not found: {}", message);
-                        ApiError {
-                            status: axum::http::StatusCode::NOT_FOUND,
-                            body: api::ErrorResponse {
-                                error: message,
-                                details: None,
-                            },
+                        ExecuteActionError::NotFound(message) => {
+                            error!("execute_action not found: {}", message);
+                            ApiError {
+                                status: axum::http::StatusCode::NOT_FOUND,
+                                body: api::ErrorResponse {
+                                    error: message,
+                                    details: None,
+                                },
+                            }
                         }
-                    }
-                    ExecuteActionError::NoExecChannel(message) => {
-                        error!("execute_action no exec channel: {}", message);
-                        ApiError {
-                            status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                            body: api::ErrorResponse {
-                                error: message,
-                                details: None,
-                            },
+                        ExecuteActionError::NoExecChannel(message) => {
+                            error!("execute_action no exec channel: {}", message);
+                            ApiError {
+                                status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                                body: api::ErrorResponse {
+                                    error: message,
+                                    details: None,
+                                },
+                            }
                         }
-                    }
-                    ExecuteActionError::InvariantViolation(message) => {
-                        error!("execute_action invariant violation: {}", message);
-                        ApiError {
-                            status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                            body: api::ErrorResponse {
-                                error: message,
-                                details: None,
-                            },
+                        ExecuteActionError::InvariantViolation(message) => {
+                            error!("execute_action invariant violation: {}", message);
+                            ApiError {
+                                status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                body: api::ErrorResponse {
+                                    error: message,
+                                    details: None,
+                                },
+                            }
                         }
-                    }
-                })?;
+                    };
+                    return Err(api_error);
+                }
+            };
             // Capture the decision under the operator's *actual* pre-action
             // conditions (zero reconstruction) for calibration. `prepare_action`
             // only grounded the command — no effects applied yet — so this is the
