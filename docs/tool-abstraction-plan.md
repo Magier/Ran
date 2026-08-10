@@ -31,6 +31,19 @@ Sliver, without any special-casing in the Rust runtime.
     were removed.
 - `KUBELET_EXEC_TOOLS` hardcoded analyzer constant was removed; kubelet source
     expansion is now marker-driven.
+- Initial HTTP abstraction rollout completed:
+    - Added reusable Tool TTPs:
+        - `armory/TTPs/Tools/http-request-curl.yaml`
+        - `armory/TTPs/Tools/http-request-wget.yaml`
+    - Migrated HTTP-heavy discovery TTPs to the shared HTTP parameter
+      convention (`URL`, `METHOD`, `HEADERS`, `PAYLOAD`, `TIMEOUT`):
+        - `get_GCP_project_id.yaml`
+        - `get_GCP_list_buckets.yaml`
+        - `list_GCP_bucket_content.yaml`
+        - `check_sa_token_permissions.yaml`
+    - HEADERS now supports key/value collections in template rendering
+      (expanded to repeated `-H` / `--header` flags).
+    - Added execution-path regression coverage for object header expansion.
 - Regression tests were added for:
     - kubelet marker parse metadata
     - marker expansion metadata propagation
@@ -38,13 +51,12 @@ Sliver, without any special-casing in the Rust runtime.
 
 ### Current test/build status
 
-- `cargo test -p campaign`: passing (298 tests).
+- `cargo test -p campaign`: passing (305 tests).
 - New kubelet metadata regression tests are passing.
 
 ### Remaining phases from this plan
 
 - Add `c2.session` effect path and Sliver session-establishment TTPs.
-- Implement HTTP request abstraction/library TTP follow-up.
 - Decide whether to keep or remove the temporary migration fallback language in
     this doc now that metadata-driven routing is the active path.
 

@@ -556,7 +556,7 @@
 		<!-- Collapse/Expand button -->
 		<button
 			class="absolute left-0 z-50 bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-r-md px-0.5 py-2 opacity-30 hover:opacity-100 transition-all duration-200"
-			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`}; bottom: {timeline.open ? 'calc(15rem + 0.5rem)' : '0.5rem'};"
+			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`}; top: 0.5rem;"
 			onclick={toggleArmoryCollapse}
 			title={armoryCollapsed ? 'Expand armory' : 'Collapse armory'}
 		>

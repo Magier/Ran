@@ -48,3 +48,7 @@
 
 - [Authoring TTPs as an Agent](agents/authoring.md)
 - [Using Ran via API and MCP](agents/api-mcp.md)
+
+# Development
+
+- [Debugging the MCP Server with MCP Inspector](development/mcp-inspector.md)

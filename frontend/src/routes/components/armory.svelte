@@ -33,7 +33,6 @@
 	let armory: ArmoryType = $state(new Map());
 	let showAllTTPs: boolean = $state(false);
 	let applicableTTPs: ArmoryType = $state(new Map());
-	let filteredTtps: TTP[] = $state([]);
 	let searchTerm: string = $state('');
 	let openTactic = $state(['Initial Access']);
 	let isShiftPressed: boolean = $state(false);
@@ -75,14 +74,17 @@
 		);
 	}
 
-	let shownTTPs: ArmoryType = $derived.by(() => {
-		if (searchTerm) {
-			return filteredTtps;
-		} else if (showAllTTPs) {
-			return Array.from(armory.entries());
-		} else {
-			return Array.from(applicableTTPs.entries());
-		}
+	let shownTTPs: Array<[string, TTP[]]> = $derived.by(() => {
+		const source = showAllTTPs ? armory : applicableTTPs;
+		const normalizedSearch = searchTerm.trim().toLowerCase();
+		if (!normalizedSearch) return Array.from(source.entries());
+
+		return Array.from(source.entries())
+			.map(([tactic, ttps]) => [
+				tactic,
+				ttps.filter((ttp: TTP) => ttp.name.toLowerCase().includes(normalizedSearch))
+			] as [string, TTP[]])
+			.filter(([, ttps]) => ttps.length > 0);
 	});
  
 	// Fetch applicable TTPs whenever the target node changes or its state updates
@@ -98,9 +100,14 @@
 			applicableTTPs = new Map();
 			return;
 		}
-		
-		campaign.api.GetApplicableTTPs(targetId)
+
+		// Clear the previous target immediately. The captured id also prevents a
+		// slower response for an earlier selection from replacing current results.
+		const requestedTargetId = targetId;
+		applicableTTPs = new Map();
+		campaign.api.GetApplicableTTPs(requestedTargetId)
 			.then((result: TTP[]) => {
+				if (targetId !== requestedTargetId) return;
 				applicableTTPs = parseArmory(result);
 
 				// if there is only tactic, open it by default
@@ -109,27 +116,11 @@
 				}
 			})
 			.catch((err) => {
+				if (targetId !== requestedTargetId) return;
 				console.error('Error fetching applicable TTPs:', err);
+				applicableTTPs = new Map();
 			});
 	});
-
-	const searchAbilities = () => {
-		const src = showAllTTPs ? armory : applicableTTPs;
-
-		filteredTtps = Array.from(src.entries())
-			.filter(([tactic, ttps]) => 
-				ttps.some((ttp: TTP) => 
-					ttp.name.toLowerCase().includes(searchTerm.toLowerCase())
-				)
-			)
-			.map(([tactic, ttps]) => [
-				tactic,
-				ttps.filter((ttp: TTP) => 
-					ttp.name.toLowerCase().includes(searchTerm.toLowerCase())
-				)
-			]);
-		console.log("filteredTtps", filteredTtps);
-	};
 
 	$effect(() => {
 		focusSearch = () => {
@@ -213,7 +204,6 @@
 					bind:this={searchInputElement}
 					bind:value={searchTerm}
 					onkeydown={handleClearWithEscape}
-					oninput={searchAbilities}
 				/>
 				<div
 					class="flex shrink-0 rounded-md overflow-hidden border border-surface-300-700 text-xs"

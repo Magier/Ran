@@ -35,6 +35,38 @@
       "console": "integratedTerminal"
     },
     {
+      "name": "Ran: plan",
+      "type": "lldb",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "cargo": {
+        "args": [
+          "build",
+          "-p",
+          "cli",
+          "--bin",
+          "ran", 
+        ],
+        "filter": {
+          "name": "ran",
+          "kind": "bin"
+        }
+      },
+      "args": [
+        "emulate",
+        "--port",
+        "8080",
+        "--kubeconfig",
+        "ixi-config.yaml",
+        "--plan",
+        "examples/KubeConEU-2026/redis-nodeproxy-argo.plan.yaml"
+      ],
+      "env": {
+        "RAN_LOG": "debug"
+      },
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Ran (Rust): trigger",
       "type": "lldb",
       "request": "launch",
