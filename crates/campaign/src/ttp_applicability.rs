@@ -1,4 +1,6 @@
-use ran_domain::{AccessLevel, C2Server, Entity as _, K8sCredential, Pod, ServiceAccount};
+use ran_domain::{
+    AccessLevel, C2Server, Entity as _, K8sCredential, Pod, ServiceAccount, SessionStatus,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -131,6 +133,8 @@ pub struct TargetContext {
     pub has_token: bool,
     /// `true` when the target credential backs the process' active K8s client.
     pub active_kubeconfig: bool,
+    /// `true` when the target system has at least one live shell session.
+    pub active_session: bool,
 }
 
 /// Resolve the [`TargetContext`] for `target_id` from current campaign state.
@@ -177,6 +181,15 @@ pub fn resolve_target_context(campaign: &Campaign, target_id: &str) -> Option<Ta
         CampaignEntityRef::K8sCredential(credential) => credential.active,
         _ => false,
     };
+    let sessions: &[ran_domain::SessionInfo] = match &entity {
+        CampaignEntityRef::Pod(pod) => pod.system.sessions.as_slice(),
+        CampaignEntityRef::Node(node) => node.system.sessions.as_slice(),
+        CampaignEntityRef::UnknownSystem(system) => system.system.sessions.as_slice(),
+        _ => &[],
+    };
+    let active_session = sessions
+        .iter()
+        .any(|session| session.status == SessionStatus::Active);
 
     Some(TargetContext {
         target_id: target_id.to_string(),
@@ -185,12 +198,13 @@ pub fn resolve_target_context(campaign: &Campaign, target_id: &str) -> Option<Ta
         access_level,
         has_token,
         active_kubeconfig,
+        active_session,
     })
 }
 
 /// Aggregate applicability gate: `true` when `ttp` can run against the target
 /// described by `tc` given current campaign state. This is the single source of
-/// truth combining all five precondition predicates plus the kind match.
+/// truth combining all supported precondition predicates plus the kind match.
 pub fn ttp_applicable_for_target(
     ttp: &armory::Ttp,
     campaign: &Campaign,
@@ -210,6 +224,7 @@ pub fn ttp_applicable_for_target(
         && (!tc.is_system || ttp_access_level_satisfied(ttp, tc.access_level))
         && ttp_has_token_satisfied(ttp, tc.has_token)
         && ttp_active_kubeconfig_satisfied(ttp, active_kubeconfig)
+        && ttp_active_session_satisfied(ttp, tc.active_session)
         && ttp_related_satisfied(ttp, &tc.target_id, &tc.target_kind, campaign)
         && ttp_tool_satisfied(ttp, campaign, tc)
 }
@@ -342,6 +357,14 @@ pub fn ttp_active_kubeconfig_satisfied(ttp: &armory::Ttp, active: bool) -> bool 
     }
 }
 
+/// Gate actions that require a live shell session on the selected target.
+pub fn ttp_active_session_satisfied(ttp: &armory::Ttp, active: bool) -> bool {
+    match ttp.requires.get("activeSession").and_then(Value::as_bool) {
+        Some(true) => active,
+        _ => true,
+    }
+}
+
 /// Returns `true` when the TTP's `has-token` requirement is satisfied by the target entity.
 ///
 /// - No `has-token` in `requires` → satisfied (no restriction).
@@ -453,7 +476,10 @@ pub fn ttp_related_satisfied(
 #[cfg(test)]
 mod tests {
     use armory::Ttp;
-    use ran_domain::{C2Server, K8sCluster, K8sCredential, RbacPermission, ServiceAccount};
+    use ran_domain::{
+        C2Server, K8sCluster, K8sCredential, K8sNode, RbacPermission, ServiceAccount, SessionInfo,
+        SessionStatus,
+    };
     use serde_json::json;
 
     use ran_domain::AccessLevel;
@@ -773,6 +799,73 @@ mod tests {
 
         let tc = resolve_target_context(&c, &id).expect("pod should resolve");
         assert_eq!(tc.access_level, AccessLevel::Exec);
+    }
+
+    fn campaign_with_pod_session(status: Option<SessionStatus>) -> (crate::Campaign, String) {
+        let mut campaign = empty_campaign();
+        let mut pod = Pod::new("target", "default");
+        if let Some(status) = status {
+            pod.system.sessions.push(SessionInfo {
+                id: "shell-1".to_string(),
+                kind: "tcp".to_string(),
+                port: None,
+                status,
+            });
+        }
+        let id = pod.entity_id().0;
+        campaign.entities.insert_typed(pod);
+        (campaign, id)
+    }
+
+    fn ttp_requiring_active_pod_session() -> Ttp {
+        let mut ttp = Ttp::new("copyfail", "CopyFail", "Privilege Escalation");
+        ttp.requires.insert("kind".to_string(), json!("Pod"));
+        ttp.requires
+            .insert("activeSession".to_string(), json!(true));
+        ttp
+    }
+
+    #[test]
+    fn active_session_requirement_only_accepts_active_status() {
+        let ttp = ttp_requiring_active_pod_session();
+
+        for status in [
+            None,
+            Some(SessionStatus::Connecting),
+            Some(SessionStatus::Lost),
+        ] {
+            let (campaign, id) = campaign_with_pod_session(status);
+            let context = resolve_target_context(&campaign, &id).unwrap();
+            assert!(!context.active_session);
+            assert!(!ttp_applicable_for_target(&ttp, &campaign, &context));
+        }
+
+        let (campaign, id) = campaign_with_pod_session(Some(SessionStatus::Active));
+        let context = resolve_target_context(&campaign, &id).unwrap();
+        assert!(context.active_session);
+        assert!(ttp_applicable_for_target(&ttp, &campaign, &context));
+    }
+
+    #[test]
+    fn active_node_session_does_not_satisfy_pod_kind_requirement() {
+        let mut campaign = empty_campaign();
+        let mut node = K8sNode::new("worker-1");
+        node.system.sessions.push(SessionInfo {
+            id: "shell-1".to_string(),
+            kind: "mtls".to_string(),
+            port: None,
+            status: SessionStatus::Active,
+        });
+        let id = node.entity_id().0;
+        campaign.entities.insert_typed(node);
+
+        let context = resolve_target_context(&campaign, &id).unwrap();
+        assert!(context.active_session);
+        assert!(!ttp_applicable_for_target(
+            &ttp_requiring_active_pod_session(),
+            &campaign,
+            &context
+        ));
     }
 
     #[test]

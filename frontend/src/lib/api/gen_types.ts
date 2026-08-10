@@ -683,6 +683,7 @@ export interface components {
             rbacPermissions?: components["schemas"]["RBACPermission"][];
             accessLevel?: string;
             activeKubeconfig?: boolean;
+            activeSession?: boolean;
             exists?: string[];
         };
         RBACPermission: {
