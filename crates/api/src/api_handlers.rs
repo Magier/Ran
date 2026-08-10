@@ -849,7 +849,9 @@ struct StaticAssets;
 
 #[cfg(debug_assertions)]
 pub async fn frontend_handler(req: axum::extract::Request) -> impl axum::response::IntoResponse {
-    const VITE_ORIGIN: &str = "http://localhost:5173";
+    let vite_origin =
+        std::env::var("RAN_VITE_ORIGIN").unwrap_or_else(|_| "http://localhost:5173".to_string());
+    let vite_origin = vite_origin.trim_end_matches('/');
     let client = Client::new();
 
     let (parts, body) = req.into_parts();
@@ -858,7 +860,7 @@ pub async fn frontend_handler(req: axum::extract::Request) -> impl axum::respons
         .path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or("/");
-    let url = format!("{VITE_ORIGIN}{path_and_query}");
+    let url = format!("{vite_origin}{path_and_query}");
 
     let mut headers = HeaderMap::new();
     for (name, value) in parts.headers.iter() {
