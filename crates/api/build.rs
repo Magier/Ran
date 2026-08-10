@@ -164,10 +164,6 @@ pub trait ApiService: Clone + Send + Sync + 'static {
 
     async fn reset_campaign(&self) -> Result<(), ApiError>;
 
-    async fn start_pod_watch(&self, namespace: Option<String>) -> Result<(), ApiError>;
-
-    async fn stop_pod_watch(&self);
-
     async fn execute_plan(&self, plan_yaml: String) -> Result<String, ApiError>;
 
     async fn get_plan_status(&self, plan_id: &str) -> Result<serde_json::Value, ApiError>;

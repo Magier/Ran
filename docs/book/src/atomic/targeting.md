@@ -26,18 +26,17 @@ The armory's [preconditions](../campaign/preconditions.md) define what kind each
 TTP expects. In the UI, selecting a target automatically filters the armory to show
 only techniques applicable to that entity type.
 
-## Techniques that don't need a target
+## Operator-side techniques
 
-Some tactics don't require a pre-existing cluster entity:
+Some tactics run on the operator side rather than against an existing system:
 
-- **Initial Access** — connecting via a leaked kubeconfig, for example, happens
-  before any entity has been discovered
 - **Resource Development** — setting up C2 infrastructure runs on the operator's
   machine, not inside the cluster
 - **Lateral Movement** — the movement itself establishes the new foothold
 
-These TTPs can be invoked without `--target` and appear in the UI without requiring
-a selected entity.
+Initial Access through an external kubeconfig targets the chosen **Pod**. Agents
+and plans may select a live candidate before it is present in campaign knowledge;
+Ran stages only that Pod and grants access only after the TTP succeeds.
 
 ## Special entity IDs
 

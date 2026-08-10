@@ -16,14 +16,6 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             axum::routing::get(api_handlers::events_sse_handler::<S>),
         )
         .route(
-            "/api/pods/watch",
-            axum::routing::post(api_handlers::start_pod_watch_handler::<S>),
-        )
-        .route(
-            "/api/pods/watch",
-            axum::routing::delete(api_handlers::stop_pod_watch_handler::<S>),
-        )
-        .route(
             "/api/graph",
             axum::routing::get(api_handlers::graph_handler::<S>),
         )

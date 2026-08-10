@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use axum::extract::{Query, State};
 use chrono::{DateTime, Utc};
-use tracing::debug;
 
 use campaign::ttp_applicability::{
     eligible_auth_identities, resolve_target_context, ttp_applicable_for_target,
@@ -140,11 +139,6 @@ pub(crate) struct ExecuteActionAck {
     queued: bool,
     #[serde(rename = "cmdId")]
     cmd_id: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub(crate) struct PodWatchStatus {
-    status: String,
 }
 
 // --- Handlers ----------------------------------------------------------------
@@ -793,37 +787,6 @@ pub(crate) async fn flow_handler<S: ApiService>(
     }
 
     Ok(axum::Json(AttackFlow { steps, edges }))
-}
-
-pub(crate) async fn start_pod_watch_handler<S: ApiService>(
-    State(service): State<S>,
-    query: Query<HashMap<String, String>>,
-) -> Result<axum::Json<PodWatchStatus>, ApiError> {
-    let namespace = query
-        .0
-        .get("namespace")
-        .filter(|v| !v.trim().is_empty())
-        .cloned();
-
-    debug!(?namespace, "received StartPodWatch request");
-
-    service.start_pod_watch(namespace).await?;
-
-    Ok(axum::Json(PodWatchStatus {
-        status: "watching".to_string(),
-    }))
-}
-
-pub(crate) async fn stop_pod_watch_handler<S: ApiService>(
-    State(service): State<S>,
-) -> axum::Json<PodWatchStatus> {
-    debug!("received StopPodWatch request");
-
-    service.stop_pod_watch().await;
-
-    axum::Json(PodWatchStatus {
-        status: "stopped".to_string(),
-    })
 }
 
 // ---------------------------------------------------------------------------

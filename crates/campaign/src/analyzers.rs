@@ -1698,8 +1698,8 @@ impl InferenceRule for RoleBindingGraphAnalyzer {
 // ---------------------------------------------------------------------------
 
 /// When a `K8sCredential` is discovered (via kubeconfig file read), derive a
-/// `K8sCluster` entity from its endpoint so that follow-on TTPs that target
-/// `kind: Cluster` (e.g. `use_external_kubeconfig`) become applicable.
+/// `K8sCluster` entity from its endpoint and preserve which cluster the
+/// credential authenticates to.
 pub struct KubeconfigCredentialAnalyzer;
 
 impl InferenceRule for KubeconfigCredentialAnalyzer {

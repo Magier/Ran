@@ -6,6 +6,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+pub const VALID_ACCOUNTS_KUBECONFIG_ID: &str = "valid-accounts-kubeconfig";
+pub const DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID: &str = "initial-access-pod-exec";
+
+/// Resolve compatibility action IDs without advertising duplicate TTPs.
+pub fn canonical_ttp_id(id: &str) -> &str {
+    match id {
+        DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID => VALID_ACCOUNTS_KUBECONFIG_ID,
+        _ => id,
+    }
+}
+
 #[cfg(feature = "bundled-armory")]
 #[derive(rust_embed::Embed)]
 #[folder = "../../armory/TTPs"]
@@ -94,6 +105,7 @@ impl Armory {
     }
 
     pub fn get_ttp(&self, id: &str) -> Option<&Ttp> {
+        let id = canonical_ttp_id(id);
         self.ttps.iter().find(|ttp| ttp.id == id)
     }
 
@@ -244,5 +256,47 @@ impl Armory {
         }
 
         Ok(ttps)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_accounts_ttp_is_canonical_and_old_id_is_an_alias() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+
+        let canonical = armory
+            .get_ttp(VALID_ACCOUNTS_KUBECONFIG_ID)
+            .expect("canonical Valid Accounts TTP");
+        assert_eq!(canonical.name, "Execute into pod via Valid Account");
+        assert_eq!(canonical.tactic, "Initial Access");
+        assert_eq!(canonical.techniques, ["Valid Accounts", "T1078"]);
+        assert_eq!(
+            canonical.requires.get("kind").and_then(|v| v.as_str()),
+            Some("Pod")
+        );
+        assert_eq!(
+            canonical
+                .requires
+                .get("activeKubeconfig")
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
+
+        let alias = armory
+            .get_ttp(DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID)
+            .expect("deprecated ID should resolve");
+        assert_eq!(alias.id, VALID_ACCOUNTS_KUBECONFIG_ID);
+        assert_eq!(
+            armory
+                .ttps()
+                .iter()
+                .filter(|ttp| ttp.id == VALID_ACCOUNTS_KUBECONFIG_ID)
+                .count(),
+            1
+        );
     }
 }

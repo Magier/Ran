@@ -279,7 +279,7 @@ export interface paths {
         put?: never;
         /**
          * Execute action
-         * @description Execute a TTP action on a target. The action will be queued and executed asynchronously. The final execution status will be sent via SSE.
+         * @description Execute a TTP action on a target. The action is queued and executed asynchronously, with final status sent via SSE. For the initial valid-accounts-kubeconfig action, targetId may identify an exact ready Pod returned by /api/pods/running that is not yet in campaign knowledge; Ran stages only that Pod before execution.
          */
         post: operations["executeAction"];
         delete?: never;
@@ -323,30 +323,6 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/pods/watch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start watching pods
-         * @description Starts a real-time watch on pods. Pod state changes will be pushed via SSE as 'pods-changed' events.
-         */
-        post: operations["startPodWatch"];
-        /**
-         * Stop watching pods
-         * @description Stops the current pod watch. No more 'pods-changed' SSE events will be sent.
-         */
-        delete: operations["stopPodWatch"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1447,62 +1423,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    startPodWatch: {
-        parameters: {
-            query?: {
-                /** @description Kubernetes namespace to watch (optional, defaults to all namespaces) */
-                namespace?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Watch started successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        status?: string;
-                    };
-                };
-            };
-            /** @description Failed to start watch */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    stopPodWatch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Watch stopped successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        status?: string;
-                    };
                 };
             };
         };

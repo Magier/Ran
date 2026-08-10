@@ -331,7 +331,12 @@ paths:
   /api/action/execute:
     post:
       summary: Execute action
-      description: Execute a TTP action on a target. The action will be queued and executed asynchronously. The final execution status will be sent via SSE.
+      description: >-
+        Execute a TTP action on a target. The action is queued and executed
+        asynchronously, with final status sent via SSE. For the initial
+        valid-accounts-kubeconfig action, targetId may identify an exact ready
+        Pod returned by /api/pods/running that is not yet in campaign knowledge;
+        Ran stages only that Pod before execution.
       operationId: executeAction
       requestBody:
         required: true
@@ -428,49 +433,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
-  /api/pods/watch:
-    post:
-      summary: Start watching pods
-      description: Starts a real-time watch on pods. Pod state changes will be pushed via SSE as 'pods-changed' events.
-      operationId: startPodWatch
-      parameters:
-        - name: namespace
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Kubernetes namespace to watch (optional, defaults to all namespaces)
-      responses:
-        '200':
-          description: Watch started successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-        '500':
-          description: Failed to start watch
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    delete:
-      summary: Stop watching pods
-      description: Stops the current pod watch. No more 'pods-changed' SSE events will be sent.
-      operationId: stopPodWatch
-      responses:
-        '200':
-          description: Watch stopped successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
 
   /api/execution-records:
     get:

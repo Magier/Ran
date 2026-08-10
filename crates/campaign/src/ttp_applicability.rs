@@ -12,15 +12,21 @@ pub struct AuthIdentitySummary {
     pub kind: String,
 }
 
+pub fn procedure_uses_k8s_auth(procedure: &armory::Procedure) -> bool {
+    procedure.k8s_request.is_some()
+        || procedure.command.contains("kubectl ")
+        || procedure
+            .command
+            .trim_start()
+            .starts_with("c2.kubectl_exec(")
+        || procedure
+            .command
+            .trim_start()
+            .starts_with("k8sSelfSubjectRulesReview(")
+}
+
 pub fn ttp_uses_k8s_auth(ttp: &armory::Ttp) -> bool {
-    ttp.procedures.iter().any(|procedure| {
-        procedure.k8s_request.is_some()
-            || procedure.command.contains("kubectl ")
-            || procedure
-                .command
-                .trim_start()
-                .starts_with("k8sSelfSubjectRulesReview(")
-    })
+    ttp.procedures.iter().any(procedure_uses_k8s_auth)
 }
 
 fn entitlements_satisfy(ttp: &armory::Ttp, entitlements: &[ran_domain::RbacPermission]) -> bool {
@@ -190,12 +196,20 @@ pub fn ttp_applicable_for_target(
     campaign: &Campaign,
     tc: &TargetContext,
 ) -> bool {
+    let active_kubeconfig = if ttp.id == armory::VALID_ACCOUNTS_KUBECONFIG_ID {
+        campaign
+            .entities
+            .values::<K8sCredential>()
+            .any(|credential| credential.active)
+    } else {
+        tc.active_kubeconfig
+    };
     ttp_is_applicable_for_target_kind(ttp, &tc.target_kind, tc.is_system)
         && ttp_rbac_satisfied(ttp, campaign)
         && ttp_exists_satisfied(ttp, campaign)
         && (!tc.is_system || ttp_access_level_satisfied(ttp, tc.access_level))
         && ttp_has_token_satisfied(ttp, tc.has_token)
-        && ttp_active_kubeconfig_satisfied(ttp, tc.active_kubeconfig)
+        && ttp_active_kubeconfig_satisfied(ttp, active_kubeconfig)
         && ttp_related_satisfied(ttp, &tc.target_id, &tc.target_kind, campaign)
         && ttp_tool_satisfied(ttp, campaign, tc)
 }
@@ -444,7 +458,10 @@ mod tests {
 
     use ran_domain::AccessLevel;
 
-    use super::{ttp_access_level_satisfied, ttp_exists_satisfied, ttp_rbac_satisfied};
+    use super::{
+        resolve_target_context, ttp_access_level_satisfied, ttp_applicable_for_target,
+        ttp_exists_satisfied, ttp_rbac_satisfied,
+    };
 
     fn ttp_with_rbac(verb: &str, resource_type: &str) -> Ttp {
         let mut requires = serde_json::Map::new();
@@ -486,6 +503,36 @@ mod tests {
             .push(RbacPermission::new(verb, resource_type));
         c.entities.insert_typed(sa);
         c
+    }
+
+    #[test]
+    fn pod_target_can_require_campaign_active_kubeconfig() {
+        let mut campaign = empty_campaign();
+        let pod = ran_domain::Pod::new("target", "default");
+        let pod_id = pod.entity_id().0;
+        campaign.entities.insert_typed(pod);
+        let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
+        credential.active = true;
+        campaign.entities.insert_typed(credential);
+
+        let mut requires = serde_json::Map::new();
+        requires.insert("kind".to_string(), json!("Pod"));
+        requires.insert("activeKubeconfig".to_string(), json!(true));
+        let ttp = Ttp {
+            requires,
+            procedures: vec![armory::Procedure::new(
+                "kubectl",
+                "kubectl exec -n default target -- true",
+            )],
+            ..Ttp::new(
+                "valid-accounts-kubeconfig",
+                "Valid Accounts",
+                "Initial Access",
+            )
+        };
+        let context = resolve_target_context(&campaign, &pod_id).expect("Pod target context");
+
+        assert!(ttp_applicable_for_target(&ttp, &campaign, &context));
     }
 
     fn ttp_with_exists(kind: &str) -> Ttp {
@@ -695,7 +742,6 @@ mod tests {
         assert!(!kind_matches_target_kind("Pod", "Node", true));
     }
 
-    use super::{resolve_target_context, ttp_applicable_for_target};
     use ran_domain::{Entity as _, JwToken, Pod, ServiceAccountToken};
 
     #[test]

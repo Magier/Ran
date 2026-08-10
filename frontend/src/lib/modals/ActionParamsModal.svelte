@@ -118,9 +118,6 @@
 	// Track previous TTP ID to detect when TTP changes
 	let previousTtpId: string | undefined = undefined;
 
-	// Whether this is an Initial Access TTP that needs live pod updates
-	const isSetTargetTTP = $derived(ttp?.tactic === 'Initial Access');
-
 	// Track the last TTP ID we focused for, to only focus once per TTP
 	let lastFocusedTTPId = $state<string | undefined>(undefined);
 
@@ -342,7 +339,6 @@
 		
 		// Capture all reactive values we need before untrack
 		const ttpParams = ttp.params;
-		const ttpTactic = ttp.tactic;
 		const ttpProcedures = ttp?.procedures;
 		const currentTargetId = targetId;
 		const currentArgContext = argContext;
@@ -387,8 +383,7 @@
 							value = currentTargetId.split("/")[1];
 						}
 					} else if (param.type === 'Pod') {
-						const isSetTargetTTP = ttpTactic === 'Initial Access'; // special handling for the setTarget TTP, to use all available pods
-						availableEntities = campaignState.getPods("", isSetTargetTTP)
+						availableEntities = campaignState.getPods("")
 						argOptions[param.name] = availableEntities.map(entityToComboboxOption);
 					} else if (param.type === 'ServiceAccount') {
 						// For TOKEN params, only show ServiceAccounts that have extracted tokens (compromised)
@@ -483,32 +478,6 @@
 			return nss;
 		}, new Set<string>());
 		argOptions[namespaceArgName] = Array.from(uniqueNamespaces.values()).map(ns => ({ label: ns, value: ns }));
-	});
-
-	// Start/stop live pod watch when the modal shows an Initial Access TTP
-	$effect(() => {
-		if (isSetTargetTTP) {
-			ranAPI.StartPodWatch(selectedNamespace || undefined).catch((err) => {
-				console.error('Failed to start pod watch:', err);
-			});
-			return () => {
-				ranAPI.StopPodWatch().catch((err) => {
-					console.error('Failed to stop pod watch:', err);
-				});
-			};
-		}
-	});
-
-	// Update pod arg options when allPods changes (from SSE events)
-	$effect(() => {
-		if (!isSetTargetTTP) return;
-		const pods = campaignState.allPods;
-		// Find the Pod param and update its options
-		for (const arg of args) {
-			if (arg.Type === 'Pod') {
-				argOptions[arg.Name] = pods.map(entityToComboboxOption);
-			}
-		}
 	});
 
 	// When the execution system changes, auto-switch to first available procedure if current is disabled

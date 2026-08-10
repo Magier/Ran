@@ -24,9 +24,9 @@ ran invoke get-serviceaccounts --target default/my-pod --param ALL_NS=true
 ran armory
 ```
 
-The `--target` flag selects the entity the TTP runs against. For most techniques
-this is a pod, but some (like `Initial Access` or `Resource Development`) do not
-require a target and run locally.
+The `--target` flag selects the entity the TTP runs against. Initial Access via
+an external kubeconfig targets the selected Pod; Resource Development actions
+may run locally on the operator side.
 
 ## Web UI: `ran emulate`
 

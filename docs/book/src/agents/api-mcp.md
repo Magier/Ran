@@ -25,8 +25,6 @@ raw OpenAPI spec at `/api/openapi.yaml`.
 | `POST` | `/api/campaign/reset` | Clear all campaign state (entities, relations, execution records) |
 | `GET` | `/api/files` | Read a file captured in campaign state; use `?path=<path>` |
 | `GET` | `/api/pods/running` | Live running pods from Kubernetes; use `?namespace=<ns>` for a single namespace |
-| `POST` | `/api/pods/watch` | Start a live pod watch; optional `?namespace=<ns>` |
-| `DELETE` | `/api/pods/watch` | Stop the live pod watch |
 | `GET` | `/events` | Server-sent events stream for real-time campaign updates |
 
 ### Invoking a TTP via API
@@ -158,12 +156,14 @@ instead of guessing entity IDs. Returns a list of `{ id, kind, name, namespace }
 objects.
 
 **`get_initial_access_candidates`** — queries live Kubernetes pods directly (not
-the campaign graph). Use only for the first foothold before any entities are
-discovered.
+the campaign graph). Use only for the first foothold. A candidate remains
+outside campaign knowledge until `valid-accounts-kubeconfig` selects it.
 
 **`execute_action`** — validates that `target_id` is a known entity before
-queuing the TTP. For initial access use the Cluster entity as `target_id` and
-pass the pod name/namespace as TTP parameters. Returns `{ cmd_id, queued: true }`.
+queuing the TTP. The exception is `valid-accounts-kubeconfig`, which accepts a
+canonical Pod ID returned by `get_initial_access_candidates`, verifies that the
+live Pod is ready, and stages that Pod before execution. Returns
+`{ cmd_id, queued: true }`.
 
 **`wait_for_result`** — blocks up to 60 seconds polling for the execution record
 identified by `cmd_id`. Returns stdout, stderr, success status, and any parse
@@ -186,8 +186,8 @@ missing permissions.
 
 1. Call `get_initial_access_candidates` (optionally filtered by namespace) to
    find a pod to exec into as the first foothold.
-2. Call `execute_action` with an `InitialAccess` TTP, using the Cluster entity
-   as `target_id` and the chosen pod name/namespace as TTP parameters.
+2. Call `execute_action` with `action_id: valid-accounts-kubeconfig` and the
+   chosen candidate Pod ID as `target_id`.
 3. Call `wait_for_result` with the returned `cmd_id` to confirm the exec channel
    was established.
 4. Call `get_campaign_state` or `get_graph` to observe what entities and

@@ -69,7 +69,6 @@ class CampaignState {
 	serviceAccounts = $state<Entity[]>([]);
 	armory = $state<ArmoryType>(new Map());
 	graph = $state<Graph>({} as Graph);
-	allPods: Entity[] = $state([]);
 	/// Bumped whenever the scoring profile changes, so recommendation views refetch.
 	scoringVersion = $state(0);
 	pendingMessages: string[] = [];
@@ -138,19 +137,6 @@ class CampaignState {
 
 			showToast('Error', msg.Msg, toastType);
 		});
-		this.api.on('pods-changed', (data: any) => {
-			const pods = data?.Pods ?? data?.pods ?? [];
-			this.allPods = pods.map((p: any) => ({
-				id: p.id ?? p.Id,
-				name: p.name ?? p.Name,
-				namespace: p.namespace ?? p.Namespace,
-				kind: 'Pod',
-				phase: p.phase ?? p.Phase,
-				ready: p.ready ?? p.Ready,
-				stateReason: p.stateReason ?? p.StateReason
-			}));
-		});
-
 		console.log('CampaignState connecting to backend...');
 		return this.api.connect().then((a) => {
 			this.api.GetGraph().then((g: Graph) => {
@@ -162,12 +148,6 @@ class CampaignState {
 			this.api.GetArmory().then((a: TTP[]) => {
 				this.armory = parseArmory(a);
 			});
-			this.api
-				.GetRunningPods('')
-				.then((pods) => {
-					this.allPods = pods;
-				})
-				.catch(this.showError);
 		});
 	}
 
@@ -258,7 +238,6 @@ class CampaignState {
 	//     GetGraph().then((g: Graph) => { this.graph = g; })
 	//     GetCampaignState().then((s: State) => { this.#setState(s); })
 	//     GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
-	//     GetRunningPods("").then(pods => { this.allPods = pods; }).catch(this.showError);
 	// }
 	showError(msg: string | object) {
 		if (typeof msg === 'object') {
@@ -404,11 +383,7 @@ class CampaignState {
 		return ns || [];
 	}
 
-	getPods(ns?: string, all: boolean = false): Entity[] {
-		// go beyond regular campaign state and return all pods in the cluster (regardless of exploration)
-		if (all) {
-			return this.allPods;
-		}
+	getPods(ns?: string): Entity[] {
 		let pods = this.entities.filter(
 			(entity) => entity.kind === 'Pod' && (!ns || entity.namespace === ns)
 		);
@@ -555,4 +530,3 @@ export function parseArmory(data: TTP[]): ArmoryType {
 export function isRelation(id: string): boolean {
 		return id.indexOf('->') !== -1;
 	}	
-

@@ -54,7 +54,6 @@ pub struct AppState {
     ran_name: String,
     initial_knowledge: InitialKnowledge,
     campaign_events: CampaignEventBus,
-    pod_watch: Arc<Mutex<Option<k8s::WatchHandle>>>,
     plan_executors:
         Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<planner::PlanExecutor>>>>>,
     /// Directory pre-defined plans are listed and loaded from by the web UI.
@@ -102,7 +101,6 @@ impl AppState {
             ran_name,
             initial_knowledge,
             campaign_events,
-            pod_watch: Arc::new(Mutex::new(None)),
             plan_executors: Arc::new(Mutex::new(std::collections::HashMap::new())),
             plans_dir,
         }
@@ -370,72 +368,14 @@ impl ApiService for AppState {
         Ok(self.armory.ttps_for_tactic(params.tactic.as_deref()))
     }
 
-    async fn start_pod_watch(&self, namespace: Option<String>) -> Result<(), ApiError> {
-        let mut guard = self
-            .pod_watch
-            .lock()
-            .map_err(|_| ApiError::internal("pod_watch lock poisoned"))?;
-
-        // Drop any existing watch (WatchHandle::drop aborts the background task).
-        *guard = None;
-
-        let k8s = self.k8s.clone();
-        let ns_filter = self.namespace_filter.clone();
-        let scope_ns = namespace
-            .as_deref()
-            .filter(|v| !v.is_empty())
-            .map(String::from);
-
-        let handle = k8s.watch_pods(namespace, move |pods| {
-            let filtered: Vec<serde_json::Value> = pods
-                .into_iter()
-                .filter(|p| {
-                    // When scoped to one namespace the k8s query already filtered it.
-                    if scope_ns.is_some() {
-                        return true;
-                    }
-                    match p.namespace.as_deref() {
-                        Some(ns) => ns_filter.should_include(ns),
-                        None => true,
-                    }
-                })
-                .map(|p| {
-                    serde_json::json!({
-                        "id": p.id,
-                        "name": p.name,
-                        "namespace": p.namespace,
-                        "kind": "pod",
-                        "phase": p.phase,
-                        "ready": p.ready,
-                        "stateReason": p.state_reason,
-                    })
-                })
-                .collect();
-
-            api::publish_sse_event(
-                "pods-changed",
-                serde_json::json!({
-                    "type": "pods-changed",
-                    "data": { "pods": filtered },
-                })
-                .to_string(),
-            );
-        });
-
-        *guard = Some(handle);
-        Ok(())
-    }
-
-    async fn stop_pod_watch(&self) {
-        if let Ok(mut guard) = self.pod_watch.lock() {
-            *guard = None;
-        }
-    }
-
     async fn execute_action(
         &self,
         cmd: ExecuteActionRequest,
     ) -> Result<ExecuteActionResult, ApiError> {
+        if let Err(error) = self.stage_live_initial_access_target(&cmd).await {
+            return Err(self.record_preparation_error(&cmd, error));
+        }
+
         let action_id = cmd.action_id.clone();
         let target_id = cmd.target_id.clone();
         let exec_system_id = cmd.exec_system_id.clone().unwrap_or_default();
@@ -462,66 +402,8 @@ impl ApiService for AppState {
             let exec = match campaign.prepare_action(cmd, &self.armory) {
                 Ok(exec) => exec,
                 Err(err) => {
-                    let (record, ttp) =
-                        campaign.record_preparation_failure(&request_ctx, &self.armory, &err);
                     drop(campaign);
-
-                    let _ = self.campaign_events.publish(CampaignEvent::TtpExecuted {
-                        cmd_id: record.id,
-                        action_id: record.ttp_id,
-                        target_id: record.target_id,
-                        exec_system_id: record.exec_system_id,
-                        ttp: Box::new(ttp),
-                        args: record.args,
-                        success: false,
-                        fail_reason: record.fail_reason,
-                        results: record.results,
-                        exit_code: -1,
-                    });
-
-                    let api_error = match err {
-                        ExecuteActionError::InvalidInput(message) => {
-                            error!("execute_action invalid input: {}", message);
-                            ApiError {
-                                status: axum::http::StatusCode::BAD_REQUEST,
-                                body: api::ErrorResponse {
-                                    error: message,
-                                    details: None,
-                                },
-                            }
-                        }
-                        ExecuteActionError::NotFound(message) => {
-                            error!("execute_action not found: {}", message);
-                            ApiError {
-                                status: axum::http::StatusCode::NOT_FOUND,
-                                body: api::ErrorResponse {
-                                    error: message,
-                                    details: None,
-                                },
-                            }
-                        }
-                        ExecuteActionError::NoExecChannel(message) => {
-                            error!("execute_action no exec channel: {}", message);
-                            ApiError {
-                                status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                                body: api::ErrorResponse {
-                                    error: message,
-                                    details: None,
-                                },
-                            }
-                        }
-                        ExecuteActionError::InvariantViolation(message) => {
-                            error!("execute_action invariant violation: {}", message);
-                            ApiError {
-                                status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                                body: api::ErrorResponse {
-                                    error: message,
-                                    details: None,
-                                },
-                            }
-                        }
-                    };
-                    return Err(api_error);
+                    return Err(self.record_preparation_error(&request_ctx, err));
                 }
             };
             // Capture the decision under the operator's *actual* pre-action
@@ -1609,6 +1491,90 @@ fn load_sidecar_profile(path: &std::path::Path) -> Option<utility_ai::Profile> {
     }
 }
 
+impl AppState {
+    async fn stage_live_initial_access_target(
+        &self,
+        request: &ExecuteActionRequest,
+    ) -> Result<(), ExecuteActionError> {
+        let Some(ttp) = self.armory.get_ttp(&request.action_id) else {
+            return Ok(());
+        };
+        if ttp.id != armory::VALID_ACCOUNTS_KUBECONFIG_ID {
+            return Ok(());
+        }
+
+        let (namespace, pod_name) = parse_pod_target_id(&request.target_id)
+            .map_err(|error| ExecuteActionError::InvalidInput(error.to_string()))?;
+        let pod_id = ran_domain::EntityId::new(&request.target_id);
+        let already_staged = self
+            .campaign
+            .read()
+            .map_err(|_| {
+                ExecuteActionError::InvariantViolation("campaign lock poisoned".to_string())
+            })?
+            .entities
+            .contains::<Pod>(&pod_id);
+        if already_staged {
+            return Ok(());
+        }
+
+        let candidates = self
+            .k8s
+            .get_running_pods(Some(&namespace))
+            .await
+            .map_err(|error| ExecuteActionError::NotFound(error.to_string()))?;
+        require_ready_initial_access_pod(&candidates, &request.target_id)?;
+
+        let mut campaign = self.campaign.write().map_err(|_| {
+            ExecuteActionError::InvariantViolation("campaign lock poisoned".to_string())
+        })?;
+        if !campaign.entities.contains::<Pod>(&pod_id) {
+            campaign.stage_initial_access_pod(&pod_name, &namespace);
+            info!(target_id = %request.target_id, "staged live initial-access Pod");
+        }
+        Ok(())
+    }
+
+    fn record_preparation_error(
+        &self,
+        request: &ExecuteActionRequest,
+        error: ExecuteActionError,
+    ) -> ApiError {
+        let mut campaign = match self.campaign.write() {
+            Ok(campaign) => campaign,
+            Err(_) => return ApiError::internal("campaign lock poisoned"),
+        };
+        let (record, ttp) = campaign.record_preparation_failure(request, &self.armory, &error);
+        drop(campaign);
+
+        let _ = self.campaign_events.publish(CampaignEvent::TtpExecuted {
+            cmd_id: record.id,
+            action_id: record.ttp_id,
+            target_id: record.target_id,
+            exec_system_id: record.exec_system_id,
+            ttp: Box::new(ttp),
+            args: record.args,
+            success: false,
+            fail_reason: record.fail_reason,
+            results: record.results,
+            exit_code: -1,
+        });
+
+        match error {
+            ExecuteActionError::InvalidInput(message) => ApiError::bad_request(message),
+            ExecuteActionError::NotFound(message) => ApiError::not_found(message),
+            ExecuteActionError::NoExecChannel(message) => ApiError {
+                status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                body: api::ErrorResponse {
+                    error: message,
+                    details: None,
+                },
+            },
+            ExecuteActionError::InvariantViolation(message) => ApiError::internal(message),
+        }
+    }
+}
+
 /// Start the Ran emulation API server. This is the primary entry point for
 /// the app layer; the CLI calls this after argument parsing.
 pub async fn start(cfg: ServerConfig) -> Result<()> {
@@ -1870,6 +1836,7 @@ async fn seed_initial_access_targets(state: &AppState, plan: &planner::PlanDefin
         };
         let candidate_ids: Vec<String> = pods
             .iter()
+            .filter(|pod| pod.ready == Some(true))
             .map(|p| {
                 let pod_ns = p.namespace.as_deref().unwrap_or(&ns);
                 format!("ns/{}/pod/{}", pod_ns, p.name)
@@ -1898,7 +1865,7 @@ async fn seed_initial_access_targets(state: &AppState, plan: &planner::PlanDefin
         for entity_id in &matched {
             // entity_id is "ns/<ns>/pod/<name>"
             let pod_name = entity_id.rsplit('/').next().unwrap_or_default();
-            campaign.entities.insert_typed(Pod::new(pod_name, &ns));
+            campaign.stage_initial_access_pod(pod_name, &ns);
             info!(step_id = %step_id, pod = %pod_name, namespace = %ns,
                 "seeded initial access target from cluster");
         }
@@ -1966,11 +1933,6 @@ async fn run_launch_plan(
     // finds it, preserving the discovery narrative.
     if let Ok(plan) = serde_yaml::from_str::<planner::PlanDefinition>(&yaml) {
         seed_initial_access_targets(&state, &plan).await;
-    }
-
-    // Keep the pod watch for UI updates while the launch plan runs.
-    if let Err(e) = state.start_pod_watch(None).await {
-        warn!(error = %e.body.error, "pod watch failed to start; UI pod updates disabled");
     }
 
     wait_for_discovery(&state).await;
@@ -2270,14 +2232,85 @@ struct TtpResult {
 
 /// Parse `ns/<namespace>/pod/<name>` into `(namespace, name)`.
 fn parse_pod_target_id(target_id: &str) -> Result<(String, String)> {
-    let parts: Vec<&str> = target_id.splitn(4, '/').collect();
-    if parts.len() == 4 && parts[0] == "ns" && parts[2] == "pod" {
+    let parts: Vec<&str> = target_id.split('/').collect();
+    if parts.len() == 4
+        && parts[0] == "ns"
+        && !parts[1].is_empty()
+        && parts[2] == "pod"
+        && !parts[3].is_empty()
+    {
         return Ok((parts[1].to_string(), parts[3].to_string()));
     }
     anyhow::bail!(
         "invalid target format '{}'; expected ns/<namespace>/pod/<name>",
         target_id
     )
+}
+
+fn require_ready_initial_access_pod<'a>(
+    candidates: &'a [k8s::RunningPod],
+    target_id: &str,
+) -> Result<&'a k8s::RunningPod, ExecuteActionError> {
+    let candidate = candidates
+        .iter()
+        .find(|pod| pod.id == target_id)
+        .ok_or_else(|| {
+            ExecuteActionError::NotFound(format!(
+                "live initial-access Pod '{}' was not found",
+                target_id
+            ))
+        })?;
+    if candidate.ready != Some(true) {
+        return Err(ExecuteActionError::InvalidInput(format!(
+            "live initial-access Pod '{}' is not ready",
+            target_id
+        )));
+    }
+    Ok(candidate)
+}
+
+#[cfg(test)]
+mod initial_access_target_tests {
+    use super::*;
+
+    fn candidate(id: &str, ready: Option<bool>) -> k8s::RunningPod {
+        k8s::RunningPod {
+            id: id.to_string(),
+            name: id.rsplit('/').next().unwrap_or_default().to_string(),
+            namespace: Some("default".to_string()),
+            phase: Some("Running".to_string()),
+            ready,
+            state_reason: None,
+        }
+    }
+
+    #[test]
+    fn selects_only_exact_ready_initial_access_candidate() {
+        let pods = vec![
+            candidate("ns/default/pod/not-ready", Some(false)),
+            candidate("ns/default/pod/target", Some(true)),
+        ];
+        assert_eq!(
+            require_ready_initial_access_pod(&pods, "ns/default/pod/target")
+                .expect("exact ready Pod")
+                .name,
+            "target"
+        );
+        assert!(matches!(
+            require_ready_initial_access_pod(&pods, "ns/default/pod/not-ready"),
+            Err(ExecuteActionError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            require_ready_initial_access_pod(&pods, "ns/default/pod/missing"),
+            Err(ExecuteActionError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_non_pod_and_extra_path_target_ids() {
+        assert!(parse_pod_target_id("k8s/cluster/demo").is_err());
+        assert!(parse_pod_target_id("ns/default/pod/target/extra").is_err());
+    }
 }
 
 /// Publish a `ttp-dispatched` SSE event the moment an action is enqueued, so the

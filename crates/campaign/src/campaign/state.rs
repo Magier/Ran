@@ -568,6 +568,19 @@ impl Campaign {
         pod_id
     }
 
+    /// Add a live initial-access candidate to campaign knowledge without
+    /// granting an execution channel. The Valid Accounts action must succeed
+    /// before the C2-to-Pod edge is created.
+    pub fn stage_initial_access_pod(&mut self, name: &str, namespace: &str) -> EntityId {
+        let mut pod = Pod::new(name, namespace);
+        pod.is_running = true;
+        let pod_id = pod.entity_id();
+        self.insert_entity(&pod);
+        self.knowledge_provenance
+            .add_entity(pod_id.clone(), KnowledgeProvenance::Operator);
+        pod_id
+    }
+
     /// Activate a session on any existing exec-channel edge pointing to `target_id`.
     /// Sets `session_id` on the edge so the frontend can render it as active.
     /// Returns `true` when a matching edge was found; the caller should only
@@ -669,6 +682,19 @@ mod planner_helper_tests {
     fn entity_has_relation_false_when_no_relation() {
         let c = minimal_campaign();
         assert!(!c.entity_has_relation("ns/default/pod/nginx-abc", "rce.can-exec"));
+    }
+
+    #[test]
+    fn staging_initial_access_pod_adds_knowledge_without_access_edge() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        let pod_id = campaign.stage_initial_access_pod("target", "default");
+
+        assert!(campaign.entities.contains::<Pod>(&pod_id));
+        assert!(campaign.graph.incoming(&pod_id).is_empty());
+        assert_eq!(
+            campaign.entity_provenance(&pod_id),
+            BTreeSet::from([KnowledgeProvenance::Operator])
+        );
     }
 
     #[test]

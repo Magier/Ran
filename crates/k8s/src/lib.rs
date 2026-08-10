@@ -1,23 +1,17 @@
 use std::{env, path::PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use futures::StreamExt;
 use http::{Method, Request};
 use k8s_openapi::api::authorization::v1::{SelfSubjectRulesReview, SelfSubjectRulesReviewSpec};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{AttachParams, ListParams, PostParams},
     config::{KubeConfigOptions, Kubeconfig},
-    runtime::{reflector, watcher},
     Api, Client as KubeClient, Config,
 };
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-/// Cancellation handle for a running pod watch. The background task is aborted when this is
-/// dropped.
-pub struct WatchHandle(tokio::task::AbortHandle);
 
 /// Output from a pod exec command, including both streams and the exit code.
 /// Only infrastructure failures (can't connect, stream errors) produce an `Err`.
@@ -27,12 +21,6 @@ pub struct PodExecOutput {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i32,
-}
-
-impl Drop for WatchHandle {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -406,72 +394,6 @@ impl Client {
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
             exit_code: output.status.code().unwrap_or(1),
         })
-    }
-
-    /// Start a live watch on pods in the given namespace (or all namespaces if `None`/empty).
-    /// Calls `on_change` once the initial list is complete, then again on every add/update/delete.
-    /// The watch runs until the returned `WatchHandle` is dropped.
-    pub fn watch_pods<F>(&self, namespace: Option<String>, on_change: F) -> WatchHandle
-    where
-        F: Fn(Vec<RunningPod>) + Send + 'static,
-    {
-        let client = self.client.clone();
-        let jh = tokio::spawn(async move {
-            const WATCH_RETRY_BASE_MS: u64 = 500;
-            const WATCH_RETRY_MAX_MS: u64 = 30_000;
-            const WATCH_RETRY_MAX_ATTEMPTS: u32 = 8;
-
-            let api: Api<Pod> = match namespace.as_deref().filter(|ns| !ns.is_empty()) {
-                Some(ns) => Api::namespaced(client, ns),
-                None => Api::all(client),
-            };
-
-            // reflector keeps an in-memory store so state reads require no HTTP requests.
-            let (store, writer) = reflector::store();
-            let stream = reflector::reflector(writer, watcher(api, watcher::Config::default()));
-            tokio::pin!(stream);
-
-            let mut consecutive_errors: u32 = 0;
-            while let Some(event) = stream.next().await {
-                match event {
-                    Ok(
-                        watcher::Event::Apply(_)
-                        | watcher::Event::Delete(_)
-                        | watcher::Event::InitDone,
-                    ) => {
-                        consecutive_errors = 0;
-                        let pods = store
-                            .state()
-                            .into_iter()
-                            .filter_map(|p| pod_to_running_pod(&p))
-                            .collect();
-                        on_change(pods);
-                    }
-                    Ok(_) => consecutive_errors = 0,
-                    Err(e) => {
-                        consecutive_errors += 1;
-                        if consecutive_errors >= WATCH_RETRY_MAX_ATTEMPTS {
-                            tracing::error!(
-                                "watch_pods: giving up after {} consecutive errors: {e}",
-                                consecutive_errors
-                            );
-                            break;
-                        }
-
-                        // Cap backoff at WATCH_RETRY_MAX_MS; first error waits WATCH_RETRY_BASE_MS.
-                        let delay_ms = (WATCH_RETRY_BASE_MS * (1u64 << consecutive_errors.min(6)))
-                            .min(WATCH_RETRY_MAX_MS);
-                        tracing::warn!(
-                            "watch_pods: watcher error (will retry in {}ms, attempt {}): {e}",
-                            delay_ms,
-                            consecutive_errors
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-                    }
-                }
-            }
-        });
-        WatchHandle(jh.abort_handle())
     }
 
     pub async fn exec_pod_command(

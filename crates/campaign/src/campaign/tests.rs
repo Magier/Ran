@@ -1983,7 +1983,7 @@ fn sys_node_name_merges_placeholder_node_into_real_node_when_target_is_node() {
     let pod_eid = EntityId::new(&pod_id);
     let escape_edges = campaign.graph.targets_of(&pod_eid, "container.escape");
     assert!(
-        escape_edges.iter().any(|t| *t == &real_node_eid),
+        escape_edges.contains(&&real_node_eid),
         "ContainerEscape edge should target the real node after merge"
     );
 }
@@ -2219,7 +2219,7 @@ fn hostname_on_placeholder_node_updates_entity_id_after_escape() {
     let pod_eid = EntityId::new(&pod_id);
     let escape_targets = campaign.graph.targets_of(&pod_eid, "container.escape");
     assert!(
-        escape_targets.iter().any(|t| *t == &real_id),
+        escape_targets.contains(&&real_id),
         "ContainerEscape edge should target the real node after hostname update"
     );
 
@@ -2790,6 +2790,184 @@ fn active_kubeconfig_request_uses_namespace_target_and_records_request_line() {
     let request = exec.procedure.k8s_request.expect("structured request");
     assert_eq!(request["namespace"], "dungeon");
     assert_eq!(request["cluster_scoped"], "false");
+}
+
+fn repository_armory() -> Armory {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+    Armory::load_from_dir(path).expect("repository armory should load")
+}
+
+fn valid_accounts_campaign() -> (Campaign, String, String) {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("target", "default");
+    let pod_id = pod.entity_id().0;
+    campaign.entities.insert_typed(pod);
+    let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
+    credential.active = true;
+    let credential_id = credential.entity_id().0;
+    campaign.entities.insert_typed(credential);
+    (campaign, pod_id, credential_id)
+}
+
+#[test]
+fn valid_accounts_one_shot_targets_selected_pod_authoritatively() {
+    let (mut campaign, pod_id, credential_id) = valid_accounts_campaign();
+    let armory = repository_armory();
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: armory::VALID_ACCOUNTS_KUBECONFIG_ID.to_string(),
+                target_id: pod_id.clone(),
+                exec_system_id: None,
+                auth_identity_id: None,
+                procedure_id: Some("kubectl".to_string()),
+                args: HashMap::from([
+                    ("Interactive".to_string(), "false".to_string()),
+                    ("Container".to_string(), "debug".to_string()),
+                    ("NAMESPACE".to_string(), "other".to_string()),
+                    ("PODNAME".to_string(), "wrong".to_string()),
+                ]),
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("Valid Accounts one-shot should prepare");
+
+    assert_eq!(exec.target_id, pod_id);
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(credential_id.as_str())
+    );
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+    assert_eq!(
+        exec.procedure.command,
+        "kubectl exec -n default target -c debug -- true"
+    );
+    assert_eq!(
+        exec.args.get("NAMESPACE").map(String::as_str),
+        Some("default")
+    );
+    assert_eq!(exec.args.get("PODNAME").map(String::as_str), Some("target"));
+    assert_eq!(
+        exec.ttp.effects,
+        ["k8s.can-exec(c2/Ran, ns/default/pod/target)"]
+    );
+}
+
+#[test]
+fn valid_accounts_interactive_and_deprecated_alias_use_canonical_action() {
+    let (mut campaign, pod_id, credential_id) = valid_accounts_campaign();
+    let armory = repository_armory();
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: armory::DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID.to_string(),
+                target_id: pod_id,
+                exec_system_id: None,
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("deprecated ID should resolve to interactive Valid Accounts");
+
+    assert_eq!(exec.ttp.id, armory::VALID_ACCOUNTS_KUBECONFIG_ID);
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(credential_id.as_str())
+    );
+    assert_eq!(exec.procedure.command, "c2.kubectl_exec()");
+    assert!(exec.exec_chain.is_empty());
+}
+
+#[test]
+fn valid_accounts_rejects_former_cluster_target_shape() {
+    let (mut campaign, _, credential_id) = valid_accounts_campaign();
+    let cluster_id = campaign
+        .entities
+        .values::<K8sCluster>()
+        .next()
+        .expect("cluster")
+        .entity_id()
+        .0;
+    let error = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: armory::DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID.to_string(),
+                target_id: cluster_id,
+                exec_system_id: None,
+                auth_identity_id: Some(credential_id),
+                procedure_id: None,
+                args: HashMap::from([
+                    ("Namespace".to_string(), "default".to_string()),
+                    ("PodName".to_string(), "target".to_string()),
+                ]),
+                reasoning: None,
+            },
+            &repository_armory(),
+        )
+        .expect_err("Cluster-target compatibility must be removed");
+
+    match error {
+        ExecuteActionError::InvalidInput(message) => {
+            assert!(message.contains("requires a Pod target"));
+        }
+        other => panic!("expected invalid input, got {other:?}"),
+    }
+}
+
+#[test]
+fn valid_accounts_grants_exec_edge_only_after_success() {
+    fn prepare(campaign: &mut Campaign, target_id: &str) -> ExecTtp {
+        campaign
+            .prepare_action(
+                ExecuteActionRequest {
+                    action_id: armory::VALID_ACCOUNTS_KUBECONFIG_ID.to_string(),
+                    target_id: target_id.to_string(),
+                    exec_system_id: None,
+                    auth_identity_id: None,
+                    procedure_id: None,
+                    args: HashMap::from([("Interactive".to_string(), "false".to_string())]),
+                    reasoning: None,
+                },
+                &repository_armory(),
+            )
+            .expect("Valid Accounts action should prepare")
+    }
+
+    let (mut failed_campaign, failed_pod_id, _) = valid_accounts_campaign();
+    let failed_exec = prepare(&mut failed_campaign, &failed_pod_id);
+    let failed_event = TtpExecuted {
+        id: failed_exec.id.clone(),
+        success: false,
+        results: vec!["forbidden".to_string()],
+        exit_code: 1,
+        fail_reason: "forbidden".to_string(),
+        session_connected: None,
+    };
+    failed_campaign
+        .on_ttp_executed(&failed_exec, &failed_event)
+        .expect("failed execution should be recorded");
+    assert!(!failed_campaign.reachable_pods().contains(&failed_pod_id));
+
+    let (mut successful_campaign, successful_pod_id, _) = valid_accounts_campaign();
+    let successful_exec = prepare(&mut successful_campaign, &successful_pod_id);
+    let successful_event = TtpExecuted {
+        id: successful_exec.id.clone(),
+        success: true,
+        results: vec!["ok".to_string()],
+        exit_code: 0,
+        fail_reason: String::new(),
+        session_connected: None,
+    };
+    successful_campaign
+        .on_ttp_executed(&successful_exec, &successful_event)
+        .expect("successful execution should apply effects");
+    assert!(successful_campaign
+        .reachable_pods()
+        .contains(&successful_pod_id));
 }
 
 /// Minimal armory with a curl tool TTP for use in k8s_request and http_request tests.
