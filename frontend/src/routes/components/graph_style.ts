@@ -26,6 +26,7 @@ const kind_svg_map = {
 	User: 'k8s/user.svg',
 	Volume: 'k8s/vol.svg',
 	KubeApiServer: 'k8s/api.svg',
+	K8sCredential: 'k8s/secret.svg',
 	MicroService: '{k8s/pod_unlabeled.svg',
 	GCPBucket: 'gcp/storage.svg',
 	GCPServiceAccount: 'gcp/iam.svg',
@@ -115,6 +116,14 @@ export function getGraphStyle(isDark: boolean = false) {
 				'target-arrow-color': primary,
 				'border-width': 2
 				// 'background-image': null
+			}
+		},
+		{
+			selector: 'node[?scenarioProvided]',
+			style: {
+				'border-width': 3,
+				'border-style': 'double',
+				'border-color': '#f59e0b'
 			}
 		},
 		{
@@ -314,6 +323,14 @@ export function getGraphStyle(isDark: boolean = false) {
 				'line-color': textColor,
 				'target-arrow-color': textColor
 				// 'font-weight': 'bold'
+			}
+		},
+		{
+			selector: 'edge[?scenarioProvided]',
+			style: {
+				'line-style': 'dashed',
+				'line-color': '#f59e0b',
+				'target-arrow-color': '#f59e0b'
 			}
 		},
 		{

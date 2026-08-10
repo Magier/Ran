@@ -532,6 +532,7 @@ mod tests {
             is_system: true,
             access_level: AccessLevel::Exec,
             has_token: false,
+            active_kubeconfig: false,
         }
     }
 
@@ -738,6 +739,7 @@ mod tests {
             tactic: "Discovery".to_string(),
             target_id: target_id.to_string(),
             exec_system_id: target_id.to_string(),
+            auth_identity_id: None,
             procedure_id: "p".to_string(),
             command: "x".to_string(),
             args: std::collections::HashMap::new(),

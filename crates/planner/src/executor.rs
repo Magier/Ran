@@ -130,6 +130,7 @@ impl PlanExecutor {
                     request: ExecuteActionRequest {
                         action_id: step.action.clone(),
                         exec_system_id: exec_system_id.clone(),
+                        auth_identity_id: token_target_id.clone(),
                         target_id,
                         procedure_id: procedure.clone(),
                         args,

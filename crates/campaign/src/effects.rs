@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use indexmap::IndexSet;
 use ran_domain::{
@@ -8,6 +8,7 @@ use ran_domain::{
 };
 
 use crate::grounding::resolve_template;
+use crate::{KnowledgeProvenance, RelationProvenanceKey};
 
 type SimpleEffectHandler = fn(&HashMap<String, String>) -> Result<FactsUpdate, String>;
 /// Handler for relation-style effects such as `rce.can-exec(src, tgt)`.
@@ -34,15 +35,24 @@ pub struct FactsUpdate {
     /// Used when a placeholder entity (e.g. IP-derived pod name from a network
     /// scan) is later identified as an already-known named entity.
     pub entity_aliases: IndexSet<(EntityId, EntityId)>,
+    pub entity_provenance: HashMap<EntityId, BTreeSet<KnowledgeProvenance>>,
+    pub relation_provenance: HashMap<RelationProvenanceKey, BTreeSet<KnowledgeProvenance>>,
 }
 
 impl FactsUpdate {
     pub fn merge(&mut self, other: Self) {
+        let FactsUpdate {
+            new_entities,
+            new_relations,
+            entity_aliases,
+            entity_provenance,
+            relation_provenance,
+        } = other;
         // Build O(1)-lookup sets from existing entries so each item from `other`
         // is checked in O(1) rather than O(n), avoiding the previous O(n²) scan.
         let seen_entities: IndexSet<EntityId> =
             self.new_entities.iter().map(|e| e.entity_id()).collect();
-        for entity in other.new_entities {
+        for entity in new_entities {
             if !seen_entities.contains(&entity.entity_id()) {
                 self.new_entities.push(entity);
             }
@@ -59,7 +69,7 @@ impl FactsUpdate {
                 )
             })
             .collect();
-        for rel in other.new_relations {
+        for rel in new_relations {
             let key = (
                 rel.relation_name().to_string(),
                 rel.source_id().clone(),
@@ -71,7 +81,34 @@ impl FactsUpdate {
         }
 
         // IndexSet::insert handles dedup natively — no scan needed.
-        self.entity_aliases.extend(other.entity_aliases);
+        self.entity_aliases.extend(entity_aliases);
+        for (id, origins) in entity_provenance {
+            self.entity_provenance
+                .entry(id)
+                .or_default()
+                .extend(origins);
+        }
+        for (key, origins) in relation_provenance {
+            self.relation_provenance
+                .entry(key)
+                .or_default()
+                .extend(origins);
+        }
+    }
+
+    pub fn attribute_unattributed(&mut self, provenance: KnowledgeProvenance) {
+        for entity in &self.new_entities {
+            self.entity_provenance
+                .entry(entity.entity_id())
+                .or_default()
+                .insert(provenance);
+        }
+        for relation in &self.new_relations {
+            self.relation_provenance
+                .entry(RelationProvenanceKey::from_relation(relation.as_ref()))
+                .or_default()
+                .insert(provenance);
+        }
     }
 }
 
@@ -186,6 +223,7 @@ fn parse_k8s_pod(args: &HashMap<String, String>) -> Result<FactsUpdate, String> 
         new_entities: vec![Box::new(pod)],
         new_relations: Vec::new(),
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -220,6 +258,7 @@ fn parse_k8s_serviceaccount(args: &HashMap<String, String>) -> Result<FactsUpdat
         new_entities: vec![Box::new(sa)],
         new_relations: Vec::new(),
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -240,6 +279,7 @@ fn parse_k8s_role(args: &HashMap<String, String>) -> Result<FactsUpdate, String>
         new_entities: vec![Box::new(role)],
         new_relations: Vec::new(),
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -264,6 +304,7 @@ fn parse_k8s_rolebinding(args: &HashMap<String, String>) -> Result<FactsUpdate, 
         new_entities: vec![Box::new(binding)],
         new_relations: Vec::new(),
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -286,6 +327,7 @@ fn parse_k8s_cronjob(args: &HashMap<String, String>) -> Result<FactsUpdate, Stri
         new_entities: vec![Box::new(cj)],
         new_relations: Vec::new(),
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -759,6 +801,7 @@ fn parse_c2_session_relation(
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -774,6 +817,7 @@ fn parse_k8s_can_exec_relation(
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -789,6 +833,7 @@ fn parse_k8s_can_reach_relation(
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -804,6 +849,7 @@ fn parse_runs_on_relation(
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -842,6 +888,7 @@ fn parse_kubelet_exec_source_relation(
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -865,6 +912,7 @@ fn parse_rce_can_exec_relation(
         new_entities: Vec::new(),
         new_relations: vec![Box::new(rel)],
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 
@@ -951,6 +999,7 @@ fn parse_container_escape_relation(
             Box::new(ContainerEscape::new(src, &node_entity_id).with_opt_envelope(envelope)),
         ],
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     })
 }
 

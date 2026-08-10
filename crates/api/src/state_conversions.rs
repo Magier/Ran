@@ -34,6 +34,10 @@ pub(crate) fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
                 data.entry(k).or_insert(v);
             }
         }
+        data.insert(
+            "provenance".to_string(),
+            provenance_value(campaign.entity_provenance(&entity.entity_id())),
+        );
 
         entities.insert(id, data);
     }
@@ -55,6 +59,14 @@ pub(crate) fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
                 if let Some(ref sid) = r.session_id {
                     m.insert("sessionId".to_string(), Value::String(sid.clone()));
                 }
+                m.insert(
+                    "provenance".to_string(),
+                    provenance_value(campaign.relation_provenance(
+                        &r.name,
+                        &r.source_id,
+                        &r.target_id,
+                    )),
+                );
                 m
             })
             .collect(),
@@ -110,6 +122,11 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
                     },
                     relation: None,
                     session_id: r.session_id.clone(),
+                    provenance: Some(provenance_strings(campaign.relation_provenance(
+                        &r.name,
+                        &r.source_id,
+                        &r.target_id,
+                    ))),
                 });
             }
         }
@@ -147,6 +164,10 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
             _ => None,
         };
 
+        let mut entity_payload = serialize_campaign_entity_map(&entity);
+        if let Some(ref mut payload) = entity_payload {
+            prune_entity_payload_for_ui(entity.entity_kind(), payload);
+        }
         nodes.push(GraphNode {
             id: id.clone(),
             entity_id: id,
@@ -162,7 +183,10 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
                 ),
                 _ => None,
             },
-            entity: serialize_campaign_entity_map(&entity),
+            entity: entity_payload,
+            provenance: Some(provenance_strings(
+                campaign.entity_provenance(&entity.entity_id()),
+            )),
         });
     }
 
@@ -243,7 +267,7 @@ fn prune_entity_payload_for_ui(kind: &str, data: &mut HashMap<String, Value>) {
         data.remove("accessLevel");
     }
 
-    if kind == "ServiceAccount" {
+    if kind == "ServiceAccount" || kind == "K8sCredential" {
         // Rename `entitlements` → `can` and convert each permission's snake_case
         // field names to the camelCase names the frontend EntitlementInfo component expects.
         if let Some(entitlements) = data.remove("entitlements") {
@@ -255,6 +279,37 @@ fn prune_entity_payload_for_ui(kind: &str, data: &mut HashMap<String, Value>) {
             }
         }
     }
+
+    if kind == "K8sCredential" {
+        data.remove("token");
+        data.remove("cert_data");
+        data.remove("key_data");
+        data.remove("ca_data");
+    }
+}
+
+fn provenance_strings(
+    origins: std::collections::BTreeSet<campaign::KnowledgeProvenance>,
+) -> Vec<String> {
+    origins
+        .into_iter()
+        .map(|origin| match origin {
+            campaign::KnowledgeProvenance::Scenario => "scenario",
+            campaign::KnowledgeProvenance::Operator => "operator",
+            campaign::KnowledgeProvenance::Action => "action",
+            campaign::KnowledgeProvenance::Inference => "inference",
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+fn provenance_value(origins: std::collections::BTreeSet<campaign::KnowledgeProvenance>) -> Value {
+    Value::Array(
+        provenance_strings(origins)
+            .into_iter()
+            .map(Value::String)
+            .collect(),
+    )
 }
 
 /// Convert a serialized `Vec<RbacPermission>` (snake_case keys) into the
@@ -308,4 +363,83 @@ fn is_unknown_enum_value(value: &Value) -> bool {
 
 fn is_access_level_none(value: &Value) -> bool {
     matches!(value, Value::String(s) if s == "none")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use campaign::{
+        InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
+    };
+    use ran_domain::{Entity, K8sCluster, K8sCredential, RbacPermission};
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn credential_payload_is_redacted_and_provenance_is_exposed() {
+        let cluster = K8sCluster::new("demo").with_server(Some("https://demo".into()));
+        let cluster_id = cluster.entity_id();
+        let mut credential = K8sCredential::new("https://demo").with_name("developer");
+        credential.token = Some("super-secret".into());
+        credential.key_data = Some("private-key".into());
+        credential.cert_data = Some("certificate".into());
+        credential.ca_data = Some("ca".into());
+        credential.has_token = true;
+        credential
+            .entitlements
+            .push(RbacPermission::new("list", "pods"));
+        let credential_id = credential.entity_id();
+        let origins = BTreeSet::from([KnowledgeProvenance::Scenario]);
+        let campaign = Campaign::bootstrap_with_knowledge(
+            "test",
+            InitialKnowledge {
+                clusters: vec![InitialClusterKnowledge {
+                    cluster,
+                    provenance: origins.clone(),
+                }],
+                kubeconfigs: vec![InitialKubeconfigKnowledge {
+                    credential,
+                    cluster_id,
+                    provenance: origins,
+                }],
+            },
+        );
+
+        let state = campaign_to_campaign_state(&campaign);
+        let payload = state.entities.get(&credential_id.0).unwrap();
+        assert_eq!(
+            payload.get("provenance"),
+            Some(&serde_json::json!(["scenario"]))
+        );
+        for secret in ["token", "key_data", "cert_data", "ca_data"] {
+            assert!(!payload.contains_key(secret));
+        }
+        assert_eq!(
+            payload.get("can"),
+            Some(&serde_json::json!([{
+                "verb": "list",
+                "resourceType": "pods",
+                "resourceName": null,
+                "apiGroup": null,
+                "scope": null,
+                "sourceRole": null
+            }]))
+        );
+
+        let graph = campaign_to_graph(&campaign);
+        let node = graph
+            .nodes
+            .iter()
+            .find(|node| node.id == credential_id.0)
+            .unwrap();
+        assert_eq!(
+            node.provenance.as_deref(),
+            Some(["scenario".to_string()].as_slice())
+        );
+        let entity = node.entity.as_ref().unwrap();
+        assert!(!entity.contains_key("token"));
+        assert!(graph.edges.iter().any(|edge| {
+            edge.name == "authenticates-to"
+                && edge.provenance.as_deref() == Some(["scenario".to_string()].as_slice())
+        }));
+    }
 }

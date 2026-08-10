@@ -84,6 +84,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/eligible-auth-identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get eligible Kubernetes authentication identities
+         * @description Returns identities satisfying the action's authentication and RBAC requirements for the selected target.
+         */
+        get: operations["getEligibleAuthIdentities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recommendations": {
         parameters: {
             query?: never;
@@ -523,6 +543,7 @@ export interface components {
             };
             compromised?: boolean;
             isRunning?: boolean;
+            provenance?: ("scenario" | "operator" | "action" | "inference")[];
         };
         Edge: {
             id: string;
@@ -536,6 +557,7 @@ export interface components {
             targetId: string;
             /** @description Backend ID of the active persistent session on this exec-channel edge, if any. */
             sessionId?: string;
+            provenance?: ("scenario" | "operator" | "action" | "inference")[];
         };
         CampaignState: {
             entities: {
@@ -639,6 +661,8 @@ export interface components {
         ExecuteActionCmd: {
             actionId: string;
             execSystemId?: string;
+            /** @description Entity ID of the ServiceAccount or active K8sCredential used for Kubernetes authentication. */
+            authIdentityId?: string;
             targetId: string;
             procedureId?: string;
             args?: {
@@ -646,6 +670,11 @@ export interface components {
             };
             /** @description Free-text rationale for choosing this action at this point in the assessment — why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
             reasoning?: string;
+        };
+        AuthIdentity: {
+            id: string;
+            name: string;
+            kind: string;
         };
         K8sResource: {
             id: string;
@@ -663,6 +692,7 @@ export interface components {
             kind?: string;
             rbacPermissions?: components["schemas"]["RBACPermission"][];
             accessLevel?: string;
+            activeKubeconfig?: boolean;
             exists?: string[];
         };
         RBACPermission: {
@@ -690,6 +720,8 @@ export interface components {
             target_id: string;
             /** @description ID of the system that ran the command; empty for direct builtin exec */
             exec_system_id: string;
+            /** @description ID of the Kubernetes authentication identity selected for the action */
+            auth_identity_id?: string;
             procedure_id: string;
             /** @description Fully grounded command string sent to the C2 backend */
             command: string;
@@ -988,6 +1020,38 @@ export interface operations {
                 };
             };
             /** @description Target not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getEligibleAuthIdentities: {
+        parameters: {
+            query: {
+                actionId: string;
+                targetId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eligible identities */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthIdentity"][];
+                };
+            };
+            /** @description Action or target not found */
             404: {
                 headers: {
                     [name: string]: unknown;

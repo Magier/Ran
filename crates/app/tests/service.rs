@@ -1,7 +1,7 @@
 /// Integration tests for the `app` crate's service layer.
 ///
 /// Tests that do not touch Kubernetes can run anywhere.
-/// Tests that spin up a full `AppState` (including `K8sService`) are marked
+/// Tests that spin up a full `AppState` (including `k8s::Client`) are marked
 /// `#[ignore]` and require a valid kubeconfig at the default location.
 /// Run them with: `cargo test -p app -- --ignored`
 
@@ -41,6 +41,62 @@ fn config_load_returns_defaults_when_file_missing() {
     assert!(cfg.namespaces.included.is_empty());
 }
 
+#[test]
+fn config_loads_seed_knowledge_and_resolves_relative_path() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_path = tmp.path().join("ran.yaml");
+    std::fs::write(
+        &config_path,
+        r#"seedKnowledge:
+  - type: credential
+    credentialType: kubeconfig
+    id: developer
+    path: fixtures/developer.yaml
+    provenance: scenario
+"#,
+    )
+    .unwrap();
+
+    let config = app::config::load(Some(config_path)).unwrap();
+    let app::config::SeedKnowledgeConfig::Credential(seed) = &config.seed_knowledge[0] else {
+        panic!("expected credential seed")
+    };
+    assert_eq!(seed.path, tmp.path().join("fixtures/developer.yaml"));
+}
+
+#[test]
+fn config_rejects_duplicate_seed_ids_and_unknown_credential_types() {
+    let tmp = tempfile::tempdir().unwrap();
+    let duplicate_path = tmp.path().join("duplicate.yaml");
+    std::fs::write(
+        &duplicate_path,
+        r#"seedKnowledge:
+  - type: cluster
+    id: duplicate
+    provenance: scenario
+  - type: cluster
+    id: duplicate
+    provenance: scenario
+"#,
+    )
+    .unwrap();
+    assert!(app::config::load(Some(duplicate_path)).is_err());
+
+    let unsupported_path = tmp.path().join("unsupported.yaml");
+    std::fs::write(
+        &unsupported_path,
+        r#"seedKnowledge:
+  - type: credential
+    credentialType: token
+    id: token
+    path: token.yaml
+    provenance: scenario
+"#,
+    )
+    .unwrap();
+    assert!(app::config::load(Some(unsupported_path)).is_err());
+}
+
 // ---------------------------------------------------------------------------
 // Full service test — requires kubeconfig
 // ---------------------------------------------------------------------------
@@ -57,9 +113,9 @@ async fn app_state_get_and_reset_campaign_without_cli() {
     use std::sync::{Arc, RwLock};
 
     let kubeconfig = k8s::default_kubeconfig_path();
-    let k8s = k8s::K8sService::from_kubeconfig(Some(kubeconfig.clone()))
+    let k8s = k8s::Client::from_kubeconfig(Some(kubeconfig.clone()))
         .await
-        .expect("failed to create K8sService from default kubeconfig");
+        .expect("failed to create k8s client from default kubeconfig");
 
     let target_cluster = k8s::target_cluster_from_kubeconfig(Some(kubeconfig))
         .expect("failed to read target cluster from kubeconfig");
@@ -99,7 +155,15 @@ async fn app_state_get_and_reset_campaign_without_cli() {
         None,
         false,
         "Test".to_string(),
-        campaign_cluster,
+        campaign::InitialKnowledge {
+            clusters: vec![campaign::InitialClusterKnowledge {
+                cluster: campaign_cluster,
+                provenance: std::collections::BTreeSet::from([
+                    campaign::KnowledgeProvenance::Operator,
+                ]),
+            }],
+            kubeconfigs: Vec::new(),
+        },
         campaign_events,
         std::path::PathBuf::from("plans"),
     );

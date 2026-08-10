@@ -11,6 +11,8 @@ pub struct Config {
     pub namespaces: NamespaceFilter,
     pub scoring: ScoringConfig,
     pub plans: PlansConfig,
+    #[serde(rename = "seedKnowledge")]
+    pub seed_knowledge: Vec<SeedKnowledgeConfig>,
 }
 
 impl Config {
@@ -54,6 +56,39 @@ impl ScoringConfig {
             ..utility_ai::Profile::default()
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum SeedKnowledgeConfig {
+    Cluster(SeedClusterConfig),
+    Credential(SeedCredentialConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeedClusterConfig {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub server: Option<String>,
+    #[serde(default)]
+    pub context_name: Option<String>,
+    pub provenance: campaign::KnowledgeProvenance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeedCredentialConfig {
+    pub credential_type: String,
+    pub id: String,
+    pub path: PathBuf,
+    #[serde(default)]
+    pub context: Option<String>,
+    #[serde(default)]
+    pub cluster: Option<String>,
+    pub provenance: campaign::KnowledgeProvenance,
 }
 
 /// Controls which namespaces are visible during discovery.
@@ -108,8 +143,35 @@ pub fn load(path: Option<PathBuf>) -> Result<Config> {
         }
     };
 
-    let cfg: Config = serde_yaml::from_slice(&data)
+    let mut cfg: Config = serde_yaml::from_slice(&data)
         .map_err(|e| anyhow::anyhow!("failed to parse {}: {}", path.display(), e))?;
+
+    let base_dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    for seed in &mut cfg.seed_knowledge {
+        if let SeedKnowledgeConfig::Credential(credential) = seed {
+            if credential.credential_type != "kubeconfig" {
+                return Err(anyhow::anyhow!(
+                    "unsupported credentialType '{}' for seed '{}'",
+                    credential.credential_type,
+                    credential.id
+                ));
+            }
+            if credential.path.is_relative() {
+                credential.path = base_dir.join(&credential.path);
+            }
+        }
+    }
+
+    let mut ids = std::collections::HashSet::new();
+    for seed in &cfg.seed_knowledge {
+        let id = match seed {
+            SeedKnowledgeConfig::Cluster(cluster) => &cluster.id,
+            SeedKnowledgeConfig::Credential(credential) => &credential.id,
+        };
+        if !ids.insert(id.clone()) {
+            return Err(anyhow::anyhow!("duplicate seedKnowledge id '{}'", id));
+        }
+    }
 
     debug!(path = %path.display(), "config loaded");
     Ok(cfg)

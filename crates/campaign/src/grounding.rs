@@ -572,7 +572,7 @@ pub fn detect_ungrounded_vars(cmd: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ran_domain::{Entity, JwToken, K8sCluster, Pod, ServiceAccountToken};
+    use ran_domain::{Entity, JwToken, K8sCluster, Namespace, Pod, ServiceAccountToken};
 
     use crate::campaign::Campaign;
 
@@ -601,6 +601,19 @@ mod tests {
         ground_args_from_context(&mut args, &target_id, &campaign);
 
         assert_eq!(args["NS"], "staging");
+    }
+
+    #[test]
+    fn ground_args_fills_ns_from_namespace_target() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let namespace = Namespace::new("dungeon");
+        let target_id = namespace.entity_id().0.clone();
+        campaign.entities.insert_typed(namespace);
+
+        let mut args = HashMap::from([("NS".to_string(), "${NS}".to_string())]);
+        ground_args_from_context(&mut args, &target_id, &campaign);
+
+        assert_eq!(args["NS"], "dungeon");
     }
 
     #[test]

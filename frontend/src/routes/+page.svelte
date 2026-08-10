@@ -256,7 +256,13 @@
 	async function sendAction(ttp: TTP, args = {}) {
 		selectedTTP = ttp;
 		ttpArgContext = { ...args, ...activeGlobalConditions };
-		if (ttp.params) {
+		const usesK8sAuth = ttp.procedures?.some(procedure =>
+			procedure.id === 'kubectl'
+			|| procedure.id === 'k8s-request'
+			|| procedure.command?.includes('kubectl ')
+			|| procedure.command?.startsWith('k8sSelfSubjectRulesReview(')
+		);
+		if (ttp.params || usesK8sAuth) {
 			showParamModal = true;
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
@@ -475,14 +481,14 @@
 		}
 	});
 
-	async function onExecuteTTP(ttpId: string, execSystemId: string, procedureId: string, args: Record<string, string>) {
+	async function onExecuteTTP(ttpId: string, execSystemId: string, authIdentityId: string, procedureId: string, args: Record<string, string>) {
 		const ttp = campaignState.getTtpById(ttpId);
 		const targetName = campaignState.getEntityById(selectedObjectId)?.name ?? selectedObjectId;
 
 		closeModal();
 
 		try {
-			const result = await ExecuteAction({ actionId: ttpId, execSystemId, targetId: selectedObjectId, procedureId, args });
+			const result = await ExecuteAction({ actionId: ttpId, execSystemId, authIdentityId: authIdentityId || undefined, targetId: selectedObjectId, procedureId, args });
 			const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
 			const differsFromTarget = execSystemId && execSystemId !== selectedObjectId;
 			timeline.addTtpAction({

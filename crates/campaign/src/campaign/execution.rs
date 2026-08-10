@@ -192,12 +192,11 @@ struct KubernetesRequestSpec {
     timeout_seconds: u64,
 }
 
-fn build_k8s_url(spec: &KubernetesRequestSpec) -> String {
-    let api_server = spec.api_server.trim_end_matches('/');
+fn build_k8s_resource_path(spec: &KubernetesRequestSpec) -> String {
     let api = spec.api.trim_matches('/');
     let resource = spec.resource.trim_matches('/');
 
-    let base = format!("{}/{}", api_server, api);
+    let base = format!("/{}", api);
 
     let resource_path = if spec.cluster_scoped.is_true() || spec.namespace.trim().is_empty() {
         format!("{}/{}", base, resource)
@@ -210,6 +209,39 @@ fn build_k8s_url(spec: &KubernetesRequestSpec) -> String {
     } else {
         format!("{}?{}", resource_path, spec.query.trim())
     }
+}
+
+fn build_k8s_url(spec: &KubernetesRequestSpec) -> String {
+    format!(
+        "{}{}",
+        spec.api_server.trim_end_matches('/'),
+        build_k8s_resource_path(spec)
+    )
+}
+
+/// Build a secret-free request line for native Kubernetes client executions.
+/// Structured requests do not have a shell command, but the execution record
+/// and flow drawer still need to show what was sent to the API server.
+fn describe_k8s_request(
+    procedure_id: &str,
+    request: JsonValue,
+) -> Result<String, ExecuteActionError> {
+    let spec: KubernetesRequestSpec = serde_json::from_value(request).map_err(|e| {
+        ExecuteActionError::InvalidInput(format!(
+            "invalid k8s_request in procedure '{}': {}",
+            procedure_id, e
+        ))
+    })?;
+    let method = if spec.method.trim().is_empty() {
+        "GET"
+    } else {
+        spec.method.trim()
+    };
+    Ok(format!(
+        "{} {}",
+        method.to_ascii_uppercase(),
+        build_k8s_resource_path(&spec)
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -543,6 +575,7 @@ impl Campaign {
         let mut exec = self.prepare_action_with_ttp(
             request.target_id,
             request.exec_system_id,
+            request.auth_identity_id,
             request.procedure_id,
             ttp,
             args,
@@ -592,10 +625,12 @@ impl Campaign {
     /// `build_cleanup_actions` (synthesized cleanup TTPs).  Does NOT validate
     /// that the target entity is in the campaign — the caller is responsible
     /// for deciding whether to skip missing targets.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn prepare_action_with_ttp(
         &mut self,
         target_id: String,
         exec_system_id: Option<String>,
+        requested_auth_identity_id: Option<String>,
         procedure_id: Option<String>,
         mut ttp: Ttp,
         mut args: HashMap<String, String>,
@@ -607,6 +642,46 @@ impl Campaign {
                 args.insert(p.name.clone(), p.default.clone());
             }
         }
+
+        let eligible_identities =
+            crate::ttp_applicability::eligible_auth_identities(&ttp, self, &target_id);
+        let implicit_identity = args
+            .get("TOKEN")
+            .filter(|value| !value.trim().is_empty())
+            .filter(|value| {
+                eligible_identities
+                    .iter()
+                    .any(|identity| identity.id == **value)
+            })
+            .cloned()
+            .or_else(|| {
+                eligible_identities
+                    .iter()
+                    .find(|identity| identity.id == target_id)
+                    .map(|identity| identity.id.clone())
+            })
+            .or_else(|| {
+                (eligible_identities.len() == 1).then(|| eligible_identities[0].id.clone())
+            });
+        let auth_identity_id = requested_auth_identity_id
+            .filter(|identity| !identity.trim().is_empty())
+            .or(implicit_identity);
+        if let Some(identity_id) = auth_identity_id.as_deref() {
+            if !eligible_identities
+                .iter()
+                .any(|identity| identity.id == identity_id)
+            {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "authentication identity '{}' is not eligible for action '{}'",
+                    identity_id, ttp.id
+                )));
+            }
+        }
+        let use_kubeconfig = auth_identity_id.as_deref().is_some_and(|identity_id| {
+            self.entities
+                .find::<ran_domain::K8sCredential>(&EntityId::new(identity_id))
+                .is_some_and(|credential| credential.active)
+        });
 
         // Stage 2: normalise the caller-supplied routing hint.
         let exec_hint = normalise_exec_hint(exec_system_id.as_deref(), &target_id);
@@ -640,8 +715,31 @@ impl Campaign {
 
         // Stage 5: ground the procedure command and effects.
         let mut procedure = self.select_procedure(&ttp, procedure_id.as_deref())?;
+        if use_kubeconfig {
+            args.insert("TOKEN".to_string(), String::new());
+        }
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
-        materialize_k8s_request(&mut procedure, armory)?;
+        if use_kubeconfig {
+            if procedure.command.trim().is_empty() {
+                if let Some(request) = procedure.k8s_request.clone() {
+                    procedure.command = describe_k8s_request(&procedure.id, request)?;
+                }
+            }
+            let supported = procedure.k8s_request.is_some()
+                || procedure.command.contains("kubectl ")
+                || procedure
+                    .command
+                    .trim_start()
+                    .starts_with("k8sSelfSubjectRulesReview(");
+            if !supported {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "procedure '{}' does not support kubeconfig authentication",
+                    procedure.id
+                )));
+            }
+        } else {
+            materialize_k8s_request(&mut procedure, armory)?;
+        }
         materialize_steps(&mut procedure, armory)?;
         materialize_abstract_http_request(&mut procedure, armory)?;
 
@@ -651,6 +749,7 @@ impl Campaign {
             &ttp.tactic,
             &mut procedure,
             &args,
+            auth_identity_id.as_deref(),
             exec_hint.as_deref(),
             lateral_src,
         )?;
@@ -672,6 +771,7 @@ impl Campaign {
             target_id: route.target_id,
             exec_chain: route.exec_chain,
             exec_system_id: route.backend_id,
+            auth_identity_id,
             started_at_ms: current_time_millis(),
             output_transform: route.output_transform,
             is_cleanup: false,
@@ -713,6 +813,7 @@ impl Campaign {
 
             match self.prepare_action_with_ttp(
                 record.target_id.clone(),
+                None,
                 None,
                 Some(cleanup_proc.id.clone()),
                 cleanup_ttp,
@@ -811,15 +912,32 @@ impl Campaign {
     /// 2. Lateral Movement tactic → [`route_lateral_movement`] (uses pre-resolved src).
     /// 3. Remote channel needed (tactic / procedure flag) → [`route_remote`].
     /// 4. Everything else → [`route_fallback`] (pod targets get in-cluster source).
+    #[allow(clippy::too_many_arguments)]
     fn route_exec_channel(
         &mut self,
         target_id: &str,
         tactic: &str,
         procedure: &mut Procedure,
         args: &HashMap<String, String>,
+        auth_identity_id: Option<&str>,
         exec_hint: Option<&str>,
         lateral_src: Option<ExecChannel>,
     ) -> Result<ExecRoute, ExecuteActionError> {
+        if auth_identity_id.is_some_and(|identity| identity.starts_with("k8s/credential/"))
+            && (procedure.k8s_request.is_some()
+                || procedure.command.contains("kubectl ")
+                || procedure
+                    .command
+                    .trim_start()
+                    .starts_with("k8sSelfSubjectRulesReview("))
+        {
+            return Ok(ExecRoute::direct(
+                BUILTIN_C2_ID.to_string(),
+                target_id.to_string(),
+                vec![],
+                None,
+            ));
+        }
         if is_local_control_command(&procedure.command) {
             tracing::info!(
                 target_id = %target_id,
@@ -1686,6 +1804,7 @@ impl Campaign {
         // Record the alias so apply_facts can transplant all relations.
         self.detect_pod_identity_merge(cmd, &mut updates);
 
+        updates.attribute_unattributed(crate::KnowledgeProvenance::Action);
         let rules = default_rules();
         updates = run_rules_fixpoint(self, &rules, updates);
 
@@ -1744,6 +1863,12 @@ impl Campaign {
     fn apply_facts(&mut self, updates: &FactsUpdate) {
         for entity in &updates.new_entities {
             self.insert_entity(entity.as_ref());
+            if let Some(origins) = updates.entity_provenance.get(&entity.entity_id()) {
+                for origin in origins {
+                    self.knowledge_provenance
+                        .add_entity(entity.entity_id(), *origin);
+                }
+            }
         }
 
         // Merge entity aliases: transplant graph edges and entity data.
@@ -1751,6 +1876,8 @@ impl Campaign {
         for (stale_id, preferred_id) in &updates.entity_aliases {
             // Graph: retarget all edges from stale → preferred.
             self.graph.merge_entities(preferred_id, stale_id);
+            self.knowledge_provenance
+                .merge_entity(stale_id, preferred_id);
             // Entity maps: merge runtime data (IPs, access level, binaries, etc.).
             // Dispatch to the correct merge function based on entity kind.
             if stale_id.0.starts_with("system/") {
@@ -1823,6 +1950,12 @@ impl Campaign {
                         // Insert edge to preferred node (graph PodSingleNode
                         // invariant removes the old runs-on automatically).
                         self.insert_relation_with_ids(&src, &preferred_node, rel.as_ref());
+                        self.apply_relation_provenance(
+                            updates,
+                            rel.as_ref(),
+                            &src,
+                            &preferred_node,
+                        );
                         continue;
                     }
                     // Same node — nothing to do (PodSingleNode invariant will
@@ -1837,6 +1970,28 @@ impl Campaign {
                 self.insert_relation(rel.as_ref());
             } else {
                 self.insert_relation_with_ids(&src, &tgt, rel.as_ref());
+            }
+            self.apply_relation_provenance(updates, rel.as_ref(), &src, &tgt);
+        }
+    }
+
+    fn apply_relation_provenance(
+        &mut self,
+        updates: &FactsUpdate,
+        relation: &dyn ran_domain::Relation,
+        source_id: &EntityId,
+        target_id: &EntityId,
+    ) {
+        let original_key = crate::RelationProvenanceKey::from_relation(relation);
+        if let Some(origins) = updates.relation_provenance.get(&original_key) {
+            let effective_key = crate::RelationProvenanceKey::new(
+                relation.relation_name(),
+                source_id.0.clone(),
+                target_id.0.clone(),
+            );
+            for origin in origins {
+                self.knowledge_provenance
+                    .add_relation(effective_key.clone(), *origin);
             }
         }
     }

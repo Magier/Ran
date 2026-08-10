@@ -113,6 +113,10 @@ impl<'a> CampaignEntityRef<'a> {
 
     pub fn namespace(&self) -> Option<&str> {
         match self {
+            // A Namespace is its own namespace context. This matters when an
+            // action targets the namespace node itself (for example, listing
+            // pods in that namespace).
+            CampaignEntityRef::Namespace(e) => Some(&e.name),
             CampaignEntityRef::Pod(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::ServiceAccount(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::Secret(e) => e.meta.namespace.as_deref(),

@@ -202,6 +202,7 @@ pub fn parse_output_effect(
         network::parse_nmap(stdout, source_id, cidr)
     } else if normalized == "k8s.selfsubjectrulesreview" {
         let token_arg = cmd.args.get("TOKEN").map(String::as_str).unwrap_or("");
+        let namespace_arg = cmd.args.get("NS").map(String::as_str).unwrap_or("");
         // When an exec system is selected, cmd.target_id is rewritten to the pod ID.
         // TARGET_ID always holds the original logical target (SA entity) from the request.
         let fallback_target = cmd
@@ -209,7 +210,13 @@ pub fn parse_output_effect(
             .get("TARGET_ID")
             .map(String::as_str)
             .unwrap_or(&cmd.target_id);
-        iam::parse_self_subject_rules_review(stdout, stderr, fallback_target, token_arg)
+        iam::parse_self_subject_rules_review(
+            stdout,
+            stderr,
+            fallback_target,
+            token_arg,
+            namespace_arg,
+        )
     } else if normalized.starts_with("file:content(") {
         // Parametric effect: path is in the effect ID, not in args.
         // Step 1: record the path in the target's system.files via apply_system_update.
@@ -363,6 +370,7 @@ fn parse_sys_node_name(campaign: &Campaign, cmd: &ExecTtp, stdout: &str) -> Pars
         new_entities: vec![Box::new(real_node)],
         new_relations: vec![],
         entity_aliases: IndexSet::new(),
+        ..Default::default()
     };
     if let Some(stale) = stale_node_id {
         tracing::info!(
@@ -693,6 +701,7 @@ mod tests {
             target_id: "ns/default/pod/demo".to_string(),
             exec_chain: vec!["ns/default/pod/demo".to_string()],
             exec_system_id: String::new(),
+            auth_identity_id: None,
             started_at_ms: 0,
             output_transform: None,
             is_cleanup: false,

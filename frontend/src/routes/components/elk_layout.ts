@@ -46,6 +46,7 @@ export const NODE_LAYER: Record<string, number> = {
   CronJob: 4,
   // RBAC / k8s resources (tend to be used BY workloads, so one step right)
   ServiceAccount: 5,
+  K8sCredential: 5,
   Role: 5,
   ClusterRole: 5,
   RoleBinding: 5,

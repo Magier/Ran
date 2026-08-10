@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use cortex::KnowledgeGraph;
 use ran_domain::{
-    C2Server, Entity, EntityId, K8sCluster, K8sNode, Pod, PodExec, RelationSummary, SessionStatus,
-    UnknownSystem,
+    AuthenticatesTo, C2Server, Entity, EntityId, K8sCluster, K8sCredential, K8sNode, Pod, PodExec,
+    Relation, RelationSummary, SessionStatus, UnknownSystem,
 };
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,10 @@ use c2::{ExecTtp, BUILTIN_C2_ID};
 
 use crate::execution_record::ExecutionRecord;
 use crate::external_parser::SystemFieldUpdates;
-use crate::{external_parser, ParseAudit};
+use crate::{
+    external_parser, KnowledgeProvenance, KnowledgeProvenanceStore, ParseAudit,
+    RelationProvenanceKey,
+};
 
 use super::{CampaignSystemEntityMut, CampaignSystemEntityRef, EntityStore, ExecChannel};
 
@@ -38,21 +41,85 @@ pub struct Campaign {
     /// that later routes over that session.
     #[serde(default)]
     pub session_traversals: HashMap<String, Vec<crate::traversal::TraversalHop>>,
+    #[serde(default)]
+    pub knowledge_provenance: KnowledgeProvenanceStore,
+}
+
+#[derive(Debug, Clone)]
+pub struct InitialClusterKnowledge {
+    pub cluster: K8sCluster,
+    pub provenance: BTreeSet<KnowledgeProvenance>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InitialKubeconfigKnowledge {
+    pub credential: K8sCredential,
+    pub cluster_id: EntityId,
+    pub provenance: BTreeSet<KnowledgeProvenance>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InitialKnowledge {
+    pub clusters: Vec<InitialClusterKnowledge>,
+    pub kubeconfigs: Vec<InitialKubeconfigKnowledge>,
 }
 
 impl Campaign {
     pub fn bootstrap(ran_name: impl Into<String>, target_cluster: K8sCluster) -> Self {
+        let mut origins = BTreeSet::new();
+        origins.insert(KnowledgeProvenance::Operator);
+        Self::bootstrap_with_knowledge(
+            ran_name,
+            InitialKnowledge {
+                clusters: vec![InitialClusterKnowledge {
+                    cluster: target_cluster,
+                    provenance: origins,
+                }],
+                kubeconfigs: Vec::new(),
+            },
+        )
+    }
+
+    pub fn bootstrap_with_knowledge(
+        ran_name: impl Into<String>,
+        initial: InitialKnowledge,
+    ) -> Self {
         let mut entities = EntityStore::default();
         let mut graph = KnowledgeGraph::new();
+        let mut knowledge_provenance = KnowledgeProvenanceStore::default();
 
         let c2 = C2Server::new(ran_name.into());
         let c2_id = c2.entity_id();
         entities.insert_typed(c2);
-        graph.ensure_node(c2_id);
+        graph.ensure_node(c2_id.clone());
+        knowledge_provenance.add_entity(c2_id, KnowledgeProvenance::Operator);
 
-        let cluster_id = target_cluster.entity_id();
-        entities.insert_typed(target_cluster);
-        graph.ensure_node(cluster_id);
+        for entry in initial.clusters {
+            let cluster_id = entry.cluster.entity_id();
+            entities.insert_typed(entry.cluster);
+            graph.ensure_node(cluster_id.clone());
+            for origin in entry.provenance {
+                knowledge_provenance.add_entity(cluster_id.clone(), origin);
+            }
+        }
+
+        for entry in initial.kubeconfigs {
+            let credential_id = entry.credential.entity_id();
+            entities.insert_typed(entry.credential);
+            graph.ensure_node(credential_id.clone());
+            let relation =
+                AuthenticatesTo::new(credential_id.0.clone(), entry.cluster_id.0.clone());
+            graph.insert_edge(
+                relation.source_id(),
+                relation.target_id(),
+                cortex::edge_data_for(relation.relation_name(), None, None),
+            );
+            for origin in entry.provenance {
+                knowledge_provenance.add_entity(credential_id.clone(), origin);
+                knowledge_provenance
+                    .add_relation(RelationProvenanceKey::from_relation(&relation), origin);
+            }
+        }
 
         Campaign {
             entities,
@@ -63,6 +130,7 @@ impl Campaign {
             file_contents: HashMap::new(),
             command_traversals: HashMap::new(),
             session_traversals: HashMap::new(),
+            knowledge_provenance,
         }
     }
 
@@ -78,6 +146,10 @@ impl Campaign {
         *self = Campaign::bootstrap(ran_name, target_cluster);
     }
 
+    pub fn reset_with_knowledge(&mut self, ran_name: impl Into<String>, initial: InitialKnowledge) {
+        *self = Campaign::bootstrap_with_knowledge(ran_name, initial);
+    }
+
     pub fn entity_count(&self) -> usize {
         self.entities.entity_count()
     }
@@ -88,6 +160,20 @@ impl Campaign {
 
     pub fn get_relations(&self) -> Vec<RelationSummary> {
         self.graph.to_relation_summaries()
+    }
+
+    pub fn entity_provenance(&self, id: &EntityId) -> BTreeSet<KnowledgeProvenance> {
+        self.knowledge_provenance.entity(id)
+    }
+
+    pub fn relation_provenance(
+        &self,
+        name: &str,
+        source_id: &str,
+        target_id: &str,
+    ) -> BTreeSet<KnowledgeProvenance> {
+        self.knowledge_provenance
+            .relation(&RelationProvenanceKey::new(name, source_id, target_id))
     }
 
     pub fn get_parse_audits(&self) -> &[ParseAudit] {
@@ -567,6 +653,7 @@ mod planner_helper_tests {
             file_contents: std::collections::HashMap::new(),
             command_traversals: std::collections::HashMap::new(),
             session_traversals: std::collections::HashMap::new(),
+            knowledge_provenance: KnowledgeProvenanceStore::default(),
         }
     }
 
@@ -582,5 +669,47 @@ mod planner_helper_tests {
     fn entity_has_relation_false_when_no_relation() {
         let c = minimal_campaign();
         assert!(!c.entity_has_relation("ns/default/pod/nginx-abc", "rce.can-exec"));
+    }
+
+    #[test]
+    fn bootstrap_with_kubeconfig_records_relation_and_provenance() {
+        let cluster = K8sCluster::new("demo").with_server(Some("https://demo".into()));
+        let cluster_id = cluster.entity_id();
+        let credential = K8sCredential::new("https://demo").with_name("developer");
+        let credential_id = credential.entity_id();
+        let origins =
+            BTreeSet::from([KnowledgeProvenance::Operator, KnowledgeProvenance::Scenario]);
+        let initial = InitialKnowledge {
+            clusters: vec![InitialClusterKnowledge {
+                cluster,
+                provenance: origins.clone(),
+            }],
+            kubeconfigs: vec![InitialKubeconfigKnowledge {
+                credential,
+                cluster_id: cluster_id.clone(),
+                provenance: origins.clone(),
+            }],
+        };
+        let mut campaign = Campaign::bootstrap_with_knowledge("test", initial.clone());
+
+        assert!(campaign.entities.contains::<K8sCredential>(&credential_id));
+        assert_eq!(
+            campaign
+                .graph
+                .targets_of(&credential_id, "authenticates-to"),
+            vec![&cluster_id]
+        );
+        assert_eq!(campaign.entity_provenance(&credential_id), origins);
+        assert!(campaign.execution_records.is_empty());
+        assert!(serde_json::to_string(&campaign).is_ok());
+
+        campaign.reset_with_knowledge("test", initial);
+        assert!(campaign.entities.contains::<K8sCredential>(&credential_id));
+        assert_eq!(
+            campaign
+                .graph
+                .targets_of(&credential_id, "authenticates-to"),
+            vec![&cluster_id]
+        );
     }
 }

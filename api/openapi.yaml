@@ -84,6 +84,38 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/eligible-auth-identities:
+    get:
+      summary: Get eligible Kubernetes authentication identities
+      description: Returns identities satisfying the action's authentication and RBAC requirements for the selected target.
+      operationId: getEligibleAuthIdentities
+      parameters:
+        - name: actionId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: targetId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Eligible identities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuthIdentity'
+        '404':
+          description: Action or target not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/recommendations:
     get:
       summary: Rank recommended next actions
@@ -670,6 +702,11 @@ components:
           type: boolean
         isRunning:
           type: boolean
+        provenance:
+          type: array
+          items:
+            type: string
+            enum: [scenario, operator, action, inference]
 
     Edge:
       type: object
@@ -696,6 +733,11 @@ components:
         sessionId:
           type: string
           description: Backend ID of the active persistent session on this exec-channel edge, if any.
+        provenance:
+          type: array
+          items:
+            type: string
+            enum: [scenario, operator, action, inference]
 
     CampaignState:
       type: object
@@ -980,6 +1022,9 @@ components:
           type: string
         execSystemId:
           type: string
+        authIdentityId:
+          type: string
+          description: Entity ID of the ServiceAccount or active K8sCredential used for Kubernetes authentication.
         targetId:
           type: string
         procedureId:
@@ -996,6 +1041,20 @@ components:
             strongly encouraged when driving the campaign programmatically: it
             is stored on the resulting execution record so the timeline is
             self-explaining and auditable.
+
+    AuthIdentity:
+      type: object
+      required:
+        - id
+        - name
+        - kind
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
 
     K8sResource:
       type: object
@@ -1033,6 +1092,8 @@ components:
             $ref: '#/components/schemas/RBACPermission'
         accessLevel:
           type: string
+        activeKubeconfig:
+          type: boolean
         exists:
           type: array
           items:
@@ -1105,6 +1166,9 @@ components:
         exec_system_id:
           type: string
           description: ID of the system that ran the command; empty for direct builtin exec
+        auth_identity_id:
+          type: string
+          description: ID of the Kubernetes authentication identity selected for the action
         procedure_id:
           type: string
         command:

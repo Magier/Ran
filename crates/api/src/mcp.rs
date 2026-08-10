@@ -312,6 +312,10 @@ impl<S: ApiService> RanMcpHandler<S> {
         let reasoning = opt_str(args, "reasoning")
             .map(str::to_owned)
             .filter(|s| !s.trim().is_empty());
+        let auth_identity_id = opt_str(args, "auth_identity_id")
+            .or_else(|| opt_str(args, "authIdentityId"))
+            .map(str::to_owned)
+            .filter(|s| !s.trim().is_empty());
 
         let result = self
             .api
@@ -319,6 +323,7 @@ impl<S: ApiService> RanMcpHandler<S> {
                 action_id,
                 target_id,
                 exec_system_id,
+                auth_identity_id,
                 procedure_id,
                 args: extra_args,
                 reasoning,
@@ -660,6 +665,7 @@ fn tool_defs() -> Vec<Tool> {
                     "action_id": { "type": "string", "description": "TTP ID to execute" },
                     "target_id": { "type": "string", "description": "Entity ID to execute against" },
                     "exec_system_id": { "type": "string", "description": "ID of the system to run the command from (optional)" },
+                    "auth_identity_id": { "type": "string", "description": "Eligible ServiceAccount or active K8sCredential entity ID used for Kubernetes authentication (optional)" },
                     "procedure_id": { "type": "string", "description": "Specific procedure variant to use (optional)" },
                     "args": { "type": "object", "description": "TTP parameter overrides (key-value string pairs)", "additionalProperties": { "type": "string" } },
                     "reasoning": { "type": "string", "description": "STRONGLY ENCOURAGED. Your rationale for running this action at this point in the assessment: what you expect it to reveal or achieve, why this target, and how it follows from prior findings. Recorded on the execution record for audit and replay. Provide it on every call unless truly trivial." }

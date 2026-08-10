@@ -2,13 +2,16 @@ use std::{env, path::PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use futures::StreamExt;
+use http::{Method, Request};
+use k8s_openapi::api::authorization::v1::{SelfSubjectRulesReview, SelfSubjectRulesReviewSpec};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
-    api::{AttachParams, ListParams},
+    api::{AttachParams, ListParams, PostParams},
     config::{KubeConfigOptions, Kubeconfig},
     runtime::{reflector, watcher},
-    Api, Client, Config,
+    Api, Client as KubeClient, Config,
 };
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -47,6 +50,158 @@ pub struct TargetCluster {
     pub name: String,
     pub context_name: Option<String>,
     pub server: Option<String>,
+}
+
+/// Context-aware kubeconfig data shared by runtime client construction and
+/// campaign knowledge bootstrap.
+#[derive(Debug, Clone)]
+pub struct ResolvedKubeconfig {
+    kubeconfig: Kubeconfig,
+    source_path: Option<PathBuf>,
+    pub context_name: String,
+    pub cluster_name: String,
+    pub user_name: Option<String>,
+    pub server: Option<String>,
+    pub ca_data: Option<String>,
+    pub token: Option<String>,
+    pub cert_data: Option<String>,
+    pub key_data: Option<String>,
+    pub auth_method: String,
+    pub has_token: bool,
+    pub has_client_certificate: bool,
+    pub has_client_key: bool,
+}
+
+impl ResolvedKubeconfig {
+    pub fn target_cluster(&self) -> TargetCluster {
+        TargetCluster {
+            name: self.cluster_name.clone(),
+            context_name: Some(self.context_name.clone()),
+            server: self.server.clone(),
+        }
+    }
+
+    fn options(&self) -> KubeConfigOptions {
+        KubeConfigOptions {
+            context: Some(self.context_name.clone()),
+            cluster: None,
+            user: None,
+        }
+    }
+}
+
+/// Resolve one context from a kubeconfig file without constructing a client.
+pub fn resolve_kubeconfig(
+    path: impl Into<PathBuf>,
+    context_override: Option<&str>,
+) -> Result<ResolvedKubeconfig> {
+    let path = path.into();
+    let kubeconfig = Kubeconfig::read_from(path.clone())
+        .with_context(|| format!("failed to read kubeconfig at {}", path.display()))?;
+    let mut resolved = resolve_kubeconfig_data(kubeconfig, context_override)
+        .with_context(|| format!("failed to resolve kubeconfig at {}", path.display()))?;
+    resolved.source_path = Some(path);
+    Ok(resolved)
+}
+
+/// Resolve one context from already-loaded kubeconfig data.
+pub fn resolve_kubeconfig_data(
+    kubeconfig: Kubeconfig,
+    context_override: Option<&str>,
+) -> Result<ResolvedKubeconfig> {
+    let context_name = context_override
+        .map(str::to_string)
+        .or_else(|| kubeconfig.current_context.clone())
+        .ok_or_else(|| anyhow!("kubeconfig does not define current-context"))?;
+
+    let named_context = kubeconfig
+        .contexts
+        .iter()
+        .find(|ctx| ctx.name == context_name)
+        .ok_or_else(|| anyhow!("context '{}' not found in kubeconfig", context_name))?;
+    let context = named_context
+        .context
+        .as_ref()
+        .ok_or_else(|| anyhow!("context '{}' has no configuration", context_name))?;
+
+    let cluster_name = context.cluster.clone();
+    let cluster = kubeconfig
+        .clusters
+        .iter()
+        .find(|cluster| cluster.name == cluster_name)
+        .and_then(|cluster| cluster.cluster.as_ref())
+        .ok_or_else(|| {
+            anyhow!(
+                "cluster '{}' referenced by context '{}' not found in kubeconfig",
+                cluster_name,
+                context_name
+            )
+        })?;
+
+    let user_name = context.user.clone();
+    let auth = user_name
+        .as_deref()
+        .and_then(|name| kubeconfig.auth_infos.iter().find(|user| user.name == name))
+        .and_then(|user| user.auth_info.as_ref());
+    if user_name.is_some() && auth.is_none() {
+        return Err(anyhow!(
+            "user '{}' referenced by context '{}' not found in kubeconfig",
+            user_name.as_deref().unwrap_or_default(),
+            context_name
+        ));
+    }
+
+    let token = auth
+        .and_then(|a| a.token.as_ref())
+        .map(|value| value.expose_secret().to_string());
+    let cert_data = auth.and_then(|a| a.client_certificate_data.clone());
+    let key_data = auth
+        .and_then(|a| a.client_key_data.as_ref())
+        .map(|value| value.expose_secret().to_string());
+    let has_token = token.is_some() || auth.is_some_and(|a| a.token_file.is_some());
+    let has_client_certificate =
+        cert_data.is_some() || auth.is_some_and(|a| a.client_certificate.is_some());
+    let has_client_key = key_data.is_some() || auth.is_some_and(|a| a.client_key.is_some());
+    let auth_method = match auth {
+        Some(a) if a.exec.is_some() => "exec",
+        Some(a) if a.auth_provider.is_some() => "auth-provider",
+        Some(_) if has_token => "token",
+        Some(_) if has_client_certificate || has_client_key => "client-certificate",
+        Some(a) if a.username.is_some() || a.password.is_some() => "basic",
+        Some(_) => "unknown",
+        None => "anonymous",
+    }
+    .to_string();
+    let server = cluster.server.clone();
+    let ca_data = cluster.certificate_authority_data.clone();
+
+    Ok(ResolvedKubeconfig {
+        kubeconfig,
+        source_path: None,
+        context_name,
+        cluster_name,
+        user_name,
+        server,
+        ca_data,
+        token,
+        cert_data,
+        key_data,
+        auth_method,
+        has_token,
+        has_client_certificate,
+        has_client_key,
+    })
+}
+
+/// Parse kubeconfig YAML and resolve its selected context using the same rules
+/// as file-backed runtime configuration.
+pub fn resolve_kubeconfig_yaml(
+    content: &str,
+    context_override: Option<&str>,
+) -> Result<ResolvedKubeconfig> {
+    let kubeconfig: Kubeconfig =
+        serde_yaml::from_str(content).context("failed to parse kubeconfig YAML")?;
+    resolve_kubeconfig_data(kubeconfig, context_override)
 }
 
 fn pod_to_running_pod(pod: &Pod) -> Option<RunningPod> {
@@ -93,23 +248,29 @@ fn pod_to_running_pod(pod: &Pod) -> Option<RunningPod> {
 }
 
 #[derive(Clone)]
-pub struct K8sService {
-    client: Client,
+pub struct Client {
+    client: KubeClient,
+    kubeconfig_path: Option<PathBuf>,
 }
 
-impl K8sService {
+impl Client {
     pub async fn from_kubeconfig(kubeconfig: Option<PathBuf>) -> Result<Self> {
         let path = kubeconfig.unwrap_or_else(default_kubeconfig_path);
-        let kubeconfig = Kubeconfig::read_from(path.clone())
-            .with_context(|| format!("failed to read kubeconfig at {}", path.display()))?;
+        let resolved = resolve_kubeconfig(path, None)?;
+        Self::from_resolved_kubeconfig(&resolved).await
+    }
 
-        let opts = KubeConfigOptions::default();
-        let config = Config::from_custom_kubeconfig(kubeconfig, &opts)
-            .await
-            .context("failed to load Kubernetes config from kubeconfig")?;
-        let client = Client::try_from(config).context("failed to create Kubernetes client")?;
+    pub async fn from_resolved_kubeconfig(resolved: &ResolvedKubeconfig) -> Result<Self> {
+        let config =
+            Config::from_custom_kubeconfig(resolved.kubeconfig.clone(), &resolved.options())
+                .await
+                .context("failed to load Kubernetes config from kubeconfig")?;
+        let client = KubeClient::try_from(config).context("failed to create Kubernetes client")?;
 
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            kubeconfig_path: resolved.source_path.clone(),
+        })
     }
 
     pub async fn get_running_pods(&self, namespace: Option<&str>) -> Result<Vec<RunningPod>> {
@@ -128,6 +289,123 @@ impl K8sService {
         };
 
         Ok(pods.iter().filter_map(pod_to_running_pod).collect())
+    }
+
+    /// Ask Kubernetes which RBAC rules apply to the identity represented by
+    /// this client's kubeconfig. The native response shape is retained so the
+    /// campaign can reuse its existing SelfSubjectRulesReview parser.
+    pub async fn self_subject_rules_review(&self, namespace: &str) -> Result<String> {
+        let reviews: Api<SelfSubjectRulesReview> = Api::all(self.client.clone());
+        let review = SelfSubjectRulesReview {
+            spec: SelfSubjectRulesReviewSpec {
+                namespace: Some(namespace.to_string()),
+            },
+            ..Default::default()
+        };
+        let response = reviews
+            .create(&PostParams::default(), &review)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to review kubeconfig permissions in namespace '{}'",
+                    namespace
+                )
+            })?;
+        serde_json::to_string(&response)
+            .context("failed to serialize SelfSubjectRulesReview response")
+    }
+
+    /// Execute a grounded structured Kubernetes request with this client's
+    /// authentication and TLS configuration. Authentication fields embedded in
+    /// the request description are deliberately ignored.
+    pub async fn execute_request(&self, request: &serde_json::Value) -> Result<String> {
+        #[derive(Deserialize)]
+        struct Spec {
+            api: String,
+            resource: String,
+            #[serde(default)]
+            namespace: String,
+            #[serde(default)]
+            cluster_scoped: serde_json::Value,
+            #[serde(default)]
+            query: String,
+            #[serde(default = "default_method")]
+            method: String,
+            #[serde(default)]
+            body: serde_json::Value,
+        }
+        fn default_method() -> String {
+            "GET".to_string()
+        }
+        fn is_true(value: &serde_json::Value) -> bool {
+            value.as_bool().unwrap_or_else(|| {
+                value
+                    .as_str()
+                    .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+            })
+        }
+
+        let spec: Spec = serde_json::from_value(request.clone())
+            .context("invalid structured Kubernetes request")?;
+        let api = spec.api.trim_matches('/');
+        let resource = spec.resource.trim_matches('/');
+        let mut path = if is_true(&spec.cluster_scoped) || spec.namespace.trim().is_empty() {
+            format!("/{api}/{resource}")
+        } else {
+            format!("/{api}/namespaces/{}/{resource}", spec.namespace.trim())
+        };
+        if !spec.query.trim().is_empty() {
+            path.push('?');
+            path.push_str(spec.query.trim());
+        }
+        let method = Method::from_bytes(spec.method.trim().as_bytes())
+            .with_context(|| format!("invalid Kubernetes request method '{}'", spec.method))?;
+        let body = if spec.body.is_null() {
+            Vec::new()
+        } else {
+            serde_json::to_vec(&spec.body).context("failed to encode Kubernetes request body")?
+        };
+        let request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .body(body)
+            .context("failed to build Kubernetes request")?;
+        self.client
+            .request_text(request)
+            .await
+            .context("Kubernetes API request failed")
+    }
+
+    /// Run a kubectl procedure on the Ran host using the active kubeconfig via
+    /// process environment. The kubeconfig path is not appended to the command,
+    /// recorded in execution args, or returned to callers.
+    pub async fn execute_kubectl_command(&self, command: &str) -> Result<PodExecOutput> {
+        let kubeconfig = self
+            .kubeconfig_path
+            .as_ref()
+            .ok_or_else(|| anyhow!("active Kubernetes client has no file-backed kubeconfig"))?;
+        let empty_equals = regex::Regex::new(
+            r#"\s+--token=(?:""|''|\$TOKEN|\$\{TOKEN\}|\{\{\s*Token\s*\}\})?(\s|$)"#,
+        )?;
+        let empty_separate = regex::Regex::new(
+            r#"\s+--token\s+(?:""|''|\$TOKEN|\$\{TOKEN\}|\{\{\s*Token\s*\}\})(\s|$)"#,
+        )?;
+        let command = empty_equals.replace_all(command, "$1");
+        let command = empty_separate.replace_all(&command, "$1");
+        let output = tokio::process::Command::new("/bin/sh")
+            .arg("-lc")
+            .arg(command.as_ref())
+            .env("KUBECONFIG", kubeconfig)
+            .output()
+            .await
+            .context("failed to execute kubectl procedure")?;
+        Ok(PodExecOutput {
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            exit_code: output.status.code().unwrap_or(1),
+        })
     }
 
     /// Start a live watch on pods in the given namespace (or all namespaces if `None`/empty).
@@ -344,36 +622,67 @@ pub fn kubeconfig_path_or_err(path: Option<PathBuf>) -> Result<PathBuf> {
 
 pub fn target_cluster_from_kubeconfig(path: Option<PathBuf>) -> Result<TargetCluster> {
     let path = kubeconfig_path_or_err(path)?;
-    let kubeconfig = Kubeconfig::read_from(path.clone())
-        .with_context(|| format!("failed to read kubeconfig at {}", path.display()))?;
+    Ok(resolve_kubeconfig(path, None)?.target_cluster())
+}
 
-    let context_name = kubeconfig
-        .current_context
-        .clone()
-        .ok_or_else(|| anyhow!("kubeconfig does not define current-context"))?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let context = kubeconfig
-        .contexts
-        .iter()
-        .find(|ctx| ctx.name == context_name)
-        .ok_or_else(|| anyhow!("current-context '{}' not found in kubeconfig", context_name))?;
+    const KUBECONFIG: &str = r#"apiVersion: v1
+kind: Config
+clusters:
+- name: cluster-a
+  cluster:
+    server: https://a.example
+- name: cluster-b
+  cluster:
+    server: https://b.example
+contexts:
+- name: context-a
+  context:
+    cluster: cluster-a
+    user: user-a
+- name: context-b
+  context:
+    cluster: cluster-b
+    user: user-b
+current-context: context-a
+users:
+- name: user-a
+  user:
+    token: secret-a
+- name: user-b
+  user:
+    client-certificate-data: CERT
+    client-key-data: KEY
+"#;
 
-    let cluster_name = context
-        .context
-        .as_ref()
-        .map(|ctx| ctx.cluster.clone())
-        .ok_or_else(|| anyhow!("context '{}' does not reference a cluster", context_name))?;
+    #[test]
+    fn resolver_uses_current_context_by_default() {
+        let resolved = resolve_kubeconfig_yaml(KUBECONFIG, None).unwrap();
+        assert_eq!(resolved.context_name, "context-a");
+        assert_eq!(resolved.cluster_name, "cluster-a");
+        assert_eq!(resolved.user_name.as_deref(), Some("user-a"));
+        assert_eq!(resolved.server.as_deref(), Some("https://a.example"));
+        assert!(resolved.has_token);
+        assert_eq!(resolved.auth_method, "token");
+    }
 
-    let server = kubeconfig
-        .clusters
-        .iter()
-        .find(|cluster| cluster.name == cluster_name)
-        .and_then(|cluster| cluster.cluster.as_ref())
-        .and_then(|cluster| cluster.server.clone());
+    #[test]
+    fn resolver_honors_context_override() {
+        let resolved = resolve_kubeconfig_yaml(KUBECONFIG, Some("context-b")).unwrap();
+        assert_eq!(resolved.cluster_name, "cluster-b");
+        assert_eq!(resolved.user_name.as_deref(), Some("user-b"));
+        assert!(resolved.has_client_certificate);
+        assert!(resolved.has_client_key);
+        assert_eq!(resolved.auth_method, "client-certificate");
+    }
 
-    Ok(TargetCluster {
-        name: cluster_name,
-        context_name: Some(context_name),
-        server,
-    })
+    #[test]
+    fn resolver_rejects_missing_context_and_user() {
+        assert!(resolve_kubeconfig_yaml(KUBECONFIG, Some("missing")).is_err());
+        let missing_user = KUBECONFIG.replace("user: user-a", "user: missing");
+        assert!(resolve_kubeconfig_yaml(&missing_user, None).is_err());
+    }
 }

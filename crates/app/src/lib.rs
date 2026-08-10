@@ -1,6 +1,7 @@
 pub mod config;
 
 use std::{
+    collections::BTreeSet,
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
@@ -19,11 +20,12 @@ use api::{ApiError, ApiService, GetRunningPodsParams, K8sResource};
 use campaign::{
     spawn_c2_event_processor_with_external_parser, Campaign, CampaignEvent, CampaignEventBus,
     EntitySummary, ExecuteActionError, ExecuteActionRequest, ExecuteActionResult,
-    ExternalParseRequest, ExternalParseResponse, ExternalParser,
+    ExternalParseRequest, ExternalParseResponse, ExternalParser, InitialClusterKnowledge,
+    InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
 };
-use config::NamespaceFilter;
-use k8s::{kubeconfig_path_or_err, target_cluster_from_kubeconfig, K8sService};
-use ran_domain::{K8sCluster, Pod, RelationSummary};
+use config::{NamespaceFilter, SeedKnowledgeConfig};
+use k8s::{kubeconfig_path_or_err, resolve_kubeconfig, Client, ResolvedKubeconfig};
+use ran_domain::{Entity, K8sCluster, K8sCredential, Pod, RelationSummary};
 
 // ---------------------------------------------------------------------------
 // AppState — the ApiService implementation
@@ -31,7 +33,7 @@ use ran_domain::{K8sCluster, Pod, RelationSummary};
 
 #[derive(Clone)]
 pub struct AppState {
-    k8s: K8sService,
+    k8s: Client,
     campaign: Arc<RwLock<Campaign>>,
     c2: C2Handle,
     armory: Armory,
@@ -50,7 +52,7 @@ pub struct AppState {
     /// Sidecar file (JSONL) persisting the decision log across restarts.
     decisions_sidecar: Option<PathBuf>,
     ran_name: String,
-    target_cluster: K8sCluster,
+    initial_knowledge: InitialKnowledge,
     campaign_events: CampaignEventBus,
     pod_watch: Arc<Mutex<Option<k8s::WatchHandle>>>,
     plan_executors:
@@ -62,7 +64,7 @@ pub struct AppState {
 impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        k8s: K8sService,
+        k8s: Client,
         campaign: Arc<RwLock<Campaign>>,
         c2: C2Handle,
         armory: Armory,
@@ -72,7 +74,7 @@ impl AppState {
         scoring_sidecar: Option<PathBuf>,
         scoring_tuning: bool,
         ran_name: String,
-        target_cluster: K8sCluster,
+        initial_knowledge: InitialKnowledge,
         campaign_events: CampaignEventBus,
         plans_dir: PathBuf,
     ) -> Self {
@@ -98,7 +100,7 @@ impl AppState {
             decision_log: Arc::new(RwLock::new(decision_log)),
             decisions_sidecar,
             ran_name,
-            target_cluster,
+            initial_knowledge,
             campaign_events,
             pod_watch: Arc::new(Mutex::new(None)),
             plan_executors: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -359,7 +361,7 @@ impl ApiService for AppState {
             .campaign
             .write()
             .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
-        campaign.reset(self.ran_name.clone(), self.target_cluster.clone());
+        campaign.reset_with_knowledge(self.ran_name.clone(), self.initial_knowledge.clone());
         let _ = self.campaign_events.publish(CampaignEvent::Reset);
         Ok(())
     }
@@ -1194,6 +1196,343 @@ fn is_loopback_url(url: &Url) -> bool {
     )
 }
 
+fn credential_from_resolved(
+    resolved: &ResolvedKubeconfig,
+    name: impl Into<String>,
+) -> K8sCredential {
+    let mut credential =
+        K8sCredential::new(resolved.server.clone().unwrap_or_default()).with_name(name);
+    credential.context_name = Some(resolved.context_name.clone());
+    credential.user_name = resolved.user_name.clone();
+    credential.auth_method = resolved.auth_method.clone();
+    credential.has_token = resolved.has_token;
+    credential.has_client_certificate = resolved.has_client_certificate;
+    credential.has_client_key = resolved.has_client_key;
+    credential.ca_data = resolved.ca_data.clone();
+    credential.token = resolved.token.clone();
+    credential.cert_data = resolved.cert_data.clone();
+    credential.key_data = resolved.key_data.clone();
+    credential
+}
+
+fn single_origin(origin: KnowledgeProvenance) -> BTreeSet<KnowledgeProvenance> {
+    BTreeSet::from([origin])
+}
+
+fn clusters_match(a: &K8sCluster, b: &K8sCluster) -> bool {
+    match (a.server.as_deref(), b.server.as_deref()) {
+        (Some(a), Some(b)) if !a.is_empty() && !b.is_empty() => a == b,
+        _ => a.name.eq_ignore_ascii_case(&b.name),
+    }
+}
+
+fn credentials_match(a: &K8sCredential, b: &K8sCredential) -> bool {
+    a.endpoint == b.endpoint && a.context_name == b.context_name && a.user_name == b.user_name
+}
+
+fn deduplicate_initial_clusters(
+    initial: &mut InitialKnowledge,
+) -> std::collections::HashMap<ran_domain::EntityId, ran_domain::EntityId> {
+    let mut deduplicated: Vec<InitialClusterKnowledge> = Vec::new();
+    let mut aliases = std::collections::HashMap::new();
+
+    for mut entry in std::mem::take(&mut initial.clusters) {
+        let original_id = entry.cluster.entity_id();
+        if let Some(existing) = deduplicated
+            .iter_mut()
+            .find(|existing| clusters_match(&existing.cluster, &entry.cluster))
+        {
+            if existing.cluster.server.is_none() {
+                existing.cluster.server = entry.cluster.server.take();
+            }
+            if existing.cluster.context_name.is_none() {
+                existing.cluster.context_name = entry.cluster.context_name.take();
+            }
+            existing.provenance.extend(entry.provenance);
+            aliases.insert(original_id, existing.cluster.entity_id());
+        } else {
+            aliases.insert(original_id.clone(), original_id);
+            deduplicated.push(entry);
+        }
+    }
+
+    initial.clusters = deduplicated;
+    for credential in &mut initial.kubeconfigs {
+        if let Some(preferred) = aliases.get(&credential.cluster_id) {
+            credential.cluster_id = preferred.clone();
+        }
+    }
+    aliases
+}
+
+fn build_initial_knowledge(
+    active: &ResolvedKubeconfig,
+    seeds: &[SeedKnowledgeConfig],
+) -> Result<InitialKnowledge> {
+    let mut initial = InitialKnowledge::default();
+    let mut cluster_aliases: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+
+    // Register declared cluster aliases first so credential entries are order-independent.
+    for seed in seeds {
+        let SeedKnowledgeConfig::Cluster(config) = seed else {
+            continue;
+        };
+        let cluster = K8sCluster::new(config.name.as_deref().unwrap_or(&config.id))
+            .with_id(&config.id)
+            .with_context_name(config.context_name.clone())
+            .with_server(config.server.clone());
+        if let Some(existing) = initial.clusters.iter().find(|entry| {
+            entry.cluster.entity_id() == cluster.entity_id()
+                && entry.cluster.server != cluster.server
+        }) {
+            anyhow::bail!(
+                "cluster seeds '{}' and '{}' resolve to the same entity with conflicting servers",
+                existing.cluster.entity_id(),
+                config.id
+            );
+        }
+        if let Some((idx, entry)) = initial
+            .clusters
+            .iter_mut()
+            .enumerate()
+            .find(|(_, entry)| clusters_match(&entry.cluster, &cluster))
+        {
+            entry.provenance.insert(config.provenance);
+            cluster_aliases.insert(config.id.clone(), idx);
+        } else {
+            cluster_aliases.insert(config.id.clone(), initial.clusters.len());
+            initial.clusters.push(InitialClusterKnowledge {
+                cluster,
+                provenance: single_origin(config.provenance),
+            });
+        }
+    }
+
+    let active_cluster = K8sCluster::new(&active.cluster_name)
+        .with_context_name(Some(active.context_name.clone()))
+        .with_server(active.server.clone());
+    let active_cluster_idx = if let Some((idx, existing)) = initial
+        .clusters
+        .iter_mut()
+        .enumerate()
+        .find(|(_, entry)| clusters_match(&entry.cluster, &active_cluster))
+    {
+        if existing.cluster.server.is_none() {
+            existing.cluster.server = active_cluster.server.clone();
+        }
+        if existing.cluster.context_name.is_none() {
+            existing.cluster.context_name = active_cluster.context_name.clone();
+        }
+        existing.provenance.insert(KnowledgeProvenance::Operator);
+        idx
+    } else {
+        let idx = initial.clusters.len();
+        initial.clusters.push(InitialClusterKnowledge {
+            cluster: active_cluster,
+            provenance: single_origin(KnowledgeProvenance::Operator),
+        });
+        idx
+    };
+
+    for seed in seeds {
+        let SeedKnowledgeConfig::Credential(config) = seed else {
+            continue;
+        };
+        let resolved = resolve_kubeconfig(&config.path, config.context.as_deref())?;
+        let resolved_cluster = K8sCluster::new(&resolved.cluster_name)
+            .with_context_name(Some(resolved.context_name.clone()))
+            .with_server(resolved.server.clone());
+
+        let cluster_idx = if let Some(alias) = config.cluster.as_deref() {
+            let idx = *cluster_aliases.get(alias).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "seed credential '{}' references unknown cluster '{}'",
+                    config.id,
+                    alias
+                )
+            })?;
+            let declared = &mut initial.clusters[idx];
+            if let (Some(expected), Some(actual)) = (
+                declared.cluster.server.as_deref(),
+                resolved.server.as_deref(),
+            ) {
+                if expected != actual {
+                    anyhow::bail!(
+                        "seed credential '{}' resolves to server '{}' but cluster '{}' declares '{}'",
+                        config.id,
+                        actual,
+                        alias,
+                        expected
+                    );
+                }
+            }
+            if declared.cluster.server.is_none() {
+                declared.cluster.server = resolved.server.clone();
+            }
+            if declared.cluster.context_name.is_none() {
+                declared.cluster.context_name = Some(resolved.context_name.clone());
+            }
+            declared.provenance.insert(config.provenance);
+            idx
+        } else if let Some((idx, entry)) = initial
+            .clusters
+            .iter_mut()
+            .enumerate()
+            .find(|(_, entry)| clusters_match(&entry.cluster, &resolved_cluster))
+        {
+            entry.provenance.insert(config.provenance);
+            idx
+        } else {
+            let idx = initial.clusters.len();
+            initial.clusters.push(InitialClusterKnowledge {
+                cluster: resolved_cluster,
+                provenance: single_origin(config.provenance),
+            });
+            idx
+        };
+
+        let credential = credential_from_resolved(&resolved, &config.id);
+        if let Some(existing) = initial
+            .kubeconfigs
+            .iter_mut()
+            .find(|entry| credentials_match(&entry.credential, &credential))
+        {
+            existing.provenance.insert(config.provenance);
+        } else {
+            initial.kubeconfigs.push(InitialKubeconfigKnowledge {
+                credential,
+                cluster_id: initial.clusters[cluster_idx].cluster.entity_id(),
+                provenance: single_origin(config.provenance),
+            });
+        }
+    }
+
+    let active_cluster_id = initial.clusters[active_cluster_idx].cluster.entity_id();
+    let cluster_aliases = deduplicate_initial_clusters(&mut initial);
+    let active_cluster_id = cluster_aliases
+        .get(&active_cluster_id)
+        .cloned()
+        .unwrap_or(active_cluster_id);
+
+    let active_name = active
+        .user_name
+        .as_deref()
+        .unwrap_or(&active.context_name)
+        .to_string();
+    let mut active_credential = credential_from_resolved(active, active_name);
+    active_credential.active = true;
+    if let Some(existing) = initial
+        .kubeconfigs
+        .iter_mut()
+        .find(|entry| credentials_match(&entry.credential, &active_credential))
+    {
+        existing.provenance.insert(KnowledgeProvenance::Operator);
+        existing.credential.active = true;
+    } else {
+        initial.kubeconfigs.push(InitialKubeconfigKnowledge {
+            credential: active_credential,
+            cluster_id: active_cluster_id,
+            provenance: single_origin(KnowledgeProvenance::Operator),
+        });
+    }
+
+    Ok(initial)
+}
+
+#[cfg(test)]
+mod initial_knowledge_tests {
+    use super::*;
+    use crate::config::{SeedClusterConfig, SeedCredentialConfig};
+
+    const KUBECONFIG: &str = r#"apiVersion: v1
+kind: Config
+clusters:
+- name: demo
+  cluster:
+    server: https://demo.example
+contexts:
+- name: demo-context
+  context:
+    cluster: demo
+    user: developer
+current-context: demo-context
+users:
+- name: developer
+  user:
+    token: secret
+"#;
+
+    #[test]
+    fn seeded_active_kubeconfig_deduplicates_and_merges_provenance() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config");
+        std::fs::write(&path, KUBECONFIG).unwrap();
+        let active = resolve_kubeconfig(&path, None).unwrap();
+        let seeds = vec![
+            SeedKnowledgeConfig::Cluster(SeedClusterConfig {
+                id: "target-cluster".into(),
+                name: None,
+                server: None,
+                context_name: None,
+                provenance: KnowledgeProvenance::Scenario,
+            }),
+            SeedKnowledgeConfig::Credential(SeedCredentialConfig {
+                credential_type: "kubeconfig".into(),
+                id: "developer-kubeconfig".into(),
+                path,
+                context: None,
+                cluster: Some("target-cluster".into()),
+                provenance: KnowledgeProvenance::Scenario,
+            }),
+        ];
+
+        let initial = build_initial_knowledge(&active, &seeds).unwrap();
+        assert_eq!(initial.clusters.len(), 1);
+        assert_eq!(
+            initial.clusters[0].cluster.id.as_deref(),
+            Some("target-cluster")
+        );
+        assert_eq!(initial.kubeconfigs.len(), 1);
+        assert!(initial.kubeconfigs[0].credential.active);
+        assert_eq!(
+            initial.kubeconfigs[0].credential.entity_name(),
+            "developer-kubeconfig"
+        );
+        assert_eq!(
+            initial.kubeconfigs[0].provenance,
+            BTreeSet::from([KnowledgeProvenance::Scenario, KnowledgeProvenance::Operator,])
+        );
+    }
+
+    #[test]
+    fn conflicting_declared_cluster_fails_initialization() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config");
+        std::fs::write(&path, KUBECONFIG).unwrap();
+        let active = resolve_kubeconfig(&path, None).unwrap();
+        let seeds = vec![
+            SeedKnowledgeConfig::Cluster(SeedClusterConfig {
+                id: "target".into(),
+                name: None,
+                server: Some("https://other.example".into()),
+                context_name: None,
+                provenance: KnowledgeProvenance::Scenario,
+            }),
+            SeedKnowledgeConfig::Credential(SeedCredentialConfig {
+                credential_type: "kubeconfig".into(),
+                id: "developer".into(),
+                path,
+                context: None,
+                cluster: Some("target".into()),
+                provenance: KnowledgeProvenance::Scenario,
+            }),
+        ];
+
+        assert!(build_initial_knowledge(&active, &seeds).is_err());
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Server bootstrap
 // ---------------------------------------------------------------------------
@@ -1224,6 +1563,8 @@ pub struct ServerConfig {
     /// Directory the web UI lists pre-defined plans from (`ran.yaml`'s
     /// `plans.dir`, defaulting to `plans` in the current working directory).
     pub plans_dir: PathBuf,
+    /// Scenario knowledge loaded from the existing ran.yaml configuration.
+    pub seed_knowledge: Vec<SeedKnowledgeConfig>,
 }
 
 /// Locate the scoring sidecar file (tuned-profile persistence) next to the
@@ -1272,8 +1613,9 @@ fn load_sidecar_profile(path: &std::path::Path) -> Option<utility_ai::Profile> {
 /// the app layer; the CLI calls this after argument parsing.
 pub async fn start(cfg: ServerConfig) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(cfg.kubeconfig)?;
-    let k8s = K8sService::from_kubeconfig(Some(kubeconfig_path.clone())).await?;
-    let target_cluster = target_cluster_from_kubeconfig(Some(kubeconfig_path.clone()))?;
+    let active_kubeconfig = resolve_kubeconfig(kubeconfig_path.clone(), None)?;
+    let k8s = Client::from_resolved_kubeconfig(&active_kubeconfig).await?;
+    let initial_knowledge = build_initial_knowledge(&active_kubeconfig, &cfg.seed_knowledge)?;
     let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
 
     // External script parsers live in armory/parsers/ (sibling to TTPs/).
@@ -1290,13 +1632,9 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
             }
         });
 
-    let campaign_cluster = K8sCluster::new(target_cluster.name)
-        .with_context_name(target_cluster.context_name)
-        .with_server(target_cluster.server);
-
-    let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
+    let campaign = Arc::new(RwLock::new(Campaign::bootstrap_with_knowledge(
         "Ran",
-        campaign_cluster.clone(),
+        initial_knowledge.clone(),
     )));
 
     let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s.clone());
@@ -1330,7 +1668,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
         Some(sidecar),
         cfg.scoring.tuning_ui,
         "Ran".to_string(),
-        campaign_cluster,
+        initial_knowledge,
         campaign_events.clone(),
         cfg.plans_dir.clone(),
     );
@@ -1736,6 +2074,7 @@ pub struct TriggerConfig {
     pub armory_dir: Option<PathBuf>,
     /// Namespace visibility filter loaded from `ran.yaml`.
     pub namespace_filter: NamespaceFilter,
+    pub seed_knowledge: Vec<SeedKnowledgeConfig>,
     /// TTP ID to execute (from the armory).
     pub action_id: String,
     /// Target entity ID in the form `ns/<namespace>/pod/<name>`.
@@ -1753,8 +2092,9 @@ pub struct TriggerConfig {
 /// the full parser + analyzer + rules pipeline, then exits.
 pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(cfg.kubeconfig)?;
-    let k8s = K8sService::from_kubeconfig(Some(kubeconfig_path.clone())).await?;
-    let target_cluster = target_cluster_from_kubeconfig(Some(kubeconfig_path.clone()))?;
+    let active_kubeconfig = resolve_kubeconfig(kubeconfig_path.clone(), None)?;
+    let k8s = Client::from_resolved_kubeconfig(&active_kubeconfig).await?;
+    let initial_knowledge = build_initial_knowledge(&active_kubeconfig, &cfg.seed_knowledge)?;
     let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
 
     let external_parser: Option<Arc<dyn ExternalParser>> =
@@ -1765,11 +2105,10 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
                 .then(|| Arc::new(ScriptParserRunner::new(parsers_dir)) as Arc<dyn ExternalParser>)
         });
 
-    let campaign_cluster = K8sCluster::new(target_cluster.name)
-        .with_context_name(target_cluster.context_name)
-        .with_server(target_cluster.server);
-
-    let campaign = Arc::new(RwLock::new(Campaign::bootstrap("Ran", campaign_cluster)));
+    let campaign = Arc::new(RwLock::new(Campaign::bootstrap_with_knowledge(
+        "Ran",
+        initial_knowledge,
+    )));
 
     let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s);
     let campaign_events = CampaignEventBus::new(256);
@@ -1815,6 +2154,7 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
                     action_id: cfg.action_id.clone(),
                     target_id: pod_id.0.clone(),
                     exec_system_id: cfg.exec_system_id,
+                    auth_identity_id: None,
                     procedure_id: cfg.procedure_id,
                     args: cfg.args,
                     reasoning: Some("cli trigger".to_string()),

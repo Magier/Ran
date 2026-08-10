@@ -1,8 +1,6 @@
-use ran_domain::{Entity, K8sCredential, Uses};
-use serde::Deserialize;
-
 use super::ParserOutput;
 use crate::FactsUpdate;
+use ran_domain::{Entity, K8sCredential, Uses};
 
 // ---------------------------------------------------------------------------
 // Path extraction
@@ -46,38 +44,6 @@ pub(super) fn is_kubeconfig_content(content: &str) -> bool {
 // Kubeconfig YAML parsing
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-struct KubeconfigYaml {
-    clusters: Option<Vec<ClusterEntry>>,
-    users: Option<Vec<UserEntry>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ClusterEntry {
-    cluster: Option<ClusterData>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ClusterData {
-    server: Option<String>,
-    #[serde(rename = "certificate-authority-data")]
-    certificate_authority_data: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct UserEntry {
-    user: Option<UserData>,
-}
-
-#[derive(Debug, Deserialize)]
-struct UserData {
-    token: Option<String>,
-    #[serde(rename = "client-certificate-data")]
-    client_certificate_data: Option<String>,
-    #[serde(rename = "client-key-data")]
-    client_key_data: Option<String>,
-}
-
 /// Parse kubeconfig YAML and build a `K8sCredential` entity.
 ///
 /// Extracts the first cluster's `server` and `certificate-authority-data`, and
@@ -85,33 +51,18 @@ struct UserData {
 ///
 /// Returns `None` when the YAML does not contain a usable cluster entry.
 fn credential_from_kubeconfig(content: &str) -> Option<K8sCredential> {
-    let kc: KubeconfigYaml = serde_yaml::from_str(content).ok()?;
-
-    let cluster = kc
-        .clusters
-        .as_ref()
-        .and_then(|c| c.first())
-        .and_then(|e| e.cluster.as_ref());
-
-    let endpoint = cluster.and_then(|c| c.server.clone()).unwrap_or_default();
-
-    let ca_data = cluster.and_then(|c| c.certificate_authority_data.clone());
-
-    let user = kc
-        .users
-        .as_ref()
-        .and_then(|u| u.first())
-        .and_then(|e| e.user.as_ref());
-
-    let token = user.and_then(|u| u.token.clone());
-    let cert_data = user.and_then(|u| u.client_certificate_data.clone());
-    let key_data = user.and_then(|u| u.client_key_data.clone());
-
-    let mut cred = K8sCredential::new(&endpoint);
-    cred.ca_data = ca_data;
-    cred.token = token;
-    cred.cert_data = cert_data;
-    cred.key_data = key_data;
+    let resolved = k8s::resolve_kubeconfig_yaml(content, None).ok()?;
+    let mut cred = K8sCredential::new(resolved.server.clone().unwrap_or_default());
+    cred.context_name = Some(resolved.context_name);
+    cred.user_name = resolved.user_name;
+    cred.auth_method = resolved.auth_method;
+    cred.has_token = resolved.has_token;
+    cred.has_client_certificate = resolved.has_client_certificate;
+    cred.has_client_key = resolved.has_client_key;
+    cred.ca_data = resolved.ca_data;
+    cred.token = resolved.token;
+    cred.cert_data = resolved.cert_data;
+    cred.key_data = resolved.key_data;
 
     Some(cred)
 }
