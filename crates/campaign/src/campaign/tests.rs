@@ -4,8 +4,8 @@ use armory::{Armory, Procedure, Ttp, TtpParam};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
     AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, K8sCluster, K8sCredential,
-    K8sNode, KubeletExecSink, OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec,
-    RunsOn, ServiceAccount, SessionInfo, SessionStatus, Uses,
+    K8sNode, KubeletExecSink, Namespace, OutputTransformKind, Pod, PodExec, RbacPermission,
+    RceCanExec, RunsOn, ServiceAccount, SessionInfo, SessionStatus, Uses,
 };
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
@@ -2719,8 +2719,77 @@ fn active_kubeconfig_keeps_structured_request_for_native_execution() {
         Some(credential_id.as_str())
     );
     assert!(exec.procedure.k8s_request.is_some());
+    assert_eq!(exec.procedure.command, "GET /api/v1/namespaces");
     assert!(exec.exec_chain.is_empty());
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+}
+
+#[test]
+fn active_kubeconfig_request_uses_namespace_target_and_records_request_line() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let namespace = Namespace::new("dungeon");
+    let target_id = namespace.entity_id().0;
+    campaign.entities.insert_typed(namespace);
+    let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
+    credential.active = true;
+    let credential_id = credential.entity_id().0;
+    campaign.entities.insert_typed(credential);
+    let ttp = Ttp {
+        status: "enabled".to_string(),
+        params: vec![
+            TtpParam {
+                name: "NS".to_string(),
+                param_type: "Namespace".to_string(),
+                description: String::new(),
+                required: true,
+                default: "${NS}".to_string(),
+            },
+            TtpParam {
+                name: "ALL_NS".to_string(),
+                param_type: "bool".to_string(),
+                description: String::new(),
+                required: true,
+                default: "false".to_string(),
+            },
+        ],
+        procedures: vec![Procedure {
+            k8s_request: Some(serde_json::json!({
+                "api_server": "https://cluster.example",
+                "api": "/api/v1",
+                "resource": "pods",
+                "namespace": "${NS}",
+                "cluster_scoped": "${ALL_NS}",
+                "query": "limit=500"
+            })),
+            ..Procedure::new("k8s-request", "")
+        }],
+        ..Ttp::new("get-pods", "Get Pods", "Discovery")
+    };
+    let armory = Armory::from_ttps(vec![ttp]);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "get-pods".to_string(),
+                exec_system_id: None,
+                auth_identity_id: Some(credential_id),
+                target_id,
+                procedure_id: Some("k8s-request".to_string()),
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("namespaced native request should prepare");
+
+    assert_eq!(exec.args.get("NS").map(String::as_str), Some("dungeon"));
+    assert_eq!(
+        exec.procedure.command,
+        "GET /api/v1/namespaces/dungeon/pods?limit=500"
+    );
+    let request = exec.procedure.k8s_request.expect("structured request");
+    assert_eq!(request["namespace"], "dungeon");
+    assert_eq!(request["cluster_scoped"], "false");
 }
 
 /// Minimal armory with a curl tool TTP for use in k8s_request and http_request tests.

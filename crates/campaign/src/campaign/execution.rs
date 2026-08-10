@@ -192,12 +192,11 @@ struct KubernetesRequestSpec {
     timeout_seconds: u64,
 }
 
-fn build_k8s_url(spec: &KubernetesRequestSpec) -> String {
-    let api_server = spec.api_server.trim_end_matches('/');
+fn build_k8s_resource_path(spec: &KubernetesRequestSpec) -> String {
     let api = spec.api.trim_matches('/');
     let resource = spec.resource.trim_matches('/');
 
-    let base = format!("{}/{}", api_server, api);
+    let base = format!("/{}", api);
 
     let resource_path = if spec.cluster_scoped.is_true() || spec.namespace.trim().is_empty() {
         format!("{}/{}", base, resource)
@@ -210,6 +209,39 @@ fn build_k8s_url(spec: &KubernetesRequestSpec) -> String {
     } else {
         format!("{}?{}", resource_path, spec.query.trim())
     }
+}
+
+fn build_k8s_url(spec: &KubernetesRequestSpec) -> String {
+    format!(
+        "{}{}",
+        spec.api_server.trim_end_matches('/'),
+        build_k8s_resource_path(spec)
+    )
+}
+
+/// Build a secret-free request line for native Kubernetes client executions.
+/// Structured requests do not have a shell command, but the execution record
+/// and flow drawer still need to show what was sent to the API server.
+fn describe_k8s_request(
+    procedure_id: &str,
+    request: JsonValue,
+) -> Result<String, ExecuteActionError> {
+    let spec: KubernetesRequestSpec = serde_json::from_value(request).map_err(|e| {
+        ExecuteActionError::InvalidInput(format!(
+            "invalid k8s_request in procedure '{}': {}",
+            procedure_id, e
+        ))
+    })?;
+    let method = if spec.method.trim().is_empty() {
+        "GET"
+    } else {
+        spec.method.trim()
+    };
+    Ok(format!(
+        "{} {}",
+        method.to_ascii_uppercase(),
+        build_k8s_resource_path(&spec)
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -688,6 +720,11 @@ impl Campaign {
         }
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
         if use_kubeconfig {
+            if procedure.command.trim().is_empty() {
+                if let Some(request) = procedure.k8s_request.clone() {
+                    procedure.command = describe_k8s_request(&procedure.id, request)?;
+                }
+            }
             let supported = procedure.k8s_request.is_some()
                 || procedure.command.contains("kubectl ")
                 || procedure

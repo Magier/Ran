@@ -380,7 +380,10 @@
 
 					if (param.type === 'Namespace') {
 						namespaceArgName = param.name;
-						if (param.default === "" && currentTargetId.startsWith("ns/")) {
+						if (
+							currentTargetId.startsWith("ns/")
+							&& (value === "" || value === "${NS}" || value === "${NAMESPACE}")
+						) {
 							value = currentTargetId.split("/")[1];
 						}
 					} else if (param.type === 'Pod') {
