@@ -1,9 +1,9 @@
 export type KnowledgeProvenance = 'scenario' | 'operator' | 'action' | 'inference';
 
-const LABELS: Record<KnowledgeProvenance, string> = {
+type KnowledgeProvenanceBadge = Extract<KnowledgeProvenance, 'scenario' | 'inference'>;
+
+const BADGE_LABELS: Record<KnowledgeProvenanceBadge, string> = {
 	scenario: 'Scenario-provided',
-	operator: 'Operator-provided',
-	action: 'Action-discovered',
 	inference: 'Inferred'
 };
 
@@ -16,6 +16,6 @@ export function hasKnowledgeProvenance(
 
 export function knowledgeProvenanceBadges(values: readonly string[] | undefined) {
 	return (values ?? [])
-		.filter((value): value is KnowledgeProvenance => value in LABELS)
-		.map((origin) => ({ origin, label: LABELS[origin] }));
+		.filter((value): value is KnowledgeProvenanceBadge => value in BADGE_LABELS)
+		.map((origin) => ({ origin, label: BADGE_LABELS[origin] }));
 }

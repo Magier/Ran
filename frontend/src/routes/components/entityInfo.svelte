@@ -254,10 +254,6 @@
 					class="badge text-xs shrink-0"
 					class:bg-amber-200={badge.origin === 'scenario'}
 					class:text-amber-900={badge.origin === 'scenario'}
-					class:bg-sky-200={badge.origin === 'operator'}
-					class:text-sky-900={badge.origin === 'operator'}
-					class:bg-emerald-200={badge.origin === 'action'}
-					class:text-emerald-900={badge.origin === 'action'}
 					class:bg-violet-200={badge.origin === 'inference'}
 					class:text-violet-900={badge.origin === 'inference'}
 				>
