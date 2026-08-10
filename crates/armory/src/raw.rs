@@ -462,7 +462,9 @@ parameters:
     default: hostname
     description: "Command to run in host context after a privileged binary is corrupted"
 preconditions:
+  kind: Pod
   accessLevel: "user-exec"
+  activeSession: true
 procedures:
   - key: copyfail-poc
     command: python3
@@ -499,6 +501,16 @@ references:
         assert!(
             ttp.requires.get("accessLevel").and_then(|v| v.as_str()) == Some("user-exec"),
             "precondition accessLevel should be user-exec"
+        );
+        assert_eq!(
+            ttp.requires.get("kind").and_then(|v| v.as_str()),
+            Some("Pod"),
+            "CopyFail should only target Pods"
+        );
+        assert_eq!(
+            ttp.requires.get("activeSession").and_then(|v| v.as_bool()),
+            Some(true),
+            "CopyFail should require an active session"
         );
 
         let kernel_param = ttp.params.iter().find(|p| p.name == "KERNEL_VERSION");

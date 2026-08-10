@@ -31,6 +31,7 @@ parameters:
 preconditions:
     accessLevel: "user-exec"
     kind: Pod
+    activeSession: true
     # kernel: "<6.6.89 || <6.12.80"  -- enforced once framework gains kernel-version awareness
 procedures:
     - key: copyfail-poc

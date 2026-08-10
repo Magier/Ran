@@ -533,6 +533,7 @@ mod tests {
             access_level: AccessLevel::Exec,
             has_token: false,
             active_kubeconfig: false,
+            active_session: false,
         }
     }
 

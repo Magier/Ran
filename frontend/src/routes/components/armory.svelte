@@ -89,7 +89,9 @@
  
 	// Fetch applicable TTPs whenever the target node changes or its state updates
 	$effect(() => {
-		// Track targetId and node state properties that affect applicable TTPs
+		// Session connect/loss events replace the campaign graph, so track it in
+		// addition to the selected node's directly exposed applicability fields.
+		void campaign.graph;
 		const nodeState = target ? {
 			compromised: target.compromised,
 			accessLevel: target.accessLevel,
