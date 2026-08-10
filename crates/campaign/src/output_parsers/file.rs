@@ -50,10 +50,12 @@ pub(super) fn is_kubeconfig_content(content: &str) -> bool {
 /// the first user's `token` or `client-certificate-data` + `client-key-data`.
 ///
 /// Returns `None` when the YAML does not contain a usable cluster entry.
-fn credential_from_kubeconfig(content: &str) -> Option<K8sCredential> {
+fn credential_from_kubeconfig(content: &str) -> Option<(K8sCredential, String)> {
     let resolved = k8s::resolve_kubeconfig_yaml(content, None).ok()?;
+    let cluster_name = resolved.cluster_name.clone();
     let mut cred = K8sCredential::new(resolved.server.clone().unwrap_or_default());
     cred.context_name = Some(resolved.context_name);
+    cred.default_namespace = resolved.default_namespace;
     cred.user_name = resolved.user_name;
     cred.auth_method = resolved.auth_method;
     cred.has_token = resolved.has_token;
@@ -64,7 +66,7 @@ fn credential_from_kubeconfig(content: &str) -> Option<K8sCredential> {
     cred.cert_data = resolved.cert_data;
     cred.key_data = resolved.key_data;
 
-    Some(cred)
+    Some((cred, cluster_name))
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +88,7 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
         return ParserOutput::KnownFailure("empty stdout for file:kubeconfig".to_string());
     }
 
-    let cred = match credential_from_kubeconfig(stdout) {
+    let (cred, cluster_name) = match credential_from_kubeconfig(stdout) {
         Some(c) => c,
         None => {
             return ParserOutput::UnknownFormat(
@@ -96,12 +98,15 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
     };
 
     let detail = format!(
-        "extracted K8sCredential for endpoint '{}' (token={}, cert={})",
+        "extracted K8sCredential for endpoint '{}' (context={}, cluster={}, default_namespace={}, token={}, cert={})",
         if cred.endpoint.is_empty() {
             "unknown"
         } else {
             &cred.endpoint
         },
+        cred.context_name.as_deref().unwrap_or("unknown"),
+        cluster_name,
+        cred.default_namespace.as_deref().unwrap_or("none"),
         cred.token.is_some(),
         cred.cert_data.is_some(),
     );
@@ -173,6 +178,7 @@ contexts:
 - context:
     cluster: test-cluster
     user: admin
+    namespace: default
   name: test-context
 current-context: test-context
 users:
@@ -259,6 +265,7 @@ users:
             .downcast_ref::<K8sCredential>()
             .unwrap();
         assert_eq!(cred.endpoint, "https://10.96.0.1:6443");
+        assert_eq!(cred.default_namespace.as_deref(), Some("default"));
         assert_eq!(cred.token.as_deref(), Some("ya29.supersecrettoken"));
         assert!(cred.cert_data.is_none());
         assert!(cred.ca_data.is_some());

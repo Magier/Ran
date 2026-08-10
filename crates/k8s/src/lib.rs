@@ -47,6 +47,9 @@ pub struct ResolvedKubeconfig {
     kubeconfig: Kubeconfig,
     source_path: Option<PathBuf>,
     pub context_name: String,
+    /// Explicit default namespace configured on the selected context.
+    /// Kubernetes' implicit `default` fallback is intentionally not inferred.
+    pub default_namespace: Option<String>,
     pub cluster_name: String,
     pub user_name: Option<String>,
     pub server: Option<String>,
@@ -127,6 +130,12 @@ pub fn resolve_kubeconfig_data(
         })?;
 
     let user_name = context.user.clone();
+    let default_namespace = context
+        .namespace
+        .as_deref()
+        .map(str::trim)
+        .filter(|namespace| !namespace.is_empty())
+        .map(str::to_string);
     let auth = user_name
         .as_deref()
         .and_then(|name| kubeconfig.auth_infos.iter().find(|user| user.name == name))
@@ -167,6 +176,7 @@ pub fn resolve_kubeconfig_data(
         kubeconfig,
         source_path: None,
         context_name,
+        default_namespace,
         cluster_name,
         user_name,
         server,
@@ -565,10 +575,12 @@ contexts:
   context:
     cluster: cluster-a
     user: user-a
+    namespace: default
 - name: context-b
   context:
     cluster: cluster-b
     user: user-b
+    namespace: "   "
 current-context: context-a
 users:
 - name: user-a
@@ -584,6 +596,7 @@ users:
     fn resolver_uses_current_context_by_default() {
         let resolved = resolve_kubeconfig_yaml(KUBECONFIG, None).unwrap();
         assert_eq!(resolved.context_name, "context-a");
+        assert_eq!(resolved.default_namespace.as_deref(), Some("default"));
         assert_eq!(resolved.cluster_name, "cluster-a");
         assert_eq!(resolved.user_name.as_deref(), Some("user-a"));
         assert_eq!(resolved.server.as_deref(), Some("https://a.example"));
@@ -595,6 +608,7 @@ users:
     fn resolver_honors_context_override() {
         let resolved = resolve_kubeconfig_yaml(KUBECONFIG, Some("context-b")).unwrap();
         assert_eq!(resolved.cluster_name, "cluster-b");
+        assert_eq!(resolved.default_namespace, None);
         assert_eq!(resolved.user_name.as_deref(), Some("user-b"));
         assert!(resolved.has_client_certificate);
         assert!(resolved.has_client_key);

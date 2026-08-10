@@ -1085,6 +1085,7 @@ fn credential_from_resolved(
     let mut credential =
         K8sCredential::new(resolved.server.clone().unwrap_or_default()).with_name(name);
     credential.context_name = Some(resolved.context_name.clone());
+    credential.default_namespace = resolved.default_namespace.clone();
     credential.user_name = resolved.user_name.clone();
     credential.auth_method = resolved.auth_method.clone();
     credential.has_token = resolved.has_token;
@@ -1338,6 +1339,7 @@ contexts:
   context:
     cluster: demo
     user: developer
+    namespace: default
 current-context: demo-context
 users:
 - name: developer
@@ -1377,6 +1379,13 @@ users:
         );
         assert_eq!(initial.kubeconfigs.len(), 1);
         assert!(initial.kubeconfigs[0].credential.active);
+        assert_eq!(
+            initial.kubeconfigs[0]
+                .credential
+                .default_namespace
+                .as_deref(),
+            Some("default")
+        );
         assert_eq!(
             initial.kubeconfigs[0].credential.entity_name(),
             "developer-kubeconfig"

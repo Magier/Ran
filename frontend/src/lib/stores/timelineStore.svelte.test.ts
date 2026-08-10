@@ -7,7 +7,9 @@ import {
     type TopEntry
 } from '$lib/stores/timelineStore.svelte';
 
-function makeTtpEntry(overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}): Omit<TtpActionEntry, 'kind'> {
+function makeTtpEntry(
+    overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}
+): Omit<TtpActionEntry, 'kind'> {
     return {
         id: 'cmd-abc',
         ttpId: 'list-env',
@@ -20,7 +22,9 @@ function makeTtpEntry(overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}): Om
     };
 }
 
-function makeExecutedEntry(overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}): Omit<TtpActionEntry, 'kind'> {
+function makeExecutedEntry(
+    overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}
+): Omit<TtpActionEntry, 'kind'> {
     return makeTtpEntry({ status: 'success', ...overrides });
 }
 
@@ -116,7 +120,13 @@ describe('TimelineStore', () => {
 
     it('addEntityEvent does not suppress entity when a group has the same id as the entity', () => {
         store.addTtpAction(makeTtpEntry({ id: 'ns/default/pod/web-app' }));
-        store.addEntityEvent(makeEntityEntry({ id: 'ns/default/pod/web-app', entityId: 'ns/default/pod/web-app', cmdId: undefined }));
+        store.addEntityEvent(
+            makeEntityEntry({
+                id: 'ns/default/pod/web-app',
+                entityId: 'ns/default/pod/web-app',
+                cmdId: undefined
+            })
+        );
         expect(store.topEntries).toHaveLength(2);
         expect(store.topEntries[0].kind).toBe('discovery');
     });
@@ -203,7 +213,9 @@ describe('TimelineStore', () => {
             })
         );
         // HTTP response follows with the names the UI knows.
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', targetName: 'my-pod', status: 'pending' }));
+        store.addTtpAction(
+            makeTtpEntry({ id: 'cmd-abc', targetName: 'my-pod', status: 'pending' })
+        );
         expect(store.topEntries).toHaveLength(1);
         const entry = store.topEntries[0];
         if (entry.kind === 'action-group') {
@@ -238,6 +250,68 @@ describe('TimelineStore', () => {
         expect(() => store.toggleGroup('cmd-unknown')).not.toThrow();
     });
 
+    // startup kubeconfig backfill
+    it('backfillBootstrap creates an oldest successful group with discovery effects', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-live' }));
+        store.backfillBootstrap([
+            {
+                id: 'bootstrap:kubeconfig:developer',
+                name: 'Read kubeconfig',
+                detail: 'developer (context: demo)',
+                effects: [
+                    {
+                        entityId: 'k8s/credential/developer',
+                        entityName: 'developer',
+                        entityKind: 'K8sCredential',
+                        category: 'credential'
+                    },
+                    {
+                        entityId: 'k8s/cluster/demo',
+                        entityName: 'demo',
+                        entityKind: 'Cluster',
+                        category: 'discovery'
+                    },
+                    {
+                        entityId: 'ns/default',
+                        entityName: 'default',
+                        entityKind: 'Namespace',
+                        category: 'discovery'
+                    }
+                ]
+            }
+        ]);
+
+        expect(store.topEntries).toHaveLength(2);
+        const startup = store.topEntries[1];
+        expect(startup.kind).toBe('action-group');
+        if (startup.kind === 'action-group') {
+            expect(startup.action.startup).toBe(true);
+            expect(startup.action.timestamp).toBeUndefined();
+            expect(startup.effects.map((effect) => effect.entityKind)).toEqual([
+                'K8sCredential',
+                'Cluster',
+                'Namespace'
+            ]);
+        }
+    });
+
+    it('backfillBootstrap is idempotent and can repopulate after clear', () => {
+        const operations = [
+            {
+                id: 'bootstrap:kubeconfig:developer',
+                name: 'Read kubeconfig',
+                detail: 'developer',
+                effects: []
+            }
+        ];
+        store.backfillBootstrap(operations);
+        store.backfillBootstrap(operations);
+        expect(store.topEntries).toHaveLength(1);
+        store.clear();
+        store.backfillBootstrap(operations);
+        expect(store.topEntries).toHaveLength(1);
+    });
+
     // clear
     it('clear removes all entries', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
@@ -255,9 +329,7 @@ describe('TimelineStore', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
         store.addEntityEvent(makeEntityEntry({ id: 'pod-a', entityId: 'pod-a', cmdId: undefined }));
         store.addTtpAction(makeTtpEntry({ id: 'cmd-2' }));
-        const ids = store.topEntries.map((e) =>
-            e.kind === 'action-group' ? e.action.id : e.id
-        );
+        const ids = store.topEntries.map((e) => (e.kind === 'action-group' ? e.action.id : e.id));
         expect(ids).toEqual(['cmd-2', 'pod-a', 'cmd-1']);
     });
 });

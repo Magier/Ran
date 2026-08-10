@@ -2,8 +2,8 @@ use std::collections::{BTreeSet, HashMap};
 
 use cortex::KnowledgeGraph;
 use ran_domain::{
-    AuthenticatesTo, C2Server, Entity, EntityId, K8sCluster, K8sCredential, K8sNode, Pod, PodExec,
-    Relation, RelationSummary, SessionStatus, UnknownSystem,
+    AuthenticatesTo, C2Server, Contains, Entity, EntityId, K8sCluster, K8sCredential, K8sNode,
+    Namespace, Pod, PodExec, Relation, RelationSummary, SessionStatus, UnknownSystem,
 };
 use serde::{Deserialize, Serialize};
 
@@ -105,6 +105,7 @@ impl Campaign {
 
         for entry in initial.kubeconfigs {
             let credential_id = entry.credential.entity_id();
+            let default_namespace = entry.credential.default_namespace.clone();
             entities.insert_typed(entry.credential);
             graph.ensure_node(credential_id.clone());
             let relation =
@@ -114,10 +115,33 @@ impl Campaign {
                 relation.target_id(),
                 cortex::edge_data_for(relation.relation_name(), None, None),
             );
-            for origin in entry.provenance {
-                knowledge_provenance.add_entity(credential_id.clone(), origin);
+            for origin in &entry.provenance {
+                knowledge_provenance.add_entity(credential_id.clone(), *origin);
                 knowledge_provenance
-                    .add_relation(RelationProvenanceKey::from_relation(&relation), origin);
+                    .add_relation(RelationProvenanceKey::from_relation(&relation), *origin);
+            }
+
+            if let Some(namespace_name) = default_namespace {
+                let namespace = Namespace::new(namespace_name);
+                let namespace_id = namespace.entity_id();
+                entities.insert_typed(namespace);
+                graph.ensure_node(namespace_id.clone());
+                let contains = Contains::new(entry.cluster_id.0.clone(), namespace_id.0.clone());
+                if !graph
+                    .targets_of(&entry.cluster_id, contains.relation_name())
+                    .contains(&&namespace_id)
+                {
+                    graph.insert_edge(
+                        contains.source_id(),
+                        contains.target_id(),
+                        cortex::edge_data_for(contains.relation_name(), None, None),
+                    );
+                }
+                for origin in &entry.provenance {
+                    knowledge_provenance.add_entity(namespace_id.clone(), *origin);
+                    knowledge_provenance
+                        .add_relation(RelationProvenanceKey::from_relation(&contains), *origin);
+                }
             }
         }
 
@@ -701,8 +725,10 @@ mod planner_helper_tests {
     fn bootstrap_with_kubeconfig_records_relation_and_provenance() {
         let cluster = K8sCluster::new("demo").with_server(Some("https://demo".into()));
         let cluster_id = cluster.entity_id();
-        let credential = K8sCredential::new("https://demo").with_name("developer");
+        let mut credential = K8sCredential::new("https://demo").with_name("developer");
+        credential.default_namespace = Some("default".to_string());
         let credential_id = credential.entity_id();
+        let namespace_id = EntityId::new("ns/default");
         let origins =
             BTreeSet::from([KnowledgeProvenance::Operator, KnowledgeProvenance::Scenario]);
         let initial = InitialKnowledge {
@@ -726,11 +752,18 @@ mod planner_helper_tests {
             vec![&cluster_id]
         );
         assert_eq!(campaign.entity_provenance(&credential_id), origins);
+        assert!(campaign.entities.contains::<Namespace>(&namespace_id));
+        assert_eq!(
+            campaign.graph.targets_of(&cluster_id, "contains"),
+            vec![&namespace_id]
+        );
+        assert_eq!(campaign.entity_provenance(&namespace_id), origins);
         assert!(campaign.execution_records.is_empty());
         assert!(serde_json::to_string(&campaign).is_ok());
 
         campaign.reset_with_knowledge("test", initial);
         assert!(campaign.entities.contains::<K8sCredential>(&credential_id));
+        assert!(campaign.entities.contains::<Namespace>(&namespace_id));
         assert_eq!(
             campaign
                 .graph

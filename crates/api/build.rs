@@ -70,6 +70,8 @@ fn main() -> Result<()> {
         "K8sResource",
         "Error",
         "CampaignState",
+        "BootstrapOperation",
+        "BootstrapEffect",
         "Graph",
         "Node",
         "Edge",

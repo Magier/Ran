@@ -1,3 +1,5 @@
+import type { BootstrapOperation } from '$lib/api';
+
 export type TtpActionEntry = {
     kind: 'ttp-action';
     id: string;
@@ -9,7 +11,9 @@ export type TtpActionEntry = {
     execSystemName?: string;
     status: 'pending' | 'success' | 'failed';
     failReason?: string;
-    timestamp: Date;
+    timestamp?: Date;
+    startup?: boolean;
+    detail?: string;
 };
 
 export type EntityEntry = {
@@ -19,7 +23,7 @@ export type EntityEntry = {
     entityName: string;
     entityKind: string;
     cmdId?: string;
-    timestamp: Date;
+    timestamp?: Date;
 };
 
 export type ActionGroup = {
@@ -177,6 +181,49 @@ export class TimelineStore {
                 status: 'pending',
                 timestamp: new Date(r.timestampMs)
             });
+        }
+    }
+
+    /**
+     * Add durable kubeconfig loads that happened before the frontend connected.
+     * Startup groups live at the oldest end of the newest-first store and use
+     * stable backend IDs, so repeated campaign-state refreshes are idempotent.
+     */
+    backfillBootstrap(operations: BootstrapOperation[]): void {
+        for (const operation of [...operations].sort((a, b) => b.id.localeCompare(a.id))) {
+            if (this.index.has(operation.id)) continue;
+
+            const group: ActionGroup = {
+                kind: 'action-group',
+                action: {
+                    kind: 'ttp-action',
+                    id: operation.id,
+                    ttpId: '',
+                    ttpName: operation.name,
+                    targetId: '',
+                    targetName: '',
+                    status: 'success',
+                    startup: true,
+                    detail: operation.detail
+                },
+                effects: [],
+                collapsed: true
+            };
+            this.topEntries = [...this.topEntries, group];
+            const proxy = this.topEntries[this.topEntries.length - 1] as ActionGroup;
+            this.index.set(operation.id, proxy);
+
+            for (const effect of operation.effects) {
+                if (this.seenEntityIds.has(effect.entityId)) continue;
+                this.seenEntityIds.add(effect.entityId);
+                proxy.effects.push({
+                    kind: effect.category === 'credential' ? 'credential' : 'discovery',
+                    id: effect.entityId,
+                    entityId: effect.entityId,
+                    entityName: effect.entityName,
+                    entityKind: effect.entityKind
+                });
+            }
         }
     }
 

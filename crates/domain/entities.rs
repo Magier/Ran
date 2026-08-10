@@ -1382,6 +1382,9 @@ pub struct K8sCredential {
     pub credential_type: String,
     #[serde(default)]
     pub context_name: Option<String>,
+    /// Explicit default namespace configured on the selected kubeconfig context.
+    #[serde(default)]
+    pub default_namespace: Option<String>,
     #[serde(default)]
     pub user_name: Option<String>,
     #[serde(default)]
@@ -1423,6 +1426,7 @@ impl K8sCredential {
             name: endpoint.clone(),
             credential_type: default_kubeconfig_credential_type(),
             context_name: None,
+            default_namespace: None,
             user_name: None,
             auth_method: String::new(),
             has_token: false,
@@ -1879,6 +1883,9 @@ impl Merge for K8sCredential {
         }
         if self.context_name.is_none() {
             self.context_name = incoming.context_name.clone();
+        }
+        if self.default_namespace.is_none() {
+            self.default_namespace = incoming.default_namespace.clone();
         }
         if self.user_name.is_none() {
             self.user_name = incoming.user_name.clone();
