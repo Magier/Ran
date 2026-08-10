@@ -5,6 +5,10 @@ install-hooks:
 	@chmod +x .git/hooks/pre-commit
 	@echo "pre-commit hook installed"
 
+.PHONY: dev-workspace
+dev-workspace:
+	./scripts/dev-workspace.zsh
+
 # === Code Generation ===
 .PHONY: generate-api
 generate-api:

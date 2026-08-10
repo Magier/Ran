@@ -1,0 +1,11 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+setup = "pnpm --dir frontend install --frozen-lockfile"
+run_mode = "concurrent"
+
+[scripts.run.dev]
+available_in = [ "local" ]
+command = "make dev-workspace"
+default = true
+icon = "play"

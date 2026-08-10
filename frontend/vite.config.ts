@@ -4,6 +4,12 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import Icons from 'unplugin-icons/vite'
 import { defineConfig } from 'vite';
 
+const viteHost = process.env.RAN_VITE_HOST ?? 'localhost';
+const requestedPort = Number.parseInt(process.env.RAN_VITE_PORT ?? '5173', 10);
+const vitePort = Number.isInteger(requestedPort) && requestedPort > 0 && requestedPort <= 65535
+	? requestedPort
+	: 5173;
+
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit(), Icons({
 		compiler: 'svelte',
@@ -11,12 +17,15 @@ export default defineConfig({
 	})],
 
 	server: {
+		host: viteHost,
+		port: vitePort,
+		strictPort: true,
 		// When frontend is served through the Rust proxy, HMR must connect directly
 		// to the Vite server because the proxy path only supports plain HTTP forwarding.
 		hmr: {
-			host: 'localhost',
-			port: 5173,
-			clientPort: 5173,
+			host: viteHost,
+			port: vitePort,
+			clientPort: vitePort,
 			protocol: 'ws'
 		}
 	},
