@@ -1,6 +1,12 @@
 import { getContext, setContext } from 'svelte';
 import type { ArmoryType, Node } from '$lib/model';
-import type { AttackFlow, CampaignState as State, Graph, TTP, ExecuteActionRequest } from '$lib/api/index';
+import type {
+	AttackFlow,
+	CampaignState as State,
+	Graph,
+	TTP,
+	ExecuteActionRequest
+} from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
 import { getRanAPI, RanAPI } from '$lib/ran_api';
 import { timeline } from '$lib/stores/timelineStore.svelte';
@@ -88,13 +94,16 @@ class CampaignState {
 			this.api.GetGraph().then((g: Graph) => {
 				this.graph = g;
 			});
-			
+
 			const stateCallId = ++this.getCampaignStateCounter;
-			this.api.GetCampaignState().then((s: State) => {
-				this.#setState(s);
-			}).catch((err) => {
-				console.error(`❌ [Event ${eventId}->Call ${stateCallId}] GetCampaignState failed:`, err);
-			});
+			this.api
+				.GetCampaignState()
+				.then((s: State) => {
+					this.#setState(s);
+				})
+				.catch((err) => {
+					console.error(`❌ [Event ${eventId}->Call ${stateCallId}] GetCampaignState failed:`, err);
+				});
 		});
 		this.api.on('parse-audited', (data: any) => {
 			const audits = (data?.audits ?? []).map(normalizeParseAudit);
@@ -104,10 +113,15 @@ class CampaignState {
 			}
 
 			const logOnly = new Set(['NoParser', 'KnownFailure']);
-			const problematic = audits.filter((a: ParseAuditUI) => a.parseResult !== 'Parsed' && !logOnly.has(a.parseResult));
+			const problematic = audits.filter(
+				(a: ParseAuditUI) => a.parseResult !== 'Parsed' && !logOnly.has(a.parseResult)
+			);
 			const gaps = audits.filter((a: ParseAuditUI) => logOnly.has(a.parseResult));
 			if (gaps.length > 0) {
-				console.log('[parse-audited] parser gaps (log only):', gaps.map((a: ParseAuditUI) => `${a.effectId}: ${a.parseResult} (${a.detail})`));
+				console.log(
+					'[parse-audited] parser gaps (log only):',
+					gaps.map((a: ParseAuditUI) => `${a.effectId}: ${a.parseResult} (${a.detail})`)
+				);
 			}
 			if (problematic.length > 0) {
 				const details = problematic
@@ -290,16 +304,15 @@ class CampaignState {
 		let namespaces = [];
 		let pods = [];
 		let serviceAccounts = [];
-		
+
 		const timestamp = new Date().toISOString();
 		for (const [id, entity] of Object.entries(state.entities || {})) {
 			const typedEntity = entity as unknown as Entity;
 			if (typedEntity === null) {
 				console.warn(`⚠️ Skipping entity with id ${id} because it is null`);
-				console.log(state.entities)
+				console.log(state.entities);
 				continue;
 			}
-
 
 			if (typedEntity.kind === 'Namespace') {
 				namespaces.push(typedEntity);
@@ -314,14 +327,14 @@ class CampaignState {
 			}
 			entities.push(typedEntity);
 		}
-		
+
 		this.entities = entities;
 		this.namespaces = namespaces;
 		this.pods = pods;
 		this.serviceAccounts = serviceAccounts;
 
 		// Process relations
-		console.info("Setting campaign state with relations:", state.relations);
+		console.info('Setting campaign state with relations:', state.relations);
 		const relationsMap = new Map<string, Relation>();
 		for (const relation of state.relations || []) {
 			// Extract source and target from the relation
@@ -332,6 +345,7 @@ class CampaignState {
 			}
 		}
 		this.relations = relationsMap;
+		timeline.backfillBootstrap(state.bootstrapOperations ?? []);
 	}
 
 	// #updateState is currently unused but kept for potential future use
@@ -399,7 +413,7 @@ class CampaignState {
 	}
 
 	getEntityById(id: string): Entity | undefined {
-		if (id === "") {
+		if (id === '') {
 			return undefined;
 		}
 		const found = this.entities.find((entity) => entity.id === id);
@@ -410,16 +424,16 @@ class CampaignState {
 	}
 
 	getRelationById(id: string): Relation | undefined {
-		if (id === "") {
+		if (id === '') {
 			return undefined;
 		}
-		
+
 		// First check if we have the full relation data stored
 		const storedRelation = this.relations.get(id);
 		if (storedRelation) {
 			return storedRelation;
 		}
-		
+
 		// Fallback: parse the ID to create a basic relation object
 		const parts = id.match(/^(.+?)-\[(.+?)\]->(.+)$/);
 		if (parts) {
@@ -434,13 +448,13 @@ class CampaignState {
 		return undefined;
 	}
 
-
-
 	getCompromisedSystems(): Entity[] {
 		const systemKinds = ['Pod', 'K8sNode', 'UnknownSystem'];
 		return this.entities.filter(
-			(entity) => systemKinds.includes(entity.kind ?? '') &&
-				typeof entity.accessLevel === 'string' && entity.accessLevel.endsWith('exec')
+			(entity) =>
+				systemKinds.includes(entity.kind ?? '') &&
+				typeof entity.accessLevel === 'string' &&
+				entity.accessLevel.endsWith('exec')
 		);
 	}
 
@@ -454,26 +468,30 @@ class CampaignState {
 
 	getServiceAccountsWithTokens(ns?: string): Entity[] {
 		// Get all service account tokens
-		const tokens = this.entities.filter((entity) => entity.kind === 'ServiceAccountToken' || (entity.kind === 'ServiceAccount' && entity.hasOwnProperty('token'))); // Include ServiceAccounts that have token binaries
-		
+		const tokens = this.entities.filter(
+			(entity) =>
+				entity.kind === 'ServiceAccountToken' ||
+				(entity.kind === 'ServiceAccount' && entity.hasOwnProperty('token'))
+		); // Include ServiceAccounts that have token binaries
+
 		// Extract the ServiceAccount IDs from tokens (tokens have ID format: ns/{namespace}/sa/{saName}/token)
 		const saIdsWithTokens = new Set(
-			tokens.map(token => {
+			tokens.map((token) => {
 				// Extract SA ID from token ID by removing the /token suffix
 				const tokenId = token.id;
 				return tokenId.replace(/\/token$/, '');
 			})
 		);
-		
+
 		// Filter ServiceAccounts to only those that have tokens
 		let serviceAccounts = this.entities.filter(
 			(entity) => entity.kind === 'ServiceAccount' && saIdsWithTokens.has(entity.id)
 		);
-		
+
 		if (ns) {
 			serviceAccounts = serviceAccounts.filter((entity) => entity.namespace === ns);
 		}
-		
+
 		return serviceAccounts || [];
 	}
 
@@ -528,5 +546,5 @@ export function parseArmory(data: TTP[]): ArmoryType {
 	return armoryMap;
 }
 export function isRelation(id: string): boolean {
-		return id.indexOf('->') !== -1;
-	}	
+	return id.indexOf('->') !== -1;
+}

@@ -106,21 +106,38 @@ impl InferenceRule for NamespaceClusterAnalyzer {
     }
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
+        let clusters = view.collect::<K8sCluster>();
+        let cluster_ids = clusters.iter().map(Entity::entity_id).collect::<Vec<_>>();
+        let relations = view.relations();
 
-        // Only one cluster is currently supported; bail out if none is known.
-        let Some(cluster) = campaign.entities.values::<K8sCluster>().next() else {
+        // An unqualified namespace can only be attached automatically when the
+        // campaign has exactly one possible cluster. Kubeconfig discovery adds
+        // an explicit relation to its resolved cluster below, which also keeps
+        // multi-cluster campaigns from choosing an arbitrary parent.
+        let [cluster_id] = cluster_ids.as_slice() else {
             return inferred;
         };
-        let cluster_id = cluster.entity_id();
 
         for entity in &update.new_entities {
             let Some(ns) = entity.as_any().downcast_ref::<Namespace>() else {
                 continue;
             };
+            let namespace_id = ns.entity_id();
+            let already_attached = relations.iter().any(|relation| {
+                relation.name == "contains"
+                    && relation.target_id == namespace_id.0
+                    && cluster_ids
+                        .iter()
+                        .any(|candidate| candidate.0 == relation.source_id)
+            });
+            if already_attached {
+                continue;
+            }
 
             inferred.new_relations.push(Box::new(Contains::new(
                 cluster_id.0.clone(),
-                ns.entity_id().0.clone(),
+                namespace_id.0,
             )));
         }
 
@@ -1709,7 +1726,8 @@ impl InferenceRule for KubeconfigCredentialAnalyzer {
 
     fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
         let mut inferred = FactsUpdate::default();
-        let relations = PendingView::new(campaign, update).relations();
+        let view = PendingView::new(campaign, update);
+        let relations = view.relations();
 
         for entity in &update.new_entities {
             let Some(cred) = entity.as_any().downcast_ref::<K8sCredential>() else {
@@ -1749,9 +1767,27 @@ impl InferenceRule for KubeconfigCredentialAnalyzer {
                 .contains(&&cluster_id);
             if !already_related {
                 inferred.new_relations.push(Box::new(AuthenticatesTo::new(
-                    credential_id.0,
-                    cluster_id.0,
+                    credential_id.0.clone(),
+                    cluster_id.0.clone(),
                 )));
+            }
+
+            if let Some(namespace) = cred.default_namespace.as_deref() {
+                let (namespace_id, new_namespace) = view.ensure_namespace(namespace);
+                if let Some(namespace) = new_namespace {
+                    inferred.new_entities.push(Box::new(namespace));
+                }
+                let already_contained = relations.iter().any(|relation| {
+                    relation.name == "contains"
+                        && relation.source_id == cluster_id.0
+                        && relation.target_id == namespace_id.0
+                });
+                if !already_contained {
+                    inferred.new_relations.push(Box::new(Contains::new(
+                        cluster_id.0.clone(),
+                        namespace_id.0,
+                    )));
+                }
             }
         }
 
@@ -2621,6 +2657,41 @@ mod tests {
                 .any(|e| e.entity_kind() == "Cluster"),
             "expected K8sCluster entity to be derived from K8sCredential"
         );
+    }
+
+    #[test]
+    fn kubeconfig_namespace_is_attached_to_the_resolved_external_cluster() {
+        let campaign = test_campaign();
+        let active_cluster_id = campaign
+            .entities
+            .values::<K8sCluster>()
+            .next()
+            .unwrap()
+            .entity_id();
+        let endpoint = "https://external.example:6443";
+        let external_cluster_id = K8sCluster::new(endpoint)
+            .with_server(Some(endpoint.to_string()))
+            .entity_id();
+        let mut credential = K8sCredential::new(endpoint);
+        credential.default_namespace = Some("default".to_string());
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(credential));
+        let inferred = run_rules_fixpoint(&campaign, &default_rules(), update);
+
+        assert!(inferred.new_entities.iter().any(|entity| {
+            entity.entity_kind() == "Namespace" && entity.entity_id().0 == "ns/default"
+        }));
+        assert!(inferred.new_relations.iter().any(|relation| {
+            relation.is::<Contains>()
+                && relation.source_id() == &external_cluster_id
+                && relation.target_id().0 == "ns/default"
+        }));
+        assert!(!inferred.new_relations.iter().any(|relation| {
+            relation.is::<Contains>()
+                && relation.source_id() == &active_cluster_id
+                && relation.target_id().0 == "ns/default"
+        }));
     }
 
     #[test]

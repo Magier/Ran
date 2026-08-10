@@ -716,6 +716,47 @@ components:
           items:
             type: object
             additionalProperties: true
+        bootstrapOperations:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootstrapOperation'
+
+    BootstrapOperation:
+      type: object
+      required:
+        - id
+        - name
+        - detail
+        - effects
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        detail:
+          type: string
+        effects:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootstrapEffect'
+
+    BootstrapEffect:
+      type: object
+      required:
+        - entityId
+        - entityName
+        - entityKind
+        - category
+      properties:
+        entityId:
+          type: string
+        entityName:
+          type: string
+        entityKind:
+          type: string
+        category:
+          type: string
+          enum: [credential, discovery]
 
     AttackFlow:
       type: object

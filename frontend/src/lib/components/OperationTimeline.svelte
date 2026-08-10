@@ -65,7 +65,8 @@
         }
     }
 
-    function formatTime(d: Date): string {
+    function formatTime(d?: Date): string {
+        if (!d) return 'Startup';
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     }
 
@@ -212,20 +213,24 @@
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-1 flex-wrap leading-tight">
                                 <span class="font-medium">{entry.action.ttpName}</span>
-                                <span class="text-surface-500">on</span>
-                                <button
-                                    type="button"
-                                    class="text-primary-500 hover:underline truncate"
-                                    title={entry.action.targetName}
-                                    onclick={(e) => { e.stopPropagation(); onfocusentity(entry.action.targetId); }}
-                                >
-                                    {entry.action.targetName}
-                                </button>
-                                {#if entry.action.execSystemName}
-                                    <span class="text-surface-500 text-xs">via</span>
-                                    <span class="text-surface-500 text-xs truncate" title={entry.action.execSystemName}>
-                                        {entry.action.execSystemName}
-                                    </span>
+                                {#if entry.action.startup}
+                                    <span class="text-surface-500 text-xs">{entry.action.detail}</span>
+                                {:else}
+                                    <span class="text-surface-500">on</span>
+                                    <button
+                                        type="button"
+                                        class="text-primary-500 hover:underline truncate"
+                                        title={entry.action.targetName}
+                                        onclick={(e) => { e.stopPropagation(); onfocusentity(entry.action.targetId); }}
+                                    >
+                                        {entry.action.targetName}
+                                    </button>
+                                    {#if entry.action.execSystemName}
+                                        <span class="text-surface-500 text-xs">via</span>
+                                        <span class="text-surface-500 text-xs truncate" title={entry.action.execSystemName}>
+                                            {entry.action.execSystemName}
+                                        </span>
+                                    {/if}
                                 {/if}
                             </div>
                             {#if entry.action.status === 'failed' && entry.action.failReason}

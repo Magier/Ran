@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use campaign::{Campaign, CampaignEntityRef};
-use ran_domain::{AccessLevel, PodPhase};
+use ran_domain::{AccessLevel, Entity, EntityId, K8sCredential, PodPhase};
 use serde_json::Value;
 
-use crate::{CampaignState, Graph, GraphEdge, GraphNode};
+use crate::{BootstrapEffect, BootstrapOperation, CampaignState, Graph, GraphEdge, GraphNode};
 
 pub(crate) fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
     let mut entities = HashMap::new();
@@ -70,6 +70,91 @@ pub(crate) fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
                 m
             })
             .collect(),
+        bootstrap_operations: Some(bootstrap_operations(campaign)),
+    }
+}
+
+fn bootstrap_operations(campaign: &Campaign) -> Vec<BootstrapOperation> {
+    let mut operations = campaign
+        .entities
+        .values::<K8sCredential>()
+        .filter_map(|credential| {
+            let credential_id = credential.entity_id();
+            let provenance = campaign.entity_provenance(&credential_id);
+            if !provenance.contains(&campaign::KnowledgeProvenance::Operator)
+                && !provenance.contains(&campaign::KnowledgeProvenance::Scenario)
+            {
+                return None;
+            }
+
+            let cluster_id = campaign
+                .graph
+                .targets_of(&credential_id, "authenticates-to")
+                .first()
+                .cloned()
+                .cloned()?;
+            let cluster = campaign
+                .get_entities()
+                .into_iter()
+                .find(|entity| entity.entity_id() == cluster_id)?;
+            let mut effects = vec![bootstrap_effect(
+                credential_id.clone(),
+                credential.entity_name(),
+                credential.entity_kind(),
+            )];
+            effects.push(bootstrap_effect(
+                cluster_id.clone(),
+                cluster.entity_name(),
+                cluster.entity_kind(),
+            ));
+
+            if let Some(namespace) = credential.default_namespace.as_deref() {
+                let namespace_id = EntityId::new(format!("ns/{namespace}"));
+                let is_contained = campaign
+                    .graph
+                    .targets_of(&cluster_id, "contains")
+                    .contains(&&namespace_id);
+                if is_contained {
+                    if let Some(namespace_entity) = campaign
+                        .get_entities()
+                        .into_iter()
+                        .find(|entity| entity.entity_id() == namespace_id)
+                    {
+                        effects.push(bootstrap_effect(
+                            namespace_id,
+                            namespace_entity.entity_name(),
+                            namespace_entity.entity_kind(),
+                        ));
+                    }
+                }
+            }
+
+            let detail = match credential.context_name.as_deref() {
+                Some(context) => format!("{} (context: {context})", credential.entity_name()),
+                None => credential.entity_name().to_string(),
+            };
+            Some(BootstrapOperation {
+                id: format!("bootstrap:kubeconfig:{}", credential_id.0),
+                name: "Read kubeconfig".to_string(),
+                detail,
+                effects,
+            })
+        })
+        .collect::<Vec<_>>();
+    operations.sort_by(|a, b| a.id.cmp(&b.id));
+    operations
+}
+
+fn bootstrap_effect(entity_id: EntityId, entity_name: &str, entity_kind: &str) -> BootstrapEffect {
+    BootstrapEffect {
+        entity_id: entity_id.0,
+        entity_name: entity_name.to_string(),
+        entity_kind: entity_kind.to_string(),
+        category: if entity_kind == "K8sCredential" {
+            "credential".to_string()
+        } else {
+            "discovery".to_string()
+        },
     }
 }
 
@@ -379,6 +464,8 @@ mod tests {
         let cluster = K8sCluster::new("demo").with_server(Some("https://demo".into()));
         let cluster_id = cluster.entity_id();
         let mut credential = K8sCredential::new("https://demo").with_name("developer");
+        credential.context_name = Some("demo-context".to_string());
+        credential.default_namespace = Some("default".to_string());
         credential.token = Some("super-secret".into());
         credential.key_data = Some("private-key".into());
         credential.cert_data = Some("certificate".into());
@@ -441,5 +528,44 @@ mod tests {
             edge.name == "authenticates-to"
                 && edge.provenance.as_deref() == Some(["scenario".to_string()].as_slice())
         }));
+
+        let operations = state.bootstrap_operations.unwrap();
+        assert_eq!(operations.len(), 1);
+        assert_eq!(operations[0].name, "Read kubeconfig");
+        assert_eq!(operations[0].detail, "developer (context: demo-context)");
+        assert_eq!(
+            operations[0]
+                .effects
+                .iter()
+                .map(|effect| effect.entity_kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["K8sCredential", "Cluster", "Namespace"]
+        );
+    }
+
+    #[test]
+    fn action_discovered_credentials_do_not_create_bootstrap_operations() {
+        let cluster = K8sCluster::new("external").with_server(Some("https://external".into()));
+        let cluster_id = cluster.entity_id();
+        let credential = K8sCredential::new("https://external").with_name("captured");
+        let campaign = Campaign::bootstrap_with_knowledge(
+            "test",
+            InitialKnowledge {
+                clusters: vec![InitialClusterKnowledge {
+                    cluster,
+                    provenance: BTreeSet::from([KnowledgeProvenance::Action]),
+                }],
+                kubeconfigs: vec![InitialKubeconfigKnowledge {
+                    credential,
+                    cluster_id,
+                    provenance: BTreeSet::from([KnowledgeProvenance::Action]),
+                }],
+            },
+        );
+
+        assert!(campaign_to_campaign_state(&campaign)
+            .bootstrap_operations
+            .unwrap()
+            .is_empty());
     }
 }

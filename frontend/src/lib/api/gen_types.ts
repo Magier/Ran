@@ -542,6 +542,20 @@ export interface components {
             relations: {
                 [key: string]: unknown;
             }[];
+            bootstrapOperations?: components["schemas"]["BootstrapOperation"][];
+        };
+        BootstrapOperation: {
+            id: string;
+            name: string;
+            detail: string;
+            effects: components["schemas"]["BootstrapEffect"][];
+        };
+        BootstrapEffect: {
+            entityId: string;
+            entityName: string;
+            entityKind: string;
+            /** @enum {string} */
+            category: "credential" | "discovery";
         };
         AttackFlow: {
             steps: components["schemas"]["AttackStep"][];
