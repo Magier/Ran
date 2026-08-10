@@ -45,6 +45,13 @@ fn resolve_ttp_and_defaults(
     mut args: HashMap<String, String>,
     armory: &Armory,
 ) -> Result<(Ttp, HashMap<String, String>), ExecuteActionError> {
+    if action_id == armory::DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID {
+        tracing::warn!(
+            action_id,
+            replacement = armory::VALID_ACCOUNTS_KUBECONFIG_ID,
+            "deprecated TTP ID used"
+        );
+    }
     let ttp = armory.get_ttp(action_id).cloned().ok_or_else(|| {
         ExecuteActionError::NotFound(format!("No TTP with ID '{}' found", action_id))
     })?;
@@ -71,7 +78,7 @@ fn normalise_exec_hint(exec_system_id: Option<&str>, target_id: &str) -> Option<
 /// Local C2-side control commands that should never require an exec channel.
 fn is_local_control_command(cmd: &str) -> bool {
     let trimmed = cmd.trim_start();
-    trimmed.starts_with("setTarget(") || trimmed == "noop"
+    trimmed.starts_with("c2.kubectl_exec(") || trimmed == "noop"
 }
 
 /// Ground the procedure command and all TTP effects with the collected args.
@@ -643,6 +650,23 @@ impl Campaign {
             }
         }
 
+        // This action's semantic target is the selected Pod. Never allow
+        // legacy Namespace/PodName arguments to redirect execution elsewhere.
+        if ttp.id == armory::VALID_ACCOUNTS_KUBECONFIG_ID {
+            let Some((namespace, pod_name)) = split_pod_entity_id(&target_id) else {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "action '{}' requires a Pod target in the form ns/<namespace>/pod/<name>",
+                    ttp.id
+                )));
+            };
+            for key in ["NAMESPACE", "NS"] {
+                args.insert(key.to_string(), namespace.to_string());
+            }
+            for key in ["PODNAME", "POD_NAME"] {
+                args.insert(key.to_string(), pod_name.to_string());
+            }
+        }
+
         let eligible_identities =
             crate::ttp_applicability::eligible_auth_identities(&ttp, self, &target_id);
         let implicit_identity = args
@@ -725,12 +749,7 @@ impl Campaign {
                     procedure.command = describe_k8s_request(&procedure.id, request)?;
                 }
             }
-            let supported = procedure.k8s_request.is_some()
-                || procedure.command.contains("kubectl ")
-                || procedure
-                    .command
-                    .trim_start()
-                    .starts_with("k8sSelfSubjectRulesReview(");
+            let supported = crate::ttp_applicability::procedure_uses_k8s_auth(&procedure);
             if !supported {
                 return Err(ExecuteActionError::InvalidInput(format!(
                     "procedure '{}' does not support kubeconfig authentication",
@@ -924,12 +943,7 @@ impl Campaign {
         lateral_src: Option<ExecChannel>,
     ) -> Result<ExecRoute, ExecuteActionError> {
         if auth_identity_id.is_some_and(|identity| identity.starts_with("k8s/credential/"))
-            && (procedure.k8s_request.is_some()
-                || procedure.command.contains("kubectl ")
-                || procedure
-                    .command
-                    .trim_start()
-                    .starts_with("k8sSelfSubjectRulesReview("))
+            && crate::ttp_applicability::procedure_uses_k8s_auth(procedure)
         {
             return Ok(ExecRoute::direct(
                 BUILTIN_C2_ID.to_string(),

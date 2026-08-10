@@ -248,7 +248,9 @@ impl<S: ApiService> RanMcpHandler<S> {
         use campaign::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
 
         let tc = resolve_target_context(&campaign, target_id).ok_or_else(|| {
-            invalid_param(format!("entity `{target_id}` not found. For initial access, use the Cluster entity as target_id (not a pod ID) and pass the pod name as a parameter."))
+            invalid_param(format!(
+                "entity `{target_id}` is not in campaign knowledge; use get_initial_access_candidates before the first foothold"
+            ))
         })?;
 
         let applicable: Vec<_> = all_ttps
@@ -268,7 +270,7 @@ impl<S: ApiService> RanMcpHandler<S> {
             .map_err(api_err)?;
         let ttp = ttps
             .into_iter()
-            .find(|t| t.id == ttp_id)
+            .find(|t| t.id == armory::canonical_ttp_id(ttp_id))
             .ok_or_else(|| invalid_param(format!("TTP `{ttp_id}` not found in armory")))?;
         json_result(ttp)
     }
@@ -291,11 +293,13 @@ impl<S: ApiService> RanMcpHandler<S> {
                 .into_iter()
                 .any(|e| e.entity_id().0 == target_id)
         };
-        if !known {
+        let stages_initial_pod =
+            armory::canonical_ttp_id(&action_id) == armory::VALID_ACCOUNTS_KUBECONFIG_ID;
+        if !known && !stages_initial_pod {
             return Err(invalid_param(format!(
-                "entity `{target_id}` is not in the campaign graph. \
-                 For initial access use the Cluster entity as target_id \
-                 and pass the pod name/namespace as TTP parameters."
+                "entity `{target_id}` is not in the campaign graph; use \
+                 get_initial_access_candidates and valid-accounts-kubeconfig \
+                 for the first foothold"
             )));
         }
 
@@ -561,7 +565,7 @@ impl<S: ApiService> RanMcpHandler<S> {
 
         json_result(json!({
             "candidates": candidates,
-            "hint": "Use the `id` field as `target_id` when calling execute_action with an InitialAccess TTP."
+            "hint": "Use the `id` field as target_id when calling execute_action with action_id valid-accounts-kubeconfig."
         }))
     }
 }
@@ -733,7 +737,8 @@ fn tool_defs() -> Vec<Tool> {
             "get_initial_access_candidates",
             "List running pods directly from Kubernetes (not the campaign graph). \
              Use this ONLY to find an initial foothold — it returns live pods the agent \
-             can exec into as a first step. Optionally filter by namespace.",
+             can pass to valid-accounts-kubeconfig as the first step. Optionally \
+             filter by namespace.",
             schema(json!({
                 "type": "object",
                 "properties": {

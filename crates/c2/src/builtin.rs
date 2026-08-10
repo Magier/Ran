@@ -48,13 +48,6 @@ impl BuiltinC2 {
     }
 
     pub async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
-        let command = cmd.procedure.command.trim();
-
-        if command.starts_with("setTarget(") {
-            debug!(cmd_id = %cmd.id, "builtin c2 accepted setTarget procedure");
-            return ok_result(&cmd.id, "ok".to_string());
-        }
-
         let routing_target = cmd.exec_entity();
         if let Some((namespace, pod_name)) = parse_pod_target_id(routing_target) {
             debug!(

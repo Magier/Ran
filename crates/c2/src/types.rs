@@ -59,7 +59,7 @@ impl ExecTtp {
 }
 
 /// Session probe data collected when a synchronous exec session is opened as
-/// part of a TTP execution (e.g. `setTarget` with `Interactive=true`).
+/// part of a TTP execution (e.g. `c2.kubectl_exec()`).
 /// Embedded in `TtpExecuted` so the campaign can apply it after TTP effects,
 /// avoiding the ordering problems of a separate `SessionConnected` event.
 #[derive(Debug, Clone, Serialize, Deserialize)]
