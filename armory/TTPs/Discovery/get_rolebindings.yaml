@@ -1,5 +1,5 @@
 id: get-rolebindings
-name: Get RoleBindings via API Server
+name: Get RoleBindings
 description: Get a list of RoleBindings via the K8s API server
 tactic: Discovery
 techniques: [ "Container and Resource Discovery", T1613 ]

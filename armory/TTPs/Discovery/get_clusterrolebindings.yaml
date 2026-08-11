@@ -1,5 +1,5 @@
 id: get-clusterrolebindings
-name: Get ClusterRoleBindings via API Server
+name: Get ClusterRoleBindings
 description: Get a list of ClusterRoleBindings via the K8s API server
 tactic: Discovery
 techniques: [ "Container and Resource Discovery", T1613 ]
