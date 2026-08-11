@@ -286,7 +286,7 @@ describe('TimelineStore', () => {
         expect(startup.kind).toBe('action-group');
         if (startup.kind === 'action-group') {
             expect(startup.action.startup).toBe(true);
-            expect(startup.action.timestamp).toBeUndefined();
+            expect(startup.action.timestamp).toBeInstanceOf(Date);
             expect(startup.effects.map((effect) => effect.entityKind)).toEqual([
                 'K8sCredential',
                 'Cluster',

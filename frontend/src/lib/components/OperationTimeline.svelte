@@ -65,9 +65,29 @@
         }
     }
 
-    function formatTime(d?: Date): string {
-        if (!d) return 'Startup';
-        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    function formatCompactTime(d: Date): string {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    function formatFullTime(d: Date): string {
+        return d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'long' });
+    }
+
+    let timestampTooltip = $state<{ text: string; left: number; top: number }>();
+
+    function showTimestampTooltip(event: MouseEvent | FocusEvent, timestamp: Date) {
+        const trigger = event.currentTarget;
+        if (!(trigger instanceof HTMLElement)) return;
+        const bounds = trigger.getBoundingClientRect();
+        timestampTooltip = {
+            text: formatFullTime(timestamp),
+            left: bounds.left + bounds.width / 2,
+            top: bounds.top - 6
+        };
+    }
+
+    function hideTimestampTooltip() {
+        timestampTooltip = undefined;
     }
 
     function entityPrefix(entry: EntityEntry): string {
@@ -123,6 +143,7 @@
 
     function onTimelineScroll() {
         if (!scrollEl) return;
+        hideTimestampTooltip();
         const slack = 24; // px tolerance — near-bottom still counts as bottom
         stickToBottom =
             scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - slack;
@@ -138,6 +159,26 @@
         }
     });
 </script>
+
+{#snippet timestamp(value?: Date, startup = false)}
+    {#if value}
+        {@const fullTimestamp = formatFullTime(value)}
+        <button
+            type="button"
+            class="text-surface-500 text-xs shrink-0 mt-0.5 cursor-help"
+            aria-label={fullTimestamp}
+            onmouseenter={(event) => showTimestampTooltip(event, value)}
+            onmouseleave={hideTimestampTooltip}
+            onfocus={(event) => showTimestampTooltip(event, value)}
+            onblur={hideTimestampTooltip}
+            onclick={(event) => event.stopPropagation()}
+        >
+            {startup ? 'Startup' : formatCompactTime(value)}
+        </button>
+    {:else}
+        <span class="text-surface-500 text-xs shrink-0 mt-0.5">Startup</span>
+    {/if}
+{/snippet}
 
 <div
     class="shrink-0 bg-surface-100-900 border-t border-surface-200-800 flex flex-col relative"
@@ -260,7 +301,7 @@
                         </div>
 
                         <!-- Timestamp -->
-                        <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(entry.action.timestamp)}</span>
+                        {@render timestamp(entry.action.timestamp, entry.action.startup)}
                     </div>
 
                     <!-- Expanded child effect rows -->
@@ -277,7 +318,7 @@
                                         onclick={() => onfocusentity(effect.entityId)}
                                     >{effect.entityName}</button>
                                 </div>
-                                <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(effect.timestamp)}</span>
+                                {@render timestamp(effect.timestamp)}
                             </div>
                         {/each}
                     {/if}
@@ -295,10 +336,20 @@
                                 onclick={() => onfocusentity(entry.entityId)}
                             >{entry.entityName}</button>
                         </div>
-                        <span class="text-surface-500 text-xs shrink-0 mt-0.5">{formatTime(entry.timestamp)}</span>
+                        {@render timestamp(entry.timestamp)}
                     </div>
                 {/if}
             {/each}
         {/if}
     </div>
+
+    {#if timestampTooltip}
+        <div
+            role="tooltip"
+            class="fixed z-[100] pointer-events-none -translate-x-1/2 -translate-y-full whitespace-nowrap bg-surface-100-900 border border-surface-300-700 rounded px-2 py-1 shadow-lg text-xs"
+            style="left: {timestampTooltip.left}px; top: {timestampTooltip.top}px"
+        >
+            {timestampTooltip.text}
+        </div>
+    {/if}
 </div>
