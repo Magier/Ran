@@ -1,4 +1,4 @@
-name: Get Roles via API Server
+name: Get Roles
 description: Get a list of ServiceAccounts via the API server
 tactic: Discovery
 techniques: [ "Container and Resource Discovery", T1613 ]

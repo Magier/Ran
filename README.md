@@ -191,7 +191,7 @@ The armory is Ran's library of executable TTPs. Each TTP is a YAML file describi
 
 ```yaml
 id: get-pods
-name: Get Pods via K8s API
+name: Get Pods
 tactic: Discovery
 techniques: ["Container and Resource Discovery", T1613]
 preconditions:

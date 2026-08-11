@@ -1,4 +1,4 @@
-name: Get Deployments via API Server
+name: Get Deployments
 description: Get a list of deployments via the API server
 tactic: Discovery
 techniques: [ "Container and Resource Discovery", T1613 ]
