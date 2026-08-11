@@ -190,6 +190,7 @@ export class TimelineStore {
      * stable backend IDs, so repeated campaign-state refreshes are idempotent.
      */
     backfillBootstrap(operations: BootstrapOperation[]): void {
+        const timestamp = new Date();
         for (const operation of [...operations].sort((a, b) => b.id.localeCompare(a.id))) {
             if (this.index.has(operation.id)) continue;
 
@@ -204,7 +205,8 @@ export class TimelineStore {
                     targetName: '',
                     status: 'success',
                     startup: true,
-                    detail: operation.detail
+                    detail: operation.detail,
+                    timestamp
                 },
                 effects: [],
                 collapsed: true
