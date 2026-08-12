@@ -8,7 +8,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 #[derive(Debug, Parser)]
-#[command(name = "ran", about = "Ran CLI")]
+#[command(name = "ran", about = "Ran CLI", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -288,4 +288,24 @@ fn resolve_armory_dir(arg: Option<PathBuf>) -> Result<PathBuf> {
     }
     let cwd = std::env::current_dir()?;
     Ok(cwd.join("armory").join("TTPs"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::error::ErrorKind;
+
+    #[test]
+    fn version_flags_print_the_package_version() {
+        for flag in ["--version", "-V"] {
+            let error = Cli::try_parse_from(["ran", flag])
+                .expect_err("the version flag should exit after displaying the version");
+
+            assert_eq!(error.kind(), ErrorKind::DisplayVersion);
+            assert_eq!(
+                error.to_string(),
+                format!("ran {}\n", env!("CARGO_PKG_VERSION"))
+            );
+        }
+    }
 }
