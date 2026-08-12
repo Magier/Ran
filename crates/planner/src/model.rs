@@ -141,10 +141,9 @@ impl ParsedGraphDep {
         let step_ref = parts[0].strip_prefix("step:")?.to_string();
         let (all, relation) = if let Some(r) = parts[1].strip_prefix("all_have:") {
             (true, r.to_string())
-        } else if let Some(r) = parts[1].strip_prefix("has:") {
-            (false, r.to_string())
         } else {
-            return None;
+            let r = parts[1].strip_prefix("has:")?;
+            (false, r.to_string())
         };
         Some(Self {
             step_ref,
@@ -252,6 +251,31 @@ steps:
         require: success
       - graph: "step:step_a has:rce.can-exec"
 "#;
+
+    #[test]
+    fn parses_graph_dependency_predicates() {
+        let has = ParsedGraphDep::parse("step:first has:rce.can-exec").unwrap();
+        assert_eq!(has.step_ref, "first");
+        assert_eq!(has.relation, "rce.can-exec");
+        assert!(!has.all);
+
+        let all_have = ParsedGraphDep::parse("step:first all_have:rce.can-exec").unwrap();
+        assert_eq!(all_have.step_ref, "first");
+        assert_eq!(all_have.relation, "rce.can-exec");
+        assert!(all_have.all);
+    }
+
+    #[test]
+    fn rejects_malformed_graph_dependency_predicates() {
+        for raw in [
+            "",
+            "step:first",
+            "node:first has:rce.can-exec",
+            "step:first lacks:rce.can-exec",
+        ] {
+            assert!(ParsedGraphDep::parse(raw).is_none(), "accepted {raw:?}");
+        }
+    }
 
     #[test]
     fn parses_plan_from_yaml() {
