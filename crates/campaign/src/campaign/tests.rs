@@ -1086,6 +1086,7 @@ fn prepare_action_explicit_exec_source_entity_runs_from_that_system() {
     let target = Pod::new("redis.10-244-1-7", "oopservability");
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
+    push_relation(&mut campaign, &RceCanExec::new(&source_id, &target_id));
 
     let armory = minimal_armory("test-ttp");
     let exec = campaign
@@ -1119,6 +1120,7 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
     let target = Pod::new("redis.10-244-1-7", "oopservability");
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
+    push_relation(&mut campaign, &RceCanExec::new(&source_id, &target_id));
 
     let armory = Armory::from_ttps(vec![Ttp {
         effects: vec!["rce.can-exec(${src}, ${TARGET_ID})".to_string()],
