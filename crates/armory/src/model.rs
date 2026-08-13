@@ -25,8 +25,10 @@ pub struct Procedure {
     /// `command` for `http-request` procedures.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http_request: Option<JsonValue>,
-    /// Structured Kubernetes API request spec. When present, the runtime
-    /// materializes this into a concrete kubectl/curl shell command.
+    /// Structured Kubernetes API request spec. Its TTP must declare a
+    /// `K8S_AUTH` parameter of type `K8sAuth`, and the request must declare
+    /// `authentication: ${K8S_AUTH}`. The runtime resolves the selected entity
+    /// and materializes the request into a concrete native/curl operation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub k8s_request: Option<JsonValue>,
     /// Ordered list of typed steps (fetch, chmod, run, …). When present the

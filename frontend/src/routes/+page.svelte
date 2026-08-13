@@ -256,13 +256,7 @@
 	async function sendAction(ttp: TTP, args = {}) {
 		selectedTTP = ttp;
 		ttpArgContext = { ...args, ...activeGlobalConditions };
-		const usesK8sAuth = ttp.procedures?.some(procedure =>
-			procedure.id === 'kubectl'
-			|| procedure.id === 'k8s-request'
-			|| procedure.command?.includes('kubectl ')
-			|| procedure.command?.startsWith('k8sSelfSubjectRulesReview(')
-		);
-		if (ttp.params || usesK8sAuth) {
+		if ((ttp.params?.length ?? 0) > 0) {
 			showParamModal = true;
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;

@@ -1,5 +1,5 @@
 name: Get Pods via Node/Proxy
-description: Get a list of pods on the node via the kubelet API
+description: Get a list of pods on the node through the Kubernetes API server proxy
 tactic: Discovery
 techniques: [ "Container and Resource Discovery", T1613 ]
 preconditions:
@@ -8,18 +8,20 @@ preconditions:
     - verb: get
       resource: "nodes/proxy"
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   NODE:
     type: string
     default: ${TARGET}
     description: the name of the node for which the running pods will be listed
-  TOKEN:
-    type: ServiceAccount
-    description: the ServiceAccount token used to authenticate to the kubelet API
 procedures:
-  - http_request:
-      url: ${API_SERVER}/api/v1/nodes/${NODE}/proxy/pods
-      headers:
-        Authorization: Bearer ${TOKEN}
+  - k8s_request:
+      authentication: ${K8S_AUTH}
+      api_server: ${API_SERVER}
+      api: /api/v1
+      resource: nodes/${NODE}/proxy/pods
+      cluster_scoped: true
       use_ca: false
 
 effects:

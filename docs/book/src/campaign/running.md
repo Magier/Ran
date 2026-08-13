@@ -20,8 +20,10 @@ loop an adversary would.
    note which procedures are available. Select the procedure that matches your
    current tooling (e.g. `kubectl` vs raw `curl` vs the built-in k8s-request).
 
-4. **Adjust parameters if needed.** Most parameters have sensible defaults derived
-   from the target entity. Override as required.
+4. **Choose K8S_AUTH and adjust parameters.** Kubernetes actions declare a
+   `K8sAuth` parameter populated with eligible captured ServiceAccounts and the
+   active K8sCredential. Other parameters retain sensible defaults derived from
+   the target entity.
 
 5. **Execute.** The output streams to the right panel. Watch the cluster map —
    newly discovered entities appear as nodes, and new relations appear as edges.

@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::{collections::HashMap, env, path::PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use http::{Method, Request};
@@ -251,6 +251,61 @@ pub struct Client {
     kubeconfig_path: Option<PathBuf>,
 }
 
+fn build_authenticated_http_request(request: &serde_json::Value) -> Result<Request<Vec<u8>>> {
+    #[derive(Deserialize)]
+    struct Spec {
+        authentication: String,
+        url: String,
+        #[serde(default = "default_method")]
+        method: String,
+        #[serde(default)]
+        headers: HashMap<String, String>,
+        #[serde(default)]
+        body: String,
+    }
+    fn default_method() -> String {
+        "GET".to_string()
+    }
+
+    let spec: Spec = serde_json::from_value(request.clone())
+        .context("invalid authenticated Kubernetes HTTP request")?;
+    if spec.authentication.trim().is_empty() {
+        return Err(anyhow!(
+            "Kubernetes HTTP request is missing explicit authentication"
+        ));
+    }
+    if spec
+        .headers
+        .keys()
+        .any(|name| name.eq_ignore_ascii_case("authorization"))
+    {
+        return Err(anyhow!(
+            "Kubernetes HTTP request must not supply its own Authorization header"
+        ));
+    }
+
+    let authored_uri: http::Uri = spec
+        .url
+        .trim()
+        .parse()
+        .with_context(|| format!("invalid Kubernetes HTTP URL '{}'", spec.url.trim()))?;
+    let path = authored_uri
+        .path_and_query()
+        .map(|value| value.as_str())
+        .filter(|value| value.starts_with('/'))
+        .ok_or_else(|| anyhow!("Kubernetes HTTP URL must include an absolute API path"))?;
+    let method = Method::from_bytes(spec.method.trim().as_bytes())
+        .with_context(|| format!("invalid Kubernetes HTTP method '{}'", spec.method))?;
+
+    let mut builder = Request::builder().method(method).uri(path);
+    for (name, value) in spec.headers {
+        builder = builder.header(name, value);
+    }
+    builder
+        .body(spec.body.into_bytes())
+        .context("failed to build Kubernetes HTTP request")
+}
+
 impl Client {
     pub async fn from_kubeconfig(kubeconfig: Option<PathBuf>) -> Result<Self> {
         let path = kubeconfig.unwrap_or_else(default_kubeconfig_path);
@@ -376,25 +431,32 @@ impl Client {
             .context("Kubernetes API request failed")
     }
 
-    /// Run a kubectl procedure on the Ran host using the active kubeconfig via
-    /// process environment. The kubeconfig path is not appended to the command,
-    /// recorded in execution args, or returned to callers.
+    /// Execute a general HTTP-form Kubernetes procedure through this client's
+    /// configured API server, authentication, and TLS stack. The authored URL
+    /// contributes only its path and query; the active kubeconfig selects the
+    /// server and supplies authentication.
+    pub async fn execute_authenticated_http_request(
+        &self,
+        request: &serde_json::Value,
+    ) -> Result<String> {
+        let request = build_authenticated_http_request(request)?;
+        self.client
+            .request_text(request)
+            .await
+            .context("Kubernetes HTTP request failed")
+    }
+
+    /// Run a kubectl procedure on the Ran host. `${K8S_AUTH}` grounding emits
+    /// an explicit `--kubeconfig "$KUBECONFIG"` flag while the actual path is
+    /// supplied only through this process environment.
     pub async fn execute_kubectl_command(&self, command: &str) -> Result<PodExecOutput> {
         let kubeconfig = self
             .kubeconfig_path
             .as_ref()
             .ok_or_else(|| anyhow!("active Kubernetes client has no file-backed kubeconfig"))?;
-        let empty_equals = regex::Regex::new(
-            r#"\s+--token=(?:""|''|\$TOKEN|\$\{TOKEN\}|\{\{\s*Token\s*\}\})?(\s|$)"#,
-        )?;
-        let empty_separate = regex::Regex::new(
-            r#"\s+--token\s+(?:""|''|\$TOKEN|\$\{TOKEN\}|\{\{\s*Token\s*\}\})(\s|$)"#,
-        )?;
-        let command = empty_equals.replace_all(command, "$1");
-        let command = empty_separate.replace_all(&command, "$1");
         let output = tokio::process::Command::new("/bin/sh")
             .arg("-lc")
-            .arg(command.as_ref())
+            .arg(command)
             .env("KUBECONFIG", kubeconfig)
             .output()
             .await
@@ -620,5 +682,36 @@ users:
         assert!(resolve_kubeconfig_yaml(KUBECONFIG, Some("missing")).is_err());
         let missing_user = KUBECONFIG.replace("user: user-a", "user: missing");
         assert!(resolve_kubeconfig_yaml(&missing_user, None).is_err());
+    }
+
+    #[test]
+    fn authenticated_http_request_preserves_method_path_headers_and_body() {
+        let request = build_authenticated_http_request(&serde_json::json!({
+            "authentication": "--kubeconfig \"$KUBECONFIG\"",
+            "method": "POST",
+            "url": "https://ignored.example/apis/authorization.k8s.io/v1/selfsubjectrulesreviews?watch=false",
+            "headers": {"Content-Type": "application/json"},
+            "body": "{\"kind\":\"SelfSubjectRulesReview\"}"
+        }))
+        .unwrap();
+
+        assert_eq!(request.method(), Method::POST);
+        assert_eq!(
+            request.uri().path_and_query().unwrap().as_str(),
+            "/apis/authorization.k8s.io/v1/selfsubjectrulesreviews?watch=false"
+        );
+        assert_eq!(request.headers()["Content-Type"], "application/json");
+        assert_eq!(request.body(), br#"{"kind":"SelfSubjectRulesReview"}"#);
+    }
+
+    #[test]
+    fn authenticated_http_request_rejects_authored_authorization_header() {
+        let result = build_authenticated_http_request(&serde_json::json!({
+            "authentication": "${K8S_AUTH}",
+            "url": "https://cluster.example/api/v1/pods",
+            "headers": {"authorization": "Bearer hidden"}
+        }));
+
+        assert!(result.is_err());
     }
 }

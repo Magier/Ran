@@ -198,13 +198,20 @@ preconditions:
   rbac:
     - verb: list
       resource: pods
+parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
 procedures:
   - key: kubectl
-    command: kubectl get pods --token=${TOKEN} -n=${NS}
-  - key: curl
-    command: >-
-      curl -H "Authorization: Bearer ${TOKEN}"
-      "${API_SERVER}/api/v1/namespaces/${NS}/pods"
+    command: kubectl ${K8S_AUTH} get pods -n=${NS}
+  - key: k8s-request
+    k8s_request:
+      authentication: ${K8S_AUTH}
+      api_server: ${API_SERVER}
+      api: /api/v1
+      resource: pods
+      namespace: ${NS}
 ```
 
 TTPs are organized by MITRE tactic:
@@ -290,5 +297,3 @@ Contributions are welcome — especially new TTPs in the armory, bug reports, an
 ## License
 
 Ran is released under the [Apache 2.0 License](LICENSE).
-
-

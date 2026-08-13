@@ -8,22 +8,20 @@ preconditions:
     - verb: get
       resource: nodes
 parameters:
-  TOKEN:
-    type: ServiceAccount
-    description: the ServiceAccount token used to authorize this request
-    optional: true
-    default: ""
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
 procedures:
   - key: kubectl
     command: >-
-      kubectl get nodes --token=${TOKEN} --output=json
+      kubectl get nodes ${K8S_AUTH} --output=json
   - key: k8s-request
     k8s_request:
+      authentication: ${K8S_AUTH}
       api_server: ${API_SERVER}
       api: /api/v1
       resource: nodes
       query: limit=500
-      token: ${TOKEN}
       ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 effects:
   - k8s.nodeList

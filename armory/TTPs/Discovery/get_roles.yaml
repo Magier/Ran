@@ -8,11 +8,9 @@ preconditions:
     - verb: get
       resource: roles
 parameters:
-  TOKEN:
-    type: ServiceAccount
-    description: the ServiceAccount token used to authorize this request
-    optional: true
-    # default: ""
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   NS:
     type: Namespace
     description: specify the namespace to get pods from
@@ -28,9 +26,10 @@ parameters:
 procedures:
   - key: kubectl
     command: >-
-      kubectl get roles --token=${TOKEN} {% if not CLUSTER_ROLE %} -n=${NS}
+      kubectl get roles ${K8S_AUTH} {% if not CLUSTER_ROLE %} -n=${NS}
       -A=${ALL_NS} {% endif %} --output=json
   - http_request:
+      authentication: ${K8S_AUTH}
       url: >-
         {% if CLUSTER_ROLE %}
         ${API_SERVER}/apis/rbac.authorization.k8s.io/v1/clusterroles?limit=500
@@ -42,7 +41,6 @@ procedures:
       headers:
         Accept: application/json
         User-Agent: kubectl/v1.35.0 (linux/amd64) kubernetes/6fc0a69
-        Authorization: Bearer ${TOKEN}
       use_ca: false
 effects:
   - k8s.roleList

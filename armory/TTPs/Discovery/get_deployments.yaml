@@ -8,11 +8,9 @@ preconditions:
     - verb: get
       resource: deployments
 parameters:
-  TOKEN:
-    type: ServiceAccount
-    description: the ServiceAccount token used to authorize this request
-    optional: true
-    default: ""
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   NS:
     type: Namespace
     description: specify the namespace to get pods from
@@ -24,17 +22,17 @@ parameters:
 procedures:
   - key: kubectl
     command: >-
-      kubectl get deployments --token=${TOKEN} -n=${NS} -A=${ALL_NS}
+      kubectl get deployments ${K8S_AUTH} -n=${NS} -A=${ALL_NS}
       --output=json
   - key: k8s-request
     k8s_request:
+      authentication: ${K8S_AUTH}
       api_server: ${API_SERVER}
       api: /apis/apps/v1
       resource: deployments
       namespace: ${NS}
       cluster_scoped: ${ALL_NS}
       query: limit=500
-      token: ${TOKEN}
       ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 effects:
   - k8s.deploymentList

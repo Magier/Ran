@@ -229,6 +229,14 @@ impl C2Manager {
                         stderr: String::new(),
                         exit_code: 0,
                     })
+            } else if let Some(request) = cmd.procedure.http_request.as_ref() {
+                k8s.execute_authenticated_http_request(request)
+                    .await
+                    .map(|stdout| PodExecOutput {
+                        stdout,
+                        stderr: String::new(),
+                        exit_code: 0,
+                    })
             } else if trimmed.contains("kubectl ") || trimmed.starts_with("kubectl") {
                 k8s.execute_kubectl_command(trimmed).await
             } else {

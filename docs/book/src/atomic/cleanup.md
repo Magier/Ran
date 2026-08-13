@@ -8,12 +8,16 @@ deployed pods, injected configuration. Cleanup procedures reverse those changes.
 A TTP can declare a single `cleanup:` procedure alongside its regular `procedures:`:
 
 ```yaml
+parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: The Kubernetes identity selected by Authenticate As
 procedures:
   - key: kubectl
-    command: kubectl create role nsadmin --verb=* --resource=* --token=${TOKEN} -n=${NS}
+    command: kubectl ${K8S_AUTH} create role nsadmin --verb=* --resource=* -n=${NS}
 
 cleanup:
-  command: kubectl delete role nsadmin --token=${TOKEN} -n=${NS}
+  command: kubectl ${K8S_AUTH} delete role nsadmin -n=${NS}
 ```
 
 The cleanup procedure follows the same format as a regular procedure (shell command,

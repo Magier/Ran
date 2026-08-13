@@ -5,6 +5,9 @@ techniques:
   - "Scheduled Task/Job: Container Orchestration Job "
   - T1053.007
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   Name:
     type: string
     default: "maintenance"
@@ -25,15 +28,10 @@ parameters:
     type: Namespace
     default: ${NS}
     description: the name of the namespace in which the role will be created
-  TOKEN:
-    type: ServiceAccount
-    default: ""
-    description: the token used to authenticate to the API server
 procedures:
   - key: kubectl
-    # export TOKEN=${TOKEN}
     command: >
-      kubectl create cronjob ${NAME} --image=${IMAGE} --schedule="${SCHEDULE}" --token=${TOKEN} --namespace=${NAMESPACE} -- ${COMMAND}
+      kubectl create cronjob ${NAME} --image=${IMAGE} --schedule="${SCHEDULE}" ${K8S_AUTH} --namespace=${NAMESPACE} -- ${COMMAND}
 preconditions:
   # kind: ServiceAccount
   rbac: 

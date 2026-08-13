@@ -8,9 +8,13 @@ technique. The operator (or agent) picks one at invocation time.
 The simplest procedure: a shell command to run on the target.
 
 ```yaml
+parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: The Kubernetes identity selected by Authenticate As
 procedures:
   - key: kubectl
-    command: kubectl get pods --token=${TOKEN} -n=${NS} --output=json
+    command: kubectl ${K8S_AUTH} get pods -n=${NS} --output=json
 ```
 
 - `key` — display name for the procedure, shown in the UI and used as the procedure
@@ -33,34 +37,44 @@ procedures:
 
 ## Structured K8s API request
 
-Use `k8s_request:` to describe a Kubernetes API call. Ran materialises this into
-a concrete `kubectl` or `curl` command at runtime, resolving the API server URL
-and credentials automatically.
+Use `k8s_request:` to describe a Kubernetes API call. Authentication remains
+explicit through the required `${K8S_AUTH}` marker, while its value comes from
+the action's Authenticate As selection.
 
 ```yaml
+parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: The Kubernetes identity selected by Authenticate As
 procedures:
   - key: k8s-request
     k8s_request:
+      authentication: ${K8S_AUTH}
       api_server: ${API_SERVER}
       api: /api/v1
       resource: serviceaccounts
       namespace: ${NS}
       cluster_scoped: ${ALL_NS}
       query: limit=500
-      token: ${TOKEN}
       use_ca: false
 ```
 
 | Field | Description |
 |---|---|
+| `authentication` | Required `${K8S_AUTH}` marker resolved from Authenticate As |
 | `api_server` | Base URL of the Kubernetes API server |
 | `api` | API group path (e.g. `/api/v1`, `/apis/apps/v1`) |
 | `resource` | Resource type (e.g. `pods`, `secrets`) |
 | `namespace` | Namespace to query; ignored if `cluster_scoped` is true |
 | `cluster_scoped` | `true` to query all namespaces |
 | `query` | Optional query string appended to the URL |
-| `token` | Bearer token for authorisation |
 | `use_ca` | Whether to validate the server CA certificate |
+
+The selected **Authenticate As** identity supplies authentication. Every
+kubectl invocation must contain `${K8S_AUTH}`; it expands to either a
+ServiceAccount `--token` flag or `--kubeconfig "$KUBECONFIG"`.
+Local control procedures that directly use the active Kubernetes client are
+exempt when they do not reference `${K8S_AUTH}`.
 
 ## Structured HTTP request
 
@@ -84,6 +98,14 @@ procedures:
 | `url` | Full URL with parameter placeholders |
 | `headers` | Map of header name → value |
 | `body` | Request body string |
+
+For a direct Kubernetes API request that must remain a general HTTP procedure,
+declare a `K8S_AUTH` parameter of type `K8sAuth`, set
+`authentication: ${K8S_AUTH}`, and omit the `Authorization` header. Ran
+injects the bearer header for a selected ServiceAccount or routes the request
+through the active Kubernetes client for a selected K8sCredential. This keeps
+both the HTTP transport and its authentication dependency explicit without
+restoring a `TOKEN` parameter.
 
 The `tool:` field on the procedure specifies which CLI tool should handle the
 request (`curl`, `wget`). If omitted, Ran uses its built-in HTTP client.
@@ -116,14 +138,19 @@ Prefer offering at least two where practical — one using native Kubernetes too
 (`kubectl`) and one that only requires network access (`curl`):
 
 ```yaml
+parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: The Kubernetes identity selected by Authenticate As
 procedures:
   - key: kubectl
-    command: kubectl get secrets -n=${NS} --token=${TOKEN} -o json
+    command: kubectl ${K8S_AUTH} get secrets -n=${NS} -o json
 
-  - key: curl
-    http_request:
-      method: GET
-      url: ${API_SERVER}/api/v1/namespaces/${NS}/secrets
-      headers:
-        Authorization: "Bearer ${TOKEN}"
+  - key: k8s-request
+    k8s_request:
+      authentication: ${K8S_AUTH}
+      api_server: ${API_SERVER}
+      api: /api/v1
+      resource: secrets
+      namespace: ${NS}
 ```

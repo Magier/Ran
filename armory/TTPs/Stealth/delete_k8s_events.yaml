@@ -3,6 +3,9 @@ description: Deletes all Kubernetes events to avoid detection of malicious activ
 tactic: Stealth
 techniques: ["Indicator Removal", "T1070"]
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   NAMESPACE:
     type: string
     default: ${NS}
@@ -13,7 +16,7 @@ parameters:
     default: false
 procedures:
   - key: kubectl
-    command: kubectl delete events --all -n ${NAMESPACE}
+    command: kubectl ${K8S_AUTH} delete events --all -n ${NAMESPACE}
 preconditions:
   kind: ServiceAccount
   rbac:

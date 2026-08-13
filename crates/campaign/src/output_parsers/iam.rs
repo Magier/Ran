@@ -332,26 +332,6 @@ fn resolve_k8s_claims(
     }
 }
 
-/// Decode the JWT `token` and extract the Kubernetes SA name and namespace.
-/// Returns `None` if the token is missing, malformed, or lacks k8s claims.
-fn resolve_sa_from_token(token: &str) -> Option<(String, String)> {
-    let token = token.trim();
-    if token.is_empty() {
-        return None;
-    }
-    let parts: Vec<&str> = token.splitn(3, '.').collect();
-    if parts.len() != 3 {
-        return None;
-    }
-    let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1]).ok()?;
-    let payload: JwtPayload = serde_json::from_slice(&payload_bytes).ok()?;
-    let (namespace, sa_name, ..) = resolve_k8s_claims(&payload);
-    if namespace.is_empty() || sa_name.is_empty() {
-        return None;
-    }
-    Some((sa_name, namespace))
-}
-
 /// Parse a `k8s.SelfSubjectRulesReview` effect output into RBAC entitlements
 /// on the target ServiceAccount.
 ///
@@ -361,8 +341,7 @@ fn resolve_sa_from_token(token: &str) -> Option<(String, String)> {
 pub(super) fn parse_self_subject_rules_review(
     stdout: &str,
     _stderr: &str,
-    target_id: &str,
-    token_arg: &str,
+    auth_identity_id: &str,
     namespace_arg: &str,
 ) -> ParserOutput {
     if stdout.trim().is_empty() {
@@ -397,16 +376,16 @@ pub(super) fn parse_self_subject_rules_review(
 
     // Kubeconfig reviews are attributed directly to the selected credential.
     // Service-account reviews retain the existing JWT/target-ID resolution.
-    let credential_name = target_id.strip_prefix("k8s/credential/");
+    let credential_name = auth_identity_id.strip_prefix("k8s/credential/");
     let service_account = if credential_name.is_some() {
         None
     } else {
-        resolve_sa_from_token(token_arg).or_else(|| parse_sa_identity_from_target(target_id))
+        parse_sa_identity_from_target(auth_identity_id)
     };
     if credential_name.is_none() && service_account.is_none() {
         return ParserOutput::KnownFailure(format!(
-            "cannot resolve an RBAC identity for target '{target_id}': \
-             target is neither a K8sCredential nor a ServiceAccount and TOKEN is invalid"
+            "cannot resolve RBAC identity '{auth_identity_id}': \
+             Authenticate As must reference a K8sCredential or ServiceAccount"
         ));
     }
     let permission_namespace = credential_name
@@ -991,30 +970,15 @@ mod tests {
         );
     }
 
-    /// JWT token arg identifies the SA whose permissions were reviewed, even when
-    /// target_id is a pod (exec-system resolution changes cmd.target_id to the pod).
+    /// Authenticate As identifies the SA even when the semantic target is another entity.
     #[test]
-    fn ssrr_parser_resolves_sa_identity_from_jwt_token_arg() {
-        let jwt_payload = r#"{
-            "kubernetes.io": {
-                "namespace": "default",
-                "serviceaccount": {"name": "mysa", "uid": "sa-uid-1"}
-            }
-        }"#;
-        let jwt = make_jwt(jwt_payload);
-
+    fn ssrr_parser_attributes_to_service_account_auth_identity() {
         let kubectl_output =
             "Resources                Non-Resource URLs   Resource Names   Verbs\n\
             pods                     []                  []               [get list watch]\n\
             secrets                  []                  []               [get]\n";
 
-        let result = parse_self_subject_rules_review(
-            kubectl_output,
-            "",
-            "ns/default/pod/some-other-pod", // target_id is a pod — SA comes from JWT
-            &jwt,
-            "",
-        );
+        let result = parse_self_subject_rules_review(kubectl_output, "", "ns/default/sa/mysa", "");
 
         let ParserOutput::SuccessWithFacts(facts, detail) = result else {
             panic!("expected SuccessWithFacts, got {:?}", result);
@@ -1039,25 +1003,12 @@ mod tests {
             .any(|p| p.verb == "get" && p.resource_type == "pods"));
     }
 
-    /// When the JWT has no Kubernetes claims, the parser falls back to parsing
-    /// the SA identity directly from the target_id entity ID string.
     #[test]
-    fn ssrr_parser_falls_back_to_sa_identity_from_target_id_string() {
-        // A JWT whose payload has no kubernetes.io claims — resolve_sa_from_token returns None.
-        let non_k8s_jwt = make_jwt(r#"{"sub": "system:serviceaccount:default:mysa"}"#);
-
+    fn ssrr_parser_reads_sa_identity_from_auth_identity_id() {
         let kubectl_output = "Resources   Non-Resource URLs   Resource Names   Verbs\n\
             pods        []                  []               [get list]\n";
 
-        // target_id is the SA entity ID — identity is parsed from the string directly,
-        // no campaign lookup required.
-        let result = parse_self_subject_rules_review(
-            kubectl_output,
-            "",
-            "ns/default/sa/mysa",
-            &non_k8s_jwt,
-            "",
-        );
+        let result = parse_self_subject_rules_review(kubectl_output, "", "ns/default/sa/mysa", "");
 
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts, got {:?}", result);
@@ -1072,25 +1023,17 @@ mod tests {
         assert!(!updated_sa.entitlements.is_empty());
     }
 
-    /// When no TOKEN is supplied and target_id is a pod (not an SA), the parser
-    /// cannot determine the SA identity without campaign access, so it returns
-    /// KnownFailure instead of guessing.
     #[test]
-    fn ssrr_parser_returns_known_failure_for_pod_target_without_token() {
+    fn ssrr_parser_rejects_non_identity_auth_id() {
         let kubectl_output = "Resources   Non-Resource URLs   Resource Names   Verbs\n\
             pods        []                  []               [get list]\n";
 
-        let result = parse_self_subject_rules_review(
-            kubectl_output,
-            "",
-            "ns/default/pod/some-pod",
-            "", // no token
-            "",
-        );
+        let result =
+            parse_self_subject_rules_review(kubectl_output, "", "ns/default/pod/some-pod", "");
 
         assert!(
             matches!(result, ParserOutput::KnownFailure(_)),
-            "expected KnownFailure for pod target without TOKEN, got {:?}",
+            "expected KnownFailure for a non-identity Authenticate As value, got {:?}",
             result
         );
     }
@@ -1114,7 +1057,6 @@ mod tests {
             response,
             "",
             "k8s/credential/developer-kubeconfig",
-            "",
             "dungeon",
         );
 

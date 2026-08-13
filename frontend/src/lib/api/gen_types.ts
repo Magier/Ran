@@ -651,7 +651,7 @@ export interface components {
         ExecuteActionCmd: {
             actionId: string;
             execSystemId?: string;
-            /** @description Entity ID of the ServiceAccount or active K8sCredential used for Kubernetes authentication. */
+            /** @description Entity ID selected through the TTP's K8S_AUTH parameter. Required for Kubernetes procedures and must identify an eligible captured ServiceAccount or the active K8sCredential. */
             authIdentityId?: string;
             targetId: string;
             procedureId?: string;

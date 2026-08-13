@@ -95,13 +95,13 @@ impl PlanExecutor {
                 None
             };
 
-            let token_target_id = if let Some(token_q) = &step.token {
-                let token_matches = resolve_target(token_q, entity_ids);
-                if token_matches.is_empty() {
-                    // Token source is explicit and not yet resolvable.
+            let auth_identity_id = if let Some(auth_query) = &step.authenticate_as {
+                let auth_matches = resolve_target(auth_query, entity_ids);
+                if auth_matches.is_empty() {
+                    // Authentication identity is explicit and not yet resolvable.
                     continue;
                 }
-                token_matches.into_iter().next()
+                auth_matches.into_iter().next()
             } else {
                 None
             };
@@ -120,20 +120,15 @@ impl PlanExecutor {
             self.state.mark_dispatched(&step.id, cmd_ids_placeholder);
 
             for target_id in targets {
-                let mut args = step.args.clone();
-                if let Some(token_id) = &token_target_id {
-                    args.entry("TOKEN".to_string())
-                        .or_insert_with(|| token_id.clone());
-                }
                 dispatches.push(PlanDispatch {
                     step_id: step.id.clone(),
                     request: ExecuteActionRequest {
                         action_id: step.action.clone(),
                         exec_system_id: exec_system_id.clone(),
-                        auth_identity_id: token_target_id.clone(),
+                        auth_identity_id: auth_identity_id.clone(),
                         target_id,
                         procedure_id: procedure.clone(),
-                        args,
+                        args: step.args.clone(),
                         reasoning: step
                             .note
                             .clone()
@@ -576,7 +571,7 @@ mod tests {
                 ..Default::default()
             },
             exec_target: None,
-            token: None,
+            authenticate_as: None,
             args: HashMap::new(),
             procedure: None,
             retry: RetryStrategy::None,
@@ -689,6 +684,29 @@ mod tests {
         let ids: Vec<_> = dispatches.iter().map(|d| d.step_id.as_str()).collect();
         assert!(ids.contains(&"a"));
         assert!(ids.contains(&"b"));
+    }
+
+    #[test]
+    fn authenticate_as_dispatches_canonical_identity_without_token_arg() {
+        let mut step = make_step("a", vec![]);
+        step.authenticate_as = Some(TargetQuery {
+            id: Some("ns/default/sa/operator".to_string()),
+            ..Default::default()
+        });
+        let mut exec = PlanExecutor::new(make_plan(vec![step])).unwrap();
+        let entities = vec![
+            "ns/default/pod/nginx-abc123".to_string(),
+            "ns/default/sa/operator".to_string(),
+        ];
+
+        let dispatches = exec.tick_inner(&entities, no_relations);
+
+        assert_eq!(dispatches.len(), 1);
+        assert_eq!(
+            dispatches[0].request.auth_identity_id.as_deref(),
+            Some("ns/default/sa/operator")
+        );
+        assert!(!dispatches[0].request.args.contains_key("TOKEN"));
     }
 
     #[test]

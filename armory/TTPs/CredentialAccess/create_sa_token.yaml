@@ -3,6 +3,9 @@ description: Create a new service account token
 tactic: Credential Access
 techniques: [T1078.003, "Create Account: Local Account"]
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   SERVICEACCOUNT:
     type: string
     default: ${TARGET}
@@ -14,7 +17,7 @@ parameters:
 procedures:
   - key: kubectl
     command: >
-      kubectl create token ${SERVICEACCOUNT} --duration=24h
+      kubectl ${K8S_AUTH} create token ${SERVICEACCOUNT} --duration=24h
 preconditions:
   kind: ServiceAccount
   accessLevel: user-read

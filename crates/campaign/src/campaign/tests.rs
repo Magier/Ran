@@ -3,9 +3,10 @@ use std::collections::HashMap;
 use armory::{Armory, Procedure, Ttp, TtpParam};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
-    AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, K8sCluster, K8sCredential,
-    K8sNode, KubeletExecSink, Namespace, OutputTransformKind, Pod, PodExec, RbacPermission,
-    RceCanExec, RunsOn, ServiceAccount, SessionInfo, SessionStatus, Uses,
+    AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, JwToken, K8sCluster,
+    K8sCredential, K8sNode, KubeletExecSink, Namespace, OutputTransformKind, Pod, PodExec,
+    RbacPermission, RceCanExec, RunsOn, ServiceAccount, ServiceAccountToken, SessionInfo,
+    SessionStatus, Uses,
 };
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
@@ -691,6 +692,22 @@ fn action_request(target_id: &str, exec_system_id: Option<&str>) -> ExecuteActio
     }
 }
 
+fn insert_test_auth_service_account(campaign: &mut Campaign) -> String {
+    let mut account = ServiceAccount::new("operator", "default");
+    account.token = Some(ServiceAccountToken {
+        jwt: JwToken {
+            raw: "header.payload.signature".to_string(),
+            ..Default::default()
+        },
+        namespace: "default".to_string(),
+        service_account_name: "operator".to_string(),
+        ..Default::default()
+    });
+    let id = account.entity_id().0;
+    campaign.entities.insert_typed(account);
+    id
+}
+
 #[test]
 fn record_preparation_failure_preserves_known_ttp_and_request_context() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
@@ -737,6 +754,33 @@ fn record_preparation_failure_preserves_known_ttp_and_request_context() {
     assert_eq!(campaign.get_execution_records().len(), 1);
     assert_eq!(campaign.get_execution_records()[0].id, record.id);
     assert!(campaign.get_open_steps().is_empty());
+}
+
+#[test]
+fn record_preparation_failure_normalizes_declared_k8s_auth_parameter() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let armory = minimal_armory("test-ttp");
+    let request = ExecuteActionRequest {
+        action_id: "test-ttp".to_string(),
+        target_id: "ns/default/pod/demo".to_string(),
+        exec_system_id: None,
+        auth_identity_id: None,
+        procedure_id: None,
+        args: HashMap::from([("K8S_AUTH".to_string(), "ns/default/sa/operator".to_string())]),
+        reasoning: None,
+    };
+
+    let (record, _) = campaign.record_preparation_failure(
+        &request,
+        &armory,
+        &ExecuteActionError::InvalidInput("invalid identity".to_string()),
+    );
+
+    assert_eq!(
+        record.auth_identity_id.as_deref(),
+        Some("ns/default/sa/operator")
+    );
+    assert!(!record.args.contains_key("K8S_AUTH"));
 }
 
 #[test]
@@ -975,6 +1019,134 @@ fn prepare_action_materializes_abstract_http_request_procedure() {
 }
 
 #[test]
+fn prepare_action_injects_authenticate_as_token_into_explicit_http_request() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("demo", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
+
+    let mut ttps = curl_armory().ttps().to_vec();
+    ttps.push(Ttp {
+        procedures: vec![Procedure {
+            tool: Some("curl".to_string()),
+            http_request: Some(serde_json::json!({
+                "authentication": "${K8S_AUTH}",
+                "method": "POST",
+                "url": "https://k8s-api.local/ssrr",
+                "headers": {"Content-Type": "application/json"},
+                "body": "{\"kind\":\"SelfSubjectRulesReview\"}",
+                "use_ca": false
+            })),
+            ..Procedure::new("http-request", "")
+        }],
+        ..Ttp::new("authenticated-http", "Authenticated HTTP", "Discovery")
+    });
+    let armory = Armory::from_ttps(ttps);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "authenticated-http".to_string(),
+                target_id,
+                exec_system_id: None,
+                auth_identity_id: Some(auth_identity_id.clone()),
+                procedure_id: Some("http-request".to_string()),
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("Authenticate As should materialize the HTTP bearer header");
+
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(auth_identity_id.as_str())
+    );
+    assert!(exec
+        .procedure
+        .command
+        .contains("Authorization: Bearer header.payload.signature"));
+    assert!(!exec.procedure.command.contains("--token"));
+    assert!(!exec.args.contains_key("TOKEN"));
+    assert!(!exec.args.contains_key("K8S_AUTH"));
+}
+
+#[test]
+fn structured_http_request_resolves_tera_url_branches_before_materialization() {
+    let mut request = serde_json::json!({
+        "url": "{% if CLUSTER_ROLE %}https://cluster.example/clusterroles{% elif ALL_NS %}https://cluster.example/roles{% else %}https://cluster.example/namespaces/${NS}/roles{% endif %}"
+    });
+    let args = HashMap::from([
+        ("CLUSTER_ROLE".to_string(), "false".to_string()),
+        ("ALL_NS".to_string(), "false".to_string()),
+        ("NS".to_string(), "default".to_string()),
+    ]);
+
+    ground_json_value(&mut request, &args);
+
+    assert_eq!(
+        request["url"],
+        "https://cluster.example/namespaces/default/roles"
+    );
+}
+
+#[test]
+fn prepare_action_keeps_explicit_http_request_native_for_active_kubeconfig() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target_id = campaign
+        .entities
+        .values::<K8sCluster>()
+        .next()
+        .expect("cluster")
+        .entity_id()
+        .0;
+    let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
+    credential.active = true;
+    let credential_id = credential.entity_id().0;
+    campaign.entities.insert_typed(credential);
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![Procedure {
+            http_request: Some(serde_json::json!({
+                "authentication": "${K8S_AUTH}",
+                "method": "POST",
+                "url": "https://cluster.example/apis/authorization.k8s.io/v1/selfsubjectrulesreviews",
+                "headers": {"Content-Type": "application/json"},
+                "body": "{\"kind\":\"SelfSubjectRulesReview\"}"
+            })),
+            ..Procedure::new("http-request", "")
+        }],
+        ..Ttp::new("authenticated-http", "Authenticated HTTP", "Discovery")
+    }]);
+    let request = ExecuteActionRequest {
+        action_id: "authenticated-http".to_string(),
+        target_id,
+        exec_system_id: None,
+        auth_identity_id: Some(credential_id.clone()),
+        procedure_id: Some("http-request".to_string()),
+        args: HashMap::new(),
+        reasoning: None,
+    };
+
+    let exec = campaign
+        .prepare_action(request.clone(), &armory)
+        .expect("active kubeconfig should retain the native HTTP request");
+
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(credential_id.as_str())
+    );
+    assert!(exec.procedure.http_request.is_some());
+    assert_eq!(
+        exec.procedure.command,
+        "POST https://cluster.example/apis/authorization.k8s.io/v1/selfsubjectrulesreviews"
+    );
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+}
+
+#[test]
 fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("demo", "default");
@@ -1082,11 +1254,15 @@ fn prepare_action_explicit_exec_source_entity_runs_from_that_system() {
     let source = Pod::new("entry-hall", "dungeon");
     let source_id = source.entity_id().0.clone();
     campaign.entities.insert_typed(source);
+    push_exec_edge(&mut campaign, "sa/default/ran", &source_id);
 
     let target = Pod::new("redis.10-244-1-7", "oopservability");
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
-    push_relation(&mut campaign, &RceCanExec::new(&source_id, &target_id));
+    push_relation(
+        &mut campaign,
+        &RceCanExec::new(&source_id, &target_id).with_envelope("${CMD}".to_string()),
+    );
 
     let armory = minimal_armory("test-ttp");
     let exec = campaign
@@ -1116,11 +1292,15 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
     let source = Pod::new("entry-hall", "dungeon");
     let source_id = source.entity_id().0.clone();
     campaign.entities.insert_typed(source);
+    push_exec_edge(&mut campaign, "sa/default/ran", &source_id);
 
     let target = Pod::new("redis.10-244-1-7", "oopservability");
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
-    push_relation(&mut campaign, &RceCanExec::new(&source_id, &target_id));
+    push_relation(
+        &mut campaign,
+        &RceCanExec::new(&source_id, &target_id).with_envelope("${CMD}".to_string()),
+    );
 
     let armory = Armory::from_ttps(vec![Ttp {
         effects: vec!["rce.can-exec(${src}, ${TARGET_ID})".to_string()],
@@ -1315,6 +1495,159 @@ fn armory_with_command(ttp_id: &str, command: &str, tool: Option<&str>) -> Armor
 }
 
 #[test]
+fn kubernetes_authentication_is_grounded_from_auth_identity_only() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target = Pod::new("victim", "default");
+    let target_id = target.entity_id().0;
+    campaign.entities.insert_typed(target);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
+    let armory = armory_with_command("test-ttp", "kubectl ${K8S_AUTH} get pods", Some("kubectl"));
+
+    let mut request = action_request(&target_id, None);
+    request.auth_identity_id = Some(auth_identity_id.clone());
+    let exec = campaign
+        .prepare_action(request, &armory)
+        .expect("Authenticate As ServiceAccount should prepare");
+
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(auth_identity_id.as_str())
+    );
+    assert!(exec
+        .procedure
+        .command
+        .contains("--token header.payload.signature"));
+    assert!(!exec.args.contains_key("TOKEN"));
+    assert!(!exec.args.contains_key("K8S_AUTH"));
+}
+
+#[test]
+fn legacy_token_entity_id_is_normalized_but_conflicts_and_raw_tokens_are_rejected() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target = Pod::new("victim", "default");
+    let target_id = target.entity_id().0;
+    campaign.entities.insert_typed(target);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
+    let armory = armory_with_command("test-ttp", "kubectl ${K8S_AUTH} get pods", None);
+
+    let mut parameter = action_request(&target_id, None);
+    parameter
+        .args
+        .insert("K8S_AUTH".to_string(), auth_identity_id.clone());
+    let exec = campaign
+        .prepare_action(parameter, &armory)
+        .expect("declared K8S_AUTH parameter should select the identity");
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(auth_identity_id.as_str())
+    );
+    assert!(!exec.args.contains_key("K8S_AUTH"));
+
+    let mut canonical_parameter_duplicate = action_request(&target_id, None);
+    canonical_parameter_duplicate.auth_identity_id = Some(auth_identity_id.clone());
+    canonical_parameter_duplicate
+        .args
+        .insert("K8S_AUTH".to_string(), auth_identity_id.clone());
+    let exec = campaign
+        .prepare_action(canonical_parameter_duplicate, &armory)
+        .expect("matching canonical and parameter selectors should normalize");
+    assert!(!exec.args.contains_key("K8S_AUTH"));
+
+    let mut canonical_parameter_conflict = action_request(&target_id, None);
+    canonical_parameter_conflict.auth_identity_id = Some(auth_identity_id.clone());
+    canonical_parameter_conflict.args.insert(
+        "K8S_AUTH".to_string(),
+        "ns/default/sa/different".to_string(),
+    );
+    assert!(matches!(
+        campaign.prepare_action(canonical_parameter_conflict, &armory),
+        Err(ExecuteActionError::InvalidInput(message)) if message.contains("different identities")
+    ));
+
+    let mut legacy = action_request(&target_id, None);
+    legacy
+        .args
+        .insert("TOKEN".to_string(), auth_identity_id.clone());
+    let exec = campaign
+        .prepare_action(legacy, &armory)
+        .expect("legacy ServiceAccount entity ID should normalize");
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(auth_identity_id.as_str())
+    );
+    assert!(!exec.args.contains_key("TOKEN"));
+
+    let mut conflict = action_request(&target_id, None);
+    conflict.auth_identity_id = Some(auth_identity_id.clone());
+    conflict
+        .args
+        .insert("TOKEN".to_string(), auth_identity_id.clone());
+    assert!(matches!(
+        campaign.prepare_action(conflict, &armory),
+        Err(ExecuteActionError::InvalidInput(message)) if message.contains("cannot be supplied together")
+    ));
+
+    let mut raw = action_request(&target_id, None);
+    raw.args
+        .insert("TOKEN".to_string(), "header.payload.signature".to_string());
+    assert!(matches!(
+        campaign.prepare_action(raw, &armory),
+        Err(ExecuteActionError::InvalidInput(message)) if message.contains("raw Kubernetes tokens")
+    ));
+}
+
+#[test]
+fn kubernetes_procedure_rejects_missing_auth_identity() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target = Pod::new("victim", "default");
+    let target_id = target.entity_id().0;
+    campaign.entities.insert_typed(target);
+    let armory = armory_with_command("test-ttp", "kubectl ${K8S_AUTH} get pods", None);
+
+    assert!(matches!(
+        campaign.prepare_action(action_request(&target_id, None), &armory),
+        Err(ExecuteActionError::InvalidInput(message)) if message.contains("Authenticate As")
+    ));
+}
+
+#[test]
+fn kubectl_kubeconfig_auth_uses_explicit_environment_flag() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target_id = campaign
+        .entities
+        .values::<K8sCluster>()
+        .next()
+        .expect("cluster")
+        .entity_id()
+        .0;
+    let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
+    credential.active = true;
+    let credential_id = credential.entity_id().0;
+    campaign.entities.insert_typed(credential);
+    let armory = armory_with_command("test-ttp", "kubectl ${K8S_AUTH} get pods", None);
+
+    let mut request = action_request(&target_id, None);
+    request.auth_identity_id = Some(credential_id.clone());
+    let exec = campaign
+        .prepare_action(request, &armory)
+        .expect("active kubeconfig should prepare");
+
+    assert_eq!(
+        exec.auth_identity_id.as_deref(),
+        Some(credential_id.as_str())
+    );
+    assert_eq!(
+        exec.procedure.command,
+        "kubectl --kubeconfig \"$KUBECONFIG\" get pods"
+    );
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+    assert!(!exec.args.contains_key("TOKEN"));
+    assert!(!exec.args.contains_key("K8S_AUTH"));
+}
+
+#[test]
 fn prepare_action_grounds_binary_against_target_for_direct_path() {
     // When targeting a pod directly, a non-standard binary path on that pod
     // should be substituted into the procedure command.
@@ -1325,10 +1658,13 @@ fn prepare_action_grounds_binary_against_target_for_direct_path() {
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
     push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
 
-    let armory = armory_with_command("test-ttp", "kubectl get pods", None);
+    let armory = armory_with_command("test-ttp", "kubectl ${K8S_AUTH} get pods", None);
+    let mut request = action_request(&target_id, None);
+    request.auth_identity_id = Some(auth_identity_id);
     let exec = campaign
-        .prepare_action(action_request(&target_id, None), &armory)
+        .prepare_action(request, &armory)
         .expect("should prepare action");
 
     assert!(
@@ -1350,12 +1686,14 @@ fn prepare_action_grounds_declared_tool_when_not_first_word() {
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
     push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
 
-    let cmd =
-        "export TOKEN=abc; echo '{}' | kubectl apply --token=$TOKEN -f - && kubectl wait pod/foo";
+    let cmd = "echo '{}' | kubectl ${K8S_AUTH} apply -f - && kubectl ${K8S_AUTH} wait pod/foo";
     let armory = armory_with_command("test-ttp", cmd, Some("kubectl"));
+    let mut request = action_request(&target_id, None);
+    request.auth_identity_id = Some(auth_identity_id);
     let exec = campaign
-        .prepare_action(action_request(&target_id, None), &armory)
+        .prepare_action(request, &armory)
         .expect("should prepare action");
 
     assert!(
@@ -1396,10 +1734,13 @@ fn prepare_action_grounds_inner_binary_before_rce_envelope_wrapping() {
     let envelope = r#"redis-cli eval "$(echo ${CMD} | base64 -d | sh)" 0"#;
     let rce_rel = RceCanExec::new(&entry_id, &redis_id).with_envelope(envelope.to_string());
     push_relation(&mut campaign, &rce_rel);
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
 
-    let armory = armory_with_command("test-ttp", "kubectl get pods -n default", None);
+    let armory = armory_with_command("test-ttp", "kubectl ${K8S_AUTH} get pods -n default", None);
+    let mut request = action_request(&redis_id, None);
+    request.auth_identity_id = Some(auth_identity_id);
     let exec = campaign
-        .prepare_action(action_request(&redis_id, None), &armory)
+        .prepare_action(request, &armory)
         .expect("should prepare action via RCE hop");
 
     // The final command should embed /tmp/kubectl (not bare kubectl) inside the
@@ -1650,10 +1991,11 @@ fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_node_ta
     let node = K8sNode::new("cplane-01");
     let node_id = node.entity_id().0.clone();
     campaign.entities.insert_typed(node);
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
 
     let armory = armory_with_command(
         "node-proxy-check",
-        "kubectl get --raw /api/v1/nodes/${NODE}/proxy/pods",
+        "kubectl ${K8S_AUTH} get --raw /api/v1/nodes/${NODE}/proxy/pods",
         None,
     );
 
@@ -1666,7 +2008,7 @@ fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_node_ta
                 action_id: "node-proxy-check".to_string(),
                 target_id: node_id.clone(),
                 exec_system_id: Some(entry_id.clone()),
-                auth_identity_id: None,
+                auth_identity_id: Some(auth_identity_id),
                 procedure_id: None,
                 args,
                 reasoning: None,
@@ -2666,11 +3008,72 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
     );
 }
 
+#[test]
+fn build_cleanup_actions_preserves_kubernetes_auth_identity() {
+    use crate::execution_record::ExecutionRecord;
+
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target_id = campaign
+        .entities
+        .values::<K8sCluster>()
+        .next()
+        .expect("cluster")
+        .entity_id()
+        .0;
+    let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
+    credential.active = true;
+    let credential_id = credential.entity_id().0;
+    campaign.entities.insert_typed(credential);
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![Procedure::new(
+            "kubectl",
+            "kubectl ${K8S_AUTH} create namespace demo",
+        )],
+        cleanup: Some(Procedure::new(
+            "kubectl",
+            "kubectl ${K8S_AUTH} delete namespace demo",
+        )),
+        ..Ttp::new("create-demo", "Create Demo", "Persistence")
+    }]);
+    campaign.execution_records.push(ExecutionRecord {
+        id: "cmd-1".to_string(),
+        ttp_id: "create-demo".to_string(),
+        ttp_name: "Create Demo".to_string(),
+        tactic: "Persistence".to_string(),
+        target_id,
+        exec_system_id: BUILTIN_C2_ID.to_string(),
+        auth_identity_id: Some(credential_id.clone()),
+        procedure_id: "kubectl".to_string(),
+        command: "kubectl --kubeconfig \"$KUBECONFIG\" create namespace demo".to_string(),
+        args: HashMap::new(),
+        success: true,
+        exit_code: 0,
+        results: vec![],
+        fail_reason: String::new(),
+        started_at_ms: 0,
+        completed_at_ms: 1,
+        is_cleanup: false,
+        reasoning: String::new(),
+    });
+
+    let actions = campaign.build_cleanup_actions(&armory);
+
+    assert_eq!(actions.len(), 1);
+    assert_eq!(
+        actions[0].auth_identity_id.as_deref(),
+        Some(credential_id.as_str())
+    );
+    assert_eq!(
+        actions[0].procedure.command,
+        "kubectl --kubeconfig \"$KUBECONFIG\" delete namespace demo"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // materialize_k8s_request tests
 // ---------------------------------------------------------------------------
 
-use super::execution::materialize_k8s_request;
+use super::execution::{ground_json_value, materialize_k8s_request};
 
 #[test]
 fn active_kubeconfig_keeps_structured_request_for_native_execution() {
@@ -2690,6 +3093,7 @@ fn active_kubeconfig_keeps_structured_request_for_native_execution() {
         status: "enabled".to_string(),
         procedures: vec![Procedure {
             k8s_request: Some(serde_json::json!({
+                "authentication": "${K8S_AUTH}",
                 "api_server": "https://cluster.example",
                 "api": "/api/v1",
                 "resource": "namespaces",
@@ -2720,7 +3124,14 @@ fn active_kubeconfig_keeps_structured_request_for_native_execution() {
         exec.auth_identity_id.as_deref(),
         Some(credential_id.as_str())
     );
-    assert!(exec.procedure.k8s_request.is_some());
+    assert_eq!(
+        exec.procedure
+            .k8s_request
+            .as_ref()
+            .and_then(|request| request.get("authentication"))
+            .and_then(serde_json::Value::as_str),
+        Some("--kubeconfig \"$KUBECONFIG\"")
+    );
     assert_eq!(exec.procedure.command, "GET /api/v1/namespaces");
     assert!(exec.exec_chain.is_empty());
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
@@ -2756,6 +3167,7 @@ fn active_kubeconfig_request_uses_namespace_target_and_records_request_line() {
         ],
         procedures: vec![Procedure {
             k8s_request: Some(serde_json::json!({
+                "authentication": "${K8S_AUTH}",
                 "api_server": "https://cluster.example",
                 "api": "/api/v1",
                 "resource": "pods",
@@ -2843,7 +3255,7 @@ fn valid_accounts_one_shot_targets_selected_pod_authoritatively() {
     assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
     assert_eq!(
         exec.procedure.command,
-        "kubectl exec -n default target -c debug -- true"
+        "kubectl --kubeconfig \"$KUBECONFIG\" exec -n default target -c debug -- true"
     );
     assert_eq!(
         exec.args.get("NAMESPACE").map(String::as_str),
@@ -3002,18 +3414,18 @@ fn curl_armory() -> Armory {
 fn materialize_k8s_request_namespaced_url() {
     let mut procedure = Procedure {
         k8s_request: Some(serde_json::json!({
+            "authentication": "${K8S_AUTH}",
             "api_server": "https://10.0.0.1:6443",
             "api": "/api/v1",
             "resource": "pods",
             "namespace": "default",
             "cluster_scoped": "false",
             "query": "limit=500",
-            "token": "mytoken",
             "use_ca": false
         })),
         ..Procedure::new("k8s-request", "")
     };
-    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory(), Some("mytoken")).unwrap();
     assert!(
         procedure
             .command
@@ -3029,21 +3441,40 @@ fn materialize_k8s_request_namespaced_url() {
 }
 
 #[test]
+fn materialize_k8s_request_uses_curl_for_armory_selector_key() {
+    let mut procedure = Procedure {
+        tool: Some("k8s-request".to_string()),
+        k8s_request: Some(serde_json::json!({
+            "authentication": "${K8S_AUTH}",
+            "api_server": "https://10.0.0.1:6443",
+            "api": "/api/v1",
+            "resource": "pods",
+            "use_ca": false
+        })),
+        ..Procedure::new("k8s-request", "")
+    };
+
+    materialize_k8s_request(&mut procedure, &curl_armory(), Some("mytoken")).unwrap();
+    assert!(procedure.command.starts_with("curl "));
+    assert!(procedure.command.contains("Bearer mytoken"));
+}
+
+#[test]
 fn materialize_k8s_request_cluster_scoped_when_flag_true() {
     let mut procedure = Procedure {
         k8s_request: Some(serde_json::json!({
+            "authentication": "${K8S_AUTH}",
             "api_server": "https://10.0.0.1:6443",
             "api": "/api/v1",
             "resource": "pods",
             "namespace": "default",
             "cluster_scoped": "true",
             "query": "limit=500",
-            "token": "tok",
             "use_ca": false
         })),
         ..Procedure::new("k8s-request", "")
     };
-    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory(), Some("tok")).unwrap();
     assert!(
         procedure
             .command
@@ -3062,15 +3493,15 @@ fn materialize_k8s_request_cluster_scoped_when_flag_true() {
 fn materialize_k8s_request_cluster_scoped_when_namespace_empty() {
     let mut procedure = Procedure {
         k8s_request: Some(serde_json::json!({
+            "authentication": "${K8S_AUTH}",
             "api_server": "https://10.0.0.1:6443",
             "api": "/apis/rbac.authorization.k8s.io/v1",
             "resource": "clusterroles",
-            "token": "tok",
             "use_ca": false
         })),
         ..Procedure::new("k8s-request", "")
     };
-    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory(), Some("tok")).unwrap();
     assert!(
         procedure
             .command
@@ -3085,6 +3516,7 @@ fn materialize_k8s_request_cluster_scoped_when_namespace_empty() {
 fn materialize_k8s_request_no_token_no_auth_header() {
     let mut procedure = Procedure {
         k8s_request: Some(serde_json::json!({
+            "authentication": "${K8S_AUTH}",
             "api_server": "https://10.0.0.1:6443",
             "api": "/api/v1",
             "resource": "nodes",
@@ -3092,7 +3524,7 @@ fn materialize_k8s_request_no_token_no_auth_header() {
         })),
         ..Procedure::new("k8s-request", "")
     };
-    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory(), None).unwrap();
     assert!(
         !procedure.command.contains("Authorization"),
         "empty token must not produce Authorization header, got: {}",
@@ -3103,7 +3535,7 @@ fn materialize_k8s_request_no_token_no_auth_header() {
 #[test]
 fn materialize_k8s_request_noop_when_field_absent() {
     let mut procedure = Procedure::new("kubectl", "kubectl get pods");
-    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory(), None).unwrap();
     assert_eq!(procedure.command, "kubectl get pods");
 }
 
@@ -3111,6 +3543,7 @@ fn materialize_k8s_request_noop_when_field_absent() {
 fn materialize_k8s_request_namespaced_when_cluster_scoped_omitted() {
     let mut procedure = Procedure {
         k8s_request: Some(serde_json::json!({
+            "authentication": "${K8S_AUTH}",
             "api_server": "https://10.0.0.1:6443",
             "api": "/api/v1",
             "resource": "pods",
@@ -3119,7 +3552,7 @@ fn materialize_k8s_request_namespaced_when_cluster_scoped_omitted() {
         })),
         ..Procedure::new("k8s-request", "")
     };
-    materialize_k8s_request(&mut procedure, &curl_armory()).unwrap();
+    materialize_k8s_request(&mut procedure, &curl_armory(), None).unwrap();
     assert!(
         procedure.command.contains("namespaces/kube-system/pods"),
         "omitting cluster_scoped must default to namespaced; got: {}",

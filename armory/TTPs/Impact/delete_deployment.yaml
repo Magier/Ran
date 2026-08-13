@@ -5,6 +5,9 @@ techniques:
   - Service Stop
   - T1489
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   Name:
     type: string
     default: ${TARGET}
@@ -13,14 +16,10 @@ parameters:
     type: string
     default: ${NS}
     description: the name of the namespace of the deployment
-  Token:
-    type: string
-    default: ""
-    description: the token used to authenticate to the API server
 procedures:
   - key: kubectl
     command: >
-      kubectl delete deployment {{ Name }}  --namespace={{ Namespace }} --token={{ Token }}
+      kubectl delete deployment {{ Name }}  --namespace={{ Namespace }} ${K8S_AUTH}
 preconditions:
   kind: Deployment
   rbac: 
