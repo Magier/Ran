@@ -556,7 +556,7 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
         let armory = Armory::load_from_dir(path).expect("repository armory should load");
 
-        for ttp_id in ["check-token-permissions", "get-roles-via-api-server"] {
+        for ttp_id in ["check-token-permissions", "get-roles"] {
             let ttp = armory.get_ttp(ttp_id).expect("Kubernetes discovery TTP");
             assert_eq!(
                 ttp.procedures.len(),

@@ -1,5 +1,5 @@
 id: get-namespaces
-name: Get Namespaces via K8s API
+name: Get Namespaces
 description: Get a list of namespaces from the Kubernetes API server
 tactic: Discovery
 techniques: ["Container and Resource Discovery", "T1613"]

@@ -1,5 +1,5 @@
 id: get-clusterroles
-name: Get ClusterRoles via API Server
+name: Get ClusterRoles
 description: Get a list of ClusterRoles via the K8s API server
 tactic: Discovery
 techniques: [ "Container and Resource Discovery", T1613 ]

@@ -1,5 +1,5 @@
 id: get-ingresses
-name: Get Ingresses via API Server
+name: Get Ingresses
 description: Enumerate Kubernetes Ingress resources to map externally exposed
   HTTP/HTTPS entry points, identify backend services, and discover TLS secret
   references

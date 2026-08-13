@@ -1,5 +1,5 @@
 id: get-httproutes
-name: Get HTTPRoutes via API Server
+name: Get HTTPRoutes
 description: Enumerate Kubernetes Gateway API HTTPRoute resources to map routing
   rules, discover backend services reachable via Gateways, and identify
   hostname-to-service mappings

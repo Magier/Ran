@@ -4,7 +4,7 @@ Every TTP in the armory is a YAML file. Here is a representative example — the
 *Get ServiceAccounts* technique from the Discovery tactic:
 
 ```yaml
-name: Get ServiceAccounts via API Server
+name: Get ServiceAccounts
 description: Get a list of ServiceAccounts via the API server
 tactic: Discovery
 techniques: ["Container and Resource Discovery", T1613]

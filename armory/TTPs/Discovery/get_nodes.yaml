@@ -1,4 +1,4 @@
-name: Get Nodes via API Server
+name: Get Nodes
 description: Get a list of nodes in the cluster via the API server
 tactic: Discovery
 techniques: [ "Cloud Infrastructure Discovery", T1580 ]

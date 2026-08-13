@@ -1,5 +1,5 @@
 id: get-pods
-name: Get Pods via K8s API
+name: Get Pods
 description: Get a list of pods via the K8s API server
 tactic: Discovery
 techniques: [ "Container and Resource Discovery", T1613 ]

@@ -1,5 +1,5 @@
 id: get-gateways
-name: Get Gateways via API Server
+name: Get Gateways
 description: Enumerate Kubernetes Gateway API Gateway resources to identify
   externally exposed listeners, gateway implementations, and assigned external
   addresses

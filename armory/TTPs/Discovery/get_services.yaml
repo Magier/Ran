@@ -1,5 +1,5 @@
 id: get-services
-name: Get Services via API Server
+name: Get Services
 description: Enumerate Kubernetes Services via the K8s API server to map
   internal service endpoints and identify externally exposed workloads
 tactic: Discovery
