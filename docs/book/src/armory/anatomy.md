@@ -13,10 +13,9 @@ preconditions:
     - verb: get
       resource: serviceaccounts
 parameters:
-  TOKEN:
-    type: ServiceAccount
-    description: The ServiceAccount token used to authorise this request
-    optional: true
+  K8S_AUTH:
+    type: K8sAuth
+    description: The Kubernetes identity selected by Authenticate As
   NS:
     type: Namespace
     description: The namespace to query
@@ -28,16 +27,16 @@ parameters:
 procedures:
   - key: kubectl
     command: >-
-      kubectl get serviceaccounts --token=${TOKEN} -n=${NS} -A=${ALL_NS}
+      kubectl ${K8S_AUTH} get serviceaccounts -n=${NS} -A=${ALL_NS}
       --output=json
   - key: k8s-request
     k8s_request:
+      authentication: ${K8S_AUTH}
       api_server: ${API_SERVER}
       api: /api/v1
       resource: serviceaccounts
       namespace: ${NS}
       cluster_scoped: ${ALL_NS}
-      token: ${TOKEN}
 effects:
   - k8s.serviceAccountList
 ```

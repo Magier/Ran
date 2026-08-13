@@ -5,6 +5,9 @@ techniques:
   - Service Stop
   - T1489
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   Namespace:
     type: Namespace
     default: ${NS}
@@ -13,13 +16,10 @@ parameters:
     type: Pod
     default: ${TARGET}
     description: the name of the pod to delete
-  Token:
-    type: ServiceAccount
-    description: the token used to authenticate to the API server
 procedures:
   - key: kubectl
     command: >
-      kubectl delete pod {{ Name }}  --namespace={{ Namespace }} --token={{ Token }}
+      kubectl delete pod {{ Name }}  --namespace={{ Namespace }} ${K8S_AUTH}
 preconditions:
   kind: Pod
   rbac: 

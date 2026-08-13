@@ -10,11 +10,9 @@ preconditions:
     - verb: list
       resource: ingresses
 parameters:
-  TOKEN:
-    type: ServiceAccount
-    description: the ServiceAccount token used to authorize this request
-    optional: true
-    default: ""
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   NS:
     type: Namespace
     description: namespace to enumerate
@@ -26,16 +24,16 @@ parameters:
 procedures:
   - key: kubectl
     command: >-
-      kubectl get ingresses --token=${TOKEN} -n=${NS} -A=${ALL_NS} --output=json
+      kubectl get ingresses ${K8S_AUTH} -n=${NS} -A=${ALL_NS} --output=json
   - key: k8s-request
     k8s_request:
+      authentication: ${K8S_AUTH}
       api_server: ${API_SERVER}
       api: /apis/networking.k8s.io/v1
       resource: ingresses
       namespace: ${NS}
       cluster_scoped: ${ALL_NS}
       query: limit=500
-      token: ${TOKEN}
       use_ca: false
 effects:
   - k8s.ingresslist

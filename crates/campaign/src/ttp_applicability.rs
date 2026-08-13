@@ -16,6 +16,12 @@ pub struct AuthIdentitySummary {
 
 pub fn procedure_uses_k8s_auth(procedure: &armory::Procedure) -> bool {
     procedure.k8s_request.is_some()
+        || procedure.command.contains("${K8S_AUTH}")
+        || procedure
+            .http_request
+            .as_ref()
+            .and_then(|request| request.get("authentication"))
+            .is_some()
         || procedure.command.contains("kubectl ")
         || procedure
             .command

@@ -3,6 +3,9 @@ description: Deploy a container into an environment to facilitate execution or e
 tactic: Execution
 techniques: ["Deploy Container", T1610]
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   PodName:
     type: string
     description: the name of the resulting workload. The name must be RFC 1123 compliant.
@@ -52,14 +55,10 @@ parameters:
     type: string
     default: "${NODE_NAME}"
     description: the name of the node where the pod should be deployed
-  TOKEN:
-    type: ServiceAccount
-    description: the identity used to deploy the container
 procedures:
   - key: kubectl
     tool: kubectl
     command: |+
-      export TOKEN=${TOKEN};
       echo '{
         "apiVersion": "v1",
         "kind": "Pod",
@@ -91,9 +90,9 @@ procedures:
           }]
           {% endif %}
         }
-      }' | kubectl apply --token=$TOKEN -f -
+      }' | kubectl apply ${K8S_AUTH} -f -
       &&
-      kubectl wait --token=$TOKEN --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/{{ PodName }}
+      kubectl wait ${K8S_AUTH} --for=jsonpath='{.status.containerStatuses[*].state.running}' pod/{{ PodName }}
 preconditions:
   rbac: 
     - verb: create

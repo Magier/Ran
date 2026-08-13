@@ -141,7 +141,10 @@ pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDef
                 ..Default::default()
             },
             exec_target: None,
-            token: None,
+            authenticate_as: rec.auth_identity_id.as_ref().map(|id| TargetQuery {
+                id: Some(id.clone()),
+                ..Default::default()
+            }),
             args: rec.args.clone(),
             procedure: Some(rec.procedure_id.clone()).filter(|s| !s.is_empty()),
             retry: RetryStrategy::NextProcedure,
@@ -191,7 +194,10 @@ pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDef
                 ..Default::default()
             },
             exec_target: None,
-            token: None,
+            authenticate_as: rec.auth_identity_id.as_ref().map(|id| TargetQuery {
+                id: Some(id.clone()),
+                ..Default::default()
+            }),
             args: rec.args.clone(),
             procedure: Some(rec.procedure_id.clone()).filter(|s| !s.is_empty()),
             retry: RetryStrategy::NextProcedure,

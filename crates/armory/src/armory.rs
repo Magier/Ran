@@ -62,6 +62,7 @@ impl Armory {
 
         // --- Phase 3: expand slot references ---------------------------------
         Self::expand_slot_procedures(&mut ttps);
+        Self::validate_k8s_auth(&ttps)?;
 
         Ok(Self {
             source_dir: user_dir
@@ -81,6 +82,7 @@ impl Armory {
         }
 
         Self::expand_slot_procedures(&mut ttps);
+        Self::validate_k8s_auth(&ttps)?;
 
         Ok(Self {
             source_dir: path.to_path_buf(),
@@ -196,6 +198,170 @@ impl Armory {
         }
     }
 
+    fn validate_k8s_auth(ttps: &[Ttp]) -> Result<(), ArmoryError> {
+        for ttp in ttps {
+            let procedures = ttp.procedures.iter().chain(ttp.cleanup.iter());
+            let uses_k8s_auth = procedures.clone().any(|procedure| {
+                procedure.k8s_request.is_some()
+                    || procedure.command.contains("${K8S_AUTH}")
+                    || procedure
+                        .http_request
+                        .as_ref()
+                        .and_then(|request| request.get("authentication"))
+                        .is_some()
+                    || procedure.command.contains("kubectl ")
+                    || procedure
+                        .command
+                        .trim_start()
+                        .starts_with("c2.kubectl_exec(")
+                    || procedure
+                        .command
+                        .trim_start()
+                        .starts_with("k8sSelfSubjectRulesReview(")
+            });
+            if !uses_k8s_auth {
+                continue;
+            }
+
+            let references_k8s_auth = procedures.clone().any(|procedure| {
+                procedure.command.contains("${K8S_AUTH}")
+                    || procedure
+                        .k8s_request
+                        .as_ref()
+                        .is_some_and(|request| request.to_string().contains("${K8S_AUTH}"))
+                    || procedure
+                        .http_request
+                        .as_ref()
+                        .is_some_and(|request| request.to_string().contains("${K8S_AUTH}"))
+            });
+            if references_k8s_auth {
+                let Some(auth_param) = ttp
+                    .params
+                    .iter()
+                    .find(|param| param.name.eq_ignore_ascii_case("K8S_AUTH"))
+                else {
+                    return Err(ArmoryError::InvalidTtp {
+                        ttp_id: ttp.id.clone(),
+                        reason: "TTPs that reference ${K8S_AUTH} must explicitly declare a K8S_AUTH parameter of type K8sAuth"
+                            .to_string(),
+                    });
+                };
+                if !auth_param.param_type.eq_ignore_ascii_case("K8sAuth") {
+                    return Err(ArmoryError::InvalidTtp {
+                        ttp_id: ttp.id.clone(),
+                        reason: "K8S_AUTH must use parameter type K8sAuth".to_string(),
+                    });
+                }
+            }
+
+            if ttp
+                .params
+                .iter()
+                .any(|param| param.name.eq_ignore_ascii_case("TOKEN"))
+            {
+                return Err(ArmoryError::InvalidTtp {
+                    ttp_id: ttp.id.clone(),
+                    reason:
+                        "Kubernetes authentication must use Authenticate As, not a TOKEN parameter"
+                            .to_string(),
+                });
+            }
+
+            for procedure in ttp.procedures.iter().chain(ttp.cleanup.iter()) {
+                let serialized_k8s_request = procedure
+                    .k8s_request
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
+                let serialized_http_request = procedure
+                    .http_request
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
+                if procedure.command.contains("${TOKEN}")
+                    || procedure.command.contains("$TOKEN")
+                    || procedure.command.contains("--token")
+                    || serialized_k8s_request.contains("${TOKEN}")
+                    || serialized_http_request.contains("${TOKEN}")
+                    || procedure
+                        .k8s_request
+                        .as_ref()
+                        .and_then(|request| request.get("token"))
+                        .is_some()
+                {
+                    return Err(ArmoryError::InvalidTtp {
+                        ttp_id: ttp.id.clone(),
+                        reason: format!(
+                            "Kubernetes procedure '{}' uses legacy TOKEN authentication; use authentication: ${{K8S_AUTH}} for structured requests or ${{K8S_AUTH}} for kubectl",
+                            procedure.id
+                        ),
+                    });
+                }
+                if let Some(request) = &procedure.http_request {
+                    if request.get("authentication").is_some()
+                        && request
+                            .get("authentication")
+                            .and_then(|value| value.as_str())
+                            != Some("${K8S_AUTH}")
+                    {
+                        return Err(ArmoryError::InvalidTtp {
+                            ttp_id: ttp.id.clone(),
+                            reason: format!(
+                                "authenticated http_request procedure '{}' must declare authentication: ${{K8S_AUTH}}",
+                                procedure.id
+                            ),
+                        });
+                    }
+                    if request.get("authentication").is_some()
+                        && request
+                            .get("headers")
+                            .and_then(|headers| headers.as_object())
+                            .is_some_and(|headers| {
+                                headers
+                                    .keys()
+                                    .any(|name| name.eq_ignore_ascii_case("authorization"))
+                            })
+                    {
+                        return Err(ArmoryError::InvalidTtp {
+                            ttp_id: ttp.id.clone(),
+                            reason: format!(
+                                "authenticated http_request procedure '{}' must not declare an Authorization header; Authenticate As supplies it",
+                                procedure.id
+                            ),
+                        });
+                    }
+                }
+                if let Some(request) = &procedure.k8s_request {
+                    if request
+                        .get("authentication")
+                        .and_then(|value| value.as_str())
+                        != Some("${K8S_AUTH}")
+                    {
+                        return Err(ArmoryError::InvalidTtp {
+                            ttp_id: ttp.id.clone(),
+                            reason: format!(
+                                "k8s_request procedure '{}' must declare authentication: ${{K8S_AUTH}}",
+                                procedure.id
+                            ),
+                        });
+                    }
+                }
+                if procedure.command.contains("kubectl ")
+                    && !procedure.command.contains("${K8S_AUTH}")
+                {
+                    return Err(ArmoryError::InvalidTtp {
+                        ttp_id: ttp.id.clone(),
+                        reason: format!(
+                            "kubectl procedure '{}' must include ${{K8S_AUTH}}",
+                            procedure.id
+                        ),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn ttps_from_dir(dir: &Path) -> Result<Vec<Ttp>, ArmoryError> {
         if !dir.exists() {
             return Err(ArmoryError::DirNotFound(dir.display().to_string()));
@@ -262,6 +428,174 @@ impl Armory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_legacy_token_authentication_for_kubernetes_procedures() {
+        let ttp = Ttp {
+            params: vec![
+                crate::TtpParam {
+                    name: "K8S_AUTH".to_string(),
+                    param_type: "K8sAuth".to_string(),
+                    description: String::new(),
+                    required: true,
+                    default: String::new(),
+                },
+                crate::TtpParam {
+                    name: "TOKEN".to_string(),
+                    param_type: "ServiceAccount".to_string(),
+                    description: String::new(),
+                    required: false,
+                    default: String::new(),
+                },
+            ],
+            procedures: vec![Procedure::new(
+                "kubectl",
+                "kubectl get pods --token=${TOKEN}",
+            )],
+            ..Ttp::new("legacy-auth", "Legacy Auth", "Discovery")
+        };
+
+        assert!(matches!(
+            Armory::validate_k8s_auth(&[ttp]),
+            Err(ArmoryError::InvalidTtp { reason, .. }) if reason.contains("Authenticate As")
+        ));
+    }
+
+    #[test]
+    fn allows_explicit_tokens_for_non_kubernetes_apis() {
+        let ttp = Ttp {
+            params: vec![crate::TtpParam {
+                name: "TOKEN".to_string(),
+                param_type: "ServiceAccount".to_string(),
+                description: String::new(),
+                required: true,
+                default: String::new(),
+            }],
+            procedures: vec![Procedure::new(
+                "ran-ws",
+                "ran-ws --url wss://node:10250/exec --token ${TOKEN}",
+            )],
+            ..Ttp::new("kubelet-auth", "Kubelet Auth", "Execution")
+        };
+
+        assert!(Armory::validate_k8s_auth(&[ttp]).is_ok());
+    }
+
+    #[test]
+    fn rejects_k8s_request_without_explicit_authentication_marker() {
+        let ttp = Ttp {
+            params: vec![crate::TtpParam {
+                name: "K8S_AUTH".to_string(),
+                param_type: "K8sAuth".to_string(),
+                description: String::new(),
+                required: true,
+                default: String::new(),
+            }],
+            procedures: vec![Procedure {
+                k8s_request: Some(serde_json::json!({
+                    "api_server": "https://cluster.example",
+                    "api": "/api/v1",
+                    "resource": "pods"
+                })),
+                ..Procedure::new("k8s-request", "")
+            }],
+            ..Ttp::new("hidden-auth", "Hidden Auth", "Discovery")
+        };
+
+        assert!(matches!(
+            Armory::validate_k8s_auth(&[ttp]),
+            Err(ArmoryError::InvalidTtp { reason, .. })
+                if reason.contains("authentication: ${K8S_AUTH}")
+        ));
+    }
+
+    #[test]
+    fn rejects_kubernetes_ttp_without_declared_auth_parameter() {
+        let ttp = Ttp {
+            procedures: vec![Procedure::new("kubectl", "kubectl ${K8S_AUTH} get pods")],
+            ..Ttp::new("implicit-auth", "Implicit Auth", "Discovery")
+        };
+
+        assert!(matches!(
+            Armory::validate_k8s_auth(&[ttp]),
+            Err(ArmoryError::InvalidTtp { reason, .. })
+                if reason.contains("explicitly declare a K8S_AUTH parameter")
+        ));
+    }
+
+    #[test]
+    fn allows_local_active_client_procedure_without_unused_auth_parameter() {
+        let ttp = Ttp {
+            procedures: vec![Procedure {
+                is_local_command: Some(true),
+                ..Procedure::new("k8s-client", "k8sSelfSubjectRulesReview(default)")
+            }],
+            ..Ttp::new("native-review", "Native Review", "Discovery")
+        };
+
+        assert!(Armory::validate_k8s_auth(&[ttp]).is_ok());
+    }
+
+    #[test]
+    fn rejects_ambient_kubectl_for_missing_auth_marker_not_parameter() {
+        let ttp = Ttp {
+            procedures: vec![Procedure::new("kubectl", "kubectl get pods")],
+            ..Ttp::new("ambient-kubectl", "Ambient kubectl", "Discovery")
+        };
+
+        assert!(matches!(
+            Armory::validate_k8s_auth(&[ttp]),
+            Err(ArmoryError::InvalidTtp { reason, .. })
+                if reason.contains("must include ${K8S_AUTH}")
+                    && !reason.contains("parameter")
+        ));
+    }
+
+    #[test]
+    fn preserves_kubernetes_http_request_procedure_variants() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+
+        for ttp_id in ["check-token-permissions", "get-roles-via-api-server"] {
+            let ttp = armory.get_ttp(ttp_id).expect("Kubernetes discovery TTP");
+            assert_eq!(
+                ttp.procedures.len(),
+                2,
+                "{ttp_id} must retain both kubectl and HTTP procedures"
+            );
+            assert!(
+                ttp.procedures
+                    .iter()
+                    .any(|procedure| procedure.command.contains("kubectl ")),
+                "{ttp_id} must retain its kubectl procedure"
+            );
+            assert!(
+                ttp.procedures.iter().any(|procedure| {
+                    procedure
+                        .http_request
+                        .as_ref()
+                        .and_then(|request| request.get("authentication"))
+                        .and_then(|value| value.as_str())
+                        == Some("${K8S_AUTH}")
+                }),
+                "{ttp_id} must retain its authenticated HTTP request procedure"
+            );
+        }
+
+        let node_proxy = armory
+            .get_ttp("get-pods-via-node-proxy")
+            .expect("node proxy discovery TTP");
+        let procedure = node_proxy.procedures.first().expect("node proxy procedure");
+        assert_eq!(procedure.id, "proc-1", "positional procedure ID is stable");
+        let request = procedure
+            .k8s_request
+            .as_ref()
+            .expect("node proxy remains a structured HTTP operation");
+        assert_eq!(
+            request.get("use_ca").and_then(|value| value.as_bool()),
+            Some(false)
+        );
+    }
 
     #[test]
     fn valid_accounts_ttp_is_canonical_and_old_id_is_an_alias() {

@@ -5,6 +5,7 @@
 	import type { TTP, TTPParam, RBACPermission, AuthIdentity } from '$lib/api/index';
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
 	import { getRanAPI } from '$lib/ran_api';
+	import { selectDefaultAuthIdentity } from '$lib/auth_identity';
 	import { untrack } from 'svelte';
 
 	interface ParamProps {
@@ -58,14 +59,13 @@
 	const selectedExecSystem = $derived(
 		compromisedSystems.find(e => e.id === selectedExecSystemId)
 	);
-	const selectedAuthIdentity = $derived(
-		eligibleAuthIdentities.find(identity => identity.id === selectedAuthIdentityId)
-	);
-
 	$effect(() => {
 		const actionId = ttp?.id;
 		const selectedTargetId = targetId;
-		if (!actionId || !selectedTargetId) {
+		const hasAuthParameter = ttp?.params?.some(
+			param => param.name === 'K8S_AUTH' && param.type === 'K8sAuth'
+		);
+		if (!actionId || !selectedTargetId || !hasAuthParameter) {
 			eligibleAuthIdentities = [];
 			selectedAuthIdentityId = '';
 			return;
@@ -73,32 +73,40 @@
 		ranAPI.GetEligibleAuthIdentities(actionId, selectedTargetId)
 			.then((identities) => {
 				eligibleAuthIdentities = identities;
+				const declaredIdentity = args.find(arg => arg.Name === 'K8S_AUTH')?.Value;
+				if (declaredIdentity && identities.some(identity => identity.id === declaredIdentity)) {
+					selectedAuthIdentityId = declaredIdentity;
+				}
 				if (!identities.some(identity => identity.id === selectedAuthIdentityId)) {
-					selectedAuthIdentityId = identities.find(identity => identity.id === selectedTargetId)?.id
-						?? (identities.length === 1 ? identities[0].id : '');
+					const eligibleServiceAccounts = campaignState.getServiceAccountsWithTokens()
+						.filter(entity => identities.some(identity => identity.id === entity.id));
+					const best = findBestTokenForTTP(
+						eligibleServiceAccounts,
+						ttp.requires,
+						selectedExecSystemId
+					);
+					selectedAuthIdentityId = selectDefaultAuthIdentity(
+						identities,
+						selectedTargetId,
+						best?.entity.id
+					);
+					authAutoSelectSource = identities.some(identity => identity.id === selectedTargetId)
+						|| identities.length === 1
+						? null
+						: best?.source ?? null;
+				}
+				const authArgIndex = args.findIndex(arg => arg.Name === 'K8S_AUTH');
+				if (authArgIndex !== -1) {
+					args = args.with(authArgIndex, {
+						...args[authArgIndex],
+						Value: selectedAuthIdentityId
+					});
 				}
 			})
 			.catch(() => {
 				eligibleAuthIdentities = [];
 				selectedAuthIdentityId = '';
 			});
-	});
-
-	$effect(() => {
-		const identity = selectedAuthIdentity;
-		if (!identity) return;
-		if (identity.kind === 'K8sCredential') {
-			const native = ttp.procedures.find(procedure => procedure.id === 'k8s-request')
-				?? ttp.procedures.find(procedure => procedure.id === 'kubectl');
-			if (native) procedureId = native.id;
-		} else if (identity.kind === 'ServiceAccount') {
-			const tokenIndex = args.findIndex(arg => arg.Name === 'TOKEN');
-			if (tokenIndex !== -1) {
-				args[tokenIndex] = { ...args[tokenIndex], Value: identity.id };
-				args = [...args];
-				bumpArgVersion('TOKEN');
-			}
-		}
 	});
 
 	const target = $derived.by(() => { return campaignState.getObjectById(targetId); });
@@ -123,6 +131,7 @@
 
 	// Track how TOKEN was auto-selected: 'rbac' | 'proximity' | 'manual' | null
 	let tokenAutoSelectSource: 'rbac' | 'proximity' | 'manual' | null = null;
+	let authAutoSelectSource: 'rbac' | 'proximity' | 'manual' | null = null;
 
 	/**
 	 * Find the best ServiceAccount token for a TTP based on RBAC requirements or exec system proximity.
@@ -225,12 +234,11 @@
 		// Update tracking before processing
 		lastClearedNamespace = selectedNamespace;
 		
-		// if the namespace changes, clear out-of-namespace resources (except TOKEN which can be cross-namespace)
+		// Authentication identities can be cross-namespace and must remain stable.
 		let hasOutOfNsResources = false;
 		
 		for (const arg of args) {
-			// Skip namespace arg itself and TOKEN (which can be cross-namespace)
-			if (arg.Type === 'Namespace' || arg.Name === 'TOKEN') continue;
+			if (arg.Type === 'Namespace' || arg.Name === 'TOKEN' || arg.Name === 'K8S_AUTH') continue;
 			
 			// Only check args that have a value
 			if (!arg.Value) continue;
@@ -253,8 +261,7 @@
 
 		if (hasOutOfNsResources) {
 			args = args.map(a => {
-				// Skip namespace arg itself and TOKEN
-				if (a.Type === 'Namespace' || a.Name === 'TOKEN') return a;
+				if (a.Type === 'Namespace' || a.Name === 'TOKEN' || a.Name === 'K8S_AUTH') return a;
 				if (!a.Value) return a;
 				
 				// Check if this arg has options
@@ -355,6 +362,7 @@
 			autoSelectedArgs = new Set();
 			lastClearedNamespace = '';
 			tokenAutoSelectSource = null;
+			authAutoSelectSource = null;
 
 			args = ttpParams?.map((param: TTPParam) => {
 					let value = param.default;
@@ -455,6 +463,29 @@
 		});
 	});
 
+	// Keep an automatically proximity-selected Authenticate As identity aligned
+	// with the selected execution system. Manual and RBAC choices are stable.
+	$effect(() => {
+		const execId = selectedExecSystemId;
+		const identities = eligibleAuthIdentities;
+		untrack(() => {
+			if (authAutoSelectSource !== 'proximity') return;
+			const eligibleServiceAccounts = campaignState.getServiceAccountsWithTokens()
+				.filter(entity => identities.some(identity => identity.id === entity.id));
+			const best = findClosestToken(eligibleServiceAccounts, execId);
+			if (best && best.entity.id !== selectedAuthIdentityId) {
+				selectedAuthIdentityId = best.entity.id;
+				const authArgIndex = args.findIndex(arg => arg.Name === 'K8S_AUTH');
+				if (authArgIndex !== -1) {
+					args = args.with(authArgIndex, {
+						...args[authArgIndex],
+						Value: best.entity.id
+					});
+				}
+			}
+		});
+	});
+
 	// Focus first input once when TTP changes (modal opens with new TTP)
 	$effect(() => {
 		// Only focus if this is a new TTP
@@ -515,8 +546,11 @@
 
 	// the args will be the final arguments used when executing the TTP
 	function onInternalExecute() {
+		const authArg = args.find(arg => arg.Name === 'K8S_AUTH');
+		const authIdentityId = authArg?.Value || selectedAuthIdentityId;
 		const argsDict = args.reduce(
 			(acc: { [key: string]: string }, arg) => {
+				if (arg.Name === 'K8S_AUTH') return acc;
 				const isTemplateVar = arg.Value.startsWith("${") && arg.Value.endsWith("}");
 				if (isTemplateVar) {
 					// if the value is a variable, do not do any conversion
@@ -581,10 +615,7 @@
 			{} as { [key: string]: string }
 		);
 
-		if (selectedAuthIdentity?.kind === 'K8sCredential') {
-			delete argsDict.TOKEN;
-		}
-		onExecute(ttp.id, selectedExecSystemId, selectedAuthIdentityId, procedureId, argsDict);
+		onExecute(ttp.id, selectedExecSystemId, authIdentityId, procedureId, argsDict);
 	}
 
 	function executingSystemHasTool(tool: string): boolean {
@@ -600,7 +631,7 @@
 
 	function getArgOptions(argName: string): ComboboxOption[] {
 		let opts = argOptions[argName] ?? [];
-		if (selectedNamespace !== "" && argName !== namespaceArgName && argName !== "TOKEN") {
+		if (selectedNamespace !== "" && argName !== namespaceArgName && argName !== "TOKEN" && argName !== "K8S_AUTH") {
 			opts = opts.filter(o => o.group === selectedNamespace);
 		}
 		return opts
@@ -651,6 +682,15 @@
 		// }
 	}
 
+	function onAuthIdentityChange(value: string) {
+		selectedAuthIdentityId = value;
+		authAutoSelectSource = 'manual';
+		const index = args.findIndex(arg => arg.Name === 'K8S_AUTH');
+		if (index !== -1) {
+			args = args.with(index, { ...args[index], Value: value });
+		}
+	}
+
 	function handleInputBlur(arg: Arg, inputValue: string) {
 		const i = args.findIndex(a => a.Name === arg.Name);
 		if (i === -1) return;
@@ -687,19 +727,6 @@
 			<span class="h6 label text-xs md:text-sm lg:text-base">Description</span>
 			{ttp.description}
 		</div>
-			{#if eligibleAuthIdentities.length > 0}
-				<label class="label mt-5">
-					<span class="h6 label-text text-xs md:text-sm lg:text-base">Authenticate As</span>
-					<select id="authIdentity" class="input mt-2 text-xs md:text-sm lg:text-base" bind:value={selectedAuthIdentityId} required>
-						{#if eligibleAuthIdentities.length > 1}
-							<option value="" disabled>Select an identity…</option>
-						{/if}
-						{#each eligibleAuthIdentities as identity (identity.id)}
-							<option value={identity.id}>{identity.kind}: {identity.name}</option>
-						{/each}
-					</select>
-				</label>
-			{/if}
 			{#if execSystemOptions.length > 0}
 				<label class="label mt-5">
 					<span class="h6 label-text text-xs md:text-sm lg:text-base">Execute On</span>
@@ -753,6 +780,23 @@
 				type="checkbox"
 				placeholder={arg.Description}
 			/>
+		{:else if arg.Type === 'K8sAuth'}
+			<select
+				id="authIdentity"
+				class="ig-input"
+				value={arg.Value}
+				onchange={(event) => onAuthIdentityChange(event.currentTarget.value)}
+				required={arg.Required}
+			>
+				{#if eligibleAuthIdentities.length !== 1}
+					<option value="" disabled>
+						{eligibleAuthIdentities.length === 0 ? 'No eligible identities' : 'Select an identity…'}
+					</option>
+				{/if}
+				{#each eligibleAuthIdentities as identity (identity.id)}
+					<option value={identity.id}>{identity.kind}: {identity.name}</option>
+				{/each}
+			</select>
 		{:else if getArgOptions(arg.Name).length > 0}
 			{#key argExternalVersions[arg.Name] ?? 0}
 				<Combobox

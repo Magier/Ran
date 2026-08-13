@@ -362,6 +362,7 @@ tactic: Discovery
 procedures:
   - key: k8s-request
     k8s_request:
+      authentication: ${K8S_AUTH}
       api_server: https://10.0.0.1:6443
       api: /api/v1
       resource: pods
@@ -391,6 +392,7 @@ name: Get Pods
 tactic: Discovery
 procedures:
   - k8s_request:
+      authentication: ${K8S_AUTH}
       api: /api/v1
       resource: pods
 "#;
@@ -409,6 +411,7 @@ name: Test
 tactic: Discovery
 procedures:
   - k8s_request:
+      authentication: ${K8S_AUTH}
       api: /api/v1
       resource: nodes
 "#;
@@ -426,6 +429,7 @@ procedures:
   - command: kubectl get nodes
 cleanup:
   k8s_request:
+    authentication: ${K8S_AUTH}
     api: /api/v1
     resource: nodes
 "#;

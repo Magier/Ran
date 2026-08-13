@@ -3,13 +3,16 @@ description: Disables Pod Security Admission on a namespace by overwriting the e
 tactic: Defense Impairment
 techniques: ["Disable or Modify Tools", "T1685"]
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   NAMESPACE:
     type: string
     default: ${TARGET}
     description: the name of the namespace to disable Pod Security Admission on
 procedures:
   - key: kubectl
-    command: kubectl label ns ${NAMESPACE} pod-security.kubernetes.io/enforce=privileged --overwrite
+    command: kubectl ${K8S_AUTH} label ns ${NAMESPACE} pod-security.kubernetes.io/enforce=privileged --overwrite
 effects:
   - k8s.Namespace.enforcedPSS=privileged
 preconditions:

@@ -1,14 +1,14 @@
 name: Check Token Permissions
-description: Query the K8s API server for the permissions of this provided token
+description: Query the K8s API server for the permissions of the selected identity
 tactic: Discovery
 techniques: [ "Permission Groups Discovery", "T1069.003" ]
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   NS:
     type: Namespace
     description: the namespace of the service account
-  TOKEN:
-    type: ServiceAccount
-    description: the token which will be checked
   API_SERVER:
     type: string
     description: the URL of the API server
@@ -26,15 +26,14 @@ preconditions:
   has-token: true
 procedures:
   - key: kubectl
-    command: kubectl auth can-i --list --token=${TOKEN}
+    command: kubectl auth can-i --list ${K8S_AUTH}
   - http_request:
+      authentication: ${K8S_AUTH}
       method: POST
       url: "${API_SERVER}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews"
       headers:
-        Authorization: "Bearer ${TOKEN}"
         Content-Type: application/json
-      body: "{\"kind\":\"SelfSubjectRulesReview\",\"apiVersion\":\"authorization.k8s.\
-        io/v1\",\"spec\":{\"namespace\":\"${NS}\"}}"
+      body: '{"kind":"SelfSubjectRulesReview","apiVersion":"authorization.k8s.io/v1","spec":{"namespace":"${NS}"}}'
       use_ca: "${USE_CA}"
       ca_path: "${CA_PATH}"
 effects:

@@ -201,7 +201,6 @@ pub fn parse_output_effect(
         let cidr = cmd.args.get("CIDR").map(String::as_str);
         network::parse_nmap(stdout, source_id, cidr)
     } else if normalized == "k8s.selfsubjectrulesreview" {
-        let token_arg = cmd.args.get("TOKEN").map(String::as_str).unwrap_or("");
         let namespace_arg = cmd.args.get("NS").map(String::as_str).unwrap_or("");
         // When an exec system is selected, cmd.target_id is rewritten to the pod ID.
         // TARGET_ID always holds the original logical target (SA entity) from the request.
@@ -213,8 +212,7 @@ pub fn parse_output_effect(
         iam::parse_self_subject_rules_review(
             stdout,
             stderr,
-            fallback_target,
-            token_arg,
+            cmd.auth_identity_id.as_deref().unwrap_or(fallback_target),
             namespace_arg,
         )
     } else if normalized.starts_with("file:content(") {

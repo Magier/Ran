@@ -4,6 +4,9 @@ description: Transfer tools or other files from an external system into a compro
 tactic: Command And Control
 techniques: ["Ingress Tool Transfer"]
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   SRC_PATH:
     type: string
     description: Path to the file which will be transfered to the target system
@@ -25,7 +28,7 @@ parameters:
   #   description: Path on the target system where the file will be transfered
 procedures:
   - key: kubectl
-    command: kubectl cp -n ${NAMESPACE} ${SRC_PATH} ${POD_NAME}:${DST_PATH}
+    command: kubectl ${K8S_AUTH} cp -n ${NAMESPACE} ${SRC_PATH} ${POD_NAME}:${DST_PATH}
     isLocal: true
   # - key: sliver
   #   command: get_file ${SRC_PATH}

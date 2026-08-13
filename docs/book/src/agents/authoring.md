@@ -35,7 +35,7 @@ Before submitting a TTP YAML, verify:
   correct subdirectory
 - [ ] At least one entry in `procedures:` is non-empty
 - [ ] Every `${PARAM}` placeholder in procedure commands has a corresponding entry
-  in `parameters:` (or is a built-in variable: `${NS}`, `${TOKEN}`, `${API_SERVER}`,
+  in `parameters:` (or is a built-in variable: `${NS}`, `${API_SERVER}`,
   `${TARGET.IP}`, `${TARGET_ID}`, `${CMD}`)
 - [ ] Every effect string is a known effect expression (see [Effect Catalog](../reference/effects.md))
 - [ ] Every precondition key is from the supported set
@@ -45,14 +45,24 @@ Before submitting a TTP YAML, verify:
 ```yaml
 parameters:
   PARAM_NAME:
-    type: string          # string | Namespace | ServiceAccount | bool | int
+    type: string          # string | Namespace | ServiceAccount | K8sAuth | bool | int
     description: "..."    # required: non-empty
     default: ""           # may use ${BUILT_IN_VAR} syntax
     required: false       # omit for required parameters
 ```
 
-Parameter names are case-sensitive. Built-in variables (`${NS}`, `${TOKEN}`, etc.)
-are always available — do not redeclare them unless overriding the default.
+Parameter names are case-sensitive. Built-in variables such as `${NS}` and
+`${API_SERVER}` are always available.
+
+Procedures that reference `${K8S_AUTH}` use the action's **Authenticate As**
+identity. Do not declare a Kubernetes `TOKEN` parameter. Explicitly declare
+`K8S_AUTH` with type `K8sAuth`, put `${K8S_AUTH}` in every kubectl invocation,
+and declare
+`authentication: ${K8S_AUTH}` in every `k8s_request` or direct Kubernetes
+`http_request`.
+
+Local control procedures that use the already-active Kubernetes client without
+referencing `${K8S_AUTH}` do not declare the parameter.
 
 ## Procedure contract
 

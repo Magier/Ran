@@ -3,7 +3,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, OutputTransform, TtpExecuted, BUILTIN_C2_ID};
-use ran_domain::{BinaryPresence, EntityId, K8sNode, Merge, NameConfidence, Pod, UnknownSystem};
+use ran_domain::{
+    BinaryPresence, EntityId, K8sCredential, K8sNode, Merge, NameConfidence, Pod, ServiceAccount,
+    UnknownSystem,
+};
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
@@ -73,6 +76,40 @@ fn normalise_exec_hint(exec_system_id: Option<&str>, target_id: &str) -> Option<
         .map(str::trim)
         .filter(|s| !s.is_empty() && *s != target_id)
         .map(str::to_string)
+}
+
+#[derive(Debug, Clone)]
+enum ResolvedK8sAuth {
+    ServiceAccount { id: String, token: String },
+    Kubeconfig { id: String },
+}
+
+impl ResolvedK8sAuth {
+    fn id(&self) -> &str {
+        match self {
+            Self::ServiceAccount { id, .. } | Self::Kubeconfig { id } => id,
+        }
+    }
+
+    fn kubectl_arg(&self) -> String {
+        match self {
+            Self::ServiceAccount { token, .. } => {
+                format!("--token {}", shell_words::quote(token))
+            }
+            Self::Kubeconfig { .. } => "--kubeconfig \"$KUBECONFIG\"".to_string(),
+        }
+    }
+
+    fn token(&self) -> Option<&str> {
+        match self {
+            Self::ServiceAccount { token, .. } => Some(token),
+            Self::Kubeconfig { .. } => None,
+        }
+    }
+
+    fn uses_kubeconfig(&self) -> bool {
+        matches!(self, Self::Kubeconfig { .. })
+    }
 }
 
 /// Local C2-side control commands that should never require an exec channel.
@@ -155,6 +192,10 @@ impl Default for BoolOrString {
 
 #[derive(Debug, Deserialize)]
 struct HttpRequestSpec {
+    /// Explicitly marks an HTTP request whose bearer credentials come from
+    /// the action's Authenticate As identity.
+    #[serde(default)]
+    authentication: String,
     url: String,
     #[serde(default = "default_http_method")]
     method: String,
@@ -178,6 +219,7 @@ struct HttpRequestSpec {
 
 #[derive(Debug, Deserialize)]
 struct KubernetesRequestSpec {
+    authentication: String,
     api_server: String,
     api: String,
     resource: String,
@@ -187,8 +229,6 @@ struct KubernetesRequestSpec {
     cluster_scoped: BoolOrString,
     #[serde(default)]
     query: String,
-    #[serde(default)]
-    token: String,
     #[serde(default = "default_http_method")]
     method: String,
     #[serde(default)]
@@ -197,6 +237,19 @@ struct KubernetesRequestSpec {
     ca_path: String,
     #[serde(default = "default_timeout_seconds")]
     timeout_seconds: u64,
+}
+
+fn validate_k8s_request_auth(
+    procedure_id: &str,
+    spec: &KubernetesRequestSpec,
+) -> Result<(), ExecuteActionError> {
+    if spec.authentication.trim().is_empty() {
+        return Err(ExecuteActionError::InvalidInput(format!(
+            "k8s_request procedure '{}' must declare authentication: ${{K8S_AUTH}}",
+            procedure_id
+        )));
+    }
+    Ok(())
 }
 
 fn build_k8s_resource_path(spec: &KubernetesRequestSpec) -> String {
@@ -239,6 +292,7 @@ fn describe_k8s_request(
             procedure_id, e
         ))
     })?;
+    validate_k8s_request_auth(procedure_id, &spec)?;
     let method = if spec.method.trim().is_empty() {
         "GET"
     } else {
@@ -251,18 +305,48 @@ fn describe_k8s_request(
     ))
 }
 
+fn describe_authenticated_http_request(
+    procedure_id: &str,
+    request: JsonValue,
+) -> Result<String, ExecuteActionError> {
+    let spec: HttpRequestSpec = serde_json::from_value(request).map_err(|e| {
+        ExecuteActionError::InvalidInput(format!(
+            "invalid http_request in procedure '{}': {}",
+            procedure_id, e
+        ))
+    })?;
+    if spec.authentication.trim().is_empty() {
+        return Err(ExecuteActionError::InvalidInput(format!(
+            "Kubernetes http_request procedure '{}' must declare authentication: ${{K8S_AUTH}}",
+            procedure_id
+        )));
+    }
+    let method = if spec.method.trim().is_empty() {
+        "GET"
+    } else {
+        spec.method.trim()
+    };
+    Ok(format!(
+        "{} {}",
+        method.to_ascii_uppercase(),
+        spec.url.trim()
+    ))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum StepSpec {
-    Fetch { fetch: HttpRequestSpec },
+    Fetch { fetch: Box<HttpRequestSpec> },
     Chmod { chmod: String },
     Run { run: String },
 }
 
 /// Recursively apply template grounding to all string values inside a JSON value.
-fn ground_json_value(val: &mut JsonValue, args: &HashMap<String, String>) {
+pub(super) fn ground_json_value(val: &mut JsonValue, args: &HashMap<String, String>) {
     match val {
-        JsonValue::String(s) => *s = ground_template(s, args),
+        JsonValue::String(s) => {
+            *s = ground_template(&resolve_template(s, args), args);
+        }
         JsonValue::Object(map) => {
             for v in map.values_mut() {
                 ground_json_value(v, args);
@@ -378,6 +462,7 @@ fn materialize_steps(procedure: &mut Procedure, armory: &Armory) -> Result<(), E
 pub(super) fn materialize_k8s_request(
     procedure: &mut Procedure,
     armory: &Armory,
+    auth_token: Option<&str>,
 ) -> Result<(), ExecuteActionError> {
     let k8s_req_val = match procedure.k8s_request.take() {
         Some(v) => v,
@@ -390,19 +475,18 @@ pub(super) fn materialize_k8s_request(
             procedure.id, e
         ))
     })?;
+    validate_k8s_request_auth(&procedure.id, &spec)?;
 
     let url = build_k8s_url(&spec);
 
     let mut headers = HashMap::new();
     headers.insert("Accept".to_string(), "application/json".to_string());
-    if !spec.token.trim().is_empty() {
-        headers.insert(
-            "Authorization".to_string(),
-            format!("Bearer {}", spec.token.trim()),
-        );
+    if let Some(token) = auth_token.map(str::trim).filter(|token| !token.is_empty()) {
+        headers.insert("Authorization".to_string(), format!("Bearer {token}"));
     }
 
     let http_spec = HttpRequestSpec {
+        authentication: String::new(),
         url,
         method: if spec.method.trim().is_empty() {
             "GET".to_string()
@@ -418,7 +502,13 @@ pub(super) fn materialize_k8s_request(
         follow_redirects: false,
     };
 
-    let tool_id = procedure.tool.as_deref().unwrap_or("curl");
+    // `key: k8s-request` is a procedure selector used throughout the bundled
+    // armory, not the ID of an HTTP rendering tool.
+    let tool_id = procedure
+        .tool
+        .as_deref()
+        .filter(|tool| *tool != "k8s-request")
+        .unwrap_or("curl");
 
     procedure.command = render_http_via_tool(&http_spec, tool_id, armory).ok_or_else(|| {
         ExecuteActionError::InvalidInput(format!(
@@ -433,18 +523,40 @@ pub(super) fn materialize_k8s_request(
 fn materialize_abstract_http_request(
     procedure: &mut Procedure,
     armory: &Armory,
+    auth_token: Option<&str>,
 ) -> Result<(), ExecuteActionError> {
     let http_req_val = match procedure.http_request.take() {
         Some(v) => v,
         None => return Ok(()),
     };
 
-    let spec: HttpRequestSpec = serde_json::from_value(http_req_val).map_err(|e| {
+    let mut spec: HttpRequestSpec = serde_json::from_value(http_req_val).map_err(|e| {
         ExecuteActionError::InvalidInput(format!(
             "invalid http_request in procedure '{}': {}",
             procedure.id, e
         ))
     })?;
+
+    if !spec.authentication.trim().is_empty() {
+        let token = auth_token.map(str::trim).filter(|token| !token.is_empty()).ok_or_else(|| {
+            ExecuteActionError::InvalidInput(format!(
+                "authenticated http_request procedure '{}' requires a ServiceAccount Authenticate As identity",
+                procedure.id
+            ))
+        })?;
+        if spec
+            .headers
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case("authorization"))
+        {
+            return Err(ExecuteActionError::InvalidInput(format!(
+                "authenticated http_request procedure '{}' must not declare its own Authorization header",
+                procedure.id
+            )));
+        }
+        spec.headers
+            .insert("Authorization".to_string(), format!("Bearer {token}"));
+    }
 
     let tool_id = procedure.tool.as_deref().unwrap_or("curl");
 
@@ -614,9 +726,17 @@ impl Campaign {
             | ExecuteActionError::NoExecChannel(reason)
             | ExecuteActionError::InvariantViolation(reason) => reason.clone(),
         };
+        let mut normalized_request = request.clone();
+        let parameter_identity = normalized_request
+            .args
+            .remove("K8S_AUTH")
+            .filter(|identity| !identity.trim().is_empty());
+        if normalized_request.auth_identity_id.is_none() {
+            normalized_request.auth_identity_id = parameter_identity;
+        }
         let record = ExecutionRecord::from_preparation_failure(
             cmd_id,
-            request,
+            &normalized_request,
             ttp.name.clone(),
             ttp.tactic.clone(),
             reason,
@@ -667,30 +787,87 @@ impl Campaign {
             }
         }
 
-        let eligible_identities =
-            crate::ttp_applicability::eligible_auth_identities(&ttp, self, &target_id);
-        let implicit_identity = args
-            .get("TOKEN")
-            .filter(|value| !value.trim().is_empty())
-            .filter(|value| {
-                eligible_identities
-                    .iter()
-                    .any(|identity| identity.id == **value)
-            })
-            .cloned()
-            .or_else(|| {
-                eligible_identities
-                    .iter()
-                    .find(|identity| identity.id == target_id)
-                    .map(|identity| identity.id.clone())
-            })
-            .or_else(|| {
-                (eligible_identities.len() == 1).then(|| eligible_identities[0].id.clone())
-            });
-        let auth_identity_id = requested_auth_identity_id
-            .filter(|identity| !identity.trim().is_empty())
-            .or(implicit_identity);
-        if let Some(identity_id) = auth_identity_id.as_deref() {
+        let mut procedure = self.select_procedure(&ttp, procedure_id.as_deref())?;
+        let procedure_uses_k8s_auth = crate::ttp_applicability::procedure_uses_k8s_auth(&procedure);
+        let resolved_auth = if procedure_uses_k8s_auth {
+            if procedure.command.contains("kubectl ")
+                && !procedure.command.contains("${K8S_AUTH}")
+                && !procedure
+                    .command
+                    .trim_start()
+                    .starts_with("c2.kubectl_exec(")
+            {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "Kubernetes procedure '{}' must use ${{K8S_AUTH}} instead of TOKEN or ambient authentication",
+                    procedure.id
+                )));
+            }
+
+            let parameter_identity = args
+                .remove("K8S_AUTH")
+                .map(|identity| identity.trim().to_string())
+                .filter(|identity| !identity.is_empty());
+            let canonical_identity = requested_auth_identity_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|identity| !identity.is_empty())
+                .map(str::to_string);
+            let requested_identity = match (canonical_identity, parameter_identity) {
+                (Some(canonical), Some(parameter)) if canonical != parameter => {
+                    return Err(ExecuteActionError::InvalidInput(
+                        "authIdentityId and args.K8S_AUTH select different identities".to_string(),
+                    ));
+                }
+                (Some(canonical), _) => Some(canonical),
+                (None, parameter) => parameter,
+            };
+            let legacy_token = args.remove("TOKEN").unwrap_or_default();
+            if requested_identity.is_some() && !legacy_token.trim().is_empty() {
+                return Err(ExecuteActionError::InvalidInput(
+                    "Kubernetes authentication selectors and legacy args.TOKEN cannot be supplied together"
+                        .to_string(),
+                ));
+            }
+
+            let eligible_identities =
+                crate::ttp_applicability::eligible_auth_identities(&ttp, self, &target_id);
+            let legacy_identity = if legacy_token.trim().is_empty() {
+                None
+            } else if eligible_identities
+                .iter()
+                .any(|identity| identity.id == legacy_token.trim())
+                && self
+                    .entities
+                    .find::<ServiceAccount>(&EntityId::new(legacy_token.trim()))
+                    .is_some()
+            {
+                tracing::warn!(
+                    action_id = %ttp.id,
+                    "legacy args.TOKEN authentication selector is deprecated; use authIdentityId"
+                );
+                Some(legacy_token.trim().to_string())
+            } else {
+                return Err(ExecuteActionError::InvalidInput(
+                    "legacy args.TOKEN must contain an eligible ServiceAccount entity ID; raw Kubernetes tokens are no longer accepted"
+                        .to_string(),
+                ));
+            };
+            let implicit_identity = eligible_identities
+                .iter()
+                .find(|identity| identity.id == target_id)
+                .map(|identity| identity.id.clone())
+                .or_else(|| {
+                    (eligible_identities.len() == 1).then(|| eligible_identities[0].id.clone())
+                });
+            let identity_id = requested_identity
+                .or(legacy_identity)
+                .or(implicit_identity)
+                .ok_or_else(|| {
+                    ExecuteActionError::InvalidInput(format!(
+                        "action '{}' requires an Authenticate As identity",
+                        ttp.id
+                    ))
+                })?;
             if !eligible_identities
                 .iter()
                 .any(|identity| identity.id == identity_id)
@@ -700,12 +877,41 @@ impl Campaign {
                     identity_id, ttp.id
                 )));
             }
-        }
-        let use_kubeconfig = auth_identity_id.as_deref().is_some_and(|identity_id| {
-            self.entities
-                .find::<ran_domain::K8sCredential>(&EntityId::new(identity_id))
+
+            let entity_id = EntityId::new(&identity_id);
+            if let Some(account) = self.entities.find::<ServiceAccount>(&entity_id) {
+                let token = account.raw_token().ok_or_else(|| {
+                    ExecuteActionError::InvalidInput(format!(
+                        "ServiceAccount '{}' has no captured token",
+                        identity_id
+                    ))
+                })?;
+                Some(ResolvedK8sAuth::ServiceAccount {
+                    id: identity_id,
+                    token: token.to_string(),
+                })
+            } else if self
+                .entities
+                .find::<K8sCredential>(&entity_id)
                 .is_some_and(|credential| credential.active)
-        });
+            {
+                Some(ResolvedK8sAuth::Kubeconfig { id: identity_id })
+            } else {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "authentication identity '{}' is neither a captured ServiceAccount nor the active K8sCredential",
+                    identity_id
+                )));
+            }
+        } else {
+            None
+        };
+        let auth_identity_id = resolved_auth
+            .as_ref()
+            .map(|auth| auth.id().to_string())
+            .or_else(|| requested_auth_identity_id.filter(|identity| !identity.trim().is_empty()));
+        let use_kubeconfig = resolved_auth
+            .as_ref()
+            .is_some_and(ResolvedK8sAuth::uses_kubeconfig);
 
         // Stage 2: normalise the caller-supplied routing hint.
         let exec_hint = normalise_exec_hint(exec_system_id.as_deref(), &target_id);
@@ -714,6 +920,9 @@ impl Campaign {
         // before template substitution so cross-param references like `${NS}` in
         // arg defaults resolve correctly.
         ground_args_from_context(&mut args, &target_id, self);
+        if resolved_auth.is_some() {
+            args.remove("TOKEN");
+        }
 
         // Stage 4: resolve lateral-movement source and inject SRC — single,
         // authoritative site.  For non-lateral TTPs this is a no-op.
@@ -737,16 +946,20 @@ impl Campaign {
             .or_insert_with(|| target_id.clone());
         ground_entity_ref_vars(&mut args, self);
 
-        // Stage 5: ground the procedure command and effects.
-        let mut procedure = self.select_procedure(&ttp, procedure_id.as_deref())?;
-        if use_kubeconfig {
-            args.insert("TOKEN".to_string(), String::new());
+        // Stage 5: ground the procedure command and effects. K8S_AUTH is an
+        // ephemeral built-in and is removed from persisted execution args.
+        if let Some(auth) = &resolved_auth {
+            args.insert("K8S_AUTH".to_string(), auth.kubectl_arg());
         }
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
+        args.remove("K8S_AUTH");
         if use_kubeconfig {
             if procedure.command.trim().is_empty() {
                 if let Some(request) = procedure.k8s_request.clone() {
                     procedure.command = describe_k8s_request(&procedure.id, request)?;
+                } else if let Some(request) = procedure.http_request.clone() {
+                    procedure.command =
+                        describe_authenticated_http_request(&procedure.id, request)?;
                 }
             }
             let supported = crate::ttp_applicability::procedure_uses_k8s_auth(&procedure);
@@ -757,10 +970,20 @@ impl Campaign {
                 )));
             }
         } else {
-            materialize_k8s_request(&mut procedure, armory)?;
+            materialize_k8s_request(
+                &mut procedure,
+                armory,
+                resolved_auth.as_ref().and_then(ResolvedK8sAuth::token),
+            )?;
         }
         materialize_steps(&mut procedure, armory)?;
-        materialize_abstract_http_request(&mut procedure, armory)?;
+        if !use_kubeconfig {
+            materialize_abstract_http_request(
+                &mut procedure,
+                armory,
+                resolved_auth.as_ref().and_then(ResolvedK8sAuth::token),
+            )?;
+        }
 
         // Stage 6: resolve C2 channel (may wrap procedure.command for multi-hop).
         let route = self.route_exec_channel(
@@ -833,7 +1056,7 @@ impl Campaign {
             match self.prepare_action_with_ttp(
                 record.target_id.clone(),
                 None,
-                None,
+                record.auth_identity_id.clone(),
                 Some(cleanup_proc.id.clone()),
                 cleanup_ttp,
                 record.args.clone(),

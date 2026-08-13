@@ -20,4 +20,6 @@ pub enum ArmoryError {
     NoTtpsLoaded(String),
     #[error("bundled armory file is not valid UTF-8: {0}")]
     InvalidUtf8(String),
+    #[error("invalid TTP '{ttp_id}': {reason}")]
+    InvalidTtp { ttp_id: String, reason: String },
 }

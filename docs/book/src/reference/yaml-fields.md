@@ -40,7 +40,7 @@ parameters:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | string | `string` | Parameter type. One of: `string`, `Namespace`, `ServiceAccount`, `bool`, `int`. |
+| `type` | string | `string` | Parameter type. One of: `string`, `Namespace`, `ServiceAccount`, `K8sAuth`, `bool`, `int`. |
 | `description` | string | `""` | Shown in the UI tooltip and CLI help. |
 | `default` | any | `""` | Default value. Can reference built-in variables like `${NS}`. |
 | `required` | bool | `true` | Whether the parameter must be provided. Set to `false` to make it optional. |
@@ -50,7 +50,6 @@ parameters:
 | Variable | Value at runtime |
 |---|---|
 | `${NS}` | Namespace of the target entity |
-| `${TOKEN}` | Best available service account JWT |
 | `${API_SERVER}` | Kubernetes API server URL |
 | `${TARGET.IP}` | IP address of the target entity |
 | `${TARGET_ID}` | Ran entity ID of the target (e.g. `pod/default/nginx`) |
@@ -90,6 +89,7 @@ Each procedure entry supports the following fields:
 
 ```yaml
 http_request:
+  authentication: ${K8S_AUTH} # Kubernetes API requests only
   method: POST
   url: http://${TARGET}:${PORT}/endpoint
   headers:
@@ -99,6 +99,7 @@ http_request:
 
 | Field | Type | Description |
 |---|---|---|
+| `authentication` | string | Optional `${K8S_AUTH}` marker for direct Kubernetes API requests; uses the selected ServiceAccount or active K8sCredential. |
 | `method` | string | HTTP method: `GET`, `POST`, `PUT`, `DELETE`, etc. |
 | `url` | string | Target URL. Supports parameter placeholders. |
 | `headers` | map | Optional HTTP headers as key-value pairs. |
@@ -108,28 +109,31 @@ http_request:
 
 ```yaml
 k8s_request:
+  authentication: ${K8S_AUTH}
   api_server: ${API_SERVER}
   api: /api/v1                # or /apis/apps/v1, etc.
   resource: pods
   namespace: ${NS}
   cluster_scoped: false       # true = all namespaces
   query: limit=500            # appended as URL query string
-  token: ${TOKEN}
   use_ca: false               # skip CA verification
   ca_path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 ```
 
 | Field | Type | Description |
 |---|---|---|
+| `authentication` | string | Required `${K8S_AUTH}` marker; resolved from Authenticate As. |
 | `api_server` | string | Kubernetes API server URL. Defaults to `${API_SERVER}`. |
 | `api` | string | API group path, e.g. `/api/v1` or `/apis/apps/v1`. |
 | `resource` | string | Resource type, e.g. `pods`, `secrets`, `serviceaccounts`. |
 | `namespace` | string | Target namespace. Omit for cluster-scoped resources. |
 | `cluster_scoped` | bool | If `true`, list resources across all namespaces. |
 | `query` | string | URL query string appended to the request, e.g. `limit=500`. |
-| `token` | string | Bearer token for authentication. Defaults to `${TOKEN}`. |
 | `use_ca` | bool | If `true`, verify the server CA certificate. Default: `false`. |
 | `ca_path` | string | Path to CA bundle for server verification when `use_ca: true`. |
+
+`authentication: ${K8S_AUTH}` makes the dependency explicit; its token or
+kubeconfig value is supplied by the action's **Authenticate As** identity.
 
 ### Steps
 

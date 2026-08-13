@@ -5,6 +5,9 @@ techniques:
   - "Account Manipulation: Additional Container Cluster Roles"
   - T1098.006
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   ROLE_NAME:
     type: string
     default: nsadmin
@@ -13,15 +16,10 @@ parameters:
     type: Namespace
     default: ${NS}
     description: the name of the namespace in which the role will be created
-  TOKEN:
-    type: ServiceAccount
-    default: ""
-    description: the token used to authenticate to the API server
 procedures:
   - key: kubectl
-    # export TOKEN=${TOKEN}
     command: >
-      kubectl create role ${ROLE_NAME} --verb=* --resource=* --token=${TOKEN} --namespace=${NAMESPACE}
+      kubectl create role ${ROLE_NAME} --verb=* --resource=* ${K8S_AUTH} --namespace=${NAMESPACE}
 preconditions:
   kind: ServiceAccount
   rbac: 

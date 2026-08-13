@@ -3,6 +3,9 @@ description: Add an additional container to a legitimate running workload. Usefu
 tactic: Execution
 techniques: ["Deploy Container", T1610]
 parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the Kubernetes identity selected by Authenticate As
   Target:
     type: string
     description: the name of the target workload to which the sidecar will be injected
@@ -30,7 +33,7 @@ parameters:
 procedures:
   - key: kubectl
     command: |+
-      kubectl patch ${KIND} ${TARGET} 
+      kubectl ${K8S_AUTH} patch ${KIND} ${TARGET}
         --type='json' 
         -p='[{"op": "add", "path": "/spec/template/spec/containers/-", "value": {"name": "${NAME}", "image": "${IMAGE}", "command": ["sleep", "infinity"]}}]' 
         -n ${NAMESPACE}

@@ -59,13 +59,13 @@ pub struct StepDefinition {
     /// `target` as the semantic action target.
     #[serde(default)]
     pub exec_target: Option<TargetQuery>,
-    /// Optional token source override. When set, planner resolves this query
-    /// and injects `args.TOKEN` with the selected entity id (typically a
-    /// ServiceAccount) unless TOKEN is already explicitly provided.
+    /// Optional Kubernetes authentication identity. Resolves to an eligible
+    /// ServiceAccount or active K8sCredential and is dispatched as
+    /// `auth_identity_id`.
     ///
-    /// Backward compatibility: `token_target` is accepted as an alias.
-    #[serde(default, alias = "token_target")]
-    pub token: Option<TargetQuery>,
+    /// Backward compatibility: `token` and `token_target` are accepted as aliases.
+    #[serde(default, alias = "token", alias = "token_target")]
+    pub authenticate_as: Option<TargetQuery>,
     #[serde(default)]
     pub args: HashMap<String, String>,
     #[serde(default)]
@@ -85,6 +85,45 @@ pub struct StepExpectation {
     /// required for this step to be considered successful.
     #[serde(default)]
     pub min_facts_written: usize,
+}
+
+#[cfg(test)]
+mod auth_identity_tests {
+    use super::StepDefinition;
+
+    fn parse_selector(field: &str) -> StepDefinition {
+        serde_yaml::from_str(&format!(
+            r#"
+id: step-1
+action: get-pods
+target:
+  id: ns/default/pod/demo
+{field}:
+  id: ns/default/sa/operator
+note: test
+"#
+        ))
+        .expect("plan step should deserialize")
+    }
+
+    #[test]
+    fn canonical_and_legacy_auth_selectors_deserialize_to_authenticate_as() {
+        for field in ["authenticate_as", "token", "token_target"] {
+            let step = parse_selector(field);
+            assert_eq!(
+                step.authenticate_as.and_then(|query| query.id).as_deref(),
+                Some("ns/default/sa/operator")
+            );
+        }
+    }
+
+    #[test]
+    fn serialization_uses_only_canonical_authenticate_as_name() {
+        let yaml = serde_yaml::to_string(&parse_selector("token")).expect("serialize step");
+        assert!(yaml.contains("authenticate_as:"));
+        assert!(!yaml.contains("\ntoken:"));
+        assert!(!yaml.contains("\ntoken_target:"));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
