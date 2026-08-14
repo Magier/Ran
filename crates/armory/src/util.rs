@@ -33,3 +33,40 @@ pub(crate) fn slugify(input: &str) -> String {
         out.to_string()
     }
 }
+
+/// Convert an effect identifier into the canonical stem used for parser scripts.
+pub fn canonical_parser_stem(effect_id: &str) -> Option<String> {
+    let stem = effect_id
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch.is_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .to_ascii_lowercase();
+
+    (!stem.is_empty() && !stem.starts_with('.')).then_some(stem)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_parser_stem;
+
+    #[test]
+    fn canonical_parser_stem_normalizes_effect_ids() {
+        assert_eq!(
+            canonical_parser_stem("  K8s/List Pods:v1  ").as_deref(),
+            Some("k8s_list_pods_v1")
+        );
+    }
+
+    #[test]
+    fn canonical_parser_stem_rejects_unsafe_or_empty_stems() {
+        assert_eq!(canonical_parser_stem("  "), None);
+        assert_eq!(canonical_parser_stem("../parser"), None);
+    }
+}

@@ -3,10 +3,9 @@ use std::collections::HashMap;
 use axum::extract::{Query, State};
 use chrono::{DateTime, Utc};
 
-use campaign::ttp_applicability::{
-    eligible_auth_identities, resolve_target_context, ttp_applicable_for_target,
-};
+use campaign::ttp_applicability::eligible_auth_identities;
 
+use crate::operations::{applicable_ttps, ApplicableTtpsError};
 use crate::sse::events_handler;
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
 use crate::{ApiError, ApiService, CampaignState, ErrorResponse, GetArmoryParams, Graph};
@@ -173,41 +172,14 @@ pub(crate) async fn applicable_ttps_handler<S: ApiService>(
     State(service): State<S>,
     Query(params): Query<GetApplicableTtpsParams>,
 ) -> Result<axum::Json<Vec<armory::Ttp>>, ApiError> {
-    let all_ttps = service.get_armory(GetArmoryParams { tactic: None }).await?;
-
-    let target_id = params
-        .target_id
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or_default();
-
-    if target_id.is_empty() {
-        let ttps = all_ttps
-            .into_iter()
-            .filter(|ttp| !ttp.status.eq_ignore_ascii_case("disabled"))
-            .collect::<Vec<_>>();
-        return Ok(axum::Json(ttps));
-    }
-
-    let campaign = service.get_campaign().await?;
-
-    // Resolve the target's facts once, then gate every candidate TTP through the
-    // shared aggregate applicability check (campaign::ttp_applicability).
-    let Some(tc) = resolve_target_context(&campaign, target_id) else {
-        return Err(ApiError {
-            status: axum::http::StatusCode::NOT_FOUND,
-            body: ErrorResponse {
-                error: format!("failed to get target entity: {}", target_id),
-                details: None,
-            },
-        });
-    };
-
-    let ttps = all_ttps
-        .into_iter()
-        .filter(|ttp| ttp_applicable_for_target(ttp, &campaign, &tc))
-        .collect::<Vec<_>>();
-
+    let ttps = applicable_ttps(&service, params.target_id.as_deref())
+        .await
+        .map_err(|error| match error {
+            ApplicableTtpsError::Api(error) => error,
+            ApplicableTtpsError::UnknownTarget(target_id) => {
+                ApiError::not_found(format!("failed to get target entity: {target_id}"))
+            }
+        })?;
     Ok(axum::Json(ttps))
 }
 

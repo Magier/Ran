@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use campaign::{CampaignEventBus, ExecuteActionRequest};
+use campaign::{Campaign, CampaignEntityRef, CampaignEventBus, ExecuteActionRequest};
 use ran_domain::{Entity, ServiceAccount};
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Content, Implementation, JsonObject, ListToolsResult,
@@ -33,6 +33,7 @@ use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler};
 use serde_json::{json, Value};
 
+use crate::operations::{applicable_ttps, ApplicableTtpsError};
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
 use crate::{ApiError, ApiService, GetArmoryParams};
 
@@ -113,6 +114,24 @@ fn schema(v: Value) -> JsonObject {
     }
 }
 
+/// Find an entity in the campaign's heterogeneous entity collection.
+fn find_entity<'a>(campaign: &'a Campaign, entity_id: &str) -> Option<CampaignEntityRef<'a>> {
+    campaign
+        .get_entities()
+        .into_iter()
+        .find(|entity| entity.entity_id().0 == entity_id)
+}
+
+/// Stable MCP projection shared by entity discovery tools.
+fn entity_summary(entity: &CampaignEntityRef<'_>) -> Value {
+    json!({
+        "id": entity.entity_id().0,
+        "kind": entity.entity_kind(),
+        "name": entity.entity_name(),
+        "namespace": entity.namespace(),
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Individual tool implementations  (async fns called from call_tool dispatch)
 // ---------------------------------------------------------------------------
@@ -133,17 +152,9 @@ impl<S: ApiService> RanMcpHandler<S> {
     async fn tool_get_entity(&self, args: &Value) -> Result<CallToolResult, McpError> {
         let entity_id = req_str(args, "entity_id")?;
         let campaign = self.api.get_campaign().await.map_err(api_err)?;
-        let entity = campaign
-            .get_entities()
-            .into_iter()
-            .find(|e| e.entity_id().0 == entity_id)
+        let entity = find_entity(&campaign, entity_id)
             .ok_or_else(|| invalid_param(format!("entity `{entity_id}` not found")))?;
-        json_result(json!({
-            "id": entity.entity_id().0,
-            "kind": entity.entity_kind(),
-            "name": entity.entity_name(),
-            "namespace": entity.namespace(),
-        }))
+        json_result(entity_summary(&entity))
     }
 
     async fn tool_get_attack_surface(&self, args: &Value) -> Result<CallToolResult, McpError> {
@@ -165,11 +176,8 @@ impl<S: ApiService> RanMcpHandler<S> {
             .collect();
 
         // Include the entity's own fields for context.
-        let entity_detail = campaign
-            .get_entities()
-            .into_iter()
-            .find(|e| e.entity_id().0 == entity_id)
-            .map(|e| json!({ "kind": e.entity_kind(), "name": e.entity_name() }))
+        let entity_detail = find_entity(&campaign, entity_id)
+            .map(|entity| entity_summary(&entity))
             .unwrap_or(Value::Null);
 
         json_result(json!({
@@ -190,14 +198,7 @@ impl<S: ApiService> RanMcpHandler<S> {
                 e.entity_name().to_ascii_lowercase().contains(&name)
                     || e.entity_id().0.to_ascii_lowercase().contains(&name)
             })
-            .map(|e| {
-                json!({
-                    "id": e.entity_id().0,
-                    "kind": e.entity_kind(),
-                    "name": e.entity_name(),
-                    "namespace": e.namespace(),
-                })
-            })
+            .map(|entity| entity_summary(&entity))
             .collect();
 
         json_result(json!({ "matches": matches }))
@@ -238,26 +239,14 @@ impl<S: ApiService> RanMcpHandler<S> {
 
     async fn tool_get_applicable_ttps(&self, args: &Value) -> Result<CallToolResult, McpError> {
         let target_id = req_str(args, "target_id")?;
-        let all_ttps = self
-            .api
-            .get_armory(GetArmoryParams { tactic: None })
+        let applicable = applicable_ttps(&self.api, Some(target_id))
             .await
-            .map_err(api_err)?;
-        let campaign = self.api.get_campaign().await.map_err(api_err)?;
-
-        use campaign::ttp_applicability::{resolve_target_context, ttp_applicable_for_target};
-
-        let tc = resolve_target_context(&campaign, target_id).ok_or_else(|| {
-            invalid_param(format!(
-                "entity `{target_id}` is not in campaign knowledge; use get_initial_access_candidates before the first foothold"
-            ))
-        })?;
-
-        let applicable: Vec<_> = all_ttps
-            .into_iter()
-            .filter(|ttp| ttp_applicable_for_target(ttp, &campaign, &tc))
-            .collect();
-
+            .map_err(|error| match error {
+                ApplicableTtpsError::Api(error) => api_err(error),
+                ApplicableTtpsError::UnknownTarget(target_id) => invalid_param(format!(
+                    "entity `{target_id}` is not in campaign knowledge; use get_initial_access_candidates before the first foothold"
+                )),
+            })?;
         json_result(applicable)
     }
 
@@ -492,22 +481,8 @@ impl<S: ApiService> RanMcpHandler<S> {
             internal("parsers_dir is not configured — start Ran with a valid armory directory")
         })?;
 
-        // Sanitise the effect_id so it can only produce a safe filename.
-        let safe_name = effect_id
-            .chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>()
-            .to_ascii_lowercase();
-
-        if safe_name.is_empty() || safe_name.starts_with('.') {
-            return Err(invalid_param("effect_id must be a non-empty identifier"));
-        }
+        let safe_name = armory::canonical_parser_stem(effect_id)
+            .ok_or_else(|| invalid_param("effect_id must be a non-empty, safe identifier"))?;
 
         std::fs::create_dir_all(parsers_dir)
             .map_err(|e| internal(format!("failed to create parsers dir: {e}")))?;

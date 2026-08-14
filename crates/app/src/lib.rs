@@ -865,21 +865,7 @@ impl ScriptParserRunner {
 
     /// Find the first matching script for the given effect id.
     fn find_script(&self, effect_id: &str) -> Option<PathBuf> {
-        // Normalise effect id using the same sanitisation as add_parser:
-        // keep alphanumerics, '.', '-', '_'; replace everything else with '_'.
-        // Then lowercase so lookups are case-insensitive.
-        let name = effect_id
-            .trim()
-            .chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>()
-            .to_ascii_lowercase();
+        let name = armory::canonical_parser_stem(effect_id)?;
 
         for ext in &["py", "sh"] {
             let candidate = self.parsers_dir.join(format!("{}.{}", name, ext));
