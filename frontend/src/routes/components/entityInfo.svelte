@@ -254,8 +254,6 @@
 					class="badge text-xs shrink-0"
 					class:bg-amber-200={badge.origin === 'scenario'}
 					class:text-amber-900={badge.origin === 'scenario'}
-					class:bg-violet-200={badge.origin === 'inference'}
-					class:text-violet-900={badge.origin === 'inference'}
 				>
 					{badge.label}
 				</span>

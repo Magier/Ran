@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { hasKnowledgeProvenance, knowledgeProvenanceBadges } from './knowledgeProvenance';
 
 describe('knowledge provenance presentation', () => {
-	it('builds scenario and inference badges in source order', () => {
+	it('builds a scenario badge and ignores inference', () => {
 		expect(knowledgeProvenanceBadges(['inference', 'scenario'])).toEqual([
-			{ origin: 'inference', label: 'Inferred' },
 			{ origin: 'scenario', label: 'Scenario-provided' }
 		]);
 	});

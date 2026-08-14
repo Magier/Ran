@@ -1,10 +1,9 @@
 export type KnowledgeProvenance = 'scenario' | 'operator' | 'action' | 'inference';
 
-type KnowledgeProvenanceBadge = Extract<KnowledgeProvenance, 'scenario' | 'inference'>;
+type KnowledgeProvenanceBadge = Extract<KnowledgeProvenance, 'scenario'>;
 
 const BADGE_LABELS: Record<KnowledgeProvenanceBadge, string> = {
-	scenario: 'Scenario-provided',
-	inference: 'Inferred'
+	scenario: 'Scenario-provided'
 };
 
 export function hasKnowledgeProvenance(
