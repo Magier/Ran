@@ -216,52 +216,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get attack flow
-         * @description Returns the attack flow with steps and edges
+         * Get campaign flow
+         * @description Returns Ran's campaign flow JSON with execution steps and causal edges
          */
         get: operations["getFlow"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/flow/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Export attack flow
-         * @description Returns the attack flow in MITRE ATT&CK Flow format
-         */
-        get: operations["exportAttackFlow"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/flow/save": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Save attack flow
-         * @description Save the attack flow to a file
-         */
-        post: operations["saveFlow"];
         delete?: never;
         options?: never;
         head?: never;
@@ -557,10 +517,15 @@ export interface components {
             /** @enum {string} */
             category: "credential" | "discovery";
         };
+        /** @description Ran's internal campaign-flow representation. This is not MITRE Attack Flow/STIX. */
         AttackFlow: {
             steps: components["schemas"]["AttackStep"][];
-            edges: components["schemas"]["Edge"][];
-            rootNodeId: string;
+            edges: components["schemas"]["FlowEdge"][];
+        };
+        FlowEdge: {
+            id: string;
+            sourceId: string;
+            targetId: string;
         };
         AttackStep: {
             id: string;
@@ -574,17 +539,23 @@ export interface components {
                 [key: string]: string;
             };
             procedureId: string;
-            TTP: components["schemas"]["TTP"];
+            TTP: components["schemas"]["AttackStepTTP"];
             results: string[];
             /** Format: date-time */
             startedAt: string;
-            /** Format: date-time */
+            /** @description Completion timestamp in RFC 3339 format, or an empty string while ongoing */
             completedAt: string;
             executedOn: string;
             /** @enum {string} */
             status: "Unknown" | "Failed" | "Success" | "Ongoing";
-            observables: string[];
-            defense?: components["schemas"]["TTPDefense"];
+            success: boolean;
+        };
+        AttackStepTTP: {
+            id: string;
+            name: string;
+            description: string;
+            tactic: string;
+            techniques: string[];
         };
         /** @description One segment of a multi-hop command traversal: the command as it is handed from `fromId` to `toId`, and the envelope template applied at this layer. */
         TraversalHop: {
@@ -1243,73 +1214,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttackFlow"];
-                };
-            };
-        };
-    };
-    exportAttackFlow: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-            /** @description Export failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    saveFlow: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @description File path to save the flow */
-                    path: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Successfully saved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        success?: boolean;
-                    };
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
                 };
             };
         };

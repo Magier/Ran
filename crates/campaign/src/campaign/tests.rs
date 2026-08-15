@@ -3269,34 +3269,6 @@ fn valid_accounts_one_shot_targets_selected_pod_authoritatively() {
 }
 
 #[test]
-fn valid_accounts_interactive_and_deprecated_alias_use_canonical_action() {
-    let (mut campaign, pod_id, credential_id) = valid_accounts_campaign();
-    let armory = repository_armory();
-    let exec = campaign
-        .prepare_action(
-            ExecuteActionRequest {
-                action_id: armory::DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID.to_string(),
-                target_id: pod_id,
-                exec_system_id: None,
-                auth_identity_id: None,
-                procedure_id: None,
-                args: HashMap::new(),
-                reasoning: None,
-            },
-            &armory,
-        )
-        .expect("deprecated ID should resolve to interactive Valid Accounts");
-
-    assert_eq!(exec.ttp.id, armory::VALID_ACCOUNTS_KUBECONFIG_ID);
-    assert_eq!(
-        exec.auth_identity_id.as_deref(),
-        Some(credential_id.as_str())
-    );
-    assert_eq!(exec.procedure.command, "c2.kubectl_exec()");
-    assert!(exec.exec_chain.is_empty());
-}
-
-#[test]
 fn valid_accounts_rejects_former_cluster_target_shape() {
     let (mut campaign, _, credential_id) = valid_accounts_campaign();
     let cluster_id = campaign
@@ -3309,7 +3281,7 @@ fn valid_accounts_rejects_former_cluster_target_shape() {
     let error = campaign
         .prepare_action(
             ExecuteActionRequest {
-                action_id: armory::DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID.to_string(),
+                action_id: armory::VALID_ACCOUNTS_KUBECONFIG_ID.to_string(),
                 target_id: cluster_id,
                 exec_system_id: None,
                 auth_identity_id: Some(credential_id),

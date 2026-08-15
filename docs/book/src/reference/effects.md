@@ -90,22 +90,22 @@ These trigger Ran's output parser pipeline, which reads the TTP's raw command
 output and extracts structured entities from it. The command output must be a
 Kubernetes JSON response.
 
-| Effect | Parser triggered |
-|---|---|
-| `k8s.podList` | Extract `Pod` entities from `kubectl get pods -o json` |
-| `k8s.serviceAccountList` | Extract `ServiceAccount` entities |
-| `k8s.nodeList` | Extract `Node` entities |
-| `k8s.secretList` | Extract `Secret` metadata |
-| `k8s.deploymentList` | Extract `Deployment` entities |
-| `k8s.configMapList` | Extract `ConfigMap` metadata |
-| `k8s.roleList` | Extract `K8sRole` entities |
-| `k8s.roleBindingList` | Extract `K8sRoleBinding` entities |
-| `k8s.clusterRoleList` | Extract `K8sClusterRole` entities |
-| `k8s.clusterRoleBindingList` | Extract `K8sClusterRoleBinding` entities |
-| `k8s.serviceList` | Extract `Service` entities |
-| `k8s.ingressList` | Extract `Ingress` entities |
-| `k8s.gatewayList` | Extract `Gateway` entities (Gateway API) |
-| `k8s.httpRouteList` | Extract `HTTPRoute` entities (Gateway API) |
+| Effect                       | Parser triggered                                       |
+| ---------------------------- | ------------------------------------------------------ |
+| `k8s.podList`                | Extract `Pod` entities from `kubectl get pods -o json` |
+| `k8s.serviceAccountList`     | Extract `ServiceAccount` entities                      |
+| `k8s.nodeList`               | Extract `Node` entities                                |
+| `k8s.secretList`             | Extract `Secret` metadata                              |
+| `k8s.deploymentList`         | Extract `Deployment` entities                          |
+| `k8s.configMapList`          | Extract `ConfigMap` metadata                           |
+| `k8s.roleList`               | Extract `K8sRole` entities                             |
+| `k8s.roleBindingList`        | Extract `K8sRoleBinding` entities                      |
+| `k8s.clusterRoleList`        | Extract `K8sClusterRole` entities                      |
+| `k8s.clusterRoleBindingList` | Extract `K8sClusterRoleBinding` entities               |
+| `k8s.serviceList`            | Extract `Service` entities                             |
+| `k8s.ingressList`            | Extract `Ingress` entities                             |
+| `k8s.gatewayList`            | Extract `Gateway` entities (Gateway API)               |
+| `k8s.httpRouteList`          | Extract `HTTPRoute` entities (Gateway API)             |
 
 ---
 
@@ -119,7 +119,7 @@ Records that `src` can execute commands inside `tgt` via `kubectl exec`.
 
 ```yaml
 effects:
-  - k8s.can-exec(pod/default/attacker, pod/default/victim)
+  - k8s.can-exec(ns/default/pod/attacker, ns/default/pod/victim)
 ```
 
 ---
@@ -141,7 +141,7 @@ Records that a pod runs on a specific node. Also accepted as `k8s.runs-on`.
 
 ```yaml
 effects:
-  - runs-on(pod/default/my-pod, node/worker-1)
+  - runs-on(ns/default/pod/my-pod, node/worker-1)
 ```
 
 ---
@@ -203,13 +203,14 @@ effects:
 Records an active C2 session from `backend` to `tgt`.
 
 **`backend` formats:**
-- `sliver` — shorthand; resolves to source `c2/sliver`, session `session/sliver`
-- `c2/sliver` — explicit namespacing
-- `session/sliver-1` — references a named session; source becomes `c2/sliver-1`
+
+- `ran` — shorthand; resolves to source `c2/ran`, session `session/ran`
+- `c2/ran` — explicit namespacing
+- `session/reverse-shell-1` — references a named session
 
 **`tgt`:** entity ID or `sys`
 
 ```yaml
 effects:
-  - c2.session(sliver, sys)
+  - c2.session(ran, sys)
 ```

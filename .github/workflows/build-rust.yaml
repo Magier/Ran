@@ -23,6 +23,30 @@ jobs:
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
+      - name: Reject retired artifacts and routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -d legacy
+          legacy_files="$(
+            git ls-files |
+              grep -Ev '^examples/' |
+              grep -E '(^|/)(go\.mod|go\.sum|\.goreleaser\.ya?ml)$|\.go$' || true
+          )"
+          if [[ -n "$legacy_files" ]]; then
+            echo "::error::Legacy Go artifacts found outside examples"
+            echo "$legacy_files"
+            exit 1
+          fi
+          retired_routes="$(
+            git grep -nE '/api/pods/watch|/api/flow/export|/api/flow/save|/ws([^[:alnum:]_-]|$)' -- frontend/src api crates || true
+          )"
+          if [[ -n "$retired_routes" ]]; then
+            echo "::error::Retired API route found in active code"
+            echo "$retired_routes"
+            exit 1
+          fi
+
       - name: Cache Rust build artifacts
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
@@ -93,6 +117,42 @@ jobs:
           path: frontend/build/
           retention-days: 1
 
+  build-containers:
+    needs: [test-rust, test-and-build-frontend]
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Build development image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: Dockerfile.dev
+          load: true
+          tags: ran:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test development image
+        run: docker run --rm ran:dev --version
+
+      - name: Build and smoke-test release image definition
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id="$(docker create ran:dev)"
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          mkdir -p dist/linux-amd64
+          docker cp "$container_id:/usr/local/bin/ran" dist/linux-amd64/ran
+          docker rm "$container_id"
+          trap - EXIT
+          docker build --build-arg TARGETARCH=amd64 -t ran:release .
+          docker run --rm ran:release --version
+
 
   # ============================================
   # Stage 2: Build binaries (matrix, only on release)
@@ -104,11 +164,11 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04
             artifact_name: ran
             asset_name: ran-linux-amd64
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04
             artifact_name: ran
             asset_name: ran-linux-arm64
           - target: x86_64-apple-darwin
@@ -246,6 +306,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Smoke-test release image
+        run: |
+          docker build --build-arg TARGETARCH=amd64 -t ran:release .
+          docker run --rm ran:release --version
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
@@ -254,6 +319,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
 
       - name: Build and push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0

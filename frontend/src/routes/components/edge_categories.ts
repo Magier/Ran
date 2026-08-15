@@ -3,8 +3,7 @@
  * and should be hidden when a more useful (actionable or factual) edge
  * exists between the same pair of nodes.
  *
- * Keep in sync with the cost classification in src/domain/relations.go
- * (GetRelationCost).
+ * These names follow the relation semantics exposed by the Rust domain model.
  */
 
 /** Purely structural / contextual edges (high cost in the backend). */

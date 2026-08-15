@@ -48,13 +48,6 @@ fn resolve_ttp_and_defaults(
     mut args: HashMap<String, String>,
     armory: &Armory,
 ) -> Result<(Ttp, HashMap<String, String>), ExecuteActionError> {
-    if action_id == armory::DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID {
-        tracing::warn!(
-            action_id,
-            replacement = armory::VALID_ACCOUNTS_KUBECONFIG_ID,
-            "deprecated TTP ID used"
-        );
-    }
     let ttp = armory.get_ttp(action_id).cloned().ok_or_else(|| {
         ExecuteActionError::NotFound(format!("No TTP with ID '{}' found", action_id))
     })?;
@@ -2536,7 +2529,6 @@ fn generate_cmd_id() -> String {
 }
 
 /// Return the tool name for a procedure, if one is set and non-empty.
-/// Matches Go's `Procedure.GetTool()`.
 fn procedure_tool(procedure: &Procedure) -> Option<&str> {
     procedure.tool.as_deref().filter(|t| !t.trim().is_empty())
 }
@@ -2618,7 +2610,6 @@ pub fn best_tool_readiness(ttp: &armory::Ttp, campaign: &Campaign, target_id: &s
 /// Words that already contain `/` are skipped — they are already absolute
 /// paths and do not need further resolution.
 ///
-/// Mirrors Go's `groundUsedTool` in `campaign/campaign.go`.
 fn ground_binary_in_cmd(
     cmd: &str,
     binaries: &std::collections::HashMap<String, ran_domain::BinaryPresence>,

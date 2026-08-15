@@ -560,9 +560,8 @@ mod tests {
         assert!(classified.detail.contains("unclassified"));
     }
 
-    // --- new tests covering all BINARY_NOT_FOUND_TEMPLATES ---
+    // --- tests covering all BINARY_NOT_FOUND_TEMPLATES ---
 
-    /// Go test: `TestAnalyzeFailedTTPExecution_ToolNotFound` case 1
     /// Input: `"command terminated with exit code 127: 'sh: 1: kubectl: not found\n'"`
     #[test]
     fn posix_sh_numbered_kubectl_not_found_extracts_name() {
@@ -579,7 +578,6 @@ mod tests {
         assert!(classified.detail.contains("kubectl"));
     }
 
-    /// Go test: `TestAnalyzeFailedTTPExecution_ToolNotFound` case 2
     /// Input: long OCI runtime error containing `exec: "kubectl": executable file not found in $PATH`
     #[test]
     fn oci_runtime_exec_not_found_extracts_name() {
@@ -595,7 +593,6 @@ mod tests {
         assert_eq!(classified.extracted_binary.as_deref(), Some("kubectl"));
     }
 
-    /// Go test: `TestAnalyzeFailedTTP_BinaryNotFoundShouldUpdateBinariesOnExecutingSystem`
     /// Multiple result lines, one of which is `/usr/bin/sh: 1: curl: not found`
     #[test]
     fn posix_sh_curl_not_found_in_results_extracts_name() {

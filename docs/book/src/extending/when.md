@@ -4,9 +4,9 @@ The built-in armory covers ~80 techniques across the MITRE ATT&CK tactic spectru
 for Kubernetes. Before writing a new one, check whether an existing technique can
 be adapted:
 
-- **Use `--param` overrides** — many techniques are parameterised enough that
+- **Use `--arg` overrides** — many techniques are parameterised enough that
   changing a command string or target address covers your use case.
-- **Check the `disabled` techniques** — `ran armory --all` lists disabled TTPs.
+- **Check the `disabled` techniques** — `ran armory` lists disabled TTPs.
   A technique may already exist but be disabled because its PoC binary isn't
   bundled. You can enable it via a custom YAML override.
 - **Check custom armory support** — if you have a slightly different variant of
@@ -57,7 +57,8 @@ After writing the YAML:
 ran armory --armory ./my-ttps
 
 # Invoke it
-ran invoke check-node-hostname --armory ./my-ttps --target default/test-pod
+ran trigger check-node-hostname --armory ./my-ttps \
+  --target ns/default/pod/test-pod
 ```
 
 If the TTP doesn't appear in `ran armory`, check for YAML syntax errors and

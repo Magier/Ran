@@ -19,8 +19,8 @@ entity effects for these, only the list-form effect that triggers the parser:
 
 ```yaml
 effects:
-  - k8s.serviceAccountList    # triggers the service account output parser
-  - k8s.podList               # triggers the pod list output parser
+  - k8s.serviceAccountList # triggers the service account output parser
+  - k8s.podList # triggers the pod list output parser
 ```
 
 ## Writing simple entity effects
@@ -60,7 +60,7 @@ effects:
 
 # After deploying a C2 implant:
 effects:
-  - c2.session(sliver, sys)
+  - c2.session(ran, sys)
 ```
 
 ### Chaining escape paths
@@ -100,9 +100,9 @@ List multiple effects to update several parts of the graph in one step:
 
 ```yaml
 effects:
-  - k8s.serviceaccount          # SA created
-  - k8s.rolebinding             # binding created
-  - k8s.can-exec(sys, ns/default/pod/victim)   # exec path established
+  - k8s.serviceaccount # SA created
+  - k8s.rolebinding # binding created
+  - k8s.can-exec(sys, ns/default/pod/victim) # exec path established
 ```
 
 Effects are applied in order, but all run within the same graph update cycle before

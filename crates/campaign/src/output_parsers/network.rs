@@ -450,7 +450,6 @@ fn parse_rdns_csv(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) 
         let ip_kebab = ip_str.replace('.', "-");
 
         // Derive pod name and namespace from the DNS label structure.
-        // Mirrors Go's analyzeDnsEntries label-count logic.
         let (name, ns) = match dns_parts.len() {
             4 => (dns_parts[0].to_string(), dns_parts[0].to_string()),
             5 => (dns_parts[0].to_string(), dns_parts[1].to_string()),

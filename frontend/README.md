@@ -1,38 +1,23 @@
-# sv
+# Ran frontend
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+The browser UI is a SvelteKit application embedded in the Rust server for release builds.
 
-## Creating a project
+## Development
 
-If you're seeing this, you've probably already done this step. Congrats!
+Install dependencies and start the frontend development server:
 
-```bash
-# create a new project in the current directory
-npx sv create
-
-# create a new project in my-app
-npx sv create my-app
+```sh
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-## Developing
+Run `ran emulate` separately when working against the real API. REST is used for commands and server-sent events at `/events` provide live updates.
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+## Verification
 
-```bash
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+```sh
+pnpm test -- --run
+pnpm build
 ```
 
-## Building
-
-To create a production version of your app:
-
-```bash
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+The root `make build` command builds the frontend before compiling the Rust release binary.

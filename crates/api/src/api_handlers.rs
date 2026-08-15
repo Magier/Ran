@@ -24,7 +24,6 @@ use reqwest::Client;
 
 #[cfg(not(debug_assertions))]
 use axum::{
-    body::Body,
     http::{header, StatusCode, Uri},
     response::{IntoResponse, Response},
 };
@@ -720,6 +719,51 @@ impl From<&campaign::ExecTtp> for AttackStep {
 pub(crate) struct AttackFlow {
     pub steps: Vec<AttackStep>,
     pub edges: Vec<FlowEdge>,
+}
+
+#[cfg(test)]
+mod flow_contract_tests {
+    use super::*;
+
+    #[test]
+    fn campaign_flow_serializes_the_documented_ran_json_shape() {
+        let flow = AttackFlow {
+            steps: vec![AttackStep {
+                id: "cmd-1".to_string(),
+                target_id: "ns/default/pod/demo".to_string(),
+                command: "id".to_string(),
+                traversal: Vec::new(),
+                inner_command: String::new(),
+                args: HashMap::new(),
+                procedure_id: "shell".to_string(),
+                ttp: AttackStepTTP {
+                    id: "whoami".to_string(),
+                    name: "Who am I".to_string(),
+                    tactic: "Discovery".to_string(),
+                    techniques: vec!["T1033".to_string()],
+                    description: "Identify the current user".to_string(),
+                },
+                results: vec!["uid=1000".to_string()],
+                success: true,
+                status: "Success",
+                started_at: "2026-08-15T09:10:11Z".to_string(),
+                completed_at: "2026-08-15T09:10:12Z".to_string(),
+                executed_on: "c2/Ran".to_string(),
+            }],
+            edges: vec![FlowEdge {
+                id: "cmd-0->cmd-1".to_string(),
+                source_id: "cmd-0".to_string(),
+                target_id: "cmd-1".to_string(),
+            }],
+        };
+
+        let value = serde_json::to_value(flow).expect("campaign flow should serialize");
+        assert_eq!(value["steps"][0]["TTP"]["id"], "whoami");
+        assert_eq!(value["edges"][0]["sourceId"], "cmd-0");
+        assert!(value.get("rootNodeId").is_none());
+        assert!(value["steps"][0].get("observables").is_none());
+        assert!(value["steps"][0].get("defense").is_none());
+    }
 }
 
 pub(crate) async fn flow_handler<S: ApiService>(

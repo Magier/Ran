@@ -54,9 +54,6 @@
 		</div>
 		<div class="flex-1"></div>
 		<div class="flex items-center space-x-1">
-			{#if step.observables?.length > 0}
-				<Icon icon={"humbleicons:eye"} width="16" />
-			{/if}
 			{#if step?.status && step.status !== 'Unknown'}
 					<Icon class={statusInfo.color} icon={statusInfo.icon} width="16" />
 				{/if}

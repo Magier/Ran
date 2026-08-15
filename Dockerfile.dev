@@ -1,28 +1,31 @@
-# Build stage - uses Makefile as source of truth
-FROM golang:1.24-alpine AS builder
+FROM node:24-bookworm-slim AS frontend
 
-# Install build dependencies
-RUN apk add --no-cache make nodejs npm && npm install -g pnpm
+WORKDIR /app/frontend
+RUN corepack enable && corepack prepare pnpm@9 --activate
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY frontend/ ./
+RUN pnpm build
+
+FROM rust:1.93-bookworm AS builder
 
 WORKDIR /app
-
-# Copy everything needed for the build
-COPY Makefile ./
-COPY frontend/ ./frontend/
-COPY legacy/src/ ./legacy/src/
+COPY Cargo.toml Cargo.lock ./
+COPY api/ ./api/
 COPY armory/ ./armory/
+COPY crates/ ./crates/
+COPY --from=frontend /app/frontend/build ./frontend/build/
+RUN cargo build --locked --release --package cli --features cli/bundled-armory
 
-# Install frontend dependencies
-RUN pnpm --prefix frontend install --frozen-lockfile
+FROM debian:bookworm-slim
 
-# Run the Makefile build target
-RUN CGO_ENABLED=0 GOOS=linux make build
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Final minimal stage
-FROM scratch
-
-COPY --from=builder /app/dist/ran /ran
+COPY --from=builder /app/target/release/ran /usr/local/bin/ran
 
 EXPOSE 8080
 
-ENTRYPOINT ["/ran"]
+ENTRYPOINT ["/usr/local/bin/ran"]
+CMD ["emulate", "--port", "8080"]

@@ -7,11 +7,14 @@ this with your own YAML files by pointing Ran at a custom directory.
 
 ```sh
 ran emulate --armory /path/to/my-ttps
-ran invoke my-custom-ttp --armory /path/to/my-ttps
+ran trigger my-custom-ttp --armory /path/to/my-ttps \
+  --target ns/default/pod/my-pod
 ```
 
-Ran scans the directory recursively for `*.yaml` files and merges them with (or
-replaces, depending on IDs) the built-in armory.
+Ran scans the selected directory recursively for `*.yaml` files. Release
+binaries keep the embedded armory and append the selected directory. Development
+builds without the bundled-armory feature load the selected directory alone.
+Avoid duplicate IDs: when a release has both, the embedded TTP is resolved first.
 
 ## Organising your custom armory
 
@@ -29,11 +32,6 @@ my-ttps/
 
 If a YAML file has no `tactic:` field, the tactic is inferred from its parent
 directory name.
-
-## ID collisions
-
-If a custom TTP has the same `id` as a built-in TTP, the custom one wins. Use
-this to override individual techniques without forking the whole armory.
 
 ## Writing your own TTPs
 

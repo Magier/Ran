@@ -492,7 +492,6 @@ fn hash_results(results: &[String]) -> String {
 /// (the `ran-ws` binary itself likely failed to start).
 /// Returns `(unwrapped_stdout, None)` on clean success.
 ///
-/// Mirrors Go `c2.parseJSONResponse`.
 pub fn unwrap_kubelet_json_response(stdout: &str) -> (String, Option<String>) {
     #[derive(serde::Deserialize)]
     struct Envelope {

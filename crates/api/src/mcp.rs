@@ -259,7 +259,7 @@ impl<S: ApiService> RanMcpHandler<S> {
             .map_err(api_err)?;
         let ttp = ttps
             .into_iter()
-            .find(|t| t.id == armory::canonical_ttp_id(ttp_id))
+            .find(|t| t.id == ttp_id)
             .ok_or_else(|| invalid_param(format!("TTP `{ttp_id}` not found in armory")))?;
         json_result(ttp)
     }
@@ -282,8 +282,7 @@ impl<S: ApiService> RanMcpHandler<S> {
                 .into_iter()
                 .any(|e| e.entity_id().0 == target_id)
         };
-        let stages_initial_pod =
-            armory::canonical_ttp_id(&action_id) == armory::VALID_ACCOUNTS_KUBECONFIG_ID;
+        let stages_initial_pod = action_id == armory::VALID_ACCOUNTS_KUBECONFIG_ID;
         if !known && !stages_initial_pod {
             return Err(invalid_param(format!(
                 "entity `{target_id}` is not in the campaign graph; use \

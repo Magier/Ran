@@ -7,15 +7,6 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 pub const VALID_ACCOUNTS_KUBECONFIG_ID: &str = "valid-accounts-kubeconfig";
-pub const DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID: &str = "initial-access-pod-exec";
-
-/// Resolve compatibility action IDs without advertising duplicate TTPs.
-pub fn canonical_ttp_id(id: &str) -> &str {
-    match id {
-        DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID => VALID_ACCOUNTS_KUBECONFIG_ID,
-        _ => id,
-    }
-}
 
 #[cfg(feature = "bundled-armory")]
 #[derive(rust_embed::Embed)]
@@ -37,8 +28,7 @@ impl Armory {
     ///
     /// **Release builds** (`bundled-armory` feature): always loads the built-in
     /// TTPs embedded in the binary first, then appends any TTPs found in
-    /// `user_dir` (if provided). This mirrors the Go behaviour: built-ins are
-    /// the baseline, the user directory extends them.
+    /// `user_dir` (if provided).
     pub fn load(user_dir: Option<&Path>) -> Result<Self, ArmoryError> {
         let mut ttps: Vec<Ttp> = Vec::new();
 
@@ -107,7 +97,6 @@ impl Armory {
     }
 
     pub fn get_ttp(&self, id: &str) -> Option<&Ttp> {
-        let id = canonical_ttp_id(id);
         self.ttps.iter().find(|ttp| ttp.id == id)
     }
 
@@ -598,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn valid_accounts_ttp_is_canonical_and_old_id_is_an_alias() {
+    fn valid_accounts_ttp_is_canonical() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
         let armory = Armory::load_from_dir(path).expect("repository armory should load");
 
@@ -620,10 +609,6 @@ mod tests {
             Some(true)
         );
 
-        let alias = armory
-            .get_ttp(DEPRECATED_INITIAL_ACCESS_POD_EXEC_ID)
-            .expect("deprecated ID should resolve");
-        assert_eq!(alias.id, VALID_ACCOUNTS_KUBECONFIG_ID);
         assert_eq!(
             armory
                 .ttps()
@@ -632,5 +617,38 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn sliver_design_sketches_are_disabled_and_not_offered_by_enabled_ttps() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+
+        for id in [
+            "connect-to-sliver",
+            "generate-sliver-implant",
+            "deploy-sliver-implant",
+        ] {
+            let ttp = armory.get_ttp(id).expect("Sliver design sketch");
+            assert_eq!(ttp.status, "disabled", "{id} must remain disabled");
+        }
+
+        for ttp in armory
+            .ttps()
+            .iter()
+            .filter(|ttp| !ttp.status.eq_ignore_ascii_case("disabled"))
+        {
+            assert!(
+                ttp.procedures.iter().all(|procedure| {
+                    !procedure.id.eq_ignore_ascii_case("sliver")
+                        && !procedure
+                            .tool
+                            .as_deref()
+                            .is_some_and(|tool| tool.eq_ignore_ascii_case("sliver"))
+                }),
+                "enabled TTP {} exposes a Sliver procedure",
+                ttp.id
+            );
+        }
     }
 }

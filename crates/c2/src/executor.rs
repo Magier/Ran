@@ -593,7 +593,7 @@ async fn accept_session_loop(
                 };
                 tracing::info!(%peer, %backend_id, "shell init complete; probing hostname/whoami/uname");
 
-                // Probe the shell — mirrors the Go legacy: hostname / whoami / uname.
+                // Probe the shell for its target identity and operating system.
                 let hostname = session.run_raw("hostname").await.unwrap_or_else(|e| {
                     tracing::warn!(%peer, error = %e, "hostname probe failed");
                     "unknown".to_string()

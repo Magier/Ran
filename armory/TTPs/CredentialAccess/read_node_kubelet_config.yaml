@@ -15,8 +15,6 @@ parameters:
 procedures:
   - key: cat
     command: cat ${MOUNT_PATH}${PATH}
-  - key: sliver
-    command: get_file ${MOUNT_PATH}${PATH}
 preconditions:
   kind: Node
 effects:

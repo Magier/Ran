@@ -12,20 +12,20 @@ raw OpenAPI spec at `/api/openapi.yaml`.
 
 ### Core endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/graph` | Full knowledge graph: all discovered entities and relations |
-| `GET` | `/api/campaign-state` | Campaign state: entities with all their discovered facts |
-| `GET` | `/api/armory` | All TTPs in the armory; optional `?tactic=Discovery` filter |
-| `GET` | `/api/applicable-ttps` | TTPs filtered by target entity; use `?targetId=<entity_id>` |
-| `POST` | `/api/action/execute` | Invoke a TTP against a target entity |
-| `GET` | `/api/flow` | Ordered attack flow: completed and in-progress steps with causal edges |
-| `GET` | `/api/execution-records` | All execution records (with parse audits) |
-| `GET` | `/api/execution-records/{id}` | Single execution record by command ID |
-| `POST` | `/api/campaign/reset` | Clear all campaign state (entities, relations, execution records) |
-| `GET` | `/api/files` | Read a file captured in campaign state; use `?path=<path>` |
-| `GET` | `/api/pods/running` | Live running pods from Kubernetes; use `?namespace=<ns>` for a single namespace |
-| `GET` | `/events` | Server-sent events stream for real-time campaign updates |
+| Method | Path                          | Description                                                                     |
+| ------ | ----------------------------- | ------------------------------------------------------------------------------- |
+| `GET`  | `/api/graph`                  | Full knowledge graph: all discovered entities and relations                     |
+| `GET`  | `/api/campaign-state`         | Campaign state: entities with all their discovered facts                        |
+| `GET`  | `/api/armory`                 | All TTPs in the armory; optional `?tactic=Discovery` filter                     |
+| `GET`  | `/api/applicable-ttps`        | TTPs filtered by target entity; use `?targetId=<entity_id>`                     |
+| `POST` | `/api/action/execute`         | Invoke a TTP against a target entity                                            |
+| `GET`  | `/api/flow`                   | Ran campaign-flow JSON with steps and causal edges                              |
+| `GET`  | `/api/execution-records`      | All execution records (with parse audits)                                       |
+| `GET`  | `/api/execution-records/{id}` | Single execution record by command ID                                           |
+| `POST` | `/api/campaign/reset`         | Clear all campaign state (entities, relations, execution records)               |
+| `GET`  | `/api/files`                  | Read a file captured in campaign state; use `?path=<path>`                      |
+| `GET`  | `/api/pods/running`           | Live running pods from Kubernetes; use `?namespace=<ns>` for a single namespace |
+| `GET`  | `/events`                     | Server-sent events stream for real-time campaign updates                        |
 
 ### Invoking a TTP via API
 
@@ -49,13 +49,16 @@ Response:
 ```json
 {
   "success": true,
-  "queued":  true,
-  "cmdId":   "01HXYZ..."
+  "queued": true,
+  "cmdId": "01HXYZ..."
 }
 ```
 
 The execution is asynchronous. Poll `GET /api/execution-records/{cmdId}` or
 subscribe to `GET /events` to receive the result.
+
+`GET /api/flow` is the JSON download contract used by the browser UI. It is
+Ran's native format, not MITRE Attack Flow/STIX.
 
 ### Reading campaign state
 
@@ -65,16 +68,16 @@ subscribe to `GET /events` to receive the result.
 {
   "entities": {
     "<entity_id>": {
-      "id":        "ns/default/pod/entry-hall-abc12",
-      "name":      "entry-hall-abc12",
-      "kind":      "Pod",
+      "id": "ns/default/pod/entry-hall-abc12",
+      "name": "entry-hall-abc12",
+      "kind": "Pod",
       "namespace": "default"
     }
   },
   "relations": [
     {
-      "id":       "A-[token]->B",
-      "name":     "token",
+      "id": "A-[token]->B",
+      "name": "token",
       "sourceId": "ns/default/pod/entry-hall-abc12",
       "targetId": "ns/default/serviceaccount/entry-hall"
     }
@@ -93,14 +96,14 @@ record plus any parse audits produced by effect parsers:
 ```json
 [
   {
-    "id":          "01HXYZ...",
-    "ttp_id":      "get-pods",
-    "ttp_name":    "List Pods",
-    "tactic":      "Discovery",
-    "target_id":   "ns/default/pod/entry-hall-abc12",
-    "success":     true,
-    "exit_code":   0,
-    "results":     ["NAME   READY   STATUS..."],
+    "id": "01HXYZ...",
+    "ttp_id": "get-pods",
+    "ttp_name": "List Pods",
+    "tactic": "Discovery",
+    "target_id": "ns/default/pod/entry-hall-abc12",
+    "success": true,
+    "exit_code": 0,
+    "results": ["NAME   READY   STATUS..."],
     "parseAudits": []
   }
 ]
@@ -129,25 +132,25 @@ Copilot):
 
 ### Available MCP tools
 
-| Category | Tool | Required arguments |
-|---|---|---|
-| Discovery | `get_graph` | — |
-| Discovery | `get_entity` | `entity_id` |
-| Discovery | `get_attack_surface` | `entity_id` |
-| Discovery | `resolve_workload` | `name` |
-| Campaign | `get_campaign_state` | — |
-| Campaign | `get_attack_flow` | — |
-| Armory | `list_ttps` | — (optional: `tactic`) |
-| Armory | `get_applicable_ttps` | `target_id` |
-| Armory | `get_ttp_detail` | `ttp_id` |
-| Execution | `execute_action` | `action_id`, `target_id` |
-| Execution | `wait_for_result` | `cmd_id` |
-| Goal eval | `check_rbac_goal` | `entity_id` (optional: `verbs`, `resources`) |
-| Goal eval | `check_access_level` | `entity_id` |
-| Initial access | `get_initial_access_candidates` | — (optional: `namespace`, `name_filter`) |
-| Extension | `list_parse_audits` | — |
-| Extension | `add_parser` | `effect_id`, `script_content` |
-| Campaign | `reset_campaign` | — |
+| Category       | Tool                            | Required arguments                           |
+| -------------- | ------------------------------- | -------------------------------------------- |
+| Discovery      | `get_graph`                     | —                                            |
+| Discovery      | `get_entity`                    | `entity_id`                                  |
+| Discovery      | `get_attack_surface`            | `entity_id`                                  |
+| Discovery      | `resolve_workload`              | `name`                                       |
+| Campaign       | `get_campaign_state`            | —                                            |
+| Campaign       | `get_attack_flow`               | —                                            |
+| Armory         | `list_ttps`                     | — (optional: `tactic`)                       |
+| Armory         | `get_applicable_ttps`           | `target_id`                                  |
+| Armory         | `get_ttp_detail`                | `ttp_id`                                     |
+| Execution      | `execute_action`                | `action_id`, `target_id`                     |
+| Execution      | `wait_for_result`               | `cmd_id`                                     |
+| Goal eval      | `check_rbac_goal`               | `entity_id` (optional: `verbs`, `resources`) |
+| Goal eval      | `check_access_level`            | `entity_id`                                  |
+| Initial access | `get_initial_access_candidates` | — (optional: `namespace`, `name_filter`)     |
+| Extension      | `list_parse_audits`             | —                                            |
+| Extension      | `add_parser`                    | `effect_id`, `script_content`                |
+| Campaign       | `reset_campaign`                | —                                            |
 
 #### Tool details
 
@@ -212,3 +215,6 @@ alternative to polling `GET /api/execution-records` in a loop.
 
 Each event is a JSON-encoded payload. The stream stays open until the client
 disconnects or `ran emulate` exits.
+
+WebSocket RPC is not currently implemented. A future WebSocket transport will
+use a newly designed protocol rather than a compatibility wire format.

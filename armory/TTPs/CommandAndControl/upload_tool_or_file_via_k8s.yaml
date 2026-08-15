@@ -30,8 +30,6 @@ procedures:
   - key: kubectl
     command: kubectl ${K8S_AUTH} cp -n ${NAMESPACE} ${SRC_PATH} ${POD_NAME}:${DST_PATH}
     isLocal: true
-  # - key: sliver
-  #   command: get_file ${SRC_PATH}
 preconditions:
   accessLevel: user-exec
   kind: Pod

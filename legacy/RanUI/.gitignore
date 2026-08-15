@@ -1,5 +1,0 @@
-build/bin
-node_modules
-frontend/build
-# Added by goreleaser init:
-dist/

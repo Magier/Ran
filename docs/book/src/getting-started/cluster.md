@@ -1,63 +1,24 @@
 # Connecting to a Cluster
 
-Ran uses your local kubeconfig to discover and target cluster resources. No
-in-cluster agent or sidecar is required for most techniques.
-
-> **Important:** Only run Ran against clusters you own or have explicit written
-> authorisation to test.
-
-## Default: use your current context
-
-Ran reads `~/.kube/config` by default and uses whichever context `kubectl` would
-use for the same operation. To check:
+Ran uses the active kubeconfig context by default. Supply another file with `--kubeconfig`:
 
 ```sh
-kubectl config current-context
+ran emulate --kubeconfig /path/to/config
 ```
+
+Only run Ran against clusters you own or are authorised to test.
 
 ## Namespace filtering
 
-By default Ran shows every namespace. To reduce noise, create a `ran.yaml` in
-your working directory:
+Create `ran.yaml` or pass it with `--config`:
 
 ```yaml
 namespaces:
-  # Hide system namespaces
   excluded:
     - kube-system
     - kube-public
-    - kube-node-lease
 ```
 
-Or use an allowlist instead (takes precedence over `excluded`):
+An `included` list acts as an allowlist and takes precedence over `excluded`. See [namespace filtering](../../NAMESPACE_FILTERING.md).
 
-```yaml
-namespaces:
-  included:
-    - default
-    - staging
-```
-
-Copy the example to get started:
-
-```sh
-cp ran.yaml.example ran.yaml
-```
-
-## Godmode
-
-Pass `--godmode` to `ran emulate` if you want Ran to preload all cluster resources
-from your kubeconfig on startup, rather than discovering them incrementally as you
-run TTPs:
-
-```sh
-ran emulate --godmode
-```
-
-This is useful when you already have broad cluster access and want the full picture
-immediately.
-
-## What's next
-
-With a cluster reachable, head to [The Armory](../armory/overview.md) to see what
-techniques are available before running your first test.
+Ran builds campaign knowledge through the selected initial-access action and subsequent discovery. There is no broad-access or “god mode” CLI switch.

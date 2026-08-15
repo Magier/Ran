@@ -1,56 +1,28 @@
 # Cleanup
 
-Some techniques leave side-effects in the cluster: created roles, role bindings,
-deployed pods, injected configuration. Cleanup procedures reverse those changes.
-
-## How cleanup is declared
-
-A TTP can declare a single `cleanup:` procedure alongside its regular `procedures:`:
+TTPs that change the environment can declare a `cleanup:` procedure:
 
 ```yaml
-parameters:
-  K8S_AUTH:
-    type: K8sAuth
-    description: The Kubernetes identity selected by Authenticate As
 procedures:
   - key: kubectl
-    command: kubectl ${K8S_AUTH} create role nsadmin --verb=* --resource=* -n=${NS}
+    command: kubectl create role test-role --verb=get --resource=pods -n=${NS}
 
 cleanup:
-  command: kubectl ${K8S_AUTH} delete role nsadmin -n=${NS}
+  command: kubectl delete role test-role -n=${NS}
 ```
 
-The cleanup procedure follows the same format as a regular procedure (shell command,
-`k8s_request`, `http_request`, or `steps`).
+Cleanup uses the original target, arguments, procedure context, and Kubernetes identity.
 
-## Running cleanup in the web UI
-
-After a technique executes successfully, a **Clean Up** button appears in the
-execution panel. Clicking it runs the cleanup procedure against the same target
-and with the same parameters that were used during execution.
-
-## Running cleanup on the CLI
+A campaign reset runs available cleanup procedures before clearing campaign state. A launch-time plan prompts for cleanup after completion:
 
 ```sh
-ran cleanup <ttp-id> --target <namespace>/<pod>
+ran emulate --plan ./plan.yaml
 ```
 
-This invokes the cleanup procedure for the named TTP.
+Use `--cleanup` to run that cleanup automatically:
 
-## When cleanup matters
+```sh
+ran emulate --plan ./plan.yaml --cleanup
+```
 
-Not all techniques need cleanup. Read-only discovery techniques (listing pods,
-enumerating RBAC) leave no trace in the cluster and have no cleanup procedure.
-Techniques that create or modify cluster resources — creating roles, binding service
-accounts, spawning pods — should declare cleanup so you can restore the cluster to
-its original state after testing.
-
-## What cleanup does not cover
-
-Cleanup reverses the *direct* cluster-side effect of the TTP. It does not:
-
-- Remove entries from Ran's internal knowledge graph (the campaign state)
-- Delete logs or events already captured by your monitoring stack
-- Undo changes to external systems (e.g. cloud provider APIs)
-
-If you need a full environment reset, rebuild your test cluster from scratch.
+There is no standalone `ran cleanup` command. Read-only techniques need no cleanup, and Ran cannot undo external logging or changes for which a TTP has no cleanup procedure.

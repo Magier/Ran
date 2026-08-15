@@ -94,8 +94,6 @@ struct SsrrNonResourceRule {
 /// Parse a raw Kubernetes ServiceAccount JWT from stdout and produce new
 /// entities (ServiceAccount, Namespace, Pod, Node) and relations.
 ///
-/// Mirrors Go's `parseRawServiceAccountToken` + `analyzeServiceAccountToken`.
-///
 /// Handles multi-line stdout: searches for the first line containing `ey`
 /// and `.`, which is the hallmark of a base64url-encoded JWT.
 fn parse_raw_service_account_token(

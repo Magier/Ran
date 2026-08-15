@@ -1,13 +1,14 @@
 <script lang="ts">
-    import { showToast, toaster } from '$lib/components/toaster';
-	import Icon from '@iconify/svelte';
-    import { saveFile } from '$lib/io';
-	import { Dialog, Menu, Portal } from '@skeletonlabs/skeleton-svelte';
+    import { buildCampaignFlowDownload } from '$lib/campaignFlow';
     import { getCampaignState } from '$lib/components/CampaignState.svelte';
-    import { timeline } from '$lib/stores/timelineStore.svelte';
-    import { getRanAPI } from '$lib/ran_api';
-    import type { PlanSummary } from '$lib/api';
+    import { showToast, toaster } from '$lib/components/toaster';
+    import { saveFile } from '$lib/io';
     import PlanPickerModal from '$lib/modals/PlanPickerModal.svelte';
+    import { getRanAPI } from '$lib/ran_api';
+    import { timeline } from '$lib/stores/timelineStore.svelte';
+    import type { PlanSummary } from '$lib/api';
+	import Icon from '@iconify/svelte';
+	import { Dialog, Menu, Portal } from '@skeletonlabs/skeleton-svelte';
 
     const campaignState = getCampaignState();
     const ranAPI = getRanAPI();
@@ -42,35 +43,38 @@
     }
 
     function onMenuClick(event: { value: string }) {
-        let {value} = event;
+        let { value } = event;
 
         switch (value) {
             case 'reset':
-                 campaignState.reset();
-                 timeline.clear();
+                campaignState.reset();
+                timeline.clear();
                 break;
             case 'load_plan':
                 openPlanPicker();
                 break;
             case 'save_flow':
-                campaignState.ExportAttackFlow().then((flow) => {
-                    const fileName = `campaign_${new Date().toISOString()}.json`;
-                    const data = JSON.stringify(flow, null, 2);
-                    saveFile(data, fileName, 'application/json');
-                }).catch((error) => {
-                    console.error('Error getting flow:', error);
-                    showToast('Failed to save flow', `Could not get flow: ${error.message}`, 'error'
-                    );
-                });
+                campaignState
+                    .GetFlow()
+                    .then((flow) => {
+                        const download = buildCampaignFlowDownload(flow);
+                        saveFile(download.data, download.filename, download.mimeType);
+                    })
+                    .catch((error) => {
+                        console.error('Error getting flow:', error);
+                        showToast(
+                            'Failed to save flow',
+                            `Could not get flow: ${error.message}`,
+                            'error'
+                        );
+                    });
                 break;
             default:
                 console.log('Unknown menu item:', value);
                 break;
         }
     }
-
 </script>
-
 
 <Menu onSelect={onMenuClick}>
     <Menu.Trigger class="btn hover:preset-tonal text-xl">
@@ -94,7 +98,7 @@
                     <Menu.ItemGroupLabel>Flow</Menu.ItemGroupLabel>
                     <Menu.Item value="save_flow">
                         <!-- <Menu.ItemIndicator>💾</Menu.ItemIndicator> -->
-                        <Menu.ItemText>Save</Menu.ItemText>
+                        <Menu.ItemText>Save Ran JSON</Menu.ItemText>
                     </Menu.Item>
                 </Menu.ItemGroup>
             </Menu.Content>

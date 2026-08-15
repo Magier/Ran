@@ -1,7 +1,7 @@
 # === Dev Setup ===
 .PHONY: install-hooks
 install-hooks:
-	@printf '#!/bin/sh\nset -e\ncargo fmt --check || { echo "Run: make fmt"; exit 1; }\ncargo clippy --workspace -- -D warnings\n' > .git/hooks/pre-commit
+	@printf '#!/bin/sh\nset -e\ncargo fmt --check || { echo "Run: make fmt"; exit 1; }\ncargo clippy --workspace --locked -- -D warnings\n' > .git/hooks/pre-commit
 	@chmod +x .git/hooks/pre-commit
 	@echo "pre-commit hook installed"
 
@@ -28,107 +28,47 @@ fmt-check:
 
 .PHONY: clippy
 clippy:
-	cargo clippy --workspace -- -D warnings
+	cargo clippy --workspace --locked -- -D warnings
 
 .PHONY: lint
 lint: fmt-check clippy
 
 # === Testing ===
-.PHONY: test-go
-test-go:
-	cd legacy/src && go test -v ./...
-
 .PHONY: test-rust
 test-rust:
-	cargo test --workspace
+	cargo test --workspace --locked
 
 .PHONY: test-frontend
 test-frontend:
 	pnpm --prefix frontend test
 
-# === Asset Preparation ===
+.PHONY: test
+test: test-rust test-frontend
+
+# === Builds ===
 .PHONY: build-frontend
 build-frontend:
-	cd frontend && pnpm run build
+	pnpm --prefix frontend build
 
-.PHONY: copy-armory
-copy-armory:
-	mkdir -p legacy/src/armory/builtin
-	rm -rf legacy/src/armory/builtin/*
-	cp -a armory/TTPs/. legacy/src/armory/builtin/
-
-.PHONY: copy-frontend
-copy-frontend:
-	mkdir -p legacy/src/api/static
-	cp -r frontend/build/. legacy/src/api/static/
-
-.PHONY: prepare-assets
-prepare-assets: copy-armory copy-frontend
-
-# === Rust Release Builds ===
-# armory/TTPs is embedded into the binary via the bundled-armory feature.
-# Do NOT pass --features bundled-armory for dev/debug builds.
+# armory/TTPs is embedded into release binaries through bundled-armory.
 RUST_RELEASE_FLAGS := --package cli --features cli/bundled-armory
 
-.PHONY: build-rust
-build-rust:
-	cargo build --release $(RUST_RELEASE_FLAGS)
+.PHONY: build build-rust
+build build-rust: build-frontend
+	cargo build --locked --release $(RUST_RELEASE_FLAGS)
 
 .PHONY: build-rust-target
-build-rust-target:
+build-rust-target: build-frontend
 ifndef RUST_TARGET
 	$(error RUST_TARGET is not set, e.g. RUST_TARGET=x86_64-unknown-linux-gnu)
 endif
-	cargo build --release $(RUST_RELEASE_FLAGS) --target $(RUST_TARGET)
+	cargo build --locked --release $(RUST_RELEASE_FLAGS) --target $(RUST_TARGET)
 
-# === Legacy Go Builds ===
-
-
-.PHONY: build-binary
-build-binary: prepare-assets
-ifndef GOOS
-	$(error GOOS is not set)
-endif
-ifndef GOARCH
-	$(error GOARCH is not set)
-endif
-	mkdir -p dist/$(GOOS)-$(GOARCH)
-	cd legacy/src && \
-	DEST=../../dist/$(GOOS)-$(GOARCH)/ran$(if $(filter windows,$(GOOS)),.exe,) && \
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $$DEST . && chmod +x $$DEST
-
-# Local development
-
-
-.PHONY: build
-build: prepare-assets
-	cd legacy/src && go build -o ../../dist/ran . && chmod +x ../../dist/ran
-
-.PHONY: build-all
-build-all: prepare-assets
-	$(MAKE) build-binary GOOS=darwin GOARCH=amd64
-	$(MAKE) build-binary GOOS=darwin GOARCH=arm64
-	$(MAKE) build-binary GOOS=linux GOARCH=amd64
-	$(MAKE) build-binary GOOS=linux GOARCH=arm64
-	$(MAKE) build-binary GOOS=windows GOARCH=amd64
-
-# CI target
-.PHONY: ci-build
-ci-build: prepare-assets build-binary
-
-# === Local Docker ===
-UNAME_M := $(shell uname -m)
-ifeq ($(UNAME_M),arm64)
-    LOCAL_ARCH := arm64
-else
-    LOCAL_ARCH := amd64
-endif
-
+# === Containers ===
 .PHONY: docker-local
-docker-local: prepare-assets
-	$(MAKE) build-binary GOOS=linux GOARCH=$(LOCAL_ARCH)
-	docker build --build-arg TARGETARCH=$(LOCAL_ARCH) -f Dockerfile.release -t ran:local .
+docker-local:
+	docker build -f Dockerfile.dev -t ran:local .
 
 .PHONY: docker-run
 docker-run:
-	docker run --rm -p 8080:8080 ran:local
+	docker run --rm -it -p 8080:8080 -v "$$HOME/.kube:/root/.kube:ro" ran:local
