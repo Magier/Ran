@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Armory from './components/armory.svelte';
-	import type { Node, TTP, ScoredCandidate } from '$lib/api/index';
+	import type { AttackStep, Node, TTP, ScoredCandidate } from '$lib/api/index';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
 	import { Dialog, Popover, Portal } from '@skeletonlabs/skeleton-svelte';
@@ -10,6 +10,7 @@
 	import { toaster } from '$lib/components/toaster';
 	import { timeline } from '$lib/stores/timelineStore.svelte';
 	import OperationTimeline from '$lib/components/OperationTimeline.svelte';
+	import AttackStepDrawer from '$lib/components/AttackStepDrawer.svelte';
 	import EntityInfo from './components/entityInfo.svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { ExecuteAction, getRanAPI } from '$lib/ran_api';
@@ -29,6 +30,8 @@
 	let showFileViewer: boolean = $state(false);
 	let fileViewerPath: string = $state('');
 	let fileViewerContent: string = $state('');
+	let selectedAttackStep: AttackStep | null = $state(null);
+	let actionDetailsRequestId = 0;
 
 	// Armory resize and collapse state
 	const ARMORY_WIDTH_KEY = '_armoryWidth';
@@ -244,6 +247,8 @@
 		// reset the page/graph state when the campaign resets
 		selectedObjectId = '';
 		selectedObject = undefined;
+		selectedAttackStep = null;
+		actionDetailsRequestId++;
 	})
 
 	// Reset entity info to content-fit when a new node is selected
@@ -513,6 +518,36 @@
 			type: 'error'
 		});
 	}
+
+	async function viewTimelineAction(commandId: string) {
+		const requestId = ++actionDetailsRequestId;
+
+		try {
+			const flow = await ranAPI.GetFlow();
+			if (requestId !== actionDetailsRequestId) return;
+
+			const step = flow.steps.find((candidate) => candidate.id === commandId);
+			if (!step) {
+				throw new Error(`No flow step found for action ${commandId}`);
+			}
+
+			selectedAttackStep = step;
+		} catch (error) {
+			if (requestId !== actionDetailsRequestId) return;
+			selectedAttackStep = null;
+			const description = error instanceof Error ? error.message : 'Unknown error';
+			toaster.create({
+				title: 'Action details unavailable',
+				description,
+				type: 'error'
+			});
+		}
+	}
+
+	function closeAttackStepDrawer() {
+		actionDetailsRequestId++;
+		selectedAttackStep = null;
+	}
 </script>
 
 <div class="relative flex h-[calc(100vh-35px)] gap-x-0">
@@ -586,6 +621,7 @@
 				entries={timeline.topEntries}
 				onfocusentity={(id) => { selectedObjectId = id; }}
 				ontogglegroup={(cmdId) => timeline.toggleGroup(cmdId)}
+				onviewaction={viewTimelineAction}
 			/>
 		{/if}
 	</div>
@@ -626,6 +662,8 @@
 				</Dialog.Positioner>
 			</Portal>
 		</Dialog>
+
+		<AttackStepDrawer step={selectedAttackStep} onclose={closeAttackStepDrawer} />
 	{:else}
 		<div class="flex items-center justify-center w-full h-full">
 			<div class="text-center">

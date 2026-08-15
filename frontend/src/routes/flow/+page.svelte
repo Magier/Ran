@@ -1,6 +1,6 @@
 <script lang="ts">
     import { type FlowEdge, type AttackFlow, type AttackStep } from '$lib/api/index';
-    import AttackStepDetails from '$lib/components/attack_step_details.svelte';
+    import AttackStepDrawer from '$lib/components/AttackStepDrawer.svelte';
     import ActionNode from '$lib/components/flow/attack_node.svelte';
     import {
         SvelteFlow,
@@ -14,7 +14,6 @@
     } from '@xyflow/svelte';
     import dagre from '@dagrejs/dagre';
     import '@xyflow/svelte/dist/style.css';
-    import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { ranAPI } from '$lib/ran_api';
     import { getContext } from 'svelte';
@@ -102,9 +101,6 @@
             console.error(err);
         });
 
-    const animModal =
-        'transition transition-discrete opacity-0 translate-x-full starting:data-[state=open]:opacity-0 starting:data-[state=open]:translate-x-full data-[state=open]:opacity-100 data-[state=open]:translate-x-0';
-    const animBackdrop = 'transition transition-discrete opacity-0 starting:data-[state=open]:opacity-0 data-[state=open]:opacity-100';
 </script>
 
 <div class="items-top mx-auto flex h-dvh w-full justify-center">
@@ -139,23 +135,7 @@
     </SvelteFlow>
 </div>
 
-<Dialog
-    open={selectedStep !== null}
-    onOpenChange={(e) => {
-        if (!e.open) {
-            selectedStep = null;
-        }
-    }}
->
-    <Portal>
-    <Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50 transition transition-discrete {animBackdrop}" />
-		<Dialog.Positioner class="fixed inset-0 z-50 flex justify-end">
-			<Dialog.Content class="w-xl h-screen overflow-auto bg-surface-100-900 p-4 space-y-4 shadow-xl {animModal}">
-                <AttackStepDetails step={selectedStep!} />
-			</Dialog.Content>
-		</Dialog.Positioner>
-    </Portal>
-</Dialog>
+<AttackStepDrawer step={selectedStep} onclose={() => (selectedStep = null)} />
 
 <style>
     :global(.svelte-flow__node) {
