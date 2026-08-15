@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { type Edge as RanEdge, type AttackFlow, type AttackStep } from '$lib/api/index';
+    import { type FlowEdge, type AttackFlow, type AttackStep } from '$lib/api/index';
     import AttackStepDetails from '$lib/components/attack_step_details.svelte';
     import ActionNode from '$lib/components/flow/attack_node.svelte';
     import {
@@ -45,13 +45,12 @@
         };
     }
 
-    function convertEdge(edge: RanEdge): Edge {
+    function convertEdge(edge: FlowEdge): Edge {
         return {
             id: edge.id,
             type: 'default',
             source: edge.sourceId,
             target: edge.targetId,
-            label: edge.name
         };
     }
 
@@ -92,7 +91,7 @@
 
     ranAPI.GetFlow()
         .then((result: AttackFlow) => {
-            console.log('Attack Flow:', result);
+            console.log('Campaign flow:', result);
             const { steps, edges: es } = result;
             const laidOutElements = layOutElements(steps.map(convertStep), es.map(convertEdge), 'TB');
 

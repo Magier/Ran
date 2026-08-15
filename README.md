@@ -51,7 +51,7 @@ Ran encourages **micro-emulation**: multi-step sequences where a simulated adver
 
 - View your cluster through an adversary's lens to find gaps in visibility and detection coverage
 - Record and replay attacker step sequences to validate detection logic
-- Export full attack trails as [MITRE Attack Flow](https://ctid.mitre.org/projects/attack-flow) (STIX 2) for documentation and threat-informed defense
+- Export campaign trails as Ran JSON for reporting, analysis, and replay
 
 ---
 
@@ -98,12 +98,12 @@ Then open `http://localhost:8080` in your browser.
 
 ### Build from source
 
-**Prerequisites:** Rust 1.93+, Node.js 20+, pnpm
+**Prerequisites:** Rust 1.93+, Node.js 24+, pnpm
 
 ```sh
 git clone https://github.com/magier/ran.git
 cd ran
-make build-rust
+make build
 ./target/release/ran --help
 ```
 
@@ -132,10 +132,11 @@ Open `http://localhost:8080` to explore and execute techniques from the armory.
 | Flag | Default | Description |
 |---|---|---|
 | `--port, -p` | `8080` | Port to listen on |
-| `--target, -t` | — | Initial target: `<namespace>/<pod-or-service>` |
-| `--godmode` | `false` | Use local kubeconfig to load all cluster resources |
-| `--armory, -a` | — | Path to a custom armory directory |
+| `--kubeconfig` | active context | Path to a kubeconfig |
+| `--armory` | built-in | Path to a custom armory directory |
 | `--config` | `ran.yaml` | Path to a custom config file |
+| `--plan` | — | Execute a YAML campaign plan on startup |
+| `--cleanup` | `false` | Automatically clean up after a launch-time plan |
 
 ### Atomic testing (single TTP)
 
@@ -146,10 +147,10 @@ Run a single TTP directly from the command line without the UI:
 ran armory
 
 # Execute a specific TTP by ID
-ran invoke <ttp-id> --target <namespace>/<pod>
+ran trigger <ttp-id> --target ns/<namespace>/pod/<name>
 
 # Example: list pods from within a compromised pod
-ran invoke get-pods --target default/my-pod
+ran trigger get-pods --target ns/default/pod/my-pod
 ```
 
 ### Configuration
@@ -238,7 +239,7 @@ Ran is designed to support progressively more autonomous planning:
 | Mode | Status | Description |
 |---|---|---|
 | **Human operator** | ✅ Available | Manually select and invoke individual TTPs |
-| **Imperative plan** | 🔄 In progress | Follow a pre-defined [Attack Flow](https://ctid.mitre.org/projects/attack-flow) runbook |
+| **Imperative plan** | ✅ Available | Follow a pre-defined YAML campaign runbook |
 | **Classical AI** | 🗺️ Planned | Behavior Trees, HTN, GOAP |
 | **Modern AI** | 🔭 Future | Reinforcement learning, Active Inference |
 
@@ -251,10 +252,11 @@ Ran is designed to support progressively more autonomous planning:
 See [Milestones.md](./Milestones.md) for the full roadmap. Key upcoming work:
 
 - [ ] Cleanup logic for every TTP
-- [ ] Attack Flow as an executable plan input
-- [ ] Derive STIX Observables from TTP execution
+- [ ] MITRE Attack Flow/STIX import and export
+- [ ] Sliver RPC integration
+- [ ] WebSocket RPC with a purpose-built protocol
+- [ ] Derive observables from TTP execution
 - [ ] [D3FEND](https://d3fend.mitre.org/) mapping
-- [ ] [MCP](https://modelcontextprotocol.io) server support 🤖
 - [ ] Autonomous emulation via Behavior Trees
 
 ---

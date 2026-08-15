@@ -1996,7 +1996,7 @@ async fn run_launch_plan(
 /// Resolve the armory and the directory to search for external parsers.
 ///
 /// Release builds (`bundled-armory`): built-in TTPs are always loaded; if
-/// `armory_dir` is given, its TTPs are appended (union, same as Go).
+/// `armory_dir` is given, its TTPs are appended.
 ///
 /// Dev builds: loads exclusively from `armory_dir` or the default
 /// `./armory/TTPs` fallback.
@@ -2045,8 +2045,8 @@ pub struct TriggerConfig {
 }
 
 /// Execute a single TTP atomically and print results with discovered facts.
-/// Seeds the target pod into the campaign (equivalent to Go's godMode), runs
-/// the full parser + analyzer + rules pipeline, then exits.
+/// Seeds the target pod into the campaign, runs the full parser + analyzer +
+/// rules pipeline, then exits.
 pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(cfg.kubeconfig)?;
     let active_kubeconfig = resolve_kubeconfig(kubeconfig_path.clone(), None)?;

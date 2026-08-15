@@ -533,7 +533,7 @@ fn split_has_binary_args(inner: &str) -> (Option<String>, &str) {
 
 /// Extract absolute binary paths from stdout.
 ///
-/// Rules (mirrors Go `parseBinaryPathsFromOutput`):
+/// Rules:
 /// - Must start with `/`
 /// - No spaces
 /// - No `...` (apt/dpkg progress lines)

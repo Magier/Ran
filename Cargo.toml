@@ -1,7 +1,5 @@
 [workspace]
 members  = ["crates/*"]
-# Keep the armory websocket tool out of the workspace (it manages its own deps)
-exclude  = ["armory/tools/websocket_client"]
 resolver = "2"
 
 [workspace.package]

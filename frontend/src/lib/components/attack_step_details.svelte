@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { AttackStep } from '$lib/api';
 	import { getCampaignState } from './CampaignState.svelte';
-	import ObservableInfo from './observable_info.svelte';
 	import Icon from '@iconify/svelte';
 
 	interface ActionDetailProps {
@@ -222,21 +221,6 @@
 				</div>
 				{/if}
 			{/each}
-		</div>
-
-		<div class="mt-4 w-full">
-			<span class="label mb-1 flex-none">Observables:</span>
-		{#if step.observables?.length > 0}
-			<div class="mt-4 w-full">
-				{#each step.observables as obs}
-					{#if obs}
-						<ObservableInfo observable={obs} />
-					{/if}
-				{/each}
-			</div>
-		{:else}
-			<div class="opacity-60 italic">No observables generated</div>
-		{/if}
 		</div>
 
 	</article>

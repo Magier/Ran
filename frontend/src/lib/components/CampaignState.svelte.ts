@@ -83,7 +83,6 @@ class CampaignState {
 	private getCampaignStateCounter = 0;
 
 	init(url?: string): Promise<void> {
-		// this.api.onmessage = this.handleMessage;
 		// If no URL provided, it will auto-construct from window.location
 
 		this.api.on('armory-loaded', (data) => {
@@ -169,90 +168,6 @@ class CampaignState {
 		return this.graph && this.entities.length > 0;
 	}
 
-	handleMessage(event: MessageEvent) {
-		console.warn('Received legacy WebSocket message:', event.data);
-		try {
-			const message = JSON.parse(event.data);
-			const { type, data } = message;
-
-			console.log('Received WebSocket message:', type);
-			switch (type) {
-				case 'armory-loaded':
-					this.armory = parseArmory(data);
-					break;
-				case 'facts-changed':
-					this.api.GetGraph().then((g: Graph) => {
-						this.graph = g;
-					});
-					this.api.GetCampaignState().then((s: State) => {
-						this.#setState(s);
-					});
-					break;
-				case 'error-msg':
-					const msg: ErrorMsg = typeof data === 'string' ? JSON.parse(data) : data;
-					let toastType: ToastType;
-					switch (msg.Level) {
-						case 'ERROR':
-						case 'WARN':
-						case 'FATAL':
-							toastType = 'error';
-							break;
-						case 'INFO':
-						case 'DEBUG':
-						default:
-							toastType = 'info';
-					}
-					showToast('Error', msg.Msg, toastType);
-					break;
-				case 'get-graph':
-					this.graph = data;
-					break;
-				default:
-					console.log('Unknown event type:', type, data);
-			}
-		} catch (err) {
-			console.error('Failed to parse WebSocket message:', err);
-		}
-	}
-
-	// connectBackend() {
-	//     console.info("CampaignState connecting to backend...");
-	//     runtime.EventsOn("*", (a) => {
-	//         console.log(a);
-	//     });
-	//     runtime.EventsOn("armory-loaded", (data) => {
-	//         this.armory = parseArmory(data)
-	//     });
-	//     runtime.EventsOn("facts-changed", (dataStr: string) => {
-	//         GetGraph().then((g: Graph) => { this.graph = g; });
-	//         // TODO: properly update state based on the received fact changes
-	//         const data = JSON.parse(dataStr);
-	//         GetCampaignState().then((s: State) => { this.#setState(s); })
-	//     })
-	//     runtime.EventsOn("error-msg", (rawMsg: string) => {
-	//         let msg: ErrorMsg = JSON.parse(rawMsg);
-
-	//         // Map msg.Level to ToastType
-	//         let toastType: ToastType;
-	//         switch (msg.Level) {
-	//             case "ERROR":
-	//             case "WARN":
-	//             case "FATAL":
-	//                 toastType = "error";
-	//                 break;
-	//             case "INFO":
-	//             case "DEBUG":
-	//             default:
-	//                 toastType = "info";
-	//         }
-
-	//         showToast("Error", msg.Msg, toastType);
-	//     });
-
-	//     GetGraph().then((g: Graph) => { this.graph = g; })
-	//     GetCampaignState().then((s: State) => { this.#setState(s); })
-	//     GetArmory().then((a: domain.TTP[]) => { this.armory = parseArmory(a); })
-	// }
 	showError(msg: string | object) {
 		if (typeof msg === 'object') {
 			if (msg.hasOwnProperty('message')) {
@@ -506,15 +421,7 @@ class CampaignState {
 	// }
 
 	GetFlow(): Promise<AttackFlow> {
-		// return this.api.sendMessage<AttackFlow>('get-flow');
 		return this.api.GetFlow();
-	}
-	ExportAttackFlow(): Promise<AttackFlow> {
-		return this.api.sendMessage<AttackFlow>('export-attack-flow');
-	}
-
-	sendMessage(type: string, data?: any): Promise<any> {
-		return this.api.sendMessage<any>(type, data);
 	}
 }
 

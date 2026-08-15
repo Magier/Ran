@@ -18,20 +18,12 @@ parameters:
   PROTOCOL:
     type: string
     default: "tcp"
-    description: Listener protocol — tcp/mtls/http/https for Sliver; tcp for Ran
+    description: Listener protocol (currently tcp)
 preconditions:
   kind: C2
 procedures:
   - id: ran
     command: "c2.listen(${PORT}, ${PROTOCOL})"
     isLocal: true
-  # - id: sliver
-  #   command: "${PROTOCOL} --lhost ${LHOST} --lport ${PORT}"
-  #   tool: sliver-client
-  #   isLocal: true
-  # - id: metasploit
-  #   command: "use exploit/multi/handler; set PAYLOAD generic/shell_reverse_tcp; set LHOST ${LHOST}; set LPORT ${PORT}; run -j"
-  #   tool: msfconsole
-  #   isLocal: true
 effects:
   - "c2.listen(${PORT}, ${PROTOCOL})"

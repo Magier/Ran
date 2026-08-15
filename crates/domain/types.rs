@@ -399,9 +399,7 @@ impl<'de> serde::Deserialize<'de> for BinaryPresence {
 
 /// A container within a pod.
 ///
-/// Domain-owned type. The Go version embedded `v1.Container` from the
-/// Kubernetes API machinery — a large struct full of fields irrelevant to
-/// adversary emulation. The k8s client layer translates to this slim type.
+/// Domain-owned type containing only fields relevant to adversary emulation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Container {
     pub name: String,

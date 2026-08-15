@@ -264,8 +264,8 @@ paths:
 
   /api/flow:
     get:
-      summary: Get attack flow
-      description: Returns the attack flow with steps and edges
+      summary: Get campaign flow
+      description: Returns Ran's campaign flow JSON with execution steps and causal edges
       operationId: getFlow
       responses:
         '200':
@@ -274,59 +274,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AttackFlow'
-
-  /api/flow/export:
-    get:
-      summary: Export attack flow
-      description: Returns the attack flow in MITRE ATT&CK Flow format
-      operationId: exportAttackFlow
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-        '500':
-          description: Export failed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /api/flow/save:
-    post:
-      summary: Save attack flow
-      description: Save the attack flow to a file
-      operationId: saveFlow
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - path
-              properties:
-                path:
-                  type: string
-                  description: File path to save the flow
-      responses:
-        '200':
-          description: Successfully saved
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-        '400':
-          description: Invalid request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
 
   /api/action/execute:
     post:
@@ -760,10 +707,10 @@ components:
 
     AttackFlow:
       type: object
+      description: Ran's internal campaign-flow representation. This is not MITRE Attack Flow/STIX.
       required:
         - steps
         - edges
-        - rootNodeId
       properties:
         steps:
           type: array
@@ -772,15 +719,26 @@ components:
         edges:
           type: array
           items:
-            $ref: '#/components/schemas/Edge'
-        rootNodeId:
+            $ref: '#/components/schemas/FlowEdge'
+
+    FlowEdge:
+      type: object
+      required:
+        - id
+        - sourceId
+        - targetId
+      properties:
+        id:
+          type: string
+        sourceId:
+          type: string
+        targetId:
           type: string
 
     AttackStep:
       type: object
       required:
         - id
-        - actionId
         - targetId
         - command
         - traversal
@@ -789,9 +747,8 @@ components:
         - procedureId
         - executedOn
         - args
-        - timestamp
         - status
-        - observables
+        - success
         - results
         - startedAt
         - completedAt
@@ -822,8 +779,8 @@ components:
             type: string
         procedureId:
           type: string
-        TTP: 
-          $ref: '#/components/schemas/TTP'
+        TTP:
+          $ref: '#/components/schemas/AttackStepTTP'
         results:
           type: array
           items:
@@ -833,7 +790,7 @@ components:
           format: date-time
         completedAt:
           type: string
-          format: date-time
+          description: Completion timestamp in RFC 3339 format, or an empty string while ongoing
         executedOn:
           type: string
         status:
@@ -843,12 +800,30 @@ components:
             - Failed
             - Success
             - Ongoing
-        observables:
+        success:
+          type: boolean
+
+    AttackStepTTP:
+      type: object
+      required:
+        - id
+        - name
+        - description
+        - tactic
+        - techniques
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        tactic:
+          type: string
+        techniques:
           type: array
           items:
             type: string
-        defense:
-          $ref: '#/components/schemas/TTPDefense'
 
     TraversalHop:
       type: object

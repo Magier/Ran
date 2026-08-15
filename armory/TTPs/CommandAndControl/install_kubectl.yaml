@@ -62,8 +62,6 @@ procedures:
   # - key: curl
   #   command: curl -F 'data=@${SRC_PATH}' ${DST_PATH}
   #   isLocal: true
-  # - key: sliver
-  #   command: get_file ${SRC_PATH}
 preconditions:
   accessLevel: user-write
   # kind: Pod, System

@@ -2,8 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// A JSON Web Token as extracted from a running pod.
 ///
-/// Equivalent to Go's `JWToken` but with idiomatic snake_case and `Option`
-/// for fields that may be absent rather than zero-value strings/ints.
+/// Optional claims remain absent when they were not present in the token.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct JwToken {
     pub subject: Option<String>,
@@ -23,9 +22,7 @@ impl JwToken {
 
 /// A Kubernetes ServiceAccount token with its in-cluster claims.
 ///
-/// Replaces Go's `ServiceAccountToken` (which embedded `JWToken` and had the
-/// Kubernetes claims in an anonymous inner struct). The claims are flattened
-/// here for clarity.
+/// Kubernetes claims are flattened for clarity.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ServiceAccountToken {
     pub jwt: JwToken,

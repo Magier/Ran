@@ -301,12 +301,6 @@
 	function closeModal() {
 		showParamModal = false;
 	}
-	function deleteSelectedNode() {
-		campaignState.sendMessage('delete_entity', {
-			target: selectedObjectId
-		});
-	}
-
 	function handleKeyPress(event: KeyboardEvent) {
 		// Only trigger if not typing in an input/textarea
 		if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {

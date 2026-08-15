@@ -17,10 +17,7 @@ use crate::types::{
 
 /// Core trait implemented by every object that can live in the knowledge graph.
 ///
-/// Unlike Go's `Entity` interface (which was satisfied via duck typing with
-/// `GetId`/`GetName`/`GetKind` by any struct), Rust traits are explicit
-/// opt-in. Every domain type that implements `Entity` is intentionally
-/// expressing that it belongs in the graph.
+/// Every domain type that implements `Entity` explicitly belongs in the graph.
 #[delegatable_trait]
 pub trait Entity: std::any::Any + std::fmt::Debug + Send + Sync {
     /// Stable, unique identifier used as the graph node key.
@@ -1604,7 +1601,7 @@ impl Entity for GCPBucket {
 /// Merges facts from an `incoming` entity into an existing one already held in
 /// campaign state.
 ///
-/// The general contract — matching Go's `UpdateEntity` / `mergeObjects` — is:
+/// The general contract is:
 /// - `Option<T>` fields: keep `self` when `Some`, take `incoming` when `self` is `None`.
 /// - `Vec` fields: union (append items from `incoming` absent in `self`).
 /// - `HashMap` fields: union; `incoming` wins on key collision.

@@ -5,7 +5,7 @@
 - campaign reset doesn't work properly when the pod name changes in the meantime
     - it tries to add an edge for an outdated pod??
 
-- cmd fail due to RBAC 403 shows `success` in the attack flow, but is a failure 
+- cmd fail due to RBAC 403 shows `success` in the campaign flow, but is a failure
 
 ## Replace `RelationSummary` with typed trait objects (Option 2)
 
@@ -49,7 +49,6 @@ its `Relation` impl.
 - model the container escape as a switch from one system to another
 - upload binary:
     support local file picker
-- fix `grep` hack in c2.go when executing TTP
 - pivot mechanism
     - have primary targeted system 
 
@@ -64,8 +63,6 @@ its `Relation` impl.
 
 - [UI] decouple the `Tree` UI component from the `Mount` types
 - for chained execution channel, properly wrap the commands and the returned errors.
-
-- [Sliver] sliver-c2-channel should go from listener to the target, not from sliver itself
 
 - create callbacks for entitlement-related relations
     - identified entitlements: analyze against entities in KB

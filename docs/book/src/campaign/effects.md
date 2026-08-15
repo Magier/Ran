@@ -7,7 +7,7 @@ the structured knowledge graph.
 ## Why effects matter
 
 Without effects, each TTP execution is a dead end — you see the output, but Ran
-doesn't know what it means. With effects, a successful *Create Admin Role* run
+doesn't know what it means. With effects, a successful _Create Admin Role_ run
 produces a `K8sRole` entity in the graph, which immediately unlocks every technique
 that requires a role to exist.
 
@@ -17,7 +17,7 @@ that requires a role to exist.
 effects:
   - k8s.serviceAccountList
   - container.escape(sys)
-  - c2.session(sliver, sys)
+  - c2.session(ran, sys)
 ```
 
 Each string is an effect expression. Ran evaluates them after the TTP completes
@@ -28,13 +28,13 @@ successfully.
 Simple effects have no arguments. They extract entities from the execution context
 (the parameter values that were active when the TTP ran):
 
-| Effect | Entity created | Required context keys |
-|---|---|---|
-| `k8s.pod` | `Pod` | `Namespace`, `PodName` (optional: `NodeName`, `ServiceAccount`, `IsRunning`) |
-| `k8s.serviceaccount` | `ServiceAccount` | `Namespace`, `ServiceAccountName` (optional: `Token`) |
-| `k8s.role` | `K8sRole` | `Namespace`, `RoleName` (optional: `Rules` as JSON) |
-| `k8s.rolebinding` | `K8sRoleBinding` | `Namespace`, `BindingName` (optional: `RoleRef`, `Subjects` as JSON) |
-| `k8s.cronjob` | `CronJob` | `Namespace`, `CronJobName` (optional: `Schedule`) |
+| Effect               | Entity created   | Required context keys                                                        |
+| -------------------- | ---------------- | ---------------------------------------------------------------------------- |
+| `k8s.pod`            | `Pod`            | `Namespace`, `PodName` (optional: `NodeName`, `ServiceAccount`, `IsRunning`) |
+| `k8s.serviceaccount` | `ServiceAccount` | `Namespace`, `ServiceAccountName` (optional: `Token`)                        |
+| `k8s.role`           | `K8sRole`        | `Namespace`, `RoleName` (optional: `Rules` as JSON)                          |
+| `k8s.rolebinding`    | `K8sRoleBinding` | `Namespace`, `BindingName` (optional: `RoleRef`, `Subjects` as JSON)         |
+| `k8s.cronjob`        | `CronJob`        | `Namespace`, `CronJobName` (optional: `Schedule`)                            |
 
 `k8s.serviceAccountList`, `k8s.podList`, and similar list-form effects trigger
 the **output parser** pipeline — Ran reads the raw command output (expected to be
@@ -44,15 +44,15 @@ a Kubernetes JSON list) and extracts individual entities from it automatically.
 
 Relation effects take positional arguments and create directed edges in the graph:
 
-| Effect expression | Relation created | Description |
-|---|---|---|
-| `k8s.can-exec(src, tgt)` | `PodExec` | `src` can kubectl-exec into `tgt` |
-| `k8s.can-reach(src, tgt)` | `CanReach` | `src` can reach `tgt` over the network |
-| `runs-on(pod, node)` | `RunsOn` | `pod` runs on `node` |
-| `k8s.kubelet-exec(src, tgt)` | `KubeletExecSource` | `src` can exec on nodes via the kubelet API |
-| `container.escape(src)` | `ContainerEscape` + `RunsOn` | `src` has a proven escape to its host node |
-| `rce.can-exec(src, tgt)` | `RceCanExec` | `src` has RCE on `tgt` via an exploit chain |
-| `c2.session(backend, tgt)` | `SessionChannel` | An active C2 session from `backend` to `tgt` |
+| Effect expression            | Relation created             | Description                                  |
+| ---------------------------- | ---------------------------- | -------------------------------------------- |
+| `k8s.can-exec(src, tgt)`     | `PodExec`                    | `src` can kubectl-exec into `tgt`            |
+| `k8s.can-reach(src, tgt)`    | `CanReach`                   | `src` can reach `tgt` over the network       |
+| `runs-on(pod, node)`         | `RunsOn`                     | `pod` runs on `node`                         |
+| `k8s.kubelet-exec(src, tgt)` | `KubeletExecSource`          | `src` can exec on nodes via the kubelet API  |
+| `container.escape(src)`      | `ContainerEscape` + `RunsOn` | `src` has a proven escape to its host node   |
+| `rce.can-exec(src, tgt)`     | `RceCanExec`                 | `src` has RCE on `tgt` via an exploit chain  |
+| `c2.session(backend, tgt)`   | `SessionChannel`             | An active C2 session from `backend` to `tgt` |
 
 ### The `sys` placeholder
 
@@ -61,13 +61,13 @@ ran against (i.e. the current target). Use it instead of hardcoding an entity ID
 
 ```yaml
 effects:
-  - container.escape(sys)    # the pod that performed the escape
-  - c2.session(sliver, sys)  # sliver now has a session to the current target
+  - container.escape(sys) # the pod that performed the escape
+  - c2.session(ran, sys) # Ran has a session to the current target
 ```
 
 ### Envelopes
 
-When a relation effect is applied for a technique that *also* establishes an
+When a relation effect is applied for a technique that _also_ establishes an
 execution channel — `container.escape`, `rce.can-exec`, or `k8s.kubelet-exec` —
 Ran stores the exact grounded command from the procedure as an **envelope** on that
 relation. Subsequent commands routed through that relation are wrapped with the

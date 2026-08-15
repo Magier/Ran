@@ -1,7 +1,7 @@
 # TTP Anatomy
 
 Every TTP in the armory is a YAML file. Here is a representative example — the
-*Get ServiceAccounts* technique from the Discovery tactic:
+_Get ServiceAccounts_ technique from the Discovery tactic:
 
 ```yaml
 name: Get ServiceAccounts
@@ -43,22 +43,22 @@ effects:
 
 ## Top-level fields
 
-| Field | Required | Description |
-|---|---|---|
-| `name` | yes | Human-readable display name |
-| `id` | no | Stable identifier used for `ran invoke`; auto-derived from `name` if omitted (kebab-case) |
-| `description` | no | One or two sentences explaining what the technique does |
-| `tactic` | no | MITRE ATT&CK tactic; defaults to the parent directory name |
-| `techniques` | no | List of MITRE technique names and/or IDs (e.g. `["T1613"]`) |
-| `status` | no | `enabled` (default), `stable`, `draft`, or `disabled` |
-| `parameters` | no | Named input variables (see [Parameters](../atomic/parameters.md)) |
-| `preconditions` | no | Constraints that gate when this TTP is applicable (see [Preconditions](../campaign/preconditions.md)) |
-| `procedures` | yes* | One or more execution methods |
-| `cleanup` | no | A single procedure to undo the technique's side-effects |
-| `effects` | no | What the technique reveals or establishes (see [Effects](../campaign/effects.md)) |
-| `references` | no | URLs to CVE write-ups, ATT&CK pages, research, etc. |
+| Field           | Required | Description                                                                                           |
+| --------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `name`          | yes      | Human-readable display name                                                                           |
+| `id`            | no       | Stable identifier used for `ran trigger`; auto-derived from `name` if omitted (kebab-case)            |
+| `description`   | no       | One or two sentences explaining what the technique does                                               |
+| `tactic`        | no       | MITRE ATT&CK tactic; defaults to the parent directory name                                            |
+| `techniques`    | no       | List of MITRE technique names and/or IDs (e.g. `["T1613"]`)                                           |
+| `status`        | no       | `enabled` (default), `stable`, `draft`, or `disabled`                                                 |
+| `parameters`    | no       | Named input variables (see [Parameters](../atomic/parameters.md))                                     |
+| `preconditions` | no       | Constraints that gate when this TTP is applicable (see [Preconditions](../campaign/preconditions.md)) |
+| `procedures`    | yes\*    | One or more execution methods                                                                         |
+| `cleanup`       | no       | A single procedure to undo the technique's side-effects                                               |
+| `effects`       | no       | What the technique reveals or establishes (see [Effects](../campaign/effects.md))                     |
+| `references`    | no       | URLs to CVE write-ups, ATT&CK pages, research, etc.                                                   |
 
-*A TTP with no procedures is valid but cannot be invoked.
+\*A TTP with no procedures is valid but cannot be invoked.
 
 ## Procedures at a glance
 

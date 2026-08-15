@@ -601,9 +601,8 @@ mod k8s_json {
 ///
 /// The API server returns a `Status` object (not the requested resource) when a
 /// call succeeds at the transport level but is rejected (e.g. 403 Forbidden).
-/// Mirroring the Go `ParseEffect` logic in `parsers.go` (line 346), any status
-/// code ≥ 400 is treated as a failure so it is never mis-classified as a
-/// successful but empty result.
+/// Any status code ≥ 400 is treated as a failure so it is never mis-classified
+/// as a successful but empty result.
 fn check_k8s_api_error(stdout: &str) -> Option<ParserOutput> {
     let resp: k8s_json::StatusError = serde_json::from_str(stdout.trim()).ok()?;
     if resp.kind != "Status" {

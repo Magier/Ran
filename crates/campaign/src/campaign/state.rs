@@ -582,7 +582,7 @@ impl Campaign {
 
     /// Seed a pod into the campaign with a direct kubectl-exec channel from the
     /// C2 server. Used by `ran trigger` to prepare a target without prior
-    /// discovery (equivalent to Go's godMode). Returns the pod's entity ID.
+    /// discovery. Returns the pod's entity ID.
     pub fn seed_pod_for_trigger(&mut self, name: &str, namespace: &str) -> EntityId {
         let mut pod = Pod::new(name, namespace);
         pod.is_running = true;
