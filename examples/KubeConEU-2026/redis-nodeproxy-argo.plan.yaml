@@ -4,8 +4,8 @@
 # Run with:  POST /api/plans   (body = this YAML)
 #
 # Conventions used here:
-#   - `action` is the TTP id, which Ran derives as slugify(name) when a TTP has
-#     no explicit `id:` field (true for every TTP below).
+#   - `action` is the TTP id. Most are derived as slugify(name); Initial Access
+#     uses the explicit `valid-accounts-kubeconfig` id.
 #   - Targets use the minimal form: `namespace:` + `name:` regex (kind defaults
 #     to Pod when omitted). For workload-managed pods the name is a prefix
 #     pattern (e.g. `entry-hall-.*`); for stable names an exact string suffices.
@@ -27,18 +27,19 @@ description: >
   node/proxy enumeration to reach argo behind a network policy, and token theft
   up to cluster-admin-equivalent permissions. The optional escape to the host
   node for the super-admin kubeconfig is the chained node-escalation.plan.yaml.
-version: "1.0"
+version: "1.1"
 
 steps:
   # ── Phase 0: initial access — establish the foothold ────────────────────────
-  # The campaign starts knowing only the Cluster and the C2; the entry-hall pod
-  # is NOT yet a known entity. Initial access targets the Cluster and names the
-  # pod as a parameter; its effect creates the pod entity and a can-exec edge, so
-  # every later step can target `dungeon/entry-hall`.
+  # The launch-time plan runner finds the live entry-hall pod through the active
+  # external kubeconfig and stages it as an initial-access candidate. This TTP
+  # then uses that same active K8sCredential to establish the can-exec edge.
   - id: initial_access
-    action: initial-access-pod-exec
+    action: valid-accounts-kubeconfig
     target: { namespace: dungeon, name: "entry-hall-.*" }
-    note: "Initial access: kubectl-exec into the dungeon/entry-hall foothold pod."
+    note: >
+      Initial access: use the active external kubeconfig to open a kubectl-exec
+      session in the live dungeon/entry-hall foothold pod.
 
   # ── Phase 1: situational awareness (foothold = dungeon/entry-hall) ──────────
   - id: recon_env
