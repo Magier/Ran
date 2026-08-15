@@ -1,30 +1,37 @@
-# Roadmap
+# Milestones
 
-## Available today
+### MVP
 
-- Rust CLI: `ran emulate`, `ran trigger`, and `ran armory`
-- Browser UI backed by REST and SSE
-- YAML armory with Kubernetes-focused TTPs
-- YAML campaign plans and campaign reset/cleanup support
-- Kubernetes exec and reverse-shell session channels
-- Ran JSON campaign flow from `GET /api/flow`
-- MCP tools over the Rust API
+- [x] Support Kubernetes-related TTPs from [Leonidas](https://github.com/WithSecureLabs/leonidas) for atomic testing
+- [ ] Support Kubernetes-related TTPs from [Stratus Red Team](https://stratus-red-team.cloud/attack-techniques/kubernetes/) for atomic testing
+- [x] Track executed TTPs as a campaign trail
+  - [x] Show the campaign flow in the UI
+  - [x] Export the trail as Ran JSON
 
-## Near term
+### 2nd Iteration
 
-- Expand cleanup coverage across the armory
-- Improve execution tracing, failure classification, and audit presentation
-- Continue imperative plan and hierarchical TTP support
-- Add additional Kubernetes techniques and D3FEND mappings
-- Explore Behavior Tree and goal-directed planning
+- [ ] Support cleanup logic for every TTP
+- [x] Campaign reset functionality
+- [x] Execute pre-defined YAML campaign plans
+- [x] Provide REST, SSE, and MCP interfaces
+- [ ] Import and export MITRE Attack Flow/STIX
+- [ ] Support Sliver as a C2 framework through RPC
+- [ ] Provide WebSocket RPC with a purpose-built protocol
+- [ ] Derive observables from TTP execution and link them in the campaign trail
+- [ ] Optionally generate Sigma rules from observables
+- [ ] Support hierarchical TTPs that use other TTPs as building blocks
+  - For example, install an implant by generating it, transferring it, and executing it
+- [ ] Improve audit tracing
+  - [ ] Merge repeated failed attempts where that improves readability
+  - [ ] Surface important argument values in step titles
 
-## Future integrations
+### 3rd Iteration
 
-These capabilities will be designed natively for the Rust runtime. They are not constrained by retired implementation contracts.
+- [ ] Map TTPs to [D3FEND](https://d3fend.mitre.org/)
+- [ ] Add simple planning for an explicit goal
+- [ ] Explore generation of attack trees
 
-- Native Rust Sliver RPC backend
-- MITRE Attack Flow/STIX import and export
-- WebSocket RPC with a newly designed protocol
-- Observable extraction and optional detection-content generation
+### 4th Iteration: Basic autonomous emulation
 
-Sliver-only TTPs remain in the armory as disabled design sketches until a backend exists.
+- [ ] Behavior Tree execution
+- [ ] Construct Behavior Trees from observed campaigns

@@ -626,7 +626,7 @@ mod tests {
 
         for id in [
             "connect-to-sliver",
-            "generate-sliver-implant",
+            "generate-implant",
             "deploy-sliver-implant",
         ] {
             let ttp = armory.get_ttp(id).expect("Sliver design sketch");
