@@ -6,9 +6,10 @@
         entries: TopEntry[];
         onfocusentity: (targetId: string) => void;
         ontogglegroup: (cmdId: string) => void;
+        onviewaction: (cmdId: string) => void;
     }
 
-    let { entries, onfocusentity, ontogglegroup }: Props = $props();
+    let { entries, onfocusentity, ontogglegroup, onviewaction }: Props = $props();
 
     const MIN_HEIGHT = 120;
     const MAX_HEIGHT = 800;
@@ -253,7 +254,20 @@
                         <!-- Label: ttpName on target [via execSystem] -->
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-1 flex-wrap leading-tight">
-                                <span class="font-medium">{entry.action.ttpName}</span>
+                                {#if entry.action.startup}
+                                    <span class="font-medium">{entry.action.ttpName}</span>
+                                {:else}
+                                    <button
+                                        type="button"
+                                        class="font-medium text-primary-500 hover:underline"
+                                        onclick={(event) => {
+                                            event.stopPropagation();
+                                            onviewaction(entry.action.id);
+                                        }}
+                                    >
+                                        {entry.action.ttpName}
+                                    </button>
+                                {/if}
                                 {#if entry.action.startup}
                                     <span class="text-surface-500 text-xs">{entry.action.detail}</span>
                                 {:else}
