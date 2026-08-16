@@ -1,0 +1,35 @@
+name: Update KubeTier metadata
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Refresh validated offline metadata
+        run: >-
+          cargo run -p kubetier --bin update_catalog --
+          --output crates/kubetier/data/catalog.json
+          --fetched-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - name: Verify catalog tests
+        run: cargo test -p kubetier
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/update-kubetier
+          delete-branch: true
+          commit-message: 'chore(kubetier): refresh offline metadata'
+          title: 'chore(kubetier): refresh offline metadata'
+          body: |
+            Automated refresh from KubeTier's machine-readable Markdown.
+
+            Please review tier, scope, entry-count, and source-link changes before merging.
+          labels: dependencies

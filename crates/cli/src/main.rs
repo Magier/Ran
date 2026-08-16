@@ -133,6 +133,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         auto_cleanup: args.cleanup,
         plans_dir,
         seed_knowledge: cfg.seed_knowledge,
+        kubetier_catalog: cfg.kubetier.catalog,
     })
     .await
 }

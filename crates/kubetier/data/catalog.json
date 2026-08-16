@@ -1,0 +1,4326 @@
+{
+  "schemaVersion": 1,
+  "attribution": "Assessment data by KubeTier (https://kubetier.com/)",
+  "sourceUrl": "https://kubetier.com/llms.txt",
+  "fetchedAt": "2026-08-15T21:53:16Z",
+  "sourceEtag": "\"e715fd9e420498df67dffdc177ff9ea0\"",
+  "sourceSha256": "8cda6f78624e6669cb22914018bfb98484be1a7e7d74f952c8489b2b262be610",
+  "validatedKubernetesVersion": "1.36.1",
+  "full": false,
+  "permissions": [
+    {
+      "id": "api-discovery-get",
+      "verb": "get",
+      "resource": "nonResourceURLs:/api,/apis,/openapi*,/version",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/api-discovery-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#discovery-roles",
+      "escalationPaths": []
+    },
+    {
+      "id": "apiservices-create",
+      "verb": "create",
+      "resource": "apiservices",
+      "apiGroup": "apiregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/apiservices-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/apiserver-aggregation/",
+      "escalationPaths": []
+    },
+    {
+      "id": "certificatesigningrequests-approval-update",
+      "verb": "update",
+      "resource": "certificatesigningrequests/approval",
+      "apiGroup": "certificates.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/certificatesigningrequests-approval-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/#authorization",
+      "escalationPaths": []
+    },
+    {
+      "id": "certificatesigningrequests-create",
+      "verb": "create",
+      "resource": "certificatesigningrequests",
+      "apiGroup": "certificates.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/certificatesigningrequests-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/",
+      "escalationPaths": []
+    },
+    {
+      "id": "certificatesigningrequests-get",
+      "verb": "get",
+      "resource": "certificatesigningrequests",
+      "apiGroup": "certificates.k8s.io",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/certificatesigningrequests-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/",
+      "escalationPaths": []
+    },
+    {
+      "id": "certificatesigningrequests-status-update",
+      "verb": "update",
+      "resource": "certificatesigningrequests/status",
+      "apiGroup": "certificates.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/certificatesigningrequests-status-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/#authorization",
+      "escalationPaths": []
+    },
+    {
+      "id": "clusterrolebindings-create",
+      "verb": "create",
+      "resource": "clusterrolebindings",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/clusterrolebindings-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+      "escalationPaths": []
+    },
+    {
+      "id": "clusterrolebindings-list",
+      "verb": "list",
+      "resource": "clusterrolebindings",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/clusterrolebindings-list",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+      "escalationPaths": []
+    },
+    {
+      "id": "clusterrolebindings-patch",
+      "verb": "patch",
+      "resource": "clusterrolebindings",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/clusterrolebindings-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+      "escalationPaths": []
+    },
+    {
+      "id": "clusterroles-bind",
+      "verb": "bind",
+      "resource": "clusterroles",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T0",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/clusterroles-bind",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#privilege-escalation-prevention-and-bootstrapping",
+      "escalationPaths": []
+    },
+    {
+      "id": "clusterroles-create",
+      "verb": "create",
+      "resource": "clusterroles",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/clusterroles-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#aggregated-clusterroles",
+      "escalationPaths": []
+    },
+    {
+      "id": "clusterroles-escalate",
+      "verb": "escalate",
+      "resource": "clusterroles",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T0",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/clusterroles-escalate",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#privilege-escalation-prevention-and-bootstrapping",
+      "escalationPaths": []
+    },
+    {
+      "id": "clusterroles-list",
+      "verb": "list",
+      "resource": "clusterroles",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/clusterroles-list",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+      "escalationPaths": []
+    },
+    {
+      "id": "clusterroles-update",
+      "verb": "update",
+      "resource": "clusterroles",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/clusterroles-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#aggregated-clusterroles",
+      "escalationPaths": []
+    },
+    {
+      "id": "clustertrustbundles-create",
+      "verb": "create",
+      "resource": "clustertrustbundles",
+      "apiGroup": "certificates.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/clustertrustbundles-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/#cluster-trust-bundles",
+      "escalationPaths": []
+    },
+    {
+      "id": "configmaps-create-controllerconfig",
+      "verb": "create",
+      "resource": "configmaps",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/configmaps-create-controllerconfig",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/configmap/",
+      "escalationPaths": []
+    },
+    {
+      "id": "configmaps-create-kubesystem",
+      "verb": "create",
+      "resource": "configmaps",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/configmaps-create-kubesystem",
+      "kubernetesDocUrl": "https://docs.aws.amazon.com/eks/latest/userguide/auth-configmap.html",
+      "escalationPaths": []
+    },
+    {
+      "id": "configmaps-delete",
+      "verb": "delete",
+      "resource": "configmaps",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/configmaps-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/configmap/",
+      "escalationPaths": []
+    },
+    {
+      "id": "configmaps-get",
+      "verb": "get",
+      "resource": "configmaps",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/configmaps-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/configmap/",
+      "escalationPaths": []
+    },
+    {
+      "id": "configmaps-get-kubesystem",
+      "verb": "get",
+      "resource": "configmaps",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/configmaps-get-kubesystem",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/configmap/",
+      "escalationPaths": []
+    },
+    {
+      "id": "configmaps-patch-controllerconfig",
+      "verb": "patch",
+      "resource": "configmaps",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/configmaps-patch-controllerconfig",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/configmap/",
+      "escalationPaths": []
+    },
+    {
+      "id": "configmaps-patch-kubesystem",
+      "verb": "patch",
+      "resource": "configmaps",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 3,
+      "sourceUrl": "https://kubetier.com/configmaps-patch-kubesystem",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/configmap/",
+      "escalationPaths": []
+    },
+    {
+      "id": "configmaps-update-controllerconfig",
+      "verb": "update",
+      "resource": "configmaps",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/configmaps-update-controllerconfig",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/configmap/",
+      "escalationPaths": []
+    },
+    {
+      "id": "configmaps-update-kubesystem",
+      "verb": "update",
+      "resource": "configmaps",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 3,
+      "sourceUrl": "https://kubetier.com/configmaps-update-kubesystem",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/configmap/",
+      "escalationPaths": []
+    },
+    {
+      "id": "cronjobs-create",
+      "verb": "create",
+      "resource": "cronjobs",
+      "apiGroup": "batch",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/cronjobs-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/",
+      "escalationPaths": []
+    },
+    {
+      "id": "cronjobs-delete",
+      "verb": "delete",
+      "resource": "cronjobs",
+      "apiGroup": "batch",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/cronjobs-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/",
+      "escalationPaths": []
+    },
+    {
+      "id": "cronjobs-patch",
+      "verb": "patch",
+      "resource": "cronjobs",
+      "apiGroup": "batch",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/cronjobs-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/",
+      "escalationPaths": []
+    },
+    {
+      "id": "cronjobs-update",
+      "verb": "update",
+      "resource": "cronjobs",
+      "apiGroup": "batch",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/cronjobs-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/",
+      "escalationPaths": []
+    },
+    {
+      "id": "customresourcedefinitions-create",
+      "verb": "create",
+      "resource": "customresourcedefinitions",
+      "apiGroup": "apiextensions.k8s.io",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/customresourcedefinitions-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/",
+      "escalationPaths": []
+    },
+    {
+      "id": "customresourcedefinitions-delete",
+      "verb": "delete",
+      "resource": "customresourcedefinitions",
+      "apiGroup": "apiextensions.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/customresourcedefinitions-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/",
+      "escalationPaths": []
+    },
+    {
+      "id": "daemonsets-create",
+      "verb": "create",
+      "resource": "daemonsets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/daemonsets-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "daemonsets-delete",
+      "verb": "delete",
+      "resource": "daemonsets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/daemonsets-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "daemonsets-patch",
+      "verb": "patch",
+      "resource": "daemonsets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/daemonsets-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "daemonsets-update",
+      "verb": "update",
+      "resource": "daemonsets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/daemonsets-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "deployments-create",
+      "verb": "create",
+      "resource": "deployments",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/deployments-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+      "escalationPaths": []
+    },
+    {
+      "id": "deployments-delete",
+      "verb": "delete",
+      "resource": "deployments",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/deployments-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+      "escalationPaths": []
+    },
+    {
+      "id": "deployments-patch",
+      "verb": "patch",
+      "resource": "deployments",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/deployments-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+      "escalationPaths": []
+    },
+    {
+      "id": "deployments-scale-update",
+      "verb": "update",
+      "resource": "deployments/scale",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/deployments-scale-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/deployment-v1/#DeploymentSpec",
+      "escalationPaths": []
+    },
+    {
+      "id": "deployments-update",
+      "verb": "update",
+      "resource": "deployments",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/deployments-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+      "escalationPaths": []
+    },
+    {
+      "id": "deviceclasses-create",
+      "verb": "create",
+      "resource": "deviceclasses",
+      "apiGroup": "resource.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/deviceclasses-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/",
+      "escalationPaths": []
+    },
+    {
+      "id": "endpoints-create",
+      "verb": "create",
+      "resource": "endpoints",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/endpoints-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/service/",
+      "escalationPaths": []
+    },
+    {
+      "id": "endpoints-list",
+      "verb": "list",
+      "resource": "endpoints",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/endpoints-list",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/service/",
+      "escalationPaths": []
+    },
+    {
+      "id": "endpointslices-create",
+      "verb": "create",
+      "resource": "endpointslices",
+      "apiGroup": "discovery.k8s.io",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/endpointslices-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/",
+      "escalationPaths": []
+    },
+    {
+      "id": "endpointslices-list",
+      "verb": "list",
+      "resource": "endpointslices",
+      "apiGroup": "discovery.k8s.io",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/endpointslices-list",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/",
+      "escalationPaths": []
+    },
+    {
+      "id": "events-list",
+      "verb": "list",
+      "resource": "events",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/events-list",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/kubernetes-api/cluster-resources/event-v1/",
+      "escalationPaths": []
+    },
+    {
+      "id": "horizontalpodautoscalers-create",
+      "verb": "create",
+      "resource": "horizontalpodautoscalers",
+      "apiGroup": "autoscaling",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/horizontalpodautoscalers-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/",
+      "escalationPaths": []
+    },
+    {
+      "id": "impersonate-groups",
+      "verb": "impersonate",
+      "resource": "groups",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T0",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/impersonate-groups",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/authentication/#user-impersonation",
+      "escalationPaths": []
+    },
+    {
+      "id": "impersonate-serviceaccounts",
+      "verb": "impersonate",
+      "resource": "serviceaccounts",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T0",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/impersonate-serviceaccounts",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/authentication/#user-impersonation",
+      "escalationPaths": []
+    },
+    {
+      "id": "impersonate-users",
+      "verb": "impersonate",
+      "resource": "users",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T0",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/impersonate-users",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/authentication/#user-impersonation",
+      "escalationPaths": []
+    },
+    {
+      "id": "ingresses-create",
+      "verb": "create",
+      "resource": "ingresses",
+      "apiGroup": "networking.k8s.io",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/ingresses-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/ingress/",
+      "escalationPaths": []
+    },
+    {
+      "id": "jobs-create",
+      "verb": "create",
+      "resource": "jobs",
+      "apiGroup": "batch",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/jobs-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/job/",
+      "escalationPaths": []
+    },
+    {
+      "id": "jobs-delete",
+      "verb": "delete",
+      "resource": "jobs",
+      "apiGroup": "batch",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/jobs-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/job/",
+      "escalationPaths": []
+    },
+    {
+      "id": "leases-patch",
+      "verb": "patch",
+      "resource": "leases",
+      "apiGroup": "coordination.k8s.io",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/leases-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/architecture/leases/",
+      "escalationPaths": []
+    },
+    {
+      "id": "mutatingadmissionpolicies-create",
+      "verb": "create",
+      "resource": "mutatingadmissionpolicies",
+      "apiGroup": "admissionregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/mutatingadmissionpolicies-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/mutating-admission-policy/",
+      "escalationPaths": []
+    },
+    {
+      "id": "mutatingadmissionpolicybindings-create",
+      "verb": "create",
+      "resource": "mutatingadmissionpolicybindings",
+      "apiGroup": "admissionregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/mutatingadmissionpolicybindings-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/mutating-admission-policy/",
+      "escalationPaths": []
+    },
+    {
+      "id": "mutatingwebhookconfigurations-create",
+      "verb": "create",
+      "resource": "mutatingwebhookconfigurations",
+      "apiGroup": "admissionregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T0",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/mutatingwebhookconfigurations-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#mutatingadmissionwebhook",
+      "escalationPaths": []
+    },
+    {
+      "id": "mutatingwebhookconfigurations-delete",
+      "verb": "delete",
+      "resource": "mutatingwebhookconfigurations",
+      "apiGroup": "admissionregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/mutatingwebhookconfigurations-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/",
+      "escalationPaths": []
+    },
+    {
+      "id": "mutatingwebhookconfigurations-patch",
+      "verb": "patch",
+      "resource": "mutatingwebhookconfigurations",
+      "apiGroup": "admissionregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/mutatingwebhookconfigurations-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/",
+      "escalationPaths": []
+    },
+    {
+      "id": "namespaces-create",
+      "verb": "create",
+      "resource": "namespaces",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/namespaces-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/security/pod-security-admission/",
+      "escalationPaths": []
+    },
+    {
+      "id": "namespaces-delete",
+      "verb": "delete",
+      "resource": "namespaces",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/namespaces-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/architecture/garbage-collection/",
+      "escalationPaths": []
+    },
+    {
+      "id": "namespaces-list",
+      "verb": "list",
+      "resource": "namespaces",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/namespaces-list",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/",
+      "escalationPaths": []
+    },
+    {
+      "id": "namespaces-patch",
+      "verb": "patch",
+      "resource": "namespaces",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/namespaces-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/security/pod-security-admission/",
+      "escalationPaths": []
+    },
+    {
+      "id": "networkpolicies-create",
+      "verb": "create",
+      "resource": "networkpolicies",
+      "apiGroup": "networking.k8s.io",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/networkpolicies-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/network-policies/",
+      "escalationPaths": []
+    },
+    {
+      "id": "networkpolicies-delete",
+      "verb": "delete",
+      "resource": "networkpolicies",
+      "apiGroup": "networking.k8s.io",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/networkpolicies-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/network-policies/",
+      "escalationPaths": []
+    },
+    {
+      "id": "networkpolicies-patch",
+      "verb": "patch",
+      "resource": "networkpolicies",
+      "apiGroup": "networking.k8s.io",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/networkpolicies-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/network-policies/",
+      "escalationPaths": []
+    },
+    {
+      "id": "nodes-create",
+      "verb": "create",
+      "resource": "nodes",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/nodes-create",
+      "kubernetesDocUrl": "https://github.com/kubernetes/kubernetes/issues/119270",
+      "escalationPaths": []
+    },
+    {
+      "id": "nodes-get",
+      "verb": "get",
+      "resource": "nodes",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/nodes-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/architecture/nodes/",
+      "escalationPaths": []
+    },
+    {
+      "id": "nodes-list",
+      "verb": "list",
+      "resource": "nodes",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/nodes-list",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/architecture/nodes/",
+      "escalationPaths": []
+    },
+    {
+      "id": "nodes-log-get",
+      "verb": "get",
+      "resource": "nodes/log",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/nodes-log-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/",
+      "escalationPaths": []
+    },
+    {
+      "id": "nodes-metrics-get",
+      "verb": "get",
+      "resource": "nodes/metrics",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/nodes-metrics-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/",
+      "escalationPaths": []
+    },
+    {
+      "id": "nodes-patch",
+      "verb": "patch",
+      "resource": "nodes",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/nodes-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/",
+      "escalationPaths": []
+    },
+    {
+      "id": "nodes-proxy-get",
+      "verb": "get",
+      "resource": "nodes/proxy",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T0",
+      "escalationCount": 3,
+      "sourceUrl": "https://kubetier.com/nodes-proxy-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/",
+      "escalationPaths": []
+    },
+    {
+      "id": "nonresource-monitoring-get",
+      "verb": "get",
+      "resource": "nonResourceURLs:/metrics",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/nonresource-monitoring-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#default-roles-and-role-bindings",
+      "escalationPaths": []
+    },
+    {
+      "id": "nonresource-public-info-get",
+      "verb": "get",
+      "resource": "nonResourceURLs:/healthz,/livez,/readyz,/version",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/nonresource-public-info-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#discovery-roles",
+      "escalationPaths": []
+    },
+    {
+      "id": "persistentvolumeclaims-create",
+      "verb": "create",
+      "resource": "persistentvolumeclaims",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/persistentvolumeclaims-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/",
+      "escalationPaths": []
+    },
+    {
+      "id": "persistentvolumes-create",
+      "verb": "create",
+      "resource": "persistentvolumes",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/persistentvolumes-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/",
+      "escalationPaths": []
+    },
+    {
+      "id": "poddisruptionbudgets-create",
+      "verb": "create",
+      "resource": "poddisruptionbudgets",
+      "apiGroup": "policy",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/poddisruptionbudgets-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/pods/disruptions/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-attach-create",
+      "verb": "create",
+      "resource": "pods/attach",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-attach-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#attach",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-binding-create",
+      "verb": "create",
+      "resource": "pods/binding",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-binding-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#core-component-roles",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-create-gitrepo",
+      "verb": "create",
+      "resource": "pods",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-create-gitrepo",
+      "kubernetesDocUrl": "https://nvd.nist.gov/vuln/detail/CVE-2024-10220",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-create-privileged",
+      "verb": "create",
+      "resource": "pods",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 4,
+      "sourceUrl": "https://kubetier.com/pods-create-privileged",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/security/pod-security-admission/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-create-satoken",
+      "verb": "create",
+      "resource": "pods",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-create-satoken",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-create-standard",
+      "verb": "create",
+      "resource": "pods",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 10,
+      "sourceUrl": "https://kubetier.com/pods-create-standard",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/pods/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-delete",
+      "verb": "delete",
+      "resource": "pods",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/pods/disruptions/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-ephemeralcontainers-create",
+      "verb": "update",
+      "resource": "pods/ephemeralcontainers",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-ephemeralcontainers-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/pods/ephemeral-containers/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-eviction-create",
+      "verb": "create",
+      "resource": "pods/eviction",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-eviction-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/scheduling-eviction/api-eviction/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-exec-create",
+      "verb": "create",
+      "resource": "pods/exec",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-exec-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/tasks/debug/debug-application/get-shell-running-container/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-get",
+      "verb": "get",
+      "resource": "pods",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/pods-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/pods/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-list",
+      "verb": "list",
+      "resource": "pods",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/pods-list",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/pods/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-log-get",
+      "verb": "get",
+      "resource": "pods/log",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/pods-log-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/cluster-administration/logging/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-patch",
+      "verb": "patch",
+      "resource": "pods",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 4,
+      "sourceUrl": "https://kubetier.com/pods-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/pods/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-portforward-create",
+      "verb": "create",
+      "resource": "pods/portforward",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-portforward-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-proxy-get",
+      "verb": "get",
+      "resource": "pods/proxy",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-proxy-get",
+      "kubernetesDocUrl": "https://raesene.github.io/blog/2025/01/18/Exploring-the-Kubernetes-API-Server-Proxy/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-status-update",
+      "verb": "update",
+      "resource": "pods/status",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-status-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/",
+      "escalationPaths": []
+    },
+    {
+      "id": "priorityclasses-create",
+      "verb": "create",
+      "resource": "priorityclasses",
+      "apiGroup": "scheduling.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/priorityclasses-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/",
+      "escalationPaths": []
+    },
+    {
+      "id": "replicasets-create",
+      "verb": "create",
+      "resource": "replicasets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/replicasets-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "replicasets-delete",
+      "verb": "delete",
+      "resource": "replicasets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/replicasets-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "replicasets-patch",
+      "verb": "patch",
+      "resource": "replicasets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/replicasets-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "replicasets-scale-update",
+      "verb": "update",
+      "resource": "replicasets/scale",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/replicasets-scale-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "replicasets-update",
+      "verb": "update",
+      "resource": "replicasets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/replicasets-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "replicationcontrollers-create",
+      "verb": "create",
+      "resource": "replicationcontrollers",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/replicationcontrollers-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/replicationcontroller/",
+      "escalationPaths": []
+    },
+    {
+      "id": "replicationcontrollers-delete",
+      "verb": "delete",
+      "resource": "replicationcontrollers",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/replicationcontrollers-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/replicationcontroller/",
+      "escalationPaths": []
+    },
+    {
+      "id": "replicationcontrollers-patch",
+      "verb": "patch",
+      "resource": "replicationcontrollers",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/replicationcontrollers-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/replicationcontroller/",
+      "escalationPaths": []
+    },
+    {
+      "id": "replicationcontrollers-update",
+      "verb": "update",
+      "resource": "replicationcontrollers",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/replicationcontrollers-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/replicationcontroller/",
+      "escalationPaths": []
+    },
+    {
+      "id": "rolebindings-create",
+      "verb": "create",
+      "resource": "rolebindings",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/rolebindings-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+      "escalationPaths": []
+    },
+    {
+      "id": "rolebindings-patch",
+      "verb": "patch",
+      "resource": "rolebindings",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/rolebindings-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+      "escalationPaths": []
+    },
+    {
+      "id": "roles-bind",
+      "verb": "bind",
+      "resource": "roles",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/roles-bind",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#privilege-escalation-prevention-and-bootstrapping",
+      "escalationPaths": []
+    },
+    {
+      "id": "roles-create",
+      "verb": "create",
+      "resource": "roles",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/roles-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+      "escalationPaths": []
+    },
+    {
+      "id": "roles-escalate",
+      "verb": "escalate",
+      "resource": "roles",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/roles-escalate",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#privilege-escalation-prevention-and-bootstrapping",
+      "escalationPaths": []
+    },
+    {
+      "id": "roles-update",
+      "verb": "update",
+      "resource": "roles",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/roles-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#privilege-escalation-prevention-and-bootstrapping",
+      "escalationPaths": []
+    },
+    {
+      "id": "runtimeclasses-create",
+      "verb": "create",
+      "resource": "runtimeclasses",
+      "apiGroup": "node.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/runtimeclasses-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/containers/runtime-class/",
+      "escalationPaths": []
+    },
+    {
+      "id": "secrets-create",
+      "verb": "create",
+      "resource": "secrets",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/secrets-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/secret/",
+      "escalationPaths": []
+    },
+    {
+      "id": "secrets-delete",
+      "verb": "delete",
+      "resource": "secrets",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/secrets-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/secret/",
+      "escalationPaths": []
+    },
+    {
+      "id": "secrets-get",
+      "verb": "get",
+      "resource": "secrets",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 3,
+      "sourceUrl": "https://kubetier.com/secrets-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/secret/",
+      "escalationPaths": []
+    },
+    {
+      "id": "secrets-list",
+      "verb": "list",
+      "resource": "secrets",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T0",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/secrets-list",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/secret/",
+      "escalationPaths": []
+    },
+    {
+      "id": "secrets-list-namespaced",
+      "verb": "list",
+      "resource": "secrets",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 3,
+      "sourceUrl": "https://kubetier.com/secrets-list-namespaced",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/secret/",
+      "escalationPaths": []
+    },
+    {
+      "id": "secrets-patch",
+      "verb": "patch",
+      "resource": "secrets",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/secrets-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/secret/",
+      "escalationPaths": []
+    },
+    {
+      "id": "secrets-update",
+      "verb": "update",
+      "resource": "secrets",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/secrets-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/secret/",
+      "escalationPaths": []
+    },
+    {
+      "id": "secrets-watch",
+      "verb": "watch",
+      "resource": "secrets",
+      "apiGroup": "",
+      "scope": "cluster",
+      "tier": "T0",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/secrets-watch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/authorization/",
+      "escalationPaths": []
+    },
+    {
+      "id": "secrets-watch-namespaced",
+      "verb": "watch",
+      "resource": "secrets",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 3,
+      "sourceUrl": "https://kubetier.com/secrets-watch-namespaced",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/configuration/secret/",
+      "escalationPaths": []
+    },
+    {
+      "id": "selfsubjectaccessreviews-create",
+      "verb": "create",
+      "resource": "selfsubjectaccessreviews",
+      "apiGroup": "authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/selfsubjectaccessreviews-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/authorization/",
+      "escalationPaths": []
+    },
+    {
+      "id": "selfsubjectreviews-create",
+      "verb": "create",
+      "resource": "selfsubjectreviews",
+      "apiGroup": "authentication.k8s.io",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/selfsubjectreviews-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/authentication/",
+      "escalationPaths": []
+    },
+    {
+      "id": "selfsubjectrulesreviews-create",
+      "verb": "create",
+      "resource": "selfsubjectrulesreviews",
+      "apiGroup": "authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/selfsubjectrulesreviews-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/authorization/",
+      "escalationPaths": []
+    },
+    {
+      "id": "serviceaccounts-create",
+      "verb": "create",
+      "resource": "serviceaccounts",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 4,
+      "sourceUrl": "https://kubetier.com/serviceaccounts-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/",
+      "escalationPaths": []
+    },
+    {
+      "id": "serviceaccounts-list",
+      "verb": "list",
+      "resource": "serviceaccounts",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/serviceaccounts-list",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/",
+      "escalationPaths": []
+    },
+    {
+      "id": "serviceaccounts-patch",
+      "verb": "patch",
+      "resource": "serviceaccounts",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 3,
+      "sourceUrl": "https://kubetier.com/serviceaccounts-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/",
+      "escalationPaths": []
+    },
+    {
+      "id": "serviceaccounts-token-create",
+      "verb": "create",
+      "resource": "serviceaccounts/token",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 3,
+      "sourceUrl": "https://kubetier.com/serviceaccounts-token-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/kubernetes-api/authentication-resources/token-request-v1/",
+      "escalationPaths": []
+    },
+    {
+      "id": "services-create",
+      "verb": "create",
+      "resource": "services",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/services-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/service/#external-ips",
+      "escalationPaths": []
+    },
+    {
+      "id": "services-get",
+      "verb": "get",
+      "resource": "services",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/services-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/service/",
+      "escalationPaths": []
+    },
+    {
+      "id": "services-patch",
+      "verb": "patch",
+      "resource": "services",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/services-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/services-networking/service/#external-ips",
+      "escalationPaths": []
+    },
+    {
+      "id": "services-proxy-get",
+      "verb": "get",
+      "resource": "services/proxy",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/services-proxy-get",
+      "kubernetesDocUrl": "https://raesene.github.io/blog/2025/01/18/Exploring-the-Kubernetes-API-Server-Proxy/",
+      "escalationPaths": []
+    },
+    {
+      "id": "signers-approve",
+      "verb": "approve",
+      "resource": "signers",
+      "apiGroup": "certificates.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/signers-approve",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/#authorization",
+      "escalationPaths": []
+    },
+    {
+      "id": "signers-sign",
+      "verb": "sign",
+      "resource": "signers",
+      "apiGroup": "certificates.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/signers-sign",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/#authorization",
+      "escalationPaths": []
+    },
+    {
+      "id": "statefulsets-create",
+      "verb": "create",
+      "resource": "statefulsets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/statefulsets-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "statefulsets-delete",
+      "verb": "delete",
+      "resource": "statefulsets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/statefulsets-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "statefulsets-patch",
+      "verb": "patch",
+      "resource": "statefulsets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/statefulsets-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "statefulsets-update",
+      "verb": "update",
+      "resource": "statefulsets",
+      "apiGroup": "apps",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/statefulsets-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/",
+      "escalationPaths": []
+    },
+    {
+      "id": "storageclasses-create",
+      "verb": "create",
+      "resource": "storageclasses",
+      "apiGroup": "storage.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/storageclasses-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/storage/storage-classes/",
+      "escalationPaths": []
+    },
+    {
+      "id": "storageclasses-patch",
+      "verb": "patch",
+      "resource": "storageclasses",
+      "apiGroup": "storage.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/storageclasses-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/storage/storage-classes/",
+      "escalationPaths": []
+    },
+    {
+      "id": "subjectaccessreviews-create",
+      "verb": "create",
+      "resource": "subjectaccessreviews",
+      "apiGroup": "authorization.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/subjectaccessreviews-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/authorization/",
+      "escalationPaths": []
+    },
+    {
+      "id": "tokenreviews-create",
+      "verb": "create",
+      "resource": "tokenreviews",
+      "apiGroup": "authentication.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/tokenreviews-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/authentication/#webhook-token-authentication",
+      "escalationPaths": []
+    },
+    {
+      "id": "validatingadmissionpolicies-create",
+      "verb": "create",
+      "resource": "validatingadmissionpolicies",
+      "apiGroup": "admissionregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/validatingadmissionpolicies-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/",
+      "escalationPaths": []
+    },
+    {
+      "id": "validatingadmissionpolicybindings-create",
+      "verb": "create",
+      "resource": "validatingadmissionpolicybindings",
+      "apiGroup": "admissionregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/validatingadmissionpolicybindings-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/",
+      "escalationPaths": []
+    },
+    {
+      "id": "validatingwebhookconfigurations-create",
+      "verb": "create",
+      "resource": "validatingwebhookconfigurations",
+      "apiGroup": "admissionregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/validatingwebhookconfigurations-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#validatingadmissionwebhook",
+      "escalationPaths": []
+    },
+    {
+      "id": "validatingwebhookconfigurations-delete",
+      "verb": "delete",
+      "resource": "validatingwebhookconfigurations",
+      "apiGroup": "admissionregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/validatingwebhookconfigurations-delete",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/",
+      "escalationPaths": []
+    },
+    {
+      "id": "validatingwebhookconfigurations-patch",
+      "verb": "patch",
+      "resource": "validatingwebhookconfigurations",
+      "apiGroup": "admissionregistration.k8s.io",
+      "scope": "cluster",
+      "tier": "T1",
+      "escalationCount": 2,
+      "sourceUrl": "https://kubetier.com/validatingwebhookconfigurations-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/",
+      "escalationPaths": []
+    },
+    {
+      "id": "volumeattachments-get",
+      "verb": "get",
+      "resource": "volumeattachments",
+      "apiGroup": "storage.k8s.io",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/volumeattachments-get",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/storage/volumes/",
+      "escalationPaths": []
+    },
+    {
+      "id": "volumeattachments-patch",
+      "verb": "patch",
+      "resource": "volumeattachments",
+      "apiGroup": "storage.k8s.io",
+      "scope": "cluster",
+      "tier": "T3",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/volumeattachments-patch",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/storage/volumes/",
+      "escalationPaths": []
+    },
+    {
+      "id": "volumeattachments-status-update",
+      "verb": "update",
+      "resource": "volumeattachments/status",
+      "apiGroup": "storage.k8s.io",
+      "scope": "cluster",
+      "tier": "T2",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/volumeattachments-status-update",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/storage/volumes/",
+      "escalationPaths": []
+    },
+    {
+      "id": "wildcard-all",
+      "verb": "*",
+      "resource": "*",
+      "apiGroup": "*",
+      "scope": "cluster",
+      "tier": "T0",
+      "escalationCount": 0,
+      "sourceUrl": "https://kubetier.com/wildcard-all",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles",
+      "escalationPaths": []
+    }
+  ],
+  "roles": [
+    {
+      "id": "admin",
+      "name": "admin",
+      "scope": "namespaced",
+      "tier": "T1",
+      "sourceUrl": "https://kubetier.com/admin",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods/attach",
+            "pods/exec",
+            "pods/portforward",
+            "pods/proxy",
+            "secrets",
+            "services/proxy"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "serviceaccounts"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "impersonate"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods",
+            "pods/attach",
+            "pods/exec",
+            "pods/portforward",
+            "pods/proxy"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods/eviction"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps",
+            "persistentvolumeclaims",
+            "replicationcontrollers",
+            "replicationcontrollers/scale",
+            "secrets",
+            "serviceaccounts",
+            "services",
+            "services/proxy"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "serviceaccounts/token"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "",
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "daemonsets",
+            "deployments",
+            "deployments/rollback",
+            "deployments/scale",
+            "replicasets",
+            "replicasets/scale",
+            "statefulsets",
+            "statefulsets/scale"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "autoscaling"
+          ],
+          "resources": [
+            "horizontalpodautoscalers"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "batch"
+          ],
+          "resources": [
+            "cronjobs",
+            "jobs"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "extensions"
+          ],
+          "resources": [
+            "daemonsets",
+            "deployments",
+            "deployments/rollback",
+            "deployments/scale",
+            "ingresses",
+            "networkpolicies",
+            "replicasets",
+            "replicasets/scale",
+            "replicationcontrollers/scale"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "policy"
+          ],
+          "resources": [
+            "poddisruptionbudgets"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "networking.k8s.io"
+          ],
+          "resources": [
+            "ingresses",
+            "networkpolicies"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "coordination.k8s.io"
+          ],
+          "resources": [
+            "leases"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "get",
+            "list",
+            "patch",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceclaims",
+            "resourceclaimtemplates"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps",
+            "endpoints",
+            "persistentvolumeclaims",
+            "persistentvolumeclaims/status",
+            "pods",
+            "replicationcontrollers",
+            "replicationcontrollers/scale",
+            "serviceaccounts",
+            "services",
+            "services/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "bindings",
+            "limitranges",
+            "namespaces/status",
+            "pods/log",
+            "pods/status",
+            "replicationcontrollers/status",
+            "resourcequotas",
+            "resourcequotas/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "namespaces"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "",
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "discovery.k8s.io"
+          ],
+          "resources": [
+            "endpointslices"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "controllerrevisions",
+            "daemonsets",
+            "daemonsets/status",
+            "deployments",
+            "deployments/scale",
+            "deployments/status",
+            "replicasets",
+            "replicasets/scale",
+            "replicasets/status",
+            "statefulsets",
+            "statefulsets/scale",
+            "statefulsets/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "autoscaling"
+          ],
+          "resources": [
+            "horizontalpodautoscalers",
+            "horizontalpodautoscalers/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "batch"
+          ],
+          "resources": [
+            "cronjobs",
+            "cronjobs/status",
+            "jobs",
+            "jobs/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "extensions"
+          ],
+          "resources": [
+            "daemonsets",
+            "daemonsets/status",
+            "deployments",
+            "deployments/scale",
+            "deployments/status",
+            "ingresses",
+            "ingresses/status",
+            "networkpolicies",
+            "replicasets",
+            "replicasets/scale",
+            "replicasets/status",
+            "replicationcontrollers/scale"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "policy"
+          ],
+          "resources": [
+            "poddisruptionbudgets",
+            "poddisruptionbudgets/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "networking.k8s.io"
+          ],
+          "resources": [
+            "ingresses",
+            "ingresses/status",
+            "networkpolicies"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceclaims",
+            "resourceclaims/status",
+            "resourceclaimtemplates"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "authorization.k8s.io"
+          ],
+          "resources": [
+            "localsubjectaccessreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "rbac.authorization.k8s.io"
+          ],
+          "resources": [
+            "rolebindings",
+            "roles"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "get",
+            "list",
+            "patch",
+            "update",
+            "watch"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "cluster-admin",
+      "name": "cluster-admin",
+      "scope": "cluster",
+      "tier": "T0",
+      "sourceUrl": "https://kubetier.com/cluster-admin",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            "*"
+          ],
+          "resources": [
+            "*"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "*"
+          ]
+        },
+        {
+          "apiGroups": [],
+          "resources": [],
+          "nonResourceUrls": [
+            "*"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "edit",
+      "name": "edit",
+      "scope": "namespaced",
+      "tier": "T1",
+      "sourceUrl": "https://kubetier.com/edit",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods/attach",
+            "pods/exec",
+            "pods/portforward",
+            "pods/proxy",
+            "secrets",
+            "services/proxy"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "serviceaccounts"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "impersonate"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods",
+            "pods/attach",
+            "pods/exec",
+            "pods/portforward",
+            "pods/proxy"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods/eviction"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps",
+            "persistentvolumeclaims",
+            "replicationcontrollers",
+            "replicationcontrollers/scale",
+            "secrets",
+            "serviceaccounts",
+            "services",
+            "services/proxy"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "serviceaccounts/token"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "",
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "daemonsets",
+            "deployments",
+            "deployments/rollback",
+            "deployments/scale",
+            "replicasets",
+            "replicasets/scale",
+            "statefulsets",
+            "statefulsets/scale"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "autoscaling"
+          ],
+          "resources": [
+            "horizontalpodautoscalers"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "batch"
+          ],
+          "resources": [
+            "cronjobs",
+            "jobs"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "extensions"
+          ],
+          "resources": [
+            "daemonsets",
+            "deployments",
+            "deployments/rollback",
+            "deployments/scale",
+            "ingresses",
+            "networkpolicies",
+            "replicasets",
+            "replicasets/scale",
+            "replicationcontrollers/scale"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "policy"
+          ],
+          "resources": [
+            "poddisruptionbudgets"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "networking.k8s.io"
+          ],
+          "resources": [
+            "ingresses",
+            "networkpolicies"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "coordination.k8s.io"
+          ],
+          "resources": [
+            "leases"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "get",
+            "list",
+            "patch",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceclaims",
+            "resourceclaimtemplates"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps",
+            "endpoints",
+            "persistentvolumeclaims",
+            "persistentvolumeclaims/status",
+            "pods",
+            "replicationcontrollers",
+            "replicationcontrollers/scale",
+            "serviceaccounts",
+            "services",
+            "services/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "bindings",
+            "limitranges",
+            "namespaces/status",
+            "pods/log",
+            "pods/status",
+            "replicationcontrollers/status",
+            "resourcequotas",
+            "resourcequotas/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "namespaces"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "",
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "discovery.k8s.io"
+          ],
+          "resources": [
+            "endpointslices"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "controllerrevisions",
+            "daemonsets",
+            "daemonsets/status",
+            "deployments",
+            "deployments/scale",
+            "deployments/status",
+            "replicasets",
+            "replicasets/scale",
+            "replicasets/status",
+            "statefulsets",
+            "statefulsets/scale",
+            "statefulsets/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "autoscaling"
+          ],
+          "resources": [
+            "horizontalpodautoscalers",
+            "horizontalpodautoscalers/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "batch"
+          ],
+          "resources": [
+            "cronjobs",
+            "cronjobs/status",
+            "jobs",
+            "jobs/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "extensions"
+          ],
+          "resources": [
+            "daemonsets",
+            "daemonsets/status",
+            "deployments",
+            "deployments/scale",
+            "deployments/status",
+            "ingresses",
+            "ingresses/status",
+            "networkpolicies",
+            "replicasets",
+            "replicasets/scale",
+            "replicasets/status",
+            "replicationcontrollers/scale"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "policy"
+          ],
+          "resources": [
+            "poddisruptionbudgets",
+            "poddisruptionbudgets/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "networking.k8s.io"
+          ],
+          "resources": [
+            "ingresses",
+            "ingresses/status",
+            "networkpolicies"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceclaims",
+            "resourceclaims/status",
+            "resourceclaimtemplates"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:auth-delegator",
+      "name": "system:auth-delegator",
+      "scope": "cluster",
+      "tier": "T2",
+      "sourceUrl": "https://kubetier.com/system:auth-delegator",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#other-component-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            "authentication.k8s.io"
+          ],
+          "resources": [
+            "tokenreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "authorization.k8s.io"
+          ],
+          "resources": [
+            "subjectaccessreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:basic-user",
+      "name": "system:basic-user",
+      "scope": "cluster",
+      "tier": "T3",
+      "sourceUrl": "https://kubetier.com/system:basic-user",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#discovery-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            "authorization.k8s.io"
+          ],
+          "resources": [
+            "selfsubjectaccessreviews",
+            "selfsubjectrulesreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "authentication.k8s.io"
+          ],
+          "resources": [
+            "selfsubjectreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:discovery",
+      "name": "system:discovery",
+      "scope": "cluster",
+      "tier": "T3",
+      "sourceUrl": "https://kubetier.com/system:discovery",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#discovery-roles",
+      "rules": [
+        {
+          "apiGroups": [],
+          "resources": [],
+          "nonResourceUrls": [
+            "/api",
+            "/api/*",
+            "/apis",
+            "/apis/*",
+            "/healthz",
+            "/livez",
+            "/openapi",
+            "/openapi/*",
+            "/readyz",
+            "/version",
+            "/version/"
+          ],
+          "verbs": [
+            "get"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:kube-controller-manager",
+      "name": "system:kube-controller-manager",
+      "scope": "cluster",
+      "tier": "T0",
+      "sourceUrl": "https://kubetier.com/system:kube-controller-manager",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#core-component-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            "",
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "coordination.k8s.io"
+          ],
+          "resources": [
+            "leases"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "coordination.k8s.io"
+          ],
+          "resources": [
+            "leases"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets",
+            "serviceaccounts"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps",
+            "namespaces",
+            "secrets",
+            "serviceaccounts"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets",
+            "serviceaccounts"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "authentication.k8s.io"
+          ],
+          "resources": [
+            "tokenreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "authorization.k8s.io"
+          ],
+          "resources": [
+            "subjectaccessreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "*"
+          ],
+          "resources": [
+            "*"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "serviceaccounts/token"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:kube-dns",
+      "name": "system:kube-dns",
+      "scope": "cluster",
+      "tier": "T2",
+      "sourceUrl": "https://kubetier.com/system:kube-dns",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#core-component-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "endpoints",
+            "services"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "list",
+            "watch"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:kube-scheduler",
+      "name": "system:kube-scheduler",
+      "scope": "cluster",
+      "tier": "T1",
+      "sourceUrl": "https://kubetier.com/system:kube-scheduler",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#core-component-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            "",
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "coordination.k8s.io"
+          ],
+          "resources": [
+            "leases"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "coordination.k8s.io"
+          ],
+          "resources": [
+            "leases"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "coordination.k8s.io"
+          ],
+          "resources": [
+            "leasecandidates"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "deletecollection",
+            "get",
+            "list",
+            "patch",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "nodes"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "delete",
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "bindings",
+            "pods/binding"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "replicationcontrollers",
+            "services"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "apps",
+            "extensions"
+          ],
+          "resources": [
+            "replicasets"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "statefulsets"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "policy"
+          ],
+          "resources": [
+            "poddisruptionbudgets"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "persistentvolumeclaims",
+            "persistentvolumes"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "authentication.k8s.io"
+          ],
+          "resources": [
+            "tokenreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "authorization.k8s.io"
+          ],
+          "resources": [
+            "subjectaccessreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "storage.k8s.io"
+          ],
+          "resources": [
+            "csinodes"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "storage.k8s.io"
+          ],
+          "resources": [
+            "volumeattachments"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "namespaces"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "storage.k8s.io"
+          ],
+          "resources": [
+            "csidrivers"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "storage.k8s.io"
+          ],
+          "resources": [
+            "csistoragecapacities"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "deviceclasses"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceclaims"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "patch",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceclaims/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "patch",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods/finalizers"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceslices"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceclaims"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceclaims/binding"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "patch",
+            "update"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:monitoring",
+      "name": "system:monitoring",
+      "scope": "cluster",
+      "tier": "T2",
+      "sourceUrl": "https://kubetier.com/system:monitoring",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#other-component-roles",
+      "rules": [
+        {
+          "apiGroups": [],
+          "resources": [],
+          "nonResourceUrls": [
+            "/flagz",
+            "/healthz",
+            "/healthz/*",
+            "/livez",
+            "/livez/*",
+            "/metrics",
+            "/metrics/slis",
+            "/readyz",
+            "/readyz/*",
+            "/statusz"
+          ],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "nodes/metrics"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:node",
+      "name": "system:node",
+      "scope": "cluster",
+      "tier": "T1",
+      "sourceUrl": "https://kubetier.com/system:node",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/node/",
+      "rules": [
+        {
+          "apiGroups": [
+            "authentication.k8s.io"
+          ],
+          "resources": [
+            "tokenreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "authorization.k8s.io"
+          ],
+          "resources": [
+            "localsubjectaccessreviews",
+            "subjectaccessreviews"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "services"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "nodes"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "nodes/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "nodes"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "",
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods/eviction"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps",
+            "secrets"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "persistentvolumeclaims",
+            "persistentvolumes"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "endpoints"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            "certificates.k8s.io"
+          ],
+          "resources": [
+            "certificatesigningrequests"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "coordination.k8s.io"
+          ],
+          "resources": [
+            "leases"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "get",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "storage.k8s.io"
+          ],
+          "resources": [
+            "volumeattachments"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "serviceaccounts/token"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "persistentvolumeclaims/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "storage.k8s.io"
+          ],
+          "resources": [
+            "csidrivers"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "storage.k8s.io"
+          ],
+          "resources": [
+            "csinodes"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "get",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "node.k8s.io"
+          ],
+          "resources": [
+            "runtimeclasses"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceclaims"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceslices"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "deletecollection"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "serviceaccounts"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:node-proxier",
+      "name": "system:node-proxier",
+      "scope": "cluster",
+      "tier": "T2",
+      "sourceUrl": "https://kubetier.com/system:node-proxier",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#core-component-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "endpoints",
+            "services"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "nodes"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "",
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "patch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "networking.k8s.io"
+          ],
+          "resources": [
+            "servicecidrs"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "discovery.k8s.io"
+          ],
+          "resources": [
+            "endpointslices"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "list",
+            "watch"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:persistent-volume-provisioner",
+      "name": "system:persistent-volume-provisioner",
+      "scope": "cluster",
+      "tier": "T1",
+      "sourceUrl": "https://kubetier.com/system:persistent-volume-provisioner",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#other-component-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "persistentvolumes"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "delete",
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "persistentvolumeclaims"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "storage.k8s.io"
+          ],
+          "resources": [
+            "storageclasses"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "",
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "create",
+            "patch",
+            "update",
+            "watch"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "system:public-info-viewer",
+      "name": "system:public-info-viewer",
+      "scope": "cluster",
+      "tier": "T3",
+      "sourceUrl": "https://kubetier.com/system:public-info-viewer",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#discovery-roles",
+      "rules": [
+        {
+          "apiGroups": [],
+          "resources": [],
+          "nonResourceUrls": [
+            "/healthz",
+            "/livez",
+            "/readyz",
+            "/version",
+            "/version/"
+          ],
+          "verbs": [
+            "get"
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "view",
+      "name": "view",
+      "scope": "namespaced",
+      "tier": "T3",
+      "sourceUrl": "https://kubetier.com/view",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps",
+            "endpoints",
+            "persistentvolumeclaims",
+            "persistentvolumeclaims/status",
+            "pods",
+            "replicationcontrollers",
+            "replicationcontrollers/scale",
+            "serviceaccounts",
+            "services",
+            "services/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "bindings",
+            "limitranges",
+            "namespaces/status",
+            "pods/log",
+            "pods/status",
+            "replicationcontrollers/status",
+            "resourcequotas",
+            "resourcequotas/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "namespaces"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "",
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "discovery.k8s.io"
+          ],
+          "resources": [
+            "endpointslices"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "controllerrevisions",
+            "daemonsets",
+            "daemonsets/status",
+            "deployments",
+            "deployments/scale",
+            "deployments/status",
+            "replicasets",
+            "replicasets/scale",
+            "replicasets/status",
+            "statefulsets",
+            "statefulsets/scale",
+            "statefulsets/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "autoscaling"
+          ],
+          "resources": [
+            "horizontalpodautoscalers",
+            "horizontalpodautoscalers/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "batch"
+          ],
+          "resources": [
+            "cronjobs",
+            "cronjobs/status",
+            "jobs",
+            "jobs/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "extensions"
+          ],
+          "resources": [
+            "daemonsets",
+            "daemonsets/status",
+            "deployments",
+            "deployments/scale",
+            "deployments/status",
+            "ingresses",
+            "ingresses/status",
+            "networkpolicies",
+            "replicasets",
+            "replicasets/scale",
+            "replicasets/status",
+            "replicationcontrollers/scale"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "policy"
+          ],
+          "resources": [
+            "poddisruptionbudgets",
+            "poddisruptionbudgets/status"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "networking.k8s.io"
+          ],
+          "resources": [
+            "ingresses",
+            "ingresses/status",
+            "networkpolicies"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "resource.k8s.io"
+          ],
+          "resources": [
+            "resourceclaims",
+            "resourceclaims/status",
+            "resourceclaimtemplates"
+          ],
+          "nonResourceUrls": [],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ],
+      "notes": []
+    }
+  ]
+}

@@ -5,7 +5,8 @@ use ran_domain::{
     ConfigMap, Deployment, K8sGateway, K8sGatewayListener, K8sHTTPBackend, K8sHTTPRoute,
     K8sIngress, K8sIngressPath, K8sIngressRule, K8sIngressTLS, K8sNode, K8sParentRef, K8sRole,
     K8sRoleBinding, K8sSecret, K8sService, K8sServicePort, Mount, NameConfidence, Namespace,
-    OwnerRef, Pod, PodPhase, RbacPermission, RbacSubject, ServiceAccount,
+    OwnerRef, Pod, PodPhase, RbacPermission, RbacScopeKind, RbacScopeSource, RbacSubject,
+    ServiceAccount,
 };
 
 use super::ParserOutput;
@@ -260,6 +261,8 @@ mod k8s_json {
         pub resource_names: Vec<String>,
         #[serde(rename = "apiGroups", default)]
         pub api_groups: Vec<String>,
+        #[serde(rename = "nonResourceURLs", default)]
+        pub non_resource_urls: Vec<String>,
     }
 
     #[derive(Deserialize)]
@@ -974,28 +977,58 @@ fn parse_k8s_deployment_list(
     )
 }
 
-fn rules_to_permissions(rules: &[k8s_json::PolicyRule]) -> Vec<RbacPermission> {
+fn rules_to_permissions(
+    rules: &[k8s_json::PolicyRule],
+    namespace: Option<&str>,
+    role_name: &str,
+) -> Vec<RbacPermission> {
     let mut perms = Vec::new();
     for rule in rules {
-        let api_group = rule.api_groups.first().cloned();
+        let api_groups = if rule.api_groups.is_empty() {
+            vec![String::new()]
+        } else {
+            rule.api_groups.clone()
+        };
         for verb in &rule.verbs {
-            for resource in &rule.resources {
-                if rule.resource_names.is_empty() {
-                    let mut p = RbacPermission::new(verb.clone(), resource.clone());
-                    p.api_group = api_group.clone();
-                    perms.push(p);
-                } else {
-                    for rname in &rule.resource_names {
+            for api_group in &api_groups {
+                for resource in &rule.resources {
+                    if rule.resource_names.is_empty() {
                         let mut p = RbacPermission::new(verb.clone(), resource.clone());
-                        p.api_group = api_group.clone();
-                        p.resource_name = Some(rname.clone());
+                        p.api_group = Some(api_group.clone());
+                        stamp_role_scope(&mut p, namespace, role_name);
                         perms.push(p);
+                    } else {
+                        for rname in &rule.resource_names {
+                            let mut p = RbacPermission::new(verb.clone(), resource.clone());
+                            p.api_group = Some(api_group.clone());
+                            p.resource_name = Some(rname.clone());
+                            stamp_role_scope(&mut p, namespace, role_name);
+                            perms.push(p);
+                        }
                     }
                 }
+            }
+            for url in &rule.non_resource_urls {
+                let mut p = RbacPermission::new(verb.clone(), "");
+                p.resource_name = Some(url.clone());
+                p.scope = Some("*".to_string());
+                p.scope_kind = RbacScopeKind::Cluster;
+                p.scope_source = Some(RbacScopeSource::Role);
+                p.source_role = Some(role_name.to_string());
+                perms.push(p);
             }
         }
     }
     perms
+}
+
+fn stamp_role_scope(permission: &mut RbacPermission, namespace: Option<&str>, role_name: &str) {
+    permission.scope_source = Some(RbacScopeSource::Role);
+    permission.source_role = Some(role_name.to_string());
+    if let Some(namespace) = namespace {
+        permission.scope = Some(namespace.to_string());
+        permission.scope_kind = RbacScopeKind::Namespace;
+    }
 }
 
 fn parse_role_binding_item(
@@ -1097,7 +1130,7 @@ fn parse_k8s_role_list(
         }
         let mut role = K8sRole::new(name.clone(), ns.clone());
         role.is_cluster_role = false;
-        role.permissions = rules_to_permissions(&item.rules);
+        role.permissions = rules_to_permissions(&item.rules, Some(&ns), name);
         facts.new_entities.push(Box::new(role));
 
         if !ns.is_empty() {
@@ -1136,7 +1169,7 @@ fn parse_k8s_cluster_role_list(
         }
         let mut role = K8sRole::new(name.clone(), "");
         role.is_cluster_role = true;
-        role.permissions = rules_to_permissions(&item.rules);
+        role.permissions = rules_to_permissions(&item.rules, None, name);
         facts.new_entities.push(Box::new(role));
     }
 
@@ -1576,5 +1609,64 @@ mod tests {
     fn namespace_list_rejects_empty_items() {
         let result = parse_k8s_namespace_list(r#"{"items": []}"#, "", &HashMap::new());
         assert!(matches!(result, ParserOutput::KnownFailure(_)));
+    }
+
+    #[test]
+    fn role_list_preserves_all_api_groups_and_namespace_scope() {
+        let output = r#"{
+            "items": [{
+                "metadata": {"name": "event-reader", "namespace": "dungeon"},
+                "rules": [{
+                    "verbs": ["get"],
+                    "apiGroups": ["", "events.k8s.io"],
+                    "resources": ["events"]
+                }]
+            }]
+        }"#;
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_k8s_role_list(output, "", &HashMap::new())
+        else {
+            panic!("expected role facts");
+        };
+        let role = facts
+            .new_entities
+            .iter()
+            .find_map(|entity| entity.as_any().downcast_ref::<K8sRole>())
+            .unwrap();
+        assert_eq!(role.permissions.len(), 2);
+        assert!(role.permissions.iter().any(|permission| {
+            permission.api_group.as_deref() == Some("")
+                && permission.scope_kind == RbacScopeKind::Namespace
+                && permission.scope.as_deref() == Some("dungeon")
+        }));
+        assert!(role
+            .permissions
+            .iter()
+            .any(|permission| permission.api_group.as_deref() == Some("events.k8s.io")));
+    }
+
+    #[test]
+    fn cluster_role_list_preserves_non_resource_urls() {
+        let output = r#"{
+            "items": [{
+                "metadata": {"name": "health-reader"},
+                "rules": [{"verbs": ["get"], "nonResourceURLs": ["/healthz", "/readyz/*"]}]
+            }]
+        }"#;
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_k8s_cluster_role_list(output, "", &HashMap::new())
+        else {
+            panic!("expected cluster role facts");
+        };
+        let role = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<K8sRole>()
+            .unwrap();
+        assert_eq!(role.permissions.len(), 2);
+        assert!(role.permissions.iter().all(|permission| {
+            permission.resource_type.is_empty()
+                && permission.scope_kind == RbacScopeKind::Cluster
+                && permission.scope_source == Some(RbacScopeSource::Role)
+        }));
     }
 }

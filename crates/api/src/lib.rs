@@ -62,6 +62,10 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             axum::routing::get(api_handlers::campaign_state_handler::<S>),
         )
         .route(
+            "/api/kubetier",
+            axum::routing::get(api_handlers::kubetier_handler::<S>),
+        )
+        .route(
             "/api/campaign/reset",
             axum::routing::post(api_handlers::reset_campaign_handler::<S>),
         )

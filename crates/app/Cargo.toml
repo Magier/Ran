@@ -16,6 +16,7 @@ c2 = { path = "../c2" }
 campaign = { path = "../campaign" }
 utility-ai = { path = "../utility-ai" }
 k8s = { path = "../k8s" }
+kubetier = { path = "../kubetier" }
 planner = { path = "../planner" }
 ran-domain = { path = "../domain" }
 reqwest = { version = "0.13", features = ["json"] }

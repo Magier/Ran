@@ -34,6 +34,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/CampaignState'
 
+  /api/kubetier:
+    get:
+      summary: Get the offline KubeTier catalog
+      description: Returns the bundled metadata snapshot or configured private/full local snapshot. This endpoint never fetches kubetier.com.
+      operationId: getKubetierCatalog
+      responses:
+        '200':
+          description: Offline KubeTier catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KubetierCatalog'
+
   /api/armory:
     get:
       summary: Get armory
@@ -1111,6 +1124,166 @@ components:
         isNamespaced:
           type: boolean
           default: true
+        scopeKind:
+          type: string
+          enum: [cluster, namespace, unknown]
+        evaluatedNamespace:
+          type: string
+        scopeSource:
+          type: string
+          enum: [binding, role, ssrr]
+        kubetier:
+          $ref: '#/components/schemas/KubetierPermissionAssessment'
+
+    KubetierPermissionAssessment:
+      type: object
+      required: [provider, scopeUnverified, matches]
+      properties:
+        provider:
+          type: string
+          enum: [kubetier]
+        tierMin:
+          $ref: '#/components/schemas/KubetierTier'
+        tierMax:
+          $ref: '#/components/schemas/KubetierTier'
+        unassessed:
+          type: boolean
+        scopeUnverified:
+          type: boolean
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubetierPermission'
+
+    KubetierTier:
+      type: string
+      enum: [T0, T1, T2, T3]
+
+    KubetierScope:
+      type: string
+      enum: [cluster, namespaced]
+
+    KubetierEscalationPath:
+      type: object
+      required: [name, tier, sourceUrl, steps]
+      properties:
+        name:
+          type: string
+        tier:
+          $ref: '#/components/schemas/KubetierTier'
+        sourceUrl:
+          type: string
+        steps:
+          type: array
+          items:
+            type: string
+
+    KubetierPermission:
+      type: object
+      required: [id, verb, resource, apiGroup, scope, tier, escalationCount, sourceUrl, escalationPaths]
+      properties:
+        id:
+          type: string
+        verb:
+          type: string
+        resource:
+          type: string
+        apiGroup:
+          type: string
+        scope:
+          $ref: '#/components/schemas/KubetierScope'
+        tier:
+          $ref: '#/components/schemas/KubetierTier'
+        escalationCount:
+          type: integer
+        sourceUrl:
+          type: string
+        kubernetesDocUrl:
+          type: string
+        description:
+          type: string
+        escalationPaths:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubetierEscalationPath'
+
+    KubetierRoleRule:
+      type: object
+      required: [apiGroups, resources, nonResourceUrls, verbs]
+      properties:
+        apiGroups:
+          type: array
+          items:
+            type: string
+        resources:
+          type: array
+          items:
+            type: string
+        nonResourceUrls:
+          type: array
+          items:
+            type: string
+        verbs:
+          type: array
+          items:
+            type: string
+
+    KubetierRole:
+      type: object
+      required: [id, name, scope, tier, sourceUrl, rules, notes]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        scope:
+          $ref: '#/components/schemas/KubetierScope'
+        tier:
+          $ref: '#/components/schemas/KubetierTier'
+        sourceUrl:
+          type: string
+        kubernetesDocUrl:
+          type: string
+        description:
+          type: string
+        notes:
+          type: array
+          items:
+            type: string
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubetierRoleRule'
+
+    KubetierCatalog:
+      type: object
+      required: [schemaVersion, attribution, sourceUrl, fetchedAt, sourceSha256, full, permissions, roles]
+      properties:
+        schemaVersion:
+          type: integer
+        attribution:
+          type: string
+        sourceUrl:
+          type: string
+        fetchedAt:
+          type: string
+        sourceEtag:
+          type: string
+        sourceSha256:
+          type: string
+        validatedKubernetesVersion:
+          type: string
+        full:
+          type: boolean
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubetierPermission'
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/KubetierRole'
+
     ExecutionRecordEntry:
       type: object
       description: |

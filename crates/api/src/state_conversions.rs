@@ -6,7 +6,10 @@ use serde_json::Value;
 
 use crate::{BootstrapEffect, BootstrapOperation, CampaignState, Graph, GraphEdge, GraphNode};
 
-pub(crate) fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
+pub(crate) fn campaign_to_campaign_state(
+    campaign: &Campaign,
+    kubetier: &kubetier::Catalog,
+) -> CampaignState {
     let mut entities = HashMap::new();
 
     for entity in campaign.get_entities() {
@@ -29,7 +32,7 @@ pub(crate) fn campaign_to_campaign_state(campaign: &Campaign) -> CampaignState {
         }
 
         if let Some(mut full_entity) = serialize_campaign_entity_map(&entity) {
-            prune_entity_payload_for_ui(entity.entity_kind(), &mut full_entity);
+            prune_entity_payload_for_ui(entity.entity_kind(), &mut full_entity, kubetier);
             for (k, v) in full_entity {
                 data.entry(k).or_insert(v);
             }
@@ -158,7 +161,7 @@ fn bootstrap_effect(entity_id: EntityId, entity_name: &str, entity_kind: &str) -
     }
 }
 
-pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
+pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalog) -> Graph {
     let entities = campaign.get_entities();
     let namespace_ids: HashSet<String> = entities
         .iter()
@@ -251,7 +254,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign) -> Graph {
 
         let mut entity_payload = serialize_campaign_entity_map(&entity);
         if let Some(ref mut payload) = entity_payload {
-            prune_entity_payload_for_ui(entity.entity_kind(), payload);
+            prune_entity_payload_for_ui(entity.entity_kind(), payload, kubetier);
         }
         nodes.push(GraphNode {
             id: id.clone(),
@@ -320,7 +323,11 @@ pub(crate) fn serialize_campaign_entity_map(
     }
 }
 
-fn prune_entity_payload_for_ui(kind: &str, data: &mut HashMap<String, Value>) {
+fn prune_entity_payload_for_ui(
+    kind: &str,
+    data: &mut HashMap<String, Value>,
+    kubetier: &kubetier::Catalog,
+) {
     prune_null_entries(data);
 
     if kind == "Pod" {
@@ -356,12 +363,21 @@ fn prune_entity_payload_for_ui(kind: &str, data: &mut HashMap<String, Value>) {
         // Rename `entitlements` → `can` and convert each permission's snake_case
         // field names to the camelCase names the frontend EntitlementInfo component expects.
         if let Some(entitlements) = data.remove("entitlements") {
-            let can = rbac_permissions_to_ui(entitlements);
+            let can = rbac_permissions_to_ui(entitlements, kubetier);
             if let Value::Array(ref arr) = can {
                 if !arr.is_empty() {
                     data.insert("can".to_string(), can);
                 }
             }
+        }
+    }
+
+    if kind == "Role" || kind == "ClusterRole" {
+        if let Some(permissions) = data.remove("permissions") {
+            data.insert(
+                "permissions".to_string(),
+                rbac_permissions_to_ui(permissions, kubetier),
+            );
         }
     }
 
@@ -399,7 +415,7 @@ fn provenance_value(origins: std::collections::BTreeSet<campaign::KnowledgeProve
 
 /// Convert a serialized `Vec<RbacPermission>` (snake_case keys) into the
 /// camelCase shape the frontend `EntitlementInfo` component expects.
-fn rbac_permissions_to_ui(value: Value) -> Value {
+fn rbac_permissions_to_ui(value: Value, catalog: &kubetier::Catalog) -> Value {
     let Value::Array(perms) = value else {
         return value;
     };
@@ -408,13 +424,17 @@ fn rbac_permissions_to_ui(value: Value) -> Value {
             .into_iter()
             .map(|p| {
                 let Value::Object(map) = p else { return p };
-                let mut out = serde_json::Map::with_capacity(map.len());
+                let assessment = kubetier_assessment(&map, catalog);
+                let mut out = serde_json::Map::with_capacity(map.len() + 1);
                 for (k, v) in map {
                     let key = match k.as_str() {
                         "resource_type" => "resourceType",
                         "resource_name" => "resourceName",
                         "api_group" => "apiGroup",
                         "source_role" => "sourceRole",
+                        "scope_kind" => "scopeKind",
+                        "evaluated_namespace" => "evaluatedNamespace",
+                        "scope_source" => "scopeSource",
                         other => {
                             out.insert(other.to_string(), v);
                             continue;
@@ -422,10 +442,103 @@ fn rbac_permissions_to_ui(value: Value) -> Value {
                     };
                     out.insert(key.to_string(), v);
                 }
+                if let Some(assessment) = assessment {
+                    out.insert("kubetier".to_string(), assessment);
+                }
                 Value::Object(out)
             })
             .collect(),
     )
+}
+
+fn kubetier_assessment(
+    permission: &serde_json::Map<String, Value>,
+    catalog: &kubetier::Catalog,
+) -> Option<Value> {
+    let verb = permission.get("verb")?.as_str()?;
+    let resource = permission
+        .get("resource_type")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let resource_name = permission.get("resource_name").and_then(Value::as_str);
+    let api_group = permission
+        .get("api_group")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let scope_kind = permission
+        .get("scope_kind")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+
+    let matches: Vec<_> = catalog
+        .permissions
+        .iter()
+        .filter(|assessment| {
+            // A literal `* *` grant maps exclusively to KubeTier's dedicated
+            // wildcard assessment. SSRR may leave scope unknown, but expanding
+            // that grant into every catalog row is both noisy and misleading.
+            let universal_wildcard = verb == "*" && resource == "*";
+            let verb_matches = if universal_wildcard {
+                assessment.verb == "*"
+            } else {
+                verb == "*" || assessment.verb == verb
+            };
+            let resource_matches = if resource.is_empty() {
+                resource_name.is_some_and(|url| non_resource_matches(&assessment.resource, url))
+            } else if universal_wildcard {
+                assessment.resource == "*"
+            } else {
+                resource == "*" || assessment.resource == resource
+            };
+            let group_matches = if universal_wildcard {
+                assessment.api_group == "*"
+            } else {
+                resource.is_empty() || api_group == "*" || assessment.api_group == api_group
+            };
+            let scope_matches = universal_wildcard
+                || match scope_kind {
+                    "cluster" => assessment.scope == kubetier::Scope::Cluster,
+                    "namespace" => assessment.scope == kubetier::Scope::Namespaced,
+                    _ => true,
+                };
+            verb_matches && resource_matches && group_matches && scope_matches
+        })
+        .collect();
+
+    if matches.is_empty() {
+        return Some(serde_json::json!({
+            "provider": "kubetier",
+            "unassessed": true,
+            "scopeUnverified": scope_kind == "unknown",
+            "matches": []
+        }));
+    }
+
+    let min = matches.iter().map(|entry| entry.tier).min()?;
+    let max = matches.iter().map(|entry| entry.tier).max()?;
+    Some(serde_json::json!({
+        "provider": "kubetier",
+        "tierMin": min,
+        "tierMax": max,
+        "scopeUnverified": scope_kind == "unknown",
+        "matches": matches
+    }))
+}
+
+fn non_resource_matches(catalog_resource: &str, url: &str) -> bool {
+    catalog_resource
+        .strip_prefix("nonResourceURLs:")
+        .is_some_and(|patterns| {
+            if url == "*" {
+                return true;
+            }
+            patterns.split(',').any(|pattern| {
+                let pattern = pattern.trim();
+                pattern
+                    .strip_suffix('*')
+                    .map_or(pattern == url, |prefix| url.starts_with(prefix))
+            })
+        })
 }
 
 fn prune_null_entries(data: &mut HashMap<String, Value>) {
@@ -491,7 +604,7 @@ mod tests {
             },
         );
 
-        let state = campaign_to_campaign_state(&campaign);
+        let state = campaign_to_campaign_state(&campaign, &kubetier::Catalog::embedded());
         let payload = state.entities.get(&credential_id.0).unwrap();
         assert_eq!(
             payload.get("provenance"),
@@ -500,19 +613,30 @@ mod tests {
         for secret in ["token", "key_data", "cert_data", "ca_data"] {
             assert!(!payload.contains_key(secret));
         }
+        let permission = payload
+            .get("can")
+            .and_then(Value::as_array)
+            .and_then(|permissions| permissions.first())
+            .and_then(Value::as_object)
+            .unwrap();
+        assert_eq!(permission.get("verb"), Some(&serde_json::json!("list")));
         assert_eq!(
-            payload.get("can"),
-            Some(&serde_json::json!([{
-                "verb": "list",
-                "resourceType": "pods",
-                "resourceName": null,
-                "apiGroup": null,
-                "scope": null,
-                "sourceRole": null
-            }]))
+            permission.get("resourceType"),
+            Some(&serde_json::json!("pods"))
+        );
+        assert_eq!(
+            permission.get("scopeKind"),
+            Some(&serde_json::json!("unknown"))
+        );
+        assert_eq!(
+            permission
+                .get("kubetier")
+                .and_then(Value::as_object)
+                .and_then(|assessment| assessment.get("provider")),
+            Some(&serde_json::json!("kubetier"))
         );
 
-        let graph = campaign_to_graph(&campaign);
+        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
         let node = graph
             .nodes
             .iter()
@@ -544,6 +668,88 @@ mod tests {
     }
 
     #[test]
+    fn kubetier_lookup_respects_api_group_scope_wildcards_and_unmatched_permissions() {
+        let catalog = kubetier::Catalog::embedded();
+        let assessment = |permission: Value| {
+            kubetier_assessment(permission.as_object().unwrap(), &catalog).unwrap()
+        };
+
+        let namespaced = assessment(serde_json::json!({
+            "verb": "create",
+            "resource_type": "deployments",
+            "api_group": "apps",
+            "scope_kind": "namespace"
+        }));
+        assert_eq!(namespaced["tierMin"], "T1");
+        assert_eq!(namespaced["tierMax"], "T1");
+
+        let wrong_group = assessment(serde_json::json!({
+            "verb": "create",
+            "resource_type": "deployments",
+            "api_group": "extensions",
+            "scope_kind": "namespace"
+        }));
+        assert_eq!(wrong_group["unassessed"], true);
+
+        let uncertain = assessment(serde_json::json!({
+            "verb": "list",
+            "resource_type": "secrets",
+            "api_group": "",
+            "scope_kind": "unknown"
+        }));
+        assert_eq!(uncertain["tierMin"], "T0");
+        assert_eq!(uncertain["tierMax"], "T1");
+        assert_eq!(uncertain["scopeUnverified"], true);
+
+        let wildcard = assessment(serde_json::json!({
+            "verb": "*",
+            "resource_type": "*",
+            "api_group": "*",
+            "scope_kind": "cluster"
+        }));
+        assert_eq!(wildcard["tierMin"], "T0");
+        assert_eq!(wildcard["matches"].as_array().unwrap().len(), 1);
+
+        let core_group_wildcard = assessment(serde_json::json!({
+            "verb": "*",
+            "resource_type": "*",
+            "api_group": "",
+            "scope_kind": "cluster"
+        }));
+        assert_eq!(core_group_wildcard["matches"].as_array().unwrap().len(), 1);
+        assert_eq!(core_group_wildcard["matches"][0]["id"], "wildcard-all");
+
+        let ssrr_wildcard = assessment(serde_json::json!({
+            "verb": "*",
+            "resource_type": "*",
+            "api_group": "*",
+            "scope_kind": "unknown"
+        }));
+        assert_eq!(ssrr_wildcard["matches"].as_array().unwrap().len(), 1);
+        assert_eq!(ssrr_wildcard["matches"][0]["id"], "wildcard-all");
+
+        let partial_wildcard = assessment(serde_json::json!({
+            "verb": "*",
+            "resource_type": "pods",
+            "api_group": "",
+            "scope_kind": "unknown"
+        }));
+        assert!(partial_wildcard["matches"].as_array().unwrap().len() > 1);
+
+        let non_resource_wildcard = assessment(serde_json::json!({
+            "verb": "*",
+            "resource_type": "",
+            "resource_name": "*",
+            "api_group": "",
+            "scope_kind": "cluster"
+        }));
+        assert!(!non_resource_wildcard["matches"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
     fn action_discovered_credentials_do_not_create_bootstrap_operations() {
         let cluster = K8sCluster::new("external").with_server(Some("https://external".into()));
         let cluster_id = cluster.entity_id();
@@ -563,9 +769,11 @@ mod tests {
             },
         );
 
-        assert!(campaign_to_campaign_state(&campaign)
-            .bootstrap_operations
-            .unwrap()
-            .is_empty());
+        assert!(
+            campaign_to_campaign_state(&campaign, &kubetier::Catalog::embedded())
+                .bootstrap_operations
+                .unwrap()
+                .is_empty()
+        );
     }
 }

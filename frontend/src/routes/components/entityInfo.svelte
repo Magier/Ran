@@ -73,6 +73,7 @@
 	let previousObjectId: string | null = null;
 	let previousValues: Record<string, any> = {};
 	let highlightedFields = $state<Record<string, boolean>>({});
+	let canExpanded = $state(false);
 	let timeouts: Map<string, number> = new Map();
 
 	// Track changes in object fields
@@ -84,6 +85,7 @@
 			// Different entity selected - reset without highlighting
 			previousObjectId = objectId;
 			previousValues = {};
+			canExpanded = false;
 			for (const [key, value] of Object.entries(obj)) {
 				previousValues[key] = value;
 			}
@@ -408,12 +410,47 @@
 				</details>
 			{:else if label === 'can'}
 				{#if typeof data === 'object' && data !== null && Object.keys(data).length > 0}
-					<details class="mb-1" class:field-changed={highlightedFields[label]}>
-						<summary>
+					<details class="mb-1" class:field-changed={highlightedFields[label]} bind:open={canExpanded}>
+						<summary class="flex items-center gap-1">
 							<span class="font-bold">{label}</span>
 							<span class="text-xs text-surface-500">({Array.isArray(data) ? data.length : Object.keys(data).length})</span>
+							{#if campaignState.kubetier && canExpanded}
+								<span class="group relative inline-flex items-center">
+									<button
+										type="button"
+										class="inline-flex cursor-help items-center rounded-sm text-surface-500 hover:text-surface-700 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:hover:text-surface-200"
+										aria-label="About KubeTier criticality assessment"
+										onclick={(event) => event.stopPropagation()}
+									>
+										<Icon icon="mdi:information-outline" width="15" />
+									</button>
+									<span
+										class="invisible absolute left-0 top-full z-30 w-72 pt-1 opacity-0 transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+									>
+										<span
+											role="tooltip"
+											class="block rounded-md border border-surface-300 bg-surface-50 p-3 text-left text-xs font-normal text-surface-700 shadow-lg dark:border-surface-600 dark:bg-surface-900 dark:text-surface-200"
+										>
+											<span class="mb-1 block font-semibold">Permission criticality</span>
+											<span class="block">
+												<span class="font-semibold text-red-700 dark:text-red-300">Red T0</span> (highest) ·
+												<span class="font-semibold text-orange-700 dark:text-orange-300">orange T1</span> ·
+												<span class="text-green-700 dark:text-green-300">green T2</span> ·
+												<span class="text-surface-500 dark:text-surface-400">gray T3</span> (lowest).
+												<a
+													class="ml-1 font-semibold text-primary-700 underline dark:text-primary-300"
+													href="https://kubetier.com/"
+													target="_blank"
+													rel="noreferrer"
+													onclick={(event) => event.stopPropagation()}
+												>Informed by KubeTier ↗</a>
+											</span>
+										</span>
+									</span>
+								</span>
+							{/if}
 						</summary>
-					<EntitlementInfo entitlements={data as RBACPermission[]} />
+						<EntitlementInfo entitlements={data as RBACPermission[]} catalog={campaignState.kubetier} />
 					</details>
 				{:else}
 					<div class="mb-1" class:field-changed={highlightedFields[label]}>
@@ -422,6 +459,19 @@
 					</div>
 					<!-- <button class="btn btn-sm preset-filled-primary-500" disabled>🔍</button> -->
 				{/if}
+			{:else if label === 'permissions' && Array.isArray(data) && data.length > 0 && (obj.kind === 'Role' || obj.kind === 'ClusterRole')}
+				<details class="mb-1" class:field-changed={highlightedFields[label]} open>
+					<summary>
+						<span class="font-bold">permissions</span>
+						<span class="text-xs text-surface-500">({data.length})</span>
+					</summary>
+					<EntitlementInfo
+						entitlements={data as RBACPermission[]}
+						catalog={campaignState.kubetier}
+						roleName={obj.name}
+						roleKind={obj.kind}
+					/>
+				</details>
 			{:else if label === 'files' && Array.isArray(data) && data.length > 0}
 				<details class="mb-1" class:field-changed={highlightedFields[label]}>
 					<summary>
