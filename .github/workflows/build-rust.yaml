@@ -252,6 +252,7 @@ jobs:
           cd artifacts
           for dir in ran-*/; do
             name="${dir%/}"
+            chmod +x "$dir"/*
             tar -czvf "${name}.tar.gz" -C "$dir" .
           done
 
