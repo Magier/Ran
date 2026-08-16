@@ -4,7 +4,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ran_domain::{
     Contains, Entity, JwToken, K8sCredential, K8sNode, NameConfidence, Namespace, Pod,
-    RbacPermission, RunsOn, ServiceAccount, ServiceAccountToken, Uses,
+    RbacPermission, RbacScopeKind, RbacScopeSource, RunsOn, ServiceAccount, ServiceAccountToken,
+    Uses,
 };
 use serde::Deserialize;
 
@@ -425,6 +426,10 @@ pub(super) fn parse_self_subject_rules_review(
                         let mut perm = RbacPermission::new(verb, resource);
                         perm.api_group = Some(api_group.to_string());
                         perm.scope = scope;
+                        perm.scope_kind = RbacScopeKind::Unknown;
+                        perm.scope_source = Some(RbacScopeSource::Ssrr);
+                        perm.evaluated_namespace = (!permission_namespace.is_empty())
+                            .then(|| permission_namespace.to_string());
                         entitlements.push(perm);
                     } else {
                         for resource_name in &rule.resource_names {
@@ -432,6 +437,10 @@ pub(super) fn parse_self_subject_rules_review(
                             perm.api_group = Some(api_group.to_string());
                             perm.resource_name = Some(resource_name.clone());
                             perm.scope = scope.clone();
+                            perm.scope_kind = RbacScopeKind::Unknown;
+                            perm.scope_source = Some(RbacScopeSource::Ssrr);
+                            perm.evaluated_namespace = (!permission_namespace.is_empty())
+                                .then(|| permission_namespace.to_string());
                             entitlements.push(perm);
                         }
                     }
@@ -445,6 +454,9 @@ pub(super) fn parse_self_subject_rules_review(
             for url in &rule.non_resource_urls {
                 let mut perm = RbacPermission::new(verb, "");
                 perm.resource_name = Some(url.clone());
+                perm.scope = Some("*".to_string());
+                perm.scope_kind = RbacScopeKind::Cluster;
+                perm.scope_source = Some(RbacScopeSource::Ssrr);
                 entitlements.push(perm);
             }
         }
@@ -1073,6 +1085,9 @@ mod tests {
             permission.verb == "list"
                 && permission.resource_type == "pods"
                 && permission.scope.as_deref() == Some("dungeon")
+                && permission.scope_kind == RbacScopeKind::Unknown
+                && permission.scope_source == Some(RbacScopeSource::Ssrr)
+                && permission.evaluated_namespace.as_deref() == Some("dungeon")
         }));
     }
 }

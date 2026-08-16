@@ -33,7 +33,8 @@ import type {
 	ScoringProfile,
 	ScoringProfileUpdate,
 	CalibrationResult,
-	PlanSummary
+	PlanSummary,
+	KubetierCatalog
 } from '$lib/api';
 
 export class RanAPI {
@@ -166,6 +167,12 @@ export class RanAPI {
 	async GetCampaignState(): Promise<CampaignState> {
 		const { data, error } = await this.restClient.GET('/api/campaign-state');
 		if (error) throw new Error('Failed to get campaign state');
+		return data;
+	}
+
+	async GetKubetierCatalog(): Promise<KubetierCatalog> {
+		const { data, error } = await this.restClient.GET('/api/kubetier');
+		if (error) throw new Error('Failed to get offline KubeTier catalog');
 		return data;
 	}
 
@@ -338,6 +345,7 @@ export const on = ranAPI.on.bind(ranAPI);
 export const off = ranAPI.off.bind(ranAPI);
 export const GetGraph = ranAPI.GetGraph.bind(ranAPI);
 export const GetCampaignState = ranAPI.GetCampaignState.bind(ranAPI);
+export const GetKubetierCatalog = ranAPI.GetKubetierCatalog.bind(ranAPI);
 export const GetArmory = ranAPI.GetArmory.bind(ranAPI);
 export const GetApplicableTTPs = ranAPI.GetApplicableTTPs.bind(ranAPI);
 export const GetRecommendations = ranAPI.GetRecommendations.bind(ranAPI);

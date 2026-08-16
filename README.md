@@ -190,6 +190,31 @@ Ran is built around two major components:
 
 The armory is Ran's library of executable TTPs. Each TTP is a YAML file describing the technique, its MITRE mapping, required preconditions (RBAC, access level), and one or more execution procedures.
 
+### KubeTier RBAC assessments
+
+Ran uses an offline metadata snapshot of [KubeTier](https://kubetier.com/) to
+classify discovered Kubernetes permissions from T0 to T3. The UI links every
+assessment back to KubeTier and to the relevant Kubernetes documentation. Ran
+does not contact KubeTier at runtime.
+
+To show descriptions and escalation paths inline without redistributing that
+content, generate a private full catalog and reference it from `ran.yaml`:
+
+```sh
+cargo run -p kubetier --bin update_catalog -- --full --output kubetier.full.json
+```
+
+```yaml
+kubetier:
+  catalog: ./kubetier.full.json
+```
+
+The public snapshot can be refreshed without `--full` using
+`crates/kubetier/data/catalog.json` as the output. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and content
+boundaries, and [docs/kubetier_ref.md](docs/kubetier_ref.md) for the KubeTier
+escalation paths already implemented by Ran.
+
 ```yaml
 id: get-pods
 name: Get Pods

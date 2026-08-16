@@ -166,6 +166,7 @@ async fn app_state_get_and_reset_campaign_without_cli() {
         },
         campaign_events,
         std::path::PathBuf::from("plans"),
+        kubetier::Catalog::embedded(),
     );
 
     // get_campaign — should return a freshly bootstrapped campaign.

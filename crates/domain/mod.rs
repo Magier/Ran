@@ -16,7 +16,7 @@ pub use entities::{
     ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
 };
 pub use identity::{JwToken, ServiceAccountToken};
-pub use rbac::RbacPermission;
+pub use rbac::{RbacPermission, RbacScopeKind, RbacScopeSource};
 pub use relation::{C2Channel, Relation};
 pub use relations::{
     AuthenticatesTo, BindsTo, CanReach, ContainerEscape, Contains, Grants, KubeletExecSink,

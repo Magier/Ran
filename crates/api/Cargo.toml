@@ -10,6 +10,7 @@ async-trait = "0.1"
 axum = "0.8"
 chrono = { workspace = true }
 campaign = { path = "../campaign" }
+kubetier = { path = "../kubetier" }
 utility-ai = { path = "../utility-ai" }
 ran-domain = { path = "../domain" }
 mime_guess = "2"

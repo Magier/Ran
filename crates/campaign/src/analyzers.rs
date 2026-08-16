@@ -2,8 +2,8 @@ use ran_domain::{
     AuthenticatesTo, BindsTo, Confidence, Contains, DaemonSet, Deployment, Entity, EntityId,
     GCPServiceAccount, Grants, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute,
     K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sService, KubeletExecSink, KubeletExecSource,
-    NameConfidence, Namespace, Owns, Pod, PodExec, RbacPermission, RunsOn, ServiceAccount,
-    StatefulSet, UnknownSystem, Uses,
+    NameConfidence, Namespace, Owns, Pod, PodExec, RbacPermission, RbacScopeKind, RbacScopeSource,
+    RunsOn, ServiceAccount, StatefulSet, UnknownSystem, Uses,
 };
 
 use crate::rules::InferenceRule;
@@ -1277,6 +1277,13 @@ impl InferenceRule for RoleBindingAnalyzer {
                 .into_iter()
                 .map(|mut p| {
                     p.scope = scope.clone();
+                    p.scope_kind = if binding_ns.is_empty() {
+                        RbacScopeKind::Cluster
+                    } else {
+                        RbacScopeKind::Namespace
+                    };
+                    p.scope_source = Some(RbacScopeSource::Binding);
+                    p.evaluated_namespace = None;
                     p.source_role = Some(binding.role_ref.clone());
                     p
                 })

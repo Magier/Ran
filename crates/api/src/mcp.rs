@@ -141,12 +141,15 @@ impl<S: ApiService> RanMcpHandler<S> {
 
     async fn tool_get_graph(&self) -> Result<CallToolResult, McpError> {
         let campaign = self.api.get_campaign().await.map_err(api_err)?;
-        json_result(campaign_to_graph(&campaign))
+        json_result(campaign_to_graph(&campaign, &self.api.kubetier_catalog()))
     }
 
     async fn tool_get_campaign_state(&self) -> Result<CallToolResult, McpError> {
         let campaign = self.api.get_campaign().await.map_err(api_err)?;
-        json_result(campaign_to_campaign_state(&campaign))
+        json_result(campaign_to_campaign_state(
+            &campaign,
+            &self.api.kubetier_catalog(),
+        ))
     }
 
     async fn tool_get_entity(&self, args: &Value) -> Result<CallToolResult, McpError> {

@@ -44,6 +44,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/kubetier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the offline KubeTier catalog
+         * @description Returns the bundled metadata snapshot or configured private/full local snapshot. This endpoint never fetches kubetier.com.
+         */
+        get: operations["getKubetierCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/armory": {
         parameters: {
             query?: never;
@@ -667,6 +687,73 @@ export interface components {
             sourceRole: string;
             /** @default true */
             isNamespaced: boolean;
+            /** @enum {string} */
+            scopeKind?: "cluster" | "namespace" | "unknown";
+            evaluatedNamespace?: string;
+            /** @enum {string} */
+            scopeSource?: "binding" | "role" | "ssrr";
+            kubetier?: components["schemas"]["KubetierPermissionAssessment"];
+        };
+        KubetierPermissionAssessment: {
+            /** @enum {string} */
+            provider: "kubetier";
+            tierMin?: components["schemas"]["KubetierTier"];
+            tierMax?: components["schemas"]["KubetierTier"];
+            unassessed?: boolean;
+            scopeUnverified: boolean;
+            matches: components["schemas"]["KubetierPermission"][];
+        };
+        /** @enum {string} */
+        KubetierTier: "T0" | "T1" | "T2" | "T3";
+        /** @enum {string} */
+        KubetierScope: "cluster" | "namespaced";
+        KubetierEscalationPath: {
+            name: string;
+            tier: components["schemas"]["KubetierTier"];
+            sourceUrl: string;
+            steps: string[];
+        };
+        KubetierPermission: {
+            id: string;
+            verb: string;
+            resource: string;
+            apiGroup: string;
+            scope: components["schemas"]["KubetierScope"];
+            tier: components["schemas"]["KubetierTier"];
+            escalationCount: number;
+            sourceUrl: string;
+            kubernetesDocUrl?: string;
+            description?: string;
+            escalationPaths: components["schemas"]["KubetierEscalationPath"][];
+        };
+        KubetierRoleRule: {
+            apiGroups: string[];
+            resources: string[];
+            nonResourceUrls: string[];
+            verbs: string[];
+        };
+        KubetierRole: {
+            id: string;
+            name: string;
+            scope: components["schemas"]["KubetierScope"];
+            tier: components["schemas"]["KubetierTier"];
+            sourceUrl: string;
+            kubernetesDocUrl?: string;
+            description?: string;
+            notes: string[];
+            rules: components["schemas"]["KubetierRoleRule"][];
+        };
+        KubetierCatalog: {
+            schemaVersion: number;
+            attribution: string;
+            sourceUrl: string;
+            fetchedAt: string;
+            sourceEtag?: string;
+            sourceSha256: string;
+            validatedKubernetesVersion?: string;
+            full: boolean;
+            permissions: components["schemas"]["KubetierPermission"][];
+            roles: components["schemas"]["KubetierRole"][];
         };
         /**
          * @description A completed TTP execution joined with the parse audits produced by its
@@ -933,6 +1020,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CampaignState"];
+                };
+            };
+        };
+    };
+    getKubetierCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Offline KubeTier catalog */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KubetierCatalog"];
                 };
             };
         };

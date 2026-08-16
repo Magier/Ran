@@ -7,6 +7,7 @@ import type {
 	TTP,
 	ExecuteActionRequest
 } from '$lib/api/index';
+import type { KubetierCatalog } from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
 import { getRanAPI, RanAPI } from '$lib/ran_api';
 import { timeline } from '$lib/stores/timelineStore.svelte';
@@ -75,6 +76,7 @@ class CampaignState {
 	serviceAccounts = $state<Entity[]>([]);
 	armory = $state<ArmoryType>(new Map());
 	graph = $state<Graph>({} as Graph);
+	kubetier = $state<KubetierCatalog | null>(null);
 	/// Bumped whenever the scoring profile changes, so recommendation views refetch.
 	scoringVersion = $state(0);
 	pendingMessages: string[] = [];
@@ -152,6 +154,12 @@ class CampaignState {
 		});
 		console.log('CampaignState connecting to backend...');
 		return this.api.connect().then((a) => {
+			this.api
+				.GetKubetierCatalog()
+				.then((catalog) => {
+					this.kubetier = catalog;
+				})
+				.catch((err) => console.warn('Failed to load offline KubeTier catalog', err));
 			this.api.GetGraph().then((g: Graph) => {
 				this.graph = g;
 			});

@@ -28,6 +28,7 @@ ran.yaml.worktrees
 # mdBook build output
 docs/book/book/
 ran.yaml
+kubetier.full.json
 # kubeconfig downloaded from the target cluster by ixiplay.sh
 /ixi-config.yaml
 # tuned scoring profile sidecar (written by the scoring tuner UI)

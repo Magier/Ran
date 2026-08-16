@@ -155,7 +155,7 @@ pub(crate) async fn graph_handler<S: ApiService>(
     State(service): State<S>,
 ) -> Result<axum::Json<Graph>, ApiError> {
     let campaign = service.get_campaign().await?;
-    let graph = campaign_to_graph(&campaign);
+    let graph = campaign_to_graph(&campaign, &service.kubetier_catalog());
     Ok(axum::Json(graph))
 }
 
@@ -527,8 +527,14 @@ pub(crate) async fn campaign_state_handler<S: ApiService>(
     State(service): State<S>,
 ) -> Result<axum::Json<CampaignState>, ApiError> {
     let campaign = service.get_campaign().await?;
-    let state = campaign_to_campaign_state(&campaign);
+    let state = campaign_to_campaign_state(&campaign, &service.kubetier_catalog());
     Ok(axum::Json(state))
+}
+
+pub(crate) async fn kubetier_handler<S: ApiService>(
+    State(service): State<S>,
+) -> axum::Json<kubetier::Catalog> {
+    axum::Json(service.kubetier_catalog())
 }
 
 pub(crate) async fn reset_campaign_handler<S: ApiService>(

@@ -110,6 +110,7 @@ dependencies = [
  "axum",
  "campaign",
  "chrono",
+ "kubetier",
  "mime_guess",
  "ran-domain",
  "reqwest",
@@ -135,6 +136,7 @@ dependencies = [
  "c2",
  "campaign",
  "k8s",
+ "kubetier",
  "planner",
  "ran-domain",
  "reqwest",
@@ -1648,6 +1650,20 @@ dependencies = [
  "serde-value",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "kubetier"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

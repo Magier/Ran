@@ -164,6 +164,9 @@ pub trait ApiService: Clone + Send + Sync + 'static {
     /// Whether the frontend scoring-tuning UI is enabled (feature flag).
     fn scoring_tuning_enabled(&self) -> bool;
 
+    /// Offline KubeTier catalog loaded at process startup.
+    fn kubetier_catalog(&self) -> kubetier::Catalog;
+
     async fn reset_campaign(&self) -> Result<(), ApiError>;
 
     async fn execute_plan(&self, plan_yaml: String) -> Result<String, ApiError>;

@@ -2,6 +2,25 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+/// How confidently Ran knows the breadth of an RBAC grant.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RbacScopeKind {
+    Cluster,
+    Namespace,
+    #[default]
+    Unknown,
+}
+
+/// Evidence used to determine the RBAC scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RbacScopeSource {
+    Binding,
+    Role,
+    Ssrr,
+}
+
 /// An RBAC permission that a subject holds on the cluster.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RbacPermission {
@@ -14,6 +33,15 @@ pub struct RbacPermission {
     /// `Some("*")` = cluster-wide (ClusterRole/ClusterRoleBinding).
     /// `Some(ns)` = bound in a specific namespace.
     pub scope: Option<String>,
+    /// Explicit breadth evidence. SSRR results are `Unknown` because they only
+    /// describe permissions effective in the namespace being evaluated.
+    #[serde(default)]
+    pub scope_kind: RbacScopeKind,
+    /// Namespace supplied to SSRR; not proof that the underlying grant is local.
+    #[serde(default)]
+    pub evaluated_namespace: Option<String>,
+    #[serde(default)]
+    pub scope_source: Option<RbacScopeSource>,
     /// Which (Cluster)Role granted this permission.
     pub source_role: Option<String>,
 }
@@ -26,12 +54,15 @@ impl RbacPermission {
             resource_name: None,
             api_group: None,
             scope: None,
+            scope_kind: RbacScopeKind::Unknown,
+            evaluated_namespace: None,
+            scope_source: None,
             source_role: None,
         }
     }
 
     pub fn is_cluster_wide(&self) -> bool {
-        self.scope.as_deref() == Some("*")
+        self.scope_kind == RbacScopeKind::Cluster || self.scope.as_deref() == Some("*")
     }
 
     pub fn is_in_scope(&self, namespace: &str) -> bool {

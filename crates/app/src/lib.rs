@@ -58,6 +58,8 @@ pub struct AppState {
         Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<planner::PlanExecutor>>>>>,
     /// Directory pre-defined plans are listed and loaded from by the web UI.
     plans_dir: PathBuf,
+    /// Offline KubeTier metadata/full catalog.
+    kubetier_catalog: Arc<kubetier::Catalog>,
 }
 
 impl AppState {
@@ -76,6 +78,7 @@ impl AppState {
         initial_knowledge: InitialKnowledge,
         campaign_events: CampaignEventBus,
         plans_dir: PathBuf,
+        kubetier_catalog: kubetier::Catalog,
     ) -> Self {
         // The decision log lives next to the scoring sidecar so both share the
         // config's directory and lifecycle.
@@ -103,6 +106,7 @@ impl AppState {
             campaign_events,
             plan_executors: Arc::new(Mutex::new(std::collections::HashMap::new())),
             plans_dir,
+            kubetier_catalog: Arc::new(kubetier_catalog),
         }
     }
 
@@ -342,6 +346,10 @@ impl ApiService for AppState {
 
     fn scoring_tuning_enabled(&self) -> bool {
         self.scoring_tuning
+    }
+
+    fn kubetier_catalog(&self) -> kubetier::Catalog {
+        (*self.kubetier_catalog).clone()
     }
 
     fn calibrate_scoring(&self) -> Option<utility_ai::Calibration> {
@@ -1442,6 +1450,8 @@ pub struct ServerConfig {
     pub plans_dir: PathBuf,
     /// Scenario knowledge loaded from the existing ran.yaml configuration.
     pub seed_knowledge: Vec<SeedKnowledgeConfig>,
+    /// Optional private/full KubeTier catalog; defaults to bundled metadata.
+    pub kubetier_catalog: Option<PathBuf>,
 }
 
 /// Locate the scoring sidecar file (tuned-profile persistence) next to the
@@ -1578,6 +1588,13 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     let k8s = Client::from_resolved_kubeconfig(&active_kubeconfig).await?;
     let initial_knowledge = build_initial_knowledge(&active_kubeconfig, &cfg.seed_knowledge)?;
     let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
+    let kubetier_catalog = kubetier::Catalog::load(cfg.kubetier_catalog.as_deref())?;
+    info!(
+        permissions = kubetier_catalog.permissions.len(),
+        roles = kubetier_catalog.roles.len(),
+        full = kubetier_catalog.full,
+        "loaded offline KubeTier catalog"
+    );
 
     // External script parsers live in armory/parsers/ (sibling to TTPs/).
     // Only available when the user provides an armory directory.
@@ -1632,6 +1649,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
         initial_knowledge,
         campaign_events.clone(),
         cfg.plans_dir.clone(),
+        kubetier_catalog,
     );
 
     let campaign_entity_count = state
