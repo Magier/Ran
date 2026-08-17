@@ -9,7 +9,7 @@
 	import { toaster } from '$lib/components/toaster';
 	import { hasKnowledgeProvenance } from '$lib/knowledgeProvenance';
 
-	import { getGraphStyle, applyCompromisedStyle } from './graph_style';
+	import { getGraphStyle, applyCompromisedStyle, getK8sCredentialIcon } from './graph_style';
 	import { createElkLayout, isValidPosition, DEFAULT_LAYOUT_PARAMS } from './elk_layout';
 	import type { LayoutParams } from './elk_layout';
 	import GraphLayoutPlayground from './GraphLayoutPlayground.svelte';
@@ -129,6 +129,10 @@
 		if (cy) {
 			const textColor = isDark ? 'white' : 'black';
 			cy.nodes().style('color', textColor);
+			cy.nodes("node[kind='K8sCredential']").style(
+				'background-image',
+				getK8sCredentialIcon(isDark)
+			);
 			cy.edges('[!informational]').style({
 				'color': textColor,
 				'line-color': textColor,

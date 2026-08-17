@@ -26,7 +26,6 @@ const kind_svg_map = {
 	User: 'k8s/user.svg',
 	Volume: 'k8s/vol.svg',
 	KubeApiServer: 'k8s/api.svg',
-	K8sCredential: 'k8s/secret.svg',
 	MicroService: '{k8s/pod_unlabeled.svg',
 	GCPBucket: 'gcp/storage.svg',
 	GCPServiceAccount: 'gcp/iam.svg',
@@ -38,6 +37,10 @@ const kind_svg_map = {
 	Cluster: '{k8s/k8s.svg',
 	Namespace: '{k8s/ns.svg'
 };
+
+export function getK8sCredentialIcon(isDark: boolean): string {
+	return isDark ? '/k8s/account-key-dark.svg' : '/k8s/account-key-light.svg';
+}
 
 function mapKindIcons(obj: Object) {
 	let new_entries = Object.entries(obj).map(([kind, img]) => {
@@ -59,16 +62,10 @@ function mapKindIcons(obj: Object) {
 
 
 export function getGraphStyle(isDark: boolean = false) {
-	const style = getComputedStyle(document.body)
-	function css(name: string) {
-		if (name[0] != '-') name = '--' + name //allow passing with or without --
-		const rgb = style.getPropertyValue(name).replaceAll(" ", ", ");
-		return `rgb(${rgb})`;
-	}
-	const primary = css('color-primary-500')
+	// Cytoscape does not accept the Mona theme's native oklch() color value.
+	const primary = '#600FED';
 	const textColor = isDark ? 'white' : 'black';
 	const selectedTextColor = textColor;
-	const surface = css('color-surface-500');
 
 
 	const graph_style = [
@@ -114,7 +111,7 @@ export function getGraphStyle(isDark: boolean = false) {
 				'border-color': primary,
 				'line-color': primary,
 				'target-arrow-color': primary,
-				'border-width': 2
+				'border-width': 1.5
 				// 'background-image': null
 			}
 		},
@@ -174,6 +171,18 @@ export function getGraphStyle(isDark: boolean = false) {
 			style: {
 				shape: 'heptagon',
 				// 'background-color': 'steelblue'
+			}
+		},
+		{
+			selector: "node[kind='K8sCredential']",
+			style: {
+				width: '30',
+				height: '20',
+				shape: 'rectangle',
+				'background-image': getK8sCredentialIcon(isDark),
+				'background-fit': 'contain',
+				'background-opacity': 0,
+				'border-position': 'outside'
 			}
 		},
 		{
@@ -439,4 +448,3 @@ export function applyCompromisedStyle(cy: cytoscape.Core) {
 		}
 	});
 }
-

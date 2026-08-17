@@ -18,6 +18,7 @@ export const INFORMATIONAL_EDGES: ReadonlySet<string> = new Set([
 	'has-session',
 	'operates',
 	'references',
+	'authenticates-to'
 ]);
 
 /** Check whether a relation name is informational. */
