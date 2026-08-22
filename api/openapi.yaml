@@ -1585,15 +1585,19 @@ components:
       type: object
       description: The live scoring profile.
       required:
+        - enabled
         - combination
         - tuningEnabled
         - considerations
       properties:
+        enabled:
+          type: boolean
+          description: Whether utility-AI recommendations and action scoring are enabled.
         combination:
           $ref: '#/components/schemas/CombinationMode'
         tuningEnabled:
           type: boolean
-          description: Whether the tuning UI feature flag is enabled.
+          description: Whether scoring and the tuning UI feature flag are both enabled.
         considerations:
           type: array
           items:

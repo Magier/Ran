@@ -161,6 +161,9 @@ pub trait ApiService: Clone + Send + Sync + 'static {
     /// `None` when nothing has been captured yet.
     fn calibrate_scoring(&self) -> Option<utility_ai::Calibration>;
 
+    /// Whether utility-AI recommendations and scoring are enabled.
+    fn scoring_enabled(&self) -> bool;
+
     /// Whether the frontend scoring-tuning UI is enabled (feature flag).
     fn scoring_tuning_enabled(&self) -> bool;
 

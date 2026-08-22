@@ -154,6 +154,7 @@ async fn app_state_get_and_reset_campaign_without_cli() {
         utility_ai::Profile::default(),
         None,
         false,
+        false,
         "Test".to_string(),
         campaign::InitialKnowledge {
             clusters: vec![campaign::InitialClusterKnowledge {

@@ -39,6 +39,13 @@
 	// Scored candidate per applicable TTP for the selected target (ttp_id → candidate).
 	// Holds the full breakdown so each action card can explain its score on hover.
 	let scoredByTtp: Map<string, ScoredCandidate> = $state(new Map());
+	let scoringEnabled: boolean = $state(false);
+
+	$effect(() => {
+		campaign.api.GetScoringProfile().then((profile) => {
+			scoringEnabled = profile?.enabled ?? false;
+		});
+	});
 
 	$effect(() => { armory = campaign.armory; });
 
@@ -50,8 +57,9 @@
 		void campaign.graph;
 		void campaign.entities;
 		void campaign.scoringVersion;
+		void scoringEnabled;
 
-		if (!targetId) {
+		if (!scoringEnabled || !targetId) {
 			scoredByTtp = new Map();
 			return;
 		}
@@ -69,6 +77,7 @@
 
 	// Order TTPs within a tactic by utility (desc); unscored actions sink to the bottom.
 	function byUtility(ttps: TTP[]): TTP[] {
+		if (!scoringEnabled) return ttps;
 		return [...ttps].sort(
 			(a, b) => (scoredByTtp.get(b.id)?.utility ?? -1) - (scoredByTtp.get(a.id)?.utility ?? -1)
 		);
@@ -178,20 +187,22 @@
 
 <div class="bg-surface-100-900 inset-y-0 right-0 flex flex-col {className}">
 	<Tabs value={activeTab} onValueChange={(e) => (activeTab = e.value)} class="flex-1 min-h-0 flex flex-col">
-		<Tabs.List class="grid h-10 w-full flex-none grid-cols-2 items-stretch gap-0 overflow-hidden border-b border-surface-300-700 p-0">
+		<Tabs.List class="grid h-10 w-full flex-none {scoringEnabled ? 'grid-cols-2' : 'grid-cols-1'} items-stretch gap-0 overflow-hidden border-b border-surface-300-700 p-0">
 			<Tabs.Trigger
 				value="actions"
 				class="m-0 flex h-full min-h-0 w-full self-stretch items-center justify-center rounded-none p-0 text-center transition-colors {activeTab === 'actions' ? 'bg-surface-200-800 text-primary-700-300 shadow-[inset_0_-2px_0_var(--color-primary-500)] font-semibold' : 'text-surface-500 hover:bg-surface-200-800/60'}"
 			>Actions</Tabs.Trigger>
-			<Tabs.Trigger
-				value="recommendations"
-				class="m-0 flex h-full min-h-0 w-full self-stretch items-center justify-center rounded-none p-0 text-center transition-colors {activeTab === 'recommendations' ? 'bg-surface-200-800 text-primary-700-300 shadow-[inset_0_-2px_0_var(--color-primary-500)] font-semibold' : 'text-surface-500 hover:bg-surface-200-800/60'}"
-			>
-				<span class="flex items-center justify-center gap-1">
-					<Icon icon="mdi:lightbulb-on-outline" width="16" class="text-warning-500" />
-					Recommendations
-				</span>
-			</Tabs.Trigger>
+			{#if scoringEnabled}
+				<Tabs.Trigger
+					value="recommendations"
+					class="m-0 flex h-full min-h-0 w-full self-stretch items-center justify-center rounded-none p-0 text-center transition-colors {activeTab === 'recommendations' ? 'bg-surface-200-800 text-primary-700-300 shadow-[inset_0_-2px_0_var(--color-primary-500)] font-semibold' : 'text-surface-500 hover:bg-surface-200-800/60'}"
+				>
+					<span class="flex items-center justify-center gap-1">
+						<Icon icon="mdi:lightbulb-on-outline" width="16" class="text-warning-500" />
+						Recommendations
+					</span>
+				</Tabs.Trigger>
+			{/if}
 		</Tabs.List>
 
 		<!-- Actions: all applicable TTPs grouped by tactic, scored per target -->
@@ -266,8 +277,8 @@
 												prerequisitesFulfilled={isTTPApplicable(ttp)}
 												icon={iconMap[ttp.tactic]}
 												enabled={isShiftPressed || isTTPApplicable(ttp)}
-												utility={scoredByTtp.get(ttp.id)?.utility}
-												breakdown={scoredByTtp.get(ttp.id)?.breakdown}
+												utility={scoringEnabled ? scoredByTtp.get(ttp.id)?.utility : undefined}
+												breakdown={scoringEnabled ? scoredByTtp.get(ttp.id)?.breakdown : undefined}
 												onclick={() => onActionSelected(ttp)}
 											/>
 										</div>
@@ -281,12 +292,14 @@
 		</Tabs.Content>
 
 		<!-- Recommendations: utility-scored next steps across all targets -->
-		<Tabs.Content value="recommendations" class="flex-1 min-h-0 flex flex-col !p-0 !m-0">
-			<Recommendations run={runRecommendation}>
-				{#snippet actions()}
-					<ScoringTuner />
-				{/snippet}
-			</Recommendations>
-		</Tabs.Content>
+		{#if scoringEnabled}
+			<Tabs.Content value="recommendations" class="flex-1 min-h-0 flex flex-col !p-0 !m-0">
+				<Recommendations run={runRecommendation}>
+					{#snippet actions()}
+						<ScoringTuner />
+					{/snippet}
+				</Recommendations>
+			</Tabs.Content>
+		{/if}
 	</Tabs>
 </div>

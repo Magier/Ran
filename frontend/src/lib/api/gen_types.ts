@@ -920,8 +920,10 @@ export interface components {
         };
         /** @description The live scoring profile. */
         ScoringProfile: {
+            /** @description Whether utility-AI recommendations and action scoring are enabled. */
+            enabled: boolean;
             combination: components["schemas"]["CombinationMode"];
-            /** @description Whether the tuning UI feature flag is enabled. */
+            /** @description Whether scoring and the tuning UI feature flag are both enabled. */
             tuningEnabled: boolean;
             considerations: components["schemas"]["NamedConsideration"][];
         };

@@ -218,6 +218,15 @@ pub(crate) async fn recommendations_handler<S: ApiService>(
     State(service): State<S>,
     Query(params): Query<GetRecommendationsParams>,
 ) -> Result<axum::Json<Vec<utility_ai::ScoredCandidate>>, ApiError> {
+    if !service.scoring_enabled() {
+        return Err(ApiError {
+            status: axum::http::StatusCode::NOT_FOUND,
+            body: ErrorResponse {
+                error: "utility AI is disabled (set scoring.enabled: true in ran.yaml)".to_string(),
+                details: None,
+            },
+        });
+    }
     let all_ttps = service.get_armory(GetArmoryParams { tactic: None }).await?;
     let campaign = service.get_campaign().await?;
 
@@ -256,6 +265,7 @@ pub(crate) struct NamedConsideration {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct ScoringProfileResponse {
+    pub enabled: bool,
     pub combination: utility_ai::CombinationMode,
     #[serde(rename = "tuningEnabled")]
     pub tuning_enabled: bool,
@@ -270,6 +280,7 @@ pub(crate) struct ScoringProfileUpdate {
 
 fn profile_to_response(
     profile: &utility_ai::Profile,
+    enabled: bool,
     tuning_enabled: bool,
 ) -> ScoringProfileResponse {
     let considerations = utility_ai::consideration_names()
@@ -286,6 +297,7 @@ fn profile_to_response(
         })
         .collect();
     ScoringProfileResponse {
+        enabled,
         combination: profile.combination,
         tuning_enabled,
         considerations,
@@ -300,6 +312,7 @@ pub(crate) async fn get_scoring_profile_handler<S: ApiService>(
     let profile = service.scoring_profile();
     Ok(axum::Json(profile_to_response(
         &profile,
+        service.scoring_enabled(),
         service.scoring_tuning_enabled(),
     )))
 }
@@ -335,7 +348,7 @@ pub(crate) async fn update_scoring_profile_handler<S: ApiService>(
     };
     service.set_scoring_profile(profile.clone());
 
-    Ok(axum::Json(profile_to_response(&profile, true)))
+    Ok(axum::Json(profile_to_response(&profile, true, true)))
 }
 
 fn require_tuning<S: ApiService>(service: &S) -> Result<(), ApiError> {
@@ -362,6 +375,7 @@ pub(crate) async fn save_scoring_profile_handler<S: ApiService>(
     Ok(axum::Json(profile_to_response(
         &service.scoring_profile(),
         true,
+        true,
     )))
 }
 
@@ -372,7 +386,7 @@ pub(crate) async fn reset_scoring_profile_handler<S: ApiService>(
 ) -> Result<axum::Json<ScoringProfileResponse>, ApiError> {
     require_tuning(&service)?;
     let profile = service.reset_scoring_profile();
-    Ok(axum::Json(profile_to_response(&profile, true)))
+    Ok(axum::Json(profile_to_response(&profile, true, true)))
 }
 
 /// Fit-quality metrics returned alongside a calibration preview.
@@ -428,7 +442,7 @@ pub(crate) async fn calibrate_scoring_handler<S: ApiService>(
     };
 
     Ok(axum::Json(CalibrationResult {
-        profile: profile_to_response(&profile, true),
+        profile: profile_to_response(&profile, true, true),
         metrics,
     }))
 }

@@ -49,6 +49,9 @@ pub struct PlansConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ScoringConfig {
+    /// Feature flag for utility-AI recommendations and scoring in the frontend.
+    /// Disabled by default.
+    pub enabled: bool,
     /// How per-consideration scores are combined into a single utility:
     /// `weighted_arithmetic` (default), `weighted_geometric`, or
     /// `iaus_multiplicative`.
@@ -214,6 +217,8 @@ mod tests {
     fn scoring_defaults_to_weighted_arithmetic() {
         let cfg: Config = serde_yaml::from_str("namespaces: {}").unwrap();
         assert_eq!(cfg.scoring.combination, CombinationMode::WeightedArithmetic);
+        assert!(!cfg.scoring.enabled);
+        assert!(!cfg.scoring.tuning_ui);
     }
 
     #[test]

@@ -44,6 +44,8 @@ pub struct AppState {
     scoring_base: utility_ai::Profile,
     /// Sidecar file persisting tuned overrides across restarts.
     scoring_sidecar: Option<PathBuf>,
+    /// Feature flag enabling utility-AI recommendations and scoring.
+    scoring_enabled: bool,
     /// Feature flag enabling the frontend tuning UI.
     scoring_tuning: bool,
     /// Live-captured operator decisions (pre-action candidate set + the chosen
@@ -73,6 +75,7 @@ impl AppState {
         scoring_profile: utility_ai::Profile,
         scoring_base: utility_ai::Profile,
         scoring_sidecar: Option<PathBuf>,
+        scoring_enabled: bool,
         scoring_tuning: bool,
         ran_name: String,
         initial_knowledge: InitialKnowledge,
@@ -98,6 +101,7 @@ impl AppState {
             scoring_profile: Arc::new(RwLock::new(scoring_profile)),
             scoring_base,
             scoring_sidecar,
+            scoring_enabled,
             scoring_tuning,
             decision_log: Arc::new(RwLock::new(decision_log)),
             decisions_sidecar,
@@ -345,7 +349,11 @@ impl ApiService for AppState {
     }
 
     fn scoring_tuning_enabled(&self) -> bool {
-        self.scoring_tuning
+        self.scoring_enabled && self.scoring_tuning
+    }
+
+    fn scoring_enabled(&self) -> bool {
+        self.scoring_enabled
     }
 
     fn kubetier_catalog(&self) -> kubetier::Catalog {
@@ -418,12 +426,17 @@ impl ApiService for AppState {
             // conditions (zero reconstruction) for calibration. `prepare_action`
             // only grounded the command — no effects applied yet — so this is the
             // exact state the choice was made in.
-            let captured = utility_ai::decision_point(
-                &campaign,
-                self.armory.ttps(),
-                &exec.ttp.id,
-                &exec.target_id,
-            );
+            let captured = self
+                .scoring_enabled
+                .then(|| {
+                    utility_ai::decision_point(
+                        &campaign,
+                        self.armory.ttps(),
+                        &exec.ttp.id,
+                        &exec.target_id,
+                    )
+                })
+                .flatten();
             campaign.add_open_step(exec.clone());
             (exec, captured)
         };
@@ -1646,6 +1659,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
         live_profile,
         scoring_base,
         Some(sidecar),
+        cfg.scoring.enabled,
         cfg.scoring.tuning_ui,
         "Ran".to_string(),
         initial_knowledge,
