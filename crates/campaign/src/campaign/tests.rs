@@ -847,6 +847,24 @@ fn prepare_action_auto_resolves_channel_from_graph() {
 }
 
 #[test]
+fn prepare_action_treats_blank_procedure_id_as_automatic_selection() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("demo", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let armory = minimal_armory("test-ttp");
+    let mut request = action_request(&target_id, None);
+    request.procedure_id = Some("  ".to_string());
+    let exec = campaign
+        .prepare_action(request, &armory)
+        .expect("blank procedure ID should select the first procedure");
+
+    assert_eq!(exec.procedure.id, "shell");
+}
+
+#[test]
 fn prepare_action_wraps_hops_using_relation_metadata_and_sets_output_transform() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 

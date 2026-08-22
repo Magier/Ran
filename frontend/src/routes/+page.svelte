@@ -271,7 +271,6 @@
 				const result = await ExecuteAction({
 					actionId: ttp.id,
 					targetId: selectedObjectId,
-					procedureId: '',
 					args: {}
 				});
 				const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();

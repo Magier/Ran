@@ -2425,7 +2425,7 @@ impl Campaign {
         ttp: &Ttp,
         procedure_id: Option<&str>,
     ) -> Result<Procedure, ExecuteActionError> {
-        if let Some(proc_id) = procedure_id {
+        if let Some(proc_id) = procedure_id.map(str::trim).filter(|id| !id.is_empty()) {
             return ttp
                 .procedures
                 .iter()
