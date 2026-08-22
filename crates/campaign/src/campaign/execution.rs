@@ -2049,17 +2049,24 @@ impl Campaign {
             matches!(a.parse_result, ParseResult::KnownFailure)
                 && a.detail.starts_with("K8s API error ")
         });
+        let mut record = ExecutionRecord::from_execution(cmd, event);
+        record.discovered_entities = updates
+            .new_entities
+            .iter()
+            .map(|entity| crate::ExecutionEntity {
+                id: entity.entity_id().to_string(),
+                name: entity.entity_name().to_string(),
+                kind: entity.entity_kind().to_string(),
+            })
+            .collect();
         let (effective_success, effective_fail_reason) = if let Some(err_audit) = api_error {
-            let mut record = ExecutionRecord::from_execution(cmd, event);
             record.success = false;
             record.fail_reason = err_audit.detail.clone();
-            self.execution_records.push(record);
             (false, err_audit.detail.clone())
         } else {
-            self.execution_records
-                .push(ExecutionRecord::from_execution(cmd, event));
             (event.success, event.fail_reason.clone())
         };
+        self.execution_records.push(record);
         self.complete_open_step(&cmd.id);
 
         Ok(TtpExecutionProcessing {

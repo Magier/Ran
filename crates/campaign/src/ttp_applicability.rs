@@ -224,8 +224,8 @@ pub fn ttp_applicable_for_target(
     } else {
         tc.active_kubeconfig
     };
-    ttp_is_applicable_for_target_kind(ttp, &tc.target_kind, tc.is_system)
-        && ttp_rbac_satisfied(ttp, campaign)
+    ttp_target_scope_satisfied(ttp, tc)
+        && ttp_auth_satisfied_for_target(ttp, campaign, tc)
         && ttp_exists_satisfied(ttp, campaign)
         && (!tc.is_system || ttp_access_level_satisfied(ttp, tc.access_level))
         && ttp_has_token_satisfied(ttp, tc.has_token)
@@ -233,6 +233,40 @@ pub fn ttp_applicable_for_target(
         && ttp_active_session_satisfied(ttp, tc.active_session)
         && ttp_related_satisfied(ttp, &tc.target_id, &tc.target_kind, campaign)
         && ttp_tool_satisfied(ttp, campaign, tc)
+}
+
+/// Keep the selected entity as the semantic target. Kubernetes actions without
+/// an explicit kind belong to cluster/namespace views or to the selected
+/// executable identity; they must not leak into Pod and other resource views
+/// merely because some unrelated credential can authorize them.
+fn ttp_target_scope_satisfied(ttp: &armory::Ttp, tc: &TargetContext) -> bool {
+    if ttp.requires.contains_key("kind") || !ttp_uses_k8s_auth(ttp) {
+        return ttp_is_applicable_for_target_kind(ttp, &tc.target_kind, tc.is_system);
+    }
+
+    matches!(
+        tc.target_kind.as_str(),
+        "Cluster" | "Namespace" | "K8sCredential" | "ServiceAccount"
+    )
+}
+
+/// When the selected target is an identity and the action has no more specific
+/// semantic target, that identity itself must witness authentication and RBAC.
+/// This makes captured ServiceAccount tokens behave like active kubeconfigs,
+/// while an unread ServiceAccount cannot borrow an unrelated credential.
+fn ttp_auth_satisfied_for_target(
+    ttp: &armory::Ttp,
+    campaign: &Campaign,
+    tc: &TargetContext,
+) -> bool {
+    let selected_identity = matches!(tc.target_kind.as_str(), "K8sCredential" | "ServiceAccount");
+    if selected_identity && !ttp.requires.contains_key("kind") && ttp_uses_k8s_auth(ttp) {
+        return eligible_auth_identities(ttp, campaign, &tc.target_id)
+            .iter()
+            .any(|identity| identity.id == tc.target_id);
+    }
+
+    ttp_rbac_satisfied(ttp, campaign)
 }
 
 /// Returns `false` only when the action cannot run because *every* procedure's
@@ -513,6 +547,15 @@ mod tests {
             status: "enabled".to_string(),
             ..Ttp::new("test", "Test", "Discovery")
         }
+    }
+
+    fn kubernetes_ttp_with_rbac(verb: &str, resource_type: &str) -> Ttp {
+        let mut ttp = ttp_with_rbac(verb, resource_type);
+        ttp.procedures = vec![armory::Procedure::new(
+            "kubectl",
+            "kubectl get pods ${K8S_AUTH}",
+        )];
+        ttp
     }
 
     fn empty_campaign() -> crate::Campaign {
@@ -941,6 +984,96 @@ mod tests {
         let mut node_ttp = ttp_no_rbac();
         node_ttp.requires.insert("kind".to_string(), json!("Node"));
         assert!(!ttp_applicable_for_target(&node_ttp, &c, &tc));
+    }
+
+    #[test]
+    fn unrelated_credential_does_not_add_cluster_discovery_to_pod_target() {
+        let mut campaign = empty_campaign();
+        let pod = ran_domain::Pod::new("target", "default");
+        let pod_id = pod.entity_id().0;
+        campaign.entities.insert_typed(pod);
+
+        let mut credential = K8sCredential::new("https://cluster.example");
+        credential.active = true;
+        credential
+            .entitlements
+            .push(RbacPermission::new("list", "pods"));
+        campaign.entities.insert_typed(credential);
+
+        let tc = resolve_target_context(&campaign, &pod_id).expect("pod should resolve");
+        assert!(!ttp_applicable_for_target(
+            &kubernetes_ttp_with_rbac("list", "pods"),
+            &campaign,
+            &tc
+        ));
+    }
+
+    #[test]
+    fn cluster_target_keeps_actions_authorized_by_available_identity() {
+        let mut campaign = empty_campaign();
+        let mut credential = K8sCredential::new("https://cluster.example");
+        credential.active = true;
+        credential
+            .entitlements
+            .push(RbacPermission::new("list", "pods"));
+        campaign.entities.insert_typed(credential);
+
+        let cluster_id = "k8s/cluster/test";
+        let tc = resolve_target_context(&campaign, cluster_id).expect("cluster should resolve");
+        assert_eq!(tc.target_kind, "Cluster");
+        assert!(ttp_applicable_for_target(
+            &kubernetes_ttp_with_rbac("list", "pods"),
+            &campaign,
+            &tc
+        ));
+    }
+
+    #[test]
+    fn unread_service_account_cannot_borrow_another_identity_for_global_actions() {
+        let mut campaign = empty_campaign();
+        let sa = ServiceAccount::new("workload", "default");
+        let sa_id = sa.entity_id().0;
+        campaign.entities.insert_typed(sa);
+
+        let mut credential = K8sCredential::new("https://cluster.example");
+        credential.active = true;
+        credential
+            .entitlements
+            .push(RbacPermission::new("list", "pods"));
+        campaign.entities.insert_typed(credential);
+
+        let tc = resolve_target_context(&campaign, &sa_id).expect("SA should resolve");
+        assert!(!ttp_applicable_for_target(
+            &kubernetes_ttp_with_rbac("list", "pods"),
+            &campaign,
+            &tc
+        ));
+    }
+
+    #[test]
+    fn captured_service_account_and_active_kubeconfig_show_their_own_actions() {
+        let mut campaign = campaign_with_sa("list", "pods");
+        let sa_id = campaign
+            .entities
+            .values::<ServiceAccount>()
+            .next()
+            .unwrap()
+            .entity_id()
+            .0;
+
+        let mut credential = K8sCredential::new("https://cluster.example");
+        credential.active = true;
+        credential
+            .entitlements
+            .push(RbacPermission::new("list", "pods"));
+        let credential_id = credential.entity_id().0;
+        campaign.entities.insert_typed(credential);
+
+        let ttp = kubernetes_ttp_with_rbac("list", "pods");
+        for id in [sa_id, credential_id] {
+            let tc = resolve_target_context(&campaign, &id).expect("identity should resolve");
+            assert!(ttp_applicable_for_target(&ttp, &campaign, &tc));
+        }
     }
 
     use super::ttp_tool_satisfied;

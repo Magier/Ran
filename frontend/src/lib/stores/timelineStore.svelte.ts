@@ -48,6 +48,7 @@ export type BackfillRecord = {
     success: boolean;
     failReason?: string;
     timestampMs: number;
+    effects?: Array<Omit<EntityEntry, 'cmdId' | 'timestamp'>>;
 };
 
 /** An in-flight (dispatched, not yet completed) action to seed as pending. */
@@ -157,6 +158,13 @@ export class TimelineStore {
                 failReason: r.success ? undefined : r.failReason,
                 timestamp: new Date(r.timestampMs)
             });
+            for (const effect of r.effects ?? []) {
+                this.addEntityEvent({
+                    ...effect,
+                    cmdId: r.id,
+                    timestamp: new Date(r.timestampMs)
+                });
+            }
         }
     }
 

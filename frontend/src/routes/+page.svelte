@@ -427,7 +427,17 @@
 								: undefined,
 							success: r.success,
 							failReason: r.fail_reason,
-							timestampMs: r.completed_at_ms || r.started_at_ms
+							timestampMs: r.completed_at_ms || r.started_at_ms,
+							effects: r.discovered_entities.map((entity) => ({
+								kind:
+									entity.kind === 'Secret' || entity.kind === 'K8sCredential'
+										? ('credential' as const)
+										: ('discovery' as const),
+								id: entity.id,
+								entityId: entity.id,
+								entityName: entity.name,
+								entityKind: entity.kind
+							}))
 						};
 					})
 				);

@@ -250,6 +250,35 @@ describe('TimelineStore', () => {
         expect(() => store.toggleGroup('cmd-unknown')).not.toThrow();
     });
 
+    it('backfill restores discovered entities as expandable action effects', () => {
+        store.backfill([
+            {
+                id: 'cmd-get-pods',
+                ttpId: 'get-pods',
+                ttpName: 'GetPods',
+                targetId: 'cluster-1',
+                targetName: 'cluster-1',
+                success: true,
+                timestampMs: 1,
+                effects: [
+                    {
+                        kind: 'discovery',
+                        id: 'pod/default/web',
+                        entityId: 'pod/default/web',
+                        entityName: 'web',
+                        entityKind: 'Pod'
+                    }
+                ]
+            }
+        ]);
+
+        const group = store.topEntries[0] as ActionGroup;
+        expect(group.effects).toHaveLength(1);
+        expect(group.collapsed).toBe(true);
+        store.toggleGroup('cmd-get-pods');
+        expect(group.collapsed).toBe(false);
+    });
+
     // startup kubeconfig backfill
     it('backfillBootstrap creates an oldest successful group with discovery effects', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-live' }));

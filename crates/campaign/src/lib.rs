@@ -22,7 +22,7 @@ pub use campaign::{
     InitialKubeconfigKnowledge, TtpExecutionProcessing,
 };
 pub use effects::{EffectCategory, EffectKind, FactsUpdate};
-pub use execution_record::ExecutionRecord;
+pub use execution_record::{ExecutionEntity, ExecutionRecord};
 pub use external_parser::{ExternalParseRequest, ExternalParseResponse, ExternalParser};
 pub use output_parsers::{ParseAudit, ParseResult};
 pub use pending_view::PendingView;

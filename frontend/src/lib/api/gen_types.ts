@@ -793,9 +793,16 @@ export interface components {
              * @description Unix timestamp in milliseconds when the result was received
              */
             completed_at_ms: number;
+            /** @description Entities produced by this execution, retained for operation timeline replay */
+            discovered_entities: components["schemas"]["ExecutionEntity"][];
             /** @description Caller-supplied rationale for why this action was run, as passed to the execute-action request. Empty when none was given. */
             reasoning?: string;
             parseAudits: components["schemas"]["ParseAudit"][];
+        };
+        ExecutionEntity: {
+            id: string;
+            name: string;
+            kind: string;
         };
         /**
          * @description Audit record for a single effect parse attempt. `parse_result` indicates

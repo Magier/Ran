@@ -1306,6 +1306,7 @@ components:
         - fail_reason
         - started_at_ms
         - completed_at_ms
+        - discovered_entities
         - parseAudits
       properties:
         id:
@@ -1354,6 +1355,11 @@ components:
           type: integer
           format: int64
           description: Unix timestamp in milliseconds when the result was received
+        discovered_entities:
+          type: array
+          description: Entities produced by this execution, retained for operation timeline replay
+          items:
+            $ref: '#/components/schemas/ExecutionEntity'
         reasoning:
           type: string
           description: >
@@ -1363,6 +1369,20 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ParseAudit'
+
+    ExecutionEntity:
+      type: object
+      required:
+        - id
+        - name
+        - kind
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
 
     ParseAudit:
       type: object

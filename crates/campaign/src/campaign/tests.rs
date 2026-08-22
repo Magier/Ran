@@ -429,6 +429,7 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
         completed_at_ms: 2,
         is_cleanup: false,
         reasoning: String::new(),
+        discovered_entities: vec![],
     });
 
     let ch = campaign
@@ -534,6 +535,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         completed_at_ms: 2,
         is_cleanup: false,
         reasoning: String::new(),
+        discovered_entities: vec![],
     });
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-2".to_string(),
@@ -554,6 +556,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         completed_at_ms: 4,
         is_cleanup: false,
         reasoning: String::new(),
+        discovered_entities: vec![],
     });
 
     let ch = campaign.resolve_exec_source().expect("should find source");
@@ -2947,6 +2950,7 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         completed_at_ms: 1,
         is_cleanup: false,
         reasoning: String::new(),
+        discovered_entities: vec![],
     });
     campaign.execution_records.push(ExecutionRecord {
         id: "cmd-2".to_string(),
@@ -2967,6 +2971,7 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         completed_at_ms: 3,
         is_cleanup: false,
         reasoning: String::new(),
+        discovered_entities: vec![],
     });
 
     let armory = cleanup_armory();
@@ -3013,6 +3018,7 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
         completed_at_ms: 1,
         is_cleanup: false,
         reasoning: String::new(),
+        discovered_entities: vec![],
     });
 
     let armory = cleanup_armory();
@@ -3072,6 +3078,7 @@ fn build_cleanup_actions_preserves_kubernetes_auth_identity() {
         completed_at_ms: 1,
         is_cleanup: false,
         reasoning: String::new(),
+        discovered_entities: vec![],
     });
 
     let actions = campaign.build_cleanup_actions(&armory);

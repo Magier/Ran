@@ -6,6 +6,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::ExecuteActionRequest;
 
+/// An entity discovered as a direct or inferred consequence of an execution.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExecutionEntity {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+}
+
 /// A single recorded execution — the grounded command, its arguments, and the
 /// raw results returned by the C2 backend.  This forms the append-only audit
 /// trail for a campaign session.
@@ -52,6 +60,10 @@ pub struct ExecutionRecord {
     /// (via `ExecuteActionRequest.reasoning`). Empty when none was given.
     #[serde(default)]
     pub reasoning: String,
+    /// Entity summaries produced by this execution, used to reconstruct the
+    /// operation timeline after a frontend reload.
+    #[serde(default)]
+    pub discovered_entities: Vec<ExecutionEntity>,
 }
 
 impl ExecutionRecord {
@@ -88,6 +100,7 @@ impl ExecutionRecord {
             completed_at_ms: now_ms,
             is_cleanup: false,
             reasoning: request.reasoning.clone().unwrap_or_default(),
+            discovered_entities: Vec::new(),
         }
     }
 
@@ -116,6 +129,7 @@ impl ExecutionRecord {
             completed_at_ms,
             is_cleanup: cmd.is_cleanup,
             reasoning: cmd.reasoning.clone(),
+            discovered_entities: Vec::new(),
         }
     }
 }

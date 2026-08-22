@@ -141,6 +141,26 @@
 		}
 	});
 
+	// Keep Cytoscape's visual selection in sync when another UI surface (for
+	// example the operation timeline) changes the bound selected entity.
+	$effect(() => {
+		const id = selectedObjectId;
+		if (!cy) return;
+
+		if (!id) {
+			cy.$(':selected').unselect();
+			return;
+		}
+
+		const element = cy.getElementById(id);
+		if (element.empty() || element.selected()) return;
+
+		cy.batch(() => {
+			element.select();
+			cy.$(':selected').not(element).unselect();
+		});
+	});
+
 	onMount(() => {
 		if (browser) {
 			window.addEventListener('keydown', handleKeyPress);
@@ -538,6 +558,9 @@
 	}
 
 	function resetSelection(event: cytoscape.Event) {
+		// Switching selection selects the new element before unselecting the old
+		// one. Do not let the old element's event clear the shared selection.
+		if (cy.$(':selected').length > 0) return;
 		selectedObject = undefined;
 		selectedObjectId = '';
 	}

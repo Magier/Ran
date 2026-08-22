@@ -82,8 +82,8 @@
         Ran
     </Menu.Trigger>
     <Portal>
-        <Menu.Positioner>
-            <Menu.Content>
+        <Menu.Positioner class="z-[110]">
+            <Menu.Content class="z-[110]">
                 <Menu.ItemGroup>
                     <Menu.ItemGroupLabel>Campaign</Menu.ItemGroupLabel>
                     <Menu.Item value="reset">
