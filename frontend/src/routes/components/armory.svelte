@@ -263,7 +263,7 @@
 										<div class="ml-3 border-t-1 border-surface-400-600 bg-surface-200-800 hover:text-primary-800-200">
 											<ActionCard
 												{ttp}
-												conditions={ttp.requires}
+												prerequisitesFulfilled={isTTPApplicable(ttp)}
 												icon={iconMap[ttp.tactic]}
 												enabled={isShiftPressed || isTTPApplicable(ttp)}
 												utility={scoredByTtp.get(ttp.id)?.utility}

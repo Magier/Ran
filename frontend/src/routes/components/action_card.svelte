@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { AccessLevel } from '$lib/model';
 	import Icon from '@iconify/svelte';
 	import { Tooltip } from '@skeletonlabs/skeleton-svelte';
 	import type { TTP, ConsiderationScore } from '$lib/api';
@@ -9,7 +8,8 @@
 		ttp: TTP;
 		icon: any;
 		enabled?: boolean;
-		conditions?: Object;
+		/** Whether the selected target currently satisfies this TTP's prerequisites. */
+		prerequisitesFulfilled?: boolean;
 		onclick: (ttp: TTP) => void;
 		class?: string | undefined;
 		/** Utility score in [0, 1] for this action against the current target, if scored. */
@@ -22,6 +22,7 @@
 		ttp,
 		icon,
 		enabled = true,
+		prerequisitesFulfilled = true,
 		onclick,
 		class: className,
 		utility = undefined,
@@ -74,61 +75,52 @@
 		enabled ? 'card-hover bg-surface-300-700' : 'card-disabled bg-surface-50-900-token'
 	);
 
-	function checkConditions(ttp: TTP, conditions: Object) {
-		// no requirements means the action is always possible
-		if (Object.keys(ttp.requires || {}).length == 0) return true;
-		if (conditions) {
-			for (let [attr, value] of Object.entries(ttp.requires)) {
-				if (!conditions.hasOwnProperty(attr)) {
-					return false;
+	type RequirementDetail = { label: string; value: string };
+
+	function words(name: string): string {
+		return name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
+	}
+
+	function compactValue(value: unknown): string {
+		if (typeof value === 'string' || typeof value === 'number') return String(value);
+		if (typeof value === 'boolean') return value ? 'Required' : 'Not required';
+		if (Array.isArray(value)) return value.map(compactValue).join(', ');
+		if (value && typeof value === 'object') {
+			return Object.entries(value)
+				.filter(([key]) => key !== 'kubetier')
+				.map(([key, item]) => `${words(key)}: ${compactValue(item)}`)
+				.join(' · ');
+		}
+		return String(value);
+	}
+
+	function rbacValue(value: unknown): string {
+		if (!value || typeof value !== 'object' || Array.isArray(value)) return compactValue(value);
+		const permission = value as Record<string, unknown>;
+		const action = [permission.verb, permission.resourceType ?? permission.resource]
+			.filter(Boolean)
+			.join(' ');
+		const qualifiers = [permission.resourceName, permission.scope]
+			.filter((item) => typeof item === 'string' && item.length > 0)
+			.join(' · ');
+		return qualifiers ? `${action} · ${qualifiers}` : action || compactValue(value);
+	}
+
+	let requirementDetails: RequirementDetail[] = $derived.by(() => {
+		const details: RequirementDetail[] = [];
+		for (const [name, value] of Object.entries(ttp.requires ?? {})) {
+			if (value === undefined || value === null || value === false) continue;
+			if (Array.isArray(value) && value.length === 0) continue;
+
+			if (name === 'rbacPermissions' && Array.isArray(value)) {
+				for (const permission of value) {
+					details.push({ label: 'RBAC', value: rbacValue(permission) });
 				}
-				if (attr === 'accessLevel') {
-					var requiredLevel = AccessLevel[value];
-					var currentLevel = AccessLevel[conditions['accessLevel']];
-					if (currentLevel < requiredLevel) {
-						return false;
-					}
-				} else if (attr === 'rbac') {
-					let has_capability = false;
-					for (let cap of conditions['rbac']) {
-						if (cap == value) {
-							has_capability = true;
-							break;
-						}
-					}
-					if (!has_capability) return false;
-				} else if (Array.isArray(value)) {
-					let givenValue = conditions[attr].toLowerCase();
-					let sat = value.filter((v) => v.toLowerCase() == givenValue);
-					if (!sat) {
-						return false;
-					}
-				} else if (conditions[attr] !== value) {
-					return false;
-				}
+			} else {
+				details.push({ label: words(name), value: compactValue(value) });
 			}
 		}
-		return true;
-	}
-
-	function formatRbac(rbac: { verb?: string; resourceType?: string }): string {
-		if (rbac.verb && rbac.resourceType) {
-			return `${rbac.verb} ${rbac.resourceType}`;
-		}
-		return '';
-	}
-
-	// Check if there are meaningful requirements (excluding kind and accessLevel)
-	const hasVisibleRequirements = $derived(() => {
-		if (!ttp.requires) return false;
-		const filteredEntries = Object.entries(ttp.requires).filter(([name, value]) => {
-			// Exclude kind and accessLevel
-			if (name === 'kind' || name === 'accessLevel') return false;
-			// Exclude rbacPermissions if it's an empty array
-			if (name === 'rbacPermissions' && Array.isArray(value) && value.length === 0) return false;
-			return true;
-		});
-		return filteredEntries.length > 0;
+		return details;
 	});
 
 	let pct = $derived(utility !== undefined ? Math.round(utility * 100) : 0);
@@ -166,45 +158,37 @@
 	>
 		<Icon icon={displayIcon()} class="inline-block flex-shrink-0" />
 		<span class="truncate">{ttp.name}</span>
-		{#if hasVisibleRequirements()}
-			{#each Object.entries(ttp.requires) as [name, value]}
-				{#if !!value}
-					{#if name === 'kind'}
-						<!-- Skip kind -->
-					{:else if name === 'accessLevel'}
-						<!-- Skip accessLevel -->
-					{:else if name === 'rbacPermissions'}
-						{#if Array.isArray(value)}
-							{#each value as perms}
-								<span
-									class="req-badge badge bg-success-100-900 text-secondary-contrast-200-800 cursor-help text-xs"
-								>
-									<Icon icon={'carbon-user-admin'} width="12" class="inline-block flex-shrink-0"></Icon>
-									<span class="req-text">{formatRbac(perms as { verb?: string; resourceType?: string })}</span>
-								</span>
-							{/each}
-						{/if}
-					{:else if name === 'otherFields'}
-						{#each Object.entries(value) as [fieldName, val]}
-							<span
-								class="req-badge badge bg-surface-100-900 text-secondary-contrast-200-800 cursor-help text-xs"
-							>
-								<Icon icon={'mdi:dots-horizontal'} width="12" class="inline-block flex-shrink-0"></Icon>
-								<span class="req-text">{fieldName}: {JSON.stringify(val)}</span>
-							</span>
-						{/each}
-					{:else}
-						<span
-							class="req-badge badge bg-surface-100-900 text-secondary-contrast-200-800 cursor-help text-xs"
-						>
-							<Icon icon={'mdi:information-outline'} width="12" class="inline-block flex-shrink-0"></Icon>
-							<span class="req-text">{name}: {JSON.stringify(value)}</span>
-						</span>
-					{/if}
-				{/if}
-			{/each}
-		{/if}
 	</button>
+
+	{#if requirementDetails.length > 0}
+		<Tooltip openDelay={120} closeDelay={80} positioning={{ placement: 'left', gutter: 8 }}>
+			<Tooltip.Trigger
+				class="mr-1 inline-flex flex-shrink-0 cursor-help items-center gap-0.5 rounded px-1 py-0.5 text-[10px] {prerequisitesFulfilled
+					? 'bg-success-100-900 text-success-700-300'
+					: 'bg-warning-100-900 text-warning-700-300'}"
+				aria-label={`${prerequisitesFulfilled ? 'Prerequisites fulfilled' : 'Prerequisites not fulfilled'}: ${requirementDetails.length} ${requirementDetails.length === 1 ? 'requirement' : 'requirements'}`}
+			>
+				<Icon icon={prerequisitesFulfilled ? 'mdi:check-circle-outline' : 'mdi:alert-circle-outline'} width="14" />
+				<span class="tabular-nums">{requirementDetails.length}</span>
+			</Tooltip.Trigger>
+			<Tooltip.Positioner>
+				<Tooltip.Content class="z-[90] w-72 rounded border border-surface-300-700 bg-surface-100-900 p-2 shadow-xl">
+					<div class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold">
+						<Icon icon={prerequisitesFulfilled ? 'mdi:check-circle' : 'mdi:alert-circle'} width="14" />
+						{prerequisitesFulfilled ? 'Prerequisites fulfilled' : 'Prerequisites not fulfilled'}
+					</div>
+					<div class="space-y-1.5">
+						{#each requirementDetails as requirement}
+							<div class="flex gap-1.5 text-xs">
+								<span class="shrink-0 font-medium text-surface-700-300">{requirement.label}:</span>
+								<span class="min-w-0 break-words text-surface-500">{requirement.value}</span>
+							</div>
+						{/each}
+					</div>
+				</Tooltip.Content>
+			</Tooltip.Positioner>
+		</Tooltip>
+	{/if}
 
 	{#if utility !== undefined}
 		{#snippet chip()}
@@ -253,19 +237,5 @@
 <style>
 	.card-disabled {
 		color: #888;
-	}
-
-	.req-badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.125rem;
-		position: relative;
-		white-space: nowrap;
-		z-index: 10;
-		padding: 0.125rem 0.25rem;
-	}
-
-	.req-text {
-		opacity: 1;
 	}
 </style>
