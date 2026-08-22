@@ -91,7 +91,7 @@ Run against your local kubeconfig:
 docker run --rm -it \
   -v ~/.kube:/root/.kube:ro \
   -p 8080:8080 \
-  ghcr.io/magier/ran:latest emulate --port 8080
+  ghcr.io/magier/ran:latest emulate --host 0.0.0.0 --port 8080
 ```
 
 Then open `http://localhost:8080` in your browser.
@@ -131,6 +131,7 @@ Open `http://localhost:8080` to explore and execute techniques from the armory.
 
 | Flag | Default | Description |
 |---|---|---|
+| `--host` | `127.0.0.1` | IP address to listen on (`0.0.0.0` for all IPv4 interfaces) |
 | `--port, -p` | `8080` | Port to listen on |
 | `--kubeconfig` | active context | Path to a kubeconfig |
 | `--armory` | built-in | Path to a custom armory directory |

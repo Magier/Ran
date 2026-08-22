@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -85,6 +86,10 @@ struct EmulateArgs {
     #[arg(short = 'p', long = "port", default_value_t = 8080)]
     port: u16,
 
+    /// IP address to listen on. Use 0.0.0.0 to accept connections on all IPv4 interfaces.
+    #[arg(long = "host", default_value = "127.0.0.1")]
+    host: IpAddr,
+
     /// Execute this plan YAML on startup (alternative to POST /api/plans). When
     /// it finishes, you're offered cleanup and the server stops afterwards.
     #[arg(long = "plan")]
@@ -125,6 +130,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
     app::start(app::ServerConfig {
         kubeconfig: args.kubeconfig,
         armory_dir: args.armory,
+        host: args.host,
         port: args.port,
         namespace_filter: cfg.namespaces,
         scoring: cfg.scoring,

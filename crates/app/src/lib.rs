@@ -1428,6 +1428,8 @@ pub struct ServerConfig {
     pub kubeconfig: Option<PathBuf>,
     /// Path to the armory TTPs directory. Defaults to `./armory/TTPs`.
     pub armory_dir: Option<PathBuf>,
+    /// IP address to listen on.
+    pub host: std::net::IpAddr,
     /// TCP port to listen on.
     pub port: u16,
     /// Namespace visibility filter loaded from `ran.yaml`.
@@ -1673,7 +1675,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     // ownership of it. Cheap — AppState is a bundle of Arcs.
     let orchestrator_state = state.clone();
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], cfg.port));
+    let addr = SocketAddr::new(cfg.host, cfg.port);
     let app: Router =
         api::router_with_sse_and_mcp(state, mcp_config).fallback(api::frontend_handler);
 
