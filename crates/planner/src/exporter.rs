@@ -370,6 +370,7 @@ mod tests {
             completed_at_ms: 0,
             is_cleanup: false,
             reasoning: String::new(),
+            discovered_entities: vec![],
         }
     }
 }
