@@ -1,17 +1,34 @@
 #!/bin/zsh
 set -eu
 
-workspace_path="${CONDUCTOR_WORKSPACE_PATH:-$PWD}"
-root_path="${CONDUCTOR_ROOT_PATH:-$workspace_path}"
-backend_port="${CONDUCTOR_PORT:-8080}"
+# Portable runner contract:
+#   RAN_WORKSPACE_PATH  worktree to run (defaults to this script's repository)
+#   RAN_ROOT_PATH       primary checkout holding ixi-config.yaml (auto-detected)
+#   RAN_KUBECONFIG      kubeconfig to use (defaults to RAN_ROOT_PATH/ixi-config.yaml)
+#   RAN_DEV_PORT        backend port; Vite uses the following port
+script_dir="${0:A:h}"
+workspace_path="${RAN_WORKSPACE_PATH:-${script_dir:h}}"
+
+if [[ -n "${RAN_ROOT_PATH:-}" ]]; then
+  root_path="$RAN_ROOT_PATH"
+else
+  git_common_dir="$(git -C "$workspace_path" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  if [[ -n "$git_common_dir" && "${git_common_dir:t}" == ".git" ]]; then
+    root_path="${git_common_dir:h}"
+  else
+    root_path="$workspace_path"
+  fi
+fi
+
+backend_port="${RAN_DEV_PORT:-8080}"
 
 if [[ "$backend_port" != <-> ]] || (( backend_port < 1 || backend_port >= 65535 )); then
-  print -u2 "CONDUCTOR_PORT must be an integer between 1 and 65534"
+  print -u2 "RAN_DEV_PORT must be an integer between 1 and 65534"
   exit 1
 fi
 
 vite_port=$((backend_port + 1))
-root_kubeconfig="$root_path/ixi-config.yaml"
+root_kubeconfig="${RAN_KUBECONFIG:-$root_path/ixi-config.yaml}"
 workspace_kubeconfig="$workspace_path/ixi-config.yaml"
 
 if [[ ! -r "$root_kubeconfig" ]]; then
@@ -20,7 +37,7 @@ if [[ ! -r "$root_kubeconfig" ]]; then
   exit 1
 fi
 
-if [[ "$root_path" != "$workspace_path" ]]; then
+if [[ "$root_kubeconfig" != "$workspace_kubeconfig" ]]; then
   ln -sfn "$root_kubeconfig" "$workspace_kubeconfig"
 fi
 
