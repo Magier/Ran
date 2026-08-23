@@ -946,6 +946,14 @@ impl Campaign {
         }
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
         args.remove("K8S_AUTH");
+        if is_local_control_command(&procedure.command)
+            && matches!(resolved_auth, Some(ResolvedK8sAuth::ServiceAccount { .. }))
+        {
+            return Err(ExecuteActionError::InvalidInput(format!(
+                "procedure '{}' uses the active Kubernetes client and cannot realize a ServiceAccount Authenticate As identity",
+                procedure.id
+            )));
+        }
         if use_kubeconfig {
             if procedure.command.trim().is_empty() {
                 if let Some(request) = procedure.k8s_request.clone() {

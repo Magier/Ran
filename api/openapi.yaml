@@ -1086,8 +1086,6 @@ components:
             $ref: '#/components/schemas/RBACPermission'
         accessLevel:
           type: string
-        activeKubeconfig:
-          type: boolean
         activeSession:
           type: boolean
         exists:

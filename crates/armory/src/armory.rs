@@ -601,13 +601,7 @@ mod tests {
             canonical.requires.get("kind").and_then(|v| v.as_str()),
             Some("Pod")
         );
-        assert_eq!(
-            canonical
-                .requires
-                .get("activeKubeconfig")
-                .and_then(|v| v.as_bool()),
-            Some(true)
-        );
+        assert!(!canonical.requires.contains_key("activeKubeconfig"));
 
         assert_eq!(
             armory

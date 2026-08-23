@@ -1669,6 +1669,48 @@ fn kubectl_kubeconfig_auth_uses_explicit_environment_flag() {
 }
 
 #[test]
+fn knowledge_only_kubeconfig_cannot_be_selected_for_execution() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target_id = campaign
+        .entities
+        .values::<K8sCluster>()
+        .next()
+        .expect("cluster")
+        .entity_id()
+        .0;
+    let credential = K8sCredential::new("https://cluster.example").with_name("discovered");
+    let credential_id = credential.entity_id().0;
+    campaign.entities.insert_typed(credential);
+    let armory = armory_with_command("test-ttp", "kubectl ${K8S_AUTH} get pods", None);
+
+    let mut request = action_request(&target_id, None);
+    request.auth_identity_id = Some(credential_id.clone());
+    assert!(matches!(
+        campaign.prepare_action(request, &armory),
+        Err(ExecuteActionError::InvalidInput(message))
+            if message.contains(&format!("authentication identity '{credential_id}' is not eligible"))
+    ));
+}
+
+#[test]
+fn active_client_control_command_rejects_service_account_identity() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let target = Pod::new("victim", "default");
+    let target_id = target.entity_id().0;
+    campaign.entities.insert_typed(target);
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
+    let armory = armory_with_command("test-ttp", "c2.kubectl_exec()", None);
+
+    let mut request = action_request(&target_id, None);
+    request.auth_identity_id = Some(auth_identity_id);
+    assert!(matches!(
+        campaign.prepare_action(request, &armory),
+        Err(ExecuteActionError::InvalidInput(message))
+            if message.contains("cannot realize a ServiceAccount")
+    ));
+}
+
+#[test]
 fn prepare_action_grounds_binary_against_target_for_direct_path() {
     // When targeting a pod directly, a non-standard binary path on that pod
     // should be substituted into the procedure command.
