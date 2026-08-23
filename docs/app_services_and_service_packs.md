@@ -58,6 +58,7 @@ pub struct AppService {
     pub port: u16,
     pub transport: Transport,       // Tcp | Udp | Sctp | Unknown
     pub state: EndpointState,       // Open | Closed | Filtered | Unknown
+    pub port_name: Option<String>,  // observed configuration name, e.g. "http"
     pub product: Option<String>,    // canonical name, e.g. "redis"
     pub version: Option<String>,
     pub cpes: Vec<String>,
@@ -88,12 +89,12 @@ strings.
 
 ```text
 System        --hosts-service--> AppService
-System        --can-connect----> AppService
+System        --can-reach------> AppService
 K8sService    --routes-to-------> AppService
 ```
 
 - `hosts-service` identifies the system believed to run the endpoint.
-- `can-connect` is source- and endpoint-specific network reachability. It does
+- `can-reach` targeting an `AppService` is source- and endpoint-specific network reachability. It does
   not confer execution and must not implement `C2Channel`.
 - `routes-to` associates configured Kubernetes service ports with observed
   backend endpoints when selectors, EndpointSlices, or probes provide enough
@@ -120,6 +121,12 @@ types, but the model should preserve the source of each material observation.
 Port numbers and names may produce candidates, but should not independently
 satisfy a strict product prerequisite unless the TTP explicitly accepts low
 confidence.
+
+A Kubernetes container port name is preserved as `port_name`; it is not copied
+into `product`. For a Pod with a concrete IP, a declared container port creates
+an `AppService` candidate with `state: Unknown` and no endpoint `can-reach`
+relation. A Deployment template retains its declared ports on its containers
+but does not create an addressable `AppService` until correlated with a Pod.
 
 Capabilities and vulnerabilities must be namespaced and independently
 evidenced:
@@ -152,7 +159,7 @@ preconditions:
 
 All declared fields are conjunctive. Missing observed fields do not match.
 `reachableFrom: execution-source` means that at least one viable execution
-source has a `can-connect` relation to the matching endpoint.
+source has a `can-reach` relation to the matching endpoint.
 
 Applicability evaluation should return the matching endpoint as a **witness**,
 not just a boolean. Grounding then obtains `TARGET`, `PORT`, transport, and any
@@ -322,7 +329,7 @@ execution creates the existing `rce.can-exec(source, target)` relation.
 
 - Add `AppService`, merge semantics, serialization, API conversion, and
   graph styling.
-- Add `hosts-service` and `can-connect` relations.
+- Add `hosts-service` and endpoint-targeted `can-reach` relations.
 - Extend nmap parsing to retain open ports without yet requiring product data.
 - Keep existing `can-reach` output for compatibility.
 
@@ -410,12 +417,13 @@ later phase will consume.
    cannot contain `/`; reject rather than silently rewriting an invalid value.
 6. An `AppService` is a graph entity, not a `SystemEntity`, and never carries an
    access level or execution session.
-7. `hosts-service` and `can-connect` are non-execution relations. Neither may
+7. `hosts-service` and `can-reach` are non-execution relations. Neither may
    implement `C2Channel` or create an executable graph path.
 8. Retain existing host-level `can-reach` facts for backward compatibility.
-9. App-service nodes are serialized through the existing graph API. The UI may
-   initially render them as ordinary nodes; automatic collapsing is desirable
-   but is not an acceptance criterion for Phase 1.
+9. App-service facts remain first-class campaign entities, but the default
+   human graph projection collapses them into a service summary on the hosting
+   system. Endpoint nodes and their incident edges are omitted from that
+   projection to avoid duplicating host reachability visually.
 10. Entity merge behavior is monotonic for identity and descriptive fields:
     newer non-empty product/version/banner/CPE observations enrich or replace
     weaker values. `observed_at_ms` takes the newest timestamp. Endpoint state
@@ -430,6 +438,7 @@ pub struct AppService {
     pub port: u16,
     pub transport: Transport,
     pub state: EndpointState,
+    pub port_name: Option<String>,
     pub product: Option<String>,
     pub version: Option<String>,
     pub cpes: Vec<String>,
@@ -468,7 +477,7 @@ Add typed relations in `crates/domain/relations.rs`:
 
 ```rust
 HostsService::new(system_id, app_service_id) // "hosts-service"
-CanConnect::new(source_id, app_service_id)   // "can-connect"
+CanReach::new(source_id, app_service_id)     // "can-reach"
 ```
 
 Both relations use ordinary zero-cost structural graph edges and are exported
@@ -505,8 +514,8 @@ For each accepted host:
 3. For each parsed port, emit an `AppService`.
 4. Emit system-to-service `hosts-service`.
 5. If `source_id` is present and the endpoint state is `Open`, emit
-   source-to-service `can-connect`.
-6. Do not emit `can-connect` for closed, filtered, or unknown ports.
+   source-to-service `can-reach`.
+6. Do not emit endpoint-targeted `can-reach` for closed, filtered, or unknown ports.
 
 Support all three currently accepted nmap families:
 
@@ -562,17 +571,19 @@ The implementation is complete only when all of the following are covered:
 3. Entity merge keeps one endpoint identity and enriches product/version/CPE.
 4. Newer endpoint state wins; an older observation cannot overwrite it.
 5. Campaign state serializes and deserializes the new entity-store slot.
-6. `hosts-service` and `can-connect` round-trip as relation summaries and are
+6. `hosts-service` and endpoint-targeted `can-reach` round-trip as relation summaries and are
    never execution channels.
 7. Nmap greppable input `6379/open/tcp` produces an open TCP app service.
 8. Standard `-sV` output produces product and version when present.
 9. Nmap XML produces product, version, CPE, and endpoint relations.
 10. A host with two open ports produces two distinct app services.
 11. Closed or filtered ports are retained as observations but do not create
-    `can-connect`.
+    endpoint-targeted `can-reach`.
 12. Host-only scans preserve current discovery and reachability behavior.
 13. CIDR filtering excludes both the out-of-scope host and its app services.
-14. The campaign graph/API includes an `AppService` node with its entity data.
+14. Campaign state includes `AppService` entity data, while the default graph
+    projection exposes hosted services on the system payload without separate
+    endpoint nodes.
 15. Existing domain, campaign, API, and frontend tests still pass.
 
 ### Explicit non-goals

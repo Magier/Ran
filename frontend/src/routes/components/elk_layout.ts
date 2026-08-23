@@ -37,6 +37,7 @@ export const NODE_LAYER: Record<string, number> = {
   // Cluster entry points
   Ingress: 3,
   Service: 3,
+  AppService: 4,
   // Workloads
   Pod: 4,
   Container: 4,

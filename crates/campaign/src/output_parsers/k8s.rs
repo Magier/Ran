@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use ran_domain::{
-    ConfigMap, Deployment, K8sGateway, K8sGatewayListener, K8sHTTPBackend, K8sHTTPRoute,
-    K8sIngress, K8sIngressPath, K8sIngressRule, K8sIngressTLS, K8sNode, K8sParentRef, K8sRole,
-    K8sRoleBinding, K8sSecret, K8sService, K8sServicePort, Mount, NameConfidence, Namespace,
-    OwnerRef, Pod, PodPhase, RbacPermission, RbacScopeKind, RbacScopeSource, RbacSubject,
-    ServiceAccount,
+    AppService, ConfigMap, ContainerPort, Deployment, EndpointState, Entity, HostsService,
+    K8sGateway, K8sGatewayListener, K8sHTTPBackend, K8sHTTPRoute, K8sIngress, K8sIngressPath,
+    K8sIngressRule, K8sIngressTLS, K8sNode, K8sParentRef, K8sRole, K8sRoleBinding, K8sSecret,
+    K8sService, K8sServicePort, Mount, NameConfidence, Namespace, OwnerRef, Pod, PodPhase,
+    RbacPermission, RbacScopeKind, RbacScopeSource, RbacSubject, ServiceAccount, Transport,
 };
 
 use super::ParserOutput;
@@ -105,6 +105,22 @@ mod k8s_json {
         pub security_context: Option<ContainerSecCtx>,
         #[serde(rename = "volumeMounts", default)]
         pub volume_mounts: Vec<ContainerVolumeMount>,
+        #[serde(default)]
+        pub ports: Vec<DeclaredContainerPort>,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct DeclaredContainerPort {
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(rename = "containerPort", default)]
+        pub container_port: u32,
+        #[serde(default = "default_port_protocol")]
+        pub protocol: String,
+    }
+
+    fn default_port_protocol() -> String {
+        "TCP".to_string()
     }
 
     #[derive(Deserialize, Default)]
@@ -238,9 +254,23 @@ mod k8s_json {
 
     // --- Deployment ---
 
+    #[derive(Deserialize, Default)]
+    pub struct DeploymentTemplate {
+        #[serde(default)]
+        pub spec: PodSpec,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub struct DeploymentSpec {
+        #[serde(default)]
+        pub template: DeploymentTemplate,
+    }
+
     #[derive(Deserialize)]
     pub struct DeploymentItem {
         pub metadata: Meta,
+        #[serde(default)]
+        pub spec: DeploymentSpec,
     }
 
     #[derive(Deserialize)]
@@ -762,6 +792,7 @@ fn parse_k8s_pod_list(
             pod.containers.push(ran_domain::Container {
                 name: c.name.clone(),
                 image: c.image.clone(),
+                ports: declared_container_ports(&c.ports),
                 volume_mounts,
             });
         }
@@ -805,6 +836,44 @@ fn parse_k8s_pod_list(
             }
         }
 
+        let pod_id = pod.entity_id().0.clone();
+        if let Some(pod_ip) = pod.system.ips.first().copied() {
+            let mut emitted = std::collections::HashSet::new();
+            for port in item
+                .spec
+                .containers
+                .iter()
+                .flat_map(|container| &container.ports)
+            {
+                let Ok(port_number) = u16::try_from(port.container_port) else {
+                    continue;
+                };
+                if port_number == 0 {
+                    continue;
+                }
+                let transport = k8s_port_transport(&port.protocol);
+                if !emitted.insert((port_number, transport.as_str())) {
+                    continue;
+                }
+                let Ok(mut service) = AppService::new(pod_ip.to_string(), port_number, transport)
+                else {
+                    continue;
+                };
+                service.state = EndpointState::Unknown;
+                service.port_name = port
+                    .name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string);
+                let service_id = service.entity_id().0.clone();
+                facts.new_entities.push(Box::new(service));
+                facts
+                    .new_relations
+                    .push(Box::new(HostsService::new(pod_id.clone(), service_id)));
+            }
+        }
+
         facts.new_entities.push(Box::new(pod));
 
         // Ensure the namespace exists in the graph.
@@ -815,6 +884,31 @@ fn parse_k8s_pod_list(
 
     let count = facts.new_entities.len();
     ParserOutput::SuccessWithFacts(facts, format!("parsed {} pod(s) from PodList", count))
+}
+
+fn k8s_port_transport(protocol: &str) -> Transport {
+    match protocol.to_ascii_lowercase().as_str() {
+        "tcp" => Transport::Tcp,
+        "udp" => Transport::Udp,
+        "sctp" => Transport::Sctp,
+        _ => Transport::Unknown,
+    }
+}
+
+fn declared_container_ports(ports: &[k8s_json::DeclaredContainerPort]) -> Vec<ContainerPort> {
+    ports
+        .iter()
+        .filter_map(|port| {
+            let port_number = u16::try_from(port.container_port)
+                .ok()
+                .filter(|port| *port != 0)?;
+            Some(ContainerPort {
+                name: port.name.clone().filter(|name| !name.trim().is_empty()),
+                port: port_number,
+                protocol: port.protocol.to_ascii_uppercase(),
+            })
+        })
+        .collect()
 }
 
 fn parse_k8s_node_list(
@@ -961,9 +1055,21 @@ fn parse_k8s_deployment_list(
         if name.is_empty() {
             continue;
         }
-        facts
-            .new_entities
-            .push(Box::new(Deployment::new(name.clone(), ns.clone())));
+        let mut deployment = Deployment::new(name.clone(), ns.clone());
+        deployment.containers = item
+            .spec
+            .template
+            .spec
+            .containers
+            .iter()
+            .map(|container| ran_domain::Container {
+                name: container.name.clone(),
+                image: container.image.clone(),
+                ports: declared_container_ports(&container.ports),
+                volume_mounts: Vec::new(),
+            })
+            .collect();
+        facts.new_entities.push(Box::new(deployment));
 
         if !ns.is_empty() {
             facts.new_entities.push(Box::new(Namespace::new(ns)));
@@ -1576,6 +1682,74 @@ fn parse_k8s_http_route_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pod_named_port_creates_unknown_endpoint_candidate() {
+        let output = r#"{
+            "items": [{
+                "metadata": {"name": "redis-0", "namespace": "default"},
+                "spec": {"containers": [{
+                    "name": "redis", "image": "redis:7",
+                    "ports": [{"name": "client", "containerPort": 6379, "protocol": "TCP"}]
+                }]},
+                "status": {"phase": "Running", "podIP": "10.0.0.8"}
+            }]
+        }"#;
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_k8s_pod_list(output, "", &HashMap::new())
+        else {
+            panic!("expected pod facts");
+        };
+        let service = facts
+            .new_entities
+            .iter()
+            .find_map(|entity| entity.as_any().downcast_ref::<AppService>())
+            .unwrap();
+        assert_eq!(service.port, 6379);
+        assert_eq!(service.port_name.as_deref(), Some("client"));
+        assert_eq!(service.product, None);
+        assert_eq!(service.state, EndpointState::Unknown);
+        assert!(facts
+            .new_relations
+            .iter()
+            .any(|relation| relation.relation_name() == "hosts-service"));
+        assert!(!facts
+            .new_relations
+            .iter()
+            .any(|relation| relation.relation_name() == "can-reach"));
+    }
+
+    #[test]
+    fn deployment_named_port_stays_on_template_without_endpoint() {
+        let output = r#"{
+            "items": [{
+                "metadata": {"name": "web", "namespace": "default"},
+                "spec": {"template": {"spec": {"containers": [{
+                    "name": "web", "image": "nginx",
+                    "ports": [{"name": "http", "containerPort": 8080}]
+                }]}}}
+            }]
+        }"#;
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_k8s_deployment_list(output, "", &HashMap::new())
+        else {
+            panic!("expected deployment facts");
+        };
+        let deployment = facts
+            .new_entities
+            .iter()
+            .find_map(|entity| entity.as_any().downcast_ref::<Deployment>())
+            .unwrap();
+        assert_eq!(
+            deployment.containers[0].ports[0].name.as_deref(),
+            Some("http")
+        );
+        assert_eq!(deployment.containers[0].ports[0].port, 8080);
+        assert!(facts
+            .new_entities
+            .iter()
+            .all(|entity| entity.as_any().downcast_ref::<AppService>().is_none()));
+    }
 
     #[test]
     fn namespace_list_emits_namespace_entities_with_labels() {

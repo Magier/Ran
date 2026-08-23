@@ -173,7 +173,7 @@
 	}
 
 	// Fields handled explicitly in the header — skip from the generic loop
-	const HEADER_FIELDS = new Set(['id', 'name', 'namespace', 'kind', 'entityId', 'parent', 'entity', 'compromised', 'provenance']);
+	const HEADER_FIELDS = new Set(['id', 'name', 'namespace', 'kind', 'entityId', 'parent', 'entity', 'compromised', 'provenance', 'appServiceCount']);
 
 	function shouldShowField(label: string, data: any): boolean {
 		if (HEADER_FIELDS.has(label)) return false;
@@ -528,6 +528,37 @@
 							</li>
 						{/each}
 					</ul>
+				</details>
+			{:else if label === 'appServices' && Array.isArray(data)}
+				<details class="mb-1" class:field-changed={highlightedFields[label]}>
+					<summary class="cursor-pointer">
+						<span class="font-bold">Services</span>
+						<span class="text-xs text-surface-500">({data.length})</span>
+					</summary>
+					<div class="mt-1 space-y-1 pl-4">
+						{#each data as service}
+							<details>
+								<summary class="cursor-pointer">
+									<span class="font-mono font-semibold">{service.port}/{service.transport}</span>
+									{#if service.port_name}
+										<span class="ml-1 text-surface-500">· {service.port_name}</span>
+									{/if}
+									{#if service.product && service.product !== service.port_name}
+										<span class="ml-1 text-surface-500">· {service.product}?</span>
+									{/if}
+								</summary>
+								<dl class="grid grid-cols-[auto_1fr] gap-x-2 pl-4 text-xs">
+									<dt class="font-semibold">Address</dt><dd class="font-mono">{service.address}</dd>
+									<dt class="font-semibold">Endpoint</dt><dd class="font-mono">{service.port}/{service.transport}</dd>
+									<dt class="font-semibold">State</dt><dd class="capitalize">{service.state}</dd>
+									{#if service.port_name}<dt class="font-semibold">Name</dt><dd>{service.port_name}</dd>{/if}
+									{#if service.product}<dt class="font-semibold">Assume</dt><dd>{service.product}{#if service.version} {service.version}{/if}</dd>{/if}
+									{#if service.banner}<dt class="font-semibold">Banner</dt><dd>{service.banner}</dd>{/if}
+									{#if service.cpes?.length}<dt class="font-semibold">CPE</dt><dd>{service.cpes.join(', ')}</dd>{/if}
+								</dl>
+							</details>
+						{/each}
+					</div>
 				</details>
 			{:else if Array.isArray(data) && data.length > 0}
 				{#if data.length === 1}

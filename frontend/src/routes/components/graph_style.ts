@@ -2,6 +2,7 @@ import type cytoscape from "cytoscape";
 
 // the '{' prefix indicates a compound node that should not have an icon, if it's expanded
 const kind_svg_map = {
+	AppService: 'k8s/ep.svg',
 	Ingress: 'k8s/ing.svg',
 	Pod: 'k8s/pod.svg',
 	Container: 'k8s/crio.svg',
