@@ -203,12 +203,28 @@ pub fn ttp_applicable_for_target(
 ) -> bool {
     ttp_target_scope_satisfied(ttp, tc)
         && ttp_auth_satisfied_for_target(ttp, campaign, tc)
+        && ttp_execution_source_satisfied(ttp, campaign)
         && ttp_exists_satisfied(ttp, campaign)
         && (!tc.is_system || ttp_access_level_satisfied(ttp, tc.access_level))
         && ttp_has_token_satisfied(ttp, tc.has_token)
         && ttp_active_session_satisfied(ttp, tc.active_session)
         && ttp_related_satisfied(ttp, &tc.target_id, &tc.target_kind, campaign)
         && ttp_tool_satisfied(ttp, campaign, tc)
+}
+
+/// Non-Kubernetes lateral movement must originate from an existing execution
+/// foothold. Merely discovering a possible remote target is not enough to make
+/// exploit actions runnable.
+fn ttp_execution_source_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
+    let tactic = ttp
+        .tactic
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+
+    !tactic.eq_ignore_ascii_case("LateralMovement")
+        || ttp_uses_k8s_auth(ttp)
+        || campaign.resolve_exec_source().is_ok()
 }
 
 /// Keep the selected entity as the semantic target. Kubernetes actions without
@@ -976,6 +992,28 @@ mod tests {
             &campaign,
             &tc
         ));
+    }
+
+    #[test]
+    fn non_kubernetes_lateral_action_requires_an_execution_foothold() {
+        let mut campaign = empty_campaign();
+        let pod = ran_domain::Pod::new("redis", "default");
+        let pod_id = pod.entity_id().0;
+        campaign.entities.insert_typed(pod);
+
+        let mut requires = serde_json::Map::new();
+        requires.insert("kind".to_string(), json!("System"));
+        let ttp = Ttp {
+            requires,
+            procedures: vec![armory::Procedure::new(
+                "exec-cmd",
+                "redis-cli -h ${TARGET} ping",
+            )],
+            ..Ttp::new("exploit-redis", "Exploit Redis", "Lateral Movement")
+        };
+
+        let tc = resolve_target_context(&campaign, &pod_id).expect("pod should resolve");
+        assert!(!ttp_applicable_for_target(&ttp, &campaign, &tc));
     }
 
     #[test]

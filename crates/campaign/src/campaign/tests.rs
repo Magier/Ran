@@ -4,8 +4,8 @@ use armory::{Armory, Procedure, Ttp, TtpParam};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
     AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, JwToken, K8sCluster,
-    K8sCredential, K8sNode, KubeletExecSink, Namespace, OutputTransformKind, Pod, PodExec,
-    RbacPermission, RceCanExec, RunsOn, ServiceAccount, ServiceAccountToken, SessionInfo,
+    K8sCredential, K8sNode, KubeletExecSink, Namespace, OperatorHost, OutputTransformKind, Pod,
+    PodExec, RbacPermission, RceCanExec, RunsOn, ServiceAccount, ServiceAccountToken, SessionInfo,
     SessionStatus, Uses,
 };
 
@@ -63,7 +63,7 @@ fn sample_failed_event(fail_reason: &str) -> TtpExecuted {
 }
 
 #[test]
-fn bootstrap_contains_c2_and_cluster_entities() {
+fn bootstrap_without_local_credential_contains_c2_and_cluster_entities() {
     let campaign = Campaign::bootstrap(
         "Ran",
         K8sCluster::new("dev-cluster")
@@ -72,6 +72,9 @@ fn bootstrap_contains_c2_and_cluster_entities() {
     );
 
     assert_eq!(campaign.entity_count(), 2);
+    assert!(!campaign
+        .entities
+        .contains::<OperatorHost>(&EntityId::new("system/operator-host")));
     assert!(campaign
         .entities
         .contains::<C2Server>(&EntityId::new(BUILTIN_C2_ID)));

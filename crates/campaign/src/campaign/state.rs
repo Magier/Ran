@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use cortex::KnowledgeGraph;
 use ran_domain::{
     AuthenticatesTo, C2Server, Contains, Entity, EntityId, K8sCluster, K8sCredential, K8sNode,
-    Namespace, Pod, PodExec, Relation, RelationSummary, SessionStatus, UnknownSystem,
+    Namespace, OperatorHost, Pod, PodExec, Relation, RelationSummary, SessionStatus, UnknownSystem,
 };
 use serde::{Deserialize, Serialize};
 
@@ -87,12 +87,36 @@ impl Campaign {
         let mut entities = EntityStore::default();
         let mut graph = KnowledgeGraph::new();
         let mut knowledge_provenance = KnowledgeProvenanceStore::default();
+        let operator_host_id = initial
+            .kubeconfigs
+            .iter()
+            .any(|entry| entry.credential.active)
+            .then(|| {
+                let operator_host = OperatorHost::new("Operator host");
+                let id = operator_host.entity_id();
+                entities.insert_typed(operator_host);
+                graph.ensure_node(id.clone());
+                knowledge_provenance.add_entity(id.clone(), KnowledgeProvenance::Operator);
+                id
+            });
 
         let c2 = C2Server::new(ran_name.into());
         let c2_id = c2.entity_id();
         entities.insert_typed(c2);
         graph.ensure_node(c2_id.clone());
-        knowledge_provenance.add_entity(c2_id, KnowledgeProvenance::Operator);
+        knowledge_provenance.add_entity(c2_id.clone(), KnowledgeProvenance::Operator);
+        if let Some(operator_host_id) = &operator_host_id {
+            let host_contains_c2 = Contains::new(operator_host_id.0.clone(), c2_id.0);
+            graph.insert_edge(
+                host_contains_c2.source_id(),
+                host_contains_c2.target_id(),
+                cortex::edge_data_for(host_contains_c2.relation_name(), None, None),
+            );
+            knowledge_provenance.add_relation(
+                RelationProvenanceKey::from_relation(&host_contains_c2),
+                KnowledgeProvenance::Operator,
+            );
+        }
 
         for entry in initial.clusters {
             let cluster_id = entry.cluster.entity_id();
@@ -106,8 +130,21 @@ impl Campaign {
         for entry in initial.kubeconfigs {
             let credential_id = entry.credential.entity_id();
             let default_namespace = entry.credential.default_namespace.clone();
+            let is_active = entry.credential.active;
             entities.insert_typed(entry.credential);
             graph.ensure_node(credential_id.clone());
+            if let (true, Some(operator_host_id)) = (is_active, &operator_host_id) {
+                let contains = Contains::new(operator_host_id.0.clone(), credential_id.0.clone());
+                graph.insert_edge(
+                    contains.source_id(),
+                    contains.target_id(),
+                    cortex::edge_data_for(contains.relation_name(), None, None),
+                );
+                knowledge_provenance.add_relation(
+                    RelationProvenanceKey::from_relation(&contains),
+                    KnowledgeProvenance::Operator,
+                );
+            }
             let relation =
                 AuthenticatesTo::new(credential_id.0.clone(), entry.cluster_id.0.clone());
             graph.insert_edge(
@@ -727,6 +764,7 @@ mod planner_helper_tests {
         let cluster_id = cluster.entity_id();
         let mut credential = K8sCredential::new("https://demo").with_name("developer");
         credential.default_namespace = Some("default".to_string());
+        credential.active = true;
         let credential_id = credential.entity_id();
         let namespace_id = EntityId::new("ns/default");
         let origins =
@@ -745,6 +783,14 @@ mod planner_helper_tests {
         let mut campaign = Campaign::bootstrap_with_knowledge("test", initial.clone());
 
         assert!(campaign.entities.contains::<K8sCredential>(&credential_id));
+        let operator_host_id = EntityId::new("system/operator-host");
+        assert!(campaign
+            .entities
+            .contains::<OperatorHost>(&operator_host_id));
+        let host_contents = campaign.graph.targets_of(&operator_host_id, "contains");
+        assert_eq!(host_contents.len(), 2);
+        assert!(host_contents.contains(&&EntityId::new("c2/test")));
+        assert!(host_contents.contains(&&credential_id));
         assert_eq!(
             campaign
                 .graph

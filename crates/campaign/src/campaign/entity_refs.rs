@@ -1,11 +1,12 @@
 use ran_domain::{
     C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
     GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress,
-    K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Namespace, Pod, ReplicaSet,
-    ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
+    K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Namespace, OperatorHost, Pod,
+    ReplicaSet, ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
 };
 
 pub enum CampaignEntityRef<'a> {
+    OperatorHost(&'a OperatorHost),
     C2Server(&'a C2Server),
     Cluster(&'a K8sCluster),
     Node(&'a K8sNode),
@@ -85,6 +86,7 @@ macro_rules! delegate_entity_methods {
 
 impl<'a> CampaignEntityRef<'a> {
     delegate_entity_methods!(
+        OperatorHost,
         C2Server,
         Cluster,
         Node,

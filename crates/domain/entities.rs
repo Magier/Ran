@@ -71,6 +71,39 @@ fn slugify(input: &str) -> String {
 // C2 System
 // ---------------------------------------------------------------------------
 
+/// The machine running Ran and its local operator-controlled artifacts.
+///
+/// This is an environment boundary, not an execution target; unlike
+/// [`UnknownSystem`] it deliberately does not implement [`SystemEntity`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorHost {
+    pub name: String,
+}
+
+impl OperatorHost {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
+    }
+}
+
+impl Entity for OperatorHost {
+    fn entity_id(&self) -> EntityId {
+        EntityId::new("system/operator-host")
+    }
+
+    fn entity_name(&self) -> &str {
+        &self.name
+    }
+
+    fn entity_kind(&self) -> &str {
+        "OperatorHost"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 /// Local C2 entity representing Ran itself.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct C2Server {
@@ -1670,6 +1703,14 @@ impl Merge for C2Server {
             if !self.listeners.contains(l) {
                 self.listeners.push(l.clone());
             }
+        }
+    }
+}
+
+impl Merge for OperatorHost {
+    fn merge_from(&mut self, incoming: &Self) {
+        if self.name.is_empty() {
+            self.name = incoming.name.clone();
         }
     }
 }

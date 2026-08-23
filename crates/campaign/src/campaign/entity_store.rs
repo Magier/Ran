@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use ran_domain::{
     C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
     GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress,
-    K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Merge, Namespace, Pod, ReplicaSet,
-    ServiceAccount, StatefulSet, UnknownSystem,
+    K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Merge, Namespace, OperatorHost, Pod,
+    ReplicaSet, ServiceAccount, StatefulSet, UnknownSystem,
 };
 use serde::de::MapAccess;
 use serde::ser::SerializeMap;
@@ -273,6 +273,7 @@ impl Default for EntityStore {
     /// here and one variant to [`CampaignEntityRef`].  No other files need to change.
     fn default() -> Self {
         let mut s = Self::new();
+        s.register::<OperatorHost>("operator_hosts", |t| CampaignEntityRef::OperatorHost(t));
         s.register::<C2Server>("c2_servers", |t| CampaignEntityRef::C2Server(t));
         s.register::<K8sCluster>("clusters", |t| CampaignEntityRef::Cluster(t));
         s.register::<K8sNode>("nodes", |t| CampaignEntityRef::Node(t));

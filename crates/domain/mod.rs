@@ -12,8 +12,8 @@ pub use entities::{
     GcpAccessToken, GraphEntity, Job, K8sCluster, K8sCredential, K8sGateway, K8sGatewayListener,
     K8sHTTPBackend, K8sHTTPRoute, K8sIngress, K8sIngressPath, K8sIngressRule, K8sIngressTLS,
     K8sNode, K8sParentRef, K8sRole, K8sRoleBinding, K8sSecret, K8sService, K8sServicePort, Merge,
-    Namespace, Pod, PodPhase, PodSecurityAdmission, PssLevel, RbacSubject, ReplicaSet,
-    ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
+    Namespace, OperatorHost, Pod, PodPhase, PodSecurityAdmission, PssLevel, RbacSubject,
+    ReplicaSet, ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
 };
 pub use identity::{JwToken, ServiceAccountToken};
 pub use rbac::{RbacPermission, RbacScopeKind, RbacScopeSource};

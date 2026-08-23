@@ -229,8 +229,8 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
         let kind = entity.entity_kind().to_string();
         // Determine compound-node parent. Explicit relation-based parents take
         // precedence; namespaced resources fall back to their namespace node.
-        // C2, Cluster, and Namespace nodes are top-level to avoid nested compound
-        // nodes, which fcose cannot handle and will crash with invalid array length.
+        // Cluster and Namespace nodes are top-level unless an explicit hierarchy
+        // relation says otherwise. C2 is explicitly contained by OperatorHost.
         let parent = if let Some(p) = parent_nodes.get(&id) {
             Some(p.clone())
         } else {
@@ -296,6 +296,7 @@ pub(crate) fn serialize_campaign_entity_map(
     entity: &CampaignEntityRef<'_>,
 ) -> Option<HashMap<String, Value>> {
     match entity {
+        CampaignEntityRef::OperatorHost(e) => serialize_entity_map(e),
         CampaignEntityRef::C2Server(e) => serialize_entity_map(e),
         CampaignEntityRef::Cluster(e) => serialize_entity_map(e),
         CampaignEntityRef::Node(e) => serialize_entity_map(e),
