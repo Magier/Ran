@@ -202,11 +202,13 @@ pub fn apply_system_field_updates(
     for (name, path) in &updates.binaries {
         let should_write = match sys.has_binary(name) {
             BinaryPresence::Unknown => true,
-            BinaryPresence::Absent => true,
+            BinaryPresence::Absent => !path.is_empty(),
             BinaryPresence::Present(existing) => {
-                // Allow precision upgrades (e.g. "nmap" -> "/usr/bin/nmap")
-                // but do not overwrite a concrete absolute path with a weaker value.
-                is_more_precise_binary_path(&existing, path)
+                // A command-not-found result is direct, current evidence that a
+                // previously discovered binary is no longer available. Keep
+                // this reversible: a later non-empty update (for example after
+                // installing the package) replaces Absent above.
+                path.is_empty() || is_more_precise_binary_path(&existing, path)
             }
         };
 
@@ -290,5 +292,20 @@ mod tests {
             sys.has_binary("nmap"),
             ran_domain::BinaryPresence::Present("/usr/bin/nmap".to_string())
         );
+    }
+
+    #[test]
+    fn binary_update_replaces_stale_presence_with_negative_evidence() {
+        let mut sys = ran_domain::SystemInfo::default();
+        sys.set_binary("wget", "/usr/bin/wget");
+
+        let updates = SystemFieldUpdates {
+            binaries: HashMap::from([("wget".to_string(), String::new())]),
+            ..Default::default()
+        };
+
+        let changed = apply_system_field_updates(&mut sys, &updates);
+        assert_eq!(changed, 1);
+        assert_eq!(sys.has_binary("wget"), ran_domain::BinaryPresence::Absent);
     }
 }
