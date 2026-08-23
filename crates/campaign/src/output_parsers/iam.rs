@@ -467,10 +467,12 @@ pub(super) fn parse_self_subject_rules_review(
     if let Some(name) = credential_name {
         let mut credential = K8sCredential::new("").with_name(name);
         credential.entitlements = entitlements;
+        credential.entitlements_reviewed = true;
         facts.new_entities.push(Box::new(credential));
     } else if let Some((sa_name, sa_namespace)) = service_account {
         let mut sa = ServiceAccount::new(sa_name, sa_namespace);
         sa.entitlements = entitlements;
+        sa.entitlements_reviewed = true;
         facts.new_entities.push(Box::new(sa));
     }
 
@@ -1031,6 +1033,23 @@ mod tests {
             .expect("should be ServiceAccount");
         assert_eq!(updated_sa.entity_id().0, "ns/default/sa/mysa");
         assert!(!updated_sa.entitlements.is_empty());
+    }
+
+    #[test]
+    fn ssrr_parser_marks_empty_service_account_review_as_completed() {
+        let output = r#"{"status":{"resourceRules":[],"nonResourceRules":[]}}"#;
+
+        let result = parse_self_subject_rules_review(output, "", "ns/default/sa/mysa", "");
+
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected SuccessWithFacts, got {:?}", result);
+        };
+        let updated_sa = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<ServiceAccount>()
+            .expect("should be ServiceAccount");
+        assert!(updated_sa.entitlements.is_empty());
+        assert!(updated_sa.entitlements_reviewed);
     }
 
     #[test]

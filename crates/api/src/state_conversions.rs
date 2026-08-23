@@ -360,12 +360,16 @@ fn prune_entity_payload_for_ui(
     }
 
     if kind == "ServiceAccount" || kind == "K8sCredential" {
+        let entitlements_reviewed = data
+            .remove("entitlements_reviewed")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         // Rename `entitlements` → `can` and convert each permission's snake_case
         // field names to the camelCase names the frontend EntitlementInfo component expects.
         if let Some(entitlements) = data.remove("entitlements") {
             let can = rbac_permissions_to_ui(entitlements, kubetier);
             if let Value::Array(ref arr) = can {
-                if !arr.is_empty() {
+                if !arr.is_empty() || entitlements_reviewed {
                     data.insert("can".to_string(), can);
                 }
             }
@@ -569,8 +573,24 @@ mod tests {
     use campaign::{
         InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
     };
-    use ran_domain::{Entity, K8sCluster, K8sCredential, RbacPermission};
+    use ran_domain::{Entity, K8sCluster, K8sCredential, RbacPermission, ServiceAccount};
     use std::collections::BTreeSet;
+
+    #[test]
+    fn completed_empty_permission_review_exposes_empty_can() {
+        let mut account = ServiceAccount::new("empty", "default");
+        account.entitlements_reviewed = true;
+        let mut data = serialize_entity_map(&account).unwrap();
+
+        prune_entity_payload_for_ui(
+            account.entity_kind(),
+            &mut data,
+            &kubetier::Catalog::embedded(),
+        );
+
+        assert_eq!(data.get("can"), Some(&serde_json::json!([])));
+        assert!(!data.contains_key("entitlements_reviewed"));
+    }
 
     #[test]
     fn credential_payload_is_redacted_and_provenance_is_exposed() {

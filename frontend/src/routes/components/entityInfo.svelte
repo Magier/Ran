@@ -184,6 +184,8 @@
 		if (label === 'phase' && data === 'Running') return false;
 		// Hide empty owner_references
 		if (label === 'owner_references' && Array.isArray(data) && data.length === 0) return false;
+		// An explicit empty `can` means the permission review completed with no rules.
+		if (label === 'can' && Array.isArray(data)) return true;
 		// Empty field: only show if a TTP can discover it (the button is the point)
 		if (isEmpty(data)) return fieldTtpIndex.has(label);
 		return true;
@@ -454,8 +456,7 @@
 					</details>
 				{:else}
 					<div class="mb-1" class:field-changed={highlightedFields[label]}>
-					<span class="font-bold mr-1">{label}</span>
-					?
+					<span class="font-bold mr-1">{label}</span>none
 					</div>
 					<!-- <button class="btn btn-sm preset-filled-primary-500" disabled>🔍</button> -->
 				{/if}

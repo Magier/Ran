@@ -510,6 +510,9 @@ pub struct ServiceAccount {
     pub image_pull_secrets: Vec<String>,
     /// RBAC permissions this SA holds, populated after RBAC discovery.
     pub entitlements: Vec<RbacPermission>,
+    /// Whether an RBAC permission review completed, including with no permissions.
+    #[serde(default)]
+    pub entitlements_reviewed: bool,
 }
 
 impl ServiceAccount {
@@ -520,6 +523,7 @@ impl ServiceAccount {
             secret_names: Vec::new(),
             image_pull_secrets: Vec::new(),
             entitlements: Vec::new(),
+            entitlements_reviewed: false,
         }
     }
 
@@ -1399,6 +1403,9 @@ pub struct K8sCredential {
     /// RBAC permissions observed by a SelfSubjectRulesReview for this identity.
     #[serde(default)]
     pub entitlements: Vec<RbacPermission>,
+    /// Whether a permission review completed, including with no permissions.
+    #[serde(default)]
+    pub entitlements_reviewed: bool,
     /// API server URL (e.g. `https://10.96.0.1:6443`).
     pub endpoint: String,
     /// Base64-encoded CA certificate from the kubeconfig cluster entry.
@@ -1431,6 +1438,7 @@ impl K8sCredential {
             has_client_key: false,
             active: false,
             entitlements: Vec::new(),
+            entitlements_reviewed: false,
             endpoint,
             ca_data: None,
             token: None,
@@ -1772,6 +1780,7 @@ impl Merge for ServiceAccount {
                 self.entitlements.push(perm.clone());
             }
         }
+        self.entitlements_reviewed |= incoming.entitlements_reviewed;
         for name in &incoming.secret_names {
             if !self.secret_names.contains(name) {
                 self.secret_names.push(name.clone());
@@ -1894,6 +1903,7 @@ impl Merge for K8sCredential {
         self.has_client_certificate |= incoming.has_client_certificate;
         self.has_client_key |= incoming.has_client_key;
         self.active |= incoming.active;
+        self.entitlements_reviewed |= incoming.entitlements_reviewed;
         for permission in &incoming.entitlements {
             if !self.entitlements.contains(permission) {
                 self.entitlements.push(permission.clone());
