@@ -13,8 +13,9 @@ use crate::{Campaign, FactsUpdate, PendingView};
 // Built-in analyzers
 // ---------------------------------------------------------------------------
 
-/// For every new `Pod`, ensure the namespace entity exists and wire a
-/// `contains` relation from the Namespace to the Pod.
+/// For every new `Pod`, wire it to its known namespace. Namespace-unknown
+/// placeholders are attached directly to the sole known cluster until a later
+/// authoritative observation resolves their identity.
 pub struct PodNamespaceAnalyzer;
 
 impl InferenceRule for PodNamespaceAnalyzer {
@@ -29,12 +30,16 @@ impl InferenceRule for PodNamespaceAnalyzer {
             let Some(pod) = entity.as_any().downcast_ref::<Pod>() else {
                 continue;
             };
-            let Some(ns_name) = pod.namespace() else {
+            let Some(ns_name) = pod.namespace().filter(|ns| !ns.is_empty()) else {
+                let clusters = view.collect::<K8sCluster>();
+                if let [cluster] = clusters.as_slice() {
+                    inferred.new_relations.push(Box::new(Contains::new(
+                        cluster.entity_id().0,
+                        pod.entity_id().0,
+                    )));
+                }
                 continue;
             };
-            if ns_name.is_empty() {
-                continue;
-            }
 
             let (ns_id, new_ns) = view.ensure_namespace(ns_name);
             if let Some(ns) = new_ns {
@@ -1937,7 +1942,7 @@ mod tests {
     }
 
     #[test]
-    fn pod_without_namespace_is_ignored() {
+    fn pod_without_namespace_is_contained_by_cluster() {
         let campaign = test_campaign();
 
         // Build a pod with no namespace
@@ -1949,7 +1954,13 @@ mod tests {
         let rules = default_rules();
         update = run_rules_fixpoint(&campaign, &rules, update);
 
-        assert!(update.new_relations.is_empty());
+        let pod_id = EntityId::new("ns//pod/bare-pod");
+        let rel = update.new_relations.iter().find(|r| {
+            r.is::<Contains>()
+                && r.source_id().0 == "k8s/cluster/test-cluster"
+                && r.target_id() == &pod_id
+        });
+        assert!(rel.is_some(), "expected cluster→pod contains relation");
     }
 
     #[test]

@@ -649,6 +649,12 @@ export interface components {
             args?: {
                 [key: string]: string;
             };
+            /**
+             * Format: int64
+             * @description Maximum wall-clock time allowed for the complete command.
+             * @default 60
+             */
+            executionTimeoutSeconds: number;
             /** @description Free-text rationale for choosing this action at this point in the assessment — why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
             reasoning?: string;
         };

@@ -813,6 +813,7 @@ mod tests {
         ExecTtp {
             id: "cmd-fallback".to_string(),
             started_at_ms: 0,
+            execution_timeout_seconds: crate::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
             ttp: Ttp {
                 description: "test".to_string(),
                 ..Ttp::new("T0001", "Test TTP", "Execution")

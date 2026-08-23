@@ -34,6 +34,7 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
         exec_system_id: String::new(),
         auth_identity_id: None,
         started_at_ms: 0,
+        execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
         output_transform: None,
         is_cleanup: false,
         reasoning: String::new(),
@@ -696,6 +697,41 @@ fn action_request(target_id: &str, exec_system_id: Option<&str>) -> ExecuteActio
         args: HashMap::new(),
         reasoning: None,
     }
+}
+
+#[test]
+fn prepare_action_applies_custom_execution_timeout() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![Procedure::new("local", "noop")],
+        ..Ttp::new("test-ttp", "Test TTP", "Execution")
+    }]);
+    let mut request = action_request("k8s/cluster/dev", None);
+    request
+        .args
+        .insert("__EXECUTION_TIMEOUT_SECONDS".to_string(), "300".to_string());
+
+    let exec = campaign.prepare_action(request, &armory).unwrap();
+
+    assert_eq!(exec.execution_timeout_seconds, 300);
+    assert!(!exec.args.contains_key("__EXECUTION_TIMEOUT_SECONDS"));
+}
+
+#[test]
+fn prepare_action_rejects_out_of_range_execution_timeout() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let armory = minimal_armory("test-ttp");
+    let mut request = action_request("k8s/cluster/dev", None);
+    request.args.insert(
+        "__EXECUTION_TIMEOUT_SECONDS".to_string(),
+        "3601".to_string(),
+    );
+
+    assert!(matches!(
+        campaign.prepare_action(request, &armory),
+        Err(ExecuteActionError::InvalidInput(message))
+            if message.contains("executionTimeoutSeconds")
+    ));
 }
 
 fn insert_test_auth_service_account(campaign: &mut Campaign) -> String {
@@ -1378,6 +1414,7 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
         exec_system_id: target_id.to_string(),
         auth_identity_id: None,
         started_at_ms: 0,
+        execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
         output_transform: None,
         is_cleanup: false,
         reasoning: String::new(),

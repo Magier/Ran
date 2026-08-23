@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 
 /// The backend ID for the built-in Ran C2.
 pub const BUILTIN_C2_ID: &str = "c2/ran";
+pub const DEFAULT_EXECUTION_TIMEOUT_SECONDS: u64 = 60;
+
+fn default_execution_timeout_seconds() -> u64 {
+    DEFAULT_EXECUTION_TIMEOUT_SECONDS
+}
 
 /// Alias to the domain-owned output-transform enum.
 pub type OutputTransform = OutputTransformKind;
@@ -32,6 +37,9 @@ pub struct ExecTtp {
     pub auth_identity_id: Option<String>,
     /// Unix timestamp (milliseconds) when the command was dispatched.
     pub started_at_ms: u64,
+    /// Maximum wall-clock time allowed for this command to complete.
+    #[serde(default = "default_execution_timeout_seconds")]
+    pub execution_timeout_seconds: u64,
     /// Output post-processing required before parsers run.
     /// `None` means the raw output can be parsed directly.
     #[serde(default)]

@@ -238,13 +238,19 @@ impl C2Backend for ShellSession {
             }
         };
 
-        match tokio::time::timeout(Duration::from_secs(60), read_fut).await {
+        let timeout_seconds = cmd.execution_timeout_seconds.max(1);
+        match tokio::time::timeout(Duration::from_secs(timeout_seconds), read_fut).await {
             Ok(Ok((code, out))) => {
                 exit_code = code;
                 output = out;
             }
             Ok(Err(e)) => return exec_error(&cmd.id, e),
-            Err(_) => return exec_error(&cmd.id, "shell command timed out after 60s".to_string()),
+            Err(_) => {
+                return exec_error(
+                    &cmd.id,
+                    format!("shell command timed out after {timeout_seconds}s"),
+                )
+            }
         }
 
         let stdout = output.trim_end().to_string();
@@ -406,6 +412,7 @@ mod tests {
         ExecTtp {
             id: "test-cmd-1".to_string(),
             started_at_ms: 0,
+            execution_timeout_seconds: crate::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
             ttp: Ttp::new("T0001", "Test", "Execution"),
             procedure: Procedure::new("proc-1", command),
             args: HashMap::new(),

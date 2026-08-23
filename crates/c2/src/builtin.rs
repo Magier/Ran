@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use k8s::{Client, PodExecOutput};
@@ -59,72 +60,14 @@ impl BuiltinC2 {
                 "builtin c2 executing command through pod exec"
             );
 
-            match self
-                .pod_exec_client
-                .exec_pod_command(namespace, pod_name, &cmd.procedure.command)
-                .await
-            {
-                Ok(output) if output.exit_code == 0 => {
-                    let stdout = output.stdout.trim().to_string();
-                    let stderr = output.stderr.trim().to_string();
-
-                    // Keep stdout and stderr as separate entries so downstream
-                    // output parsers can consume clean stdout JSON/table data.
-                    // Preserve stdout at index 0 when stderr is present.
-                    let mut results = Vec::new();
-                    if !stdout.is_empty() {
-                        results.push(stdout);
-                    }
-                    if !stderr.is_empty() {
-                        if results.is_empty() {
-                            results.push(String::new());
-                        }
-                        results.push(stderr);
-                    }
-
-                    return TtpExecuted {
-                        id: cmd.id.clone(),
-                        success: true,
-                        results,
-                        exit_code: 0,
-                        fail_reason: String::new(),
-                        session_connected: None,
-                    };
-                }
-                Ok(output) => {
-                    let mut results = Vec::new();
-                    if !output.stdout.trim().is_empty() {
-                        results.push(output.stdout.trim().to_string());
-                    }
-                    if !output.stderr.trim().is_empty() {
-                        results.push(output.stderr.trim().to_string());
-                    }
-                    let fail_reason =
-                        derive_fail_reason(&output.stderr, &output.stdout, output.exit_code);
-                    warn!(
-                        cmd_id = %cmd.id,
-                        target_id = %cmd.target_id,
-                        exit_code = output.exit_code,
-                        stderr = %output.stderr.trim(),
-                        "builtin c2 pod exec command failed"
-                    );
-                    return TtpExecuted {
-                        id: cmd.id.clone(),
-                        success: false,
-                        results,
-                        exit_code: output.exit_code,
-                        fail_reason,
-                        session_connected: None,
-                    };
-                }
-                Err(err) => {
-                    let reason = err.to_string();
-                    warn!(
-                        cmd_id = %cmd.id,
-                        target_id = %cmd.target_id,
-                        error = %reason,
-                        "builtin c2 pod exec infrastructure failure"
-                    );
+            let timeout_seconds = cmd.execution_timeout_seconds.max(1);
+            let execution =
+                self.pod_exec_client
+                    .exec_pod_command(namespace, pod_name, &cmd.procedure.command);
+            match tokio::time::timeout(Duration::from_secs(timeout_seconds), execution).await {
+                Err(_) => {
+                    let reason = format!("pod exec command timed out after {timeout_seconds}s");
+                    warn!(cmd_id = %cmd.id, target_id = %cmd.target_id, %timeout_seconds, "{}", reason);
                     return TtpExecuted {
                         id: cmd.id.clone(),
                         success: false,
@@ -134,6 +77,78 @@ impl BuiltinC2 {
                         session_connected: None,
                     };
                 }
+                Ok(result) => match result {
+                    Ok(output) if output.exit_code == 0 => {
+                        let stdout = output.stdout.trim().to_string();
+                        let stderr = output.stderr.trim().to_string();
+
+                        // Keep stdout and stderr as separate entries so downstream
+                        // output parsers can consume clean stdout JSON/table data.
+                        // Preserve stdout at index 0 when stderr is present.
+                        let mut results = Vec::new();
+                        if !stdout.is_empty() {
+                            results.push(stdout);
+                        }
+                        if !stderr.is_empty() {
+                            if results.is_empty() {
+                                results.push(String::new());
+                            }
+                            results.push(stderr);
+                        }
+
+                        return TtpExecuted {
+                            id: cmd.id.clone(),
+                            success: true,
+                            results,
+                            exit_code: 0,
+                            fail_reason: String::new(),
+                            session_connected: None,
+                        };
+                    }
+                    Ok(output) => {
+                        let mut results = Vec::new();
+                        if !output.stdout.trim().is_empty() {
+                            results.push(output.stdout.trim().to_string());
+                        }
+                        if !output.stderr.trim().is_empty() {
+                            results.push(output.stderr.trim().to_string());
+                        }
+                        let fail_reason =
+                            derive_fail_reason(&output.stderr, &output.stdout, output.exit_code);
+                        warn!(
+                            cmd_id = %cmd.id,
+                            target_id = %cmd.target_id,
+                            exit_code = output.exit_code,
+                            stderr = %output.stderr.trim(),
+                            "builtin c2 pod exec command failed"
+                        );
+                        return TtpExecuted {
+                            id: cmd.id.clone(),
+                            success: false,
+                            results,
+                            exit_code: output.exit_code,
+                            fail_reason,
+                            session_connected: None,
+                        };
+                    }
+                    Err(err) => {
+                        let reason = err.to_string();
+                        warn!(
+                            cmd_id = %cmd.id,
+                            target_id = %cmd.target_id,
+                            error = %reason,
+                            "builtin c2 pod exec infrastructure failure"
+                        );
+                        return TtpExecuted {
+                            id: cmd.id.clone(),
+                            success: false,
+                            results: vec![reason.clone()],
+                            exit_code: 1,
+                            fail_reason: reason,
+                            session_connected: None,
+                        };
+                    }
+                },
             }
         }
 
@@ -390,6 +405,7 @@ mod tests {
         ExecTtp {
             id: "cmd-1".to_string(),
             started_at_ms: 0,
+            execution_timeout_seconds: crate::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
             ttp: Ttp {
                 description: "test".to_string(),
                 ..Ttp::new("T0001", "Test TTP", "Execution")
