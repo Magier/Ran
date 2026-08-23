@@ -141,8 +141,9 @@ impl Armory {
 
     /// For each non-tool TTP, replace any procedure whose `tool` field names a
     /// known slot (e.g. `"http-request"`) with one cloned procedure per
-    /// concrete tool that fills that slot.  The clone receives the concrete
-    /// tool's ID as both its `id` and `tool` field.
+    /// concrete tool that fills that slot. Structured `http_request`
+    /// procedures implicitly reference the `"http-request"` slot. The clone
+    /// receives the concrete tool's ID as both its `id` and `tool` field.
     fn expand_slot_procedures(ttps: &mut [Ttp]) {
         // Build slot → [concrete tool IDs] map from tool TTPs.
         let mut slot_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -168,7 +169,12 @@ impl Armory {
             let mut expanded: Vec<Procedure> = Vec::with_capacity(original.len());
 
             for proc in original {
-                let slot_tools = proc.tool.as_deref().and_then(|t| slot_map.get(t));
+                let slot = if proc.http_request.is_some() {
+                    Some("http-request")
+                } else {
+                    proc.tool.as_deref()
+                };
+                let slot_tools = slot.and_then(|slot| slot_map.get(slot));
 
                 match slot_tools {
                     Some(tool_ids) => {
@@ -419,6 +425,50 @@ mod tests {
     use super::*;
 
     #[test]
+    fn expands_http_request_template_for_every_grounding_tool() {
+        let tool = |id: &str| Ttp {
+            tool_slot: Some("http-request".to_string()),
+            ..Ttp::new(id, id, "Execution")
+        };
+        let mut ttps = vec![
+            tool("wget"),
+            tool("curl"),
+            tool("new-http-client"),
+            Ttp {
+                procedures: vec![Procedure {
+                    http_request: Some(serde_json::json!({
+                        "method": "GET",
+                        "url": "https://example.test"
+                    })),
+                    ..Procedure::new("proc-2", "")
+                }],
+                ..Ttp::new("request", "Request", "Discovery")
+            },
+        ];
+
+        Armory::expand_slot_procedures(&mut ttps);
+
+        let mut groundings: Vec<_> = ttps[3]
+            .procedures
+            .iter()
+            .map(|procedure| (procedure.id.as_str(), procedure.tool.as_deref()))
+            .collect();
+        groundings.sort_unstable();
+        assert_eq!(
+            groundings,
+            vec![
+                ("curl", Some("curl")),
+                ("new-http-client", Some("new-http-client")),
+                ("wget", Some("wget")),
+            ]
+        );
+        assert!(ttps[3]
+            .procedures
+            .iter()
+            .all(|procedure| procedure.http_request.is_some()));
+    }
+
+    #[test]
     fn rejects_legacy_token_authentication_for_kubernetes_procedures() {
         let ttp = Ttp {
             params: vec![
@@ -549,8 +599,8 @@ mod tests {
             let ttp = armory.get_ttp(ttp_id).expect("Kubernetes discovery TTP");
             assert_eq!(
                 ttp.procedures.len(),
-                2,
-                "{ttp_id} must retain both kubectl and HTTP procedures"
+                3,
+                "{ttp_id} must retain kubectl plus every grounded HTTP procedure"
             );
             assert!(
                 ttp.procedures
@@ -569,6 +619,14 @@ mod tests {
                 }),
                 "{ttp_id} must retain its authenticated HTTP request procedure"
             );
+            for tool in ["curl", "wget"] {
+                assert!(
+                    ttp.procedures.iter().any(|procedure| {
+                        procedure.id == tool && procedure.tool.as_deref() == Some(tool)
+                    }),
+                    "{ttp_id} must ground its HTTP request through {tool}"
+                );
+            }
         }
 
         let node_proxy = armory
