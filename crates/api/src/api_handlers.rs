@@ -125,6 +125,8 @@ pub(crate) struct ExecuteActionCmdPayload {
     #[serde(rename = "procedureId")]
     pub(crate) procedure_id: Option<String>,
     pub(crate) args: Option<HashMap<String, String>>,
+    #[serde(rename = "executionTimeoutSeconds")]
+    pub(crate) execution_timeout_seconds: Option<u64>,
     /// Optional free-text rationale for this step, recorded on the resulting
     /// execution record. Strongly encouraged when driving the campaign
     /// programmatically so the timeline explains itself.
@@ -451,6 +453,13 @@ pub(crate) async fn execute_action_handler<S: ApiService>(
     State(service): State<S>,
     axum::Json(cmd): axum::Json<ExecuteActionCmdPayload>,
 ) -> Result<axum::Json<ExecuteActionAck>, ApiError> {
+    let mut args = cmd.args.unwrap_or_default();
+    if let Some(seconds) = cmd.execution_timeout_seconds {
+        args.insert(
+            "__EXECUTION_TIMEOUT_SECONDS".to_string(),
+            seconds.to_string(),
+        );
+    }
     let execution = service
         .execute_action(campaign::ExecuteActionRequest {
             action_id: cmd.action_id,
@@ -458,7 +467,7 @@ pub(crate) async fn execute_action_handler<S: ApiService>(
             auth_identity_id: cmd.auth_identity_id,
             target_id: cmd.target_id,
             procedure_id: cmd.procedure_id,
-            args: cmd.args.unwrap_or_default(),
+            args,
             reasoning: cmd.reasoning,
         })
         .await?;

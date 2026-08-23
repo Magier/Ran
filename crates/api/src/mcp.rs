@@ -274,6 +274,9 @@ impl<S: ApiService> RanMcpHandler<S> {
         let target_id = req_str(args, "target_id")?.to_owned();
         let exec_system_id = opt_str(args, "exec_system_id").map(str::to_owned);
         let procedure_id = opt_str(args, "procedure_id").map(str::to_owned);
+        let execution_timeout_seconds = args
+            .get("execution_timeout_seconds")
+            .and_then(Value::as_u64);
 
         // Validate that target_id is a known entity in the campaign graph.
         // This prevents silent failures when the agent passes a workload/deployment
@@ -294,7 +297,7 @@ impl<S: ApiService> RanMcpHandler<S> {
             )));
         }
 
-        let extra_args: std::collections::HashMap<String, String> = args
+        let mut extra_args: std::collections::HashMap<String, String> = args
             .get("args")
             .and_then(Value::as_object)
             .map(|m| {
@@ -303,6 +306,12 @@ impl<S: ApiService> RanMcpHandler<S> {
                     .collect()
             })
             .unwrap_or_default();
+        if let Some(seconds) = execution_timeout_seconds {
+            extra_args.insert(
+                "__EXECUTION_TIMEOUT_SECONDS".to_string(),
+                seconds.to_string(),
+            );
+        }
 
         let reasoning = opt_str(args, "reasoning")
             .map(str::to_owned)
@@ -332,10 +341,15 @@ impl<S: ApiService> RanMcpHandler<S> {
         }))
     }
 
-    /// Poll execution records until the given cmd_id appears or timeout (60s).
+    /// Poll execution records until the given cmd_id appears or the requested timeout.
     async fn tool_wait_for_result(&self, args: &Value) -> Result<CallToolResult, McpError> {
         let cmd_id = req_str(args, "cmd_id")?.to_owned();
-        let deadline = Instant::now() + Duration::from_secs(60);
+        let timeout_seconds = args
+            .get("timeout_seconds")
+            .and_then(Value::as_u64)
+            .unwrap_or(60)
+            .clamp(1, 3600);
+        let deadline = Instant::now() + Duration::from_secs(timeout_seconds + 5);
 
         loop {
             let campaign = self.api.get_campaign().await.map_err(api_err)?;
@@ -372,7 +386,7 @@ impl<S: ApiService> RanMcpHandler<S> {
 
             if Instant::now() >= deadline {
                 return Err(internal(format!(
-                    "timeout: cmd `{cmd_id}` not completed within 60s"
+                    "timeout: cmd `{cmd_id}` not completed within {timeout_seconds}s"
                 )));
             }
 
@@ -648,6 +662,7 @@ fn tool_defs() -> Vec<Tool> {
                     "exec_system_id": { "type": "string", "description": "ID of the system to run the command from (optional)" },
                     "auth_identity_id": { "type": "string", "description": "Value of the TTP's K8S_AUTH parameter. Required for Kubernetes procedures; select an eligible captured ServiceAccount or active K8sCredential." },
                     "procedure_id": { "type": "string", "description": "Specific procedure variant to use (optional)" },
+                    "execution_timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 60, "description": "Maximum wall-clock time for the command" },
                     "args": { "type": "object", "description": "TTP parameter overrides (key-value string pairs)", "additionalProperties": { "type": "string" } },
                     "reasoning": { "type": "string", "description": "STRONGLY ENCOURAGED. Your rationale for running this action at this point in the assessment: what you expect it to reveal or achieve, why this target, and how it follows from prior findings. Recorded on the execution record for audit and replay. Provide it on every call unless truly trivial." }
                 }
@@ -655,12 +670,13 @@ fn tool_defs() -> Vec<Tool> {
         ),
         Tool::new(
             "wait_for_result",
-            "Block until a previously enqueued action completes (up to 60s). Returns stdout, stderr, and success status.",
+            "Block until a previously enqueued action completes. Returns stdout, stderr, and success status.",
             schema(json!({
                 "type": "object",
                 "required": ["cmd_id"],
                 "properties": {
-                    "cmd_id": { "type": "string", "description": "Command ID returned by execute_action" }
+                    "cmd_id": { "type": "string", "description": "Command ID returned by execute_action" },
+                    "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 60, "description": "How long to wait for the result" }
                 }
             })),
         ),

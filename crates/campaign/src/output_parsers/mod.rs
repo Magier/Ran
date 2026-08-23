@@ -701,6 +701,7 @@ mod tests {
             exec_system_id: String::new(),
             auth_identity_id: None,
             started_at_ms: 0,
+            execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
             output_transform: None,
             is_cleanup: false,
             reasoning: String::new(),

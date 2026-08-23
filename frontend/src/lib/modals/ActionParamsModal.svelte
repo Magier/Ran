@@ -12,7 +12,7 @@
 		targetId: string;
 		ttp: TTP;
 		argContext: Record<string, any>;
-		onExecute: (ttpId: string, execSystemId: string, authIdentityId: string, procedureId: string, args: Record<string, string>) => void;
+		onExecute: (ttpId: string, execSystemId: string, authIdentityId: string, procedureId: string, args: Record<string, string>, executionTimeoutSeconds: number) => void;
 		onCancel: () => void;
 	}
 	let { targetId = $bindable(), ttp, argContext, onExecute, onCancel }: ParamProps = $props();
@@ -49,6 +49,7 @@
 	let eligibleAuthIdentities = $state<AuthIdentity[]>([]);
 	let selectedAuthIdentityId = $state('');
 	let formElement: HTMLFormElement | undefined = $state();
+	let executionTimeoutSeconds = $state(60);
 
 	const compromisedSystems = $derived(campaignState.getCompromisedSystems());
 	const execSystemOptions = $derived<ComboboxOption[]>(
@@ -59,6 +60,11 @@
 	const selectedExecSystem = $derived(
 		compromisedSystems.find(e => e.id === selectedExecSystemId)
 	);
+	const hasAdvancedSettings = $derived.by(() => {
+		const procedure = ttp.procedures?.find(candidate => candidate.id === procedureId)
+			?? ttp.procedures?.[0];
+		return !!procedure?.command?.trim() && !procedure.isLocalCommand;
+	});
 	$effect(() => {
 		const actionId = ttp?.id;
 		const selectedTargetId = targetId;
@@ -615,7 +621,7 @@
 			{} as { [key: string]: string }
 		);
 
-		onExecute(ttp.id, selectedExecSystemId, authIdentityId, procedureId, argsDict);
+		onExecute(ttp.id, selectedExecSystemId, authIdentityId, procedureId, argsDict, executionTimeoutSeconds);
 	}
 
 	function executingSystemHasTool(tool: string): boolean {
@@ -840,6 +846,24 @@
 		/> -->
 	</div>
 {/each}
+			{/if}
+			{#if hasAdvancedSettings}
+			<details class="mt-4 text-xs">
+				<summary class="cursor-pointer font-normal opacity-60 hover:opacity-100">Advanced settings</summary>
+				<label class="label mt-3" for="executionTimeoutSeconds">
+					<span class="label-text text-xs md:text-sm lg:text-base">Execution timeout (seconds)</span>
+					<input
+						id="executionTimeoutSeconds"
+						class="input mt-2 text-xs md:text-sm lg:text-base"
+						type="number"
+						min="1"
+						max="3600"
+						required
+						bind:value={executionTimeoutSeconds}
+					/>
+					<span class="text-xs opacity-70">Maximum time allowed for the complete command. Default: 60 seconds.</span>
+				</label>
+			</details>
 			{/if}
 	</article>
 	<footer class="flex justify-end gap-4 flex-shrink-0 pt-4">

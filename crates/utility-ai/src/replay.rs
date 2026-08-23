@@ -207,6 +207,7 @@ fn reconstruct_cmd(rec: &ExecutionRecord, armory: &[Ttp]) -> Option<ExecTtp> {
         exec_system_id: rec.exec_system_id.clone(),
         auth_identity_id: rec.auth_identity_id.clone(),
         started_at_ms: rec.started_at_ms,
+        execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
         // Stored `results` are already post-unwrap, so no transform on replay.
         output_transform: None,
         is_cleanup: rec.is_cleanup,

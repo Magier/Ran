@@ -40,6 +40,16 @@ fn validate_request(request: &ExecuteActionRequest) -> Result<(), ExecuteActionE
             "actionId and targetId are required".to_string(),
         ));
     }
+    if let Some(value) = request.args.get("__EXECUTION_TIMEOUT_SECONDS") {
+        let valid = value
+            .parse::<u64>()
+            .is_ok_and(|seconds| (1..=3600).contains(&seconds));
+        if !valid {
+            return Err(ExecuteActionError::InvalidInput(
+                "executionTimeoutSeconds must be between 1 and 3600".to_string(),
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -676,13 +686,18 @@ impl Campaign {
     /// conflicting.
     pub fn prepare_action(
         &mut self,
-        request: ExecuteActionRequest,
+        mut request: ExecuteActionRequest,
         armory: &Armory,
     ) -> Result<ExecTtp, ExecuteActionError> {
         // Stage 1: validate inputs and look up static data.
         validate_request(&request)?;
         self.assert_target_exists(&request.target_id)?;
         let reasoning = request.reasoning.unwrap_or_default();
+        let execution_timeout_seconds = request
+            .args
+            .remove("__EXECUTION_TIMEOUT_SECONDS")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS);
         let (ttp, args) = resolve_ttp_and_defaults(&request.action_id, request.args, armory)?;
         let mut exec = self.prepare_action_with_ttp(
             request.target_id,
@@ -694,6 +709,7 @@ impl Campaign {
             armory,
         )?;
         exec.reasoning = reasoning;
+        exec.execution_timeout_seconds = execution_timeout_seconds;
         Ok(exec)
     }
 
@@ -1016,6 +1032,7 @@ impl Campaign {
             exec_system_id: route.backend_id,
             auth_identity_id,
             started_at_ms: current_time_millis(),
+            execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
             output_transform: route.output_transform,
             is_cleanup: false,
             reasoning: String::new(),

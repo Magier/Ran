@@ -20,11 +20,38 @@ use crate::edge::EdgeData;
 /// - **NoSelfEdge** — source and target must differ (hard reject).
 /// - **PodSingleNode** — a pod may carry at most one `runs-on` edge; an
 ///   incoming one replaces the old one (K8s rescheduling is valid).
+/// - **SingleContainer** — an entity may have at most one incoming `contains`
+///   edge; a more specific parent replaces its previous parent.
 #[derive(Debug, Clone)]
 pub struct KnowledgeGraph {
     pub(crate) graph: StableGraph<EntityId, EdgeData>,
     /// `O(1)` lookup from entity id to its node index.
     pub(crate) index: HashMap<EntityId, NodeIndex>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::edge::edge_data_for;
+
+    #[test]
+    fn contains_replaces_the_previous_parent() {
+        let mut graph = KnowledgeGraph::new();
+        let cluster = EntityId::new("k8s/cluster/dev");
+        let namespace = EntityId::new("ns/prod");
+        let pod = EntityId::new("ns/prod/pod/api");
+
+        graph.insert_edge(&cluster, &pod, edge_data_for("contains", None, None));
+        graph.insert_edge(&namespace, &pod, edge_data_for("contains", None, None));
+
+        let contains: Vec<_> = graph
+            .to_relation_summaries()
+            .into_iter()
+            .filter(|relation| relation.name == "contains" && relation.target_id == pod.0)
+            .collect();
+        assert_eq!(contains.len(), 1);
+        assert_eq!(contains[0].source_id, namespace.0);
+    }
 }
 
 impl Default for KnowledgeGraph {
@@ -125,6 +152,8 @@ impl KnowledgeGraph {
     /// - **NoSelfEdge**: returns `None` if `src == tgt`.
     /// - **PodSingleNode**: any existing `runs-on` edge from `src` is removed
     ///   before the new one is added (K8s rescheduling is valid).
+    /// - **SingleContainer**: a new `contains` edge replaces any existing
+    ///   containment parent of `tgt`.
     ///
     /// Parallel edges (same `src`/`tgt`, different `relation_name`) are allowed.
     pub fn insert_edge(
@@ -146,6 +175,18 @@ impl KnowledgeGraph {
                 .graph
                 .edges_directed(src_idx, Direction::Outgoing)
                 .filter(|e| e.weight().relation_name == "runs-on")
+                .map(|e| e.id())
+                .collect();
+            for idx in stale {
+                self.graph.remove_edge(idx);
+            }
+        }
+
+        if data.relation_name == "contains" {
+            let stale: Vec<EdgeIndex> = self
+                .graph
+                .edges_directed(tgt_idx, Direction::Incoming)
+                .filter(|e| e.weight().relation_name == "contains")
                 .map(|e| e.id())
                 .collect();
             for idx in stale {

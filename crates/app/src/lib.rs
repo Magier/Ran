@@ -2161,6 +2161,7 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
 
     let cmd_id = exec.id.clone();
     let grounded_command = exec.procedure.command.clone();
+    let timeout_seconds = exec.execution_timeout_seconds.max(1);
 
     println!("Triggering {} on {}", cfg.action_id, pod_id);
     println!("Command: {}", grounded_command);
@@ -2170,12 +2171,14 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("failed to dispatch action: {}", e))?;
 
-    // Phase 1: wait up to 60s for TtpExecuted with our cmd_id.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    // Phase 1: wait for the command's configured execution deadline.
+    // Leave a small delivery grace after the backend deadline so its timeout
+    // result can reach the event bus instead of racing this outer waiter.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_seconds + 5);
     let result = loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
-            anyhow::bail!("timed out waiting for action result after 60s");
+            anyhow::bail!("timed out waiting for action result after {timeout_seconds}s");
         }
         match tokio::time::timeout(remaining, event_rx.recv()).await {
             Ok(Ok(CampaignEvent::TtpExecuted {
@@ -2193,7 +2196,7 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
             }
             Ok(Ok(_)) => continue,
             Ok(Err(_)) | Err(_) => {
-                anyhow::bail!("timed out waiting for action result after 60s");
+                anyhow::bail!("timed out waiting for action result after {timeout_seconds}s");
             }
         }
     };

@@ -93,7 +93,6 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> P
     }
 
     let mut facts = FactsUpdate::default();
-    let source_ns = source_namespace(source_id);
     let observed_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()
@@ -107,7 +106,7 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> P
             continue;
         }
 
-        let discovered = classify_discovered_host(ip_addr, host.hostname.as_deref(), source_ns);
+        let discovered = classify_discovered_host(ip_addr, host.hostname.as_deref());
         let entity_id = discovered.entity_id().0.clone();
         facts.new_entities.push(discovered);
 
@@ -200,15 +199,6 @@ fn trimmed_text(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_string())
 }
 
-fn source_namespace(source_id: &str) -> Option<&str> {
-    let parts: Vec<&str> = source_id.splitn(4, '/').collect();
-    if parts.len() == 4 && parts[0] == "ns" && parts[2] == "pod" && !parts[1].is_empty() {
-        Some(parts[1])
-    } else {
-        None
-    }
-}
-
 fn parse_cidr_v4(cidr: &str) -> Option<(Ipv4Addr, u8)> {
     let (base, prefix) = cidr.split_once('/')?;
     let base = base.trim().parse::<Ipv4Addr>().ok()?;
@@ -250,11 +240,7 @@ fn is_ip_in_scope(ip: IpAddr, cidr: Option<&str>) -> bool {
     ipv4_in_cidr(ipv4, base, prefix)
 }
 
-fn classify_discovered_host(
-    ip: IpAddr,
-    hostname: Option<&str>,
-    source_ns: Option<&str>,
-) -> Box<dyn Entity> {
+fn classify_discovered_host(ip: IpAddr, hostname: Option<&str>) -> Box<dyn Entity> {
     let ip_str = ip.to_string();
     let ip_kebab = ip_str.replace('.', "-");
 
@@ -271,8 +257,11 @@ fn classify_discovered_host(
             .filter(|h| !h.trim().is_empty())
             .map(|h| h.to_string())
             .unwrap_or_else(|| format!("pod-{}", ip_kebab));
-        let ns = source_ns.unwrap_or("");
-        let mut pod = Pod::new(name, ns);
+        let mut pod = Pod::new(name, "");
+        // The scanner's namespace says where the observation came from, not
+        // where the observed IP lives. Keep the placeholder unqualified until
+        // DNS or authoritative Kubernetes data supplies a namespace.
+        pod.meta.namespace = None;
         pod.system.ips.push(ip);
         return Box::new(pod);
     }
@@ -876,8 +865,24 @@ mod tests {
             .as_any()
             .downcast_ref::<Pod>()
             .unwrap();
-        assert_eq!(pod.namespace(), Some("dungeon"));
+        assert_eq!(pod.namespace(), None);
         assert!(pod.system.ips.iter().any(|ip| ip.to_string() == "10.0.0.5"));
+    }
+
+    #[test]
+    fn parse_nmap_ip_only_host_does_not_inherit_scanner_namespace() {
+        let stdout = "Nmap scan report for 10.0.0.137\nHost is up (0.00080s latency).\nAll 100 scanned ports on 10.0.0.137 are in ignored states.\n";
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_nmap(stdout, "ns/dungeon/pod/scanner", None)
+        else {
+            panic!("expected SuccessWithFacts");
+        };
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .unwrap();
+        assert_eq!(pod.namespace(), None);
+        assert_eq!(pod.entity_name(), "pod-10-0-0-137");
     }
 
     #[test]

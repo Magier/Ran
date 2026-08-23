@@ -483,14 +483,14 @@
 		}
 	});
 
-	async function onExecuteTTP(ttpId: string, execSystemId: string, authIdentityId: string, procedureId: string, args: Record<string, string>) {
+	async function onExecuteTTP(ttpId: string, execSystemId: string, authIdentityId: string, procedureId: string, args: Record<string, string>, executionTimeoutSeconds: number) {
 		const ttp = campaignState.getTtpById(ttpId);
 		const targetName = campaignState.getEntityById(selectedObjectId)?.name ?? selectedObjectId;
 
 		closeModal();
 
 		try {
-			const result = await ExecuteAction({ actionId: ttpId, execSystemId, authIdentityId: authIdentityId || undefined, targetId: selectedObjectId, procedureId, args });
+			const result = await ExecuteAction({ actionId: ttpId, execSystemId, authIdentityId: authIdentityId || undefined, targetId: selectedObjectId, procedureId, args, executionTimeoutSeconds });
 			const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
 			const differsFromTarget = execSystemId && execSystemId !== selectedObjectId;
 			timeline.addTtpAction({

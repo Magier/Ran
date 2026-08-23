@@ -19,10 +19,6 @@ parameters:
     type: int
     description: the number of concurrent threads to use
     default: 10
-  TIMEOUT:
-    type: int
-    description: the timeout duration for each request
-    default: 3
 procedures:
   - key: nmap
     tool: nmap
