@@ -59,6 +59,11 @@ impl C2Handle {
 
 pub struct C2Manager {
     cmd_rx: mpsc::Receiver<ExecTtp>,
+    executor: C2Executor,
+}
+
+#[derive(Clone)]
+struct C2Executor {
     event_bus: C2EventBus,
     backends: Backends,
     k8s: Option<Client>,
@@ -95,9 +100,11 @@ impl C2Manager {
             event_bus.clone(),
             Self {
                 cmd_rx,
-                event_bus,
-                backends,
-                k8s: Some(k8s),
+                executor: C2Executor {
+                    event_bus,
+                    backends,
+                    k8s: Some(k8s),
+                },
             },
         )
     }
@@ -119,28 +126,58 @@ impl C2Manager {
             event_bus.clone(),
             Self {
                 cmd_rx,
-                event_bus,
-                backends,
-                k8s: None,
+                executor: C2Executor {
+                    event_bus,
+                    backends,
+                    k8s: None,
+                },
             },
         )
     }
 
     pub async fn run(mut self) {
-        while let Some(cmd) = self.cmd_rx.recv().await {
-            let event = self.execute_command(&cmd).await;
-            if self
-                .event_bus
-                .publish(C2Event::TtpExecuted {
-                    cmd: Box::new(cmd),
-                    event,
-                })
-                .is_err()
-            {
-                debug!("no c2 event subscribers currently registered");
+        let mut executions = tokio::task::JoinSet::new();
+        loop {
+            tokio::select! {
+                cmd = self.cmd_rx.recv() => match cmd {
+                    Some(cmd) => {
+                        let executor = self.executor.clone();
+                        executions.spawn(async move { executor.execute_and_publish(cmd).await });
+                    }
+                    None => break,
+                },
+                Some(result) = executions.join_next(), if !executions.is_empty() => {
+                    if let Err(error) = result {
+                        warn!(%error, "c2 command task failed");
+                    }
+                }
+            }
+        }
+
+        // Closing the command channel is a graceful shutdown: allow commands
+        // that were already accepted to publish their completion events.
+        while let Some(result) = executions.join_next().await {
+            if let Err(error) = result {
+                warn!(%error, "c2 command task failed");
             }
         }
         warn!("c2 command channel closed; stopping c2 manager loop");
+    }
+}
+
+impl C2Executor {
+    async fn execute_and_publish(&self, cmd: ExecTtp) {
+        let event = self.execute_command(&cmd).await;
+        if self
+            .event_bus
+            .publish(C2Event::TtpExecuted {
+                cmd: Box::new(cmd),
+                event,
+            })
+            .is_err()
+        {
+            debug!("no c2 event subscribers currently registered");
+        }
     }
 
     async fn execute_command(&self, cmd: &ExecTtp) -> TtpExecuted {
@@ -641,14 +678,21 @@ async fn accept_session_loop(
 mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
+    use std::time::Duration;
 
     use armory::{Procedure, Ttp};
+    use tokio::sync::{mpsc, Semaphore};
 
     use super::{parse_kubeconfig_permission_command, parse_kubectl_exec_command};
     use super::{C2Backend, C2Event, C2Manager, ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 
     struct MockBackend {
         marker: String,
+    }
+
+    struct BlockingBackend {
+        started: mpsc::UnboundedSender<String>,
+        release: Arc<Semaphore>,
     }
 
     #[test]
@@ -689,6 +733,72 @@ mod tests {
                 session_connected: None,
             }
         }
+    }
+
+    #[async_trait::async_trait]
+    impl C2Backend for BlockingBackend {
+        async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
+            self.started
+                .send(cmd.id.clone())
+                .expect("test receiver should remain open");
+            let permit = self.release.acquire().await.expect("semaphore is open");
+            permit.forget();
+            TtpExecuted {
+                id: cmd.id.clone(),
+                success: true,
+                results: vec![],
+                exit_code: 0,
+                fail_reason: String::new(),
+                session_connected: None,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn executes_independent_commands_concurrently() {
+        let (started_tx, mut started_rx) = mpsc::unbounded_channel();
+        let release = Arc::new(Semaphore::new(0));
+        let backend: Arc<dyn C2Backend> = Arc::new(BlockingBackend {
+            started: started_tx,
+            release: release.clone(),
+        });
+        let mut backends = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), backend.clone());
+        backends.insert("ran".to_string(), backend);
+
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let mut events_rx = events.subscribe();
+        let manager_task = tokio::spawn(manager.run());
+        let first = exec_cmd("ran");
+        let mut second = exec_cmd("ran");
+        second.id = "cmd-second".to_string();
+
+        handle
+            .send(first)
+            .await
+            .expect("first command should queue");
+        handle
+            .send(second)
+            .await
+            .expect("second command should queue");
+
+        tokio::time::timeout(Duration::from_secs(1), started_rx.recv())
+            .await
+            .expect("first command should start");
+        tokio::time::timeout(Duration::from_secs(1), started_rx.recv())
+            .await
+            .expect("second command should start before the first completes");
+
+        release.add_permits(2);
+        events_rx.recv().await.expect("first result should publish");
+        events_rx
+            .recv()
+            .await
+            .expect("second result should publish");
+        drop(handle);
+        manager_task
+            .await
+            .expect("manager should shut down cleanly");
     }
 
     #[tokio::test]
