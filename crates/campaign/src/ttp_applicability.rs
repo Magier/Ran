@@ -78,30 +78,22 @@ pub fn eligible_auth_identities(
         .get("kind")
         .and_then(Value::as_str)
         .filter(|kind| matches!(*kind, "ServiceAccount" | "K8sCredential"));
-    let active_kubeconfig_required = ttp
-        .requires
-        .get("activeKubeconfig")
-        .and_then(Value::as_bool)
-        == Some(true);
-
     let mut identities = Vec::new();
-    if !active_kubeconfig_required {
-        identities.extend(
-            campaign
-                .entities
-                .values::<ServiceAccount>()
-                .filter(|account| account.raw_token().is_some())
-                .filter(|account| {
-                    identity_target != Some("ServiceAccount") || account.entity_id().0 == target_id
-                })
-                .filter(|account| entitlements_satisfy(ttp, &account.entitlements))
-                .map(|account| AuthIdentitySummary {
-                    id: account.entity_id().0,
-                    name: account.entity_name().to_string(),
-                    kind: "ServiceAccount".to_string(),
-                }),
-        );
-    }
+    identities.extend(
+        campaign
+            .entities
+            .values::<ServiceAccount>()
+            .filter(|account| account.raw_token().is_some())
+            .filter(|account| {
+                identity_target != Some("ServiceAccount") || account.entity_id().0 == target_id
+            })
+            .filter(|account| entitlements_satisfy(ttp, &account.entitlements))
+            .map(|account| AuthIdentitySummary {
+                id: account.entity_id().0,
+                name: account.entity_name().to_string(),
+                kind: "ServiceAccount".to_string(),
+            }),
+    );
     identities.extend(
         campaign
             .entities
@@ -137,8 +129,6 @@ pub struct TargetContext {
     pub access_level: AccessLevel,
     /// `true` when the target is a ServiceAccount holding a non-empty token.
     pub has_token: bool,
-    /// `true` when the target credential backs the process' active K8s client.
-    pub active_kubeconfig: bool,
     /// `true` when the target system has at least one live shell session.
     pub active_session: bool,
 }
@@ -183,10 +173,6 @@ pub fn resolve_target_context(campaign: &Campaign, target_id: &str) -> Option<Ta
         CampaignEntityRef::ServiceAccount(sa) => sa.raw_token().is_some(),
         _ => false,
     };
-    let active_kubeconfig = match &entity {
-        CampaignEntityRef::K8sCredential(credential) => credential.active,
-        _ => false,
-    };
     let sessions: &[ran_domain::SessionInfo] = match &entity {
         CampaignEntityRef::Pod(pod) => pod.system.sessions.as_slice(),
         CampaignEntityRef::Node(node) => node.system.sessions.as_slice(),
@@ -203,7 +189,6 @@ pub fn resolve_target_context(campaign: &Campaign, target_id: &str) -> Option<Ta
         is_system,
         access_level,
         has_token,
-        active_kubeconfig,
         active_session,
     })
 }
@@ -216,20 +201,11 @@ pub fn ttp_applicable_for_target(
     campaign: &Campaign,
     tc: &TargetContext,
 ) -> bool {
-    let active_kubeconfig = if ttp.id == armory::VALID_ACCOUNTS_KUBECONFIG_ID {
-        campaign
-            .entities
-            .values::<K8sCredential>()
-            .any(|credential| credential.active)
-    } else {
-        tc.active_kubeconfig
-    };
     ttp_target_scope_satisfied(ttp, tc)
         && ttp_auth_satisfied_for_target(ttp, campaign, tc)
         && ttp_exists_satisfied(ttp, campaign)
         && (!tc.is_system || ttp_access_level_satisfied(ttp, tc.access_level))
         && ttp_has_token_satisfied(ttp, tc.has_token)
-        && ttp_active_kubeconfig_satisfied(ttp, active_kubeconfig)
         && ttp_active_session_satisfied(ttp, tc.active_session)
         && ttp_related_satisfied(ttp, &tc.target_id, &tc.target_kind, campaign)
         && ttp_tool_satisfied(ttp, campaign, tc)
@@ -250,20 +226,31 @@ fn ttp_target_scope_satisfied(ttp: &armory::Ttp, tc: &TargetContext) -> bool {
     )
 }
 
-/// When the selected target is an identity and the action has no more specific
-/// semantic target, that identity itself must witness authentication and RBAC.
-/// This makes captured ServiceAccount tokens behave like active kubeconfigs,
-/// while an unread ServiceAccount cannot borrow an unrelated credential.
+/// Require a realizable authentication identity for Kubernetes actions. When
+/// the semantic target is itself an identity, that exact identity must be the
+/// witness; resource targets may use any eligible identity selected through
+/// Authenticate As.
 fn ttp_auth_satisfied_for_target(
     ttp: &armory::Ttp,
     campaign: &Campaign,
     tc: &TargetContext,
 ) -> bool {
-    let selected_identity = matches!(tc.target_kind.as_str(), "K8sCredential" | "ServiceAccount");
-    if selected_identity && !ttp.requires.contains_key("kind") && ttp_uses_k8s_auth(ttp) {
-        return eligible_auth_identities(ttp, campaign, &tc.target_id)
-            .iter()
-            .any(|identity| identity.id == tc.target_id);
+    if ttp_uses_k8s_auth(ttp) {
+        let identities = eligible_auth_identities(ttp, campaign, &tc.target_id);
+        let selected_identity =
+            matches!(tc.target_kind.as_str(), "K8sCredential" | "ServiceAccount");
+        let explicitly_targets_identity = ttp
+            .requires
+            .get("kind")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| matches!(kind, "K8sCredential" | "ServiceAccount"));
+        let identity_must_match = selected_identity
+            && (!ttp.requires.contains_key("kind") || explicitly_targets_identity);
+        return !identities.is_empty()
+            && (!identity_must_match
+                || identities
+                    .iter()
+                    .any(|identity| identity.id == tc.target_id));
     }
 
     ttp_rbac_satisfied(ttp, campaign)
@@ -381,20 +368,6 @@ pub fn ttp_rbac_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
             .values::<K8sCredential>()
             .filter(|credential| credential.active)
             .any(|credential| entitlements_satisfy(ttp, &credential.entitlements))
-}
-
-/// Gate actions that explicitly operate through the process' active
-/// kubeconfig. This prevents a knowledge-only seeded/discovered credential
-/// from accidentally running through a different identity.
-pub fn ttp_active_kubeconfig_satisfied(ttp: &armory::Ttp, active: bool) -> bool {
-    match ttp
-        .requires
-        .get("activeKubeconfig")
-        .and_then(Value::as_bool)
-    {
-        Some(true) => active,
-        _ => true,
-    }
 }
 
 /// Gate actions that require a live shell session on the selected target.
@@ -581,32 +554,27 @@ mod tests {
     }
 
     #[test]
-    fn pod_target_can_require_campaign_active_kubeconfig() {
+    fn pod_target_requires_a_realizable_auth_identity_without_action_special_case() {
         let mut campaign = empty_campaign();
         let pod = ran_domain::Pod::new("target", "default");
         let pod_id = pod.entity_id().0;
         campaign.entities.insert_typed(pod);
-        let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
-        credential.active = true;
-        campaign.entities.insert_typed(credential);
-
         let mut requires = serde_json::Map::new();
         requires.insert("kind".to_string(), json!("Pod"));
-        requires.insert("activeKubeconfig".to_string(), json!(true));
         let ttp = Ttp {
             requires,
             procedures: vec![armory::Procedure::new(
                 "kubectl",
-                "kubectl exec -n default target -- true",
+                "kubectl ${K8S_AUTH} exec -n default target -- true",
             )],
-            ..Ttp::new(
-                "valid-accounts-kubeconfig",
-                "Valid Accounts",
-                "Initial Access",
-            )
+            ..Ttp::new("pod-exec", "Pod exec", "Initial Access")
         };
         let context = resolve_target_context(&campaign, &pod_id).expect("Pod target context");
+        assert!(!ttp_applicable_for_target(&ttp, &campaign, &context));
 
+        let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
+        credential.active = true;
+        campaign.entities.insert_typed(credential);
         assert!(ttp_applicable_for_target(&ttp, &campaign, &context));
     }
 
@@ -939,7 +907,7 @@ mod tests {
     }
 
     #[test]
-    fn active_kubeconfig_precondition_rejects_knowledge_only_credentials() {
+    fn authentication_capability_rejects_knowledge_only_credentials() {
         let mut c = empty_campaign();
         let mut credential = K8sCredential::new("https://cluster.example");
         let id = credential.entity_id().0;
@@ -949,8 +917,10 @@ mod tests {
         ttp.status = "enabled".to_string();
         ttp.requires
             .insert("kind".to_string(), json!("K8sCredential"));
-        ttp.requires
-            .insert("activeKubeconfig".to_string(), json!(true));
+        ttp.procedures = vec![armory::Procedure::new(
+            "inspect",
+            "k8sSelfSubjectRulesReview(default)",
+        )];
 
         let tc = resolve_target_context(&c, &id).expect("credential should resolve");
         assert!(!ttp_applicable_for_target(&ttp, &c, &tc));

@@ -64,6 +64,12 @@ and declare
 Local control procedures that use the already-active Kubernetes client without
 referencing `${K8S_AUTH}` do not declare the parameter.
 
+Preconditions describe semantic world state; they must not describe which
+credential happens to back Ran's active client. Authenticate As selects the
+identity, and action preparation separately verifies that Ran can realize it.
+Only active `K8sCredential` entities and ServiceAccounts with captured tokens
+are executable; discovered kubeconfigs remain knowledge-only.
+
 ## Procedure contract
 
 Every procedure must have at least one of:

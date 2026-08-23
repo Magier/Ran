@@ -76,6 +76,21 @@ ServiceAccount `--token` flag or `--kubeconfig "$KUBECONFIG"`.
 Local control procedures that directly use the active Kubernetes client are
 exempt when they do not reference `${K8S_AUTH}`.
 
+Keep these concerns separate when authoring an action:
+
+- `preconditions` describe semantic campaign facts, such as target kind, RBAC,
+  reachability, or credential availability.
+- `K8S_AUTH` and **Authenticate As** select the identity used for the request.
+- Runtime preparation verifies that Ran has an adapter for that identity. A
+  captured ServiceAccount requires a token-capable request or kubectl command;
+  a kubeconfig identity must be the credential backing Ran's active client.
+- `effects` describe facts learned or established only after successful,
+  verified execution.
+
+Do not encode active-client wiring as a prerequisite. Discovered kubeconfig
+entities remain knowledge only: they are not offered as authentication
+identities and cannot be executed unless they back Ran's active client.
+
 ## Structured HTTP request
 
 Use `http_request:` for arbitrary HTTP calls:
