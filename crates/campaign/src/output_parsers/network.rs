@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use ran_domain::{CanReach, Entity, Pod, UnknownSystem};
+use ran_domain::{
+    AppService, CanReach, Confidence, EndpointState, Entity, HostsService, Pod, Transport,
+    UnknownSystem,
+};
 
 use super::ParserOutput;
 use crate::FactsUpdate;
@@ -90,10 +94,12 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> P
 
     let mut facts = FactsUpdate::default();
     let source_ns = source_namespace(source_id);
-    for (ip, hostname) in &hosts {
-        let Ok(ip_addr) = ip.parse::<IpAddr>() else {
-            continue;
-        };
+    let observed_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+    for host in &hosts {
+        let ip_addr = host.address;
 
         // Private discoveries should stay in the scanner's network segment when
         // a CIDR context is available.
@@ -101,14 +107,38 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> P
             continue;
         }
 
-        let discovered = classify_discovered_host(ip_addr, hostname.as_deref(), source_ns);
+        let discovered = classify_discovered_host(ip_addr, host.hostname.as_deref(), source_ns);
         let entity_id = discovered.entity_id().0.clone();
         facts.new_entities.push(discovered);
 
         if !source_id.is_empty() {
             facts
                 .new_relations
-                .push(Box::new(CanReach::new(source_id, entity_id)));
+                .push(Box::new(CanReach::new(source_id, entity_id.clone())));
+        }
+        for port in &host.ports {
+            let Ok(mut service) = AppService::new(ip_addr.to_string(), port.port, port.transport)
+            else {
+                continue;
+            };
+            service.state = port.state;
+            service.product = port.product.clone();
+            service.version = port.version.clone();
+            service.cpes = port.cpes.clone();
+            service.banner = port.banner.clone();
+            service.confidence = Confidence::Yes;
+            service.observed_at_ms = observed_at_ms;
+            let service_id = service.entity_id().0.clone();
+            facts.new_entities.push(Box::new(service));
+            facts.new_relations.push(Box::new(HostsService::new(
+                entity_id.clone(),
+                service_id.clone(),
+            )));
+            if !source_id.is_empty() && port.state == EndpointState::Open {
+                facts
+                    .new_relations
+                    .push(Box::new(CanReach::new(source_id, service_id)));
+            }
         }
     }
 
@@ -122,6 +152,52 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> P
         facts,
         format!("discovered {} live host(s) via nmap", hosts.len()),
     )
+}
+
+#[derive(Debug)]
+struct NmapHostObservation {
+    address: IpAddr,
+    hostname: Option<String>,
+    ports: Vec<NmapPortObservation>,
+}
+
+#[derive(Debug)]
+struct NmapPortObservation {
+    port: u16,
+    transport: Transport,
+    state: EndpointState,
+    product: Option<String>,
+    version: Option<String>,
+    cpes: Vec<String>,
+    banner: Option<String>,
+}
+
+fn parse_transport(value: &str) -> Transport {
+    match value.to_ascii_lowercase().as_str() {
+        "tcp" => Transport::Tcp,
+        "udp" => Transport::Udp,
+        "sctp" => Transport::Sctp,
+        _ => Transport::Unknown,
+    }
+}
+
+fn parse_endpoint_state(value: &str) -> EndpointState {
+    match value.to_ascii_lowercase().as_str() {
+        "open" => EndpointState::Open,
+        "closed" => EndpointState::Closed,
+        "filtered" | "open|filtered" | "closed|filtered" => EndpointState::Filtered,
+        _ => EndpointState::Unknown,
+    }
+}
+
+fn normalized_text(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_ascii_lowercase())
+}
+
+fn trimmed_text(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 fn source_namespace(source_id: &str) -> Option<&str> {
@@ -236,8 +312,8 @@ fn derive_cluster_pod_identity(hostname: &str, ip_kebab: &str) -> Option<(String
 
 /// Parse nmap greppable (`-oG`) output.
 ///
-/// Returns `(ip, Option<hostname>)` for each live host.
-fn parse_nmap_grep(stdout: &str) -> Vec<(String, Option<String>)> {
+/// Returns a structured observation for each live host.
+fn parse_nmap_grep(stdout: &str) -> Vec<NmapHostObservation> {
     let mut hosts = Vec::new();
 
     for line in stdout.lines() {
@@ -269,7 +345,39 @@ fn parse_nmap_grep(stdout: &str) -> Vec<(String, Option<String>)> {
         // Host is considered live when `Status: Up` or `Ports:` is present.
         let is_up = line.contains("Status: Up") || line.contains("Ports:");
         if is_up {
-            hosts.push((ip_str.to_string(), hostname));
+            let ports = line
+                .split_once("Ports:")
+                .map(|(_, value)| value.split("Ignored State:").next().unwrap_or(value))
+                .into_iter()
+                .flat_map(|value| value.split(','))
+                .filter_map(|entry| {
+                    let cols: Vec<&str> = entry.trim().split('/').collect();
+                    let port = cols
+                        .first()?
+                        .trim()
+                        .parse::<u16>()
+                        .ok()
+                        .filter(|p| *p != 0)?;
+                    let state = parse_endpoint_state(cols.get(1).copied().unwrap_or(""));
+                    let transport = parse_transport(cols.get(2).copied().unwrap_or(""));
+                    let service = normalized_text(cols.get(4).copied().unwrap_or(""));
+                    let version = cols.get(6).and_then(|v| trimmed_text(v));
+                    Some(NmapPortObservation {
+                        port,
+                        transport,
+                        state,
+                        product: service,
+                        version,
+                        cpes: Vec::new(),
+                        banner: None,
+                    })
+                })
+                .collect();
+            hosts.push(NmapHostObservation {
+                address: ip_str.parse().unwrap(),
+                hostname,
+                ports,
+            });
         }
     }
 
@@ -282,38 +390,74 @@ fn parse_nmap_grep(stdout: &str) -> Vec<(String, Option<String>)> {
 /// - `Nmap scan report for 10.0.0.5`
 /// - `Nmap scan report for redis.default.svc.cluster.local (10.0.0.6)`
 ///
-/// Returns `(ip, Option<hostname>)`.
-fn parse_nmap_normal(stdout: &str) -> Vec<(String, Option<String>)> {
+/// Returns structured host and port observations.
+fn parse_nmap_normal(stdout: &str) -> Vec<NmapHostObservation> {
     let mut hosts = Vec::new();
-
+    let mut current: Option<NmapHostObservation> = None;
+    let mut in_ports = false;
     for line in stdout.lines() {
         let line = line.trim();
-        let Some(rest) = line.strip_prefix("Nmap scan report for ") else {
+        if let Some(rest) = line.strip_prefix("Nmap scan report for ") {
+            if let Some(host) = current.take() {
+                hosts.push(host);
+            }
+            let (address, hostname) = if let Some((host, tail)) = rest.rsplit_once(" (") {
+                (
+                    tail.strip_suffix(')').and_then(|v| v.trim().parse().ok()),
+                    Some(host.trim().to_string()),
+                )
+            } else {
+                (rest.trim().parse().ok(), None)
+            };
+            current = address.map(|address| NmapHostObservation {
+                address,
+                hostname,
+                ports: Vec::new(),
+            });
+            in_ports = false;
             continue;
-        };
-
-        // Form: "hostname (ip)"
-        if let Some((host, tail)) = rest.rsplit_once(" (") {
-            if let Some(ip) = tail.strip_suffix(')') {
-                let ip = ip.trim();
-                if ip.parse::<IpAddr>().is_ok() {
-                    let hostname = host.trim();
-                    let hostname = if hostname.is_empty() || hostname == ip {
-                        None
-                    } else {
-                        Some(hostname.to_string())
-                    };
-                    hosts.push((ip.to_string(), hostname));
-                    continue;
-                }
+        }
+        if line.starts_with("PORT") && line.contains("STATE") && line.contains("SERVICE") {
+            in_ports = true;
+            continue;
+        }
+        if in_ports
+            && (line.is_empty()
+                || line.starts_with("Service detection")
+                || line.starts_with("MAC Address")
+                || line.starts_with("Nmap done"))
+        {
+            in_ports = false;
+        }
+        if in_ports {
+            let mut cols = line.split_whitespace();
+            let Some(port_proto) = cols.next() else {
+                continue;
+            };
+            let Some((port, proto)) = port_proto.split_once('/') else {
+                continue;
+            };
+            let Some(port) = port.parse::<u16>().ok().filter(|p| *p != 0) else {
+                continue;
+            };
+            let state = parse_endpoint_state(cols.next().unwrap_or(""));
+            let product = normalized_text(cols.next().unwrap_or(""));
+            let version = trimmed_text(&cols.collect::<Vec<_>>().join(" "));
+            if let Some(host) = current.as_mut() {
+                host.ports.push(NmapPortObservation {
+                    port,
+                    transport: parse_transport(proto),
+                    state,
+                    product,
+                    version,
+                    cpes: Vec::new(),
+                    banner: None,
+                });
             }
         }
-
-        // Form: "ip"
-        let candidate = rest.trim();
-        if candidate.parse::<IpAddr>().is_ok() {
-            hosts.push((candidate.to_string(), None));
-        }
+    }
+    if let Some(host) = current {
+        hosts.push(host);
     }
 
     hosts
@@ -321,21 +465,26 @@ fn parse_nmap_normal(stdout: &str) -> Vec<(String, Option<String>)> {
 
 /// Parse nmap XML (`-oX`) output using simple line-by-line string scanning.
 ///
-/// Returns `(ip, Option<hostname>)` for each host with `state="up"`.
-fn parse_nmap_xml(stdout: &str) -> Vec<(String, Option<String>)> {
+/// Returns structured observations for each host with `state="up"`.
+fn parse_nmap_xml(stdout: &str) -> Vec<NmapHostObservation> {
     let mut hosts = Vec::new();
 
     // Split on `<host` to process one block per host.
     for block in stdout.split("<host") {
         // Check if this host is up — either `<host state="up"` or a child
         // `<status state="up"` element.
-        let host_up = block.contains("state=\"up\"");
+        let host_up = element_tags(block, "status")
+            .any(|tag| extract_attr(tag, "state").as_deref() == Some("up"));
         if !host_up {
             continue;
         }
 
-        // Extract IPv4 address.
-        let ip = extract_xml_attr(block, "address", "addr", Some("addrtype"), Some("ipv4"));
+        let ip = element_tags(block, "address").find_map(|tag| {
+            let kind = extract_attr(tag, "addrtype")?;
+            matches!(kind.as_str(), "ipv4" | "ipv6")
+                .then(|| extract_attr(tag, "addr"))
+                .flatten()
+        });
         let Some(ip) = ip else {
             continue;
         };
@@ -346,10 +495,74 @@ fn parse_nmap_xml(stdout: &str) -> Vec<(String, Option<String>)> {
         // Extract PTR hostname (first `<hostname` with `type="PTR"`).
         let hostname = extract_xml_attr(block, "hostname", "name", Some("type"), Some("PTR"));
 
-        hosts.push((ip, hostname));
+        let ports = block
+            .split("<port ")
+            .skip(1)
+            .filter_map(|port_block| {
+                let tag = port_block.split_once('>')?.0;
+                let port = extract_attr(tag, "portid")?
+                    .parse::<u16>()
+                    .ok()
+                    .filter(|p| *p != 0)?;
+                let transport = parse_transport(&extract_attr(tag, "protocol").unwrap_or_default());
+                let state = port_block
+                    .find("<state ")
+                    .and_then(|start| port_block[start..].split_once('>').map(|v| v.0))
+                    .and_then(|tag| extract_attr(tag, "state"))
+                    .map(|v| parse_endpoint_state(&v))
+                    .unwrap_or(EndpointState::Unknown);
+                let service_tag = port_block
+                    .find("<service ")
+                    .and_then(|start| port_block[start..].split_once('>').map(|v| v.0));
+                let product = service_tag
+                    .and_then(|tag| {
+                        extract_attr(tag, "product").or_else(|| extract_attr(tag, "name"))
+                    })
+                    .and_then(|v| normalized_text(&v));
+                let version = service_tag
+                    .and_then(|tag| extract_attr(tag, "version"))
+                    .and_then(|v| trimmed_text(&v));
+                let extrainfo = service_tag.and_then(|tag| extract_attr(tag, "extrainfo"));
+                let cpes = port_block
+                    .split("<cpe>")
+                    .skip(1)
+                    .filter_map(|v| v.split_once("</cpe>").map(|x| x.0.trim().to_string()))
+                    .collect();
+                Some(NmapPortObservation {
+                    port,
+                    transport,
+                    state,
+                    product,
+                    version,
+                    cpes,
+                    banner: extrainfo,
+                })
+            })
+            .collect();
+        hosts.push(NmapHostObservation {
+            address: ip.parse().unwrap(),
+            hostname,
+            ports,
+        });
     }
 
     hosts
+}
+
+fn extract_attr(tag: &str, attr: &str) -> Option<String> {
+    let needle = format!("{attr}=\"");
+    let start = tag.find(&needle)? + needle.len();
+    let end = tag[start..].find('"')?;
+    Some(tag[start..start + end].to_string())
+}
+
+fn element_tags<'a>(block: &'a str, element: &str) -> std::vec::IntoIter<&'a str> {
+    let prefix = format!("<{element}");
+    block
+        .match_indices(&prefix)
+        .filter_map(move |(start, _)| block[start..].split_once('>').map(|v| v.0))
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 /// Extract an attribute value from a simple XML element.
@@ -485,7 +698,7 @@ fn parse_rdns_csv(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ran_domain::{CanReach, Entity, Pod};
+    use ran_domain::{AppService, CanReach, Entity, HostsService, Pod};
 
     // --- nmap ---
 
@@ -532,6 +745,68 @@ mod tests {
             .downcast_ref::<Pod>()
             .unwrap();
         assert_eq!(pod.entity_name(), "redis.default.svc.cluster.local");
+        let service = facts
+            .new_entities
+            .iter()
+            .find_map(|e| e.as_any().downcast_ref::<AppService>())
+            .unwrap();
+        assert_eq!(service.port, 6379);
+        assert_eq!(service.state, EndpointState::Open);
+        assert!(facts
+            .new_relations
+            .iter()
+            .any(|r| r.as_any().is::<HostsService>()));
+        assert!(facts.new_relations.iter().any(|r| {
+            r.as_any()
+                .downcast_ref::<CanReach>()
+                .is_some_and(|reach| reach.target_id == service.entity_id())
+        }));
+    }
+
+    #[test]
+    fn parse_nmap_standard_service_version() {
+        let stdout = "Nmap scan report for 10.0.0.8\nHost is up\nPORT     STATE SERVICE VERSION\n6379/tcp open  redis   Redis key-value store 7.2.4\n";
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "src", None) else {
+            panic!()
+        };
+        let service = facts
+            .new_entities
+            .iter()
+            .find_map(|e| e.as_any().downcast_ref::<AppService>())
+            .unwrap();
+        assert_eq!(service.product.as_deref(), Some("redis"));
+        assert_eq!(
+            service.version.as_deref(),
+            Some("Redis key-value store 7.2.4")
+        );
+    }
+
+    #[test]
+    fn parse_nmap_xml_service_metadata_and_closed_connectivity() {
+        let stdout = r#"<nmaprun><host><status state="up"/><address addr="10.0.0.9" addrtype="ipv4"/><ports>
+<port protocol="tcp" portid="6379"><state state="open"/><service name="redis" product="Redis" version="6.0" extrainfo="test"><cpe>cpe:/a:redis:redis:6.0</cpe></service></port>
+<port protocol="tcp" portid="6380"><state state="closed"/></port></ports></host></nmaprun>"#;
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "src", None) else {
+            panic!()
+        };
+        let services: Vec<_> = facts
+            .new_entities
+            .iter()
+            .filter_map(|e| e.as_any().downcast_ref::<AppService>())
+            .collect();
+        assert_eq!(services.len(), 2);
+        assert_eq!(services[0].product.as_deref(), Some("redis"));
+        assert_eq!(services[0].cpes, ["cpe:/a:redis:redis:6.0"]);
+        assert_eq!(
+            facts
+                .new_relations
+                .iter()
+                .filter(|r| {
+                    r.relation_name() == "can-reach" && r.target_id().0.starts_with("app-service/")
+                })
+                .count(),
+            1
+        );
     }
 
     #[test]

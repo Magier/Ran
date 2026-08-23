@@ -405,7 +405,20 @@ pub struct Container {
     pub name: String,
     pub image: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<ContainerPort>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub volume_mounts: Vec<Mount>,
+}
+
+/// A port declared on a Kubernetes container. This is configuration, not
+/// evidence that the endpoint is listening.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContainerPort {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(rename = "containerPort")]
+    pub port: u16,
+    pub protocol: String,
 }
 
 // ---------------------------------------------------------------------------

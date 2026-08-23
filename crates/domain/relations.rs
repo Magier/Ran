@@ -2,6 +2,40 @@ use serde::{Deserialize, Serialize};
 
 use crate::{relation::C2Channel, EntityId, OutputTransformKind, Relation};
 
+macro_rules! structural_relation {
+    ($name:ident, $relation_name:literal) => {
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct $name {
+            pub source_id: EntityId,
+            pub target_id: EntityId,
+        }
+        impl $name {
+            pub fn new(source_id: impl Into<String>, target_id: impl Into<String>) -> Self {
+                Self {
+                    source_id: EntityId::new(source_id),
+                    target_id: EntityId::new(target_id),
+                }
+            }
+        }
+        impl Relation for $name {
+            fn relation_name(&self) -> &str {
+                $relation_name
+            }
+            fn source_id(&self) -> &EntityId {
+                &self.source_id
+            }
+            fn target_id(&self) -> &EntityId {
+                &self.target_id
+            }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+        }
+    };
+}
+
+structural_relation!(HostsService, "hosts-service");
+
 // ---------------------------------------------------------------------------
 // Contains
 // ---------------------------------------------------------------------------
@@ -803,5 +837,27 @@ impl RelationSummary {
             return None;
         }
         Some((namespace, pod_name))
+    }
+}
+
+#[cfg(test)]
+mod app_service_relation_tests {
+    use super::*;
+
+    #[test]
+    fn endpoint_relations_are_structural_summaries() {
+        for relation in [
+            RelationSummary::from_relation(&HostsService::new(
+                "system/a",
+                "app-service/tcp/host/80",
+            )),
+            RelationSummary::from_relation(&CanReach::new("system/b", "app-service/tcp/host/80")),
+        ] {
+            assert!(!relation.is_exec_channel);
+            assert!(matches!(
+                relation.name.as_str(),
+                "hosts-service" | "can-reach"
+            ));
+        }
     }
 }

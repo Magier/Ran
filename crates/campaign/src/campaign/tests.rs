@@ -1846,6 +1846,7 @@ fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
     target.containers.push(Container {
         name: "main".to_string(),
         image: "argocd/controller".to_string(),
+        ports: vec![],
         volume_mounts: vec![],
     });
     let target_id = target.entity_id().0.clone();
@@ -1917,6 +1918,7 @@ fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
     target.containers.push(Container {
         name: "main".to_string(),
         image: "argocd/controller".to_string(),
+        ports: vec![],
         volume_mounts: vec![],
     });
     let target_id = target.entity_id().0.clone();

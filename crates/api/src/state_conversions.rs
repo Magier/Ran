@@ -11,6 +11,7 @@ pub(crate) fn campaign_to_campaign_state(
     kubetier: &kubetier::Catalog,
 ) -> CampaignState {
     let mut entities = HashMap::new();
+    let hosted_services = hosted_app_services(campaign);
 
     for entity in campaign.get_entities() {
         let id = entity.entity_id().0;
@@ -41,6 +42,7 @@ pub(crate) fn campaign_to_campaign_state(
             "provenance".to_string(),
             provenance_value(campaign.entity_provenance(&entity.entity_id())),
         );
+        attach_hosted_services(&mut data, &id, &hosted_services);
 
         entities.insert(id, data);
     }
@@ -163,6 +165,12 @@ fn bootstrap_effect(entity_id: EntityId, entity_name: &str, entity_kind: &str) -
 
 pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalog) -> Graph {
     let entities = campaign.get_entities();
+    let hosted_services = hosted_app_services(campaign);
+    let endpoint_ids: HashSet<String> = entities
+        .iter()
+        .filter(|entity| entity.entity_kind() == "AppService")
+        .map(|entity| entity.entity_id().0)
+        .collect();
     let namespace_ids: HashSet<String> = entities
         .iter()
         .filter(|e| e.entity_kind() == "Namespace")
@@ -182,6 +190,9 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
     let mut parent_nodes: HashMap<String, String> = HashMap::new();
     let mut edges: Vec<GraphEdge> = Vec::new();
     for r in campaign.get_relations() {
+        if endpoint_ids.contains(&r.source_id) || endpoint_ids.contains(&r.target_id) {
+            continue;
+        }
         match r.name.as_str() {
             "manages-node" | "owns" => {
                 parent_nodes.insert(r.target_id.clone(), r.source_id.clone());
@@ -225,6 +236,9 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
     let mut nodes = Vec::with_capacity(campaign.entity_count());
 
     for entity in entities {
+        if entity.entity_kind() == "AppService" {
+            continue;
+        }
         let id = entity.entity_id().0;
         let kind = entity.entity_kind().to_string();
         // Determine compound-node parent. Explicit relation-based parents take
@@ -255,6 +269,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
         let mut entity_payload = serialize_campaign_entity_map(&entity);
         if let Some(ref mut payload) = entity_payload {
             prune_entity_payload_for_ui(entity.entity_kind(), payload, kubetier);
+            attach_hosted_services(payload, &id, &hosted_services);
         }
         nodes.push(GraphNode {
             id: id.clone(),
@@ -285,6 +300,55 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
     }
 }
 
+fn hosted_app_services(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
+    let mut endpoint_payloads = HashMap::new();
+    for entity in campaign.get_entities() {
+        if !matches!(entity, CampaignEntityRef::AppService(_)) {
+            continue;
+        }
+        let id = entity.entity_id().0;
+        let mut payload = serialize_campaign_entity_map(&entity).unwrap_or_default();
+        payload.insert("id".to_string(), Value::String(id.clone()));
+        payload.insert(
+            "kind".to_string(),
+            Value::String(entity.entity_kind().to_string()),
+        );
+        endpoint_payloads.insert(id, Value::Object(payload.into_iter().collect()));
+    }
+
+    let mut hosted: HashMap<String, Vec<Value>> = HashMap::new();
+    for relation in campaign.get_relations() {
+        if relation.name != "hosts-service" {
+            continue;
+        }
+        if let Some(payload) = endpoint_payloads.get(&relation.target_id) {
+            hosted
+                .entry(relation.source_id)
+                .or_default()
+                .push(payload.clone());
+        }
+    }
+    for services in hosted.values_mut() {
+        services.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    }
+    hosted
+}
+
+fn attach_hosted_services(
+    payload: &mut HashMap<String, Value>,
+    entity_id: &str,
+    hosted_services: &HashMap<String, Vec<Value>>,
+) {
+    let Some(services) = hosted_services.get(entity_id) else {
+        return;
+    };
+    payload.insert(
+        "appServiceCount".to_string(),
+        Value::from(services.len() as u64),
+    );
+    payload.insert("appServices".to_string(), Value::Array(services.clone()));
+}
+
 fn serialize_entity_map<T: serde::Serialize>(entity: &T) -> Option<HashMap<String, Value>> {
     match serde_json::to_value(entity).ok()? {
         Value::Object(map) => Some(map.into_iter().collect()),
@@ -297,6 +361,7 @@ pub(crate) fn serialize_campaign_entity_map(
 ) -> Option<HashMap<String, Value>> {
     match entity {
         CampaignEntityRef::OperatorHost(e) => serialize_entity_map(e),
+        CampaignEntityRef::AppService(e) => serialize_entity_map(e),
         CampaignEntityRef::C2Server(e) => serialize_entity_map(e),
         CampaignEntityRef::Cluster(e) => serialize_entity_map(e),
         CampaignEntityRef::Node(e) => serialize_entity_map(e),
@@ -591,6 +656,20 @@ mod tests {
 
         assert_eq!(data.get("can"), Some(&serde_json::json!([])));
         assert!(!data.contains_key("entitlements_reviewed"));
+    }
+
+    #[test]
+    fn hosted_app_services_are_attached_to_the_host_payload() {
+        let services = vec![serde_json::json!({
+            "id": "app-service/tcp/10.0.0.8/6379",
+            "port": 6379,
+            "product": "redis"
+        })];
+        let hosted = HashMap::from([("ns/default/pod/redis".to_string(), services.clone())]);
+        let mut payload = HashMap::new();
+        attach_hosted_services(&mut payload, "ns/default/pod/redis", &hosted);
+        assert_eq!(payload.get("appServiceCount"), Some(&Value::from(1)));
+        assert_eq!(payload.get("appServices"), Some(&Value::Array(services)));
     }
 
     #[test]

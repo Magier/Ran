@@ -613,6 +613,7 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
     pod.containers.push(Container {
         name: pod_name.to_string(),
         image: image.to_string(),
+        ports: Vec::new(),
         volume_mounts: host_mount.iter().cloned().collect(),
     });
 

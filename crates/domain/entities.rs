@@ -210,6 +210,7 @@ impl Entity for K8sCluster {
 #[derive(Delegate, Debug, Clone, Serialize, Deserialize)]
 #[delegate(Entity)]
 pub enum GraphEntity {
+    AppService(AppService),
     C2(C2Server),
     Cluster(K8sCluster),
     Node(K8sNode),
@@ -223,6 +224,113 @@ pub enum GraphEntity {
     StatefulSet(StatefulSet),
     DaemonSet(DaemonSet),
     Job(Job),
+}
+
+// ---------------------------------------------------------------------------
+// Observed application endpoint
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Transport {
+    Tcp,
+    Udp,
+    Sctp,
+    Unknown,
+}
+
+impl Transport {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tcp => "tcp",
+            Self::Udp => "udp",
+            Self::Sctp => "sctp",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EndpointState {
+    Open,
+    Closed,
+    Filtered,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppService {
+    pub address: String,
+    pub port: u16,
+    pub transport: Transport,
+    pub state: EndpointState,
+    #[serde(default)]
+    pub port_name: Option<String>,
+    pub product: Option<String>,
+    pub version: Option<String>,
+    #[serde(default)]
+    pub cpes: Vec<String>,
+    pub banner: Option<String>,
+    pub confidence: Confidence,
+    pub observed_at_ms: Option<u64>,
+}
+
+impl AppService {
+    pub fn new(address: impl AsRef<str>, port: u16, transport: Transport) -> Result<Self, String> {
+        if port == 0 {
+            return Err("app-service port must be non-zero".to_string());
+        }
+        let address = normalize_app_service_address(address.as_ref())?;
+        Ok(Self {
+            address,
+            port,
+            transport,
+            state: EndpointState::Unknown,
+            port_name: None,
+            product: None,
+            version: None,
+            cpes: Vec::new(),
+            banner: None,
+            confidence: Confidence::Unknown,
+            observed_at_ms: None,
+        })
+    }
+}
+
+fn normalize_app_service_address(address: &str) -> Result<String, String> {
+    let address = address.trim();
+    if address.is_empty() || address.contains('/') || address.chars().any(char::is_whitespace) {
+        return Err(format!("invalid app-service address: {address:?}"));
+    }
+    if let Ok(ip) = address.parse::<IpAddr>() {
+        return Ok(ip.to_string());
+    }
+    let dns = address.trim_end_matches('.').to_ascii_lowercase();
+    if dns.is_empty() {
+        return Err(format!("invalid app-service address: {address:?}"));
+    }
+    Ok(dns)
+}
+
+impl Entity for AppService {
+    fn entity_id(&self) -> EntityId {
+        EntityId::new(format!(
+            "app-service/{}/{}/{}",
+            self.transport.as_str(),
+            self.address,
+            self.port
+        ))
+    }
+    fn entity_name(&self) -> &str {
+        &self.address
+    }
+    fn entity_kind(&self) -> &str {
+        "AppService"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -701,12 +809,15 @@ impl Entity for ConfigMap {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Deployment {
     pub meta: K8sMeta,
+    #[serde(default)]
+    pub containers: Vec<Container>,
 }
 
 impl Deployment {
     pub fn new(name: impl Into<String>, namespace: impl Into<String>) -> Self {
         Deployment {
             meta: K8sMeta::namespaced(name, namespace),
+            containers: Vec::new(),
         }
     }
 
@@ -1691,9 +1802,92 @@ fn merge_confidence(existing: &mut Confidence, incoming: Confidence) {
     }
 }
 
+fn merge_containers(existing: &mut Vec<Container>, incoming: &[Container]) {
+    for container in incoming {
+        let Some(current) = existing.iter_mut().find(|item| item.name == container.name) else {
+            existing.push(container.clone());
+            continue;
+        };
+
+        if current.image.is_empty() && !container.image.is_empty() {
+            current.image = container.image.clone();
+        }
+        for port in &container.ports {
+            if let Some(current_port) = current
+                .ports
+                .iter_mut()
+                .find(|item| item.port == port.port && item.protocol == port.protocol)
+            {
+                if current_port.name.is_none() {
+                    current_port.name = port.name.clone();
+                }
+            } else {
+                current.ports.push(port.clone());
+            }
+        }
+        for mount in &container.volume_mounts {
+            if !current
+                .volume_mounts
+                .iter()
+                .any(|item| item.mount_point == mount.mount_point)
+            {
+                current.volume_mounts.push(mount.clone());
+            }
+        }
+    }
+}
+
 impl Merge for UnknownSystem {
     fn merge_from(&mut self, incoming: &Self) {
         self.system.merge_from(&incoming.system);
+    }
+}
+
+impl Merge for AppService {
+    fn merge_from(&mut self, incoming: &Self) {
+        let incoming_is_newer = match (self.observed_at_ms, incoming.observed_at_ms) {
+            (Some(current), Some(new)) => new >= current,
+            (None, Some(_)) => true,
+            _ => false,
+        };
+        if incoming_is_newer {
+            self.state = incoming.state;
+            self.observed_at_ms = incoming.observed_at_ms;
+            if incoming.port_name.is_some() {
+                self.port_name = incoming.port_name.clone();
+            }
+            if incoming.product.is_some() {
+                self.product = incoming.product.clone();
+            }
+            if incoming.version.is_some() {
+                self.version = incoming.version.clone();
+            }
+            if incoming.banner.is_some() {
+                self.banner = incoming.banner.clone();
+            }
+            if incoming.confidence != Confidence::Unknown {
+                self.confidence = incoming.confidence;
+            }
+        } else {
+            if self.port_name.is_none() {
+                self.port_name = incoming.port_name.clone();
+            }
+            if self.product.is_none() {
+                self.product = incoming.product.clone();
+            }
+            if self.version.is_none() {
+                self.version = incoming.version.clone();
+            }
+            if self.banner.is_none() {
+                self.banner = incoming.banner.clone();
+            }
+            merge_confidence(&mut self.confidence, incoming.confidence);
+        }
+        for cpe in &incoming.cpes {
+            if !self.cpes.contains(cpe) {
+                self.cpes.push(cpe.clone());
+            }
+        }
     }
 }
 
@@ -1792,11 +1986,7 @@ impl Merge for Pod {
             incoming.automount_service_account_token,
         );
 
-        for c in &incoming.containers {
-            if !self.containers.iter().any(|ec| ec.name == c.name) {
-                self.containers.push(c.clone());
-            }
-        }
+        merge_containers(&mut self.containers, &incoming.containers);
         for m in &incoming.volume_mounts {
             if !self
                 .volume_mounts
@@ -1862,6 +2052,7 @@ impl Merge for ConfigMap {
 impl Merge for Deployment {
     fn merge_from(&mut self, incoming: &Self) {
         merge_k8s_meta(&mut self.meta, &incoming.meta);
+        merge_containers(&mut self.containers, &incoming.containers);
     }
 }
 
@@ -2001,6 +2192,35 @@ mod tests {
     use super::*;
     use crate::identity::{JwToken, ServiceAccountToken};
     use crate::rbac::RbacPermission;
+
+    #[test]
+    fn app_service_normalizes_endpoint_identity() {
+        let ipv6 = AppService::new("2001:0DB8:0:0::1", 443, Transport::Tcp).unwrap();
+        assert_eq!(ipv6.entity_id().0, "app-service/tcp/2001:db8::1/443");
+        let dns = AppService::new("Redis.DEFAULT.SVC.", 6379, Transport::Tcp).unwrap();
+        assert_eq!(dns.entity_id().0, "app-service/tcp/redis.default.svc/6379");
+        assert!(AppService::new("bad/address", 80, Transport::Tcp).is_err());
+        assert!(AppService::new("host", 0, Transport::Tcp).is_err());
+    }
+
+    #[test]
+    fn app_service_merge_respects_observation_time_and_enriches() {
+        let mut current = AppService::new("10.0.0.1", 6379, Transport::Tcp).unwrap();
+        current.state = EndpointState::Open;
+        current.product = Some("redis".into());
+        current.observed_at_ms = Some(20);
+        let mut older = AppService::new("10.0.0.1", 6379, Transport::Tcp).unwrap();
+        older.state = EndpointState::Closed;
+        older.port_name = Some("client".into());
+        older.version = Some("7.2".into());
+        older.cpes.push("cpe:/a:redis:redis:7.2".into());
+        older.observed_at_ms = Some(10);
+        current.merge_from(&older);
+        assert_eq!(current.state, EndpointState::Open);
+        assert_eq!(current.port_name.as_deref(), Some("client"));
+        assert_eq!(current.version.as_deref(), Some("7.2"));
+        assert_eq!(current.cpes.len(), 1);
+    }
 
     #[test]
     fn service_account_token_preserved_after_entitlements_merge() {

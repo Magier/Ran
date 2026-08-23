@@ -2,7 +2,7 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
 use ran_domain::{
-    C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
+    AppService, C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
     GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress,
     K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Merge, Namespace, OperatorHost, Pod,
     ReplicaSet, ServiceAccount, StatefulSet, UnknownSystem,
@@ -274,6 +274,7 @@ impl Default for EntityStore {
     fn default() -> Self {
         let mut s = Self::new();
         s.register::<OperatorHost>("operator_hosts", |t| CampaignEntityRef::OperatorHost(t));
+        s.register::<AppService>("app_services", |t| CampaignEntityRef::AppService(t));
         s.register::<C2Server>("c2_servers", |t| CampaignEntityRef::C2Server(t));
         s.register::<K8sCluster>("clusters", |t| CampaignEntityRef::Cluster(t));
         s.register::<K8sNode>("nodes", |t| CampaignEntityRef::Node(t));
@@ -359,5 +360,25 @@ impl<'de> Deserialize<'de> for EntityStore {
         }
 
         d.deserialize_map(Visitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ran_domain::Transport;
+
+    #[test]
+    fn app_service_slot_round_trips_and_defaults_when_absent() {
+        let mut store = EntityStore::default();
+        let service = AppService::new("10.0.0.5", 6379, Transport::Tcp).unwrap();
+        let id = service.entity_id();
+        store.insert_typed(service);
+        let json = serde_json::to_string(&store).unwrap();
+        let restored: EntityStore = serde_json::from_str(&json).unwrap();
+        assert!(restored.contains::<AppService>(&id));
+
+        let old: EntityStore = serde_json::from_str("{}").unwrap();
+        assert!(old.get::<AppService>().is_empty());
     }
 }
