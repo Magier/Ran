@@ -201,6 +201,26 @@
 		return undefined;
 	}
 
+	function defaultExecutionSystemId(targetId: string, systems: Entity[]): string {
+		if (systems.some(system => system.id === targetId)) return targetId;
+
+		// Identity-targeted actions execute on a system linked to that identity.
+		// Mirror that graph relationship in the modal so procedure availability is
+		// checked against the pod where the command will physically run.
+		const linkedSystem = systems.find(system =>
+			Array.from(campaignState.relations.values()).some(relation =>
+				relation.source === system.id &&
+				relation.destination === targetId &&
+				relation.kind === 'uses'
+			)
+		);
+		if (linkedSystem) return linkedSystem.id;
+
+		// With a single foothold there is no routing ambiguity, and retaining an
+		// empty selection would prevent tool readiness from being evaluated.
+		return systems.length === 1 ? systems[0].id : '';
+	}
+
 	let selectedNamespace = $derived.by(() => {
 		const nsArg = args.find(arg => arg.Type === 'Namespace');
 		return nsArg ? nsArg.Value : '';
@@ -429,13 +449,12 @@
 			// Also reset procedureId when TTP changes
 			procedureId = ttpProcedures?.[0]?.id || '';
 
-			// Default execution system: use the target itself when it is already
-			// compromised (direct access). For everything else leave it empty —
-			// the backend resolves the path via the knowledge graph.
+			// Select the physical execution system as well as the semantic target.
+			// This is especially important for ServiceAccount actions: the backend
+			// executes them on a linked pod, whose binary facts control procedure
+			// availability.
 			const systems = campaignState.getCompromisedSystems();
-			selectedExecSystemId = systems.some(s => s.id === currentTargetId)
-				? currentTargetId
-				: '';
+			selectedExecSystemId = defaultExecutionSystemId(currentTargetId, systems);
 
 			console.log(args);
 			console.groupEnd();
@@ -625,6 +644,12 @@
 		return path !== '' && path !== '❌';
 	}
 
+	function unavailableToolReason(tool: string): string | undefined {
+		return executingSystemHasTool(tool)
+			? undefined
+			: `Disabled because '${tool}' is known to be absent from the selected execution system`;
+	}
+
 	function procedureToolName(procedure: { id: string; tool?: string }): string {
 		return procedure.tool || procedure.id;
 	}
@@ -749,6 +774,7 @@
 						<option
 							value={procedure.id}
 							disabled={!executingSystemHasTool(procedureToolName(procedure))}
+							title={unavailableToolReason(procedureToolName(procedure))}
 							>{procedureToolName(procedure)}{!executingSystemHasTool(procedureToolName(procedure)) ? ' ❌' : ''}
 						</option>
 					{/each}

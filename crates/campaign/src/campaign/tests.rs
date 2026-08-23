@@ -1456,25 +1456,31 @@ fn command_not_found_in_output_with_exit_zero_marks_binary_absent_and_fails_step
 }
 
 #[test]
-fn command_not_found_does_not_overwrite_known_present_binary() {
+fn grounded_http_tool_failure_overrides_stale_known_present_binary() {
     use ran_domain::BinaryPresence;
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
     let mut pod = Pod::new("demo", "default");
-    pod.system.set_binary("nmap", "/usr/bin/nmap");
+    pod.system.set_binary("wget", "/usr/bin/wget");
     let target_id = pod.entity_id().0.clone();
     campaign.entities.insert_typed(pod);
 
-    let cmd = nmap_exec_ttp(&target_id);
+    let mut cmd = nmap_exec_ttp(&target_id);
+    // Grounded http_request variants retain the concrete implementation in
+    // `tool` after the structured request has been materialized.
+    cmd.procedure.tool = Some("wget".to_string());
+    cmd.procedure.command = "wget -qO- https://example.test".to_string();
     let event = command_not_found_event();
 
     campaign.on_ttp_executed(&cmd, &event).unwrap();
 
-    // Present should be preserved — a single failure doesn't override confirmed presence
+    // A command-not-found result is newer direct evidence than an earlier
+    // inventory result and must disable this procedure until installation is
+    // observed again.
     let sys = campaign.get_system_entity(&target_id).unwrap();
     assert_eq!(
-        sys.entity().system().has_binary("nmap"),
-        BinaryPresence::Present("/usr/bin/nmap".to_string()),
-        "confirmed Present should not be overwritten by a command-not-found failure"
+        sys.entity().system().has_binary("wget"),
+        BinaryPresence::Absent,
+        "command-not-found should override stale Present evidence"
     );
 }
 
