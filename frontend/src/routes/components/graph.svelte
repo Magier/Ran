@@ -225,6 +225,8 @@
 		// `unselect` handler must be registered first because it resets selectedNode (in case nothing is selected anymore)
 		cy.on('unselect', resetSelection);
 		cy.on('select', handleSelection);
+		cy.on('mouseover', 'edge', (event) => event.target.addClass('hovered'));
+		cy.on('mouseout', 'edge', (event) => event.target.removeClass('hovered'));
 
 		cy.on('dragfree', 'node', savePositions);
 		cy.on('pan', (e) => {
@@ -348,9 +350,36 @@
 					// Pre-position new nodes near their connected existing nodes so they don't spawn randomly
 					if (nodesToAdd.length > 0) {
 						const addingIds = new Set<string>(nodesToAdd.map((n: any) => n.data.id as string));
-						nodesToAdd.forEach((newNode: any) => {
+						const nodeDefinitions = new Map<string, any>(
+							nodes.map((node: any) => [node.data.id as string, node])
+						);
+						nodesToAdd.forEach((newNode: any, index: number) => {
 							if (newNode.position) return; // already has a saved position
 							const nodeId = newNode.data.id as string;
+
+							// Containment is encoded as a parent pointer rather than an edge. Start
+							// new descendants at their nearest existing compound ancestor so the
+							// layout animation reads as that region opening to reveal its contents.
+							let ancestorId: string | undefined = newNode.data.parent;
+							const visitedAncestors = new Set<string>();
+							while (ancestorId && !visitedAncestors.has(ancestorId)) {
+								visitedAncestors.add(ancestorId);
+								const ancestor = cy.getElementById(ancestorId);
+								if (ancestor.nonempty()) {
+									const anchor = ancestor.position();
+									// A tiny deterministic offset prevents exact overlap while keeping
+									// every child visually sourced from the same compound region.
+									const angle = index * 2.399963229728653;
+									newNode.position = {
+										x: anchor.x + Math.cos(angle) * 4,
+										y: anchor.y + Math.sin(angle) * 4
+									};
+									break;
+								}
+								ancestorId = nodeDefinitions.get(ancestorId)?.data.parent;
+							}
+							if (newNode.position) return;
+
 							const neighborPositions: { x: number; y: number }[] = [];
 							edges.forEach((edge: any) => {
 								const src = edge.data.source as string;
@@ -395,6 +424,7 @@
 					if (edgesToAdd.length > 0) {
 						cy.add(edgesToAdd);
 					}
+
 
 					// Re-collapse nodes that were previously collapsed
 					if (ecApi && collapsedNodes.length > 0) {
@@ -551,6 +581,7 @@
 		let el = event.target;
 		selectedObject = el.data();
 		selectedObjectId = el.data()['id'];
+		focusSelection(el);
 		console.group("Selected Graph object");
 		console.log(el.data());
 		console.log(el.classes());
@@ -563,6 +594,49 @@
 		if (cy.$(':selected').length > 0) return;
 		selectedObject = undefined;
 		selectedObjectId = '';
+		clearSelectionFocus();
+	}
+
+	function clearSelectionFocus() {
+		cy?.elements().removeClass('context-dimmed');
+	}
+
+	/**
+	 * Keep the selected element and its immediate graph context prominent.
+	 * Compound ancestors remain visible as quiet orientation boundaries.
+	 */
+	function focusSelection(element: cytoscape.SingularElementReturnValue) {
+		if (!cy) return;
+		const visible = cy.elements(':visible');
+		let context: cytoscape.CollectionReturnValue;
+
+		if (element.isNode()) {
+			context = element.closedNeighborhood();
+			if (element.isParent()) {
+				// Reveal exactly one containment level. Nested compounds remain useful
+				// orientation points without also exposing their own children.
+				const children = element.children();
+				context = context.union(children);
+				const contextNodeIds = new Set<string>();
+				context.nodes().forEach((node) => { contextNodeIds.add(node.id()); });
+				const internalEdges = visible.edges().filter((edge) =>
+					contextNodeIds.has(edge.source().id()) && contextNodeIds.has(edge.target().id())
+				);
+				context = context.union(internalEdges);
+			}
+		} else {
+			const endpoints = element.source().union(element.target());
+			context = element.union(endpoints);
+		}
+
+		// Preserve compound boundaries for every prominent node without pulling
+		// unrelated siblings into focus.
+		context.nodes().forEach((node) => {
+			context = context.union(node.ancestors());
+		});
+
+		visible.addClass('context-dimmed');
+		context.removeClass('context-dimmed');
 	}
 
 	function toCyNode(n: Node, nodePos: Record<string, any>): CyNode {

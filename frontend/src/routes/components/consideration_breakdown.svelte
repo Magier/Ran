@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ConsiderationScore } from '$lib/api';
+	import { helpFor } from './consideration_help';
 
 	type Props = {
 		/** Per-consideration scoring that produced a candidate's utility. */
@@ -28,21 +29,33 @@
 		return 'Utility consideration';
 	}
 
+	function contribution(c: ConsiderationScore): string {
+		if (c.kind === 'belief') return `× ${c.curved.toFixed(3)} success probability`;
+		if (c.veto) return `× ${c.curved.toFixed(3)} gate`;
+		return `${c.weight.toFixed(1)} × ${c.curved.toFixed(3)} weighted value`;
+	}
+
 </script>
 
 <div class="space-y-1 {className}">
 	{#each breakdown as c (c.name)}
-		<div
-			class="flex items-center gap-2 rounded px-1 -mx-1 {isActiveVeto(c) || isBeliefBlocker(c) ? 'bg-error-500/10' : ''}"
-		>
-			<span class="text-xs text-surface-500 w-28 truncate" title={`${c.name} - ${statusTitle(c)}`}>{c.name}</span>
-			<div class="h-1 flex-1 rounded bg-surface-300-700 overflow-hidden">
-				<div
-					class="h-full {c.veto || isBeliefBlocker(c) ? 'bg-error-500' : c.kind === 'belief' ? 'bg-warning-500' : 'bg-primary-500'}"
-					style="width: {Math.round(c.curved * 100)}%"
-				></div>
+		{@const help = helpFor(c.name)}
+		<details class="group rounded px-1 -mx-1 {isActiveVeto(c) || isBeliefBlocker(c) ? 'bg-error-500/10' : ''}">
+			<summary class="flex items-center gap-2 cursor-pointer list-none" title={`${c.name} - ${statusTitle(c)}`}>
+				<span class="text-xs text-surface-500 w-28 truncate">{c.name}</span>
+				<div class="h-1 flex-1 rounded bg-surface-300-700 overflow-hidden">
+					<div
+						class="h-full {c.veto || isBeliefBlocker(c) ? 'bg-error-500' : c.kind === 'belief' ? 'bg-warning-500' : 'bg-primary-500'}"
+						style="width: {Math.round(c.curved * 100)}%"
+					></div>
+				</div>
+				<span class="text-xs text-surface-500 w-7 text-right">{c.curved.toFixed(2)}</span>
+			</summary>
+			<div class="ml-2 mt-1 mb-2 border-l border-surface-300-700 pl-2 text-[11px] leading-snug text-surface-600-400 space-y-1">
+				{#if help}<p>{help.summary}</p><code class="block text-surface-900-100">{help.formula}</code>{/if}
+				<p class="font-mono">raw {c.raw.toFixed(3)} → curve {c.curved.toFixed(3)}</p>
+				<p>{contribution(c)} · {statusTitle(c)}</p>
 			</div>
-			<span class="text-xs text-surface-500 w-7 text-right">{c.curved.toFixed(2)}</span>
-		</div>
+		</details>
 	{/each}
 </div>

@@ -8,6 +8,7 @@
 		CombinationMode,
 		CalibrationResult
 	} from '$lib/api';
+	import { helpFor } from './consideration_help';
 
 	const campaign = getCampaignState();
 
@@ -271,6 +272,11 @@
 			{/if}
 
 			<div class="overflow-y-auto flex-1 p-3 space-y-3">
+				<div class="rounded border border-primary-500/30 bg-primary-500/5 p-2 text-[11px] leading-snug text-surface-600-400 space-y-1">
+					<p><strong class="text-surface-900-100">Scoring pipeline</strong></p>
+					<code class="block">raw measurement → response curve → weight / gate → utility × reliability</code>
+					<p>Controls below tune the profile at runtime. Formula constants shown under “Raw model” are compile-time policy and are documented here for transparency.</p>
+				</div>
 				<!-- Combination mode -->
 				<label class="flex items-center gap-2 text-xs">
 					<span class="text-surface-500 w-24">combination</span>
@@ -286,12 +292,16 @@
 				</label>
 
 				{#each profile.considerations as c (c.name)}
+					{@const help = helpFor(c.name)}
 					<div
 						class="border border-surface-200-800 rounded p-2 space-y-2"
 						class:opacity-50={!c.enabled}
 					>
 						<div class="flex items-center gap-2">
-							<span class="text-sm font-medium flex-1 truncate">{c.name}</span>
+							<div class="flex-1 min-w-0">
+								<span class="text-sm font-medium block truncate">{help?.label ?? c.name}</span>
+								<span class="text-[10px] text-surface-500">{c.name} · {help?.kind ?? 'utility'}</span>
+							</div>
 							<label class="flex items-center gap-1 text-[10px] text-surface-500" title="Veto gate">
 								<input type="checkbox" bind:checked={c.veto} onchange={scheduleSave} />
 								veto
@@ -301,6 +311,25 @@
 								on
 							</label>
 						</div>
+
+						{#if help}
+							<details class="rounded bg-surface-200-800/60 border border-surface-300-700 px-2 py-1">
+								<summary class="cursor-pointer text-[11px] font-medium">Raw model and exact formula</summary>
+								<div class="pt-1 space-y-1 text-[11px] leading-snug text-surface-600-400">
+									<p>{help.summary}</p>
+									<code class="block rounded bg-surface-100-900 px-1.5 py-1 text-surface-900-100">{help.formula}</code>
+									<ul class="list-disc pl-4 space-y-0.5">
+										{#each help.details as detail}<li>{detail}</li>{/each}
+									</ul>
+									{#if help.constants?.length}
+										<p class="font-medium text-surface-900-100">Current constants</p>
+										<ul class="list-disc pl-4 space-y-0.5">
+											{#each help.constants as constant}<li>{constant}</li>{/each}
+										</ul>
+									{/if}
+								</div>
+							</details>
+						{/if}
 
 						<div class="flex gap-2">
 							<!-- Curve plot -->

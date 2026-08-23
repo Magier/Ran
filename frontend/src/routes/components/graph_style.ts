@@ -104,6 +104,20 @@ export function getGraphStyle(isDark: boolean = false) {
 			}
 		},
 		{
+			selector: 'node[kind="OperatorHost"]:parent',
+			style: {
+				'border-style': 'solid',
+				'border-width': 1,
+				'border-color': isDark ? '#64748b' : '#94a3b8',
+				'background-color': isDark ? '#334155' : '#e2e8f0',
+				'background-opacity': 0.16,
+				'text-valign': 'bottom',
+				'text-halign': 'center',
+				'text-margin-x': 0,
+				'text-margin-y': 5
+			}
+		},
+		{
 			selector: 'node:selected',
 			style: {
 				'background-color': primary,
@@ -113,6 +127,13 @@ export function getGraphStyle(isDark: boolean = false) {
 				'target-arrow-color': primary,
 				'border-width': 1.5
 				// 'background-image': null
+			}
+		},
+		{
+			selector: '.context-dimmed',
+			style: {
+				opacity: 0.48,
+				'text-opacity': 0.38
 			}
 		},
 		{
@@ -328,10 +349,16 @@ export function getGraphStyle(isDark: boolean = false) {
 				width: '1',
 				color: textColor,
 				'target-arrow-shape': 'triangle',
-				content: 'data(name)',
+				content: '',
 				'line-color': textColor,
 				'target-arrow-color': textColor
 				// 'font-weight': 'bold'
+			}
+		},
+		{
+			selector: 'edge.hovered, edge:selected',
+			style: {
+				content: 'data(name)'
 			}
 		},
 		{
@@ -377,7 +404,7 @@ export function getGraphStyle(isDark: boolean = false) {
 			}
 		},
 		{
-			selector: "edge[relation='routes']",
+			selector: "edge[relation='routes'].hovered, edge[relation='routes']:selected",
 			style: {
 				content: `data(port)`
 			}

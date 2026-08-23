@@ -22,8 +22,12 @@ export function isValidPosition(pos: unknown): pos is { x: number; y: number } {
  * Unmapped kinds land wherever ELK's topological sort places them.
  */
 export const NODE_LAYER: Record<string, number> = {
-  // Attack origin
-  C2: 0,
+	// Top-level environment boundaries
+	OperatorHost: 0,
+	Cluster: 3,
+	Namespace: 3,
+	// Attack origin
+	C2: 0,
   // External machines / adversary infrastructure
   Adversary: 1,
   System: 1,
@@ -97,8 +101,8 @@ export const DEFAULT_LAYOUT_PARAMS: LayoutParams = {
   nodeSpacing: 40,
   edgeNodeSpacing: 20,
   aspectRatio: 1.6,
-  compoundEdgeLength: 55,
-  compoundPadding: 15,
+	compoundEdgeLength: 32,
+	compoundPadding: 8,
   stressIterations: 300,
   usesStraightness: 3,
   animationDuration: 250,
@@ -134,8 +138,11 @@ export function createElkLayout(
     animationDuration: params.animationDuration,
 
     elk: {
-      'elk.algorithm': 'layered',
-      'elk.direction': 'RIGHT',
+		'elk.algorithm': 'layered',
+		'elk.direction': 'RIGHT',
+		// Process child-to-external edges (for example local kubeconfig → cluster)
+		// in the same run so compound parents receive meaningful ordering.
+		'org.eclipse.elk.hierarchyHandling': 'INCLUDE_CHILDREN',
       'elk.aspectRatio': String(params.aspectRatio),
       'elk.layered.spacing.nodeNodeBetweenLayers': String(params.layerSpacing),
       'elk.spacing.nodeNode': String(params.nodeSpacing),
@@ -152,23 +159,32 @@ export function createElkLayout(
     nodeLayoutOptions: (node: cytoscape.NodeSingular) => {
       const opts: Record<string, string> = {};
 
-      const pos = positions[node.id()];
-      if (pos) {
-        opts['elk.position'] = elkPos(pos.x, pos.y);
-      }
+		const pos = positions[node.id()];
+		if (pos) {
+			opts['elk.position'] = elkPos(pos.x, pos.y);
+		}
 
-      if (node.isParent()) {
-        opts['elk.algorithm'] = 'stress';
-        opts['elk.stress.desiredEdgeLength'] = String(params.compoundEdgeLength);
-        opts['elk.stress.iterations'] = String(params.stressIterations);
-        opts['elk.padding'] = compoundPad;
-      } else {
-        const kind: string = node.data('kind') ?? '';
-        const layer = NODE_LAYER[kind];
-        if (layer !== undefined) {
-          opts['elk.layered.layering.layer'] = String(layer);
-        }
-      }
+		// A compound participates in its parent's layered layout as one node, so
+		// it needs its own layer hint even though its children use a local layout.
+		const kind: string = node.data('kind') ?? '';
+		const layer = NODE_LAYER[kind];
+		if (layer !== undefined) {
+			opts['elk.layered.layering.layer'] = String(layer);
+		}
+		if (kind === 'OperatorHost') {
+			opts['org.eclipse.elk.layered.layering.layerConstraint'] = 'FIRST';
+		}
+
+		if (node.isParent()) {
+			// A single layered hierarchy is required for edges that cross compound
+			// boundaries. Mixing stress sub-layouts with INCLUDE_CHILDREN makes ELK
+			// treat child and external endpoints as belonging to different runs.
+			opts['elk.algorithm'] = 'layered';
+			opts['elk.direction'] = 'RIGHT';
+			opts['elk.spacing.nodeNode'] = '18';
+			opts['elk.layered.spacing.nodeNodeBetweenLayers'] = String(params.compoundEdgeLength);
+			opts['elk.padding'] = compoundPad;
+		}
 
       return opts;
     },

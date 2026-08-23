@@ -16,4 +16,28 @@ describe('getK8sCredentialIcon', () => {
 		expect(selectedNodeStyle?.style['border-color']).toBe('#600FED');
 		expect(selectedNodeStyle?.style['border-width']).toBe(1.5);
 	});
+
+	it('shows edge labels on interaction without increasing their width', () => {
+		const style = getGraphStyle(false);
+		const baseEdgeStyle = style.find(
+			(rule: { selector: string }) => rule.selector === 'edge'
+		);
+		const hoveredEdgeStyle = style.find(
+			(rule: { selector: string }) => rule.selector === 'edge.hovered, edge:selected'
+		);
+
+		expect(baseEdgeStyle?.style.content).toBe('');
+		expect(baseEdgeStyle?.style.width).toBe('1');
+		expect(hoveredEdgeStyle?.style.content).toBe('data(name)');
+		expect(hoveredEdgeStyle?.style.width).toBeUndefined();
+	});
+
+	it('provides a low-opacity style for graph context outside the selection', () => {
+		const dimmedStyle = getGraphStyle(false).find(
+			(rule: { selector: string }) => rule.selector === '.context-dimmed'
+		);
+
+		expect(dimmedStyle?.style.opacity).toBe(0.48);
+		expect(dimmedStyle?.style['text-opacity']).toBe(0.38);
+	});
 });
