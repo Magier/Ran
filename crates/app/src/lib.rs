@@ -720,13 +720,27 @@ impl ApiService for AppState {
         }))
     }
 
-    async fn export_plan(&self, include_failed: bool) -> Result<String, ApiError> {
+    async fn export_plan(
+        &self,
+        include_failed: bool,
+        name: Option<String>,
+        description: Option<String>,
+    ) -> Result<String, ApiError> {
         let campaign = self
             .campaign
             .read()
             .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
         let opts = planner::ExportOptions { include_failed };
-        let plan = planner::export_plan(&campaign.execution_records, &opts);
+        let mut plan = planner::export_plan(&campaign.execution_records, &opts);
+        if let Some(name) = name
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+        {
+            plan.name = name;
+        }
+        if let Some(description) = description.map(|value| value.trim().to_string()) {
+            plan.description = (!description.is_empty()).then_some(description);
+        }
         let yaml = serde_yaml::to_string(&plan).map_err(|e| ApiError::internal(e.to_string()))?;
         Ok(yaml)
     }

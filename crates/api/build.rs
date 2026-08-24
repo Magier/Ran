@@ -176,7 +176,12 @@ pub trait ApiService: Clone + Send + Sync + 'static {
 
     async fn get_plan_status(&self, plan_id: &str) -> Result<serde_json::Value, ApiError>;
 
-    async fn export_plan(&self, include_failed: bool) -> Result<String, ApiError>;
+    async fn export_plan(
+        &self,
+        include_failed: bool,
+        name: Option<String>,
+        description: Option<String>,
+    ) -> Result<String, ApiError>;
 
     /// List pre-defined plans available in the configured plans directory.
     async fn list_plans(&self) -> Result<Vec<serde_json::Value>, ApiError>;

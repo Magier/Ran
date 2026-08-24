@@ -857,12 +857,20 @@ pub(crate) async fn plan_status_handler<S: ApiService>(
 pub(crate) async fn export_plan_handler<S: ApiService>(
     State(service): State<S>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Result<String, ApiError> {
+) -> Result<([(axum::http::HeaderName, &'static str); 1], String), ApiError> {
     let include_failed = params
         .get("include_failed")
         .map(|v| v == "true")
         .unwrap_or(false);
-    service.export_plan(include_failed).await
+    let name = params.get("name").cloned();
+    let description = params.get("description").cloned();
+    let yaml = service
+        .export_plan(include_failed, name, description)
+        .await?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/yaml")],
+        yaml,
+    ))
 }
 
 #[derive(serde::Deserialize)]

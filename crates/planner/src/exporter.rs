@@ -96,36 +96,28 @@ fn step_id_from_record(ttp_id: &str, index: usize) -> String {
 }
 
 pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDefinition {
-    let successful: Vec<&ExecutionRecord> = records
+    let selected: Vec<&ExecutionRecord> = records
         .iter()
-        .filter(|r| r.success && !r.is_cleanup)
+        .filter(|record| !record.is_cleanup && (record.success || opts.include_failed))
         .collect();
+    let mut steps: Vec<StepDefinition> = Vec::with_capacity(selected.len());
 
-    let failed: Vec<&ExecutionRecord> = if opts.include_failed {
-        records
-            .iter()
-            .filter(|r| !r.success && !r.is_cleanup)
-            .collect()
-    } else {
-        vec![]
-    };
-
-    let mut steps: Vec<StepDefinition> = Vec::new();
-    let mut success_step_ids: Vec<String> = Vec::new();
-
-    // Build success chain (linear, each depends on previous)
-    for (i, rec) in successful.iter().enumerate() {
+    // Preserve execution order. When failures are included, completion (rather
+    // than success) allows replay to continue to the next recorded action.
+    for (i, rec) in selected.iter().enumerate() {
         let step_id = step_id_from_record(&rec.ttp_id, i);
         let fuzz = fuzzify_entity_id(&rec.target_id);
 
-        let depends_on = if i == 0 {
-            vec![]
-        } else {
+        let depends_on = steps.last().map_or_else(Vec::new, |previous| {
             vec![Dependency::Step {
-                step: success_step_ids[i - 1].clone(),
-                require: Require::Success,
+                step: previous.id.clone(),
+                require: if opts.include_failed {
+                    Require::Completion
+                } else {
+                    Require::Success
+                },
             }]
-        };
+        });
 
         let kind = capitalize(entity_kind_from_id(&rec.target_id));
         let namespace = entity_namespace_from_id(&rec.target_id).map(str::to_string);
@@ -150,60 +142,7 @@ pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDef
             retry: RetryStrategy::NextProcedure,
             depends_on,
             expect: None,
-            note: None,
-        });
-        success_step_ids.push(step_id);
-    }
-
-    // Add failed steps as side branches
-    let failed_start = steps.len();
-    for (fi, rec) in failed.iter().enumerate() {
-        let step_id = step_id_from_record(&rec.ttp_id, failed_start + fi);
-        let fuzz = fuzzify_entity_id(&rec.target_id);
-
-        // Find last successful record that appears before this failed one
-        let record_pos = records.iter().position(|r| r.id == rec.id).unwrap_or(0);
-        let last_success_step_id = records[..record_pos]
-            .iter()
-            .rev()
-            .find(|r| r.success && !r.is_cleanup)
-            .and_then(|r| {
-                let idx = successful.iter().position(|s| s.id == r.id)?;
-                success_step_ids.get(idx).cloned()
-            });
-
-        let depends_on = match last_success_step_id {
-            Some(sid) => vec![Dependency::Step {
-                step: sid,
-                require: Require::Success,
-            }],
-            None => vec![],
-        };
-
-        let kind = capitalize(entity_kind_from_id(&rec.target_id));
-        let namespace = entity_namespace_from_id(&rec.target_id).map(str::to_string);
-
-        steps.push(StepDefinition {
-            id: step_id,
-            action: rec.ttp_id.clone(),
-            target: TargetQuery {
-                kind,
-                namespace,
-                name: fuzz.pattern,
-                select: None,
-                ..Default::default()
-            },
-            exec_target: None,
-            authenticate_as: rec.auth_identity_id.as_ref().map(|id| TargetQuery {
-                id: Some(id.clone()),
-                ..Default::default()
-            }),
-            args: rec.args.clone(),
-            procedure: Some(rec.procedure_id.clone()).filter(|s| !s.is_empty()),
-            retry: RetryStrategy::NextProcedure,
-            depends_on,
-            expect: None,
-            note: Some("recorded: failed".into()),
+            note: (!rec.success).then(|| "recorded: failed".into()),
         });
     }
 
@@ -295,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn export_include_failed_adds_side_branches() {
+    fn export_include_failed_preserves_execution_order() {
         let records = vec![
             make_record(
                 "cmd-1",
@@ -324,24 +263,12 @@ mod tests {
         };
         let plan = export_plan(&records, &opts);
         assert_eq!(plan.steps.len(), 3);
-        // The failed step depends on cmd-1's step (same predecessor as cmd-3), not on cmd-3
-        let failed_step = plan
-            .steps
-            .iter()
-            .find(|s| s.note.as_deref() == Some("recorded: failed"))
-            .unwrap();
-        assert!(failed_step.depends_on.iter().any(|d| {
-            matches!(d, crate::model::Dependency::Step { step, .. } if step == "step_0_k8s_exec_into_pod")
+        assert_eq!(plan.steps[1].action, "container.exploit-cve");
+        assert_eq!(plan.steps[1].note.as_deref(), Some("recorded: failed"));
+        assert!(plan.steps[2].depends_on.iter().any(|d| {
+            matches!(d, crate::model::Dependency::Step { step, require: crate::model::Require::Completion }
+                if step == &plan.steps[1].id)
         }));
-        // Nothing depends on the failed step
-        let failed_id = failed_step.id.clone();
-        for step in &plan.steps {
-            for dep in &step.depends_on {
-                if let crate::model::Dependency::Step { step: dep_id, .. } = dep {
-                    assert_ne!(dep_id, &failed_id, "something depends on failed step");
-                }
-            }
-        }
     }
 
     fn make_record(

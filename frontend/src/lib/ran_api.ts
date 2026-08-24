@@ -326,6 +326,15 @@ export class RanAPI {
 		if (error) throw new Error(error.error || 'Failed to load plan');
 		return data;
 	}
+
+	async ExportPlan(includeFailed = false, name?: string, description?: string): Promise<string> {
+		const { data, error } = await this.restClient.GET('/api/plans/export', {
+			params: { query: { include_failed: includeFailed, name, description } },
+			parseAs: 'text'
+		});
+		if (error) throw new Error('Failed to export plan');
+		return data;
+	}
 }
 
 // Singleton instance

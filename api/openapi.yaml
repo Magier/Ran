@@ -527,6 +527,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/plans/export:
+    get:
+      summary: Export the execution history as a plan
+      description: Builds a reusable plan YAML from completed campaign actions, in execution order. Cleanup actions are omitted.
+      operationId: exportPlan
+      parameters:
+        - name: include_failed
+          in: query
+          required: false
+          description: Include failed actions as well as successful actions.
+          schema:
+            type: boolean
+            default: false
+        - name: name
+          in: query
+          required: false
+          description: Human-readable name stored in the exported plan.
+          schema:
+            type: string
+        - name: description
+          in: query
+          required: false
+          description: Description stored in the exported plan.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Exported plan YAML
+          content:
+            application/yaml:
+              schema:
+                type: string
+        '500':
+          description: Failed to export the plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 webhooks:
   armory-loaded:
     post:
