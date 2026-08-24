@@ -29,6 +29,9 @@ export type Entity = {
 	stateReason?: string;
 	ips?: string[];
 	provenance?: string[];
+	compromised?: boolean;
+	token?: { Raw?: string };
+	meta?: { name_confidence?: string };
 };
 
 export type Relation = {

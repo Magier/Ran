@@ -24,7 +24,7 @@
 	let status = $derived(step?.status ?? 'Unknown');
 
 	const campaignState = getCampaignState();
-	const target = $derived(step?.targetId ? campaignState.getEntityById(step.targetId) : "?");
+	const target = $derived(step?.targetId ? campaignState.getEntityById(step.targetId) : undefined);
 
 	// JWTs always start with eyJ (base64url of '{"'). Replace with a short
 	// placeholder so commands stay readable; the full token is kept in data-source.

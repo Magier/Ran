@@ -188,10 +188,9 @@
     aria-label="Operation timeline"
 >
     <!-- Resize handle -->
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div
+	<div
         class="absolute -top-1 left-0 right-0 h-2 cursor-row-resize z-10 group"
-        role="separator"
+		role="slider"
         aria-orientation="horizontal"
         aria-label="Resize operation timeline"
         aria-valuemin={MIN_HEIGHT}
@@ -200,9 +199,9 @@
         tabindex="0"
         onpointerdown={startResize}
         onkeydown={onHandleKeydown}
-    >
+	>
         <div class="absolute inset-x-0 top-1 h-0.5 bg-transparent group-hover:bg-primary-500 transition-colors"></div>
-    </div>
+	</div>
 
     <!-- Header -->
     <div class="flex items-center px-3 py-1.5 border-b border-surface-200-800 shrink-0">
@@ -224,7 +223,12 @@
                     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
                     <div
                         class="flex items-start gap-2 px-3 py-2 border-b border-surface-200-800 text-sm hover:bg-surface-200-800 cursor-pointer select-none"
+						role="button"
+						tabindex="0"
                         onclick={() => ontogglegroup(entry.action.id)}
+						onkeydown={(event) => {
+							if (event.key === 'Enter' || event.key === ' ') ontogglegroup(entry.action.id);
+						}}
                         aria-expanded={!entry.collapsed}
                     >
                         <!-- Chevron (far left) -->

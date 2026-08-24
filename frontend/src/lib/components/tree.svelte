@@ -6,7 +6,14 @@
 	type Icon = 'svelte' | 'folder' | 'js';
 	type TreeNode = {
 		id: string;
+		name?: string;
+		parentId?: string;
+		mountPoint?: string;
+		mountRoot?: string;
 		isOpen?: boolean;
+		root?: Record<string, unknown>;
+		trigger?: Record<string, unknown>;
+		content?: Record<string, unknown>;
 		// icon: Icon;
 		children?: TreeNode[];
 	};
@@ -27,7 +34,7 @@
 		if (node.name) {
 			return node.name;
 		}
-		return `${node.mountPoint} => ${node.mountRoot}`;
+		return `${node.mountPoint ?? ''} => ${node.mountRoot ?? ''}`;
 	}
 
 	let { entries = [], level = 0, node, onLeafClick }: TreeProps = $props();
@@ -45,7 +52,7 @@
 
 		// index all nodes by ID
 		data.forEach((node) => {
-			let nodeId = node.id || node.name;
+			let nodeId = node.id || node.name || '';
 			idMap[nodeId] = {
 				...node,
 				children: []
@@ -54,7 +61,7 @@
 
 		// build the hierarchical tree
 		data.forEach((node) => {
-			let id = node.id || node.name;
+			let id = node.id || node.name || '';
 			const mappedNode = idMap[id];
 			if (node.parentId && idMap[node.parentId]) {
 				idMap[node.parentId].children!.push(mappedNode);
@@ -74,19 +81,19 @@
 
 <div {...tree.root}>
 	{#each tree.items as item}
-		<div {...mergeAttrs(item.root, { class: `tree-item ${level > 0 ? 'ml-2' : ''}` })}>
+		<div {...mergeAttrs(item.root ?? {}, { class: `tree-item ${level > 0 ? 'ml-2' : ''}` })}>
 			{#if item.children && item.children.length > 0}
-				<button {...item.trigger} class="flex" onclick={() => tree.toggleExpand(item.id)}>
+				<button {...(item.trigger ?? {})} class="flex" onclick={() => tree.toggleExpand(item.id)}>
 					<span class="mx-2">{tree.isExpanded(item.id) ? '-' : '+'}</span>
 					<pre>{getNodeName(item)}</pre>
 				</button>
 			{:else if onLeafClick}
-				<button type="button" class="ml-4 chip preset-outline-surface-500" onclick={() => onLeafClick(item.mountPoint)}>{getNodeName(item)}</button>
+				<button type="button" class="ml-4 chip preset-outline-surface-500" onclick={() => onLeafClick(item.mountPoint ?? '')}>{getNodeName(item)}</button>
 			{:else}
 				<pre class="ml-6">{getNodeName(item)}</pre>
 			{/if}
 			{#if item.children && tree.isExpanded(item.id)}
-				<div {...item.content}>
+				<div {...(item.content ?? {})}>
 					{#each item.children as child}
 						<Self node={child} level={level + 1} onLeafClick={onLeafClick} />
 					{/each}

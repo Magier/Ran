@@ -18,6 +18,7 @@
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import GraphNodeSelector from './graph_node_selector.svelte';
 	import GraphFilter from './graph_filter.svelte';
+	import { workloadCompoundIds } from './workload_compounds';
 	// import { hierarchyLayout } from './hierachical_layout';
 	// import 	{ K8sAttackGraphLayout } from './layout_claude';
 
@@ -48,9 +49,6 @@
 
 	const FILTER_NS_KEY = '_hiddenNamespaces';
 	const DEFAULT_HIDDEN_NAMESPACES = ['kube-system', 'local-path-storage'];
-	const FILTER_WORKLOADS_KEY = '_collapseWorkloads';
-	const WORKLOAD_KINDS = new Set(['ReplicaSet', 'StatefulSet', 'DaemonSet', 'Job']);
-	const WORKLOAD_FILTER_CLASS = 'workload-filtered';
 
 	function loadHiddenNamespaces(): Set<string> {
 		if (!browser) return new Set(DEFAULT_HIDDEN_NAMESPACES);
@@ -62,18 +60,7 @@
 		}
 	}
 
-	function loadCollapseWorkloads(): boolean {
-		if (!browser) return false;
-		try {
-			const stored = sessionStorage.getItem(FILTER_WORKLOADS_KEY);
-			return stored ? JSON.parse(stored) : false;
-		} catch {
-			return false;
-		}
-	}
-
 	let hiddenNamespaces: Set<string> = $state(loadHiddenNamespaces());
-	let collapseWorkloads: boolean = $state(loadCollapseWorkloads());
 
 	cytoscape.use(elk);
 	if (typeof expandCollapse === 'function') {
@@ -85,7 +72,7 @@
 	// cytoscape("layout", "hierarchyFlow", hierarchyLayout);
     // cytoscape('layout', 'claude', K8sAttackGraphLayout);
 
-	let cy: cytoscape.Core;
+	let cy: cytoscape.Core = $state() as cytoscape.Core;
 	let graphContainer: HTMLElement;
 	let positions: PosMap = {};
 	let zoom: number = 1;
@@ -103,9 +90,11 @@
 	});
 	const PAN_KEY = '_pan';
 	const ZOOM_KEY = '_zoom';
-	const COLLAPSED_KEY = '_collapsedNodes';
+	// Versioned because workload compounds now default to collapsed even with one pod.
+	const COLLAPSED_KEY = '_collapsedNodesV2';
 
 	let previousNodeIds: Set<string> = new Set();
+	let previousWorkloadCompoundIds: Set<string> = new Set();
 	let layoutParams: LayoutParams = $state({ ...DEFAULT_LAYOUT_PARAMS });
 
 	function runElkLayout() {
@@ -186,7 +175,7 @@
 		// Initialize expand-collapse extension
 		let api;
 		try {
-			api = cy.expandCollapse({
+			api = (cy as any).expandCollapse({
 				layoutBy: null,
 				fisheye: false,
 				animate: true,
@@ -257,22 +246,20 @@
 			sessionStorage.removeItem(ZOOM_KEY);				sessionStorage.removeItem(COLLAPSED_KEY);			// Don't clear FILTER_NS_KEY - preserve namespace filter across campaigns
 			positions = {};
 			previousNodeIds.clear();
+			previousWorkloadCompoundIds.clear();
 			// Don't reset hiddenNamespaces - user preferences should persist
 		}
 		previousCampaignId = currentCampaignId;
 	});
 
-	// Persist filter state and re-apply whenever either filter changes
+	// Persist namespace filter state and re-apply it when it changes.
 	$effect(() => {
 		const ns = hiddenNamespaces;
-		const cw = collapseWorkloads;
 		if (browser) {
 			sessionStorage.setItem(FILTER_NS_KEY, JSON.stringify([...ns]));
-			sessionStorage.setItem(FILTER_WORKLOADS_KEY, JSON.stringify(cw));
 		}
 		if (cy) {
 			applyNamespaceFilters(cy, ns);
-			applyWorkloadFilter(cy, cw);
 		}
 	});
 
@@ -285,6 +272,7 @@
 				if (graph.nodes === undefined) {
 					console.warn('Graph data is incomplete:', graph);
 				} else {
+					const currentWorkloadCompoundIds = workloadCompoundIds(graph.nodes);
 					// Clean up stale position entries before processing
 					const currentNodeIds = new Set(graph.nodes.map(n => n.id));
 					let positionsChanged = false;
@@ -314,11 +302,23 @@
 					const collapsedNodes: string[] = [];
 					const ecApi = (window as any).cyExpandCollapseAPI;
 					// On initial mount, seed with IDs persisted from the previous navigation
+					let hasStoredCollapseState = false;
 					if (previousNodeIds.size === 0 && browser) {
 						try {
 							const stored = sessionStorage.getItem(COLLAPSED_KEY);
+							hasStoredCollapseState = stored !== null;
 							if (stored) (JSON.parse(stored) as string[]).forEach(id => collapsedNodes.push(id));
 						} catch (_) {}
+					}
+					// Multi-pod workload compounds start collapsed. An explicitly persisted
+					// expansion wins on remount; workloads that newly gain a second pod are
+					// collapsed when they first become useful as a group.
+					if (previousNodeIds.size === 0 && !hasStoredCollapseState) {
+						currentWorkloadCompoundIds.forEach(id => collapsedNodes.push(id));
+					} else if (previousNodeIds.size > 0) {
+						currentWorkloadCompoundIds.forEach(id => {
+							if (!previousWorkloadCompoundIds.has(id)) collapsedNodes.push(id);
+						});
 					}
 					if (ecApi) {
 						cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => {
@@ -424,11 +424,14 @@
 					if (edgesToAdd.length > 0) {
 						cy.add(edgesToAdd);
 					}
-
+					syncWorkloadCompromisedState(cy, graph.nodes);
+					// Tint pods while they are present in the live collection. The collapse
+					// extension preserves their style while they are hidden inside a workload.
+					applyCompromisedStyle(cy);
 
 					// Re-collapse nodes that were previously collapsed
 					if (ecApi && collapsedNodes.length > 0) {
-						collapsedNodes.forEach(id => {
+						new Set(collapsedNodes).forEach(id => {
 							const node = cy.getElementById(id);
 							if (node.length > 0 && node.isParent()) {
 								try { ecApi.collapse(node); } catch (_) {}
@@ -477,7 +480,7 @@
 
 					applyCompromisedStyle(cy);
 					applyNamespaceFilters(cy, hiddenNamespaces);
-					applyWorkloadFilter(cy, collapseWorkloads);
+					previousWorkloadCompoundIds = currentWorkloadCompoundIds;
 
 					// Reapply text color based on current theme
 					const textColor = theme.isDark ? 'white' : 'black';
@@ -488,7 +491,7 @@
 					setTimeout(() => {
 						// update the currently selected graph object
 						if (selectedObject !== undefined) {
-							if (selectedObject.entity !== undefined) {
+							if ('entity' in selectedObject && selectedObject.entity !== undefined) {
 								const el = graph.nodes.find((n) => n.id === selectedObjectId);
 								selectedObject = el;
 							} else {
@@ -508,7 +511,7 @@
 	function saveCollapsedNodes() {
 		if (!browser || !cy) return;
 		const ids: string[] = [];
-		cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => ids.push(n.id()));
+		cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => { ids.push(n.id()); });
 		sessionStorage.setItem(COLLAPSED_KEY, JSON.stringify(ids));
 	}
 
@@ -569,7 +572,7 @@
 		return defaultValue;
 	}
 
-	function getPanPositionOrDefault(defaultValue: Pos): Pos {
+	function getPanPositionOrDefault(defaultValue: Pos | undefined): Pos | undefined {
 		if (browser) {
 			const pan = sessionStorage.getItem(PAN_KEY);
 			return pan ? JSON.parse(pan) : defaultValue;
@@ -577,7 +580,7 @@
 		return defaultValue;
 	}
 
-	function handleSelection(event: cytoscape.Event) {
+	function handleSelection(event: cytoscape.EventObject) {
 		let el = event.target;
 		selectedObject = el.data();
 		selectedObjectId = el.data()['id'];
@@ -588,7 +591,7 @@
 		console.groupEnd();
 	}
 
-	function resetSelection(event: cytoscape.Event) {
+	function resetSelection(event: cytoscape.EventObject) {
 		// Switching selection selects the new element before unselecting the old
 		// one. Do not let the old element's event clear the shared selection.
 		if (cy.$(':selected').length > 0) return;
@@ -605,7 +608,7 @@
 	 * Keep the selected element and its immediate graph context prominent.
 	 * Compound ancestors remain visible as quiet orientation boundaries.
 	 */
-	function focusSelection(element: cytoscape.SingularElementReturnValue) {
+	function focusSelection(element: any) {
 		if (!cy) return;
 		const visible = cy.elements(':visible');
 		let context: cytoscape.CollectionReturnValue;
@@ -797,65 +800,6 @@
 	}
 
 	/**
-	 * When `collapse` is true, hide workload nodes (ReplicaSet, StatefulSet, DaemonSet, Job)
-	 * that own exactly one pod, and re-parent that pod directly under the namespace so it
-	 * remains visible. This removes visual clutter for the common single-replica case.
-	 * Must be called AFTER applyNamespaceFilters so namespace-filtered nodes are already tagged.
-	 */
-	function applyWorkloadFilter(cy: cytoscape.Core, collapse: boolean) {
-		// --- Restore phase: undo any previous workload-filter moves ---
-		// Move pods back to their original workload parent before re-evaluating.
-		cy.nodes().forEach((n: any) => {
-			const originalParentId: string | undefined = n.data('parent');
-			if (!originalParentId) return;
-			const parentNode = cy.getElementById(originalParentId);
-			if (parentNode.length === 0 || !WORKLOAD_KINDS.has(parentNode.data('kind'))) return;
-			// If the pod was re-parented (current cytoscape parent differs from server parent), restore it.
-			const currentParent = n.parent();
-			if (currentParent.length === 0 || currentParent.id() !== originalParentId) {
-				n.move({ parent: originalParentId });
-			}
-		});
-		// Show and un-tag workload nodes and edges that were previously hidden by this filter.
-		cy.nodes('.' + WORKLOAD_FILTER_CLASS).forEach((n: any) => {
-			n.removeClass(WORKLOAD_FILTER_CLASS);
-			if (!n.hasClass('namespace-filtered')) n.show();
-		});
-		cy.edges('.' + WORKLOAD_FILTER_CLASS).forEach((e: any) => {
-			e.removeClass(WORKLOAD_FILTER_CLASS);
-			if (!e.hasClass('namespace-filtered')) e.show();
-		});
-
-		if (!collapse) return;
-
-		// --- Apply phase: hide workloads with exactly one pod child ---
-		cy.nodes().forEach((workload: any) => {
-			if (!WORKLOAD_KINDS.has(workload.data('kind'))) return;
-			if (workload.hasClass('namespace-filtered')) return;
-
-			const podChildren = workload.children().filter((c: any) => c.data('kind') === 'Pod');
-			if (podChildren.length !== 1) return;
-
-			const pod = podChildren[0];
-			const nsParent = workload.parent();
-			const nsParentId: string | null = nsParent.length > 0 ? nsParent.id() : null;
-
-			// Re-parent pod directly under the namespace so it stays visible.
-			pod.move({ parent: nsParentId });
-
-			// Hide the workload node and all its edges.
-			workload.addClass(WORKLOAD_FILTER_CLASS);
-			workload.hide();
-			workload.connectedEdges().forEach((e: any) => {
-				if (!e.hasClass('namespace-filtered')) {
-					e.addClass(WORKLOAD_FILTER_CLASS);
-					e.hide();
-				}
-			});
-		});
-	}
-
-	/**
 	 * Hide nodes (and their edges) belonging to the specified namespaces.
 	 * Uses the 'namespace-filtered' class to track which elements were hidden
 	 * by this filter, so other hide/show logic isn't affected.
@@ -908,7 +852,7 @@
 			const n = cy.getElementById(id);
 			if (n.length > 0) {
 				n.addClass('namespace-filtered');
-				n.hide();
+				(n as any).hide();
 			}
 		});
 
@@ -947,13 +891,29 @@
 
 		// Re-apply informational edge filtering after expanding
 		hideRedundantInformationalEdges(cy);
+		applyCompromisedStyle(cy);
+	}
+
+	function syncWorkloadCompromisedState(cy: cytoscape.Core, graphNodes: Node[]) {
+		const compromisedParents = new Set(
+			graphNodes
+				.filter((node) => node.kind === 'Pod' && node.compromised && node.parent)
+				.map((node) => node.parent!)
+		);
+
+		workloadCompoundIds(graphNodes).forEach((id) => {
+			const workload = cy.getElementById(id);
+			if (workload.nonempty()) {
+				workload.data('containsCompromised', compromisedParents.has(id));
+			}
+		});
 	}
 
 </script>
 
 <div class={['graph-wrapper', className]}>
 	<div id="graph" bind:this={graphContainer}></div>
-	<GraphFilter {availableNamespaces} bind:hiddenNamespaces bind:collapseWorkloads />
+	<GraphFilter {availableNamespaces} bind:hiddenNamespaces />
 	<GraphLayoutPlayground bind:params={layoutParams} onRelayout={runElkLayout} />
 </div>
 

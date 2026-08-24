@@ -10,6 +10,7 @@
 	import { Accordion, Tabs } from '@skeletonlabs/skeleton-svelte';
 	import type { TTP, Node, ScoredCandidate } from '$lib/api/index';
 	import { getCampaignState, parseArmory } from '$lib/components/CampaignState.svelte';
+	import { WORKLOAD_KINDS } from './workload_compounds';
 
 	const campaign = getCampaignState();
 
@@ -40,6 +41,11 @@
 	// Holds the full breakdown so each action card can explain its score on hover.
 	let scoredByTtp: Map<string, ScoredCandidate> = $state(new Map());
 	let scoringEnabled: boolean = $state(false);
+	const liftedPodCount = $derived.by(() => {
+		const kind = campaign.graph.nodes.find((node) => node.id === targetId)?.kind;
+		if (!kind || !WORKLOAD_KINDS.has(kind)) return 0;
+		return campaign.graph.nodes.filter((node) => node.kind === 'Pod' && node.parent === targetId).length;
+	});
 
 	$effect(() => {
 		campaign.api.GetScoringProfile().then((profile) => {
@@ -116,7 +122,21 @@
 		// slower response for an earlier selection from replacing current results.
 		const requestedTargetId = targetId;
 		applicableTTPs = new Map();
-		campaign.api.GetApplicableTTPs(requestedTargetId)
+		const targetKind = campaign.graph.nodes.find((node) => node.id === requestedTargetId)?.kind;
+		const podIds = targetKind && WORKLOAD_KINDS.has(targetKind)
+			? campaign.graph.nodes
+				.filter((node) => node.kind === 'Pod' && node.parent === requestedTargetId)
+				.map((node) => node.id)
+			: [];
+		const applicableRequest = podIds.length > 0
+			? Promise.all(podIds.map((podId) => campaign.api.GetApplicableTTPs(podId))).then((results) => {
+				const byId = new Map<string, TTP>();
+				results.flat().forEach((ttp) => byId.set(ttp.id, ttp));
+				return [...byId.values()];
+			})
+			: campaign.api.GetApplicableTTPs(requestedTargetId);
+
+		applicableRequest
 			.then((result: TTP[]) => {
 				if (targetId !== requestedTargetId) return;
 				applicableTTPs = parseArmory(result);
@@ -207,6 +227,12 @@
 
 		<!-- Actions: all applicable TTPs grouped by tactic, scored per target -->
 		<Tabs.Content value="actions" class="flex-1 min-h-0 flex flex-col !p-0 !m-0">
+			{#if liftedPodCount > 0}
+				<div class="flex items-center gap-1.5 px-2 py-1.5 border-b border-surface-200-800 text-xs text-surface-500">
+					<Icon icon="mdi:layers-outline" width="14" />
+					<span>Showing actions from {liftedPodCount} pod{liftedPodCount === 1 ? '' : 's'} in this workload</span>
+				</div>
+			{/if}
 			<!-- Toolbar: search + scope toggle on one compact row -->
 			<div class="flex-shrink-0 flex items-center gap-2 px-2 py-2 border-b border-surface-200-800">
 				<input
