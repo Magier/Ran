@@ -450,10 +450,14 @@ export function getGraphStyle(isDark: boolean = false) {
 const redTintSvg = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>');
 
 export function applyCompromisedStyle(cy: cytoscape.Core) {
-	// Remove tint from nodes that are no longer compromised
-	cy.nodes('node[!compromised]').forEach(n => {
+	cy.nodes().forEach(n => {
+		const shouldTint = Boolean(n.data('compromised')) || (
+			n.hasClass('cy-expand-collapse-collapsed-node') && Boolean(n.data('containsCompromised'))
+		);
 		const img = n.style('background-image');
-		if (typeof img === 'string' && img.includes(redTintSvg)) {
+		const hasTint = typeof img === 'string' && img.includes(redTintSvg);
+
+		if (!shouldTint && hasTint) {
 			const layers = img.split(',').map((l: string) => l.trim()).filter((l: string) => l !== redTintSvg);
 			n.removeStyle('background-color');
 			n.removeStyle('background-opacity');
@@ -461,13 +465,7 @@ export function applyCompromisedStyle(cy: cytoscape.Core) {
 				'color': '',
 				'background-image': layers.length > 0 ? layers.join(', ') : 'none',
 			});
-		}
-	});
-
-	// Apply tint to compromised nodes
-	cy.nodes('node[?compromised]').forEach(n => {
-		const img = n.style('background-image');
-		if (typeof img !== 'string' || !img.includes(redTintSvg)) {
+		} else if (shouldTint && !hasTint) {
 			n.style({
 				'background-color': 'red',
 				'background-image': [img, redTintSvg],

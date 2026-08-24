@@ -1,43 +1,33 @@
-import { get, writable } from "svelte/store";
-import store from "$lib/stores/store";
+import { get, writable } from 'svelte/store';
+import type { TTP } from '$lib/api';
 
-const groupBy = <T, K extends keyof any>(arr: T[], key: (i: T) => K) =>
-    arr.reduce((groups, item) => {
-        (groups[key(item)] ||= []).push(item);
-        return groups;
-    }, {} as Record<K, T[]>);
+type ArmorySearchState = {
+	data: TTP[];
+	filtered: TTP[];
+	search: string;
+};
 
-function createSearchStore() {
-    const { subscribe, set, update } = writable({
-        data: [],
-        filtered: [],
-        search: ""
-    })
-
-    return {
-        subscribe,
-        set,
-        update
-    }
-}
-
-
-export const filteredArmory = createSearchStore();
-export const searchAbilitiesInStore = () => {
-    const searchTerm = filteredArmory.search.toLowerCase() || "";
-    store.filtered = store.data.filter((ttp) => {
-        return ttp.name.toLowerCase().icludes(searchTerm);
-    })
-}
-
-
-store.armory((new_armory: Map<string, TTP[]>) => {
-    console.log("~~~~")
-    console.log(new_armory)
-    console.log("before")
-    console.log(filteredArmory)
-    // filteredArmory.update(test)
-    // armory = new_armory;
-    const currentArmory = get(filteredArmory);
-    filteredArmory.set({ data: new_armory, filtered: new_armory, search: currentArmory.search })
+export const filteredArmory = writable<ArmorySearchState>({
+	data: [],
+	filtered: [],
+	search: ''
 });
+
+export function setArmory(armory: Map<string, TTP[]>): void {
+	const data = [...armory.values()].flat();
+	const search = get(filteredArmory).search;
+	filteredArmory.set({ data, filtered: filterArmory(data, search), search });
+}
+
+export function searchAbilitiesInStore(search: string): void {
+	filteredArmory.update((state) => ({
+		...state,
+		search,
+		filtered: filterArmory(state.data, search)
+	}));
+}
+
+function filterArmory(data: TTP[], search: string): TTP[] {
+	const term = search.trim().toLowerCase();
+	return term ? data.filter((ttp) => ttp.name.toLowerCase().includes(term)) : data;
+}

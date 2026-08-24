@@ -6,6 +6,7 @@
 	import { showToast } from '$lib/components/toaster';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { knowledgeProvenanceBadges } from '$lib/knowledgeProvenance';
+	import { WORKLOAD_KINDS } from './workload_compounds';
 
 
 	type ObjectInfoProps = {
@@ -52,7 +53,20 @@
 		const _track = obj?.accessLevel;
 		const _track2 = obj?.compromised;
 		if (!id) { applicableTtps = []; return; }
-		campaignState.api.GetApplicableTTPs(id)
+		const kind = campaignState.graph.nodes.find((node) => node.id === id)?.kind;
+		const podIds = kind && WORKLOAD_KINDS.has(kind)
+			? campaignState.graph.nodes
+				.filter((node) => node.kind === 'Pod' && node.parent === id)
+				.map((node) => node.id)
+			: [];
+		const request = podIds.length > 0
+			? Promise.all(podIds.map((podId) => campaignState.api.GetApplicableTTPs(podId))).then((results) => {
+				const byId = new Map<string, TTP>();
+				results.flat().forEach((ttp) => byId.set(ttp.id, ttp));
+				return [...byId.values()];
+			})
+			: campaignState.api.GetApplicableTTPs(id);
+		request
 			.then((ttps) => { applicableTtps = ttps; })
 			.catch(() => { applicableTtps = []; });
 	});

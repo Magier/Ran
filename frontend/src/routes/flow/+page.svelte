@@ -23,8 +23,8 @@
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-    let nodes = $state.raw([]);
-    let edges = $state.raw([]);
+    let nodes: Node[] = $state.raw([]);
+    let edges: Edge[] = $state.raw([]);
 
     const nodeTypes: NodeTypes = {
         actionNode: ActionNode

@@ -404,7 +404,7 @@
 							value = e?.name || '';
 						}
 						console.log("Setting target", param.name, "to value", value);
-					} else if (value.indexOf('${TARGET.IP}') >= 0 && target?.ips?.length > 0) {
+					} else if (value.indexOf('${TARGET.IP}') >= 0 && target?.ips?.[0]) {
 						value = value.replace("${TARGET.IP}", target.ips[0]);
 					}
 

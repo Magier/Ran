@@ -15,6 +15,7 @@
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { ExecuteAction, getRanAPI } from '$lib/ran_api';
 	import { browser } from '$app/environment';
+	import { WORKLOAD_KINDS } from './components/workload_compounds';
 
 	const campaignState = getCampaignState();
 
@@ -26,6 +27,10 @@
 	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: Object = {};
 	let selectedTTP: TTP | undefined = $state();
+	let actionTargetId: string = $state('');
+	let podChooserOpen = $state(false);
+	let eligibleActionPods: Node[] = $state([]);
+	let pendingActionArgs: Record<string, any> = $state({});
 	let focusArmorySearch: () => void = $state(() => {});
 	let showFileViewer: boolean = $state(false);
 	let fileViewerPath: string = $state('');
@@ -258,27 +263,71 @@
 		}
 	});
 
-	async function sendAction(ttp: TTP, args = {}) {
+	function childPods(workloadId: string): Node[] {
+		return campaignState.graph.nodes.filter(
+			(node) => node.kind === 'Pod' && node.parent === workloadId
+		);
+	}
+
+	async function sendAction(ttp: TTP, args: Record<string, any> = {}) {
+		const selectedKind = campaignState.graph.nodes.find((node) => node.id === selectedObjectId)?.kind;
+		if (selectedKind && WORKLOAD_KINDS.has(selectedKind)) {
+			const pods = childPods(selectedObjectId);
+			const applicability = await Promise.all(
+				pods.map(async (pod) => ({
+					pod,
+					applicableTtps: await campaignState.api.GetApplicableTTPs(pod.id)
+				}))
+			);
+			const eligible = applicability
+				.filter(({ applicableTtps }) => applicableTtps.some((candidate) => candidate.id === ttp.id))
+				.map(({ pod }) => pod);
+
+			if (eligible.length === 0) {
+				toaster.create({
+					title: 'No eligible pods',
+					description: `${ttp.name} is no longer applicable to a pod in this workload.`,
+					type: 'error'
+				});
+				return;
+			}
+			if (eligible.length > 1) {
+				selectedTTP = ttp;
+				pendingActionArgs = args;
+				eligibleActionPods = eligible;
+				podChooserOpen = true;
+				return;
+			}
+			beginAction(ttp, args, eligible[0].id);
+			return;
+		}
+
+		beginAction(ttp, args, selectedObjectId);
+	}
+
+	async function beginAction(ttp: TTP, args: Record<string, any>, targetId: string) {
 		selectedTTP = ttp;
+		actionTargetId = targetId;
 		ttpArgContext = { ...args, ...activeGlobalConditions };
 		if ((ttp.params?.length ?? 0) > 0) {
 			showParamModal = true;
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
-			const targetName = campaignState.getEntityById(selectedObjectId)?.name ?? selectedObjectId;
+			const targetName = campaignState.getEntityById(actionTargetId)?.name ?? actionTargetId;
 			try {
 				const result = await ExecuteAction({
 					actionId: ttp.id,
-					targetId: selectedObjectId,
-					args: {}
+					targetId: actionTargetId,
+					args: {},
+					executionTimeoutSeconds: 60
 				});
 				const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
 				timeline.addTtpAction({
 					id: cmdId,
 					ttpId: ttp.id,
 					ttpName: ttp.name,
-					targetId: selectedObjectId,
+					targetId: actionTargetId,
 					targetName,
 					status: 'pending',
 					timestamp: new Date()
@@ -287,6 +336,11 @@
 				handleError(err);
 			}
 		}
+	}
+
+	function chooseActionPod(podId: string) {
+		podChooserOpen = false;
+		if (selectedTTP) beginAction(selectedTTP, pendingActionArgs, podId);
 	}
 
 	// Execute a recommendation against its own target. Selects that target, then
@@ -485,19 +539,19 @@
 
 	async function onExecuteTTP(ttpId: string, execSystemId: string, authIdentityId: string, procedureId: string, args: Record<string, string>, executionTimeoutSeconds: number) {
 		const ttp = campaignState.getTtpById(ttpId);
-		const targetName = campaignState.getEntityById(selectedObjectId)?.name ?? selectedObjectId;
+		const targetName = campaignState.getEntityById(actionTargetId)?.name ?? actionTargetId;
 
 		closeModal();
 
 		try {
-			const result = await ExecuteAction({ actionId: ttpId, execSystemId, authIdentityId: authIdentityId || undefined, targetId: selectedObjectId, procedureId, args, executionTimeoutSeconds });
+			const result = await ExecuteAction({ actionId: ttpId, execSystemId, authIdentityId: authIdentityId || undefined, targetId: actionTargetId, procedureId, args, executionTimeoutSeconds });
 			const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
-			const differsFromTarget = execSystemId && execSystemId !== selectedObjectId;
+			const differsFromTarget = execSystemId && execSystemId !== actionTargetId;
 			timeline.addTtpAction({
 				id: cmdId,
 				ttpId,
 				ttpName: ttp?.name ?? ttpId,
-				targetId: selectedObjectId,
+				targetId: actionTargetId,
 				targetName,
 				execSystemId: differsFromTarget ? execSystemId : undefined,
 				execSystemName: differsFromTarget
@@ -635,6 +689,28 @@
 		{/if}
 	</div>
 
+		<Dialog open={podChooserOpen} onOpenChange={(e) => (podChooserOpen = e.open)}>
+			<Portal>
+				<Dialog.Backdrop class="fixed inset-0 z-[100] bg-surface-50-950/50" />
+				<Dialog.Positioner class="fixed inset-0 z-[100] flex justify-center items-center">
+					<Dialog.Content class="card min-w-80 max-w-lg bg-surface-100-900 p-4 space-y-3 shadow-xl border border-surface-600">
+						<Dialog.Title class="font-semibold">Choose a pod</Dialog.Title>
+						<Dialog.Description class="text-sm text-surface-500">
+							{selectedTTP?.name} is applicable to {eligibleActionPods.length} pods in this workload.
+						</Dialog.Description>
+						<div class="flex flex-col gap-2 max-h-80 overflow-auto">
+							{#each eligibleActionPods as pod}
+								<button class="btn preset-outlined-surface-200-800 justify-start" onclick={() => chooseActionPod(pod.id)}>
+									<Icon icon="mdi:kubernetes" class="size-4" />
+									<span class="truncate">{pod.name}</span>
+								</button>
+							{/each}
+						</div>
+					</Dialog.Content>
+				</Dialog.Positioner>
+			</Portal>
+		</Dialog>
+
 		<Dialog open={showParamModal} onOpenChange={(e) => (showParamModal = e.open)}>
 			<Portal>
 				<Dialog.Backdrop class="fixed inset-0 z-[100] bg-surface-50-950/50" />
@@ -642,7 +718,7 @@
 					<Dialog.Content class="card min-w-modal bg-surface-100-900 p-4 space-y-2 shadow-xl max-h-[90vh] flex flex-col border border-surface-600 ">
 						{#if selectedTTP}
 							<ActionParamsModal
-								targetId={selectedObjectId}
+								targetId={actionTargetId}
 								argContext={ttpArgContext}
 								ttp={selectedTTP!}
 								onCancel={closeModal}
