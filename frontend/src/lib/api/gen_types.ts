@@ -413,6 +413,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plans/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the execution history as a plan
+         * @description Builds a reusable plan YAML from completed campaign actions, in execution order. Cleanup actions are omitted.
+         */
+        get: operations["exportPlan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export interface webhooks {
     "armory-loaded": {
@@ -1618,6 +1638,42 @@ export interface operations {
             };
             /** @description Plan not found in the plans directory */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    exportPlan: {
+        parameters: {
+            query?: {
+                /** @description Include failed actions as well as successful actions. */
+                include_failed?: boolean;
+                /** @description Human-readable name stored in the exported plan. */
+                name?: string;
+                /** @description Description stored in the exported plan. */
+                description?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Exported plan YAML */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/yaml": string;
+                };
+            };
+            /** @description Failed to export the plan */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

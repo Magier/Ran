@@ -4,16 +4,31 @@
     import { showToast, toaster } from '$lib/components/toaster';
     import { saveFile } from '$lib/io';
     import PlanPickerModal from '$lib/modals/PlanPickerModal.svelte';
+	import {
+		buildPlanDownload,
+		defaultPlanDescription,
+		defaultPlanName,
+		planFilename
+	} from '$lib/planDownload';
     import { getRanAPI } from '$lib/ran_api';
     import { timeline } from '$lib/stores/timelineStore.svelte';
     import type { PlanSummary } from '$lib/api';
 	import Icon from '@iconify/svelte';
 	import { Dialog, Menu, Portal } from '@skeletonlabs/skeleton-svelte';
+	import { tick } from 'svelte';
 
     const campaignState = getCampaignState();
     const ranAPI = getRanAPI();
 
     let showPlanPicker = $state(false);
+	let showSavePlan = $state(false);
+	let planName = $state('');
+	let planFileName = $state('');
+	let planFileNameOverridden = $state(false);
+	let planDescription = $state('');
+	let planIncludeFailed = $state(false);
+	let planSaving = $state(false);
+	let planNameInput: HTMLInputElement;
     let plansLoading = $state(false);
     let plans = $state<PlanSummary[]>([]);
 
@@ -42,6 +57,46 @@
         }
     }
 
+	async function savePlan() {
+		const name = planName.trim();
+		if (!name) return;
+		planSaving = true;
+		try {
+			const download = buildPlanDownload(
+				await ranAPI.ExportPlan(planIncludeFailed, name, planDescription),
+				name,
+				new Date(),
+				planFileName
+			);
+			saveFile(download.data, download.filename, download.mimeType);
+			showToast(
+				'Plan saved',
+				planIncludeFailed
+					? 'Successful and failed actions were exported in execution order.'
+					: 'Successful actions were exported in execution order.',
+				'success'
+			);
+			showSavePlan = false;
+		} catch (error) {
+			showToast('Failed to save plan', (error as Error).message, 'error');
+		} finally {
+			planSaving = false;
+		}
+	}
+
+	async function openSavePlan() {
+		const now = new Date();
+		planName = defaultPlanName(now);
+		planFileName = planFilename(planName);
+		planFileNameOverridden = false;
+		planDescription = defaultPlanDescription(now);
+		planIncludeFailed = false;
+		showSavePlan = true;
+		await tick();
+		planNameInput.focus();
+		planNameInput.select();
+	}
+
     function onMenuClick(event: { value: string }) {
         let { value } = event;
 
@@ -53,6 +108,9 @@
             case 'load_plan':
                 openPlanPicker();
                 break;
+			case 'save_plan':
+				openSavePlan();
+				break;
             case 'save_flow':
                 campaignState
                     .GetFlow()
@@ -92,6 +150,9 @@
                     <Menu.Item value="load_plan">
                         <Menu.ItemText>Load Plan</Menu.ItemText>
                     </Menu.Item>
+					<Menu.Item value="save_plan">
+						<Menu.ItemText>Save Plan</Menu.ItemText>
+					</Menu.Item>
                 </Menu.ItemGroup>
                 <Menu.Separator />
                 <Menu.ItemGroup>
@@ -120,4 +181,72 @@
             </Dialog.Content>
         </Dialog.Positioner>
     </Portal>
+</Dialog>
+
+<Dialog open={showSavePlan} onOpenChange={(e) => (showSavePlan = e.open)}>
+	<Portal>
+		<Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50" />
+		<Dialog.Positioner class="fixed inset-0 z-50 flex items-center justify-center">
+			<Dialog.Content class="card bg-surface-100-900 w-full max-w-sm space-y-4 p-5 shadow-xl">
+				<form
+					class="space-y-4"
+					onsubmit={(event) => {
+						event.preventDefault();
+						savePlan();
+					}}
+				>
+					<div>
+						<h2 class="text-lg font-semibold">Save Plan</h2>
+						<p class="text-surface-500 text-sm">Actions will be saved in execution order.</p>
+					</div>
+					<label class="block space-y-1">
+						<span class="text-sm font-medium">Plan name</span>
+						<input
+							class="input w-full"
+							type="text"
+							bind:this={planNameInput}
+							value={planName}
+							oninput={(event) => {
+								planName = event.currentTarget.value;
+								if (!planFileNameOverridden) planFileName = planFilename(planName);
+							}}
+							placeholder="My assessment plan"
+							required
+						/>
+					</label>
+					<label class="block space-y-1">
+						<span class="text-sm font-medium">Filename</span>
+						<input
+							class="input w-full"
+							type="text"
+							value={planFileName}
+							oninput={(event) => {
+								planFileName = event.currentTarget.value;
+								planFileNameOverridden = true;
+							}}
+							required
+						/>
+					</label>
+					<label class="block space-y-1">
+						<span class="text-sm font-medium">Description</span>
+						<textarea class="textarea w-full" rows="3" bind:value={planDescription}></textarea>
+					</label>
+					<label class="flex items-center gap-2 text-sm">
+						<input class="checkbox" type="checkbox" bind:checked={planIncludeFailed} />
+						<span>Include failed actions</span>
+					</label>
+					<div class="flex justify-end gap-2">
+						<button class="btn preset-tonal" type="button" onclick={() => (showSavePlan = false)}>Cancel</button>
+						<button
+							class="btn preset-filled-primary-500"
+							type="submit"
+							disabled={!planName.trim() || !planFileName.trim() || planSaving}
+						>
+							{planSaving ? 'Saving…' : 'Save'}
+						</button>
+					</div>
+				</form>
+			</Dialog.Content>
+		</Dialog.Positioner>
+	</Portal>
 </Dialog>
