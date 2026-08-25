@@ -36,6 +36,7 @@
 	};
 	type Pos = { x: number; y: number };
 	type PosMap = Record<string, Pos>;
+	type ExpansionSnapshot = { right: number; visibleNodeIds: string[] };
 
 	let {
 		class: className = '',
@@ -96,6 +97,9 @@
 	let previousNodeIds: Set<string> = new Set();
 	let previousWorkloadCompoundIds: Set<string> = new Set();
 	let layoutParams: LayoutParams = $state({ ...DEFAULT_LAYOUT_PARAMS });
+	const expansionSnapshots = new Map<string, ExpansionSnapshot>();
+	let isRestoringCollapsedState = false;
+	const EXPANSION_GUTTER = 32;
 
 	function runElkLayout() {
 		if (!cy || cy.nodes().length === 0) return;
@@ -206,8 +210,13 @@
 			saveCollapsedNodes();
 		});
 
+		cy.on('expandcollapse.beforeexpand', (event) => {
+			if (!isRestoringCollapsedState) captureExpansionSnapshot(event.target);
+		});
+
 		cy.on('expandcollapse.afterexpand', (event) => {
 			handleAfterExpand(event.target);
+			if (!isRestoringCollapsedState) shiftNodesForExpansion(event.target);
 			saveCollapsedNodes();
 		});
 
@@ -301,6 +310,25 @@
 					// "element already exists" or "invalid ID" errors from the plugin's meta-nodes.
 					const collapsedNodes: string[] = [];
 					const ecApi = (window as any).cyExpandCollapseAPI;
+					let addedNodeIds = new Set<string>();
+					const recollapseNodes = () => {
+						if (!ecApi || collapsedNodes.length === 0) return;
+						new Set(collapsedNodes).forEach(id => {
+							const node = cy.getElementById(id);
+							if (node.length > 0 && node.isParent()) {
+								// The collapse plugin restores children by applying the parent's
+								// later movement delta. Seed newly added children at their parent
+								// so they follow that delta instead of restoring from (0, 0).
+								node.children().forEach((child: any) => {
+									if (!addedNodeIds.has(child.id())) return;
+									const position = node.position();
+									child.position(position);
+									positions[child.id()] = position;
+								});
+								try { ecApi.collapse(node); } catch (_) {}
+							}
+						});
+					};
 					// On initial mount, seed with IDs persisted from the previous navigation
 					let hasStoredCollapseState = false;
 					if (previousNodeIds.size === 0 && browser) {
@@ -321,10 +349,15 @@
 						});
 					}
 					if (ecApi) {
-						cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => {
-							collapsedNodes.push(n.id());
-							try { ecApi.expand(n); } catch (_) {}
-						});
+						isRestoringCollapsedState = true;
+						try {
+							cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => {
+								collapsedNodes.push(n.id());
+								try { ecApi.expand(n); } catch (_) {}
+							});
+						} finally {
+							isRestoringCollapsedState = false;
+						}
 					}
 
 					// Snapshot element IDs AFTER expansion so restored children are included
@@ -336,6 +369,7 @@
 					// Compute diffs: what to add, what to remove (guard against empty IDs)
 					const newEdgeIds = new Set<string>(edges.filter((e: any) => e.data.id).map((e: any) => e.data.id as string));
 					const nodesToAdd = nodes.filter((n: any) => n.data.id && !cyNodeIdSet.has(n.data.id as string));
+					addedNodeIds = new Set(nodesToAdd.map((node: any) => node.data.id as string));
 					const edgesToAdd = edges.filter((e: any) => e.data.id && !cyEdgeIdSet.has(e.data.id as string));
 
 					// Remove elements no longer in the graph
@@ -429,15 +463,7 @@
 					// extension preserves their style while they are hidden inside a workload.
 					applyCompromisedStyle(cy);
 
-					// Re-collapse nodes that were previously collapsed
-					if (ecApi && collapsedNodes.length > 0) {
-						new Set(collapsedNodes).forEach(id => {
-							const node = cy.getElementById(id);
-							if (node.length > 0 && node.isParent()) {
-								try { ecApi.collapse(node); } catch (_) {}
-							}
-						});
-					}
+					recollapseNodes();
 
 					// Only re-layout if there are new nodes or nodes were removed
 					if (hasNewNodes || hasFewerNodes || previousNodeIds.size === 0) {
@@ -892,6 +918,45 @@
 		// Re-apply informational edge filtering after expanding
 		hideRedundantInformationalEdges(cy);
 		applyCompromisedStyle(cy);
+	}
+
+	function captureExpansionSnapshot(node: any) {
+		const bounds = node.boundingBox();
+		expansionSnapshots.set(node.id(), {
+			right: bounds.x2,
+			visibleNodeIds: cy.nodes(':visible').map((n: any) => n.id())
+		});
+	}
+
+	function shiftNodesForExpansion(node: any) {
+		const snapshot = expansionSnapshots.get(node.id());
+		expansionSnapshots.delete(node.id());
+		if (!snapshot) return;
+
+		const addedWidth = node.boundingBox().x2 - snapshot.right;
+		if (addedWidth <= 0) return;
+
+		const shift = addedWidth + EXPANSION_GUTTER;
+		const candidates = snapshot.visibleNodeIds
+			.map((id) => cy.getElementById(id))
+			.filter((candidate: any) =>
+				candidate.length > 0 &&
+				candidate.visible() &&
+				candidate.id() !== node.id() &&
+				candidate.boundingBox().x1 >= snapshot.right
+			);
+		const candidateIds = new Set(candidates.map((candidate: any) => candidate.id()));
+		const nodesToShift = candidates.filter((candidate: any) =>
+			candidate.ancestors().every((ancestor: any) => !candidateIds.has(ancestor.id()))
+		);
+
+		cy.batch(() => {
+			nodesToShift.forEach((candidate: any) => {
+				const position = candidate.position();
+				candidate.position({ x: position.x + shift, y: position.y });
+			});
+		});
+		savePositions();
 	}
 
 	function syncWorkloadCompromisedState(cy: cytoscape.Core, graphNodes: Node[]) {

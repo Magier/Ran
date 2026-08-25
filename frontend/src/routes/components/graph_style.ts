@@ -1,13 +1,13 @@
 import type cytoscape from "cytoscape";
+import { WORKLOAD_KINDS } from './workload_compounds';
 
-// the '{' prefix indicates a compound node that should not have an icon, if it's expanded
-const kind_svg_map = {
+const KIND_SVG_MAP = {
 	AppService: 'k8s/ep.svg',
 	Ingress: 'k8s/ing.svg',
 	Pod: 'k8s/pod.svg',
 	Container: 'k8s/crio.svg',
-	Daemonset: '{k8s/daemontset.svg',
-	Deployment: '{k8s/deploy.svg',
+	Daemonset: 'k8s/daemontset.svg',
+	Deployment: 'k8s/deploy.svg',
 	AbstractWorkload: 'k8s/deploy.svg',
 	ControlPlane: 'k8s/control-plane.svg',
 	ClusterNode: 'k8s/node.svg',
@@ -16,18 +16,18 @@ const kind_svg_map = {
 	ClusterRole: 'k8s/c-role.svg',
 	Service: 'k8s/svc.svg',
 	ConfigMap: 'k8s/cm.svg',
-	CronJob: '{k8s/cronjob.svg',
-	Job: '{k8s/job.svg',
+	CronJob: 'k8s/cronjob.svg',
+	Job: 'k8s/job.svg',
 	Group: 'k8s/group.svg',
 	RoleBinding: 'k8s/rb.svg',
 	ClusterRoleBinding: 'k8s/crb.svg',
 	Secret: 'k8s/secret.svg',
 	ServiceAccount: 'k8s/sa.svg',
-	Statefulset: '{k8s/sts.svg',
+	Statefulset: 'k8s/sts.svg',
 	User: 'k8s/user.svg',
 	Volume: 'k8s/vol.svg',
 	KubeApiServer: 'k8s/api.svg',
-	MicroService: '{k8s/pod_unlabeled.svg',
+	MicroService: 'k8s/pod_unlabeled.svg',
 	GCPBucket: 'gcp/storage.svg',
 	GCPServiceAccount: 'gcp/iam.svg',
 	GCPServiceAccountToken: 'gcp/iam.svg',
@@ -35,39 +35,43 @@ const kind_svg_map = {
 	GCPMetadataServer: 'gcp/compute_engine.svg',
 	UnknownSystem: 'system-dark.svg',
 
-	Cluster: '{k8s/k8s.svg',
-	Namespace: '{k8s/ns.svg'
+	Cluster: 'k8s/k8s.svg',
+	Namespace: 'k8s/ns.svg'
 };
+
+// Compounds show an icon only while collapsed. Once a compound is expanded,
+// its children provide the visual identity for the group.
+const COMPOUND_KINDS = new Set([
+	...WORKLOAD_KINDS,
+	'CronJob',
+	'Cluster',
+	'Namespace',
+	'MicroService'
+]);
+const expandedCompoundSelector = [...COMPOUND_KINDS]
+	.map((kind) => `node[kind='${kind}']:parent`)
+	.join(', ');
 
 export function getK8sCredentialIcon(isDark: boolean): string {
 	return isDark ? '/k8s/account-key-dark.svg' : '/k8s/account-key-light.svg';
 }
 
-function mapKindIcons(obj: Object) {
-	let new_entries = Object.entries(obj).map(([kind, img]) => {
-		let [icon, isCompound] = img.startsWith('{') ? [img.substring(1), true] : [img, false];
-		let kind_selector = `node[kind='${kind}']`;
-		let selector = isCompound
-			? `${kind_selector}.abstract, ${kind_selector}:childless`
-			: kind_selector;
+function mapKindIcons(obj: Record<string, string>) {
+	return Object.entries(obj).map(([kind, icon]) => {
 		return {
-			selector: selector,
+			selector: `node[kind='${kind}']`,
 			style: {
 				'background-image': [`/${icon}`]//, 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>'],
 			}
 		};
 	});
-
-	return new_entries;
-};
-
+}
 
 export function getGraphStyle(isDark: boolean = false) {
 	// Cytoscape does not accept the Mona theme's native oklch() color value.
 	const primary = '#600FED';
 	const textColor = isDark ? 'white' : 'black';
 	const selectedTextColor = textColor;
-
 
 	const graph_style = [
 		{
@@ -96,6 +100,12 @@ export function getGraphStyle(isDark: boolean = false) {
 				'border-style': 'dashed',
 				'background-color': 'steelblue',
 				'background-opacity': 0.2
+			}
+		},
+		{
+			selector: expandedCompoundSelector,
+			style: {
+				'background-image': 'none'
 			}
 		},
 		{
@@ -444,7 +454,7 @@ export function getGraphStyle(isDark: boolean = false) {
 			}
 		}
 	];
-	return [...mapKindIcons(kind_svg_map), ...graph_style] as any;
+	return [...mapKindIcons(KIND_SVG_MAP), ...graph_style] as any;
 }
 
 const redTintSvg = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>');
