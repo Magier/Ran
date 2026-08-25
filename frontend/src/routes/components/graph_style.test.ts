@@ -40,4 +40,15 @@ describe('getK8sCredentialIcon', () => {
 		expect(dimmedStyle?.style.opacity).toBe(0.48);
 		expect(dimmedStyle?.style['text-opacity']).toBe(0.38);
 	});
+
+	it('hides a deployment icon while its compound is expanded', () => {
+		const styles = getGraphStyle() as Array<{ selector: string; style: Record<string, unknown> }>;
+		const deploymentIcon = styles.find((rule) => rule.selector === "node[kind='Deployment']");
+		const expandedCompound = styles.find((rule) =>
+			rule.selector.includes("node[kind='Deployment']:parent")
+		);
+
+		expect(deploymentIcon?.style['background-image']).toEqual(['/k8s/deploy.svg']);
+		expect(expandedCompound?.style['background-image']).toBe('none');
+	});
 });

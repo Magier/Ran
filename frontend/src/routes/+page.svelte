@@ -147,6 +147,22 @@
 		document.body.style.cursor = 'col-resize';
 	}
 
+	function onArmoryResizeKeydown(event: KeyboardEvent) {
+		const step = event.shiftKey ? 48 : 16;
+		const { min, max } = getResponsiveConstraints();
+
+		if (event.key === 'ArrowLeft') {
+			armoryWidth = Math.max(min, armoryWidth - step);
+		} else if (event.key === 'ArrowRight') {
+			armoryWidth = Math.min(max, armoryWidth + step);
+		} else {
+			return;
+		}
+
+		event.preventDefault();
+		saveArmoryPreferences();
+	}
+
 	function handleMouseMove(e: MouseEvent) {
 		if (!isResizing) return;
 		
@@ -632,11 +648,22 @@
 
 		<!-- Resize handle -->
 		{#if !armoryCollapsed}
-			<button
-				class="w-px shrink-0 cursor-col-resize border-0 p-0 bg-surface-200-800 hover:bg-primary-500 transition-colors"
-				onmousedown={startResize}
-				aria-label="Resize armory panel"
-			></button>
+			<div class="relative w-px shrink-0 bg-surface-200-800">
+				<div
+					class="absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize group"
+					role="slider"
+					aria-orientation="horizontal"
+					aria-label="Resize armory panel"
+					aria-valuemin={getResponsiveConstraints().min}
+					aria-valuemax={getResponsiveConstraints().max}
+					aria-valuenow={Math.round(armoryWidth)}
+					tabindex="0"
+					onmousedown={startResize}
+					onkeydown={onArmoryResizeKeydown}
+				>
+					<div class="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-transparent group-hover:bg-primary-500 transition-colors"></div>
+				</div>
+			</div>
 		{/if}
 
 		<!-- Collapse/Expand button -->
