@@ -3,6 +3,7 @@ use crate::model::{
 };
 use campaign::ExecutionRecord;
 use regex::Regex;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Confidence {
@@ -95,7 +96,11 @@ fn step_id_from_record(ttp_id: &str, index: usize) -> String {
     format!("step_{}_{}", index, slug)
 }
 
-pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDefinition {
+pub fn export_plan(
+    records: &[ExecutionRecord],
+    opts: &ExportOptions,
+    armory: &armory::Armory,
+) -> PlanDefinition {
     let selected: Vec<&ExecutionRecord> = records
         .iter()
         .filter(|record| !record.is_cleanup && (record.success || opts.include_failed))
@@ -121,6 +126,24 @@ pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDef
 
         let kind = capitalize(entity_kind_from_id(&rec.target_id));
         let namespace = entity_namespace_from_id(&rec.target_id).map(str::to_string);
+        // Execution records contain both operator inputs and context minted by
+        // grounding (TARGET_ID, SRC, PODNAME, node data, PROCEDURE_CMD, ...).
+        // Plans persist only declared TTP inputs; replay regenerates context
+        // from the newly resolved target.
+        let args: HashMap<String, String> = armory
+            .get_ttp(&rec.ttp_id)
+            .map(|ttp| {
+                ttp.params
+                    .iter()
+                    .filter(|param| param.name != "K8S_AUTH")
+                    .filter_map(|param| {
+                        rec.args
+                            .get(&param.name)
+                            .map(|value| (param.name.clone(), value.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
         steps.push(StepDefinition {
             id: step_id.clone(),
@@ -137,7 +160,7 @@ pub fn export_plan(records: &[ExecutionRecord], opts: &ExportOptions) -> PlanDef
                 id: Some(id.clone()),
                 ..Default::default()
             }),
-            args: rec.args.clone(),
+            args,
             procedure: Some(rec.procedure_id.clone()).filter(|s| !s.is_empty()),
             retry: RetryStrategy::NextProcedure,
             depends_on,
@@ -166,7 +189,10 @@ fn capitalize(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+
+    fn test_armory() -> armory::Armory {
+        armory::Armory::from_ttps(Vec::new())
+    }
 
     #[test]
     fn fuzzifies_deployment_pod() {
@@ -224,7 +250,7 @@ mod tests {
         let opts = ExportOptions {
             include_failed: false,
         };
-        let plan = export_plan(&records, &opts);
+        let plan = export_plan(&records, &opts, &test_armory());
         assert_eq!(plan.steps.len(), 2); // only cmd-1 and cmd-3
         assert_eq!(plan.steps[0].id, "step_0_k8s_exec_into_pod");
         assert!(plan.steps[1].depends_on.iter().any(|d| {
@@ -261,7 +287,7 @@ mod tests {
         let opts = ExportOptions {
             include_failed: true,
         };
-        let plan = export_plan(&records, &opts);
+        let plan = export_plan(&records, &opts, &test_armory());
         assert_eq!(plan.steps.len(), 3);
         assert_eq!(plan.steps[1].action, "container.exploit-cve");
         assert_eq!(plan.steps[1].note.as_deref(), Some("recorded: failed"));
@@ -269,6 +295,71 @@ mod tests {
             matches!(d, crate::model::Dependency::Step { step, require: crate::model::Require::Completion }
                 if step == &plan.steps[1].id)
         }));
+    }
+
+    #[test]
+    fn export_keeps_declared_inputs_and_drops_grounded_runtime_context() {
+        let mut ttp = armory::Ttp::new(
+            "valid-accounts-kubeconfig",
+            "Execute into pod via Valid Account",
+            "Initial Access",
+        );
+        ttp.params = vec![
+            armory::TtpParam {
+                name: "K8S_AUTH".into(),
+                param_type: "K8sAuth".into(),
+                description: String::new(),
+                required: true,
+                default: String::new(),
+            },
+            armory::TtpParam {
+                name: "Interactive".into(),
+                param_type: "bool".into(),
+                description: String::new(),
+                required: false,
+                default: "true".into(),
+            },
+            armory::TtpParam {
+                name: "Container".into(),
+                param_type: "string".into(),
+                description: String::new(),
+                required: false,
+                default: String::new(),
+            },
+        ];
+        let armory = armory::Armory::from_ttps(vec![ttp]);
+        let mut record = make_record(
+            "cmd-1",
+            "valid-accounts-kubeconfig",
+            "ns/dungeon/pod/entry-hall-old",
+            "kubectl",
+            true,
+        );
+        record.args = HashMap::from([
+            ("Interactive".into(), "true".into()),
+            ("Container".into(), String::new()),
+            ("K8S_AUTH".into(), "internal".into()),
+            ("TARGET_ID".into(), "ns/dungeon/pod/entry-hall-old".into()),
+            ("PODNAME".into(), "entry-hall-old".into()),
+            ("SRC".into(), "ns/dungeon/pod/entry-hall-old".into()),
+            ("PROCEDURE_CMD".into(), "c2.kubectl_exec()".into()),
+        ]);
+
+        let plan = export_plan(
+            &[record],
+            &ExportOptions {
+                include_failed: false,
+            },
+            &armory,
+        );
+
+        assert_eq!(
+            plan.steps[0].args,
+            HashMap::from([
+                ("Interactive".into(), "true".into()),
+                ("Container".into(), String::new()),
+            ])
+        );
     }
 
     fn make_record(

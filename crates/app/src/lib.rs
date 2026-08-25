@@ -731,7 +731,7 @@ impl ApiService for AppState {
             .read()
             .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
         let opts = planner::ExportOptions { include_failed };
-        let mut plan = planner::export_plan(&campaign.execution_records, &opts);
+        let mut plan = planner::export_plan(&campaign.execution_records, &opts, &self.armory);
         if let Some(name) = name
             .map(|name| name.trim().to_string())
             .filter(|name| !name.is_empty())

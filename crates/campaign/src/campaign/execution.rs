@@ -794,6 +794,11 @@ impl Campaign {
             for key in ["PODNAME", "POD_NAME"] {
                 args.insert(key.to_string(), pod_name.to_string());
             }
+            // Runtime context is authoritative and must replace stale values
+            // embedded by plans exported before context args were filtered.
+            args.insert("TARGET_ID".to_string(), target_id.clone());
+            args.insert("SRC".to_string(), target_id.clone());
+            args.remove("PROCEDURE_CMD");
         }
 
         let mut procedure = self.select_procedure(&ttp, procedure_id.as_deref())?;
