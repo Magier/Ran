@@ -62,6 +62,10 @@ pub struct InitialKubeconfigKnowledge {
 pub struct InitialKnowledge {
     pub clusters: Vec<InitialClusterKnowledge>,
     pub kubeconfigs: Vec<InitialKubeconfigKnowledge>,
+    /// Display name for the operator host (the machine running Ran). When set,
+    /// this is the local machine's hostname so it is obvious which host holds
+    /// the kubeconfig. Defaults to a generic label when unknown.
+    pub operator_host_name: Option<String>,
 }
 
 impl Campaign {
@@ -76,6 +80,7 @@ impl Campaign {
                     provenance: origins,
                 }],
                 kubeconfigs: Vec::new(),
+                ..Default::default()
             },
         )
     }
@@ -87,36 +92,38 @@ impl Campaign {
         let mut entities = EntityStore::default();
         let mut graph = KnowledgeGraph::new();
         let mut knowledge_provenance = KnowledgeProvenanceStore::default();
-        let operator_host_id = initial
-            .kubeconfigs
-            .iter()
-            .any(|entry| entry.credential.active)
-            .then(|| {
-                let operator_host = OperatorHost::new("Operator host");
-                let id = operator_host.entity_id();
-                entities.insert_typed(operator_host);
-                graph.ensure_node(id.clone());
-                knowledge_provenance.add_entity(id.clone(), KnowledgeProvenance::Operator);
-                id
-            });
+        // The operator host (the machine running Ran) always exists: it is the
+        // target of the Read Local Kubeconfig TTP, which is how Ran's own
+        // Kubernetes identity is now discovered rather than seeded at bootstrap.
+        let operator_host_id = {
+            let host_name = initial
+                .operator_host_name
+                .clone()
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| "Operator host".to_string());
+            let operator_host = OperatorHost::new(host_name);
+            let id = operator_host.entity_id();
+            entities.insert_typed(operator_host);
+            graph.ensure_node(id.clone());
+            knowledge_provenance.add_entity(id.clone(), KnowledgeProvenance::Operator);
+            id
+        };
 
         let c2 = C2Server::new(ran_name.into());
         let c2_id = c2.entity_id();
         entities.insert_typed(c2);
         graph.ensure_node(c2_id.clone());
         knowledge_provenance.add_entity(c2_id.clone(), KnowledgeProvenance::Operator);
-        if let Some(operator_host_id) = &operator_host_id {
-            let host_contains_c2 = Contains::new(operator_host_id.0.clone(), c2_id.0);
-            graph.insert_edge(
-                host_contains_c2.source_id(),
-                host_contains_c2.target_id(),
-                cortex::edge_data_for(host_contains_c2.relation_name(), None, None),
-            );
-            knowledge_provenance.add_relation(
-                RelationProvenanceKey::from_relation(&host_contains_c2),
-                KnowledgeProvenance::Operator,
-            );
-        }
+        let host_contains_c2 = Contains::new(operator_host_id.0.clone(), c2_id.0);
+        graph.insert_edge(
+            host_contains_c2.source_id(),
+            host_contains_c2.target_id(),
+            cortex::edge_data_for(host_contains_c2.relation_name(), None, None),
+        );
+        knowledge_provenance.add_relation(
+            RelationProvenanceKey::from_relation(&host_contains_c2),
+            KnowledgeProvenance::Operator,
+        );
 
         for entry in initial.clusters {
             let cluster_id = entry.cluster.entity_id();
@@ -133,7 +140,7 @@ impl Campaign {
             let is_active = entry.credential.active;
             entities.insert_typed(entry.credential);
             graph.ensure_node(credential_id.clone());
-            if let (true, Some(operator_host_id)) = (is_active, &operator_host_id) {
+            if is_active {
                 let contains = Contains::new(operator_host_id.0.clone(), credential_id.0.clone());
                 graph.insert_edge(
                     contains.source_id(),
@@ -779,6 +786,7 @@ mod planner_helper_tests {
                 cluster_id: cluster_id.clone(),
                 provenance: origins.clone(),
             }],
+            ..Default::default()
         };
         let mut campaign = Campaign::bootstrap_with_knowledge("test", initial.clone());
 

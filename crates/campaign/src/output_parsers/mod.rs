@@ -163,6 +163,7 @@ pub fn parse_output_effect(
                 let is_known = normalized.starts_with("sys.hasfile(")
                     || normalized.starts_with("file:content(")
                     || normalized == "file:kubeconfig"
+                    || normalized == "file:local-kubeconfig"
                     || normalized == "nmap"
                     || normalized == "k8s.selfsubjectrulesreview"
                     || normalized == "sys.node-name"
@@ -240,6 +241,20 @@ pub fn parse_output_effect(
     } else if normalized == "file:kubeconfig" {
         let source_id = resolve_target_id(campaign, cmd);
         file::parse_file_kubeconfig(stdout, source_id.as_deref().unwrap_or(""))
+    } else if normalized == "file:local-kubeconfig" {
+        // Ran's own kubeconfig, read from the operator host. The target is the
+        // OperatorHost entity, which is not a SystemEntity, so pass its id
+        // directly rather than via resolve_target_id (which resolves only
+        // system entities).
+        //
+        // TODO(tech-debt): this second kubeconfig effect duplicates
+        // `file:kubeconfig`. Kubeconfig structure is always the same; the only
+        // real difference is that this one came from *outside* the cluster
+        // (Ran's operator host) vs in-cluster discovery. That local-vs-in-cluster
+        // distinction should be established via provenance (target/source is the
+        // operator host), not a separate effect + parser. Collapse into one
+        // parser driven by provenance and drop `parse_local_kubeconfig`.
+        file::parse_local_kubeconfig(stdout, &cmd.target_id)
     } else if normalized == "sys.node-name" {
         parse_sys_node_name(campaign, cmd, stdout)
     } else {

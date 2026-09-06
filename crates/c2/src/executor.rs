@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -183,6 +184,10 @@ impl C2Executor {
     async fn execute_command(&self, cmd: &ExecTtp) -> TtpExecuted {
         let trimmed = cmd.procedure.command.trim_start();
 
+        if let Some(explicit_path) = parse_read_local_kubeconfig_command(trimmed) {
+            return self.read_local_kubeconfig(cmd, explicit_path);
+        }
+
         if let Some(namespace) = parse_kubeconfig_permission_command(trimmed) {
             let Some(k8s) = self.k8s.as_ref() else {
                 let reason = "no K8s client configured".to_string();
@@ -205,7 +210,10 @@ impl C2Executor {
                     session_connected: None,
                 },
                 Err(error) => {
-                    let reason = error.to_string();
+                    // Alternate formatting retains anyhow's source chain. In particular,
+                    // connection, TLS, and API errors would otherwise be hidden behind
+                    // the high-level SelfSubjectRulesReview context.
+                    let reason = format!("{error:#}");
                     TtpExecuted {
                         id: cmd.id.clone(),
                         success: false,
@@ -321,6 +329,38 @@ impl C2Executor {
         let mut event = self.select_backend(cmd).await.execute(cmd).await;
         event.session_connected = None;
         event
+    }
+
+    /// Read the kubeconfig from the machine running Ran and return its contents
+    /// as stdout. This is a local filesystem read on the operator host — it does
+    /// not touch the cluster. The path is, in order of preference: the explicit
+    /// `PATH` argument, the path the active client was configured with, then the
+    /// default kubeconfig location.
+    fn read_local_kubeconfig(&self, cmd: &ExecTtp, explicit_path: Option<String>) -> TtpExecuted {
+        let path = explicit_path
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+            .or_else(|| {
+                self.k8s
+                    .as_ref()
+                    .and_then(|k8s| k8s.kubeconfig_path().map(Path::to_path_buf))
+            })
+            .unwrap_or_else(k8s::default_kubeconfig_path);
+
+        match std::fs::read_to_string(&path) {
+            Ok(contents) => TtpExecuted {
+                id: cmd.id.clone(),
+                success: true,
+                results: vec![contents],
+                exit_code: 0,
+                fail_reason: String::new(),
+                session_connected: None,
+            },
+            Err(error) => failed_result(
+                cmd,
+                &format!("failed to read kubeconfig at {}: {error}", path.display()),
+            ),
+        }
     }
 
     fn spawn_session_listener(
@@ -485,7 +525,10 @@ async fn open_kubectl_exec_session(
     let stream = k8s
         .open_exec_session(&ns, &pod, container.as_deref())
         .await
-        .map_err(|e| format!("kubectl exec open failed for {target_entity_id}: {e}"))?;
+        // Preserve anyhow's complete source chain. Kubernetes API status,
+        // transport, TLS, container-selection, and upgrade errors otherwise
+        // collapse into the generic open_exec_session context.
+        .map_err(|e| format!("kubectl exec open failed for {target_entity_id}: {e:#}"))?;
 
     let (rx, tx) = tokio::io::split(stream);
     let session = crate::ShellSession::from_rw(rx, tx, &backend_id);
@@ -534,6 +577,23 @@ fn parse_kubectl_exec_command(cmd: &str) -> Option<Option<String>> {
         Some(inner.trim().to_string())
     };
     Some(container)
+}
+
+/// Parse `c2.read_local_kubeconfig()` or `c2.read_local_kubeconfig(path)` from a
+/// procedure command string. Returns `Some(None)` for the no-path form (use the
+/// configured/default kubeconfig), `Some(Some(path))` when an explicit path is
+/// given, and `None` when the command doesn't match.
+fn parse_read_local_kubeconfig_command(cmd: &str) -> Option<Option<String>> {
+    let inner = cmd
+        .trim()
+        .strip_prefix("c2.read_local_kubeconfig(")?
+        .strip_suffix(')')?;
+    let path = if inner.trim().is_empty() {
+        None
+    } else {
+        Some(inner.trim().to_string())
+    };
+    Some(path)
 }
 
 /// Derive a deterministic session backend ID for a kubectl exec session.
@@ -683,7 +743,10 @@ mod tests {
     use armory::{Procedure, Ttp};
     use tokio::sync::{mpsc, Semaphore};
 
-    use super::{parse_kubeconfig_permission_command, parse_kubectl_exec_command};
+    use super::{
+        parse_kubeconfig_permission_command, parse_kubectl_exec_command,
+        parse_read_local_kubeconfig_command,
+    };
     use super::{C2Backend, C2Event, C2Manager, ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 
     struct MockBackend {
@@ -719,6 +782,26 @@ mod tests {
             Some(Some("debug".to_string()))
         );
         assert_eq!(parse_kubectl_exec_command("kubectl exec pod -- true"), None);
+    }
+
+    #[test]
+    fn parses_read_local_kubeconfig_control_command() {
+        assert_eq!(
+            parse_read_local_kubeconfig_command("c2.read_local_kubeconfig()"),
+            Some(None)
+        );
+        assert_eq!(
+            parse_read_local_kubeconfig_command("c2.read_local_kubeconfig(/home/op/.kube/config)"),
+            Some(Some("/home/op/.kube/config".to_string()))
+        );
+        assert_eq!(
+            parse_read_local_kubeconfig_command("  c2.read_local_kubeconfig()  "),
+            Some(None)
+        );
+        assert_eq!(
+            parse_read_local_kubeconfig_command("cat ~/.kube/config"),
+            None
+        );
     }
 
     #[async_trait::async_trait]

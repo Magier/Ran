@@ -1,6 +1,6 @@
 use super::ParserOutput;
 use crate::FactsUpdate;
-use ran_domain::{Entity, K8sCredential, Uses};
+use ran_domain::{AuthenticatesTo, Contains, Entity, K8sCluster, K8sCredential, Namespace, Uses};
 
 // ---------------------------------------------------------------------------
 // Path extraction
@@ -123,6 +123,111 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
     ParserOutput::SuccessWithFacts(facts, detail)
 }
 
+/// Parse the kubeconfig read from the machine running Ran and emit the
+/// **active** Kubernetes identity plus its cluster.
+///
+/// Unlike [`parse_file_kubeconfig`] (which records a knowledge-only credential
+/// discovered on some remote system), this reproduces the graph shape Ran used
+/// to seed at bootstrap for its own kubeconfig:
+/// - a `K8sCredential` with `active = true`
+/// - the `K8sCluster` it authenticates to
+/// - `AuthenticatesTo(credential → cluster)`
+/// - `Contains(source_id → credential)` where `source_id` is the operator host
+/// - when the context declares a default namespace, the `Namespace` entity and
+///   `Contains(cluster → namespace)`
+///
+/// `source_id` is the operator-host entity (`system/operator-host`). When empty
+/// the containment relation is skipped.
+///
+/// TODO(tech-debt): this duplicates most of [`parse_file_kubeconfig`]. Kubeconfig
+/// parsing is format-invariant — the API server and user identity are inferred
+/// the same way regardless of origin. The only real distinction (local/active
+/// vs in-cluster discovery) is a *provenance* concern and should drive `active`
+/// and cluster-graph emission from a single parser, rather than being encoded as
+/// a separate effect + function. See memory
+/// `project_kubeconfig_effect_provenance_debt`.
+///
+/// Returns:
+/// - `SuccessWithFacts` — active credential, cluster, and relations emitted
+/// - `KnownFailure` — empty content
+/// - `UnknownFormat` — non-empty content that fails to resolve to a cluster/user
+pub(super) fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
+    if stdout.trim().is_empty() {
+        return ParserOutput::KnownFailure("empty stdout for file:local-kubeconfig".to_string());
+    }
+
+    let (mut cred, cluster_name) = match credential_from_kubeconfig(stdout) {
+        Some(c) => c,
+        None => {
+            return ParserOutput::UnknownFormat(
+                "could not extract cluster/user from local kubeconfig YAML".to_string(),
+            )
+        }
+    };
+    cred.active = true;
+    // A raw server URL is an unfriendly display name / id. Prefer the context
+    // name (what kubectl shows), then the user name, then fall back to the
+    // endpoint that `K8sCredential::new` defaulted to.
+    if let Some(label) = cred
+        .context_name
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            cred.user_name
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+        })
+    {
+        cred.name = label;
+    }
+
+    let mut cluster = K8sCluster::new(&cluster_name);
+    cluster.context_name = cred.context_name.clone();
+    if !cred.endpoint.is_empty() {
+        cluster.server = Some(cred.endpoint.clone());
+    }
+    let cluster_id = cluster.entity_id().0.clone();
+    let cred_id = cred.entity_id().0.clone();
+    let default_namespace = cred.default_namespace.clone();
+
+    let detail = format!(
+        "established active K8sCredential for endpoint '{}' (context={}, cluster={}, default_namespace={}, token={}, cert={})",
+        if cred.endpoint.is_empty() {
+            "unknown"
+        } else {
+            &cred.endpoint
+        },
+        cred.context_name.as_deref().unwrap_or("unknown"),
+        cluster_name,
+        default_namespace.as_deref().unwrap_or("none"),
+        cred.token.is_some(),
+        cred.cert_data.is_some(),
+    );
+
+    let mut facts = FactsUpdate::default();
+    facts.new_entities.push(Box::new(cred));
+    facts.new_entities.push(Box::new(cluster));
+    facts.new_relations.push(Box::new(AuthenticatesTo::new(
+        cred_id.clone(),
+        cluster_id.clone(),
+    )));
+    if !source_id.is_empty() {
+        facts
+            .new_relations
+            .push(Box::new(Contains::new(source_id, cred_id)));
+    }
+    if let Some(namespace_name) = default_namespace {
+        let namespace = Namespace::new(namespace_name);
+        let namespace_id = namespace.entity_id().0.clone();
+        facts.new_entities.push(Box::new(namespace));
+        facts
+            .new_relations
+            .push(Box::new(Contains::new(cluster_id, namespace_id)));
+    }
+
+    ParserOutput::SuccessWithFacts(facts, detail)
+}
+
 /// Parse a `file:content(path)` effect.
 ///
 /// Always records `path` in the caller's system entity `files` list (via the
@@ -164,7 +269,7 @@ pub(super) fn parse_file_content(stdout: &str, path: &str, source_id: &str) -> P
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ran_domain::{K8sCredential, Uses};
+    use ran_domain::{AuthenticatesTo, Contains, K8sCluster, K8sCredential, Relation, Uses};
 
     // Minimal valid kubeconfig YAML with token auth.
     const KUBECONFIG_TOKEN: &str = r#"apiVersion: v1
@@ -368,5 +473,102 @@ users:
         // Regression: paths with colons shouldn't confuse the extractor.
         let effect = "file:content(/var/run/secrets/token)";
         assert_eq!(extract_path(effect), Some("/var/run/secrets/token"));
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_local_kubeconfig
+    // -----------------------------------------------------------------------
+
+    const OPERATOR_HOST: &str = "system/operator-host";
+
+    #[test]
+    fn parse_local_kubeconfig_marks_credential_active_and_emits_cluster() {
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_local_kubeconfig(KUBECONFIG_TOKEN, OPERATOR_HOST)
+        else {
+            panic!("expected SuccessWithFacts");
+        };
+
+        let cred = facts
+            .new_entities
+            .iter()
+            .find_map(|e| e.as_any().downcast_ref::<K8sCredential>())
+            .expect("credential entity emitted");
+        assert!(
+            cred.active,
+            "local kubeconfig establishes the active identity"
+        );
+        assert_eq!(cred.endpoint, "https://10.96.0.1:6443");
+        let cred_id = cred.entity_id().0.clone();
+
+        let cluster = facts
+            .new_entities
+            .iter()
+            .find_map(|e| e.as_any().downcast_ref::<K8sCluster>())
+            .expect("cluster entity emitted");
+        assert_eq!(cluster.server.as_deref(), Some("https://10.96.0.1:6443"));
+        let cluster_id = cluster.entity_id().0.clone();
+
+        // AuthenticatesTo(credential -> cluster)
+        assert!(facts.new_relations.iter().any(|r| {
+            r.as_any()
+                .downcast_ref::<AuthenticatesTo>()
+                .is_some_and(|a| a.source_id().0 == cred_id && a.target_id().0 == cluster_id)
+        }));
+
+        // Contains(operator-host -> credential)
+        assert!(facts.new_relations.iter().any(|r| {
+            r.as_any()
+                .downcast_ref::<Contains>()
+                .is_some_and(|c| c.source_id().0 == OPERATOR_HOST && c.target_id().0 == cred_id)
+        }));
+    }
+
+    #[test]
+    fn parse_local_kubeconfig_names_credential_by_context_not_server() {
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_local_kubeconfig(KUBECONFIG_TOKEN, OPERATOR_HOST)
+        else {
+            panic!("expected SuccessWithFacts");
+        };
+        let cred = facts
+            .new_entities
+            .iter()
+            .find_map(|e| e.as_any().downcast_ref::<K8sCredential>())
+            .expect("credential entity emitted");
+        // KUBECONFIG_TOKEN's current context is `test-context`.
+        assert_eq!(cred.entity_name(), "test-context");
+        assert_ne!(cred.entity_name(), cred.endpoint);
+        assert_eq!(cred.entity_id().0, "k8s/credential/test-context");
+    }
+
+    #[test]
+    fn parse_local_kubeconfig_emits_default_namespace_containment() {
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_local_kubeconfig(KUBECONFIG_TOKEN, OPERATOR_HOST)
+        else {
+            panic!("expected SuccessWithFacts");
+        };
+        // KUBECONFIG_TOKEN declares namespace: default on its context.
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|e| e.as_any().downcast_ref::<Namespace>().is_some()));
+    }
+
+    #[test]
+    fn parse_local_kubeconfig_empty_stdout_is_known_failure() {
+        assert!(matches!(
+            parse_local_kubeconfig("", OPERATOR_HOST),
+            ParserOutput::KnownFailure(_)
+        ));
+    }
+
+    #[test]
+    fn parse_local_kubeconfig_malformed_is_unknown_format() {
+        assert!(matches!(
+            parse_local_kubeconfig("{not: yaml: at: all:", OPERATOR_HOST),
+            ParserOutput::UnknownFormat(_)
+        ));
     }
 }

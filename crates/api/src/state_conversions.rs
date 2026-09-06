@@ -701,6 +701,7 @@ mod tests {
                     cluster_id,
                     provenance: origins,
                 }],
+                ..Default::default()
             },
         );
 
@@ -866,6 +867,7 @@ mod tests {
                     cluster_id,
                     provenance: BTreeSet::from([KnowledgeProvenance::Action]),
                 }],
+                ..Default::default()
             },
         );
 
