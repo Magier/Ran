@@ -72,16 +72,24 @@ fn bootstrap_without_local_credential_contains_c2_and_cluster_entities() {
             .with_server(Some("https://127.0.0.1:6443".to_string())),
     );
 
-    assert_eq!(campaign.entity_count(), 2);
-    assert!(!campaign
+    // The operator host always exists now — it is the target of the Read Local
+    // Kubeconfig TTP that establishes Ran's identity — so even without a local
+    // credential we have OperatorHost + C2 + cluster.
+    assert_eq!(campaign.entity_count(), 3);
+    let operator_host_id = EntityId::new("system/operator-host");
+    assert!(campaign
         .entities
-        .contains::<OperatorHost>(&EntityId::new("system/operator-host")));
+        .contains::<OperatorHost>(&operator_host_id));
     assert!(campaign
         .entities
         .contains::<C2Server>(&EntityId::new(BUILTIN_C2_ID)));
     assert!(campaign
         .entities
         .contains::<K8sCluster>(&EntityId::new("k8s/cluster/dev-cluster")));
+    assert!(campaign
+        .graph
+        .targets_of(&operator_host_id, "contains")
+        .contains(&&EntityId::new(BUILTIN_C2_ID)));
 }
 
 #[test]

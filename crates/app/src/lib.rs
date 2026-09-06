@@ -1169,10 +1169,31 @@ fn deduplicate_initial_clusters(
     aliases
 }
 
-fn build_initial_knowledge(
-    active: &ResolvedKubeconfig,
-    seeds: &[SeedKnowledgeConfig],
-) -> Result<InitialKnowledge> {
+/// Best-effort hostname of the machine running Ran, used as the display name of
+/// the operator-host entity so it is obvious which host holds the kubeconfig.
+/// Falls back to the `HOSTNAME`/`HOST` environment variables, then `None` (the
+/// campaign then uses a generic label).
+fn local_hostname() -> Option<String> {
+    let clean = |raw: String| {
+        let name = raw.trim().to_string();
+        (!name.is_empty()).then_some(name)
+    };
+
+    if let Ok(output) = std::process::Command::new("hostname").output() {
+        if output.status.success() {
+            if let Some(name) = clean(String::from_utf8_lossy(&output.stdout).into_owned()) {
+                return Some(name);
+            }
+        }
+    }
+
+    std::env::var("HOSTNAME")
+        .ok()
+        .and_then(&clean)
+        .or_else(|| std::env::var("HOST").ok().and_then(&clean))
+}
+
+fn build_initial_knowledge(seeds: &[SeedKnowledgeConfig]) -> Result<InitialKnowledge> {
     let mut initial = InitialKnowledge::default();
     let mut cluster_aliases: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
@@ -1212,32 +1233,6 @@ fn build_initial_knowledge(
             });
         }
     }
-
-    let active_cluster = K8sCluster::new(&active.cluster_name)
-        .with_context_name(Some(active.context_name.clone()))
-        .with_server(active.server.clone());
-    let active_cluster_idx = if let Some((idx, existing)) = initial
-        .clusters
-        .iter_mut()
-        .enumerate()
-        .find(|(_, entry)| clusters_match(&entry.cluster, &active_cluster))
-    {
-        if existing.cluster.server.is_none() {
-            existing.cluster.server = active_cluster.server.clone();
-        }
-        if existing.cluster.context_name.is_none() {
-            existing.cluster.context_name = active_cluster.context_name.clone();
-        }
-        existing.provenance.insert(KnowledgeProvenance::Operator);
-        idx
-    } else {
-        let idx = initial.clusters.len();
-        initial.clusters.push(InitialClusterKnowledge {
-            cluster: active_cluster,
-            provenance: single_origin(KnowledgeProvenance::Operator),
-        });
-        idx
-    };
 
     for seed in seeds {
         let SeedKnowledgeConfig::Credential(config) = seed else {
@@ -1312,34 +1307,11 @@ fn build_initial_knowledge(
         }
     }
 
-    let active_cluster_id = initial.clusters[active_cluster_idx].cluster.entity_id();
-    let cluster_aliases = deduplicate_initial_clusters(&mut initial);
-    let active_cluster_id = cluster_aliases
-        .get(&active_cluster_id)
-        .cloned()
-        .unwrap_or(active_cluster_id);
-
-    let active_name = active
-        .user_name
-        .as_deref()
-        .unwrap_or(&active.context_name)
-        .to_string();
-    let mut active_credential = credential_from_resolved(active, active_name);
-    active_credential.active = true;
-    if let Some(existing) = initial
-        .kubeconfigs
-        .iter_mut()
-        .find(|entry| credentials_match(&entry.credential, &active_credential))
-    {
-        existing.provenance.insert(KnowledgeProvenance::Operator);
-        existing.credential.active = true;
-    } else {
-        initial.kubeconfigs.push(InitialKubeconfigKnowledge {
-            credential: active_credential,
-            cluster_id: active_cluster_id,
-            provenance: single_origin(KnowledgeProvenance::Operator),
-        });
-    }
+    // Ran's own kubeconfig is no longer seeded here as the active identity.
+    // It is discovered at runtime via the Read Local Kubeconfig TTP, which
+    // targets the operator host and emits the active credential + cluster.
+    // Only scenario seeds (declared above) contribute initial knowledge.
+    deduplicate_initial_clusters(&mut initial);
 
     Ok(initial)
 }
@@ -1369,11 +1341,13 @@ users:
 "#;
 
     #[test]
-    fn seeded_active_kubeconfig_deduplicates_and_merges_provenance() {
+    fn seeded_kubeconfig_credential_registers_as_knowledge_only() {
+        // Ran's own kubeconfig is no longer auto-seeded as the active identity;
+        // it is discovered at runtime via the Read Local Kubeconfig TTP. Only
+        // scenario seeds contribute initial knowledge, and they are never active.
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("config");
         std::fs::write(&path, KUBECONFIG).unwrap();
-        let active = resolve_kubeconfig(&path, None).unwrap();
         let seeds = vec![
             SeedKnowledgeConfig::Cluster(SeedClusterConfig {
                 id: "target-cluster".into(),
@@ -1392,14 +1366,17 @@ users:
             }),
         ];
 
-        let initial = build_initial_knowledge(&active, &seeds).unwrap();
+        let initial = build_initial_knowledge(&seeds).unwrap();
         assert_eq!(initial.clusters.len(), 1);
         assert_eq!(
             initial.clusters[0].cluster.id.as_deref(),
             Some("target-cluster")
         );
         assert_eq!(initial.kubeconfigs.len(), 1);
-        assert!(initial.kubeconfigs[0].credential.active);
+        assert!(
+            !initial.kubeconfigs[0].credential.active,
+            "seed credentials are knowledge-only, never active"
+        );
         assert_eq!(
             initial.kubeconfigs[0]
                 .credential
@@ -1413,7 +1390,7 @@ users:
         );
         assert_eq!(
             initial.kubeconfigs[0].provenance,
-            BTreeSet::from([KnowledgeProvenance::Scenario, KnowledgeProvenance::Operator,])
+            BTreeSet::from([KnowledgeProvenance::Scenario])
         );
     }
 
@@ -1422,7 +1399,6 @@ users:
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("config");
         std::fs::write(&path, KUBECONFIG).unwrap();
-        let active = resolve_kubeconfig(&path, None).unwrap();
         let seeds = vec![
             SeedKnowledgeConfig::Cluster(SeedClusterConfig {
                 id: "target".into(),
@@ -1441,7 +1417,7 @@ users:
             }),
         ];
 
-        assert!(build_initial_knowledge(&active, &seeds).is_err());
+        assert!(build_initial_knowledge(&seeds).is_err());
     }
 }
 
@@ -1615,7 +1591,8 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(cfg.kubeconfig)?;
     let active_kubeconfig = resolve_kubeconfig(kubeconfig_path.clone(), None)?;
     let k8s = Client::from_resolved_kubeconfig(&active_kubeconfig).await?;
-    let initial_knowledge = build_initial_knowledge(&active_kubeconfig, &cfg.seed_knowledge)?;
+    let mut initial_knowledge = build_initial_knowledge(&cfg.seed_knowledge)?;
+    initial_knowledge.operator_host_name = local_hostname();
     let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
     let kubetier_catalog = kubetier::Catalog::load(cfg.kubetier_catalog.as_deref())?;
     info!(
@@ -2099,7 +2076,8 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(cfg.kubeconfig)?;
     let active_kubeconfig = resolve_kubeconfig(kubeconfig_path.clone(), None)?;
     let k8s = Client::from_resolved_kubeconfig(&active_kubeconfig).await?;
-    let initial_knowledge = build_initial_knowledge(&active_kubeconfig, &cfg.seed_knowledge)?;
+    let mut initial_knowledge = build_initial_knowledge(&cfg.seed_knowledge)?;
+    initial_knowledge.operator_host_name = local_hostname();
     let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
 
     let external_parser: Option<Arc<dyn ExternalParser>> =

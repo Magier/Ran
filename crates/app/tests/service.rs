@@ -164,6 +164,7 @@ async fn app_state_get_and_reset_campaign_without_cli() {
                 ]),
             }],
             kubeconfigs: Vec::new(),
+            ..Default::default()
         },
         campaign_events,
         std::path::PathBuf::from("plans"),

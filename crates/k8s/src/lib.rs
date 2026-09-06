@@ -249,6 +249,7 @@ fn pod_to_running_pod(pod: &Pod) -> Option<RunningPod> {
 pub struct Client {
     client: KubeClient,
     kubeconfig_path: Option<PathBuf>,
+    api_server: String,
 }
 
 fn build_authenticated_http_request(request: &serde_json::Value) -> Result<Request<Vec<u8>>> {
@@ -323,7 +324,18 @@ impl Client {
         Ok(Self {
             client,
             kubeconfig_path: resolved.source_path.clone(),
+            api_server: resolved
+                .server
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
         })
+    }
+
+    /// Path to the kubeconfig file that backs this client, when it is
+    /// file-backed. Used by local-host TTPs (e.g. Read Local Kubeconfig) to
+    /// read the same kubeconfig Ran was configured with.
+    pub fn kubeconfig_path(&self) -> Option<&std::path::Path> {
+        self.kubeconfig_path.as_deref()
     }
 
     pub async fn get_running_pods(&self, namespace: Option<&str>) -> Result<Vec<RunningPod>> {
@@ -360,8 +372,8 @@ impl Client {
             .await
             .with_context(|| {
                 format!(
-                    "failed to review kubeconfig permissions in namespace '{}'",
-                    namespace
+                    "could not complete SelfSubjectRulesReview request to Kubernetes API server '{}' for namespace '{}'",
+                    self.api_server, namespace
                 )
             })?;
         serde_json::to_string(&response)
