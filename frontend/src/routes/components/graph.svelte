@@ -10,6 +10,13 @@
 	import { hasKnowledgeProvenance } from '$lib/knowledgeProvenance';
 
 	import { getGraphStyle, applyCompromisedStyle, getK8sCredentialIcon } from './graph_style';
+	import {
+		consolidateCollapsedEdges,
+		restoreConsolidatedEdges,
+		reconcileCollapsedEdges,
+		hideRedundantInformationalEdges,
+		COLLAPSED_EDGE_CLASS
+	} from './graph_edges';
 	import { createElkLayout, isValidPosition, DEFAULT_LAYOUT_PARAMS } from './elk_layout';
 	import type { LayoutParams } from './elk_layout';
 	import GraphLayoutPlayground from './GraphLayoutPlayground.svelte';
@@ -465,6 +472,12 @@
 
 					recollapseNodes();
 
+					// Safety net: the mount/update collapse dance does not always emit a
+					// clean `aftercollapse` per node (expand-then-recollapse, swallowed
+					// errors), which would leave child edges un-consolidated on fresh load.
+					// Reconcile every collapsed node explicitly; this is idempotent.
+					reconcileCollapsedEdges(cy);
+
 					// Only re-layout if there are new nodes or nodes were removed
 					if (hasNewNodes || hasFewerNodes || previousNodeIds.size === 0) {
 						console.log(`Graph changed: ${hasNewNodes ? 'new nodes' : hasFewerNodes ? 'nodes removed' : 'initial load'}`);
@@ -722,108 +735,13 @@
 	}
 
 	function handleAfterCollapse(node: any) {
-		// After the expand-collapse plugin has collapsed this node, consolidate
-		// all visible edges between the same directed pair (compound node <-> external node)
-		// into a single meta-edge. The plugin may have created per-type meta-edges;
-		// we merge those further so only one edge per direction per external node remains.
-
-		const connectedEdges = node.connectedEdges().filter((e: any) => e.visible());
-
-		// Group by directed source->target pair
-		const edgeGroups = new Map<string, any[]>();
-
-		connectedEdges.forEach((edge: any) => {
-			const sourceId = edge.source().id();
-			const targetId = edge.target().id();
-			if (sourceId === targetId) return; // skip self-loops
-			const key = `${sourceId}->${targetId}`;
-			if (!edgeGroups.has(key)) {
-				edgeGroups.set(key, []);
-			}
-			edgeGroups.get(key)!.push(edge);
-		});
-
-		// Consolidate groups with multiple edges into a single meta-edge
-		edgeGroups.forEach((edges, key) => {
-			if (edges.length <= 1) return; // single edge, nothing to consolidate
-
-			const separator = '->';
-			const sepIndex = key.indexOf(separator);
-			const sourceId = key.substring(0, sepIndex);
-			const targetId = key.substring(sepIndex + separator.length);
-			const metaEdgeId = `meta-${sourceId}-to-${targetId}`;
-
-			// Remove a prior meta-edge for this pair if it exists
-			const existing = cy.getElementById(metaEdgeId);
-			if (existing.length > 0) existing.remove();
-
-			// Hide all edges in this group
-			edges.forEach((e: any) => e.hide());
-
-			// Build a descriptive label from unique edge names
-			const uniqueNames = [...new Set(edges.map((e: any) => e.data('name')))].filter(Boolean);
-			const label = uniqueNames.length === 1 ? uniqueNames[0] : `${edges.length} relations`;
-
-			cy.add({
-				group: 'edges',
-				data: {
-					id: metaEdgeId,
-					source: sourceId,
-					target: targetId,
-					name: label,
-					collapsedEdges: edges.map((e: any) => e.id()),
-					isMetaEdge: true
-				}
-			});
-		});
+		// After the expand-collapse plugin re-points every child edge at the
+		// collapsed compound, merge parallel edges sharing the same directed pair
+		// into one meta-edge so the node shows a single edge per relation to each
+		// external neighbour instead of one per hidden child.
+		consolidateCollapsedEdges(cy, node);
 	}
 
-	/**
-	 * Hide informational edges between a node pair when a non-informational
-	 * (actionable/factual) edge already exists for that same pair in the same direction.
-	 * Additionally, always hide "runs-on" edges when ANY other edge (informational
-	 * or not) exists for that pair, since runs-on is purely structural noise.
-	 * Skips edges that are already hidden by the namespace filter.
-	 */
-	function hideRedundantInformationalEdges(cy: cytoscape.Core) {
-		// Collect directed node-pairs that have at least one non-informational, non-filtered edge
-		const hasActionableEdge = new Set<string>();
-		// Collect directed node-pairs that have any non-filtered edge (keyed by pair + edge name)
-		const pairEdgeNames = new Map<string, Set<string>>();
-
-		cy.edges().forEach((e: any) => {
-			if (e.hasClass('namespace-filtered')) return;
-			const pair = `${e.source().id()}->${e.target().id()}`;
-			if (!e.data('informational')) {
-				hasActionableEdge.add(pair);
-			}
-			// Track all edge names per directed pair
-			if (!pairEdgeNames.has(pair)) pairEdgeNames.set(pair, new Set());
-			pairEdgeNames.get(pair)!.add(e.data('name'));
-		});
-
-		// Hide informational edges whose directed pair has an actionable edge.
-		// For "runs-on", hide when ANY other edge exists for the same pair.
-		cy.edges('[?informational]').forEach((e: any) => {
-			if (e.hasClass('namespace-filtered')) return; // don't touch namespace-filtered edges
-			const pair = `${e.source().id()}->${e.target().id()}`;
-			const name = e.data('name');
-
-			if (name === 'runs-on') {
-				// Hide runs-on if any other relation exists for this pair
-				const names = pairEdgeNames.get(pair);
-				if (names && names.size > 1) {
-					e.hide();
-				} else {
-					e.show();
-				}
-			} else if (hasActionableEdge.has(pair)) {
-				e.hide();
-			} else {
-				e.show();
-			}
-		});
-	}
 
 	/**
 	 * Hide nodes (and their edges) belonging to the specified namespaces.
@@ -842,7 +760,7 @@
 				if (!isCollapsedChild) {
 					el.show();
 				}
-			} else if (!el.data('isMetaEdge')) {
+			} else if (!el.data('isMetaEdge') && !el.hasClass(COLLAPSED_EDGE_CLASS)) {
 				el.show();
 			}
 		});
@@ -896,24 +814,9 @@
 	}
 
 	function handleAfterExpand(node: any) {
-		// Remove all our custom meta-edges related to this node and restore
-		// the edges we hid (the plugin restores its own internal state).
-		cy.edges('[?isMetaEdge]').forEach((metaEdge: any) => {
-			const source = metaEdge.source().id();
-			const target = metaEdge.target().id();
-
-			if (source === node.id() || target === node.id()) {
-				const collapsedEdgeIds: string[] = metaEdge.data('collapsedEdges') || [];
-
-				// Show back the edges we hid
-				collapsedEdgeIds.forEach((edgeId: string) => {
-					const edge = cy.getElementById(edgeId);
-					if (edge.length > 0) (edge as any).show();
-				});
-
-				metaEdge.remove();
-			}
-		});
+		// Remove our custom meta-edges for this node and restore the original
+		// edges we hid on collapse (the plugin restores its own internal state).
+		restoreConsolidatedEdges(cy, node);
 
 		// Re-apply informational edge filtering after expanding
 		hideRedundantInformationalEdges(cy);
