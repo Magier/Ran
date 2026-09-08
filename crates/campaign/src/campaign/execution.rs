@@ -83,14 +83,23 @@ fn normalise_exec_hint(exec_system_id: Option<&str>, target_id: &str) -> Option<
 
 #[derive(Debug, Clone)]
 enum ResolvedK8sAuth {
-    ServiceAccount { id: String, token: String },
-    Kubeconfig { id: String },
+    ServiceAccount {
+        id: String,
+        token: String,
+    },
+    Kubeconfig {
+        id: String,
+        /// The kubeconfig context this credential selects. Emitted as
+        /// `--context` so kubectl targets the chosen identity rather than the
+        /// file's current-context.
+        context: Option<String>,
+    },
 }
 
 impl ResolvedK8sAuth {
     fn id(&self) -> &str {
         match self {
-            Self::ServiceAccount { id, .. } | Self::Kubeconfig { id } => id,
+            Self::ServiceAccount { id, .. } | Self::Kubeconfig { id, .. } => id,
         }
     }
 
@@ -99,7 +108,13 @@ impl ResolvedK8sAuth {
             Self::ServiceAccount { token, .. } => {
                 format!("--token {}", shell_words::quote(token))
             }
-            Self::Kubeconfig { .. } => "--kubeconfig \"$KUBECONFIG\"".to_string(),
+            Self::Kubeconfig { context, .. } => {
+                let mut arg = "--kubeconfig \"$KUBECONFIG\"".to_string();
+                if let Some(context) = context.as_deref().filter(|c| !c.trim().is_empty()) {
+                    arg.push_str(&format!(" --context {}", shell_words::quote(context)));
+                }
+                arg
+            }
         }
     }
 
@@ -904,15 +919,21 @@ impl Campaign {
                     id: identity_id,
                     token: token.to_string(),
                 })
-            } else if self
+            } else if let Some(context) = self
                 .entities
                 .find::<K8sCredential>(&entity_id)
-                .is_some_and(|credential| credential.active)
+                .filter(|credential| {
+                    credential.active || self.is_operator_host_credential(&entity_id)
+                })
+                .map(|credential| credential.context_name.clone())
             {
-                Some(ResolvedK8sAuth::Kubeconfig { id: identity_id })
+                Some(ResolvedK8sAuth::Kubeconfig {
+                    id: identity_id,
+                    context,
+                })
             } else {
                 return Err(ExecuteActionError::InvalidInput(format!(
-                    "authentication identity '{}' is neither a captured ServiceAccount nor the active K8sCredential",
+                    "authentication identity '{}' is neither a captured ServiceAccount nor a usable local K8sCredential",
                     identity_id
                 )));
             }
@@ -2676,4 +2697,30 @@ fn ground_binary_in_cmd(
     }
 
     cmd.to_string()
+}
+
+#[cfg(test)]
+mod k8s_auth_tests {
+    use super::ResolvedK8sAuth;
+
+    #[test]
+    fn kubeconfig_auth_grounds_context_flag() {
+        let auth = ResolvedK8sAuth::Kubeconfig {
+            id: "k8s/credential/staging".to_string(),
+            context: Some("staging".to_string()),
+        };
+        assert_eq!(
+            auth.kubectl_arg(),
+            "--kubeconfig \"$KUBECONFIG\" --context staging"
+        );
+    }
+
+    #[test]
+    fn kubeconfig_auth_without_context_omits_flag() {
+        let auth = ResolvedK8sAuth::Kubeconfig {
+            id: "k8s/credential/prod".to_string(),
+            context: None,
+        };
+        assert_eq!(auth.kubectl_arg(), "--kubeconfig \"$KUBECONFIG\"");
+    }
 }

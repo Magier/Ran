@@ -98,7 +98,9 @@ pub fn eligible_auth_identities(
         campaign
             .entities
             .values::<K8sCredential>()
-            .filter(|credential| credential.active)
+            .filter(|credential| {
+                credential.active || campaign.is_operator_host_credential(&credential.entity_id())
+            })
             .filter(|credential| {
                 identity_target != Some("K8sCredential") || credential.entity_id().0 == target_id
             })
@@ -382,7 +384,9 @@ pub fn ttp_rbac_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
         || campaign
             .entities
             .values::<K8sCredential>()
-            .filter(|credential| credential.active)
+            .filter(|credential| {
+                credential.active || campaign.is_operator_host_credential(&credential.entity_id())
+            })
             .any(|credential| entitlements_satisfy(ttp, &credential.entitlements))
 }
 

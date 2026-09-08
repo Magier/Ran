@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::ParserOutput;
 use crate::FactsUpdate;
 use ran_domain::{AuthenticatesTo, Contains, Entity, K8sCluster, K8sCredential, Namespace, Uses};
@@ -44,29 +46,48 @@ pub(super) fn is_kubeconfig_content(content: &str) -> bool {
 // Kubeconfig YAML parsing
 // ---------------------------------------------------------------------------
 
-/// Parse kubeconfig YAML and build a `K8sCredential` entity.
+/// Build a `K8sCredential` entity from an already-resolved kubeconfig context.
 ///
-/// Extracts the first cluster's `server` and `certificate-authority-data`, and
-/// the first user's `token` or `client-certificate-data` + `client-key-data`.
+/// This is the single, canonical mapping from a resolved context to a
+/// credential entity, shared by the output parser and by the app-side
+/// per-context client registry so that both derive the **same** entity id for
+/// the same context. The credential is named by its context (a raw server URL
+/// is an unfriendly display name / id), falling back to the user name, then the
+/// endpoint. `active` is left `false` for the caller to set.
+pub fn credential_from_resolved(resolved: &k8s::ResolvedKubeconfig) -> K8sCredential {
+    let mut cred = K8sCredential::new(resolved.server.clone().unwrap_or_default());
+    cred.context_name = Some(resolved.context_name.clone());
+    cred.default_namespace = resolved.default_namespace.clone();
+    cred.user_name = resolved.user_name.clone();
+    cred.auth_method = resolved.auth_method.clone();
+    cred.has_token = resolved.has_token;
+    cred.has_client_certificate = resolved.has_client_certificate;
+    cred.has_client_key = resolved.has_client_key;
+    cred.ca_data = resolved.ca_data.clone();
+    cred.token = resolved.token.clone();
+    cred.cert_data = resolved.cert_data.clone();
+    cred.key_data = resolved.key_data.clone();
+
+    if let Some(label) = non_empty(&resolved.context_name)
+        .or_else(|| resolved.user_name.as_deref().and_then(non_empty))
+    {
+        cred.name = label.to_string();
+    }
+    cred
+}
+
+fn non_empty(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then_some(trimmed)
+}
+
+/// Parse kubeconfig YAML and build a `K8sCredential` for its current context.
 ///
 /// Returns `None` when the YAML does not contain a usable cluster entry.
 fn credential_from_kubeconfig(content: &str) -> Option<(K8sCredential, String)> {
     let resolved = k8s::resolve_kubeconfig_yaml(content, None).ok()?;
     let cluster_name = resolved.cluster_name.clone();
-    let mut cred = K8sCredential::new(resolved.server.clone().unwrap_or_default());
-    cred.context_name = Some(resolved.context_name);
-    cred.default_namespace = resolved.default_namespace;
-    cred.user_name = resolved.user_name;
-    cred.auth_method = resolved.auth_method;
-    cred.has_token = resolved.has_token;
-    cred.has_client_certificate = resolved.has_client_certificate;
-    cred.has_client_key = resolved.has_client_key;
-    cred.ca_data = resolved.ca_data;
-    cred.token = resolved.token;
-    cred.cert_data = resolved.cert_data;
-    cred.key_data = resolved.key_data;
-
-    Some((cred, cluster_name))
+    Some((credential_from_resolved(&resolved), cluster_name))
 }
 
 // ---------------------------------------------------------------------------
@@ -123,14 +144,16 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
     ParserOutput::SuccessWithFacts(facts, detail)
 }
 
-/// Parse the kubeconfig read from the machine running Ran and emit the
-/// **active** Kubernetes identity plus its cluster.
+/// Parse the kubeconfig read from the machine running Ran and emit **every**
+/// context it defines as a switchable Kubernetes identity.
 ///
-/// Unlike [`parse_file_kubeconfig`] (which records a knowledge-only credential
-/// discovered on some remote system), this reproduces the graph shape Ran used
-/// to seed at bootstrap for its own kubeconfig:
-/// - a `K8sCredential` with `active = true`
-/// - the `K8sCluster` it authenticates to
+/// Unlike [`parse_file_kubeconfig`] (which records a single knowledge-only
+/// credential discovered on some remote system), this reproduces the graph
+/// shape Ran used to seed at bootstrap, for each context:
+/// - a `K8sCredential`, `active = true` only for the kubeconfig's current
+///   context; the others are known-but-inactive identities the operator can
+///   switch to via Authenticate As
+/// - the `K8sCluster` it authenticates to (deduplicated by entity id)
 /// - `AuthenticatesTo(credential → cluster)`
 /// - `Contains(source_id → credential)` where `source_id` is the operator host
 /// - when the context declares a default namespace, the `Namespace` entity and
@@ -148,82 +171,77 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
 /// `project_kubeconfig_effect_provenance_debt`.
 ///
 /// Returns:
-/// - `SuccessWithFacts` — active credential, cluster, and relations emitted
+/// - `SuccessWithFacts` — one credential per context, clusters, and relations
 /// - `KnownFailure` — empty content
-/// - `UnknownFormat` — non-empty content that fails to resolve to a cluster/user
+/// - `UnknownFormat` — non-empty content with no resolvable context
 pub(super) fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout for file:local-kubeconfig".to_string());
     }
 
-    let (mut cred, cluster_name) = match credential_from_kubeconfig(stdout) {
-        Some(c) => c,
-        None => {
+    let contexts = match k8s::resolve_all_kubeconfig_contexts_yaml(stdout) {
+        Ok(contexts) if !contexts.is_empty() => contexts,
+        _ => {
             return ParserOutput::UnknownFormat(
-                "could not extract cluster/user from local kubeconfig YAML".to_string(),
+                "could not resolve any context from local kubeconfig YAML".to_string(),
             )
         }
     };
-    cred.active = true;
-    // A raw server URL is an unfriendly display name / id. Prefer the context
-    // name (what kubectl shows), then the user name, then fall back to the
-    // endpoint that `K8sCredential::new` defaulted to.
-    if let Some(label) = cred
-        .context_name
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| {
-            cred.user_name
-                .clone()
-                .filter(|value| !value.trim().is_empty())
-        })
-    {
-        cred.name = label;
-    }
-
-    let mut cluster = K8sCluster::new(&cluster_name);
-    cluster.context_name = cred.context_name.clone();
-    if !cred.endpoint.is_empty() {
-        cluster.server = Some(cred.endpoint.clone());
-    }
-    let cluster_id = cluster.entity_id().0.clone();
-    let cred_id = cred.entity_id().0.clone();
-    let default_namespace = cred.default_namespace.clone();
-
-    let detail = format!(
-        "established active K8sCredential for endpoint '{}' (context={}, cluster={}, default_namespace={}, token={}, cert={})",
-        if cred.endpoint.is_empty() {
-            "unknown"
-        } else {
-            &cred.endpoint
-        },
-        cred.context_name.as_deref().unwrap_or("unknown"),
-        cluster_name,
-        default_namespace.as_deref().unwrap_or("none"),
-        cred.token.is_some(),
-        cred.cert_data.is_some(),
-    );
 
     let mut facts = FactsUpdate::default();
-    facts.new_entities.push(Box::new(cred));
-    facts.new_entities.push(Box::new(cluster));
-    facts.new_relations.push(Box::new(AuthenticatesTo::new(
-        cred_id.clone(),
-        cluster_id.clone(),
-    )));
-    if !source_id.is_empty() {
-        facts
-            .new_relations
-            .push(Box::new(Contains::new(source_id, cred_id)));
+    let mut emitted_clusters: HashSet<String> = HashSet::new();
+    let mut emitted_namespaces: HashSet<String> = HashSet::new();
+    let mut credential_labels: Vec<String> = Vec::new();
+
+    for resolved in &contexts {
+        let mut cred = credential_from_resolved(resolved);
+        cred.active = resolved.is_current_context;
+        let cred_id = cred.entity_id().0.clone();
+        credential_labels.push(format!(
+            "{}{}",
+            cred.entity_name(),
+            if cred.active { " (active)" } else { "" }
+        ));
+
+        let mut cluster = K8sCluster::new(&resolved.cluster_name);
+        cluster.context_name = Some(resolved.context_name.clone());
+        if let Some(server) = resolved.server.clone().filter(|s| !s.is_empty()) {
+            cluster.server = Some(server);
+        }
+        let cluster_id = cluster.entity_id().0.clone();
+
+        facts.new_entities.push(Box::new(cred));
+        if emitted_clusters.insert(cluster_id.clone()) {
+            facts.new_entities.push(Box::new(cluster));
+        }
+        facts.new_relations.push(Box::new(AuthenticatesTo::new(
+            cred_id.clone(),
+            cluster_id.clone(),
+        )));
+        if !source_id.is_empty() {
+            facts
+                .new_relations
+                .push(Box::new(Contains::new(source_id, cred_id)));
+        }
+        if let Some(namespace_name) = resolved.default_namespace.clone() {
+            let namespace = Namespace::new(namespace_name);
+            let namespace_id = namespace.entity_id().0.clone();
+            if emitted_namespaces.insert(namespace_id.clone()) {
+                facts.new_entities.push(Box::new(namespace));
+            }
+            facts
+                .new_relations
+                .push(Box::new(Contains::new(cluster_id, namespace_id)));
+        }
     }
-    if let Some(namespace_name) = default_namespace {
-        let namespace = Namespace::new(namespace_name);
-        let namespace_id = namespace.entity_id().0.clone();
-        facts.new_entities.push(Box::new(namespace));
-        facts
-            .new_relations
-            .push(Box::new(Contains::new(cluster_id, namespace_id)));
-    }
+
+    let detail = format!(
+        "established {} local kubeconfig identit{} across {} cluster(s): {}",
+        contexts.len(),
+        if contexts.len() == 1 { "y" } else { "ies" },
+        emitted_clusters.len(),
+        credential_labels.join(", "),
+    );
 
     ParserOutput::SuccessWithFacts(facts, detail)
 }
@@ -480,6 +498,80 @@ users:
     // -----------------------------------------------------------------------
 
     const OPERATOR_HOST: &str = "system/operator-host";
+
+    // Kubeconfig with two contexts against two clusters; prod is current.
+    const KUBECONFIG_MULTI: &str = r#"apiVersion: v1
+kind: Config
+clusters:
+- name: prod-cluster
+  cluster:
+    server: https://prod:6443
+- name: staging-cluster
+  cluster:
+    server: https://staging:6443
+contexts:
+- name: prod
+  context:
+    cluster: prod-cluster
+    user: prod-admin
+    namespace: default
+- name: staging
+  context:
+    cluster: staging-cluster
+    user: staging-admin
+current-context: prod
+users:
+- name: prod-admin
+  user:
+    token: prod-token
+- name: staging-admin
+  user:
+    token: staging-token
+"#;
+
+    #[test]
+    fn parse_local_kubeconfig_emits_every_context_only_current_active() {
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_local_kubeconfig(KUBECONFIG_MULTI, OPERATOR_HOST)
+        else {
+            panic!("expected SuccessWithFacts");
+        };
+
+        let creds: Vec<&K8sCredential> = facts
+            .new_entities
+            .iter()
+            .filter_map(|e| e.as_any().downcast_ref::<K8sCredential>())
+            .collect();
+        assert_eq!(creds.len(), 2, "one credential per context");
+
+        let prod = creds
+            .iter()
+            .find(|c| c.entity_name() == "prod")
+            .expect("prod credential");
+        let staging = creds
+            .iter()
+            .find(|c| c.entity_name() == "staging")
+            .expect("staging credential");
+        assert!(prod.active, "current context is active");
+        assert!(!staging.active, "non-current context is inactive");
+
+        // Two distinct clusters emitted.
+        let clusters: Vec<&K8sCluster> = facts
+            .new_entities
+            .iter()
+            .filter_map(|e| e.as_any().downcast_ref::<K8sCluster>())
+            .collect();
+        assert_eq!(clusters.len(), 2);
+
+        // Both credentials are contained by the operator host.
+        let contains_from_host = facts
+            .new_relations
+            .iter()
+            .filter_map(|r| r.as_any().downcast_ref::<Contains>())
+            .filter(|c| c.source_id().0 == OPERATOR_HOST)
+            .count();
+        assert_eq!(contains_from_host, 2);
+    }
 
     #[test]
     fn parse_local_kubeconfig_marks_credential_active_and_emits_cluster() {

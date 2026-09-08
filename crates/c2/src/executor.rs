@@ -67,7 +67,24 @@ pub struct C2Manager {
 struct C2Executor {
     event_bus: C2EventBus,
     backends: Backends,
+    /// Default Kubernetes client (the kubeconfig's current context).
     k8s: Option<Client>,
+    /// Per-identity Kubernetes clients keyed by K8sCredential entity id
+    /// (`k8s/credential/<slug>`). Populated from every context in the local
+    /// kubeconfig so that "Authenticate As" a non-current context actually
+    /// authenticates as that identity instead of silently using the default.
+    k8s_clients: Arc<HashMap<String, Client>>,
+}
+
+impl C2Executor {
+    /// Select the Kubernetes client for an action's authentication identity,
+    /// falling back to the default (current-context) client when the identity
+    /// has no dedicated client (e.g. a discovered credential).
+    fn client_for(&self, auth_identity_id: Option<&str>) -> Option<&Client> {
+        auth_identity_id
+            .and_then(|id| self.k8s_clients.get(id))
+            .or(self.k8s.as_ref())
+    }
 }
 
 #[async_trait]
@@ -83,7 +100,11 @@ impl C2Backend for BuiltinC2 {
 }
 
 impl C2Manager {
-    pub fn new(buffer_size: usize, k8s: Client) -> (C2Handle, C2EventBus, Self) {
+    pub fn new(
+        buffer_size: usize,
+        k8s: Client,
+        k8s_clients: HashMap<String, Client>,
+    ) -> (C2Handle, C2EventBus, Self) {
         let (cmd_tx, cmd_rx) = mpsc::channel(buffer_size);
         let event_bus = C2EventBus::new(buffer_size);
 
@@ -105,6 +126,7 @@ impl C2Manager {
                     event_bus,
                     backends,
                     k8s: Some(k8s),
+                    k8s_clients: Arc::new(k8s_clients),
                 },
             },
         )
@@ -131,6 +153,7 @@ impl C2Manager {
                     event_bus,
                     backends,
                     k8s: None,
+                    k8s_clients: Arc::new(HashMap::new()),
                 },
             },
         )
@@ -189,7 +212,7 @@ impl C2Executor {
         }
 
         if let Some(namespace) = parse_kubeconfig_permission_command(trimmed) {
-            let Some(k8s) = self.k8s.as_ref() else {
+            let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()) else {
                 let reason = "no K8s client configured".to_string();
                 return TtpExecuted {
                     id: cmd.id.clone(),
@@ -263,7 +286,7 @@ impl C2Executor {
             .as_deref()
             .is_some_and(|identity| identity.starts_with("k8s/credential/"))
         {
-            let Some(k8s) = self.k8s.as_ref() else {
+            let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()) else {
                 return failed_result(cmd, "no active Kubernetes client configured");
             };
             let result = if let Some(request) = cmd.procedure.k8s_request.as_ref() {

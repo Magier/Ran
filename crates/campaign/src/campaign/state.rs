@@ -234,6 +234,20 @@ impl Campaign {
         self.knowledge_provenance.entity(id)
     }
 
+    /// Whether `credential_id` is a local kubeconfig identity — i.e. contained
+    /// by the operator host. Every context read from Ran's own kubeconfig is
+    /// contained by the operator host and has a backing per-context client, so
+    /// these identities can be selected via Authenticate As even when they are
+    /// not the current (active) context. Credentials discovered elsewhere (e.g.
+    /// on a node) are linked by `Uses`, not `Contains`, and are excluded.
+    pub fn is_operator_host_credential(&self, credential_id: &EntityId) -> bool {
+        let host = EntityId::new("system/operator-host");
+        self.graph
+            .targets_of(&host, "contains")
+            .iter()
+            .any(|id| id.0 == credential_id.0)
+    }
+
     pub fn relation_provenance(
         &self,
         name: &str,

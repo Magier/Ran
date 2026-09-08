@@ -24,7 +24,7 @@ pub use campaign::{
 pub use effects::{EffectCategory, EffectKind, FactsUpdate};
 pub use execution_record::{ExecutionEntity, ExecutionRecord};
 pub use external_parser::{ExternalParseRequest, ExternalParseResponse, ExternalParser};
-pub use output_parsers::{ParseAudit, ParseResult};
+pub use output_parsers::{credential_from_resolved, ParseAudit, ParseResult};
 pub use pending_view::PendingView;
 pub use provenance::{KnowledgeProvenance, KnowledgeProvenanceStore, RelationProvenanceKey};
 pub use rules::{run_rules_fixpoint, InferenceRule};

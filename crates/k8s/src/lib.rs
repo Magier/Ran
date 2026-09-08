@@ -47,6 +47,9 @@ pub struct ResolvedKubeconfig {
     kubeconfig: Kubeconfig,
     source_path: Option<PathBuf>,
     pub context_name: String,
+    /// `true` when this context is the kubeconfig's `current-context`. Used to
+    /// decide which of several resolved identities is the active one.
+    pub is_current_context: bool,
     /// Explicit default namespace configured on the selected context.
     /// Kubernetes' implicit `default` fallback is intentionally not inferred.
     pub default_namespace: Option<String>,
@@ -104,6 +107,7 @@ pub fn resolve_kubeconfig_data(
         .map(str::to_string)
         .or_else(|| kubeconfig.current_context.clone())
         .ok_or_else(|| anyhow!("kubeconfig does not define current-context"))?;
+    let is_current_context = kubeconfig.current_context.as_deref() == Some(context_name.as_str());
 
     let named_context = kubeconfig
         .contexts
@@ -176,6 +180,7 @@ pub fn resolve_kubeconfig_data(
         kubeconfig,
         source_path: None,
         context_name,
+        is_current_context,
         default_namespace,
         cluster_name,
         user_name,
@@ -200,6 +205,41 @@ pub fn resolve_kubeconfig_yaml(
     let kubeconfig: Kubeconfig =
         serde_yaml::from_str(content).context("failed to parse kubeconfig YAML")?;
     resolve_kubeconfig_data(kubeconfig, context_override)
+}
+
+/// Resolve **every** context defined in the kubeconfig, not just the current
+/// one. Contexts that cannot be resolved (missing cluster/user) are skipped
+/// rather than failing the whole set. The `is_current_context` flag on each
+/// entry marks which one the kubeconfig selects by default.
+pub fn resolve_all_kubeconfig_contexts(kubeconfig: Kubeconfig) -> Vec<ResolvedKubeconfig> {
+    kubeconfig
+        .contexts
+        .iter()
+        .map(|ctx| ctx.name.clone())
+        .filter_map(|name| resolve_kubeconfig_data(kubeconfig.clone(), Some(&name)).ok())
+        .collect()
+}
+
+/// Read a kubeconfig file and resolve every context it defines. Each entry's
+/// `source_path` is set to `path`.
+pub fn resolve_all_kubeconfig_contexts_from_path(
+    path: impl Into<PathBuf>,
+) -> Result<Vec<ResolvedKubeconfig>> {
+    let path = path.into();
+    let kubeconfig = Kubeconfig::read_from(path.clone())
+        .with_context(|| format!("failed to read kubeconfig at {}", path.display()))?;
+    let mut resolved = resolve_all_kubeconfig_contexts(kubeconfig);
+    for entry in &mut resolved {
+        entry.source_path = Some(path.clone());
+    }
+    Ok(resolved)
+}
+
+/// Parse kubeconfig YAML and resolve every context it defines.
+pub fn resolve_all_kubeconfig_contexts_yaml(content: &str) -> Result<Vec<ResolvedKubeconfig>> {
+    let kubeconfig: Kubeconfig =
+        serde_yaml::from_str(content).context("failed to parse kubeconfig YAML")?;
+    Ok(resolve_all_kubeconfig_contexts(kubeconfig))
 }
 
 fn pod_to_running_pod(pod: &Pod) -> Option<RunningPod> {
@@ -249,6 +289,7 @@ fn pod_to_running_pod(pod: &Pod) -> Option<RunningPod> {
 pub struct Client {
     client: KubeClient,
     kubeconfig_path: Option<PathBuf>,
+    context_name: Option<String>,
     api_server: String,
 }
 
@@ -324,11 +365,17 @@ impl Client {
         Ok(Self {
             client,
             kubeconfig_path: resolved.source_path.clone(),
+            context_name: Some(resolved.context_name.clone()),
             api_server: resolved
                 .server
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string()),
         })
+    }
+
+    /// The kubeconfig context this client authenticates as, when known.
+    pub fn context_name(&self) -> Option<&str> {
+        self.context_name.as_deref()
     }
 
     /// Path to the kubeconfig file that backs this client, when it is
@@ -694,6 +741,30 @@ users:
         assert!(resolve_kubeconfig_yaml(KUBECONFIG, Some("missing")).is_err());
         let missing_user = KUBECONFIG.replace("user: user-a", "user: missing");
         assert!(resolve_kubeconfig_yaml(&missing_user, None).is_err());
+    }
+
+    #[test]
+    fn resolve_all_contexts_returns_every_context_and_flags_current() {
+        let mut resolved = resolve_all_kubeconfig_contexts_yaml(KUBECONFIG).unwrap();
+        resolved.sort_by(|a, b| a.context_name.cmp(&b.context_name));
+        assert_eq!(resolved.len(), 2);
+
+        assert_eq!(resolved[0].context_name, "context-a");
+        assert!(resolved[0].is_current_context);
+        assert_eq!(resolved[0].cluster_name, "cluster-a");
+
+        assert_eq!(resolved[1].context_name, "context-b");
+        assert!(!resolved[1].is_current_context);
+        assert_eq!(resolved[1].cluster_name, "cluster-b");
+    }
+
+    #[test]
+    fn resolve_all_contexts_skips_unresolvable_entries() {
+        // Break context-b's user reference; context-a must still resolve.
+        let broken = KUBECONFIG.replace("user: user-b", "user: missing");
+        let resolved = resolve_all_kubeconfig_contexts_yaml(&broken).unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].context_name, "context-a");
     }
 
     #[test]

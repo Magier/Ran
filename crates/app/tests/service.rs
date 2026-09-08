@@ -129,7 +129,8 @@ async fn app_state_get_and_reset_campaign_without_cli() {
         campaign_cluster.clone(),
     )));
 
-    let (c2_handle, c2_events, c2_manager) = c2::C2Manager::new(32, k8s.clone());
+    let (c2_handle, c2_events, c2_manager) =
+        c2::C2Manager::new(32, k8s.clone(), std::collections::HashMap::new());
     let campaign_events = campaign::CampaignEventBus::new(32);
 
     tokio::spawn(c2_manager.run());
