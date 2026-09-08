@@ -415,6 +415,18 @@ export function getGraphStyle(isDark: boolean = false) {
 			}
 		},
 		{
+			// An informational meta-edge (grouped edges from a collapsed node where
+			// every underlying edge was informational) should look exactly like a
+			// regular informational edge: subdued gray/dotted, thin, small plain label.
+			// This overrides the emphasis the generic isMetaEdge rule applies above.
+			selector: 'edge[?isMetaEdge][?informational]',
+			style: {
+				width: '1',
+				'font-weight': 'normal',
+				'font-size': 7
+			}
+		},
+		{
 			selector: "edge[relation='routes'].hovered, edge[relation='routes']:selected",
 			style: {
 				content: `data(port)`
