@@ -1,7 +1,5 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import cytoscape from 'cytoscape';
-// @ts-ignore
-import expandCollapse from 'cytoscape-expand-collapse';
 import {
 	consolidateCollapsedEdges,
 	restoreConsolidatedEdges,
@@ -10,79 +8,23 @@ import {
 	COLLAPSED_EDGE_CLASS
 } from './graph_edges';
 
-cytoscape.use(expandCollapse);
+const COLLAPSED_NODE_CLASS = 'cy-expand-collapse-collapsed-node';
 
-// Stub canvas so the expand-collapse plugin can initialize under jsdom.
-beforeAll(() => {
-	const proto = window.HTMLCanvasElement.prototype as any;
-	proto.getContext = () => ({
-		clearRect() {},
-		save() {},
-		restore() {},
-		beginPath() {},
-		moveTo() {},
-		lineTo() {},
-		stroke() {},
-		fill() {},
-		arc() {},
-		translate() {},
-		scale() {},
-		rotate() {},
-		closePath() {},
-		rect() {},
-		setTransform() {},
-		drawImage() {},
-		putImageData() {},
-		createImageData() {},
-		getImageData() {
-			return { data: [] };
-		},
-		measureText() {
-			return { width: 0 };
-		},
-		fillText() {},
-		fillRect() {},
-		setLineDash() {},
-		quadraticCurveTo() {},
-		bezierCurveTo() {},
-		set fillStyle(_v: any) {},
-		get fillStyle() {
-			return '';
-		},
-		set strokeStyle(_v: any) {},
-		get strokeStyle() {
-			return '';
-		}
-	});
-});
+// These tests exercise the edge-visibility helpers directly against a headless
+// cytoscape instance. We deliberately do NOT drive the real cytoscape-expand-collapse
+// plugin: it needs a rendered canvas, and its async renderer teardown throws
+// unhandled errors under jsdom (which Vitest treats as failures). Instead we
+// simulate the post-collapse graph state the plugin produces — every child edge
+// re-pointed at the collapsed compound, and the compound carrying the collapsed
+// class — which is exactly the input our helpers consume.
 
 function mountCy(elements: any[]) {
-	const container = document.createElement('div');
-	container.getBoundingClientRect = () =>
-		({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600, x: 0, y: 0 }) as any;
-	Object.defineProperty(container, 'offsetWidth', { value: 800 });
-	Object.defineProperty(container, 'offsetHeight', { value: 600 });
-	Object.defineProperty(container, 'clientWidth', { value: 800 });
-	Object.defineProperty(container, 'clientHeight', { value: 600 });
-	document.body.appendChild(container);
-	return cytoscape({ container, elements, styleEnabled: true, layout: { name: 'preset' } });
+	return cytoscape({ headless: true, styleEnabled: true, elements });
 }
 
-function initExpandCollapse(cy: any) {
-	const api = cy.expandCollapse({
-		layoutBy: null,
-		animate: false,
-		undoable: false,
-		edgeTypeInfo: 'name',
-		groupEdgesOfSameTypeOnCollapse: true
-	});
-	// Wire the same handlers graph.svelte uses.
-	cy.on('expandcollapse.aftercollapse', (evt: any) => consolidateCollapsedEdges(cy, evt.target));
-	cy.on('expandcollapse.afterexpand', (evt: any) => {
-		restoreConsolidatedEdges(cy, evt.target);
-		hideRedundantInformationalEdges(cy);
-	});
-	return api;
+/** Mark a compound as collapsed, mirroring the plugin's class. */
+function markCollapsed(cy: any, id: string) {
+	cy.getElementById(id).addClass(COLLAPSED_NODE_CLASS);
 }
 
 function visibleEdges(cy: any): string[] {
@@ -93,34 +35,35 @@ function visibleEdges(cy: any): string[] {
 		.sort();
 }
 
-function nsWithPods() {
+/**
+ * Post-collapse state of a namespace whose pods all `runs-on` the same external
+ * node: the plugin has already re-pointed each edge's source to the namespace.
+ */
+function collapsedNsRunsOn() {
 	return [
 		{ data: { id: 'ns' } },
-		{ data: { id: 'pod1', parent: 'ns' } },
-		{ data: { id: 'pod2', parent: 'ns' } },
-		{ data: { id: 'pod3', parent: 'ns' } },
 		{ data: { id: 'nodeX' } },
-		{ data: { id: 'e1', source: 'pod1', target: 'nodeX', name: 'runs-on', informational: true } },
-		{ data: { id: 'e2', source: 'pod2', target: 'nodeX', name: 'runs-on', informational: true } },
-		{ data: { id: 'e3', source: 'pod3', target: 'nodeX', name: 'runs-on', informational: true } }
+		{ data: { id: 'e1', source: 'ns', target: 'nodeX', name: 'runs-on', informational: true } },
+		{ data: { id: 'e2', source: 'ns', target: 'nodeX', name: 'runs-on', informational: true } },
+		{ data: { id: 'e3', source: 'ns', target: 'nodeX', name: 'runs-on', informational: true } }
 	];
 }
 
 describe('consolidateCollapsedEdges', () => {
-	it('collapses parallel same-type edges to the same external node into one meta-edge', () => {
-		const cy = mountCy(nsWithPods());
-		const api = initExpandCollapse(cy);
+	it('collapses parallel same-pair edges into one meta-edge and hides the children', () => {
+		const cy = mountCy(collapsedNsRunsOn());
+		markCollapsed(cy, 'ns');
 
-		api.collapse(cy.getElementById('ns'));
+		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
 
 		expect(visibleEdges(cy)).toEqual(['ns->nodeX [meta-ns-to-nodeX]']);
 	});
 
 	it('keeps the collapsed edges hidden when informational filtering re-runs', () => {
-		const cy = mountCy(nsWithPods());
-		const api = initExpandCollapse(cy);
+		const cy = mountCy(collapsedNsRunsOn());
+		markCollapsed(cy, 'ns');
 
-		api.collapse(cy.getElementById('ns'));
+		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
 		// The reactive effect re-applies informational filtering after every update.
 		hideRedundantInformationalEdges(cy);
 
@@ -129,9 +72,10 @@ describe('consolidateCollapsedEdges', () => {
 	});
 
 	it('tags consolidated children with the collapse marker class', () => {
-		const cy = mountCy(nsWithPods());
-		const api = initExpandCollapse(cy);
-		api.collapse(cy.getElementById('ns'));
+		const cy = mountCy(collapsedNsRunsOn());
+		markCollapsed(cy, 'ns');
+
+		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
 
 		['e1', 'e2', 'e3'].forEach((id) => {
 			expect(cy.getElementById(id).hasClass(COLLAPSED_EDGE_CLASS)).toBe(true);
@@ -139,11 +83,10 @@ describe('consolidateCollapsedEdges', () => {
 	});
 
 	it('inherits informational styling when all consolidated edges are informational', () => {
-		const cy = mountCy(nsWithPods());
-		const api = initExpandCollapse(cy);
-		api.collapse(cy.getElementById('ns'));
-		// The informational filter also re-runs in the app; make sure it does not
-		// hide the meta-edge and the flag survives.
+		const cy = mountCy(collapsedNsRunsOn());
+		markCollapsed(cy, 'ns');
+
+		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
 		hideRedundantInformationalEdges(cy);
 
 		const meta = cy.getElementById('meta-ns-to-nodeX');
@@ -155,15 +98,14 @@ describe('consolidateCollapsedEdges', () => {
 	it('does NOT mark the meta-edge informational when any child is actionable', () => {
 		const cy = mountCy([
 			{ data: { id: 'ns' } },
-			{ data: { id: 'pod1', parent: 'ns' } },
-			{ data: { id: 'pod2', parent: 'ns' } },
 			{ data: { id: 'nodeX' } },
 			// runs-on is informational, exploits is actionable — same directed pair
-			{ data: { id: 'e1', source: 'pod1', target: 'nodeX', name: 'runs-on', informational: true } },
-			{ data: { id: 'e2', source: 'pod2', target: 'nodeX', name: 'exploits' } }
+			{ data: { id: 'e1', source: 'ns', target: 'nodeX', name: 'runs-on', informational: true } },
+			{ data: { id: 'e2', source: 'ns', target: 'nodeX', name: 'exploits' } }
 		]);
-		const api = initExpandCollapse(cy);
-		api.collapse(cy.getElementById('ns'));
+		markCollapsed(cy, 'ns');
+
+		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
 
 		const meta = cy.getElementById('meta-ns-to-nodeX');
 		expect(meta.length).toBe(1);
@@ -171,48 +113,52 @@ describe('consolidateCollapsedEdges', () => {
 	});
 
 	it('restores the original edges and clears the marker on expand', () => {
-		const cy = mountCy(nsWithPods());
-		const api = initExpandCollapse(cy);
-		api.collapse(cy.getElementById('ns'));
+		const cy = mountCy(collapsedNsRunsOn());
+		markCollapsed(cy, 'ns');
+		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
 
-		// Exercise the restore path directly. Driving api.expand() is impossible
-		// under jsdom because the plugin's expand renderer path needs a real canvas.
 		restoreConsolidatedEdges(cy, cy.getElementById('ns'));
 
 		// Meta-edge gone; original edges restored and the collapse marker cleared.
 		expect(cy.getElementById('meta-ns-to-nodeX').length).toBe(0);
 		['e1', 'e2', 'e3'].forEach((id) => {
-			expect(cy.getElementById(id).hasClass(COLLAPSED_EDGE_CLASS)).toBe(false);
+			const edge = cy.getElementById(id);
+			expect(edge.hasClass(COLLAPSED_EDGE_CLASS)).toBe(false);
+			expect(edge.visible()).toBe(true);
 		});
 	});
 
-	it('collapses parallel edges across nested workload compounds (ns > deployment > pods)', () => {
+	it('merges existing child meta-edges upward (nested collapsed compounds)', () => {
+		// Namespace with two already-collapsed deployments, each previously
+		// consolidated into its own meta-edge, both re-pointed at the namespace
+		// after it collapses. Consolidating the namespace must merge them into one.
 		const cy = mountCy([
 			{ data: { id: 'ns' } },
-			{ data: { id: 'deployA', parent: 'ns' } },
-			{ data: { id: 'podA1', parent: 'deployA' } },
-			{ data: { id: 'podA2', parent: 'deployA' } },
-			{ data: { id: 'deployB', parent: 'ns' } },
-			{ data: { id: 'podB1', parent: 'deployB' } },
-			{ data: { id: 'podB2', parent: 'deployB' } },
 			{ data: { id: 'nodeX' } },
 			{
-				data: { id: 'a1', source: 'podA1', target: 'nodeX', name: 'runs-on', informational: true }
+				data: {
+					id: 'meta-deployA-to-nodeX',
+					source: 'ns',
+					target: 'nodeX',
+					name: 'runs-on',
+					informational: true,
+					isMetaEdge: true
+				}
 			},
 			{
-				data: { id: 'a2', source: 'podA2', target: 'nodeX', name: 'runs-on', informational: true }
-			},
-			{
-				data: { id: 'b1', source: 'podB1', target: 'nodeX', name: 'runs-on', informational: true }
-			},
-			{ data: { id: 'b2', source: 'podB2', target: 'nodeX', name: 'runs-on', informational: true } }
+				data: {
+					id: 'meta-deployB-to-nodeX',
+					source: 'ns',
+					target: 'nodeX',
+					name: 'runs-on',
+					informational: true,
+					isMetaEdge: true
+				}
+			}
 		]);
-		const api = initExpandCollapse(cy);
+		markCollapsed(cy, 'ns');
 
-		// Workload compounds start collapsed, then the namespace is collapsed.
-		api.collapse(cy.getElementById('deployA'));
-		api.collapse(cy.getElementById('deployB'));
-		api.collapse(cy.getElementById('ns'));
+		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
 		hideRedundantInformationalEdges(cy);
 
 		expect(visibleEdges(cy)).toEqual(['ns->nodeX [meta-ns-to-nodeX]']);
@@ -221,79 +167,48 @@ describe('consolidateCollapsedEdges', () => {
 	it('does not merge edges to different external nodes or opposite directions', () => {
 		const cy = mountCy([
 			{ data: { id: 'ns' } },
-			{ data: { id: 'pod1', parent: 'ns' } },
-			{ data: { id: 'pod2', parent: 'ns' } },
 			{ data: { id: 'nodeX' } },
 			{ data: { id: 'nodeY' } },
-			{ data: { id: 'e1', source: 'pod1', target: 'nodeX', name: 'runs-on' } },
-			{ data: { id: 'e2', source: 'pod2', target: 'nodeY', name: 'runs-on' } },
-			{ data: { id: 'e3', source: 'nodeX', target: 'pod1', name: 'can-reach' } }
+			{ data: { id: 'e1', source: 'ns', target: 'nodeX', name: 'runs-on' } },
+			{ data: { id: 'e2', source: 'ns', target: 'nodeY', name: 'runs-on' } },
+			{ data: { id: 'e3', source: 'nodeX', target: 'ns', name: 'can-reach' } }
 		]);
-		const api = initExpandCollapse(cy);
-		api.collapse(cy.getElementById('ns'));
+		markCollapsed(cy, 'ns');
 
-		// Distinct pairs stay distinct: ns->nodeX, ns->nodeY, nodeX->ns (sorted).
-		expect(visibleEdges(cy)).toEqual(['nodeX->ns [e3]', 'ns->nodeX [e1]', 'ns->nodeY [e2]']);
-	});
-
-	it('MOUNT SIM: collapsing on load (animate:true, restore path) consolidates children', () => {
-		const cy = mountCy(nsWithPods());
-		// Match the app's real plugin config, including animate:true and fisheye:false.
-		const api = (cy as any).expandCollapse({
-			layoutBy: null,
-			fisheye: false,
-			animate: true,
-			animationDuration: 300,
-			undoable: false,
-			edgeTypeInfo: 'name',
-			groupEdgesOfSameTypeOnCollapse: true
-		});
-		cy.on('expandcollapse.aftercollapse', (evt: any) => consolidateCollapsedEdges(cy, evt.target));
-		cy.on('expandcollapse.afterexpand', (evt: any) => {
-			restoreConsolidatedEdges(cy, evt.target);
-			hideRedundantInformationalEdges(cy);
-		});
-
-		// Simulate the mount effect: node is restored as collapsed from persisted
-		// state, i.e. graph.svelte's recollapseNodes() runs ecApi.collapse(node).
-		api.collapse(cy.getElementById('ns'));
-
-		// Then the post-collapse passes the update effect runs.
-		hideRedundantInformationalEdges(cy);
-
-		expect(visibleEdges(cy)).toEqual(['ns->nodeX [meta-ns-to-nodeX]']);
-	});
-
-	it('reconcileCollapsedEdges consolidates a collapsed node even if no event fired', () => {
-		const cy = mountCy(nsWithPods());
-		// Init the plugin but DO NOT wire the aftercollapse handler — this mimics the
-		// mount case where the event does not cleanly drive consolidation.
-		const api = (cy as any).expandCollapse({
-			layoutBy: null,
-			animate: false,
-			undoable: false,
-			edgeTypeInfo: 'name',
-			groupEdgesOfSameTypeOnCollapse: true
-		});
-		api.collapse(cy.getElementById('ns'));
-
-		// Without a handler, the children are still present as separate edges.
-		expect(visibleEdges(cy).length).toBeGreaterThan(1);
-
-		// The safety-net pass fixes it.
-		reconcileCollapsedEdges(cy);
-		hideRedundantInformationalEdges(cy);
-		expect(visibleEdges(cy)).toEqual(['ns->nodeX [meta-ns-to-nodeX]']);
-	});
-
-	it('consolidateCollapsedEdges is idempotent (double call does not duplicate)', () => {
-		const cy = mountCy(nsWithPods());
-		const api = initExpandCollapse(cy);
-		api.collapse(cy.getElementById('ns'));
-		// Call again directly — should be a no-op, not create a second meta-edge
-		// or re-hide/duplicate anything.
 		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
+
+		// Each pair has a single edge — nothing to consolidate; all stay as-is.
+		expect(visibleEdges(cy)).toEqual([
+			'nodeX->ns [e3]',
+			'ns->nodeX [e1]',
+			'ns->nodeY [e2]'
+		]);
+	});
+});
+
+describe('reconcileCollapsedEdges', () => {
+	it('consolidates every collapsed node even when no per-node event fired', () => {
+		// Fresh-load case: the compound is restored as collapsed (class present) but
+		// its child edges were never consolidated because no clean aftercollapse fired.
+		const cy = mountCy(collapsedNsRunsOn());
+		markCollapsed(cy, 'ns');
+
+		// Precondition: children are still separate, un-consolidated edges.
+		expect(visibleEdges(cy).length).toBe(3);
+
 		reconcileCollapsedEdges(cy);
+		hideRedundantInformationalEdges(cy);
+
+		expect(visibleEdges(cy)).toEqual(['ns->nodeX [meta-ns-to-nodeX]']);
+	});
+
+	it('is idempotent (repeat calls do not duplicate the meta-edge)', () => {
+		const cy = mountCy(collapsedNsRunsOn());
+		markCollapsed(cy, 'ns');
+
+		reconcileCollapsedEdges(cy);
+		reconcileCollapsedEdges(cy);
+		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
 
 		expect(cy.getElementById('meta-ns-to-nodeX').length).toBe(1);
 		expect(visibleEdges(cy)).toEqual(['ns->nodeX [meta-ns-to-nodeX]']);
