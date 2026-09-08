@@ -5,6 +5,8 @@ mod k8s;
 mod network;
 mod sys;
 
+pub use file::credential_from_resolved;
+
 use std::collections::HashMap;
 use std::sync::OnceLock;
 

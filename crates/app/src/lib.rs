@@ -1193,6 +1193,46 @@ fn local_hostname() -> Option<String> {
         .or_else(|| std::env::var("HOST").ok().and_then(&clean))
 }
 
+/// Build a Kubernetes client for every context in the local kubeconfig, keyed
+/// by the `K8sCredential` entity id the output parser derives for that context
+/// (`campaign::credential_from_resolved`). This lets "Authenticate As" a
+/// non-current context actually authenticate as that identity. Contexts whose
+/// client cannot be constructed (e.g. exec/auth-provider plugins) are skipped —
+/// they remain visible as knowledge but are not switchable.
+async fn build_k8s_client_registry(
+    kubeconfig_path: &std::path::Path,
+) -> std::collections::HashMap<String, Client> {
+    let mut registry = std::collections::HashMap::new();
+    let contexts = match k8s::resolve_all_kubeconfig_contexts_from_path(kubeconfig_path) {
+        Ok(contexts) => contexts,
+        Err(error) => {
+            warn!(%error, "failed to enumerate kubeconfig contexts; only the current context will be usable");
+            return registry;
+        }
+    };
+    for resolved in &contexts {
+        match Client::from_resolved_kubeconfig(resolved).await {
+            Ok(client) => {
+                let id = campaign::credential_from_resolved(resolved).entity_id().0;
+                registry.insert(id, client);
+            }
+            Err(error) => {
+                warn!(
+                    context = %resolved.context_name,
+                    %error,
+                    "failed to build client for kubeconfig context; identity will not be switchable"
+                );
+            }
+        }
+    }
+    info!(
+        contexts = contexts.len(),
+        clients = registry.len(),
+        "built per-context Kubernetes client registry"
+    );
+    registry
+}
+
 fn build_initial_knowledge(seeds: &[SeedKnowledgeConfig]) -> Result<InitialKnowledge> {
     let mut initial = InitialKnowledge::default();
     let mut cluster_aliases: std::collections::HashMap<String, usize> =
@@ -1621,7 +1661,8 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
         initial_knowledge.clone(),
     )));
 
-    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s.clone());
+    let k8s_client_registry = build_k8s_client_registry(&kubeconfig_path).await;
+    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s.clone(), k8s_client_registry);
     let campaign_events = CampaignEventBus::new(256);
 
     tokio::spawn(c2_manager.run());
@@ -2093,7 +2134,8 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
         initial_knowledge,
     )));
 
-    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s);
+    let k8s_client_registry = build_k8s_client_registry(&kubeconfig_path).await;
+    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s, k8s_client_registry);
     let campaign_events = CampaignEventBus::new(256);
 
     // Subscribe before spawning the processor so no events are dropped.
