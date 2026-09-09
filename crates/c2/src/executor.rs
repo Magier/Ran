@@ -99,16 +99,42 @@ impl C2Backend for BuiltinC2 {
     }
 }
 
+/// Fallback backend registered when startup could not build a live Kubernetes
+/// client. Every command fails with a clear reason so the operator can tell
+/// the difference between "action ran and failed" and "action never had a
+/// chance to run because there's no cluster connection".
+struct NoClientBackend;
+
+#[async_trait]
+impl C2Backend for NoClientBackend {
+    async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
+        failed_result(
+            cmd,
+            "no active Kubernetes client configured — read the local kubeconfig or restart with --kubeconfig",
+        )
+    }
+}
+
 impl C2Manager {
     pub fn new(
         buffer_size: usize,
-        k8s: Client,
+        k8s: Option<Client>,
         k8s_clients: HashMap<String, Client>,
     ) -> (C2Handle, C2EventBus, Self) {
         let (cmd_tx, cmd_rx) = mpsc::channel(buffer_size);
         let event_bus = C2EventBus::new(buffer_size);
 
-        let builtin: Arc<dyn C2Backend> = Arc::new(BuiltinC2::new(k8s.clone()));
+        // The builtin C2 backend routes commands through pod-exec, which needs
+        // a live Kubernetes client. Without one (e.g. startup could not
+        // authenticate to the cluster's current context) we register a stub
+        // that fails every command with a clear reason. Control commands like
+        // c2.read_local_kubeconfig are dispatched by the executor before it
+        // consults the backend, so those still work — which is the whole point
+        // of degrading here rather than aborting startup.
+        let builtin: Arc<dyn C2Backend> = match k8s.clone() {
+            Some(client) => Arc::new(BuiltinC2::new(client)),
+            None => Arc::new(NoClientBackend),
+        };
         let mut map: HashMap<String, Arc<dyn C2Backend>> = HashMap::new();
         map.insert(BUILTIN_C2_ID.to_string(), builtin.clone());
         map.insert("ran".to_string(), builtin);
@@ -125,7 +151,7 @@ impl C2Manager {
                 executor: C2Executor {
                     event_bus,
                     backends,
-                    k8s: Some(k8s),
+                    k8s,
                     k8s_clients: Arc::new(k8s_clients),
                 },
             },

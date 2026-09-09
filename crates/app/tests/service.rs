@@ -130,7 +130,7 @@ async fn app_state_get_and_reset_campaign_without_cli() {
     )));
 
     let (c2_handle, c2_events, c2_manager) =
-        c2::C2Manager::new(32, k8s.clone(), std::collections::HashMap::new());
+        c2::C2Manager::new(32, Some(k8s.clone()), std::collections::HashMap::new());
     let campaign_events = campaign::CampaignEventBus::new(32);
 
     tokio::spawn(c2_manager.run());
@@ -146,7 +146,7 @@ async fn app_state_get_and_reset_campaign_without_cli() {
     let armory = armory::Armory::load_from_dir(tmp.path()).expect("failed to load empty armory");
 
     let state = app::AppState::new(
-        k8s,
+        Some(k8s),
         campaign,
         c2_handle,
         armory,
