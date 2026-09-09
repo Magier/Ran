@@ -391,7 +391,26 @@ impl ApiService for AppState {
     }
 
     async fn get_armory(&self, params: api::GetArmoryParams) -> Result<Vec<armory::Ttp>, ApiError> {
-        Ok(self.armory.ttps_for_tactic(params.tactic.as_deref()))
+        let mut ttps = self.armory.ttps_for_tactic(params.tactic.as_deref());
+        // Surface the kubeconfig path Ran was configured with (via --kubeconfig
+        // or the standard resolution) as the PATH parameter's default on the
+        // read-local-kubeconfig TTP, so UI/MCP/REST callers see the concrete
+        // file that will be read. Runtime fallback in the executor still
+        // applies for callers that omit PATH entirely.
+        if let Some(kubeconfig) = self.k8s.as_ref().and_then(|k| k.kubeconfig_path()) {
+            let kubeconfig = kubeconfig.display().to_string();
+            for ttp in &mut ttps {
+                if ttp.id != "read-local-kubeconfig" {
+                    continue;
+                }
+                for param in &mut ttp.params {
+                    if param.name == "PATH" && param.default.is_empty() {
+                        param.default = kubeconfig.clone();
+                    }
+                }
+            }
+        }
+        Ok(ttps)
     }
 
     async fn execute_action(
