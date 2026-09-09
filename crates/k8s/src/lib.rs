@@ -658,8 +658,51 @@ fn parse_exit_code(message: Option<&str>) -> Option<i32> {
     code_str.trim().parse().ok()
 }
 
+/// Resolve the kubeconfig file to use when no explicit path is provided.
+///
+/// Follows kubectl's resolution order:
+/// 1. `$KUBECONFIG` if set — may be a list separated by `:` on Unix or `;`
+///    on Windows; the first entry that exists on disk wins. When none of
+///    the listed files exists we fall back to the default (matches
+///    kubectl's behaviour of trying `~/.kube/config` last).
+/// 2. `$HOME/.kube/config`.
+/// 3. `.kube/config` relative to the current directory (last-resort
+///    fallback when `$HOME` is unset).
+///
+/// Callers who need `$KUBECONFIG`'s full multi-file merge semantics must
+/// go through `kube::Config` directly; this helper only picks one file
+/// for actions that read a single kubeconfig (e.g. read-local-kubeconfig).
 pub fn default_kubeconfig_path() -> PathBuf {
-    if let Ok(home) = env::var("HOME") {
+    resolve_default_kubeconfig_path(
+        env::var("KUBECONFIG").ok().as_deref(),
+        env::var("HOME").ok().as_deref(),
+        |p| p.exists(),
+    )
+}
+
+/// Testable core of [`default_kubeconfig_path`]. `path_exists` decides
+/// whether a `$KUBECONFIG` entry counts as present without touching the
+/// real filesystem — so tests can exercise the multi-entry precedence
+/// without racing on process-global env vars.
+fn resolve_default_kubeconfig_path(
+    kubeconfig_env: Option<&str>,
+    home_env: Option<&str>,
+    path_exists: impl Fn(&std::path::Path) -> bool,
+) -> PathBuf {
+    if let Some(value) = kubeconfig_env {
+        let separator = if cfg!(windows) { ';' } else { ':' };
+        for entry in value.split(separator) {
+            let trimmed = entry.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let path = PathBuf::from(trimmed);
+            if path_exists(&path) {
+                return path;
+            }
+        }
+    }
+    if let Some(home) = home_env {
         return PathBuf::from(home).join(".kube/config");
     }
     PathBuf::from(".kube/config")
@@ -681,6 +724,49 @@ pub fn target_cluster_from_kubeconfig(path: Option<PathBuf>) -> Result<TargetClu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn default_kubeconfig_prefers_first_existing_kubeconfig_entry() {
+        let present: HashSet<PathBuf> = ["/tmp/second"].iter().map(PathBuf::from).collect();
+        let picked = resolve_default_kubeconfig_path(
+            Some("/tmp/first:/tmp/second:/tmp/third"),
+            Some("/home/op"),
+            |p| present.contains(p),
+        );
+        assert_eq!(picked, PathBuf::from("/tmp/second"));
+    }
+
+    #[test]
+    fn default_kubeconfig_falls_back_to_home_when_no_kubeconfig_entry_exists() {
+        let picked = resolve_default_kubeconfig_path(
+            Some("/tmp/missing-a:/tmp/missing-b"),
+            Some("/home/op"),
+            |_| false,
+        );
+        assert_eq!(picked, PathBuf::from("/home/op/.kube/config"));
+    }
+
+    #[test]
+    fn default_kubeconfig_ignores_empty_kubeconfig_entries() {
+        let present: HashSet<PathBuf> = ["/tmp/real"].iter().map(PathBuf::from).collect();
+        let picked = resolve_default_kubeconfig_path(Some("::/tmp/real:"), Some("/home/op"), |p| {
+            present.contains(p)
+        });
+        assert_eq!(picked, PathBuf::from("/tmp/real"));
+    }
+
+    #[test]
+    fn default_kubeconfig_uses_home_when_kubeconfig_env_unset() {
+        let picked = resolve_default_kubeconfig_path(None, Some("/home/op"), |_| false);
+        assert_eq!(picked, PathBuf::from("/home/op/.kube/config"));
+    }
+
+    #[test]
+    fn default_kubeconfig_final_fallback_is_relative_dot_kube_config() {
+        let picked = resolve_default_kubeconfig_path(None, None, |_| false);
+        assert_eq!(picked, PathBuf::from(".kube/config"));
+    }
 
     const KUBECONFIG: &str = r#"apiVersion: v1
 kind: Config
