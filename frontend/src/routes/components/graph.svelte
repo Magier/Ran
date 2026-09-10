@@ -9,7 +9,12 @@
 	import { toaster } from '$lib/components/toaster';
 	import { hasKnowledgeProvenance } from '$lib/knowledgeProvenance';
 
-	import { getGraphStyle, applyCompromisedStyle, getK8sCredentialIcon } from './graph_style';
+	import {
+		getGraphStyle,
+		applyCompromisedStyle,
+		getK8sCredentialIcon,
+		getUnknownSystemIcon
+	} from './graph_style';
 	import {
 		consolidateCollapsedEdges,
 		restoreConsolidatedEdges,
@@ -134,6 +139,14 @@
 				'background-image',
 				getK8sCredentialIcon(isDark)
 			);
+			// Resolved per node: an inline style would otherwise clobber the
+			// per-OS icon the stylesheet picks for this kind.
+			cy.nodes("node[kind='UnknownSystem']").forEach((node) => {
+				node.style(
+					'background-image',
+					getUnknownSystemIcon(isDark, (node.data('entity') as { os?: unknown } | undefined)?.os)
+				);
+			});
 			cy.edges('[!informational]').style({
 				'color': textColor,
 				'line-color': textColor,

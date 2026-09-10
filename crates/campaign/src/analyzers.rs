@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use ran_domain::{
-    AuthenticatesTo, BindsTo, Confidence, Contains, DaemonSet, Deployment, Entity, EntityId,
-    GCPServiceAccount, Grants, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute,
+    AuthenticatesTo, BindsTo, CanReach, Confidence, Contains, DaemonSet, Deployment, Entity,
+    EntityId, GCPServiceAccount, Grants, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute,
     K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sService, KubeletExecSink, KubeletExecSource,
     NameConfidence, Namespace, Owns, Pod, PodExec, RbacPermission, RbacScopeKind, RbacScopeSource,
     RunsOn, ServiceAccount, StatefulSet, UnknownSystem, Uses,
@@ -1808,6 +1810,203 @@ impl InferenceRule for KubeconfigCredentialAnalyzer {
 }
 
 // ---------------------------------------------------------------------------
+// KubeEnvVarAnalyzer
+// ---------------------------------------------------------------------------
+
+/// One system carrying environment variables that may describe K8s Services.
+struct EnvTarget {
+    id: EntityId,
+    env_vars: HashMap<String, String>,
+    /// The target's own namespace, when it has one. Only pods do.
+    namespace: Option<String>,
+    /// `true` for an `UnknownSystem`, whose cluster membership no other
+    /// analyzer establishes. Pods and nodes are placed by their own rules.
+    needs_cluster_link: bool,
+}
+
+/// Reconstruct Kubernetes facts from the environment variables kubelet injects
+/// into containers.
+///
+/// This restores the analyzer lost in the Go → Rust rewrite
+/// (`legacy/src/campaign/analyzers.go::analyzeEnvironmentVariables`), with two
+/// corrections to the original:
+///
+/// 1. **It does not infer pod-ness.** The legacy version cast its source entity
+///    to a `Pod`, but `sys.envVar` has precondition `kind: System` and runs
+///    against nodes and unknown systems too. Deciding what kind of system a
+///    target is belongs to a separate rule built on container fingerprints
+///    (see issue #56); here the target's existing type decides what may be
+///    derived from it.
+/// 2. **`KUBERNETES_SERVICE_HOST` is a Service VIP, not a pod address.** The
+///    legacy version invented a `kube-system/api-server` Pod holding that IP.
+///    It is in fact the ClusterIP of the `kubernetes` Service in `default`,
+///    realized by kube-proxy/eBPF DNAT — no pod owns it, and attributing it to
+///    one would let `IpBasedSystemMergeAnalyzer` merge an unrelated system into
+///    the phantom pod.
+///
+/// Facts emitted:
+///
+/// * the `kubernetes` Service in `default` with its ClusterIP, plus
+///   `can-reach(system → service)`: an API-server endpoint this target can talk
+///   to, which holds whatever kind of system it turns out to be;
+/// * `K8sCluster.server`, when exactly one cluster is known and its address is
+///   still unset;
+/// * `contains(cluster → system)` for an `UnknownSystem` carrying the injected
+///   master-service variables. Kubelet injects them, so the system is running
+///   inside the cluster. The one exception is a host where they were exported
+///   by hand — bastions and CI runners do this so client-go's
+///   `InClusterConfig()` works from outside — which makes this a strong signal
+///   rather than a certainty; the `can-reach` edge above is the part that
+///   always holds.
+/// * one Service per `<NAME>_SERVICE_HOST` group, but only for a target with a
+///   known namespace. Service links are namespace-local, and a node or unknown
+///   system has no namespace to attribute them to.
+pub struct KubeEnvVarAnalyzer;
+
+impl InferenceRule for KubeEnvVarAnalyzer {
+    fn name(&self) -> &'static str {
+        "envvar.kubernetes"
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+        let view = PendingView::new(campaign, update);
+
+        // Env vars reach an entity through `apply_system_update`, which mutates
+        // committed state in place rather than emitting a new entity, so the
+        // trigger has to be a scan of every system rather than `new_entities`.
+        let mut targets: Vec<EnvTarget> = Vec::new();
+        for pod in view.collect::<Pod>() {
+            targets.push(EnvTarget {
+                id: pod.entity_id(),
+                // `"?"` is the placeholder for a pod discovered without its
+                // namespace (see `KubeletMountAnalyzer`). Attributing services
+                // to it would strand them in a namespace that never resolves,
+                // so it counts as unknown here.
+                namespace: pod
+                    .namespace()
+                    .filter(|ns| !ns.is_empty() && *ns != "?")
+                    .map(str::to_string),
+                env_vars: pod.system.env_vars.clone(),
+                needs_cluster_link: false,
+            });
+        }
+        for node in view.collect::<K8sNode>() {
+            targets.push(EnvTarget {
+                id: node.entity_id(),
+                namespace: None,
+                env_vars: node.system.env_vars.clone(),
+                needs_cluster_link: false,
+            });
+        }
+        for system in view.collect::<UnknownSystem>() {
+            targets.push(EnvTarget {
+                id: system.entity_id(),
+                namespace: None,
+                env_vars: system.system.env_vars.clone(),
+                needs_cluster_link: true,
+            });
+        }
+
+        let clusters = view.collect::<K8sCluster>();
+        let cluster_ids: Vec<EntityId> = clusters.iter().map(Entity::entity_id).collect();
+        let relations = view.relations();
+
+        for target in targets {
+            if target.env_vars.is_empty() {
+                continue;
+            }
+
+            for env_service in crate::kube_env::services_from_env(&target.env_vars) {
+                // The master service always lives in `default`; linked services
+                // always live in the observing pod's namespace.
+                let service_namespace = if env_service.is_master_service() {
+                    Some(crate::kube_env::MASTER_SERVICE_NAMESPACE.to_string())
+                } else {
+                    target.namespace.clone()
+                };
+                let Some(service_namespace) = service_namespace else {
+                    continue;
+                };
+
+                let mut service = K8sService::new(env_service.name.clone(), service_namespace);
+                service.cluster_ip = Some(env_service.cluster_ip.clone());
+                service.ports = env_service.ports.clone();
+                // `service_type` stays empty: env vars are injected for
+                // ClusterIP, NodePort and LoadBalancer services alike, so the
+                // type is not observable here. `K8sService::merge_from` fills it
+                // in once the API is read.
+                let service_id = service.entity_id();
+
+                // Re-emitting an unchanged entity every fixpoint iteration would
+                // keep the loop spinning to its iteration cap, so only emit when
+                // something is actually added.
+                let adds_facts = match view.find::<K8sService>(&service_id) {
+                    None => true,
+                    Some(known) => {
+                        known.cluster_ip.is_none()
+                            || (known.ports.is_empty() && !service.ports.is_empty())
+                    }
+                };
+                if adds_facts {
+                    inferred.new_entities.push(Box::new(service));
+                }
+
+                let reachable = relations.iter().any(|relation| {
+                    relation.name == "can-reach"
+                        && relation.source_id == target.id.0
+                        && relation.target_id == service_id.0
+                });
+                if !reachable {
+                    inferred.new_relations.push(Box::new(CanReach::new(
+                        target.id.0.clone(),
+                        service_id.0.clone(),
+                    )));
+                }
+
+                if !env_service.is_master_service() {
+                    continue;
+                }
+
+                // Cluster-level facts follow only from the master service, and
+                // only when there is exactly one candidate cluster to attach to.
+                let [cluster] = clusters.as_slice() else {
+                    continue;
+                };
+
+                if cluster.server.is_none() {
+                    // A server address already learned from a kubeconfig is an
+                    // external URL for the same cluster; leave it alone rather
+                    // than overwrite it with the in-cluster VIP.
+                    let port = env_service.ports.first().map(|p| p.port).unwrap_or(443);
+                    let mut resolved = cluster.clone();
+                    resolved.server = Some(format!("https://{}:{}", env_service.cluster_ip, port));
+                    inferred.new_entities.push(Box::new(resolved));
+                }
+
+                if target.needs_cluster_link {
+                    let already_placed = relations.iter().any(|relation| {
+                        relation.name == "contains"
+                            && relation.target_id == target.id.0
+                            && cluster_ids
+                                .iter()
+                                .any(|candidate| candidate.0 == relation.source_id)
+                    });
+                    if !already_placed {
+                        inferred.new_relations.push(Box::new(Contains::new(
+                            cluster.entity_id().0.clone(),
+                            target.id.0.clone(),
+                        )));
+                    }
+                }
+            }
+        }
+
+        inferred
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Default rule pipeline
 // ---------------------------------------------------------------------------
 
@@ -1842,6 +2041,7 @@ pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
         Box::new(HTTPRouteNamespaceAnalyzer),
         Box::new(IpBasedSystemMergeAnalyzer),
         Box::new(KubeconfigCredentialAnalyzer),
+        Box::new(KubeEnvVarAnalyzer),
     ]
 }
 
@@ -3721,5 +3921,284 @@ mod tests {
             }),
             "expected RunsOn(argocd-84cc979b → node/cplane-01)"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // KubeEnvVarAnalyzer
+    // -----------------------------------------------------------------------
+
+    /// The variables kubelet injects into every container it starts.
+    fn master_service_env() -> Vec<(String, String)> {
+        [
+            ("KUBERNETES_SERVICE_HOST", "10.96.0.1"),
+            ("KUBERNETES_SERVICE_PORT", "443"),
+            ("KUBERNETES_SERVICE_PORT_HTTPS", "443"),
+            ("KUBERNETES_PORT_443_TCP", "tcp://10.96.0.1:443"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+    }
+
+    fn pod_with_env(name: &str, namespace: &str, env: Vec<(String, String)>) -> Pod {
+        let mut pod = Pod::new(name, namespace);
+        pod.system.env_vars.extend(env);
+        pod
+    }
+
+    #[test]
+    fn master_service_env_yields_the_kubernetes_service_and_reachability() {
+        let mut campaign = test_campaign();
+        campaign
+            .entities
+            .insert_typed(pod_with_env("demo", "default", master_service_env()));
+        let pod_id = "ns/default/pod/demo";
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, FactsUpdate::default());
+
+        let service = update
+            .new_entities
+            .iter()
+            .find(|e| e.entity_id().0 == "ns/default/svc/kubernetes")
+            .and_then(|e| e.as_any().downcast_ref::<K8sService>())
+            .expect("expected the kubernetes service in namespace default");
+        assert_eq!(service.cluster_ip.as_deref(), Some("10.96.0.1"));
+        assert_eq!(service.ports.len(), 1);
+        assert_eq!(service.ports[0].port, 443);
+        assert_eq!(service.ports[0].name.as_deref(), Some("https"));
+        // The type is not observable from env vars and must not be guessed.
+        assert!(service.service_type.is_empty());
+
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<CanReach>()
+                    && r.source_id().0 == pod_id
+                    && r.target_id().0 == "ns/default/svc/kubernetes"
+            }),
+            "expected can-reach(pod → kubernetes service)"
+        );
+    }
+
+    #[test]
+    fn master_service_env_fills_in_an_unknown_cluster_address() {
+        let mut campaign = test_campaign();
+        campaign
+            .entities
+            .insert_typed(pod_with_env("demo", "default", master_service_env()));
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, FactsUpdate::default());
+
+        let cluster = update
+            .new_entities
+            .iter()
+            .filter_map(|e| e.as_any().downcast_ref::<K8sCluster>())
+            .next()
+            .expect("expected the cluster to be re-emitted with its address");
+        assert_eq!(cluster.server.as_deref(), Some("https://10.96.0.1:443"));
+    }
+
+    #[test]
+    fn a_cluster_address_from_a_kubeconfig_is_not_overwritten() {
+        let mut campaign = test_campaign();
+        let existing = campaign
+            .entities
+            .values::<K8sCluster>()
+            .next()
+            .unwrap()
+            .clone()
+            .with_server(Some("https://prod.example.com:6443".to_string()));
+        campaign.entities.insert_typed(existing);
+        campaign
+            .entities
+            .insert_typed(pod_with_env("demo", "default", master_service_env()));
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, FactsUpdate::default());
+
+        assert!(
+            !update
+                .new_entities
+                .iter()
+                .any(|e| e.as_any().is::<K8sCluster>()),
+            "cluster with a known external address must be left alone"
+        );
+    }
+
+    #[test]
+    fn linked_services_are_placed_in_the_observing_pods_namespace() {
+        let mut campaign = test_campaign();
+        let mut env = master_service_env();
+        env.push(("REDIS_SERVICE_HOST".to_string(), "10.0.0.10".to_string()));
+        env.push(("REDIS_SERVICE_PORT".to_string(), "6379".to_string()));
+        campaign
+            .entities
+            .insert_typed(pod_with_env("app", "shop", env));
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, FactsUpdate::default());
+
+        let redis = update
+            .new_entities
+            .iter()
+            .find(|e| e.entity_id().0 == "ns/shop/svc/redis")
+            .and_then(|e| e.as_any().downcast_ref::<K8sService>())
+            .expect("expected redis in the pod's own namespace");
+        assert_eq!(redis.cluster_ip.as_deref(), Some("10.0.0.10"));
+
+        // The master service belongs to `default`, never to the pod's namespace.
+        assert!(update
+            .new_entities
+            .iter()
+            .any(|e| e.entity_id().0 == "ns/default/svc/kubernetes"));
+        assert!(!update
+            .new_entities
+            .iter()
+            .any(|e| e.entity_id().0 == "ns/shop/svc/kubernetes"));
+    }
+
+    #[test]
+    fn a_node_target_yields_only_the_master_service() {
+        // A node has no namespace, so namespace-local service links cannot be
+        // attributed and are dropped rather than guessed at.
+        let mut campaign = test_campaign();
+        let mut node = K8sNode::new("node-1");
+        node.system.env_vars.extend(master_service_env());
+        node.system
+            .env_vars
+            .insert("REDIS_SERVICE_HOST".to_string(), "10.0.0.10".to_string());
+        campaign.entities.insert_typed(node);
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, FactsUpdate::default());
+
+        let services: Vec<&str> = update
+            .new_entities
+            .iter()
+            .filter(|e| e.entity_kind() == "Service")
+            .map(|e| e.entity_name())
+            .collect();
+        assert_eq!(services, vec!["kubernetes"]);
+
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<CanReach>()
+                    && r.source_id().0 == "node/node-1"
+                    && r.target_id().0 == "ns/default/svc/kubernetes"
+            }),
+            "expected can-reach(node → kubernetes service)"
+        );
+    }
+
+    #[test]
+    fn an_unknown_system_with_injected_vars_is_placed_in_the_cluster() {
+        let mut campaign = test_campaign();
+        let cluster_id = campaign
+            .entities
+            .values::<K8sCluster>()
+            .next()
+            .unwrap()
+            .entity_id();
+        let mut system = UnknownSystem::new("10.0.0.42");
+        system.system.env_vars.extend(master_service_env());
+        let system_id = system.entity_id();
+        campaign.entities.insert_typed(system);
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, FactsUpdate::default());
+
+        assert!(
+            update.new_relations.iter().any(|r| {
+                r.is::<Contains>()
+                    && r.source_id().0 == cluster_id.0
+                    && r.target_id().0 == system_id.0
+            }),
+            "expected contains(cluster → unknown system)"
+        );
+    }
+
+    #[test]
+    fn a_pod_with_a_placeholder_namespace_gets_no_linked_services() {
+        // A pod discovered from node mounts carries namespace `"?"`. Service
+        // links must not be stranded there; the master service is unaffected
+        // because it lives in `default` by definition.
+        let mut campaign = test_campaign();
+        let mut env = master_service_env();
+        env.push(("REDIS_SERVICE_HOST".to_string(), "10.0.0.10".to_string()));
+        env.push(("REDIS_SERVICE_PORT".to_string(), "6379".to_string()));
+        campaign
+            .entities
+            .insert_typed(pod_with_env("argocd-84cc979b", "?", env));
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, FactsUpdate::default());
+
+        let services: Vec<String> = update
+            .new_entities
+            .iter()
+            .filter(|e| e.entity_kind() == "Service")
+            .map(|e| e.entity_id().0)
+            .collect();
+        assert_eq!(services, vec!["ns/default/svc/kubernetes".to_string()]);
+    }
+
+    #[test]
+    fn env_vars_without_service_entries_produce_nothing() {
+        let mut campaign = test_campaign();
+        let env = vec![
+            ("HOME".to_string(), "/root".to_string()),
+            ("PATH".to_string(), "/usr/bin".to_string()),
+        ];
+        campaign
+            .entities
+            .insert_typed(pod_with_env("demo", "default", env));
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, FactsUpdate::default());
+
+        assert!(
+            !update
+                .new_entities
+                .iter()
+                .any(|e| e.entity_kind() == "Service"),
+            "no service variables means no services"
+        );
+        assert!(!update.new_relations.iter().any(|r| r.is::<CanReach>()));
+    }
+
+    #[test]
+    fn a_known_service_is_not_re_emitted() {
+        let mut campaign = test_campaign();
+        campaign
+            .entities
+            .insert_typed(pod_with_env("demo", "default", master_service_env()));
+        let mut known = K8sService::new("kubernetes", "default");
+        known.cluster_ip = Some("10.96.0.1".to_string());
+        known.service_type = "ClusterIP".to_string();
+        known.ports = vec![ran_domain::K8sServicePort {
+            port: 443,
+            target_port: "6443".to_string(),
+            protocol: "TCP".to_string(),
+            name: Some("https".to_string()),
+            node_port: None,
+        }];
+        campaign.entities.insert_typed(known);
+
+        let rules = default_rules();
+        let update = run_rules_fixpoint(&campaign, &rules, FactsUpdate::default());
+
+        assert!(
+            !update
+                .new_entities
+                .iter()
+                .any(|e| e.entity_kind() == "Service"),
+            "an already-known service must not be re-emitted"
+        );
+        // The reachability edge is still new and must still be recorded.
+        assert!(update
+            .new_relations
+            .iter()
+            .any(|r| { r.is::<CanReach>() && r.target_id().0 == "ns/default/svc/kubernetes" }));
     }
 }
