@@ -51,6 +51,7 @@ impl<T> EntityType for T where
 
 trait ErasedSlot: std::fmt::Debug + Send + Sync {
     fn len(&self) -> usize;
+    fn contains_id(&self, id: &EntityId) -> bool;
     fn insert_entity(&mut self, id: EntityId, entity: &dyn Entity);
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -78,6 +79,10 @@ impl<T: EntityType> Slot<T> {
 impl<T: EntityType> ErasedSlot for Slot<T> {
     fn len(&self) -> usize {
         self.data.len()
+    }
+
+    fn contains_id(&self, id: &EntityId) -> bool {
+        self.data.contains_key(id)
     }
 
     fn insert_entity(&mut self, id: EntityId, entity: &dyn Entity) {
@@ -243,6 +248,15 @@ impl EntityStore {
 
     pub fn entity_count(&self) -> usize {
         self.slots.values().map(|s| s.len()).sum()
+    }
+
+    /// Whether any registered type holds an entity with this id.
+    ///
+    /// The type-parametrized [`EntityStore::contains`] needs the caller to know
+    /// the concrete type; this answers the same question for an id that arrived
+    /// as a bare string, which is what deciding "did we already know this?" needs.
+    pub fn contains_id(&self, id: &EntityId) -> bool {
+        self.slots.values().any(|slot| slot.contains_id(id))
     }
 
     /// Returns a `CampaignEntityRef` for every entity across all registered types.

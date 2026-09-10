@@ -6,12 +6,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::ExecuteActionRequest;
 
-/// An entity discovered as a direct or inferred consequence of an execution.
+/// An entity fact produced as a direct or inferred consequence of an execution.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExecutionEntity {
     pub id: String,
     pub name: String,
     pub kind: String,
+    /// Whether the execution revealed this entity, created it, or merely
+    /// refined one already known. Defaults to `Observed` for records written
+    /// before outcomes were tracked.
+    #[serde(default)]
+    pub outcome: crate::FactOutcome,
 }
 
 /// A single recorded execution — the grounded command, its arguments, and the

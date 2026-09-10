@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import OperationTimeline from './OperationTimeline.svelte';
-import type { ActionGroup, TopEntry } from '$lib/stores/timelineStore.svelte';
+import type { ActionGroup, EntityEntry, TopEntry } from '$lib/stores/timelineStore.svelte';
 
 function compactTimestamp(date: Date): string {
 	return date.toLocaleTimeString([], {
@@ -186,5 +186,76 @@ describe('OperationTimeline timestamps', () => {
 		const trigger = screen.getByText('Startup');
 		await fireEvent.mouseEnter(trigger);
 		expect(screen.getByRole('tooltip')).toHaveTextContent(fullTimestamp(startupTimestamp));
+	});
+});
+
+describe('OperationTimeline entity verbs', () => {
+	function entityRow(overrides: Partial<EntityEntry> = {}): EntityEntry {
+		return {
+			kind: 'discovery',
+			id: 'listener/tcp/1337',
+			entityId: 'listener/tcp/1337',
+			entityName: 'tcp/1337',
+			entityKind: 'Listener',
+			...overrides
+		};
+	}
+
+	it('says a listener the action bound was created, not discovered', () => {
+		renderTimeline([entityRow({ outcome: 'created' })]);
+
+		expect(screen.getByText('Created listener')).toBeInTheDocument();
+		expect(screen.queryByText('Discovered listener')).not.toBeInTheDocument();
+	});
+
+	it('still says discovered for something the campaign genuinely found', () => {
+		renderTimeline([
+			entityRow({
+				outcome: 'observed',
+				id: 'ns/default/pod/web',
+				entityId: 'ns/default/pod/web',
+				entityName: 'web',
+				entityKind: 'Pod'
+			})
+		]);
+
+		expect(screen.getByText('Discovered pod')).toBeInTheDocument();
+	});
+
+	it('falls back to discovered when a row carries no outcome', () => {
+		renderTimeline([
+			entityRow({
+				id: 'ns/default/pod/web',
+				entityId: 'ns/default/pod/web',
+				entityKind: 'Pod'
+			})
+		]);
+
+		expect(screen.getByText('Discovered pod')).toBeInTheDocument();
+	});
+
+	it('never claims a discovery for an action whose only effect it created', () => {
+		const listenerAction = actionEntry({
+			action: {
+				kind: 'ttp-action',
+				id: 'cmd-listen',
+				ttpId: 'create-listener',
+				ttpName: 'Create Listener',
+				targetId: 'c2/ran',
+				targetName: 'Ran',
+				status: 'success'
+			},
+			effects: [entityRow({ outcome: 'created' })]
+		});
+
+		// Collapsed: the effect is summarised by a badge, never spelled out.
+		const collapsed = renderTimeline([listenerAction]);
+		expect(screen.queryByText(/^Discovered/)).not.toBeInTheDocument();
+		collapsed.unmount();
+
+		// Expanded: the effect is named, with the verb that actually applies.
+		renderTimeline([{ ...listenerAction, collapsed: false }]);
+		expect(screen.getByText('Created listener')).toBeInTheDocument();
+		expect(screen.queryByText(/^Discovered/)).not.toBeInTheDocument();
 	});
 });

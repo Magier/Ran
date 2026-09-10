@@ -2325,12 +2325,17 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
         }
     }
 
-    println!("\n--- Discovered Facts ---");
+    println!("\n--- Facts ---");
     // Filter out the seeded pod itself — it was already known.
-    let discovered_entities: Vec<_> = new_entities.iter().filter(|e| e.id != pod_id).collect();
-    println!("Entities ({}):", discovered_entities.len());
-    for e in &discovered_entities {
-        println!("  [{}] {}", e.kind, e.id);
+    let entity_facts: Vec<_> = new_entities.iter().filter(|e| e.id != pod_id).collect();
+    println!("Entities ({}):", entity_facts.len());
+    for e in &entity_facts {
+        let verb = match e.outcome {
+            campaign::FactOutcome::Observed => "discovered",
+            campaign::FactOutcome::Created => "created",
+            campaign::FactOutcome::Updated => "updated",
+        };
+        println!("  {verb} [{}] {}", e.kind, e.id);
     }
     println!("Relations ({}):", new_relations.len());
     for r in &new_relations {
@@ -2519,20 +2524,32 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                         "Secret" | "K8sCredential" => "credential",
                         _ => "discovery",
                     };
+                    let payload = serde_json::json!({
+                        "entityId": entity.id.0,
+                        "entityName": entity.name,
+                        "entityKind": entity.kind,
+                        "category": category,
+                        "outcome": entity.outcome,
+                        "cmdId": cmd_id,
+                    });
                     api::publish_sse_event(
-                        "entity-discovered",
-                        serde_json::json!({
-                            "type": "entity-discovered",
-                            "data": {
-                                "entityId": entity.id.0,
-                                "entityName": entity.name,
-                                "entityKind": entity.kind,
-                                "category": category,
-                                "cmdId": cmd_id,
-                            },
-                        })
-                        .to_string(),
+                        "entity-fact",
+                        serde_json::json!({ "type": "entity-fact", "data": payload }).to_string(),
                     );
+
+                    // Deprecated alias for consumers written before facts carried
+                    // an outcome. It keeps the promise its name makes, so a fact
+                    // the action created or merely refined is not published on it.
+                    if entity.outcome == campaign::FactOutcome::Observed {
+                        api::publish_sse_event(
+                            "entity-discovered",
+                            serde_json::json!({
+                                "type": "entity-discovered",
+                                "data": payload,
+                            })
+                            .to_string(),
+                        );
+                    }
                 }
             }
             Ok(CampaignEvent::ParseAudited { audits, .. }) => {

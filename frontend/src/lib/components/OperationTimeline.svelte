@@ -91,37 +91,63 @@
         timestampTooltip = undefined;
     }
 
+    /** Lower-cased for prose, but only for the kinds that read naturally that way. */
+    const SPELLED_OUT_KINDS: Record<string, string> = {
+        Pod: 'pod',
+        Namespace: 'namespace',
+        ServiceAccount: 'service account',
+        Listener: 'listener'
+    };
+
+    function entityNoun(entry: EntityEntry): string {
+        return SPELLED_OUT_KINDS[entry.entityKind] ?? entry.entityKind;
+    }
+
     function entityPrefix(entry: EntityEntry): string {
         if (entry.kind === 'credential') {
             if (entry.entityKind === 'Secret') return 'Found secret';
             return 'Found credential';
         }
         if (entry.kind === 'access-gained') return 'Gained exec access to';
-        if (entry.entityKind === 'Pod') return 'Discovered pod';
-        if (entry.entityKind === 'Namespace') return 'Discovered namespace';
-        if (entry.entityKind === 'ServiceAccount') return 'Discovered service account';
-        return `Discovered ${entry.entityKind}`;
+        // The verb has to match what actually happened. Calling the listener an
+        // action just bound "discovered" is the kind of claim that makes the
+        // whole timeline harder to trust.
+        const noun = entityNoun(entry);
+        switch (entry.outcome ?? 'observed') {
+            case 'created':
+                return `Created ${noun}`;
+            case 'updated':
+                return `Updated ${noun}`;
+            default:
+                return `Discovered ${noun}`;
+        }
     }
 
     function effectCounts(group: ActionGroup) {
-        const counts = { discovery: 0, credential: 0, access: 0 };
+        const counts = { discovery: 0, created: 0, credential: 0, access: 0 };
         for (const e of group.effects) {
-            if (e.kind === 'discovery') counts.discovery++;
-            else if (e.kind === 'credential') counts.credential++;
+            const outcome = e.outcome ?? 'observed';
+            if (e.kind === 'credential') counts.credential++;
             else if (e.kind === 'access-gained') counts.access++;
+            else if (outcome === 'created') counts.created++;
+            else if (outcome === 'observed') counts.discovery++;
+            // 'updated' effects are deliberately uncounted: the badge row
+            // summarises what the action yielded, not what it re-stated.
         }
         return counts;
     }
 
-    function entityIcon(kind: EntityEntry['kind']): string {
-        if (kind === 'credential') return 'mdi:key';
-        if (kind === 'access-gained') return 'mdi:shield-check';
+    function entityIcon(entry: EntityEntry): string {
+        if (entry.kind === 'credential') return 'mdi:key';
+        if (entry.kind === 'access-gained') return 'mdi:shield-check';
+        if ((entry.outcome ?? 'observed') === 'created') return 'mdi:plus-circle-outline';
         return 'mdi:magnify';
     }
 
-    function entityIconClass(kind: EntityEntry['kind']): string {
-        if (kind === 'credential') return 'size-4 text-warning-500';
-        if (kind === 'access-gained') return 'size-4 text-success-400';
+    function entityIconClass(entry: EntityEntry): string {
+        if (entry.kind === 'credential') return 'size-4 text-warning-500';
+        if (entry.kind === 'access-gained') return 'size-4 text-success-400';
+        if ((entry.outcome ?? 'observed') === 'created') return 'size-4 text-tertiary-400';
         return 'size-4 text-primary-400';
     }
 
@@ -305,6 +331,10 @@
                                 <Icon icon="mdi:magnify" class="size-3.5 text-primary-400" aria-hidden="true" />
                                 <span class="text-xs text-surface-400">{counts.discovery}</span>
                             {/if}
+                            {#if counts.created > 0}
+                                <Icon icon="mdi:plus-circle-outline" class="size-3.5 text-tertiary-400" aria-hidden="true" />
+                                <span class="text-xs text-surface-400">{counts.created}</span>
+                            {/if}
                             {#if counts.credential > 0}
                                 <Icon icon="mdi:key" class="size-3.5 text-warning-500" aria-hidden="true" />
                                 <span class="text-xs text-surface-400">{counts.credential}</span>
@@ -327,7 +357,7 @@
                         {#each entry.effects as effect (effect.id)}
                             <div class="flex items-start gap-2 pl-8 pr-3 py-1.5 border-b border-surface-200-800 text-sm hover:bg-surface-200-800 border-l-2 border-l-surface-300-700 ml-3">
                                 <div class="mt-0.5 shrink-0">
-                                    <Icon icon={entityIcon(effect.kind)} class={entityIconClass(effect.kind)} aria-hidden="true" />
+                                    <Icon icon={entityIcon(effect)} class={entityIconClass(effect)} aria-hidden="true" />
                                 </div>
                                 <div class="flex-1 min-w-0">
                                     <span class="font-medium">{entityPrefix(effect)}</span> <button
@@ -345,7 +375,7 @@
                     <!-- Standalone entity row (no parent action) -->
                     <div class="flex items-start gap-2 px-3 py-2 border-b border-surface-200-800 text-sm hover:bg-surface-200-800">
                         <div class="mt-0.5 shrink-0">
-                            <Icon icon={entityIcon(entry.kind)} class={entityIconClass(entry.kind)} aria-hidden="true" />
+                            <Icon icon={entityIcon(entry)} class={entityIconClass(entry)} aria-hidden="true" />
                         </div>
                         <div class="flex-1 min-w-0">
                             <span class="font-medium">{entityPrefix(entry)}</span> <button

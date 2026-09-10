@@ -118,6 +118,77 @@ describe('TimelineStore', () => {
         }
     });
 
+    // addEntityEvent — outcomes
+    it('folds an entity the action created into that action instead of a standalone row', () => {
+        // The reported noise: creating a listener showed "Create Listener" and
+        // then a separate "Discovered Listener" right next to it.
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-listen', ttpName: 'Create Listener' }));
+        store.addEntityEvent(
+            makeEntityEntry({
+                kind: 'discovery',
+                outcome: 'created',
+                id: 'listener/tcp/1337',
+                entityId: 'listener/tcp/1337',
+                entityName: 'tcp/1337',
+                entityKind: 'Listener',
+                cmdId: 'cmd-listen'
+            })
+        );
+
+        expect(store.topEntries).toHaveLength(1);
+        const group = store.topEntries[0] as ActionGroup;
+        expect(group.kind).toBe('action-group');
+        expect(group.effects).toHaveLength(1);
+        expect(group.effects[0].outcome).toBe('created');
+    });
+
+    it('keeps a created entity visible as a standalone row when its action is unknown', () => {
+        // Losing the fact entirely would be worse than showing it; it is just
+        // never labelled a discovery.
+        store.addEntityEvent(
+            makeEntityEntry({
+                outcome: 'created',
+                id: 'listener/tcp/1337',
+                entityId: 'listener/tcp/1337',
+                entityKind: 'Listener',
+                cmdId: 'cmd-that-never-registered'
+            })
+        );
+        expect(store.topEntries).toHaveLength(1);
+        expect(store.topEntries[0].kind).toBe('discovery');
+    });
+
+    it('drops an update to an already-known entity that has no action to sit under', () => {
+        store.addEntityEvent(
+            makeEntityEntry({ outcome: 'updated', cmdId: 'session/node-a-4444' })
+        );
+        expect(store.topEntries).toHaveLength(0);
+    });
+
+    it('keeps an update inside its action group so the expanded view stays complete', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+        store.addEntityEvent(makeEntityEntry({ outcome: 'updated', cmdId: 'cmd-abc' }));
+
+        const group = store.topEntries[0] as ActionGroup;
+        expect(group.effects).toHaveLength(1);
+        expect(group.effects[0].outcome).toBe('updated');
+    });
+
+    it('does not consume the dedup slot for an update it dropped', () => {
+        // A later, genuine observation of the same entity must still get through.
+        store.addEntityEvent(
+            makeEntityEntry({ outcome: 'updated', cmdId: 'cmd-that-never-registered' })
+        );
+        store.addEntityEvent(makeEntityEntry({ outcome: 'observed', cmdId: undefined }));
+        expect(store.topEntries).toHaveLength(1);
+        expect((store.topEntries[0] as EntityEntry).outcome).toBe('observed');
+    });
+
+    it('treats an entry with no outcome as observed', () => {
+        store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
+        expect(store.topEntries).toHaveLength(1);
+    });
+
     it('addEntityEvent does not suppress entity when a group has the same id as the entity', () => {
         store.addTtpAction(makeTtpEntry({ id: 'ns/default/pod/web-app' }));
         store.addEntityEvent(

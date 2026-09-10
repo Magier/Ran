@@ -12,6 +12,36 @@ pub enum KnowledgeProvenance {
     Inference,
 }
 
+/// What happened to an entity in a [`crate::FactsUpdate`].
+///
+/// Orthogonal to [`KnowledgeProvenance`], which records *who* told us about a
+/// fact. This records *what happened to it*, which is what the operational
+/// timeline needs: an action that creates a listener has not discovered one, and
+/// re-emitting a known entity to carry a field update has not discovered it
+/// either.
+///
+/// Ordering is by strength of claim, so [`FactsUpdate::merge`] can keep the
+/// strongest when two sources describe the same entity.
+///
+/// [`FactsUpdate::merge`]: crate::FactsUpdate::merge
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum FactOutcome {
+    /// The campaign learned of an entity it had not seen before.
+    #[default]
+    Observed,
+    /// The entity was already known; this update only refined its fields.
+    Updated,
+    /// The action brought the entity into existence. Only a creation site can
+    /// claim this, and [`FactsUpdate::resolve_outcomes`] drops the claim if the
+    /// entity turns out to have existed already.
+    ///
+    /// [`FactsUpdate::resolve_outcomes`]: crate::FactsUpdate::resolve_outcomes
+    Created,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RelationProvenanceKey(String);
 

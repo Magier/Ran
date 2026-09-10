@@ -100,11 +100,19 @@ pub enum C2Event {
         event: TtpExecuted,
     },
     /// A TCP listener was successfully bound on the given port.
-    ListenerStarted { port: u16, protocol: String },
+    ///
+    /// `cmd_id` is the execution that asked for it, so the campaign can attribute
+    /// the resulting listener entity to that action rather than inventing an id
+    /// no consumer can match.
+    ListenerStarted {
+        cmd_id: String,
+        port: u16,
+        protocol: String,
+    },
     /// A listener's accept loop was torn down and its port released. Sessions
     /// that connected through it stay live — they are backends in their own
     /// right and do not depend on the listener that accepted them.
-    ListenerStopped { port: u16 },
+    ListenerStopped { cmd_id: String, port: u16 },
     /// A reverse-shell connected, probed, and the session backend is now live.
     SessionConnected {
         backend_id: String,

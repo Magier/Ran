@@ -441,9 +441,14 @@
 			}
 		});
 
-		ranAPI.on('entity-discovered', (data) => {
+		// `entity-fact` supersedes `entity-discovered`: it carries an `outcome`, so
+		// the timeline can tell a discovery from something the action created or
+		// merely refined. Subscribing to both would be redundant — the backend
+		// publishes the deprecated alias only for facts this one marks observed.
+		ranAPI.on('entity-fact', (data) => {
 			timeline.addEntityEvent({
 				kind: data.category ?? 'discovery',
+				outcome: data.outcome ?? 'observed',
 				id: data.entityId,
 				entityId: data.entityId,
 				entityName: data.entityName,
@@ -504,6 +509,9 @@
 									entity.kind === 'Secret' || entity.kind === 'K8sCredential'
 										? ('credential' as const)
 										: ('discovery' as const),
+								// Records written before outcomes were tracked have none;
+								// they predate the created/updated distinction entirely.
+								outcome: entity.outcome ?? ('observed' as const),
 								id: entity.id,
 								entityId: entity.id,
 								entityName: entity.name,
