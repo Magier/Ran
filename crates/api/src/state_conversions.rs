@@ -418,7 +418,7 @@ fn attach_hosted_listeners(
 /// linked to its listener by `forwards-to`, and the listener to its C2 by
 /// `hosts-listener`, so the badge lands on the C2 the operator is looking at.
 /// A redirector whose listener has since been stopped falls back to the campaign's
-/// C2 — its `labctl` tunnel is still up, so hiding it would leave the operator no
+/// C2 - its `labctl` tunnel is still up, so hiding it would leave the operator no
 /// way to reach "Stop Redirector".
 fn hosted_redirectors(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
     let mut redirector_payloads = HashMap::new();
@@ -469,7 +469,7 @@ fn hosted_redirectors(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
         }
     }
     // The entity store is a HashMap, so pick the lowest id rather than the first
-    // one iteration happens to yield — otherwise a campaign with more than one C2
+    // one iteration happens to yield - otherwise a campaign with more than one C2
     // would move orphaned badges between nodes on every refresh.
     let fallback_c2 = campaign
         .get_entities()
@@ -1020,7 +1020,7 @@ mod tests {
     }
 
     /// The details panel shows the entity payload under a heading that is
-    /// already the entity's name, so repeating it as a field is noise — and so
+    /// already the entity's name, so repeating it as a field is noise - and so
     /// is a field glued together from two others sitting next to it.
     #[test]
     fn a_redirectors_details_payload_drops_its_derived_fields() {

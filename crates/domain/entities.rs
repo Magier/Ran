@@ -216,7 +216,7 @@ pub fn listener_port(entry: &str) -> Option<u16> {
 ///
 /// Like [`Listener`] this is an entity rather than a field on [`C2Server`],
 /// because that is what lets "Stop Redirector" target the one redirector the
-/// operator picked. It is not drawn as its own graph node either — the UI shows
+/// operator picked. It is not drawn as its own graph node either - the UI shows
 /// it as a badge on the C2 that spawned it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Redirector {
@@ -262,7 +262,7 @@ impl Redirector {
         }
     }
 
-    /// Canonical `<play_id>/<remote_port>` — the identity, and what a
+    /// Canonical `<play_id>/<remote_port>` - the identity, and what a
     /// `Redirector` TTP parameter carries.
     pub fn entry(&self) -> &str {
         &self.entry
@@ -280,7 +280,7 @@ impl Redirector {
 
     /// The entity id a redirector on this playground and remote port would have,
     /// without needing to know the listener it forwards to. Lets a caller address
-    /// a redirector it only has the identity of — removing one, for instance.
+    /// a redirector it only has the identity of - removing one, for instance.
     pub fn id_for(play_id: &str, remote_port: u16) -> EntityId {
         EntityId::new(format!(
             "redirector/{}",
@@ -334,9 +334,9 @@ pub fn format_redirector_label(via: &str, remote_port: u16, listener_port: u16) 
     }
 }
 
-/// Split anything that identifies a redirector — the canonical
+/// Split anything that identifies a redirector - the canonical
 /// `play_id/remote_port` entry or a full `redirector/play_id/remote_port` entity
-/// id — into its playground id and remote port.
+/// id - into its playground id and remote port.
 ///
 /// Both halves are needed to identify a redirector: two playgrounds are two
 /// hosts, so each can forward the same remote port, and `RPORT` defaults to the
@@ -2639,7 +2639,7 @@ mod tests {
             Some(("play1".to_string(), 1337))
         );
         // A bare port cannot say which playground, so it is rejected rather than
-        // guessed at — unlike a listener, which only ever lives on this host.
+        // guessed at - unlike a listener, which only ever lives on this host.
         assert_eq!(split_redirector("1337"), None);
         assert_eq!(split_redirector("play1/http"), None);
         assert_eq!(split_redirector("/1337"), None);

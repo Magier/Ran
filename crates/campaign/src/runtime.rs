@@ -27,7 +27,7 @@ pub struct EntitySummary {
     #[serde(default)]
     pub outcome: FactOutcome,
     /// What sort of news this is. Resolved here rather than at the API edge so
-    /// producers that know more than the entity kind — session attachment — can
+    /// producers that know more than the entity kind - session attachment - can
     /// say so, and so no consumer has to re-derive it.
     #[serde(default)]
     pub category: FactCategory,
@@ -477,7 +477,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         // The TTP requires a Listener target, so this only happens
                         // if the listener was stopped between spawning labctl and
                         // handling this event. The redirector is still real, so
-                        // record it — just without an edge to a listener that is
+                        // record it - just without an edge to a listener that is
                         // no longer there.
                         None => warn!(
                             listener_port,
@@ -609,7 +609,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                                 },
                                 // A shell landed here. That is news whether or
                                 // not the host was already in the graph, so it
-                                // must not be filed as a discovery — a callback
+                                // must not be filed as a discovery - a callback
                                 // from a known host would then be suppressed as
                                 // a mere field update and vanish entirely.
                                 category: FactCategory::AccessGained,
@@ -812,7 +812,7 @@ fn apply_session_connected(
             kind: e.entity().entity_kind().to_string(),
             name: e.entity().entity_name().to_string(),
             // This path resolves an existing system entity and attaches a
-            // session to it, so nothing here is new knowledge about the entity —
+            // session to it, so nothing here is new knowledge about the entity -
             // but gaining exec access to it is still worth reporting.
             outcome: FactOutcome::Updated,
             category: FactCategory::AccessGained,

@@ -18,12 +18,12 @@ type Backends = Arc<RwLock<HashMap<String, Arc<dyn C2Backend>>>>;
 /// inside its task, so releasing the port means dropping that task.
 type Listeners = Arc<RwLock<HashMap<u16, tokio::task::AbortHandle>>>;
 /// The `labctl port-forward` processes started by `c2.port-forward`, keyed by
-/// the canonical `<play id>/<remote port>` entry — the same identity the
+/// the canonical `<play id>/<remote port>` entry - the same identity the
 /// `Redirector` entity carries. Keying on the remote port alone would be wrong:
 /// two playgrounds are two hosts, so each can forward the same port, and `RPORT`
 /// defaults to the same value for both.
 ///
-/// Holding the `Child` is what makes a redirector stoppable — and, via
+/// Holding the `Child` is what makes a redirector stoppable - and, via
 /// `kill_on_drop`, what stops the tunnels from outliving Ran.
 type Redirectors = Arc<RwLock<HashMap<String, RedirectorProcess>>>;
 
@@ -541,8 +541,8 @@ impl C2Executor {
     /// Stand up a redirector:
     /// `labctl port-forward <play id> -R <remote>:127.0.0.1:<listener>`.
     ///
-    /// This runs on the operator host — the same machine as Ran, which is where
-    /// `labctl` is configured — so it is a control command rather than something
+    /// This runs on the operator host - the same machine as Ran, which is where
+    /// `labctl` is configured - so it is a control command rather than something
     /// dispatched to a backend. The child is long-running by design and is kept
     /// in `redirectors` rather than awaited; `kill_on_drop` means Ran going away
     /// takes the tunnel with it instead of leaking a forwarded port.
@@ -575,7 +575,7 @@ impl C2Executor {
         // Asking for a tunnel Ran is already running is not a failure to create
         // one; it is the state the operator asked for. Short-circuit rather than
         // spawning a second labctl, which the playground refuses with a 409
-        // anyway — and which would report that refusal as though the redirector
+        // anyway - and which would report that refusal as though the redirector
         // did not exist. The existing Redirector entity stands, so no
         // `RedirectorStarted` is published: nothing was discovered, and
         // re-announcing it would surface an already-known hop as a fresh find.
@@ -630,7 +630,7 @@ impl C2Executor {
                 );
                 Some(format!(
                     " (labctl has not confirmed the tunnel within {TUNNEL_READY_TIMEOUT:?}; \
-                     it is still running — check the redirector before relying on it)"
+                     it is still running - check the redirector before relying on it)"
                 ))
             }
             Err(reason) => {
@@ -639,7 +639,7 @@ impl C2Executor {
                 let held = self.redirectors_on(play_id).await;
                 let mut detail = format!("`{argv}` {reason}");
                 if let Some(hint) = tunnel_failure_hint(&reason, play_id, &held) {
-                    detail.push_str(" — ");
+                    detail.push_str(" - ");
                     detail.push_str(&hint);
                 }
                 return failed_result(cmd, &detail);
@@ -680,7 +680,7 @@ impl C2Executor {
             id: cmd.id.clone(),
             success: true,
             results: vec![format!(
-                "`{argv}` — port {remote_port} on playground {play_id} now reaches the local listener on 127.0.0.1:{listener_port}{}",
+                "`{argv}` - port {remote_port} on playground {play_id} now reaches the local listener on 127.0.0.1:{listener_port}{}",
                 caveat.unwrap_or_default()
             )],
             exit_code: 0,
@@ -697,7 +697,7 @@ impl C2Executor {
     /// - A tunnel pointed at a *different* listener is not the one being asked
     ///   for. The operator is re-pointing it, so it has to be rebuilt rather
     ///   than reported as already done.
-    /// - `labctl` may have exited underneath us — the process is long-running
+    /// - `labctl` may have exited underneath us - the process is long-running
     ///   but not immortal, and nothing reaps it until someone looks. A dead
     ///   entry is dropped here so the caller spawns a fresh one instead of
     ///   reporting a tunnel that stopped carrying traffic hours ago.
@@ -1066,8 +1066,8 @@ const TRANSCRIPT_LINES: usize = 10;
 enum TunnelStartup {
     /// The tool said the tunnel is up.
     Ready,
-    /// The tool is alive but never said so within the timeout. Not a failure —
-    /// the process would have exited had it rejected its arguments — but worth
+    /// The tool is alive but never said so within the timeout. Not a failure -
+    /// the process would have exited had it rejected its arguments - but worth
     /// repeating to the operator rather than reporting a bare success.
     StillSilent,
 }
@@ -1099,7 +1099,7 @@ fn drain_child_output(
         tokio::spawn(async move {
             let mut lines = BufReader::new(reader).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                // A tunnel that is up but refusing traffic only says so here —
+                // A tunnel that is up but refusing traffic only says so here -
                 // `error dialing local target ...` is per-connection and arrives
                 // long after the action reported success, so it has to be visible
                 // at the default log level rather than buried at debug.
@@ -1121,7 +1121,7 @@ fn drain_child_output(
 
 /// Wait for a freshly spawned tunnel to report itself up.
 ///
-/// `Err` means the tunnel definitely did not come up — the process exited, which
+/// `Err` means the tunnel definitely did not come up - the process exited, which
 /// is what a rejected playground id does within milliseconds. The error carries
 /// the tool's own last words so a bad `PLAY_ID` is diagnosable rather than a
 /// silent no-op.
@@ -1192,7 +1192,7 @@ fn tunnel_failure_hint(reason: &str, play_id: &str, held: &[String]) -> Option<S
     Some(format!(
         "the playground refused the tunnel (409 Conflict), which usually means one is already \
          attached to {play_id}.{mine} labctl also saves every -R forward into the playground's \
-         config, so earlier attempts can still be registered — list them with \
+         config, so earlier attempts can still be registered - list them with \
          `labctl port-forward {play_id} --list` and drop one with `--remove <index>`."
     ))
 }
@@ -1210,7 +1210,7 @@ fn looks_like_an_error(line: &str) -> bool {
 }
 
 /// Render a tool's output for an operator-facing failure reason, keeping the
-/// tail — the last thing a tool says before dying is the part that explains why.
+/// tail - the last thing a tool says before dying is the part that explains why.
 fn quote_transcript(transcript: &[String]) -> String {
     let tail: Vec<&str> = transcript
         .iter()
@@ -1228,7 +1228,7 @@ fn quote_transcript(transcript: &[String]) -> String {
 
 /// Parse `c2.port-forward(<play id>, <remote port>, <listener id>)` from a
 /// procedure command string. The listener id is whatever the TTP parameter
-/// carried — canonically `protocol/port`, resolved to a port downstream.
+/// carried - canonically `protocol/port`, resolved to a port downstream.
 fn parse_port_forward_command(cmd: &str) -> Option<(String, u16, String)> {
     let inner = cmd
         .trim()
@@ -1942,7 +1942,7 @@ mod tests {
         );
     }
 
-    /// The readiness line is what separates "process running" from "port open" —
+    /// The readiness line is what separates "process running" from "port open" -
     /// labctl has to reach the Labs API and open a WebSocket before either is true.
     #[tokio::test]
     async fn a_tunnel_is_ready_once_labctl_says_it_is_forwarding() {
@@ -1961,8 +1961,8 @@ mod tests {
         let _ = child.kill().await;
     }
 
-    /// A tool that is alive but quiet is not a failure — it never rejected its
-    /// arguments — but it must not be reported as a plain success either.
+    /// A tool that is alive but quiet is not a failure - it never rejected its
+    /// arguments - but it must not be reported as a plain success either.
     #[tokio::test]
     async fn a_silent_running_tunnel_is_reported_but_left_alone() {
         let mut child = fake_tunnel("sleep 60");
@@ -2236,7 +2236,7 @@ mod tests {
             "the result must say nothing was done: {:?}",
             event.results
         );
-        // The original child is still the one on file — nothing was replaced.
+        // The original child is still the one on file - nothing was replaced.
         let held = redirectors.read().await;
         assert_eq!(held.len(), 1);
         assert_eq!(held["play1/1337"].child.id(), pid);
@@ -2280,7 +2280,7 @@ mod tests {
     }
 
     /// A held entry whose labctl died is not a running tunnel, and must not be
-    /// reported as one — the process is long-running but not immortal, and
+    /// reported as one - the process is long-running but not immortal, and
     /// nothing reaps it until someone looks.
     #[tokio::test]
     async fn a_dead_held_redirector_is_dropped_rather_than_reported_as_running() {

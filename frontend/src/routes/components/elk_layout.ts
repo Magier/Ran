@@ -89,7 +89,7 @@ export type LayoutParams = {
   compoundPadding: number;    // padding inside namespace compound nodes
   stressIterations: number;   // max iterations of stress algorithm inside compounds
   // Edge behaviour
-  usesStraightness: number;   // 0–10: how hard ELK tries to align "uses" edge endpoints vertically
+  usesStraightness: number;   // 0-10: how hard ELK tries to align "uses" edge endpoints vertically
   // Animation
   animationDuration: number;  // ms; 0 = instant
   // Strategies

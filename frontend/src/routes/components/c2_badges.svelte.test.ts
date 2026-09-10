@@ -158,7 +158,7 @@ describe('C2Badges', () => {
 
 		await fireEvent.click(screen.getByText('8080'));
 
-		// The listener's own entity id — that is what scopes the armory to it.
+		// The listener's own entity id - that is what scopes the armory to it.
 		expect(onselect).toHaveBeenCalledWith('listener/http/8080');
 	});
 
@@ -198,7 +198,7 @@ describe('C2Badges', () => {
 		// redirector this is; the playground id alone carries nothing.
 		expect(
 			screen.getByTitle(
-				'labctl 1337→4444 — via labctl on playground zn1kqxk3ykpvxp5x'
+				'labctl 1337→4444 - via labctl on playground zn1kqxk3ykpvxp5x'
 			)
 		).toBeInTheDocument();
 	});

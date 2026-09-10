@@ -647,7 +647,7 @@ mod tests {
     /// The redirector TTPs are only useful if their commands hit the control
     /// command dispatch in the C2 executor. An earlier draft of
     /// `create_redirector.yaml` carried `command: "CreateRedirector"`, which
-    /// matched nothing and would have been shelled out verbatim — this pins the
+    /// matched nothing and would have been shelled out verbatim - this pins the
     /// contract with the executor so that cannot come back silently.
     #[test]
     fn redirector_ttps_dispatch_to_c2_control_commands() {

@@ -715,7 +715,7 @@ fn parse_deploy_namespace(cmd: &ExecTtp) -> ParserOutput {
     let mut facts = FactsUpdate::default();
     let namespace = Namespace::new(ns.to_string());
     // "Ensured", so this only counts as a creation when the namespace was not
-    // already in the graph — `resolve_outcomes` makes that call.
+    // already in the graph - `resolve_outcomes` makes that call.
     facts.mark_created(namespace.entity_id());
     facts.new_entities.push(Box::new(namespace));
     ParserOutput::SuccessWithFacts(facts, format!("deploy-container: namespace {} ensured", ns))

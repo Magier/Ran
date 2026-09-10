@@ -3,8 +3,8 @@ import type { Node } from '$lib/api/index';
 /**
  * A redirector, as carried on the C2 graph node's `redirectors` payload.
  *
- * Redirectors are real entities (`kind: Redirector`) — one `labctl port-forward`
- * process each — that the graph folds into the C2's payload rather than drawing
+ * Redirectors are real entities (`kind: Redirector`) - one `labctl port-forward`
+ * process each - that the graph folds into the C2's payload rather than drawing
  * as nodes, the same treatment listeners get. `id` is the entity id, so clicking
  * a badge can select the redirector and scope the armory to "Stop Redirector".
  */
@@ -19,7 +19,7 @@ export type Redirector = {
 	remotePort: number;
 	/** Port of the local listener traffic lands on. */
 	listenerPort: number;
-	/** Canonical `playId/remotePort` — the identity, not the display name. */
+	/** Canonical `playId/remotePort` - the identity, not the display name. */
 	entry: string;
 	/**
 	 * What the operator reads, e.g. `labctl 9000→4444`.
@@ -81,7 +81,7 @@ export function allRedirectors(nodes: Node[] | undefined): Redirector[] {
  * Pickable options for a `Redirector` TTP parameter.
  *
  * Labels are the plain `labctl 9000→4444` form, except where two redirectors
- * would read identically — two playgrounds forwarding the same ports — in which
+ * would read identically - two playgrounds forwarding the same ports - in which
  * case the playground id is appended to those. It is noise everywhere else, so
  * it only appears where it is the thing that tells them apart.
  */

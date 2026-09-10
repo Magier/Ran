@@ -32,7 +32,7 @@ export type C2BadgeGroup = {
 	nodeId: string;
 	listeners: BadgeStack<ListenerBadge>;
 	/**
-	 * Redirectors whose listener is no longer in the payload — the listener was
+	 * Redirectors whose listener is no longer in the payload - the listener was
 	 * stopped while the tunnel stayed up. They get their own chip so they remain
 	 * selectable, and so "Stop Redirector" stays reachable.
 	 */

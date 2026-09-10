@@ -418,14 +418,14 @@ pub fn ttp_has_listener_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> boo
 
 /// Returns `true` when the TTP's operator-side tool requirement is met.
 ///
-/// `requires["c2.has-tool"]` names a tool — or an array of them — that must
+/// `requires["c2.has-tool"]` names a tool - or an array of them - that must
 /// exist on the machine running Ran, as opposed to on the target.
 /// [`ttp_tool_satisfied`] cannot answer this: it reads the *target's* binary
 /// map, and an operator-side procedure never touches one, so a TTP that shells
 /// out locally is otherwise ungated no matter what it needs installed.
 ///
 /// Unlike the target-side gate there is no "unknown" state to be generous
-/// about — `PATH` either resolves the tool or it does not — so a missing tool
+/// about - `PATH` either resolves the tool or it does not - so a missing tool
 /// withdraws the action instead of offering one that cannot run.
 pub fn ttp_operator_tool_satisfied(ttp: &armory::Ttp) -> bool {
     let Some(required) = ttp.requires.get("c2.has-tool") else {
@@ -1212,7 +1212,7 @@ mod tests {
     #[test]
     fn two_playgrounds_can_forward_the_same_remote_port() {
         // RPORT defaults to 1337, so this is the ordinary case once a second
-        // playground is in play — stopping one must not take the other with it.
+        // playground is in play - stopping one must not take the other with it.
         let mut c = empty_campaign();
         c.entities
             .insert_typed(Redirector::new("labctl", "play1", 1337, 4444));

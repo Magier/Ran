@@ -97,7 +97,7 @@ describe('c2Badges', () => {
 		const [first, second] = groups[0].listeners.visible;
 		expect(first.listener.port).toBe(4444);
 		expect(first.adapters.map((a) => a.id)).toEqual(['redirector/play1/1337']);
-		// The other listener is untouched — matching is by port, not by position.
+		// The other listener is untouched - matching is by port, not by position.
 		expect(second.adapters).toEqual([]);
 		expect(groups[0].orphans.visible).toEqual([]);
 	});

@@ -12,7 +12,7 @@
 		nodes: Node[] | undefined;
 		/**
 		 * `port` labels every chip with its ports. `icon` drops the text and
-		 * leaves the glyphs alone — the compact form for a dense graph.
+		 * leaves the glyphs alone - the compact form for a dense graph.
 		 */
 		mode?: 'port' | 'icon';
 		/**
@@ -37,12 +37,12 @@
 	function adapterTitle(adapter: Redirector): string {
 		// Lead with the tool: it is what says which kind of redirector this is,
 		// and the playground id on its own carries nothing.
-		const hop = `${adapter.label} — via ${adapter.via} on playground ${adapter.playId}`;
+		const hop = `${adapter.label} - via ${adapter.via} on playground ${adapter.playId}`;
 		return onselect ? `${hop}; click for actions` : hop;
 	}
 
 	function orphanTitle(orphan: Redirector): string {
-		const hop = `${orphan.label} — via ${orphan.via} on playground ${orphan.playId}, forwarding to port ${orphan.listenerPort}, which no listener holds any more`;
+		const hop = `${orphan.label} - via ${orphan.via} on playground ${orphan.playId}, forwarding to port ${orphan.listenerPort}, which no listener holds any more`;
 		return onselect ? `${hop}; click for actions` : hop;
 	}
 
@@ -78,7 +78,7 @@
 	}
 
 	// Re-place on graph data changes and on anything cytoscape redraws for
-	// (pan, zoom, layout, drag, expand/collapse) — `render` covers them all.
+	// (pan, zoom, layout, drag, expand/collapse) - `render` covers them all.
 	$effect(() => {
 		const core = cy;
 		const current = groups;
@@ -126,7 +126,7 @@
 						class="badge-part"
 						class:actionable={!!onselect}
 						title={onselect
-							? `${badge.listener.entry} — actions for this listener`
+							? `${badge.listener.entry} - actions for this listener`
 							: badge.listener.entry}
 						onclick={() => onselect?.(badge.listener.id)}
 					>
@@ -155,7 +155,7 @@
 			{#each group.orphans.visible as orphan (orphan.id)}
 				<!--
 					A redirector whose listener is gone has nothing to attach to, but its
-					tunnel is still up — so it gets a pill of its own and stays stoppable.
+					tunnel is still up - so it gets a pill of its own and stays stoppable.
 				-->
 				<div class="c2-badge orphaned" class:compact={mode === 'icon'}>
 					<button
@@ -262,7 +262,7 @@
 		background-color: var(--color-surface-200-800, rgb(255 255 255 / 0.95));
 	}
 
-	/* The icon is a child component, so its svg needs a global selector — kept
+	/* The icon is a child component, so its svg needs a global selector - kept
 	   inside .badge-part so the rule cannot escape the chip. Monotone art means
 	   it picks up the chip's own color. */
 	.badge-part :global(svg) {
