@@ -1,11 +1,66 @@
 import { describe, expect, it } from 'vitest';
 
-import { getGraphStyle, getK8sCredentialIcon } from './graph_style';
+import { getGraphStyle, getK8sCredentialIcon, getUnknownSystemIcon } from './graph_style';
 
 describe('getK8sCredentialIcon', () => {
 	it('selects a contrasting icon for each graph theme', () => {
 		expect(getK8sCredentialIcon(true)).toBe('/k8s/account-key-dark.svg');
 		expect(getK8sCredentialIcon(false)).toBe('/k8s/account-key-light.svg');
+	});
+
+	it('selects a contrasting system icon for each graph theme', () => {
+		expect(getUnknownSystemIcon(true)).toBe('/system-dark.svg');
+		expect(getUnknownSystemIcon(false)).toBe('/system.svg');
+	});
+
+	it('gives a macOS system a themed platform icon, matching uname casing', () => {
+		expect(getUnknownSystemIcon(true, 'Darwin')).toBe('/macos-dark.svg');
+		expect(getUnknownSystemIcon(false, 'Darwin')).toBe('/macos-light.svg');
+		expect(getUnknownSystemIcon(false, 'darwin')).toBe('/macos-light.svg');
+	});
+
+	it('falls back to the generic icon for any other or missing os', () => {
+		expect(getUnknownSystemIcon(false, 'Linux')).toBe('/system.svg');
+		expect(getUnknownSystemIcon(false, undefined)).toBe('/system.svg');
+		expect(getUnknownSystemIcon(false, 42)).toBe('/system.svg');
+	});
+
+	it('lets the macOS override win over the generic system icon', () => {
+		const styles = getGraphStyle(true) as Array<{
+			selector: string;
+			style: Record<string, unknown>;
+		}>;
+		const generic = styles.findIndex((rule) => rule.selector === "node[kind='UnknownSystem']");
+		const macos = styles.findIndex(
+			(rule) => rule.selector === "node[kind='UnknownSystem'][entity.os @= 'darwin']"
+		);
+
+		expect(macos).toBeGreaterThan(generic);
+		expect(styles[macos].style['background-image']).toBe('/macos-dark.svg');
+	});
+
+	it('draws a generic system as a rectangle rather than the k8s heptagon', () => {
+		const styles = getGraphStyle(false) as Array<{
+			selector: string;
+			style: Record<string, unknown>;
+		}>;
+		const heptagonIndex = styles.findIndex((rule) => rule.selector === 'node[?kind]');
+		const systemIndex = styles.findIndex(
+			(rule) => rule.selector === "node[kind='UnknownSystem']"
+		);
+
+		expect(systemIndex).toBeGreaterThan(heptagonIndex);
+		expect(styles[systemIndex].style.shape).toBe('rectangle');
+		expect(styles[systemIndex].style['background-image']).toBe('/system.svg');
+	});
+
+	it('has no leftover pre-rename System selectors', () => {
+		const styles = getGraphStyle(false) as Array<{ selector: string }>;
+
+		expect(
+			styles.filter((rule) => /\[kind\s*=\s*['"]System['"]\]/.test(rule.selector))
+		).toHaveLength(0);
+		expect(styles.filter((rule) => rule.selector.includes('[^kind]'))).toHaveLength(0);
 	});
 
 	it('uses the primary color for every selected node border', () => {

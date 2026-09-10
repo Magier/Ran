@@ -33,7 +33,6 @@ const KIND_SVG_MAP = {
 	GCPServiceAccountToken: 'gcp/iam.svg',
 	MetadataServer: 'gcp/compute_engine.svg',
 	GCPMetadataServer: 'gcp/compute_engine.svg',
-	UnknownSystem: 'system-dark.svg',
 
 	Cluster: 'k8s/k8s.svg',
 	Namespace: 'k8s/ns.svg'
@@ -54,6 +53,16 @@ const expandedCompoundSelector = [...COMPOUND_KINDS]
 
 export function getK8sCredentialIcon(isDark: boolean): string {
 	return isDark ? '/k8s/account-key-dark.svg' : '/k8s/account-key-light.svg';
+}
+
+// `os` is the raw `uname` output recorded on the entity, so it is 'Darwin' /
+// 'Linux' rather than a normalised slug. Compared case-insensitively because
+// external parsers may report it in another casing.
+export function getUnknownSystemIcon(isDark: boolean, os?: unknown): string {
+	if (typeof os === 'string' && os.toLowerCase() === 'darwin') {
+		return isDark ? '/macos-dark.svg' : '/macos-light.svg';
+	}
+	return isDark ? '/system-dark.svg' : '/system.svg';
 }
 
 function mapKindIcons(obj: Record<string, string>) {
@@ -218,6 +227,26 @@ export function getGraphStyle(isDark: boolean = false) {
 			}
 		},
 		{
+			// Not a Kubernetes asset, so it keeps the plain rectangle used for
+			// non-cluster entities rather than the k8s heptagon.
+			selector: "node[kind='UnknownSystem']",
+			style: {
+				width: '30',
+				height: '20',
+				shape: 'rectangle',
+				'background-image': getUnknownSystemIcon(isDark),
+				'background-fit': 'contain',
+				'background-opacity': 0,
+				'border-position': 'outside'
+			}
+		},
+		{
+			selector: "node[kind='UnknownSystem'][entity.os @= 'darwin']",
+			style: {
+				'background-image': getUnknownSystemIcon(isDark, 'darwin')
+			}
+		},
+		{
 			selector: 'node[name="Ran"]',
 			style: {
 				width: '30',
@@ -239,30 +268,6 @@ export function getGraphStyle(isDark: boolean = false) {
 				shape: 'rectangle',
 				'background-opacity': 0,
 				'background-image': '/listener.svg',
-			}
-		},
-		{
-			selector: 'node[kind="System"]',
-			style: {
-				'background-image': '/system.svg',
-				'background-opacity': 0,
-				'background-fit': 'contain'
-			}
-		},
-		{
-			selector: "node[^kind][os='macos']",
-			style: {
-				'background-image': '/macos.svg',
-				'background-opacity': 0,
-				'background-fit': 'contain'
-			}
-		},
-		{
-			selector: "node[^kind][os='linux']",
-			style: {
-				'background-image': '/system.svg',
-				'background-opacity': 0,
-				'background-fit': 'contain'
 			}
 		},
 		{
