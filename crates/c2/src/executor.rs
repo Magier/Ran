@@ -1185,7 +1185,7 @@ mod tests {
         // Let the OS pick a free port, then release it so the listener can take it.
         // A sandbox that forbids binding cannot exercise port release at all;
         // skip loudly there rather than reporting a failure it did not test.
-        let probe = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        let probe = match tokio::net::TcpListener::bind("0.0.0.0:0").await {
             Ok(probe) => probe,
             Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
                 eprintln!("skipped: this environment does not permit binding sockets");
@@ -1215,8 +1215,12 @@ mod tests {
                 _ => continue,
             }
         }
+        // Probe with the same wildcard address the accept loop binds. Tokio sets
+        // SO_REUSEADDR, and on BSD-derived stacks that lets a specific address
+        // coexist with a wildcard bind — so probing 127.0.0.1 here would succeed
+        // even while the listener holds the port, and prove nothing.
         assert!(
-            tokio::net::TcpListener::bind(("127.0.0.1", port))
+            tokio::net::TcpListener::bind(("0.0.0.0", port))
                 .await
                 .is_err(),
             "the port must be held while the listener runs"
@@ -1253,7 +1257,7 @@ mod tests {
         // Bind may lag the abort by a scheduler tick; retry briefly.
         let mut rebound = false;
         for _ in 0..20 {
-            if tokio::net::TcpListener::bind(("127.0.0.1", port))
+            if tokio::net::TcpListener::bind(("0.0.0.0", port))
                 .await
                 .is_ok()
             {
