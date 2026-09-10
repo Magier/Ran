@@ -2145,6 +2145,11 @@ impl Campaign {
         let rules = default_rules();
         updates = run_rules_fixpoint(self, &rules, updates);
 
+        // Settle observed/created/updated while the campaign still reflects the
+        // state *before* this execution — `apply_facts` inserts, after which
+        // every entity looks like one we already knew.
+        updates.resolve_outcomes(|id| self.entities.contains_id(id));
+
         self.apply_facts(&updates);
         self.parse_audits.extend(parse_audits.clone());
 
@@ -2164,6 +2169,10 @@ impl Campaign {
                 id: entity.entity_id().to_string(),
                 name: entity.entity_name().to_string(),
                 kind: entity.entity_kind().to_string(),
+                outcome: updates.outcome_of(&entity.entity_id()),
+                // Effect facts are classified by kind; session attachment does
+                // not travel this path (it publishes its own FactsChanged).
+                category: crate::FactCategory::from_kind(entity.entity_kind()),
             })
             .collect();
         let (effective_success, effective_fail_reason) = if let Some(err_audit) = api_error {

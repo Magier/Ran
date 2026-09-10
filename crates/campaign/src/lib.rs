@@ -27,7 +27,9 @@ pub use execution_record::{ExecutionEntity, ExecutionRecord};
 pub use external_parser::{ExternalParseRequest, ExternalParseResponse, ExternalParser};
 pub use output_parsers::{credential_from_resolved, ParseAudit, ParseResult};
 pub use pending_view::PendingView;
-pub use provenance::{KnowledgeProvenance, KnowledgeProvenanceStore, RelationProvenanceKey};
+pub use provenance::{
+    FactCategory, FactOutcome, KnowledgeProvenance, KnowledgeProvenanceStore, RelationProvenanceKey,
+};
 pub use rules::{run_rules_fixpoint, InferenceRule};
 pub use runtime::{
     spawn_c2_event_processor, spawn_c2_event_processor_with_external_parser, CampaignEvent,

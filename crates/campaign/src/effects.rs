@@ -8,7 +8,7 @@ use ran_domain::{
 };
 
 use crate::grounding::resolve_template;
-use crate::{KnowledgeProvenance, RelationProvenanceKey};
+use crate::{FactOutcome, KnowledgeProvenance, RelationProvenanceKey};
 
 type SimpleEffectHandler = fn(&HashMap<String, String>) -> Result<FactsUpdate, String>;
 /// Handler for relation-style effects such as `rce.can-exec(src, tgt)`.
@@ -37,6 +37,12 @@ pub struct FactsUpdate {
     pub entity_aliases: IndexSet<(EntityId, EntityId)>,
     pub entity_provenance: HashMap<EntityId, BTreeSet<KnowledgeProvenance>>,
     pub relation_provenance: HashMap<RelationProvenanceKey, BTreeSet<KnowledgeProvenance>>,
+    /// What happened to each entity in `new_entities`.
+    ///
+    /// Producers only need to populate this when they *create* an entity, via
+    /// [`FactsUpdate::mark_created`]; [`FactsUpdate::resolve_outcomes`] fills in
+    /// the rest and has the final say.
+    pub entity_outcomes: HashMap<EntityId, FactOutcome>,
 }
 
 impl FactsUpdate {
@@ -47,6 +53,7 @@ impl FactsUpdate {
             entity_aliases,
             entity_provenance,
             relation_provenance,
+            entity_outcomes,
         } = other;
         // Build O(1)-lookup sets from existing entries so each item from `other`
         // is checked in O(1) rather than O(n), avoiding the previous O(n²) scan.
@@ -94,6 +101,52 @@ impl FactsUpdate {
                 .or_default()
                 .extend(origins);
         }
+        // Keep the strongest claim when two sources describe the same entity —
+        // a creation site knows something a generic parser does not.
+        for (id, outcome) in entity_outcomes {
+            let slot = self.entity_outcomes.entry(id).or_default();
+            *slot = (*slot).max(outcome);
+        }
+    }
+
+    /// Record that this update brings `id` into existence rather than revealing it.
+    ///
+    /// Call from effect parsers that model creation (deploying a pod, binding a
+    /// listener). The claim is provisional: [`FactsUpdate::resolve_outcomes`]
+    /// downgrades it to [`FactOutcome::Updated`] if the entity already existed,
+    /// which is what makes "ensure"-style effects report honestly.
+    pub fn mark_created(&mut self, id: EntityId) {
+        self.entity_outcomes.insert(id, FactOutcome::Created);
+    }
+
+    /// Decide the final outcome of every entity in this update.
+    ///
+    /// This is the one place that may label an entity a discovery, so a parser
+    /// that forgets to annotate cannot claim one by omission. `is_known` reports
+    /// whether the campaign held the entity *before* this update was applied, so
+    /// this must run before [`Campaign::apply_facts`].
+    ///
+    /// [`Campaign::apply_facts`]: crate::Campaign
+    pub fn resolve_outcomes(&mut self, is_known: impl Fn(&EntityId) -> bool) {
+        for entity in &self.new_entities {
+            let id = entity.entity_id();
+            let claimed = self.entity_outcomes.get(&id).copied().unwrap_or_default();
+            // Already in the graph? Then nothing was discovered and nothing was
+            // created, whatever the producer claimed — this run only refined it.
+            let resolved = if is_known(&id) {
+                FactOutcome::Updated
+            } else if claimed == FactOutcome::Created {
+                FactOutcome::Created
+            } else {
+                FactOutcome::Observed
+            };
+            self.entity_outcomes.insert(id, resolved);
+        }
+    }
+
+    /// The resolved outcome for an entity, defaulting to [`FactOutcome::Observed`].
+    pub fn outcome_of(&self, id: &EntityId) -> FactOutcome {
+        self.entity_outcomes.get(id).copied().unwrap_or_default()
     }
 
     pub fn attribute_unattributed(&mut self, provenance: KnowledgeProvenance) {
@@ -1042,6 +1095,85 @@ fn parse_bool_like(v: &str) -> bool {
         v.trim().to_ascii_lowercase().as_str(),
         "1" | "true" | "yes" | "running"
     )
+}
+
+#[cfg(test)]
+mod outcome_tests {
+    use super::*;
+    use ran_domain::{Namespace, Pod};
+
+    /// Nothing in the campaign yet, so nothing can have been known before.
+    fn nothing_known(_: &EntityId) -> bool {
+        false
+    }
+
+    fn update_with_pod() -> (FactsUpdate, EntityId) {
+        let pod = Pod::new("web", "default");
+        let id = pod.entity_id();
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(pod));
+        (update, id)
+    }
+
+    #[test]
+    fn unannotated_new_entity_is_observed() {
+        let (mut update, id) = update_with_pod();
+        update.resolve_outcomes(nothing_known);
+        assert_eq!(update.outcome_of(&id), FactOutcome::Observed);
+    }
+
+    #[test]
+    fn unannotated_known_entity_is_updated_not_discovered() {
+        // The carrier re-emit pattern: an existing entity pushed back into
+        // `new_entities` purely to ship a field change. It is not a discovery.
+        let (mut update, id) = update_with_pod();
+        update.resolve_outcomes(|_| true);
+        assert_eq!(update.outcome_of(&id), FactOutcome::Updated);
+    }
+
+    #[test]
+    fn creation_site_claim_survives_for_a_genuinely_new_entity() {
+        let (mut update, id) = update_with_pod();
+        update.mark_created(id.clone());
+        update.resolve_outcomes(nothing_known);
+        assert_eq!(update.outcome_of(&id), FactOutcome::Created);
+    }
+
+    #[test]
+    fn creation_claim_is_dropped_when_the_entity_already_existed() {
+        // "Ensure"-style effects (deploy-container's namespace) claim creation
+        // unconditionally; only `resolve_outcomes` knows whether it was real.
+        let namespace = Namespace::new("default".to_string());
+        let id = namespace.entity_id();
+        let mut update = FactsUpdate::default();
+        update.mark_created(id.clone());
+        update.new_entities.push(Box::new(namespace));
+
+        update.resolve_outcomes(|_| true);
+        assert_eq!(update.outcome_of(&id), FactOutcome::Updated);
+    }
+
+    #[test]
+    fn merge_keeps_the_creation_claim_over_a_bare_observation() {
+        let (mut base, id) = update_with_pod();
+        let mut incoming = FactsUpdate::default();
+        incoming
+            .entity_outcomes
+            .insert(id.clone(), FactOutcome::Observed);
+        base.mark_created(id.clone());
+
+        base.merge(incoming);
+        assert_eq!(base.entity_outcomes[&id], FactOutcome::Created);
+    }
+
+    #[test]
+    fn outcome_of_defaults_to_observed_for_an_unknown_id() {
+        let update = FactsUpdate::default();
+        assert_eq!(
+            update.outcome_of(&EntityId::new("ns/default/pod/absent")),
+            FactOutcome::Observed
+        );
+    }
 }
 
 #[cfg(test)]
