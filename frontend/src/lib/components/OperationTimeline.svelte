@@ -222,7 +222,7 @@
                     <!-- Action group header row -->
                     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
                     <div
-                        class="flex items-start gap-2 px-3 py-2 border-b border-surface-200-800 text-sm hover:bg-surface-200-800 cursor-pointer select-none"
+                        class="relative flex items-start gap-2 px-3 py-2 border-b border-surface-200-800 text-sm hover:bg-surface-200-800 cursor-pointer select-none"
 						role="button"
 						tabindex="0"
                         onclick={() => ontogglegroup(entry.action.id)}
@@ -231,18 +231,16 @@
 						}}
                         aria-expanded={!entry.collapsed}
                     >
-                        <!-- Chevron (far left) -->
-                        <div class="mt-0.5 shrink-0 text-surface-500">
-                            {#if entry.effects.length > 0}
-                                <Icon
-                                    icon={entry.collapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'}
-                                    class="size-4"
-                                    aria-hidden="true"
-                                />
-                            {:else}
-                                <div class="size-4"></div>
-                            {/if}
-                        </div>
+                        <!-- Chevron: sits in the left gutter rather than taking a
+                             column, so the status icon stays aligned with the icon
+                             of a standalone entity row. -->
+                        {#if entry.effects.length > 0}
+                            <Icon
+                                icon={entry.collapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'}
+                                class="absolute left-0 top-3 size-3 text-surface-500"
+                                aria-hidden="true"
+                            />
+                        {/if}
 
                         <!-- Status icon -->
                         <div class="mt-0.5 shrink-0">
@@ -325,7 +323,7 @@
                     <!-- Expanded child effect rows -->
                     {#if !entry.collapsed}
                         {#each entry.effects as effect (effect.id)}
-                            <div class="flex items-start gap-2 pl-8 pr-3 py-1.5 border-b border-surface-200-800 text-sm hover:bg-surface-200-800 border-l-2 border-l-surface-300-700 ml-3">
+                            <div class="flex items-start gap-2 ml-5 pl-3.5 pr-3 py-1.5 border-b border-surface-200-800 text-sm hover:bg-surface-200-800 border-l-2 border-l-surface-300-700">
                                 <div class="mt-0.5 shrink-0">
                                     <Icon icon={entityIcon(effect.kind)} class={entityIconClass(effect.kind)} aria-hidden="true" />
                                 </div>
