@@ -234,14 +234,6 @@ export function getGraphStyle(isDark: boolean = false) {
 			}
 		},
 		{
-			selector: 'node[kind="Listener"]',
-			style: {
-				shape: 'rectangle',
-				'background-opacity': 0,
-				'background-image': '/listener.svg',
-			}
-		},
-		{
 			selector: 'node[kind="System"]',
 			style: {
 				'background-image': '/system.svg',

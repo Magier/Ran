@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use ran_domain::{
     AppService, C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
     GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress,
-    K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Merge, Namespace, OperatorHost, Pod,
-    ReplicaSet, ServiceAccount, StatefulSet, UnknownSystem,
+    K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Listener, Merge, Namespace,
+    OperatorHost, Pod, ReplicaSet, ServiceAccount, StatefulSet, UnknownSystem,
 };
 use serde::de::MapAccess;
 use serde::ser::SerializeMap;
@@ -216,6 +216,13 @@ impl EntityStore {
         }
     }
 
+    /// Remove the entity of type `T` with `id`. Returns `true` when one was
+    /// there. The caller is responsible for the graph node (see
+    /// [`crate::Campaign::remove_entity`]).
+    pub fn remove_typed<T: EntityType>(&mut self, id: &EntityId) -> bool {
+        self.get_mut::<T>().remove(id).is_some()
+    }
+
     pub fn find<T: EntityType>(&self, id: &EntityId) -> Option<&T> {
         self.get::<T>().get(id)
     }
@@ -276,6 +283,7 @@ impl Default for EntityStore {
         s.register::<OperatorHost>("operator_hosts", |t| CampaignEntityRef::OperatorHost(t));
         s.register::<AppService>("app_services", |t| CampaignEntityRef::AppService(t));
         s.register::<C2Server>("c2_servers", |t| CampaignEntityRef::C2Server(t));
+        s.register::<Listener>("listeners", |t| CampaignEntityRef::Listener(t));
         s.register::<K8sCluster>("clusters", |t| CampaignEntityRef::Cluster(t));
         s.register::<K8sNode>("nodes", |t| CampaignEntityRef::Node(t));
         s.register::<Namespace>("namespaces", |t| CampaignEntityRef::Namespace(t));

@@ -3,8 +3,8 @@ use std::sync::{Arc, RwLock};
 use armory::Ttp;
 use c2::{C2Event, C2EventBus, SessionConnectedData};
 use ran_domain::{
-    AccessLevel, C2Server, Entity, EntityId, SessionChannel, SessionInfo, SessionStatus,
-    UnknownSystem,
+    AccessLevel, Entity, EntityId, HostsListener, Listener, SessionChannel, SessionInfo,
+    SessionStatus, UnknownSystem,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -351,7 +351,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         });
                     }
                 }
-                Ok(C2Event::ListenerStarted { port, protocol: _ }) => {
+                Ok(C2Event::ListenerStarted { port, protocol }) => {
                     let mut guard = match campaign.write() {
                         Ok(g) => g,
                         Err(_) => {
@@ -360,15 +360,38 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         }
                     };
                     let c2_id = EntityId::new(c2::BUILTIN_C2_ID);
-                    if let Some(c2) = guard.entities.find_mut::<C2Server>(&c2_id) {
-                        let entry = port.to_string();
-                        if !c2.listeners.contains(&entry) {
-                            c2.listeners.push(entry);
-                        }
-                    }
-                    info!(port, "listener started; c2.listeners updated");
+                    let listener = Listener::new(port, &protocol);
+                    let listener_id = listener.entity_id();
+                    let relation = HostsListener::new(c2_id.0.clone(), listener_id.0.clone());
+                    guard.insert_entity(&listener);
+                    guard.insert_relation(&relation);
+                    info!(port, %protocol, %listener_id, "listener started; listener entity created");
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                         cmd_id: format!("listener-{port}"),
+                        new_entities: vec![EntitySummary {
+                            id: listener_id,
+                            kind: listener.entity_kind().to_string(),
+                            name: listener.entry().to_string(),
+                        }],
+                        new_relations: vec![ran_domain::RelationSummary::from_relation(&relation)],
+                    });
+                }
+                Ok(C2Event::ListenerStopped { port }) => {
+                    let mut guard = match campaign.write() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            error!("campaign lock poisoned on ListenerStopped");
+                            continue;
+                        }
+                    };
+                    // The protocol is not on the event, so drop whichever listener
+                    // holds this port — a port can only be bound once.
+                    let removed = guard.remove_listeners_on_port(port);
+                    // Sessions caught through this listener are separate backends
+                    // and keep running; only the binding is gone.
+                    info!(port, removed, "listener stopped; listener entity removed");
+                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                        cmd_id: format!("listener-{port}-stopped"),
                         new_entities: vec![],
                         new_relations: vec![],
                     });

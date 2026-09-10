@@ -166,9 +166,13 @@ fn bootstrap_effect(entity_id: EntityId, entity_name: &str, entity_kind: &str) -
 pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalog) -> Graph {
     let entities = campaign.get_entities();
     let hosted_services = hosted_app_services(campaign);
+    let hosted_listeners = hosted_listeners(campaign);
+    // AppServices and Listeners are rendered on the entity that hosts them
+    // rather than as nodes of their own, so neither they nor their hosting
+    // relations reach the graph.
     let endpoint_ids: HashSet<String> = entities
         .iter()
-        .filter(|entity| entity.entity_kind() == "AppService")
+        .filter(|entity| matches!(entity.entity_kind(), "AppService" | "Listener"))
         .map(|entity| entity.entity_id().0)
         .collect();
     let namespace_ids: HashSet<String> = entities
@@ -236,7 +240,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
     let mut nodes = Vec::with_capacity(campaign.entity_count());
 
     for entity in entities {
-        if entity.entity_kind() == "AppService" {
+        if matches!(entity.entity_kind(), "AppService" | "Listener") {
             continue;
         }
         let id = entity.entity_id().0;
@@ -270,6 +274,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
         if let Some(ref mut payload) = entity_payload {
             prune_entity_payload_for_ui(entity.entity_kind(), payload, kubetier);
             attach_hosted_services(payload, &id, &hosted_services);
+            attach_hosted_listeners(payload, &id, &hosted_listeners);
         }
         nodes.push(GraphNode {
             id: id.clone(),
@@ -334,6 +339,63 @@ fn hosted_app_services(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
     hosted
 }
 
+/// Listener payloads keyed by the C2 that holds them, via `hosts-listener`.
+///
+/// Mirrors [`hosted_app_services`]: the entity is real campaign state, but the
+/// UI shows it on its host — here as a port badge on the C2 node.
+fn hosted_listeners(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
+    let mut listener_payloads = HashMap::new();
+    for entity in campaign.get_entities() {
+        let CampaignEntityRef::Listener(listener) = entity else {
+            continue;
+        };
+        let id = entity.entity_id().0;
+        let payload = HashMap::from([
+            ("id".to_string(), Value::String(id.clone())),
+            ("kind".to_string(), Value::String("Listener".to_string())),
+            (
+                "entry".to_string(),
+                Value::String(listener.entry().to_string()),
+            ),
+            (
+                "protocol".to_string(),
+                Value::String(listener.protocol.clone()),
+            ),
+            ("port".to_string(), Value::from(listener.port)),
+        ]);
+        listener_payloads.insert(id, Value::Object(payload.into_iter().collect()));
+    }
+
+    let mut hosted: HashMap<String, Vec<Value>> = HashMap::new();
+    for relation in campaign.get_relations() {
+        if relation.name != "hosts-listener" {
+            continue;
+        }
+        if let Some(payload) = listener_payloads.get(&relation.target_id) {
+            hosted
+                .entry(relation.source_id)
+                .or_default()
+                .push(payload.clone());
+        }
+    }
+    // Stable order so badges don't reshuffle between refreshes.
+    for listeners in hosted.values_mut() {
+        listeners.sort_by_key(|listener| listener["port"].as_u64());
+    }
+    hosted
+}
+
+fn attach_hosted_listeners(
+    payload: &mut HashMap<String, Value>,
+    entity_id: &str,
+    hosted_listeners: &HashMap<String, Vec<Value>>,
+) {
+    let Some(listeners) = hosted_listeners.get(entity_id) else {
+        return;
+    };
+    payload.insert("listeners".to_string(), Value::Array(listeners.clone()));
+}
+
 fn attach_hosted_services(
     payload: &mut HashMap<String, Value>,
     entity_id: &str,
@@ -363,6 +425,7 @@ pub(crate) fn serialize_campaign_entity_map(
         CampaignEntityRef::OperatorHost(e) => serialize_entity_map(e),
         CampaignEntityRef::AppService(e) => serialize_entity_map(e),
         CampaignEntityRef::C2Server(e) => serialize_entity_map(e),
+        CampaignEntityRef::Listener(e) => serialize_entity_map(e),
         CampaignEntityRef::Cluster(e) => serialize_entity_map(e),
         CampaignEntityRef::Node(e) => serialize_entity_map(e),
         CampaignEntityRef::Namespace(e) => serialize_entity_map(e),
@@ -639,7 +702,7 @@ mod tests {
     use campaign::{
         InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
     };
-    use ran_domain::{Entity, K8sCluster, K8sCredential, RbacPermission, ServiceAccount};
+    use ran_domain::{Entity, K8sCluster, K8sCredential, Listener, RbacPermission, ServiceAccount};
     use std::collections::BTreeSet;
 
     #[test]
@@ -670,6 +733,55 @@ mod tests {
         attach_hosted_services(&mut payload, "ns/default/pod/redis", &hosted);
         assert_eq!(payload.get("appServiceCount"), Some(&Value::from(1)));
         assert_eq!(payload.get("appServices"), Some(&Value::Array(services)));
+    }
+
+    #[test]
+    fn listeners_ride_on_their_c2_instead_of_becoming_nodes() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        let c2_id = campaign
+            .get_entities()
+            .iter()
+            .find(|e| e.entity_kind() == "C2")
+            .map(|e| e.entity_id())
+            .expect("bootstrap creates a C2");
+        let listener = Listener::new(4444, "tcp");
+        let listener_id = listener.entity_id();
+        campaign.entities.insert_typed(listener);
+        campaign.graph.insert_edge(
+            &c2_id,
+            &listener_id,
+            cortex::edge_data_for("hosts-listener", None, None),
+        );
+
+        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
+
+        assert!(
+            !graph.nodes.iter().any(|node| node.id == listener_id.0),
+            "a listener is drawn as a badge on its C2, not as a node"
+        );
+        assert!(
+            !graph
+                .edges
+                .iter()
+                .any(|edge| edge.target_id == listener_id.0),
+            "the hosts-listener relation must not become an edge either"
+        );
+
+        let c2_node = graph
+            .nodes
+            .iter()
+            .find(|node| node.id == c2_id.0)
+            .expect("the C2 is still a node");
+        let listeners = c2_node
+            .entity
+            .as_ref()
+            .and_then(|payload| payload.get("listeners"))
+            .and_then(Value::as_array)
+            .expect("the C2 payload carries its listeners");
+        assert_eq!(listeners.len(), 1);
+        assert_eq!(listeners[0]["id"], Value::from(listener_id.0.as_str()));
+        assert_eq!(listeners[0]["entry"], Value::from("tcp/4444"));
+        assert_eq!(listeners[0]["port"], Value::from(4444));
     }
 
     #[test]

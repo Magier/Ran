@@ -107,6 +107,22 @@ pub fn parse_output_effect(
         });
     }
 
+    if normalized.starts_with("c2.stop-listener(") {
+        // Symmetric to c2.listen: C2Event::ListenerStopped drops the port from
+        // the C2 entity, so there is nothing to parse out of the command output.
+        return Some(ParsedEffect {
+            updates: FactsUpdate::default(),
+            audit: build_audit(
+                effect_id,
+                cmd,
+                event,
+                ParseResult::Parsed,
+                "c2 listener deregistered via event bus",
+                0,
+            ),
+        });
+    }
+
     if normalized == "create k8s.pod"
         || normalized == "namespace($ns)"
         || normalized == "ns.contains($p2)"

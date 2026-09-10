@@ -36,6 +36,9 @@ macro_rules! structural_relation {
 
 structural_relation!(HostsService, "hosts-service");
 
+// A C2 holds a bound listener: C2 "Ran" → hosts-listener → Listener "tcp/4444".
+structural_relation!(HostsListener, "hosts-listener");
+
 // ---------------------------------------------------------------------------
 // Contains
 // ---------------------------------------------------------------------------
