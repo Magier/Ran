@@ -46,11 +46,11 @@ fn parse_network_discovery(
     parse_rdns_csv(data, stderr, args)
 }
 
-/// Parser for the `nmap` effect — network host discovery.
+/// Parser for the `nmap` effect - network host discovery.
 ///
 /// Accepts two output formats produced by nmap:
 ///
-/// **Greppable (`-oG`)** — lines starting with `Host:` where `Status: Up` or
+/// **Greppable (`-oG`)** - lines starting with `Host:` where `Status: Up` or
 /// a `Ports:` field is present:
 /// ```text
 /// Host: 10.0.0.5 ()           Status: Up
@@ -58,7 +58,7 @@ fn parse_network_discovery(
 /// Host: 10.0.0.7 ()           Status: Down
 /// ```
 ///
-/// **XML (`-oX`)** — detected by `<?xml` or `<nmaprun` prefix; parses `<host>`
+/// **XML (`-oX`)** - detected by `<?xml` or `<nmaprun` prefix; parses `<host>`
 /// elements with an `<address addrtype="ipv4">` child and optional
 /// `<hostname type="PTR">` child.
 ///
@@ -68,7 +68,7 @@ fn parse_network_discovery(
 /// (the scanning pod) to each placeholder.
 ///
 /// `source_id` is passed explicitly because the registry `ParserFn` type only
-/// carries `(stdout, stderr)` — the caller in `parse_output_effect` resolves
+/// carries `(stdout, stderr)` - the caller in `parse_output_effect` resolves
 /// it from `cmd.target_id`.
 pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> ParserOutput {
     if stdout.trim().is_empty() {
@@ -460,7 +460,7 @@ fn parse_nmap_xml(stdout: &str) -> Vec<NmapHostObservation> {
 
     // Split on `<host` to process one block per host.
     for block in stdout.split("<host") {
-        // Check if this host is up — either `<host state="up"` or a child
+        // Check if this host is up - either `<host state="up"` or a child
         // `<status state="up"` element.
         let host_up = element_tags(block, "status")
             .any(|tag| extract_attr(tag, "state").as_deref() == Some("up"));
@@ -591,7 +591,7 @@ fn extract_xml_attr(
     None
 }
 
-/// Parser for the `rdns` effect — reverse DNS lookup results.
+/// Parser for the `rdns` effect - reverse DNS lookup results.
 ///
 /// Expected stdout format (CSV with optional header):
 /// ```text
@@ -663,7 +663,7 @@ fn parse_rdns_csv(stdout: &str, _stderr: &str, _args: &HashMap<String, String>) 
             _ => continue,
         };
 
-        // Skip service VIPs — only pod entries have the IP as the first label.
+        // Skip service VIPs - only pod entries have the IP as the first label.
         let is_pod = dns_parts.first().is_some_and(|&l| l == ip_kebab);
         if !is_pod {
             continue;

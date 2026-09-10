@@ -61,12 +61,12 @@ fn entity_name(entity_id: &str) -> &str {
 /// Returns the matched entity IDs after applying the select strategy.
 ///
 /// Resolution precedence:
-///   1. `id`       — exact entity-id match (one result).
-///   2. `workload` — derive the controller's pod-name pattern and match by name.
-///   3. `name`     — name regex (wildcard mode).
-///   4. kind-only  — every entity of `kind` (+ namespace).
+///   1. `id`       - exact entity-id match (one result).
+///   2. `workload` - derive the controller's pod-name pattern and match by name.
+///   3. `name`     - name regex (wildcard mode).
+///   4. kind-only  - every entity of `kind` (+ namespace).
 ///
-/// select=None defaults to Random (returns one element — the first match).
+/// select=None defaults to Random (returns one element - the first match).
 pub fn resolve_target(query: &TargetQuery, entity_ids: &[String]) -> Vec<String> {
     // 1. Explicit id wins outright.
     if let Some(id) = query.id.as_deref() {
@@ -90,7 +90,7 @@ pub fn resolve_target(query: &TargetQuery, entity_ids: &[String]) -> Vec<String>
         }
         None => {
             // 3/4. Name regex, or kind-only (empty name → match any name).
-            // Kind defaults to "pod" when omitted — the overwhelmingly common case.
+            // Kind defaults to "pod" when omitted - the overwhelmingly common case.
             let kind = if query.kind.is_empty() {
                 "pod".to_string()
             } else {

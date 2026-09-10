@@ -348,7 +348,7 @@ fn hosted_app_services(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
 /// Listener payloads keyed by the C2 that holds them, via `hosts-listener`.
 ///
 /// Mirrors [`hosted_app_services`]: the entity is real campaign state, but the
-/// UI shows it on its host — here as a port badge on the C2 node.
+/// UI shows it on its host - here as a port badge on the C2 node.
 fn hosted_listeners(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
     let mut listener_payloads = HashMap::new();
     for entity in campaign.get_entities() {

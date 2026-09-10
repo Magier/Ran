@@ -123,7 +123,7 @@ impl C2Server {
 /// A listener bound by a C2: one port, one protocol, one lifecycle.
 ///
 /// This is an entity rather than a field on [`C2Server`] because actions target
-/// entities — modelling a listener as one is what lets "Stop Listener" apply to
+/// entities - modelling a listener as one is what lets "Stop Listener" apply to
 /// the listener the operator picked, while "Create Listener" applies to the C2.
 /// It is deliberately not drawn as its own graph node; the UI renders it as a
 /// badge on its C2, the same way an [`AppService`] appears on its host.
@@ -151,7 +151,7 @@ impl Listener {
         }
     }
 
-    /// Canonical `<protocol>/<port>` — the display name, what the operator reads
+    /// Canonical `<protocol>/<port>` - the display name, what the operator reads
     /// on the badge, and what a `Listener` TTP parameter carries.
     pub fn entry(&self) -> &str {
         &self.entry
@@ -806,7 +806,7 @@ impl Entity for ServiceAccount {
 
 /// A Kubernetes Secret discovered in the cluster.
 ///
-/// Only the key names of `.data` are stored — never the decoded values —
+/// Only the key names of `.data` are stored - never the decoded values -
 /// to avoid persisting credentials in campaign state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct K8sSecret {
@@ -2052,7 +2052,7 @@ impl Merge for Pod {
         if self.phase.is_none() {
             self.phase = incoming.phase;
         }
-        // is_running: true is a known positive state — if either side confirms
+        // is_running: true is a known positive state - if either side confirms
         // the pod is running, record it. Explicit `false` from incoming is only
         // meaningful when `self` is already known to be running; preserve that
         // signal only through the dedicated "pod stopped" code path.
@@ -2089,7 +2089,7 @@ impl Merge for ServiceAccount {
         if self.token.is_none() {
             self.token = incoming.token.clone();
         }
-        // entitlements: additive — union by equality
+        // entitlements: additive - union by equality
         for perm in &incoming.entitlements {
             if !self.entitlements.contains(perm) {
                 self.entitlements.push(perm.clone());

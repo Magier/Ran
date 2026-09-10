@@ -61,7 +61,7 @@ fn a_merged_away_system_id_resolves_to_the_surviving_pod() {
 }
 
 /// Aliases only ever cover ids that nothing answers to. An id that names a live
-/// entity is that entity, whatever the table says — otherwise a later, genuine
+/// entity is that entity, whatever the table says - otherwise a later, genuine
 /// `node/netshoot` would be shadowed by a reverse shell's old guess.
 #[test]
 fn an_alias_never_shadows_a_live_entity() {
@@ -172,8 +172,8 @@ fn bootstrap_without_local_credential_contains_c2_and_cluster_entities() {
             .with_server(Some("https://127.0.0.1:6443".to_string())),
     );
 
-    // The operator host always exists now — it is the target of the Read Local
-    // Kubeconfig TTP that establishes Ran's identity — so even without a local
+    // The operator host always exists now - it is the target of the Read Local
+    // Kubeconfig TTP that establishes Ran's identity - so even without a local
     // credential we have OperatorHost + C2 + cluster.
     assert_eq!(campaign.entity_count(), 3);
     let operator_host_id = EntityId::new("system/operator-host");
@@ -434,7 +434,7 @@ fn resolve_exec_channel_returns_builtin_for_kubelet_pod_exec_relation() {
 fn resolve_exec_channel_returns_via_compromised_intermediate() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
-    // Compromised pod (has exec foothold — C2 can reach it via k8s.can-exec)
+    // Compromised pod (has exec foothold - C2 can reach it via k8s.can-exec)
     let mut attacker = Pod::new("attacker", "default");
     attacker.system.access_level = AccessLevel::Exec;
     let attacker_id = attacker.entity_id().0.clone();
@@ -1462,7 +1462,7 @@ fn prepare_action_respects_caller_supplied_exec_system_id() {
     let pod = Pod::new("demo", "default");
     let target_id = pod.entity_id().0.clone();
     campaign.entities.insert_typed(pod);
-    // No exec relations — would normally error, but caller supplies explicit backend
+    // No exec relations - would normally error, but caller supplies explicit backend
 
     let armory = minimal_armory("test-ttp");
     let exec = campaign
@@ -2551,7 +2551,7 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
 }
 
 // ---------------------------------------------------------------------------
-// sys.node-name — placeholder node identity resolution tests
+// sys.node-name - placeholder node identity resolution tests
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -3058,13 +3058,13 @@ fn container_escape_placeholder_node_is_derived_when_pod_has_no_node_name() {
 fn src_mount_path_grounded_for_non_lateral_ttp() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
-    // The exec system (pivot) — has a can-exec path to the target.
+    // The exec system (pivot) - has a can-exec path to the target.
     let exec_pod = Pod::new("pivot", "default");
     let exec_id = exec_pod.entity_id().0.clone();
     campaign.entities.insert_typed(exec_pod);
     push_exec_edge(&mut campaign, "sa/default/ran", &exec_id);
 
-    // The target pod — this is where the command actually runs, so its
+    // The target pod - this is where the command actually runs, so its
     // host_paths are what ${SRC.MOUNT_PATH} should resolve to.
     let mut target = Pod::new("target", "kube-system");
     target.volume_mounts.push(ran_domain::Mount {
@@ -3114,7 +3114,7 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
 }
 
 // ---------------------------------------------------------------------------
-// prepare_action_with_ttp — direct pipeline invocation
+// prepare_action_with_ttp - direct pipeline invocation
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -3860,7 +3860,7 @@ fn an_env_derived_service_lives_under_the_cluster_until_its_namespace_is_known()
     campaign.apply_facts(&facts);
 
     // The placeholder is gone, and the service now hangs off its namespace
-    // only — not off the cluster as well.
+    // only - not off the cluster as well.
     assert!(campaign.entities.find::<K8sService>(&parked).is_none());
     assert!(campaign
         .graph
@@ -3881,7 +3881,7 @@ fn an_env_derived_service_lives_under_the_cluster_until_its_namespace_is_known()
 }
 
 /// The workshop shape: a socat reverse shell into a container, nothing else
-/// known. Reading its environment must produce a legible picture — a cluster,
+/// known. Reading its environment must produce a legible picture - a cluster,
 /// the pod we are standing in, and the service it can reach.
 #[test]
 fn reading_env_vars_from_a_foothold_draws_the_cluster_the_pod_and_its_service() {

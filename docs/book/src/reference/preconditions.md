@@ -18,7 +18,7 @@ The entity type the TTP targets. Must match the kind of the selected target enti
 | `ServiceAccount` | ServiceAccount entities |
 | `Node` | Node entities |
 | `Deployment` | Deployment entities |
-| `System` | No cluster entity — runs on the operator's machine |
+| `System` | No cluster entity - runs on the operator's machine |
 
 Omitting `kind` means the TTP is applicable to any entity type.
 
@@ -50,7 +50,7 @@ rbac:
 
 **Type:** string
 
-Requires the target entity to have `AccessLevel::Exec` — the ability to run
+Requires the target entity to have `AccessLevel::Exec` - the ability to run
 arbitrary commands on the entity.
 
 **Any of these values enforce the check:** `user-exec`, `user-read`, `user-write`,

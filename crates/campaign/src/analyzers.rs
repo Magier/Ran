@@ -460,7 +460,7 @@ impl InferenceRule for HostPathAnalyzer {
                 // Try to derive a node name from the host path:
                 // kubelet bind-mounts appear at paths like
                 // `/var/lib/kubelet/pods/<uid>/volumes/...` on the host.
-                // We cannot read the node name from this alone — use a
+                // We cannot read the node name from this alone - use a
                 // placeholder so the invariant logic can reconcile later.
                 let node_name = pod.node_name.as_deref().unwrap_or("?");
                 let node = K8sNode::new(node_name);
@@ -689,14 +689,14 @@ impl InferenceRule for KubeletMountAnalyzer {
 /// Set `system.access_level` to `Exec` on every system entity that receives
 /// an incoming exec-channel relation.
 ///
-/// Triggers on any relation that returns `true` for [`Relation::is_exec_channel`]
-/// — this covers `PodExec` (kubectl exec), `KubeletExecSink` (kubelet exec),
-/// `RceCanExec` (exploit), and any future exec-channel type without needing
-/// a name-based allowlist.
+/// Triggers on any relation that returns `true` for
+/// [`Relation::is_exec_channel`] - this covers `PodExec` (kubectl exec),
+/// `KubeletExecSink` (kubelet exec), `RceCanExec` (exploit), and any future
+/// exec-channel type without needing a name-based allowlist.
 ///
-/// The "take max" semantics are enforced automatically by `SystemInfo::merge_from`
-/// — we emit a cloned entity with `access_level = Exec` and the entity store
-/// merges it in, so already-`Exec` entities are unaffected.
+/// The "take max" semantics are enforced automatically by
+/// `SystemInfo::merge_from` - we emit a cloned entity with `access_level = Exec`
+/// and the entity store merges it in, so already-`Exec` entities are unaffected.
 ///
 /// This ensures that access level propagates to targets discovered through
 /// lateral-movement TTPs even before `sys.userid` output is available.
@@ -729,7 +729,7 @@ impl InferenceRule for CanExecAccessAnalyzer {
                     continue;
                 };
 
-            // Only emit if access_level is not already Exec — the merge takes
+            // Only emit if access_level is not already Exec - the merge takes
             // max, so this is a no-op for already-Exec entities, but skipping
             // avoids a needless clone.
             if current_level >= ran_domain::AccessLevel::Exec {
@@ -889,12 +889,12 @@ impl InferenceRule for WorkloadOwnershipAnalyzer {
 /// connected by a `runs-on` relation.
 ///
 /// Triggers on two events:
-/// 1. **New Pod with `host_ip` newly discovered** — fires only when the pod was
+/// 1. **New Pod with `host_ip` newly discovered** - fires only when the pod was
 ///    not previously in the campaign, or it was present but without `host_ip`.
 ///    Re-parsing a pod whose `host_ip` was already recorded is a no-op.  If a
 ///    `runs-on` edge exists in the campaign graph (or in the current update from
 ///    `PodNodeAnalyzer`), the IP is propagated to the target node immediately.
-/// 2. **New `runs-on` relation** — if the source pod (in campaign state or the
+/// 2. **New `runs-on` relation** - if the source pod (in campaign state or the
 ///    current update) already has `host_ip` set, the IP is propagated to the
 ///    target node.  This covers the case where the pod entity arrives first,
 ///    a `runs-on` edge is later wired (e.g. by `PodNodeAnalyzer`), and
@@ -1149,8 +1149,8 @@ impl InferenceRule for RoleBindingNamespaceAnalyzer {
 /// Generates a namespace-contains analyzer for a namespaced K8s resource type.
 ///
 /// Every namespaced resource must have a `Contains(namespace → resource)`
-/// relation in the graph.  The logic is identical across types — only the
-/// concrete type and struct name differ — so this macro eliminates the
+/// relation in the graph.  The logic is identical across types - only the
+/// concrete type and struct name differ - so this macro eliminates the
 /// boilerplate.
 macro_rules! ns_contains_analyzer {
     ($analyzer:ident, $entity_type:ty, $rule_name:literal) => {
@@ -1176,8 +1176,8 @@ macro_rules! ns_contains_analyzer {
                     // `UNKNOWN_NAMESPACE` is a parking slot, not a namespace.
                     // Materializing it would hang the object under a phantom
                     // `?` bubble. The object is still inside the cluster
-                    // though — that is what makes it a Kubernetes object at
-                    // all — so it attaches there until its namespace is known,
+                    // though - that is what makes it a Kubernetes object at
+                    // all - so it attaches there until its namespace is known,
                     // the same placement `PodNamespaceAnalyzer` gives a pod
                     // discovered without one.
                     if ns_name == UNKNOWN_NAMESPACE {
@@ -1219,7 +1219,7 @@ ns_contains_analyzer!(
 // ---------------------------------------------------------------------------
 
 /// For every new `K8sNode`, wire a `contains` relation from the campaign's
-/// cluster — nodes always belong to the cluster they were discovered in.
+/// cluster - nodes always belong to the cluster they were discovered in.
 pub struct NodeClusterAnalyzer;
 
 impl InferenceRule for NodeClusterAnalyzer {
@@ -1268,7 +1268,7 @@ impl InferenceRule for NodeClusterAnalyzer {
 ///    if the SA is not yet known).
 ///
 /// If the referenced role cannot be found in the campaign, no entitlements
-/// are emitted — this is not an error, the role may arrive later.
+/// are emitted - this is not an error, the role may arrive later.
 pub struct RoleBindingAnalyzer;
 
 impl InferenceRule for RoleBindingAnalyzer {
@@ -1298,7 +1298,7 @@ impl InferenceRule for RoleBindingAnalyzer {
                 find_role_permissions(campaign, update, &binding.role_ref);
 
             if role_perms.is_empty() {
-                // Role not found or has no permissions — skip silently.
+                // Role not found or has no permissions - skip silently.
                 continue;
             }
 
@@ -1380,11 +1380,11 @@ fn find_role_permissions(
 ///
 /// Two signals trigger the relation:
 ///
-/// 1. **Env var value match** — any env var whose value matches the email of a
+/// 1. **Env var value match** - any env var whose value matches the email of a
 ///    known `GCPServiceAccount` entity. This covers cases where the SA email is
 ///    injected directly (e.g. `CLOUDSDK_CORE_ACCOUNT=my-sa@proj.iam…`).
 ///
-/// 2. **`GOOGLE_APPLICATION_CREDENTIALS` key** — presence of this env var
+/// 2. **`GOOGLE_APPLICATION_CREDENTIALS` key** - presence of this env var
 ///    indicates a credential file is mounted, pointing to a GCP SA.  When a
 ///    GCP SA entity is known in the campaign, the pod is linked to the first
 ///    available one.  When no SA is yet known, the relation is deferred until
@@ -1512,7 +1512,7 @@ impl InferenceRule for IpBasedSystemMergeAnalyzer {
                     continue;
                 }
                 for &ip in &unknown.system.ips {
-                    // Skip the node IP — hostNetwork pods share it with the node.
+                    // Skip the node IP - hostNetwork pods share it with the node.
                     if pod.host_ip == Some(ip) {
                         continue;
                     }
@@ -1547,7 +1547,7 @@ impl InferenceRule for IpBasedSystemMergeAnalyzer {
                     continue;
                 }
                 for &ip in &existing.system.ips {
-                    // Guard: skip IPs that are the new pod's node IP — a hostNetwork
+                    // Guard: skip IPs that are the new pod's node IP - a hostNetwork
                     // pod shares its node IP but is distinct from the K8sNode.
                     if pod.host_ip == Some(ip) && !pod.system.ips.contains(&ip) {
                         continue;
@@ -1869,7 +1869,7 @@ struct EnvTarget {
 /// 2. **`KUBERNETES_SERVICE_HOST` is a Service VIP, not a pod address.** The
 ///    legacy version invented a `kube-system/api-server` Pod holding that IP.
 ///    It is in fact the ClusterIP of the `kubernetes` Service in `default`,
-///    realized by kube-proxy/eBPF DNAT — no pod owns it, and attributing it to
+///    realized by kube-proxy/eBPF DNAT - no pod owns it, and attributing it to
 ///    one would let `IpBasedSystemMergeAnalyzer` merge an unrelated system into
 ///    the phantom pod.
 ///
@@ -1879,7 +1879,7 @@ struct EnvTarget {
 ///   `can-reach(system → service)`: an API-server endpoint this target can talk
 ///   to, which holds whatever kind of system it turns out to be;
 /// * a `K8sCluster`, when the campaign knows of none and the master service
-///   proves one exists. Namespaces — and so the Services below — cannot exist
+///   proves one exists. Namespaces - and so the Services below - cannot exist
 ///   outside a cluster, so the black-box case has to produce one. It is
 ///   identified by the API-server VIP the variables carry;
 /// * `K8sCluster.server`, when exactly one cluster is known and its address is
@@ -1887,14 +1887,14 @@ struct EnvTarget {
 /// * `contains(cluster → system)` for an `UnknownSystem` carrying the injected
 ///   master-service variables. Kubelet injects them, so the system is running
 ///   inside the cluster. The one exception is a host where they were exported
-///   by hand — bastions and CI runners do this so client-go's
-///   `InClusterConfig()` works from outside — which makes this a strong signal
+///   by hand - bastions and CI runners do this so client-go's
+///   `InClusterConfig()` works from outside - which makes this a strong signal
 ///   rather than a certainty; the `can-reach` edge above is the part that
 ///   always holds.
 /// * one Service per `<NAME>_SERVICE_HOST` group, plus `can-reach`. Service
 ///   links are namespace-local, so a linked service belongs to the observing
-///   target's namespace. When that namespace is unknown — a node, an
-///   `UnknownSystem`, or a pod discovered without one — the service is still
+///   target's namespace. When that namespace is unknown - a node, an
+///   `UnknownSystem`, or a pod discovered without one - the service is still
 ///   recorded, under the `"?"` placeholder namespace: the ClusterIP, ports and
 ///   reachability are real facts worth keeping, and only their placement is
 ///   pending. `EnvServicePlacementAnalyzer` folds the placeholder into the real
@@ -1962,8 +1962,8 @@ impl InferenceRule for KubeEnvVarAnalyzer {
 
         // A Namespace cannot exist outside a cluster, and neither can the
         // Services about to be derived here. When the campaign knows of no
-        // cluster at all — a black-box start from a single reverse shell, say
-        // — the master service is the evidence that one exists, so it is
+        // cluster at all - a black-box start from a single reverse shell, say
+        // - the master service is the evidence that one exists, so it is
         // created here and everything below hangs off it.
         //
         // It is identified by the API-server VIP, the only distinguishing fact
@@ -1998,7 +1998,7 @@ impl InferenceRule for KubeEnvVarAnalyzer {
                 // The master service always lives in `default`; linked services
                 // always live in the observing target's namespace. When that is
                 // unknown the service is parked under the `"?"` placeholder
-                // rather than dropped — see `EnvServicePlacementAnalyzer`.
+                // rather than dropped - see `EnvServicePlacementAnalyzer`.
                 let service_namespace = if env_service.is_master_service() {
                     crate::kube_env::MASTER_SERVICE_NAMESPACE.to_string()
                 } else {
@@ -2114,7 +2114,7 @@ fn placed_service_at_ip<'a>(
 /// Place a Service that [`KubeEnvVarAnalyzer`] parked under [`UNKNOWN_NAMESPACE`].
 ///
 /// Kubelet's service-link variables carry a Service's name, ClusterIP and
-/// ports but not its namespace — that is implied by the observing container's
+/// ports but not its namespace - that is implied by the observing container's
 /// own namespace, which is often not known at the time. The service is
 /// recorded anyway, under `"?"`, and this rule retires that placeholder once
 /// the same Service turns up somewhere real.
@@ -2183,8 +2183,8 @@ impl InferenceRule for EnvServicePlacementAnalyzer {
 ///
 /// This is a deliberate leap. What the evidence strictly supports is what
 /// [`KubeEnvVarAnalyzer`] already emits: the system can reach the API server
-/// and is running inside the cluster. It does not prove the system is a *pod*
-/// — the same variables can be exported by hand on a bastion or a CI runner so
+/// and is running inside the cluster. It does not prove the system is a *pod* -
+/// the same variables can be exported by hand on a bastion or a CI runner so
 /// that client-go's `InClusterConfig()` works from outside, and a shell on a
 /// node sees them too if someone sourced them.
 ///
@@ -2322,7 +2322,7 @@ mod tests {
         Campaign::bootstrap("ran", K8sCluster::new("test-cluster"))
     }
 
-    /// A campaign started without a target cluster — the black-box case, where
+    /// A campaign started without a target cluster - the black-box case, where
     /// the operator has nothing but a foothold.
     fn clusterless_campaign() -> Campaign {
         Campaign::bootstrap_with_knowledge("ran", crate::campaign::InitialKnowledge::default())
@@ -2370,7 +2370,7 @@ mod tests {
             .iter()
             .find(|r| r.is::<Contains>() && r.target_id().0 == pod.entity_id().0);
         assert!(rel.is_some(), "expected contains relation for pod");
-        // namespace was already known – should not be duplicated in new_entities
+        // namespace was already known - should not be duplicated in new_entities
         assert!(
             update
                 .new_entities
@@ -2864,7 +2864,7 @@ mod tests {
     #[test]
     fn can_exec_access_ignores_non_system_entity_targets() {
         let campaign = Campaign::bootstrap("ran", K8sCluster::new("test"));
-        // Namespace is not a system entity — target ID doesn't resolve.
+        // Namespace is not a system entity - target ID doesn't resolve.
         let mut update = FactsUpdate::default();
         update.new_relations.push(Box::new(PodExec::new(
             "ns/default/pod/attacker",
@@ -3314,7 +3314,7 @@ mod tests {
     #[test]
     fn no_update_on_reparsed_pod_when_host_ip_was_already_known() {
         use std::net::IpAddr;
-        // Pod already in campaign with host_ip — a re-parse must not re-trigger.
+        // Pod already in campaign with host_ip - a re-parse must not re-trigger.
         let mut campaign = test_campaign();
 
         let host_ip: IpAddr = "10.0.0.2".parse().unwrap();
@@ -3991,7 +3991,7 @@ mod tests {
             make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/volumes/kubernetes.io~projected/kube-api-access-28sp8"),
             // Pod 430772bd: only a generic SA token
             make_mount("/var/lib/kubelet/pods/430772bd-a94b-40c0-a21e-075a62ff46cc/volumes/kubernetes.io~projected/kube-api-access-z7h85"),
-            // Unrelated mount — should be ignored
+            // Unrelated mount - should be ignored
             make_mount("/proc/sys/fs/binfmt_misc"),
         ];
 
@@ -4077,7 +4077,7 @@ mod tests {
             make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/volumes"),
             // Non-UUID pod segment
             make_mount("/var/lib/kubelet/pods/not-a-uuid/volumes/kubernetes.io~projected/kube-api-access-abc"),
-            // containers/ path — should be silently skipped, not warned about
+            // containers/ path - should be silently skipped, not warned about
             make_mount("/var/lib/kubelet/pods/84cc979b-9ad8-4418-8b97-24a959833ce7/containers/some-container/etc-hosts"),
         ];
 
@@ -4324,7 +4324,7 @@ mod tests {
     #[test]
     fn a_node_target_parks_its_linked_services() {
         // A node has no namespace, so a namespace-local service link cannot be
-        // attributed to one — but the ClusterIP is still real, so it is parked
+        // attributed to one - but the ClusterIP is still real, so it is parked
         // under `"?"` rather than guessed at or discarded.
         let mut campaign = test_campaign();
         let mut node = K8sNode::new("node-1");
@@ -4435,8 +4435,8 @@ mod tests {
     #[test]
     fn an_unknown_system_parks_its_linked_services_in_the_placeholder_namespace() {
         // A container reached by reverse shell is an `UnknownSystem` with no
-        // namespace at all. Its service links are still real facts — a
-        // ClusterIP, a port and proof of reachability — so they are recorded
+        // namespace at all. Its service links are still real facts - a
+        // ClusterIP, a port and proof of reachability - so they are recorded
         // under `"?"` rather than dropped. The master service is unaffected
         // because it lives in `default` by definition.
         let mut campaign = test_campaign();

@@ -385,7 +385,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         }
                     };
                     // The protocol is not on the event, so drop whichever listener
-                    // holds this port — a port can only be bound once.
+                    // holds this port - a port can only be bound once.
                     let removed = guard.remove_listeners_on_port(port);
                     // Sessions caught through this listener are separate backends
                     // and keep running; only the binding is gone.
@@ -533,7 +533,7 @@ fn record_session_path(campaign: &mut Campaign, establishing_cmd_id: &str, backe
 ///
 /// `target_entity_id` is whatever the C2 believed it was connecting to. For a
 /// reverse shell that is derived from the probed hostname and usually names no
-/// entity at all, so an `UnknownSystem` is created for it — and the C2's id is
+/// entity at all, so an `UnknownSystem` is created for it - and the C2's id is
 /// recorded as an alias of that system, so a later reconnect or status change
 /// still keyed by the C2's id lands on the right entity even after an analyzer
 /// has merged that system into the Pod it turned out to be.
@@ -589,7 +589,7 @@ fn attach_connected_session(
         return resolved_id;
     }
 
-    // Nothing answers to that id — a shell from a host we have never seen.
+    // Nothing answers to that id - a shell from a host we have never seen.
     // Create a system for it, named after the hostname it reported.
     let mut sys = UnknownSystem::new(hostname.to_lowercase());
     sys.system.os = if os.is_empty() {
@@ -672,7 +672,7 @@ fn update_session_status(
             _ => {}
         }
     } else if status == SessionStatus::Active {
-        // First time we hear about this session — the shell connected without a
+        // First time we hear about this session - the shell connected without a
         // prior listener TTP (e.g. a manually triggered reverse shell).
         let session_id = backend_id
             .strip_prefix("session/")
@@ -693,7 +693,7 @@ mod tests {
 
     use super::*;
 
-    /// The variables kubelet injects into every container it starts — enough of
+    /// The variables kubelet injects into every container it starts - enough of
     /// them for `InClusterPodAnalyzer` to promote the system carrying them.
     fn kubelet_env() -> Vec<(String, String)> {
         [

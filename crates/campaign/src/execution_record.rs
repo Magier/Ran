@@ -14,7 +14,7 @@ pub struct ExecutionEntity {
     pub kind: String,
 }
 
-/// A single recorded execution — the grounded command, its arguments, and the
+/// A single recorded execution - the grounded command, its arguments, and the
 /// raw results returned by the C2 backend.  This forms the append-only audit
 /// trail for a campaign session.
 #[derive(Debug, Clone, Serialize, Deserialize)]

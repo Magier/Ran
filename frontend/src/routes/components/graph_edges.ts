@@ -4,7 +4,7 @@ import type cytoscape from 'cytoscape';
  * Class applied to original edges that we hide when consolidating a collapsed
  * compound node's edges into a single meta-edge. It marks them as "hidden by
  * collapse" so other visibility passes (e.g. hideRedundantInformationalEdges)
- * leave them alone instead of re-showing them — mirroring the role the
+ * leave them alone instead of re-showing them - mirroring the role the
  * 'namespace-filtered' class plays for the namespace filter.
  */
 export const COLLAPSED_EDGE_CLASS = 'collapsed-consolidated';

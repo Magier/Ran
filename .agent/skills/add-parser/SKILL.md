@@ -3,11 +3,11 @@ name: add-parser
 description: >
   Implement a new output parser in the Ran codebase that transforms raw TTP execution results
   into domain facts. Use this skill whenever the user provides a TTP YAML path, execution
-  arguments, and raw output — and wants the output parsed into the campaign graph. Also trigger
+  arguments, and raw output - and wants the output parsed into the campaign graph. Also trigger
   when the user says things like "add a parser for X", "this TTP output isn't being parsed",
   "write a parser for [effect]", "the facts aren't being extracted", or pastes TTP output and
   asks what can be learned from it. Even if the user just mentions a TTP name and says the
-  results aren't being recorded — that's this skill.
+  results aren't being recorded - that's this skill.
 ---
 
 # Add Output Parser
@@ -18,16 +18,16 @@ facts discovered by a TTP execution are written into the campaign graph.
 ## What you receive
 
 The user gives you:
-- **TTP path** — the `.yaml` file in `armory/TTPs/`
-- **Runtime args** — the parameter values that were substituted at execution time
-- **Results** — the raw strings produced by the TTP (`results[0]` = stdout, `results[1]` = stderr, further indices for multi-output procedures)
+- **TTP path** - the `.yaml` file in `armory/TTPs/`
+- **Runtime args** - the parameter values that were substituted at execution time
+- **Results** - the raw strings produced by the TTP (`results[0]` = stdout, `results[1]` = stderr, further indices for multi-output procedures)
 
 Read the TTP YAML before doing anything else. It tells you the command, what domain the output
-belongs to, and — critically — whether `effects` is already defined.
+belongs to, and - critically - whether `effects` is already defined.
 
 ## Two starting paths
 
-### Path A — effects already defined
+### Path A - effects already defined
 
 The TTP YAML has an `effects` list with one or more strings like `["k8s.nodeList"]`.
 Each string names an output parser to implement. A single TTP may declare multiple effects;
@@ -35,7 +35,7 @@ handle all of them in one session.
 
 Jump straight to **Implementing the Parser**.
 
-### Path B — no effects defined
+### Path B - no effects defined
 
 The TTP has an empty `effects` list or the key is absent/commented-out.
 
@@ -48,8 +48,8 @@ The TTP has an empty `effects` list or the key is absent/commented-out.
 5. Once approved, update the YAML and proceed to **Implementing the Parser**.
 
 **Effect naming convention:** `domain.thing` in lowercase.
-- `sys.*` — facts about the runtime system: `sys.envvar`, `sys.ip`, `sys.user`, `sys.process`, `sys.mount`
-- `k8s.*` — Kubernetes resource facts: `k8s.podList`, `k8s.nodeList`, `k8s.secretList`, `k8s.serviceAccountList`, `k8s.roleList`
+- `sys.*` - facts about the runtime system: `sys.envvar`, `sys.ip`, `sys.user`, `sys.process`, `sys.mount`
+- `k8s.*` - Kubernetes resource facts: `k8s.podList`, `k8s.nodeList`, `k8s.secretList`, `k8s.serviceAccountList`, `k8s.roleList`
 - Use plural (`List`) when the output is a collection of resources; use singular when it is one item.
 
 ## Domain model checkpoint
@@ -68,14 +68,14 @@ and go through the output field by field:
 
 If every fact maps cleanly: proceed to **Implementing the Parser**.
 
-If something doesn't fit — a fact the output reveals that has no home in the
-current domain model — **stop here**. Tell the user:
+If something doesn't fit - a fact the output reveals that has no home in the
+current domain model - **stop here**. Tell the user:
 
 > "The output contains [X], which can't be represented in the current domain
 > model. The existing entity types and SystemInfo fields don't cover this.
 > Implementing this parser would require extending the domain model first
 > (adding a field, a new entity type, or a new relation). This is outside the
-> scope of this skill — would you like to handle that separately before
+> scope of this skill - would you like to handle that separately before
 > continuing?"
 
 Do not improvise a workaround (squashing unknown facts into the wrong field,
@@ -169,7 +169,7 @@ let items = root["items"].as_array().cloned().unwrap_or_default();
 
 Prefer extracting fields by string key (`.get("name")`) rather than defining a full deserialization type, unless the structure is complex enough to warrant it.
 
-**Writing facts — read `references/domain_types.md`** for the full list of entities, their constructors, and available SystemInfo fields before choosing what to write.
+**Writing facts - read `references/domain_types.md`** for the full list of entities, their constructors, and available SystemInfo fields before choosing what to write.
 
 ### 2. Register the parser
 
@@ -205,7 +205,7 @@ Every parser needs **at least three tests**:
 
 | # | What to test | Hint |
 |---|---|---|
-| 1 | Happy path — fixture with realistic output → `ParseResult::Parsed`, correct facts written | Use the actual output the user gave you as the fixture |
+| 1 | Happy path - fixture with realistic output → `ParseResult::Parsed`, correct facts written | Use the actual output the user gave you as the fixture |
 | 2 | Missing or empty stdout → `ParseResult::KnownFailure` | Pass `vec![]` or `vec!["".to_string()]` |
 | 3 | Malformed/unexpected output → `ParseResult::UnknownFormat` | Pass garbage or wrong-format string |
 
@@ -234,4 +234,4 @@ Fix any compilation errors before presenting the result to the user.
 
 ## Reference files
 
-- `references/domain_types.md` — entity types, constructors, SystemInfo fields, FactsUpdate
+- `references/domain_types.md` - entity types, constructors, SystemInfo fields, FactsUpdate

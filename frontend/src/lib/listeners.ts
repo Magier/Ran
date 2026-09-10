@@ -4,7 +4,7 @@ import type { Node } from '$lib/api/index';
  * A C2 listener, as carried on the C2 graph node's `listeners` payload.
  *
  * Listeners are real entities (`kind: Listener`) that the graph folds into their
- * host's payload rather than drawing as nodes — the same treatment AppServices
+ * host's payload rather than drawing as nodes - the same treatment AppServices
  * get. `id` is the entity id, so clicking a badge can select the listener and
  * scope the armory to the actions that target it.
  */

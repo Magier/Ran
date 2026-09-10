@@ -2,7 +2,7 @@
 
 Ran is an adversary emulation platform for Kubernetes clusters. It lets security
 practitioners and AI agents execute realistic, multi-step attack sequences against
-their own infrastructure — following the same paths a real attacker would take,
+their own infrastructure - following the same paths a real attacker would take,
 not just firing isolated commands.
 
 ## Why adversary emulation?
@@ -11,7 +11,7 @@ A common security cliché:
 
 > *An attacker only has to be right once, but a defender has to be right every time.*
 
-This holds for Initial Access — but the dynamic shifts after that. Post-compromise,
+This holds for Initial Access - but the dynamic shifts after that. Post-compromise,
 defenders have full environmental visibility while the attacker must explore. Ran
 turns that advantage into something actionable: by replaying how an adversary
 discovers and pivots through your environment, you surface detection gaps that
@@ -37,7 +37,7 @@ Only run it against clusters you own or have explicit written authorisation to t
 
 | Term | Meaning |
 |---|---|
-| **TTP** | Tactic, Technique, and Procedure — one discrete adversary action from [Mitre ATT&CK](https://attack.mitre.org/) framework |
+| **TTP** | Tactic, Technique, and Procedure - one discrete adversary action from [Mitre ATT&CK](https://attack.mitre.org/) framework |
 | **Tactic** | The adversary's goal (e.g. *Discovery*, *Privilege Escalation*) |
 | **Technique** | The method used to achieve the tactic |
 | **Procedure** | The concrete implementation to achieve the technique |

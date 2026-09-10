@@ -9,7 +9,7 @@
 
 ## Replace `RelationSummary` with typed trait objects (Option 2)
 
-**Context:** `Campaign.relations` stores `Vec<RelationSummary>` — a plain serialisable struct with
+**Context:** `Campaign.relations` stores `Vec<RelationSummary>` - a plain serialisable struct with
 only `name`, `source_id`, `target_id`, and `is_exec_channel`. The concrete relation type is
 erased at insertion time (`RelationSummary::from_relation`).
 
@@ -26,7 +26,7 @@ information that fits in the three-field summary.
 - Add `dyn_clone` and derive `Clone` on each concrete type; a blanket impl gives
   `Box<dyn Relation>: Clone`.
 - Change `Campaign.relations` from `Vec<RelationSummary>` to `Vec<Box<dyn Relation>>`.
-- `C2Channel` then works purely as a marker trait — `is_exec_channel()` dispatches
+- `C2Channel` then works purely as a marker trait - `is_exec_channel()` dispatches
   polymorphically with no stored flag and no sync risk.
 - Delete `RelationSummary` entirely.
 
@@ -38,7 +38,7 @@ information that fits in the three-field summary.
 - Medium-sized refactor; touching `campaign`, `api`, and all tests that push relations directly.
 
 **Current state:** `is_exec_channel: bool` on `RelationSummary` bridges the gap. The `C2Channel`
-marker trait in `domain/relation.rs` is already the authoritative list — adding a new exec-channel
+marker trait in `domain/relation.rs` is already the authoritative list - adding a new exec-channel
 relation is `impl C2Channel for MyType {}` plus `fn is_exec_channel(&self) -> bool { true }` in
 its `Relation` impl.
 

@@ -15,7 +15,7 @@ pub struct ExecuteActionRequest {
     pub procedure_id: Option<String>,
     pub args: HashMap<String, String>,
     /// Free-text rationale for choosing this action at this point in the
-    /// assessment — why this TTP against this target now. Captured for the
+    /// assessment - why this TTP against this target now. Captured for the
     /// audit trail; carried through to the [`ExecutionRecord`]. Optional, but
     /// strongly encouraged when driving the campaign programmatically (API /
     /// MCP) so the resulting timeline is self-explaining.
@@ -49,7 +49,7 @@ pub enum ExecuteActionError {
     /// No viable execution channel was found in the knowledge graph for the target.
     NoExecChannel(String),
     /// An internal invariant was violated. Indicates a programming error, not a
-    /// user-facing condition — surfaces as a 500 rather than panicking.
+    /// user-facing condition - surfaces as a 500 rather than panicking.
     InvariantViolation(String),
 }
 
@@ -61,9 +61,9 @@ pub struct ExecChannel {
     /// Ordered list of intermediate pod entity IDs to kubectl-exec through,
     /// from the C2 side outward.
     ///
-    /// - `[]` — direct path; the C2 can reach the exec target without any hop.
-    /// - `[p1]` — one hop: C2 execs into p1, p1 runs the command on the target.
-    /// - `[p1, p2, p3]` — three hops: C2 → p1 → p2 → p3 → target, each step
+    /// - `[]` - direct path; the C2 can reach the exec target without any hop.
+    /// - `[p1]` - one hop: C2 execs into p1, p1 runs the command on the target.
+    /// - `[p1, p2, p3]` - three hops: C2 → p1 → p2 → p3 → target, each step
     ///   via a nested `kubectl exec`.
     ///
     /// The first hop is the pod entity ID that `BuiltinC2` will directly exec
@@ -99,7 +99,7 @@ impl ExecChannel {
 pub struct TtpExecutionProcessing {
     pub updates: FactsUpdate,
     pub parse_audits: Vec<ParseAudit>,
-    /// Effective success flag — may differ from `TtpExecuted.success` when a
+    /// Effective success flag - may differ from `TtpExecuted.success` when a
     /// parser detected a semantic failure in an otherwise successful transport
     /// response (e.g. a Kubernetes API 403 Forbidden inside an HTTP 200 body).
     pub effective_success: bool,

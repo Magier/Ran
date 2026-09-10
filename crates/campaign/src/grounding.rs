@@ -2,23 +2,23 @@
 //!
 //! Grounding resolves template variables in TTP commands and effect strings:
 //!
-//! 1. **Context resolution** ([`ground_args_from_context`]) — fills special
+//! 1. **Context resolution** ([`ground_args_from_context`]) - fills special
 //!    parameter names (NS, POD_NAME, NODE, RANDOM) from the campaign's
 //!    knowledge of the target entity.
 //!
-//! 2. **Entity-reference property expansion** ([`ground_entity_ref_vars`]) —
+//! 2. **Entity-reference property expansion** ([`ground_entity_ref_vars`]) -
 //!    expands `${REF.PROP}` placeholders (e.g. `${SRC.MOUNT_PATH}`) using the
 //!    entity whose ID is stored in the corresponding arg (`SRC`, `TARGET_ID`).
 //!    Must run after `SRC` is injected (Stage 4 of the execution pipeline).
 //!
-//! 3. **Tera template rendering** ([`resolve_template`]) — evaluates
+//! 3. **Tera template rendering** ([`resolve_template`]) - evaluates
 //!    `{% if VAR %}...{% else %}...{% endif %}` blocks and `{{ VAR }}`
 //!    substitutions that appear in procedure commands.
 //!
 //! 4. **`${KEY}` substitution** (already in [`crate::effects::ground_template`])
-//!    — replaces `${KEY}` with the corresponding arg value.
+//!    - replaces `${KEY}` with the corresponding arg value.
 //!
-//! 5. **Ungrounded variable detection** ([`detect_ungrounded_vars`]) — scans
+//! 5. **Ungrounded variable detection** ([`detect_ungrounded_vars`]) - scans
 //!    the final command for any `${…}` patterns that were not resolved, so
 //!    callers can log a warning.
 
@@ -344,7 +344,7 @@ fn expand_entity_props(value: &mut String, ref_name: &str, entity_id: &str, camp
             }
             remaining = &after_prefix[end + 1..];
         } else {
-            // Malformed placeholder — keep as-is.
+            // Malformed placeholder - keep as-is.
             result.push_str(&prefix);
             remaining = after_prefix;
         }
@@ -415,7 +415,7 @@ fn resolve_mount_path(pod: &Pod) -> Option<String> {
 /// `{% if VAR %}` evaluates correctly for flag parameters.
 ///
 /// Undefined variables silently render as empty / evaluate as false.
-/// `${KEY}` dollar-placeholders are **not** processed here — they pass
+/// `${KEY}` dollar-placeholders are **not** processed here - they pass
 /// through unchanged and are substituted in the second grounding pass
 /// in [`crate::effects::ground_template`].
 pub fn resolve_template(template: &str, args: &HashMap<String, String>) -> String {
@@ -496,7 +496,7 @@ fn collect_tera_var_refs(template: &str) -> Vec<String> {
     while i < len {
         if i + 1 < len && s[i] == b'{' {
             if s[i + 1] == b'{' {
-                // {{ ... }} — variable output tag
+                // {{ ... }} - variable output tag
                 let start = i + 2;
                 if let Some(rel) = template[start..].find("}}") {
                     let inner = template[start..start + rel].trim();
@@ -511,7 +511,7 @@ fn collect_tera_var_refs(template: &str) -> Vec<String> {
                     continue;
                 }
             } else if s[i + 1] == b'%' {
-                // {% ... %} — control tag
+                // {% ... %} - control tag
                 let start = i + 2;
                 if let Some(rel) = template[start..].find("%}") {
                     let inner = template[start..start + rel].trim();
@@ -543,7 +543,7 @@ fn collect_tera_var_refs(template: &str) -> Vec<String> {
 
 /// Return the names of any `${VAR}` placeholders still present in `cmd`.
 ///
-/// Call this after all grounding passes and log a warning for each entry —
+/// Call this after all grounding passes and log a warning for each entry -
 /// an ungrounded variable usually means a missing required argument.
 pub fn detect_ungrounded_vars(cmd: &str) -> Vec<String> {
     let mut vars = Vec::new();
@@ -1108,7 +1108,7 @@ mod tests {
 
         let mut args = HashMap::from([("CMD".to_string(), "${SRC.MOUNT_PATH}/etc".to_string())]);
         ground_entity_ref_vars(&mut args, &campaign);
-        // SRC not injected yet — placeholder must survive
+        // SRC not injected yet - placeholder must survive
         assert_eq!(args["CMD"], "${SRC.MOUNT_PATH}/etc");
     }
 }

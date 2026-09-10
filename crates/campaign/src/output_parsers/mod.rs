@@ -71,7 +71,7 @@ fn get_registry() -> &'static HashMap<&'static str, ParserFn> {
         iam::register(&mut m);
         network::register(&mut m);
         gcp::register(&mut m);
-        // file module has no registry entries — file:content and file:kubeconfig
+        // file module has no registry entries - file:content and file:kubeconfig
         // are dispatched specially in parse_output_effect.
         m
     })
@@ -162,7 +162,7 @@ pub fn parse_output_effect(
                 let is_output =
                     inner.eq_ignore_ascii_case("${output}") || inner.eq_ignore_ascii_case("output");
                 if !is_output {
-                    "" // literal path — proceed without stdout
+                    "" // literal path - proceed without stdout
                 } else {
                     return Some(ParsedEffect {
                         updates: FactsUpdate::default(),
@@ -367,7 +367,7 @@ fn parse_sys_node_name(campaign: &Campaign, cmd: &ExecTtp, stdout: &str) -> Pars
     }
     if name.contains('\n') || name.contains('/') || name.contains(' ') {
         return ParserOutput::UnknownFormat(format!(
-            "sys.node-name: unexpected format {:?} — expected a single hostname",
+            "sys.node-name: unexpected format {:?} - expected a single hostname",
             name
         ));
     }
@@ -377,7 +377,7 @@ fn parse_sys_node_name(campaign: &Campaign, cmd: &ExecTtp, stdout: &str) -> Pars
     // Find the stale placeholder node, if any, to alias it to the real ID.
     let target_eid = EntityId::new(&cmd.target_id);
     let stale_node_id: Option<EntityId> = if cmd.target_id.starts_with("node/") {
-        // The semantic target is already a node — alias it if it's not already real.
+        // The semantic target is already a node - alias it if it's not already real.
         if target_eid != real_node_id {
             Some(target_eid)
         } else {
@@ -449,17 +449,17 @@ pub fn build_parse_audit(
 /// System-level facts (binary presence, env vars, IPs, mounts, …) are facts
 /// about the machine that **executed** the command, not the logical target.
 /// For lateral movement, the last element of `exec_chain` is the source pod
-/// (where the command runs) and `target_id` is the victim/destination — so we
+/// (where the command runs) and `target_id` is the victim/destination - so we
 /// prefer the physical execution target (last in chain) when it resolves to a
 /// known system entity.
 ///
 /// Priority:
-/// 1. `exec_chain` (last → first) — the actual execution host(s); last element
+/// 1. `exec_chain` (last → first) - the actual execution host(s); last element
 ///    for lateral movement and for actions routed through a hop chain.
-/// 2. `target_id` — used for direct (non-lateral) execution where the target
+/// 2. `target_id` - used for direct (non-lateral) execution where the target
 ///    IS the execution host.
 fn resolve_target_id(campaign: &Campaign, cmd: &ExecTtp) -> Option<String> {
-    // Prefer the physical execution target (last in chain) — for lateral movement
+    // Prefer the physical execution target (last in chain) - for lateral movement
     // this is the source pod, for direct exec it's the target pod.
     let exec_target = cmd.exec_target();
     if !exec_target.is_empty() && campaign.get_system_entity(exec_target).is_some() {
@@ -580,7 +580,7 @@ fn parse_deploy_container_effect(normalized: &str, cmd: &ExecTtp) -> ParserOutpu
     } else if normalized == "ns.contains($p2)" {
         parse_deploy_contains(cmd)
     } else {
-        // created(creator:$p1, target:$p2) — informational; the graph already
+        // created(creator:$p1, target:$p2) - informational; the graph already
         // links the attacker entity via the command record.
         ParserOutput::SuccessWithFacts(
             FactsUpdate::default(),
@@ -1030,14 +1030,14 @@ mod tests {
     #[test]
     fn parse_output_effect_has_binary_literal_path_no_stdout_still_parses() {
         // Regression: sys.has-binary(/tmp/ran-ws) with empty results should NOT produce
-        // KnownFailure("missing stdout payload") — the path is in the effect ID itself.
+        // KnownFailure("missing stdout payload") - the path is in the effect ID itself.
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let pod = Pod::new("demo", "default");
         campaign.entities.insert_typed(pod);
 
         let mut cmd = sample_cmd();
         cmd.ttp.effects = vec!["sys.has-binary(/tmp/ran-ws)".to_string()];
-        // No stdout at all — empty results vec
+        // No stdout at all - empty results vec
         let event = sample_event(vec![]);
 
         let parsed =

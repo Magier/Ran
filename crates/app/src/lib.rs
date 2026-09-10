@@ -28,7 +28,7 @@ use k8s::{kubeconfig_path_or_err, resolve_kubeconfig, Client, ResolvedKubeconfig
 use ran_domain::{Entity, K8sCluster, K8sCredential, Pod, RelationSummary};
 
 // ---------------------------------------------------------------------------
-// AppState — the ApiService implementation
+// AppState - the ApiService implementation
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
@@ -44,7 +44,7 @@ pub struct AppState {
     c2: C2Handle,
     armory: Armory,
     namespace_filter: NamespaceFilter,
-    /// Live scoring profile — mutable at runtime via the tuning API.
+    /// Live scoring profile - mutable at runtime via the tuning API.
     scoring_profile: Arc<RwLock<utility_ai::Profile>>,
     /// Configured base profile (from ran.yaml), used by reset.
     scoring_base: utility_ai::Profile,
@@ -184,7 +184,7 @@ impl AppState {
     }
 
     /// Build, dispatch, and await cleanup actions for everything executed so far
-    /// (TTPs that declare a `cleanup` procedure — e.g. deleting created pods).
+    /// (TTPs that declare a `cleanup` procedure - e.g. deleting created pods).
     /// Shared by `reset_campaign` and the launch-time plan runner. Waits up to
     /// 30s for the cleanup results to be recorded, then returns.
     pub(crate) async fn run_cleanup(&self) -> Result<(), ApiError> {
@@ -207,7 +207,7 @@ impl AppState {
 
         info!(count = cleanup_ids.len(), "dispatching cleanup actions");
 
-        // Cleanup ExecTtps are intentionally not registered in open_steps —
+        // Cleanup ExecTtps are intentionally not registered in open_steps -
         // we track completion by polling execution_records instead.
         for exec in cleanup_actions {
             if let Err(e) = self.c2.send(exec).await {
@@ -273,12 +273,12 @@ impl ApiService for AppState {
     ) -> Result<Vec<K8sResource>, ApiError> {
         // A --namespace flag on the CLI scopes the listing to one namespace and
         // bypasses the config filter (it acts as an implicit whitelist of one).
-        // Treat an empty string the same as absent — don't bypass the filter.
+        // Treat an empty string the same as absent - don't bypass the filter.
         let scope_ns = params.namespace.as_deref().filter(|ns| !ns.is_empty());
 
         let Some(k8s) = self.k8s.as_ref() else {
             return Err(ApiError::internal(
-                "no active Kubernetes client — pod discovery unavailable until a working kubeconfig is loaded",
+                "no active Kubernetes client - pod discovery unavailable until a working kubeconfig is loaded",
             ));
         };
         let pods = k8s
@@ -453,7 +453,7 @@ impl ApiService for AppState {
             };
             // Capture the decision under the operator's *actual* pre-action
             // conditions (zero reconstruction) for calibration. `prepare_action`
-            // only grounded the command — no effects applied yet — so this is the
+            // only grounded the command - no effects applied yet - so this is the
             // exact state the choice was made in.
             let captured = self
                 .scoring_enabled
@@ -575,7 +575,7 @@ impl ApiService for AppState {
                 // unmet graph predicate) terminates instead of hanging forever.
                 // Also watch for Ctrl-C: axum's graceful shutdown waits for SSE
                 // connections to drain, so the runtime may not drop this task
-                // promptly — we need to observe the signal ourselves.
+                // promptly - we need to observe the signal ourselves.
                 let next = loop {
                     tokio::select! {
                         _ = tokio::signal::ctrl_c() => {
@@ -648,7 +648,7 @@ impl ApiService for AppState {
                         )
                     }
                     None => {
-                        // An action may genuinely still be running — keep waiting.
+                        // An action may genuinely still be running - keep waiting.
                         // Otherwise the plan is stalled: drive the unresolvable
                         // steps terminal so it can complete.
                         if executor.lock().unwrap().has_in_flight() {
@@ -776,7 +776,7 @@ impl ApiService for AppState {
 
     async fn list_plans(&self) -> Result<Vec<serde_json::Value>, ApiError> {
         // Recursively collect candidate YAML files. A missing plans directory is
-        // not an error — just an empty list.
+        // not an error - just an empty list.
         let mut files = Vec::new();
         match collect_yaml_files(&self.plans_dir, &mut files) {
             Ok(()) => {}
@@ -868,7 +868,7 @@ impl ApiService for AppState {
 }
 
 // ---------------------------------------------------------------------------
-// ScriptParserRunner — external parser backed by executable scripts
+// ScriptParserRunner - external parser backed by executable scripts
 // ---------------------------------------------------------------------------
 
 /// Looks for scripts in `{parsers_dir}/{effect_name}.{ext}` and executes them
@@ -1226,7 +1226,7 @@ fn local_hostname() -> Option<String> {
 /// by the `K8sCredential` entity id the output parser derives for that context
 /// (`campaign::credential_from_resolved`). This lets "Authenticate As" a
 /// non-current context actually authenticate as that identity. Contexts whose
-/// client cannot be constructed (e.g. exec/auth-provider plugins) are skipped —
+/// client cannot be constructed (e.g. exec/auth-provider plugins) are skipped -
 /// they remain visible as knowledge but are not switchable.
 async fn build_k8s_client_registry(
     kubeconfig_path: &std::path::Path,
@@ -1511,7 +1511,7 @@ pub struct ServerConfig {
     /// Path to the config file, used to locate the scoring sidecar
     /// (`ran.scoring.yaml`). Defaults to `ran.yaml` when `None`.
     pub config_path: Option<PathBuf>,
-    /// Optional plan YAML to execute automatically once the server is up — an
+    /// Optional plan YAML to execute automatically once the server is up - an
     /// alternative to `POST /api/plans`. When the plan finishes, the operator is
     /// offered cleanup (or it runs automatically if `auto_cleanup` is set), and
     /// the server shuts down after cleanup completes.
@@ -1770,7 +1770,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     };
 
     // Clone the state for the launch-time plan runner before the router takes
-    // ownership of it. Cheap — AppState is a bundle of Arcs.
+    // ownership of it. Cheap - AppState is a bundle of Arcs.
     let orchestrator_state = state.clone();
 
     let addr = SocketAddr::new(cfg.host, cfg.port);
@@ -1822,7 +1822,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     // is not enough: it stops accepting new connections but waits for *all* open
     // ones (including long-lived SSE streams) to drain before returning, so the
     // process would hang indefinitely when the browser is still connected. By
-    // selecting directly, we drop the server — and close every connection — the
+    // selecting directly, we drop the server - and close every connection - the
     // moment the signal fires.
     tokio::select! {
         result = axum::serve(listener, app) => { result?; }
@@ -1866,7 +1866,7 @@ async fn wait_for_discovery(state: &AppState) {
 
 /// Seed campaign Pod entities for the root steps of a plan (steps with no
 /// `depends_on`). Only pods in the step's declared namespace whose names match
-/// the step's target pattern are inserted — everything else stays undiscovered
+/// the step's target pattern are inserted - everything else stays undiscovered
 /// so the emulation can find it organically.
 /// Recursively collect files with a `.yaml`/`.yml` extension under `dir`,
 /// appending their absolute paths to `out`. Symlinked directories are not
@@ -1938,7 +1938,7 @@ async fn seed_initial_access_targets(state: &AppState, plan: &planner::PlanDefin
 
     for (step_id, ns, pattern) in root_targets {
         // Build a fake entity-id list from cluster pods and use the planner's
-        // resolver to match names — avoids a direct `regex` dep in this crate.
+        // resolver to match names - avoids a direct `regex` dep in this crate.
         let Some(k8s) = state.k8s.as_ref() else {
             warn!(step_id = %step_id, namespace = %ns,
                 "no active Kubernetes client; skipping initial target seed");
@@ -2143,7 +2143,7 @@ fn load_armory(armory_dir: Option<PathBuf>) -> Result<(Armory, Option<PathBuf>)>
 }
 
 // ---------------------------------------------------------------------------
-// Trigger — atomic one-shot execution mode
+// Trigger - atomic one-shot execution mode
 // ---------------------------------------------------------------------------
 
 /// Configuration for a single atomic TTP execution (`ran trigger`).
@@ -2326,7 +2326,7 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
     }
 
     println!("\n--- Discovered Facts ---");
-    // Filter out the seeded pod itself — it was already known.
+    // Filter out the seeded pod itself - it was already known.
     let discovered_entities: Vec<_> = new_entities.iter().filter(|e| e.id != pod_id).collect();
     println!("Entities ({}):", discovered_entities.len());
     for e in &discovered_entities {

@@ -32,13 +32,13 @@ a `tactic:` field, that takes precedence over the directory name.
 Most attack simulation libraries are collections of raw commands. The Ran armory
 goes further:
 
-- **Preconditions** — each TTP declares what access, RBAC permissions, or discovered
+- **Preconditions** - each TTP declares what access, RBAC permissions, or discovered
   entities must already exist before it can run. Ran uses these to surface only the
   techniques that are actually applicable to your current situation.
-- **Effects** — each TTP declares what it discovers or establishes. After a technique
+- **Effects** - each TTP declares what it discovers or establishes. After a technique
   runs, its effects update a live knowledge graph of the cluster, automatically
   unlocking follow-on techniques that depend on that new knowledge.
-- **Multiple procedures** — a single TTP can offer several equivalent implementations
+- **Multiple procedures** - a single TTP can offer several equivalent implementations
   (e.g. `kubectl` and a raw `curl` against the API server) so you can choose the
   one that fits your access.
 

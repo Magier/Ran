@@ -449,7 +449,7 @@ export function getGraphStyle(isDark: boolean = false) {
 		{
 			// A broken exec-channel edge: the session that backed it died, so it is
 			// no longer traversable. Kept in the graph for possible recovery but
-			// visually degraded — dashed and in a distinct warning color — with its
+			// visually degraded - dashed and in a distinct warning color - with its
 			// label always shown so the break is legible at a glance.
 			selector: 'edge[?broken]',
 			style: {

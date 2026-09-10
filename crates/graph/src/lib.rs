@@ -1,4 +1,4 @@
-//! **cortex** — knowledge graph for the Ran campaign engine.
+//! **cortex** - knowledge graph for the Ran campaign engine.
 //!
 //! Backed by `petgraph::StableGraph`, this crate provides a directed multigraph
 //! of [`EntityId`] nodes and [`EdgeData`] edges with weighted shortest-path

@@ -116,7 +116,7 @@ steps:
       name: "jump-.*"
       select: random
 
-  # Exec into nginx — waits for net_discovery to have populated the graph
+  # Exec into nginx - waits for net_discovery to have populated the graph
   # (stays Pending until a Pod matching nginx-.* appears in the campaign)
   - id: exec_nginx
     action: k8s.exec-into-pod
@@ -133,7 +133,7 @@ steps:
       - step: net_discovery
         require: success
 
-  # Check capabilities — hard dep on exec succeeding
+  # Check capabilities - hard dep on exec succeeding
   - id: check_caps
     action: container.check-capabilities
     target:
@@ -145,7 +145,7 @@ steps:
       - step: exec_nginx
         require: success
 
-  # Escape — hard dep on check_caps AND graph condition on exec_nginx's target
+  # Escape - hard dep on check_caps AND graph condition on exec_nginx's target
   - id: escape
     action: container.escape-to-host
     target:
@@ -158,7 +158,7 @@ steps:
         require: success
       - graph: "step:exec_nginx has:rce.can-exec"
 
-  # Post-enum join — waits for both enum steps (soft deps)
+  # Post-enum join - waits for both enum steps (soft deps)
   - id: post_enum
     action: reporting.summarize
     target:
@@ -199,7 +199,7 @@ Step targets are resolved against the campaign `EntityStore` at the moment a ste
 
 ## Online Dispatch Loop
 
-The planner is **online** — it re-evaluates all pending steps after every step completes and after the campaign graph updates.
+The planner is **online** - it re-evaluates all pending steps after every step completes and after the campaign graph updates.
 
 ```
 on plan start:
@@ -235,10 +235,10 @@ New crate: **`crates/planner/`**, depending on `crates/campaign` and `crates/arm
 ```
 crates/planner/
   src/
-    model.rs      — PlanDefinition, TargetQuery, StepDefinition, Dependency, SelectStrategy
-    resolver.rs   — regex resolution against campaign EntityStore
-    executor.rs   — PlanExecutor, dispatch loop, retry logic
-    state.rs      — PlanExecutionState, StepStatus
+    model.rs      - PlanDefinition, TargetQuery, StepDefinition, Dependency, SelectStrategy
+    resolver.rs   - regex resolution against campaign EntityStore
+    executor.rs   - PlanExecutor, dispatch loop, retry logic
+    state.rs      - PlanExecutionState, StepStatus
 ```
 
 ### Key types
@@ -292,8 +292,8 @@ pub enum StepStatus {
 
 ### API integration
 
-- `POST /campaigns/{id}/plans` — submit a plan YAML/JSON body, returns a plan execution ID
-- `GET /campaigns/{id}/plans/{plan_id}` — returns current `PlanExecutionState`
+- `POST /campaigns/{id}/plans` - submit a plan YAML/JSON body, returns a plan execution ID
+- `GET /campaigns/{id}/plans/{plan_id}` - returns current `PlanExecutionState`
 - Events streamed on the existing `CampaignEvent` bus as `CampaignEvent::PlanStepDispatched`, `PlanStepCompleted`, `PlanStepSkipped`
 - MCP tool: `execute_plan` (parallel to the existing `execute_action` tool)
 
@@ -315,11 +315,11 @@ The exporter reads the campaign's `execution_records` in order and produces a pl
 
 ### What gets exported
 
-By default, only **successful** steps (`success: true`) are included. Pass `include_failed=true` to also export failed attempts — useful for emulation replay and detection engineering (generating telemetry for both successful and failed techniques).
+By default, only **successful** steps (`success: true`) are included. Pass `include_failed=true` to also export failed attempts - useful for emulation replay and detection engineering (generating telemetry for both successful and failed techniques).
 
 **Failed steps are never on the critical path.** When included, they:
 - Depend on the same preceding successful step as their nearest successful successor (same execution context)
-- Are not depended on by any other step — plan flow is never gated on them
+- Are not depended on by any other step - plan flow is never gated on them
 - Carry a `note: "recorded: failed"` metadata field so the operator knows these are expected to fail in replay
 
 This means failed steps run as side branches off the success chain, producing telemetry without blocking the emulation.
@@ -329,7 +329,7 @@ steps:
   - id: step_0_exec_into_pod        # succeeded
     ...
 
-  - id: step_1_attempt_privesc      # failed — included with include_failed=true
+  - id: step_1_attempt_privesc      # failed - included with include_failed=true
     action: container.exploit-cve-xyz
     target: ...
     note: "recorded: failed"
@@ -338,7 +338,7 @@ steps:
         require: success
     # nothing depends on this step
 
-  - id: step_2_check_capabilities   # succeeded — not blocked by step_1
+  - id: step_2_check_capabilities   # succeeded - not blocked by step_1
     ...
     depends_on:
       - step: step_0_exec_into_pod
@@ -353,7 +353,7 @@ Each exported step depends on the previous exported step with `require: success`
 steps:
   - id: step_0_exec_into_pod
     ...
-    # no depends_on — first step
+    # no depends_on - first step
 
   - id: step_1_check_capabilities
     ...
@@ -382,16 +382,16 @@ Entity IDs are converted to `TargetQuery` patterns automatically:
 | ServiceAccount | `sa/default/nginx` | `kind: ServiceAccount, namespace: default, name: "nginx"` (stable) |
 
 **Fuzzification heuristic for pods:** strip trailing segments that match k8s-generated suffixes:
-- `-[a-z0-9]{5}` — pod hash (Deployment)
-- `-[a-z0-9]{10}` — ReplicaSet hash
-- `-[0-9]+` — StatefulSet ordinal
+- `-[a-z0-9]{5}` - pod hash (Deployment)
+- `-[a-z0-9]{10}` - ReplicaSet hash
+- `-[0-9]+` - StatefulSet ordinal
 - Any combination of the above
 
 The inferred pattern is shown to the operator in the API response alongside the original entity ID so it can be reviewed before saving.
 
 ### Precondition export
 
-Each TTP's `requires` block is translated into `depends_on.graph` entries on the step. These are exported as **best-effort starting conditions** for the operator to refine — they capture what was true at the time of the recording.
+Each TTP's `requires` block is translated into `depends_on.graph` entries on the step. These are exported as **best-effort starting conditions** for the operator to refine - they capture what was true at the time of the recording.
 
 | TTP `requires` field | Exported as |
 |---|---|
@@ -400,7 +400,7 @@ Each TTP's `requires` block is translated into `depends_on.graph` entries on the
 | `exists: ["Listener"]` | `graph: "step:<prev> has:listener.active"` |
 | `has-token: true` | `graph: "step:<prev> has:sa.has-token"` |
 
-`<prev>` is the immediately preceding step in the success chain — the step whose execution established the condition.
+`<prev>` is the immediately preceding step in the success chain - the step whose execution established the condition.
 
 Example exported step with preconditions:
 
@@ -439,4 +439,4 @@ Example exported step with preconditions:
 
 ## Open Questions
 
-None — all design decisions resolved during brainstorming.
+None - all design decisions resolved during brainstorming.

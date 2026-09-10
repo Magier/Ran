@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement a `crates/planner/` crate that executes fuzzy attack plans — YAML documents that resolve targets by regex against the live campaign graph, chain steps via success conditions, support fan-out (`select: all`) and procedure retry, and export manual emulation sessions as reusable plans.
+**Goal:** Implement a `crates/planner/` crate that executes fuzzy attack plans - YAML documents that resolve targets by regex against the live campaign graph, chain steps via success conditions, support fan-out (`select: all`) and procedure retry, and export manual emulation sessions as reusable plans.
 
 **Architecture:** Pure-Rust `planner` crate (no async) exposes `PlanExecutor` with synchronous `tick(&Campaign)` and `on_ttp_executed()` methods. The `app` crate wraps these in a Tokio background task per active plan, dispatching via `ApiService::execute_action` and subscribing to `CampaignEvent::TtpExecuted` for progress. The `Campaign` struct gets two small helper methods for the planner's benefit.
 
@@ -23,11 +23,11 @@
 - `crates/planner/src/exporter.rs`
 
 **Modified files:**
-- `crates/campaign/src/campaign/state.rs` — add `all_entity_ids()` and `entity_has_relation()`
-- `crates/campaign/src/runtime.rs` — add plan event variants to `CampaignEvent`
-- `crates/api/src/lib.rs` (or wherever `ApiService` trait lives) — add `execute_plan`, `get_plan_status`, `export_plan` methods + routes
-- `crates/app/src/lib.rs` — implement new trait methods, add plan executor storage
-- `crates/app/Cargo.toml` — add `planner` dependency
+- `crates/campaign/src/campaign/state.rs` - add `all_entity_ids()` and `entity_has_relation()`
+- `crates/campaign/src/runtime.rs` - add plan event variants to `CampaignEvent`
+- `crates/api/src/lib.rs` (or wherever `ApiService` trait lives) - add `execute_plan`, `get_plan_status`, `export_plan` methods + routes
+- `crates/app/src/lib.rs` - implement new trait methods, add plan executor storage
+- `crates/app/Cargo.toml` - add `planner` dependency
 
 ---
 
@@ -78,7 +78,7 @@ pub use model::PlanDefinition;
 cargo check -p planner
 ```
 
-Expected: compiles (modules are empty stubs at this point — add `pub mod X {}` in each file to satisfy the `pub mod` declarations, then fill in Task by Task).
+Expected: compiles (modules are empty stubs at this point - add `pub mod X {}` in each file to satisfy the `pub mod` declarations, then fill in Task by Task).
 
 - [ ] **Step 4: Create stub files so lib.rs compiles**
 
@@ -276,7 +276,7 @@ pub enum Dependency {
     },
 }
 
-// Parsed form of a Graph dependency — use ParsedGraphDep::parse() at validation time
+// Parsed form of a Graph dependency - use ParsedGraphDep::parse() at validation time
 #[derive(Debug, Clone)]
 pub struct ParsedGraphDep {
     pub step_ref: String,
@@ -512,7 +512,7 @@ pub fn resolve_target(query: &TargetQuery, entity_ids: &[String]) -> Vec<String>
         Some(SelectStrategy::Random) | None => {
             // Use deterministic-ish selection (index by entity count mod len) in tests;
             // real runtime uses rand or picks index 0 for simplicity.
-            // For correctness, just return the first element — callers that want
+            // For correctness, just return the first element - callers that want
             // true randomness can shuffle the input slice.
             vec![matches.into_iter().next().unwrap()]
         }
@@ -831,7 +831,7 @@ pub fn all_entity_ids(&self) -> Vec<String> {
 /// Returns true if the given entity has at least one outgoing edge with `relation`
 /// in the knowledge graph.
 pub fn entity_has_relation(&self, entity_id: &str, relation: &str) -> bool {
-    // EntityId is the newtype used by cortex/ran-domain — use whichever import
+    // EntityId is the newtype used by cortex/ran-domain - use whichever import
     // is already present in this file.
     let eid = EntityId(entity_id.to_string());
     !self.graph.targets_of(&eid, relation).is_empty()
@@ -857,7 +857,7 @@ git commit -m "feat(campaign): add all_entity_ids and entity_has_relation helper
 
 ---
 
-## Task 6: Executor — DAG validation and core structure
+## Task 6: Executor - DAG validation and core structure
 
 **Files:**
 - Modify: `crates/planner/src/executor.rs`
@@ -1014,7 +1014,7 @@ fn validate_plan(plan: &PlanDefinition) -> Result<(), PlanError> {
                 Dependency::Graph { graph: raw } => {
                     let parsed = ParsedGraphDep::parse(raw).ok_or_else(|| {
                         PlanError::Validation(format!(
-                            "invalid graph predicate '{}' on step '{}' — expected: \"step:<id> has:<relation>\"",
+                            "invalid graph predicate '{}' on step '{}' - expected: \"step:<id> has:<relation>\"",
                             raw, step.id
                         ))
                     })?;
@@ -1090,7 +1090,7 @@ git commit -m "feat(planner): executor DAG validation (unknown refs, cycles, bad
 
 ---
 
-## Task 7: Executor — tick and dependency evaluation
+## Task 7: Executor - tick and dependency evaluation
 
 **Files:**
 - Modify: `crates/planner/src/executor.rs`
@@ -1213,7 +1213,7 @@ Expected: compile errors on `tick_inner`.
 Add to `impl PlanExecutor` in `executor.rs`:
 
 ```rust
-    /// Testable inner tick — takes resolved entity IDs and a graph predicate function.
+    /// Testable inner tick - takes resolved entity IDs and a graph predicate function.
     pub fn tick_inner(
         &mut self,
         entity_ids: &[String],
@@ -1267,7 +1267,7 @@ Add to `impl PlanExecutor` in `executor.rs`:
         dispatches
     }
 
-    /// Public tick — takes a Campaign reference. Call this from the API layer.
+    /// Public tick - takes a Campaign reference. Call this from the API layer.
     pub fn tick(&mut self, campaign: &Campaign) -> Vec<PlanDispatch> {
         let entity_ids = campaign.all_entity_ids();
         self.tick_inner(&entity_ids, |eid, rel| campaign.entity_has_relation(eid, rel))
@@ -1342,7 +1342,7 @@ git commit -m "feat(planner): executor tick with dependency evaluation and entit
 
 ---
 
-## Task 8: Executor — skip propagation and fan-out
+## Task 8: Executor - skip propagation and fan-out
 
 **Files:**
 - Modify: `crates/planner/src/executor.rs`
@@ -1428,7 +1428,7 @@ Expected: compile error on `on_ttp_executed_inner`.
 Add to `impl PlanExecutor`:
 
 ```rust
-    /// Inner handler for a completed execution — takes success flag and optional retry info.
+    /// Inner handler for a completed execution - takes success flag and optional retry info.
     /// Returns plan events to publish. Call tick() afterward to dispatch newly-unblocked steps.
     pub fn on_ttp_executed_inner(
         &mut self,
@@ -1459,7 +1459,7 @@ Add to `impl PlanExecutor`:
                 *attempt += 1;
                 let next = self.retry_procedure_id_with_armory(&step.action, *attempt, armory.unwrap());
                 if next.is_some() {
-                    // Still procedures left — queue retry
+                    // Still procedures left - queue retry
                     self.state.mark_pending_retry(&step_id, *attempt, next.clone());
                     events.push(PlanEvent::StepDispatched {
                         step_id: step_id.clone(),
@@ -1467,7 +1467,7 @@ Add to `impl PlanExecutor`:
                     });
                     return events; // tick() will handle re-dispatch
                 }
-                // No more procedures — fall through to failed/skip propagation
+                // No more procedures - fall through to failed/skip propagation
                 events.push(PlanEvent::StepFailed {
                     step_id: step_id.clone(),
                     reason: "all procedures exhausted".into(),
@@ -1490,7 +1490,7 @@ Add to `impl PlanExecutor`:
         events
     }
 
-    /// Public on_ttp_executed — takes a Campaign (for context) and Armory (for retry).
+    /// Public on_ttp_executed - takes a Campaign (for context) and Armory (for retry).
     pub fn on_ttp_executed(
         &mut self,
         cmd_id: &str,
@@ -1572,7 +1572,7 @@ git commit -m "feat(planner): skip propagation, fan-out, plan-complete event"
 
 ---
 
-## Task 9: Executor — record_dispatched and cmd_id lifecycle
+## Task 9: Executor - record_dispatched and cmd_id lifecycle
 
 **Files:**
 - Modify: `crates/planner/src/executor.rs`
@@ -1642,7 +1642,7 @@ git commit -m "feat(planner): add record_dispatched to wire real cmd_ids after C
 
 ---
 
-## Task 10: Exporter — fuzzification and plan generation
+## Task 10: Exporter - fuzzification and plan generation
 
 **Files:**
 - Modify: `crates/planner/src/exporter.rs`
@@ -2034,7 +2034,7 @@ Open `crates/campaign/src/runtime.rs` and add to `CampaignEvent`:
 cargo check -p campaign
 ```
 
-Expected: no errors. (New variants are additive; existing match arms aren't affected unless exhaustive matches exist — fix any if found.)
+Expected: no errors. (New variants are additive; existing match arms aren't affected unless exhaustive matches exist - fix any if found.)
 
 - [ ] **Step 3: Commit**
 
@@ -2045,7 +2045,7 @@ git commit -m "feat(campaign): add plan step event variants to CampaignEvent"
 
 ---
 
-## Task 12: API integration — execute plan, status, and export
+## Task 12: API integration - execute plan, status, and export
 
 **Files:**
 - Modify: `crates/app/Cargo.toml`
@@ -2091,7 +2091,7 @@ In `crates/app/src/lib.rs`, add to `AppState` struct:
     plan_executors: Arc<std::sync::Mutex<HashMap<String, Arc<std::sync::Mutex<planner::PlanExecutor>>>>>,
 ```
 
-Add to the `AppState` constructor (find where the struct is initialized) — add:
+Add to the `AppState` constructor (find where the struct is initialized) - add:
 
 ```rust
 plan_executors: Arc::new(std::sync::Mutex::new(HashMap::new())),
@@ -2293,7 +2293,7 @@ In the `router_with_sse` function in `crates/api/src/lib.rs`, add:
 cargo build
 ```
 
-Expected: compiles. Fix any type errors (e.g., missing `HashMap` imports, `ApiError` method names — check existing usages in `api_handlers.rs` for the exact error constructors).
+Expected: compiles. Fix any type errors (e.g., missing `HashMap` imports, `ApiError` method names - check existing usages in `api_handlers.rs` for the exact error constructors).
 
 - [ ] **Step 10: Commit**
 
@@ -2307,7 +2307,7 @@ git commit -m "feat(api): execute_plan, plan status, and export endpoints"
 ## Task 13: End-to-end smoke test
 
 **Files:**
-- No new files — manual test via curl or existing test harness.
+- No new files - manual test via curl or existing test harness.
 
 - [ ] **Step 1: Run all tests**
 

@@ -142,7 +142,7 @@ describe('ListenerBadges', () => {
 
 		await fireEvent.click(screen.getByText('8080'));
 
-		// The listener's own entity id — that is what scopes the armory to it.
+		// The listener's own entity id - that is what scopes the armory to it.
 		expect(onselect).toHaveBeenCalledWith('listener/http/8080');
 	});
 

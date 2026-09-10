@@ -180,7 +180,7 @@ fn ground_procedure_and_effects(
         tracing::warn!(
             ttp_id,
             var,
-            "ungrounded variable in procedure command — \
+            "ungrounded variable in procedure command - \
              check TTP params or target entity context"
         );
     }
@@ -597,7 +597,7 @@ fn materialize_abstract_http_request(
 /// `rce.can-exec(${SRC}, ${TARGET_ID})` are fully grounded.
 ///
 /// Resolved execution routing: where a command runs, how its output must be
-/// decoded, and — for multi-hop paths — the per-hop traversal breakdown.
+/// decoded, and - for multi-hop paths - the per-hop traversal breakdown.
 struct ExecRoute {
     /// C2 backend id to dispatch through.
     backend_id: String,
@@ -682,16 +682,16 @@ fn current_time_millis() -> u64 {
 }
 
 // ---------------------------------------------------------------------------
-// Campaign impl — action preparation pipeline
+// Campaign impl - action preparation pipeline
 // ---------------------------------------------------------------------------
 
 impl Campaign {
     /// Prepare a TTP action for execution via a clean six-stage pipeline.
     ///
     /// ```text
-    /// validate_request        — reject empty IDs immediately
-    ///   → assert_target_exists  — target must be in the campaign
-    ///   → resolve_ttp_and_defaults — TTP lookup + param default filling
+    /// validate_request        - reject empty IDs immediately
+    ///   → assert_target_exists  - target must be in the campaign
+    ///   → resolve_ttp_and_defaults - TTP lookup + param default filling
     ///   → [delegate to prepare_action_with_ttp for stages 2-6]
     /// ```
     ///
@@ -774,7 +774,7 @@ impl Campaign {
     ///
     /// Called by both `prepare_action` (normal attack steps) and
     /// `build_cleanup_actions` (synthesized cleanup TTPs).  Does NOT validate
-    /// that the target entity is in the campaign — the caller is responsible
+    /// that the target entity is in the campaign - the caller is responsible
     /// for deciding whether to skip missing targets.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn prepare_action_with_ttp(
@@ -959,7 +959,7 @@ impl Campaign {
             args.remove("TOKEN");
         }
 
-        // Stage 4: resolve lateral-movement source and inject SRC — single,
+        // Stage 4: resolve lateral-movement source and inject SRC - single,
         // authoritative site.  For non-lateral TTPs this is a no-op.
         let lateral_src = self.resolve_lateral_src(&ttp.tactic, exec_hint.as_deref(), &mut args)?;
 
@@ -1041,7 +1041,7 @@ impl Campaign {
 
         let cmd_id = generate_cmd_id();
 
-        // Record the traversal breakdown as side data keyed by command id — kept
+        // Record the traversal breakdown as side data keyed by command id - kept
         // off `ExecTtp`/`ExecutionRecord` so it never touches the execution or
         // scoring data model. Surfaced by the flow API by joining on id.
         if let Some(traversal) = self.build_command_traversal(&route, &procedure.command) {
@@ -1149,8 +1149,8 @@ impl Campaign {
     /// into `args`.
     ///
     /// This is the **single** place where `${SRC}` is injected for Lateral
-    /// Movement TTPs.  The old code had two separate injection sites — one for a
-    /// caller-supplied entity hint and one for the graph-resolved source — that
+    /// Movement TTPs.  The old code had two separate injection sites - one for a
+    /// caller-supplied entity hint and one for the graph-resolved source - that
     /// could conflict when both conditions were true.  They are unified here.
     ///
     /// Returns the resolved [`ExecChannel`] so [`route_exec_channel`] can reuse
@@ -1180,7 +1180,7 @@ impl Campaign {
         }
 
         // Case B: auto-resolve from the graph (no hint, or hint is not a known
-        // system entity — treated as a backend ID, which doesn't give us a SRC).
+        // system entity - treated as a backend ID, which doesn't give us a SRC).
         let ch = self
             .resolve_exec_source()
             .map_err(ExecuteActionError::NoExecChannel)?;
@@ -1193,7 +1193,7 @@ impl Campaign {
 
     /// Select a C2 backend and return `(backend_id, semantic_target_id, exec_chain, output_transform)`.
     ///
-    /// - `semantic_target_id` is always the original `target_id` from the request — used for
+    /// - `semantic_target_id` is always the original `target_id` from the request - used for
     ///   attribution (execution records, effect context `TARGET_ID`, knowledge graph updates).
     /// - `exec_chain` is the ordered list of physical execution hops from the BuiltinC2 entry
     ///   point to the final destination.
@@ -1263,7 +1263,7 @@ impl Campaign {
     /// Route to a caller-supplied system entity or C2 backend ID.
     ///
     /// If the hint resolves to a known system entity, or looks like an entity ID
-    /// (starts with `ns/` or `node/` — handles stale/merged pod references),
+    /// (starts with `ns/` or `node/` - handles stale/merged pod references),
     /// it becomes the exec entity via the builtin C2.  Otherwise it is treated as
     /// an explicit C2 backend ID and the logical target is kept as the exec entity.
     ///
@@ -1504,7 +1504,7 @@ impl Campaign {
             }
         }
 
-        // Local C2-side command (empty backend / no exec chain) — nothing runs
+        // Local C2-side command (empty backend / no exec chain) - nothing runs
         // on a remote system, so there is no traversal to show.
         let first = route.exec_chain.first()?;
         if route.backend_id.is_empty() {
@@ -1540,7 +1540,7 @@ impl Campaign {
     /// the finalized route shape. Kept honest and derived from the route itself
     /// (rather than the resolver's internal branch) so it never drifts from what
     /// actually ran, and flags when a broken session edge to the target was
-    /// skipped — the visible counterpart to the resolver's decision logs.
+    /// skipped - the visible counterpart to the resolver's decision logs.
     fn route_reason(&self, route: &ExecRoute) -> String {
         let exec_target = route
             .exec_chain
@@ -1562,7 +1562,7 @@ impl Campaign {
         };
 
         // If a session edge into the exec target exists but is broken, the router
-        // stepped around it — call that out so an operator understands why the
+        // stepped around it - call that out so an operator understands why the
         // path is not the (now-dead) session they might expect.
         if self.has_broken_exec_edge_into(exec_target) && !route.backend_id.starts_with("session/")
         {
@@ -2079,7 +2079,7 @@ impl Campaign {
 
         // Record binary presence before running the fixpoint so that rules like
         // KubeletExecSourceRule can see the updated binary map in campaign state.
-        // Only records if currently Unknown — preserves more precise paths set by
+        // Only records if currently Unknown - preserves more precise paths set by
         // sys.has-binary(${OUTPUT}) or from a real parser.
         if let Some(tool) = procedure_tool(&cmd.procedure) {
             let system_id = cmd
@@ -2314,13 +2314,13 @@ impl Campaign {
                         );
                         continue;
                     }
-                    // Same node — nothing to do (PodSingleNode invariant will
+                    // Same node - nothing to do (PodSingleNode invariant will
                     // replace the edge anyway, but we skip the insert).
                     continue;
                 }
             }
 
-            // Common path: no alias resolution changed the IDs — use the
+            // Common path: no alias resolution changed the IDs - use the
             // public `insert_relation` so it gets a live production call site.
             if src == *rel.source_id() && tgt == *rel.target_id() {
                 self.insert_relation(rel.as_ref());
@@ -2371,7 +2371,7 @@ impl Campaign {
         // name-keyed `relation_defaults` table. Without this a standalone
         // `c2.session` edge (a reverse shell to an otherwise-unknown host) lands
         // with no `session_id`, so it can never be matched when its session
-        // breaks — leaving a dead connection rendered as a live one. Upgrading
+        // breaks - leaving a dead connection rendered as a live one. Upgrading
         // (never downgrading) `is_exec_channel` also makes a live shell a real
         // exec channel, so path-finding treats it as traversable while healthy
         // and skips it once broken.
@@ -2515,7 +2515,7 @@ impl Campaign {
     /// Detect when a TTP ran against a derived-name pod and the output
     /// revealed the real pod identity (e.g. from a service-account token).
     ///
-    /// A "derived-name" pod is one whose `name_confidence` is [`NameConfidence::Derived`] —
+    /// A "derived-name" pod is one whose `name_confidence` is [`NameConfidence::Derived`] -
     /// for example a pod whose name was inferred from its IP address during a
     /// network scan.  When a subsequent TTP produces a `Pod` entity whose name
     /// is [`NameConfidence::Authoritative`] (e.g. from a service-account JWT),
@@ -2717,9 +2717,9 @@ fn procedure_tool(procedure: &Procedure) -> Option<&str> {
 /// binary presence/absence.
 ///
 /// Resolution order:
-/// 1. `procedure.tool` — explicit annotation (e.g. `tool: cat`)
-/// 2. `procedure.id` — when it is a single bare word (e.g. key `nmap`, `curl`)
-/// 3. First word of `procedure.command` — final fallback
+/// 1. `procedure.tool` - explicit annotation (e.g. `tool: cat`)
+/// 2. `procedure.id` - when it is a single bare word (e.g. key `nmap`, `curl`)
+/// 3. First word of `procedure.command` - final fallback
 fn procedure_binary_name(procedure: &Procedure) -> Option<&str> {
     if let Some(tool) = procedure_tool(procedure) {
         return Some(tool);
@@ -2736,7 +2736,7 @@ fn procedure_binary_name(procedure: &Procedure) -> Option<&str> {
     procedure.command.split_whitespace().next()
 }
 
-/// Readiness of an unseen (`Unknown`) tool — a base-rate prior that a tool we
+/// Readiness of an unseen (`Unknown`) tool - a base-rate prior that a tool we
 /// haven't checked is present. Below 1.0 so the scorer prefers tools we've
 /// *confirmed* present over ones we merely haven't ruled out.
 const UNKNOWN_TOOL_READINESS: f32 = 0.7;
@@ -2747,10 +2747,10 @@ const UNKNOWN_TOOL_READINESS: f32 = 0.7;
 /// the tool is known absent.
 fn procedure_readiness(procedure: &Procedure, tactic: &str, sys: &ran_domain::SystemInfo) -> f32 {
     if !needs_remote_channel(procedure, tactic) {
-        return 1.0; // runs on the C2 side — no target binary required
+        return 1.0; // runs on the C2 side - no target binary required
     }
     match procedure_binary_name(procedure) {
-        None => 1.0, // can't identify a binary — don't penalize
+        None => 1.0, // can't identify a binary - don't penalize
         Some(tool) => match sys.has_binary(tool) {
             ran_domain::BinaryPresence::Present(_) => 1.0,
             ran_domain::BinaryPresence::Unknown => UNKNOWN_TOOL_READINESS,
@@ -2787,7 +2787,7 @@ pub fn best_tool_readiness(ttp: &armory::Ttp, campaign: &Campaign, target_id: &s
 /// differs from the bare name (e.g. `kubectl` → `/tmp/kubectl`), the first
 /// occurrence of the bare name is replaced with the resolved path.
 ///
-/// Words that already contain `/` are skipped — they are already absolute
+/// Words that already contain `/` are skipped - they are already absolute
 /// paths and do not need further resolution.
 ///
 fn ground_binary_in_cmd(
@@ -2801,7 +2801,7 @@ fn ground_binary_in_cmd(
         None => return cmd.to_string(),
     };
 
-    // Already an absolute/relative path — nothing to resolve.
+    // Already an absolute/relative path - nothing to resolve.
     if first_word.contains('/') {
         return cmd.to_string();
     }

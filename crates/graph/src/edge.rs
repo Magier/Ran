@@ -24,7 +24,7 @@ pub struct EdgeData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     /// `true` when the C2 session backing this exec-channel edge has died (e.g.
-    /// the shell closed unexpectedly). The edge is kept — not removed — so it
+    /// the shell closed unexpectedly). The edge is kept - not removed - so it
     /// can be recovered if a session reconnects, but it is treated as
     /// non-traversable by path-finding while broken. `session_id` is retained so
     /// a reconnecting session can be matched back to this edge.

@@ -186,15 +186,15 @@
 		}
 	}
 
-	// Fields handled explicitly in the header — skip from the generic loop
+	// Fields handled explicitly in the header - skip from the generic loop
 	const HEADER_FIELDS = new Set(['id', 'name', 'namespace', 'kind', 'entityId', 'parent', 'entity', 'compromised', 'provenance', 'appServiceCount']);
 
 	function shouldShowField(label: string, data: any): boolean {
 		if (HEADER_FIELDS.has(label)) return false;
 		if (data === undefined) return false;
-		// Hide running state when positive — it's the default and duplicates phase
+		// Hide running state when positive - it's the default and duplicates phase
 		if ((label === 'isRunning' || label === 'is_running') && data !== false) return false;
-		// Hide phase: Running — same info as is_running: true
+		// Hide phase: Running - same info as is_running: true
 		if (label === 'phase' && data === 'Running') return false;
 		// Hide empty owner_references
 		if (label === 'owner_references' && Array.isArray(data) && data.length === 0) return false;
@@ -263,7 +263,7 @@
 		{/snippet}
 		<!-- Header: name + kind badge + copy-ID button -->
 		<div class="flex items-center gap-2 mb-1">
-			<span class="font-bold truncate text-sm md:text-base" class:field-changed={highlightedFields['name']}>{obj.name}{#if obj.meta?.name_confidence === 'derived'}<sup class="text-surface-400 dark:text-surface-600 cursor-help" title="Name is derived — inferred from heuristics or indirect sources, not confirmed by the Kubernetes API">*</sup>{/if}</span>
+			<span class="font-bold truncate text-sm md:text-base" class:field-changed={highlightedFields['name']}>{obj.name}{#if obj.meta?.name_confidence === 'derived'}<sup class="text-surface-400 dark:text-surface-600 cursor-help" title="Name is derived - inferred from heuristics or indirect sources, not confirmed by the Kubernetes API">*</sup>{/if}</span>
 			{#if obj.kind}
 				<span class="badge bg-indigo-200 text-indigo-800 text-xs shrink-0">{obj.kind}</span>
 			{/if}
@@ -711,7 +711,7 @@
 			{#if ttp && sendAction}
 				<div class="mb-1 flex items-center gap-1">
 					<span class="opacity-40 text-surface-400 mr-1">{field}:</span>
-					<span class="opacity-40 italic text-surface-400">—</span>
+					<span class="opacity-40 italic text-surface-400">-</span>
 					<button
 						class="shrink-0 cursor-pointer rounded p-0.5 hover:bg-surface-300 dark:hover:bg-surface-700 transition-colors"
 						title="Run: {ttp.name}"

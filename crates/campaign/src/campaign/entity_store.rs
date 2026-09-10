@@ -129,7 +129,7 @@ impl<T: EntityType> ErasedSlot for Slot<T> {
 
 /// A type-erased registry that holds one `HashMap<EntityId, T>` per entity
 /// type.  Adding a new entity type only requires a single `register` call in
-/// [`EntityStore::default`] and one variant in [`CampaignEntityRef`] — no
+/// [`EntityStore::default`] and one variant in [`CampaignEntityRef`] - no
 /// per-type struct fields, match arms, or boilerplate elsewhere.
 #[derive(Debug)]
 pub struct EntityStore {
@@ -282,7 +282,7 @@ impl Clone for EntityStore {
 }
 
 // ---------------------------------------------------------------------------
-// Default — the single place to register all known entity types
+// Default - the single place to register all known entity types
 // ---------------------------------------------------------------------------
 
 impl Default for EntityStore {
@@ -326,7 +326,7 @@ impl Default for EntityStore {
 }
 
 // ---------------------------------------------------------------------------
-// Serde — serializes each slot under its registered field name
+// Serde - serializes each slot under its registered field name
 // ---------------------------------------------------------------------------
 //
 // The JSON wire format is identical to the previous `Campaign` struct layout

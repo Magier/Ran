@@ -2,7 +2,7 @@
 
 Preconditions define what must be true in the campaign before a TTP can run.
 Ran evaluates them automatically when you select a target, so the armory shows
-only applicable techniques — not every technique regardless of context.
+only applicable techniques - not every technique regardless of context.
 
 ## Declaring preconditions
 
@@ -56,7 +56,7 @@ surfaced.
 ### `accessLevel`
 
 Requires the target entity to have at least exec-level access. Set to any of the
-values below — all of them resolve to the same check (the target must have
+values below - all of them resolve to the same check (the target must have
 `AccessLevel::Exec`):
 
 `user-exec`, `user-read`, `user-write`, `root-exec`, `root-read`
@@ -76,7 +76,7 @@ YAML declares: **Initial Access**, **Lateral Movement**, and **Resource Developm
 Requires a specific entity kind to be present in the campaign graph. Currently
 supports:
 
-- `Listener` — at least one C2 listener must be active
+- `Listener` - at least one C2 listener must be active
 
 ```yaml
 preconditions:
@@ -95,8 +95,8 @@ preconditions:
 
 ### `related`
 
-Requires a related entity of a given kind — and optionally with a minimum access
-level — to exist in the campaign graph. Currently supports:
+Requires a related entity of a given kind - and optionally with a minimum access
+level - to exist in the campaign graph. Currently supports:
 
 - Target `ServiceAccount` + related `Pod`: finds pods that mount the SA; if
   `accessLevel` is also set, at least one such pod must have exec access.

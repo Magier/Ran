@@ -49,7 +49,7 @@ pub struct Campaign {
     /// identity, a C2-supplied target id resolved to a locally created system.
     ///
     /// The merge changes the entity id, but long-lived callers keep the old
-    /// one — the C2 session bookkeeping captures a target id when a shell first
+    /// one - the C2 session bookkeeping captures a target id when a shell first
     /// connects and quotes it back minutes later. Every id-keyed system lookup
     /// therefore resolves through this table
     /// (see [`Self::canonical_entity_id`]).
@@ -247,7 +247,7 @@ impl Campaign {
         self.knowledge_provenance.entity(id)
     }
 
-    /// Whether `credential_id` is a local kubeconfig identity — i.e. contained
+    /// Whether `credential_id` is a local kubeconfig identity - i.e. contained
     /// by the operator host. Every context read from Ran's own kubeconfig is
     /// contained by the operator host and has a backing per-context client, so
     /// these identities can be selected via Authenticate As even when they are
@@ -307,7 +307,7 @@ impl Campaign {
     }
 
     /// Returns the entity IDs of all systems (Pods and Nodes) that the C2 can
-    /// exec into directly — seeds for Dijkstra / BFS path searches.
+    /// exec into directly - seeds for Dijkstra / BFS path searches.
     pub(crate) fn direct_foothold_systems(&self) -> Vec<EntityId> {
         self.graph
             .exec_edges()
@@ -320,7 +320,7 @@ impl Campaign {
     /// Follow [`Self::entity_aliases`] until the id names a live entity.
     ///
     /// An id that is still in the entity store is returned unchanged, so an
-    /// alias can never shadow an entity that exists — only ids that were merged
+    /// alias can never shadow an entity that exists - only ids that were merged
     /// away (or were never created in the first place) are rewritten. Bounded
     /// so a cyclic alias pair cannot spin.
     pub fn canonical_entity_id(&self, id: &str) -> String {
@@ -413,7 +413,7 @@ impl Campaign {
         let target_id = canonical.as_str();
         let target_eid = EntityId::new(target_id);
 
-        // Prefer an Active session on the target system — it is a live shell
+        // Prefer an Active session on the target system - it is a live shell
         // already exiting into this entity, so no graph traversal is needed.
         if prefer_session {
             let active_session = self.get_system_entity(target_id).and_then(|sys| {
@@ -776,7 +776,7 @@ impl Campaign {
 
     /// Drop whichever listener holds `port`, returning how many were removed.
     ///
-    /// A port can only be bound once, so this is at most one — the protocol is
+    /// A port can only be bound once, so this is at most one - the protocol is
     /// not needed to identify it.
     pub fn remove_listeners_on_port(&mut self, port: u16) -> usize {
         let ids: Vec<EntityId> = self
@@ -802,7 +802,7 @@ impl Campaign {
     /// Resolve which C2 backend should execute commands on `system_id`.
     ///
     /// Priority:
-    /// 1. An active session on the entity (live shell — most direct path).
+    /// 1. An active session on the entity (live shell - most direct path).
     /// 2. A direct exec-channel edge from a `c2/<name>` source.
     /// 3. Built-in C2 (fresh kubectl exec).
     ///
@@ -866,7 +866,7 @@ mod planner_helper_tests {
     fn all_entity_ids_returns_empty_for_new_campaign() {
         let c = minimal_campaign();
         let ids = c.all_entity_ids();
-        // A new campaign has no entities — the method must not panic.
+        // A new campaign has no entities - the method must not panic.
         assert!(ids.is_empty());
     }
 
@@ -878,7 +878,7 @@ mod planner_helper_tests {
 
     /// A standalone `c2.session` edge (reverse shell to an otherwise-unknown
     /// host) must carry its `session_id` onto the graph edge so a later session
-    /// break can find and mark it broken — otherwise the dead connection keeps
+    /// break can find and mark it broken - otherwise the dead connection keeps
     /// rendering as a live one.
     #[test]
     fn standalone_session_edge_carries_session_id_and_can_break() {

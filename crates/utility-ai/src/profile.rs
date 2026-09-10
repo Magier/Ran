@@ -27,7 +27,7 @@ pub enum CombinationMode {
     #[default]
     WeightedArithmetic,
     /// `value = weighted geometric mean(value axes)` (ε-floored), then
-    /// `× ∏(gate axes)`. Rewards balance — lopsided actions score lower.
+    /// `× ∏(gate axes)`. Rewards balance - lopsided actions score lower.
     WeightedGeometric,
     /// Faithful IAUS: multiply *all* enabled axes (value and gate alike) after
     /// applying the per-axis compensation factor `1 - 1/n`. Weights are ignored

@@ -342,7 +342,7 @@ impl Relation for RceCanExec {
 /// can execute commands on the `target` node by breaking out of its container
 /// namespace (e.g. via nsenter, chroot, or a privileged container mount).
 ///
-/// Carries an `envelope` — the grounded escape command template with `${CMD}`
+/// Carries an `envelope` - the grounded escape command template with `${CMD}`
 /// as the placeholder for the inner command, e.g.
 /// `nsenter -t 1 -m -u -i -n -p -- ${CMD}`.
 ///
@@ -485,7 +485,7 @@ impl Relation for AuthenticatesTo {
 
 /// Cluster-membership relation: the cluster manages (owns) the node.
 ///
-/// High-priority compound-node relation — the graph renderer nests the node
+/// High-priority compound-node relation - the graph renderer nests the node
 /// inside the cluster compound node when this edge is present.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManagesNode {
@@ -528,7 +528,7 @@ impl Relation for ManagesNode {
 ///
 /// This is a *precondition* edge, not an execution channel.  Emitted by network
 /// scan parsers (e.g. nmap) to record that a host is reachable from another.
-/// Does **not** implement `C2Channel` — reachability alone is not an exec path.
+/// Does **not** implement `C2Channel` - reachability alone is not an exec path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CanReach {
     pub source_id: EntityId,
@@ -611,7 +611,7 @@ impl Relation for Owns {
 /// An active reverse-shell session: `source` (C2Server) has a live shell
 /// into `target` (K8sNode or Pod), identified by the C2 backend `session_id`.
 ///
-/// Implements `C2Channel` — commands can be routed through this edge.
+/// Implements `C2Channel` - commands can be routed through this edge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionChannel {
     pub source_id: EntityId,

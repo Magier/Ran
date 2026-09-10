@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub const BUILTIN_C2_ID: &str = "c2/ran";
 
 /// `fail_reason` emitted by a [`crate::ShellSession`] when its underlying stream
-/// hits EOF mid-command — i.e. the live session died. Used as a stable sentinel
+/// hits EOF mid-command - i.e. the live session died. Used as a stable sentinel
 /// so the executor can tell a dead session apart from an ordinary non-zero
 /// command exit and signal that the session's exec-channel edge is now broken.
 pub const SESSION_CLOSED_UNEXPECTEDLY: &str = "shell session closed unexpectedly";
@@ -25,8 +25,8 @@ pub const SESSION_UNRESPONSIVE_PREFIX: &str = "shell session unresponsive";
 /// [`crate::ShellSession`] is considered dead rather than merely slow.
 pub const SESSION_TIMEOUT_BREAK_THRESHOLD: u64 = 2;
 
-/// Whether a `fail_reason` denotes a dead session — either an unexpected close
-/// or sustained unresponsiveness — as opposed to an ordinary command failure
+/// Whether a `fail_reason` denotes a dead session - either an unexpected close
+/// or sustained unresponsiveness - as opposed to an ordinary command failure
 /// (non-zero exit, a single slow-command timeout). The executor uses this to
 /// decide when to signal that the session's exec-channel edge is broken.
 pub fn is_session_death_reason(reason: &str) -> bool {
@@ -47,7 +47,7 @@ pub struct ExecTtp {
     pub ttp: Ttp,
     pub procedure: Procedure,
     pub args: HashMap<String, String>,
-    /// The semantic target entity — the entity whose knowledge graph entry,
+    /// The semantic target entity - the entity whose knowledge graph entry,
     /// system info, and execution records are updated by this command.
     /// Always the entity the operator is working with (e.g. a K8sNode after
     /// a container escape, or a ServiceAccount being exploited).
@@ -74,7 +74,7 @@ pub struct ExecTtp {
     /// rather than the primary attack sequence.
     #[serde(default)]
     pub is_cleanup: bool,
-    /// Operator/agent rationale for running this command — why this step was
+    /// Operator/agent rationale for running this command - why this step was
     /// chosen. Set from `ExecuteActionRequest.reasoning`; empty when none was
     /// supplied. Carried through to the audit record.
     #[serde(default)]
@@ -128,13 +128,13 @@ pub enum C2Event {
     /// A TCP listener was successfully bound on the given port.
     ListenerStarted { port: u16, protocol: String },
     /// A listener's accept loop was torn down and its port released. Sessions
-    /// that connected through it stay live — they are backends in their own
+    /// that connected through it stay live - they are backends in their own
     /// right and do not depend on the listener that accepted them.
     ListenerStopped { port: u16 },
     /// A reverse-shell connected, probed, and the session backend is now live.
     SessionConnected {
         backend_id: String,
-        /// `node/{hostname}` — the entity this session exits into.
+        /// `node/{hostname}` - the entity this session exits into.
         target_entity_id: String,
         hostname: String,
         user: String,
