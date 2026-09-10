@@ -456,6 +456,8 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         }
                     };
 
+                    let resolved_target_id = guard.canonical_entity_id(&target_entity_id);
+                    let host_was_known = guard.get_system_entity(&resolved_target_id).is_some();
                     let channel_entity_id = attach_connected_session(
                         &mut guard,
                         &backend_id,
