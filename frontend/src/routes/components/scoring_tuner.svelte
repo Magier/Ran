@@ -154,7 +154,7 @@
 		if (result) {
 			calibration = result;
 		} else {
-			calibrateError = 'No captured decisions yet — execute some actions first.';
+			calibrateError = 'No captured decisions yet - execute some actions first.';
 		}
 	}
 
@@ -254,7 +254,7 @@
 						>
 						<span>Decisions: <span class="font-mono text-surface-900-100">{m.decisions}</span></span>
 						<span
-							title="Choices no non-negative weighting can reproduce — a missing consideration"
+							title="Choices no non-negative weighting can reproduce - a missing consideration"
 							>Unreproducible:
 							<span
 								class="font-mono {m.infeasible > 0 ? 'text-warning-500' : 'text-surface-900-100'}"
@@ -265,7 +265,7 @@
 					{#if m.infeasible > 0}
 						<p class="text-[11px] text-warning-500/90 leading-snug">
 							{m.infeasible} decision{m.infeasible === 1 ? '' : 's'} can't be reproduced by any weighting
-							— the operator valued something the current considerations don't measure.
+							- the operator valued something the current considerations don't measure.
 						</p>
 					{/if}
 				</div>

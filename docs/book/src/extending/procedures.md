@@ -1,6 +1,6 @@
 # Writing Procedures
 
-A TTP can declare one or more procedures — different ways to execute the same
+A TTP can declare one or more procedures - different ways to execute the same
 technique. The operator (or agent) picks one at invocation time.
 
 ## Shell command
@@ -17,10 +17,10 @@ procedures:
     command: kubectl ${K8S_AUTH} get pods -n=${NS} --output=json
 ```
 
-- `key` — display name for the procedure, shown in the UI and used as the procedure
+- `key` - display name for the procedure, shown in the UI and used as the procedure
   ID. Also sets the preferred tool: if `key` matches a known tool TTP (e.g. `curl`,
   `wget`), that tool's setup steps are prepended automatically.
-- `command` — the shell command to execute. Parameter placeholders (`${VAR}`) are
+- `command` - the shell command to execute. Parameter placeholders (`${VAR}`) are
   resolved at runtime.
 
 ### Local commands
@@ -149,7 +149,7 @@ steps into a shell snippet joined with `&&`.
 ## Multiple procedures in one TTP
 
 List as many procedures as you want. The UI renders them as a selectable list.
-Prefer offering at least two where practical — one using native Kubernetes tooling
+Prefer offering at least two where practical - one using native Kubernetes tooling
 (`kubectl`) and one that only requires network access (`curl`):
 
 ```yaml

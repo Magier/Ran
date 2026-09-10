@@ -181,8 +181,8 @@ pub struct FactsUpdate {
 ```
 
 `FactsUpdate::default()` gives an empty update.
-Inference rules run after the parser so you don't need to manually add `Contains` relations
-— those are derived automatically for pods and namespaces.
+Inference rules run after the parser so you don't need to manually add `Contains`
+relations - those are derived automatically for pods and namespaces.
 
 ---
 

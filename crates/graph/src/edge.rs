@@ -23,6 +23,13 @@ pub struct EdgeData {
     /// is used in one-shot (per-command kubectl exec) mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// `true` when the C2 session backing this exec-channel edge has died (e.g.
+    /// the shell closed unexpectedly). The edge is kept - not removed - so it
+    /// can be recovered if a session reconnects, but it is treated as
+    /// non-traversable by path-finding while broken. `session_id` is retained so
+    /// a reconnecting session can be matched back to this edge.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub broken: bool,
 }
 
 impl EdgeData {
@@ -34,6 +41,7 @@ impl EdgeData {
             envelope: None,
             output_transform: None,
             session_id: None,
+            broken: false,
         }
     }
 
@@ -76,5 +84,6 @@ pub fn edge_data_for(
         envelope,
         output_transform,
         session_id: None,
+        broken: false,
     }
 }

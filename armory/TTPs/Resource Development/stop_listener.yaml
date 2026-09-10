@@ -2,7 +2,7 @@ id: stop-listener
 name: Stop Listener
 description: >
   Stop an active listener on the C2 and free the port it holds.
-  Sessions that connected through the listener stay live — they are execution
+  Sessions that connected through the listener stay live - they are execution
   backends in their own right and do not depend on the listener that accepted
   them.
 tactic: Resource Development
@@ -15,7 +15,7 @@ parameters:
     required: true
 preconditions:
   # The target is the listener itself, so selecting one is what makes this
-  # applicable — Create Listener stays on the C2.
+  # applicable - Create Listener stays on the C2.
   kind: Listener
   c2.has-listener: true
 procedures:

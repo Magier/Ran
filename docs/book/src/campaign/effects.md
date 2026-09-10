@@ -6,7 +6,7 @@ the structured knowledge graph.
 
 ## Why effects matter
 
-Without effects, each TTP execution is a dead end — you see the output, but Ran
+Without effects, each TTP execution is a dead end - you see the output, but Ran
 doesn't know what it means. With effects, a successful _Create Admin Role_ run
 produces a `K8sRole` entity in the graph, which immediately unlocks every technique
 that requires a role to exist.
@@ -37,7 +37,7 @@ Simple effects have no arguments. They extract entities from the execution conte
 | `k8s.cronjob`        | `CronJob`        | `Namespace`, `CronJobName` (optional: `Schedule`)                            |
 
 `k8s.serviceAccountList`, `k8s.podList`, and similar list-form effects trigger
-the **output parser** pipeline — Ran reads the raw command output (expected to be
+the **output parser** pipeline - Ran reads the raw command output (expected to be
 a Kubernetes JSON list) and extracts individual entities from it automatically.
 
 ## Relation effects
@@ -68,7 +68,7 @@ effects:
 ### Envelopes
 
 When a relation effect is applied for a technique that _also_ establishes an
-execution channel — `container.escape`, `rce.can-exec`, or `k8s.kubelet-exec` —
+execution channel - `container.escape`, `rce.can-exec`, or `k8s.kubelet-exec` -
 Ran stores the exact grounded command from the procedure as an **envelope** on that
 relation. Subsequent commands routed through that relation are wrapped with the
 envelope automatically, so the operator doesn't need to re-enter the exploit for

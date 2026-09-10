@@ -1,6 +1,34 @@
 #!/bin/sh
 set -e
 
+# No em-dashes or en-dashes in added lines (AGENTS.md). Only staged additions
+# are checked, so pre-existing dashes never block an unrelated commit.
+# Generated output is exempt. For a deliberate dash (a numeric range, a regex,
+# a quoted title), commit with --no-verify.
+#
+# The dashes are built with printf rather than written literally: it keeps this
+# file from tripping its own check, and alternation (not a [...] bracket) keeps
+# it correct under LC_ALL=C, where a bracket matches single bytes and would
+# false-positive on any other U+2xxx character such as an arrow.
+dash_re=$(printf '\342\200\223|\342\200\224')
+dashes=$(
+  git diff --cached -U0 -- . \
+    ':(exclude)frontend/src/lib/api/gen_types.ts' |
+  awk -v re="$dash_re" '
+    /^\+\+\+ /  { file = substr($0, 7); next }
+    /^--- /     { next }
+    /^@@/       { match($0, /\+[0-9]+/)
+                  line = substr($0, RSTART + 1, RLENGTH - 1); next }
+    /^\+/       { if ($0 ~ re) printf "  %s:%d:%s\n", file, line, substr($0, 2)
+                  line++ }
+  '
+)
+if [ -n "$dashes" ]; then
+  echo "EM/EN-dash in staged additions. Use ' - ' instead:"
+  echo "$dashes"
+  exit 1
+fi
+
 cargo fmt --check || {
   echo "Formatting issues found. Run 'cargo fmt' and re-stage."
   exit 1

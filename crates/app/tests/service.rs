@@ -6,7 +6,7 @@
 /// Run them with: `cargo test -p app -- --ignored`
 
 // ---------------------------------------------------------------------------
-// Config tests — no infrastructure needed
+// Config tests - no infrastructure needed
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -26,7 +26,7 @@ fn namespace_filter_whitelist_only_allows_listed() {
     };
     assert!(filter.should_include("prod"));
     assert!(filter.should_include("staging"));
-    // Whitelist takes precedence — "kube-system" is in excluded but included is
+    // Whitelist takes precedence - "kube-system" is in excluded but included is
     // non-empty, so only whitelisted entries pass.
     assert!(!filter.should_include("kube-system"));
     assert!(!filter.should_include("default"));
@@ -98,7 +98,7 @@ fn config_rejects_duplicate_seed_ids_and_unknown_credential_types() {
 }
 
 // ---------------------------------------------------------------------------
-// Full service test — requires kubeconfig
+// Full service test - requires kubeconfig
 // ---------------------------------------------------------------------------
 
 /// Creates a full `AppState` and exercises the `ApiService` trait methods that
@@ -172,7 +172,7 @@ async fn app_state_get_and_reset_campaign_without_cli() {
         kubetier::Catalog::embedded(),
     );
 
-    // get_campaign — should return a freshly bootstrapped campaign.
+    // get_campaign - should return a freshly bootstrapped campaign.
     let c = state.get_campaign().await.expect("get_campaign failed");
     assert_eq!(
         c.entity_count(),
@@ -180,14 +180,14 @@ async fn app_state_get_and_reset_campaign_without_cli() {
         "fresh campaign should have no entities"
     );
 
-    // get_armory — empty armory, no TTPs.
+    // get_armory - empty armory, no TTPs.
     let ttps = state
         .get_armory(api::GetArmoryParams { tactic: None })
         .await
         .expect("get_armory failed");
     assert!(ttps.is_empty(), "empty armory should return no TTPs");
 
-    // reset_campaign — should succeed and leave campaign intact.
+    // reset_campaign - should succeed and leave campaign intact.
     state.reset_campaign().await.expect("reset_campaign failed");
     let c = state
         .get_campaign()

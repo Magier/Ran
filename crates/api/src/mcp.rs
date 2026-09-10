@@ -38,7 +38,7 @@ use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
 use crate::{ApiError, ApiService, GetArmoryParams};
 
 // ---------------------------------------------------------------------------
-// Public configuration type — passed in from the CLI bootstrap
+// Public configuration type - passed in from the CLI bootstrap
 // ---------------------------------------------------------------------------
 
 /// Extra state needed by the MCP server that isn't part of `ApiService`.
@@ -494,7 +494,7 @@ impl<S: ApiService> RanMcpHandler<S> {
         let script_content = req_str(args, "script_content")?;
 
         let parsers_dir = self.mcp.parsers_dir.as_ref().ok_or_else(|| {
-            internal("parsers_dir is not configured — start Ran with a valid armory directory")
+            internal("parsers_dir is not configured - start Ran with a valid armory directory")
         })?;
 
         let safe_name = armory::canonical_parser_stem(effect_id)
@@ -651,7 +651,7 @@ fn tool_defs() -> Vec<Tool> {
         Tool::new(
             "execute_action",
             "Execute a TTP against a target entity. Returns a cmd_id to track the execution. \
-             ALWAYS pass `reasoning` explaining why you chose this action now — it is recorded \
+             ALWAYS pass `reasoning` explaining why you chose this action now - it is recorded \
              on the execution timeline and is essential for an auditable, explainable assessment.",
             schema(json!({
                 "type": "object",
@@ -729,7 +729,7 @@ fn tool_defs() -> Vec<Tool> {
         Tool::new(
             "get_initial_access_candidates",
             "List running pods directly from Kubernetes (not the campaign graph). \
-             Use this ONLY to find an initial foothold — it returns live pods the agent \
+             Use this ONLY to find an initial foothold - it returns live pods the agent \
              can pass to valid-accounts-kubeconfig as the first step. Optionally \
              filter by namespace.",
             schema(json!({

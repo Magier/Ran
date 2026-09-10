@@ -75,7 +75,7 @@ describe('TimelineStore', () => {
         }
     });
 
-    // addEntityEvent — grouping
+    // addEntityEvent - grouping
     it('addEntityEvent with matching cmdId appends to group effects', () => {
         store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
         store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-abc' }));

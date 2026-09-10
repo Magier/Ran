@@ -458,8 +458,8 @@
 			});
 		});
 
-		// Show actions as in-progress the moment they're dispatched — by this UI, an
-		// autonomous plan, MCP, or the CLI — rather than only once they complete.
+		// Show actions as in-progress the moment they're dispatched - by this UI, an
+		// autonomous plan, MCP, or the CLI - rather than only once they complete.
 		// addTtpAction is idempotent: a UI-initiated action already has a pending
 		// entry, so this enriches it; an externally-driven one creates a fresh one.
 		ranAPI.on('ttp-dispatched', (data) => {

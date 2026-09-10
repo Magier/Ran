@@ -129,7 +129,7 @@ impl<T: EntityType> ErasedSlot for Slot<T> {
 
 /// A type-erased registry that holds one `HashMap<EntityId, T>` per entity
 /// type.  Adding a new entity type only requires a single `register` call in
-/// [`EntityStore::default`] and one variant in [`CampaignEntityRef`] — no
+/// [`EntityStore::default`] and one variant in [`CampaignEntityRef`] - no
 /// per-type struct fields, match arms, or boilerplate elsewhere.
 #[derive(Debug)]
 pub struct EntityStore {
@@ -250,13 +250,11 @@ impl EntityStore {
         self.slots.values().map(|s| s.len()).sum()
     }
 
-    /// Whether any registered type holds an entity with this id.
-    ///
-    /// The type-parametrized [`EntityStore::contains`] needs the caller to know
-    /// the concrete type; this answers the same question for an id that arrived
-    /// as a bare string, which is what deciding "did we already know this?" needs.
+    /// Returns `true` when any registered type holds an entity with `id`.
+    /// Type-agnostic counterpart to [`Self::contains`], used to tell a live id
+    /// from one that was merged away (see [`crate::Campaign::canonical_entity_id`]).
     pub fn contains_id(&self, id: &EntityId) -> bool {
-        self.slots.values().any(|slot| slot.contains_id(id))
+        self.slots.values().any(|s| s.contains_id(id))
     }
 
     /// Returns a `CampaignEntityRef` for every entity across all registered types.
@@ -284,7 +282,7 @@ impl Clone for EntityStore {
 }
 
 // ---------------------------------------------------------------------------
-// Default — the single place to register all known entity types
+// Default - the single place to register all known entity types
 // ---------------------------------------------------------------------------
 
 impl Default for EntityStore {
@@ -328,7 +326,7 @@ impl Default for EntityStore {
 }
 
 // ---------------------------------------------------------------------------
-// Serde — serializes each slot under its registered field name
+// Serde - serializes each slot under its registered field name
 // ---------------------------------------------------------------------------
 //
 // The JSON wire format is identical to the previous `Campaign` struct layout

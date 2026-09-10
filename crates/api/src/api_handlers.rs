@@ -32,7 +32,7 @@ use axum::{
 use rust_embed::RustEmbed;
 
 // ---------------------------------------------------------------------------
-// OpenAPI spec + Swagger UI (no State needed — purely static content)
+// OpenAPI spec + Swagger UI (no State needed - purely static content)
 // ---------------------------------------------------------------------------
 
 const OPENAPI_SPEC: &str = include_str!("../../../api/openapi.yaml");
@@ -424,7 +424,7 @@ pub(crate) async fn calibrate_scoring_handler<S: ApiService>(
     let calibration = service.calibrate_scoring().ok_or_else(|| ApiError {
         status: axum::http::StatusCode::CONFLICT,
         body: ErrorResponse {
-            error: "no operator decisions captured yet — execute some actions first".to_string(),
+            error: "no operator decisions captured yet - execute some actions first".to_string(),
             details: None,
         },
     })?;
@@ -661,6 +661,11 @@ pub(crate) struct AttackStep {
     /// Empty when there is no multi-hop traversal.
     #[serde(rename = "innerCommand")]
     pub inner_command: String,
+    /// Short, human-readable explanation of why this execution route was chosen
+    /// (e.g. live session vs. multi-hop, or a note that a broken session edge was
+    /// skipped). Empty for direct/local commands with no joined traversal.
+    #[serde(rename = "routeReason")]
+    pub route_reason: String,
     pub args: std::collections::HashMap<String, String>,
     #[serde(rename = "procedureId")]
     pub procedure_id: String,
@@ -686,6 +691,7 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
             // Traversal is joined separately from the campaign side map by id.
             traversal: Vec::new(),
             inner_command: String::new(),
+            route_reason: String::new(),
             args: r.args.clone(),
             procedure_id: r.procedure_id.clone(),
             ttp: AttackStepTTP {
@@ -725,6 +731,7 @@ impl From<&campaign::ExecTtp> for AttackStep {
             // Traversal is joined separately from the campaign side map by id.
             traversal: Vec::new(),
             inner_command: String::new(),
+            route_reason: String::new(),
             args: exec.args.clone(),
             procedure_id: exec.procedure.id.clone(),
             ttp: AttackStepTTP {
@@ -763,6 +770,7 @@ mod flow_contract_tests {
                 command: "id".to_string(),
                 traversal: Vec::new(),
                 inner_command: String::new(),
+                route_reason: String::new(),
                 args: HashMap::new(),
                 procedure_id: "shell".to_string(),
                 ttp: AttackStepTTP {
@@ -806,11 +814,12 @@ pub(crate) async fn flow_handler<S: ApiService>(
     steps.extend(open.iter().map(AttackStep::from));
 
     // Join the multi-hop traversal breakdown (campaign side map, keyed by
-    // command id) onto each step — kept off the execution record itself.
+    // command id) onto each step - kept off the execution record itself.
     for step in &mut steps {
         if let Some(ct) = campaign.command_traversal(&step.id) {
             step.traversal = ct.hops.iter().map(AttackStepHop::from).collect();
             step.inner_command = ct.inner_command.clone();
+            step.route_reason = ct.reason.clone();
         }
     }
 

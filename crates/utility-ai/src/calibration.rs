@@ -1,7 +1,7 @@
 //! Calibrating a scoring [`Profile`] from demonstrations.
 //!
-//! Given a set of demonstrated decisions — at each step, the applicable
-//! `(TTP × target)` candidates and which one the demonstrator actually chose —
+//! Given a set of demonstrated decisions - at each step, the applicable
+//! `(TTP × target)` candidates and which one the demonstrator actually chose -
 //! we fit per-consideration **weights** so the scorer reproduces those choices
 //! with high probability.
 //!
@@ -18,7 +18,7 @@
 //! ```
 //!
 //! Fitting maximizes the log-likelihood of the demonstrated choices plus an L2
-//! penalty — a convex problem (conditional-logit / MaxEnt IRL), solved by
+//! penalty - a convex problem (conditional-logit / MaxEnt IRL), solved by
 //! projected gradient descent with a backtracking line search. The weight
 //! magnitude `‖w‖` doubles as the soft-max temperature: a confident fit sharpens
 //! the distribution toward "always pick the demonstrated action", bounded by the
@@ -27,8 +27,8 @@
 //! # What a fit can't do
 //!
 //! With non-negative weights (the default, so the result is a usable [`Profile`])
-//! a candidate that is **Pareto-dominated** — no better than some rival on any
-//! axis and strictly worse on one — can never be ranked first. Those decisions
+//! a candidate that is **Pareto-dominated** - no better than some rival on any
+//! axis and strictly worse on one - can never be ranked first. Those decisions
 //! are surfaced in [`Calibration::infeasible`]; they mean the demonstrator valued
 //! something the current considerations don't measure, i.e. a *missing axis*.
 
@@ -73,7 +73,7 @@ pub struct DecisionPoint {
     /// Consideration names, in feature order, this decision's features were
     /// measured against. Lets a persisted log survive a change to the
     /// consideration set: [`fit`] drops any decision whose schema differs from
-    /// the current considerations (even at the same width — a swapped axis is
+    /// the current considerations (even at the same width - a swapped axis is
     /// still incomparable). Empty means unknown (a legacy entry written before
     /// this field existed); those are matched on feature width alone.
     #[serde(default)]
@@ -88,7 +88,7 @@ pub struct FitOptions {
     pub l2: f32,
     /// Constrain weights to `>= 0` so the result is a directly-usable [`Profile`]
     /// (a consideration can only *help*, matching weighted-mean semantics). When
-    /// `false`, weights may go negative — more expressive, but a negative weight
+    /// `false`, weights may go negative - more expressive, but a negative weight
     /// has no clean meaning in the scorer's weighted mean.
     pub nonneg: bool,
     /// Response curve per consideration (len must equal `names`, or empty for
@@ -155,7 +155,7 @@ impl Calibration {
     /// Materialize the fitted weights into a [`Profile`] (weights + the curves
     /// used during fitting). Weights are rescaled to average 1.0 for readability;
     /// this is ranking-neutral because the weighted mean normalizes by `Σw`.
-    /// Considerations that were held at zero weight stay enabled at 0 — set them
+    /// Considerations that were held at zero weight stay enabled at 0 - set them
     /// disabled upstream if you'd rather drop them.
     pub fn into_profile(&self, name: impl Into<String>, combination: CombinationMode) -> Profile {
         let positive: Vec<f32> = self.weights.iter().map(|w| w.max(0.0)).collect();
@@ -209,8 +209,8 @@ pub fn fit(names: &[&str], points: &[DecisionPoint], opts: &FitOptions) -> Calib
 
     // Only well-formed decisions participate: a real, in-range choice, and every
     // candidate's feature vector matching the consideration count `k`. Decisions
-    // captured under a *different* consideration set — a stale log after the
-    // considerations changed — have the wrong feature width; their entries describe
+    // captured under a *different* consideration set - a stale log after the
+    // considerations changed - have the wrong feature width; their entries describe
     // different axes and can't be compared here, so they're dropped rather than
     // indexed out of bounds. `per_decision` therefore covers only the used subset.
     let valid: Vec<&DecisionPoint> = points
@@ -294,7 +294,7 @@ pub fn fit(names: &[&str], points: &[DecisionPoint], opts: &FitOptions) -> Calib
                     stepped = true;
                     break;
                 }
-                lr *= 0.5; // overshot — shrink and retry
+                lr *= 0.5; // overshot - shrink and retry
             }
             if converged || !stepped {
                 converged = true; // reached a minimum (flat improvement or stalled search)
@@ -448,7 +448,7 @@ fn build_report(
     }
 }
 
-/// Is candidate `chosen` Pareto-dominated by some other candidate — no greater on
+/// Is candidate `chosen` Pareto-dominated by some other candidate - no greater on
 /// any axis and strictly less on at least one? Such a choice cannot be ranked
 /// first by any non-negative weighting.
 fn is_dominated(cands: &[Vec<f32>], chosen: usize) -> bool {
@@ -550,7 +550,7 @@ mod tests {
         assert!(cal.per_decision[0].dominated);
         // A dominated choice can at best *tie* the dominator (by zeroing the
         // distinguishing axis), so the model can never give it more than half the
-        // probability — it cannot be reproduced with confidence.
+        // probability - it cannot be reproduced with confidence.
         assert!(
             cal.per_decision[0].chosen_prob <= 0.5 + 1e-3,
             "prob {}",
@@ -562,7 +562,7 @@ mod tests {
     fn reproduces_choices_from_a_known_weighting() {
         // Generate choices as argmax of a known weight vector, then check the fit
         // reproduces every ranking with high confidence. (The exact learned weight
-        // *magnitudes* aren't identifiable from few separable points — reproducing
+        // *magnitudes* aren't identifiable from few separable points - reproducing
         // the choices is the goal, not recovering the generating weights.)
         let true_w = [2.0f32, 0.5, 1.0];
         let candidate_sets = [
@@ -700,7 +700,7 @@ mod tests {
     #[test]
     fn single_candidate_decisions_are_skipped_not_errored() {
         let points = vec![
-            dp(vec![cand(vec![0.5, 0.5])], 0), // no choice — skipped
+            dp(vec![cand(vec![0.5, 0.5])], 0), // no choice - skipped
             dp(vec![cand(vec![0.9, 0.1]), cand(vec![0.1, 0.9])], 0),
         ];
         let cal = run(&["a", "b"], &points, &FitOptions::default());

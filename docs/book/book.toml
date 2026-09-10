@@ -1,5 +1,5 @@
 [book]
-title = "Ran — Kubernetes Adversary Emulation"
+title = "Ran - Kubernetes Adversary Emulation"
 authors = ["Manifold Security"]
 language = "en"
 src = "src"

@@ -61,7 +61,7 @@ pub enum Confidence {
 pub enum NameConfidence {
     /// Name came from an authoritative source (K8s API, SA token JWT, etc.)
     Authoritative,
-    /// Name is heuristic, placeholder, or inferred — not directly confirmed.
+    /// Name is heuristic, placeholder, or inferred - not directly confirmed.
     #[default]
     Derived,
 }
@@ -177,7 +177,7 @@ pub enum SessionStatus {
 
 /// A live (or pending) shell session that exits into this system.
 ///
-/// Stored as a value inside `SystemInfo.sessions` — sessions are attributes of
+/// Stored as a value inside `SystemInfo.sessions` - sessions are attributes of
 /// the system they provide access to, not independent graph entities.  The `id`
 /// doubles as the C2 backend key: the backend is registered as `session/<id>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,8 +262,8 @@ impl SystemInfo {
     ///
     /// Rules:
     /// - `Option<T>` fields: keep `self` when already `Some`, take `incoming` when `self` is `None`.
-    /// - `Vec` fields: union — append items from `incoming` not already present in `self`.
-    /// - `HashMap` fields: union — `incoming` wins on key collision (newer observation is more specific).
+    /// - `Vec` fields: union - append items from `incoming` not already present in `self`.
+    /// - `HashMap` fields: union - `incoming` wins on key collision (newer observation is more specific).
     /// - `AccessLevel`: take the higher of the two.
     pub fn merge_from(&mut self, incoming: &Self) {
         if self.os.is_none() {

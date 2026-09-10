@@ -95,7 +95,7 @@ impl<'a> PendingView<'a> {
     /// committed, the second element is `None` (no emit needed).
     ///
     /// If the namespace was added earlier in this same update batch by another
-    /// rule, it is still re-emitted here — `FactsUpdate::merge` deduplicates by
+    /// rule, it is still re-emitted here - `FactsUpdate::merge` deduplicates by
     /// entity ID so the double-emit is harmless.
     ///
     /// # Usage

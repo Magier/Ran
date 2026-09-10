@@ -342,7 +342,7 @@ impl Relation for RceCanExec {
 /// can execute commands on the `target` node by breaking out of its container
 /// namespace (e.g. via nsenter, chroot, or a privileged container mount).
 ///
-/// Carries an `envelope` — the grounded escape command template with `${CMD}`
+/// Carries an `envelope` - the grounded escape command template with `${CMD}`
 /// as the placeholder for the inner command, e.g.
 /// `nsenter -t 1 -m -u -i -n -p -- ${CMD}`.
 ///
@@ -485,7 +485,7 @@ impl Relation for AuthenticatesTo {
 
 /// Cluster-membership relation: the cluster manages (owns) the node.
 ///
-/// High-priority compound-node relation — the graph renderer nests the node
+/// High-priority compound-node relation - the graph renderer nests the node
 /// inside the cluster compound node when this edge is present.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManagesNode {
@@ -528,7 +528,7 @@ impl Relation for ManagesNode {
 ///
 /// This is a *precondition* edge, not an execution channel.  Emitted by network
 /// scan parsers (e.g. nmap) to record that a host is reachable from another.
-/// Does **not** implement `C2Channel` — reachability alone is not an exec path.
+/// Does **not** implement `C2Channel` - reachability alone is not an exec path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CanReach {
     pub source_id: EntityId,
@@ -611,7 +611,7 @@ impl Relation for Owns {
 /// An active reverse-shell session: `source` (C2Server) has a live shell
 /// into `target` (K8sNode or Pod), identified by the C2 backend `session_id`.
 ///
-/// Implements `C2Channel` — commands can be routed through this edge.
+/// Implements `C2Channel` - commands can be routed through this edge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionChannel {
     pub source_id: EntityId,
@@ -765,6 +765,10 @@ pub struct RelationSummary {
     /// exec session, if one is open. `None` = one-shot per-command exec mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// `true` when the session backing this exec-channel edge has died and the
+    /// edge is no longer traversable, but is kept for potential recovery.
+    #[serde(default)]
+    pub broken: bool,
 }
 
 impl RelationSummary {
@@ -806,6 +810,10 @@ impl RelationSummary {
             output_transform,
             weight: 0.0,
             session_id,
+            // A relation built directly from a trait object (not from a graph
+            // edge) has no liveness state yet; the graph is the source of truth
+            // for brokenness.
+            broken: false,
         }
     }
 

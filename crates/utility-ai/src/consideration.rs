@@ -3,7 +3,7 @@ use campaign::Campaign;
 
 /// Everything a [`Consideration`] needs to score one grounded candidate: the
 /// current belief state, the candidate TTP, and the resolved facts about its
-/// target. Cheap to construct (all borrows) — one per `(TTP × target)` pair.
+/// target. Cheap to construct (all borrows) - one per `(TTP × target)` pair.
 pub struct ScoringContext<'a> {
     pub campaign: &'a Campaign,
     pub ttp: &'a armory::Ttp,
@@ -24,7 +24,7 @@ pub enum ConsiderationKind {
 /// curve-free measurement normalized to `[0, 1]`; the [`Scorer`](super::Scorer)
 /// applies the profile's response curve and weight on top.
 ///
-/// Keep `measure` pure and side-effect free — it is called once per candidate
+/// Keep `measure` pure and side-effect free - it is called once per candidate
 /// and must be deterministic (no clocks, no RNG) so rankings are reproducible.
 pub trait Consideration: Send + Sync {
     /// Stable identifier used to look up this consideration's weight/curve in a

@@ -103,7 +103,7 @@ fn parse_raw_service_account_token(
     args: &HashMap<String, String>,
 ) -> ParserOutput {
     if stdout.trim().is_empty() {
-        return ParserOutput::KnownFailure("empty output — no token provided".to_string());
+        return ParserOutput::KnownFailure("empty output - no token provided".to_string());
     }
 
     // Find the JWT within possibly multi-line output.
@@ -227,7 +227,7 @@ fn parse_raw_service_account_token(
         .new_relations
         .push(Box::new(Contains::new(ns_id.0.clone(), sa_id.0.clone())));
 
-    // Pod (if the token carries pod claims — always true for bound tokens and
+    // Pod (if the token carries pod claims - always true for bound tokens and
     // most legacy tokens that include pod info).
     if let Some(pod_name) = &pod_name {
         if !pod_name.is_empty() {
@@ -535,13 +535,13 @@ fn parse_kubectl_ssrr_table(
         }
 
         if resources_raw.is_empty() {
-            // Non-resource rule — the resources column is blank.
+            // Non-resource rule - the resources column is blank.
             non_resource_rules.push(SsrrNonResourceRule {
                 verbs,
                 non_resource_urls,
             });
         } else {
-            // Resource rule — split `resource.apiGroup` from the resources column.
+            // Resource rule - split `resource.apiGroup` from the resources column.
             let (resource, api_group) = split_resource_api_group(resources_raw);
             resource_rules.push(SsrrResourceRule {
                 verbs,
@@ -582,7 +582,7 @@ fn split_resource_api_group(s: &str) -> (String, String) {
 /// Parse a ServiceAccount identity `(sa_name, namespace)` from an entity ID string.
 ///
 /// Handles the canonical `ns/{namespace}/sa/{name}` format. Returns `None` for
-/// pod IDs or any other format — those require a TOKEN arg to identify the SA.
+/// pod IDs or any other format - those require a TOKEN arg to identify the SA.
 fn parse_sa_identity_from_target(target_id: &str) -> Option<(String, String)> {
     let parts: Vec<&str> = target_id.splitn(5, '/').collect();
     if parts.len() == 4 && parts[0] == "ns" && parts[2] == "sa" {
@@ -620,7 +620,7 @@ fn is_ip_placeholder_pod_name(name: &str) -> bool {
 /// Returns `true` when `resource` in `api_group` is namespaced.
 ///
 /// Unknown resources default to `true` (namespaced).  Wildcards (`"*"`) span
-/// both scopes — treated as cluster-scoped (`false`) to avoid over-constraining
+/// both scopes - treated as cluster-scoped (`false`) to avoid over-constraining
 /// the permission scope.
 fn is_namespaced_resource(resource: &str, api_group: &str) -> bool {
     if resource == "*" || api_group == "*" {

@@ -112,7 +112,7 @@ record plus any parse audits produced by effect parsers:
 ## MCP server
 
 Ran exposes a Model Context Protocol server that agents can connect to as a tool
-provider. The MCP server is always started alongside `ran emulate` — no extra flag
+provider. The MCP server is always started alongside `ran emulate` - no extra flag
 is required. It listens on the same port as the REST API using the Streamable HTTP
 transport at `/mcp`.
 
@@ -134,54 +134,54 @@ Copilot):
 
 | Category       | Tool                            | Required arguments                           |
 | -------------- | ------------------------------- | -------------------------------------------- |
-| Discovery      | `get_graph`                     | —                                            |
+| Discovery      | `get_graph`                     | -                                            |
 | Discovery      | `get_entity`                    | `entity_id`                                  |
 | Discovery      | `get_attack_surface`            | `entity_id`                                  |
 | Discovery      | `resolve_workload`              | `name`                                       |
-| Campaign       | `get_campaign_state`            | —                                            |
-| Campaign       | `get_attack_flow`               | —                                            |
-| Armory         | `list_ttps`                     | — (optional: `tactic`)                       |
+| Campaign       | `get_campaign_state`            | -                                            |
+| Campaign       | `get_attack_flow`               | -                                            |
+| Armory         | `list_ttps`                     | - (optional: `tactic`)                       |
 | Armory         | `get_applicable_ttps`           | `target_id`                                  |
 | Armory         | `get_ttp_detail`                | `ttp_id`                                     |
 | Execution      | `execute_action`                | `action_id`, `target_id`                     |
 | Execution      | `wait_for_result`               | `cmd_id`                                     |
 | Goal eval      | `check_rbac_goal`               | `entity_id` (optional: `verbs`, `resources`) |
 | Goal eval      | `check_access_level`            | `entity_id`                                  |
-| Initial access | `get_initial_access_candidates` | — (optional: `namespace`, `name_filter`)     |
-| Extension      | `list_parse_audits`             | —                                            |
+| Initial access | `get_initial_access_candidates` | - (optional: `namespace`, `name_filter`)     |
+| Extension      | `list_parse_audits`             | -                                            |
 | Extension      | `add_parser`                    | `effect_id`, `script_content`                |
-| Campaign       | `reset_campaign`                | —                                            |
+| Campaign       | `reset_campaign`                | -                                            |
 
 #### Tool details
 
-**`resolve_workload`** — partial-name search across all entities. Use this
+**`resolve_workload`** - partial-name search across all entities. Use this
 instead of guessing entity IDs. Returns a list of `{ id, kind, name, namespace }`
 objects.
 
-**`get_initial_access_candidates`** — queries live Kubernetes pods directly (not
+**`get_initial_access_candidates`** - queries live Kubernetes pods directly (not
 the campaign graph). Use only for the first foothold. A candidate remains
 outside campaign knowledge until `valid-accounts-kubeconfig` selects it.
 
-**`execute_action`** — validates that `target_id` is a known entity before
+**`execute_action`** - validates that `target_id` is a known entity before
 queuing the TTP. The exception is `valid-accounts-kubeconfig`, which accepts a
 canonical Pod ID returned by `get_initial_access_candidates`, verifies that the
 live Pod is ready, and stages that Pod before execution. Returns
 `{ cmd_id, queued: true }`.
 
-**`wait_for_result`** — blocks up to 60 seconds polling for the execution record
+**`wait_for_result`** - blocks up to 60 seconds polling for the execution record
 identified by `cmd_id`. Returns stdout, stderr, success status, and any parse
 audit entries. Use this immediately after `execute_action`.
 
-**`get_applicable_ttps`** — filters the armory by the entity's kind, current
+**`get_applicable_ttps`** - filters the armory by the entity's kind, current
 access level, RBAC holdings, and campaign state. Cheaper than iterating
 `list_ttps` manually.
 
-**`add_parser`** — writes a Python parser script to `armory/parsers/{effect_id}.py`.
+**`add_parser`** - writes a Python parser script to `armory/parsers/{effect_id}.py`.
 Ran discovers and loads it automatically for future executions of effects with that
 ID. The script reads an `ExternalParseRequest` JSON on stdin and writes an
 `ExternalParseResponse` JSON on stdout.
 
-**`check_rbac_goal`** — evaluates whether a ServiceAccount entity holds the
+**`check_rbac_goal`** - evaluates whether a ServiceAccount entity holds the
 specified RBAC verbs and resources. Returns `achieved: true/false` and a list of
 missing permissions.
 

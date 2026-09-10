@@ -1,6 +1,6 @@
 # The Context Model
 
-The campaign maintains a **knowledge graph** — a set of typed entities and the
+The campaign maintains a **knowledge graph** - a set of typed entities and the
 directed relations between them. This is the "world model" the emulation works
 with: what the adversary has found, where they can go, and what they can do.
 
@@ -39,14 +39,14 @@ and, critically, how commands can be routed through the graph.
 | `rce.can-exec`     | source → target | Source has RCE on target via an exploit chain               |
 | `c2.session`       | C2 → target     | An active C2 session exists from this server to this target |
 
-Some relations carry an **envelope** — the command template used to reach the
+Some relations carry an **envelope** - the command template used to reach the
 target. For example, a `container.escape` relation stores the `nsenter` invocation
 that breaks out of the container. When you later run techniques "from" the escaped
 node, Ran wraps your commands with that envelope automatically.
 
 ## The access level
 
-Every entity has an **access level** — a measure of the foothold the adversary
+Every entity has an **access level** - a measure of the foothold the adversary
 has on it:
 
 | Level  | Meaning                                                        |
@@ -61,10 +61,10 @@ other than pure API calls) are applicable to a given entity.
 
 The graph grows in two ways:
 
-1. **Effects** — each TTP declares [effects](effects.md) in its YAML. After a
+1. **Effects** - each TTP declares [effects](effects.md) in its YAML. After a
    successful run, Ran parses the effect strings and applies the resulting entity
    and relation updates.
-2. **Output parsers** — Ran parses structured command output (e.g. `kubectl get
+2. **Output parsers** - Ran parses structured command output (e.g. `kubectl get
 pods -o json`) to extract entities even when no explicit effect is declared.
 
 Ran also runs a set of **inference rules** after each update. For example: if a

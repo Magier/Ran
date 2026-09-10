@@ -101,9 +101,9 @@ fn credential_from_kubeconfig(content: &str) -> Option<(K8sCredential, String)> 
 /// `file:content(...)`.
 ///
 /// Returns:
-/// - `SuccessWithFacts` — credential entity (and optional Uses relation) emitted
-/// - `KnownFailure` — empty content
-/// - `UnknownFormat` — non-empty content that fails YAML parsing or has no cluster entry
+/// - `SuccessWithFacts` - credential entity (and optional Uses relation) emitted
+/// - `KnownFailure` - empty content
+/// - `UnknownFormat` - non-empty content that fails YAML parsing or has no cluster entry
 pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout for file:kubeconfig".to_string());
@@ -163,7 +163,7 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
 /// the containment relation is skipped.
 ///
 /// TODO(tech-debt): this duplicates most of [`parse_file_kubeconfig`]. Kubeconfig
-/// parsing is format-invariant — the API server and user identity are inferred
+/// parsing is format-invariant - the API server and user identity are inferred
 /// the same way regardless of origin. The only real distinction (local/active
 /// vs in-cluster discovery) is a *provenance* concern and should drive `active`
 /// and cluster-graph emission from a single parser, rather than being encoded as
@@ -171,9 +171,9 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
 /// `project_kubeconfig_effect_provenance_debt`.
 ///
 /// Returns:
-/// - `SuccessWithFacts` — one credential per context, clusters, and relations
-/// - `KnownFailure` — empty content
-/// - `UnknownFormat` — non-empty content with no resolvable context
+/// - `SuccessWithFacts` - one credential per context, clusters, and relations
+/// - `KnownFailure` - empty content
+/// - `UnknownFormat` - non-empty content with no resolvable context
 pub(super) fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout for file:local-kubeconfig".to_string());
@@ -254,16 +254,16 @@ pub(super) fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOut
 /// [`parse_file_kubeconfig`] to create a `K8sCredential` entity.
 ///
 /// Returns:
-/// - `SuccessWithFacts` — content is a kubeconfig; credential entity emitted
-/// - `Success(SystemFieldUpdates)` — plain file; path recorded in `system.files`
-/// - `KnownFailure` — empty stdout
+/// - `SuccessWithFacts` - content is a kubeconfig; credential entity emitted
+/// - `Success(SystemFieldUpdates)` - plain file; path recorded in `system.files`
+/// - `KnownFailure` - empty stdout
 pub(super) fn parse_file_content(stdout: &str, path: &str, source_id: &str) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout for file:content".to_string());
     }
 
     if is_kubeconfig_content(stdout) {
-        // Delegate to the kubeconfig parser — it emits the credential entity.
+        // Delegate to the kubeconfig parser - it emits the credential entity.
         // The file path is tracked by the caller in parse_output_effect via
         // apply_system_update before calling us.
         parse_file_kubeconfig(stdout, source_id)

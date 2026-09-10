@@ -66,8 +66,8 @@ Declared as a map under `preconditions:` (alias: `requires:`).
 | `rbac`        | list   | `{verb, resource}` pairs. At least one captured SA must hold all permissions.   |
 | `accessLevel` | string | Requires exec access on the target. Any value except `none` enforces the check. |
 | `exists`      | list   | Entity kinds that must be present in the campaign graph. Supports: `Listener`.  |
-| `has-token`   | bool   | `true` — target entity must have a captured JWT token.                          |
-| `related`     | list   | `{kind, accessLevel?}` — related entity requirements.                           |
+| `has-token`   | bool   | `true` - target entity must have a captured JWT token.                          |
+| `related`     | list   | `{kind, accessLevel?}` - related entity requirements.                           |
 
 ---
 

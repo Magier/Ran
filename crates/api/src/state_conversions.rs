@@ -64,6 +64,9 @@ pub(crate) fn campaign_to_campaign_state(
                 if let Some(ref sid) = r.session_id {
                     m.insert("sessionId".to_string(), Value::String(sid.clone()));
                 }
+                if r.broken {
+                    m.insert("broken".to_string(), Value::Bool(true));
+                }
                 m.insert(
                     "provenance".to_string(),
                     provenance_value(campaign.relation_provenance(
@@ -225,6 +228,9 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
                     },
                     relation: None,
                     session_id: r.session_id.clone(),
+                    // Only present when broken, so healthy edges stay lean and
+                    // the frontend `edge[?broken]` selector reads absent as false.
+                    broken: if r.broken { Some(true) } else { None },
                     provenance: Some(provenance_strings(campaign.relation_provenance(
                         &r.name,
                         &r.source_id,
@@ -342,7 +348,7 @@ fn hosted_app_services(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
 /// Listener payloads keyed by the C2 that holds them, via `hosts-listener`.
 ///
 /// Mirrors [`hosted_app_services`]: the entity is real campaign state, but the
-/// UI shows it on its host — here as a port badge on the C2 node.
+/// UI shows it on its host - here as a port badge on the C2 node.
 fn hosted_listeners(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
     let mut listener_payloads = HashMap::new();
     for entity in campaign.get_entities() {

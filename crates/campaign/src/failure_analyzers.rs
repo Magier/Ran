@@ -146,7 +146,7 @@ impl FailureAnalyzer for NotWriteableFailureAnalyzer {
 /// provided it attempts to pull the missing binary's name out of the raw
 /// (non-lowercased) haystack.
 ///
-/// Adding a new shell/runtime format is as simple as appending an entry here —
+/// Adding a new shell/runtime format is as simple as appending an entry here -
 /// no other code needs to change.
 pub struct BinaryNotFoundTemplate {
     /// Human-readable label used in diagnostics / tests.
@@ -172,19 +172,19 @@ pub struct BinaryNotFoundTemplate {
 /// | K8s fail_reason | `… exit code 127` (embedded string) |
 /// | Generic PATH | `not found in $PATH` |
 pub static BINARY_NOT_FOUND_TEMPLATES: &[BinaryNotFoundTemplate] = &[
-    // zsh puts the binary name AFTER the marker — must be checked before the
+    // zsh puts the binary name AFTER the marker - must be checked before the
     // bash template because "zsh: command not found: name" also contains the
     // bash hint ": command not found".
     //   "zsh: command not found: kubectl"
     BinaryNotFoundTemplate {
-        description: "zsh — 'command not found: <name>'",
+        description: "zsh - 'command not found: <name>'",
         hint: "command not found: ",
         extract: Some(|h| extract_after_marker(h, "command not found: ")),
     },
     // fish shell:
     //   "fish: Unknown command: kubectl"
     BinaryNotFoundTemplate {
-        description: "fish — 'Unknown command: <name>'",
+        description: "fish - 'Unknown command: <name>'",
         hint: "unknown command: ",
         extract: Some(|h| extract_after_marker(h, "unknown command: ")),
     },
@@ -193,7 +193,7 @@ pub static BINARY_NOT_FOUND_TEMPLATES: &[BinaryNotFoundTemplate] = &[
     //   "sh: 1: kubectl: not found"          (numbered line form)
     //   "/usr/bin/sh: 1: curl: not found"
     BinaryNotFoundTemplate {
-        description: "POSIX sh — '<name>: not found'",
+        description: "POSIX sh - '<name>: not found'",
         hint: ": not found",
         extract: Some(|h| extract_before_suffix(h, ": not found")),
     },
@@ -201,25 +201,25 @@ pub static BINARY_NOT_FOUND_TEMPLATES: &[BinaryNotFoundTemplate] = &[
     //   "bash: kubectl: command not found"
     //   "/bin/bash: wget: command not found"
     BinaryNotFoundTemplate {
-        description: "bash — '<name>: command not found'",
+        description: "bash - '<name>: command not found'",
         hint: ": command not found",
         extract: Some(|h| extract_before_suffix(h, ": command not found")),
     },
-    // K8s OCI / containerd / runc — binary not in $PATH:
+    // K8s OCI / containerd / runc - binary not in $PATH:
     //   "exec: \"kubectl\": executable file not found in $PATH"
     BinaryNotFoundTemplate {
-        description: "OCI — exec: \"<name>\": executable file not found in $PATH",
+        description: "OCI - exec: \"<name>\": executable file not found in $PATH",
         hint: "executable file not found",
         extract: Some(extract_quoted_exec_name),
     },
-    // K8s OCI / execve — binary path does not exist:
+    // K8s OCI / execve - binary path does not exist:
     //   "exec: \"kubectl\": no such file or directory"
     //
     // Note: the hint `"exec: \""` is intentionally narrow so that file-not-found
     // errors for config files (e.g. `open /etc/config: no such file or directory`)
     // do not false-positive here.
     BinaryNotFoundTemplate {
-        description: "OCI — exec: \"<name>\": no such file or directory",
+        description: "OCI - exec: \"<name>\": no such file or directory",
         hint: "exec: \"",
         extract: Some(extract_quoted_exec_name),
     },
@@ -233,7 +233,7 @@ pub static BINARY_NOT_FOUND_TEMPLATES: &[BinaryNotFoundTemplate] = &[
     },
     // Generic PATH search failure (no binary name extractable):
     BinaryNotFoundTemplate {
-        description: "generic — 'not found in $PATH'",
+        description: "generic - 'not found in $PATH'",
         hint: "not found in $path",
         extract: None,
     },
@@ -366,7 +366,7 @@ fn extract_quoted_exec_name(haystack: &str) -> Option<String> {
 /// - `/usr/bin/sh: 1: curl`   → `"curl"`
 ///
 /// When a segment contains a `/` its basename is returned so that a shell path
-/// like `/bin/sh` yields `"sh"` rather than the full path — though in practice
+/// like `/bin/sh` yields `"sh"` rather than the full path - though in practice
 /// the shell segment is never the final one in a real "binary not found" message.
 fn last_non_digit_colon_segment(s: &str) -> Option<String> {
     let mut slice = s;

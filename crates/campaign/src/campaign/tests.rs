@@ -15,6 +15,106 @@ use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
 fn push_relation(campaign: &mut Campaign, rel: &dyn ran_domain::Relation) {
     campaign.insert_relation(rel);
 }
+
+// ---------------------------------------------------------------------------
+// Entity-id aliases (ids that changed under their holders after a merge)
+// ---------------------------------------------------------------------------
+
+/// An `UnknownSystem` folded into the pod discovered at the same IP: the same
+/// id change the promotion path makes, taken through `IpBasedSystemMergeAnalyzer`.
+#[test]
+fn a_merged_away_system_id_resolves_to_the_surviving_pod() {
+    use ran_domain::UnknownSystem;
+
+    let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+    let mut system = UnknownSystem::new("10.244.0.9");
+    system.system.sessions.push(SessionInfo {
+        id: "s1".to_string(),
+        kind: "tcp".to_string(),
+        port: Some(4444),
+        status: SessionStatus::Active,
+    });
+    let stale_id = system.entity_id();
+    campaign.insert_entity(&system);
+
+    let pod = Pod::new("netshoot", "default");
+    let pod_id = pod.entity_id();
+    let mut facts = crate::FactsUpdate::default();
+    facts.new_entities.push(Box::new(pod));
+    facts
+        .entity_aliases
+        .insert((stale_id.clone(), pod_id.clone()));
+    campaign.apply_facts(&facts);
+
+    assert_eq!(campaign.canonical_entity_id(&stale_id.0), pod_id.0);
+    assert_eq!(
+        campaign
+            .get_system_entity(&stale_id.0)
+            .map(|e| e.entity().entity_id()),
+        Some(pod_id.clone()),
+        "a lookup by the merged-away id must reach the pod"
+    );
+    let channel = campaign
+        .resolve_exec_channel(&stale_id.0)
+        .expect("the session that came with the system must still be reachable");
+    assert_eq!(channel.backend_id, "session/s1");
+}
+
+/// Aliases only ever cover ids that nothing answers to. An id that names a live
+/// entity is that entity, whatever the table says - otherwise a later, genuine
+/// `node/netshoot` would be shadowed by a reverse shell's old guess.
+#[test]
+fn an_alias_never_shadows_a_live_entity() {
+    let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+    let node = K8sNode::new("netshoot");
+    let node_id = node.entity_id();
+    let pod_id = EntityId::new("ns/?/pod/netshoot");
+
+    campaign.record_entity_alias(&node_id, &pod_id);
+    assert_eq!(
+        campaign.canonical_entity_id(&node_id.0),
+        pod_id.0,
+        "while nothing answers to the id, the alias applies"
+    );
+
+    campaign.insert_entity(&node);
+    assert_eq!(
+        campaign.canonical_entity_id(&node_id.0),
+        node_id.0,
+        "once the id names a real entity, the alias must not redirect it"
+    );
+}
+
+/// Chained merges: a foothold's id is rewritten twice (C2 guess → system →
+/// pod), and the C2 still only knows the id it started with.
+#[test]
+fn a_chain_of_aliases_resolves_to_the_last_surviving_id() {
+    let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+    let pod = Pod::new("netshoot", "?");
+    let pod_id = pod.entity_id();
+    campaign.insert_entity(&pod);
+
+    campaign.record_entity_alias(
+        &EntityId::new("node/netshoot"),
+        &EntityId::new("system/netshoot"),
+    );
+    campaign.record_entity_alias(&EntityId::new("system/netshoot"), &pod_id);
+
+    assert_eq!(campaign.canonical_entity_id("node/netshoot"), pod_id.0);
+}
+
+/// A cyclic table is malformed, but it must not hang the resolver.
+#[test]
+fn a_cyclic_alias_pair_terminates() {
+    let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+    let a = EntityId::new("system/a");
+    let b = EntityId::new("system/b");
+    campaign.record_entity_alias(&a, &b);
+    campaign.record_entity_alias(&b, &a);
+
+    let resolved = campaign.canonical_entity_id(&a.0);
+    assert!(resolved == a.0 || resolved == b.0);
+}
 use crate::failure_analyzers::FAILURE_ANALYZER_EFFECT_ID;
 use crate::ParseResult;
 
@@ -72,8 +172,8 @@ fn bootstrap_without_local_credential_contains_c2_and_cluster_entities() {
             .with_server(Some("https://127.0.0.1:6443".to_string())),
     );
 
-    // The operator host always exists now — it is the target of the Read Local
-    // Kubeconfig TTP that establishes Ran's identity — so even without a local
+    // The operator host always exists now - it is the target of the Read Local
+    // Kubeconfig TTP that establishes Ran's identity - so even without a local
     // credential we have OperatorHost + C2 + cluster.
     assert_eq!(campaign.entity_count(), 3);
     let operator_host_id = EntityId::new("system/operator-host");
@@ -334,7 +434,7 @@ fn resolve_exec_channel_returns_builtin_for_kubelet_pod_exec_relation() {
 fn resolve_exec_channel_returns_via_compromised_intermediate() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
-    // Compromised pod (has exec foothold — C2 can reach it via k8s.can-exec)
+    // Compromised pod (has exec foothold - C2 can reach it via k8s.can-exec)
     let mut attacker = Pod::new("attacker", "default");
     attacker.system.access_level = AccessLevel::Exec;
     let attacker_id = attacker.entity_id().0.clone();
@@ -1362,7 +1462,7 @@ fn prepare_action_respects_caller_supplied_exec_system_id() {
     let pod = Pod::new("demo", "default");
     let target_id = pod.entity_id().0.clone();
     campaign.entities.insert_typed(pod);
-    // No exec relations — would normally error, but caller supplies explicit backend
+    // No exec relations - would normally error, but caller supplies explicit backend
 
     let armory = minimal_armory("test-ttp");
     let exec = campaign
@@ -2451,7 +2551,7 @@ fn ip_placeholder_merged_when_real_pod_already_in_campaign() {
 }
 
 // ---------------------------------------------------------------------------
-// sys.node-name — placeholder node identity resolution tests
+// sys.node-name - placeholder node identity resolution tests
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -2958,13 +3058,13 @@ fn container_escape_placeholder_node_is_derived_when_pod_has_no_node_name() {
 fn src_mount_path_grounded_for_non_lateral_ttp() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
-    // The exec system (pivot) — has a can-exec path to the target.
+    // The exec system (pivot) - has a can-exec path to the target.
     let exec_pod = Pod::new("pivot", "default");
     let exec_id = exec_pod.entity_id().0.clone();
     campaign.entities.insert_typed(exec_pod);
     push_exec_edge(&mut campaign, "sa/default/ran", &exec_id);
 
-    // The target pod — this is where the command actually runs, so its
+    // The target pod - this is where the command actually runs, so its
     // host_paths are what ${SRC.MOUNT_PATH} should resolve to.
     let mut target = Pod::new("target", "kube-system");
     target.volume_mounts.push(ran_domain::Mount {
@@ -3014,7 +3114,7 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
 }
 
 // ---------------------------------------------------------------------------
-// prepare_action_with_ttp — direct pipeline invocation
+// prepare_action_with_ttp - direct pipeline invocation
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -3710,4 +3810,206 @@ fn materialize_k8s_request_namespaced_when_cluster_scoped_omitted() {
         "omitting cluster_scoped must default to namespaced; got: {}",
         procedure.command
     );
+}
+
+/// The env-var service lifecycle, driven all the way into the knowledge graph:
+/// a foothold with no cluster and no namespace, then the same Service learned
+/// for real.
+#[test]
+fn an_env_derived_service_lives_under_the_cluster_until_its_namespace_is_known() {
+    use ran_domain::{K8sService, UnknownSystem};
+
+    let mut campaign =
+        Campaign::bootstrap_with_knowledge("ran", crate::InitialKnowledge::default());
+
+    let mut system = UnknownSystem::new("10.244.0.9");
+    for (k, v) in [
+        ("KUBERNETES_SERVICE_HOST", "10.96.0.1"),
+        ("KUBERNETES_SERVICE_PORT", "443"),
+        ("NETSHOOT_CONSOLE_SERVICE_HOST", "10.103.114.223"),
+        ("NETSHOOT_CONSOLE_SERVICE_PORT", "80"),
+    ] {
+        system.system.env_vars.insert(k.to_string(), v.to_string());
+    }
+    campaign.entities.insert_typed(system);
+
+    let rules = crate::analyzers::default_rules();
+    let facts = crate::rules::run_rules_fixpoint(&campaign, &rules, crate::FactsUpdate::default());
+    campaign.apply_facts(&facts);
+
+    let cluster_id = EntityId::new("k8s/cluster/cluster-10-96-0-1");
+    let parked = EntityId::new("ns/?/svc/netshoot-console");
+
+    // The parked service has no namespace to hold it, so the cluster does.
+    assert!(
+        campaign
+            .graph
+            .targets_of(&cluster_id, "contains")
+            .contains(&&parked),
+        "parked service should be contained by the derived cluster, graph has {:?}",
+        campaign.graph.targets_of(&cluster_id, "contains")
+    );
+
+    // The Kubernetes API now reveals the same ClusterIP in namespace `demo`.
+    let mut real = K8sService::new("netshoot-console", "demo");
+    real.cluster_ip = Some("10.103.114.223".to_string());
+    let real_id = real.entity_id();
+    let mut update = crate::FactsUpdate::default();
+    update.new_entities.push(Box::new(real));
+    let facts = crate::rules::run_rules_fixpoint(&campaign, &rules, update);
+    campaign.apply_facts(&facts);
+
+    // The placeholder is gone, and the service now hangs off its namespace
+    // only - not off the cluster as well.
+    assert!(campaign.entities.find::<K8sService>(&parked).is_none());
+    assert!(campaign
+        .graph
+        .targets_of(&EntityId::new("ns/demo"), "contains")
+        .contains(&&real_id));
+    assert!(
+        !campaign
+            .graph
+            .targets_of(&cluster_id, "contains")
+            .contains(&&real_id),
+        "a placed service must not also hang off the cluster"
+    );
+    // ...and the namespace it landed in is itself inside the cluster.
+    assert!(campaign
+        .graph
+        .targets_of(&cluster_id, "contains")
+        .contains(&&EntityId::new("ns/demo")));
+}
+
+/// The workshop shape: a socat reverse shell into a container, nothing else
+/// known. Reading its environment must produce a legible picture - a cluster,
+/// the pod we are standing in, and the service it can reach.
+#[test]
+fn reading_env_vars_from_a_foothold_draws_the_cluster_the_pod_and_its_service() {
+    use ran_domain::UnknownSystem;
+
+    let raw = "KUBERNETES_SERVICE_PORT=443
+KUBERNETES_PORT=tcp://10.96.0.1:443
+NETSHOOT_CONSOLE_PORT_80_TCP_ADDR=10.103.114.223
+HOSTNAME=netshoot
+PORT=8080
+NETSHOOT_CONSOLE_PORT_80_TCP_PORT=80
+HOME=/root
+NETSHOOT_CONSOLE_PORT_80_TCP_PROTO=tcp
+SOCAT_VERSION=1.8.1.3
+NETSHOOT_CONSOLE_PORT_80_TCP=tcp://10.103.114.223:80
+KUBERNETES_PORT_443_TCP_ADDR=10.96.0.1
+NETSHOOT_CONSOLE_SERVICE_PORT_HTTP=80
+KUBERNETES_PORT_443_TCP_PORT=443
+KUBERNETES_PORT_443_TCP_PROTO=tcp
+NETSHOOT_CONSOLE_SERVICE_HOST=10.103.114.223
+KUBERNETES_PORT_443_TCP=tcp://10.96.0.1:443
+KUBERNETES_SERVICE_PORT_HTTPS=443
+KUBERNETES_SERVICE_HOST=10.96.0.1
+SOCAT_PID=2897
+NETSHOOT_CONSOLE_SERVICE_PORT=80
+NETSHOOT_CONSOLE_PORT=tcp://10.103.114.223:80";
+
+    let mut campaign =
+        Campaign::bootstrap_with_knowledge("ran", crate::InitialKnowledge::default());
+    let mut system = UnknownSystem::new("10.244.0.9");
+    for (k, v) in raw.lines().filter_map(|l| l.split_once('=')) {
+        system.system.env_vars.insert(k.to_string(), v.to_string());
+    }
+    let system_id = system.entity_id();
+    campaign.entities.insert_typed(system);
+
+    let rules = crate::analyzers::default_rules();
+    let facts = crate::rules::run_rules_fixpoint(&campaign, &rules, crate::FactsUpdate::default());
+    campaign.apply_facts(&facts);
+
+    let cluster_id = EntityId::new("k8s/cluster/cluster-10-96-0-1");
+    let pod_id = EntityId::new("ns/?/pod/netshoot");
+    let console_id = EntityId::new("ns/?/svc/netshoot-console");
+
+    // The nameless foothold is now the pod it was standing in, and the
+    // UnknownSystem is gone.
+    assert!(campaign
+        .entities
+        .find::<UnknownSystem>(&system_id)
+        .is_none());
+    let pod = campaign
+        .entities
+        .find::<Pod>(&pod_id)
+        .expect("expected the foothold to become a pod");
+    assert_eq!(
+        pod.meta.name_confidence,
+        ran_domain::NameConfidence::Derived
+    );
+    // Its accumulated runtime data came along with the merge.
+    assert!(pod.system.env_vars.contains_key("KUBERNETES_SERVICE_HOST"));
+
+    // Everything hangs off the derived cluster: the pod, the master service's
+    // `default` namespace, and the console service whose namespace is unknown.
+    let contained = campaign.graph.targets_of(&cluster_id, "contains");
+    for expected in [&pod_id, &console_id, &EntityId::new("ns/default")] {
+        assert!(
+            contained.contains(&expected),
+            "expected the cluster to contain {}, it contains {:?}",
+            expected.0,
+            contained
+        );
+    }
+
+    // And the reachability edge followed the promotion onto the pod.
+    assert!(campaign
+        .graph
+        .targets_of(&pod_id, "can-reach")
+        .contains(&&console_id));
+    assert!(campaign
+        .graph
+        .targets_of(&pod_id, "can-reach")
+        .contains(&&EntityId::new("ns/default/svc/kubernetes")));
+}
+
+/// The promotion is a belief, not a fact, so it has to stay correctable: when
+/// the API server later names the real pod at the same IP, the derived one
+/// must fold into it rather than sit beside it as a duplicate.
+#[test]
+fn an_authoritative_pod_reclaims_the_foothold_promoted_from_env_vars() {
+    use ran_domain::{NameConfidence, UnknownSystem};
+
+    let mut campaign =
+        Campaign::bootstrap_with_knowledge("ran", crate::InitialKnowledge::default());
+    let mut system = UnknownSystem::new("10.244.0.9");
+    system.system.ips.push("10.244.0.9".parse().unwrap());
+    for (k, v) in [
+        ("KUBERNETES_SERVICE_HOST", "10.96.0.1"),
+        ("KUBERNETES_SERVICE_PORT", "443"),
+        ("HOSTNAME", "netshoot"),
+    ] {
+        system.system.env_vars.insert(k.to_string(), v.to_string());
+    }
+    campaign.entities.insert_typed(system);
+
+    let rules = crate::analyzers::default_rules();
+    let facts = crate::rules::run_rules_fixpoint(&campaign, &rules, crate::FactsUpdate::default());
+    campaign.apply_facts(&facts);
+
+    let derived_id = EntityId::new("ns/?/pod/netshoot");
+    assert!(campaign.entities.find::<Pod>(&derived_id).is_some());
+
+    // The API server names the pod: same IP, real namespace.
+    let mut real = Pod::new("netshoot", "demo");
+    real.meta.name_confidence = NameConfidence::Authoritative;
+    real.system.ips.push("10.244.0.9".parse().unwrap());
+    let real_id = real.entity_id();
+    let mut update = crate::FactsUpdate::default();
+    update.new_entities.push(Box::new(real));
+    let facts = crate::rules::run_rules_fixpoint(&campaign, &rules, update);
+    campaign.apply_facts(&facts);
+
+    assert!(
+        campaign.entities.find::<Pod>(&derived_id).is_none(),
+        "the derived pod should have folded into the authoritative one"
+    );
+    let placed = campaign
+        .entities
+        .find::<Pod>(&real_id)
+        .expect("expected the authoritative pod");
+    assert!(placed.system.env_vars.contains_key("HOSTNAME"));
 }

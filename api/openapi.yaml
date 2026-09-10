@@ -134,8 +134,8 @@ paths:
       summary: Rank recommended next actions
       description: >-
         Returns applicable (TTP × target) actions ranked by utility for the
-        current campaign state, using the default scoring profile. Advisory only
-        — the caller decides what to execute. Each candidate includes a
+        current campaign state, using the default scoring profile. Advisory
+        only - the caller decides what to execute. Each candidate includes a
         per-consideration breakdown for explainability.
       operationId: getRecommendations
       parameters:
@@ -144,13 +144,13 @@ paths:
           required: false
           schema:
             type: string
-          description: Optional — restrict recommendations to a single target entity.
+          description: Optional - restrict recommendations to a single target entity.
         - name: limit
           in: query
           required: false
           schema:
             type: integer
-          description: Optional — cap the number of ranked candidates returned.
+          description: Optional - cap the number of ranked candidates returned.
       responses:
         '200':
           description: Successful response
@@ -165,7 +165,7 @@ paths:
     get:
       summary: Get the live scoring profile
       description: >-
-        Returns the current scoring profile — combination mode, the tuning
+        Returns the current scoring profile - combination mode, the tuning
         feature flag, and every registered consideration's weight, response
         curve, and enabled/veto flags.
       operationId: getScoringProfile
@@ -694,6 +694,12 @@ components:
         sessionId:
           type: string
           description: Backend ID of the active persistent session on this exec-channel edge, if any.
+        broken:
+          type: boolean
+          description: >-
+            True when the session backing this exec-channel edge has died. The
+            edge is kept (rendered as broken) and is non-traversable until a
+            session reconnects and recovers it.
         provenance:
           type: array
           items:
@@ -825,6 +831,13 @@ components:
             The bare inner command as it runs on the final target system,
             before any hop envelopes wrap it. Empty when there is no multi-hop
             traversal.
+        routeReason:
+          type: string
+          description: >-
+            Short, human-readable explanation of why this execution route was
+            chosen (e.g. a live session vs. a multi-hop path), including a note
+            when a broken session edge to the target was skipped. Empty for
+            direct/local commands with no joined traversal.
         args:
           type: object
           additionalProperties:
@@ -907,7 +920,7 @@ components:
             this hop. Absent for the C2 entry hop and pass-through segments.
         command:
           type: string
-          description: The full command string sent across this segment — what `fromId` runs.
+          description: The full command string sent across this segment - what `fromId` runs.
 
     TTP:
       type: object
@@ -1077,7 +1090,7 @@ components:
           type: string
           description: >
             Free-text rationale for choosing this action at this point in the
-            assessment — why this TTP against this target now. Optional, but
+            assessment - why this TTP against this target now. Optional, but
             strongly encouraged when driving the campaign programmatically: it
             is stored on the resulting execution record so the timeline is
             self-explaining and auditable.
@@ -1388,7 +1401,7 @@ components:
           type: array
           items:
             type: string
-          description: Raw output lines — first element is stdout, second (if present) is stderr
+          description: Raw output lines - first element is stdout, second (if present) is stderr
         fail_reason:
           type: string
         started_at_ms:
@@ -1714,14 +1727,14 @@ components:
         infeasible:
           type: integer
           description: >-
-            Decisions whose choice is Pareto-dominated — unreproducible by any
+            Decisions whose choice is Pareto-dominated - unreproducible by any
             non-negative weighting, signalling a missing consideration.
         converged:
           type: boolean
 
     CalibrationResult:
       type: object
-      description: A calibration preview — the fitted profile plus fit metrics.
+      description: A calibration preview - the fitted profile plus fit metrics.
       required:
         - profile
         - metrics
@@ -1748,7 +1761,7 @@ components:
 
     VolumeMount:
       type: object
-      description: A volume mount on a pod — either a projected volume or a host-path bind mount.
+      description: A volume mount on a pod - either a projected volume or a host-path bind mount.
       required:
         - name
         - mount_point

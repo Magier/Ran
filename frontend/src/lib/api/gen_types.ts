@@ -133,7 +133,7 @@ export interface paths {
         };
         /**
          * Rank recommended next actions
-         * @description Returns applicable (TTP × target) actions ranked by utility for the current campaign state, using the default scoring profile. Advisory only — the caller decides what to execute. Each candidate includes a per-consideration breakdown for explainability.
+         * @description Returns applicable (TTP × target) actions ranked by utility for the current campaign state, using the default scoring profile. Advisory only - the caller decides what to execute. Each candidate includes a per-consideration breakdown for explainability.
          */
         get: operations["getRecommendations"];
         put?: never;
@@ -153,7 +153,7 @@ export interface paths {
         };
         /**
          * Get the live scoring profile
-         * @description Returns the current scoring profile — combination mode, the tuning feature flag, and every registered consideration's weight, response curve, and enabled/veto flags.
+         * @description Returns the current scoring profile - combination mode, the tuning feature flag, and every registered consideration's weight, response curve, and enabled/veto flags.
          */
         get: operations["getScoringProfile"];
         /**
@@ -533,6 +533,8 @@ export interface components {
             targetId: string;
             /** @description Backend ID of the active persistent session on this exec-channel edge, if any. */
             sessionId?: string;
+            /** @description True when the session backing this exec-channel edge has died. The edge is kept (rendered as broken) and is non-traversable until a session reconnects and recovers it. */
+            broken?: boolean;
             provenance?: ("scenario" | "operator" | "action" | "inference")[];
         };
         CampaignState: {
@@ -575,6 +577,8 @@ export interface components {
             traversal: components["schemas"]["TraversalHop"][];
             /** @description The bare inner command as it runs on the final target system, before any hop envelopes wrap it. Empty when there is no multi-hop traversal. */
             innerCommand: string;
+            /** @description Short, human-readable explanation of why this execution route was chosen (e.g. a live session vs. a multi-hop path), including a note when a broken session edge to the target was skipped. Empty for direct/local commands with no joined traversal. */
+            routeReason?: string;
             args: {
                 [key: string]: string;
             };
@@ -607,7 +611,7 @@ export interface components {
             relation: string;
             /** @description The command-wrapping template with `${CMD}` placeholder applied at this hop. Absent for the C2 entry hop and pass-through segments. */
             envelope?: string;
-            /** @description The full command string sent across this segment — what `fromId` runs. */
+            /** @description The full command string sent across this segment - what `fromId` runs. */
             command: string;
         };
         TTP: {
@@ -675,7 +679,7 @@ export interface components {
              * @default 60
              */
             executionTimeoutSeconds: number;
-            /** @description Free-text rationale for choosing this action at this point in the assessment — why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
+            /** @description Free-text rationale for choosing this action at this point in the assessment - why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
             reasoning?: string;
         };
         AuthIdentity: {
@@ -805,7 +809,7 @@ export interface components {
             };
             success: boolean;
             exit_code: number;
-            /** @description Raw output lines — first element is stdout, second (if present) is stderr */
+            /** @description Raw output lines - first element is stdout, second (if present) is stderr */
             results: string[];
             fail_reason: string;
             /**
@@ -990,11 +994,11 @@ export interface components {
             minChosenProb: number;
             /** Format: float */
             logLikelihood: number;
-            /** @description Decisions whose choice is Pareto-dominated — unreproducible by any non-negative weighting, signalling a missing consideration. */
+            /** @description Decisions whose choice is Pareto-dominated - unreproducible by any non-negative weighting, signalling a missing consideration. */
             infeasible: number;
             converged: boolean;
         };
-        /** @description A calibration preview — the fitted profile plus fit metrics. */
+        /** @description A calibration preview - the fitted profile plus fit metrics. */
         CalibrationResult: {
             profile: components["schemas"]["ScoringProfile"];
             metrics: components["schemas"]["CalibrationMetrics"];
@@ -1005,7 +1009,7 @@ export interface components {
             kind: string;
             uid: string;
         };
-        /** @description A volume mount on a pod — either a projected volume or a host-path bind mount. */
+        /** @description A volume mount on a pod - either a projected volume or a host-path bind mount. */
         VolumeMount: {
             name: string;
             /** @description Path inside the container where the volume appears. */
@@ -1180,9 +1184,9 @@ export interface operations {
     getRecommendations: {
         parameters: {
             query?: {
-                /** @description Optional — restrict recommendations to a single target entity. */
+                /** @description Optional - restrict recommendations to a single target entity. */
                 targetId?: string;
-                /** @description Optional — cap the number of ranked candidates returned. */
+                /** @description Optional - cap the number of ranked candidates returned. */
                 limit?: number;
             };
             header?: never;

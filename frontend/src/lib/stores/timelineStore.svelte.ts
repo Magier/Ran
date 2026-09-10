@@ -140,8 +140,8 @@ export class TimelineStore {
      * Record a completed TTP execution (driven by the `ttp-executed` SSE).
      *
      * Resolves the matching pending entry when the action was initiated from
-     * this UI. When no entry exists — e.g. the action was fired via the MCP
-     * server or an autonomous plan — it creates a new, already-resolved entry
+     * this UI. When no entry exists - e.g. the action was fired via the MCP
+     * server or an autonomous plan - it creates a new, already-resolved entry
      * so MCP-driven actions show up in the timeline, not just the flow page.
      */
     recordExecutedTtp(entry: Omit<TtpActionEntry, 'kind'>): void {
@@ -161,8 +161,8 @@ export class TimelineStore {
      *
      * The store is otherwise live-only: it just listens to SSE events that
      * arrive after the UI connects, so a session attached to an already-running
-     * campaign would start blank. This replays the persisted records — newest
-     * last so the prepend in `recordExecutedTtp` leaves them newest-first — and
+     * campaign would start blank. This replays the persisted records - newest
+     * last so the prepend in `recordExecutedTtp` leaves them newest-first - and
      * is idempotent via the per-id index, so it's safe to call alongside any
      * live `ttp-executed` events that race in.
      */

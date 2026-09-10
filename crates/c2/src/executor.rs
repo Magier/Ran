@@ -117,7 +117,7 @@ impl C2Backend for NoClientBackend {
     async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
         failed_result(
             cmd,
-            "no active Kubernetes client configured — read the local kubeconfig or restart with --kubeconfig",
+            "no active Kubernetes client configured - read the local kubeconfig or restart with --kubeconfig",
         )
     }
 }
@@ -136,7 +136,7 @@ impl C2Manager {
         // authenticate to the cluster's current context) we register a stub
         // that fails every command with a clear reason. Control commands like
         // c2.read_local_kubeconfig are dispatched by the executor before it
-        // consults the backend, so those still work — which is the whole point
+        // consults the backend, so those still work - which is the whole point
         // of degrading here rather than aborting startup.
         let builtin: Arc<dyn C2Backend> = match k8s.clone() {
             Some(client) => Arc::new(BuiltinC2::new(client)),
@@ -397,11 +397,33 @@ impl C2Executor {
 
         let mut event = self.select_backend(cmd).await.execute(cmd).await;
         event.session_connected = None;
+
+        // A live session that died surfaces as a session-death fail_reason -
+        // either an unexpected close mid-command or sustained unresponsiveness
+        // (repeated timeouts). Both are distinct from an ordinary non-zero exit
+        // or a single slow-command timeout, which leave the session healthy.
+        // Signal it as a SessionLost so the campaign marks the backing
+        // exec-channel edge broken. The backend that ran the command -
+        // `exec_system_id` - is the session id carried on that edge, so it
+        // matches the edge back without extra bookkeeping.
+        if !event.success && crate::types::is_session_death_reason(&event.fail_reason) {
+            warn!(
+                backend_id = %cmd.exec_system_id,
+                target_id = %cmd.target_id,
+                reason = %event.fail_reason,
+                "session died; publishing SessionLost"
+            );
+            let _ = self.event_bus.publish(C2Event::SessionLost {
+                backend_id: cmd.exec_system_id.clone(),
+                target_entity_id: cmd.target_id.clone(),
+            });
+        }
+
         event
     }
 
     /// Read the kubeconfig from the machine running Ran and return its contents
-    /// as stdout. This is a local filesystem read on the operator host — it does
+    /// as stdout. This is a local filesystem read on the operator host - it does
     /// not touch the cluster. The path is, in order of preference: the explicit
     /// `PATH` argument, the path the active client was configured with, then the
     /// default kubeconfig location.
@@ -733,7 +755,7 @@ fn parse_session_listen_command(cmd: &str) -> Option<(u16, String)> {
 }
 
 /// Parse `c2.stop-listener(<listener id>)` from a procedure command string.
-/// The listener id is whatever the TTP parameter carried — canonically
+/// The listener id is whatever the TTP parameter carried - canonically
 /// `protocol/port`, though a bare port is accepted downstream.
 fn parse_stop_listener_command(cmd: &str) -> Option<String> {
     let inner = cmd.strip_prefix("c2.stop-listener(")?.strip_suffix(')')?;
@@ -745,7 +767,7 @@ fn parse_stop_listener_command(cmd: &str) -> Option<String> {
 }
 
 /// Derive the session backend ID for a `session.listen` command from the
-/// execution context — uses the same deterministic scheme as the effect handler.
+/// execution context - uses the same deterministic scheme as the effect handler.
 fn session_backend_id_from_cmd(cmd: &ExecTtp) -> String {
     let target_id = cmd
         .args
@@ -1237,7 +1259,7 @@ mod tests {
         }
         // Probe with the same wildcard address the accept loop binds. Tokio sets
         // SO_REUSEADDR, and on BSD-derived stacks that lets a specific address
-        // coexist with a wildcard bind — so probing 127.0.0.1 here would succeed
+        // coexist with a wildcard bind - so probing 127.0.0.1 here would succeed
         // even while the listener holds the port, and prove nothing.
         assert!(
             tokio::net::TcpListener::bind(("0.0.0.0", port))

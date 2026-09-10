@@ -1,4 +1,4 @@
-//! [`KnowledgeGraph`] — directed multigraph of [`EntityId`] nodes.
+//! [`KnowledgeGraph`] - directed multigraph of [`EntityId`] nodes.
 
 use std::collections::HashMap;
 
@@ -17,11 +17,13 @@ use crate::edge::EdgeData;
 ///
 /// ## Invariants enforced on insert
 ///
-/// - **NoSelfEdge** — source and target must differ (hard reject).
-/// - **PodSingleNode** — a pod may carry at most one `runs-on` edge; an
+/// - **NoSelfEdge** - source and target must differ (hard reject).
+/// - **PodSingleNode** - a pod may carry at most one `runs-on` edge; an
 ///   incoming one replaces the old one (K8s rescheduling is valid).
-/// - **SingleContainer** — an entity may have at most one incoming `contains`
+/// - **SingleContainer** - an entity may have at most one incoming `contains`
 ///   edge; a more specific parent replaces its previous parent.
+/// - **SingleSession** - at most one `c2.session` edge per `src → tgt` pair; a
+///   reconnected session replaces the previous (possibly broken) one.
 #[derive(Debug, Clone)]
 pub struct KnowledgeGraph {
     pub(crate) graph: StableGraph<EntityId, EdgeData>,
@@ -51,6 +53,90 @@ mod tests {
             .collect();
         assert_eq!(contains.len(), 1);
         assert_eq!(contains[0].source_id, namespace.0);
+    }
+
+    /// A can-exec edge carrying a session that breaks becomes non-traversable
+    /// but is retained, and a reconnecting session recovers it.
+    #[test]
+    fn broken_session_edge_is_non_traversable_until_recovered() {
+        let mut graph = KnowledgeGraph::new();
+        let attacker = EntityId::new("ns/default/pod/attacker");
+        let victim = EntityId::new("ns/default/pod/victim");
+
+        graph.insert_edge(
+            &attacker,
+            &victim,
+            edge_data_for("k8s.can-exec", None, None),
+        );
+        // Session is live on the edge - the path exists.
+        assert!(graph.activate_session_on_incoming_exec(&victim, "session/victim-1".to_string()));
+        assert!(graph
+            .shortest_exec_path(std::slice::from_ref(&attacker), &victim)
+            .is_some());
+
+        // The shell dies: mark the session's edge broken.
+        assert_eq!(graph.mark_session_broken("session/victim-1"), 1);
+
+        // The edge is no longer traversable, and reachability skips it...
+        assert!(graph
+            .shortest_exec_path(std::slice::from_ref(&attacker), &victim)
+            .is_none());
+        assert!(graph.reachable_via_exec(&[attacker.clone()]).is_empty());
+
+        // ...but it is kept (not removed) and surfaced as broken for the UI.
+        let summary = graph
+            .to_relation_summaries()
+            .into_iter()
+            .find(|r| r.name == "k8s.can-exec")
+            .expect("edge should still exist");
+        assert!(summary.broken);
+        assert_eq!(summary.session_id.as_deref(), Some("session/victim-1"));
+
+        // A reconnecting session on the same edge clears the break.
+        assert!(graph.activate_session_on_incoming_exec(&victim, "session/victim-1".to_string()));
+        assert!(graph
+            .shortest_exec_path(std::slice::from_ref(&attacker), &victim)
+            .is_some());
+        let recovered = graph
+            .to_relation_summaries()
+            .into_iter()
+            .find(|r| r.name == "k8s.can-exec")
+            .expect("edge should still exist");
+        assert!(!recovered.broken);
+    }
+
+    /// A reconnected session's edge replaces the prior broken one for the same
+    /// pair, rather than accumulating as a stale artifact.
+    #[test]
+    fn new_c2_session_edge_replaces_the_prior_broken_one() {
+        let mut graph = KnowledgeGraph::new();
+        let c2 = EntityId::new("c2/ran");
+        let victim = EntityId::new("node/victim");
+
+        // Establish a session, then break it.
+        let mut first = edge_data_for("c2.session", None, None);
+        first.session_id = Some("session/victim-1".to_string());
+        graph.insert_edge(&c2, &victim, first);
+        assert_eq!(graph.mark_session_broken("session/victim-1"), 1);
+
+        // A reconnected session inserts a fresh c2.session edge for the same pair.
+        let mut second = edge_data_for("c2.session", None, None);
+        second.session_id = Some("session/victim-2".to_string());
+        graph.insert_edge(&c2, &victim, second);
+
+        // Exactly one c2.session edge remains, and it is the live (unbroken) one.
+        let sessions: Vec<_> = graph
+            .to_relation_summaries()
+            .into_iter()
+            .filter(|r| r.name == "c2.session")
+            .collect();
+        assert_eq!(
+            sessions.len(),
+            1,
+            "the broken session edge must be replaced"
+        );
+        assert!(!sessions[0].broken);
+        assert_eq!(sessions[0].session_id.as_deref(), Some("session/victim-2"));
     }
 }
 
@@ -101,7 +187,7 @@ impl KnowledgeGraph {
             return;
         }
 
-        // Snapshot edges before mutation — can't borrow mutably and immutably
+        // Snapshot edges before mutation - can't borrow mutably and immutably
         // at the same time.
         let outgoing: Vec<(NodeIndex, EdgeData)> = self
             .graph
@@ -122,7 +208,7 @@ impl KnowledgeGraph {
         // Re-insert edges, replacing discard with keep.
         for (tgt, data) in outgoing {
             // tgt == discard_idx was a self-edge on discard; skip.
-            // After removal the index is gone, so we can only check by value —
+            // After removal the index is gone, so we can only check by value -
             // use the fact that the node was just removed (its weight is gone).
             if self.graph.node_weight(tgt).is_none() {
                 continue;
@@ -154,6 +240,9 @@ impl KnowledgeGraph {
     ///   before the new one is added (K8s rescheduling is valid).
     /// - **SingleContainer**: a new `contains` edge replaces any existing
     ///   containment parent of `tgt`.
+    /// - **SingleSession**: a new `c2.session` edge replaces any existing
+    ///   `c2.session` edge for the same `src → tgt` pair (a reconnected shell
+    ///   supersedes the dead one instead of leaving it as an artifact).
     ///
     /// Parallel edges (same `src`/`tgt`, different `relation_name`) are allowed.
     pub fn insert_edge(
@@ -187,6 +276,23 @@ impl KnowledgeGraph {
                 .graph
                 .edges_directed(tgt_idx, Direction::Incoming)
                 .filter(|e| e.weight().relation_name == "contains")
+                .map(|e| e.id())
+                .collect();
+            for idx in stale {
+                self.graph.remove_edge(idx);
+            }
+        }
+
+        // SingleSession: a fresh `c2.session` edge supersedes any prior session
+        // edge for the same source→target pair. A reconnected shell replaces the
+        // dead one outright - a broken session edge carries no epistemic value
+        // once a live session to the same target exists, so it is not kept as a
+        // graph artifact.
+        if data.relation_name == "c2.session" {
+            let stale: Vec<EdgeIndex> = self
+                .graph
+                .edges_connecting(src_idx, tgt_idx)
+                .filter(|e| e.weight().relation_name == "c2.session")
                 .map(|e| e.id())
                 .collect();
             for idx in stale {
@@ -276,7 +382,7 @@ impl KnowledgeGraph {
             .edge_indices()
             .filter_map(|ei| {
                 let data = self.graph.edge_weight(ei)?;
-                if !data.is_exec_channel {
+                if !data.is_exec_channel || data.broken {
                     return None;
                 }
                 let (si, ti) = self.graph.edge_endpoints(ei)?;
@@ -306,7 +412,7 @@ impl KnowledgeGraph {
         let mut result = Vec::new();
         while let Some(nx) = queue.pop_front() {
             for edge in self.graph.edges_directed(nx, Direction::Outgoing) {
-                if !edge.weight().is_exec_channel {
+                if !edge.weight().is_exec_channel || edge.weight().broken {
                     continue;
                 }
                 let tgt = edge.target();
@@ -338,7 +444,9 @@ impl KnowledgeGraph {
 
         let exec_graph = EdgeFiltered::from_fn(
             &self.graph,
-            |e: petgraph::stable_graph::EdgeReference<EdgeData>| e.weight().is_exec_channel,
+            |e: petgraph::stable_graph::EdgeReference<EdgeData>| {
+                e.weight().is_exec_channel && !e.weight().broken
+            },
         );
 
         let mut best: Option<(f32, Vec<NodeIndex>)> = None;
@@ -401,9 +509,40 @@ impl KnowledgeGraph {
         for idx in idxs {
             if let Some(data) = self.graph.edge_weight_mut(idx) {
                 data.session_id = Some(session_id.clone());
+                // A (re)connecting session clears any prior broken mark so the
+                // edge becomes traversable again.
+                data.broken = false;
             }
         }
         found
+    }
+
+    /// Mark every exec-channel edge carrying `backend_id` as broken.
+    ///
+    /// Called when a live session dies (e.g. the shell closed unexpectedly).
+    /// The edge is intentionally kept, and its `session_id` is preserved, so a
+    /// reconnecting session can be matched back to it and clear the mark. While
+    /// broken, the edge is skipped by all exec-channel traversal queries.
+    /// Returns the number of edges marked.
+    pub fn mark_session_broken(&mut self, backend_id: &str) -> usize {
+        let idxs: Vec<petgraph::stable_graph::EdgeIndex> = self
+            .graph
+            .edge_indices()
+            .filter(|&ei| {
+                self.graph
+                    .edge_weight(ei)
+                    .and_then(|d| d.session_id.as_deref())
+                    == Some(backend_id)
+            })
+            .collect();
+        let mut marked = 0;
+        for idx in idxs {
+            if let Some(data) = self.graph.edge_weight_mut(idx) {
+                data.broken = true;
+                marked += 1;
+            }
+        }
+        marked
     }
 
     /// Clear `session_id` from every edge where `session_id == Some(backend_id)`.
@@ -445,6 +584,7 @@ impl KnowledgeGraph {
                     output_transform: data.output_transform.clone(),
                     weight: data.weight,
                     session_id: data.session_id.clone(),
+                    broken: data.broken,
                 })
             })
             .collect()
