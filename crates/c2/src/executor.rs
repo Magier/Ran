@@ -391,6 +391,28 @@ impl C2Executor {
 
         let mut event = self.select_backend(cmd).await.execute(cmd).await;
         event.session_connected = None;
+
+        // A live session that died surfaces as a session-death fail_reason —
+        // either an unexpected close mid-command or sustained unresponsiveness
+        // (repeated timeouts). Both are distinct from an ordinary non-zero exit
+        // or a single slow-command timeout, which leave the session healthy.
+        // Signal it as a SessionLost so the campaign marks the backing
+        // exec-channel edge broken. The backend that ran the command —
+        // `exec_system_id` — is the session id carried on that edge, so it
+        // matches the edge back without extra bookkeeping.
+        if !event.success && crate::types::is_session_death_reason(&event.fail_reason) {
+            warn!(
+                backend_id = %cmd.exec_system_id,
+                target_id = %cmd.target_id,
+                reason = %event.fail_reason,
+                "session died; publishing SessionLost"
+            );
+            let _ = self.event_bus.publish(C2Event::SessionLost {
+                backend_id: cmd.exec_system_id.clone(),
+                target_entity_id: cmd.target_id.clone(),
+            });
+        }
+
         event
     }
 

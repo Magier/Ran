@@ -765,6 +765,10 @@ pub struct RelationSummary {
     /// exec session, if one is open. `None` = one-shot per-command exec mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// `true` when the session backing this exec-channel edge has died and the
+    /// edge is no longer traversable, but is kept for potential recovery.
+    #[serde(default)]
+    pub broken: bool,
 }
 
 impl RelationSummary {
@@ -806,6 +810,10 @@ impl RelationSummary {
             output_transform,
             weight: 0.0,
             session_id,
+            // A relation built directly from a trait object (not from a graph
+            // edge) has no liveness state yet; the graph is the source of truth
+            // for brokenness.
+            broken: false,
         }
     }
 

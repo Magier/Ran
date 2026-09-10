@@ -40,4 +40,11 @@ pub struct CommandTraversal {
     /// The bare inner command as it runs on the final target system, before any
     /// hop envelopes wrap it.
     pub inner_command: String,
+    /// Short, human-readable explanation of *why* this route was chosen — e.g.
+    /// "Tunneled through live session …", "Direct exec from c2/ran", or a
+    /// multi-hop path — including a note when a broken session edge to the
+    /// target was skipped. Surfaced to the timeline UI and the logs so the
+    /// routing decision is legible rather than implicit. Empty when unknown.
+    #[serde(default)]
+    pub reason: String,
 }

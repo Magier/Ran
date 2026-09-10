@@ -391,6 +391,24 @@ impl Campaign {
                     exec_target_id: None,
                 });
             }
+
+            // No live session, but a down (lost/broken) one exists on this target:
+            // make the reroute explicit in the logs rather than silently falling
+            // through to graph-based routing.
+            let has_down_session = self.get_system_entity(target_id).is_some_and(|sys| {
+                sys.entity()
+                    .system()
+                    .sessions
+                    .iter()
+                    .any(|s| s.status != SessionStatus::Active)
+            });
+            if has_down_session {
+                tracing::info!(
+                    target_id = %target_id,
+                    "resolve_exec_channel: session on target is down; \
+                     rerouting via the knowledge graph"
+                );
+            }
         } else {
             tracing::debug!(
                 target_id = %target_id,
@@ -679,6 +697,13 @@ impl Campaign {
         self.graph.deactivate_session(backend_id);
     }
 
+    /// Mark every exec-channel edge carrying `backend_id` as broken so it is no
+    /// longer traversable, while keeping the edge (and its `session_id`) for
+    /// potential recovery. Returns the number of edges marked.
+    pub fn mark_session_broken(&mut self, backend_id: &str) -> usize {
+        self.graph.mark_session_broken(backend_id)
+    }
+
     /// Insert an entity into the store and register its node in the graph.
     pub(crate) fn insert_entity(&mut self, entity: &dyn Entity) {
         let id = entity.entity_id();
@@ -739,7 +764,10 @@ impl Campaign {
             .incoming(&system_eid)
             .into_iter()
             .find(|(src, d)| {
-                d.is_exec_channel && !self.is_system_entity_id(src) && src.0.starts_with("c2/")
+                d.is_exec_channel
+                    && !d.broken
+                    && !self.is_system_entity_id(src)
+                    && src.0.starts_with("c2/")
             })
         {
             return src.0.clone();
@@ -792,6 +820,38 @@ mod planner_helper_tests {
     fn entity_has_relation_false_when_no_relation() {
         let c = minimal_campaign();
         assert!(!c.entity_has_relation("ns/default/pod/nginx-abc", "rce.can-exec"));
+    }
+
+    /// A standalone `c2.session` edge (reverse shell to an otherwise-unknown
+    /// host) must carry its `session_id` onto the graph edge so a later session
+    /// break can find and mark it broken — otherwise the dead connection keeps
+    /// rendering as a live one.
+    #[test]
+    fn standalone_session_edge_carries_session_id_and_can_break() {
+        let mut c = minimal_campaign();
+        let channel = ran_domain::SessionChannel::new("c2/ran", "node/victim", "session/victim-1");
+        c.insert_relation(&channel);
+
+        let rel = c
+            .get_relations()
+            .into_iter()
+            .find(|r| r.name == "c2.session")
+            .expect("c2.session edge should exist");
+        assert_eq!(
+            rel.session_id.as_deref(),
+            Some("session/victim-1"),
+            "session_id must be carried onto the graph edge"
+        );
+        assert!(!rel.broken);
+
+        assert_eq!(c.mark_session_broken("session/victim-1"), 1);
+
+        let rel = c
+            .get_relations()
+            .into_iter()
+            .find(|r| r.name == "c2.session")
+            .expect("c2.session edge should still exist");
+        assert!(rel.broken, "the session's edge should be marked broken");
     }
 
     #[test]
