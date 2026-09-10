@@ -6,11 +6,11 @@ Pre-built binaries for Linux, macOS (Intel and Apple Silicon), and Windows are
 available on the [Releases page](https://github.com/magier/ran/releases/latest).
 
 ```sh
-# macOS — Apple Silicon
+# macOS - Apple Silicon
 curl -sL https://github.com/magier/ran/releases/latest/download/ran-darwin-arm64.tar.gz | tar xz
 chmod +x ran && sudo mv ran /usr/local/bin/
 
-# macOS — Intel
+# macOS - Intel
 curl -sL https://github.com/magier/ran/releases/latest/download/ran-darwin-amd64.tar.gz | tar xz
 chmod +x ran && sudo mv ran /usr/local/bin/
 

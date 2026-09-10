@@ -52,7 +52,7 @@ impl ResponseCurve {
 }
 
 impl Default for ResponseCurve {
-    /// The identity curve — passes the raw measurement through unchanged.
+    /// The identity curve - passes the raw measurement through unchanged.
     fn default() -> Self {
         ResponseCurve::Linear {
             slope: 1.0,

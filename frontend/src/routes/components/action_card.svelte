@@ -209,7 +209,7 @@
 			>
 				<Tooltip.Trigger
 					class="flex items-center gap-1 pr-2 pl-1 flex-shrink-0 cursor-help text-surface-500 hover:text-primary-500"
-					aria-label={scoreBlocker ? `Utility ${pct} — ${blockerLabel}` : `Utility ${pct} — hover for breakdown`}
+					aria-label={scoreBlocker ? `Utility ${pct} - ${blockerLabel}` : `Utility ${pct} - hover for breakdown`}
 					title={blockerLabel || 'Hover for utility breakdown'}
 				>
 					{@render chip()}

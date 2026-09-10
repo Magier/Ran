@@ -1,19 +1,19 @@
 //! The built-in considerations.
 //!
 //! Four utility families plus a belief layer:
-//! - *belief-state* factors — reliability and input readiness;
-//! - *structural utility* signals from the TTP's shape — cost;
-//! - the *epistemic* axis — an active-inference style value = information
+//! - *belief-state* factors - reliability and input readiness;
+//! - *structural utility* signals from the TTP's shape - cost;
+//! - the *epistemic* axis - an active-inference style value = information
 //!   magnitude × freshness (uncertainty), driving epistemic foraging;
 //! - *pragmatic* effect-derived signals via the canonical
-//!   [`EffectKind`](campaign::effects::EffectKind) taxonomy — privilege gain,
+//!   [`EffectKind`](campaign::effects::EffectKind) taxonomy - privilege gain,
 //!   reachability;
-//! - *operational-risk* signals — stealth, the inverse of detection risk.
+//! - *operational-risk* signals - stealth, the inverse of detection risk.
 
 use super::{Consideration, ConsiderationKind, ScoringContext};
 use campaign::effects::{EffectCategory, EffectKind};
 
-/// Whether running an action against a TTP's effects is *volatile* — i.e. any of
+/// Whether running an action against a TTP's effects is *volatile* - i.e. any of
 /// its declared effects can go stale. An action with no volatile effect is
 /// **idempotent**: once it has succeeded, re-running reveals nothing new.
 fn action_is_volatile(ttp: &armory::Ttp) -> bool {
@@ -23,7 +23,7 @@ fn action_is_volatile(ttp: &armory::Ttp) -> bool {
         .any(|k| k.is_volatile())
 }
 
-/// **Epistemic freshness** — how much *new* knowledge running this action would
+/// **Epistemic freshness** - how much *new* knowledge running this action would
 /// yield right now, in `[0, 1]`. This is the active-inference flavored notion of
 /// novelty: value comes from resolving uncertainty, not from the act itself.
 ///
@@ -58,7 +58,7 @@ pub fn epistemic_freshness(
     };
 
     if !action_is_volatile(ttp) {
-        return 0.0; // idempotent — knowledge can't go stale
+        return 0.0; // idempotent - knowledge can't go stale
     }
 
     // Volatile: recover as state-changing (successful) actions happen since.
@@ -69,13 +69,13 @@ pub fn epistemic_freshness(
     1.0 - 1.0 / (1.0 + changes as f32)
 }
 
-/// **Pragmatic freshness** — `1.0` if the capability this action grants is not
+/// **Pragmatic freshness** - `1.0` if the capability this action grants is not
 /// yet held, `0.0` once it is. The pragmatic mirror of [`epistemic_freshness`]:
 /// where knowledge can go stale, a *capability* (exec, escape, a session) is
-/// held permanently once achieved, so this never recovers — re-running an
+/// held permanently once achieved, so this never recovers - re-running an
 /// already-succeeded privilege/reachability action accomplishes nothing.
 ///
-/// Held is proxied by "this `(TTP, target)` already succeeded" — the same
+/// Held is proxied by "this `(TTP, target)` already succeeded" - the same
 /// history signal used elsewhere. (A graph-state check on the specific
 /// capability edge would also catch a *lost* session; that's the precise
 /// upgrade, mirroring the epistemic over-approximation note.)
@@ -93,7 +93,7 @@ fn pragmatic_freshness(ttp: &armory::Ttp, target_id: &str, campaign: &campaign::
 
 /// Confidence the action will actually work. Blends a status-derived prior with
 /// the observed success rate of this TTP across the campaign (small pseudo-count
-/// so a single run doesn't swing it), then multiplies by **tool readiness** —
+/// so a single run doesn't swing it), then multiplies by **tool readiness** -
 /// success needs both a working technique and a present tool. A confirmed-present
 /// tool leaves the estimate unchanged; an unknown tool discounts it; a TTP whose
 /// every tool is known-absent is filtered out upstream by the applicability gate.
@@ -145,7 +145,7 @@ impl Consideration for Reliability {
 }
 
 /// Prefer cheaper actions. Scores the *cheapest available procedure variant* of
-/// the TTP — a single local command beats a multi-step payload chain.
+/// the TTP - a single local command beats a multi-step payload chain.
 pub struct Cost;
 
 impl Cost {
@@ -183,7 +183,7 @@ impl Consideration for Cost {
             // cost >= 1 → score in (0, 1]; cheaper is higher.
             1.0 / min_cost
         } else {
-            // No procedures (shouldn't happen for a real TTP) — neutral.
+            // No procedures (shouldn't happen for a real TTP) - neutral.
             0.5
         }
     }
@@ -363,7 +363,7 @@ fn saturating(amount: f32) -> f32 {
 
 /// Score a TTP by how many of its effects fall in `want`, via the canonical
 /// [`EffectKind`] taxonomy. Effects outside the taxonomy contribute nothing
-/// (fail-soft) — adding coverage is a single edit in `effects::EffectKind`.
+/// (fail-soft) - adding coverage is a single edit in `effects::EffectKind`.
 fn category_score(ttp: &armory::Ttp, want: EffectCategory) -> f32 {
     let count = ttp
         .effects
@@ -405,11 +405,11 @@ fn is_information_tactic(tactic: &str) -> bool {
     matches!(t.as_str(), "discovery" | "reconnaissance")
 }
 
-/// Value of the privilege the action would gain — effects that add execution or
+/// Value of the privilege the action would gain - effects that add execution or
 /// escape capability ([`EffectCategory::PrivilegeEdge`]). Usually the dominant
 /// signal for an offensive scorer. State-aware: gated by
 /// [`pragmatic_freshness`], so a capability already held (the action already
-/// succeeded here) scores `0` — no point re-escaping a host you're already on.
+/// succeeded here) scores `0` - no point re-escaping a host you're already on.
 pub struct PrivilegeGain;
 
 impl Consideration for PrivilegeGain {
@@ -423,7 +423,7 @@ impl Consideration for PrivilegeGain {
     }
 }
 
-/// Magnitude of the knowledge an action would reveal if run now — *ignoring*
+/// Magnitude of the knowledge an action would reveal if run now - *ignoring*
 /// whether we already know it. Generality-weighted discovery effects (see
 /// [`discovery_score`]) with a baseline floor for inherently information-
 /// gathering tactics. This is the "how much could I learn" half of epistemic
@@ -438,13 +438,13 @@ fn discovery_magnitude(ttp: &armory::Ttp) -> f32 {
     effect.max(baseline)
 }
 
-/// **Epistemic value** — expected information gain from running this action now,
+/// **Epistemic value** - expected information gain from running this action now,
 /// in `[0, 1]`. Active-inference framing: value = how much the action would
 /// reveal ([`discovery_magnitude`]) × how uncertain we currently are about it
 /// ([`epistemic_freshness`]). A foundational fact you already hold has *zero*
 /// epistemic value (high magnitude × zero freshness); a never-seen one has full
 /// value; a volatile one regains value as the world drifts. This is the engine
-/// of **epistemic foraging** — seek what resolves uncertainty, ignore the known.
+/// of **epistemic foraging** - seek what resolves uncertainty, ignore the known.
 ///
 /// Consolidates the former `information_gain` (magnitude) and `novelty`
 /// (freshness) axes into one. Covers *epistemic* satiation; the symmetric
@@ -462,7 +462,7 @@ impl Consideration for EpistemicValue {
     }
 }
 
-/// Value of new operating positions — effects that add a session or network
+/// Value of new operating positions - effects that add a session or network
 /// route to further systems ([`EffectCategory::Reachability`]). State-aware:
 /// gated by [`pragmatic_freshness`], so a route already established scores `0`.
 pub struct Reachability;
@@ -819,7 +819,7 @@ mod tests {
     #[test]
     fn epistemic_value_is_magnitude_times_freshness() {
         // An idempotent discovery (get-IP) has full epistemic value the first
-        // time and zero once learned — magnitude high, freshness collapses.
+        // time and zero once learned - magnitude high, freshness collapses.
         let mut c = Campaign::bootstrap("t", K8sCluster::new("t"));
         let tc = tc();
         let ttp = Ttp {

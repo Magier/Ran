@@ -4,12 +4,12 @@ The built-in armory covers ~80 techniques across the MITRE ATT&CK tactic spectru
 for Kubernetes. Before writing a new one, check whether an existing technique can
 be adapted:
 
-- **Use `--arg` overrides** — many techniques are parameterised enough that
+- **Use `--arg` overrides** - many techniques are parameterised enough that
   changing a command string or target address covers your use case.
-- **Check the `disabled` techniques** — `ran armory` lists disabled TTPs.
+- **Check the `disabled` techniques** - `ran armory` lists disabled TTPs.
   A technique may already exist but be disabled because its PoC binary isn't
   bundled. You can enable it via a custom YAML override.
-- **Check custom armory support** — if you have a slightly different variant of
+- **Check custom armory support** - if you have a slightly different variant of
   an existing technique, override it by placing a YAML with the same `id` in your
   custom armory directory.
 

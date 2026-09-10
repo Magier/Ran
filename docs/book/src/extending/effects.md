@@ -14,7 +14,7 @@ should know about:
   binds a service account)
 
 Effects on read-only discovery techniques (listing pods, enumerating RBAC) are
-handled by the output parser pipeline — you typically don't need to write explicit
+handled by the output parser pipeline - you typically don't need to write explicit
 entity effects for these, only the list-form effect that triggers the parser:
 
 ```yaml
@@ -76,7 +76,7 @@ If the escape command contains `${CMD}` (the standard slot for the wrapped paylo
 Ran stores it as the envelope and subsequent technique commands are wrapped with it
 automatically.
 
-Example — an nsenter-based escape:
+Example - an nsenter-based escape:
 
 ```yaml
 procedures:
@@ -89,7 +89,7 @@ effects:
 
 ## Effect evaluation and the `sys` placeholder
 
-`sys` resolves to `TARGET_ID` — the campaign entity ID of the target at execution
+`sys` resolves to `TARGET_ID` - the campaign entity ID of the target at execution
 time. It is available in all relation-style effects. Do not use `sys` in the first
 argument of `k8s.can-exec` unless the source of the exec-ability is the current
 target itself.

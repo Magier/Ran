@@ -214,7 +214,7 @@ class CampaignState {
 		// (backend restart, autonomous loop, CLI) doesn't carry previous
 		// iterations' logs into the new campaign. The app-menu Reset clears it
 		// directly; this covers every reset signalled via the SSE event. Sharing
-		// the single reset-campaign handler is required — ran_api's `on()` keeps
+		// the single reset-campaign handler is required - ran_api's `on()` keeps
 		// one handler per event type, so a second listener would clobber this one.
 		timeline.clear();
 		await this.api.GetGraph().then((g: Graph) => {

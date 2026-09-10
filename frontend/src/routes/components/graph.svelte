@@ -169,7 +169,7 @@
 		const element = cy.getElementById(id);
 		if (element.empty()) {
 			// An off-graph entity (a listener, which rides on its C2 as a badge)
-			// has nothing to highlight — but the graph must not keep a stale node
+			// has nothing to highlight - but the graph must not keep a stale node
 			// highlighted while the armory targets something else.
 			cy.$(':selected').unselect();
 			return;
@@ -798,7 +798,7 @@
 		});
 
 		if (hidden.size === 0) {
-			// No filter — re-apply informational edge logic and return
+			// No filter - re-apply informational edge logic and return
 			hideRedundantInformationalEdges(cy);
 			return;
 		}
@@ -816,7 +816,7 @@
 				if (isNamespaceNode) {
 					filteredNodeIds.add(n.id());
 					// descendants() is empty for collapsed nodes (children are removed by the
-					// plugin), so this is a no-op for them — which is correct: hiding the
+					// plugin), so this is a no-op for them - which is correct: hiding the
 					// collapsed compound already hides everything inside it.
 					n.descendants().forEach((d: any) => filteredNodeIds.add(d.id()));
 				}
@@ -918,7 +918,7 @@
 		nodes={campaignState.graph?.nodes}
 		onselect={(listenerId) => {
 			// A listener is a real entity, so selecting it scopes the armory to the
-			// actions that target one. It has no cytoscape node — the effect
+			// actions that target one. It has no cytoscape node - the effect
 			// watching selectedObjectId finds nothing to select, which is correct.
 			selectedObjectId = listenerId;
 		}}

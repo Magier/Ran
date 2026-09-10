@@ -1,4 +1,4 @@
-//! [`KnowledgeGraph`] — directed multigraph of [`EntityId`] nodes.
+//! [`KnowledgeGraph`] - directed multigraph of [`EntityId`] nodes.
 
 use std::collections::HashMap;
 
@@ -17,12 +17,12 @@ use crate::edge::EdgeData;
 ///
 /// ## Invariants enforced on insert
 ///
-/// - **NoSelfEdge** — source and target must differ (hard reject).
-/// - **PodSingleNode** — a pod may carry at most one `runs-on` edge; an
+/// - **NoSelfEdge** - source and target must differ (hard reject).
+/// - **PodSingleNode** - a pod may carry at most one `runs-on` edge; an
 ///   incoming one replaces the old one (K8s rescheduling is valid).
-/// - **SingleContainer** — an entity may have at most one incoming `contains`
+/// - **SingleContainer** - an entity may have at most one incoming `contains`
 ///   edge; a more specific parent replaces its previous parent.
-/// - **SingleSession** — at most one `c2.session` edge per `src → tgt` pair; a
+/// - **SingleSession** - at most one `c2.session` edge per `src → tgt` pair; a
 ///   reconnected session replaces the previous (possibly broken) one.
 #[derive(Debug, Clone)]
 pub struct KnowledgeGraph {
@@ -68,7 +68,7 @@ mod tests {
             &victim,
             edge_data_for("k8s.can-exec", None, None),
         );
-        // Session is live on the edge — the path exists.
+        // Session is live on the edge - the path exists.
         assert!(graph.activate_session_on_incoming_exec(&victim, "session/victim-1".to_string()));
         assert!(graph
             .shortest_exec_path(std::slice::from_ref(&attacker), &victim)
@@ -187,7 +187,7 @@ impl KnowledgeGraph {
             return;
         }
 
-        // Snapshot edges before mutation — can't borrow mutably and immutably
+        // Snapshot edges before mutation - can't borrow mutably and immutably
         // at the same time.
         let outgoing: Vec<(NodeIndex, EdgeData)> = self
             .graph
@@ -208,7 +208,7 @@ impl KnowledgeGraph {
         // Re-insert edges, replacing discard with keep.
         for (tgt, data) in outgoing {
             // tgt == discard_idx was a self-edge on discard; skip.
-            // After removal the index is gone, so we can only check by value —
+            // After removal the index is gone, so we can only check by value -
             // use the fact that the node was just removed (its weight is gone).
             if self.graph.node_weight(tgt).is_none() {
                 continue;
@@ -285,7 +285,7 @@ impl KnowledgeGraph {
 
         // SingleSession: a fresh `c2.session` edge supersedes any prior session
         // edge for the same source→target pair. A reconnected shell replaces the
-        // dead one outright — a broken session edge carries no epistemic value
+        // dead one outright - a broken session edge carries no epistemic value
         // once a live session to the same target exists, so it is not kept as a
         // graph artifact.
         if data.relation_name == "c2.session" {

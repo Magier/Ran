@@ -34,7 +34,7 @@ pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
 }
 
 /// Minimal serde types for deserializing K8s API `kubectl --output=json` responses.
-/// These cover only the fields Ran needs — unknown fields are ignored.
+/// These cover only the fields Ran needs - unknown fields are ignored.
 mod k8s_json {
     use serde::Deserialize;
     use std::collections::HashMap;
@@ -224,7 +224,7 @@ mod k8s_json {
         pub metadata: Meta,
         #[serde(rename = "type", default)]
         pub secret_type: String,
-        /// Keys only — values are base64-encoded credentials; we don't store them.
+        /// Keys only - values are base64-encoded credentials; we don't store them.
         #[serde(default)]
         pub data: HashMap<String, serde_json::Value>,
     }
@@ -533,7 +533,7 @@ mod k8s_json {
 
     #[derive(Deserialize, Default)]
     pub struct GatewayAddress {
-        // "type" field ("IPAddress" | "Hostname") omitted — both forms are
+        // "type" field ("IPAddress" | "Hostname") omitted - both forms are
         // stored identically in external_addresses.
         #[serde(default)]
         pub value: String,
@@ -797,7 +797,7 @@ fn parse_k8s_pod_list(
             });
         }
 
-        // Pod-level host-path mounts — derived from containers, de-duplicated by
+        // Pod-level host-path mounts - derived from containers, de-duplicated by
         // volume name. Used by grounding (SRC.MOUNT_PATH) and has_host_paths().
         let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for c in &pod.containers {
@@ -1359,7 +1359,7 @@ fn parse_k8s_service_list(
             item.spec.service_type.clone()
         };
 
-        // "None" is the headless service sentinel — store as None.
+        // "None" is the headless service sentinel - store as None.
         svc.cluster_ip = item
             .spec
             .cluster_ip

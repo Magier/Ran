@@ -5,8 +5,8 @@
 //! `pkg/kubelet/envvars`). Two tiers exist:
 //!
 //! * The `kubernetes` Service from the `default` namespace is **always**
-//!   injected — `KUBERNETES_SERVICE_HOST`, `KUBERNETES_SERVICE_PORT` and the
-//!   Docker-legacy `KUBERNETES_PORT_443_TCP*` family — regardless of the pod's
+//!   injected - `KUBERNETES_SERVICE_HOST`, `KUBERNETES_SERVICE_PORT` and the
+//!   Docker-legacy `KUBERNETES_PORT_443_TCP*` family - regardless of the pod's
 //!   `enableServiceLinks` setting.
 //! * Every other Service is injected only when it lives in the pod's own
 //!   namespace, carries a real ClusterIP (headless services are skipped),
@@ -16,14 +16,14 @@
 //! Consequences for inference:
 //!
 //! * `KUBERNETES_SERVICE_HOST` is a reliable "kubelet injected this" signal,
-//!   and is not distro-specific — only its value varies between clusters.
+//!   and is not distro-specific - only its value varies between clusters.
 //! * The *absence* of `<NAME>_SERVICE_HOST` entries proves nothing: charts
 //!   commonly set `enableServiceLinks: false`, headless services never appear,
 //!   and cross-namespace services are never linked.
 //! * Every value is a snapshot from container-start time, so a Service that has
 //!   since been deleted or re-assigned a ClusterIP still shows its old address.
 //! * The values are writable by the workload, so nothing derived here is
-//!   authoritative — entities keep the default `NameConfidence::Derived`.
+//!   authoritative - entities keep the default `NameConfidence::Derived`.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -108,7 +108,7 @@ pub fn services_from_env(env: &HashMap<String, String>) -> Vec<EnvService> {
 ///
 /// Kubelet upper-cases the name and rewrites `-` as `_`. The mapping is
 /// lossless in reverse because Service names are DNS-1035 labels and port names
-/// are IANA service names — neither may contain an underscore or an upper-case
+/// are IANA service names - neither may contain an underscore or an upper-case
 /// character.
 fn service_name_from_env(fragment: &str) -> String {
     fragment.to_ascii_lowercase().replace('_', "-")
@@ -162,7 +162,7 @@ fn ports_for_prefix(env: &HashMap<String, String>, prefix: &str) -> Vec<K8sServi
 ///
 /// Those variables are keyed by port *number*, while named ports are keyed by
 /// name, so the two cannot be joined when one number is exposed under several
-/// protocols — CoreDNS publishes `dns` (UDP) and `dns-tcp` (TCP) both on 53.
+/// protocols - CoreDNS publishes `dns` (UDP) and `dns-tcp` (TCP) both on 53.
 /// A protocol is therefore only reported when it is the sole one advertised for
 /// that number; otherwise the Kubernetes default of TCP stands.
 fn protocol_for_port(env: &HashMap<String, String>, prefix: &str, port: i32) -> String {
@@ -213,7 +213,7 @@ mod tests {
         assert!(svc.is_master_service());
         assert_eq!(svc.cluster_ip, "10.96.0.1");
         // `KUBERNETES_SERVICE_PORT` and `KUBERNETES_SERVICE_PORT_HTTPS` are the
-        // same port — the named entry wins and the number is not duplicated.
+        // same port - the named entry wins and the number is not duplicated.
         assert_eq!(svc.ports.len(), 1);
         assert_eq!(svc.ports[0].port, 443);
         assert_eq!(svc.ports[0].name.as_deref(), Some("https"));

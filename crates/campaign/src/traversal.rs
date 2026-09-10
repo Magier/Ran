@@ -28,7 +28,7 @@ pub struct TraversalHop {
     /// hop, when the hop wraps the inner command. `None` for the C2 entry hop
     /// and plain pass-through segments.
     pub envelope: Option<String>,
-    /// The full command string sent across this segment — what `from_id` runs.
+    /// The full command string sent across this segment - what `from_id` runs.
     pub command: String,
 }
 
@@ -40,9 +40,9 @@ pub struct CommandTraversal {
     /// The bare inner command as it runs on the final target system, before any
     /// hop envelopes wrap it.
     pub inner_command: String,
-    /// Short, human-readable explanation of *why* this route was chosen — e.g.
+    /// Short, human-readable explanation of *why* this route was chosen - e.g.
     /// "Tunneled through live session …", "Direct exec from c2/ran", or a
-    /// multi-hop path — including a note when a broken session edge to the
+    /// multi-hop path - including a note when a broken session edge to the
     /// target was skipped. Surfaced to the timeline UI and the logs so the
     /// routing decision is legible rather than implicit. Empty when unknown.
     #[serde(default)]

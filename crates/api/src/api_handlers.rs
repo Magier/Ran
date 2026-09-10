@@ -32,7 +32,7 @@ use axum::{
 use rust_embed::RustEmbed;
 
 // ---------------------------------------------------------------------------
-// OpenAPI spec + Swagger UI (no State needed — purely static content)
+// OpenAPI spec + Swagger UI (no State needed - purely static content)
 // ---------------------------------------------------------------------------
 
 const OPENAPI_SPEC: &str = include_str!("../../../api/openapi.yaml");
@@ -424,7 +424,7 @@ pub(crate) async fn calibrate_scoring_handler<S: ApiService>(
     let calibration = service.calibrate_scoring().ok_or_else(|| ApiError {
         status: axum::http::StatusCode::CONFLICT,
         body: ErrorResponse {
-            error: "no operator decisions captured yet — execute some actions first".to_string(),
+            error: "no operator decisions captured yet - execute some actions first".to_string(),
             details: None,
         },
     })?;
@@ -814,7 +814,7 @@ pub(crate) async fn flow_handler<S: ApiService>(
     steps.extend(open.iter().map(AttackStep::from));
 
     // Join the multi-hop traversal breakdown (campaign side map, keyed by
-    // command id) onto each step — kept off the execution record itself.
+    // command id) onto each step - kept off the execution record itself.
     for step in &mut steps {
         if let Some(ct) = campaign.command_traversal(&step.id) {
             step.traversal = ct.hops.iter().map(AttackStepHop::from).collect();

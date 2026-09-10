@@ -278,7 +278,7 @@ fn ttp_auth_satisfied_for_target(
 /// Returns `false` only when the action cannot run because *every* procedure's
 /// required tool is **known absent** on the target. Procedures whose tool is
 /// present or unknown, operator-side procedures (local / recon / resource-dev),
-/// and non-system targets all pass — we can't rule them out.
+/// and non-system targets all pass - we can't rule them out.
 ///
 /// Shares [`best_tool_readiness`](crate::campaign::execution::best_tool_readiness)
 /// with the `reliability` scoring consideration so the gate and the soft
@@ -317,7 +317,7 @@ pub fn ttp_is_applicable_for_target_kind(
 /// by the target entity.
 ///
 /// `required_kind == "System"` is an abstract requirement satisfied by any entity
-/// that implements `SystemEntity` — i.e. wherever `is_system_target` is `true`.
+/// that implements `SystemEntity` - i.e. wherever `is_system_target` is `true`.
 /// This is driven by the flag rather than a hardcoded list of kind strings, so
 /// future `SystemEntity` implementors (e.g. `UnknownSystem`) are picked up
 /// automatically without touching this function.
@@ -352,7 +352,7 @@ pub fn ttp_exists_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
         let kind = item.as_str().unwrap_or("").trim().to_ascii_lowercase();
         match kind.as_str() {
             "listener" => campaign.entities.values::<Listener>().next().is_some(),
-            _ => false, // unknown entity kind — fail safe
+            _ => false, // unknown entity kind - fail safe
         }
     })
 }

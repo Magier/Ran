@@ -30,7 +30,7 @@ Creates a `ServiceAccount` entity.
 
 **Required context keys:** `Namespace`, `ServiceAccountName` (also accepts `SA_NAME`)
 
-**Optional context keys:** `Token` — if present, attaches a JWT to the SA
+**Optional context keys:** `Token` - if present, attaches a JWT to the SA
 
 ```yaml
 effects:
@@ -45,7 +45,7 @@ Creates a `K8sRole` entity.
 
 **Required context keys:** `Namespace`, `RoleName` (also accepts `ROLE_NAME`)
 
-**Optional context keys:** `Rules` — JSON array of `{verbs, resources, apiGroups}` objects
+**Optional context keys:** `Rules` - JSON array of `{verbs, resources, apiGroups}` objects
 
 ```yaml
 effects:
@@ -60,7 +60,7 @@ Creates a `K8sRoleBinding` entity.
 
 **Required context keys:** `Namespace`, `BindingName` (also accepts `BINDING_NAME`)
 
-**Optional context keys:** `RoleRef`, `Subjects` — JSON array of `{kind, name, namespace}` objects
+**Optional context keys:** `RoleRef`, `Subjects` - JSON array of `{kind, name, namespace}` objects
 
 ```yaml
 effects:
@@ -75,7 +75,7 @@ Creates a `CronJob` entity.
 
 **Required context keys:** `Namespace`, `CronJobName` (also accepts `CRONJOB_NAME`)
 
-**Optional context keys:** `Schedule` — cron expression string
+**Optional context keys:** `Schedule` - cron expression string
 
 ```yaml
 effects:
@@ -204,9 +204,9 @@ Records an active C2 session from `backend` to `tgt`.
 
 **`backend` formats:**
 
-- `ran` — shorthand; resolves to source `c2/ran`, session `session/ran`
-- `c2/ran` — explicit namespacing
-- `session/reverse-shell-1` — references a named session
+- `ran` - shorthand; resolves to source `c2/ran`, session `session/ran`
+- `c2/ran` - explicit namespacing
+- `session/reverse-shell-1` - references a named session
 
 **`tgt`:** entity ID or `sys`
 

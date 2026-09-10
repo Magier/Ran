@@ -56,7 +56,7 @@
 	$effect(() => { armory = campaign.armory; });
 
 	// Score the applicable actions for the selected target. The armory already
-	// prefilters to applicable TTPs, so we only score those — utility per action
+	// prefilters to applicable TTPs, so we only score those - utility per action
 	// against this one target, rather than every action × every target.
 	$effect(() => {
 		// Re-score whenever the target, campaign facts, or scoring profile change.

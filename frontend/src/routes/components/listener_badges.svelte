@@ -10,7 +10,7 @@
 		nodes: Node[] | undefined;
 		/**
 		 * `port` labels every chip with its port number. `icon` drops the text and
-		 * leaves the ear glyph alone — the compact form for a dense graph.
+		 * leaves the ear glyph alone - the compact form for a dense graph.
 		 */
 		mode?: 'port' | 'icon';
 		/**
@@ -64,7 +64,7 @@
 	}
 
 	// Re-place on graph data changes and on anything cytoscape redraws for
-	// (pan, zoom, layout, drag, expand/collapse) — `render` covers them all.
+	// (pan, zoom, layout, drag, expand/collapse) - `render` covers them all.
 	$effect(() => {
 		const core = cy;
 		const current = groups;
@@ -109,7 +109,7 @@
 					class="listener-badge"
 					class:compact={mode === 'icon'}
 					class:actionable={!!onselect}
-					title={onselect ? `${badge.entry} — actions for this listener` : badge.entry}
+					title={onselect ? `${badge.entry} - actions for this listener` : badge.entry}
 					onclick={() => onselect?.(badge.id)}
 				>
 					<IconEar />
@@ -180,7 +180,7 @@
 		background-color: var(--color-surface-200-800, rgb(255 255 255 / 0.95));
 	}
 
-	/* The icon is a child component, so its svg needs a global selector — kept
+	/* The icon is a child component, so its svg needs a global selector - kept
 	   inside .listener-badge so the rule cannot escape the chip. Monotone art
 	   means it picks up the chip's own color. */
 	.listener-badge :global(svg) {

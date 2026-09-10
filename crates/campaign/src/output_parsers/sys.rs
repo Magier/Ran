@@ -188,7 +188,7 @@ fn extract_ls_long_name(line: &str) -> Option<&str> {
 ///
 /// If stdout is non-empty or exit code is 0 the file is marked present in
 /// `system.files`.  If stdout is empty (command returned nothing / failed)
-/// the file is considered absent — we emit `KnownFailure` so the audit
+/// the file is considered absent - we emit `KnownFailure` so the audit
 /// records the negative result without triggering a `NoParser` signal.
 pub(super) fn parse_sys_hasfile(stdout: &str, path: &str) -> ParserOutput {
     let path = path.trim();
@@ -401,7 +401,7 @@ fn parse_linux_mounts(
         if let Some(m) = parse_mountinfo_line(line).or_else(|| parse_mount_cmd_line(line)) {
             mounts.push(m);
         }
-        // Unrecognised lines are silently skipped — mixed output can happen.
+        // Unrecognised lines are silently skipped - mixed output can happen.
     }
 
     if mounts.is_empty() {
@@ -968,7 +968,7 @@ drwxr-xr-x 3 root root 60 Apr 25 07:00 ../\n\
 
     #[test]
     fn parse_sys_hasfile_path_extracted_from_effect_id_with_nested_separators() {
-        // Path contains `/` — the extraction from the effect string must not split on them.
+        // Path contains `/` - the extraction from the effect string must not split on them.
         let result = parse_sys_hasfile(
             "found",
             "/var/run/secrets/kubernetes.io/serviceaccount/token",

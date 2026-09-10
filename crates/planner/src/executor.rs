@@ -61,7 +61,7 @@ impl PlanExecutor {
         self.state.mark_dispatched(step_id, real_cmd_ids);
     }
 
-    /// Testable inner tick — takes resolved entity IDs and a graph predicate function.
+    /// Testable inner tick - takes resolved entity IDs and a graph predicate function.
     pub fn tick_inner(
         &mut self,
         entity_ids: &[String],
@@ -141,7 +141,7 @@ impl PlanExecutor {
         dispatches
     }
 
-    /// Public tick — takes a Campaign reference. Call this from the API layer.
+    /// Public tick - takes a Campaign reference. Call this from the API layer.
     pub fn tick(&mut self, campaign: &Campaign) -> Vec<PlanDispatch> {
         let entity_ids = campaign.all_entity_ids();
         self.tick_inner(&entity_ids, |eid, rel| {
@@ -222,7 +222,7 @@ impl PlanExecutor {
         };
 
         // Record outcome; if the caller already recorded it the step may already
-        // be Completed — in that case use the existing status directly.
+        // be Completed - in that case use the existing status directly.
         let completed: Option<StepStatus> = match self.state.record_outcome(cmd_id, success) {
             Some(status) => Some(status),
             None => {
@@ -310,7 +310,7 @@ impl PlanExecutor {
         events
     }
 
-    /// Public on_ttp_executed — call from the API layer with the Armory for retry support.
+    /// Public on_ttp_executed - call from the API layer with the Armory for retry support.
     pub fn on_ttp_executed(
         &mut self,
         cmd_id: &str,
@@ -411,7 +411,7 @@ impl PlanExecutor {
         events
     }
 
-    /// Public fail_stalled — call from the API layer with a Campaign reference.
+    /// Public fail_stalled - call from the API layer with a Campaign reference.
     pub fn fail_stalled(&mut self, campaign: &Campaign) -> Vec<PlanEvent> {
         let entity_ids = campaign.all_entity_ids();
         self.fail_stalled_inner(&entity_ids, |eid, rel| {

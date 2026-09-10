@@ -1,6 +1,6 @@
 # TTP Anatomy
 
-Every TTP in the armory is a YAML file. Here is a representative example — the
+Every TTP in the armory is a YAML file. Here is a representative example - the
 _Get ServiceAccounts_ technique from the Discovery tactic:
 
 ```yaml
@@ -62,15 +62,15 @@ effects:
 
 ## Procedures at a glance
 
-A TTP can offer multiple procedures — one per available tool or method. Ran shows
+A TTP can offer multiple procedures - one per available tool or method. Ran shows
 them as selectable options in the UI. The full authoring guide is in
 [Writing Procedures](../extending/procedures.md); the short version:
 
-- **Shell command** — `command: kubectl get pods …`
-- **Structured K8s API call** — `k8s_request:` block; Ran materialises this into a
+- **Shell command** - `command: kubectl get pods …`
+- **Structured K8s API call** - `k8s_request:` block; Ran materialises this into a
   kubectl or curl command at runtime
-- **Structured HTTP request** — `http_request:` block
-- **Step sequence** — `steps:` list of typed actions (fetch, chmod, run, …)
+- **Structured HTTP request** - `http_request:` block
+- **Step sequence** - `steps:` list of typed actions (fetch, chmod, run, …)
 
 ## What comes next
 

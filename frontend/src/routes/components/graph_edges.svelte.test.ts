@@ -14,9 +14,9 @@ const COLLAPSED_NODE_CLASS = 'cy-expand-collapse-collapsed-node';
 // cytoscape instance. We deliberately do NOT drive the real cytoscape-expand-collapse
 // plugin: it needs a rendered canvas, and its async renderer teardown throws
 // unhandled errors under jsdom (which Vitest treats as failures). Instead we
-// simulate the post-collapse graph state the plugin produces — every child edge
+// simulate the post-collapse graph state the plugin produces - every child edge
 // re-pointed at the collapsed compound, and the compound carrying the collapsed
-// class — which is exactly the input our helpers consume.
+// class - which is exactly the input our helpers consume.
 
 function mountCy(elements: any[]) {
 	return cytoscape({ headless: true, styleEnabled: true, elements });
@@ -99,7 +99,7 @@ describe('consolidateCollapsedEdges', () => {
 		const cy = mountCy([
 			{ data: { id: 'ns' } },
 			{ data: { id: 'nodeX' } },
-			// runs-on is informational, exploits is actionable — same directed pair
+			// runs-on is informational, exploits is actionable - same directed pair
 			{ data: { id: 'e1', source: 'ns', target: 'nodeX', name: 'runs-on', informational: true } },
 			{ data: { id: 'e2', source: 'ns', target: 'nodeX', name: 'exploits' } }
 		]);
@@ -177,7 +177,7 @@ describe('consolidateCollapsedEdges', () => {
 
 		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
 
-		// Each pair has a single edge — nothing to consolidate; all stay as-is.
+		// Each pair has a single edge - nothing to consolidate; all stay as-is.
 		expect(visibleEdges(cy)).toEqual([
 			'nodeX->ns [e3]',
 			'ns->nodeX [e1]',

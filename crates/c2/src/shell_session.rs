@@ -13,7 +13,7 @@ use crate::types::{ExecTtp, TtpExecuted};
 
 static NONCE: AtomicU64 = AtomicU64::new(1);
 
-/// A live shell session — bind shell, reverse shell, or any other async stream.
+/// A live shell session - bind shell, reverse shell, or any other async stream.
 ///
 /// Commands are sent to the shell's stdin and output is framed with a
 /// per-command sentinel so discrete stdout/exit_code results can be extracted
@@ -34,7 +34,7 @@ pub struct ShellSession {
     /// timeout is treated as a slow command; once this reaches
     /// [`crate::types::SESSION_TIMEOUT_BREAK_THRESHOLD`] the session is reported
     /// as dead so its exec-channel edge is broken. Reset to zero whenever a
-    /// command completes (even with a non-zero exit — that still proves the
+    /// command completes (even with a non-zero exit - that still proves the
     /// session is responsive).
     consecutive_timeouts: AtomicU64,
 }
@@ -149,7 +149,7 @@ impl ShellSession {
 
     /// Run a single command and return trimmed stdout.  Used for probing
     /// (hostname, whoami, uname) before the session is fully registered.
-    /// Times out after 5 s — returns an error if the shell doesn't respond.
+    /// Times out after 5 s - returns an error if the shell doesn't respond.
     pub async fn run_raw(&self, cmd: &str) -> Result<String, String> {
         let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let marker = format!("__RAN_{nonce}__");
@@ -257,7 +257,7 @@ impl C2Backend for ShellSession {
             }
             Ok(Err(e)) => return exec_error(&cmd.id, e),
             Err(_) => {
-                // A single timeout is treated as a slow command — the session may
+                // A single timeout is treated as a slow command - the session may
                 // still be healthy. Only sustained unresponsiveness escalates to a
                 // session death that breaks the exec-channel edge, so the streak is
                 // tracked across commands and reset by any response above.
@@ -373,7 +373,7 @@ mod tests {
     #[tokio::test]
     async fn init_drains_banner_and_unblocks() {
         let session = fake_shell_session("node/test");
-        // init() should complete without error — the fake server echoes the
+        // init() should complete without error - the fake server echoes the
         // init sentinel back so the drain loop terminates.
         session.init().await.expect("init should succeed");
     }
@@ -417,7 +417,7 @@ mod tests {
                     let reply = if marker.contains("INIT0") {
                         format!("{marker}\n")
                     } else {
-                        // Command not found — exit 127
+                        // Command not found - exit 127
                         format!("bash: nonexistent: command not found\n{marker}:127\n")
                     };
                     if server_tx.write_all(reply.as_bytes()).await.is_err() {
@@ -478,7 +478,7 @@ mod tests {
         let mut cmd = make_cmd("sleep 999", "session/test");
         cmd.execution_timeout_seconds = 1;
 
-        // First timeout: treated as a slow command — the session is not yet dead.
+        // First timeout: treated as a slow command - the session is not yet dead.
         let first = session.execute(&cmd).await;
         assert!(!first.success);
         assert!(

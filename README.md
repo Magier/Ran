@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Adversary emulation tool for Kubernetes clusters</strong><br/>
-  <sub>Named after Rán — Norse goddess of the sea, whose net ensnares the unwary into the depths</sub>
+  <sub>Named after Rán - Norse goddess of the sea, whose net ensnares the unwary into the depths</sub>
 </p>
 
 <p align="center">
@@ -33,8 +33,8 @@
 
 Ran is an adversary emulation platform for modern Kubernetes environments with two core objectives:
 
-- **Realistic TTP emulation** — execute predefined adversary techniques mapped to the MITRE ATT&CK framework against your own cluster
-- **Living knowledge base** — a curated armory of known Kubernetes attack vectors, ready to run
+- **Realistic TTP emulation** - execute predefined adversary techniques mapped to the MITRE ATT&CK framework against your own cluster
+- **Living knowledge base** - a curated armory of known Kubernetes attack vectors, ready to run
 
 Ran covers the full MITRE ATT&CK tactic spectrum for Kubernetes: from *Initial Access* and *Discovery* through *Privilege Escalation*, *Lateral Movement*, and *Impact*.
 
@@ -43,7 +43,7 @@ Ran covers the full MITRE ATT&CK tactic spectrum for Kubernetes: from *Initial A
 A common security cliché:
 > *an attacker only has to be right once, but a defender has to be right every time*
 
-This holds for Initial Access — but the dynamic flips afterwards. Post-IA, defenders have full environmental visibility while the attacker must explore. This is a major defensive advantage that purely atomic, single-event detections fail to leverage.
+This holds for Initial Access - but the dynamic flips afterwards. Post-IA, defenders have full environmental visibility while the attacker must explore. This is a major defensive advantage that purely atomic, single-event detections fail to leverage.
 
 Ran encourages **micro-emulation**: multi-step sequences where a simulated adversary discovers and adapts to your environment, surfacing detection gaps that atomic tests miss entirely.
 
@@ -136,7 +136,7 @@ Open `http://localhost:8080` to explore and execute techniques from the armory.
 | `--kubeconfig` | active context | Path to a kubeconfig |
 | `--armory` | built-in | Path to a custom armory directory |
 | `--config` | `ran.yaml` | Path to a custom config file |
-| `--plan` | — | Execute a YAML campaign plan on startup |
+| `--plan` | - | Execute a YAML campaign plan on startup |
 | `--cleanup` | `false` | Automatically clean up after a launch-time plan |
 
 ### Atomic testing (single TTP)
@@ -311,16 +311,16 @@ For a detailed feature comparison see [docs/tool_comparison.md](docs/tool_compar
 ## References
 
 - [MITRE ATT&CK for Containers](https://attack.mitre.org/matrices/enterprise/containers/)
-- [MITRE — Automated Adversary Emulation: A Case for Planning and Acting with Unknowns](https://www.mitre.org/sites/default/files/2021-11/prs-18-0944-1-automated-adversary-emulation-planning-acting.pdf)
+- [MITRE - Automated Adversary Emulation: A Case for Planning and Acting with Unknowns](https://www.mitre.org/sites/default/files/2021-11/prs-18-0944-1-automated-adversary-emulation-planning-acting.pdf)
 - [Raesene's Kubernetes Security Lab](https://github.com/raesene/kube_security_lab)
-- [BishopFox — BadPods: Kubernetes Pod Privilege Escalation](https://bishopfox.com/blog/kubernetes-pod-privilege-escalation)
+- [BishopFox - BadPods: Kubernetes Pod Privilege Escalation](https://bishopfox.com/blog/kubernetes-pod-privilege-escalation)
 - [D3FEND](https://d3fend.mitre.org)
 
 ---
 
 ## Contributing
 
-Contributions are welcome — especially new TTPs in the armory, bug reports, and documentation improvements. Please open an issue or pull request on [GitHub](https://github.com/magier/ran).
+Contributions are welcome - especially new TTPs in the armory, bug reports, and documentation improvements. Please open an issue or pull request on [GitHub](https://github.com/magier/ran).
 
 ## License
 

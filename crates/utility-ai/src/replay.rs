@@ -2,7 +2,7 @@
 //!
 //! A trace is the ordered [`ExecutionRecord`]s a campaign accumulated. To learn
 //! from it we need, at each step, the belief state *as it was before that action
-//! ran* — so we replay the trace from a fresh campaign, and at every step:
+//! ran* - so we replay the trace from a fresh campaign, and at every step:
 //!
 //! 1. rank the applicable `(TTP × target)` candidates on the current state (via
 //!    the real [`Scorer`], reusing its exact applicability + measurement path),
@@ -18,7 +18,7 @@
 //! reliability, privilege/reachability pragmatic-freshness, cost) are therefore
 //! exact. The one gap: an `ExecutionRecord` doesn't persist the physical
 //! `exec_chain` or `session_connected` probe, so effects that build exec-channel
-//! edges or activate sessions are not replayed — later reachability/applicability
+//! edges or activate sessions are not replayed - later reachability/applicability
 //! can drift from the original run. Calibration exports only utility-axis
 //! features; belief factors still shape candidate ranking during capture/replay
 //! but are not fitted as operator preferences. Steps whose demonstrated action
@@ -34,7 +34,7 @@ use crate::{utility_consideration_names, CandidateSample, DecisionPoint, Profile
 /// Why a demonstrated step couldn't be turned into a decision point.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnseenReason {
-    /// The `(TTP × target)` wasn't in the applicable candidate set at that state —
+    /// The `(TTP × target)` wasn't in the applicable candidate set at that state -
     /// the reconstructed belief state didn't consider the demonstrated action
     /// runnable (often a symptom of the exec-chain/session replay gap).
     NotApplicable,
@@ -56,7 +56,7 @@ pub struct UnseenStep {
 #[derive(Debug, Clone)]
 pub struct ReplayResult {
     /// One entry per demonstrated (non-cleanup) step that was found among the
-    /// applicable candidates — ready to hand to [`fit`](crate::fit).
+    /// applicable candidates - ready to hand to [`fit`](crate::fit).
     pub points: Vec<DecisionPoint>,
     /// Steps that couldn't be located as candidates (see [`UnseenReason`]).
     pub unseen: Vec<UnseenStep>,
@@ -102,7 +102,7 @@ pub fn candidate_samples(campaign: &Campaign, armory: &[Ttp]) -> Vec<CandidateSa
 /// Capture one [`DecisionPoint`] from the *current* belief state: the applicable
 /// candidates plus the index of the chosen `(chosen_ttp_id, chosen_target_id)`.
 ///
-/// This is the zero-reconstruction, exact-conditions capture — call it at the
+/// This is the zero-reconstruction, exact-conditions capture - call it at the
 /// moment an action is committed, over the pre-action state. Returns `None` if the
 /// chosen action isn't in the applicable set (an operator override the scorer
 /// didn't consider runnable), so the caller can count it rather than mislabel it.
@@ -133,7 +133,7 @@ pub fn decision_point(
 /// was) and extract decision points. `armory` must contain every TTP the trace
 /// references. Cleanup records advance state but are not treated as decisions.
 ///
-/// The initial campaign is consumed — replay mutates it into the trace's end
+/// The initial campaign is consumed - replay mutates it into the trace's end
 /// state, which the caller can inspect afterward if needed via the returned
 /// campaign.
 pub fn replay_trace(
@@ -186,7 +186,7 @@ pub fn replay_trace(
 
 /// Rebuild the command object the live pipeline would have dispatched. `None` if
 /// the TTP isn't in the armory. `exec_chain`/`output_transform`/`session` are not
-/// persisted on the record — see the module-level fidelity note.
+/// persisted on the record - see the module-level fidelity note.
 fn reconstruct_cmd(rec: &ExecutionRecord, armory: &[Ttp]) -> Option<ExecTtp> {
     let ttp = armory.iter().find(|t| t.id == rec.ttp_id)?.clone();
     let procedure = ttp

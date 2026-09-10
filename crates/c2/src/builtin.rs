@@ -177,7 +177,7 @@ impl BuiltinC2 {
     }
 }
 
-/// Lines that package managers and shells emit as routine progress — never a
+/// Lines that package managers and shells emit as routine progress - never a
 /// real failure reason, even when they land on stderr.
 fn is_benign_noise(line: &str) -> bool {
     let l = line.trim();

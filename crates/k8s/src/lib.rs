@@ -661,7 +661,7 @@ fn parse_exit_code(message: Option<&str>) -> Option<i32> {
 /// Resolve the kubeconfig file to use when no explicit path is provided.
 ///
 /// Follows kubectl's resolution order:
-/// 1. `$KUBECONFIG` if set — may be a list separated by `:` on Unix or `;`
+/// 1. `$KUBECONFIG` if set - may be a list separated by `:` on Unix or `;`
 ///    on Windows; the first entry that exists on disk wins. When none of
 ///    the listed files exists we fall back to the default (matches
 ///    kubectl's behaviour of trying `~/.kube/config` last).
@@ -682,7 +682,7 @@ pub fn default_kubeconfig_path() -> PathBuf {
 
 /// Testable core of [`default_kubeconfig_path`]. `path_exists` decides
 /// whether a `$KUBECONFIG` entry counts as present without touching the
-/// real filesystem — so tests can exercise the multi-entry precedence
+/// real filesystem - so tests can exercise the multi-entry precedence
 /// without racing on process-global env vars.
 fn resolve_default_kubeconfig_path(
     kubeconfig_env: Option<&str>,

@@ -14,7 +14,7 @@ type SimpleEffectHandler = fn(&HashMap<String, String>) -> Result<FactsUpdate, S
 /// Handler for relation-style effects such as `rce.can-exec(src, tgt)`.
 /// Receives both the positional args (from parsing the effect string) and the
 /// full execution context (the TTP args map) so handlers that need extra
-/// context — like `PROCEDURE_CMD` for `rce.can-exec` — can read it without
+/// context - like `PROCEDURE_CMD` for `rce.can-exec` - can read it without
 /// requiring a separate post-hoc injection step.
 type RelationEffectHandler = fn(&[&str], &HashMap<String, String>) -> Result<FactsUpdate, String>;
 
@@ -80,7 +80,7 @@ impl FactsUpdate {
             }
         }
 
-        // IndexSet::insert handles dedup natively — no scan needed.
+        // IndexSet::insert handles dedup natively - no scan needed.
         self.entity_aliases.extend(entity_aliases);
         for (id, origins) in entity_provenance {
             self.entity_provenance
@@ -410,11 +410,11 @@ fn parse_relation_effect(
 /// (which maps a kind to a [`FactsUpdate`]-producing handler below) and the
 /// action scorer (which maps a kind to a value via [`EffectKind::categories`])
 /// resolve through [`EffectKind::parse`]. Adding a new effect kind is one edit
-/// here that the exhaustive `categories` match forces you to classify — a kind
+/// here that the exhaustive `categories` match forces you to classify - a kind
 /// can never be parseable yet unvalued, so the two never drift.
 ///
 /// The set is intentionally **not closed**: more effects will be added. An
-/// effect string that doesn't match any variant returns `None` (fail-soft —
+/// effect string that doesn't match any variant returns `None` (fail-soft -
 /// the parser treats it as `handled: false`, the scorer values it at zero).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectKind {
@@ -442,7 +442,7 @@ pub enum EffectKind {
     GatewayList,
     SelfSubjectRulesReview,
     RawServiceAccountToken,
-    // Identity facts — learning a named entity's identity (e.g. discovered
+    // Identity facts - learning a named entity's identity (e.g. discovered
     // alongside a token read). Distinct from the `k8s.*` entity-creating effects.
     PodName,
     ServiceAccountName,
@@ -465,22 +465,22 @@ pub enum EffectKind {
     C2Session,
     RceCanExec,
     ContainerEscape,
-    // Imperative RBAC creation — privilege escalation.
+    // Imperative RBAC creation - privilege escalation.
     CreateRole,
     CreateRoleBinding,
 }
 
-/// What executing an effect *does to the belief state* — the basis the scorer
+/// What executing an effect *does to the belief state* - the basis the scorer
 /// derives value from, so effects sharing a category are valued consistently.
 /// An effect may fall in more than one category (e.g. enumerating Services is
 /// both `Discovery` and `Reachability`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectCategory {
-    /// Adds entities/facts about the world — reduces uncertainty (POMDP).
+    /// Adds entities/facts about the world - reduces uncertainty (POMDP).
     Discovery,
-    /// Adds execution or escape capability — raises effective privilege.
+    /// Adds execution or escape capability - raises effective privilege.
     PrivilegeEdge,
-    /// Adds a session/route or reveals network & adjacent entities — extends
+    /// Adds a session/route or reveals network & adjacent entities - extends
     /// where we can operate next.
     Reachability,
 }
@@ -540,7 +540,7 @@ impl EffectKind {
         Some(kind)
     }
 
-    /// The categories this effect contributes to. Exhaustive by construction —
+    /// The categories this effect contributes to. Exhaustive by construction -
     /// adding a variant forces a classification here, so value can't drift.
     pub fn categories(self) -> &'static [EffectCategory] {
         use EffectCategory::{Discovery, PrivilegeEdge, Reachability};
@@ -554,7 +554,7 @@ impl EffectKind {
             | Self::CreateRoleBinding => &[PrivilegeEdge],
             // Pure network reach.
             Self::C2Session | Self::K8sCanReach => &[Reachability],
-            // Network & adjacent-entity discovery — informs both *what's out
+            // Network & adjacent-entity discovery - informs both *what's out
             // there* and *where we can move next*.
             Self::K8sPod
             | Self::PodList
@@ -595,7 +595,7 @@ impl EffectKind {
     }
 
     /// How broadly the knowledge this effect produces tends to enable *other*
-    /// actions — a static, per-effect prior (not a count of consumers, so it
+    /// actions - a static, per-effect prior (not a count of consumers, so it
     /// stays decoupled from the rest of the armory). Used to weight discovery
     /// value: foundational facts (an IP, a token, an identity) ground many
     /// downstream actions; specialized ones (a capability check, one file's
@@ -658,14 +658,14 @@ impl EffectKind {
         }
     }
 
-    /// Whether the fact this effect produces can go **stale** — i.e. its answer
+    /// Whether the fact this effect produces can go **stale** - i.e. its answer
     /// changes over time or as other actions mutate the cluster.
     ///
     /// `false` (stable / idempotent): point-in-time facts that don't change
-    /// without deliberate action — an IP, a hostname, an identity, a capability,
+    /// without deliberate action - an IP, a hostname, an identity, a capability,
     /// an achieved capability (exec/escape). Re-learning them yields nothing.
     ///
-    /// `true` (volatile): set memberships and mutable state — resource
+    /// `true` (volatile): set memberships and mutable state - resource
     /// enumerations, the current RBAC view, running processes, directory
     /// listings. These can be invalidated by later actions, so re-reading can
     /// regain epistemic value. Tunable per-effect, like the generality tiers.
@@ -720,7 +720,7 @@ impl EffectKind {
     }
 }
 
-/// Generality tiers — how broadly a produced fact enables further actions.
+/// Generality tiers - how broadly a produced fact enables further actions.
 /// Tunable: raise/lower to change how much foundational discoveries outrank
 /// specialized ones.
 const GENERALITY_FOUNDATIONAL: f32 = 1.0;
@@ -899,7 +899,7 @@ fn parse_rce_can_exec_relation(
     if args.len() != 2 {
         return Err("rce.can-exec effect expects exactly 2 args: source and target".to_string());
     }
-    // The execution context may carry PROCEDURE_CMD — the grounded exploit
+    // The execution context may carry PROCEDURE_CMD - the grounded exploit
     // command that was just run to establish this RCE path.  Store it as the
     // wrapping envelope so subsequent commands through this hop re-invoke the
     // same exploit with the new command substituted for ${CMD}.
@@ -940,7 +940,7 @@ fn parse_container_escape_relation(
 
     // Resolve the node entity ID. The pipeline injects TARGET_NODE_ID from
     // pod.node_name (if known) or from an existing runs-on graph edge.
-    // If neither is available, the pod is running on an unknown node — create a
+    // If neither is available, the pod is running on an unknown node - create a
     // placeholder using the pod's short name as the best available guess.
     // The placeholder is aliased to the real node once its name is discovered
     // (e.g. via sys.node-name after running hostname on the host).
@@ -1446,7 +1446,7 @@ mod tests {
         let update = parse_effect("container.escape(ns/default/pod/attacker)", &ctx()).unwrap();
 
         // Should still create a node entity (placeholder) named after the pod's
-        // short name — the best available guess before hostname is run.
+        // short name - the best available guess before hostname is run.
         assert_eq!(update.new_entities.len(), 1);
         let node = update.new_entities[0]
             .as_any()
@@ -1544,7 +1544,7 @@ mod tests {
         ] {
             let kind =
                 EffectKind::parse(name).unwrap_or_else(|| panic!("no EffectKind for {name}"));
-            // categories() is total — must classify every variant, non-empty.
+            // categories() is total - must classify every variant, non-empty.
             assert!(!kind.categories().is_empty());
         }
     }

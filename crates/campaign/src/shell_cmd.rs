@@ -53,7 +53,7 @@ pub struct SimpleCmd {
     pub args: Vec<String>,
 }
 
-/// Internal record — owns position info needed for grounding.
+/// Internal record - owns position info needed for grounding.
 #[derive(Debug)]
 struct Entry {
     cmd: SimpleCmd,

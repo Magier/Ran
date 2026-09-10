@@ -145,7 +145,7 @@
     function onTimelineScroll() {
         if (!scrollEl) return;
         hideTimestampTooltip();
-        const slack = 24; // px tolerance — near-bottom still counts as bottom
+        const slack = 24; // px tolerance - near-bottom still counts as bottom
         stickToBottom =
             scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - slack;
     }

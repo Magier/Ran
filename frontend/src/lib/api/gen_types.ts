@@ -133,7 +133,7 @@ export interface paths {
         };
         /**
          * Rank recommended next actions
-         * @description Returns applicable (TTP × target) actions ranked by utility for the current campaign state, using the default scoring profile. Advisory only — the caller decides what to execute. Each candidate includes a per-consideration breakdown for explainability.
+         * @description Returns applicable (TTP × target) actions ranked by utility for the current campaign state, using the default scoring profile. Advisory only - the caller decides what to execute. Each candidate includes a per-consideration breakdown for explainability.
          */
         get: operations["getRecommendations"];
         put?: never;
@@ -153,7 +153,7 @@ export interface paths {
         };
         /**
          * Get the live scoring profile
-         * @description Returns the current scoring profile — combination mode, the tuning feature flag, and every registered consideration's weight, response curve, and enabled/veto flags.
+         * @description Returns the current scoring profile - combination mode, the tuning feature flag, and every registered consideration's weight, response curve, and enabled/veto flags.
          */
         get: operations["getScoringProfile"];
         /**
@@ -611,7 +611,7 @@ export interface components {
             relation: string;
             /** @description The command-wrapping template with `${CMD}` placeholder applied at this hop. Absent for the C2 entry hop and pass-through segments. */
             envelope?: string;
-            /** @description The full command string sent across this segment — what `fromId` runs. */
+            /** @description The full command string sent across this segment - what `fromId` runs. */
             command: string;
         };
         TTP: {
@@ -679,7 +679,7 @@ export interface components {
              * @default 60
              */
             executionTimeoutSeconds: number;
-            /** @description Free-text rationale for choosing this action at this point in the assessment — why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
+            /** @description Free-text rationale for choosing this action at this point in the assessment - why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
             reasoning?: string;
         };
         AuthIdentity: {
@@ -809,7 +809,7 @@ export interface components {
             };
             success: boolean;
             exit_code: number;
-            /** @description Raw output lines — first element is stdout, second (if present) is stderr */
+            /** @description Raw output lines - first element is stdout, second (if present) is stderr */
             results: string[];
             fail_reason: string;
             /**
@@ -982,11 +982,11 @@ export interface components {
             minChosenProb: number;
             /** Format: float */
             logLikelihood: number;
-            /** @description Decisions whose choice is Pareto-dominated — unreproducible by any non-negative weighting, signalling a missing consideration. */
+            /** @description Decisions whose choice is Pareto-dominated - unreproducible by any non-negative weighting, signalling a missing consideration. */
             infeasible: number;
             converged: boolean;
         };
-        /** @description A calibration preview — the fitted profile plus fit metrics. */
+        /** @description A calibration preview - the fitted profile plus fit metrics. */
         CalibrationResult: {
             profile: components["schemas"]["ScoringProfile"];
             metrics: components["schemas"]["CalibrationMetrics"];
@@ -997,7 +997,7 @@ export interface components {
             kind: string;
             uid: string;
         };
-        /** @description A volume mount on a pod — either a projected volume or a host-path bind mount. */
+        /** @description A volume mount on a pod - either a projected volume or a host-path bind mount. */
         VolumeMount: {
             name: string;
             /** @description Path inside the container where the volume appears. */
@@ -1172,9 +1172,9 @@ export interface operations {
     getRecommendations: {
         parameters: {
             query?: {
-                /** @description Optional — restrict recommendations to a single target entity. */
+                /** @description Optional - restrict recommendations to a single target entity. */
                 targetId?: string;
-                /** @description Optional — cap the number of ranked candidates returned. */
+                /** @description Optional - cap the number of ranked candidates returned. */
                 limit?: number;
             };
             header?: never;
