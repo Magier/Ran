@@ -829,17 +829,11 @@ export interface components {
             name: string;
             kind: string;
             /**
-             * @description What the execution did to this entity. `observed` means the campaign
-             *     learned of it for the first time; `created` means the action brought
-             *     it into existence (a deployed pod, a bound listener); `updated` means
-             *     it was already known and this run only refined its fields. Only
-             *     `observed` is a discovery — consumers must not report the other two
-             *     as one. Absent on records written before outcomes were tracked.
-             *
+             * @description What the execution did to this entity. `observed` means the campaign learned of it for the first time; `created` means the action brought it into existence (a deployed pod, a bound listener); `updated` means it was already known and this run only refined its fields. Only `observed` is a discovery — consumers must not report the other two as one. Absent on records written before outcomes were tracked.
              * @default observed
              * @enum {string}
              */
-            outcome?: "observed" | "created" | "updated";
+            outcome: "observed" | "created" | "updated";
         };
         /**
          * @description Audit record for a single effect parse attempt. `parse_result` indicates
