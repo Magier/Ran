@@ -464,6 +464,11 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         .values::<Listener>()
                         .find(|listener| listener.port == listener_port)
                         .map(|listener| listener.entity_id());
+                    // A rebuilt or re-pointed tunnel keeps the same entity id, so
+                    // it is an update, not a find. `new_entities` is what raises
+                    // `entity-discovered`, and announcing a hop the operator has
+                    // been looking at for an hour as a fresh discovery is a lie.
+                    let already_known = guard.entities.find::<Redirector>(&redirector_id).is_some();
                     guard.insert_entity(&redirector);
                     let relation = listener_id
                         .map(|listener_id| ForwardsTo::new(redirector_id.0.clone(), listener_id.0));
@@ -498,9 +503,15 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             // The tool and the hop, not the playground id - see
                             // `Redirector::label`.
                             redirector.label().to_string(),
-                            // Standing up a tunnel is the action; a redirector is
-                            // never something the campaign stumbles upon.
-                            FactOutcome::Created,
+                            // Standing up a tunnel is the action, so a redirector
+                            // is never something the campaign stumbles upon. But a
+                            // rebuilt or re-pointed one keeps its entity id: the
+                            // process is new, the hop is not.
+                            if already_known {
+                                FactOutcome::Updated
+                            } else {
+                                FactOutcome::Created
+                            },
                         )],
                         new_relations: relation
                             .iter()

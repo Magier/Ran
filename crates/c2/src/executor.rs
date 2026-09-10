@@ -25,7 +25,17 @@ type Listeners = Arc<RwLock<HashMap<u16, tokio::task::AbortHandle>>>;
 ///
 /// Holding the `Child` is what makes a redirector stoppable — and, via
 /// `kill_on_drop`, what stops the tunnels from outliving Ran.
-type Redirectors = Arc<RwLock<HashMap<String, tokio::process::Child>>>;
+type Redirectors = Arc<RwLock<HashMap<String, RedirectorProcess>>>;
+
+/// A running `labctl port-forward` and the listener it was pointed at.
+struct RedirectorProcess {
+    child: tokio::process::Child,
+    /// The listener this tunnel forwards into. Part of what the operator asked
+    /// for, but *not* part of the redirector's identity, so it has to be
+    /// remembered separately: it is what tells "this tunnel is already up" apart
+    /// from "re-point this tunnel at a different listener".
+    listener_port: u16,
+}
 
 #[derive(Clone)]
 pub struct C2Handle {
@@ -562,6 +572,28 @@ impl C2Executor {
         };
         let entry = ran_domain::format_redirector(play_id, remote_port);
 
+        // Asking for a tunnel Ran is already running is not a failure to create
+        // one; it is the state the operator asked for. Short-circuit rather than
+        // spawning a second labctl, which the playground refuses with a 409
+        // anyway — and which would report that refusal as though the redirector
+        // did not exist. The existing Redirector entity stands, so no
+        // `RedirectorStarted` is published: nothing was discovered, and
+        // re-announcing it would surface an already-known hop as a fresh find.
+        if self.holds_live_redirector(&entry, listener_port).await {
+            tracing::info!(%entry, "redirector already running; reporting the existing tunnel");
+            return TtpExecuted {
+                id: cmd.id.clone(),
+                success: true,
+                results: vec![format!(
+                    "redirector {entry} is already running and already forwards to \
+                     127.0.0.1:{listener_port}; nothing to do"
+                )],
+                exit_code: 0,
+                fail_reason: String::new(),
+                session_connected: None,
+            };
+        }
+
         let forward = redirector_forward_spec(remote_port, listener_port);
         let mut command = tokio::process::Command::new("labctl");
         command
@@ -617,9 +649,17 @@ impl C2Executor {
         // Re-forwarding the same port on the same playground replaces the tunnel
         // that held it, mirroring how the campaign keeps one redirector record per
         // entry. The same port on another playground is a different redirector.
-        let previous = self.redirectors.write().await.insert(entry.clone(), child);
+        // Reaching here means the existing tunnel was dead or pointed at another
+        // listener, since a live matching one short-circuits above.
+        let previous = self.redirectors.write().await.insert(
+            entry.clone(),
+            RedirectorProcess {
+                child,
+                listener_port,
+            },
+        );
         if let Some(mut previous) = previous {
-            let _ = previous.kill().await;
+            let _ = previous.child.kill().await;
             tracing::info!(%entry, "replaced the redirector already on this entry");
         }
 
@@ -646,6 +686,44 @@ impl C2Executor {
             exit_code: 0,
             fail_reason: String::new(),
             session_connected: None,
+        }
+    }
+
+    /// Whether Ran already holds a live tunnel on `entry` forwarding into
+    /// `listener_port`.
+    ///
+    /// Two things stop this from claiming a success that is not true:
+    ///
+    /// - A tunnel pointed at a *different* listener is not the one being asked
+    ///   for. The operator is re-pointing it, so it has to be rebuilt rather
+    ///   than reported as already done.
+    /// - `labctl` may have exited underneath us — the process is long-running
+    ///   but not immortal, and nothing reaps it until someone looks. A dead
+    ///   entry is dropped here so the caller spawns a fresh one instead of
+    ///   reporting a tunnel that stopped carrying traffic hours ago.
+    async fn holds_live_redirector(&self, entry: &str, listener_port: u16) -> bool {
+        let mut redirectors = self.redirectors.write().await;
+        let Some(existing) = redirectors.get_mut(entry) else {
+            return false;
+        };
+        if existing.listener_port != listener_port {
+            return false;
+        }
+        match existing.child.try_wait() {
+            // Still running: this is the tunnel the operator asked for.
+            Ok(None) => true,
+            outcome => {
+                // Dropping the record kills the child (`kill_on_drop`), which is
+                // a no-op for one that already exited and the right move for one
+                // whose state we could not read.
+                redirectors.remove(entry);
+                warn!(
+                    %entry,
+                    ?outcome,
+                    "labctl is no longer running; rebuilding the redirector"
+                );
+                false
+            }
         }
     }
 
@@ -679,10 +757,10 @@ impl C2Executor {
         };
         let entry = ran_domain::format_redirector(&play_id, remote_port);
 
-        let Some(mut child) = self.redirectors.write().await.remove(&entry) else {
+        let Some(mut existing) = self.redirectors.write().await.remove(&entry) else {
             return failed_result(cmd, &format!("no redirector is forwarding {entry}"));
         };
-        if let Err(error) = child.kill().await {
+        if let Err(error) = existing.child.kill().await {
             // In practice this only fires when labctl already died on its own, in
             // which case the tunnel is gone anyway. The `Child` is dropped here
             // with `kill_on_drop` set, so the process is reaped either way.
@@ -1327,7 +1405,8 @@ mod tests {
         parse_kubeconfig_permission_command, parse_kubectl_exec_command,
         parse_port_forward_command, parse_read_local_kubeconfig_command,
         parse_stop_listener_command, parse_stop_port_forward_command, quote_transcript,
-        redirector_forward_spec, tunnel_failure_hint, TunnelStartup,
+        redirector_forward_spec, tunnel_failure_hint, C2Executor, RedirectorProcess, Redirectors,
+        TunnelStartup,
     };
     use super::{C2Backend, C2Event, C2Manager, ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 
@@ -2039,10 +2118,13 @@ mod tests {
             .expect("sleep should be available");
         let pid = child.id().expect("a live child has a pid");
         let redirectors = manager.executor.redirectors.clone();
-        redirectors
-            .write()
-            .await
-            .insert("play1/1337".to_string(), child);
+        redirectors.write().await.insert(
+            "play1/1337".to_string(),
+            RedirectorProcess {
+                child,
+                listener_port: 4444,
+            },
+        );
         tokio::spawn(manager.run());
 
         let mut stop = exec_cmd("ran");
@@ -2094,6 +2176,134 @@ mod tests {
         drop(handle);
     }
 
+    /// Build a manager whose redirector map already holds `entry`, backed by a
+    /// real long-running child, and run `command` through it.
+    async fn with_held_redirector(
+        entry: &str,
+        listener_port: u16,
+        script: &str,
+        command: &str,
+    ) -> (TtpExecuted, Redirectors, Option<u32>) {
+        let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "builtin".to_string(),
+        });
+        let mut backends: HashMap<String, Arc<dyn C2Backend>> = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), backend.clone());
+        backends.insert("ran".to_string(), backend);
+
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let mut rx = events.subscribe();
+
+        let child = fake_tunnel(script);
+        let pid = child.id();
+        let redirectors = manager.executor.redirectors.clone();
+        redirectors.write().await.insert(
+            entry.to_string(),
+            RedirectorProcess {
+                child,
+                listener_port,
+            },
+        );
+        tokio::spawn(manager.run());
+
+        let mut exec = exec_cmd("ran");
+        exec.id = "cmd-recreate".to_string();
+        exec.procedure = Procedure::new("ran", "id");
+        exec.procedure.command = command.to_string();
+        handle.send(exec).await.expect("command should queue");
+
+        let event = wait_for_execution(&mut rx).await;
+        drop(handle);
+        (event, redirectors, pid)
+    }
+
+    /// Re-creating a redirector Ran is already running is the state the operator
+    /// asked for, not a failure. Spawning a second labctl would earn a 409 and
+    /// report the tunnel as missing when it is right there.
+    #[tokio::test]
+    async fn re_creating_a_running_redirector_succeeds_without_spawning() {
+        let (event, redirectors, pid) = with_held_redirector(
+            "play1/1337",
+            4444,
+            "sleep 60",
+            "c2.port-forward(play1, 1337, tcp/4444)",
+        )
+        .await;
+
+        assert!(event.success, "{}", event.fail_reason);
+        assert!(
+            event.results[0].contains("already running"),
+            "the result must say nothing was done: {:?}",
+            event.results
+        );
+        // The original child is still the one on file — nothing was replaced.
+        let held = redirectors.read().await;
+        assert_eq!(held.len(), 1);
+        assert_eq!(held["play1/1337"].child.id(), pid);
+    }
+
+    /// An executor with nothing registered, for exercising its own methods
+    /// without running the manager loop or spawning anything real.
+    fn bare_executor() -> C2Executor {
+        let (_handle, _events, manager) = C2Manager::new_with_backends(8, HashMap::new());
+        manager.executor
+    }
+
+    /// The three answers `holds_live_redirector` has to get right. Exercised
+    /// directly rather than through a control command: the other two cases fall
+    /// through to a real `labctl` spawn, which would make the test depend on
+    /// whether labctl is installed and on the network behind it.
+    #[tokio::test]
+    async fn a_live_matching_tunnel_is_the_only_thing_reported_as_already_running() {
+        let executor = bare_executor();
+
+        // Live and pointed at the listener being asked for.
+        executor.redirectors.write().await.insert(
+            "play1/1337".to_string(),
+            RedirectorProcess {
+                child: fake_tunnel("sleep 60"),
+                listener_port: 4444,
+            },
+        );
+        assert!(executor.holds_live_redirector("play1/1337", 4444).await);
+
+        // The listener is not part of a redirector's identity, so an entry match
+        // alone would silently swallow a request to re-point the tunnel.
+        assert!(!executor.holds_live_redirector("play1/1337", 8080).await);
+        assert!(
+            executor.redirectors.read().await.contains_key("play1/1337"),
+            "a re-point must not drop the tunnel before the new one is up"
+        );
+
+        // An entry nobody holds.
+        assert!(!executor.holds_live_redirector("play2/1337", 4444).await);
+    }
+
+    /// A held entry whose labctl died is not a running tunnel, and must not be
+    /// reported as one — the process is long-running but not immortal, and
+    /// nothing reaps it until someone looks.
+    #[tokio::test]
+    async fn a_dead_held_redirector_is_dropped_rather_than_reported_as_running() {
+        let executor = bare_executor();
+
+        let mut child = fake_tunnel("exit 0");
+        // Reap it here so the state is settled rather than racing the check.
+        let _ = child.wait().await;
+        executor.redirectors.write().await.insert(
+            "play1/1337".to_string(),
+            RedirectorProcess {
+                child,
+                listener_port: 4444,
+            },
+        );
+
+        assert!(!executor.holds_live_redirector("play1/1337", 4444).await);
+        assert!(
+            !executor.redirectors.read().await.contains_key("play1/1337"),
+            "a dead tunnel must be dropped so the next attempt spawns a fresh one"
+        );
+    }
+
     #[tokio::test]
     async fn stopping_an_unforwarded_remote_port_fails_with_a_clear_reason() {
         let (event, _events) = run_control_command("c2.stop-port-forward(play1/9999)").await;
@@ -2128,10 +2338,13 @@ mod tests {
             .spawn()
             .expect("sleep should be available");
         let redirectors = manager.executor.redirectors.clone();
-        redirectors
-            .write()
-            .await
-            .insert("play1/1337".to_string(), child);
+        redirectors.write().await.insert(
+            "play1/1337".to_string(),
+            RedirectorProcess {
+                child,
+                listener_port: 4444,
+            },
+        );
         tokio::spawn(manager.run());
 
         let mut stop = exec_cmd("ran");
