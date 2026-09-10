@@ -373,8 +373,14 @@ impl C2Executor {
                 .map(String::as_str)
                 .unwrap_or(&cmd.target_id)
                 .to_string();
-            self.spawn_session_listener(backend_id, target_entity_id, port, protocol)
-                .await;
+            self.spawn_session_listener(ListenerSpec {
+                cmd_id: cmd.id.clone(),
+                backend_id,
+                target_entity_id,
+                port,
+                protocol,
+            })
+            .await;
             return TtpExecuted {
                 id: cmd.id.clone(),
                 success: true,
@@ -448,27 +454,13 @@ impl C2Executor {
         }
     }
 
-    async fn spawn_session_listener(
-        &self,
-        backend_id: String,
-        target_entity_id: String,
-        port: u16,
-        protocol: String,
-    ) {
+    async fn spawn_session_listener(&self, spec: ListenerSpec) {
         let backends = self.backends.clone();
         let event_bus = self.event_bus.clone();
         let listeners = self.listeners.clone();
+        let port = spec.port;
         let handle = tokio::spawn(async move {
-            accept_session_loop(
-                backends,
-                event_bus,
-                listeners,
-                backend_id,
-                target_entity_id,
-                port,
-                protocol,
-            )
-            .await;
+            accept_session_loop(backends, event_bus, listeners, spec).await;
         });
         // Re-binding a port replaces the old handle, mirroring how the campaign
         // keeps one listener record per port.
@@ -498,7 +490,10 @@ impl C2Executor {
         handle.abort();
         tracing::info!(port, "listener stopped; port released");
 
-        let _ = self.event_bus.publish(C2Event::ListenerStopped { port });
+        let _ = self.event_bus.publish(C2Event::ListenerStopped {
+            cmd_id: cmd.id.clone(),
+            port,
+        });
         TtpExecuted {
             id: cmd.id.clone(),
             success: true,
@@ -788,17 +783,33 @@ fn session_backend_id_from_cmd(cmd: &ExecTtp) -> String {
     format!("session/{}-{}", slug, port)
 }
 
-async fn accept_session_loop(
-    backends: Backends,
-    event_bus: C2EventBus,
-    listeners: Listeners,
+/// Everything the accept loop needs to identify the listener it is running.
+struct ListenerSpec {
+    /// The execution that asked for this listener, carried so the campaign can
+    /// attribute the resulting listener entity to it.
+    cmd_id: String,
     backend_id: String,
     target_entity_id: String,
     port: u16,
     protocol: String,
+}
+
+async fn accept_session_loop(
+    backends: Backends,
+    event_bus: C2EventBus,
+    listeners: Listeners,
+    spec: ListenerSpec,
 ) {
     use crate::ShellSession;
     use std::net::{Ipv4Addr, SocketAddr};
+
+    let ListenerSpec {
+        cmd_id,
+        backend_id,
+        target_entity_id,
+        port,
+        protocol,
+    } = spec;
 
     let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, port));
     let listener = match tokio::net::TcpListener::bind(addr).await {
@@ -813,6 +824,7 @@ async fn accept_session_loop(
     };
     tracing::info!(port, %backend_id, "session listener ready");
     let _ = event_bus.publish(C2Event::ListenerStarted {
+        cmd_id,
         port,
         protocol: protocol.clone(),
     });
@@ -1219,6 +1231,7 @@ mod tests {
         drop(probe);
 
         let mut listen = exec_cmd("ran");
+        listen.id = "cmd-listen".to_string();
         listen.procedure = Procedure::new("ran", "id");
         listen.procedure.command = format!("c2.listen({port}, tcp)");
         handle.send(listen).await.expect("listen should queue");
@@ -1230,8 +1243,15 @@ mod tests {
                 .expect("listener should bind")
                 .expect("event bus should stay open")
             {
-                C2Event::ListenerStarted { port: bound, .. } => {
+                C2Event::ListenerStarted {
+                    cmd_id,
+                    port: bound,
+                    ..
+                } => {
                     assert_eq!(bound, port);
+                    // Carried from the command so the campaign can attribute the
+                    // listener entity to the action that bound it.
+                    assert_eq!(cmd_id, "cmd-listen");
                     break;
                 }
                 _ => continue,
@@ -1262,8 +1282,13 @@ mod tests {
                 .expect("stop should report back")
                 .expect("event bus should stay open")
             {
-                C2Event::ListenerStopped { port: stopped } => {
+                C2Event::ListenerStopped {
+                    cmd_id,
+                    port: stopped,
+                } => {
                     assert_eq!(stopped, port);
+                    // The campaign attributes the teardown to this command.
+                    assert_eq!(cmd_id, "cmd-stop");
                     saw_stopped = true;
                 }
                 C2Event::TtpExecuted { event, .. } if event.id == "cmd-stop" => {

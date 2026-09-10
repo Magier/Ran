@@ -590,7 +590,7 @@ fn parse_deploy_container_effect(normalized: &str, cmd: &ExecTtp) -> ParserOutpu
 }
 
 fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
-    use ran_domain::{Confidence, Container, Mount, NameConfidence, Pod, PodPhase};
+    use ran_domain::{Confidence, Container, Entity, Mount, NameConfidence, Pod, PodPhase};
 
     let pod_name = cmd.args.get("PodName").map(String::as_str).unwrap_or("");
     let ns = cmd
@@ -662,6 +662,8 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
     }
 
     let mut facts = FactsUpdate::default();
+    // This TTP deploys the pod; it did not find one lying around.
+    facts.mark_created(pod.entity_id());
     facts.new_entities.push(Box::new(pod));
     ParserOutput::SuccessWithFacts(
         facts,
@@ -670,7 +672,7 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
 }
 
 fn parse_deploy_namespace(cmd: &ExecTtp) -> ParserOutput {
-    use ran_domain::Namespace;
+    use ran_domain::{Entity, Namespace};
 
     let ns = cmd.args.get("Namespace").map(String::as_str).unwrap_or("");
     if ns.is_empty() {
@@ -678,9 +680,11 @@ fn parse_deploy_namespace(cmd: &ExecTtp) -> ParserOutput {
     }
 
     let mut facts = FactsUpdate::default();
-    facts
-        .new_entities
-        .push(Box::new(Namespace::new(ns.to_string())));
+    let namespace = Namespace::new(ns.to_string());
+    // "Ensured", so this only counts as a creation when the namespace was not
+    // already in the graph — `resolve_outcomes` makes that call.
+    facts.mark_created(namespace.entity_id());
+    facts.new_entities.push(Box::new(namespace));
     ParserOutput::SuccessWithFacts(facts, format!("deploy-container: namespace {} ensured", ns))
 }
 
@@ -822,6 +826,31 @@ mod tests {
             .system();
         assert_eq!(sys.env_vars.get("HOME"), Some(&"/root".to_string()));
         assert_eq!(sys.env_vars.get("PATH"), Some(&"/usr/bin".to_string()));
+    }
+
+    #[test]
+    fn deploy_container_marks_the_pod_it_deploys_as_created() {
+        use crate::FactOutcome;
+        use ran_domain::EntityId;
+
+        let mut cmd = sample_cmd();
+        cmd.args
+            .insert("PodName".to_string(), "attacker".to_string());
+        cmd.args
+            .insert("Namespace".to_string(), "default".to_string());
+
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_deploy_container_effect("create k8s.pod", &cmd)
+        else {
+            panic!("deploying a pod should produce facts");
+        };
+
+        // The TTP put this pod in the cluster; the timeline must not report it
+        // as something the campaign discovered.
+        assert_eq!(
+            facts.outcome_of(&EntityId::new("ns/default/pod/attacker")),
+            FactOutcome::Created
+        );
     }
 
     #[test]

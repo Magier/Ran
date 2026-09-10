@@ -13,7 +13,7 @@ use tracing::{error, info, warn};
 
 use crate::external_parser::{ExternalParseRequest, ExternalParser};
 use crate::output_parsers::build_parse_audit;
-use crate::{Campaign, ParseAudit, ParseResult};
+use crate::{Campaign, FactCategory, FactOutcome, ParseAudit, ParseResult};
 use ran_domain::RelationSummary;
 
 /// Lightweight, serialisable snapshot of a domain entity for use in events.
@@ -22,6 +22,30 @@ pub struct EntitySummary {
     pub id: EntityId,
     pub kind: String,
     pub name: String,
+    /// Whether this fact was observed, created by the action, or an update to an
+    /// entity already known. Consumers that report "discovered" must check it.
+    #[serde(default)]
+    pub outcome: FactOutcome,
+    /// What sort of news this is. Resolved here rather than at the API edge so
+    /// producers that know more than the entity kind — session attachment — can
+    /// say so, and so no consumer has to re-derive it.
+    #[serde(default)]
+    pub category: FactCategory,
+}
+
+impl EntitySummary {
+    /// Summary for a fact whose category follows from the entity kind, which is
+    /// every fact except the ones a producer classifies explicitly.
+    fn from_kind(id: EntityId, kind: String, name: String, outcome: FactOutcome) -> Self {
+        let category = FactCategory::from_kind(&kind);
+        Self {
+            id,
+            kind,
+            name,
+            outcome,
+            category,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -334,10 +358,13 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             .updates
                             .new_entities
                             .iter()
-                            .map(|e| EntitySummary {
-                                id: e.entity_id(),
-                                kind: e.entity_kind().to_string(),
-                                name: e.entity_name().to_string(),
+                            .map(|e| {
+                                EntitySummary::from_kind(
+                                    e.entity_id(),
+                                    e.entity_kind().to_string(),
+                                    e.entity_name().to_string(),
+                                    processing.updates.outcome_of(&e.entity_id()),
+                                )
                             })
                             .collect(),
                         new_relations: processing
@@ -357,7 +384,11 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         });
                     }
                 }
-                Ok(C2Event::ListenerStarted { port, protocol }) => {
+                Ok(C2Event::ListenerStarted {
+                    cmd_id,
+                    port,
+                    protocol,
+                }) => {
                     let mut guard = match campaign.write() {
                         Ok(g) => g,
                         Err(_) => {
@@ -372,17 +403,23 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     guard.insert_entity(&listener);
                     guard.insert_relation(&relation);
                     info!(port, %protocol, %listener_id, "listener started; listener entity created");
+                    // Attributed to the command that bound it, so the timeline
+                    // folds the listener into that action instead of showing it
+                    // as an unrelated event that happened to arrive next.
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
-                        cmd_id: format!("listener-{port}"),
-                        new_entities: vec![EntitySummary {
-                            id: listener_id,
-                            kind: listener.entity_kind().to_string(),
-                            name: listener.entry().to_string(),
-                        }],
+                        cmd_id,
+                        new_entities: vec![EntitySummary::from_kind(
+                            listener_id,
+                            listener.entity_kind().to_string(),
+                            listener.entry().to_string(),
+                            // Binding a port is the action; a listener is never
+                            // something the campaign stumbles upon.
+                            FactOutcome::Created,
+                        )],
                         new_relations: vec![ran_domain::RelationSummary::from_relation(&relation)],
                     });
                 }
-                Ok(C2Event::ListenerStopped { port }) => {
+                Ok(C2Event::ListenerStopped { cmd_id, port }) => {
                     let mut guard = match campaign.write() {
                         Ok(g) => g,
                         Err(_) => {
@@ -397,7 +434,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     // and keep running; only the binding is gone.
                     info!(port, removed, "listener stopped; listener entity removed");
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
-                        cmd_id: format!("listener-{port}-stopped"),
+                        cmd_id,
                         new_entities: vec![],
                         new_relations: vec![],
                     });
@@ -419,6 +456,8 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         }
                     };
 
+                    let resolved_target_id = guard.canonical_entity_id(&target_entity_id);
+                    let host_was_known = guard.get_system_entity(&resolved_target_id).is_some();
                     let channel_entity_id = attach_connected_session(
                         &mut guard,
                         &backend_id,
@@ -458,6 +497,17 @@ pub fn spawn_c2_event_processor_with_external_parser(
                                 id: e.entity().entity_id(),
                                 kind: e.entity().entity_kind().to_string(),
                                 name: e.entity().entity_name().to_string(),
+                                outcome: if host_was_known {
+                                    FactOutcome::Updated
+                                } else {
+                                    FactOutcome::Observed
+                                },
+                                // A shell landed here. That is news whether or
+                                // not the host was already in the graph, so it
+                                // must not be filed as a discovery — a callback
+                                // from a known host would then be suppressed as
+                                // a mere field update and vanish entirely.
+                                category: FactCategory::AccessGained,
                             });
 
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
@@ -656,6 +706,11 @@ fn apply_session_connected(
             id: e.entity().entity_id(),
             kind: e.entity().entity_kind().to_string(),
             name: e.entity().entity_name().to_string(),
+            // This path resolves an existing system entity and attaches a
+            // session to it, so nothing here is new knowledge about the entity —
+            // but gaining exec access to it is still worth reporting.
+            outcome: FactOutcome::Updated,
+            category: FactCategory::AccessGained,
         })
 }
 
@@ -690,6 +745,164 @@ fn update_session_status(
             port: None,
             status: SessionStatus::Active,
         });
+    }
+}
+
+#[cfg(test)]
+mod listener_event_tests {
+    use super::*;
+    use c2::C2EventBus;
+    use std::time::Duration;
+
+    /// Drain campaign events until a `FactsChanged` shows up, or give up.
+    async fn next_facts_changed(
+        rx: &mut broadcast::Receiver<CampaignEvent>,
+    ) -> (String, Vec<EntitySummary>) {
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .expect("a FactsChanged should be published")
+                .expect("campaign event bus should stay open");
+            if let CampaignEvent::FactsChanged {
+                cmd_id,
+                new_entities,
+                ..
+            } = event
+            {
+                return (cmd_id, new_entities);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn binding_a_listener_reports_creation_attributed_to_its_command() {
+        let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
+            "Ran",
+            ran_domain::K8sCluster::new("dev"),
+        )));
+        let c2_events = C2EventBus::new(16);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut rx = campaign_events.subscribe();
+
+        spawn_c2_event_processor(campaign.clone(), c2_events.clone(), campaign_events);
+
+        c2_events
+            .publish(C2Event::ListenerStarted {
+                cmd_id: "cmd-42".to_string(),
+                port: 1337,
+                protocol: "tcp".to_string(),
+            })
+            .expect("c2 event bus should accept the event");
+
+        let (cmd_id, entities) = next_facts_changed(&mut rx).await;
+
+        // Attributed to the action that bound it, so the timeline folds the
+        // listener into that action instead of showing a row beside it.
+        assert_eq!(cmd_id, "cmd-42");
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].kind, "Listener");
+        assert_eq!(entities[0].name, "tcp/1337");
+        // The operator bound this port; the campaign did not come across it.
+        assert_eq!(entities[0].outcome, FactOutcome::Created);
+    }
+
+    #[tokio::test]
+    async fn stopping_a_listener_is_attributed_to_its_command_too() {
+        let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
+            "Ran",
+            ran_domain::K8sCluster::new("dev"),
+        )));
+        let c2_events = C2EventBus::new(16);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut rx = campaign_events.subscribe();
+
+        spawn_c2_event_processor(campaign.clone(), c2_events.clone(), campaign_events);
+
+        c2_events
+            .publish(C2Event::ListenerStopped {
+                cmd_id: "cmd-stop".to_string(),
+                port: 1337,
+            })
+            .expect("c2 event bus should accept the event");
+
+        let (cmd_id, entities) = next_facts_changed(&mut rx).await;
+        assert_eq!(cmd_id, "cmd-stop");
+        assert!(entities.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_shell_from_an_unknown_host_is_access_gained_and_a_discovery() {
+        let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
+            "Ran",
+            ran_domain::K8sCluster::new("dev"),
+        )));
+        let c2_events = C2EventBus::new(16);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut rx = campaign_events.subscribe();
+
+        spawn_c2_event_processor(campaign.clone(), c2_events.clone(), campaign_events);
+
+        c2_events
+            .publish(C2Event::SessionConnected {
+                backend_id: "session/worker-1-4444".to_string(),
+                target_entity_id: "node/worker-1".to_string(),
+                hostname: "worker-1".to_string(),
+                user: "root".to_string(),
+                os: "linux".to_string(),
+                port: Some(4444),
+            })
+            .expect("c2 event bus should accept the event");
+
+        let (_, entities) = next_facts_changed(&mut rx).await;
+        assert_eq!(entities.len(), 1);
+        // Never seen before, so it is genuinely new knowledge *and* new access.
+        assert_eq!(entities[0].outcome, FactOutcome::Observed);
+        assert_eq!(entities[0].category, FactCategory::AccessGained);
+    }
+
+    #[tokio::test]
+    async fn a_shell_on_a_known_host_is_still_reported_as_access_gained() {
+        // The regression this guards: the host already exists, so the entity is
+        // only `Updated`. Classified as a discovery it would be filtered out as a
+        // routine field update and the operator would never see the shell land.
+        let mut bootstrapped = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let node = ran_domain::K8sNode::new("worker-1");
+        bootstrapped.insert_entity(&node);
+        let node_id = node.entity_id();
+        let campaign = Arc::new(RwLock::new(bootstrapped));
+
+        let c2_events = C2EventBus::new(16);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut rx = campaign_events.subscribe();
+
+        spawn_c2_event_processor(campaign.clone(), c2_events.clone(), campaign_events);
+
+        c2_events
+            .publish(C2Event::SessionConnected {
+                backend_id: "session/worker-1-4444".to_string(),
+                target_entity_id: node_id.0.clone(),
+                hostname: "worker-1".to_string(),
+                user: "root".to_string(),
+                os: "linux".to_string(),
+                port: Some(4444),
+            })
+            .expect("c2 event bus should accept the event");
+
+        let (_, entities) = next_facts_changed(&mut rx).await;
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].outcome, FactOutcome::Updated);
+        assert_eq!(entities[0].category, FactCategory::AccessGained);
+    }
+
+    #[test]
+    fn categories_not_claimed_by_a_producer_follow_the_entity_kind() {
+        assert_eq!(FactCategory::from_kind("Secret"), FactCategory::Credential);
+        assert_eq!(
+            FactCategory::from_kind("K8sCredential"),
+            FactCategory::Credential
+        );
+        assert_eq!(FactCategory::from_kind("Pod"), FactCategory::Discovery);
+        assert_eq!(FactCategory::from_kind("Listener"), FactCategory::Discovery);
     }
 }
 

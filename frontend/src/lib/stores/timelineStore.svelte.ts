@@ -16,8 +16,19 @@ export type TtpActionEntry = {
     detail?: string;
 };
 
+/**
+ * What an action did to an entity, as decided by the backend.
+ *
+ * Orthogonal to `EntityEntry.kind`, which says what sort of thing the entity is.
+ * Only `observed` is a discovery: `created` entities are the action's own
+ * product, and `updated` ones were already on screen before it ran.
+ */
+export type FactOutcome = 'observed' | 'created' | 'updated';
+
 export type EntityEntry = {
     kind: 'discovery' | 'credential' | 'access-gained';
+    /** Defaults to `observed` so pre-outcome records keep their old meaning. */
+    outcome?: FactOutcome;
     id: string;
     entityId: string;
     entityName: string;
@@ -100,16 +111,28 @@ export class TimelineStore {
         // Global dedup: each entity id appears at most once across all groups and standalone rows.
         // This matches the previous flat-list dedup behaviour. Reset on clear().
         if (this.seenEntityIds.has(entry.id)) return;
+
+        const outcome = entry.outcome ?? 'observed';
+        const group = entry.cmdId ? this.index.get(entry.cmdId) : undefined;
+
+        // An update to something already on screen is not news *about the
+        // entity* — but the category can carry news of its own. Catching a shell
+        // on a host the campaign already knew updates nothing and still matters,
+        // so suppression is scoped to plain discoveries; without that clause the
+        // most significant event in a campaign renders as nothing at all.
+        const isNewsInItself = entry.kind === 'access-gained' || entry.kind === 'credential';
+        if (outcome === 'updated' && !group && !isNewsInItself) return;
+
         this.seenEntityIds.add(entry.id);
 
-        if (entry.cmdId) {
-            const group = this.index.get(entry.cmdId);
-            if (group) {
-                group.effects.push(entry);
-                return;
-            }
+        if (group) {
+            group.effects.push(entry);
+            return;
         }
 
+        // No group to fold into: still worth a row (a created listener whose
+        // action never registered, or a host that called back on its own), and
+        // `entityPrefix` labels it by outcome rather than calling it a discovery.
         this.topEntries = [entry, ...this.topEntries];
     }
 

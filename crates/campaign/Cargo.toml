@@ -22,3 +22,8 @@ indexmap = "2"
 shell-words = "1"
 yash-syntax = "0.19"
 urlencoding = "2"
+
+[dev-dependencies]
+# The c2 event processor is a spawned task, so testing what it publishes needs a
+# runtime and `#[tokio::test]` — neither is in the lean feature set above.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

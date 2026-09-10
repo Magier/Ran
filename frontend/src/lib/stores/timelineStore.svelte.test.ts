@@ -118,6 +118,112 @@ describe('TimelineStore', () => {
         }
     });
 
+    // addEntityEvent — outcomes
+    it('folds an entity the action created into that action instead of a standalone row', () => {
+        // The reported noise: creating a listener showed "Create Listener" and
+        // then a separate "Discovered Listener" right next to it.
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-listen', ttpName: 'Create Listener' }));
+        store.addEntityEvent(
+            makeEntityEntry({
+                kind: 'discovery',
+                outcome: 'created',
+                id: 'listener/tcp/1337',
+                entityId: 'listener/tcp/1337',
+                entityName: 'tcp/1337',
+                entityKind: 'Listener',
+                cmdId: 'cmd-listen'
+            })
+        );
+
+        expect(store.topEntries).toHaveLength(1);
+        const group = store.topEntries[0] as ActionGroup;
+        expect(group.kind).toBe('action-group');
+        expect(group.effects).toHaveLength(1);
+        expect(group.effects[0].outcome).toBe('created');
+    });
+
+    it('keeps a created entity visible as a standalone row when its action is unknown', () => {
+        // Losing the fact entirely would be worse than showing it; it is just
+        // never labelled a discovery.
+        store.addEntityEvent(
+            makeEntityEntry({
+                outcome: 'created',
+                id: 'listener/tcp/1337',
+                entityId: 'listener/tcp/1337',
+                entityKind: 'Listener',
+                cmdId: 'cmd-that-never-registered'
+            })
+        );
+        expect(store.topEntries).toHaveLength(1);
+        expect(store.topEntries[0].kind).toBe('discovery');
+    });
+
+    it('drops an update to an already-known entity that has no action to sit under', () => {
+        store.addEntityEvent(
+            makeEntityEntry({ outcome: 'updated', cmdId: 'session/node-a-4444' })
+        );
+        expect(store.topEntries).toHaveLength(0);
+    });
+
+    it('keeps an update inside its action group so the expanded view stays complete', () => {
+        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+        store.addEntityEvent(makeEntityEntry({ outcome: 'updated', cmdId: 'cmd-abc' }));
+
+        const group = store.topEntries[0] as ActionGroup;
+        expect(group.effects).toHaveLength(1);
+        expect(group.effects[0].outcome).toBe('updated');
+    });
+
+    it('shows a shell caught on an already-known host, despite the update outcome', () => {
+        // A reverse shell arrives under its backend id, which never matches an
+        // action group, and updates a host the campaign already had. Suppressing
+        // it as a mere update would silently drop the single most significant
+        // event in a campaign.
+        store.addEntityEvent(
+            makeEntityEntry({
+                kind: 'access-gained',
+                outcome: 'updated',
+                id: 'node/worker-1',
+                entityId: 'node/worker-1',
+                entityName: 'worker-1',
+                entityKind: 'K8sNode',
+                cmdId: 'session/worker-1-4444'
+            })
+        );
+
+        expect(store.topEntries).toHaveLength(1);
+        expect(store.topEntries[0].kind).toBe('access-gained');
+    });
+
+    it('shows a found credential on a known entity for the same reason', () => {
+        store.addEntityEvent(
+            makeEntityEntry({
+                kind: 'credential',
+                outcome: 'updated',
+                id: 'secret/default/api-key',
+                entityId: 'secret/default/api-key',
+                entityKind: 'Secret',
+                cmdId: 'cmd-that-never-registered'
+            })
+        );
+        expect(store.topEntries).toHaveLength(1);
+    });
+
+    it('does not consume the dedup slot for an update it dropped', () => {
+        // A later, genuine observation of the same entity must still get through.
+        store.addEntityEvent(
+            makeEntityEntry({ outcome: 'updated', cmdId: 'cmd-that-never-registered' })
+        );
+        store.addEntityEvent(makeEntityEntry({ outcome: 'observed', cmdId: undefined }));
+        expect(store.topEntries).toHaveLength(1);
+        expect((store.topEntries[0] as EntityEntry).outcome).toBe('observed');
+    });
+
+    it('treats an entry with no outcome as observed', () => {
+        store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
+        expect(store.topEntries).toHaveLength(1);
+    });
+
     it('addEntityEvent does not suppress entity when a group has the same id as the entity', () => {
         store.addTtpAction(makeTtpEntry({ id: 'ns/default/pod/web-app' }));
         store.addEntityEvent(
