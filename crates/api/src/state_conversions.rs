@@ -655,6 +655,16 @@ fn prune_entity_payload_for_ui(
         data.remove("key_data");
         data.remove("ca_data");
     }
+
+    if kind == "Redirector" {
+        // Both are derived, and the details panel already shows what they are
+        // built from: `label` is the entity's name, shown at the top of the box,
+        // and `entry` is just `play_id` and `remote_port` glued together, both of
+        // which appear as their own fields. They exist on the struct because
+        // `Entity::entity_name` returns a borrow and cannot format one.
+        data.remove("label");
+        data.remove("entry");
+    }
 }
 
 fn provenance_strings(
@@ -1007,6 +1017,49 @@ mod tests {
         assert_eq!(redirectors[0]["playId"], Value::from("zn1kqxk3ykpvxp5x"));
         assert_eq!(redirectors[0]["remotePort"], Value::from(1337));
         assert_eq!(redirectors[0]["listenerPort"], Value::from(4444));
+    }
+
+    /// The details panel shows the entity payload under a heading that is
+    /// already the entity's name, so repeating it as a field is noise — and so
+    /// is a field glued together from two others sitting next to it.
+    #[test]
+    fn a_redirectors_details_payload_drops_its_derived_fields() {
+        let redirector = Redirector::new("labctl", "zn1kqxk3ykpvxp5x", 9000, 4444);
+        let mut data = serialize_entity_map(&redirector).expect("redirector serializes");
+
+        prune_entity_payload_for_ui(
+            redirector.entity_kind(),
+            &mut data,
+            &kubetier::Catalog::embedded(),
+        );
+
+        assert!(!data.contains_key("label"), "label repeats the entity name");
+        assert!(
+            !data.contains_key("entry"),
+            "entry is play_id and remote_port glued together"
+        );
+        // What is left is the part that cannot be derived from anything else on
+        // screen: which tool, which playground, and which ports it joins.
+        assert_eq!(data.get("via"), Some(&Value::from("labctl")));
+        assert_eq!(data.get("play_id"), Some(&Value::from("zn1kqxk3ykpvxp5x")));
+        assert_eq!(data.get("remote_port"), Some(&Value::from(9000)));
+        assert_eq!(data.get("listener_port"), Some(&Value::from(4444)));
+    }
+
+    /// Pruning the details panel must not reach the badge payload, which is
+    /// hand-built and does rely on `entry` and `label`.
+    #[test]
+    fn pruning_the_details_payload_leaves_the_badge_payload_intact() {
+        let (campaign, c2_id) = campaign_with_redirector(9000, true);
+
+        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
+
+        let redirectors = c2_redirectors(&graph, &c2_id);
+        assert_eq!(redirectors[0]["label"], Value::from("labctl 9000→4444"));
+        assert_eq!(
+            redirectors[0]["entry"],
+            Value::from("zn1kqxk3ykpvxp5x/9000")
+        );
     }
 
     #[test]
