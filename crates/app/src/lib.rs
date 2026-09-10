@@ -33,7 +33,13 @@ use ran_domain::{Entity, K8sCluster, K8sCredential, Pod, RelationSummary};
 
 #[derive(Clone)]
 pub struct AppState {
-    k8s: Client,
+    /// Live Kubernetes client for the active kubeconfig context. `None` when
+    /// startup could not authenticate (e.g. the current context uses an
+    /// exec-auth plugin that failed to produce credentials). Cluster-facing
+    /// operations must guard for this; local-only actions like
+    /// `read-local-kubeconfig` remain available so the operator can inspect
+    /// what Ran was configured with.
+    k8s: Option<Client>,
     campaign: Arc<RwLock<Campaign>>,
     c2: C2Handle,
     armory: Armory,
@@ -67,7 +73,7 @@ pub struct AppState {
 impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        k8s: Client,
+        k8s: Option<Client>,
         campaign: Arc<RwLock<Campaign>>,
         c2: C2Handle,
         armory: Armory,
@@ -270,8 +276,12 @@ impl ApiService for AppState {
         // Treat an empty string the same as absent — don't bypass the filter.
         let scope_ns = params.namespace.as_deref().filter(|ns| !ns.is_empty());
 
-        let pods = self
-            .k8s
+        let Some(k8s) = self.k8s.as_ref() else {
+            return Err(ApiError::internal(
+                "no active Kubernetes client — pod discovery unavailable until a working kubeconfig is loaded",
+            ));
+        };
+        let pods = k8s
             .get_running_pods(scope_ns)
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
@@ -381,7 +391,26 @@ impl ApiService for AppState {
     }
 
     async fn get_armory(&self, params: api::GetArmoryParams) -> Result<Vec<armory::Ttp>, ApiError> {
-        Ok(self.armory.ttps_for_tactic(params.tactic.as_deref()))
+        let mut ttps = self.armory.ttps_for_tactic(params.tactic.as_deref());
+        // Surface the kubeconfig path Ran was configured with (via --kubeconfig
+        // or the standard resolution) as the PATH parameter's default on the
+        // read-local-kubeconfig TTP, so UI/MCP/REST callers see the concrete
+        // file that will be read. Runtime fallback in the executor still
+        // applies for callers that omit PATH entirely.
+        if let Some(kubeconfig) = self.k8s.as_ref().and_then(|k| k.kubeconfig_path()) {
+            let kubeconfig = kubeconfig.display().to_string();
+            for ttp in &mut ttps {
+                if ttp.id != "read-local-kubeconfig" {
+                    continue;
+                }
+                for param in &mut ttp.params {
+                    if param.name == "PATH" && param.default.is_empty() {
+                        param.default = kubeconfig.clone();
+                    }
+                }
+            }
+        }
+        Ok(ttps)
     }
 
     async fn execute_action(
@@ -1568,8 +1597,12 @@ impl AppState {
             return Ok(());
         }
 
-        let candidates = self
-            .k8s
+        let Some(k8s) = self.k8s.as_ref() else {
+            return Err(ExecuteActionError::InvalidInput(
+                "cannot stage live initial-access target: no active Kubernetes client (read the local kubeconfig or restart with --kubeconfig)".to_string(),
+            ));
+        };
+        let candidates = k8s
             .get_running_pods(Some(&namespace))
             .await
             .map_err(|error| ExecuteActionError::NotFound(error.to_string()))?;
@@ -1630,7 +1663,26 @@ impl AppState {
 pub async fn start(cfg: ServerConfig) -> Result<()> {
     let kubeconfig_path = kubeconfig_path_or_err(cfg.kubeconfig)?;
     let active_kubeconfig = resolve_kubeconfig(kubeconfig_path.clone(), None)?;
-    let k8s = Client::from_resolved_kubeconfig(&active_kubeconfig).await?;
+    // Startup no longer aborts when the active kubeconfig context cannot
+    // authenticate (e.g. an exec-auth plugin like `aws eks get-token` fails).
+    // The design record for read-local-kubeconfig deliberately boots with just
+    // OperatorHost + C2; a broken current-context should therefore log a
+    // warning and let the server come up so the operator can still browse the
+    // UI, read the local kubeconfig via TTP, or switch to a working context.
+    let k8s = match Client::from_resolved_kubeconfig(&active_kubeconfig).await {
+        Ok(client) => Some(client),
+        Err(error) => {
+            warn!(
+                context = %active_kubeconfig.context_name,
+                kubeconfig = %kubeconfig_path.display(),
+                %error,
+                "failed to authenticate the active kubeconfig context; \
+                 cluster-facing actions will fail until a working context is \
+                 loaded (via read-local-kubeconfig or --kubeconfig)"
+            );
+            None
+        }
+    };
     let mut initial_knowledge = build_initial_knowledge(&cfg.seed_knowledge)?;
     initial_knowledge.operator_host_name = local_hostname();
     let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
@@ -1887,7 +1939,12 @@ async fn seed_initial_access_targets(state: &AppState, plan: &planner::PlanDefin
     for (step_id, ns, pattern) in root_targets {
         // Build a fake entity-id list from cluster pods and use the planner's
         // resolver to match names — avoids a direct `regex` dep in this crate.
-        let pods = match state.k8s.get_running_pods(Some(&ns)).await {
+        let Some(k8s) = state.k8s.as_ref() else {
+            warn!(step_id = %step_id, namespace = %ns,
+                "no active Kubernetes client; skipping initial target seed");
+            continue;
+        };
+        let pods = match k8s.get_running_pods(Some(&ns)).await {
             Ok(p) => p,
             Err(e) => {
                 warn!(step_id = %step_id, namespace = %ns, error = %e,
@@ -2135,7 +2192,7 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
     )));
 
     let k8s_client_registry = build_k8s_client_registry(&kubeconfig_path).await;
-    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s, k8s_client_registry);
+    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, Some(k8s), k8s_client_registry);
     let campaign_events = CampaignEventBus::new(256);
 
     // Subscribe before spawning the processor so no events are dropped.
