@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, OutputTransform, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
-    BinaryPresence, EntityId, K8sCredential, K8sNode, Merge, NameConfidence, Pod, ServiceAccount,
-    UnknownSystem,
+    BinaryPresence, Entity, EntityId, K8sCluster, K8sCredential, K8sNode, K8sService, Merge,
+    NameConfidence, Pod, ServiceAccount, UnknownSystem,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -2148,7 +2148,12 @@ impl Campaign {
         })
     }
 
-    fn apply_facts(&mut self, updates: &FactsUpdate) {
+    /// Commit an inferred fact set into campaign state: entities, entity
+    /// aliases and their graph edges.
+    ///
+    /// `pub(crate)` so tests can drive a fixpoint result into the graph
+    /// without staging a whole TTP execution.
+    pub(crate) fn apply_facts(&mut self, updates: &FactsUpdate) {
         for entity in &updates.new_entities {
             self.insert_entity(entity.as_ref());
             if let Some(origins) = updates.entity_provenance.get(&entity.entity_id()) {
@@ -2173,6 +2178,9 @@ impl Campaign {
                 self.merge_unknown_into_system(&preferred_id.0, &stale_id.0);
             } else if preferred_id.0.starts_with("node/") || stale_id.0.starts_with("node/") {
                 self.merge_node_entities(&preferred_id.0, &stale_id.0);
+            } else if stale_id.0.contains("/svc/") {
+                // Env-derived Service placed into its real namespace.
+                self.merge_service_entities(&preferred_id.0, &stale_id.0);
             } else {
                 self.merge_pod_entities(&preferred_id.0, &stale_id.0);
             }
@@ -2335,6 +2343,48 @@ impl Campaign {
             self.entities
                 .get_mut::<K8sNode>()
                 .insert(preferred, stale_node);
+        }
+    }
+
+    /// Merge a Service parked in the `"?"` namespace into the one that has a
+    /// real namespace.
+    ///
+    /// Both describe the same ClusterIP (that is how
+    /// `EnvServicePlacementAnalyzer` matched them), so the env-derived ports
+    /// and any other accumulated detail are folded in and the placeholder slot
+    /// is cleared.
+    fn merge_service_entities(&mut self, preferred_id: &str, stale_id: &str) {
+        if preferred_id == stale_id {
+            return;
+        }
+
+        let preferred = EntityId::new(preferred_id);
+        let stale = EntityId::new(stale_id);
+
+        let Some(stale_svc) = self.entities.get_mut::<K8sService>().remove(&stale) else {
+            return;
+        };
+
+        if let Some(preferred_svc) = self.entities.find_mut::<K8sService>(&preferred) {
+            preferred_svc.merge_from(&stale_svc);
+        } else {
+            self.entities
+                .get_mut::<K8sService>()
+                .insert(preferred.clone(), stale_svc);
+        }
+
+        // While parked, the Service hung directly off the cluster because no
+        // namespace could hold it. `merge_entities` above just transplanted
+        // that edge onto the placed Service, which is about to get a real
+        // `contains(namespace → service)` parent as well. Drop the cluster
+        // edge so it has one parent, not two.
+        let cluster_ids: Vec<EntityId> = self
+            .entities
+            .values::<K8sCluster>()
+            .map(Entity::entity_id)
+            .collect();
+        for cluster_id in cluster_ids {
+            self.graph.remove_edges(&cluster_id, &preferred, "contains");
         }
     }
 
