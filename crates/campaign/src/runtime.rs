@@ -175,12 +175,18 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     };
 
                     if processing.parse_audits.is_empty() {
-                        warn!(
-                            cmd_id = %cmd.id,
-                            action_id = %action_id,
-                            target_id = %target_id,
-                            "Execution produced no parse audits; parser coverage may be missing"
-                        );
+                        // Only an effect-bearing TTP that emitted no audits is a
+                        // coverage gap. A TTP with no declared effects (e.g.
+                        // execute_shell) has nothing to parse, so silence there
+                        // is expected.
+                        if !cmd.ttp.effects.is_empty() {
+                            warn!(
+                                cmd_id = %cmd.id,
+                                action_id = %action_id,
+                                target_id = %target_id,
+                                "Execution produced no parse audits; parser coverage may be missing"
+                            );
+                        }
                     } else {
                         for audit in &processing.parse_audits {
                             match audit.parse_result {

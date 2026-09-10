@@ -111,8 +111,12 @@ class CampaignState {
 		});
 		this.api.on('parse-audited', (data: any) => {
 			const audits = (data?.audits ?? []).map(normalizeParseAudit);
-			if (!Array.isArray(audits) || audits.length === 0) {
-				showToast('Parsing coverage', 'No parse audits were emitted for this action', 'error');
+			if (audits.length === 0) {
+				// A TTP that declares no effects has nothing to parse, so an empty
+				// audit list is the normal outcome, not a failed action. Keep it in
+				// the console for parser-coverage work instead of toasting an error
+				// at the operator, who would read it as the action having failed.
+				console.debug('[parse-audited] no parse audits for this action (no declared effects)');
 				return;
 			}
 
