@@ -105,22 +105,110 @@ impl Entity for OperatorHost {
 }
 
 /// Local C2 entity representing Ran itself.
+///
+/// Bound listeners are [`Listener`] entities linked by a `hosts-listener`
+/// relation, not a field here, so that an action can target one specific
+/// listener.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct C2Server {
     pub name: String,
-    /// Active listeners on this C2. Populated when listener mechanics are ported;
-    /// empty by default so `exists: [Listener]` TTP pre-conditions fail safely.
-    #[serde(default)]
-    pub listeners: Vec<String>,
 }
 
 impl C2Server {
     pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
+    }
+}
+
+/// A listener bound by a C2: one port, one protocol, one lifecycle.
+///
+/// This is an entity rather than a field on [`C2Server`] because actions target
+/// entities — modelling a listener as one is what lets "Stop Listener" apply to
+/// the listener the operator picked, while "Create Listener" applies to the C2.
+/// It is deliberately not drawn as its own graph node; the UI renders it as a
+/// badge on its C2, the same way an [`AppService`] appears on its host.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Listener {
+    /// Lowercased transport, `tcp` unless the TTP said otherwise.
+    pub protocol: String,
+    pub port: u16,
+    /// Canonical `<protocol>/<port>`, read through [`Listener::entry`].
+    ///
+    /// It duplicates the two fields above, and exists only because
+    /// [`Entity::entity_name`] returns a borrow and so cannot format one. Kept
+    /// private and written once by [`Listener::new`] so it cannot drift out of
+    /// step with them.
+    entry: String,
+}
+
+impl Listener {
+    pub fn new(port: u16, protocol: &str) -> Self {
+        let protocol = normalize_protocol(protocol);
         Self {
-            name: name.into(),
-            listeners: Vec::new(),
+            entry: format_listener(port, &protocol),
+            protocol,
+            port,
         }
     }
+
+    /// Canonical `<protocol>/<port>` — the display name, what the operator reads
+    /// on the badge, and what a `Listener` TTP parameter carries.
+    pub fn entry(&self) -> &str {
+        &self.entry
+    }
+}
+
+impl Entity for Listener {
+    fn entity_id(&self) -> EntityId {
+        EntityId::new(format!("listener/{}", self.entry))
+    }
+
+    fn entity_name(&self) -> &str {
+        &self.entry
+    }
+
+    fn entity_kind(&self) -> &str {
+        "Listener"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl Merge for Listener {
+    fn merge_from(&mut self, _incoming: &Self) {
+        // Protocol and port are the identity of a listener, so a re-observation
+        // carries nothing new to merge.
+    }
+}
+
+fn normalize_protocol(protocol: &str) -> String {
+    let protocol = protocol.trim().to_ascii_lowercase();
+    if protocol.is_empty() {
+        "tcp".to_string()
+    } else {
+        protocol
+    }
+}
+
+/// Canonical listener entry format shared by the entity id, the API payload and
+/// the UI badges: a lowercased protocol and the port, separated by `/`. Protocol
+/// falls back to `tcp`, matching the `create-listener` TTP default.
+pub fn format_listener(port: u16, protocol: &str) -> String {
+    format!("{}/{}", normalize_protocol(protocol), port)
+}
+
+/// Extract the port from anything that identifies a listener: the canonical
+/// `protocol/port` entry, a full `listener/protocol/port` entity id, or a bare
+/// port as an operator may type it into a TTP parameter.
+pub fn listener_port(entry: &str) -> Option<u16> {
+    let entry = entry.trim();
+    let port = match entry.rsplit_once('/') {
+        Some((_, port)) => port,
+        None => entry,
+    };
+    port.trim().parse().ok()
 }
 
 impl Entity for C2Server {
@@ -1892,12 +1980,8 @@ impl Merge for AppService {
 }
 
 impl Merge for C2Server {
-    fn merge_from(&mut self, incoming: &Self) {
-        for l in &incoming.listeners {
-            if !self.listeners.contains(l) {
-                self.listeners.push(l.clone());
-            }
-        }
+    fn merge_from(&mut self, _incoming: &Self) {
+        // The name is the identity, and listeners live in their own entities.
     }
 }
 
@@ -2302,6 +2386,46 @@ mod tests {
             Some("node-1"),
             "node_name filled in"
         );
+    }
+
+    #[test]
+    fn listener_identity_is_protocol_and_port() {
+        let listener = Listener::new(4444, "tcp");
+        assert_eq!(listener.entity_id().0, "listener/tcp/4444");
+        assert_eq!(listener.entry(), "tcp/4444");
+        assert_eq!(listener.entity_kind(), "Listener");
+        assert_eq!(
+            listener.entity_name(),
+            "tcp/4444",
+            "the name is what the operator sees when a listener is selected"
+        );
+    }
+
+    #[test]
+    fn listener_normalizes_its_protocol() {
+        assert_eq!(Listener::new(8080, " HTTP ").entry(), "http/8080");
+        assert_eq!(
+            Listener::new(1337, "  ").entry(),
+            "tcp/1337",
+            "a missing protocol falls back to the create-listener default"
+        );
+    }
+
+    #[test]
+    fn listeners_on_the_same_port_differ_by_protocol() {
+        assert_ne!(
+            Listener::new(4444, "tcp").entity_id(),
+            Listener::new(4444, "http").entity_id()
+        );
+    }
+
+    #[test]
+    fn listener_port_reads_every_identifying_form() {
+        assert_eq!(listener_port("listener/tcp/4444"), Some(4444));
+        assert_eq!(listener_port("tcp/4444"), Some(4444));
+        assert_eq!(listener_port(" 1337 "), Some(1337));
+        assert_eq!(listener_port("tcp/http"), None);
+        assert_eq!(listener_port(""), None);
     }
 
     #[test]

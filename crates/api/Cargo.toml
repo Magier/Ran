@@ -22,6 +22,11 @@ serde_json = "1"
 tokio = { version = "1", features = ["time", "sync"] }
 tracing = "0.1"
 
+[dev-dependencies]
+# Campaign exposes its KnowledgeGraph as a public field; tests reach for it to
+# stage relations without going through a TTP execution.
+cortex = { path = "../graph" }
+
 [build-dependencies]
 anyhow = "1"
 serde_yaml = "0.9"

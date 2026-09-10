@@ -32,6 +32,7 @@
 	let eligibleActionPods: Node[] = $state([]);
 	let pendingActionArgs: Record<string, any> = $state({});
 	let focusArmorySearch: () => void = $state(() => {});
+
 	let showFileViewer: boolean = $state(false);
 	let fileViewerPath: string = $state('');
 	let fileViewerContent: string = $state('');

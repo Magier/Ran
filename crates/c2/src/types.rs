@@ -101,6 +101,10 @@ pub enum C2Event {
     },
     /// A TCP listener was successfully bound on the given port.
     ListenerStarted { port: u16, protocol: String },
+    /// A listener's accept loop was torn down and its port released. Sessions
+    /// that connected through it stay live — they are backends in their own
+    /// right and do not depend on the listener that accepted them.
+    ListenerStopped { port: u16 },
     /// A reverse-shell connected, probed, and the session backend is now live.
     SessionConnected {
         backend_id: String,

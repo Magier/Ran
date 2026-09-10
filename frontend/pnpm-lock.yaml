@@ -48,6 +48,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.4
         version: 9.39.4
+      '@iconify-json/emojione-monotone':
+        specifier: ^1.2.1
+        version: 1.2.1
       '@iconify-json/game-icons':
         specifier: ^1.2.4
         version: 1.2.4
@@ -434,6 +437,9 @@ packages:
   '@humanwhocodes/retry@0.4.3':
     resolution: {integrity: sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==}
     engines: {node: '>=18.18'}
+
+  '@iconify-json/emojione-monotone@1.2.1':
+    resolution: {integrity: sha512-cZSNcPsuiAD6HCzCh/2dYKGh3pNI0jJlxBxQWfC33cQsPtqYZqulGBvlkThXYNvDl8VxgVHT9u+izyX/yeEIkA==}
 
   '@iconify-json/game-icons@1.2.4':
     resolution: {integrity: sha512-/HDDZxowXgDJcOEwPspUCq5RuDdl25OyZKdtxqqiPJQNTrWIym7r4StLzIVs77DyNzOWWhH5wDqwYR3WHeDfkg==}
@@ -2631,6 +2637,10 @@ snapshots:
   '@humanwhocodes/module-importer@1.0.1': {}
 
   '@humanwhocodes/retry@0.4.3': {}
+
+  '@iconify-json/emojione-monotone@1.2.1':
+    dependencies:
+      '@iconify/types': 2.0.0
 
   '@iconify-json/game-icons@1.2.4':
     dependencies:

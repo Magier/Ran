@@ -18,6 +18,7 @@
 	"devDependencies": {
 		"@eslint/compat": "^1.4.1",
 		"@eslint/js": "^9.39.4",
+		"@iconify-json/emojione-monotone": "^1.2.1",
 		"@iconify-json/game-icons": "^1.2.4",
 		"@iconify-json/healthicons": "^1.2.12",
 		"@iconify-json/material-symbols": "^1.2.69",

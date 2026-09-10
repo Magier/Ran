@@ -30,6 +30,7 @@
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import GraphNodeSelector from './graph_node_selector.svelte';
 	import GraphFilter from './graph_filter.svelte';
+	import ListenerBadges from './listener_badges.svelte';
 	import { workloadCompoundIds } from './workload_compounds';
 	// import { hierarchyLayout } from './hierachical_layout';
 	// import 	{ K8sAttackGraphLayout } from './layout_claude';
@@ -166,7 +167,14 @@
 		}
 
 		const element = cy.getElementById(id);
-		if (element.empty() || element.selected()) return;
+		if (element.empty()) {
+			// An off-graph entity (a listener, which rides on its C2 as a badge)
+			// has nothing to highlight — but the graph must not keep a stale node
+			// highlighted while the armory targets something else.
+			cy.$(':selected').unselect();
+			return;
+		}
+		if (element.selected()) return;
 
 		cy.batch(() => {
 			element.select();
@@ -647,6 +655,9 @@
 		// Switching selection selects the new element before unselecting the old
 		// one. Do not let the old element's event clear the shared selection.
 		if (cy.$(':selected').length > 0) return;
+		// Nor when the selection moved to an entity that has no node of its own,
+		// such as a listener: unselecting the C2 it hangs off must not clear it.
+		if (selectedObjectId && cy.getElementById(selectedObjectId).empty()) return;
 		selectedObject = undefined;
 		selectedObjectId = '';
 		clearSelectionFocus();
@@ -894,6 +905,16 @@
 
 <div class={['graph-wrapper', className]}>
 	<div id="graph" bind:this={graphContainer}></div>
+	<ListenerBadges
+		{cy}
+		nodes={campaignState.graph?.nodes}
+		onselect={(listenerId) => {
+			// A listener is a real entity, so selecting it scopes the armory to the
+			// actions that target one. It has no cytoscape node — the effect
+			// watching selectedObjectId finds nothing to select, which is correct.
+			selectedObjectId = listenerId;
+		}}
+	/>
 	<GraphFilter {availableNamespaces} bind:hiddenNamespaces />
 	<GraphLayoutPlayground bind:params={layoutParams} onRelayout={runElkLayout} />
 </div>

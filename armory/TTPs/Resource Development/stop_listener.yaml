@@ -1,17 +1,27 @@
+id: stop-listener
 name: Stop Listener
-description: Stop an active listener to free up the bound port
+description: >
+  Stop an active listener on the C2 and free the port it holds.
+  Sessions that connected through the listener stay live — they are execution
+  backends in their own right and do not depend on the listener that accepted
+  them.
 tactic: Resource Development
 techniques: ["Indicator Removal"] # this technique is from Defense Evasion, but it's the closest match
 parameters:
   ListenerID:
     type: Listener
-    description: the ID of the listener to stop
+    default: "${TARGET}"
+    description: the listener to stop, as <protocol>/<port> (e.g. tcp/4444)
     required: true
-command: "StopListener"
 preconditions:
-  kind: C2
+  # The target is the listener itself, so selecting one is what makes this
+  # applicable — Create Listener stays on the C2.
+  kind: Listener
   c2.has-listener: true
-effects: ["ListenerStopped", "!c2.has-listener"]
-# cmd: {}
-# defend: {}
+procedures:
+  - id: ran
+    command: "c2.stop-listener(${ListenerID})"
+    isLocal: true
+effects:
+  - "c2.stop-listener(${ListenerID})"
 references:

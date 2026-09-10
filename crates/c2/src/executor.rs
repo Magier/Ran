@@ -13,6 +13,10 @@ use crate::types::{C2Event, ExecTtp, TtpExecuted};
 use crate::types::BUILTIN_C2_ID;
 
 type Backends = Arc<RwLock<HashMap<String, Arc<dyn C2Backend>>>>;
+/// Abort handles for the accept loops of currently bound listeners, keyed by
+/// port. This is what makes a listener stoppable: the `TcpListener` lives
+/// inside its task, so releasing the port means dropping that task.
+type Listeners = Arc<RwLock<HashMap<u16, tokio::task::AbortHandle>>>;
 
 #[derive(Clone)]
 pub struct C2Handle {
@@ -74,6 +78,9 @@ struct C2Executor {
     /// kubeconfig so that "Authenticate As" a non-current context actually
     /// authenticates as that identity instead of silently using the default.
     k8s_clients: Arc<HashMap<String, Client>>,
+    /// Accept loops of the listeners bound by `c2.listen`, so `c2.stop-listener`
+    /// can release their ports.
+    listeners: Listeners,
 }
 
 impl C2Executor {
@@ -153,6 +160,7 @@ impl C2Manager {
                     backends,
                     k8s,
                     k8s_clients: Arc::new(k8s_clients),
+                    listeners: Listeners::default(),
                 },
             },
         )
@@ -180,6 +188,7 @@ impl C2Manager {
                     backends,
                     k8s: None,
                     k8s_clients: Arc::new(HashMap::new()),
+                    listeners: Listeners::default(),
                 },
             },
         )
@@ -364,7 +373,8 @@ impl C2Executor {
                 .map(String::as_str)
                 .unwrap_or(&cmd.target_id)
                 .to_string();
-            self.spawn_session_listener(backend_id, target_entity_id, port, protocol);
+            self.spawn_session_listener(backend_id, target_entity_id, port, protocol)
+                .await;
             return TtpExecuted {
                 id: cmd.id.clone(),
                 success: true,
@@ -373,6 +383,10 @@ impl C2Executor {
                 fail_reason: String::new(),
                 session_connected: None,
             };
+        }
+
+        if let Some(listener_id) = parse_stop_listener_command(trimmed) {
+            return self.stop_listener(cmd, &listener_id).await;
         }
 
         let mut event = self.select_backend(cmd).await.execute(cmd).await;
@@ -412,7 +426,7 @@ impl C2Executor {
         }
     }
 
-    fn spawn_session_listener(
+    async fn spawn_session_listener(
         &self,
         backend_id: String,
         target_entity_id: String,
@@ -421,10 +435,12 @@ impl C2Executor {
     ) {
         let backends = self.backends.clone();
         let event_bus = self.event_bus.clone();
-        tokio::spawn(async move {
+        let listeners = self.listeners.clone();
+        let handle = tokio::spawn(async move {
             accept_session_loop(
                 backends,
                 event_bus,
+                listeners,
                 backend_id,
                 target_entity_id,
                 port,
@@ -432,6 +448,43 @@ impl C2Executor {
             )
             .await;
         });
+        // Re-binding a port replaces the old handle, mirroring how the campaign
+        // keeps one listener record per port.
+        self.listeners
+            .write()
+            .await
+            .insert(port, handle.abort_handle());
+    }
+
+    /// Release the port held by a bound listener.
+    ///
+    /// Aborting the accept loop drops its `TcpListener`, which is what frees the
+    /// port. Sessions accepted earlier are registered backends and are left
+    /// untouched, so an operator can stop listening without losing the shells
+    /// they already caught.
+    async fn stop_listener(&self, cmd: &ExecTtp, listener_id: &str) -> TtpExecuted {
+        let Some(port) = ran_domain::listener_port(listener_id) else {
+            return failed_result(
+                cmd,
+                &format!("'{listener_id}' is not a listener id (expected <protocol>/<port>)"),
+            );
+        };
+
+        let Some(handle) = self.listeners.write().await.remove(&port) else {
+            return failed_result(cmd, &format!("no listener is bound on port {port}"));
+        };
+        handle.abort();
+        tracing::info!(port, "listener stopped; port released");
+
+        let _ = self.event_bus.publish(C2Event::ListenerStopped { port });
+        TtpExecuted {
+            id: cmd.id.clone(),
+            success: true,
+            results: vec![format!("listener on port {port} stopped")],
+            exit_code: 0,
+            fail_reason: String::new(),
+            session_connected: None,
+        }
     }
 
     async fn select_backend(&self, cmd: &ExecTtp) -> Arc<dyn C2Backend> {
@@ -684,6 +737,18 @@ fn parse_session_listen_command(cmd: &str) -> Option<(u16, String)> {
     Some((port, protocol))
 }
 
+/// Parse `c2.stop-listener(<listener id>)` from a procedure command string.
+/// The listener id is whatever the TTP parameter carried — canonically
+/// `protocol/port`, though a bare port is accepted downstream.
+fn parse_stop_listener_command(cmd: &str) -> Option<String> {
+    let inner = cmd.strip_prefix("c2.stop-listener(")?.strip_suffix(')')?;
+    let inner = inner.trim();
+    if inner.is_empty() {
+        return None;
+    }
+    Some(inner.to_string())
+}
+
 /// Derive the session backend ID for a `session.listen` command from the
 /// execution context — uses the same deterministic scheme as the effect handler.
 fn session_backend_id_from_cmd(cmd: &ExecTtp) -> String {
@@ -704,6 +769,7 @@ fn session_backend_id_from_cmd(cmd: &ExecTtp) -> String {
 async fn accept_session_loop(
     backends: Backends,
     event_bus: C2EventBus,
+    listeners: Listeners,
     backend_id: String,
     target_entity_id: String,
     port: u16,
@@ -717,6 +783,9 @@ async fn accept_session_loop(
         Ok(l) => l,
         Err(e) => {
             tracing::error!(port, error = %e, "failed to bind session listener");
+            // The port was never held, so drop the registration made at spawn;
+            // otherwise `c2.stop-listener` would report success for nothing.
+            listeners.write().await.remove(&port);
             return;
         }
     };
@@ -773,6 +842,7 @@ async fn accept_session_loop(
             }
             Err(e) => {
                 tracing::error!(port, error = %e, "accept error on session listener");
+                listeners.write().await.remove(&port);
                 let _ = event_bus.publish(C2Event::SessionLost {
                     backend_id: backend_id.clone(),
                     target_entity_id: target_entity_id.clone(),
@@ -790,11 +860,11 @@ mod tests {
     use std::time::Duration;
 
     use armory::{Procedure, Ttp};
-    use tokio::sync::{mpsc, Semaphore};
+    use tokio::sync::{broadcast, mpsc, Semaphore};
 
     use super::{
         parse_kubeconfig_permission_command, parse_kubectl_exec_command,
-        parse_read_local_kubeconfig_command,
+        parse_read_local_kubeconfig_command, parse_stop_listener_command,
     };
     use super::{C2Backend, C2Event, C2Manager, ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 
@@ -1049,6 +1119,180 @@ mod tests {
         manager_task
             .await
             .expect("manager should shut down cleanly");
+    }
+
+    #[test]
+    fn parses_stop_listener_control_command() {
+        assert_eq!(
+            parse_stop_listener_command("c2.stop-listener(tcp/4444)"),
+            Some("tcp/4444".to_string())
+        );
+        assert_eq!(
+            parse_stop_listener_command("c2.stop-listener( 1337 )"),
+            Some("1337".to_string())
+        );
+        assert_eq!(parse_stop_listener_command("c2.stop-listener()"), None);
+        assert_eq!(parse_stop_listener_command("c2.listen(4444, tcp)"), None);
+    }
+
+    /// Build a control command whose procedure is `command`, run it through the
+    /// manager, and return the resulting `TtpExecuted`.
+    async fn run_control_command(command: &str) -> (TtpExecuted, broadcast::Receiver<C2Event>) {
+        let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "builtin".to_string(),
+        });
+        let mut backends: HashMap<String, Arc<dyn C2Backend>> = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), backend.clone());
+        backends.insert("ran".to_string(), backend);
+
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let rx = events.subscribe();
+        tokio::spawn(manager.run());
+
+        let mut cmd = exec_cmd("ran");
+        cmd.procedure = Procedure::new("ran", "id");
+        cmd.procedure.command = command.to_string();
+        handle.send(cmd).await.expect("command should queue");
+        (wait_for_execution(&mut { rx }).await, events.subscribe())
+    }
+
+    async fn wait_for_execution(rx: &mut broadcast::Receiver<C2Event>) -> TtpExecuted {
+        loop {
+            match tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .expect("an execution event should arrive")
+                .expect("event bus should stay open")
+            {
+                C2Event::TtpExecuted { event, .. } => return event,
+                _ => continue,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn stopping_a_listener_releases_its_port() {
+        let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "builtin".to_string(),
+        });
+        let mut backends: HashMap<String, Arc<dyn C2Backend>> = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), backend.clone());
+        backends.insert("ran".to_string(), backend);
+
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let mut rx = events.subscribe();
+        tokio::spawn(manager.run());
+
+        // Let the OS pick a free port, then release it so the listener can take it.
+        // A sandbox that forbids binding cannot exercise port release at all;
+        // skip loudly there rather than reporting a failure it did not test.
+        let probe = match tokio::net::TcpListener::bind("0.0.0.0:0").await {
+            Ok(probe) => probe,
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                eprintln!("skipped: this environment does not permit binding sockets");
+                return;
+            }
+            Err(error) => panic!("probe bind failed: {error}"),
+        };
+        let port = probe.local_addr().expect("probe has an address").port();
+        drop(probe);
+
+        let mut listen = exec_cmd("ran");
+        listen.procedure = Procedure::new("ran", "id");
+        listen.procedure.command = format!("c2.listen({port}, tcp)");
+        handle.send(listen).await.expect("listen should queue");
+
+        // ListenerStarted only fires once the bind succeeded.
+        loop {
+            match tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .expect("listener should bind")
+                .expect("event bus should stay open")
+            {
+                C2Event::ListenerStarted { port: bound, .. } => {
+                    assert_eq!(bound, port);
+                    break;
+                }
+                _ => continue,
+            }
+        }
+        // Probe with the same wildcard address the accept loop binds. Tokio sets
+        // SO_REUSEADDR, and on BSD-derived stacks that lets a specific address
+        // coexist with a wildcard bind — so probing 127.0.0.1 here would succeed
+        // even while the listener holds the port, and prove nothing.
+        assert!(
+            tokio::net::TcpListener::bind(("0.0.0.0", port))
+                .await
+                .is_err(),
+            "the port must be held while the listener runs"
+        );
+
+        let mut stop = exec_cmd("ran");
+        stop.id = "cmd-stop".to_string();
+        stop.procedure = Procedure::new("ran", "id");
+        stop.procedure.command = format!("c2.stop-listener(tcp/{port})");
+        handle.send(stop).await.expect("stop should queue");
+
+        let mut saw_stopped = false;
+        let mut execution: Option<TtpExecuted> = None;
+        while execution.is_none() || !saw_stopped {
+            match tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .expect("stop should report back")
+                .expect("event bus should stay open")
+            {
+                C2Event::ListenerStopped { port: stopped } => {
+                    assert_eq!(stopped, port);
+                    saw_stopped = true;
+                }
+                C2Event::TtpExecuted { event, .. } if event.id == "cmd-stop" => {
+                    execution = Some(event);
+                }
+                _ => continue,
+            }
+        }
+        let execution = execution.expect("loop only exits with an execution");
+        assert!(execution.success, "{}", execution.fail_reason);
+
+        // Aborting the accept loop drops its TcpListener, so the port is free.
+        // Bind may lag the abort by a scheduler tick; retry briefly.
+        let mut rebound = false;
+        for _ in 0..20 {
+            if tokio::net::TcpListener::bind(("0.0.0.0", port))
+                .await
+                .is_ok()
+            {
+                rebound = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(rebound, "stopping the listener must release port {port}");
+
+        drop(handle);
+    }
+
+    #[tokio::test]
+    async fn stopping_an_unbound_port_fails_with_a_clear_reason() {
+        let (event, _events) = run_control_command("c2.stop-listener(tcp/9)").await;
+
+        assert!(!event.success);
+        assert!(
+            event.fail_reason.contains("no listener is bound on port 9"),
+            "unexpected reason: {}",
+            event.fail_reason
+        );
+    }
+
+    #[tokio::test]
+    async fn stopping_a_malformed_listener_id_fails_without_touching_ports() {
+        let (event, _events) = run_control_command("c2.stop-listener(not-a-listener)").await;
+
+        assert!(!event.success);
+        assert!(
+            event.fail_reason.contains("is not a listener id"),
+            "unexpected reason: {}",
+            event.fail_reason
+        );
     }
 
     fn exec_cmd(exec_system_id: &str) -> ExecTtp {

@@ -686,6 +686,34 @@ impl Campaign {
         self.entities.insert_entity(entity);
     }
 
+    /// Remove an entity from the store and drop its graph node, which takes
+    /// every relation touching it with it.
+    pub(crate) fn remove_entity<T: crate::campaign::entity_store::EntityType>(
+        &mut self,
+        id: &EntityId,
+    ) -> bool {
+        self.graph.remove_entity(id);
+        self.entities.remove_typed::<T>(id)
+    }
+
+    /// Drop whichever listener holds `port`, returning how many were removed.
+    ///
+    /// A port can only be bound once, so this is at most one — the protocol is
+    /// not needed to identify it.
+    pub fn remove_listeners_on_port(&mut self, port: u16) -> usize {
+        let ids: Vec<EntityId> = self
+            .entities
+            .values::<ran_domain::Listener>()
+            .filter(|listener| listener.port == port)
+            .map(|listener| listener.entity_id())
+            .collect();
+        let removed = ids.len();
+        for id in ids {
+            self.remove_entity::<ran_domain::Listener>(&id);
+        }
+        removed
+    }
+
     /// Insert a relation into the graph using the IDs stored on the relation itself.
     pub(crate) fn insert_relation(&mut self, rel: &dyn ran_domain::Relation) {
         let src = rel.source_id().clone();

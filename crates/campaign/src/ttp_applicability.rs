@@ -1,5 +1,5 @@
 use ran_domain::{
-    AccessLevel, C2Server, Entity as _, K8sCredential, Pod, ServiceAccount, SessionStatus,
+    AccessLevel, Entity as _, K8sCredential, Listener, Pod, ServiceAccount, SessionStatus,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -207,6 +207,7 @@ pub fn ttp_applicable_for_target(
         && ttp_auth_satisfied_for_target(ttp, campaign, tc)
         && ttp_execution_source_satisfied(ttp, campaign)
         && ttp_exists_satisfied(ttp, campaign)
+        && ttp_has_listener_satisfied(ttp, campaign)
         && (!tc.is_system || ttp_access_level_satisfied(ttp, tc.access_level))
         && ttp_has_token_satisfied(ttp, tc.has_token)
         && ttp_active_session_satisfied(ttp, tc.active_session)
@@ -350,10 +351,7 @@ pub fn ttp_exists_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
     items.iter().all(|item| {
         let kind = item.as_str().unwrap_or("").trim().to_ascii_lowercase();
         match kind.as_str() {
-            "listener" => campaign
-                .entities
-                .values::<C2Server>()
-                .any(|c2| !c2.listeners.is_empty()),
+            "listener" => campaign.entities.values::<Listener>().next().is_some(),
             _ => false, // unknown entity kind — fail safe
         }
     })
@@ -396,6 +394,23 @@ pub fn ttp_active_session_satisfied(ttp: &armory::Ttp, active: bool) -> bool {
         Some(true) => active,
         _ => true,
     }
+}
+
+/// Returns `true` when the TTP's `c2.has-listener` requirement is satisfied.
+///
+/// - No `c2.has-listener` in `requires` → satisfied (no restriction).
+/// - `c2.has-listener: true` → some C2Server must have a bound listener.
+/// - `c2.has-listener: false` → no C2Server may have one.
+///
+/// Unlike `exists: [Listener]` this is about the C2 the action runs on, so it
+/// gates actions that operate *on* a listener (stopping one) rather than
+/// actions that merely need one to exist somewhere.
+pub fn ttp_has_listener_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
+    let Some(required) = ttp.requires.get("c2.has-listener").and_then(Value::as_bool) else {
+        return true;
+    };
+    let any_listener = campaign.entities.values::<Listener>().next().is_some();
+    any_listener == required
 }
 
 /// Returns `true` when the TTP's `has-token` requirement is satisfied by the target entity.
@@ -510,8 +525,8 @@ pub fn ttp_related_satisfied(
 mod tests {
     use armory::Ttp;
     use ran_domain::{
-        C2Server, K8sCluster, K8sCredential, K8sNode, RbacPermission, ServiceAccount, SessionInfo,
-        SessionStatus,
+        C2Server, K8sCluster, K8sCredential, K8sNode, Listener, RbacPermission, ServiceAccount,
+        SessionInfo, SessionStatus,
     };
     use serde_json::json;
 
@@ -519,7 +534,7 @@ mod tests {
 
     use super::{
         resolve_target_context, ttp_access_level_satisfied, ttp_applicable_for_target,
-        ttp_exists_satisfied, ttp_rbac_satisfied,
+        ttp_exists_satisfied, ttp_has_listener_satisfied, ttp_rbac_satisfied,
     };
 
     fn ttp_with_rbac(verb: &str, resource_type: &str) -> Ttp {
@@ -596,6 +611,13 @@ mod tests {
         credential.active = true;
         campaign.entities.insert_typed(credential);
         assert!(ttp_applicable_for_target(&ttp, &campaign, &context));
+    }
+
+    fn ttp_with_has_listener(required: bool) -> Ttp {
+        let mut ttp = ttp_no_rbac();
+        ttp.requires
+            .insert("c2.has-listener".to_string(), json!(required));
+        ttp
     }
 
     fn ttp_with_exists(kind: &str) -> Ttp {
@@ -679,7 +701,7 @@ mod tests {
 
     #[test]
     fn exists_not_satisfied_when_listener_required_and_none_in_campaign() {
-        // Listener mechanics not yet ported: C2Server.listeners is always empty.
+        // No listener has been bound, so `C2Server.listeners` is empty.
         assert!(!ttp_exists_satisfied(
             &ttp_with_exists("Listener"),
             &empty_campaign()
@@ -687,12 +709,45 @@ mod tests {
     }
 
     #[test]
-    fn exists_satisfied_when_c2_has_listener() {
+    fn exists_satisfied_when_a_listener_is_bound() {
         let mut c = empty_campaign();
-        let mut c2 = C2Server::new("ran");
-        c2.listeners.push("tcp-1337".to_string());
-        c.entities.insert_typed(c2);
+        c.entities.insert_typed(Listener::new(1337, "tcp"));
         assert!(ttp_exists_satisfied(&ttp_with_exists("Listener"), &c));
+    }
+
+    #[test]
+    fn has_listener_unconstrained_when_absent() {
+        assert!(ttp_has_listener_satisfied(
+            &ttp_no_rbac(),
+            &empty_campaign()
+        ));
+    }
+
+    #[test]
+    fn has_listener_required_but_none_bound() {
+        let mut c = empty_campaign();
+        c.entities.insert_typed(C2Server::new("ran"));
+        assert!(
+            !ttp_has_listener_satisfied(&ttp_with_has_listener(true), &c),
+            "stopping a listener must not be offered when none is bound"
+        );
+    }
+
+    #[test]
+    fn has_listener_required_and_one_bound() {
+        let mut c = empty_campaign();
+        c.entities.insert_typed(Listener::new(4444, "tcp"));
+        assert!(ttp_has_listener_satisfied(&ttp_with_has_listener(true), &c));
+    }
+
+    #[test]
+    fn has_listener_false_excludes_a_c2_that_has_one() {
+        let mut c = empty_campaign();
+        c.entities.insert_typed(Listener::new(4444, "tcp"));
+        assert!(
+            !ttp_has_listener_satisfied(&ttp_with_has_listener(false), &c),
+            "`c2.has-listener: false` must exclude a C2 that already has one"
+        );
     }
 
     #[test]
@@ -951,6 +1006,61 @@ mod tests {
             .insert(ran_domain::EntityId::new(&id), credential);
         let tc = resolve_target_context(&c, &id).expect("credential should resolve");
         assert!(ttp_applicable_for_target(&ttp, &c, &tc));
+    }
+
+    #[test]
+    fn a_selected_listener_offers_listener_actions_only() {
+        // The point of modelling a listener as an entity: selecting one narrows
+        // the armory to what can be done *to* it. Creating a listener belongs to
+        // the C2 and must not show up here.
+        let mut c = empty_campaign();
+        c.entities.insert_typed(C2Server::new("ran"));
+        let listener = Listener::new(4444, "tcp");
+        let listener_id = listener.entity_id().0;
+        c.entities.insert_typed(listener);
+
+        let tc = resolve_target_context(&c, &listener_id).expect("a listener is a target");
+        assert_eq!(tc.target_kind, "Listener");
+
+        let mut stop = ttp_no_rbac();
+        stop.requires.insert("kind".to_string(), json!("Listener"));
+        stop.requires
+            .insert("c2.has-listener".to_string(), json!(true));
+        assert!(
+            ttp_applicable_for_target(&stop, &c, &tc),
+            "Stop Listener applies to the listener that was selected"
+        );
+
+        let mut create = ttp_no_rbac();
+        create.requires.insert("kind".to_string(), json!("C2"));
+        assert!(
+            !ttp_applicable_for_target(&create, &c, &tc),
+            "Create Listener targets the C2, not a running listener"
+        );
+    }
+
+    #[test]
+    fn stopping_is_not_offered_once_the_last_listener_is_gone() {
+        let mut c = empty_campaign();
+        let listener = Listener::new(4444, "tcp");
+        let listener_id = listener.entity_id();
+        c.entities.insert_typed(listener);
+
+        let tc = resolve_target_context(&c, &listener_id.0).expect("a listener is a target");
+        assert_eq!(c.remove_listeners_on_port(4444), 1);
+
+        assert!(
+            resolve_target_context(&c, &listener_id.0).is_none(),
+            "a stopped listener is no longer a target at all"
+        );
+        let mut stop = ttp_no_rbac();
+        stop.requires.insert("kind".to_string(), json!("Listener"));
+        stop.requires
+            .insert("c2.has-listener".to_string(), json!(true));
+        assert!(
+            !ttp_applicable_for_target(&stop, &c, &tc),
+            "with no listener bound, stopping one is not applicable"
+        );
     }
 
     #[test]
