@@ -136,6 +136,63 @@ fn on_ttp_executed_parses_sys_envvar_into_target_system_info() {
 }
 
 #[test]
+fn on_ttp_executed_derives_cluster_facts_from_injected_env_vars() {
+    // End-to-end: `sys.envvar` writes the variables straight onto the committed
+    // entity via `apply_system_update`, so `KubeEnvVarAnalyzer` has to pick them
+    // up from a scan of campaign state rather than from `new_entities`.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let pod = Pod::new("demo", "shop");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let cmd = sample_exec_ttp(&target_id, vec!["sys.envvar"]);
+    let event = sample_event(
+        "HOME=/root\n\
+         KUBERNETES_SERVICE_HOST=10.96.0.1\n\
+         KUBERNETES_SERVICE_PORT=443\n\
+         KUBERNETES_SERVICE_PORT_HTTPS=443\n\
+         REDIS_SERVICE_HOST=10.0.0.10\n\
+         REDIS_SERVICE_PORT=6379\n",
+    );
+
+    campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    // The master service always lands in `default`, the linked one in the pod's
+    // own namespace.
+    let services: Vec<String> = campaign
+        .entities
+        .values::<ran_domain::K8sService>()
+        .map(|s| s.entity_id().0)
+        .collect();
+    assert!(
+        services.contains(&"ns/default/svc/kubernetes".to_string()),
+        "expected the kubernetes service, got: {:?}",
+        services
+    );
+    assert!(
+        services.contains(&"ns/shop/svc/redis".to_string()),
+        "expected redis in the pod's namespace, got: {:?}",
+        services
+    );
+
+    let relations = campaign.get_relations();
+    assert!(
+        relations.iter().any(|r| r.name == "can-reach"
+            && r.source_id == target_id
+            && r.target_id == "ns/default/svc/kubernetes"),
+        "expected can-reach(pod → kubernetes service)"
+    );
+
+    // The cluster address is now known from inside the cluster.
+    let cluster = campaign
+        .entities
+        .values::<K8sCluster>()
+        .next()
+        .expect("cluster");
+    assert_eq!(cluster.server.as_deref(), Some("https://10.96.0.1:443"));
+}
+
+#[test]
 fn on_ttp_executed_marks_exec_pod_running_before_kubelet_source_inference() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
 

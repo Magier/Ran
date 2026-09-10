@@ -5,6 +5,7 @@ pub mod execution_record;
 pub mod external_parser;
 pub mod failure_analyzers;
 pub mod grounding;
+pub mod kube_env;
 pub mod output_parsers;
 pub mod pending_view;
 pub mod provenance;
