@@ -125,6 +125,12 @@
 		</div>
 	</header>
 	<article class="flex min-h-10 flex-auto flex-col overflow-auto">
+			{#if step.routeReason}
+				<div class="mt-4 justify-start">
+					<div class="pr-2 mb-1">Route</div>
+					<p class="text-xs opacity-80">{step.routeReason}</p>
+				</div>
+			{/if}
 		<div class="mt-4 justify-start">
 			{#if hasTraversal}
 				<div class="pr-2 mb-2">Traversal</div>

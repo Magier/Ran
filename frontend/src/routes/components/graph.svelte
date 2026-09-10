@@ -409,6 +409,14 @@
 						cy.getElementById(n.data.id).data(n.data);
 					});
 
+					// Update data for existing edges too. An edge's id is stable across a
+					// status change (e.g. a session breaking flips `broken` while source,
+					// target and name stay the same), so without this refresh the
+					// edge[?broken] restyle would not apply until a full remount.
+					edges.filter((e: any) => e.data.id && cyEdgeIdSet.has(e.data.id as string)).forEach((e: any) => {
+						cy.getElementById(e.data.id).data(e.data);
+					});
+
 					// Pre-position new nodes near their connected existing nodes so they don't spawn randomly
 					if (nodesToAdd.length > 0) {
 						const addingIds = new Set<string>(nodesToAdd.map((n: any) => n.data.id as string));

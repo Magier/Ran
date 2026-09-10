@@ -30,6 +30,13 @@ pub struct ShellSession {
     inner: Arc<Mutex<ShellInner>>,
     /// Entity ID this session currently exits into (for logging/debugging).
     pub entity_id: String,
+    /// Consecutive command timeouts with no response in between. A single
+    /// timeout is treated as a slow command; once this reaches
+    /// [`crate::types::SESSION_TIMEOUT_BREAK_THRESHOLD`] the session is reported
+    /// as dead so its exec-channel edge is broken. Reset to zero whenever a
+    /// command completes (even with a non-zero exit — that still proves the
+    /// session is responsive).
+    consecutive_timeouts: AtomicU64,
 }
 
 struct ShellInner {
@@ -79,6 +86,7 @@ impl ShellSession {
                 rx: BufReader::new(Box::new(reader)),
             })),
             entity_id: entity_id.into(),
+            consecutive_timeouts: AtomicU64::new(0),
         }
     }
 
@@ -224,7 +232,7 @@ impl C2Backend for ShellSession {
                 match guard.rx.read_line(&mut line).await {
                     Ok(0) => {
                         warn!(entity_id = %self.entity_id, "shell session EOF");
-                        return Err("shell session closed unexpectedly".to_string());
+                        return Err(crate::types::SESSION_CLOSED_UNEXPECTEDLY.to_string());
                     }
                     Err(e) => return Err(format!("shell read failed: {e}")),
                     Ok(_) => {}
@@ -241,15 +249,38 @@ impl C2Backend for ShellSession {
         let timeout_seconds = cmd.execution_timeout_seconds.max(1);
         match tokio::time::timeout(Duration::from_secs(timeout_seconds), read_fut).await {
             Ok(Ok((code, out))) => {
+                // The session responded (any exit code), so it is alive: clear
+                // the consecutive-timeout streak.
+                self.consecutive_timeouts.store(0, Ordering::Relaxed);
                 exit_code = code;
                 output = out;
             }
             Ok(Err(e)) => return exec_error(&cmd.id, e),
             Err(_) => {
+                // A single timeout is treated as a slow command — the session may
+                // still be healthy. Only sustained unresponsiveness escalates to a
+                // session death that breaks the exec-channel edge, so the streak is
+                // tracked across commands and reset by any response above.
+                let streak = self.consecutive_timeouts.fetch_add(1, Ordering::Relaxed) + 1;
+                if streak >= crate::types::SESSION_TIMEOUT_BREAK_THRESHOLD {
+                    warn!(
+                        entity_id = %self.entity_id,
+                        streak,
+                        "shell session unresponsive after consecutive timeouts"
+                    );
+                    return exec_error(
+                        &cmd.id,
+                        format!(
+                            "{} after {streak} consecutive timeouts \
+                             (last command timed out after {timeout_seconds}s)",
+                            crate::types::SESSION_UNRESPONSIVE_PREFIX
+                        ),
+                    );
+                }
                 return exec_error(
                     &cmd.id,
                     format!("shell command timed out after {timeout_seconds}s"),
-                )
+                );
             }
         }
 
@@ -406,6 +437,64 @@ mod tests {
         assert!(!result.success);
         assert_eq!(result.exit_code, 127);
         assert!(!result.results.is_empty());
+    }
+
+    /// A fake shell that answers `init()` but never replies to any command, so
+    /// every `execute` call times out.
+    fn silent_shell_session(entity_id: &str) -> ShellSession {
+        let (client, server) = tokio::io::duplex(4096);
+        let (server_rx, mut server_tx) = tokio::io::split(server);
+        let (client_rx, client_tx) = tokio::io::split(client);
+
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut reader = tokio::io::BufReader::new(server_rx);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+                // Only unblock init(); real commands get no sentinel, so they hang.
+                if let Some(rest) = line.trim_end().strip_prefix("printf '") {
+                    let marker = rest.split('%').next().unwrap_or("").trim_end_matches(':');
+                    if marker.contains("INIT0") {
+                        let _ = server_tx.write_all(format!("{marker}\n").as_bytes()).await;
+                        let _ = server_tx.flush().await;
+                    }
+                }
+            }
+        });
+
+        ShellSession::from_rw(client_rx, client_tx, entity_id)
+    }
+
+    #[tokio::test]
+    async fn timeouts_escalate_to_session_death_only_after_the_threshold() {
+        let session = silent_shell_session("node/test");
+        session.init().await.expect("init");
+
+        let mut cmd = make_cmd("sleep 999", "session/test");
+        cmd.execution_timeout_seconds = 1;
+
+        // First timeout: treated as a slow command — the session is not yet dead.
+        let first = session.execute(&cmd).await;
+        assert!(!first.success);
+        assert!(
+            !crate::types::is_session_death_reason(&first.fail_reason),
+            "a single timeout must not break the session: {}",
+            first.fail_reason
+        );
+
+        // Second consecutive timeout crosses the threshold → session death.
+        let second = session.execute(&cmd).await;
+        assert!(!second.success);
+        assert!(
+            crate::types::is_session_death_reason(&second.fail_reason),
+            "consecutive timeouts should escalate to session death: {}",
+            second.fail_reason
+        );
     }
 
     fn make_cmd(command: &str, exec_system_id: &str) -> ExecTtp {

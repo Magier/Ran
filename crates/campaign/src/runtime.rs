@@ -477,10 +477,13 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         &backend_id,
                         SessionStatus::Lost,
                     );
-                    // Clear session_id from any exec-channel edge that carried
-                    // this session, regardless of edge type or transport.
-                    guard.deactivate_session(&backend_id);
-                    info!(%backend_id, %target_entity_id, "session lost");
+                    // Mark any exec-channel edge that carried this session as
+                    // broken rather than clearing it: the edge stays in the
+                    // graph (styled as broken) and keeps its session_id so a
+                    // reconnecting session can recover it, but path-finding
+                    // treats it as non-traversable in the meantime.
+                    let marked = guard.mark_session_broken(&backend_id);
+                    info!(%backend_id, %target_entity_id, marked, "session lost; exec-channel edge(s) marked broken");
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                         cmd_id: backend_id,
                         new_entities: vec![],

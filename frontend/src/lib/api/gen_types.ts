@@ -533,6 +533,8 @@ export interface components {
             targetId: string;
             /** @description Backend ID of the active persistent session on this exec-channel edge, if any. */
             sessionId?: string;
+            /** @description True when the session backing this exec-channel edge has died. The edge is kept (rendered as broken) and is non-traversable until a session reconnects and recovers it. */
+            broken?: boolean;
             provenance?: ("scenario" | "operator" | "action" | "inference")[];
         };
         CampaignState: {
@@ -575,6 +577,8 @@ export interface components {
             traversal: components["schemas"]["TraversalHop"][];
             /** @description The bare inner command as it runs on the final target system, before any hop envelopes wrap it. Empty when there is no multi-hop traversal. */
             innerCommand: string;
+            /** @description Short, human-readable explanation of why this execution route was chosen (e.g. a live session vs. a multi-hop path), including a note when a broken session edge to the target was skipped. Empty for direct/local commands with no joined traversal. */
+            routeReason?: string;
             args: {
                 [key: string]: string;
             };
