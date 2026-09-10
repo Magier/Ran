@@ -43,6 +43,18 @@ pub struct Campaign {
     pub session_traversals: HashMap<String, Vec<crate::traversal::TraversalHop>>,
     #[serde(default)]
     pub knowledge_provenance: KnowledgeProvenanceStore,
+    /// Stale entity id → the id it was merged into. Recorded whenever two
+    /// entities turn out to be the same thing: an `UnknownSystem` promoted into
+    /// the Pod it always was, an IP-placeholder pod folded into its real
+    /// identity, a C2-supplied target id resolved to a locally created system.
+    ///
+    /// The merge changes the entity id, but long-lived callers keep the old
+    /// one — the C2 session bookkeeping captures a target id when a shell first
+    /// connects and quotes it back minutes later. Every id-keyed system lookup
+    /// therefore resolves through this table
+    /// (see [`Self::canonical_entity_id`]).
+    #[serde(default)]
+    pub entity_aliases: HashMap<EntityId, EntityId>,
 }
 
 #[derive(Debug, Clone)]
@@ -199,6 +211,7 @@ impl Campaign {
             command_traversals: HashMap::new(),
             session_traversals: HashMap::new(),
             knowledge_provenance,
+            entity_aliases: HashMap::new(),
         }
     }
 
@@ -304,8 +317,37 @@ impl Campaign {
             .collect()
     }
 
+    /// Follow [`Self::entity_aliases`] until the id names a live entity.
+    ///
+    /// An id that is still in the entity store is returned unchanged, so an
+    /// alias can never shadow an entity that exists — only ids that were merged
+    /// away (or were never created in the first place) are rewritten. Bounded
+    /// so a cyclic alias pair cannot spin.
+    pub fn canonical_entity_id(&self, id: &str) -> String {
+        let mut current = EntityId::new(id);
+        for _ in 0..16 {
+            if self.entities.contains_id(&current) {
+                break;
+            }
+            match self.entity_aliases.get(&current) {
+                Some(next) if *next != current => current = next.clone(),
+                _ => break,
+            }
+        }
+        current.0
+    }
+
+    /// Record that `stale` was merged into `preferred`, so later lookups keyed
+    /// by the old id still land on the surviving entity.
+    pub fn record_entity_alias(&mut self, stale: &EntityId, preferred: &EntityId) {
+        if stale == preferred {
+            return;
+        }
+        self.entity_aliases.insert(stale.clone(), preferred.clone());
+    }
+
     pub fn get_system_entity(&self, id: &str) -> Option<CampaignSystemEntityRef<'_>> {
-        let entity_id = EntityId::new(id);
+        let entity_id = EntityId::new(self.canonical_entity_id(id));
 
         if let Some(node) = self.entities.find::<K8sNode>(&entity_id) {
             return Some(CampaignSystemEntityRef::Node(node));
@@ -319,7 +361,7 @@ impl Campaign {
     }
 
     pub fn get_system_entity_mut(&mut self, id: &str) -> Option<CampaignSystemEntityMut<'_>> {
-        let entity_id = EntityId::new(id);
+        let entity_id = EntityId::new(self.canonical_entity_id(id));
 
         if self.entities.contains::<K8sNode>(&entity_id) {
             return self
@@ -365,6 +407,10 @@ impl Campaign {
         target_id: &str,
         prefer_session: bool,
     ) -> Result<ExecChannel, String> {
+        // The caller may hold an id that was merged away (a promoted foothold,
+        // a pod that gained its real name); route to whatever it became.
+        let canonical = self.canonical_entity_id(target_id);
+        let target_id = canonical.as_str();
         let target_eid = EntityId::new(target_id);
 
         // Prefer an Active session on the target system — it is a live shell
@@ -495,6 +541,13 @@ impl Campaign {
         source_id: &str,
         target_id: &str,
     ) -> Result<ExecChannel, String> {
+        // Both ids come from the UI and may predate a merge (the operator was
+        // looking at the foothold before it became a pod).
+        let canonical_source = self.canonical_entity_id(source_id);
+        let canonical_target = self.canonical_entity_id(target_id);
+        let source_id = canonical_source.as_str();
+        let target_id = canonical_target.as_str();
+
         let source_eid = EntityId::new(source_id);
         if !self.is_system_entity_id(&source_eid) {
             return Err(format!(
@@ -668,7 +721,7 @@ impl Campaign {
     /// Returns `true` when a matching edge was found; the caller should only
     /// create a new `SessionChannel` relation when this returns `false`.
     pub fn activate_session_on_exec_channel(&mut self, target_id: &str, backend_id: &str) -> bool {
-        let target_eid = EntityId::new(target_id);
+        let target_eid = EntityId::new(self.canonical_entity_id(target_id));
         self.graph
             .activate_session_on_incoming_exec(&target_eid, backend_id.to_string())
     }
@@ -777,6 +830,7 @@ mod planner_helper_tests {
             command_traversals: std::collections::HashMap::new(),
             session_traversals: std::collections::HashMap::new(),
             knowledge_provenance: KnowledgeProvenanceStore::default(),
+            entity_aliases: std::collections::HashMap::new(),
         }
     }
 
