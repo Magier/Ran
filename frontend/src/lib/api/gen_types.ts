@@ -834,6 +834,12 @@ export interface components {
              * @enum {string}
              */
             outcome: "observed" | "created" | "updated";
+            /**
+             * @description What sort of news this fact is. Independent of `outcome`: gaining exec access to a host the campaign already knew is `access-gained` with an outcome of `updated`, and is still worth showing. Decided by the producer, so clients must not re-derive it from `kind`.
+             * @default discovery
+             * @enum {string}
+             */
+            category: "discovery" | "credential" | "access-gained";
         };
         /**
          * @description Audit record for a single effect parse attempt. `parse_result` indicates

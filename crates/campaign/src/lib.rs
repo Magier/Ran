@@ -28,7 +28,7 @@ pub use external_parser::{ExternalParseRequest, ExternalParseResponse, ExternalP
 pub use output_parsers::{credential_from_resolved, ParseAudit, ParseResult};
 pub use pending_view::PendingView;
 pub use provenance::{
-    FactOutcome, KnowledgeProvenance, KnowledgeProvenanceStore, RelationProvenanceKey,
+    FactCategory, FactOutcome, KnowledgeProvenance, KnowledgeProvenanceStore, RelationProvenanceKey,
 };
 pub use rules::{run_rules_fixpoint, InferenceRule};
 pub use runtime::{

@@ -2114,6 +2114,9 @@ impl Campaign {
                 name: entity.entity_name().to_string(),
                 kind: entity.entity_kind().to_string(),
                 outcome: updates.outcome_of(&entity.entity_id()),
+                // Effect facts are classified by kind; session attachment does
+                // not travel this path (it publishes its own FactsChanged).
+                category: crate::FactCategory::from_kind(entity.entity_kind()),
             })
             .collect();
         let (effective_success, effective_fail_reason) = if let Some(err_audit) = api_error {

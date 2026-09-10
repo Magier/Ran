@@ -2520,15 +2520,15 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                 );
 
                 for entity in &new_entities {
-                    let category = match entity.kind.as_str() {
-                        "Secret" | "K8sCredential" => "credential",
-                        _ => "discovery",
-                    };
+                    // The category is decided by the producer, not re-derived
+                    // here: this edge cannot tell a session attaching to a known
+                    // host from a routine field update, and guessing from the
+                    // entity kind is what made `access-gained` unreachable.
                     let payload = serde_json::json!({
                         "entityId": entity.id.0,
                         "entityName": entity.name,
                         "entityKind": entity.kind,
-                        "category": category,
+                        "category": entity.category,
                         "outcome": entity.outcome,
                         "cmdId": cmd_id,
                     });

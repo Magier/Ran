@@ -222,6 +222,22 @@ describe('OperationTimeline entity verbs', () => {
 		expect(screen.getByText('Discovered pod')).toBeInTheDocument();
 	});
 
+	it('reports gained access even though the entity itself was only updated', () => {
+		renderTimeline([
+			entityRow({
+				kind: 'access-gained',
+				outcome: 'updated',
+				id: 'node/worker-1',
+				entityId: 'node/worker-1',
+				entityName: 'worker-1',
+				entityKind: 'K8sNode'
+			})
+		]);
+
+		expect(screen.getByText('Gained exec access to')).toBeInTheDocument();
+		expect(screen.queryByText('Updated K8sNode')).not.toBeInTheDocument();
+	});
+
 	it('falls back to discovered when a row carries no outcome', () => {
 		renderTimeline([
 			entityRow({

@@ -115,10 +115,13 @@ export class TimelineStore {
         const outcome = entry.outcome ?? 'observed';
         const group = entry.cmdId ? this.index.get(entry.cmdId) : undefined;
 
-        // An update to something already on screen is not news. Keep it inside
-        // its action so the expanded view stays complete, but never let it reach
-        // the top level — that is the row nobody asked for.
-        if (outcome === 'updated' && !group) return;
+        // An update to something already on screen is not news *about the
+        // entity* — but the category can carry news of its own. Catching a shell
+        // on a host the campaign already knew updates nothing and still matters,
+        // so suppression is scoped to plain discoveries; without that clause the
+        // most significant event in a campaign renders as nothing at all.
+        const isNewsInItself = entry.kind === 'access-gained' || entry.kind === 'credential';
+        if (outcome === 'updated' && !group && !isNewsInItself) return;
 
         this.seenEntityIds.add(entry.id);
 

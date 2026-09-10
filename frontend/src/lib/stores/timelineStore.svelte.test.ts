@@ -174,6 +174,41 @@ describe('TimelineStore', () => {
         expect(group.effects[0].outcome).toBe('updated');
     });
 
+    it('shows a shell caught on an already-known host, despite the update outcome', () => {
+        // A reverse shell arrives under its backend id, which never matches an
+        // action group, and updates a host the campaign already had. Suppressing
+        // it as a mere update would silently drop the single most significant
+        // event in a campaign.
+        store.addEntityEvent(
+            makeEntityEntry({
+                kind: 'access-gained',
+                outcome: 'updated',
+                id: 'node/worker-1',
+                entityId: 'node/worker-1',
+                entityName: 'worker-1',
+                entityKind: 'K8sNode',
+                cmdId: 'session/worker-1-4444'
+            })
+        );
+
+        expect(store.topEntries).toHaveLength(1);
+        expect(store.topEntries[0].kind).toBe('access-gained');
+    });
+
+    it('shows a found credential on a known entity for the same reason', () => {
+        store.addEntityEvent(
+            makeEntityEntry({
+                kind: 'credential',
+                outcome: 'updated',
+                id: 'secret/default/api-key',
+                entityId: 'secret/default/api-key',
+                entityKind: 'Secret',
+                cmdId: 'cmd-that-never-registered'
+            })
+        );
+        expect(store.topEntries).toHaveLength(1);
+    });
+
     it('does not consume the dedup slot for an update it dropped', () => {
         // A later, genuine observation of the same entity must still get through.
         store.addEntityEvent(

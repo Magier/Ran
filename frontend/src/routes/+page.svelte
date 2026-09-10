@@ -505,12 +505,10 @@
 							failReason: r.fail_reason,
 							timestampMs: r.completed_at_ms || r.started_at_ms,
 							effects: r.discovered_entities.map((entity) => ({
-								kind:
-									entity.kind === 'Secret' || entity.kind === 'K8sCredential'
-										? ('credential' as const)
-										: ('discovery' as const),
-								// Records written before outcomes were tracked have none;
-								// they predate the created/updated distinction entirely.
+								// Both fields come from the backend rather than being
+								// re-derived from `kind` here — a second copy of that rule
+								// is what let the live and replayed timelines disagree.
+								kind: entity.category ?? ('discovery' as const),
 								outcome: entity.outcome ?? ('observed' as const),
 								id: entity.id,
 								entityId: entity.id,

@@ -1438,6 +1438,15 @@ components:
             it was already known and this run only refined its fields. Only
             `observed` is a discovery — consumers must not report the other two
             as one. Absent on records written before outcomes were tracked.
+        category:
+          type: string
+          enum: [discovery, credential, access-gained]
+          default: discovery
+          description: >
+            What sort of news this fact is. Independent of `outcome`: gaining
+            exec access to a host the campaign already knew is `access-gained`
+            with an outcome of `updated`, and is still worth showing. Decided by
+            the producer, so clients must not re-derive it from `kind`.
 
     ParseAudit:
       type: object

@@ -17,6 +17,10 @@ pub struct ExecutionEntity {
     /// before outcomes were tracked.
     #[serde(default)]
     pub outcome: crate::FactOutcome,
+    /// What sort of news this is, so a timeline rebuilt from history reads the
+    /// same as the live one instead of re-deriving the rule client-side.
+    #[serde(default)]
+    pub category: crate::FactCategory,
 }
 
 /// A single recorded execution — the grounded command, its arguments, and the
