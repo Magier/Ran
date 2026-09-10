@@ -123,6 +123,39 @@ pub fn parse_output_effect(
         });
     }
 
+    if normalized.starts_with("c2.port-forward(") {
+        // Same shape as c2.listen: C2Event::RedirectorStarted creates the
+        // Redirector entity from the event bus (runtime.rs), so there is nothing
+        // to parse out of labctl's output.
+        return Some(ParsedEffect {
+            updates: FactsUpdate::default(),
+            audit: build_audit(
+                effect_id,
+                cmd,
+                event,
+                ParseResult::Parsed,
+                "c2 redirector registered via event bus",
+                0,
+            ),
+        });
+    }
+
+    if normalized.starts_with("c2.stop-port-forward(") {
+        // Symmetric to c2.port-forward: C2Event::RedirectorStopped drops the
+        // entity, so the command output carries no facts.
+        return Some(ParsedEffect {
+            updates: FactsUpdate::default(),
+            audit: build_audit(
+                effect_id,
+                cmd,
+                event,
+                ParseResult::Parsed,
+                "c2 redirector deregistered via event bus",
+                0,
+            ),
+        });
+    }
+
     if normalized == "create k8s.pod"
         || normalized == "namespace($ns)"
         || normalized == "ns.contains($p2)"

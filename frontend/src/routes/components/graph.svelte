@@ -30,7 +30,7 @@
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import GraphNodeSelector from './graph_node_selector.svelte';
 	import GraphFilter from './graph_filter.svelte';
-	import ListenerBadges from './listener_badges.svelte';
+	import C2Badges from './c2_badges.svelte';
 	import { workloadCompoundIds } from './workload_compounds';
 	// import { hierarchyLayout } from './hierachical_layout';
 	// import 	{ K8sAttackGraphLayout } from './layout_claude';
@@ -913,14 +913,15 @@
 
 <div class={['graph-wrapper', className]}>
 	<div id="graph" bind:this={graphContainer}></div>
-	<ListenerBadges
+	<C2Badges
 		{cy}
 		nodes={campaignState.graph?.nodes}
-		onselect={(listenerId) => {
-			// A listener is a real entity, so selecting it scopes the armory to the
-			// actions that target one. It has no cytoscape node - the effect
-			// watching selectedObjectId finds nothing to select, which is correct.
-			selectedObjectId = listenerId;
+		onselect={(entityId) => {
+			// Listeners and redirectors are real entities, so selecting one scopes
+			// the armory to the actions that target it. Neither has a cytoscape node
+			// - the effect watching selectedObjectId finds nothing to select, which
+			// is correct.
+			selectedObjectId = entityId;
 		}}
 	/>
 	<GraphFilter {availableNamespaces} bind:hiddenNamespaces />

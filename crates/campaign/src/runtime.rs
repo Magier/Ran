@@ -3,8 +3,8 @@ use std::sync::{Arc, RwLock};
 use armory::Ttp;
 use c2::{C2Event, C2EventBus, SessionConnectedData};
 use ran_domain::{
-    AccessLevel, Entity, EntityId, HostsListener, Listener, SessionChannel, SessionInfo,
-    SessionStatus, UnknownSystem,
+    AccessLevel, Entity, EntityId, ForwardsTo, HostsListener, Listener, Redirector, SessionChannel,
+    SessionInfo, SessionStatus, UnknownSystem,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -433,6 +433,100 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     // Sessions caught through this listener are separate backends
                     // and keep running; only the binding is gone.
                     info!(port, removed, "listener stopped; listener entity removed");
+                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                        cmd_id,
+                        new_entities: vec![],
+                        new_relations: vec![],
+                    });
+                }
+                Ok(C2Event::RedirectorStarted {
+                    cmd_id,
+                    via,
+                    play_id,
+                    remote_port,
+                    listener_port,
+                }) => {
+                    let mut guard = match campaign.write() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            error!("campaign lock poisoned on RedirectorStarted");
+                            continue;
+                        }
+                    };
+                    let redirector = Redirector::new(&via, &play_id, remote_port, listener_port);
+                    let redirector_id = redirector.entity_id();
+                    // Point the redirector at the listener it forwards into, in
+                    // traffic direction. Found by port rather than rebuilt from
+                    // one, because the event carries no protocol and a listener
+                    // is not necessarily tcp.
+                    let listener_id = guard
+                        .entities
+                        .values::<Listener>()
+                        .find(|listener| listener.port == listener_port)
+                        .map(|listener| listener.entity_id());
+                    guard.insert_entity(&redirector);
+                    let relation = listener_id
+                        .map(|listener_id| ForwardsTo::new(redirector_id.0.clone(), listener_id.0));
+                    match &relation {
+                        Some(relation) => guard.insert_relation(relation),
+                        // The TTP requires a Listener target, so this only happens
+                        // if the listener was stopped between spawning labctl and
+                        // handling this event. The redirector is still real, so
+                        // record it — just without an edge to a listener that is
+                        // no longer there.
+                        None => warn!(
+                            listener_port,
+                            "redirector started but no listener holds its target port"
+                        ),
+                    }
+                    info!(
+                        %via,
+                        %play_id,
+                        remote_port,
+                        listener_port,
+                        %redirector_id,
+                        "redirector started; redirector entity created"
+                    );
+                    // Attributed to the command that built it, so the timeline
+                    // folds the redirector into that action instead of showing it
+                    // as an unrelated event that happened to arrive next.
+                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                        cmd_id,
+                        new_entities: vec![EntitySummary::from_kind(
+                            redirector_id,
+                            redirector.entity_kind().to_string(),
+                            // The tool and the hop, not the playground id - see
+                            // `Redirector::label`.
+                            redirector.label().to_string(),
+                            // Standing up a tunnel is the action; a redirector is
+                            // never something the campaign stumbles upon.
+                            FactOutcome::Created,
+                        )],
+                        new_relations: relation
+                            .iter()
+                            .map(|relation| ran_domain::RelationSummary::from_relation(relation))
+                            .collect(),
+                    });
+                }
+                Ok(C2Event::RedirectorStopped {
+                    cmd_id,
+                    play_id,
+                    remote_port,
+                }) => {
+                    let mut guard = match campaign.write() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            error!("campaign lock poisoned on RedirectorStopped");
+                            continue;
+                        }
+                    };
+                    let removed = guard.remove_redirector(&play_id, remote_port);
+                    // Sessions that came in through the tunnel are separate
+                    // backends and keep running; only the forwarding is gone.
+                    info!(
+                        %play_id,
+                        remote_port, removed, "redirector stopped; redirector entity removed"
+                    );
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                         cmd_id,
                         new_entities: vec![],

@@ -170,12 +170,18 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
     let entities = campaign.get_entities();
     let hosted_services = hosted_app_services(campaign);
     let hosted_listeners = hosted_listeners(campaign);
-    // AppServices and Listeners are rendered on the entity that hosts them
-    // rather than as nodes of their own, so neither they nor their hosting
-    // relations reach the graph.
+    let hosted_redirectors = hosted_redirectors(campaign);
+    // AppServices, Listeners and Redirectors are rendered on the entity that
+    // hosts them rather than as nodes of their own, so neither they nor their
+    // hosting relations reach the graph.
     let endpoint_ids: HashSet<String> = entities
         .iter()
-        .filter(|entity| matches!(entity.entity_kind(), "AppService" | "Listener"))
+        .filter(|entity| {
+            matches!(
+                entity.entity_kind(),
+                "AppService" | "Listener" | "Redirector"
+            )
+        })
         .map(|entity| entity.entity_id().0)
         .collect();
     let namespace_ids: HashSet<String> = entities
@@ -246,7 +252,10 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
     let mut nodes = Vec::with_capacity(campaign.entity_count());
 
     for entity in entities {
-        if matches!(entity.entity_kind(), "AppService" | "Listener") {
+        if matches!(
+            entity.entity_kind(),
+            "AppService" | "Listener" | "Redirector"
+        ) {
             continue;
         }
         let id = entity.entity_id().0;
@@ -281,6 +290,7 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
             prune_entity_payload_for_ui(entity.entity_kind(), payload, kubetier);
             attach_hosted_services(payload, &id, &hosted_services);
             attach_hosted_listeners(payload, &id, &hosted_listeners);
+            attach_hosted_redirectors(payload, &id, &hosted_redirectors);
         }
         nodes.push(GraphNode {
             id: id.clone(),
@@ -402,6 +412,124 @@ fn attach_hosted_listeners(
     payload.insert("listeners".to_string(), Value::Array(listeners.clone()));
 }
 
+/// Redirector payloads keyed by the C2 whose listener they forward into.
+///
+/// Same treatment as [`hosted_listeners`], one hop further out: a redirector is
+/// linked to its listener by `forwards-to`, and the listener to its C2 by
+/// `hosts-listener`, so the badge lands on the C2 the operator is looking at.
+/// A redirector whose listener has since been stopped falls back to the campaign's
+/// C2 — its `labctl` tunnel is still up, so hiding it would leave the operator no
+/// way to reach "Stop Redirector".
+fn hosted_redirectors(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
+    let mut redirector_payloads = HashMap::new();
+    for entity in campaign.get_entities() {
+        let CampaignEntityRef::Redirector(redirector) = entity else {
+            continue;
+        };
+        let id = entity.entity_id().0;
+        let payload = HashMap::from([
+            ("id".to_string(), Value::String(id.clone())),
+            ("kind".to_string(), Value::String("Redirector".to_string())),
+            (
+                "entry".to_string(),
+                Value::String(redirector.entry().to_string()),
+            ),
+            // What the operator reads: the tool and the hop. The playground id
+            // rides along on `playId` for the rare case that two of them need
+            // telling apart, but it is not the name.
+            (
+                "label".to_string(),
+                Value::String(redirector.label().to_string()),
+            ),
+            ("via".to_string(), Value::String(redirector.via.clone())),
+            (
+                "playId".to_string(),
+                Value::String(redirector.play_id.clone()),
+            ),
+            (
+                "remotePort".to_string(),
+                Value::from(redirector.remote_port),
+            ),
+            (
+                "listenerPort".to_string(),
+                Value::from(redirector.listener_port),
+            ),
+        ]);
+        redirector_payloads.insert(id, Value::Object(payload.into_iter().collect()));
+    }
+    if redirector_payloads.is_empty() {
+        return HashMap::new();
+    }
+
+    // listener id → the C2 that bound it.
+    let mut listener_hosts: HashMap<String, String> = HashMap::new();
+    for relation in campaign.get_relations() {
+        if relation.name == "hosts-listener" {
+            listener_hosts.insert(relation.target_id, relation.source_id);
+        }
+    }
+    // The entity store is a HashMap, so pick the lowest id rather than the first
+    // one iteration happens to yield — otherwise a campaign with more than one C2
+    // would move orphaned badges between nodes on every refresh.
+    let fallback_c2 = campaign
+        .get_entities()
+        .iter()
+        .filter(|entity| entity.entity_kind() == "C2")
+        .map(|entity| entity.entity_id().0)
+        .min();
+
+    let mut hosted: HashMap<String, Vec<Value>> = HashMap::new();
+    let mut placed: HashSet<String> = HashSet::new();
+    for relation in campaign.get_relations() {
+        if relation.name != "forwards-to" {
+            continue;
+        }
+        let Some(payload) = redirector_payloads.get(&relation.source_id) else {
+            continue;
+        };
+        let Some(c2_id) = listener_hosts.get(&relation.target_id) else {
+            continue;
+        };
+        hosted
+            .entry(c2_id.clone())
+            .or_default()
+            .push(payload.clone());
+        placed.insert(relation.source_id);
+    }
+    if let Some(fallback_c2) = fallback_c2 {
+        for (id, payload) in &redirector_payloads {
+            if placed.contains(id) {
+                continue;
+            }
+            hosted
+                .entry(fallback_c2.clone())
+                .or_default()
+                .push(payload.clone());
+        }
+    }
+    // Stable order so badges don't reshuffle between refreshes.
+    for redirectors in hosted.values_mut() {
+        redirectors.sort_by_key(|redirector| {
+            (
+                redirector["remotePort"].as_u64(),
+                redirector["id"].as_str().map(str::to_string),
+            )
+        });
+    }
+    hosted
+}
+
+fn attach_hosted_redirectors(
+    payload: &mut HashMap<String, Value>,
+    entity_id: &str,
+    hosted_redirectors: &HashMap<String, Vec<Value>>,
+) {
+    let Some(redirectors) = hosted_redirectors.get(entity_id) else {
+        return;
+    };
+    payload.insert("redirectors".to_string(), Value::Array(redirectors.clone()));
+}
+
 fn attach_hosted_services(
     payload: &mut HashMap<String, Value>,
     entity_id: &str,
@@ -432,6 +560,7 @@ pub(crate) fn serialize_campaign_entity_map(
         CampaignEntityRef::AppService(e) => serialize_entity_map(e),
         CampaignEntityRef::C2Server(e) => serialize_entity_map(e),
         CampaignEntityRef::Listener(e) => serialize_entity_map(e),
+        CampaignEntityRef::Redirector(e) => serialize_entity_map(e),
         CampaignEntityRef::Cluster(e) => serialize_entity_map(e),
         CampaignEntityRef::Node(e) => serialize_entity_map(e),
         CampaignEntityRef::Namespace(e) => serialize_entity_map(e),
@@ -708,7 +837,9 @@ mod tests {
     use campaign::{
         InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
     };
-    use ran_domain::{Entity, K8sCluster, K8sCredential, Listener, RbacPermission, ServiceAccount};
+    use ran_domain::{
+        Entity, K8sCluster, K8sCredential, Listener, RbacPermission, Redirector, ServiceAccount,
+    };
     use std::collections::BTreeSet;
 
     #[test]
@@ -788,6 +919,107 @@ mod tests {
         assert_eq!(listeners[0]["id"], Value::from(listener_id.0.as_str()));
         assert_eq!(listeners[0]["entry"], Value::from("tcp/4444"));
         assert_eq!(listeners[0]["port"], Value::from(4444));
+    }
+
+    /// Build a campaign with a listener on `tcp/4444` and a redirector forwarding
+    /// `remote_port` into it, wired the way the runtime wires them. `link_listener`
+    /// controls whether the `forwards-to` edge exists, which is what separates the
+    /// normal path from the "listener already stopped" fallback.
+    fn campaign_with_redirector(remote_port: u16, link_listener: bool) -> (Campaign, EntityId) {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        let c2_id = campaign
+            .get_entities()
+            .iter()
+            .find(|e| e.entity_kind() == "C2")
+            .map(|e| e.entity_id())
+            .expect("bootstrap creates a C2");
+        let listener = Listener::new(4444, "tcp");
+        let listener_id = listener.entity_id();
+        campaign.entities.insert_typed(listener);
+        campaign.graph.insert_edge(
+            &c2_id,
+            &listener_id,
+            cortex::edge_data_for("hosts-listener", None, None),
+        );
+
+        let redirector = Redirector::new("labctl", "zn1kqxk3ykpvxp5x", remote_port, 4444);
+        let redirector_id = redirector.entity_id();
+        campaign.entities.insert_typed(redirector);
+        if link_listener {
+            campaign.graph.insert_edge(
+                &redirector_id,
+                &listener_id,
+                cortex::edge_data_for("forwards-to", None, None),
+            );
+        }
+        (campaign, c2_id)
+    }
+
+    fn c2_redirectors(graph: &Graph, c2_id: &EntityId) -> Vec<Value> {
+        graph
+            .nodes
+            .iter()
+            .find(|node| node.id == c2_id.0)
+            .expect("the C2 is still a node")
+            .entity
+            .as_ref()
+            .and_then(|payload| payload.get("redirectors"))
+            .and_then(Value::as_array)
+            .expect("the C2 payload carries its redirectors")
+            .clone()
+    }
+
+    #[test]
+    fn redirectors_ride_on_the_c2_whose_listener_they_forward_into() {
+        let (campaign, c2_id) = campaign_with_redirector(1337, true);
+        let redirector_id = campaign
+            .get_entities()
+            .iter()
+            .find(|e| e.entity_kind() == "Redirector")
+            .map(|e| e.entity_id())
+            .expect("the redirector was inserted");
+
+        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
+
+        assert!(
+            !graph.nodes.iter().any(|node| node.id == redirector_id.0),
+            "a redirector is drawn as a badge on its C2, not as a node"
+        );
+        assert!(
+            !graph
+                .edges
+                .iter()
+                .any(|edge| edge.source_id == redirector_id.0),
+            "the forwards-to relation must not become an edge either"
+        );
+
+        let redirectors = c2_redirectors(&graph, &c2_id);
+        assert_eq!(redirectors.len(), 1);
+        assert_eq!(redirectors[0]["id"], Value::from(redirector_id.0.as_str()));
+        assert_eq!(
+            redirectors[0]["entry"],
+            Value::from("zn1kqxk3ykpvxp5x/1337")
+        );
+        // What the badge and the details panel read: the tool and the hop, not
+        // the playground's random id.
+        assert_eq!(redirectors[0]["label"], Value::from("labctl 1337→4444"));
+        assert_eq!(redirectors[0]["via"], Value::from("labctl"));
+        assert_eq!(redirectors[0]["playId"], Value::from("zn1kqxk3ykpvxp5x"));
+        assert_eq!(redirectors[0]["remotePort"], Value::from(1337));
+        assert_eq!(redirectors[0]["listenerPort"], Value::from(4444));
+    }
+
+    #[test]
+    fn a_redirector_whose_listener_is_gone_still_gets_a_badge() {
+        // Its labctl tunnel is still up, so hiding it would leave the operator no
+        // way to select it and reach "Stop Redirector".
+        let (campaign, c2_id) = campaign_with_redirector(1337, false);
+
+        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
+
+        let redirectors = c2_redirectors(&graph, &c2_id);
+        assert_eq!(redirectors.len(), 1);
+        assert_eq!(redirectors[0]["remotePort"], Value::from(1337));
     }
 
     #[test]

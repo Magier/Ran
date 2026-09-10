@@ -31,8 +31,8 @@ export const NODE_LAYER: Record<string, number> = {
   // External machines / adversary infrastructure
   Adversary: 1,
   System: 1,
-  // C2 channels
-  Listener: 2,
+  // C2 channels. Listeners and redirectors are absent on purpose: both render as
+  // badges on their C2 rather than as nodes, so they never reach the layout.
   Session: 2,
   // Cluster entry points
   Ingress: 3,

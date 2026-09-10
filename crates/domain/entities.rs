@@ -211,6 +211,147 @@ pub fn listener_port(entry: &str) -> Option<u16> {
     port.trim().parse().ok()
 }
 
+/// A remote port forwarded back to a local [`Listener`]: one playground, one
+/// remote port, one `labctl port-forward` process.
+///
+/// Like [`Listener`] this is an entity rather than a field on [`C2Server`],
+/// because that is what lets "Stop Redirector" target the one redirector the
+/// operator picked. It is not drawn as its own graph node either — the UI shows
+/// it as a badge on the C2 that spawned it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Redirector {
+    /// The tool that stood the tunnel up, e.g. `labctl`.
+    ///
+    /// Kept as its own field rather than left implicit because a redirector is
+    /// only meaningful together with how it was made: the operator has to know
+    /// which tool to blame, and which one they would have to reach for to build
+    /// a second one somewhere else.
+    pub via: String,
+    /// iximiuz playground id the tunnel is attached to.
+    pub play_id: String,
+    /// Port opened on the playground.
+    pub remote_port: u16,
+    /// Port of the local listener traffic is forwarded to.
+    pub listener_port: u16,
+    /// Canonical `<play_id>/<remote_port>`, read through [`Redirector::entry`].
+    ///
+    /// Duplicates the fields above for the same reason [`Listener::entry`] does:
+    /// [`Entity::entity_name`] returns a borrow and so cannot format one.
+    entry: String,
+    /// What the operator reads, e.g. `labctl 9000→4444`. See
+    /// [`Redirector::label`].
+    label: String,
+}
+
+impl Redirector {
+    pub fn new(
+        via: impl Into<String>,
+        play_id: impl Into<String>,
+        remote_port: u16,
+        listener_port: u16,
+    ) -> Self {
+        let via = via.into();
+        let play_id = play_id.into();
+        Self {
+            entry: format_redirector(&play_id, remote_port),
+            label: format_redirector_label(&via, remote_port, listener_port),
+            via,
+            play_id,
+            remote_port,
+            listener_port,
+        }
+    }
+
+    /// Canonical `<play_id>/<remote_port>` — the identity, and what a
+    /// `Redirector` TTP parameter carries.
+    pub fn entry(&self) -> &str {
+        &self.entry
+    }
+
+    /// The display name: the tool and the hop it makes, e.g. `labctl 9000→4444`.
+    ///
+    /// Deliberately *not* the entry. A playground id is a random string that
+    /// tells the operator nothing; what they need at a glance is which tool
+    /// built the tunnel and which ports it joins. The playground id stays on
+    /// [`Redirector::play_id`] for the places that need to disambiguate.
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// The entity id a redirector on this playground and remote port would have,
+    /// without needing to know the listener it forwards to. Lets a caller address
+    /// a redirector it only has the identity of — removing one, for instance.
+    pub fn id_for(play_id: &str, remote_port: u16) -> EntityId {
+        EntityId::new(format!(
+            "redirector/{}",
+            format_redirector(play_id, remote_port)
+        ))
+    }
+}
+
+impl Entity for Redirector {
+    fn entity_id(&self) -> EntityId {
+        Self::id_for(&self.play_id, self.remote_port)
+    }
+
+    fn entity_name(&self) -> &str {
+        &self.label
+    }
+
+    fn entity_kind(&self) -> &str {
+        "Redirector"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl Merge for Redirector {
+    fn merge_from(&mut self, incoming: &Self) {
+        // Merging only ever happens between entities with the same id, so the
+        // playground and remote port already agree. Taking the incoming record
+        // wholesale keeps the derived `entry` and `label` in step with the fields
+        // they are built from, which a field-by-field merge would not.
+        *self = incoming.clone();
+    }
+}
+
+/// Canonical redirector entry format shared by the entity id and the API
+/// payload: the playground id and the remote port, separated by `/`.
+pub fn format_redirector(play_id: &str, remote_port: u16) -> String {
+    format!("{}/{}", play_id.trim(), remote_port)
+}
+
+/// The operator-facing name of a redirector: the tool that built it and the hop
+/// it makes, in traffic direction.
+pub fn format_redirector_label(via: &str, remote_port: u16, listener_port: u16) -> String {
+    let via = via.trim();
+    if via.is_empty() {
+        format!("{remote_port}→{listener_port}")
+    } else {
+        format!("{via} {remote_port}→{listener_port}")
+    }
+}
+
+/// Split anything that identifies a redirector — the canonical
+/// `play_id/remote_port` entry or a full `redirector/play_id/remote_port` entity
+/// id — into its playground id and remote port.
+///
+/// Both halves are needed to identify a redirector: two playgrounds are two
+/// hosts, so each can forward the same remote port, and `RPORT` defaults to the
+/// same value for both. A bare port is therefore rejected rather than guessed at.
+pub fn split_redirector(id: &str) -> Option<(String, u16)> {
+    let entry = id.trim();
+    let entry = entry.strip_prefix("redirector/").unwrap_or(entry);
+    let (play_id, remote_port) = entry.rsplit_once('/')?;
+    let play_id = play_id.trim();
+    if play_id.is_empty() {
+        return None;
+    }
+    Some((play_id.to_string(), remote_port.trim().parse().ok()?))
+}
+
 impl Entity for C2Server {
     fn entity_id(&self) -> EntityId {
         EntityId::new(format!("c2/{}", slugify(&self.name)))
@@ -2426,6 +2567,83 @@ mod tests {
         assert_eq!(listener_port(" 1337 "), Some(1337));
         assert_eq!(listener_port("tcp/http"), None);
         assert_eq!(listener_port(""), None);
+    }
+
+    #[test]
+    fn a_redirector_is_identified_by_playground_and_remote_port() {
+        let redirector = Redirector::new("labctl", "zn1kqxk3ykpvxp5x", 1337, 4444);
+
+        assert_eq!(redirector.entry(), "zn1kqxk3ykpvxp5x/1337");
+        assert_eq!(redirector.entity_id().0, "redirector/zn1kqxk3ykpvxp5x/1337");
+        assert_eq!(redirector.entity_kind(), "Redirector");
+        // `id_for` must agree with the entity's own id, since removal addresses a
+        // redirector through it without knowing the listener.
+        assert_eq!(
+            Redirector::id_for("zn1kqxk3ykpvxp5x", 1337),
+            redirector.entity_id()
+        );
+    }
+
+    /// A playground id is a random string that tells the operator nothing. The
+    /// name has to say which tool built the tunnel and which ports it joins.
+    #[test]
+    fn a_redirector_is_named_for_the_tool_and_the_hop_it_makes() {
+        let redirector = Redirector::new("labctl", "zn1kqxk3ykpvxp5x", 9000, 4444);
+
+        assert_eq!(redirector.label(), "labctl 9000→4444");
+        assert_eq!(redirector.entity_name(), "labctl 9000→4444");
+        assert_eq!(redirector.via, "labctl");
+        // The playground id stays reachable for the places that must disambiguate
+        // two redirectors, it is just not what the operator reads.
+        assert_eq!(redirector.play_id, "zn1kqxk3ykpvxp5x");
+    }
+
+    #[test]
+    fn a_redirector_label_survives_an_unnamed_tool() {
+        assert_eq!(format_redirector_label("", 9000, 4444), "9000→4444");
+        assert_eq!(
+            format_redirector_label("  labctl  ", 9000, 4444),
+            "labctl 9000→4444"
+        );
+    }
+
+    #[test]
+    fn redirectors_on_the_same_remote_port_differ_by_playground() {
+        // RPORT defaults to 1337, so this is what a second playground looks like.
+        assert_ne!(
+            Redirector::new("labctl", "play1", 1337, 4444).entity_id(),
+            Redirector::new("labctl", "play2", 1337, 4444).entity_id()
+        );
+    }
+
+    #[test]
+    fn re_observing_a_redirector_keeps_its_derived_name_in_step() {
+        let mut redirector = Redirector::new("labctl", "play1", 1337, 4444);
+        redirector.merge_from(&Redirector::new("labctl", "play1", 1337, 8080));
+
+        assert_eq!(redirector.listener_port, 8080);
+        assert_eq!(redirector.entry(), "play1/1337");
+        // The label is derived, so a merge that moved the listener must move it
+        // too rather than leave the old hop on display.
+        assert_eq!(redirector.label(), "labctl 1337→8080");
+    }
+
+    #[test]
+    fn split_redirector_reads_every_identifying_form() {
+        assert_eq!(
+            split_redirector("redirector/play1/1337"),
+            Some(("play1".to_string(), 1337))
+        );
+        assert_eq!(
+            split_redirector(" play1/1337 "),
+            Some(("play1".to_string(), 1337))
+        );
+        // A bare port cannot say which playground, so it is rejected rather than
+        // guessed at — unlike a listener, which only ever lives on this host.
+        assert_eq!(split_redirector("1337"), None);
+        assert_eq!(split_redirector("play1/http"), None);
+        assert_eq!(split_redirector("/1337"), None);
+        assert_eq!(split_redirector(""), None);
     }
 
     #[test]
