@@ -2171,6 +2171,9 @@ impl Campaign {
             self.graph.merge_entities(preferred_id, stale_id);
             self.knowledge_provenance
                 .merge_entity(stale_id, preferred_id);
+            // Remember the rename: callers holding the old id (C2 session
+            // bookkeeping above all) must still reach the surviving entity.
+            self.record_entity_alias(stale_id, preferred_id);
             // Entity maps: merge runtime data (IPs, access level, binaries, etc.).
             // Dispatch to the correct merge function based on entity kind.
             if stale_id.0.starts_with("system/") {
@@ -2243,6 +2246,7 @@ impl Campaign {
                         };
                         self.graph.merge_entities(&preferred_node, &stale_node);
                         self.merge_node_entities(&preferred_node.0, &stale_node.0);
+                        self.record_entity_alias(&stale_node, &preferred_node);
                         // Insert edge to preferred node (graph PodSingleNode
                         // invariant removes the old runs-on automatically).
                         self.insert_relation_with_ids(&src, &preferred_node, rel.as_ref());

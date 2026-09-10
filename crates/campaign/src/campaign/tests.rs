@@ -15,6 +15,106 @@ use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
 fn push_relation(campaign: &mut Campaign, rel: &dyn ran_domain::Relation) {
     campaign.insert_relation(rel);
 }
+
+// ---------------------------------------------------------------------------
+// Entity-id aliases (ids that changed under their holders after a merge)
+// ---------------------------------------------------------------------------
+
+/// An `UnknownSystem` folded into the pod discovered at the same IP: the same
+/// id change the promotion path makes, taken through `IpBasedSystemMergeAnalyzer`.
+#[test]
+fn a_merged_away_system_id_resolves_to_the_surviving_pod() {
+    use ran_domain::UnknownSystem;
+
+    let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+    let mut system = UnknownSystem::new("10.244.0.9");
+    system.system.sessions.push(SessionInfo {
+        id: "s1".to_string(),
+        kind: "tcp".to_string(),
+        port: Some(4444),
+        status: SessionStatus::Active,
+    });
+    let stale_id = system.entity_id();
+    campaign.insert_entity(&system);
+
+    let pod = Pod::new("netshoot", "default");
+    let pod_id = pod.entity_id();
+    let mut facts = crate::FactsUpdate::default();
+    facts.new_entities.push(Box::new(pod));
+    facts
+        .entity_aliases
+        .insert((stale_id.clone(), pod_id.clone()));
+    campaign.apply_facts(&facts);
+
+    assert_eq!(campaign.canonical_entity_id(&stale_id.0), pod_id.0);
+    assert_eq!(
+        campaign
+            .get_system_entity(&stale_id.0)
+            .map(|e| e.entity().entity_id()),
+        Some(pod_id.clone()),
+        "a lookup by the merged-away id must reach the pod"
+    );
+    let channel = campaign
+        .resolve_exec_channel(&stale_id.0)
+        .expect("the session that came with the system must still be reachable");
+    assert_eq!(channel.backend_id, "session/s1");
+}
+
+/// Aliases only ever cover ids that nothing answers to. An id that names a live
+/// entity is that entity, whatever the table says — otherwise a later, genuine
+/// `node/netshoot` would be shadowed by a reverse shell's old guess.
+#[test]
+fn an_alias_never_shadows_a_live_entity() {
+    let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+    let node = K8sNode::new("netshoot");
+    let node_id = node.entity_id();
+    let pod_id = EntityId::new("ns/?/pod/netshoot");
+
+    campaign.record_entity_alias(&node_id, &pod_id);
+    assert_eq!(
+        campaign.canonical_entity_id(&node_id.0),
+        pod_id.0,
+        "while nothing answers to the id, the alias applies"
+    );
+
+    campaign.insert_entity(&node);
+    assert_eq!(
+        campaign.canonical_entity_id(&node_id.0),
+        node_id.0,
+        "once the id names a real entity, the alias must not redirect it"
+    );
+}
+
+/// Chained merges: a foothold's id is rewritten twice (C2 guess → system →
+/// pod), and the C2 still only knows the id it started with.
+#[test]
+fn a_chain_of_aliases_resolves_to_the_last_surviving_id() {
+    let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+    let pod = Pod::new("netshoot", "?");
+    let pod_id = pod.entity_id();
+    campaign.insert_entity(&pod);
+
+    campaign.record_entity_alias(
+        &EntityId::new("node/netshoot"),
+        &EntityId::new("system/netshoot"),
+    );
+    campaign.record_entity_alias(&EntityId::new("system/netshoot"), &pod_id);
+
+    assert_eq!(campaign.canonical_entity_id("node/netshoot"), pod_id.0);
+}
+
+/// A cyclic table is malformed, but it must not hang the resolver.
+#[test]
+fn a_cyclic_alias_pair_terminates() {
+    let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+    let a = EntityId::new("system/a");
+    let b = EntityId::new("system/b");
+    campaign.record_entity_alias(&a, &b);
+    campaign.record_entity_alias(&b, &a);
+
+    let resolved = campaign.canonical_entity_id(&a.0);
+    assert!(resolved == a.0 || resolved == b.0);
+}
 use crate::failure_analyzers::FAILURE_ANALYZER_EFFECT_ID;
 use crate::ParseResult;
 
