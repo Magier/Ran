@@ -1,157 +1,168 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
-    import { AppBar, Toast, Switch } from '@skeletonlabs/skeleton-svelte';
-    import {setContext} from 'svelte';
-    import { page } from '$app/state';
-    import IconMap from '~icons/game-icons/treasure-map';
-    import IconSteps from '~icons/game-icons/footsteps';
-    import IconSun from '~icons/material-symbols/light-mode';
-    import IconMoon from '~icons/material-symbols/dark-mode';
-    import { browser } from '$app/environment';
-    import { toaster } from '$lib/components/toaster';
-    import Icon from '@iconify/svelte';
-    import '../app.css';
-    import { setCampaignState } from '$lib/components/CampaignState.svelte';
+	import { onMount } from 'svelte';
+	import { AppBar, Toast, Switch } from '@skeletonlabs/skeleton-svelte';
+	import { setContext } from 'svelte';
+	import { page } from '$app/state';
+	import IconMap from '~icons/game-icons/treasure-map';
+	import IconSteps from '~icons/game-icons/footsteps';
+	import IconSun from '~icons/material-symbols/light-mode';
+	import IconMoon from '~icons/material-symbols/dark-mode';
+	import { browser } from '$app/environment';
+	import { toaster } from '$lib/components/toaster';
+	import Icon from '@iconify/svelte';
+	import '../app.css';
+	import { setCampaignState } from '$lib/components/CampaignState.svelte';
 	import AppMenu from '$lib/components/app_menu.svelte';
-    import { timeline } from '$lib/stores/timelineStore.svelte';
-    let { children } = $props();
+	import { timeline } from '$lib/stores/timelineStore.svelte';
+	let { children } = $props();
 
-    setCampaignState();
+	setCampaignState();
 
-    let isDark: boolean = $state(false)
+	let isDark: boolean = $state(false);
 
-    function toggle(details: { checked: boolean }) {
-        isDark = details.checked;
-        if (browser) {
-            localStorage.setItem('theme', isDark ? 'dark' : 'light');
-            updateBodyTheme();
-        }
-    }
+	function toggle(details: { checked: boolean }) {
+		isDark = details.checked;
+		if (browser) {
+			localStorage.setItem('theme', isDark ? 'dark' : 'light');
+			updateBodyTheme();
+		}
+	}
 
-    function updateBodyTheme() {
-        if (browser) {
-            document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
-            document.documentElement.classList.toggle('dark', isDark);
-        }
-    }
+	function updateBodyTheme() {
+		if (browser) {
+			document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+			document.documentElement.classList.toggle('dark', isDark);
+		}
+	}
 
-    setContext('theme', { get isDark() { return isDark }, toggle });
+	setContext('theme', {
+		get isDark() {
+			return isDark;
+		},
+		toggle
+	});
 
-    let mediaQuery: MediaQueryList | null = $state(null);
+	let mediaQuery: MediaQueryList | null = $state(null);
 	let mediaQueryHandler: ((event: MediaQueryListEvent) => void) | null = null;
-    onMount(() => {
-        if (browser) {
-            // Priority: localStorage > system preference
-            const stored = localStorage.getItem('theme');
+	onMount(() => {
+		if (browser) {
+			// Priority: localStorage > system preference
+			const stored = localStorage.getItem('theme');
 
-            if (stored) {
-                isDark = stored === 'dark';
-            } else {
-                mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-                isDark = mediaQuery.matches;
+			if (stored) {
+				isDark = stored === 'dark';
+			} else {
+				mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+				isDark = mediaQuery.matches;
 
-                mediaQueryHandler = (event: MediaQueryListEvent) => {
-                    // Only update from system preference if user hasn't set explicit preference
-                    if (!localStorage.getItem('theme')) {
-                        isDark = event.matches;
-                        updateBodyTheme();
-                    }
-                };
-                mediaQuery.addEventListener("change", mediaQueryHandler);
-            }
+				mediaQueryHandler = (event: MediaQueryListEvent) => {
+					// Only update from system preference if user hasn't set explicit preference
+					if (!localStorage.getItem('theme')) {
+						isDark = event.matches;
+						updateBodyTheme();
+					}
+				};
+				mediaQuery.addEventListener('change', mediaQueryHandler);
+			}
 
-            updateBodyTheme();
+			updateBodyTheme();
 
-            return () => {
+			return () => {
 				if (mediaQuery && mediaQueryHandler) {
-					mediaQuery.removeEventListener("change", mediaQueryHandler);
+					mediaQuery.removeEventListener('change', mediaQueryHandler);
 				}
-            };
-        }
-    });
-
+			};
+		}
+	});
 </script>
 
-<AppBar class="top-0 p-0 border-b border-surface-200-800 h-[calc(var(--header-height))] flex ">
-    <AppBar.Toolbar class="grid-cols-[auto_auto]">
-        <AppBar.Lead>
-            <!-- <ArrowLeft size={24} /> -->
-             <AppMenu></AppMenu>
-        </AppBar.Lead>
-        <AppBar.Trail>
-            <nav class="btn-group preset-outlined-surface-200-800 flex-row p-0 shrink-0">
-                <a class="btn preset-filled-primary hover:preset-tonal whitespace-nowrap" class:selected={page.url.pathname === '/' || page.url.pathname === ''} href="/">
-                    <IconMap class="inline-block text-xl" />
-                    Graph
-                </a>
-                <a class="btn hover:preset-tonal whitespace-nowrap" class:selected={page.url.pathname === '/flow'} href="/flow">
-                    <IconSteps class="inline-block text-xl" />
-                    Flow
-                </a>
-            </nav>
-            <button
-                class="btn btn-sm relative p-1"
-                type="button"
-                onclick={() => (timeline.open = !timeline.open)}
-                title="Operation timeline"
-                aria-label="Toggle operation timeline"
-                aria-pressed={timeline.open}
-            >
-                <Icon icon="mdi:history" class="size-5" />
-                {#if timeline.pendingCount > 0 && !timeline.open}
-                    <span
-                        class="absolute -top-1 -right-1 bg-warning-500 text-warning-contrast-500 text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold"
-                    >
-                        {timeline.pendingCount}
-                    </span>
-                {/if}
-            </button>
-        <Switch checked={isDark} onCheckedChange={toggle} class="mx-2">
-            <Switch.Control>
-                <Switch.Thumb>
-                    <Switch.Context>
-                        {#snippet children(switch_)}
-                            {#if switch_().checked}
-                                <IconMoon class="inline-block size-3" />
-                            {:else}
-                                <IconSun class="inline-block size-3" />
-                            {/if}
-                        {/snippet}
-                    </Switch.Context>
-                </Switch.Thumb>
-            </Switch.Control>
-            <!-- <Switch.Label>
+<AppBar class="border-surface-200-800 top-0 flex h-[calc(var(--header-height))] border-b p-0 ">
+	<AppBar.Toolbar class="grid-cols-[auto_auto]">
+		<AppBar.Lead>
+			<!-- <ArrowLeft size={24} /> -->
+			<AppMenu></AppMenu>
+		</AppBar.Lead>
+		<AppBar.Trail>
+			<nav class="btn-group preset-outlined-surface-200-800 shrink-0 flex-row p-0">
+				<a
+					class="btn preset-filled-primary hover:preset-tonal whitespace-nowrap"
+					class:selected={page.url.pathname === '/' || page.url.pathname === ''}
+					href="/"
+				>
+					<IconMap class="inline-block text-xl" />
+					Graph
+				</a>
+				<a
+					class="btn hover:preset-tonal whitespace-nowrap"
+					class:selected={page.url.pathname === '/flow'}
+					href="/flow"
+				>
+					<IconSteps class="inline-block text-xl" />
+					Flow
+				</a>
+			</nav>
+			<button
+				class="btn btn-sm relative p-1"
+				type="button"
+				onclick={() => (timeline.open = !timeline.open)}
+				title="Operation timeline"
+				aria-label="Toggle operation timeline"
+				aria-pressed={timeline.open}
+			>
+				<Icon icon="mdi:history" class="size-5" />
+				{#if timeline.pendingCount > 0 && !timeline.open}
+					<span
+						class="bg-warning-500 text-warning-contrast-500 absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold"
+					>
+						{timeline.pendingCount}
+					</span>
+				{/if}
+			</button>
+			<Switch checked={isDark} onCheckedChange={toggle} class="mx-2">
+				<Switch.Control>
+					<Switch.Thumb>
+						<Switch.Context>
+							{#snippet children(switch_)}
+								{#if switch_().checked}
+									<IconMoon class="inline-block size-3" />
+								{:else}
+									<IconSun class="inline-block size-3" />
+								{/if}
+							{/snippet}
+						</Switch.Context>
+					</Switch.Thumb>
+				</Switch.Control>
+				<!-- <Switch.Label>
             </Switch.Label> -->
-            <Switch.HiddenInput />
-        </Switch>
-        </AppBar.Trail>
-    </AppBar.Toolbar>
+				<Switch.HiddenInput />
+			</Switch>
+		</AppBar.Trail>
+	</AppBar.Toolbar>
 </AppBar>
 
 <Toast.Group {toaster}>
-    {#snippet children(toast)}
-        <Toast {toast}>
-            <Toast.Message>
-                <Toast.Title class="flex items-center gap-2">
-                    {#if toast.meta?.spinner}
-                        <Icon icon="svg-spinners:90-ring-with-bg" class="inline-block size-4" />
-                    {/if}
-                    {toast.title}
-                </Toast.Title>
-                <Toast.Description>{toast.description}</Toast.Description>
-            </Toast.Message>
-            <Toast.CloseTrigger />
-        </Toast>
-    {/snippet}
+	{#snippet children(toast)}
+		<Toast {toast}>
+			<Toast.Message>
+				<Toast.Title class="flex items-center gap-2">
+					{#if toast.meta?.spinner}
+						<Icon icon="svg-spinners:90-ring-with-bg" class="inline-block size-4" />
+					{/if}
+					{toast.title}
+				</Toast.Title>
+				<Toast.Description>{toast.description}</Toast.Description>
+			</Toast.Message>
+			<Toast.CloseTrigger />
+		</Toast>
+	{/snippet}
 </Toast.Group>
 <main class="">
-    {@render children()}
+	{@render children()}
 </main>
 
 <style>
-    
 	.btn.selected {
-        background-color: var(--color-surface-200-800);
-        color: var(--color-surface-contrast-200-800);
+		background-color: var(--color-surface-200-800);
+		color: var(--color-surface-contrast-200-800);
 	}
 </style>

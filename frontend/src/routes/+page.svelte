@@ -87,16 +87,16 @@
 		try {
 			const savedWidth = sessionStorage.getItem(ARMORY_WIDTH_KEY);
 			const savedCollapsed = sessionStorage.getItem(ARMORY_COLLAPSED_KEY);
-			
+
 			const { min, max } = getResponsiveConstraints();
 			const defaultWidth = getResponsiveDefaultWidth();
-			
+
 			if (savedWidth) {
 				armoryWidth = Math.max(min, Math.min(max, parseInt(savedWidth)));
 			} else {
 				armoryWidth = defaultWidth;
 			}
-			
+
 			if (savedCollapsed) armoryCollapsed = savedCollapsed === 'true';
 		} catch (e) {
 			console.warn('Failed to load armory preferences:', e);
@@ -118,11 +118,17 @@
 		try {
 			const savedWidth = sessionStorage.getItem(ENTITYINFO_WIDTH_KEY);
 			const savedHeight = sessionStorage.getItem(ENTITYINFO_HEIGHT_KEY);
-			
+
 			if (savedWidth && savedHeight) {
 				// Only load and apply saved dimensions if both exist (indicating user manually resized)
-				entityInfoWidth = Math.max(MIN_ENTITYINFO_WIDTH, Math.min(MAX_ENTITYINFO_WIDTH, parseInt(savedWidth)));
-				entityInfoHeight = Math.max(MIN_ENTITYINFO_HEIGHT, Math.min(MAX_ENTITYINFO_HEIGHT, parseInt(savedHeight)));
+				entityInfoWidth = Math.max(
+					MIN_ENTITYINFO_WIDTH,
+					Math.min(MAX_ENTITYINFO_WIDTH, parseInt(savedWidth))
+				);
+				entityInfoHeight = Math.max(
+					MIN_ENTITYINFO_HEIGHT,
+					Math.min(MAX_ENTITYINFO_HEIGHT, parseInt(savedHeight))
+				);
 				hasManuallyResizedEntityInfo = true;
 			}
 		} catch (e) {
@@ -166,12 +172,12 @@
 
 	function handleMouseMove(e: MouseEvent) {
 		if (!isResizing) return;
-		
+
 		// Cancel any pending animation frame
 		if (rafId !== null) {
 			cancelAnimationFrame(rafId);
 		}
-		
+
 		// Use requestAnimationFrame for smooth updates
 		rafId = requestAnimationFrame(() => {
 			const { min, max } = getResponsiveConstraints();
@@ -217,21 +223,27 @@
 
 	function handleMouseMoveEntityInfo(e: MouseEvent) {
 		if (!isResizingEntityInfo) return;
-		
+
 		if (entityInfoRafId !== null) {
 			cancelAnimationFrame(entityInfoRafId);
 		}
-		
+
 		entityInfoRafId = requestAnimationFrame(() => {
 			// EntityInfo is anchored at top-right with: top-2 (8px) + navbar (60px) = 68px from top, right-2 (8px) from right
 			// Calculate width from mouse X to right edge (minus the 8px offset)
 			const rightEdge = window.innerWidth - 8;
-			const newWidth = Math.max(MIN_ENTITYINFO_WIDTH, Math.min(MAX_ENTITYINFO_WIDTH, rightEdge - e.clientX));
-			
+			const newWidth = Math.max(
+				MIN_ENTITYINFO_WIDTH,
+				Math.min(MAX_ENTITYINFO_WIDTH, rightEdge - e.clientX)
+			);
+
 			// Calculate height from top anchor (68px) to mouse Y
 			const topOffset = 68; // navbar (60px) + top-2 (8px)
-			const newHeight = Math.max(MIN_ENTITYINFO_HEIGHT, Math.min(MAX_ENTITYINFO_HEIGHT, e.clientY - topOffset));
-			
+			const newHeight = Math.max(
+				MIN_ENTITYINFO_HEIGHT,
+				Math.min(MAX_ENTITYINFO_HEIGHT, e.clientY - topOffset)
+			);
+
 			entityInfoWidth = newWidth;
 			entityInfoHeight = newHeight;
 			entityInfoRafId = null;
@@ -271,7 +283,7 @@
 		selectedObject = undefined;
 		selectedAttackStep = null;
 		actionDetailsRequestId++;
-	})
+	});
 
 	// Reset entity info to content-fit when a new node is selected
 	$effect(() => {
@@ -287,7 +299,9 @@
 	}
 
 	async function sendAction(ttp: TTP, args: Record<string, any> = {}) {
-		const selectedKind = campaignState.graph.nodes.find((node) => node.id === selectedObjectId)?.kind;
+		const selectedKind = campaignState.graph.nodes.find(
+			(node) => node.id === selectedObjectId
+		)?.kind;
 		if (selectedKind && WORKLOAD_KINDS.has(selectedKind)) {
 			const pods = childPods(selectedObjectId);
 			const applicability = await Promise.all(
@@ -394,7 +408,7 @@
 			window.addEventListener('mousemove', handleMouseMove);
 			window.addEventListener('mouseup', stopResize);
 			window.addEventListener('resize', handleWindowResize);
-			
+
 			// EntityInfo resize listeners
 			window.addEventListener('mousemove', handleMouseMoveEntityInfo);
 			window.addEventListener('mouseup', stopResizeEntityInfo);
@@ -433,11 +447,14 @@
 			});
 
 			if (data.Success && data.TTP?.id === 'read-file' && data.Args?.PATH) {
-				ranAPI.GetFileContent(data.Args.PATH).then((file) => {
-					fileViewerPath = file.path ?? data.Args.PATH;
-					fileViewerContent = file.content ?? '';
-					showFileViewer = true;
-				}).catch(() => {});
+				ranAPI
+					.GetFileContent(data.Args.PATH)
+					.then((file) => {
+						fileViewerPath = file.path ?? data.Args.PATH;
+						fileViewerContent = file.content ?? '';
+						showFileViewer = true;
+					})
+					.catch(() => {});
 			}
 		});
 
@@ -486,7 +503,8 @@
 		// to an already-running campaign isn't blank: completed actions from the
 		// execution log, then any in-flight (Ongoing) steps as pending on top. The
 		// id-index dedup makes this safe alongside the live handlers above.
-		ranAPI.GetExecutionRecords()
+		ranAPI
+			.GetExecutionRecords()
 			.then((records) => {
 				timeline.backfill(
 					records.map((r) => {
@@ -521,7 +539,8 @@
 			})
 			.catch((err) => console.error('Timeline backfill failed', err))
 			.finally(() => {
-				ranAPI.GetFlow()
+				ranAPI
+					.GetFlow()
 					.then((flow) => {
 						timeline.backfillPending(
 							flow.steps
@@ -553,21 +572,36 @@
 			window.removeEventListener('mousemove', handleMouseMove);
 			window.removeEventListener('mouseup', stopResize);
 			window.removeEventListener('resize', handleWindowResize);
-			
+
 			// EntityInfo resize listeners
 			window.removeEventListener('mousemove', handleMouseMoveEntityInfo);
 			window.removeEventListener('mouseup', stopResizeEntityInfo);
 		}
 	});
 
-	async function onExecuteTTP(ttpId: string, execSystemId: string, authIdentityId: string, procedureId: string, args: Record<string, string>, executionTimeoutSeconds: number) {
+	async function onExecuteTTP(
+		ttpId: string,
+		execSystemId: string,
+		authIdentityId: string,
+		procedureId: string,
+		args: Record<string, string>,
+		executionTimeoutSeconds: number
+	) {
 		const ttp = campaignState.getTtpById(ttpId);
 		const targetName = campaignState.getEntityById(actionTargetId)?.name ?? actionTargetId;
 
 		closeModal();
 
 		try {
-			const result = await ExecuteAction({ actionId: ttpId, execSystemId, authIdentityId: authIdentityId || undefined, targetId: actionTargetId, procedureId, args, executionTimeoutSeconds });
+			const result = await ExecuteAction({
+				actionId: ttpId,
+				execSystemId,
+				authIdentityId: authIdentityId || undefined,
+				targetId: actionTargetId,
+				procedureId,
+				args,
+				executionTimeoutSeconds
+			});
 			const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
 			const differsFromTarget = execSystemId && execSystemId !== actionTargetId;
 			timeline.addTtpAction({
@@ -596,7 +630,7 @@
 			description = e;
 		}
 
-		console.error(e)
+		console.error(e);
 
 		toaster.create({
 			title: 'Error',
@@ -640,13 +674,15 @@
 	{#if campaignState.isReady()}
 		<!-- Armory panel -->
 		<div
-			class="bg-surface-100-900 flex-shrink-0 {isResizing ? '' : 'transition-[width] duration-300 ease-in-out'}"
+			class="bg-surface-100-900 flex-shrink-0 {isResizing
+				? ''
+				: 'transition-[width] duration-300 ease-in-out'}"
 			style="width: {armoryCollapsed ? '0px' : `${armoryWidth}px`}; overflow: hidden;"
 		>
 			<Armory
 				class="h-full min-h-0 w-full"
 				action={sendAction}
-				runRecommendation={runRecommendation}
+				{runRecommendation}
 				targetId={selectedObjectId}
 				target={selectedObject}
 				bind:focusSearch={focusArmorySearch}
@@ -655,9 +691,9 @@
 
 		<!-- Resize handle -->
 		{#if !armoryCollapsed}
-			<div class="relative w-px shrink-0 bg-surface-200-800">
+			<div class="bg-surface-200-800 relative w-px shrink-0">
 				<div
-					class="absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize group"
+					class="group absolute top-0 -left-1 z-10 h-full w-2 cursor-col-resize"
 					role="slider"
 					aria-orientation="horizontal"
 					aria-label="Resize armory panel"
@@ -668,14 +704,16 @@
 					onmousedown={startResize}
 					onkeydown={onArmoryResizeKeydown}
 				>
-					<div class="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-transparent group-hover:bg-primary-500 transition-colors"></div>
+					<div
+						class="group-hover:bg-primary-500 absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-transparent transition-colors"
+					></div>
 				</div>
 			</div>
 		{/if}
 
 		<!-- Collapse/Expand button -->
 		<button
-			class="absolute left-0 z-50 bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-r-md px-0.5 py-2 opacity-30 hover:opacity-100 transition-all duration-200"
+			class="bg-surface-200-800 hover:bg-surface-300-700 border-surface-400-600 absolute left-0 z-50 rounded-r-md border px-0.5 py-2 opacity-30 transition-all duration-200 hover:opacity-100"
 			style="left: {armoryCollapsed ? '0' : `${armoryWidth}px`}; top: 0.5rem;"
 			onclick={toggleArmoryCollapse}
 			title={armoryCollapsed ? 'Expand armory' : 'Collapse armory'}
@@ -687,54 +725,67 @@
 			/>
 		</button>
 
-<!-- Graph area with EntityInfo overlay and Action Log drawer -->
-	<div class="flex-1 min-w-0 flex flex-col min-h-0">
-		<div class="flex-1 min-h-0 relative">
-			<Graph bind:selectedObjectId={selectedObjectId} bind:selectedObject class="h-full" />
+		<!-- Graph area with EntityInfo overlay and Action Log drawer -->
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+			<div class="relative min-h-0 flex-1">
+				<Graph bind:selectedObjectId bind:selectedObject class="h-full" />
 
-			{#if selectedObjectId !== ''}
-				<svelte:boundary onerror={handleError}>
-					<div
-						bind:this={entityInfoContainer}
-						class="absolute top-2 right-2 flex flex-col z-50"
-						class:max-w-[800px]={!hasManuallyResizedEntityInfo}
-						class:max-h-[calc(100vh-80px)]={!hasManuallyResizedEntityInfo}
-						style={hasManuallyResizedEntityInfo ? `width: ${entityInfoWidth}px; height: ${entityInfoHeight}px;` : 'width: fit-content; height: fit-content;'}
-					>
-						<EntityInfo class={hasManuallyResizedEntityInfo ? "overflow-auto flex-1" : "overflow-auto"} objectId={selectedObjectId} {sendAction} />
-						<!-- Resize handle at bottom-left corner -->
-						<button
-						class="absolute bottom-0 left-0 w-4 h-4 cursor-nwse-resize opacity-30 hover:opacity-100 transition-opacity bg-gradient-to-bl from-transparent from-50% to-current to-50% rounded-bl-lg"
-							onmousedown={startResizeEntityInfo}
-							aria-label="Resize entity info panel"
-						></button>
-					</div>
-				</svelte:boundary>
+				{#if selectedObjectId !== ''}
+					<svelte:boundary onerror={handleError}>
+						<div
+							bind:this={entityInfoContainer}
+							class="absolute top-2 right-2 z-50 flex flex-col"
+							class:max-w-[800px]={!hasManuallyResizedEntityInfo}
+							class:max-h-[calc(100vh-80px)]={!hasManuallyResizedEntityInfo}
+							style={hasManuallyResizedEntityInfo
+								? `width: ${entityInfoWidth}px; height: ${entityInfoHeight}px;`
+								: 'width: fit-content; height: fit-content;'}
+						>
+							<EntityInfo
+								class={hasManuallyResizedEntityInfo ? 'flex-1 overflow-auto' : 'overflow-auto'}
+								objectId={selectedObjectId}
+								{sendAction}
+							/>
+							<!-- Resize handle at bottom-left corner -->
+							<button
+								class="absolute bottom-0 left-0 h-4 w-4 cursor-nwse-resize rounded-bl-lg bg-gradient-to-bl from-transparent from-50% to-current to-50% opacity-30 transition-opacity hover:opacity-100"
+								onmousedown={startResizeEntityInfo}
+								aria-label="Resize entity info panel"
+							></button>
+						</div>
+					</svelte:boundary>
+				{/if}
+			</div>
+
+			{#if timeline.open}
+				<OperationTimeline
+					entries={timeline.topEntries}
+					onfocusentity={(id) => {
+						selectedObjectId = id;
+					}}
+					ontogglegroup={(cmdId) => timeline.toggleGroup(cmdId)}
+					onviewaction={viewTimelineAction}
+				/>
 			{/if}
 		</div>
 
-		{#if timeline.open}
-			<OperationTimeline
-				entries={timeline.topEntries}
-				onfocusentity={(id) => { selectedObjectId = id; }}
-				ontogglegroup={(cmdId) => timeline.toggleGroup(cmdId)}
-				onviewaction={viewTimelineAction}
-			/>
-		{/if}
-	</div>
-
 		<Dialog open={podChooserOpen} onOpenChange={(e) => (podChooserOpen = e.open)}>
 			<Portal>
-				<Dialog.Backdrop class="fixed inset-0 z-[100] bg-surface-50-950/50" />
-				<Dialog.Positioner class="fixed inset-0 z-[100] flex justify-center items-center">
-					<Dialog.Content class="card min-w-80 max-w-lg bg-surface-100-900 p-4 space-y-3 shadow-xl border border-surface-600">
+				<Dialog.Backdrop class="bg-surface-50-950/50 fixed inset-0 z-[100]" />
+				<Dialog.Positioner class="fixed inset-0 z-[100] flex items-center justify-center">
+					<Dialog.Content
+						class="card bg-surface-100-900 border-surface-600 max-w-lg min-w-80 space-y-3 border p-4 shadow-xl"
+					>
 						<Dialog.Title class="font-semibold">Choose a pod</Dialog.Title>
-						<Dialog.Description class="text-sm text-surface-500">
+						<Dialog.Description class="text-surface-500 text-sm">
 							{selectedTTP?.name} is applicable to {eligibleActionPods.length} pods in this workload.
 						</Dialog.Description>
-						<div class="flex flex-col gap-2 max-h-80 overflow-auto">
+						<div class="flex max-h-80 flex-col gap-2 overflow-auto">
 							{#each eligibleActionPods as pod}
-								<button class="btn preset-outlined-surface-200-800 justify-start" onclick={() => chooseActionPod(pod.id)}>
+								<button
+									class="btn preset-outlined-surface-200-800 justify-start"
+									onclick={() => chooseActionPod(pod.id)}
+								>
 									<Icon icon="mdi:kubernetes" class="size-4" />
 									<span class="truncate">{pod.name}</span>
 								</button>
@@ -747,9 +798,11 @@
 
 		<Dialog open={showParamModal} onOpenChange={(e) => (showParamModal = e.open)}>
 			<Portal>
-				<Dialog.Backdrop class="fixed inset-0 z-[100] bg-surface-50-950/50" />
-				<Dialog.Positioner class="fixed inset-0 z-[100] flex justify-center items-center ">
-					<Dialog.Content class="card min-w-modal bg-surface-100-900 p-4 space-y-2 shadow-xl max-h-[90vh] flex flex-col border border-surface-600 ">
+				<Dialog.Backdrop class="bg-surface-50-950/50 fixed inset-0 z-[100]" />
+				<Dialog.Positioner class="fixed inset-0 z-[100] flex items-center justify-center ">
+					<Dialog.Content
+						class="card min-w-modal bg-surface-100-900 border-surface-600 flex max-h-[90vh] flex-col space-y-2 border p-4 shadow-xl "
+					>
 						{#if selectedTTP}
 							<ActionParamsModal
 								targetId={actionTargetId}
@@ -764,14 +817,11 @@
 			</Portal>
 		</Dialog>
 
-		<Dialog
-			open={showFileViewer}
-			onOpenChange={(e) => (showFileViewer = e.open)}
-		>
+		<Dialog open={showFileViewer} onOpenChange={(e) => (showFileViewer = e.open)}>
 			<Portal>
-				<Dialog.Backdrop class="fixed inset-0 z-50 bg-surface-50-950/50"/>
-				<Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
-					<Dialog.Content class="card bg-surface-100-900 p-4 space-y-2 shadow-xl max-w-3xl w-full">
+				<Dialog.Backdrop class="bg-surface-50-950/50 fixed inset-0 z-50" />
+				<Dialog.Positioner class="fixed inset-0 z-50 flex items-center justify-center">
+					<Dialog.Content class="card bg-surface-100-900 w-full max-w-3xl space-y-2 p-4 shadow-xl">
 						<FileViewerModal
 							path={fileViewerPath}
 							content={fileViewerContent}
@@ -784,12 +834,15 @@
 
 		<AttackStepDrawer step={selectedAttackStep} onclose={closeAttackStepDrawer} />
 	{:else}
-		<div class="flex items-center justify-center w-full h-full">
+		<div class="flex h-full w-full items-center justify-center">
 			<div class="text-center">
-				<Icon icon="game-icons:fishing-net" rotate={90} class="fill-token h-64 w-64 -scale-x-100 mx-auto" />
-				<div class="mt-4 text-surface-600-400">Loading campaign...</div>
+				<Icon
+					icon="game-icons:fishing-net"
+					rotate={90}
+					class="fill-token mx-auto h-64 w-64 -scale-x-100"
+				/>
+				<div class="text-surface-600-400 mt-4">Loading campaign...</div>
 			</div>
 		</div>
 	{/if}
-
 </div>

@@ -84,7 +84,7 @@
 	}
 
 	// cytoscape("layout", "hierarchyFlow", hierarchyLayout);
-    // cytoscape('layout', 'claude', K8sAttackGraphLayout);
+	// cytoscape('layout', 'claude', K8sAttackGraphLayout);
 
 	let cy: cytoscape.Core = $state() as cytoscape.Core;
 	let graphContainer: HTMLElement;
@@ -148,7 +148,7 @@
 				);
 			});
 			cy.edges('[!informational]').style({
-				'color': textColor,
+				color: textColor,
 				'line-color': textColor,
 				'target-arrow-color': textColor
 			});
@@ -219,7 +219,7 @@
 				expandCollapseCueLineSize: 8,
 				expandCollapseCueSensitivity: 1,
 				allowNestedEdgeCollapse: true,
-				edgeTypeInfo: "name",
+				edgeTypeInfo: 'name',
 				groupEdgesOfSameTypeOnCollapse: true,
 				zIndex: 999
 			});
@@ -276,11 +276,14 @@
 		const currentCampaignId = campaignState.campaignId;
 		// Only reset if campaign actually changed (not just on mount)
 		if (previousCampaignId !== currentCampaignId && previousCampaignId !== undefined) {
-			console.log(`Campaign changed from ${previousCampaignId} to ${currentCampaignId}, resetting layout`);
+			console.log(
+				`Campaign changed from ${previousCampaignId} to ${currentCampaignId}, resetting layout`
+			);
 			// Clear only graph-specific keys, not all sessionStorage
 			sessionStorage.removeItem(POS_KEY);
 			sessionStorage.removeItem(PAN_KEY);
-			sessionStorage.removeItem(ZOOM_KEY);				sessionStorage.removeItem(COLLAPSED_KEY);			// Don't clear FILTER_NS_KEY - preserve namespace filter across campaigns
+			sessionStorage.removeItem(ZOOM_KEY);
+			sessionStorage.removeItem(COLLAPSED_KEY); // Don't clear FILTER_NS_KEY - preserve namespace filter across campaigns
 			positions = {};
 			previousNodeIds.clear();
 			previousWorkloadCompoundIds.clear();
@@ -311,9 +314,9 @@
 				} else {
 					const currentWorkloadCompoundIds = workloadCompoundIds(graph.nodes);
 					// Clean up stale position entries before processing
-					const currentNodeIds = new Set(graph.nodes.map(n => n.id));
+					const currentNodeIds = new Set(graph.nodes.map((n) => n.id));
 					let positionsChanged = false;
-					Object.keys(positions).forEach(id => {
+					Object.keys(positions).forEach((id) => {
 						if (!currentNodeIds.has(id)) {
 							delete positions[id];
 							positionsChanged = true;
@@ -325,11 +328,11 @@
 						sessionStorage.setItem(POS_KEY, JSON.stringify(positions));
 					}
 
-					let nodes = graph.nodes.map(n => toCyNode(n, positions));
+					let nodes = graph.nodes.map((n) => toCyNode(n, positions));
 					let edges = graph.edges.map(toCyEdge);
 
 					// Check if there are new nodes
-					const hasNewNodes = graph.nodes.some(n => !previousNodeIds.has(n.id));
+					const hasNewNodes = graph.nodes.some((n) => !previousNodeIds.has(n.id));
 					const hasFewerNodes = previousNodeIds.size > currentNodeIds.size;
 
 					// Expand collapsed nodes FIRST so their children are restored into the graph
@@ -341,7 +344,7 @@
 					let addedNodeIds = new Set<string>();
 					const recollapseNodes = () => {
 						if (!ecApi || collapsedNodes.length === 0) return;
-						new Set(collapsedNodes).forEach(id => {
+						new Set(collapsedNodes).forEach((id) => {
 							const node = cy.getElementById(id);
 							if (node.length > 0 && node.isParent()) {
 								// The collapse plugin restores children by applying the parent's
@@ -353,7 +356,9 @@
 									child.position(position);
 									positions[child.id()] = position;
 								});
-								try { ecApi.collapse(node); } catch (_) {}
+								try {
+									ecApi.collapse(node);
+								} catch (_) {}
 							}
 						});
 					};
@@ -363,16 +368,16 @@
 						try {
 							const stored = sessionStorage.getItem(COLLAPSED_KEY);
 							hasStoredCollapseState = stored !== null;
-							if (stored) (JSON.parse(stored) as string[]).forEach(id => collapsedNodes.push(id));
+							if (stored) (JSON.parse(stored) as string[]).forEach((id) => collapsedNodes.push(id));
 						} catch (_) {}
 					}
 					// Multi-pod workload compounds start collapsed. An explicitly persisted
 					// expansion wins on remount; workloads that newly gain a second pod are
 					// collapsed when they first become useful as a group.
 					if (previousNodeIds.size === 0 && !hasStoredCollapseState) {
-						currentWorkloadCompoundIds.forEach(id => collapsedNodes.push(id));
+						currentWorkloadCompoundIds.forEach((id) => collapsedNodes.push(id));
 					} else if (previousNodeIds.size > 0) {
-						currentWorkloadCompoundIds.forEach(id => {
+						currentWorkloadCompoundIds.forEach((id) => {
 							if (!previousWorkloadCompoundIds.has(id)) collapsedNodes.push(id);
 						});
 					}
@@ -381,7 +386,9 @@
 						try {
 							cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => {
 								collapsedNodes.push(n.id());
-								try { ecApi.expand(n); } catch (_) {}
+								try {
+									ecApi.expand(n);
+								} catch (_) {}
 							});
 						} finally {
 							isRestoringCollapsedState = false;
@@ -390,32 +397,50 @@
 
 					// Snapshot element IDs AFTER expansion so restored children are included
 					const cyNodeIdSet = new Set<string>();
-					cy.nodes().forEach((n: any) => { cyNodeIdSet.add(n.id()); });
+					cy.nodes().forEach((n: any) => {
+						cyNodeIdSet.add(n.id());
+					});
 					const cyEdgeIdSet = new Set<string>();
-					cy.edges().forEach((e: any) => { cyEdgeIdSet.add(e.id()); });
+					cy.edges().forEach((e: any) => {
+						cyEdgeIdSet.add(e.id());
+					});
 
 					// Compute diffs: what to add, what to remove (guard against empty IDs)
-					const newEdgeIds = new Set<string>(edges.filter((e: any) => e.data.id).map((e: any) => e.data.id as string));
-					const nodesToAdd = nodes.filter((n: any) => n.data.id && !cyNodeIdSet.has(n.data.id as string));
+					const newEdgeIds = new Set<string>(
+						edges.filter((e: any) => e.data.id).map((e: any) => e.data.id as string)
+					);
+					const nodesToAdd = nodes.filter(
+						(n: any) => n.data.id && !cyNodeIdSet.has(n.data.id as string)
+					);
 					addedNodeIds = new Set(nodesToAdd.map((node: any) => node.data.id as string));
-					const edgesToAdd = edges.filter((e: any) => e.data.id && !cyEdgeIdSet.has(e.data.id as string));
+					const edgesToAdd = edges.filter(
+						(e: any) => e.data.id && !cyEdgeIdSet.has(e.data.id as string)
+					);
 
 					// Remove elements no longer in the graph
-					cy.nodes().filter((n: any) => n.id() && !currentNodeIds.has(n.id())).remove();
-					cy.edges().filter((e: any) => e.id() && !newEdgeIds.has(e.id())).remove();
+					cy.nodes()
+						.filter((n: any) => n.id() && !currentNodeIds.has(n.id()))
+						.remove();
+					cy.edges()
+						.filter((e: any) => e.id() && !newEdgeIds.has(e.id()))
+						.remove();
 
 					// Update data for existing nodes (e.g. compromised/isRunning status changes)
-					nodes.filter((n: any) => n.data.id && cyNodeIdSet.has(n.data.id as string)).forEach((n: any) => {
-						cy.getElementById(n.data.id).data(n.data);
-					});
+					nodes
+						.filter((n: any) => n.data.id && cyNodeIdSet.has(n.data.id as string))
+						.forEach((n: any) => {
+							cy.getElementById(n.data.id).data(n.data);
+						});
 
 					// Update data for existing edges too. An edge's id is stable across a
 					// status change (e.g. a session breaking flips `broken` while source,
 					// target and name stay the same), so without this refresh the
 					// edge[?broken] restyle would not apply until a full remount.
-					edges.filter((e: any) => e.data.id && cyEdgeIdSet.has(e.data.id as string)).forEach((e: any) => {
-						cy.getElementById(e.data.id).data(e.data);
-					});
+					edges
+						.filter((e: any) => e.data.id && cyEdgeIdSet.has(e.data.id as string))
+						.forEach((e: any) => {
+							cy.getElementById(e.data.id).data(e.data);
+						});
 
 					// Pre-position new nodes near their connected existing nodes so they don't spawn randomly
 					if (nodesToAdd.length > 0) {
@@ -461,8 +486,10 @@
 								}
 							});
 							if (neighborPositions.length > 0) {
-								const avgX = neighborPositions.reduce((s, p) => s + p.x, 0) / neighborPositions.length;
-								const avgY = neighborPositions.reduce((s, p) => s + p.y, 0) / neighborPositions.length;
+								const avgX =
+									neighborPositions.reduce((s, p) => s + p.x, 0) / neighborPositions.length;
+								const avgY =
+									neighborPositions.reduce((s, p) => s + p.y, 0) / neighborPositions.length;
 								// Place near neighbor centroid with a small offset to avoid exact overlap
 								const angle = Math.random() * 2 * Math.PI;
 								const r = 80 + Math.random() * 40;
@@ -509,7 +536,9 @@
 
 					// Only re-layout if there are new nodes or nodes were removed
 					if (hasNewNodes || hasFewerNodes || previousNodeIds.size === 0) {
-						console.log(`Graph changed: ${hasNewNodes ? 'new nodes' : hasFewerNodes ? 'nodes removed' : 'initial load'}`);
+						console.log(
+							`Graph changed: ${hasNewNodes ? 'new nodes' : hasFewerNodes ? 'nodes removed' : 'initial load'}`
+						);
 
 						const containerRect = graphContainer.getBoundingClientRect();
 						if (containerRect.width === 0 || containerRect.height === 0) {
@@ -522,7 +551,10 @@
 						const currentZoom = cy.zoom();
 						const isInitialLoad = previousNodeIds.size === 0;
 
-						const layoutOptions = createElkLayout(positions, untrack(() => layoutParams));
+						const layoutOptions = createElkLayout(
+							positions,
+							untrack(() => layoutParams)
+						);
 						const l = cy.elements(':visible').layout(layoutOptions as any);
 
 						l.one('layoutstop', () => {
@@ -567,11 +599,15 @@
 								selectedObject = el;
 							}
 						}
-					})
+					});
 				}
 			} catch (e) {
 				console.error('Error updating graph:', e);
-				toaster.create({ title: "Graph error", description: 'Error updating graph: ' + e, type: 'error' });
+				toaster.create({
+					title: 'Graph error',
+					description: 'Error updating graph: ' + e,
+					type: 'error'
+				});
 			}
 		}
 	});
@@ -579,39 +615,42 @@
 	function saveCollapsedNodes() {
 		if (!browser || !cy) return;
 		const ids: string[] = [];
-		cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => { ids.push(n.id()); });
+		cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => {
+			ids.push(n.id());
+		});
 		sessionStorage.setItem(COLLAPSED_KEY, JSON.stringify(ids));
 	}
 
 	function savePositions() {
 		if (cy === undefined) {
-			console.error("Cytoscape instance is undefined, cannot save positions");
+			console.error('Cytoscape instance is undefined, cannot save positions');
 			return;
 		}
 		const map: PosMap = {};
-		cy.nodes().forEach(n => { map[n.id()] = n.position(); });
+		cy.nodes().forEach((n) => {
+			map[n.id()] = n.position();
+		});
 		positions = map;
 		sessionStorage.setItem(POS_KEY, JSON.stringify(positions));
-
-	};
+	}
 	function saveZoom() {
 		if (browser) {
 			sessionStorage.setItem(ZOOM_KEY, JSON.stringify(cy.zoom()));
 		}
-	};
+	}
 
 	function saveGraphLayout() {
 		if (browser) {
 			if (cy === undefined) {
-				console.error("Cytoscape instance is undefined, cannot save graph layout");
+				console.error('Cytoscape instance is undefined, cannot save graph layout');
 				return;
 			}
-			console.log("Saving graph layout");
+			console.log('Saving graph layout');
 			savePositions();
 			saveZoom();
 			sessionStorage.setItem(PAN_KEY, JSON.stringify(cy.pan()));
 		}
-	};
+	}
 
 	function loadPositions(): PosMap {
 		if (!browser) return {};
@@ -653,7 +692,7 @@
 		selectedObject = el.data();
 		selectedObjectId = el.data()['id'];
 		focusSelection(el);
-		console.group("Selected Graph object");
+		console.group('Selected Graph object');
 		console.log(el.data());
 		console.log(el.classes());
 		console.groupEnd();
@@ -692,10 +731,15 @@
 				const children = element.children();
 				context = context.union(children);
 				const contextNodeIds = new Set<string>();
-				context.nodes().forEach((node) => { contextNodeIds.add(node.id()); });
-				const internalEdges = visible.edges().filter((edge) =>
-					contextNodeIds.has(edge.source().id()) && contextNodeIds.has(edge.target().id())
-				);
+				context.nodes().forEach((node) => {
+					contextNodeIds.add(node.id());
+				});
+				const internalEdges = visible
+					.edges()
+					.filter(
+						(edge) =>
+							contextNodeIds.has(edge.source().id()) && contextNodeIds.has(edge.target().id())
+					);
 				context = context.union(internalEdges);
 			}
 		} else {
@@ -773,7 +817,6 @@
 		// external neighbour instead of one per hidden child.
 		consolidateCollapsedEdges(cy, node);
 	}
-
 
 	/**
 	 * Hide nodes (and their edges) belonging to the specified namespaces.
@@ -874,11 +917,12 @@
 		const shift = addedWidth + EXPANSION_GUTTER;
 		const candidates = snapshot.visibleNodeIds
 			.map((id) => cy.getElementById(id))
-			.filter((candidate: any) =>
-				candidate.length > 0 &&
-				candidate.visible() &&
-				candidate.id() !== node.id() &&
-				candidate.boundingBox().x1 >= snapshot.right
+			.filter(
+				(candidate: any) =>
+					candidate.length > 0 &&
+					candidate.visible() &&
+					candidate.id() !== node.id() &&
+					candidate.boundingBox().x1 >= snapshot.right
 			);
 		const candidateIds = new Set(candidates.map((candidate: any) => candidate.id()));
 		const nodesToShift = candidates.filter((candidate: any) =>
@@ -908,7 +952,6 @@
 			}
 		});
 	}
-
 </script>
 
 <div class={['graph-wrapper', className]}>

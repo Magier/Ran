@@ -4,6 +4,5 @@ import { render, screen } from '@testing-library/svelte';
 import Page from './+page.svelte';
 
 describe('/+page.svelte', () => {
-	test('should render h1', () => {
-	});
+	test('should render h1', () => {});
 });

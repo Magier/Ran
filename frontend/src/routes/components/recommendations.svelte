@@ -125,13 +125,13 @@
 	}
 </script>
 
-<div class="bg-surface-100-900 flex flex-col h-full min-h-0 {className}">
+<div class="bg-surface-100-900 flex h-full min-h-0 flex-col {className}">
 	<!-- Toolbar: title + show-count, mirroring the Actions tab's toolbar row -->
-	<div class="flex-shrink-0 flex items-center gap-2 px-2 py-2 border-b border-surface-200-800">
+	<div class="border-surface-200-800 flex flex-shrink-0 items-center gap-2 border-b px-2 py-2">
 		<Icon icon="mdi:lightbulb-on-outline" width="16" class="text-warning-500 flex-shrink-0" />
-		<span class="text-sm font-semibold flex-1 truncate">Recommended Next Steps</span>
+		<span class="flex-1 truncate text-sm font-semibold">Recommended Next Steps</span>
 		<select
-			class="text-xs bg-surface-200-800 border border-surface-300-700 rounded px-1 py-0.5"
+			class="bg-surface-200-800 border-surface-300-700 rounded border px-1 py-0.5 text-xs"
 			bind:value={limitChoice}
 			title="Number of recommendations to show"
 			aria-label="Number of recommendations to show"
@@ -141,7 +141,7 @@
 			<option value={100}>100</option>
 			<option value={0}>All</option>
 		</select>
-		<span class="text-xs text-surface-500 w-6 text-right" title="{shownGroups.length} shown">
+		<span class="text-surface-500 w-6 text-right text-xs" title="{shownGroups.length} shown">
 			{shownGroups.length}
 		</span>
 		{#if actions}
@@ -149,91 +149,98 @@
 		{/if}
 	</div>
 
-	<div class="flex-1 overflow-y-auto min-h-0 flex flex-col">
+	<div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
 		{#if isLoading && groups.length === 0}
-				<div class="px-3 py-4 text-xs text-surface-500">Scoring actions…</div>
-			{:else if groups.length === 0}
-				<div class="px-3 py-4 text-xs text-surface-500">
-					No applicable actions yet. Gain a foothold to get recommendations.
-				</div>
-			{:else}
-				{#each shownGroups as g, i (keyOf(g))}
-					{@const expanded = expandedKey === keyOf(g)}
-					{@const multi = g.targets.length > 1}
-					<div class="border-b border-surface-200-800 last:border-b-0">
-						<div class="flex items-start gap-2 px-3 py-2">
-							<span class="text-xs text-surface-500 w-4 text-right pt-0.5">{i + 1}</span>
-							<Icon
-								icon={iconMap[ttpTactic(g.ttp_id) ?? ''] ?? 'mdi:flash'}
-								width="18"
-								class="flex-shrink-0 mt-0.5"
-							/>
-							<div class="flex-1 min-w-0">
-								<div class="flex items-center gap-2">
-									<span class="text-sm truncate" title={ttpName(g.ttp_id)}>{ttpName(g.ttp_id)}</span>
-									<span class="text-xs text-surface-500 ml-auto flex-shrink-0">{Math.round(g.utility * 100)}</span>
-								</div>
-								<!-- Utility bar -->
-								<div class="h-1.5 mt-1 rounded bg-surface-300-700 overflow-hidden">
-									<div class="h-full {utilityClass(g.utility)}" style="width: {Math.round(g.utility * 100)}%"></div>
-								</div>
-								<div class="flex items-center gap-2 mt-1">
-									<button
-										class="text-xs text-surface-500 hover:text-primary-500 truncate"
-										title={multi ? `${g.targets.length} targets, same utility` : `Focus ${targetName(g.targets[0])}`}
-										onclick={() => toggleExpanded(g)}
-									>
-										{#if multi}
-											→ {g.targets.length} targets
-										{:else}
-											→ {targetName(g.targets[0])}
-										{/if}
-									</button>
-									<button
-										class="text-xs text-surface-500 hover:text-primary-500 ml-auto flex items-center gap-0.5"
-										onclick={() => toggleExpanded(g)}
-									>
-										why
-										<Icon icon={expanded ? 'mdi:chevron-up' : 'mdi:chevron-down'} width="12" />
-									</button>
-								</div>
-							</div>
-							{#if !multi}
-								<button
-									class="btn btn-sm preset-filled-primary-500 text-xs px-2 py-1 flex-shrink-0"
-									title="Execute against {targetName(g.targets[0])}"
-									onclick={() => runTarget(g, g.targets[0])}
+			<div class="text-surface-500 px-3 py-4 text-xs">Scoring actions…</div>
+		{:else if groups.length === 0}
+			<div class="text-surface-500 px-3 py-4 text-xs">
+				No applicable actions yet. Gain a foothold to get recommendations.
+			</div>
+		{:else}
+			{#each shownGroups as g, i (keyOf(g))}
+				{@const expanded = expandedKey === keyOf(g)}
+				{@const multi = g.targets.length > 1}
+				<div class="border-surface-200-800 border-b last:border-b-0">
+					<div class="flex items-start gap-2 px-3 py-2">
+						<span class="text-surface-500 w-4 pt-0.5 text-right text-xs">{i + 1}</span>
+						<Icon
+							icon={iconMap[ttpTactic(g.ttp_id) ?? ''] ?? 'mdi:flash'}
+							width="18"
+							class="mt-0.5 flex-shrink-0"
+						/>
+						<div class="min-w-0 flex-1">
+							<div class="flex items-center gap-2">
+								<span class="truncate text-sm" title={ttpName(g.ttp_id)}>{ttpName(g.ttp_id)}</span>
+								<span class="text-surface-500 ml-auto flex-shrink-0 text-xs"
+									>{Math.round(g.utility * 100)}</span
 								>
-									Run
+							</div>
+							<!-- Utility bar -->
+							<div class="bg-surface-300-700 mt-1 h-1.5 overflow-hidden rounded">
+								<div
+									class="h-full {utilityClass(g.utility)}"
+									style="width: {Math.round(g.utility * 100)}%"
+								></div>
+							</div>
+							<div class="mt-1 flex items-center gap-2">
+								<button
+									class="text-surface-500 hover:text-primary-500 truncate text-xs"
+									title={multi
+										? `${g.targets.length} targets, same utility`
+										: `Focus ${targetName(g.targets[0])}`}
+									onclick={() => toggleExpanded(g)}
+								>
+									{#if multi}
+										→ {g.targets.length} targets
+									{:else}
+										→ {targetName(g.targets[0])}
+									{/if}
 								</button>
-							{/if}
+								<button
+									class="text-surface-500 hover:text-primary-500 ml-auto flex items-center gap-0.5 text-xs"
+									onclick={() => toggleExpanded(g)}
+								>
+									why
+									<Icon icon={expanded ? 'mdi:chevron-up' : 'mdi:chevron-down'} width="12" />
+								</button>
+							</div>
 						</div>
-
-						{#if expanded}
-							{#if multi}
-								<!-- Per-target run list (all share the same utility) -->
-								<div class="px-3 pb-2 pl-9 space-y-1">
-									{#each g.targets as t (t)}
-										<div class="flex items-center gap-2">
-											<span class="text-xs text-surface-500 flex-1 truncate" title={targetName(t)}>
-												→ {targetName(t)}
-											</span>
-											<button
-												class="btn btn-sm preset-filled-primary-500 text-xs px-2 py-0.5 flex-shrink-0"
-												title="Execute against {targetName(t)}"
-												onclick={() => runTarget(g, t)}
-											>
-												Run
-											</button>
-										</div>
-									{/each}
-								</div>
-							{/if}
-							<!-- Per-consideration breakdown -->
-							<ConsiderationBreakdown breakdown={g.breakdown} class="px-3 pb-2 pl-9" />
+						{#if !multi}
+							<button
+								class="btn btn-sm preset-filled-primary-500 flex-shrink-0 px-2 py-1 text-xs"
+								title="Execute against {targetName(g.targets[0])}"
+								onclick={() => runTarget(g, g.targets[0])}
+							>
+								Run
+							</button>
 						{/if}
 					</div>
-				{/each}
-			{/if}
-		</div>
+
+					{#if expanded}
+						{#if multi}
+							<!-- Per-target run list (all share the same utility) -->
+							<div class="space-y-1 px-3 pb-2 pl-9">
+								{#each g.targets as t (t)}
+									<div class="flex items-center gap-2">
+										<span class="text-surface-500 flex-1 truncate text-xs" title={targetName(t)}>
+											→ {targetName(t)}
+										</span>
+										<button
+											class="btn btn-sm preset-filled-primary-500 flex-shrink-0 px-2 py-0.5 text-xs"
+											title="Execute against {targetName(t)}"
+											onclick={() => runTarget(g, t)}
+										>
+											Run
+										</button>
+									</div>
+								{/each}
+							</div>
+						{/if}
+						<!-- Per-consideration breakdown -->
+						<ConsiderationBreakdown breakdown={g.breakdown} class="px-3 pb-2 pl-9" />
+					{/if}
+				</div>
+			{/each}
+		{/if}
+	</div>
 </div>

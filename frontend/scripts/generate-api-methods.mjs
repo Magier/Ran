@@ -24,7 +24,7 @@ const pathRegex = /^  \/api\/([^:]+):\s*$/gm;
 let match;
 
 while ((match = pathRegex.exec(yaml)) !== null) {
-    console.log('Found path:', match[1]);
+	console.log('Found path:', match[1]);
 }
 
 console.log('✓ To add new endpoints, update openapi.yaml and run: make generate-api');

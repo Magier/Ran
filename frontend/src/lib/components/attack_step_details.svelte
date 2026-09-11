@@ -79,7 +79,6 @@
 	}
 </script>
 
-
 {#if step != null}
 	<header class="flex-none justify-between">
 		<h4 class="h4">{step.TTP.name}</h4>
@@ -102,22 +101,22 @@
 
 		<div class="mt-4 flex items-center justify-start">
 			<div class="pr-2">Target:</div>
-			<code class="text-base inline">{target?.name}</code>
+			<code class="inline text-base">{target?.name}</code>
 		</div>
-		{#if step.executedOn != target?.name }
-		<div class="mt-4 flex items-center justify-start">
-			<div class="pr-2">Executed On:</div>
-			<code class="text-base inline">{step.executedOn}</code>
-		</div>
+		{#if step.executedOn != target?.name}
+			<div class="mt-4 flex items-center justify-start">
+				<div class="pr-2">Executed On:</div>
+				<code class="inline text-base">{step.executedOn}</code>
+			</div>
 		{/if}
 
-		<div class="mt-4 flex justify-start items-center">
-			<div class="pr-2">Started: </div>
-			<code class="text-base inline">{step.startedAt}</code>
+		<div class="mt-4 flex items-center justify-start">
+			<div class="pr-2">Started:</div>
+			<code class="inline text-base">{step.startedAt}</code>
 		</div>
-		<div class=" flex justify-start items-center">
-			<div class="pr-2">Completed: </div>
-			<code class="text-base inline">{step.completedAt}</code>
+		<div class=" flex items-center justify-start">
+			<div class="pr-2">Completed:</div>
+			<code class="inline text-base">{step.completedAt}</code>
 		</div>
 		<div class="mt-4 flex justify-start">
 			<div class="pr-2">Status</div>
@@ -125,15 +124,15 @@
 		</div>
 	</header>
 	<article class="flex min-h-10 flex-auto flex-col overflow-auto">
-			{#if step.routeReason}
-				<div class="mt-4 justify-start">
-					<div class="pr-2 mb-1">Route</div>
-					<p class="text-xs opacity-80">{step.routeReason}</p>
-				</div>
-			{/if}
+		{#if step.routeReason}
+			<div class="mt-4 justify-start">
+				<div class="mb-1 pr-2">Route</div>
+				<p class="text-xs opacity-80">{step.routeReason}</p>
+			</div>
+		{/if}
 		<div class="mt-4 justify-start">
 			{#if hasTraversal}
-				<div class="pr-2 mb-2">Traversal</div>
+				<div class="mb-2 pr-2">Traversal</div>
 				<!-- System chain: click a system to inspect the command + envelope at that hop -->
 				<div class="flex flex-wrap items-center gap-y-1">
 					{#each chainNodes as node, i}
@@ -143,21 +142,21 @@
 						<button
 							type="button"
 							class={[
-								'text-xs px-2 py-1 rounded transition-colors max-w-full truncate',
+								'max-w-full truncate rounded px-2 py-1 text-xs transition-colors',
 								selectedNodeIdx === i
 									? 'preset-filled-primary-500'
 									: 'bg-surface-200-800/50 hover:bg-surface-200-800'
 							]}
 							onclick={() => (selectedNodeIdx = i)}
-							title={node || 'C2'}
-						>{nodeLabel(node)}</button>
+							title={node || 'C2'}>{nodeLabel(node)}</button
+						>
 					{/each}
 				</div>
 
 				<!-- Detail for the selected hop (or the target's inner command) -->
-				<div class="bg-surface-100-900 rounded p-2 mt-2 space-y-2">
+				<div class="bg-surface-100-900 mt-2 space-y-2 rounded p-2">
 					{#if selectedHop}
-						<div class="flex items-center gap-2 flex-wrap text-sm">
+						<div class="flex flex-wrap items-center gap-2 text-sm">
 							<span class="opacity-70">{shortName(selectedHop.fromId)}</span>
 							<Icon icon="material-symbols:arrow-forward" width="14" class="opacity-50" />
 							<span class="opacity-70">{shortName(selectedHop.toId)}</span>
@@ -165,32 +164,32 @@
 						</div>
 						{#if selectedHop.envelope}
 							<div>
-								<div class="label opacity-60 text-xs mb-0.5">Envelope</div>
-								<code class="block text-xs whitespace-pre-wrap break-all"
+								<div class="label mb-0.5 text-xs opacity-60">Envelope</div>
+								<code class="block text-xs break-all whitespace-pre-wrap"
 									>{#each selectedHop.envelope.split('${CMD}') as part, pi}{#if pi > 0}<span
-												class="px-1 mx-0.5 rounded bg-primary-500/30 text-primary-400 font-semibold"
+												class="bg-primary-500/30 text-primary-400 mx-0.5 rounded px-1 font-semibold"
 												>{'${CMD}'}</span
 											>{/if}{redactJwt(part)}{/each}</code
 								>
 							</div>
 						{/if}
 					{:else}
-						<div class="flex items-center gap-2 flex-wrap text-sm">
+						<div class="flex flex-wrap items-center gap-2 text-sm">
 							<span class="badge preset-filled-success-500 text-xs">runs on target</span>
 							<span class="opacity-70">{shortName(chainNodes[chainNodes.length - 1])}</span>
 						</div>
 					{/if}
 					<div>
-						<div class="label opacity-60 text-xs mb-0.5">
+						<div class="label mb-0.5 text-xs opacity-60">
 							{selectedHop ? 'Command sent over this hop' : 'Command on target'}
 						</div>
-						<div class="bg-surface-50-950 relative group">
+						<div class="bg-surface-50-950 group relative">
 							<code
-								class="block w-full overflow-y-auto text-sm overflow-x-hidden whitespace-pre-wrap break-all"
+								class="block w-full overflow-x-hidden overflow-y-auto text-sm break-all whitespace-pre-wrap"
 								data-source={selectedCommand}>{redactJwt(selectedCommand)}</code
 							>
 							<button
-								class="btn absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity px-1 py-0.5 bg-surface-200-800/40 hover:bg-surface-200-800/70"
+								class="btn bg-surface-200-800/40 hover:bg-surface-200-800/70 absolute top-1 right-1 px-1 py-0.5 opacity-0 transition-opacity group-hover:opacity-90"
 								data-trigger
 								onclick={handleCopy}
 								><Icon icon="material-symbols:content-copy" width="16" /></button
@@ -200,14 +199,16 @@
 				</div>
 			{:else}
 				<div class="pr-2">Command</div>
-				<div class="bg-surface-50-950 relative group">
-					<code class="h-10 w-full overflow-y-auto text-base overflow-x-hidden whitespace-pre-wrap break-all" data-source={step.command}
-						>{redactJwt(step.command)}</code>
+				<div class="bg-surface-50-950 group relative">
+					<code
+						class="h-10 w-full overflow-x-hidden overflow-y-auto text-base break-all whitespace-pre-wrap"
+						data-source={step.command}>{redactJwt(step.command)}</code
+					>
 					<button
-						class="btn absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity px-1 py-0.5 bg-surface-200-800/40 hover:bg-surface-200-800/70"
+						class="btn bg-surface-200-800/40 hover:bg-surface-200-800/70 absolute top-1 right-1 px-1 py-0.5 opacity-0 transition-opacity group-hover:opacity-90"
 						data-trigger
-						onclick={handleCopy}
-						><Icon icon="material-symbols:content-copy" width="16" /></button>
+						onclick={handleCopy}><Icon icon="material-symbols:content-copy" width="16" /></button
+					>
 				</div>
 			{/if}
 		</div>
@@ -215,20 +216,22 @@
 			<span class="label mb-1 flex-none">Result:</span>
 			{#each step.results as result}
 				{#if result}
-				<div class="bg-surface-50-950 relative group">
-					<code class="w-full text-sm overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all" data-source>
-						{result}
-					</code>
-					<button
-						class="btn absolute top-1 right-1 opacity-0 group-hover:opacity-90 transition-opacity px-1 py-0.5 bg-surface-200-800/40 hover:bg-surface-200-800/70"
-						data-trigger
-						onclick={handleCopy}
-					><Icon icon="material-symbols:content-copy" width="16" /></button>
-				</div>
+					<div class="bg-surface-50-950 group relative">
+						<code
+							class="w-full overflow-x-hidden overflow-y-auto text-sm break-all whitespace-pre-wrap"
+							data-source
+						>
+							{result}
+						</code>
+						<button
+							class="btn bg-surface-200-800/40 hover:bg-surface-200-800/70 absolute top-1 right-1 px-1 py-0.5 opacity-0 transition-opacity group-hover:opacity-90"
+							data-trigger
+							onclick={handleCopy}><Icon icon="material-symbols:content-copy" width="16" /></button
+						>
+					</div>
 				{/if}
 			{/each}
 		</div>
-
 	</article>
 	<footer class="flex-none"></footer>
 {/if}

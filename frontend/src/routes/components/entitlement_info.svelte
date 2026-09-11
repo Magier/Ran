@@ -74,9 +74,10 @@
 	function matchingAssessments(permission: RBACPermission): KubetierPermission[] {
 		if (!catalog) return [];
 		const resource = permissionResource(permission);
-		const nonResourceUrl = !resource && (permission.resourceName?.startsWith('/') || permission.resourceName === '*')
-			? permission.resourceName
-			: null;
+		const nonResourceUrl =
+			!resource && (permission.resourceName?.startsWith('/') || permission.resourceName === '*')
+				? permission.resourceName
+				: null;
 		const scopeKind = permission.scopeKind ?? 'unknown';
 		return catalog.permissions.filter((assessment) => {
 			const universalWildcard = permission.verb === '*' && resource === '*';
@@ -93,18 +94,21 @@
 				: nonResourceUrl !== null || normalizedGroup(permission) === '*'
 					? true
 					: assessment.apiGroup === normalizedGroup(permission);
-			const scopeMatches = universalWildcard || (scopeKind === 'unknown'
-				? true
-				: scopeKind === 'cluster'
-					? assessment.scope === 'cluster'
-					: assessment.scope === 'namespaced');
+			const scopeMatches =
+				universalWildcard ||
+				(scopeKind === 'unknown'
+					? true
+					: scopeKind === 'cluster'
+						? assessment.scope === 'cluster'
+						: assessment.scope === 'namespaced');
 			return verbMatches && resourceMatches && groupMatches && scopeMatches;
 		});
 	}
 
 	function tiersFor(permission: RBACPermission): KubetierTier[] {
-		return [...new Set(matchingAssessments(permission).map((entry) => entry.tier))]
-			.sort((a, b) => tierRank[a] - tierRank[b]);
+		return [...new Set(matchingAssessments(permission).map((entry) => entry.tier))].sort(
+			(a, b) => tierRank[a] - tierRank[b]
+		);
 	}
 
 	function scopeLabel(permission: RBACPermission): string {
@@ -120,15 +124,19 @@
 	}
 
 	function isUniversalResourcePermission(permission: RBACPermission): boolean {
-		return permission.verb === '*'
-			&& permissionResource(permission) === '*'
-			&& normalizedGroup(permission) === '*';
+		return (
+			permission.verb === '*' &&
+			permissionResource(permission) === '*' &&
+			normalizedGroup(permission) === '*'
+		);
 	}
 
 	function isUniversalNonResourcePermission(permission: RBACPermission): boolean {
-		return permission.verb === '*'
-			&& permissionResource(permission) === ''
-			&& permission.resourceName === '*';
+		return (
+			permission.verb === '*' &&
+			permissionResource(permission) === '' &&
+			permission.resourceName === '*'
+		);
 	}
 
 	function permissionIdentity(permission: RBACPermission): string {
@@ -150,14 +158,18 @@
 		const filteredEntitlements = hasUniversalResourcePermission
 			? entitlements.filter((permission) => !isUniversalNonResourcePermission(permission))
 			: entitlements;
-		const visibleEntitlements = [...new Map(
-			filteredEntitlements.map((permission) => [permissionIdentity(permission), permission])
-		).values()];
+		const visibleEntitlements = [
+			...new Map(
+				filteredEntitlements.map((permission) => [permissionIdentity(permission), permission])
+			).values()
+		];
 		return [...visibleEntitlements].sort((a, b) => {
 			const aTier = tiersFor(a)[0];
 			const bTier = tiersFor(b)[0];
 			const rank = (aTier ? tierRank[aTier] : 99) - (bTier ? tierRank[bTier] : 99);
-			return rank || `${a.verb} ${displayResource(a)}`.localeCompare(`${b.verb} ${displayResource(b)}`);
+			return (
+				rank || `${a.verb} ${displayResource(a)}`.localeCompare(`${b.verb} ${displayResource(b)}`)
+			);
 		});
 	}
 
@@ -178,11 +190,15 @@
 		return [...links.values()];
 	}
 
-	function assessmentLabel(assessment: KubetierPermission, assessments: KubetierPermission[]): string {
+	function assessmentLabel(
+		assessment: KubetierPermission,
+		assessments: KubetierPermission[]
+	): string {
 		const base = `${assessment.verb} ${assessment.resource}`;
-		const hasScopeVariants = assessments.filter((entry) =>
-			entry.verb === assessment.verb && entry.resource === assessment.resource
-		).length > 1;
+		const hasScopeVariants =
+			assessments.filter(
+				(entry) => entry.verb === assessment.verb && entry.resource === assessment.resource
+			).length > 1;
 		return hasScopeVariants ? `${base} (${assessment.scope})` : base;
 	}
 
@@ -196,10 +212,16 @@
 		return [...new Set(matches.flatMap((assessment) => assessment.description ?? []))];
 	}
 
-	function uniqueEscalationPaths(matches: KubetierPermission[]): KubetierPermission['escalationPaths'] {
-		return [...new Map(
-			matches.flatMap((assessment) => assessment.escalationPaths).map((path) => [path.sourceUrl, path])
-		).values()];
+	function uniqueEscalationPaths(
+		matches: KubetierPermission[]
+	): KubetierPermission['escalationPaths'] {
+		return [
+			...new Map(
+				matches
+					.flatMap((assessment) => assessment.escalationPaths)
+					.map((path) => [path.sourceUrl, path])
+			).values()
+		];
 	}
 
 	function escalationCount(matches: KubetierPermission[]): number {
@@ -239,12 +261,14 @@
 	}
 
 	function actualRuleSet(): Set<string> {
-		return new Set(entitlements.map((permission) => {
-			const resource = permissionResource(permission);
-			const target = resource || `url:${permission.resourceName ?? ''}`;
-			const resourceName = resource ? permission.resourceName ?? '' : '';
-			return `${normalizedGroup(permission)}|${target}|${permission.verb}|${resourceName}`;
-		}));
+		return new Set(
+			entitlements.map((permission) => {
+				const resource = permissionResource(permission);
+				const target = resource || `url:${permission.resourceName ?? ''}`;
+				const resourceName = resource ? (permission.resourceName ?? '') : '';
+				return `${normalizedGroup(permission)}|${target}|${permission.verb}|${resourceName}`;
+			})
+		);
 	}
 
 	function referenceRuleSet(role: KubetierRole): Set<string> {
@@ -270,23 +294,35 @@
 </script>
 
 {#if builtInRole}
-	<div class="mb-3 rounded border border-surface-300 p-2 dark:border-surface-700">
+	<div class="border-surface-300 dark:border-surface-700 mb-3 rounded border p-2">
 		<div class="flex flex-wrap items-center gap-2">
-			<span class={`rounded border px-1.5 py-0.5 font-mono font-bold ${tierClass(builtInRole.tier)}`}>
+			<span
+				class={`rounded border px-1.5 py-0.5 font-mono font-bold ${tierClass(builtInRole.tier)}`}
+			>
 				{builtInRole.tier}
 			</span>
-			<a class="font-semibold underline" href={builtInRole.sourceUrl} target="_blank" rel="noreferrer">
+			<a
+				class="font-semibold underline"
+				href={builtInRole.sourceUrl}
+				target="_blank"
+				rel="noreferrer"
+			>
 				KubeTier built-in Role assessment ↗
 			</a>
 		</div>
 		{#if roleMatches(builtInRole)}
-			<p class="mt-1 text-green-700 dark:text-green-300">Discovered rules match the imported reference.</p>
+			<p class="mt-1 text-green-700 dark:text-green-300">
+				Discovered rules match the imported reference.
+			</p>
 		{:else}
 			<p class="mt-1 font-semibold text-amber-700 dark:text-amber-300">
-				Definition differs from the imported Kubernetes {catalog?.validatedKubernetesVersion ?? ''} reference; this is a nominal tier only.
+				Definition differs from the imported Kubernetes {catalog?.validatedKubernetesVersion ?? ''} reference;
+				this is a nominal tier only.
 			</p>
 		{/if}
-		{#if builtInRole.description}<p class="mt-1 text-surface-600 dark:text-surface-300">{builtInRole.description}</p>{/if}
+		{#if builtInRole.description}<p class="text-surface-600 dark:text-surface-300 mt-1">
+				{builtInRole.description}
+			</p>{/if}
 	</div>
 {/if}
 
@@ -295,11 +331,12 @@
 		{@const tiers = tiersFor(permission)}
 		<div class="flex items-center gap-1">
 			<span class={`font-mono ${permissionTierClass(tiers[0])}`}>
-				{permission.verb} {displayResource(permission)}
+				{permission.verb}
+				{displayResource(permission)}
 			</span>
 			<button
 				type="button"
-				class="inline-flex cursor-help items-center text-surface-400 hover:text-surface-700 focus:outline-none dark:hover:text-surface-200"
+				class="text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 inline-flex cursor-help items-center focus:outline-none"
 				aria-label={`Details for ${permission.verb} ${displayResource(permission)}`}
 				onmouseenter={(event) => showTooltip(event, permission)}
 				onmouseleave={scheduleTooltipHide}
@@ -323,7 +360,7 @@
 		role="dialog"
 		aria-label="Capability details"
 		tabindex="-1"
-		class="fixed z-50 max-h-[70vh] w-[min(28rem,calc(100vw-1rem))] overflow-auto rounded-md border border-surface-300 bg-surface-50 p-3 text-sm font-normal text-surface-700 shadow-xl dark:border-surface-600 dark:bg-surface-900 dark:text-surface-200"
+		class="border-surface-300 bg-surface-50 text-surface-700 dark:border-surface-600 dark:bg-surface-900 dark:text-surface-200 fixed z-50 max-h-[70vh] w-[min(28rem,calc(100vw-1rem))] overflow-auto rounded-md border p-3 text-sm font-normal shadow-xl"
 		style:left={`${activeTooltip.left}px`}
 		style:top={activeTooltip.top === undefined ? undefined : `${activeTooltip.top}px`}
 		style:bottom={activeTooltip.bottom === undefined ? undefined : `${activeTooltip.bottom}px`}
@@ -333,7 +370,8 @@
 		onfocusout={scheduleTooltipHide}
 	>
 		<div class="font-mono font-semibold">
-			{activeTooltip.permission.verb} {displayResource(activeTooltip.permission)}
+			{activeTooltip.permission.verb}
+			{displayResource(activeTooltip.permission)}
 		</div>
 		<dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
 			<dt class="text-surface-500">Scope</dt>
@@ -350,7 +388,7 @@
 			<dd><code>{activeTooltip.permission.apiGroup || '(core)'}</code></dd>
 		</dl>
 		{#if matches.length === 0}
-			<p class="mt-2 text-xs text-surface-500">No matching KubeTier assessment.</p>
+			<p class="text-surface-500 mt-2 text-xs">No matching KubeTier assessment.</p>
 		{:else}
 			<div class="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
 				{#each assessments as assessment}
@@ -359,8 +397,13 @@
 						href={assessmentUrl(assessment)}
 						target="_blank"
 						rel="noreferrer"
-						aria-label={assessments.length === 1 ? 'KubeTier assessment' : `KubeTier: ${assessmentLabel(assessment, assessments)}`}
-					>{assessments.length === 1 ? 'KubeTier assessment' : `KubeTier: ${assessmentLabel(assessment, assessments)}`} ↗</a>
+						aria-label={assessments.length === 1
+							? 'KubeTier assessment'
+							: `KubeTier: ${assessmentLabel(assessment, assessments)}`}
+						>{assessments.length === 1
+							? 'KubeTier assessment'
+							: `KubeTier: ${assessmentLabel(assessment, assessments)}`} ↗</a
+					>
 				{/each}
 				{#each documentationLinks as documentationLink}
 					<a
@@ -368,9 +411,13 @@
 						href={documentationLink.url}
 						target="_blank"
 						rel="noreferrer"
-						aria-label={documentationLinks.length === 1 ? 'Kubernetes documentation' : `Kubernetes docs: ${assessmentLabel(documentationLink.assessment, assessments)}`}
+						aria-label={documentationLinks.length === 1
+							? 'Kubernetes documentation'
+							: `Kubernetes docs: ${assessmentLabel(documentationLink.assessment, assessments)}`}
 					>
-						{documentationLinks.length === 1 ? 'Kubernetes documentation' : `Kubernetes docs: ${assessmentLabel(documentationLink.assessment, assessments)}`} ↗
+						{documentationLinks.length === 1
+							? 'Kubernetes documentation'
+							: `Kubernetes docs: ${assessmentLabel(documentationLink.assessment, assessments)}`} ↗
 					</a>
 				{/each}
 			</div>
@@ -379,13 +426,20 @@
 				<ul class="mt-2 list-disc pl-4">
 					{#each escalationPaths as path}
 						<li>
-							<a class="underline" href={path.sourceUrl} target="_blank" rel="noreferrer">{path.name} ↗</a>
-							{#if path.steps.length > 0}<ol class="list-decimal pl-4">{#each path.steps as step}<li>{step}</li>{/each}</ol>{/if}
+							<a class="underline" href={path.sourceUrl} target="_blank" rel="noreferrer"
+								>{path.name} ↗</a
+							>
+							{#if path.steps.length > 0}<ol class="list-decimal pl-4">
+									{#each path.steps as step}<li>{step}</li>{/each}
+								</ol>{/if}
 						</li>
 					{/each}
 				</ul>
 			{:else if documentedEscalations > 0}
-				<p class="mt-2 text-xs text-surface-500">{#if matches.length > 1}Up to {/if}{documentedEscalations} documented escalation path(s).</p>
+				<p class="text-surface-500 mt-2 text-xs">
+					{#if matches.length > 1}Up to
+					{/if}{documentedEscalations} documented escalation path(s).
+				</p>
 			{/if}
 		{/if}
 	</div>

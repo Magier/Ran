@@ -14,7 +14,14 @@
 		targetId: string;
 		ttp: TTP;
 		argContext: Record<string, any>;
-		onExecute: (ttpId: string, execSystemId: string, authIdentityId: string, procedureId: string, args: Record<string, string>, executionTimeoutSeconds: number) => void;
+		onExecute: (
+			ttpId: string,
+			execSystemId: string,
+			authIdentityId: string,
+			procedureId: string,
+			args: Record<string, string>,
+			executionTimeoutSeconds: number
+		) => void;
 		onCancel: () => void;
 	}
 	let { targetId = $bindable(), ttp, argContext, onExecute, onCancel }: ParamProps = $props();
@@ -46,7 +53,7 @@
 	let procedureId = $state('');
 	let args = $state<Arg[]>([]);
 	let availableEntities: Entity[] = $state([]);
-	let namespaceArgName: string = "";
+	let namespaceArgName: string = '';
 	let selectedExecSystemId = $state('');
 	let eligibleAuthIdentities = $state<AuthIdentity[]>([]);
 	let selectedAuthIdentityId = $state('');
@@ -56,38 +63,40 @@
 	const compromisedSystems = $derived(campaignState.getCompromisedSystems());
 	const execSystemOptions = $derived<ComboboxOption[]>(
 		compromisedSystems
-			.map(e => ({ label: e.name, value: e.id, group: e.namespace }))
+			.map((e) => ({ label: e.name, value: e.id, group: e.namespace }))
 			.sort((a, b) => a.label.localeCompare(b.label))
 	);
 	const selectedExecSystem = $derived(
-		compromisedSystems.find(e => e.id === selectedExecSystemId)
+		compromisedSystems.find((e) => e.id === selectedExecSystemId)
 	);
 	const hasAdvancedSettings = $derived.by(() => {
-		const procedure = ttp.procedures?.find(candidate => candidate.id === procedureId)
-			?? ttp.procedures?.[0];
+		const procedure =
+			ttp.procedures?.find((candidate) => candidate.id === procedureId) ?? ttp.procedures?.[0];
 		return !!procedure?.command?.trim() && !procedure.isLocalCommand;
 	});
 	$effect(() => {
 		const actionId = ttp?.id;
 		const selectedTargetId = targetId;
 		const hasAuthParameter = ttp?.params?.some(
-			param => param.name === 'K8S_AUTH' && param.type === 'K8sAuth'
+			(param) => param.name === 'K8S_AUTH' && param.type === 'K8sAuth'
 		);
 		if (!actionId || !selectedTargetId || !hasAuthParameter) {
 			eligibleAuthIdentities = [];
 			selectedAuthIdentityId = '';
 			return;
 		}
-		ranAPI.GetEligibleAuthIdentities(actionId, selectedTargetId)
+		ranAPI
+			.GetEligibleAuthIdentities(actionId, selectedTargetId)
 			.then((identities) => {
 				eligibleAuthIdentities = identities;
-				const declaredIdentity = args.find(arg => arg.Name === 'K8S_AUTH')?.Value;
-				if (declaredIdentity && identities.some(identity => identity.id === declaredIdentity)) {
+				const declaredIdentity = args.find((arg) => arg.Name === 'K8S_AUTH')?.Value;
+				if (declaredIdentity && identities.some((identity) => identity.id === declaredIdentity)) {
 					selectedAuthIdentityId = declaredIdentity;
 				}
-				if (!identities.some(identity => identity.id === selectedAuthIdentityId)) {
-					const eligibleServiceAccounts = campaignState.getServiceAccountsWithTokens()
-						.filter(entity => identities.some(identity => identity.id === entity.id));
+				if (!identities.some((identity) => identity.id === selectedAuthIdentityId)) {
+					const eligibleServiceAccounts = campaignState
+						.getServiceAccountsWithTokens()
+						.filter((entity) => identities.some((identity) => identity.id === entity.id));
 					const best = findBestTokenForTTP(
 						eligibleServiceAccounts,
 						ttp.requires,
@@ -98,12 +107,13 @@
 						selectedTargetId,
 						best?.entity.id
 					);
-					authAutoSelectSource = identities.some(identity => identity.id === selectedTargetId)
-						|| identities.length === 1
-						? null
-						: best?.source ?? null;
+					authAutoSelectSource =
+						identities.some((identity) => identity.id === selectedTargetId) ||
+						identities.length === 1
+							? null
+							: (best?.source ?? null);
 				}
-				const authArgIndex = args.findIndex(arg => arg.Name === 'K8S_AUTH');
+				const authArgIndex = args.findIndex((arg) => arg.Name === 'K8S_AUTH');
 				if (authArgIndex !== -1) {
 					args = args.with(authArgIndex, {
 						...args[authArgIndex],
@@ -117,13 +127,15 @@
 			});
 	});
 
-	const target = $derived.by(() => { return campaignState.getObjectById(targetId); });
+	const target = $derived.by(() => {
+		return campaignState.getObjectById(targetId);
+	});
 
 	let argOptions: Record<string, ComboboxOption[]> = $state({});
 	// Incremented when a combobox value is set programmatically (external update),
 	// used as a {#key} to force remount so defaultValue is re-applied.
 	let argExternalVersions: Record<string, number> = $state({});
-	
+
 	// Track which args have been auto-selected to prevent infinite loops
 	let autoSelectedArgs: Set<string> = new Set();
 
@@ -159,9 +171,9 @@
 
 		// Tier 1: RBAC-based matching
 		if (requiredPerms.length > 0) {
-			const matching = availableSAs.filter(sa => {
+			const matching = availableSAs.filter((sa) => {
 				const saPerms: any[] = (sa as any).can ?? [];
-				return requiredPerms.every(req => saPermSatisfies(saPerms, req));
+				return requiredPerms.every((req) => saPermSatisfies(saPerms, req));
 			});
 			if (matching.length === 1) return { entity: matching[0], source: 'rbac' };
 			if (matching.length > 1) {
@@ -188,12 +200,12 @@
 		execSystemId: string
 	): { entity: Entity; source: 'proximity' } | undefined {
 		if (!execSystemId) return undefined;
-		const saIds = new Set(availableSAs.map(sa => sa.id));
+		const saIds = new Set(availableSAs.map((sa) => sa.id));
 
 		// Check `uses` relation from exec system to a SA
 		for (const rel of campaignState.relations.values()) {
 			if (rel.source === execSystemId && rel.kind === 'uses' && saIds.has(rel.destination)) {
-				const sa = availableSAs.find(s => s.id === rel.destination);
+				const sa = availableSAs.find((s) => s.id === rel.destination);
 				if (sa) return { entity: sa, source: 'proximity' };
 			}
 		}
@@ -202,7 +214,7 @@
 		const execEntity = campaignState.getObjectById(execSystemId);
 		const saName = (execEntity as any)?.serviceAccountName;
 		if (saName) {
-			const sa = availableSAs.find(s => s.name === saName);
+			const sa = availableSAs.find((s) => s.name === saName);
 			if (sa) return { entity: sa, source: 'proximity' };
 		}
 
@@ -210,16 +222,17 @@
 	}
 
 	function defaultExecutionSystemId(targetId: string, systems: Entity[]): string {
-		if (systems.some(system => system.id === targetId)) return targetId;
+		if (systems.some((system) => system.id === targetId)) return targetId;
 
 		// Identity-targeted actions execute on a system linked to that identity.
 		// Mirror that graph relationship in the modal so procedure availability is
 		// checked against the pod where the command will physically run.
-		const linkedSystem = systems.find(system =>
-			Array.from(campaignState.relations.values()).some(relation =>
-				relation.source === system.id &&
-				relation.destination === targetId &&
-				relation.kind === 'uses'
+		const linkedSystem = systems.find((system) =>
+			Array.from(campaignState.relations.values()).some(
+				(relation) =>
+					relation.source === system.id &&
+					relation.destination === targetId &&
+					relation.kind === 'uses'
 			)
 		);
 		if (linkedSystem) return linkedSystem.id;
@@ -230,21 +243,21 @@
 	}
 
 	let selectedNamespace = $derived.by(() => {
-		const nsArg = args.find(arg => arg.Type === 'Namespace');
+		const nsArg = args.find((arg) => arg.Type === 'Namespace');
 		return nsArg ? nsArg.Value : '';
 	});
-	
+
 	// Track the last namespace we cleared for to prevent repeated clears
 	let lastClearedNamespace = $state('');
 
 	let isAllNamespaces = $derived.by(() => {
-		const allNsArg = args.find(arg => arg.Name === 'ALL_NS');
+		const allNsArg = args.find((arg) => arg.Name === 'ALL_NS');
 		return allNsArg ? allNsArg.IsTrue : false;
 	});
 
 	function selectNamespace(ns: string) {
 		// Update args immutably so Svelte's reactivity picks up the change
-		args = args.map(a => {
+		args = args.map((a) => {
 			if (a.Type === 'Namespace') {
 				bumpArgVersion(a.Name);
 				return { ...a, Value: ns };
@@ -258,29 +271,29 @@
 		if (selectedNamespace === lastClearedNamespace) {
 			return;
 		}
-		
+
 		// Update tracking before processing
 		lastClearedNamespace = selectedNamespace;
-		
+
 		// Authentication identities can be cross-namespace and must remain stable.
 		let hasOutOfNsResources = false;
-		
+
 		for (const arg of args) {
 			if (arg.Type === 'Namespace' || arg.Name === 'TOKEN' || arg.Name === 'K8S_AUTH') continue;
-			
+
 			// Only check args that have a value
 			if (!arg.Value) continue;
-			
+
 			// Check if this arg has options (meaning it's an entity selector)
 			const options = argOptions[arg.Name];
 			if (options && options.length > 0) {
 				// Find the selected option to get its namespace (group)
-				const selectedOption = options.find(opt => opt.value === arg.Value);
+				const selectedOption = options.find((opt) => opt.value === arg.Value);
 				if (selectedOption && selectedOption.group && selectedOption.group !== selectedNamespace) {
 					hasOutOfNsResources = true;
 					break;
 				}
-			} else if (arg.Value.startsWith("ns/") && !arg.Value.startsWith(`ns/${selectedNamespace}`)) {
+			} else if (arg.Value.startsWith('ns/') && !arg.Value.startsWith(`ns/${selectedNamespace}`)) {
 				// Fallback: check ID-based resources
 				hasOutOfNsResources = true;
 				break;
@@ -288,28 +301,32 @@
 		}
 
 		if (hasOutOfNsResources) {
-			args = args.map(a => {
+			args = args.map((a) => {
 				if (a.Type === 'Namespace' || a.Name === 'TOKEN' || a.Name === 'K8S_AUTH') return a;
 				if (!a.Value) return a;
-				
+
 				// Check if this arg has options
 				const options = argOptions[a.Name];
 				if (options && options.length > 0) {
-					const selectedOption = options.find(opt => opt.value === a.Value);
-					if (selectedOption && selectedOption.group && selectedOption.group !== selectedNamespace) {
+					const selectedOption = options.find((opt) => opt.value === a.Value);
+					if (
+						selectedOption &&
+						selectedOption.group &&
+						selectedOption.group !== selectedNamespace
+					) {
 						bumpArgVersion(a.Name);
 						// Reset auto-select tracking so it can re-select in the new namespace
 						autoSelectedArgs.delete(a.Name);
-						return { ...a, Value: "" };
+						return { ...a, Value: '' };
 					}
-				} else if (a.Value.startsWith("ns/") && !a.Value.startsWith(`ns/${selectedNamespace}`)) {
+				} else if (a.Value.startsWith('ns/') && !a.Value.startsWith(`ns/${selectedNamespace}`)) {
 					// Fallback: clear ID-based resources
 					bumpArgVersion(a.Name);
 					// Reset auto-select tracking so it can re-select in the new namespace
 					autoSelectedArgs.delete(a.Name);
-					return { ...a, Value: "" };
+					return { ...a, Value: '' };
 				}
-				
+
 				return a;
 			});
 		}
@@ -319,40 +336,40 @@
 	$effect(() => {
 		// Only track args array changes, not derived values
 		const currentArgs = args;
-		
+
 		// Use untrack to avoid circular dependencies with selectedNamespace
 		untrack(() => {
 			// Check each arg to see if it has exactly one option
 			let needsUpdate = false;
 			const updates: Array<{ index: number; value: string; name: string }> = [];
-			
+
 			currentArgs.forEach((arg, i) => {
 				// Skip if it's a boolean or doesn't have options
 				if (arg.Type === 'bool') return;
-				
+
 				// Skip if we've already auto-selected this arg
 				if (autoSelectedArgs.has(arg.Name)) return;
-				
+
 				// Skip if already has a value
 				if (arg.Value && arg.Value !== '') return;
-				
+
 				const options = getArgOptions(arg.Name);
-				
+
 				// If there's exactly one option and current value doesn't match it
 				if (options.length === 1 && arg.Value !== options[0].value) {
 					updates.push({ index: i, value: options[0].value, name: arg.Name });
 					needsUpdate = true;
 				}
 			});
-			
+
 			if (needsUpdate) {
 				// Mark these args as auto-selected before updating
-				updates.forEach(u => autoSelectedArgs.add(u.name));
-				
+				updates.forEach((u) => autoSelectedArgs.add(u.name));
+
 				args = currentArgs.map((a, i) => {
-					const update = updates.find(u => u.index === i);
+					const update = updates.find((u) => u.index === i);
 					if (update) {
-						console.info("Auto-selecting single option for", update.name, ":", update.value);
+						console.info('Auto-selecting single option for', update.name, ':', update.value);
 						bumpArgVersion(update.name);
 						return { ...a, Value: update.value };
 					}
@@ -365,24 +382,24 @@
 	// Initialize args when TTP changes
 	$effect(() => {
 		const currentTtpId = ttp?.id;
-		
+
 		// Only re-initialize if TTP actually changed
 		if (currentTtpId === previousTtpId) {
 			return;
 		}
 		previousTtpId = currentTtpId;
-		
+
 		// Capture all reactive values we need before untrack
 		const ttpParams = ttp.params;
 		const ttpProcedures = ttp?.procedures;
 		const currentTargetId = targetId;
 		const currentArgContext = argContext;
-		
+
 		// Derive initial namespace from targetId, not from selectedNamespace (which depends on args)
-		const initialNamespace = currentTargetId.startsWith("ns/") ? currentTargetId.split("/")[1] : "";
-		
+		const initialNamespace = currentTargetId.startsWith('ns/') ? currentTargetId.split('/')[1] : '';
+
 		untrack(() => {
-			console.group("ActionParamsModal: Initializing args for TTP", currentTtpId);
+			console.group('ActionParamsModal: Initializing args for TTP', currentTtpId);
 
 			// Reset argOptions, external versions, auto-select tracking, and namespace tracking when TTP changes
 			argOptions = {};
@@ -392,7 +409,8 @@
 			tokenAutoSelectSource = null;
 			authAutoSelectSource = null;
 
-			args = ttpParams?.map((param: TTPParam) => {
+			args =
+				ttpParams?.map((param: TTPParam) => {
 					let value = param.default;
 					if (currentArgContext && param.name in currentArgContext) {
 						value = currentArgContext[param.name];
@@ -405,30 +423,31 @@
 							const e = parseEntityId(currentTargetId);
 							value = e?.name || '';
 						}
-						console.log("Setting target", param.name, "to value", value);
+						console.log('Setting target', param.name, 'to value', value);
 					} else if (value.indexOf('${TARGET.IP}') >= 0 && target?.ips?.[0]) {
-						value = value.replace("${TARGET.IP}", target.ips[0]);
+						value = value.replace('${TARGET.IP}', target.ips[0]);
 					}
 
 					if (param.type === 'Namespace') {
 						namespaceArgName = param.name;
 						if (
-							currentTargetId.startsWith("ns/")
-							&& (value === "" || value === "${NS}" || value === "${NAMESPACE}")
+							currentTargetId.startsWith('ns/') &&
+							(value === '' || value === '${NS}' || value === '${NAMESPACE}')
 						) {
-							value = currentTargetId.split("/")[1];
+							value = currentTargetId.split('/')[1];
 						}
 					} else if (param.type === 'Pod') {
-						availableEntities = campaignState.getPods("")
+						availableEntities = campaignState.getPods('');
 						argOptions[param.name] = availableEntities.map(entityToComboboxOption);
 					} else if (param.type === 'Listener') {
 						// Listeners are folded into their C2's node payload rather than
 						// being nodes themselves, so they are collected from there. The
 						// value is the entity id, which is what `${TARGET}` resolves to
 						// when the operator selected the listener in the graph.
-						argOptions[param.name] = allListeners(campaignState.graph?.nodes).map(
-							(listener) => ({ label: listener.entry, value: listener.id })
-						);
+						argOptions[param.name] = allListeners(campaignState.graph?.nodes).map((listener) => ({
+							label: listener.entry,
+							value: listener.id
+						}));
 					} else if (param.type === 'Redirector') {
 						// Same as Listener: redirectors ride on their C2's node payload,
 						// so the options come from there and the value is the entity id.
@@ -456,7 +475,7 @@
 				}) || [];
 
 			// Auto-select TOKEN based on RBAC requirements or exec system proximity
-			const tokenArg = args.find(a => a.Name === 'TOKEN');
+			const tokenArg = args.find((a) => a.Name === 'TOKEN');
 			if (tokenArg && !tokenArg.Value) {
 				const tokenSAs = campaignState.getServiceAccountsWithTokens();
 				const best = findBestTokenForTTP(tokenSAs, ttp.requires, selectedExecSystemId);
@@ -490,7 +509,7 @@
 			// Only re-evaluate if TOKEN was set via proximity (not RBAC or manual)
 			if (tokenAutoSelectSource !== 'proximity') return;
 
-			const tokenArgIdx = args.findIndex(a => a.Name === 'TOKEN');
+			const tokenArgIdx = args.findIndex((a) => a.Name === 'TOKEN');
 			if (tokenArgIdx === -1) return;
 
 			const tokenSAs = campaignState.getServiceAccountsWithTokens();
@@ -511,12 +530,13 @@
 		const identities = eligibleAuthIdentities;
 		untrack(() => {
 			if (authAutoSelectSource !== 'proximity') return;
-			const eligibleServiceAccounts = campaignState.getServiceAccountsWithTokens()
-				.filter(entity => identities.some(identity => identity.id === entity.id));
+			const eligibleServiceAccounts = campaignState
+				.getServiceAccountsWithTokens()
+				.filter((entity) => identities.some((identity) => identity.id === entity.id));
 			const best = findClosestToken(eligibleServiceAccounts, execId);
 			if (best && best.entity.id !== selectedAuthIdentityId) {
 				selectedAuthIdentityId = best.entity.id;
-				const authArgIndex = args.findIndex(arg => arg.Name === 'K8S_AUTH');
+				const authArgIndex = args.findIndex((arg) => arg.Name === 'K8S_AUTH');
 				if (authArgIndex !== -1) {
 					args = args.with(authArgIndex, {
 						...args[authArgIndex],
@@ -546,10 +566,15 @@
 	// namespace options
 	$effect(() => {
 		const uniqueNamespaces = availableEntities.reduce((nss: Set<string>, r) => {
-			if (r.namespace) { nss.add(r.namespace); }
+			if (r.namespace) {
+				nss.add(r.namespace);
+			}
 			return nss;
 		}, new Set<string>());
-		argOptions[namespaceArgName] = Array.from(uniqueNamespaces.values()).map(ns => ({ label: ns, value: ns }));
+		argOptions[namespaceArgName] = Array.from(uniqueNamespaces.values()).map((ns) => ({
+			label: ns,
+			value: ns
+		}));
 	});
 
 	// When the execution system changes, auto-switch to first available procedure if current is disabled
@@ -559,11 +584,11 @@
 		const procedures = ttp?.procedures;
 		if (!procedures || procedures.length <= 1) return;
 
-		const currentOk = executingSystemHasTool(procedureToolName(
-			procedures.find(p => p.id === procedureId) ?? procedures[0]
-		));
+		const currentOk = executingSystemHasTool(
+			procedureToolName(procedures.find((p) => p.id === procedureId) ?? procedures[0])
+		);
 		if (!currentOk) {
-			const first = procedures.find(p => executingSystemHasTool(procedureToolName(p)));
+			const first = procedures.find((p) => executingSystemHasTool(procedureToolName(p)));
 			if (first) {
 				procedureId = first.id;
 			}
@@ -587,12 +612,12 @@
 
 	// the args will be the final arguments used when executing the TTP
 	function onInternalExecute() {
-		const authArg = args.find(arg => arg.Name === 'K8S_AUTH');
+		const authArg = args.find((arg) => arg.Name === 'K8S_AUTH');
 		const authIdentityId = authArg?.Value || selectedAuthIdentityId;
 		const argsDict = args.reduce(
 			(acc: { [key: string]: string }, arg) => {
 				if (arg.Name === 'K8S_AUTH') return acc;
-				const isTemplateVar = arg.Value.startsWith("${") && arg.Value.endsWith("}");
+				const isTemplateVar = arg.Value.startsWith('${') && arg.Value.endsWith('}');
 				if (isTemplateVar) {
 					// if the value is a variable, do not do any conversion
 				} else if (arg.Type === 'bool') {
@@ -614,40 +639,73 @@
 					arg.Value = arg.Value.toString();
 				} else {
 					// for non-primitive types ensure the value is in the expected format
-					console.group("Processing arg", arg.Name);
-					console.info("Processing arg", arg.Name, "of type", arg.Type, "with value", arg.Value);
-					
+					console.group('Processing arg', arg.Name);
+					console.info('Processing arg', arg.Name, 'of type', arg.Type, 'with value', arg.Value);
+
 					// If parameter name ends with "Name", send the label (name) instead of the ID
-					if (arg.Name.endsWith("Name")) {
+					if (arg.Name.endsWith('Name')) {
 						const options = argOptions[arg.Name];
 						if (options) {
-							const matchingOption = options.find(opt => opt.value === arg.Value);
+							const matchingOption = options.find((opt) => opt.value === arg.Value);
 							if (matchingOption) {
 								arg.Value = matchingOption.label;
-								console.info("Parameter ends with 'Name': using label instead of ID:", matchingOption.label);
+								console.info(
+									"Parameter ends with 'Name': using label instead of ID:",
+									matchingOption.label
+								);
 							}
 						}
 					} else {
 						// Entity types should use the full ID (not just the name)
 						const entityTypes = [
-							'Pod', 'Namespace', 'ServiceAccount', 'Service', 'Deployment', 'Container',
-							'ConfigMap', 'Secret', 'Role', 'ClusterRole', 'RoleBinding', 'ClusterRoleBinding',
-							'Node', 'ClusterNode', 'Ingress', 'Daemonset', 'CronJob', 'Job', 'Statefulset',
-							'Volume', 'User', 'Group', 'KubeApiServer', 'ControlPlane', 'Listener', 'Redirector',
+							'Pod',
+							'Namespace',
+							'ServiceAccount',
+							'Service',
+							'Deployment',
+							'Container',
+							'ConfigMap',
+							'Secret',
+							'Role',
+							'ClusterRole',
+							'RoleBinding',
+							'ClusterRoleBinding',
+							'Node',
+							'ClusterNode',
+							'Ingress',
+							'Daemonset',
+							'CronJob',
+							'Job',
+							'Statefulset',
+							'Volume',
+							'User',
+							'Group',
+							'KubeApiServer',
+							'ControlPlane',
+							'Listener',
+							'Redirector',
 							// GCP resources
-							'GCPBucket', 'GCPServiceAccount', 'GCPServiceAccountToken', 'MetadataServer', 'GCPMetadataServer'
+							'GCPBucket',
+							'GCPServiceAccount',
+							'GCPServiceAccountToken',
+							'MetadataServer',
+							'GCPMetadataServer'
 						];
 						const isEntityType = entityTypes.includes(arg.Type);
-						
-						if (!isEntityType && arg.Name.toLowerCase().endsWith("name") && arg.Value.indexOf("/") !== -1) {
+
+						if (
+							!isEntityType &&
+							arg.Name.toLowerCase().endsWith('name') &&
+							arg.Value.indexOf('/') !== -1
+						) {
 							// For non-entity types, if the arg is a name, extract just the name part
-							const parts = arg.Value.split("/");
+							const parts = arg.Value.split('/');
 							arg.Value = parts[parts.length - 1];
 						}
 						// Otherwise keep the full value (ID for entities, or whatever was provided)
 					}
-					
-					console.info("Post Processed arg", arg.Name, "final value", arg.Value);
+
+					console.info('Post Processed arg', arg.Name, 'final value', arg.Value);
 					console.groupEnd();
 				}
 				acc[arg.Name] = arg.Value;
@@ -656,7 +714,14 @@
 			{} as { [key: string]: string }
 		);
 
-		onExecute(ttp.id, selectedExecSystemId, authIdentityId, procedureId, argsDict, executionTimeoutSeconds);
+		onExecute(
+			ttp.id,
+			selectedExecSystemId,
+			authIdentityId,
+			procedureId,
+			argsDict,
+			executionTimeoutSeconds
+		);
 	}
 
 	function executingSystemHasTool(tool: string): boolean {
@@ -678,39 +743,51 @@
 
 	function getArgOptions(argName: string): ComboboxOption[] {
 		let opts = argOptions[argName] ?? [];
-		if (selectedNamespace !== "" && argName !== namespaceArgName && argName !== "TOKEN" && argName !== "K8S_AUTH") {
-			opts = opts.filter(o => o.group === selectedNamespace);
+		if (
+			selectedNamespace !== '' &&
+			argName !== namespaceArgName &&
+			argName !== 'TOKEN' &&
+			argName !== 'K8S_AUTH'
+		) {
+			opts = opts.filter((o) => o.group === selectedNamespace);
 		}
-		return opts
+		return opts;
 	}
-	
+
 	function toComboBoxCollection(items: ComboboxOption[]) {
 		return useListCollection({
-		  items: items,
-		  itemToString: (item) => item.label,
-		  itemToValue: (item) => item.value,
-		  isItemDisabled: (item) => !!item.disabled,
-		  groupBy: (item) => item.group || ''
-		})
+			items: items,
+			itemToString: (item) => item.label,
+			itemToValue: (item) => item.value,
+			isItemDisabled: (item) => !!item.disabled,
+			groupBy: (item) => item.group || ''
+		});
 	}
 
 	function onArgChange(arg: Arg, e: any) {
-		console.info("Arg change event for", arg.Name, "new value", e.value[0], "selected item", e.items?.[0]);
-		
+		console.info(
+			'Arg change event for',
+			arg.Name,
+			'new value',
+			e.value[0],
+			'selected item',
+			e.items?.[0]
+		);
+
 		// Mark TOKEN as manually selected so auto-select doesn't override
 		if (arg.Name === 'TOKEN') {
 			tokenAutoSelectSource = 'manual';
 		}
 
 		// IMMUTABLE UPDATE so Svelte sees it:
-		const i = args.findIndex(a => a.Name === arg.Name);
+		const i = args.findIndex((a) => a.Name === arg.Name);
 		if (i !== -1) {
 			const newValue = e.value[0];
 			args = args.with(i, { ...args[i], Value: newValue });
 		} else {
-			console.warn("Could not find arg to update:", arg.Name);
+			console.warn('Could not find arg to update:', arg.Name);
 		}
-		
+
 		// If the chosen item carries a namespace in its group, and this is not the Namespace field itself,
 		// auto-select that namespace (but skip TOKEN which can be cross-namespace)
 		if (arg.Type !== 'Namespace' && arg.Name !== 'TOKEN') {
@@ -721,7 +798,7 @@
 			}
 		}
 
-		console.info("Updated args after change:", args);
+		console.info('Updated args after change:', args);
 
 		// arg.Value = e.value[0]
 		// if (e.items.length > 0 && e.items[0].group ) {
@@ -732,29 +809,29 @@
 	function onAuthIdentityChange(value: string) {
 		selectedAuthIdentityId = value;
 		authAutoSelectSource = 'manual';
-		const index = args.findIndex(arg => arg.Name === 'K8S_AUTH');
+		const index = args.findIndex((arg) => arg.Name === 'K8S_AUTH');
 		if (index !== -1) {
 			args = args.with(index, { ...args[index], Value: value });
 		}
 	}
 
 	function handleInputBlur(arg: Arg, inputValue: string) {
-		const i = args.findIndex(a => a.Name === arg.Name);
+		const i = args.findIndex((a) => a.Name === arg.Name);
 		if (i === -1) return;
 
 		const currentArg = args[i];
-		
+
 		// Get available options for this arg
 		let options = argOptions[arg.Name] ?? [];
-		if (selectedNamespace !== "" && arg.Name !== namespaceArgName && arg.Name !== "TOKEN") {
-			options = options.filter(o => o.group === selectedNamespace);
+		if (selectedNamespace !== '' && arg.Name !== namespaceArgName && arg.Name !== 'TOKEN') {
+			options = options.filter((o) => o.group === selectedNamespace);
 		}
-		
+
 		// Check if the input matches an option's label or value
-		const matchingOption = options.find((opt: ComboboxOption) => 
-			opt.label === inputValue || opt.value === inputValue
+		const matchingOption = options.find(
+			(opt: ComboboxOption) => opt.label === inputValue || opt.value === inputValue
 		);
-		
+
 		if (matchingOption) {
 			// Use the full value (ID) from the matching option
 			args = args.with(i, { ...currentArg, Value: matchingOption.value });
@@ -765,46 +842,68 @@
 	}
 </script>
 
-<form bind:this={formElement} class="w-full flex flex-col text-xs md:text-sm lg:text-base min-h-0" onsubmit={onInternalExecute}>
-	<header class="flex justify-between flex-shrink-0">
+<form
+	bind:this={formElement}
+	class="flex min-h-0 w-full flex-col text-xs md:text-sm lg:text-base"
+	onsubmit={onInternalExecute}
+>
+	<header class="flex flex-shrink-0 justify-between">
 		<h4 class="h4 text-sm md:text-base lg:text-lg">{ttp.name}</h4>
 	</header>
-	<article class="overflow-y-auto flex-1 min-h-0 space-y-4 pr-2">
+	<article class="min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
 		<div class="">
 			<span class="h6 label text-xs md:text-sm lg:text-base">Description</span>
 			{ttp.description}
 		</div>
-			{#if execSystemOptions.length > 0}
-				<label class="label mt-5">
-					<span class="h6 label-text text-xs md:text-sm lg:text-base">Execute On</span>
+		{#if execSystemOptions.length > 0}
+			<label class="label mt-5">
+				<span class="h6 label-text text-xs md:text-sm lg:text-base">Execute On</span>
 				{#if execSystemOptions.length === 1}
-					<input id="execSystem" class="input mt-2 text-xs md:text-sm lg:text-base" value="{execSystemOptions[0].group}/{execSystemOptions[0].label}" readonly />
+					<input
+						id="execSystem"
+						class="input mt-2 text-xs md:text-sm lg:text-base"
+						value="{execSystemOptions[0].group}/{execSystemOptions[0].label}"
+						readonly
+					/>
 				{:else if execSystemOptions.length > 1}
-					<select id="execSystem" class="input mt-2 text-xs md:text-sm lg:text-base" bind:value={selectedExecSystemId}>
+					<select
+						id="execSystem"
+						class="input mt-2 text-xs md:text-sm lg:text-base"
+						bind:value={selectedExecSystemId}
+					>
 						{#each execSystemOptions as sys (sys.value)}
 							<option value={sys.value}>{sys.group}/{sys.label}</option>
 						{/each}
 					</select>
 				{/if}
 			</label>
-			{/if}
+		{/if}
 
-			<label class="h6 label mt-5 text-xs md:text-sm lg:text-base" for="procedure">Procedure</label>
-			{#if ttp.procedures && ttp.procedures.length > 1}
-				<select id="procedure" class="input mt-2 text-xs md:text-sm lg:text-base" bind:value={procedureId} disabled={ttp.procedures.length <= 1}>
-					{#each ttp.procedures as procedure (procedure.id)}
-						<option
-							value={procedure.id}
-							disabled={!executingSystemHasTool(procedureToolName(procedure))}
-							title={unavailableToolReason(procedureToolName(procedure))}
-							>{procedureToolName(procedure)}{!executingSystemHasTool(procedureToolName(procedure)) ? ' ❌' : ''}
-						</option>
-					{/each}
-				</select>
-			{:else}
-				<code id="procedure" class="label mt-2 text-xs md:text-sm lg:text-base">{procedureToolName(ttp.procedures?.[0] ?? { id: procedureId })}</code>
-			{/if}
-			<!-- <label class="label mt-5">
+		<label class="h6 label mt-5 text-xs md:text-sm lg:text-base" for="procedure">Procedure</label>
+		{#if ttp.procedures && ttp.procedures.length > 1}
+			<select
+				id="procedure"
+				class="input mt-2 text-xs md:text-sm lg:text-base"
+				bind:value={procedureId}
+				disabled={ttp.procedures.length <= 1}
+			>
+				{#each ttp.procedures as procedure (procedure.id)}
+					<option
+						value={procedure.id}
+						disabled={!executingSystemHasTool(procedureToolName(procedure))}
+						title={unavailableToolReason(procedureToolName(procedure))}
+						>{procedureToolName(procedure)}{!executingSystemHasTool(procedureToolName(procedure))
+							? ' ❌'
+							: ''}
+					</option>
+				{/each}
+			</select>
+		{:else}
+			<code id="procedure" class="label mt-2 text-xs md:text-sm lg:text-base"
+				>{procedureToolName(ttp.procedures?.[0] ?? { id: procedureId })}</code
+			>
+		{/if}
+		<!-- <label class="label mt-5">
 				<span class="label-text">Target</span>
 				<input
 					class="input"
@@ -813,87 +912,100 @@
 					placeholder="Enter target IP or URL"
 				/>
 			</label> -->
-			{#if args.length > 0}
-					<span class="h5 text-xs md:text-sm lg:text-base">Params</span>
-{#each args as arg, index (arg.Name)}
-	<div class="input-group mt-2 grid-cols-[auto_1fr_auto] text-xs md:text-sm lg:text-base"
-		class:opacity-50={arg.Type === 'Namespace' && isAllNamespaces}
-		class:pointer-events-none={arg.Type === 'Namespace' && isAllNamespaces}
-	>
-		<div class="ig-cell preset-tonal">{arg.Name}</div>
-		{#if arg.Type === 'bool'}
-			<input
-				class="checkbox ml-8"
-				bind:checked={arg.IsTrue}
-				type="checkbox"
-				placeholder={arg.Description}
-			/>
-		{:else if arg.Type === 'K8sAuth'}
-			<select
-				id="authIdentity"
-				class="ig-input"
-				value={arg.Value}
-				onchange={(event) => onAuthIdentityChange(event.currentTarget.value)}
-				required={arg.Required}
-			>
-				{#if eligibleAuthIdentities.length !== 1}
-					<option value="" disabled>
-						{eligibleAuthIdentities.length === 0 ? 'No eligible identities' : 'Select an identity…'}
-					</option>
-				{/if}
-				{#each eligibleAuthIdentities as identity (identity.id)}
-					<option value={identity.id}>{identity.kind}: {identity.name}</option>
-				{/each}
-			</select>
-		{:else if getArgOptions(arg.Name).length > 0}
-			{#key argExternalVersions[arg.Name] ?? 0}
-				<Combobox
-					collection={toComboBoxCollection(getArgOptions(arg.Name))}
-					onValueChange={(e) => onArgChange(arg, e)}
-					inputBehavior="autocomplete"
-					allowCustomValue={true}
-					openOnChange={true}
-					defaultValue={[arg.Value]}
-					placeholder={arg.Name + "..."}
-					>
-					<Combobox.Control>
-						<Combobox.Input onblur={(e) => handleInputBlur(arg, e.currentTarget.value)} />
-						<Combobox.Trigger />
-					</Combobox.Control>
-					<Combobox.Positioner>
-						<Combobox.Content class="z-50 bg-surface-100-900 text-xs md:text-sm lg:text-base max-h-64 overflow-y-auto">
-							{#each getArgOptions(arg.Name) as item (item)}
-								<Combobox.Item {item} class="text-surface-contrast-100-900 data-[highlighted]:preset-tonal-surface data-[selected]:preset-tonal {item.disabled ? 'opacity-40 line-through' : ''}">
-									<Combobox.ItemText>{item.label}</Combobox.ItemText>
-									<Combobox.ItemIndicator />
-								</Combobox.Item>
+		{#if args.length > 0}
+			<span class="h5 text-xs md:text-sm lg:text-base">Params</span>
+			{#each args as arg, index (arg.Name)}
+				<div
+					class="input-group mt-2 grid-cols-[auto_1fr_auto] text-xs md:text-sm lg:text-base"
+					class:opacity-50={arg.Type === 'Namespace' && isAllNamespaces}
+					class:pointer-events-none={arg.Type === 'Namespace' && isAllNamespaces}
+				>
+					<div class="ig-cell preset-tonal">{arg.Name}</div>
+					{#if arg.Type === 'bool'}
+						<input
+							class="checkbox ml-8"
+							bind:checked={arg.IsTrue}
+							type="checkbox"
+							placeholder={arg.Description}
+						/>
+					{:else if arg.Type === 'K8sAuth'}
+						<select
+							id="authIdentity"
+							class="ig-input"
+							value={arg.Value}
+							onchange={(event) => onAuthIdentityChange(event.currentTarget.value)}
+							required={arg.Required}
+						>
+							{#if eligibleAuthIdentities.length !== 1}
+								<option value="" disabled>
+									{eligibleAuthIdentities.length === 0
+										? 'No eligible identities'
+										: 'Select an identity…'}
+								</option>
+							{/if}
+							{#each eligibleAuthIdentities as identity (identity.id)}
+								<option value={identity.id}>{identity.kind}: {identity.name}</option>
 							{/each}
-						</Combobox.Content>
-					</Combobox.Positioner>
-				</Combobox>
-			{/key}
-		{:else}
-			<input
-				class="ig-input"
-				bind:value={arg.Value}
-				type="text"
-				placeholder={arg.Description}
-			/>
-		{/if}
-		<!-- <input
+						</select>
+					{:else if getArgOptions(arg.Name).length > 0}
+						{#key argExternalVersions[arg.Name] ?? 0}
+							<Combobox
+								collection={toComboBoxCollection(getArgOptions(arg.Name))}
+								onValueChange={(e) => onArgChange(arg, e)}
+								inputBehavior="autocomplete"
+								allowCustomValue={true}
+								openOnChange={true}
+								defaultValue={[arg.Value]}
+								placeholder={arg.Name + '...'}
+							>
+								<Combobox.Control>
+									<Combobox.Input onblur={(e) => handleInputBlur(arg, e.currentTarget.value)} />
+									<Combobox.Trigger />
+								</Combobox.Control>
+								<Combobox.Positioner>
+									<Combobox.Content
+										class="bg-surface-100-900 z-50 max-h-64 overflow-y-auto text-xs md:text-sm lg:text-base"
+									>
+										{#each getArgOptions(arg.Name) as item (item)}
+											<Combobox.Item
+												{item}
+												class="text-surface-contrast-100-900 data-[highlighted]:preset-tonal-surface data-[selected]:preset-tonal {item.disabled
+													? 'line-through opacity-40'
+													: ''}"
+											>
+												<Combobox.ItemText>{item.label}</Combobox.ItemText>
+												<Combobox.ItemIndicator />
+											</Combobox.Item>
+										{/each}
+									</Combobox.Content>
+								</Combobox.Positioner>
+							</Combobox>
+						{/key}
+					{:else}
+						<input
+							class="ig-input"
+							bind:value={arg.Value}
+							type="text"
+							placeholder={arg.Description}
+						/>
+					{/if}
+					<!-- <input
 			class="ig-input"
 			bind:value={arg.Value}
 			type={arg.Type}
 			placeholder={arg.Description}
 		/> -->
-	</div>
-{/each}
-			{/if}
-			{#if hasAdvancedSettings}
+				</div>
+			{/each}
+		{/if}
+		{#if hasAdvancedSettings}
 			<details class="mt-4 text-xs">
-				<summary class="cursor-pointer font-normal opacity-60 hover:opacity-100">Advanced settings</summary>
+				<summary class="cursor-pointer font-normal opacity-60 hover:opacity-100"
+					>Advanced settings</summary
+				>
 				<label class="label mt-3" for="executionTimeoutSeconds">
-					<span class="label-text text-xs md:text-sm lg:text-base">Execution timeout (seconds)</span>
+					<span class="label-text text-xs md:text-sm lg:text-base">Execution timeout (seconds)</span
+					>
 					<input
 						id="executionTimeoutSeconds"
 						class="input mt-2 text-xs md:text-sm lg:text-base"
@@ -903,13 +1015,21 @@
 						required
 						bind:value={executionTimeoutSeconds}
 					/>
-					<span class="text-xs opacity-70">Maximum time allowed for the complete command. Default: 60 seconds.</span>
+					<span class="text-xs opacity-70"
+						>Maximum time allowed for the complete command. Default: 60 seconds.</span
+					>
 				</label>
 			</details>
-			{/if}
+		{/if}
 	</article>
-	<footer class="flex justify-end gap-4 flex-shrink-0 pt-4">
-		<button type="button" class="btn preset-tonal text-xs md:text-sm lg:text-base" onclick={onCancel}>Cancel</button>
-		<button type="submit" class="btn preset-filled-primary-300-700 text-xs md:text-sm lg:text-base">Execute</button>
+	<footer class="flex flex-shrink-0 justify-end gap-4 pt-4">
+		<button
+			type="button"
+			class="btn preset-tonal text-xs md:text-sm lg:text-base"
+			onclick={onCancel}>Cancel</button
+		>
+		<button type="submit" class="btn preset-filled-primary-300-700 text-xs md:text-sm lg:text-base"
+			>Execute</button
+		>
 	</footer>
 </form>

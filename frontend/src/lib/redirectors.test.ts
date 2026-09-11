@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Node } from '$lib/api/index';
-import {
-	allRedirectors,
-	redirectorHop,
-	redirectorOptions,
-	redirectorsOf
-} from './redirectors';
+import { allRedirectors, redirectorHop, redirectorOptions, redirectorsOf } from './redirectors';
 
 function redirector(playId: string, remotePort: number, listenerPort: number, via = 'labctl') {
 	return {
@@ -86,7 +81,9 @@ describe('redirectorsOf', () => {
 
 	it('still labels a redirector whose tool is unknown', () => {
 		const redirectors = redirectorsOf(
-			c2Node([{ id: 'redirector/play1/1337', playId: 'play1', remotePort: 1337, listenerPort: 4444 }])
+			c2Node([
+				{ id: 'redirector/play1/1337', playId: 'play1', remotePort: 1337, listenerPort: 4444 }
+			])
 		);
 
 		expect(redirectors[0].via).toBe('');
@@ -145,9 +142,7 @@ describe('redirectorHop', () => {
 
 describe('redirectorOptions', () => {
 	it('labels by tool and hop, leaving the playground id out', () => {
-		const options = redirectorOptions([
-			c2Node([redirector('zn1kqxk3ykpvxp5x', 9000, 4444)])
-		]);
+		const options = redirectorOptions([c2Node([redirector('zn1kqxk3ykpvxp5x', 9000, 4444)])]);
 
 		expect(options).toEqual([
 			{ label: 'labctl 9000→4444', value: 'redirector/zn1kqxk3ykpvxp5x/9000' }

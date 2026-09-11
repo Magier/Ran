@@ -85,9 +85,7 @@ export function allRedirectors(nodes: Node[] | undefined): Redirector[] {
  * case the playground id is appended to those. It is noise everywhere else, so
  * it only appears where it is the thing that tells them apart.
  */
-export function redirectorOptions(
-	nodes: Node[] | undefined
-): { label: string; value: string }[] {
+export function redirectorOptions(nodes: Node[] | undefined): { label: string; value: string }[] {
 	const redirectors = allRedirectors(nodes);
 	const seen = new Map<string, number>();
 	for (const redirector of redirectors) {

@@ -197,9 +197,7 @@ describe('C2Badges', () => {
 		// The tooltip names the tool, because that is what says which kind of
 		// redirector this is; the playground id alone carries nothing.
 		expect(
-			screen.getByTitle(
-				'labctl 1337→4444 - via labctl on playground zn1kqxk3ykpvxp5x'
-			)
+			screen.getByTitle('labctl 1337→4444 - via labctl on playground zn1kqxk3ykpvxp5x')
 		).toBeInTheDocument();
 	});
 

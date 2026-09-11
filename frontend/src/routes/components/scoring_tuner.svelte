@@ -175,7 +175,7 @@
 {#if profile?.tuningEnabled}
 	<!-- Trigger -->
 	<button
-		class="bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600 rounded-full p-2 shadow-lg"
+		class="bg-surface-200-800 hover:bg-surface-300-700 border-surface-400-600 rounded-full border p-2 shadow-lg"
 		title="Tune scoring"
 		aria-label="Tune scoring"
 		onclick={() => (open = !open)}
@@ -186,28 +186,28 @@
 	<!-- Flyout -->
 	{#if open}
 		<div
-			class="fixed inset-y-0 right-0 z-[80] w-[380px] max-w-[90vw] bg-surface-100-900 border-l border-surface-300-700 shadow-2xl flex flex-col"
+			class="bg-surface-100-900 border-surface-300-700 fixed inset-y-0 right-0 z-[80] flex w-[380px] max-w-[90vw] flex-col border-l shadow-2xl"
 		>
-			<div class="flex items-center gap-2 px-3 py-2 border-b border-surface-200-800 shrink-0">
+			<div class="border-surface-200-800 flex shrink-0 items-center gap-2 border-b px-3 py-2">
 				<Icon icon="mdi:tune-variant" width="18" class="text-primary-500" />
-				<span class="text-sm font-semibold flex-1">Scoring Tuner</span>
-				{#if saving}<span class="text-xs text-surface-500">saving…</span>{/if}
+				<span class="flex-1 text-sm font-semibold">Scoring Tuner</span>
+				{#if saving}<span class="text-surface-500 text-xs">saving…</span>{/if}
 				<button
-					class="text-xs px-2 py-0.5 rounded bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600"
+					class="bg-surface-200-800 hover:bg-surface-300-700 border-surface-400-600 rounded border px-2 py-0.5 text-xs"
 					title="Persist to ran.scoring.yaml (survives restart)"
 					onclick={persist}
 				>
 					Save
 				</button>
 				<button
-					class="text-xs px-2 py-0.5 rounded bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600"
+					class="bg-surface-200-800 hover:bg-surface-300-700 border-surface-400-600 rounded border px-2 py-0.5 text-xs"
 					title="Revert to configured defaults and drop saved overrides"
 					onclick={reset}
 				>
 					Reset
 				</button>
 				<button
-					class="text-xs px-2 py-0.5 rounded bg-primary-500/20 hover:bg-primary-500/30 border border-primary-500/50 disabled:opacity-50"
+					class="bg-primary-500/20 hover:bg-primary-500/30 border-primary-500/50 rounded border px-2 py-0.5 text-xs disabled:opacity-50"
 					title="Fit weights from the operator decisions captured this and prior sessions"
 					disabled={calibrating}
 					onclick={calibrate}
@@ -220,41 +220,47 @@
 			</div>
 
 			{#if calibrateError}
-				<div class="px-3 py-2 text-xs text-error-400 border-b border-surface-200-800 shrink-0">
+				<div class="text-error-400 border-surface-200-800 shrink-0 border-b px-3 py-2 text-xs">
 					{calibrateError}
 				</div>
 			{/if}
 
 			{#if calibration}
 				{@const m = calibration.metrics}
-				<div class="px-3 py-2 border-b border-surface-200-800 shrink-0 bg-primary-500/5 space-y-1.5">
+				<div
+					class="border-surface-200-800 bg-primary-500/5 shrink-0 space-y-1.5 border-b px-3 py-2"
+				>
 					<div class="flex items-center gap-2">
 						<Icon icon="mdi:auto-fix" width="15" class="text-primary-500" />
-						<span class="text-xs font-semibold flex-1">Calibration preview</span>
+						<span class="flex-1 text-xs font-semibold">Calibration preview</span>
 						<button
-							class="text-xs px-2 py-0.5 rounded bg-primary-500 text-white hover:bg-primary-600"
+							class="bg-primary-500 hover:bg-primary-600 rounded px-2 py-0.5 text-xs text-white"
 							title="Apply the fitted weights to the live profile"
 							onclick={applyCalibration}
 						>
 							Apply
 						</button>
 						<button
-							class="text-xs px-2 py-0.5 rounded bg-surface-200-800 hover:bg-surface-300-700 border border-surface-400-600"
+							class="bg-surface-200-800 hover:bg-surface-300-700 border-surface-400-600 rounded border px-2 py-0.5 text-xs"
 							onclick={() => (calibration = null)}
 						>
 							Dismiss
 						</button>
 					</div>
-					<div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-surface-600-400">
+					<div class="text-surface-600-400 grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
 						<span title="Fraction of decisions where the operator's choice ranks first"
-							>Match (top-1): <span class="font-mono text-surface-900-100">{pct(m.top1Accuracy)}</span></span
+							>Match (top-1): <span class="text-surface-900-100 font-mono"
+								>{pct(m.top1Accuracy)}</span
+							></span
 						>
 						<span title="Mean probability the fitted model assigns the operator's choices"
-							>Confidence: <span class="font-mono text-surface-900-100">{pct(m.meanChosenProb)}</span></span
+							>Confidence: <span class="text-surface-900-100 font-mono"
+								>{pct(m.meanChosenProb)}</span
+							></span
 						>
-						<span>Decisions: <span class="font-mono text-surface-900-100">{m.decisions}</span></span>
-						<span
-							title="Choices no non-negative weighting can reproduce - a missing consideration"
+						<span>Decisions: <span class="text-surface-900-100 font-mono">{m.decisions}</span></span
+						>
+						<span title="Choices no non-negative weighting can reproduce - a missing consideration"
 							>Unreproducible:
 							<span
 								class="font-mono {m.infeasible > 0 ? 'text-warning-500' : 'text-surface-900-100'}"
@@ -263,7 +269,7 @@
 						>
 					</div>
 					{#if m.infeasible > 0}
-						<p class="text-[11px] text-warning-500/90 leading-snug">
+						<p class="text-warning-500/90 text-[11px] leading-snug">
 							{m.infeasible} decision{m.infeasible === 1 ? '' : 's'} can't be reproduced by any weighting
 							- the operator valued something the current considerations don't measure.
 						</p>
@@ -271,17 +277,24 @@
 				</div>
 			{/if}
 
-			<div class="overflow-y-auto flex-1 p-3 space-y-3">
-				<div class="rounded border border-primary-500/30 bg-primary-500/5 p-2 text-[11px] leading-snug text-surface-600-400 space-y-1">
+			<div class="flex-1 space-y-3 overflow-y-auto p-3">
+				<div
+					class="border-primary-500/30 bg-primary-500/5 text-surface-600-400 space-y-1 rounded border p-2 text-[11px] leading-snug"
+				>
 					<p><strong class="text-surface-900-100">Scoring pipeline</strong></p>
-					<code class="block">raw measurement → response curve → weight / gate → utility × reliability</code>
-					<p>Controls below tune the profile at runtime. Formula constants shown under “Raw model” are compile-time policy and are documented here for transparency.</p>
+					<code class="block"
+						>raw measurement → response curve → weight / gate → utility × reliability</code
+					>
+					<p>
+						Controls below tune the profile at runtime. Formula constants shown under “Raw model”
+						are compile-time policy and are documented here for transparency.
+					</p>
 				</div>
 				<!-- Combination mode -->
 				<label class="flex items-center gap-2 text-xs">
 					<span class="text-surface-500 w-24">combination</span>
 					<select
-						class="flex-1 bg-surface-200-800 border border-surface-300-700 rounded px-1 py-0.5"
+						class="bg-surface-200-800 border-surface-300-700 flex-1 rounded border px-1 py-0.5"
 						bind:value={profile.combination}
 						onchange={scheduleSave}
 					>
@@ -294,36 +307,44 @@
 				{#each profile.considerations as c (c.name)}
 					{@const help = helpFor(c.name)}
 					<div
-						class="border border-surface-200-800 rounded p-2 space-y-2"
+						class="border-surface-200-800 space-y-2 rounded border p-2"
 						class:opacity-50={!c.enabled}
 					>
 						<div class="flex items-center gap-2">
-							<div class="flex-1 min-w-0">
-								<span class="text-sm font-medium block truncate">{help?.label ?? c.name}</span>
-								<span class="text-[10px] text-surface-500">{c.name} · {help?.kind ?? 'utility'}</span>
+							<div class="min-w-0 flex-1">
+								<span class="block truncate text-sm font-medium">{help?.label ?? c.name}</span>
+								<span class="text-surface-500 text-[10px]"
+									>{c.name} · {help?.kind ?? 'utility'}</span
+								>
 							</div>
-							<label class="flex items-center gap-1 text-[10px] text-surface-500" title="Veto gate">
+							<label class="text-surface-500 flex items-center gap-1 text-[10px]" title="Veto gate">
 								<input type="checkbox" bind:checked={c.veto} onchange={scheduleSave} />
 								veto
 							</label>
-							<label class="flex items-center gap-1 text-[10px] text-surface-500" title="Enabled">
+							<label class="text-surface-500 flex items-center gap-1 text-[10px]" title="Enabled">
 								<input type="checkbox" bind:checked={c.enabled} onchange={scheduleSave} />
 								on
 							</label>
 						</div>
 
 						{#if help}
-							<details class="rounded bg-surface-200-800/60 border border-surface-300-700 px-2 py-1">
-								<summary class="cursor-pointer text-[11px] font-medium">Raw model and exact formula</summary>
-								<div class="pt-1 space-y-1 text-[11px] leading-snug text-surface-600-400">
+							<details
+								class="bg-surface-200-800/60 border-surface-300-700 rounded border px-2 py-1"
+							>
+								<summary class="cursor-pointer text-[11px] font-medium"
+									>Raw model and exact formula</summary
+								>
+								<div class="text-surface-600-400 space-y-1 pt-1 text-[11px] leading-snug">
 									<p>{help.summary}</p>
-									<code class="block rounded bg-surface-100-900 px-1.5 py-1 text-surface-900-100">{help.formula}</code>
-									<ul class="list-disc pl-4 space-y-0.5">
+									<code class="bg-surface-100-900 text-surface-900-100 block rounded px-1.5 py-1"
+										>{help.formula}</code
+									>
+									<ul class="list-disc space-y-0.5 pl-4">
 										{#each help.details as detail}<li>{detail}</li>{/each}
 									</ul>
 									{#if help.constants?.length}
-										<p class="font-medium text-surface-900-100">Current constants</p>
-										<ul class="list-disc pl-4 space-y-0.5">
+										<p class="text-surface-900-100 font-medium">Current constants</p>
+										<ul class="list-disc space-y-0.5 pl-4">
 											{#each help.constants as constant}<li>{constant}</li>{/each}
 										</ul>
 									{/if}
@@ -336,7 +357,7 @@
 							<svg
 								width={PLOT_W}
 								height={PLOT_H}
-								class="shrink-0 bg-surface-200-800 rounded border border-surface-300-700"
+								class="bg-surface-200-800 border-surface-300-700 shrink-0 rounded border"
 							>
 								<!-- identity reference -->
 								<line
@@ -361,10 +382,9 @@
 							<!-- Controls -->
 							<div class="flex-1 space-y-1">
 								<select
-									class="w-full text-xs bg-surface-200-800 border border-surface-300-700 rounded px-1 py-0.5"
+									class="bg-surface-200-800 border-surface-300-700 w-full rounded border px-1 py-0.5 text-xs"
 									value={c.curve.type}
-									onchange={(e) =>
-										setCurveType(c, e.currentTarget.value as ResponseCurve['type'])}
+									onchange={(e) => setCurveType(c, e.currentTarget.value as ResponseCurve['type'])}
 								>
 									{#each curveTypes as t}
 										<option value={t}>{t}</option>
@@ -377,7 +397,7 @@
 										<input
 											type="number"
 											step="0.1"
-											class="num-input flex-1 w-0 h-5 text-[10px] leading-none bg-surface-200-800 border border-surface-300-700 rounded px-1"
+											class="num-input bg-surface-200-800 border-surface-300-700 h-5 w-0 flex-1 rounded border px-1 text-[10px] leading-none"
 											value={(c.curve as unknown as Record<string, number>)[key] ?? 0}
 											oninput={(e) => {
 												(c.curve as unknown as Record<string, number>)[key] =

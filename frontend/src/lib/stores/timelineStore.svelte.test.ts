@@ -1,470 +1,466 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-    TimelineStore,
-    type TtpActionEntry,
-    type EntityEntry,
-    type ActionGroup,
-    type TopEntry
+	TimelineStore,
+	type TtpActionEntry,
+	type EntityEntry,
+	type ActionGroup,
+	type TopEntry
 } from '$lib/stores/timelineStore.svelte';
 
 function makeTtpEntry(
-    overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}
+	overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}
 ): Omit<TtpActionEntry, 'kind'> {
-    return {
-        id: 'cmd-abc',
-        ttpId: 'list-env',
-        ttpName: 'List Environment Variables',
-        targetId: 'pod-1',
-        targetName: 'my-pod',
-        status: 'pending',
-        timestamp: new Date('2026-05-25T10:00:00Z'),
-        ...overrides
-    };
+	return {
+		id: 'cmd-abc',
+		ttpId: 'list-env',
+		ttpName: 'List Environment Variables',
+		targetId: 'pod-1',
+		targetName: 'my-pod',
+		status: 'pending',
+		timestamp: new Date('2026-05-25T10:00:00Z'),
+		...overrides
+	};
 }
 
 function makeExecutedEntry(
-    overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}
+	overrides: Partial<Omit<TtpActionEntry, 'kind'>> = {}
 ): Omit<TtpActionEntry, 'kind'> {
-    return makeTtpEntry({ status: 'success', ...overrides });
+	return makeTtpEntry({ status: 'success', ...overrides });
 }
 
 function makeEntityEntry(overrides: Partial<EntityEntry> = {}): EntityEntry {
-    return {
-        kind: 'discovery',
-        id: 'ns/default/pod/web-app',
-        entityId: 'ns/default/pod/web-app',
-        entityName: 'web-app',
-        entityKind: 'Pod',
-        timestamp: new Date('2026-05-25T10:01:00Z'),
-        ...overrides
-    };
+	return {
+		kind: 'discovery',
+		id: 'ns/default/pod/web-app',
+		entityId: 'ns/default/pod/web-app',
+		entityName: 'web-app',
+		entityKind: 'Pod',
+		timestamp: new Date('2026-05-25T10:01:00Z'),
+		...overrides
+	};
 }
 
 describe('TimelineStore', () => {
-    let store: TimelineStore;
+	let store: TimelineStore;
 
-    beforeEach(() => {
-        store = new TimelineStore();
-    });
+	beforeEach(() => {
+		store = new TimelineStore();
+	});
 
-    it('starts empty with timeline closed', () => {
-        expect(store.topEntries).toHaveLength(0);
-        expect(store.open).toBe(true);
-        expect(store.pendingCount).toBe(0);
-    });
+	it('starts empty with timeline closed', () => {
+		expect(store.topEntries).toHaveLength(0);
+		expect(store.open).toBe(true);
+		expect(store.pendingCount).toBe(0);
+	});
 
-    // addTtpAction
-    it('addTtpAction creates an ActionGroup prepended to topEntries', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
-        expect(store.topEntries).toHaveLength(1);
-        const entry = store.topEntries[0];
-        expect(entry.kind).toBe('action-group');
-        if (entry.kind === 'action-group') {
-            expect(entry.action.id).toBe('cmd-1');
-            expect(entry.effects).toHaveLength(0);
-            expect(entry.collapsed).toBe(true);
-        }
-    });
+	// addTtpAction
+	it('addTtpAction creates an ActionGroup prepended to topEntries', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
+		expect(store.topEntries).toHaveLength(1);
+		const entry = store.topEntries[0];
+		expect(entry.kind).toBe('action-group');
+		if (entry.kind === 'action-group') {
+			expect(entry.action.id).toBe('cmd-1');
+			expect(entry.effects).toHaveLength(0);
+			expect(entry.collapsed).toBe(true);
+		}
+	});
 
-    it('addTtpAction prepends newest first', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-2' }));
-        expect(store.topEntries[0].kind).toBe('action-group');
-        if (store.topEntries[0].kind === 'action-group') {
-            expect(store.topEntries[0].action.id).toBe('cmd-2');
-        }
-    });
+	it('addTtpAction prepends newest first', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-2' }));
+		expect(store.topEntries[0].kind).toBe('action-group');
+		if (store.topEntries[0].kind === 'action-group') {
+			expect(store.topEntries[0].action.id).toBe('cmd-2');
+		}
+	});
 
-    // addEntityEvent - grouping
-    it('addEntityEvent with matching cmdId appends to group effects', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
-        store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-abc' }));
-        expect(store.topEntries).toHaveLength(1); // still one top-level entry
-        const entry = store.topEntries[0];
-        if (entry.kind === 'action-group') {
-            expect(entry.effects).toHaveLength(1);
-            expect(entry.effects[0].entityName).toBe('web-app');
-        }
-    });
+	// addEntityEvent - grouping
+	it('addEntityEvent with matching cmdId appends to group effects', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-abc' }));
+		expect(store.topEntries).toHaveLength(1); // still one top-level entry
+		const entry = store.topEntries[0];
+		if (entry.kind === 'action-group') {
+			expect(entry.effects).toHaveLength(1);
+			expect(entry.effects[0].entityName).toBe('web-app');
+		}
+	});
 
-    it('addEntityEvent without cmdId prepends as standalone', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
-        store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
-        expect(store.topEntries).toHaveLength(2);
-        expect(store.topEntries[0].kind).toBe('discovery');
-    });
+	it('addEntityEvent without cmdId prepends as standalone', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
+		expect(store.topEntries).toHaveLength(2);
+		expect(store.topEntries[0].kind).toBe('discovery');
+	});
 
-    it('addEntityEvent with unmatched cmdId prepends as standalone', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
-        store.addEntityEvent(makeEntityEntry({ id: 'x', entityId: 'x', cmdId: 'cmd-unknown' }));
-        expect(store.topEntries).toHaveLength(2);
-        expect(store.topEntries[0].kind).toBe('discovery');
-    });
+	it('addEntityEvent with unmatched cmdId prepends as standalone', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		store.addEntityEvent(makeEntityEntry({ id: 'x', entityId: 'x', cmdId: 'cmd-unknown' }));
+		expect(store.topEntries).toHaveLength(2);
+		expect(store.topEntries[0].kind).toBe('discovery');
+	});
 
-    // deduplication
-    it('addEntityEvent deduplicates standalone entries by id', () => {
-        store.addEntityEvent(makeEntityEntry({ id: 'pod-a', entityId: 'pod-a', cmdId: undefined }));
-        store.addEntityEvent(makeEntityEntry({ id: 'pod-a', entityId: 'pod-a', cmdId: undefined }));
-        expect(store.topEntries).toHaveLength(1);
-    });
+	// deduplication
+	it('addEntityEvent deduplicates standalone entries by id', () => {
+		store.addEntityEvent(makeEntityEntry({ id: 'pod-a', entityId: 'pod-a', cmdId: undefined }));
+		store.addEntityEvent(makeEntityEntry({ id: 'pod-a', entityId: 'pod-a', cmdId: undefined }));
+		expect(store.topEntries).toHaveLength(1);
+	});
 
-    it('addEntityEvent deduplicates group effects by id', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
-        store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-abc' }));
-        store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-abc' })); // same id
-        const entry = store.topEntries[0];
-        if (entry.kind === 'action-group') {
-            expect(entry.effects).toHaveLength(1);
-        }
-    });
+	it('addEntityEvent deduplicates group effects by id', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-abc' }));
+		store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-abc' })); // same id
+		const entry = store.topEntries[0];
+		if (entry.kind === 'action-group') {
+			expect(entry.effects).toHaveLength(1);
+		}
+	});
 
-    // addEntityEvent — outcomes
-    it('folds an entity the action created into that action instead of a standalone row', () => {
-        // The reported noise: creating a listener showed "Create Listener" and
-        // then a separate "Discovered Listener" right next to it.
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-listen', ttpName: 'Create Listener' }));
-        store.addEntityEvent(
-            makeEntityEntry({
-                kind: 'discovery',
-                outcome: 'created',
-                id: 'listener/tcp/1337',
-                entityId: 'listener/tcp/1337',
-                entityName: 'tcp/1337',
-                entityKind: 'Listener',
-                cmdId: 'cmd-listen'
-            })
-        );
+	// addEntityEvent - outcomes
+	it('folds an entity the action created into that action instead of a standalone row', () => {
+		// The reported noise: creating a listener showed "Create Listener" and
+		// then a separate "Discovered Listener" right next to it.
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-listen', ttpName: 'Create Listener' }));
+		store.addEntityEvent(
+			makeEntityEntry({
+				kind: 'discovery',
+				outcome: 'created',
+				id: 'listener/tcp/1337',
+				entityId: 'listener/tcp/1337',
+				entityName: 'tcp/1337',
+				entityKind: 'Listener',
+				cmdId: 'cmd-listen'
+			})
+		);
 
-        expect(store.topEntries).toHaveLength(1);
-        const group = store.topEntries[0] as ActionGroup;
-        expect(group.kind).toBe('action-group');
-        expect(group.effects).toHaveLength(1);
-        expect(group.effects[0].outcome).toBe('created');
-    });
+		expect(store.topEntries).toHaveLength(1);
+		const group = store.topEntries[0] as ActionGroup;
+		expect(group.kind).toBe('action-group');
+		expect(group.effects).toHaveLength(1);
+		expect(group.effects[0].outcome).toBe('created');
+	});
 
-    it('keeps a created entity visible as a standalone row when its action is unknown', () => {
-        // Losing the fact entirely would be worse than showing it; it is just
-        // never labelled a discovery.
-        store.addEntityEvent(
-            makeEntityEntry({
-                outcome: 'created',
-                id: 'listener/tcp/1337',
-                entityId: 'listener/tcp/1337',
-                entityKind: 'Listener',
-                cmdId: 'cmd-that-never-registered'
-            })
-        );
-        expect(store.topEntries).toHaveLength(1);
-        expect(store.topEntries[0].kind).toBe('discovery');
-    });
+	it('keeps a created entity visible as a standalone row when its action is unknown', () => {
+		// Losing the fact entirely would be worse than showing it; it is just
+		// never labelled a discovery.
+		store.addEntityEvent(
+			makeEntityEntry({
+				outcome: 'created',
+				id: 'listener/tcp/1337',
+				entityId: 'listener/tcp/1337',
+				entityKind: 'Listener',
+				cmdId: 'cmd-that-never-registered'
+			})
+		);
+		expect(store.topEntries).toHaveLength(1);
+		expect(store.topEntries[0].kind).toBe('discovery');
+	});
 
-    it('drops an update to an already-known entity that has no action to sit under', () => {
-        store.addEntityEvent(
-            makeEntityEntry({ outcome: 'updated', cmdId: 'session/node-a-4444' })
-        );
-        expect(store.topEntries).toHaveLength(0);
-    });
+	it('drops an update to an already-known entity that has no action to sit under', () => {
+		store.addEntityEvent(makeEntityEntry({ outcome: 'updated', cmdId: 'session/node-a-4444' }));
+		expect(store.topEntries).toHaveLength(0);
+	});
 
-    it('keeps an update inside its action group so the expanded view stays complete', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
-        store.addEntityEvent(makeEntityEntry({ outcome: 'updated', cmdId: 'cmd-abc' }));
+	it('keeps an update inside its action group so the expanded view stays complete', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		store.addEntityEvent(makeEntityEntry({ outcome: 'updated', cmdId: 'cmd-abc' }));
 
-        const group = store.topEntries[0] as ActionGroup;
-        expect(group.effects).toHaveLength(1);
-        expect(group.effects[0].outcome).toBe('updated');
-    });
+		const group = store.topEntries[0] as ActionGroup;
+		expect(group.effects).toHaveLength(1);
+		expect(group.effects[0].outcome).toBe('updated');
+	});
 
-    it('shows a shell caught on an already-known host, despite the update outcome', () => {
-        // A reverse shell arrives under its backend id, which never matches an
-        // action group, and updates a host the campaign already had. Suppressing
-        // it as a mere update would silently drop the single most significant
-        // event in a campaign.
-        store.addEntityEvent(
-            makeEntityEntry({
-                kind: 'access-gained',
-                outcome: 'updated',
-                id: 'node/worker-1',
-                entityId: 'node/worker-1',
-                entityName: 'worker-1',
-                entityKind: 'K8sNode',
-                cmdId: 'session/worker-1-4444'
-            })
-        );
+	it('shows a shell caught on an already-known host, despite the update outcome', () => {
+		// A reverse shell arrives under its backend id, which never matches an
+		// action group, and updates a host the campaign already had. Suppressing
+		// it as a mere update would silently drop the single most significant
+		// event in a campaign.
+		store.addEntityEvent(
+			makeEntityEntry({
+				kind: 'access-gained',
+				outcome: 'updated',
+				id: 'node/worker-1',
+				entityId: 'node/worker-1',
+				entityName: 'worker-1',
+				entityKind: 'K8sNode',
+				cmdId: 'session/worker-1-4444'
+			})
+		);
 
-        expect(store.topEntries).toHaveLength(1);
-        expect(store.topEntries[0].kind).toBe('access-gained');
-    });
+		expect(store.topEntries).toHaveLength(1);
+		expect(store.topEntries[0].kind).toBe('access-gained');
+	});
 
-    it('shows a found credential on a known entity for the same reason', () => {
-        store.addEntityEvent(
-            makeEntityEntry({
-                kind: 'credential',
-                outcome: 'updated',
-                id: 'secret/default/api-key',
-                entityId: 'secret/default/api-key',
-                entityKind: 'Secret',
-                cmdId: 'cmd-that-never-registered'
-            })
-        );
-        expect(store.topEntries).toHaveLength(1);
-    });
+	it('shows a found credential on a known entity for the same reason', () => {
+		store.addEntityEvent(
+			makeEntityEntry({
+				kind: 'credential',
+				outcome: 'updated',
+				id: 'secret/default/api-key',
+				entityId: 'secret/default/api-key',
+				entityKind: 'Secret',
+				cmdId: 'cmd-that-never-registered'
+			})
+		);
+		expect(store.topEntries).toHaveLength(1);
+	});
 
-    it('does not consume the dedup slot for an update it dropped', () => {
-        // A later, genuine observation of the same entity must still get through.
-        store.addEntityEvent(
-            makeEntityEntry({ outcome: 'updated', cmdId: 'cmd-that-never-registered' })
-        );
-        store.addEntityEvent(makeEntityEntry({ outcome: 'observed', cmdId: undefined }));
-        expect(store.topEntries).toHaveLength(1);
-        expect((store.topEntries[0] as EntityEntry).outcome).toBe('observed');
-    });
+	it('does not consume the dedup slot for an update it dropped', () => {
+		// A later, genuine observation of the same entity must still get through.
+		store.addEntityEvent(
+			makeEntityEntry({ outcome: 'updated', cmdId: 'cmd-that-never-registered' })
+		);
+		store.addEntityEvent(makeEntityEntry({ outcome: 'observed', cmdId: undefined }));
+		expect(store.topEntries).toHaveLength(1);
+		expect((store.topEntries[0] as EntityEntry).outcome).toBe('observed');
+	});
 
-    it('treats an entry with no outcome as observed', () => {
-        store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
-        expect(store.topEntries).toHaveLength(1);
-    });
+	it('treats an entry with no outcome as observed', () => {
+		store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
+		expect(store.topEntries).toHaveLength(1);
+	});
 
-    it('addEntityEvent does not suppress entity when a group has the same id as the entity', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'ns/default/pod/web-app' }));
-        store.addEntityEvent(
-            makeEntityEntry({
-                id: 'ns/default/pod/web-app',
-                entityId: 'ns/default/pod/web-app',
-                cmdId: undefined
-            })
-        );
-        expect(store.topEntries).toHaveLength(2);
-        expect(store.topEntries[0].kind).toBe('discovery');
-    });
+	it('addEntityEvent does not suppress entity when a group has the same id as the entity', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'ns/default/pod/web-app' }));
+		store.addEntityEvent(
+			makeEntityEntry({
+				id: 'ns/default/pod/web-app',
+				entityId: 'ns/default/pod/web-app',
+				cmdId: undefined
+			})
+		);
+		expect(store.topEntries).toHaveLength(2);
+		expect(store.topEntries[0].kind).toBe('discovery');
+	});
 
-    // pendingCount
-    it('pendingCount counts only pending action groups', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-1', status: 'pending' }));
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-2', status: 'pending' }));
-        store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
-        expect(store.pendingCount).toBe(2);
-        store.recordExecutedTtp(makeExecutedEntry({ id: 'cmd-1', status: 'success' }));
-        expect(store.pendingCount).toBe(1);
-    });
+	// pendingCount
+	it('pendingCount counts only pending action groups', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-1', status: 'pending' }));
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-2', status: 'pending' }));
+		store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
+		expect(store.pendingCount).toBe(2);
+		store.recordExecutedTtp(makeExecutedEntry({ id: 'cmd-1', status: 'success' }));
+		expect(store.pendingCount).toBe(1);
+	});
 
-    // recordExecutedTtp
-    it('recordExecutedTtp marks matching pending group as success', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
-        store.recordExecutedTtp(makeExecutedEntry({ id: 'cmd-abc', status: 'success' }));
-        expect(store.topEntries).toHaveLength(1);
-        const entry = store.topEntries[0];
-        if (entry.kind === 'action-group') {
-            expect(entry.action.status).toBe('success');
-            expect(entry.action.failReason).toBeUndefined();
-        }
-    });
+	// recordExecutedTtp
+	it('recordExecutedTtp marks matching pending group as success', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
+		store.recordExecutedTtp(makeExecutedEntry({ id: 'cmd-abc', status: 'success' }));
+		expect(store.topEntries).toHaveLength(1);
+		const entry = store.topEntries[0];
+		if (entry.kind === 'action-group') {
+			expect(entry.action.status).toBe('success');
+			expect(entry.action.failReason).toBeUndefined();
+		}
+	});
 
-    it('recordExecutedTtp marks matching pending group as failed with reason', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
-        store.recordExecutedTtp(
-            makeExecutedEntry({ id: 'cmd-abc', status: 'failed', failReason: 'permission denied' })
-        );
-        const entry = store.topEntries[0];
-        if (entry.kind === 'action-group') {
-            expect(entry.action.status).toBe('failed');
-            expect(entry.action.failReason).toBe('permission denied');
-        }
-    });
+	it('recordExecutedTtp marks matching pending group as failed with reason', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'pending' }));
+		store.recordExecutedTtp(
+			makeExecutedEntry({ id: 'cmd-abc', status: 'failed', failReason: 'permission denied' })
+		);
+		const entry = store.topEntries[0];
+		if (entry.kind === 'action-group') {
+			expect(entry.action.status).toBe('failed');
+			expect(entry.action.failReason).toBe('permission denied');
+		}
+	});
 
-    it('recordExecutedTtp on already-resolved entry is a no-op', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'success' }));
-        store.recordExecutedTtp(
-            makeExecutedEntry({ id: 'cmd-abc', status: 'failed', failReason: 'should not change' })
-        );
-        const entry = store.topEntries[0];
-        if (entry.kind === 'action-group') {
-            expect(entry.action.status).toBe('success');
-        }
-    });
+	it('recordExecutedTtp on already-resolved entry is a no-op', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', status: 'success' }));
+		store.recordExecutedTtp(
+			makeExecutedEntry({ id: 'cmd-abc', status: 'failed', failReason: 'should not change' })
+		);
+		const entry = store.topEntries[0];
+		if (entry.kind === 'action-group') {
+			expect(entry.action.status).toBe('success');
+		}
+	});
 
-    // recordExecutedTtp creating entries for non-UI actions (MCP / autonomous plans)
-    it('recordExecutedTtp creates a resolved entry when no pending entry exists', () => {
-        store.recordExecutedTtp(
-            makeExecutedEntry({ id: 'cmd-mcp', ttpName: 'List Pods', status: 'success' })
-        );
-        expect(store.topEntries).toHaveLength(1);
-        const entry = store.topEntries[0];
-        expect(entry.kind).toBe('action-group');
-        if (entry.kind === 'action-group') {
-            expect(entry.action.id).toBe('cmd-mcp');
-            expect(entry.action.ttpName).toBe('List Pods');
-            expect(entry.action.status).toBe('success');
-        }
-    });
+	// recordExecutedTtp creating entries for non-UI actions (MCP / autonomous plans)
+	it('recordExecutedTtp creates a resolved entry when no pending entry exists', () => {
+		store.recordExecutedTtp(
+			makeExecutedEntry({ id: 'cmd-mcp', ttpName: 'List Pods', status: 'success' })
+		);
+		expect(store.topEntries).toHaveLength(1);
+		const entry = store.topEntries[0];
+		expect(entry.kind).toBe('action-group');
+		if (entry.kind === 'action-group') {
+			expect(entry.action.id).toBe('cmd-mcp');
+			expect(entry.action.ttpName).toBe('List Pods');
+			expect(entry.action.status).toBe('success');
+		}
+	});
 
-    it('recordExecutedTtp-created entry groups subsequent effects by cmdId', () => {
-        store.recordExecutedTtp(makeExecutedEntry({ id: 'cmd-mcp', status: 'success' }));
-        store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-mcp' }));
-        expect(store.topEntries).toHaveLength(1);
-        const entry = store.topEntries[0];
-        if (entry.kind === 'action-group') {
-            expect(entry.effects).toHaveLength(1);
-            expect(entry.effects[0].entityName).toBe('web-app');
-        }
-    });
+	it('recordExecutedTtp-created entry groups subsequent effects by cmdId', () => {
+		store.recordExecutedTtp(makeExecutedEntry({ id: 'cmd-mcp', status: 'success' }));
+		store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-mcp' }));
+		expect(store.topEntries).toHaveLength(1);
+		const entry = store.topEntries[0];
+		if (entry.kind === 'action-group') {
+			expect(entry.effects).toHaveLength(1);
+			expect(entry.effects[0].entityName).toBe('web-app');
+		}
+	});
 
-    it('recordExecutedTtp before addTtpAction (SSE beats HTTP) keeps resolved status and enriches names', () => {
-        // SSE arrives first with the target id but no friendly target name.
-        store.recordExecutedTtp(
-            makeExecutedEntry({
-                id: 'cmd-abc',
-                targetName: 'pod-1',
-                status: 'failed',
-                failReason: 'shell write failed: broken pipe'
-            })
-        );
-        // HTTP response follows with the names the UI knows.
-        store.addTtpAction(
-            makeTtpEntry({ id: 'cmd-abc', targetName: 'my-pod', status: 'pending' })
-        );
-        expect(store.topEntries).toHaveLength(1);
-        const entry = store.topEntries[0];
-        if (entry.kind === 'action-group') {
-            expect(entry.action.status).toBe('failed');
-            expect(entry.action.failReason).toBe('shell write failed: broken pipe');
-            expect(entry.action.targetName).toBe('my-pod');
-        }
-    });
+	it('recordExecutedTtp before addTtpAction (SSE beats HTTP) keeps resolved status and enriches names', () => {
+		// SSE arrives first with the target id but no friendly target name.
+		store.recordExecutedTtp(
+			makeExecutedEntry({
+				id: 'cmd-abc',
+				targetName: 'pod-1',
+				status: 'failed',
+				failReason: 'shell write failed: broken pipe'
+			})
+		);
+		// HTTP response follows with the names the UI knows.
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc', targetName: 'my-pod', status: 'pending' }));
+		expect(store.topEntries).toHaveLength(1);
+		const entry = store.topEntries[0];
+		if (entry.kind === 'action-group') {
+			expect(entry.action.status).toBe('failed');
+			expect(entry.action.failReason).toBe('shell write failed: broken pipe');
+			expect(entry.action.targetName).toBe('my-pod');
+		}
+	});
 
-    // toggleGroup
-    it('toggleGroup flips collapsed from true to false', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
-        store.toggleGroup('cmd-abc');
-        const entry = store.topEntries[0];
-        if (entry.kind === 'action-group') {
-            expect(entry.collapsed).toBe(false);
-        }
-    });
+	// toggleGroup
+	it('toggleGroup flips collapsed from true to false', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		store.toggleGroup('cmd-abc');
+		const entry = store.topEntries[0];
+		if (entry.kind === 'action-group') {
+			expect(entry.collapsed).toBe(false);
+		}
+	});
 
-    it('toggleGroup flips collapsed from false to true', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
-        store.toggleGroup('cmd-abc'); // false
-        store.toggleGroup('cmd-abc'); // true
-        const entry = store.topEntries[0];
-        if (entry.kind === 'action-group') {
-            expect(entry.collapsed).toBe(true);
-        }
-    });
+	it('toggleGroup flips collapsed from false to true', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		store.toggleGroup('cmd-abc'); // false
+		store.toggleGroup('cmd-abc'); // true
+		const entry = store.topEntries[0];
+		if (entry.kind === 'action-group') {
+			expect(entry.collapsed).toBe(true);
+		}
+	});
 
-    it('toggleGroup with unknown id is a no-op', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
-        expect(() => store.toggleGroup('cmd-unknown')).not.toThrow();
-    });
+	it('toggleGroup with unknown id is a no-op', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-abc' }));
+		expect(() => store.toggleGroup('cmd-unknown')).not.toThrow();
+	});
 
-    it('backfill restores discovered entities as expandable action effects', () => {
-        store.backfill([
-            {
-                id: 'cmd-get-pods',
-                ttpId: 'get-pods',
-                ttpName: 'GetPods',
-                targetId: 'cluster-1',
-                targetName: 'cluster-1',
-                success: true,
-                timestampMs: 1,
-                effects: [
-                    {
-                        kind: 'discovery',
-                        id: 'pod/default/web',
-                        entityId: 'pod/default/web',
-                        entityName: 'web',
-                        entityKind: 'Pod'
-                    }
-                ]
-            }
-        ]);
+	it('backfill restores discovered entities as expandable action effects', () => {
+		store.backfill([
+			{
+				id: 'cmd-get-pods',
+				ttpId: 'get-pods',
+				ttpName: 'GetPods',
+				targetId: 'cluster-1',
+				targetName: 'cluster-1',
+				success: true,
+				timestampMs: 1,
+				effects: [
+					{
+						kind: 'discovery',
+						id: 'pod/default/web',
+						entityId: 'pod/default/web',
+						entityName: 'web',
+						entityKind: 'Pod'
+					}
+				]
+			}
+		]);
 
-        const group = store.topEntries[0] as ActionGroup;
-        expect(group.effects).toHaveLength(1);
-        expect(group.collapsed).toBe(true);
-        store.toggleGroup('cmd-get-pods');
-        expect(group.collapsed).toBe(false);
-    });
+		const group = store.topEntries[0] as ActionGroup;
+		expect(group.effects).toHaveLength(1);
+		expect(group.collapsed).toBe(true);
+		store.toggleGroup('cmd-get-pods');
+		expect(group.collapsed).toBe(false);
+	});
 
-    // startup kubeconfig backfill
-    it('backfillBootstrap creates an oldest successful group with discovery effects', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-live' }));
-        store.backfillBootstrap([
-            {
-                id: 'bootstrap:kubeconfig:developer',
-                name: 'Read kubeconfig',
-                detail: 'developer (context: demo)',
-                effects: [
-                    {
-                        entityId: 'k8s/credential/developer',
-                        entityName: 'developer',
-                        entityKind: 'K8sCredential',
-                        category: 'credential'
-                    },
-                    {
-                        entityId: 'k8s/cluster/demo',
-                        entityName: 'demo',
-                        entityKind: 'Cluster',
-                        category: 'discovery'
-                    },
-                    {
-                        entityId: 'ns/default',
-                        entityName: 'default',
-                        entityKind: 'Namespace',
-                        category: 'discovery'
-                    }
-                ]
-            }
-        ]);
+	// startup kubeconfig backfill
+	it('backfillBootstrap creates an oldest successful group with discovery effects', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-live' }));
+		store.backfillBootstrap([
+			{
+				id: 'bootstrap:kubeconfig:developer',
+				name: 'Read kubeconfig',
+				detail: 'developer (context: demo)',
+				effects: [
+					{
+						entityId: 'k8s/credential/developer',
+						entityName: 'developer',
+						entityKind: 'K8sCredential',
+						category: 'credential'
+					},
+					{
+						entityId: 'k8s/cluster/demo',
+						entityName: 'demo',
+						entityKind: 'Cluster',
+						category: 'discovery'
+					},
+					{
+						entityId: 'ns/default',
+						entityName: 'default',
+						entityKind: 'Namespace',
+						category: 'discovery'
+					}
+				]
+			}
+		]);
 
-        expect(store.topEntries).toHaveLength(2);
-        const startup = store.topEntries[1];
-        expect(startup.kind).toBe('action-group');
-        if (startup.kind === 'action-group') {
-            expect(startup.action.startup).toBe(true);
-            expect(startup.action.timestamp).toBeInstanceOf(Date);
-            expect(startup.effects.map((effect) => effect.entityKind)).toEqual([
-                'K8sCredential',
-                'Cluster',
-                'Namespace'
-            ]);
-        }
-    });
+		expect(store.topEntries).toHaveLength(2);
+		const startup = store.topEntries[1];
+		expect(startup.kind).toBe('action-group');
+		if (startup.kind === 'action-group') {
+			expect(startup.action.startup).toBe(true);
+			expect(startup.action.timestamp).toBeInstanceOf(Date);
+			expect(startup.effects.map((effect) => effect.entityKind)).toEqual([
+				'K8sCredential',
+				'Cluster',
+				'Namespace'
+			]);
+		}
+	});
 
-    it('backfillBootstrap is idempotent and can repopulate after clear', () => {
-        const operations = [
-            {
-                id: 'bootstrap:kubeconfig:developer',
-                name: 'Read kubeconfig',
-                detail: 'developer',
-                effects: []
-            }
-        ];
-        store.backfillBootstrap(operations);
-        store.backfillBootstrap(operations);
-        expect(store.topEntries).toHaveLength(1);
-        store.clear();
-        store.backfillBootstrap(operations);
-        expect(store.topEntries).toHaveLength(1);
-    });
+	it('backfillBootstrap is idempotent and can repopulate after clear', () => {
+		const operations = [
+			{
+				id: 'bootstrap:kubeconfig:developer',
+				name: 'Read kubeconfig',
+				detail: 'developer',
+				effects: []
+			}
+		];
+		store.backfillBootstrap(operations);
+		store.backfillBootstrap(operations);
+		expect(store.topEntries).toHaveLength(1);
+		store.clear();
+		store.backfillBootstrap(operations);
+		expect(store.topEntries).toHaveLength(1);
+	});
 
-    // clear
-    it('clear removes all entries', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
-        store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
-        store.clear();
-        expect(store.topEntries).toHaveLength(0);
-        // index is also cleared: new entity with old cmdId goes to standalone
-        store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-1' }));
-        expect(store.topEntries).toHaveLength(1);
-        expect(store.topEntries[0].kind).toBe('discovery');
-    });
+	// clear
+	it('clear removes all entries', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
+		store.addEntityEvent(makeEntityEntry({ cmdId: undefined }));
+		store.clear();
+		expect(store.topEntries).toHaveLength(0);
+		// index is also cleared: new entity with old cmdId goes to standalone
+		store.addEntityEvent(makeEntityEntry({ cmdId: 'cmd-1' }));
+		expect(store.topEntries).toHaveLength(1);
+		expect(store.topEntries[0].kind).toBe('discovery');
+	});
 
-    // mixed ordering
-    it('mixed entries interleave by insertion order, newest first', () => {
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
-        store.addEntityEvent(makeEntityEntry({ id: 'pod-a', entityId: 'pod-a', cmdId: undefined }));
-        store.addTtpAction(makeTtpEntry({ id: 'cmd-2' }));
-        const ids = store.topEntries.map((e) => (e.kind === 'action-group' ? e.action.id : e.id));
-        expect(ids).toEqual(['cmd-2', 'pod-a', 'cmd-1']);
-    });
+	// mixed ordering
+	it('mixed entries interleave by insertion order, newest first', () => {
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));
+		store.addEntityEvent(makeEntityEntry({ id: 'pod-a', entityId: 'pod-a', cmdId: undefined }));
+		store.addTtpAction(makeTtpEntry({ id: 'cmd-2' }));
+		const ids = store.topEntries.map((e) => (e.kind === 'action-group' ? e.action.id : e.id));
+		expect(ids).toEqual(['cmd-2', 'pod-a', 'cmd-1']);
+	});
 });

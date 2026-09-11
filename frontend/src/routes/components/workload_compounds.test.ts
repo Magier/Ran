@@ -8,10 +8,7 @@ function node(id: string, kind: string, parent?: string): Node {
 
 describe('workloadCompoundIds', () => {
 	it('selects a workload that owns one pod', () => {
-		const nodes = [
-			node('deployment/one', 'Deployment'),
-			node('pod/one', 'Pod', 'deployment/one')
-		];
+		const nodes = [node('deployment/one', 'Deployment'), node('pod/one', 'Pod', 'deployment/one')];
 
 		expect([...workloadCompoundIds(nodes)]).toEqual(['deployment/one']);
 	});
