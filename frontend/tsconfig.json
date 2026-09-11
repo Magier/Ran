@@ -19,6 +19,8 @@
 		"./.svelte-kit/types/**/$types.d.ts",
 		"./vite.config.js",
 		"./vite.config.ts",
+		// registers the @testing-library/jest-dom matcher types for svelte-check
+		"./vitest-setup-client.ts",
 		"./src/**/*.js",
 		"./src/**/*.ts",
 		"./src/**/*.svelte",
