@@ -1,20 +1,25 @@
 import tailwindcss from '@tailwindcss/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
-import Icons from 'unplugin-icons/vite'
+import Icons from 'unplugin-icons/vite';
 import { defineConfig } from 'vite';
 
 const viteHost = process.env.RAN_VITE_HOST ?? 'localhost';
 const requestedPort = Number.parseInt(process.env.RAN_VITE_PORT ?? '5173', 10);
-const vitePort = Number.isInteger(requestedPort) && requestedPort > 0 && requestedPort <= 65535
-	? requestedPort
-	: 5173;
+const vitePort =
+	Number.isInteger(requestedPort) && requestedPort > 0 && requestedPort <= 65535
+		? requestedPort
+		: 5173;
 
 export default defineConfig({
-	plugins: [tailwindcss(), sveltekit(), Icons({
-		compiler: 'svelte',
-		autoInstall: true,
-	})],
+	plugins: [
+		tailwindcss(),
+		sveltekit(),
+		Icons({
+			compiler: 'svelte',
+			autoInstall: true
+		})
+	],
 
 	server: {
 		host: viteHost,
@@ -31,25 +36,25 @@ export default defineConfig({
 	},
 
 	build: {
-		minify: 'esbuild',            // much lighter than terser
-		cssCodeSplit: true,           // ensure CSS isn’t bundled into a giant JS chunk
-		assetsInlineLimit: 0,         // avoid inlining large assets into JS (helps peak memory)
+		minify: 'esbuild', // much lighter than terser
+		cssCodeSplit: true, // ensure CSS isn’t bundled into a giant JS chunk
+		assetsInlineLimit: 0, // avoid inlining large assets into JS (helps peak memory)
 		// Smaller, more numerous chunks are usually easier on memory than one mega vendor chunk
 		rollupOptions: {
 			output: {
 				manualChunks(id) {
-				if (id.includes('node_modules')) {
-					// group by top-level package name: node_modules/<pkg>/...
-					const match = id.toString().split('node_modules/')[1];
-					if (!match) return;
-					const pkg = match.split('/')[0].startsWith('@')
-					? match.split('/').slice(0,2).join('/')
-					: match.split('/')[0];
-					return `vendor-${pkg}`;
+					if (id.includes('node_modules')) {
+						// group by top-level package name: node_modules/<pkg>/...
+						const match = id.toString().split('node_modules/')[1];
+						if (!match) return;
+						const pkg = match.split('/')[0].startsWith('@')
+							? match.split('/').slice(0, 2).join('/')
+							: match.split('/')[0];
+						return `vendor-${pkg}`;
+					}
 				}
-				},
 			}
-		},
+		}
 	},
 
 	test: {

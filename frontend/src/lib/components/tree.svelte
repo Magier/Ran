@@ -3,7 +3,6 @@
 	import { mergeAttrs } from 'melt';
 	import Self from './tree.svelte'; // import itself for recursive rendering
 
-	type Icon = 'svelte' | 'folder' | 'js';
 	type TreeNode = {
 		id: string;
 		name?: string;
@@ -14,7 +13,6 @@
 		root?: Record<string, unknown>;
 		trigger?: Record<string, unknown>;
 		content?: Record<string, unknown>;
-		// icon: Icon;
 		children?: TreeNode[];
 	};
 
@@ -83,19 +81,23 @@
 	{#each tree.items as item}
 		<div {...mergeAttrs(item.root ?? {}, { class: `tree-item ${level > 0 ? 'ml-2' : ''}` })}>
 			{#if item.children && item.children.length > 0}
-				<button {...(item.trigger ?? {})} class="flex" onclick={() => tree.toggleExpand(item.id)}>
+				<button {...item.trigger ?? {}} class="flex" onclick={() => tree.toggleExpand(item.id)}>
 					<span class="mx-2">{tree.isExpanded(item.id) ? '-' : '+'}</span>
 					<pre>{getNodeName(item)}</pre>
 				</button>
 			{:else if onLeafClick}
-				<button type="button" class="ml-4 chip preset-outline-surface-500" onclick={() => onLeafClick(item.mountPoint ?? '')}>{getNodeName(item)}</button>
+				<button
+					type="button"
+					class="chip preset-outline-surface-500 ml-4"
+					onclick={() => onLeafClick(item.mountPoint ?? '')}>{getNodeName(item)}</button
+				>
 			{:else}
 				<pre class="ml-6">{getNodeName(item)}</pre>
 			{/if}
 			{#if item.children && tree.isExpanded(item.id)}
-				<div {...(item.content ?? {})}>
+				<div {...item.content ?? {}}>
 					{#each item.children as child}
-						<Self node={child} level={level + 1} onLeafClick={onLeafClick} />
+						<Self node={child} level={level + 1} {onLeafClick} />
 					{/each}
 				</div>
 			{/if}

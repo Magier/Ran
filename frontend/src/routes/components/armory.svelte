@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { ArmoryType } from '$lib/model';
-	import { onDestroy } from 'svelte';
 	import Icon from '@iconify/svelte';
 	import { iconMap } from '$lib/tactic_icons';
 
@@ -24,14 +23,21 @@
 		focusSearch?: () => void;
 	};
 
-	let { class: className = '', targetId, target, action: sendAction, runRecommendation, focusSearch = $bindable(() => {}) }: ArmoryProps = $props();
+	let {
+		class: className = '',
+		targetId,
+		target,
+		action: sendAction,
+		runRecommendation,
+		focusSearch = $bindable(() => {})
+	}: ArmoryProps = $props();
 
 	let activeTab: string = $state('actions');
 
 	let searchInputElement: HTMLInputElement | undefined = $state();
 
 	// $: selectedConditions = { ...globalConditions, ...(selectedNode ?? {}) };
-	let armory: ArmoryType = $state(new Map());
+	const armory: ArmoryType = $derived(campaign.armory);
 	let showAllTTPs: boolean = $state(false);
 	let applicableTTPs: ArmoryType = $state(new Map());
 	let searchTerm: string = $state('');
@@ -44,7 +50,8 @@
 	const liftedPodCount = $derived.by(() => {
 		const kind = campaign.graph.nodes.find((node) => node.id === targetId)?.kind;
 		if (!kind || !WORKLOAD_KINDS.has(kind)) return 0;
-		return campaign.graph.nodes.filter((node) => node.kind === 'Pod' && node.parent === targetId).length;
+		return campaign.graph.nodes.filter((node) => node.kind === 'Pod' && node.parent === targetId)
+			.length;
 	});
 
 	$effect(() => {
@@ -52,8 +59,6 @@
 			scoringEnabled = profile?.enabled ?? false;
 		});
 	});
-
-	$effect(() => { armory = campaign.armory; });
 
 	// Score the applicable actions for the selected target. The armory already
 	// prefilters to applicable TTPs, so we only score those - utility per action
@@ -95,24 +100,25 @@
 		if (!normalizedSearch) return Array.from(source.entries());
 
 		return Array.from(source.entries())
-			.map(([tactic, ttps]) => [
-				tactic,
-				ttps.filter((ttp: TTP) => ttp.name.toLowerCase().includes(normalizedSearch))
-			] as [string, TTP[]])
+			.map(
+				([tactic, ttps]) =>
+					[
+						tactic,
+						ttps.filter((ttp: TTP) => ttp.name.toLowerCase().includes(normalizedSearch))
+					] as [string, TTP[]]
+			)
 			.filter(([, ttps]) => ttps.length > 0);
 	});
- 
+
 	// Fetch applicable TTPs whenever the target node changes or its state updates
 	$effect(() => {
 		// Session connect/loss events replace the campaign graph, so track it in
 		// addition to the selected node's directly exposed applicability fields.
 		void campaign.graph;
-		const nodeState = target ? {
-			compromised: target.compromised,
-			accessLevel: target.accessLevel,
-			entity: target.entity
-		} : null;
-		
+		void target?.compromised;
+		void target?.accessLevel;
+		void target?.entity;
+
 		if (!targetId) {
 			applicableTTPs = new Map();
 			return;
@@ -123,18 +129,22 @@
 		const requestedTargetId = targetId;
 		applicableTTPs = new Map();
 		const targetKind = campaign.graph.nodes.find((node) => node.id === requestedTargetId)?.kind;
-		const podIds = targetKind && WORKLOAD_KINDS.has(targetKind)
-			? campaign.graph.nodes
-				.filter((node) => node.kind === 'Pod' && node.parent === requestedTargetId)
-				.map((node) => node.id)
-			: [];
-		const applicableRequest = podIds.length > 0
-			? Promise.all(podIds.map((podId) => campaign.api.GetApplicableTTPs(podId))).then((results) => {
-				const byId = new Map<string, TTP>();
-				results.flat().forEach((ttp) => byId.set(ttp.id, ttp));
-				return [...byId.values()];
-			})
-			: campaign.api.GetApplicableTTPs(requestedTargetId);
+		const podIds =
+			targetKind && WORKLOAD_KINDS.has(targetKind)
+				? campaign.graph.nodes
+						.filter((node) => node.kind === 'Pod' && node.parent === requestedTargetId)
+						.map((node) => node.id)
+				: [];
+		const applicableRequest =
+			podIds.length > 0
+				? Promise.all(podIds.map((podId) => campaign.api.GetApplicableTTPs(podId))).then(
+						(results) => {
+							const byId = new Map<string, TTP>();
+							results.flat().forEach((ttp) => byId.set(ttp.id, ttp));
+							return [...byId.values()];
+						}
+					)
+				: campaign.api.GetApplicableTTPs(requestedTargetId);
 
 		applicableRequest
 			.then((result: TTP[]) => {
@@ -158,7 +168,6 @@
 			searchInputElement?.focus();
 		};
 	});
-
 
 	function handleClearWithEscape(event: KeyboardEvent) {
 		if (event.key == 'Escape') {
@@ -200,22 +209,36 @@
 	}
 
 	function onActionSelected(ttp: TTP) {
-		searchTerm = ''; // reset the filter again to show all TTPs 
+		searchTerm = ''; // reset the filter again to show all TTPs
 		sendAction(ttp);
 	}
 </script>
 
 <div class="bg-surface-100-900 inset-y-0 right-0 flex flex-col {className}">
-	<Tabs value={activeTab} onValueChange={(e) => (activeTab = e.value)} class="flex-1 min-h-0 flex flex-col">
-		<Tabs.List class="grid h-10 w-full flex-none {scoringEnabled ? 'grid-cols-2' : 'grid-cols-1'} items-stretch gap-0 overflow-hidden border-b border-surface-300-700 p-0">
+	<Tabs
+		value={activeTab}
+		onValueChange={(e) => (activeTab = e.value)}
+		class="flex min-h-0 flex-1 flex-col"
+	>
+		<Tabs.List
+			class="grid h-10 w-full flex-none {scoringEnabled
+				? 'grid-cols-2'
+				: 'grid-cols-1'} border-surface-300-700 items-stretch gap-0 overflow-hidden border-b p-0"
+		>
 			<Tabs.Trigger
 				value="actions"
-				class="m-0 flex h-full min-h-0 w-full self-stretch items-center justify-center rounded-none p-0 text-center transition-colors {activeTab === 'actions' ? 'bg-surface-200-800 text-primary-700-300 shadow-[inset_0_-2px_0_var(--color-primary-500)] font-semibold' : 'text-surface-500 hover:bg-surface-200-800/60'}"
-			>Actions</Tabs.Trigger>
+				class="m-0 flex h-full min-h-0 w-full items-center justify-center self-stretch rounded-none p-0 text-center transition-colors {activeTab ===
+				'actions'
+					? 'bg-surface-200-800 text-primary-700-300 font-semibold shadow-[inset_0_-2px_0_var(--color-primary-500)]'
+					: 'text-surface-500 hover:bg-surface-200-800/60'}">Actions</Tabs.Trigger
+			>
 			{#if scoringEnabled}
 				<Tabs.Trigger
 					value="recommendations"
-					class="m-0 flex h-full min-h-0 w-full self-stretch items-center justify-center rounded-none p-0 text-center transition-colors {activeTab === 'recommendations' ? 'bg-surface-200-800 text-primary-700-300 shadow-[inset_0_-2px_0_var(--color-primary-500)] font-semibold' : 'text-surface-500 hover:bg-surface-200-800/60'}"
+					class="m-0 flex h-full min-h-0 w-full items-center justify-center self-stretch rounded-none p-0 text-center transition-colors {activeTab ===
+					'recommendations'
+						? 'bg-surface-200-800 text-primary-700-300 font-semibold shadow-[inset_0_-2px_0_var(--color-primary-500)]'
+						: 'text-surface-500 hover:bg-surface-200-800/60'}"
 				>
 					<span class="flex items-center justify-center gap-1">
 						<Icon icon="mdi:lightbulb-on-outline" width="16" class="text-warning-500" />
@@ -226,26 +249,30 @@
 		</Tabs.List>
 
 		<!-- Actions: all applicable TTPs grouped by tactic, scored per target -->
-		<Tabs.Content value="actions" class="flex-1 min-h-0 flex flex-col !p-0 !m-0">
+		<Tabs.Content value="actions" class="!m-0 flex min-h-0 flex-1 flex-col !p-0">
 			{#if liftedPodCount > 0}
-				<div class="flex items-center gap-1.5 px-2 py-1.5 border-b border-surface-200-800 text-xs text-surface-500">
+				<div
+					class="border-surface-200-800 text-surface-500 flex items-center gap-1.5 border-b px-2 py-1.5 text-xs"
+				>
 					<Icon icon="mdi:layers-outline" width="14" />
-					<span>Showing actions from {liftedPodCount} pod{liftedPodCount === 1 ? '' : 's'} in this workload</span>
+					<span
+						>Showing actions from {liftedPodCount} pod{liftedPodCount === 1 ? '' : 's'} in this workload</span
+					>
 				</div>
 			{/if}
 			<!-- Toolbar: search + scope toggle on one compact row -->
-			<div class="flex-shrink-0 flex items-center gap-2 px-2 py-2 border-b border-surface-200-800">
+			<div class="border-surface-200-800 flex flex-shrink-0 items-center gap-2 border-b px-2 py-2">
 				<input
 					id="search-box"
 					type="search"
 					placeholder="Search… (a)"
-					class="input rounded-container-token flex-1 min-w-0 !py-1 text-sm"
+					class="input rounded-container-token min-w-0 flex-1 !py-1 text-sm"
 					bind:this={searchInputElement}
 					bind:value={searchTerm}
 					onkeydown={handleClearWithEscape}
 				/>
 				<div
-					class="flex shrink-0 rounded-md overflow-hidden border border-surface-300-700 text-xs"
+					class="border-surface-300-700 flex shrink-0 overflow-hidden rounded-md border text-xs"
 					role="group"
 					aria-label="Action scope"
 				>
@@ -260,7 +287,7 @@
 						Applicable
 					</button>
 					<button
-						class="px-2 py-1 border-l border-surface-300-700 transition-colors {showAllTTPs
+						class="border-surface-300-700 border-l px-2 py-1 transition-colors {showAllTTPs
 							? 'bg-primary-500 text-primary-contrast-500'
 							: 'text-surface-500 hover:bg-surface-200-800'}"
 						aria-pressed={showAllTTPs}
@@ -272,32 +299,43 @@
 				</div>
 			</div>
 
-			<div class="flex-1 overflow-y-auto min-h-0">
+			<div class="min-h-0 flex-1 overflow-y-auto">
 				{#if shownTTPs.length === 0}
 					<div class="flex h-full items-center justify-center text-center text-gray-500">
-						No TTPs available. <br>
+						No TTPs available. <br />
 						Please select an entity in the graph.
 					</div>
 				{:else}
-					<Accordion value={openTactic} onValueChange={(e) => (openTactic = e.value)} collapsible class="!gap-0 !space-y-0 bg-surface-200-800">
+					<Accordion
+						value={openTactic}
+						onValueChange={(e) => (openTactic = e.value)}
+						collapsible
+						class="bg-surface-200-800 !gap-0 !space-y-0"
+					>
 						{#each Array.from(shownTTPs) as [tactic, ttps]}
 							<Accordion.Item
 								value={tactic}
-								class="text-surface-contrast-200-800 !p-0 mb-0 !gap-0"
+								class="text-surface-contrast-200-800 mb-0 !gap-0 !p-0"
 								disabled={ttps?.length === 0}
 							>
-								<Accordion.ItemTrigger class="flex justify-between items-center bg-surface-200-800 hover:bg-surface-300-700 hover:text-primary-800-200 text-m lg:text-l border-t border-surface-300-700 p-3 !m-0">
+								<Accordion.ItemTrigger
+									class="bg-surface-200-800 hover:bg-surface-300-700 hover:text-primary-800-200 text-m lg:text-l border-surface-300-700 !m-0 flex items-center justify-between border-t p-3"
+								>
 									<Icon icon={iconMap[tactic]} width="26" class="flex-shrink-0"></Icon>
-									<div class="flex w-full items-center ml-2">
+									<div class="ml-2 flex w-full items-center">
 										<span class="flex-1">{tactic}</span>
-										<span class="ml-2 px-2 py-0.5 rounded text-xs bg-surface-200-800 text-surface-contrast-200-800">
+										<span
+											class="bg-surface-200-800 text-surface-contrast-200-800 ml-2 rounded px-2 py-0.5 text-xs"
+										>
 											{applicableTTPs.get(tactic)?.length ?? 0}
 										</span>
 									</div>
 								</Accordion.ItemTrigger>
-								<Accordion.ItemContent class="!p-0 !m-0 !gap-0 bg-surface-100-900">
+								<Accordion.ItemContent class="bg-surface-100-900 !m-0 !gap-0 !p-0">
 									{#each byUtility(ttps) as ttp}
-										<div class="ml-3 border-t-1 border-surface-400-600 bg-surface-200-800 hover:text-primary-800-200">
+										<div
+											class="border-surface-400-600 bg-surface-200-800 hover:text-primary-800-200 ml-3 border-t-1"
+										>
 											<ActionCard
 												{ttp}
 												prerequisitesFulfilled={isTTPApplicable(ttp)}
@@ -319,7 +357,7 @@
 
 		<!-- Recommendations: utility-scored next steps across all targets -->
 		{#if scoringEnabled}
-			<Tabs.Content value="recommendations" class="flex-1 min-h-0 flex flex-col !p-0 !m-0">
+			<Tabs.Content value="recommendations" class="!m-0 flex min-h-0 flex-1 flex-col !p-0">
 				<Recommendations run={runRecommendation}>
 					{#snippet actions()}
 						<ScoringTuner />

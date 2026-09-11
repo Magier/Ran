@@ -24,11 +24,11 @@
 >
 	<Portal>
 		<Dialog.Backdrop
-			class="fixed inset-0 z-50 bg-surface-50-950/50 transition transition-discrete {animBackdrop}"
+			class="bg-surface-50-950/50 fixed inset-0 z-50 transition transition-discrete {animBackdrop}"
 		/>
 		<Dialog.Positioner class="fixed inset-0 z-50 flex justify-end">
 			<Dialog.Content
-				class="h-screen w-xl space-y-4 overflow-auto bg-surface-100-900 p-4 shadow-xl {animDrawer}"
+				class="bg-surface-100-900 h-screen w-xl space-y-4 overflow-auto p-4 shadow-xl {animDrawer}"
 			>
 				{#if step}
 					<AttackStepDetails {step} />

@@ -4,1699 +4,1699 @@
  */
 
 export interface paths {
-    "/api/graph": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get attack graph
-         * @description Returns the current attack graph with nodes and edges
-         */
-        get: operations["getGraph"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/campaign-state": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get campaign state
-         * @description Returns the current campaign state with entities and relations
-         */
-        get: operations["getCampaignState"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/kubetier": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get the offline KubeTier catalog
-         * @description Returns the bundled metadata snapshot or configured private/full local snapshot. This endpoint never fetches kubetier.com.
-         */
-        get: operations["getKubetierCatalog"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/armory": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get armory
-         * @description Returns all available TTPs (Tactics, Techniques, and Procedures). Optionally filter by tactic.
-         */
-        get: operations["getArmory"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/applicable-ttps": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get applicable TTPs for a target
-         * @description Returns TTPs that can be applied to the specified target. If targetId is omitted or empty, returns TTPs for all targets.
-         */
-        get: operations["getApplicableTTPs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/eligible-auth-identities": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get eligible Kubernetes authentication identities
-         * @description Returns identities satisfying the action's authentication and RBAC requirements for the selected target.
-         */
-        get: operations["getEligibleAuthIdentities"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/recommendations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Rank recommended next actions
-         * @description Returns applicable (TTP × target) actions ranked by utility for the current campaign state, using the default scoring profile. Advisory only - the caller decides what to execute. Each candidate includes a per-consideration breakdown for explainability.
-         */
-        get: operations["getRecommendations"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/scoring/profile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get the live scoring profile
-         * @description Returns the current scoring profile - combination mode, the tuning feature flag, and every registered consideration's weight, response curve, and enabled/veto flags.
-         */
-        get: operations["getScoringProfile"];
-        /**
-         * Update the live scoring profile
-         * @description Replace the live scoring profile (runtime tuning). Gated on the scoring.tuning_ui feature flag; returns 403 when disabled.
-         */
-        put: operations["updateScoringProfile"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/scoring/profile/save": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Persist the live scoring profile
-         * @description Writes the live scoring profile to its sidecar file (ran.scoring.yaml) so it survives restarts. Gated on the scoring.tuning_ui flag.
-         */
-        post: operations["saveScoringProfile"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/scoring/profile/reset": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Reset the live scoring profile
-         * @description Reverts the live scoring profile to the configured base and removes any persisted overrides. Gated on the scoring.tuning_ui flag.
-         */
-        post: operations["resetScoringProfile"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/scoring/calibrate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Calibrate the scoring profile from captured operator decisions
-         * @description Fit consideration weights from the operator decisions captured during this and prior sessions, so the utility AI reproduces those choices under the same conditions. Returns the fitted profile as a *preview* (not applied) plus fit-quality metrics; apply it via PUT /api/scoring/profile. Gated on the scoring.tuning_ui flag. Returns 409 if no decisions have been captured yet.
-         */
-        post: operations["calibrateScoring"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/flow": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get campaign flow
-         * @description Returns Ran's campaign flow JSON with execution steps and causal edges
-         */
-        get: operations["getFlow"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/action/execute": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Execute action
-         * @description Execute a TTP action on a target. The action is queued and executed asynchronously, with final status sent via SSE. For the initial valid-accounts-kubeconfig action, targetId may identify an exact ready Pod returned by /api/pods/running that is not yet in campaign knowledge; Ran stages only that Pod before execution.
-         */
-        post: operations["executeAction"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/campaign/reset": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Reset campaign
-         * @description Reset the current campaign state
-         */
-        post: operations["resetCampaign"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/pods/running": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get running pods
-         * @description Returns list of running pods in the specified namespace
-         */
-        get: operations["getRunningPods"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/execution-records": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get execution records
-         * @description Returns all execution records for the current campaign session.
-         *     Each record includes the full raw stdout/stderr in `results`, resolved
-         *     arguments, timing, and the parse audits produced by each declared TTP
-         *     effect. Intended for use by Shuhari's Gap 2 scanner,
-         *     which cross-references raw stdout against declared effects to detect
-         *     undeclared structured output.
-         */
-        get: operations["getExecutionRecords"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/execution-records/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get execution record by ID
-         * @description Returns a single execution record by command ID, joined with its parse audits.
-         */
-        get: operations["getExecutionRecordById"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/files": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get file content
-         * @description Returns the content of a previously read file
-         */
-        get: operations["getFileContent"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/plans/available": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List available plans
-         * @description Lists pre-defined plans found in the configured plans directory (ran.yaml `plans.dir`, defaulting to `plans/`).
-         */
-        get: operations["listPlans"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/plans/load": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Load and execute a plan
-         * @description Reads a plan by file name from the configured plans directory and starts executing it. Returns the started plan's id.
-         */
-        post: operations["loadPlan"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/plans/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Export the execution history as a plan
-         * @description Builds a reusable plan YAML from completed campaign actions, in execution order. Cleanup actions are omitted.
-         */
-        get: operations["exportPlan"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
+	'/api/graph': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get attack graph
+		 * @description Returns the current attack graph with nodes and edges
+		 */
+		get: operations['getGraph'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/campaign-state': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get campaign state
+		 * @description Returns the current campaign state with entities and relations
+		 */
+		get: operations['getCampaignState'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/kubetier': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get the offline KubeTier catalog
+		 * @description Returns the bundled metadata snapshot or configured private/full local snapshot. This endpoint never fetches kubetier.com.
+		 */
+		get: operations['getKubetierCatalog'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/armory': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get armory
+		 * @description Returns all available TTPs (Tactics, Techniques, and Procedures). Optionally filter by tactic.
+		 */
+		get: operations['getArmory'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/applicable-ttps': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get applicable TTPs for a target
+		 * @description Returns TTPs that can be applied to the specified target. If targetId is omitted or empty, returns TTPs for all targets.
+		 */
+		get: operations['getApplicableTTPs'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/eligible-auth-identities': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get eligible Kubernetes authentication identities
+		 * @description Returns identities satisfying the action's authentication and RBAC requirements for the selected target.
+		 */
+		get: operations['getEligibleAuthIdentities'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/recommendations': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Rank recommended next actions
+		 * @description Returns applicable (TTP × target) actions ranked by utility for the current campaign state, using the default scoring profile. Advisory only - the caller decides what to execute. Each candidate includes a per-consideration breakdown for explainability.
+		 */
+		get: operations['getRecommendations'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/scoring/profile': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get the live scoring profile
+		 * @description Returns the current scoring profile - combination mode, the tuning feature flag, and every registered consideration's weight, response curve, and enabled/veto flags.
+		 */
+		get: operations['getScoringProfile'];
+		/**
+		 * Update the live scoring profile
+		 * @description Replace the live scoring profile (runtime tuning). Gated on the scoring.tuning_ui feature flag; returns 403 when disabled.
+		 */
+		put: operations['updateScoringProfile'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/scoring/profile/save': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Persist the live scoring profile
+		 * @description Writes the live scoring profile to its sidecar file (ran.scoring.yaml) so it survives restarts. Gated on the scoring.tuning_ui flag.
+		 */
+		post: operations['saveScoringProfile'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/scoring/profile/reset': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Reset the live scoring profile
+		 * @description Reverts the live scoring profile to the configured base and removes any persisted overrides. Gated on the scoring.tuning_ui flag.
+		 */
+		post: operations['resetScoringProfile'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/scoring/calibrate': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Calibrate the scoring profile from captured operator decisions
+		 * @description Fit consideration weights from the operator decisions captured during this and prior sessions, so the utility AI reproduces those choices under the same conditions. Returns the fitted profile as a *preview* (not applied) plus fit-quality metrics; apply it via PUT /api/scoring/profile. Gated on the scoring.tuning_ui flag. Returns 409 if no decisions have been captured yet.
+		 */
+		post: operations['calibrateScoring'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/flow': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get campaign flow
+		 * @description Returns Ran's campaign flow JSON with execution steps and causal edges
+		 */
+		get: operations['getFlow'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/action/execute': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Execute action
+		 * @description Execute a TTP action on a target. The action is queued and executed asynchronously, with final status sent via SSE. For the initial valid-accounts-kubeconfig action, targetId may identify an exact ready Pod returned by /api/pods/running that is not yet in campaign knowledge; Ran stages only that Pod before execution.
+		 */
+		post: operations['executeAction'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/campaign/reset': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Reset campaign
+		 * @description Reset the current campaign state
+		 */
+		post: operations['resetCampaign'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/pods/running': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get running pods
+		 * @description Returns list of running pods in the specified namespace
+		 */
+		get: operations['getRunningPods'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/execution-records': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get execution records
+		 * @description Returns all execution records for the current campaign session.
+		 *     Each record includes the full raw stdout/stderr in `results`, resolved
+		 *     arguments, timing, and the parse audits produced by each declared TTP
+		 *     effect. Intended for use by Shuhari's Gap 2 scanner,
+		 *     which cross-references raw stdout against declared effects to detect
+		 *     undeclared structured output.
+		 */
+		get: operations['getExecutionRecords'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/execution-records/{id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get execution record by ID
+		 * @description Returns a single execution record by command ID, joined with its parse audits.
+		 */
+		get: operations['getExecutionRecordById'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/files': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get file content
+		 * @description Returns the content of a previously read file
+		 */
+		get: operations['getFileContent'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/plans/available': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List available plans
+		 * @description Lists pre-defined plans found in the configured plans directory (ran.yaml `plans.dir`, defaulting to `plans/`).
+		 */
+		get: operations['listPlans'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/plans/load': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Load and execute a plan
+		 * @description Reads a plan by file name from the configured plans directory and starts executing it. Returns the started plan's id.
+		 */
+		post: operations['loadPlan'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/plans/export': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Export the execution history as a plan
+		 * @description Builds a reusable plan YAML from completed campaign actions, in execution order. Cleanup actions are omitted.
+		 */
+		get: operations['exportPlan'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 }
 export interface webhooks {
-    "armory-loaded": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Armory loaded webhook
-         * @description Triggered when the armory is successfully loaded
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": {
-                        /** Format: date-time */
-                        timestamp?: string;
-                    };
-                };
-            };
-            responses: {
-                /** @description Webhook received successfully */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Invalid webhook payload */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
+	'armory-loaded': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Armory loaded webhook
+		 * @description Triggered when the armory is successfully loaded
+		 */
+		post: {
+			parameters: {
+				query?: never;
+				header?: never;
+				path?: never;
+				cookie?: never;
+			};
+			requestBody: {
+				content: {
+					'application/json': {
+						/** Format: date-time */
+						timestamp?: string;
+					};
+				};
+			};
+			responses: {
+				/** @description Webhook received successfully */
+				200: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content?: never;
+				};
+				/** @description Invalid webhook payload */
+				400: {
+					headers: {
+						[name: string]: unknown;
+					};
+					content?: never;
+				};
+			};
+		};
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 }
 export interface components {
-    schemas: {
-        PlanSummary: {
-            /** @description File name within the plans directory (pass to /api/plans/load) */
-            filename: string;
-            id: string;
-            name: string;
-            description?: string | null;
-            /** @description Number of steps in the plan */
-            steps: number;
-        };
-        LoadPlanRequest: {
-            /** @description File name of the plan within the configured plans directory */
-            filename: string;
-        };
-        Graph: {
-            nodes: components["schemas"]["Node"][];
-            edges: components["schemas"]["Edge"][];
-            rootNodeId: string;
-        };
-        Node: {
-            id: string;
-            name: string;
-            kind: string;
-            parent?: string;
-            accessLevel?: string;
-            entityId: string;
-            entity?: {
-                [key: string]: unknown;
-            };
-            compromised?: boolean;
-            isRunning?: boolean;
-            provenance?: ("scenario" | "operator" | "action" | "inference")[];
-        };
-        Edge: {
-            id: string;
-            name: string;
-            /** Format: float */
-            weight?: number;
-            relation?: {
-                [key: string]: unknown;
-            };
-            sourceId: string;
-            targetId: string;
-            /** @description Backend ID of the active persistent session on this exec-channel edge, if any. */
-            sessionId?: string;
-            /** @description True when the session backing this exec-channel edge has died. The edge is kept (rendered as broken) and is non-traversable until a session reconnects and recovers it. */
-            broken?: boolean;
-            provenance?: ("scenario" | "operator" | "action" | "inference")[];
-        };
-        CampaignState: {
-            entities: {
-                [key: string]: Record<string, never>;
-            };
-            relations: {
-                [key: string]: unknown;
-            }[];
-            bootstrapOperations?: components["schemas"]["BootstrapOperation"][];
-        };
-        BootstrapOperation: {
-            id: string;
-            name: string;
-            detail: string;
-            effects: components["schemas"]["BootstrapEffect"][];
-        };
-        BootstrapEffect: {
-            entityId: string;
-            entityName: string;
-            entityKind: string;
-            /** @enum {string} */
-            category: "credential" | "discovery";
-        };
-        /** @description Ran's internal campaign-flow representation. This is not MITRE Attack Flow/STIX. */
-        AttackFlow: {
-            steps: components["schemas"]["AttackStep"][];
-            edges: components["schemas"]["FlowEdge"][];
-        };
-        FlowEdge: {
-            id: string;
-            sourceId: string;
-            targetId: string;
-        };
-        AttackStep: {
-            id: string;
-            targetId: string;
-            command: string;
-            /** @description Per-hop breakdown of a multi-system command traversal, ordered from the C2 entry point (outermost envelope) to the final target (innermost). Empty for direct/single-hop commands. */
-            traversal: components["schemas"]["TraversalHop"][];
-            /** @description The bare inner command as it runs on the final target system, before any hop envelopes wrap it. Empty when there is no multi-hop traversal. */
-            innerCommand: string;
-            /** @description Short, human-readable explanation of why this execution route was chosen (e.g. a live session vs. a multi-hop path), including a note when a broken session edge to the target was skipped. Empty for direct/local commands with no joined traversal. */
-            routeReason?: string;
-            args: {
-                [key: string]: string;
-            };
-            procedureId: string;
-            TTP: components["schemas"]["AttackStepTTP"];
-            results: string[];
-            /** Format: date-time */
-            startedAt: string;
-            /** @description Completion timestamp in RFC 3339 format, or an empty string while ongoing */
-            completedAt: string;
-            executedOn: string;
-            /** @enum {string} */
-            status: "Unknown" | "Failed" | "Success" | "Ongoing";
-            success: boolean;
-        };
-        AttackStepTTP: {
-            id: string;
-            name: string;
-            description: string;
-            tactic: string;
-            techniques: string[];
-        };
-        /** @description One segment of a multi-hop command traversal: the command as it is handed from `fromId` to `toId`, and the envelope template applied at this layer. */
-        TraversalHop: {
-            /** @description Entity executing this segment; the C2 backend id for the first hop. */
-            fromId: string;
-            /** @description Entity reached by this segment. */
-            toId: string;
-            /** @description Relation/channel name driving this hop (e.g. `kubelet-exec`, `rce.can-exec`, `kubectl-exec`, or `builtin-exec` for the C2 entry). */
-            relation: string;
-            /** @description The command-wrapping template with `${CMD}` placeholder applied at this hop. Absent for the C2 entry hop and pass-through segments. */
-            envelope?: string;
-            /** @description The full command string sent across this segment - what `fromId` runs. */
-            command: string;
-        };
-        TTP: {
-            id: string;
-            name: string;
-            description: string;
-            tactic: string;
-            techniques: string[];
-            status: components["schemas"]["TTPStatus"];
-            params: components["schemas"]["TTPParam"][];
-            requires: components["schemas"]["Requirements"];
-            effects?: string[];
-            procedures: components["schemas"]["Procedure"][];
-        };
-        Procedure: {
-            id: string;
-            command: string;
-            tool?: string;
-            isLocalCommand?: boolean;
-        };
-        TTPParam: {
-            name: string;
-            type: string;
-            description: string;
-            required: boolean;
-            default: string;
-        };
-        TTPDefense: {
-            id: string;
-            name: string;
-            url?: string;
-            description?: string;
-            sigma?: components["schemas"]["SigmaRule"];
-            d3efend?: string;
-        };
-        SigmaRule: {
-            title: string;
-            id?: string;
-            description?: string;
-            status?: string;
-            logsource: {
-                [key: string]: unknown;
-            };
-            detection: {
-                [key: string]: unknown;
-            };
-            tags: string[];
-            references?: string[];
-            /** Format: date-time */
-            date: string;
-        };
-        ExecuteActionCmd: {
-            actionId: string;
-            execSystemId?: string;
-            /** @description Entity ID selected through the TTP's K8S_AUTH parameter. Required for Kubernetes procedures and must identify an eligible captured ServiceAccount or the active K8sCredential. */
-            authIdentityId?: string;
-            targetId: string;
-            procedureId?: string;
-            args?: {
-                [key: string]: string;
-            };
-            /**
-             * Format: int64
-             * @description Maximum wall-clock time allowed for the complete command.
-             * @default 60
-             */
-            executionTimeoutSeconds: number;
-            /** @description Free-text rationale for choosing this action at this point in the assessment - why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
-            reasoning?: string;
-        };
-        AuthIdentity: {
-            id: string;
-            name: string;
-            kind: string;
-        };
-        K8sResource: {
-            id: string;
-            name: string;
-            namespace?: string;
-            kind: string;
-            /** @description Pod phase (Running, Pending, Succeeded, Failed, Unknown) */
-            phase?: string;
-            /** @description Whether all containers in the pod are ready */
-            ready?: boolean;
-            /** @description Container-level state reason (e.g. CrashLoopBackOff, ImagePullBackOff) */
-            stateReason?: string;
-        };
-        Requirements: {
-            kind?: string;
-            rbacPermissions?: components["schemas"]["RBACPermission"][];
-            accessLevel?: string;
-            activeSession?: boolean;
-            exists?: string[];
-        };
-        RBACPermission: {
-            resource: string;
-            resourceName: string;
-            resourceType: string;
-            apiGroup: string;
-            verb: string;
-            scope: string;
-            sourceRole: string;
-            /** @default true */
-            isNamespaced: boolean;
-            /** @enum {string} */
-            scopeKind?: "cluster" | "namespace" | "unknown";
-            evaluatedNamespace?: string;
-            /** @enum {string} */
-            scopeSource?: "binding" | "role" | "ssrr";
-            kubetier?: components["schemas"]["KubetierPermissionAssessment"];
-        };
-        KubetierPermissionAssessment: {
-            /** @enum {string} */
-            provider: "kubetier";
-            tierMin?: components["schemas"]["KubetierTier"];
-            tierMax?: components["schemas"]["KubetierTier"];
-            unassessed?: boolean;
-            scopeUnverified: boolean;
-            matches: components["schemas"]["KubetierPermission"][];
-        };
-        /** @enum {string} */
-        KubetierTier: "T0" | "T1" | "T2" | "T3";
-        /** @enum {string} */
-        KubetierScope: "cluster" | "namespaced";
-        KubetierEscalationPath: {
-            name: string;
-            tier: components["schemas"]["KubetierTier"];
-            sourceUrl: string;
-            steps: string[];
-        };
-        KubetierPermission: {
-            id: string;
-            verb: string;
-            resource: string;
-            apiGroup: string;
-            scope: components["schemas"]["KubetierScope"];
-            tier: components["schemas"]["KubetierTier"];
-            escalationCount: number;
-            sourceUrl: string;
-            kubernetesDocUrl?: string;
-            description?: string;
-            escalationPaths: components["schemas"]["KubetierEscalationPath"][];
-        };
-        KubetierRoleRule: {
-            apiGroups: string[];
-            resources: string[];
-            nonResourceUrls: string[];
-            verbs: string[];
-        };
-        KubetierRole: {
-            id: string;
-            name: string;
-            scope: components["schemas"]["KubetierScope"];
-            tier: components["schemas"]["KubetierTier"];
-            sourceUrl: string;
-            kubernetesDocUrl?: string;
-            description?: string;
-            notes: string[];
-            rules: components["schemas"]["KubetierRoleRule"][];
-        };
-        KubetierCatalog: {
-            schemaVersion: number;
-            attribution: string;
-            sourceUrl: string;
-            fetchedAt: string;
-            sourceEtag?: string;
-            sourceSha256: string;
-            validatedKubernetesVersion?: string;
-            full: boolean;
-            permissions: components["schemas"]["KubetierPermission"][];
-            roles: components["schemas"]["KubetierRole"][];
-        };
-        /**
-         * @description A completed TTP execution joined with the parse audits produced by its
-         *     declared effects. The record fields are flattened at the top level;
-         *     `parseAudits` is the list of per-effect audit entries.
-         */
-        ExecutionRecordEntry: {
-            /** @description Unique command ID, correlates with SSE `ttp-executed` and `parse-audited` events */
-            id: string;
-            ttp_id: string;
-            ttp_name: string;
-            tactic: string;
-            target_id: string;
-            /** @description ID of the system that ran the command; empty for direct builtin exec */
-            exec_system_id: string;
-            /** @description ID of the Kubernetes authentication identity selected for the action */
-            auth_identity_id?: string;
-            procedure_id: string;
-            /** @description Fully grounded command string sent to the C2 backend */
-            command: string;
-            /** @description Resolved arguments after default-filling and template substitution */
-            args: {
-                [key: string]: string;
-            };
-            success: boolean;
-            exit_code: number;
-            /** @description Raw output lines - first element is stdout, second (if present) is stderr */
-            results: string[];
-            fail_reason: string;
-            /**
-             * Format: int64
-             * @description Unix timestamp in milliseconds when the command was dispatched
-             */
-            started_at_ms: number;
-            /**
-             * Format: int64
-             * @description Unix timestamp in milliseconds when the result was received
-             */
-            completed_at_ms: number;
-            /** @description Entities produced by this execution, retained for operation timeline replay */
-            discovered_entities: components["schemas"]["ExecutionEntity"][];
-            /** @description Caller-supplied rationale for why this action was run, as passed to the execute-action request. Empty when none was given. */
-            reasoning?: string;
-            parseAudits: components["schemas"]["ParseAudit"][];
-        };
-        ExecutionEntity: {
-            id: string;
-            name: string;
-            kind: string;
-            /**
-             * @description What the execution did to this entity. `observed` means the campaign learned of it for the first time; `created` means the action brought it into existence (a deployed pod, a bound listener); `updated` means it was already known and this run only refined its fields. Only `observed` is a discovery — consumers must not report the other two as one. Absent on records written before outcomes were tracked.
-             * @default observed
-             * @enum {string}
-             */
-            outcome: "observed" | "created" | "updated";
-            /**
-             * @description What sort of news this fact is. Independent of `outcome`: gaining exec access to a host the campaign already knew is `access-gained` with an outcome of `updated`, and is still worth showing. Decided by the producer, so clients must not re-derive it from `kind`.
-             * @default discovery
-             * @enum {string}
-             */
-            category: "discovery" | "credential" | "access-gained";
-        };
-        /**
-         * @description Audit record for a single effect parse attempt. `parse_result` indicates
-         *     whether the effect was parsed successfully; `NoParser` and `UnknownFormat`
-         *     are the two signals used by Shuhari's Gap 1 classifier.
-         */
-        ParseAudit: {
-            /** @description Command ID of the execution that produced this audit */
-            cmd_id: string;
-            /** @description Effect identifier as declared in the TTP (e.g. `sys.envvar`, `k8s.podlist`) */
-            effect_id: string;
-            ttp_id: string;
-            target_id: string;
-            parser_version: string;
-            /** @description SHA-256 of the raw stdout+stderr, for deduplication across episodes */
-            raw_output_hash: string;
-            /** @description First 1024 characters of combined stdout+stderr */
-            raw_output_preview: string;
-            /**
-             * @description - `Parsed`: effect was handled and facts were written to the campaign
-             *     - `KnownFailure`: effect ran but produced expected-empty output (e.g. command not found)
-             *     - `UnknownFormat`: output was present but the parser could not interpret it
-             *     - `NoParser`: no compiled or external parser is registered for this effect (Gap 1 signal)
-             *     - `ParserBug`: parser crashed or panicked
-             * @enum {string}
-             */
-            parse_result: "Parsed" | "KnownFailure" | "UnknownFormat" | "NoParser" | "ParserBug";
-            /** @description Human-readable explanation of the parse outcome */
-            detail: string;
-            /** @description Number of new entities or field updates written to the campaign graph */
-            inferred_facts_written: number;
-        };
-        Error: {
-            error: string;
-            details?: string;
-        };
-        /** @description One consideration's contribution to a candidate's score. */
-        ConsiderationScore: {
-            /** @description Consideration identifier (e.g. "privilege_gain"). */
-            name: string;
-            /**
-             * @description Whether this consideration contributes to utility or belief state.
-             * @enum {string}
-             */
-            kind: "utility" | "belief";
-            /**
-             * Format: float
-             * @description Raw measurement in [0, 1].
-             */
-            raw: number;
-            /**
-             * Format: float
-             * @description Measurement after the profile's response curve.
-             */
-            curved: number;
-            /**
-             * Format: float
-             * @description Weight applied from the profile.
-             */
-            weight: number;
-            /** @description Whether this consideration acted as a multiplicative veto. */
-            veto: boolean;
-        };
-        /** @description A scored, grounded (TTP × target) action. */
-        ScoredCandidate: {
-            ttp_id: string;
-            target_id: string;
-            /**
-             * Format: float
-             * @description Final ranking score in [0, 1], equal to utility_score × success_probability.
-             */
-            utility: number;
-            /**
-             * Format: float
-             * @description Intrinsic desirability of the action if it succeeds.
-             */
-            utility_score: number;
-            /**
-             * Format: float
-             * @description Belief-state probability that the action can be grounded and succeed.
-             */
-            success_probability: number;
-            breakdown: components["schemas"]["ConsiderationScore"][];
-        };
-        /**
-         * @description How per-consideration scores are combined into one utility.
-         * @enum {string}
-         */
-        CombinationMode: "weighted_arithmetic" | "weighted_geometric" | "iaus_multiplicative";
-        /** @description A response curve mapping a raw measurement in [0,1] to a tuned score in [0,1], internally tagged by `type`. Only the fields for the active type are meaningful (linear: slope/intercept; polynomial: exponent/slope/ intercept; logistic: steepness/midpoint; step: threshold). */
-        ResponseCurve: {
-            /** @enum {string} */
-            type: "linear" | "polynomial" | "logistic" | "step";
-            /** Format: float */
-            slope?: number;
-            /** Format: float */
-            intercept?: number;
-            /** Format: float */
-            exponent?: number;
-            /** Format: float */
-            steepness?: number;
-            /** Format: float */
-            midpoint?: number;
-            /** Format: float */
-            threshold?: number;
-        };
-        /** @description A consideration's tunable config, tagged with its name. */
-        NamedConsideration: {
-            name: string;
-            /** Format: float */
-            weight: number;
-            curve: components["schemas"]["ResponseCurve"];
-            enabled: boolean;
-            veto: boolean;
-        };
-        /** @description The live scoring profile. */
-        ScoringProfile: {
-            /** @description Whether utility-AI recommendations and action scoring are enabled. */
-            enabled: boolean;
-            combination: components["schemas"]["CombinationMode"];
-            /** @description Whether scoring and the tuning UI feature flag are both enabled. */
-            tuningEnabled: boolean;
-            considerations: components["schemas"]["NamedConsideration"][];
-        };
-        /** @description A scoring-profile update (runtime tuning). */
-        ScoringProfileUpdate: {
-            combination: components["schemas"]["CombinationMode"];
-            considerations: components["schemas"]["NamedConsideration"][];
-        };
-        /** @description Fit-quality metrics from a calibration run. */
-        CalibrationMetrics: {
-            /** @description Number of captured decisions the fit used. */
-            decisions: number;
-            /**
-             * Format: float
-             * @description Fraction of decisions where the operator's choice ranks first.
-             */
-            top1Accuracy: number;
-            /**
-             * Format: float
-             * @description Mean probability the fitted model assigns the operator's choices.
-             */
-            meanChosenProb: number;
-            /**
-             * Format: float
-             * @description Worst per-decision probability assigned to an operator choice.
-             */
-            minChosenProb: number;
-            /** Format: float */
-            logLikelihood: number;
-            /** @description Decisions whose choice is Pareto-dominated - unreproducible by any non-negative weighting, signalling a missing consideration. */
-            infeasible: number;
-            converged: boolean;
-        };
-        /** @description A calibration preview - the fitted profile plus fit metrics. */
-        CalibrationResult: {
-            profile: components["schemas"]["ScoringProfile"];
-            metrics: components["schemas"]["CalibrationMetrics"];
-        };
-        /** @description Reference to the Kubernetes owner of a resource (e.g. ReplicaSet → Pod). */
-        OwnerRef: {
-            name: string;
-            kind: string;
-            uid: string;
-        };
-        /** @description A volume mount on a pod - either a projected volume or a host-path bind mount. */
-        VolumeMount: {
-            name: string;
-            /** @description Path inside the container where the volume appears. */
-            mount_point: string;
-            /** @description Path on the host that is bound (for hostPath mounts). */
-            mount_root: string;
-            mount_type?: string;
-            read_only: boolean;
-            is_host_path: boolean;
-        };
-        /**
-         * @description Status of a TTP - whether it is enabled or disabled
-         * @enum {string}
-         */
-        TTPStatus: "enabled" | "disabled";
-    };
-    responses: never;
-    parameters: never;
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+	schemas: {
+		PlanSummary: {
+			/** @description File name within the plans directory (pass to /api/plans/load) */
+			filename: string;
+			id: string;
+			name: string;
+			description?: string | null;
+			/** @description Number of steps in the plan */
+			steps: number;
+		};
+		LoadPlanRequest: {
+			/** @description File name of the plan within the configured plans directory */
+			filename: string;
+		};
+		Graph: {
+			nodes: components['schemas']['Node'][];
+			edges: components['schemas']['Edge'][];
+			rootNodeId: string;
+		};
+		Node: {
+			id: string;
+			name: string;
+			kind: string;
+			parent?: string;
+			accessLevel?: string;
+			entityId: string;
+			entity?: {
+				[key: string]: unknown;
+			};
+			compromised?: boolean;
+			isRunning?: boolean;
+			provenance?: ('scenario' | 'operator' | 'action' | 'inference')[];
+		};
+		Edge: {
+			id: string;
+			name: string;
+			/** Format: float */
+			weight?: number;
+			relation?: {
+				[key: string]: unknown;
+			};
+			sourceId: string;
+			targetId: string;
+			/** @description Backend ID of the active persistent session on this exec-channel edge, if any. */
+			sessionId?: string;
+			/** @description True when the session backing this exec-channel edge has died. The edge is kept (rendered as broken) and is non-traversable until a session reconnects and recovers it. */
+			broken?: boolean;
+			provenance?: ('scenario' | 'operator' | 'action' | 'inference')[];
+		};
+		CampaignState: {
+			entities: {
+				[key: string]: Record<string, never>;
+			};
+			relations: {
+				[key: string]: unknown;
+			}[];
+			bootstrapOperations?: components['schemas']['BootstrapOperation'][];
+		};
+		BootstrapOperation: {
+			id: string;
+			name: string;
+			detail: string;
+			effects: components['schemas']['BootstrapEffect'][];
+		};
+		BootstrapEffect: {
+			entityId: string;
+			entityName: string;
+			entityKind: string;
+			/** @enum {string} */
+			category: 'credential' | 'discovery';
+		};
+		/** @description Ran's internal campaign-flow representation. This is not MITRE Attack Flow/STIX. */
+		AttackFlow: {
+			steps: components['schemas']['AttackStep'][];
+			edges: components['schemas']['FlowEdge'][];
+		};
+		FlowEdge: {
+			id: string;
+			sourceId: string;
+			targetId: string;
+		};
+		AttackStep: {
+			id: string;
+			targetId: string;
+			command: string;
+			/** @description Per-hop breakdown of a multi-system command traversal, ordered from the C2 entry point (outermost envelope) to the final target (innermost). Empty for direct/single-hop commands. */
+			traversal: components['schemas']['TraversalHop'][];
+			/** @description The bare inner command as it runs on the final target system, before any hop envelopes wrap it. Empty when there is no multi-hop traversal. */
+			innerCommand: string;
+			/** @description Short, human-readable explanation of why this execution route was chosen (e.g. a live session vs. a multi-hop path), including a note when a broken session edge to the target was skipped. Empty for direct/local commands with no joined traversal. */
+			routeReason?: string;
+			args: {
+				[key: string]: string;
+			};
+			procedureId: string;
+			TTP: components['schemas']['AttackStepTTP'];
+			results: string[];
+			/** Format: date-time */
+			startedAt: string;
+			/** @description Completion timestamp in RFC 3339 format, or an empty string while ongoing */
+			completedAt: string;
+			executedOn: string;
+			/** @enum {string} */
+			status: 'Unknown' | 'Failed' | 'Success' | 'Ongoing';
+			success: boolean;
+		};
+		AttackStepTTP: {
+			id: string;
+			name: string;
+			description: string;
+			tactic: string;
+			techniques: string[];
+		};
+		/** @description One segment of a multi-hop command traversal: the command as it is handed from `fromId` to `toId`, and the envelope template applied at this layer. */
+		TraversalHop: {
+			/** @description Entity executing this segment; the C2 backend id for the first hop. */
+			fromId: string;
+			/** @description Entity reached by this segment. */
+			toId: string;
+			/** @description Relation/channel name driving this hop (e.g. `kubelet-exec`, `rce.can-exec`, `kubectl-exec`, or `builtin-exec` for the C2 entry). */
+			relation: string;
+			/** @description The command-wrapping template with `${CMD}` placeholder applied at this hop. Absent for the C2 entry hop and pass-through segments. */
+			envelope?: string;
+			/** @description The full command string sent across this segment - what `fromId` runs. */
+			command: string;
+		};
+		TTP: {
+			id: string;
+			name: string;
+			description: string;
+			tactic: string;
+			techniques: string[];
+			status: components['schemas']['TTPStatus'];
+			params: components['schemas']['TTPParam'][];
+			requires: components['schemas']['Requirements'];
+			effects?: string[];
+			procedures: components['schemas']['Procedure'][];
+		};
+		Procedure: {
+			id: string;
+			command: string;
+			tool?: string;
+			isLocalCommand?: boolean;
+		};
+		TTPParam: {
+			name: string;
+			type: string;
+			description: string;
+			required: boolean;
+			default: string;
+		};
+		TTPDefense: {
+			id: string;
+			name: string;
+			url?: string;
+			description?: string;
+			sigma?: components['schemas']['SigmaRule'];
+			d3efend?: string;
+		};
+		SigmaRule: {
+			title: string;
+			id?: string;
+			description?: string;
+			status?: string;
+			logsource: {
+				[key: string]: unknown;
+			};
+			detection: {
+				[key: string]: unknown;
+			};
+			tags: string[];
+			references?: string[];
+			/** Format: date-time */
+			date: string;
+		};
+		ExecuteActionCmd: {
+			actionId: string;
+			execSystemId?: string;
+			/** @description Entity ID selected through the TTP's K8S_AUTH parameter. Required for Kubernetes procedures and must identify an eligible captured ServiceAccount or the active K8sCredential. */
+			authIdentityId?: string;
+			targetId: string;
+			procedureId?: string;
+			args?: {
+				[key: string]: string;
+			};
+			/**
+			 * Format: int64
+			 * @description Maximum wall-clock time allowed for the complete command.
+			 * @default 60
+			 */
+			executionTimeoutSeconds: number;
+			/** @description Free-text rationale for choosing this action at this point in the assessment - why this TTP against this target now. Optional, but strongly encouraged when driving the campaign programmatically: it is stored on the resulting execution record so the timeline is self-explaining and auditable. */
+			reasoning?: string;
+		};
+		AuthIdentity: {
+			id: string;
+			name: string;
+			kind: string;
+		};
+		K8sResource: {
+			id: string;
+			name: string;
+			namespace?: string;
+			kind: string;
+			/** @description Pod phase (Running, Pending, Succeeded, Failed, Unknown) */
+			phase?: string;
+			/** @description Whether all containers in the pod are ready */
+			ready?: boolean;
+			/** @description Container-level state reason (e.g. CrashLoopBackOff, ImagePullBackOff) */
+			stateReason?: string;
+		};
+		Requirements: {
+			kind?: string;
+			rbacPermissions?: components['schemas']['RBACPermission'][];
+			accessLevel?: string;
+			activeSession?: boolean;
+			exists?: string[];
+		};
+		RBACPermission: {
+			resource: string;
+			resourceName: string;
+			resourceType: string;
+			apiGroup: string;
+			verb: string;
+			scope: string;
+			sourceRole: string;
+			/** @default true */
+			isNamespaced: boolean;
+			/** @enum {string} */
+			scopeKind?: 'cluster' | 'namespace' | 'unknown';
+			evaluatedNamespace?: string;
+			/** @enum {string} */
+			scopeSource?: 'binding' | 'role' | 'ssrr';
+			kubetier?: components['schemas']['KubetierPermissionAssessment'];
+		};
+		KubetierPermissionAssessment: {
+			/** @enum {string} */
+			provider: 'kubetier';
+			tierMin?: components['schemas']['KubetierTier'];
+			tierMax?: components['schemas']['KubetierTier'];
+			unassessed?: boolean;
+			scopeUnverified: boolean;
+			matches: components['schemas']['KubetierPermission'][];
+		};
+		/** @enum {string} */
+		KubetierTier: 'T0' | 'T1' | 'T2' | 'T3';
+		/** @enum {string} */
+		KubetierScope: 'cluster' | 'namespaced';
+		KubetierEscalationPath: {
+			name: string;
+			tier: components['schemas']['KubetierTier'];
+			sourceUrl: string;
+			steps: string[];
+		};
+		KubetierPermission: {
+			id: string;
+			verb: string;
+			resource: string;
+			apiGroup: string;
+			scope: components['schemas']['KubetierScope'];
+			tier: components['schemas']['KubetierTier'];
+			escalationCount: number;
+			sourceUrl: string;
+			kubernetesDocUrl?: string;
+			description?: string;
+			escalationPaths: components['schemas']['KubetierEscalationPath'][];
+		};
+		KubetierRoleRule: {
+			apiGroups: string[];
+			resources: string[];
+			nonResourceUrls: string[];
+			verbs: string[];
+		};
+		KubetierRole: {
+			id: string;
+			name: string;
+			scope: components['schemas']['KubetierScope'];
+			tier: components['schemas']['KubetierTier'];
+			sourceUrl: string;
+			kubernetesDocUrl?: string;
+			description?: string;
+			notes: string[];
+			rules: components['schemas']['KubetierRoleRule'][];
+		};
+		KubetierCatalog: {
+			schemaVersion: number;
+			attribution: string;
+			sourceUrl: string;
+			fetchedAt: string;
+			sourceEtag?: string;
+			sourceSha256: string;
+			validatedKubernetesVersion?: string;
+			full: boolean;
+			permissions: components['schemas']['KubetierPermission'][];
+			roles: components['schemas']['KubetierRole'][];
+		};
+		/**
+		 * @description A completed TTP execution joined with the parse audits produced by its
+		 *     declared effects. The record fields are flattened at the top level;
+		 *     `parseAudits` is the list of per-effect audit entries.
+		 */
+		ExecutionRecordEntry: {
+			/** @description Unique command ID, correlates with SSE `ttp-executed` and `parse-audited` events */
+			id: string;
+			ttp_id: string;
+			ttp_name: string;
+			tactic: string;
+			target_id: string;
+			/** @description ID of the system that ran the command; empty for direct builtin exec */
+			exec_system_id: string;
+			/** @description ID of the Kubernetes authentication identity selected for the action */
+			auth_identity_id?: string;
+			procedure_id: string;
+			/** @description Fully grounded command string sent to the C2 backend */
+			command: string;
+			/** @description Resolved arguments after default-filling and template substitution */
+			args: {
+				[key: string]: string;
+			};
+			success: boolean;
+			exit_code: number;
+			/** @description Raw output lines - first element is stdout, second (if present) is stderr */
+			results: string[];
+			fail_reason: string;
+			/**
+			 * Format: int64
+			 * @description Unix timestamp in milliseconds when the command was dispatched
+			 */
+			started_at_ms: number;
+			/**
+			 * Format: int64
+			 * @description Unix timestamp in milliseconds when the result was received
+			 */
+			completed_at_ms: number;
+			/** @description Entities produced by this execution, retained for operation timeline replay */
+			discovered_entities: components['schemas']['ExecutionEntity'][];
+			/** @description Caller-supplied rationale for why this action was run, as passed to the execute-action request. Empty when none was given. */
+			reasoning?: string;
+			parseAudits: components['schemas']['ParseAudit'][];
+		};
+		ExecutionEntity: {
+			id: string;
+			name: string;
+			kind: string;
+			/**
+			 * @description What the execution did to this entity. `observed` means the campaign learned of it for the first time; `created` means the action brought it into existence (a deployed pod, a bound listener); `updated` means it was already known and this run only refined its fields. Only `observed` is a discovery — consumers must not report the other two as one. Absent on records written before outcomes were tracked.
+			 * @default observed
+			 * @enum {string}
+			 */
+			outcome: 'observed' | 'created' | 'updated';
+			/**
+			 * @description What sort of news this fact is. Independent of `outcome`: gaining exec access to a host the campaign already knew is `access-gained` with an outcome of `updated`, and is still worth showing. Decided by the producer, so clients must not re-derive it from `kind`.
+			 * @default discovery
+			 * @enum {string}
+			 */
+			category: 'discovery' | 'credential' | 'access-gained';
+		};
+		/**
+		 * @description Audit record for a single effect parse attempt. `parse_result` indicates
+		 *     whether the effect was parsed successfully; `NoParser` and `UnknownFormat`
+		 *     are the two signals used by Shuhari's Gap 1 classifier.
+		 */
+		ParseAudit: {
+			/** @description Command ID of the execution that produced this audit */
+			cmd_id: string;
+			/** @description Effect identifier as declared in the TTP (e.g. `sys.envvar`, `k8s.podlist`) */
+			effect_id: string;
+			ttp_id: string;
+			target_id: string;
+			parser_version: string;
+			/** @description SHA-256 of the raw stdout+stderr, for deduplication across episodes */
+			raw_output_hash: string;
+			/** @description First 1024 characters of combined stdout+stderr */
+			raw_output_preview: string;
+			/**
+			 * @description - `Parsed`: effect was handled and facts were written to the campaign
+			 *     - `KnownFailure`: effect ran but produced expected-empty output (e.g. command not found)
+			 *     - `UnknownFormat`: output was present but the parser could not interpret it
+			 *     - `NoParser`: no compiled or external parser is registered for this effect (Gap 1 signal)
+			 *     - `ParserBug`: parser crashed or panicked
+			 * @enum {string}
+			 */
+			parse_result: 'Parsed' | 'KnownFailure' | 'UnknownFormat' | 'NoParser' | 'ParserBug';
+			/** @description Human-readable explanation of the parse outcome */
+			detail: string;
+			/** @description Number of new entities or field updates written to the campaign graph */
+			inferred_facts_written: number;
+		};
+		Error: {
+			error: string;
+			details?: string;
+		};
+		/** @description One consideration's contribution to a candidate's score. */
+		ConsiderationScore: {
+			/** @description Consideration identifier (e.g. "privilege_gain"). */
+			name: string;
+			/**
+			 * @description Whether this consideration contributes to utility or belief state.
+			 * @enum {string}
+			 */
+			kind: 'utility' | 'belief';
+			/**
+			 * Format: float
+			 * @description Raw measurement in [0, 1].
+			 */
+			raw: number;
+			/**
+			 * Format: float
+			 * @description Measurement after the profile's response curve.
+			 */
+			curved: number;
+			/**
+			 * Format: float
+			 * @description Weight applied from the profile.
+			 */
+			weight: number;
+			/** @description Whether this consideration acted as a multiplicative veto. */
+			veto: boolean;
+		};
+		/** @description A scored, grounded (TTP × target) action. */
+		ScoredCandidate: {
+			ttp_id: string;
+			target_id: string;
+			/**
+			 * Format: float
+			 * @description Final ranking score in [0, 1], equal to utility_score × success_probability.
+			 */
+			utility: number;
+			/**
+			 * Format: float
+			 * @description Intrinsic desirability of the action if it succeeds.
+			 */
+			utility_score: number;
+			/**
+			 * Format: float
+			 * @description Belief-state probability that the action can be grounded and succeed.
+			 */
+			success_probability: number;
+			breakdown: components['schemas']['ConsiderationScore'][];
+		};
+		/**
+		 * @description How per-consideration scores are combined into one utility.
+		 * @enum {string}
+		 */
+		CombinationMode: 'weighted_arithmetic' | 'weighted_geometric' | 'iaus_multiplicative';
+		/** @description A response curve mapping a raw measurement in [0,1] to a tuned score in [0,1], internally tagged by `type`. Only the fields for the active type are meaningful (linear: slope/intercept; polynomial: exponent/slope/ intercept; logistic: steepness/midpoint; step: threshold). */
+		ResponseCurve: {
+			/** @enum {string} */
+			type: 'linear' | 'polynomial' | 'logistic' | 'step';
+			/** Format: float */
+			slope?: number;
+			/** Format: float */
+			intercept?: number;
+			/** Format: float */
+			exponent?: number;
+			/** Format: float */
+			steepness?: number;
+			/** Format: float */
+			midpoint?: number;
+			/** Format: float */
+			threshold?: number;
+		};
+		/** @description A consideration's tunable config, tagged with its name. */
+		NamedConsideration: {
+			name: string;
+			/** Format: float */
+			weight: number;
+			curve: components['schemas']['ResponseCurve'];
+			enabled: boolean;
+			veto: boolean;
+		};
+		/** @description The live scoring profile. */
+		ScoringProfile: {
+			/** @description Whether utility-AI recommendations and action scoring are enabled. */
+			enabled: boolean;
+			combination: components['schemas']['CombinationMode'];
+			/** @description Whether scoring and the tuning UI feature flag are both enabled. */
+			tuningEnabled: boolean;
+			considerations: components['schemas']['NamedConsideration'][];
+		};
+		/** @description A scoring-profile update (runtime tuning). */
+		ScoringProfileUpdate: {
+			combination: components['schemas']['CombinationMode'];
+			considerations: components['schemas']['NamedConsideration'][];
+		};
+		/** @description Fit-quality metrics from a calibration run. */
+		CalibrationMetrics: {
+			/** @description Number of captured decisions the fit used. */
+			decisions: number;
+			/**
+			 * Format: float
+			 * @description Fraction of decisions where the operator's choice ranks first.
+			 */
+			top1Accuracy: number;
+			/**
+			 * Format: float
+			 * @description Mean probability the fitted model assigns the operator's choices.
+			 */
+			meanChosenProb: number;
+			/**
+			 * Format: float
+			 * @description Worst per-decision probability assigned to an operator choice.
+			 */
+			minChosenProb: number;
+			/** Format: float */
+			logLikelihood: number;
+			/** @description Decisions whose choice is Pareto-dominated - unreproducible by any non-negative weighting, signalling a missing consideration. */
+			infeasible: number;
+			converged: boolean;
+		};
+		/** @description A calibration preview - the fitted profile plus fit metrics. */
+		CalibrationResult: {
+			profile: components['schemas']['ScoringProfile'];
+			metrics: components['schemas']['CalibrationMetrics'];
+		};
+		/** @description Reference to the Kubernetes owner of a resource (e.g. ReplicaSet → Pod). */
+		OwnerRef: {
+			name: string;
+			kind: string;
+			uid: string;
+		};
+		/** @description A volume mount on a pod - either a projected volume or a host-path bind mount. */
+		VolumeMount: {
+			name: string;
+			/** @description Path inside the container where the volume appears. */
+			mount_point: string;
+			/** @description Path on the host that is bound (for hostPath mounts). */
+			mount_root: string;
+			mount_type?: string;
+			read_only: boolean;
+			is_host_path: boolean;
+		};
+		/**
+		 * @description Status of a TTP - whether it is enabled or disabled
+		 * @enum {string}
+		 */
+		TTPStatus: 'enabled' | 'disabled';
+	};
+	responses: never;
+	parameters: never;
+	requestBodies: never;
+	headers: never;
+	pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    getGraph: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Graph"];
-                };
-            };
-        };
-    };
-    getCampaignState: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CampaignState"];
-                };
-            };
-        };
-    };
-    getKubetierCatalog: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Offline KubeTier catalog */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KubetierCatalog"];
-                };
-            };
-        };
-    };
-    getArmory: {
-        parameters: {
-            query?: {
-                /** @description Optional tactic to filter by (e.g., "Execution", "CredentialAccess") */
-                tactic?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TTP"][];
-                };
-            };
-        };
-    };
-    getApplicableTTPs: {
-        parameters: {
-            query?: {
-                /** @description ID of the target entity (optional, can be empty for all targets) */
-                targetId?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TTP"][];
-                };
-            };
-            /** @description Target not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    getEligibleAuthIdentities: {
-        parameters: {
-            query: {
-                actionId: string;
-                targetId: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Eligible identities */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthIdentity"][];
-                };
-            };
-            /** @description Action or target not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    getRecommendations: {
-        parameters: {
-            query?: {
-                /** @description Optional - restrict recommendations to a single target entity. */
-                targetId?: string;
-                /** @description Optional - cap the number of ranked candidates returned. */
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScoredCandidate"][];
-                };
-            };
-        };
-    };
-    getScoringProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScoringProfile"];
-                };
-            };
-        };
-    };
-    updateScoringProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ScoringProfileUpdate"];
-            };
-        };
-        responses: {
-            /** @description Updated profile */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScoringProfile"];
-                };
-            };
-            /** @description Tuning disabled */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    saveScoringProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Saved profile */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScoringProfile"];
-                };
-            };
-            /** @description Tuning disabled */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    resetScoringProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Reset profile */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScoringProfile"];
-                };
-            };
-            /** @description Tuning disabled */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    calibrateScoring: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Fitted profile preview and metrics */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CalibrationResult"];
-                };
-            };
-            /** @description Tuning disabled */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No captured decisions to calibrate from */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    getFlow: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AttackFlow"];
-                };
-            };
-        };
-    };
-    executeAction: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ExecuteActionCmd"];
-            };
-        };
-        responses: {
-            /** @description Action executed successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        status?: string;
-                    };
-                };
-            };
-            /** @description Action queued for execution, pending asynchronous processing. The final status will be sent via SSE. */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        status?: string;
-                        taskId?: string;
-                    };
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The specified action or target was not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The action was executed, but failed for some reason */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    resetCampaign: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Campaign reset successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        status?: string;
-                    };
-                };
-            };
-            /** @description Reset failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    getRunningPods: {
-        parameters: {
-            query?: {
-                /** @description Kubernetes namespace (optional, defaults to all namespaces) */
-                namespace?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["K8sResource"][];
-                };
-            };
-            /** @description Failed to retrieve pods */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    getExecutionRecords: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionRecordEntry"][];
-                };
-            };
-        };
-    };
-    getExecutionRecordById: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Command ID (matches the `id` field in SSE `ttp-executed` and `parse-audited` events) */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionRecordEntry"];
-                };
-            };
-            /** @description No record found for the given ID */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    getFileContent: {
-        parameters: {
-            query: {
-                /** @description The file path to retrieve content for */
-                path: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description File content retrieved successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        path?: string;
-                        content?: string;
-                    };
-                };
-            };
-            /** @description File content not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    listPlans: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Available plans */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PlanSummary"][];
-                };
-            };
-            /** @description Failed to read the plans directory */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    loadPlan: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LoadPlanRequest"];
-            };
-        };
-        responses: {
-            /** @description Plan started */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        plan_id?: string;
-                    };
-                };
-            };
-            /** @description Invalid plan filename or plan failed to parse */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Plan not found in the plans directory */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    exportPlan: {
-        parameters: {
-            query?: {
-                /** @description Include failed actions as well as successful actions. */
-                include_failed?: boolean;
-                /** @description Human-readable name stored in the exported plan. */
-                name?: string;
-                /** @description Description stored in the exported plan. */
-                description?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Exported plan YAML */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/yaml": string;
-                };
-            };
-            /** @description Failed to export the plan */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
+	getGraph: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Graph'];
+				};
+			};
+		};
+	};
+	getCampaignState: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['CampaignState'];
+				};
+			};
+		};
+	};
+	getKubetierCatalog: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Offline KubeTier catalog */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['KubetierCatalog'];
+				};
+			};
+		};
+	};
+	getArmory: {
+		parameters: {
+			query?: {
+				/** @description Optional tactic to filter by (e.g., "Execution", "CredentialAccess") */
+				tactic?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['TTP'][];
+				};
+			};
+		};
+	};
+	getApplicableTTPs: {
+		parameters: {
+			query?: {
+				/** @description ID of the target entity (optional, can be empty for all targets) */
+				targetId?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['TTP'][];
+				};
+			};
+			/** @description Target not found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	getEligibleAuthIdentities: {
+		parameters: {
+			query: {
+				actionId: string;
+				targetId: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Eligible identities */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['AuthIdentity'][];
+				};
+			};
+			/** @description Action or target not found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	getRecommendations: {
+		parameters: {
+			query?: {
+				/** @description Optional - restrict recommendations to a single target entity. */
+				targetId?: string;
+				/** @description Optional - cap the number of ranked candidates returned. */
+				limit?: number;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ScoredCandidate'][];
+				};
+			};
+		};
+	};
+	getScoringProfile: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ScoringProfile'];
+				};
+			};
+		};
+	};
+	updateScoringProfile: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['ScoringProfileUpdate'];
+			};
+		};
+		responses: {
+			/** @description Updated profile */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ScoringProfile'];
+				};
+			};
+			/** @description Tuning disabled */
+			403: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	saveScoringProfile: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Saved profile */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ScoringProfile'];
+				};
+			};
+			/** @description Tuning disabled */
+			403: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	resetScoringProfile: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Reset profile */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ScoringProfile'];
+				};
+			};
+			/** @description Tuning disabled */
+			403: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	calibrateScoring: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Fitted profile preview and metrics */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['CalibrationResult'];
+				};
+			};
+			/** @description Tuning disabled */
+			403: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+			/** @description No captured decisions to calibrate from */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	getFlow: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['AttackFlow'];
+				};
+			};
+		};
+	};
+	executeAction: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['ExecuteActionCmd'];
+			};
+		};
+		responses: {
+			/** @description Action executed successfully */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': {
+						status?: string;
+					};
+				};
+			};
+			/** @description Action queued for execution, pending asynchronous processing. The final status will be sent via SSE. */
+			202: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': {
+						status?: string;
+						taskId?: string;
+					};
+				};
+			};
+			/** @description Invalid request */
+			400: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+			/** @description The specified action or target was not found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+			/** @description The action was executed, but failed for some reason */
+			409: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	resetCampaign: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Campaign reset successfully */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': {
+						status?: string;
+					};
+				};
+			};
+			/** @description Reset failed */
+			500: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	getRunningPods: {
+		parameters: {
+			query?: {
+				/** @description Kubernetes namespace (optional, defaults to all namespaces) */
+				namespace?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['K8sResource'][];
+				};
+			};
+			/** @description Failed to retrieve pods */
+			500: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	getExecutionRecords: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ExecutionRecordEntry'][];
+				};
+			};
+		};
+	};
+	getExecutionRecordById: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				/** @description Command ID (matches the `id` field in SSE `ttp-executed` and `parse-audited` events) */
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ExecutionRecordEntry'];
+				};
+			};
+			/** @description No record found for the given ID */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	getFileContent: {
+		parameters: {
+			query: {
+				/** @description The file path to retrieve content for */
+				path: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description File content retrieved successfully */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': {
+						path?: string;
+						content?: string;
+					};
+				};
+			};
+			/** @description File content not found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	listPlans: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Available plans */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['PlanSummary'][];
+				};
+			};
+			/** @description Failed to read the plans directory */
+			500: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	loadPlan: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['LoadPlanRequest'];
+			};
+		};
+		responses: {
+			/** @description Plan started */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': {
+						plan_id?: string;
+					};
+				};
+			};
+			/** @description Invalid plan filename or plan failed to parse */
+			400: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+			/** @description Plan not found in the plans directory */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	exportPlan: {
+		parameters: {
+			query?: {
+				/** @description Include failed actions as well as successful actions. */
+				include_failed?: boolean;
+				/** @description Human-readable name stored in the exported plan. */
+				name?: string;
+				/** @description Description stored in the exported plan. */
+				description?: string;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Exported plan YAML */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/yaml': string;
+				};
+			};
+			/** @description Failed to export the plan */
+			500: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
 }

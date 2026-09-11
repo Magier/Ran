@@ -178,11 +178,7 @@ describe('consolidateCollapsedEdges', () => {
 		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
 
 		// Each pair has a single edge - nothing to consolidate; all stay as-is.
-		expect(visibleEdges(cy)).toEqual([
-			'nodeX->ns [e3]',
-			'ns->nodeX [e1]',
-			'ns->nodeY [e2]'
-		]);
+		expect(visibleEdges(cy)).toEqual(['nodeX->ns [e3]', 'ns->nodeX [e1]', 'ns->nodeY [e2]']);
 	});
 });
 

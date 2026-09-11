@@ -136,11 +136,7 @@ describe('c2Badges', () => {
 
 	it('names the adapters in a collapsed listener tooltip', () => {
 		const groups = c2Badges(
-			[
-				c2Node([listener('tcp', 1), listener('tcp', 2)], 'c2/ran', [
-					redirector('play1', 1337, 2)
-				])
-			],
+			[c2Node([listener('tcp', 1), listener('tcp', 2)], 'c2/ran', [redirector('play1', 1337, 2)])],
 			1
 		);
 
@@ -151,12 +147,7 @@ describe('c2Badges', () => {
 
 	it('names orphans by tool and hop in the overflow tooltip', () => {
 		const groups = c2Badges(
-			[
-				c2Node([], 'c2/ran', [
-					redirector('play1', 9000, 4444),
-					redirector('play2', 9001, 4444)
-				])
-			],
+			[c2Node([], 'c2/ran', [redirector('play1', 9000, 4444), redirector('play2', 9001, 4444)])],
 			1
 		);
 

@@ -58,7 +58,8 @@ const catalog: KubetierCatalog = {
 			tier: 'T0',
 			escalationCount: 0,
 			sourceUrl: 'https://kubetier.com/wildcard-all',
-			kubernetesDocUrl: 'https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles',
+			kubernetesDocUrl:
+				'https://kubernetes.io/docs/reference/access-authn-authz/rbac/#user-facing-roles',
 			escalationPaths: []
 		},
 		{
@@ -150,8 +151,18 @@ describe('KubeTier entitlement presentation', () => {
 		render(EntitlementInfo, {
 			props: {
 				entitlements: [
-					permission({ verb: 'get', resourceType: 'configmaps', scopeKind: 'namespace', scope: 'default' }),
-					permission({ verb: 'get', resourceType: 'pods', scopeKind: 'namespace', scope: 'default' })
+					permission({
+						verb: 'get',
+						resourceType: 'configmaps',
+						scopeKind: 'namespace',
+						scope: 'default'
+					}),
+					permission({
+						verb: 'get',
+						resourceType: 'pods',
+						scopeKind: 'namespace',
+						scope: 'default'
+					})
 				],
 				catalog
 			}
@@ -165,25 +176,40 @@ describe('KubeTier entitlement presentation', () => {
 		render(EntitlementInfo, { props: { entitlements: [permission()], catalog } });
 		await fireEvent.mouseEnter(screen.getByLabelText('Details for list secrets'));
 
-		expect(screen.getAllByRole('link', { name: 'KubeTier: list secrets (cluster)' })).toHaveLength(1);
-		expect(screen.getAllByRole('link', { name: 'KubeTier: list secrets (namespaced)' })).toHaveLength(1);
-		expect(screen.getAllByRole('link', { name: 'Kubernetes docs: list secrets (cluster)' })).toHaveLength(1);
-		expect(screen.getAllByRole('link', { name: 'Kubernetes docs: list secrets (namespaced)' })).toHaveLength(1);
+		expect(screen.getAllByRole('link', { name: 'KubeTier: list secrets (cluster)' })).toHaveLength(
+			1
+		);
+		expect(
+			screen.getAllByRole('link', { name: 'KubeTier: list secrets (namespaced)' })
+		).toHaveLength(1);
+		expect(
+			screen.getAllByRole('link', { name: 'Kubernetes docs: list secrets (cluster)' })
+		).toHaveLength(1);
+		expect(
+			screen.getAllByRole('link', { name: 'Kubernetes docs: list secrets (namespaced)' })
+		).toHaveLength(1);
 		expect(screen.queryByText(/Assessment by KubeTier/)).not.toBeInTheDocument();
-		expect(screen.getByRole('link', { name: 'KubeTier: list secrets (cluster)' })).not.toHaveClass('font-semibold');
+		expect(screen.getByRole('link', { name: 'KubeTier: list secrets (cluster)' })).not.toHaveClass(
+			'font-semibold'
+		);
 	});
 
 	it('maps an SSRR wildcard capability exclusively to the dedicated KubeTier entry', async () => {
 		render(EntitlementInfo, {
 			props: {
-				entitlements: [permission({ verb: '*', resourceType: '*', apiGroup: '*', scopeKind: 'unknown' })],
+				entitlements: [
+					permission({ verb: '*', resourceType: '*', apiGroup: '*', scopeKind: 'unknown' })
+				],
 				catalog
 			}
 		});
 		await fireEvent.mouseEnter(screen.getByLabelText('Details for * *'));
 
 		expect(screen.getAllByRole('link', { name: 'KubeTier assessment' })).toHaveLength(1);
-		expect(screen.getByRole('link', { name: 'KubeTier assessment' })).toHaveAttribute('href', 'https://kubetier.com/reference/?p=wildcard-all');
+		expect(screen.getByRole('link', { name: 'KubeTier assessment' })).toHaveAttribute(
+			'href',
+			'https://kubetier.com/reference/?p=wildcard-all'
+		);
 		expect(screen.getAllByRole('link', { name: 'Kubernetes documentation' })).toHaveLength(1);
 	});
 
@@ -200,8 +226,20 @@ describe('KubeTier entitlement presentation', () => {
 						scope: '*',
 						scopeKind: 'cluster'
 					}),
-					permission({ verb: 'get', resourceType: '', resourceName: '/healthz', scope: '*', scopeKind: 'cluster' }),
-					permission({ verb: 'get', resourceType: '', resourceName: '/healthz', scope: '*', scopeKind: 'cluster' })
+					permission({
+						verb: 'get',
+						resourceType: '',
+						resourceName: '/healthz',
+						scope: '*',
+						scopeKind: 'cluster'
+					}),
+					permission({
+						verb: 'get',
+						resourceType: '',
+						resourceName: '/healthz',
+						scope: '*',
+						scopeKind: 'cluster'
+					})
 				],
 				catalog
 			}

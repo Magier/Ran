@@ -127,9 +127,7 @@
 	let activeVeto = $derived(
 		breakdown?.find((c) => c.kind === 'utility' && c.veto && c.curved <= 0)
 	);
-	let beliefBlocker = $derived(
-		breakdown?.find((c) => c.kind === 'belief' && c.curved <= 0)
-	);
+	let beliefBlocker = $derived(breakdown?.find((c) => c.kind === 'belief' && c.curved <= 0));
 	let scoreBlocker = $derived(activeVeto ?? beliefBlocker);
 	let blockerLabel = $derived(
 		activeVeto
@@ -143,14 +141,14 @@
 <div
 	class={[
 		cardStyle +
-			' flex items-center hover:bg-surface-400-600 text-xs md:text-sm lg:text-base border-surface-50-950',
+			' hover:bg-surface-400-600 border-surface-50-950 flex items-center text-xs md:text-sm lg:text-base',
 		className
 	]}
 	style="overflow: visible;"
 >
 	<button
 		onclick={() => onclick(ttp)}
-		class="flex items-center gap-2 flex-1 min-w-0 p-0 pl-4 py-2 text-left bg-transparent"
+		class="flex min-w-0 flex-1 items-center gap-2 bg-transparent p-0 py-2 pl-4 text-left"
 		role="menuitem"
 		tabindex="0"
 		disabled={!enabled}
@@ -168,20 +166,28 @@
 					: 'bg-warning-100-900 text-warning-700-300'}"
 				aria-label={`${prerequisitesFulfilled ? 'Prerequisites fulfilled' : 'Prerequisites not fulfilled'}: ${requirementDetails.length} ${requirementDetails.length === 1 ? 'requirement' : 'requirements'}`}
 			>
-				<Icon icon={prerequisitesFulfilled ? 'mdi:check-circle-outline' : 'mdi:alert-circle-outline'} width="14" />
+				<Icon
+					icon={prerequisitesFulfilled ? 'mdi:check-circle-outline' : 'mdi:alert-circle-outline'}
+					width="14"
+				/>
 				<span class="tabular-nums">{requirementDetails.length}</span>
 			</Tooltip.Trigger>
 			<Tooltip.Positioner>
-				<Tooltip.Content class="z-[90] w-72 rounded border border-surface-300-700 bg-surface-100-900 p-2 shadow-xl">
+				<Tooltip.Content
+					class="border-surface-300-700 bg-surface-100-900 z-[90] w-72 rounded border p-2 shadow-xl"
+				>
 					<div class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold">
-						<Icon icon={prerequisitesFulfilled ? 'mdi:check-circle' : 'mdi:alert-circle'} width="14" />
+						<Icon
+							icon={prerequisitesFulfilled ? 'mdi:check-circle' : 'mdi:alert-circle'}
+							width="14"
+						/>
 						{prerequisitesFulfilled ? 'Prerequisites fulfilled' : 'Prerequisites not fulfilled'}
 					</div>
 					<div class="space-y-1.5">
 						{#each requirementDetails as requirement}
 							<div class="flex gap-1.5 text-xs">
-								<span class="shrink-0 font-medium text-surface-700-300">{requirement.label}:</span>
-								<span class="min-w-0 break-words text-surface-500">{requirement.value}</span>
+								<span class="text-surface-700-300 shrink-0 font-medium">{requirement.label}:</span>
+								<span class="text-surface-500 min-w-0 break-words">{requirement.value}</span>
 							</div>
 						{/each}
 					</div>
@@ -195,31 +201,29 @@
 			{#if scoreBlocker}
 				<Icon icon="mdi:alert-circle" width="14" class="text-error-500" aria-label={blockerLabel} />
 			{/if}
-			<span class="h-1.5 w-10 rounded bg-surface-300-700 overflow-hidden">
+			<span class="bg-surface-300-700 h-1.5 w-10 overflow-hidden rounded">
 				<span class="block h-full {utilityClass(utility)}" style="width: {pct}%"></span>
 			</span>
-			<span class="text-[10px] tabular-nums w-6 text-right">{pct}</span>
+			<span class="w-6 text-right text-[10px] tabular-nums">{pct}</span>
 		{/snippet}
 
 		{#if breakdown && breakdown.length}
-			<Tooltip
-				openDelay={120}
-				closeDelay={80}
-				positioning={{ placement: 'right', gutter: 8 }}
-			>
+			<Tooltip openDelay={120} closeDelay={80} positioning={{ placement: 'right', gutter: 8 }}>
 				<Tooltip.Trigger
-					class="flex items-center gap-1 pr-2 pl-1 flex-shrink-0 cursor-help text-surface-500 hover:text-primary-500"
-					aria-label={scoreBlocker ? `Utility ${pct} - ${blockerLabel}` : `Utility ${pct} - hover for breakdown`}
+					class="text-surface-500 hover:text-primary-500 flex flex-shrink-0 cursor-help items-center gap-1 pr-2 pl-1"
+					aria-label={scoreBlocker
+						? `Utility ${pct} - ${blockerLabel}`
+						: `Utility ${pct} - hover for breakdown`}
 					title={blockerLabel || 'Hover for utility breakdown'}
 				>
 					{@render chip()}
 				</Tooltip.Trigger>
 				<Tooltip.Positioner>
 					<Tooltip.Content
-						class="z-[90] w-64 bg-surface-100-900 border border-surface-300-700 rounded shadow-xl p-2"
+						class="bg-surface-100-900 border-surface-300-700 z-[90] w-64 rounded border p-2 shadow-xl"
 					>
-						<div class="flex items-center justify-between mb-1.5">
-							<span class="text-[10px] uppercase tracking-wide text-surface-500">Utility</span>
+						<div class="mb-1.5 flex items-center justify-between">
+							<span class="text-surface-500 text-[10px] tracking-wide uppercase">Utility</span>
 							<span class="text-xs font-semibold">{pct}</span>
 						</div>
 						<ConsiderationBreakdown {breakdown} />
@@ -227,7 +231,10 @@
 				</Tooltip.Positioner>
 			</Tooltip>
 		{:else}
-			<span class="flex items-center gap-1 pr-2 pl-1 flex-shrink-0 text-surface-500" title="Utility {pct}">
+			<span
+				class="text-surface-500 flex flex-shrink-0 items-center gap-1 pr-2 pl-1"
+				title="Utility {pct}"
+			>
 				{@render chip()}
 			</span>
 		{/if}
