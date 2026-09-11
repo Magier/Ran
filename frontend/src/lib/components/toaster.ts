@@ -3,15 +3,19 @@
 import * as toast from '@zag-js/toast';
 import { createToaster } from '@skeletonlabs/skeleton-svelte';
 
-
 export const toaster: toast.Store<any> = createToaster({
-    placement: 'bottom-end',
+	placement: 'bottom-end'
 });
 
 export type ToastType = 'info' | 'error' | 'success' | undefined;
 // export const toaster: ToastContext = getContext('toast');
 
 export function showToast(title: string, description: string, toastType: ToastType): string {
-    console.log('Showing toast', title, description, toastType);
-    return toaster.create({ title: title, description: description, type: toastType, duration: 5000 });
+	console.log('Showing toast', title, description, toastType);
+	return toaster.create({
+		title: title,
+		description: description,
+		type: toastType,
+		duration: 5000
+	});
 }

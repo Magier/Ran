@@ -9,12 +9,8 @@
 	let { availableNamespaces, hiddenNamespaces = $bindable() }: GraphFilterProps = $props();
 
 	let panelOpen = $state(false);
-	let customInput = $state('');
 
 	const activeFilterCount = $derived(hiddenNamespaces.size);
-
-	// Custom filters: those not in the detected namespace list
-	const customFilters = $derived([...hiddenNamespaces].filter((ns) => !availableNamespaces.includes(ns)));
 
 	function toggleNamespace(ns: string) {
 		const next = new Set(hiddenNamespaces);
@@ -25,35 +21,14 @@
 		}
 		hiddenNamespaces = next;
 	}
-
-	// function addCustomFilter() {
-	// 	const ns = customInput.trim();
-	// 	if (!ns) return;
-	// 	hiddenNamespaces = new Set([...hiddenNamespaces, ns]);
-	// 	customInput = '';
-	// }
-
-	// function handleCustomInputKeydown(e: KeyboardEvent) {
-	// 	if (e.key === 'Enter') addCustomFilter();
-	// }
-
-	function removeFilter(ns: string) {
-		const next = new Set(hiddenNamespaces);
-		next.delete(ns);
-		hiddenNamespaces = next;
-	}
 </script>
 
 <!-- Backdrop to close panel -->
 {#if panelOpen}
-	<div
-		class="fixed inset-0 z-40"
-		role="presentation"
-		onclick={() => (panelOpen = false)}
-	></div>
+	<div class="fixed inset-0 z-40" role="presentation" onclick={() => (panelOpen = false)}></div>
 {/if}
 
-<div class="absolute bottom-1 right-3 z-50  text-surface-700-300">
+<div class="text-surface-700-300 absolute right-3 bottom-1 z-50">
 	<!-- Filter toggle button -->
 	<button
 		class="chip preset-outlined-surface-100-900 border-surface-400-600"
@@ -62,27 +37,27 @@
 		aria-label="Toggle namespace filter"
 	>
 		<!-- Funnel icon -->
-		<Icon icon="mdi:funnel" class="inline-block text-surface-400-600" />
+		<Icon icon="mdi:funnel" class="text-surface-400-600 inline-block" />
 	</button>
 
 	<!-- Filter panel -->
 	{#if panelOpen}
 		<div
-			class="absolute bottom-full right-0 mb-1 w-64 bg-surface-50-950 border border-gray-200 rounded-lg shadow-xl p-4 z-50"
+			class="bg-surface-50-950 absolute right-0 bottom-full z-50 mb-1 w-64 rounded-lg border border-gray-200 p-4 shadow-xl"
 			role="dialog"
 			aria-label="Namespace filter options"
 		>
-			<h3 class="text-sm font-semibold text-surface-700-300 mb-3">Hide Namespaces</h3>
+			<h3 class="text-surface-700-300 mb-3 text-sm font-semibold">Hide Namespaces</h3>
 
 			{#if availableNamespaces.length > 0}
-				<div class="space-y-1.5 mb-3">
+				<div class="mb-3 space-y-1.5">
 					{#each availableNamespaces as ns}
-						<label class="flex items-center gap-2 cursor-pointer group">
+						<label class="group flex cursor-pointer items-center gap-2">
 							<input
 								type="checkbox"
 								checked={hiddenNamespaces.has(ns)}
 								onchange={() => toggleNamespace(ns)}
-								class="w-3.5 h-3.5 rounded checkbox cursor-pointer"
+								class="checkbox h-3.5 w-3.5 cursor-pointer rounded"
 							/>
 							<span
 								class="text-sm {hiddenNamespaces.has(ns)
@@ -95,7 +70,7 @@
 					{/each}
 				</div>
 			{:else}
-				<p class="text-xs text-surface-400-600 mb-3">No namespaces detected in graph.</p>
+				<p class="text-surface-400-600 mb-3 text-xs">No namespaces detected in graph.</p>
 			{/if}
 
 			<!-- Custom filters -->
@@ -154,8 +129,10 @@
 
 			{#if activeFilterCount > 0}
 				<button
-					onclick={() => { hiddenNamespaces = new Set(); }}
-					class="mt-3 w-full text-xs text-surface-400-600 hover:text-red-400 transition-colors cursor-pointer text-left"
+					onclick={() => {
+						hiddenNamespaces = new Set();
+					}}
+					class="text-surface-400-600 mt-3 w-full cursor-pointer text-left text-xs transition-colors hover:text-red-400"
 				>
 					Clear all filters
 				</button>

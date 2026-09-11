@@ -1,4 +1,4 @@
-import type cytoscape from "cytoscape";
+import type cytoscape from 'cytoscape';
 import { WORKLOAD_KINDS } from './workload_compounds';
 
 const KIND_SVG_MAP = {
@@ -70,7 +70,7 @@ function mapKindIcons(obj: Record<string, string>) {
 		return {
 			selector: `node[kind='${kind}']`,
 			style: {
-				'background-image': [`/${icon}`]//, 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>'],
+				'background-image': [`/${icon}`] //, 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>'],
 			}
 		};
 	});
@@ -120,7 +120,7 @@ export function getGraphStyle(isDark: boolean = false) {
 		{
 			selector: '[kind="Namespace"]:parent',
 			style: {
-				'border-color': '#326CE5',
+				'border-color': '#326CE5'
 			}
 		},
 		{
@@ -176,7 +176,7 @@ export function getGraphStyle(isDark: boolean = false) {
 			selector: "node[kind='Pod']",
 			style: {
 				width: '30',
-				height: '30',
+				height: '30'
 			}
 		},
 		{
@@ -184,7 +184,7 @@ export function getGraphStyle(isDark: boolean = false) {
 			style: {
 				width: '20',
 				height: '20',
-				'background-image': '/k8s/pod_transparent.svg',
+				'background-image': '/k8s/pod_transparent.svg'
 			}
 		},
 
@@ -192,7 +192,7 @@ export function getGraphStyle(isDark: boolean = false) {
 			selector: "node[kind='Node']",
 			style: {
 				width: '30',
-				height: '30',
+				height: '30'
 			}
 		},
 		{
@@ -210,7 +210,7 @@ export function getGraphStyle(isDark: boolean = false) {
 		{
 			selector: 'node[?kind]',
 			style: {
-				shape: 'heptagon',
+				shape: 'heptagon'
 				// 'background-color': 'steelblue'
 			}
 		},
@@ -281,7 +281,7 @@ export function getGraphStyle(isDark: boolean = false) {
 			style: {
 				shape: 'rectangle',
 				'background-opacity': 0,
-				'background-image': '/session.svg',
+				'background-image': '/session.svg'
 			}
 		},
 		// {
@@ -322,7 +322,7 @@ export function getGraphStyle(isDark: boolean = false) {
 				'border-width': 3,
 				'border-color': 'green',
 				width: '40',
-				height: '40',
+				height: '40'
 			}
 		},
 		// {
@@ -381,7 +381,7 @@ export function getGraphStyle(isDark: boolean = false) {
 			// Style for meta-edges (grouped edges from collapsed nodes)
 			selector: 'edge[?isMetaEdge]',
 			style: {
-				'width': '3',
+				width: '3',
 				'font-weight': 'bold',
 				'font-size': '11',
 				color: primary,
@@ -483,29 +483,36 @@ export function getGraphStyle(isDark: boolean = false) {
 	return [...mapKindIcons(KIND_SVG_MAP), ...graph_style] as any;
 }
 
-const redTintSvg = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>');
+const redTintSvg =
+	'data:image/svg+xml,' +
+	encodeURIComponent(
+		'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="red" fill-opacity="0.4"/></svg>'
+	);
 
 export function applyCompromisedStyle(cy: cytoscape.Core) {
-	cy.nodes().forEach(n => {
-		const shouldTint = Boolean(n.data('compromised')) || (
-			n.hasClass('cy-expand-collapse-collapsed-node') && Boolean(n.data('containsCompromised'))
-		);
+	cy.nodes().forEach((n) => {
+		const shouldTint =
+			Boolean(n.data('compromised')) ||
+			(n.hasClass('cy-expand-collapse-collapsed-node') && Boolean(n.data('containsCompromised')));
 		const img = n.style('background-image');
 		const hasTint = typeof img === 'string' && img.includes(redTintSvg);
 
 		if (!shouldTint && hasTint) {
-			const layers = img.split(',').map((l: string) => l.trim()).filter((l: string) => l !== redTintSvg);
+			const layers = img
+				.split(',')
+				.map((l: string) => l.trim())
+				.filter((l: string) => l !== redTintSvg);
 			n.removeStyle('background-color');
 			n.removeStyle('background-opacity');
 			n.style({
-				'color': '',
-				'background-image': layers.length > 0 ? layers.join(', ') : 'none',
+				color: '',
+				'background-image': layers.length > 0 ? layers.join(', ') : 'none'
 			});
 		} else if (shouldTint && !hasTint) {
 			n.style({
 				'background-color': 'red',
 				'background-image': [img, redTintSvg],
-				'background-opacity': 0.4,
+				'background-opacity': 0.4
 			});
 		}
 	});

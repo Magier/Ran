@@ -23,9 +23,9 @@
 	// Global keydown handler for Escape key
 	function handleGlobalKeydown(event: KeyboardEvent) {
 		if (!isOpen) return;
-		
+
 		console.log('Global key pressed:', event.key, 'Code:', event.code, 'KeyCode:', event.keyCode);
-		
+
 		if (event.key === 'Escape' || event.code === 'Escape' || event.keyCode === 27) {
 			event.preventDefault();
 			event.stopPropagation();
@@ -46,7 +46,7 @@
 				window.removeEventListener('keydown', handleGlobalKeydown);
 			}
 		}
-		
+
 		return () => {
 			if (browser) {
 				window.removeEventListener('keydown', handleGlobalKeydown);
@@ -61,16 +61,15 @@
 		}
 
 		const query = searchQuery.toLowerCase();
-		const allNodes = cy.nodes().map(n => ({
+		const allNodes = cy.nodes().map((n) => ({
 			id: n.id(),
 			label: n.data('name') || n.data('label') || n.id(),
 			data: n.data()
 		}));
 
 		// Filter nodes by matching query in label or id
-		searchResults = allNodes.filter(n => 
-			n.label.toLowerCase().includes(query) || 
-			n.id.toLowerCase().includes(query)
+		searchResults = allNodes.filter(
+			(n) => n.label.toLowerCase().includes(query) || n.id.toLowerCase().includes(query)
 		);
 		selectedSearchIndex = 0;
 	}
@@ -80,7 +79,7 @@
 
 		const result = searchResults[index];
 		const node = cy.getElementById(result.id);
-		
+
 		if (node) {
 			// Unselect all nodes first
 			cy.elements().unselect();
@@ -157,20 +156,20 @@
 
 {#if isOpen}
 	<div class="fixed inset-0 z-50 flex items-start justify-center pt-20">
-		<div 
-			class="fixed inset-0 bg-black/50" 
-			role="button" 
+		<div
+			class="fixed inset-0 bg-black/50"
+			role="button"
 			tabindex="0"
 			onclick={() => (isOpen = false)}
 			onkeydown={(e) => e.key === 'Enter' && (isOpen = false)}
 		></div>
 		<div
-			class="relative w-full max-w-lg bg-surface-200-800 border border-gray-700 rounded-lg shadow-lg p-6"
+			class="bg-surface-200-800 relative w-full max-w-lg rounded-lg border border-gray-700 p-6 shadow-lg"
 			role="dialog"
 			aria-modal="true"
 		>
-			<h2 class="text-xl font-semibold mb-2 text-surface-contract-400">Search Nodes</h2>
-			<p class="text-sm text-surface-contract-300 mb-4">
+			<h2 class="text-surface-contract-400 mb-2 text-xl font-semibold">Search Nodes</h2>
+			<p class="text-surface-contract-300 mb-4 text-sm">
 				Search for nodes by name or ID. Use arrow keys to navigate, Enter to select.
 			</p>
 
@@ -184,11 +183,11 @@
 			/>
 
 			{#if searchResults.length > 0}
-				<div class="mt-4 max-h-64 overflow-y-auto border border-gray-700 rounded-md">
+				<div class="mt-4 max-h-64 overflow-y-auto rounded-md border border-gray-700">
 					{#each searchResults as result, index}
 						<button
 							type="button"
-							class="w-full px-4 py-2 text-left bg-surface-300-700 hover:bg-surface-100-900 transition-colors {index ===
+							class="bg-surface-300-700 hover:bg-surface-100-900 w-full px-4 py-2 text-left transition-colors {index ===
 							selectedSearchIndex
 								? 'bg-gray-700'
 								: 'bg-gray-800'}"
@@ -196,24 +195,27 @@
 							onmouseenter={() => (selectedSearchIndex = index)}
 						>
 							<div class="flex items-center justify-between">
-								<div class="font-medium text-surface-contrast-400-600">{result.label}</div>
+								<div class="text-surface-contrast-400-600 font-medium">{result.label}</div>
 							</div>
-							<div class="text-sm text-surface-contrast-300-700">{result.id}</div>
+							<div class="text-surface-contrast-300-700 text-sm">{result.id}</div>
 						</button>
 					{/each}
 				</div>
 			{:else if searchQuery.trim() !== ''}
-				<div class="mt-4 text-center text-gray-500 py-4">No nodes found</div>
+				<div class="mt-4 py-4 text-center text-gray-500">No nodes found</div>
 			{/if}
 
-			<div class="mt-4 text-xs text-surface-contrast-200-800">
+			<div class="text-surface-contrast-200-800 mt-4 text-xs">
 				Press
-				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300">↑</kbd>
-				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300">↓</kbd>
+				<kbd class="rounded border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-gray-300">↑</kbd>
+				<kbd class="rounded border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-gray-300">↓</kbd>
 				to navigate,
-				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300">Enter</kbd>
+				<kbd class="rounded border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-gray-300"
+					>Enter</kbd
+				>
 				to select,
-				<kbd class="px-1.5 py-0.5 bg-gray-800 border border-gray-600 rounded text-gray-300">Esc</kbd>
+				<kbd class="rounded border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-gray-300">Esc</kbd
+				>
 				to close
 			</div>
 		</div>

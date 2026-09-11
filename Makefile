@@ -30,8 +30,18 @@ fmt-check:
 clippy:
 	cargo clippy --workspace --locked -- -D warnings
 
+.PHONY: lint-frontend
+lint-frontend:
+	pnpm --prefix frontend lint
+
+# svelte-check: type errors that eslint does not see. Green as of the #52
+# baseline, and gated so it stays that way.
+.PHONY: check-frontend
+check-frontend:
+	pnpm --prefix frontend check
+
 .PHONY: lint
-lint: fmt-check clippy
+lint: fmt-check clippy lint-frontend check-frontend
 
 # === Testing ===
 .PHONY: test-rust

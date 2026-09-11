@@ -45,9 +45,7 @@ describe('getK8sCredentialIcon', () => {
 			style: Record<string, unknown>;
 		}>;
 		const heptagonIndex = styles.findIndex((rule) => rule.selector === 'node[?kind]');
-		const systemIndex = styles.findIndex(
-			(rule) => rule.selector === "node[kind='UnknownSystem']"
-		);
+		const systemIndex = styles.findIndex((rule) => rule.selector === "node[kind='UnknownSystem']");
 
 		expect(systemIndex).toBeGreaterThan(heptagonIndex);
 		expect(styles[systemIndex].style.shape).toBe('rectangle');
@@ -74,9 +72,7 @@ describe('getK8sCredentialIcon', () => {
 
 	it('shows edge labels on interaction without increasing their width', () => {
 		const style = getGraphStyle(false);
-		const baseEdgeStyle = style.find(
-			(rule: { selector: string }) => rule.selector === 'edge'
-		);
+		const baseEdgeStyle = style.find((rule: { selector: string }) => rule.selector === 'edge');
 		const hoveredEdgeStyle = style.find(
 			(rule: { selector: string }) => rule.selector === 'edge.hovered, edge:selected'
 		);
