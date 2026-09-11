@@ -246,7 +246,8 @@ It reintroduces the injection problem and makes effects unparseable.
 - A callback address is **not** derivable from the operator host's IPs. It is a
   property of the return path from a specific target, so route-based or
   interface-based guessing produces a plausible wrong answer when the target
-  cannot reach the operator at all. That is what the redirector is for; see
-  `redirector_handoff.md`.
+  cannot reach the operator at all. The fix is to reverse the direction: put
+  something the target can reach in the path and have it dial out. That is what
+  Create Redirector (#70) does.
 - Changing `kind: System` semantics narrows things armory-wide and invisibly:
   nothing errors, an expected action just stops appearing.
