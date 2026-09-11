@@ -123,7 +123,12 @@ pub struct TargetContext {
     pub target_id: String,
     /// Entity kind string (e.g. `"Pod"`, `"ServiceAccount"`).
     pub target_kind: String,
-    /// `true` when the target implements `SystemEntity` (Pod / Node / UnknownSystem).
+    /// `true` when the target is a machine the engagement acts on.
+    ///
+    /// This is target-ness, *not* the `SystemEntity` capability - see the
+    /// comment where it is computed in [`resolve_target_context`]. It is the
+    /// single definition site for "in play", and the only input to
+    /// `requires.kind: System`.
     pub is_system: bool,
     /// Effective access level. For pods this includes the "reachable pod ⇒ Exec"
     /// inference: a pod with a kubectl-exec channel is treated as Exec even
@@ -147,6 +152,20 @@ pub fn resolve_target_context(campaign: &Campaign, target_id: &str) -> Option<Ta
         .find(|e| e.entity_id().0 == target_id)?;
 
     let target_kind = entity.entity_kind().to_string();
+    // The single definition site for target-ness: which machines the
+    // engagement acts on. `requires.kind: System` is a wildcard over this set
+    // (see `kind_matches_target_kind`), so adding a variant here makes every
+    // host-oriented TTP in the armory applicable to it.
+    //
+    // `OperatorHost` is deliberately absent even though it *does* implement
+    // `SystemEntity`. That asymmetry is the point, not an oversight: the
+    // operator host is a real machine (it has binaries and IPs, which
+    // `get_system_entity` exposes) but it is the operator's own laptop, not
+    // something to run post-exploitation TTPs against. Adding it here lights up
+    // Install Package, Drop binary, NSenter and ~20 others against it. If you
+    // came here to make this list agree with `Campaign::is_system_entity_id`,
+    // read the doc comment on `OperatorHost` first - the two lists answer
+    // different questions and are meant to differ.
     let is_system = matches!(
         &entity,
         CampaignEntityRef::Pod(_)

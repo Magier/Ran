@@ -1,9 +1,11 @@
 use std::collections::{BTreeSet, HashMap};
+use std::net::IpAddr;
 
 use cortex::KnowledgeGraph;
 use ran_domain::{
-    AuthenticatesTo, C2Server, Contains, Entity, EntityId, K8sCluster, K8sCredential, K8sNode,
-    Namespace, OperatorHost, Pod, PodExec, Relation, RelationSummary, SessionStatus, UnknownSystem,
+    AuthenticatesTo, BinaryPresence, C2Server, Contains, Entity, EntityId, K8sCluster,
+    K8sCredential, K8sNode, Namespace, OperatorHost, Pod, PodExec, Relation, RelationSummary,
+    SessionStatus, UnknownSystem,
 };
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +80,16 @@ pub struct InitialKnowledge {
     /// this is the local machine's hostname so it is obvious which host holds
     /// the kubeconfig. Defaults to a generic label when unknown.
     pub operator_host_name: Option<String>,
+    /// Which of the armory's tools are installed on the machine running Ran,
+    /// probed once at startup. Answers "can this operator-side action run at
+    /// all?" through the same binary map every other system uses.
+    pub operator_host_binaries: HashMap<String, BinaryPresence>,
+    /// Non-loopback IPs of the machine running Ran.
+    ///
+    /// Recorded as observed facts, plural. Which of them (if any) a payload
+    /// should call back to is a property of the *return path* from the target,
+    /// not of this host, so that choice deliberately is not made here.
+    pub operator_host_ips: Vec<IpAddr>,
 }
 
 impl Campaign {
@@ -113,7 +125,9 @@ impl Campaign {
                 .clone()
                 .filter(|name| !name.trim().is_empty())
                 .unwrap_or_else(|| "Operator host".to_string());
-            let operator_host = OperatorHost::new(host_name);
+            let mut operator_host = OperatorHost::new(host_name);
+            operator_host.system.binaries = initial.operator_host_binaries.clone();
+            operator_host.system.ips = initial.operator_host_ips.clone();
             let id = operator_host.entity_id();
             entities.insert_typed(operator_host);
             graph.ensure_node(id.clone());
@@ -299,11 +313,16 @@ impl Campaign {
         self.open_steps.retain(|s| s.id != id);
     }
 
-    /// Returns `true` when `id` identifies a system entity (Pod or Node).
+    /// Returns `true` when `id` identifies a machine - anything implementing
+    /// `SystemEntity`. This is the capability question, not the target question:
+    /// the operator host counts here (it has binaries and IPs) yet is never a
+    /// target. It never becomes an exec-path seed because no exec-channel edge
+    /// ever points at it; commands there would run locally, not over a channel.
     pub(crate) fn is_system_entity_id(&self, id: &EntityId) -> bool {
         self.entities.contains::<Pod>(id)
             || self.entities.contains::<K8sNode>(id)
             || self.entities.contains::<UnknownSystem>(id)
+            || self.entities.contains::<OperatorHost>(id)
     }
 
     /// Returns the entity IDs of all systems (Pods and Nodes) that the C2 can
@@ -355,9 +374,12 @@ impl Campaign {
         if let Some(pod) = self.entities.find::<Pod>(&entity_id) {
             return Some(CampaignSystemEntityRef::Pod(pod));
         }
+        if let Some(system) = self.entities.find::<UnknownSystem>(&entity_id) {
+            return Some(CampaignSystemEntityRef::Unknown(system));
+        }
         self.entities
-            .find::<UnknownSystem>(&entity_id)
-            .map(CampaignSystemEntityRef::Unknown)
+            .find::<OperatorHost>(&entity_id)
+            .map(CampaignSystemEntityRef::OperatorHost)
     }
 
     pub fn get_system_entity_mut(&mut self, id: &str) -> Option<CampaignSystemEntityMut<'_>> {
@@ -375,9 +397,15 @@ impl Campaign {
                 .find_mut::<Pod>(&entity_id)
                 .map(CampaignSystemEntityMut::Pod);
         }
+        if self.entities.contains::<UnknownSystem>(&entity_id) {
+            return self
+                .entities
+                .find_mut::<UnknownSystem>(&entity_id)
+                .map(CampaignSystemEntityMut::Unknown);
+        }
         self.entities
-            .find_mut::<UnknownSystem>(&entity_id)
-            .map(CampaignSystemEntityMut::Unknown)
+            .find_mut::<OperatorHost>(&entity_id)
+            .map(CampaignSystemEntityMut::OperatorHost)
     }
 
     /// Apply partial system-info updates from an external parser to a target entity.

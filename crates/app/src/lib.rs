@@ -1,9 +1,9 @@
 pub mod config;
 
 use std::{
-    collections::BTreeSet,
-    net::SocketAddr,
-    path::PathBuf,
+    collections::{BTreeSet, HashMap, HashSet},
+    net::{IpAddr, SocketAddr},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
@@ -25,7 +25,7 @@ use campaign::{
 };
 use config::{NamespaceFilter, SeedKnowledgeConfig};
 use k8s::{kubeconfig_path_or_err, resolve_kubeconfig, Client, ResolvedKubeconfig};
-use ran_domain::{Entity, K8sCluster, K8sCredential, Pod, RelationSummary};
+use ran_domain::{BinaryPresence, Entity, K8sCluster, K8sCredential, Pod, RelationSummary};
 
 // ---------------------------------------------------------------------------
 // AppState - the ApiService implementation
@@ -1222,6 +1222,111 @@ fn local_hostname() -> Option<String> {
         .or_else(|| std::env::var("HOST").ok().and_then(&clean))
 }
 
+/// Which of the armory's tools are installed on the machine running Ran.
+///
+/// The probe list comes from the armory itself - every `tool` a procedure
+/// names, minus the tool *slot* names, which are abstract (`http-request`) and
+/// never binaries. Being armory-driven means a TTP that introduces a new tool
+/// is probed without touching this function.
+///
+/// Every probed tool gets an entry: `Present(path)` or `Absent`. Recording the
+/// absent ones matters - it is the difference between "we know it is missing"
+/// and "we never looked", and the readiness scoring treats those differently.
+fn local_tool_binaries(armory: &Armory) -> HashMap<String, BinaryPresence> {
+    let slots: HashSet<&str> = armory
+        .ttps()
+        .iter()
+        .filter_map(|ttp| ttp.tool_slot.as_deref())
+        .collect();
+
+    let tools: BTreeSet<&str> = armory
+        .ttps()
+        .iter()
+        .flat_map(|ttp| ttp.procedures.iter())
+        .filter_map(|procedure| procedure.tool.as_deref())
+        .map(str::trim)
+        .filter(|tool| !tool.is_empty() && !slots.contains(tool))
+        .collect();
+
+    let binaries: HashMap<String, BinaryPresence> = tools
+        .into_iter()
+        .map(|tool| {
+            let presence = match which(tool) {
+                Some(path) => BinaryPresence::Present(path.display().to_string()),
+                None => BinaryPresence::Absent,
+            };
+            (tool.to_string(), presence)
+        })
+        .collect();
+
+    let present = binaries
+        .values()
+        .filter(|p| matches!(p, BinaryPresence::Present(_)))
+        .count();
+    info!(
+        probed = binaries.len(),
+        present, "probed operator-host tools on PATH"
+    );
+    binaries
+}
+
+/// First executable named `tool` on `PATH`, or `None`.
+///
+/// Deliberately not a `which` subprocess: this runs for every armory tool at
+/// startup, and reading `PATH` is both faster and free of shell quoting.
+fn which(tool: &str) -> Option<PathBuf> {
+    // A name with a separator is a path, not something to search for.
+    if tool.contains('/') {
+        return None;
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(tool))
+        .find(|candidate| is_executable_file(candidate))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+/// Non-loopback IPs of the machine running Ran.
+///
+/// Loopback and IPv6 link-local addresses are dropped: nothing outside this
+/// machine can reach them, so they are noise in a graph about reachability.
+/// Everything else is kept, including VPN and container-bridge addresses:
+/// these are observations, and picking a callback address out of them depends
+/// on the return path from a specific target, which this cannot know.
+fn local_ips() -> Vec<IpAddr> {
+    let interfaces = match if_addrs::get_if_addrs() {
+        Ok(interfaces) => interfaces,
+        Err(error) => {
+            warn!(%error, "could not enumerate local network interfaces");
+            return Vec::new();
+        }
+    };
+
+    let mut ips: Vec<IpAddr> = interfaces
+        .into_iter()
+        .map(|interface| interface.addr.ip())
+        .filter(|ip| !ip.is_loopback() && !is_link_local(ip))
+        .collect();
+    ips.sort();
+    ips.dedup();
+    info!(count = ips.len(), ?ips, "collected operator-host IPs");
+    ips
+}
+
+fn is_link_local(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_link_local(),
+        // `Ipv6Addr::is_unicast_link_local` is still unstable, so match fe80::/10.
+        IpAddr::V6(v6) => (v6.segments()[0] & 0xffc0) == 0xfe80,
+    }
+}
+
 /// Build a Kubernetes client for every context in the local kubeconfig, keyed
 /// by the `K8sCredential` entity id the output parser derives for that context
 /// (`campaign::credential_from_resolved`). This lets "Authenticate As" a
@@ -1685,7 +1790,9 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     };
     let mut initial_knowledge = build_initial_knowledge(&cfg.seed_knowledge)?;
     initial_knowledge.operator_host_name = local_hostname();
+    initial_knowledge.operator_host_ips = local_ips();
     let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
+    initial_knowledge.operator_host_binaries = local_tool_binaries(&armory);
     let kubetier_catalog = kubetier::Catalog::load(cfg.kubetier_catalog.as_deref())?;
     info!(
         permissions = kubetier_catalog.permissions.len(),
@@ -2176,7 +2283,9 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
     let k8s = Client::from_resolved_kubeconfig(&active_kubeconfig).await?;
     let mut initial_knowledge = build_initial_knowledge(&cfg.seed_knowledge)?;
     initial_knowledge.operator_host_name = local_hostname();
+    initial_knowledge.operator_host_ips = local_ips();
     let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
+    initial_knowledge.operator_host_binaries = local_tool_binaries(&armory);
 
     let external_parser: Option<Arc<dyn ExternalParser>> =
         user_armory_dir.as_deref().and_then(|ttps_dir| {
@@ -2644,5 +2753,87 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
             }
             Err(broadcast::error::RecvError::Closed) => break,
         }
+    }
+}
+
+#[cfg(test)]
+mod operator_host_probe_tests {
+    use super::*;
+    use armory::{Procedure, Ttp};
+
+    #[test]
+    fn which_finds_a_tool_on_path_and_reports_a_missing_one() {
+        // `sh` is present on every platform this runs on; the second name
+        // cannot plausibly exist.
+        assert!(which("sh").is_some(), "sh should be on PATH");
+        assert!(which("ran-definitely-not-a-real-binary").is_none());
+    }
+
+    #[test]
+    fn which_rejects_a_path_rather_than_searching_for_it() {
+        // A `tool` containing a separator is already a path, and joining it
+        // onto every PATH entry would be nonsense.
+        assert!(which("/bin/sh").is_none());
+    }
+
+    #[test]
+    fn tool_probe_is_armory_driven_and_skips_tool_slots() {
+        let armory = Armory::from_ttps(vec![
+            Ttp {
+                procedures: vec![
+                    Procedure {
+                        tool: Some("sh".to_string()),
+                        ..Procedure::new("shell", "sh -c id")
+                    },
+                    Procedure {
+                        tool: Some("ran-definitely-not-a-real-binary".to_string()),
+                        ..Procedure::new("missing", "nope")
+                    },
+                    // A procedure naming a tool *slot*, not a binary.
+                    Procedure {
+                        tool: Some("http-request".to_string()),
+                        ..Procedure::new("http", "")
+                    },
+                ],
+                ..Ttp::new("t1", "T1", "Discovery")
+            },
+            Ttp {
+                tool_slot: Some("http-request".to_string()),
+                ..Ttp::new("curl", "Curl", "Discovery")
+            },
+        ]);
+
+        let binaries = local_tool_binaries(&armory);
+
+        assert!(matches!(
+            binaries.get("sh"),
+            Some(BinaryPresence::Present(_))
+        ));
+        // Probed and missing is Absent, not merely unrecorded.
+        assert_eq!(
+            binaries.get("ran-definitely-not-a-real-binary"),
+            Some(&BinaryPresence::Absent)
+        );
+        // The abstract slot name is never probed as a binary.
+        assert!(!binaries.contains_key("http-request"));
+    }
+
+    #[test]
+    fn local_ips_excludes_loopback_and_link_local() {
+        // Cannot assert a specific address (CI networking varies), but the
+        // filtering contract holds whatever the interfaces are.
+        for ip in local_ips() {
+            assert!(!ip.is_loopback(), "{ip} is loopback");
+            assert!(!is_link_local(&ip), "{ip} is link-local");
+        }
+    }
+
+    #[test]
+    fn link_local_detection_covers_both_families() {
+        assert!(is_link_local(&"169.254.1.1".parse().unwrap()));
+        assert!(is_link_local(&"fe80::1".parse().unwrap()));
+        assert!(!is_link_local(&"192.168.1.23".parse().unwrap()));
+        assert!(!is_link_local(&"10.0.0.1".parse().unwrap()));
+        assert!(!is_link_local(&"2001:db8::1".parse().unwrap()));
     }
 }
