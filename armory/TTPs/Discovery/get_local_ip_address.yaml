@@ -1,15 +1,25 @@
 name: Get local IP address
-description: Retrieve the IP address of the system
+description: >
+  Read the IP addresses assigned to the system's own network interfaces.
+  Linux-only. The primary procedure reads the local interface table via
+  iproute2, which never triggers DNS and so cannot hang inside a Kubernetes
+  pod with a slow or unreachable resolver. `hostname -i` is kept as a backup
+  for systems without iproute2, at the cost of reintroducing that DNS
+  dependency.
 tactic: Discovery
 techniques: ["System Network Configuration Discovery", T1016]
 preconditions:
   kind: System
   accessLevel: user-exec
 procedures:
+  # Order is load-bearing: the runtime defaults to procedures[0] and a
+  # `NextProcedure` retry walks the list by index, so `ip` runs first and
+  # `hostname` is only reached as a fallback.
+  - key: ip
+    tool: ip
+    command: ip -o -4 addr show scope global | awk '{print $4}' | cut -d/ -f1
   - key: hostname
     tool: hostname
-    precondition:
-      accessLevel: user-exec
     command: hostname -i
 effects:
   - sys.ip
