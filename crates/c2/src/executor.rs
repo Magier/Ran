@@ -1144,6 +1144,21 @@ async fn await_tunnel_ready(
                     Ok(status) => format!("exited before the tunnel came up ({status})"),
                     Err(error) => format!("could not be waited on: {error}"),
                 };
+                // The process can exit before the independent pipe-draining
+                // tasks get their first scheduling turn. Give them a bounded
+                // chance to forward the final diagnostic before reporting the
+                // failure, otherwise a rejected `labctl` invocation looks like
+                // it produced no output.
+                if draining {
+                    while let Ok(Some(line)) = tokio::time::timeout(
+                            std::time::Duration::from_millis(250),
+                            lines.recv(),
+                        )
+                        .await
+                    {
+                        transcript.push(line);
+                    }
+                }
                 return Err(format!("{detail}: {}", quote_transcript(&transcript)));
             }
             line = lines.recv(), if draining => match line {

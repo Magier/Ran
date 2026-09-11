@@ -637,6 +637,29 @@ fn resolve_exec_channel_resolves_via_service_account_uses_relation() {
 }
 
 #[test]
+fn resolve_exec_channel_uses_active_pod_session_for_service_account_target() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let mut pod = Pod::new("player-pod", "dungeon");
+    let pod_id = pod.entity_id().0.clone();
+    pod.system.sessions.push(SessionInfo {
+        id: "shell-1".to_string(),
+        kind: "tcp".to_string(),
+        port: Some(4444),
+        status: SessionStatus::Active,
+    });
+    campaign.entities.insert_typed(pod);
+
+    let sa_id = "ns/dungeon/sa/player";
+    push_relation(&mut campaign, &Uses::new(&pod_id, sa_id));
+
+    let ch = campaign
+        .resolve_exec_channel(sa_id)
+        .expect("should resolve through the pod's active session");
+    assert_eq!(ch.backend_id, "session/shell-1");
+    assert_eq!(ch.exec_target_id.as_deref(), Some(pod_id.as_str()));
+}
+
+#[test]
 fn resolve_exec_channel_errors_when_no_path_in_graph() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("orphan", "default");
