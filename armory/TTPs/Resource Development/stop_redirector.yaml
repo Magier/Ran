@@ -1,0 +1,28 @@
+id: stop-redirector
+name: Stop Redirector
+description: >
+  Tear down a redirector by killing its `labctl port-forward` process, closing
+  the port it opened on the playground.
+  Sessions that came in through the tunnel stay live — they are execution
+  backends in their own right and do not depend on the redirector that carried
+  them.
+tactic: Resource Development
+techniques: ["Indicator Removal"] # from Defense Evasion, but the closest match — as with Stop Listener
+parameters:
+  RedirectorID:
+    type: Redirector
+    default: "${TARGET}"
+    description: the redirector to stop, as <play id>/<remote port> (e.g. zn1kqxk3ykpvxp5x/1337)
+    required: true
+preconditions:
+  # The target is the redirector itself, so selecting one is what makes this
+  # applicable — Create Redirector stays on the listener.
+  kind: Redirector
+procedures:
+  - id: ran
+    command: "c2.stop-port-forward(${RedirectorID})"
+    isLocal: true
+effects:
+  - "c2.stop-port-forward(${RedirectorID})"
+references:
+  - https://labs.iximiuz.com/

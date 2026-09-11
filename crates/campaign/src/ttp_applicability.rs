@@ -213,6 +213,9 @@ pub fn ttp_applicable_for_target(
         && ttp_active_session_satisfied(ttp, tc.active_session)
         && ttp_related_satisfied(ttp, &tc.target_id, &tc.target_kind, campaign)
         && ttp_tool_satisfied(ttp, campaign, tc)
+        // Last: the only gate that touches the filesystem. `&&` short-circuits,
+        // so it runs only for targets every cheaper gate already accepted.
+        && ttp_operator_tool_satisfied(ttp)
 }
 
 /// Non-Kubernetes lateral movement must originate from an existing execution
@@ -413,6 +416,65 @@ pub fn ttp_has_listener_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> boo
     any_listener == required
 }
 
+/// Returns `true` when the TTP's operator-side tool requirement is met.
+///
+/// `requires["c2.has-tool"]` names a tool - or an array of them - that must
+/// exist on the machine running Ran, as opposed to on the target.
+/// [`ttp_tool_satisfied`] cannot answer this: it reads the *target's* binary
+/// map, and an operator-side procedure never touches one, so a TTP that shells
+/// out locally is otherwise ungated no matter what it needs installed.
+///
+/// Unlike the target-side gate there is no "unknown" state to be generous
+/// about - `PATH` either resolves the tool or it does not - so a missing tool
+/// withdraws the action instead of offering one that cannot run.
+pub fn ttp_operator_tool_satisfied(ttp: &armory::Ttp) -> bool {
+    let Some(required) = ttp.requires.get("c2.has-tool") else {
+        return true;
+    };
+    match required {
+        Value::String(tool) => operator_has_tool(tool),
+        // Unparseable entries are not requirements we can check, so they pass
+        // rather than hiding an action for a malformed line of YAML.
+        Value::Array(tools) => tools
+            .iter()
+            .all(|tool| tool.as_str().map(operator_has_tool).unwrap_or(true)),
+        _ => true,
+    }
+}
+
+/// Whether `tool` resolves to an executable on the operator host.
+///
+/// This mirrors what `std::process::Command` does when the executor spawns the
+/// tool, so it predicts that spawn rather than guessing at it.
+fn operator_has_tool(tool: &str) -> bool {
+    let tool = tool.trim();
+    if tool.is_empty() {
+        return false;
+    }
+    // A path is used verbatim by `Command`, without a `PATH` search.
+    if tool.contains(std::path::MAIN_SEPARATOR) {
+        return is_executable_file(std::path::Path::new(tool));
+    }
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| is_executable_file(&dir.join(tool)))
+}
+
+fn is_executable_file(path: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        path.is_file()
+    }
+}
+
 /// Returns `true` when the TTP's `has-token` requirement is satisfied by the target entity.
 ///
 /// - No `has-token` in `requires` → satisfied (no restriction).
@@ -525,8 +587,8 @@ pub fn ttp_related_satisfied(
 mod tests {
     use armory::Ttp;
     use ran_domain::{
-        C2Server, K8sCluster, K8sCredential, K8sNode, Listener, RbacPermission, ServiceAccount,
-        SessionInfo, SessionStatus,
+        C2Server, K8sCluster, K8sCredential, K8sNode, Listener, RbacPermission, Redirector,
+        ServiceAccount, SessionInfo, SessionStatus,
     };
     use serde_json::json;
 
@@ -534,7 +596,8 @@ mod tests {
 
     use super::{
         resolve_target_context, ttp_access_level_satisfied, ttp_applicable_for_target,
-        ttp_exists_satisfied, ttp_has_listener_satisfied, ttp_rbac_satisfied,
+        ttp_exists_satisfied, ttp_has_listener_satisfied, ttp_operator_tool_satisfied,
+        ttp_rbac_satisfied,
     };
 
     fn ttp_with_rbac(verb: &str, resource_type: &str) -> Ttp {
@@ -1036,6 +1099,135 @@ mod tests {
         assert!(
             !ttp_applicable_for_target(&create, &c, &tc),
             "Create Listener targets the C2, not a running listener"
+        );
+    }
+
+    #[test]
+    fn a_selected_redirector_offers_redirector_actions_only() {
+        // The reason a redirector is an entity and not a `cleanup:` block:
+        // selecting one narrows the armory to what can be done *to* it.
+        let mut c = empty_campaign();
+        c.entities.insert_typed(C2Server::new("ran"));
+        c.entities.insert_typed(Listener::new(4444, "tcp"));
+        let redirector = Redirector::new("labctl", "zn1kqxk3ykpvxp5x", 1337, 4444);
+        let redirector_id = redirector.entity_id().0;
+        c.entities.insert_typed(redirector);
+
+        let tc = resolve_target_context(&c, &redirector_id).expect("a redirector is a target");
+        assert_eq!(tc.target_kind, "Redirector");
+
+        let mut stop = ttp_no_rbac();
+        stop.requires
+            .insert("kind".to_string(), json!("Redirector"));
+        assert!(
+            ttp_applicable_for_target(&stop, &c, &tc),
+            "Stop Redirector applies to the redirector that was selected"
+        );
+
+        // Create Redirector targets the listener it will forward into, so it must
+        // not also offer itself on a redirector that already exists.
+        let mut create = ttp_no_rbac();
+        create
+            .requires
+            .insert("kind".to_string(), json!("Listener"));
+        create
+            .requires
+            .insert("c2.has-listener".to_string(), json!(true));
+        assert!(
+            !ttp_applicable_for_target(&create, &c, &tc),
+            "Create Redirector targets a listener, not a running redirector"
+        );
+    }
+
+    #[test]
+    fn a_stopped_redirector_is_no_longer_a_target() {
+        let mut c = empty_campaign();
+        let redirector = Redirector::new("labctl", "play1", 1337, 4444);
+        let redirector_id = redirector.entity_id();
+        c.entities.insert_typed(redirector);
+
+        assert!(c.remove_redirector("play1", 1337));
+        assert!(
+            resolve_target_context(&c, &redirector_id.0).is_none(),
+            "a stopped redirector is no longer a target at all"
+        );
+    }
+
+    /// The gate that `ttp_tool_satisfied` cannot provide: an operator-side
+    /// procedure never consults a target binary map, so a TTP that shells out
+    /// locally would otherwise be offered whatever is installed.
+    #[test]
+    fn an_operator_side_tool_requirement_gates_on_the_operator_host() {
+        let mut needs_missing = ttp_no_rbac();
+        needs_missing.requires.insert(
+            "c2.has-tool".to_string(),
+            json!("ran-tool-that-does-not-exist"),
+        );
+        assert!(!ttp_operator_tool_satisfied(&needs_missing));
+
+        // `sh` is on PATH anywhere this test can run.
+        let mut needs_present = ttp_no_rbac();
+        needs_present
+            .requires
+            .insert("c2.has-tool".to_string(), json!("sh"));
+        assert!(ttp_operator_tool_satisfied(&needs_present));
+
+        // No requirement is no restriction.
+        assert!(ttp_operator_tool_satisfied(&ttp_no_rbac()));
+    }
+
+    #[test]
+    fn every_named_operator_tool_must_be_present() {
+        let mut ttp = ttp_no_rbac();
+        ttp.requires.insert(
+            "c2.has-tool".to_string(),
+            json!(["sh", "ran-tool-that-does-not-exist"]),
+        );
+        assert!(!ttp_operator_tool_satisfied(&ttp));
+
+        ttp.requires
+            .insert("c2.has-tool".to_string(), json!(["sh"]));
+        assert!(ttp_operator_tool_satisfied(&ttp));
+    }
+
+    #[test]
+    fn an_operator_tool_given_as_a_path_is_checked_as_one() {
+        let mut ttp = ttp_no_rbac();
+        // A path is used verbatim by `Command`, so it is checked directly rather
+        // than searched for on PATH.
+        ttp.requires
+            .insert("c2.has-tool".to_string(), json!("/bin/sh"));
+        assert!(ttp_operator_tool_satisfied(&ttp));
+
+        ttp.requires
+            .insert("c2.has-tool".to_string(), json!("/bin/nope-not-here"));
+        assert!(!ttp_operator_tool_satisfied(&ttp));
+
+        // A directory is not something that can be executed.
+        ttp.requires
+            .insert("c2.has-tool".to_string(), json!("/bin"));
+        assert!(!ttp_operator_tool_satisfied(&ttp));
+    }
+
+    #[test]
+    fn two_playgrounds_can_forward_the_same_remote_port() {
+        // RPORT defaults to 1337, so this is the ordinary case once a second
+        // playground is in play - stopping one must not take the other with it.
+        let mut c = empty_campaign();
+        c.entities
+            .insert_typed(Redirector::new("labctl", "play1", 1337, 4444));
+        c.entities
+            .insert_typed(Redirector::new("labctl", "play2", 1337, 4444));
+
+        assert!(c.remove_redirector("play1", 1337));
+
+        assert!(
+            resolve_target_context(&c, "redirector/play1/1337").is_none(),
+            "the stopped redirector is gone"
+        );
+        assert!(
+            resolve_target_context(&c, "redirector/play2/1337").is_some(),
+            "the other playground's redirector on the same port is untouched"
         );
     }
 

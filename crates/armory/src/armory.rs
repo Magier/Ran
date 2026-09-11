@@ -644,6 +644,78 @@ mod tests {
         );
     }
 
+    /// The redirector TTPs are only useful if their commands hit the control
+    /// command dispatch in the C2 executor. An earlier draft of
+    /// `create_redirector.yaml` carried `command: "CreateRedirector"`, which
+    /// matched nothing and would have been shelled out verbatim - this pins the
+    /// contract with the executor so that cannot come back silently.
+    #[test]
+    fn redirector_ttps_dispatch_to_c2_control_commands() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+
+        let create = armory
+            .get_ttp("create-redirector")
+            .expect("Create Redirector TTP");
+        assert_eq!(create.tactic, "Resource Development");
+        // Targets the listener it forwards into, so selecting one is what offers
+        // the action.
+        assert_eq!(
+            create.requires.get("kind").and_then(|v| v.as_str()),
+            Some("Listener")
+        );
+        // labctl runs operator-side, where the target-binary tool gate cannot see
+        // it, so the requirement has to be declared explicitly.
+        assert_eq!(
+            create.requires.get("c2.has-tool").and_then(|v| v.as_str()),
+            Some("labctl")
+        );
+        let procedure = create.procedures.first().expect("one procedure");
+        assert_eq!(
+            procedure.command,
+            "c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})"
+        );
+        assert_eq!(
+            procedure.is_local_command,
+            Some(true),
+            "labctl runs on the operator host"
+        );
+        assert_eq!(
+            create.effects,
+            ["c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})"],
+            "the effect must match an event-sourced parser arm or it logs as unparsed"
+        );
+        assert_eq!(
+            create
+                .params
+                .iter()
+                .find(|p| p.name == "LISTENER")
+                .map(|p| p.param_type.as_str()),
+            Some("Listener"),
+            "the listener parameter must render as a listener combobox"
+        );
+
+        let stop = armory
+            .get_ttp("stop-redirector")
+            .expect("Stop Redirector TTP");
+        assert_eq!(
+            stop.requires.get("kind").and_then(|v| v.as_str()),
+            Some("Redirector"),
+            "stopping targets the redirector itself"
+        );
+        let procedure = stop.procedures.first().expect("one procedure");
+        assert_eq!(procedure.command, "c2.stop-port-forward(${RedirectorID})");
+        assert_eq!(procedure.is_local_command, Some(true));
+        assert_eq!(stop.effects, ["c2.stop-port-forward(${RedirectorID})"]);
+        assert_eq!(
+            stop.params
+                .iter()
+                .find(|p| p.name == "RedirectorID")
+                .map(|p| p.param_type.as_str()),
+            Some("Redirector")
+        );
+    }
+
     #[test]
     fn valid_accounts_ttp_is_canonical() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");

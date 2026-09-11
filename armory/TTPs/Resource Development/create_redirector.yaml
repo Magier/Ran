@@ -1,24 +1,45 @@
+id: create-redirector
 name: Create Redirector
-description: Create a proxy routing traffic to the C2
+description: >
+  Forward a port on an iximiuz training cluster back to a local C2 listener,
+  so implants inside the playground reach the listener without a direct route
+  to the operator host.
+  Runs `labctl port-forward` on the machine hosting Ran, which is where labctl
+  is configured, and keeps the process for as long as the redirector lives.
 tactic: Resource Development
-techniques: ["Stage Capabilities"]
-# preconditions:
+techniques: ["Acquire Infrastructure"]
 parameters:
-  DST_PORT:
-    type: int
-    description: the port to listen for incoming connections
-  PROTOCOL:
+  PLAY_ID:
     type: string
-    description: the protocol used for the communication
-    required: false
-args:
-  DST_PORT: 1337
-  PROTOCOL: TCP
-command: "CreateRedirector"
+    required: true
+    description: iximiuz playground id, from `labctl playground start`
+  RPORT:
+    type: string
+    default: "1337"
+    description: port to open on the playground host (bound 0.0.0.0)
+  LISTENER:
+    type: Listener
+    default: "${TARGET}"
+    required: true
+    description: the local listener to forward to, as <protocol>/<port> (e.g. tcp/4444)
 preconditions:
-  exists:
-    - Listener
-# effects: ["ListenerReady"]
-# cmd: {}
-# defend: {}
+  # The target is the listener traffic will be forwarded into, so picking one is
+  # what makes this applicable. There is deliberately no "newest listener"
+  # fallback: nothing in the campaign records listener age, and a redirector
+  # silently pointed at a listener the operator did not choose is a bad failure
+  # mode. The Listener parameter's combobox covers switching to another one.
+  kind: Listener
+  c2.has-listener: true
+  # labctl runs on the machine hosting Ran, not on the target, so the ordinary
+  # tool gate (which reads the *target's* binary map) cannot see it. Without
+  # this the action would be offered on a host that has no labctl and fail only
+  # once the operator ran it.
+  c2.has-tool: labctl
+procedures:
+  - id: labctl
+    command: "c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})"
+    isLocal: true
+effects:
+  - "c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})"
 references:
+  - https://labs.iximiuz.com/

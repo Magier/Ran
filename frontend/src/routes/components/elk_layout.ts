@@ -31,8 +31,8 @@ export const NODE_LAYER: Record<string, number> = {
   // External machines / adversary infrastructure
   Adversary: 1,
   System: 1,
-  // C2 channels
-  Listener: 2,
+  // C2 channels. Listeners and redirectors are absent on purpose: both render as
+  // badges on their C2 rather than as nodes, so they never reach the layout.
   Session: 2,
   // Cluster entry points
   Ingress: 3,
@@ -89,7 +89,7 @@ export type LayoutParams = {
   compoundPadding: number;    // padding inside namespace compound nodes
   stressIterations: number;   // max iterations of stress algorithm inside compounds
   // Edge behaviour
-  usesStraightness: number;   // 0–10: how hard ELK tries to align "uses" edge endpoints vertically
+  usesStraightness: number;   // 0-10: how hard ELK tries to align "uses" edge endpoints vertically
   // Animation
   animationDuration: number;  // ms; 0 = instant
   // Strategies

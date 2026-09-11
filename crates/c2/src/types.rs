@@ -139,6 +139,27 @@ pub enum C2Event {
     /// that connected through it stay live - they are backends in their own
     /// right and do not depend on the listener that accepted them.
     ListenerStopped { cmd_id: String, port: u16 },
+    /// A port-forward tunnel came up: `remote_port` on the playground now
+    /// reaches the local listener on `listener_port`. `via` names the tool that
+    /// built it, so the operator can tell one kind of redirector from another.
+    ///
+    /// Carries `cmd_id` for the same reason [`C2Event::ListenerStarted`] does:
+    /// the redirector is the action's own product, and attributing it to the
+    /// execution is what lets the timeline fold it into that action.
+    RedirectorStarted {
+        cmd_id: String,
+        via: String,
+        play_id: String,
+        remote_port: u16,
+        listener_port: u16,
+    },
+    /// A redirector's `labctl` process was killed and its remote port dropped.
+    /// Both halves identify it - two playgrounds can forward the same port.
+    RedirectorStopped {
+        cmd_id: String,
+        play_id: String,
+        remote_port: u16,
+    },
     /// A reverse-shell connected, probed, and the session backend is now live.
     SessionConnected {
         backend_id: String,
