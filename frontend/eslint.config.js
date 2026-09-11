@@ -21,6 +21,19 @@ export default ts.config(
 				...globals.browser,
 				...globals.node
 			}
+		},
+		rules: {
+			// A leading underscore marks a binding that exists for its side effect,
+			// not its value. The common case is a $effect dependency tracker:
+			// reading the value is the point, so the read must not be deleted.
+			'@typescript-eslint/no-unused-vars': [
+				'error',
+				{
+					argsIgnorePattern: '^_',
+					varsIgnorePattern: '^_',
+					caughtErrorsIgnorePattern: '^_'
+				}
+			]
 		}
 	},
 	{

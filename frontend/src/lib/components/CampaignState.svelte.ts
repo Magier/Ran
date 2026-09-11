@@ -1,20 +1,12 @@
 import { getContext, setContext } from 'svelte';
-import type { ArmoryType, Node } from '$lib/model';
-import type {
-	AttackFlow,
-	CampaignState as State,
-	Graph,
-	TTP,
-	ExecuteActionRequest
-} from '$lib/api/index';
+import type { ArmoryType } from '$lib/model';
+import type { AttackFlow, CampaignState as State, Graph, TTP } from '$lib/api/index';
 import type { KubetierCatalog } from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
 import { getRanAPI, RanAPI } from '$lib/ran_api';
 import { timeline } from '$lib/stores/timelineStore.svelte';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
-
-type Conditions = {};
 
 export type Entity = {
 	id: string;
@@ -48,11 +40,6 @@ type ErrorMsg = {
 	Msg: string;
 };
 
-type BackendError = {
-	code: string;
-	message: string;
-};
-
 type ParseAuditUI = {
 	effectId: string;
 	parseResult: string;
@@ -71,7 +58,6 @@ function normalizeParseAudit(raw: any): ParseAuditUI {
 
 class CampaignState {
 	campaignId: number = $state(0);
-	activeConditions: Conditions = $state({});
 	entities = $state<Entity[]>([]);
 	relations = $state<Map<string, Relation>>(new Map());
 	namespaces = $state<Entity[]>([]);
@@ -87,13 +73,13 @@ class CampaignState {
 	private factsChangedCounter = 0;
 	private getCampaignStateCounter = 0;
 
-	init(url?: string): Promise<void> {
-		// If no URL provided, it will auto-construct from window.location
+	init(): Promise<void> {
+		// The API URL is constructed from window.location.
 
 		this.api.on('armory-loaded', (data) => {
 			this.armory = parseArmory(data);
 		});
-		this.api.on('facts-changed', (data: any) => {
+		this.api.on('facts-changed', () => {
 			const eventId = ++this.factsChangedCounter;
 			this.api.GetGraph().then((g: Graph) => {
 				this.graph = g;
@@ -141,7 +127,7 @@ class CampaignState {
 		});
 		this.api.on('reset-campaign', () => this.onReset());
 		this.api.on('error-msg', (rawMsg: string) => {
-			let msg: ErrorMsg = JSON.parse(rawMsg);
+			const msg: ErrorMsg = JSON.parse(rawMsg);
 
 			// Map msg.Level to ToastType
 			let toastType: ToastType;
@@ -160,7 +146,7 @@ class CampaignState {
 			showToast('Error', msg.Msg, toastType);
 		});
 		console.log('CampaignState connecting to backend...');
-		return this.api.connect().then((a) => {
+		return this.api.connect().then(() => {
 			this.api
 				.GetKubetierCatalog()
 				.then((catalog) => {
@@ -185,7 +171,7 @@ class CampaignState {
 
 	showError(msg: string | object) {
 		if (typeof msg === 'object') {
-			if (msg.hasOwnProperty('message')) {
+			if (Object.hasOwn(msg, 'message')) {
 				msg = (msg as any).message;
 			} else {
 				// fallback handling to show full object (may allow later refinement)
@@ -230,12 +216,11 @@ class CampaignState {
 	}
 
 	#setState(state: State): void {
-		let entities = [];
-		let namespaces = [];
-		let pods = [];
-		let serviceAccounts = [];
+		const entities = [];
+		const namespaces = [];
+		const pods = [];
+		const serviceAccounts = [];
 
-		const timestamp = new Date().toISOString();
 		for (const [id, entity] of Object.entries(state.entities || {})) {
 			const typedEntity = entity as unknown as Entity;
 			if (typedEntity === null) {
@@ -314,7 +299,7 @@ class CampaignState {
 	// }
 
 	getTtpById(id: string): TTP | undefined {
-		for (const [group, ttps] of this.armory) {
+		for (const [, ttps] of this.armory) {
 			const ttp = ttps.find((t) => t.id === id);
 			if (ttp) {
 				return ttp;
@@ -323,12 +308,12 @@ class CampaignState {
 	}
 
 	getNamespaces(): Entity[] {
-		let ns = this.entities.filter((entity) => entity.kind === 'Namespace');
+		const ns = this.entities.filter((entity) => entity.kind === 'Namespace');
 		return ns || [];
 	}
 
 	getPods(ns?: string): Entity[] {
-		let pods = this.entities.filter(
+		const pods = this.entities.filter(
 			(entity) => entity.kind === 'Pod' && (!ns || entity.namespace === ns)
 		);
 		return pods || [];
@@ -388,7 +373,7 @@ class CampaignState {
 		);
 	}
 
-	getServiceAccounts(ns?: string, permissions?: string[], includeUnkwnon?: boolean): Entity[] {
+	getServiceAccounts(ns?: string): Entity[] {
 		let serviceAccounts = this.entities.filter((entity) => entity.kind === 'ServiceAccount');
 		if (ns) {
 			serviceAccounts = serviceAccounts.filter((entity) => entity.namespace === ns);
@@ -401,7 +386,7 @@ class CampaignState {
 		const tokens = this.entities.filter(
 			(entity) =>
 				entity.kind === 'ServiceAccountToken' ||
-				(entity.kind === 'ServiceAccount' && entity.hasOwnProperty('token'))
+				(entity.kind === 'ServiceAccount' && Object.hasOwn(entity, 'token'))
 		); // Include ServiceAccounts that have token binaries
 
 		// Extract the ServiceAccount IDs from tokens (tokens have ID format: ns/{namespace}/sa/{saName}/token)
@@ -453,8 +438,8 @@ export const setCampaignState = (key = DEFAULT_KEY) => {
 
 export function parseArmory(data: TTP[]): ArmoryType {
 	// this comes from the backend must be converted
-	let armoryMap = new Map<string, TTP[]>();
-	for (let ttp of data) {
+	const armoryMap = new Map<string, TTP[]>();
+	for (const ttp of data) {
 		let groupName = ttp.tactic;
 		if (groupName === '') {
 			groupName = 'Other';

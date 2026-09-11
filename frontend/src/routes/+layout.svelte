@@ -3,6 +3,7 @@
 	import { AppBar, Toast, Switch } from '@skeletonlabs/skeleton-svelte';
 	import { setContext } from 'svelte';
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import IconMap from '~icons/game-icons/treasure-map';
 	import IconSteps from '~icons/game-icons/footsteps';
 	import IconSun from '~icons/material-symbols/light-mode';
@@ -86,8 +87,8 @@
 			<nav class="btn-group preset-outlined-surface-200-800 shrink-0 flex-row p-0">
 				<a
 					class="btn preset-filled-primary hover:preset-tonal whitespace-nowrap"
-					class:selected={page.url.pathname === '/' || page.url.pathname === ''}
-					href="/"
+					class:selected={page.url.pathname === '/'}
+					href={resolve('/')}
 				>
 					<IconMap class="inline-block text-xl" />
 					Graph
@@ -95,7 +96,7 @@
 				<a
 					class="btn hover:preset-tonal whitespace-nowrap"
 					class:selected={page.url.pathname === '/flow'}
-					href="/flow"
+					href={resolve('/flow')}
 				>
 					<IconSteps class="inline-block text-xl" />
 					Flow

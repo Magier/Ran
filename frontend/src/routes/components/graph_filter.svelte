@@ -9,14 +9,8 @@
 	let { availableNamespaces, hiddenNamespaces = $bindable() }: GraphFilterProps = $props();
 
 	let panelOpen = $state(false);
-	let customInput = $state('');
 
 	const activeFilterCount = $derived(hiddenNamespaces.size);
-
-	// Custom filters: those not in the detected namespace list
-	const customFilters = $derived(
-		[...hiddenNamespaces].filter((ns) => !availableNamespaces.includes(ns))
-	);
 
 	function toggleNamespace(ns: string) {
 		const next = new Set(hiddenNamespaces);
@@ -25,23 +19,6 @@
 		} else {
 			next.add(ns);
 		}
-		hiddenNamespaces = next;
-	}
-
-	// function addCustomFilter() {
-	// 	const ns = customInput.trim();
-	// 	if (!ns) return;
-	// 	hiddenNamespaces = new Set([...hiddenNamespaces, ns]);
-	// 	customInput = '';
-	// }
-
-	// function handleCustomInputKeydown(e: KeyboardEvent) {
-	// 	if (e.key === 'Enter') addCustomFilter();
-	// }
-
-	function removeFilter(ns: string) {
-		const next = new Set(hiddenNamespaces);
-		next.delete(ns);
 		hiddenNamespaces = next;
 	}
 </script>

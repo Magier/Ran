@@ -3,8 +3,7 @@ import {
 	TimelineStore,
 	type TtpActionEntry,
 	type EntityEntry,
-	type ActionGroup,
-	type TopEntry
+	type ActionGroup
 } from '$lib/stores/timelineStore.svelte';
 
 function makeTtpEntry(

@@ -2,9 +2,9 @@
 	import { onMount, onDestroy, getContext, untrack } from 'svelte';
 	import { browser } from '$app/environment';
 	import cytoscape from 'cytoscape';
-	// @ts-ignore
+	// @ts-expect-error - cytoscape-elk ships no type declarations
 	import elk from 'cytoscape-elk';
-	// @ts-ignore
+	// @ts-expect-error - cytoscape-expand-collapse ships no type declarations
 	import expandCollapse from 'cytoscape-expand-collapse';
 	import { toaster } from '$lib/components/toaster';
 	import { hasKnowledgeProvenance } from '$lib/knowledgeProvenance';
@@ -358,7 +358,9 @@
 								});
 								try {
 									ecApi.collapse(node);
-								} catch (_) {}
+								} catch {
+									// the plugin throws if the node is already collapsed
+								}
 							}
 						});
 					};
@@ -369,7 +371,9 @@
 							const stored = sessionStorage.getItem(COLLAPSED_KEY);
 							hasStoredCollapseState = stored !== null;
 							if (stored) (JSON.parse(stored) as string[]).forEach((id) => collapsedNodes.push(id));
-						} catch (_) {}
+						} catch {
+							// unreadable or malformed sessionStorage: fall back to the defaults
+						}
 					}
 					// Multi-pod workload compounds start collapsed. An explicitly persisted
 					// expansion wins on remount; workloads that newly gain a second pod are
@@ -388,7 +392,9 @@
 								collapsedNodes.push(n.id());
 								try {
 									ecApi.expand(n);
-								} catch (_) {}
+								} catch {
+									// the plugin throws if the node is already expanded
+								}
 							});
 						} finally {
 							isRestoringCollapsedState = false;
@@ -698,7 +704,7 @@
 		console.groupEnd();
 	}
 
-	function resetSelection(event: cytoscape.EventObject) {
+	function resetSelection(_event: cytoscape.EventObject) {
 		// Switching selection selects the new element before unselecting the old
 		// one. Do not let the old element's event clear the shared selection.
 		if (cy.$(':selected').length > 0) return;
@@ -769,7 +775,7 @@
 			cyNode.data.parent = n.parent;
 		}
 
-		if (nodePos.hasOwnProperty(n.id)) {
+		if (Object.hasOwn(nodePos, n.id)) {
 			cyNode.position = nodePos[n.id];
 		} else {
 			// Set default positions for initial nodes and save them to positions

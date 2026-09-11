@@ -179,7 +179,7 @@
 	// also fires when an expanded group gains child effect rows, and on scrollEl
 	// so the initial (backfilled) list lands at the bottom once mounted.
 	$effect(() => {
-		totalEvents;
+		void totalEvents;
 		if (stickToBottom && scrollEl) {
 			scrollEl.scrollTop = scrollEl.scrollHeight;
 		}
@@ -253,7 +253,6 @@
 				{#if entry.kind === 'action-group'}
 					{@const counts = effectCounts(entry)}
 					<!-- Action group header row -->
-					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 					<div
 						class="border-surface-200-800 hover:bg-surface-200-800 relative flex cursor-pointer items-start gap-2 border-b px-3 py-2 text-sm select-none"
 						role="button"

@@ -41,12 +41,6 @@
 		Required?: boolean;
 	}
 
-	interface Constraint {
-		Namespace?: string;
-		Pod?: string;
-		Entitlement?: string;
-	}
-
 	const campaignState = getCampaignState();
 	const ranAPI = getRanAPI();
 
@@ -394,9 +388,6 @@
 		const ttpProcedures = ttp?.procedures;
 		const currentTargetId = targetId;
 		const currentArgContext = argContext;
-
-		// Derive initial namespace from targetId, not from selectedNamespace (which depends on args)
-		const initialNamespace = currentTargetId.startsWith('ns/') ? currentTargetId.split('/')[1] : '';
 
 		untrack(() => {
 			console.group('ActionParamsModal: Initializing args for TTP', currentTtpId);
@@ -914,7 +905,7 @@
 			</label> -->
 		{#if args.length > 0}
 			<span class="h5 text-xs md:text-sm lg:text-base">Params</span>
-			{#each args as arg, index (arg.Name)}
+			{#each args as arg (arg.Name)}
 				<div
 					class="input-group mt-2 grid-cols-[auto_1fr_auto] text-xs md:text-sm lg:text-base"
 					class:opacity-50={arg.Type === 'Namespace' && isAllNamespaces}

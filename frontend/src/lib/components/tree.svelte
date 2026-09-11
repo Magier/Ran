@@ -3,7 +3,6 @@
 	import { mergeAttrs } from 'melt';
 	import Self from './tree.svelte'; // import itself for recursive rendering
 
-	type Icon = 'svelte' | 'folder' | 'js';
 	type TreeNode = {
 		id: string;
 		name?: string;
@@ -14,7 +13,6 @@
 		root?: Record<string, unknown>;
 		trigger?: Record<string, unknown>;
 		content?: Record<string, unknown>;
-		// icon: Icon;
 		children?: TreeNode[];
 	};
 

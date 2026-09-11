@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Tree from '$lib/components/tree.svelte';
 	import EntitlementInfo from './entitlement_info.svelte';
 	import Icon from '@iconify/svelte';
 	import type { RBACPermission, TTP } from '$lib/api/index';
@@ -17,8 +16,6 @@
 	let { objectId, sendAction, class: className }: ObjectInfoProps = $props();
 
 	const campaignState = getCampaignState();
-	const items = [];
-	// const tree = new Tree({ items });
 	const obj = $derived(campaignState.getObjectById(objectId));
 
 	// Fields where the button should be suppressed for specific entity kinds.
@@ -188,7 +185,7 @@
 			// 	return obj.toString();
 			// } else if (typeof obj === 'boolean') {
 			// 	return obj ? 'true' : 'false';
-		} else if (obj?.hasOwnProperty('IP')) {
+		} else if (obj != null && Object.hasOwn(obj, 'IP')) {
 			// Handle special case for objects with 'IP' property
 			return obj.IP;
 		} else {
@@ -339,7 +336,7 @@
 						<span class="text-surface-500 text-xs">({data.length})</span>
 					</summary>
 					<div class="space-y-4 pl-4">
-						{#each data as container, idx}
+						{#each data as container}
 							<div class="border-surface-500 border-l-2 py-2 pl-3">
 								<!-- Top: name and command -->
 								<span>Name: </span>

@@ -5,7 +5,6 @@
 
 	interface ActionDetailProps {
 		step: AttackStep;
-		icon?: any;
 	}
 
 	let { step }: ActionDetailProps = $props();

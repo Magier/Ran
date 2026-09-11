@@ -3,7 +3,7 @@
 	import type { AttackStep, Node, TTP, ScoredCandidate } from '$lib/api/index';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
-	import { Dialog, Popover, Portal } from '@skeletonlabs/skeleton-svelte';
+	import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
 	import ActionParamsModal from '$lib/modals/ActionParamsModal.svelte';
 	import FileViewerModal from '$lib/modals/FileViewerModal.svelte';
 	import { onMount, onDestroy } from 'svelte';
@@ -25,7 +25,7 @@
 	let selectedObject: Node | undefined = $state();
 	let ttpArgContext: Record<string, any> = $state({});
 	let showParamModal: boolean = $state(false);
-	let activeGlobalConditions: Object = {};
+	let activeGlobalConditions: object = {};
 	let selectedTTP: TTP | undefined = $state();
 	let actionTargetId: string = $state('');
 	let podChooserOpen = $state(false);

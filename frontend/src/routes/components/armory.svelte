@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { ArmoryType } from '$lib/model';
-	import { onDestroy } from 'svelte';
 	import Icon from '@iconify/svelte';
 	import { iconMap } from '$lib/tactic_icons';
 
@@ -38,7 +37,7 @@
 	let searchInputElement: HTMLInputElement | undefined = $state();
 
 	// $: selectedConditions = { ...globalConditions, ...(selectedNode ?? {}) };
-	let armory: ArmoryType = $state(new Map());
+	const armory: ArmoryType = $derived(campaign.armory);
 	let showAllTTPs: boolean = $state(false);
 	let applicableTTPs: ArmoryType = $state(new Map());
 	let searchTerm: string = $state('');
@@ -59,10 +58,6 @@
 		campaign.api.GetScoringProfile().then((profile) => {
 			scoringEnabled = profile?.enabled ?? false;
 		});
-	});
-
-	$effect(() => {
-		armory = campaign.armory;
 	});
 
 	// Score the applicable actions for the selected target. The armory already
@@ -120,13 +115,9 @@
 		// Session connect/loss events replace the campaign graph, so track it in
 		// addition to the selected node's directly exposed applicability fields.
 		void campaign.graph;
-		const nodeState = target
-			? {
-					compromised: target.compromised,
-					accessLevel: target.accessLevel,
-					entity: target.entity
-				}
-			: null;
+		void target?.compromised;
+		void target?.accessLevel;
+		void target?.entity;
 
 		if (!targetId) {
 			applicableTTPs = new Map();

@@ -9,7 +9,6 @@
 
 	interface ActionNodeData extends Record<string, unknown> {
 		step: AttackStep;
-		color: string;
 	}
 
 	interface ActionNodeProps extends NodeProps {
@@ -52,7 +51,7 @@
 >
 	<span class="text-base">{label}</span>
 	<div class="flex items-center space-x-1">
-		<Icon icon={'game-icons:bullseye'} width="16" />
+		<Icon icon="game-icons:bullseye" width="16" />
 		<pre
 			class="max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap"
 			title={target.name ?? 'no target'}>{target.name ?? 'no target'}</pre>

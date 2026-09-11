@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { buildCampaignFlowDownload } from '$lib/campaignFlow';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
-	import { showToast, toaster } from '$lib/components/toaster';
+	import { showToast } from '$lib/components/toaster';
 	import { saveFile } from '$lib/io';
 	import PlanPickerModal from '$lib/modals/PlanPickerModal.svelte';
 	import {
