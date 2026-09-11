@@ -1,6 +1,6 @@
 # Inference Engine: Implementation Reference
 
-This document describes the inference engine as it exists in the Rust codebase. For the design exploration and alternatives considered, see [`inference_engine_plan.md`](inference_engine_plan.md).
+This document describes the inference engine as it exists in the Rust codebase.
 
 ---
 

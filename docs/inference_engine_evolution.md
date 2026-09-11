@@ -1,6 +1,6 @@
 # Inference Engine Evolution: When to Move, What to Do First
 
-Companion to [`inference_engine.md`](inference_engine.md) (current implementation) and [`inference_engine_plan.md`](inference_engine_plan.md) (original design exploration).
+Companion to [`inference_engine.md`](inference_engine.md) (current implementation).
 
 This note answers a recurring question: *should we move the hand-coded rules/analyzers to a logic engine (Datalog, rete, differential dataflow) or a richer knowledge graph?* The answer is **not yet** - but there are two concrete refactors that should happen first and would deliver most of the benefit without the paradigm shift.
 
