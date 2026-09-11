@@ -19,7 +19,14 @@ k8s = { path = "../k8s" }
 kubetier = { path = "../kubetier" }
 planner = { path = "../planner" }
 ran-domain = { path = "../domain" }
-reqwest = { version = "0.13", features = ["json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls-no-provider",
+    "charset",
+    "http2",
+    "system-proxy",
+    "json",
+] }
 serde = { workspace = true }
 serde_json = "1"
 serde_yaml = "0.9"
