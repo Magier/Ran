@@ -30,8 +30,12 @@ fmt-check:
 clippy:
 	cargo clippy --workspace --locked -- -D warnings
 
+.PHONY: lint-frontend
+lint-frontend:
+	pnpm --prefix frontend lint
+
 .PHONY: lint
-lint: fmt-check clippy
+lint: fmt-check clippy lint-frontend
 
 # === Testing ===
 .PHONY: test-rust

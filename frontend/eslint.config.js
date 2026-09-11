@@ -37,6 +37,21 @@ export default ts.config(
 		}
 	},
 	{
+		// Tech debt from before frontend linting was enforced, tracked in
+		// https://github.com/Magier/Ran/issues/52. Warnings so CI gates every
+		// other rule at error while these are worked down; each one goes back
+		// to 'error' as its area is cleaned up.
+		//
+		//   @typescript-eslint/no-explicit-any    cytoscape and its plugins
+		//   svelte/require-each-key               {#each} blocks without a key
+		//   svelte/prefer-svelte-reactivity       plain Map/Set in reactive state
+		rules: {
+			'@typescript-eslint/no-explicit-any': 'warn',
+			'svelte/require-each-key': 'warn',
+			'svelte/prefer-svelte-reactivity': 'warn'
+		}
+	},
+	{
 		files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
 		ignores: ['eslint.config.js', 'svelte.config.js'],
 

@@ -1,4 +1,11 @@
 <script lang="ts">
+	/* eslint-disable svelte/no-navigation-without-resolve --
+	   Every href in this component is an external documentation URL carried in
+	   the assessment data (sourceUrl, documentationLink.url). resolve() is for
+	   app routes and would corrupt them. The rule cannot see that from a
+	   dynamic href, and the anchors span several lines, so the suppression has
+	   to sit at file scope: keep it that way only while there is no internal
+	   link in here. */
 	import Icon from '@iconify/svelte';
 	import type {
 		KubetierCatalog,
