@@ -20,6 +20,11 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // `reqwest` is built with `rustls-no-provider`, so the process has to pick
+    // the crypto provider itself before any HTTPS client is constructed.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls crypto provider");
     let args = parse_args()?;
     let client = reqwest::Client::builder()
         .user_agent("Ran KubeTier snapshot importer (+https://github.com/Magier/Ran)")

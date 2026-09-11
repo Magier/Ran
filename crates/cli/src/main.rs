@@ -102,7 +102,7 @@ struct EmulateArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    rustls::crypto::aws_lc_rs::default_provider()
+    rustls::crypto::ring::default_provider()
         .install_default()
         .expect("failed to install rustls crypto provider");
     init_tracing();

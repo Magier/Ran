@@ -14,7 +14,12 @@ kubetier = { path = "../kubetier" }
 utility-ai = { path = "../utility-ai" }
 ran-domain = { path = "../domain" }
 mime_guess = "2"
-reqwest = "0.13"
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls-no-provider",
+    "charset",
+    "http2",
+    "system-proxy",
+] }
 rmcp = { version = "1", features = ["server", "macros", "schemars", "transport-streamable-http-server"] }
 rust-embed = "8"
 serde = { workspace = true }

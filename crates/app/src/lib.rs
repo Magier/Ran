@@ -914,6 +914,7 @@ impl ScriptParserRunner {
             info!(webhook = %url, "parser-gap generator webhook enabled");
         }
 
+        ensure_crypto_provider();
         let webhook_client = reqwest::Client::builder()
             .timeout(Duration::from_millis(1500))
             .build()
@@ -1270,13 +1271,26 @@ fn local_tool_binaries(armory: &Armory) -> HashMap<String, BinaryPresence> {
     binaries
 }
 
+/// Installs the `ring` crypto provider unless one is already installed.
+///
+/// `reqwest` is built with `rustls-no-provider`, which keeps the `aws-lc-rs`
+/// C library out of the build. The cost is that it panics rather than erroring
+/// when no provider is registered, so anything constructing an HTTPS client
+/// has to register one first. Binaries do this in `main`; this keeps library
+/// consumers from tripping over it. `install_default` returns `Err` when a
+/// provider is already set, which is the normal case and not a problem.
+fn ensure_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 /// First executable named `tool` on `PATH`, or `None`.
 ///
 /// Deliberately not a `which` subprocess: this runs for every armory tool at
 /// startup, and reading `PATH` is both faster and free of shell quoting.
 fn which(tool: &str) -> Option<PathBuf> {
     // A name with a separator is a path, not something to search for.
-    if tool.contains('/') {
+    // `/` counts on every platform; Windows also accepts `\`.
+    if tool.contains('/') || tool.contains(std::path::MAIN_SEPARATOR) {
         return None;
     }
     let path = std::env::var_os("PATH")?;
@@ -1286,10 +1300,19 @@ fn which(tool: &str) -> Option<PathBuf> {
 }
 
 fn is_executable_file(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
 
-    std::fs::metadata(path)
-        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        std::fs::metadata(path)
+            .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+    }
+    // Windows has no executable bit: being a file is as much as a PATH scan
+    // can tell us.
+    #[cfg(not(unix))]
+    {
+        path.is_file()
+    }
 }
 
 /// Non-loopback IPs of the machine running Ran.

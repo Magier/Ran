@@ -118,11 +118,15 @@ jobs:
           retention-days: 1
 
   # ============================================
-  # Stage 2: Build binaries (matrix, only on release)
+  # Stage 2: Build binaries (matrix, on release or on demand)
+  #
+  # Also runs on workflow_dispatch so a release build can be proven on every
+  # target without cutting a tag. Stage 3 still requires a tag, so a manual
+  # run builds and uploads artifacts without publishing a release.
   # ============================================
   build:
     needs: [test-rust, test-and-build-frontend]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         include:
