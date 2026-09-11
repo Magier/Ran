@@ -1459,6 +1459,56 @@ mod tests {
     }
 
     #[test]
+    fn fallback_procedure_keeps_ttp_runnable_when_primary_tool_is_absent() {
+        // Mirrors get-local-ip-address: `ip` primary, `hostname` fallback.
+        let ttp = Ttp {
+            status: "enabled".to_string(),
+            procedures: vec![
+                armory::Procedure {
+                    tool: Some("ip".to_string()),
+                    ..armory::Procedure::new("ip", "ip -o -4 addr show scope global")
+                },
+                armory::Procedure {
+                    tool: Some("hostname".to_string()),
+                    ..armory::Procedure::new("hostname", "hostname -i")
+                },
+            ],
+            ..Ttp::new("get-local-ip-address", "Get local IP address", "Discovery")
+        };
+
+        // iproute2 missing but hostname present: readiness is the max over
+        // procedures, so the fallback keeps the action on the table.
+        let mut c = empty_campaign();
+        let mut pod = Pod::new("nginx", "default");
+        pod.system
+            .binaries
+            .insert("ip".to_string(), BinaryPresence::Absent);
+        pod.system.binaries.insert(
+            "hostname".to_string(),
+            BinaryPresence::Present("/bin/hostname".into()),
+        );
+        let id = pod.entity_id().0;
+        c.entities.insert_typed(pod);
+
+        let tc = resolve_target_context(&c, &id).unwrap();
+        assert!(ttp_tool_satisfied(&ttp, &c, &tc));
+
+        // Both absent: nothing left to fall back to.
+        let mut c = empty_campaign();
+        let mut pod = Pod::new("nginx", "default");
+        for tool in ["ip", "hostname"] {
+            pod.system
+                .binaries
+                .insert(tool.to_string(), BinaryPresence::Absent);
+        }
+        let id = pod.entity_id().0;
+        c.entities.insert_typed(pod);
+
+        let tc = resolve_target_context(&c, &id).unwrap();
+        assert!(!ttp_tool_satisfied(&ttp, &c, &tc));
+    }
+
+    #[test]
     fn tool_satisfied_passes_for_non_system_target() {
         // A ServiceAccount has no binary map to assess → never blocked on tools.
         let c = campaign_with_sa("get", "serviceaccounts");
