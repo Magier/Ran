@@ -22,7 +22,9 @@ static NONCE: AtomicU64 = AtomicU64::new(1);
 /// Framing protocol (written to stdin for each command):
 /// ```text
 /// {cmd} 2>&1
-/// printf '__RAN_{nonce}__:%d\n' $?
+/// __ran_status=$?
+/// printf '\n'
+/// printf '__RAN_{nonce}__:%d\n' "$__ran_status"
 /// ```
 /// Lines are read until the sentinel `__RAN_{nonce}__:{exit_code}` appears.
 /// Everything before it is stdout (stderr merged via `2>&1`).
@@ -42,6 +44,15 @@ pub struct ShellSession {
 struct ShellInner {
     tx: Box<dyn AsyncWrite + Unpin + Send>,
     rx: BufReader<Box<dyn AsyncRead + Unpin + Send>>,
+}
+
+/// Frame a shell command with a sentinel on a line of its own. The explicit
+/// newline matters for files such as Kubernetes ServiceAccount JWTs, which do
+/// not necessarily end with one.
+fn framed_command(command: &str, marker: &str) -> String {
+    format!(
+        "{command} 2>&1\n__ran_status=$?\nprintf '\\n'\nprintf '{marker}:%d\\n' \"$__ran_status\"\n"
+    )
 }
 
 impl ShellSession {
@@ -153,7 +164,7 @@ impl ShellSession {
     pub async fn run_raw(&self, cmd: &str) -> Result<String, String> {
         let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let marker = format!("__RAN_{nonce}__");
-        let payload = format!("{cmd} 2>&1\nprintf '{marker}:%d\\n' $?\n");
+        let payload = framed_command(cmd, &marker);
 
         let mut guard = self.inner.lock().await;
         guard
@@ -211,7 +222,7 @@ impl C2Backend for ShellSession {
         // Two-line payload: run the command with merged stderr, then print
         // the sentinel on its own line so it's never mixed with command output.
         let command = &cmd.procedure.command;
-        let payload = format!("{command} 2>&1\nprintf '{marker}:%d\\n' $?\n");
+        let payload = framed_command(command, &marker);
 
         let mut guard = self.inner.lock().await;
 
@@ -353,6 +364,9 @@ mod tests {
                 // When we see a `printf '...'` line, extract the marker and reply.
                 if let Some(rest) = line.trim_end().strip_prefix("printf '") {
                     let marker = rest.split('%').next().unwrap_or("").trim_end_matches(':');
+                    if !marker.starts_with("__RAN_") {
+                        continue;
+                    }
                     let reply = if marker.contains("INIT0") {
                         format!("{marker}\n")
                     } else {
@@ -414,6 +428,9 @@ mod tests {
                 }
                 if let Some(rest) = line.trim_end().strip_prefix("printf '") {
                     let marker = rest.split('%').next().unwrap_or("").trim_end_matches(':');
+                    if !marker.starts_with("__RAN_") {
+                        continue;
+                    }
                     let reply = if marker.contains("INIT0") {
                         format!("{marker}\n")
                     } else {
@@ -459,6 +476,9 @@ mod tests {
                 // Only unblock init(); real commands get no sentinel, so they hang.
                 if let Some(rest) = line.trim_end().strip_prefix("printf '") {
                     let marker = rest.split('%').next().unwrap_or("").trim_end_matches(':');
+                    if !marker.starts_with("__RAN_") {
+                        continue;
+                    }
                     if marker.contains("INIT0") {
                         let _ = server_tx.write_all(format!("{marker}\n").as_bytes()).await;
                         let _ = server_tx.flush().await;
@@ -494,6 +514,14 @@ mod tests {
             crate::types::is_session_death_reason(&second.fail_reason),
             "consecutive timeouts should escalate to session death: {}",
             second.fail_reason
+        );
+    }
+
+    #[test]
+    fn command_framing_separates_a_marker_from_output_without_a_newline() {
+        assert_eq!(
+            super::framed_command("cat /token", "__RAN_42__"),
+            "cat /token 2>&1\n__ran_status=$?\nprintf '\\n'\nprintf '__RAN_42__:%d\\n' \"$__ran_status\"\n"
         );
     }
 

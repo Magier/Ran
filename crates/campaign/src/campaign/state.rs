@@ -423,17 +423,13 @@ impl Campaign {
 
     /// Query the knowledge graph and return the best execution channel for `target_id`.
     pub fn resolve_exec_channel(&self, target_id: &str) -> Result<ExecChannel, String> {
-        self.resolve_exec_channel_inner(target_id, true)
+        self.resolve_exec_channel_inner(target_id)
     }
 
-    /// Inner resolver. When `prefer_session` is false the active-session fast-path
-    /// is skipped, forcing graph-based channel resolution (used for SA credential
-    /// reads that must run inside the container's mount namespace, not a host-side
-    /// session that may have escaped the container).
+    /// Inner resolver used for recursive resolution through non-system entities.
     pub(super) fn resolve_exec_channel_inner(
         &self,
         target_id: &str,
-        prefer_session: bool,
     ) -> Result<ExecChannel, String> {
         // The caller may hold an id that was merged away (a promoted foothold,
         // a pod that gained its real name); route to whatever it became.
@@ -441,52 +437,46 @@ impl Campaign {
         let target_id = canonical.as_str();
         let target_eid = EntityId::new(target_id);
 
-        // Prefer an Active session on the target system - it is a live shell
-        // already exiting into this entity, so no graph traversal is needed.
-        if prefer_session {
-            let active_session = self.get_system_entity(target_id).and_then(|sys| {
-                sys.entity()
-                    .system()
-                    .sessions
-                    .iter()
-                    .find(|s| s.status == SessionStatus::Active)
-                    .map(|s| s.backend_id())
-            });
+        // Prefer an Active session on the target system. Routing is independent
+        // of tactic: a session's containment is a property of the session, not
+        // of the action it happens to execute.
+        let active_session = self.get_system_entity(target_id).and_then(|sys| {
+            sys.entity()
+                .system()
+                .sessions
+                .iter()
+                .find(|s| s.status == SessionStatus::Active)
+                .map(|s| s.backend_id())
+        });
 
-            if let Some(ref backend_id) = active_session {
-                tracing::debug!(
-                    target_id = %target_id,
-                    backend_id = %backend_id,
-                    "resolve_exec_channel: using active session"
-                );
-                return Ok(ExecChannel {
-                    backend_id: backend_id.clone(),
-                    hops: vec![],
-                    exec_target_id: None,
-                });
-            }
-
-            // No live session, but a down (lost/broken) one exists on this target:
-            // make the reroute explicit in the logs rather than silently falling
-            // through to graph-based routing.
-            let has_down_session = self.get_system_entity(target_id).is_some_and(|sys| {
-                sys.entity()
-                    .system()
-                    .sessions
-                    .iter()
-                    .any(|s| s.status != SessionStatus::Active)
-            });
-            if has_down_session {
-                tracing::info!(
-                    target_id = %target_id,
-                    "resolve_exec_channel: session on target is down; \
-                     rerouting via the knowledge graph"
-                );
-            }
-        } else {
+        if let Some(ref backend_id) = active_session {
             tracing::debug!(
                 target_id = %target_id,
-                "resolve_exec_channel: session preference skipped (credential access path)"
+                backend_id = %backend_id,
+                "resolve_exec_channel: using active session"
+            );
+            return Ok(ExecChannel {
+                backend_id: backend_id.clone(),
+                hops: vec![],
+                exec_target_id: None,
+            });
+        }
+
+        // No live session, but a down (lost/broken) one exists on this target:
+        // make the reroute explicit in the logs rather than silently falling
+        // through to graph-based routing.
+        let has_down_session = self.get_system_entity(target_id).is_some_and(|sys| {
+            sys.entity()
+                .system()
+                .sessions
+                .iter()
+                .any(|s| s.status != SessionStatus::Active)
+        });
+        if has_down_session {
+            tracing::info!(
+                target_id = %target_id,
+                "resolve_exec_channel: session on target is down; \
+                 rerouting via the knowledge graph"
             );
         }
 
@@ -557,15 +547,10 @@ impl Campaign {
             .map(|(src, _)| src.clone());
 
         if let Some(pod_id) = sa_pod_id {
-            // Use graph-based routing (not any active session) for the pod so the command
-            // runs inside the container's mount namespace where the SA token is mounted.
-            // Active sessions may be in host namespace after a container escape.
-            return self
-                .resolve_exec_channel_inner(&pod_id.0, false)
-                .map(|mut ch| {
-                    ch.exec_target_id = Some(pod_id.0);
-                    ch
-                });
+            return self.resolve_exec_channel_inner(&pod_id.0).map(|mut ch| {
+                ch.exec_target_id = Some(pod_id.0);
+                ch
+            });
         }
 
         Err(format!(
