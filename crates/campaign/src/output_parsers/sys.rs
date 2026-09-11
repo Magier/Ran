@@ -626,6 +626,46 @@ mod tests {
     }
 
     #[test]
+    fn parse_sys_ip_parses_multiple_interface_addresses() {
+        // stdout of `ip -o -4 addr show scope global | awk '{print $4}' | cut -d/ -f1`
+        // on a node with a primary NIC and a CNI bridge.
+        let stdout = "10.128.0.4\n172.17.0.1\n";
+        let result = parse_sys_ip(stdout, "", &HashMap::new());
+
+        let ParserOutput::Success(updates, detail) = result else {
+            panic!("expected Success, got {result:?}");
+        };
+        assert_eq!(updates.ips, vec!["10.128.0.4", "172.17.0.1"]);
+        assert!(
+            detail.contains("2"),
+            "detail should report the count: {detail}"
+        );
+    }
+
+    #[test]
+    fn parse_sys_ip_deduplicates_repeated_addresses() {
+        let result = parse_sys_ip("10.128.0.4\n10.128.0.4\n", "", &HashMap::new());
+
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success");
+        };
+        assert_eq!(updates.ips, vec!["10.128.0.4"]);
+    }
+
+    #[test]
+    fn parse_sys_ip_on_empty_output_yields_no_ips() {
+        // A host with no global-scope IPv4 address produces empty stdout. The
+        // parser reports no IPs rather than UnknownFormat; the effect layer is
+        // what classifies empty stdout as a KnownFailure.
+        let result = parse_sys_ip("", "", &HashMap::new());
+
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success");
+        };
+        assert!(updates.ips.is_empty());
+    }
+
+    #[test]
     fn parse_process_line_parses_standard_ps_line() {
         // Format: user pid ppid cpu stime tty time cmd...
         // (ps -eo user,pid,ppid,c,stime,tty,time,cmd)
