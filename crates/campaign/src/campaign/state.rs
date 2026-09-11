@@ -792,6 +792,16 @@ impl Campaign {
         removed
     }
 
+    /// Drop the redirector forwarding `remote_port` on `play_id`.
+    ///
+    /// Unlike [`Campaign::remove_listeners_on_port`] this needs both halves: a
+    /// port is bound once on the operator host, but two playgrounds are two hosts
+    /// and can each forward the same remote port.
+    pub fn remove_redirector(&mut self, play_id: &str, remote_port: u16) -> bool {
+        let id = ran_domain::Redirector::id_for(play_id, remote_port);
+        self.remove_entity::<ran_domain::Redirector>(&id)
+    }
+
     /// Insert a relation into the graph using the IDs stored on the relation itself.
     pub(crate) fn insert_relation(&mut self, rel: &dyn ran_domain::Relation) {
         let src = rel.source_id().clone();

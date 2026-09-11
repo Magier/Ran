@@ -2,7 +2,7 @@ use ran_domain::{
     AppService, C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
     GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress,
     K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Listener, Namespace, OperatorHost,
-    Pod, ReplicaSet, ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
+    Pod, Redirector, ReplicaSet, ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
 };
 
 pub enum CampaignEntityRef<'a> {
@@ -10,6 +10,7 @@ pub enum CampaignEntityRef<'a> {
     AppService(&'a AppService),
     C2Server(&'a C2Server),
     Listener(&'a Listener),
+    Redirector(&'a Redirector),
     Cluster(&'a K8sCluster),
     Node(&'a K8sNode),
     Namespace(&'a Namespace),
@@ -91,6 +92,7 @@ impl<'a> CampaignEntityRef<'a> {
         OperatorHost,
         C2Server,
         Listener,
+        Redirector,
         AppService,
         Cluster,
         Node,

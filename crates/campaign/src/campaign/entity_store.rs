@@ -5,7 +5,7 @@ use ran_domain::{
     AppService, C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
     GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress,
     K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Listener, Merge, Namespace,
-    OperatorHost, Pod, ReplicaSet, ServiceAccount, StatefulSet, UnknownSystem,
+    OperatorHost, Pod, Redirector, ReplicaSet, ServiceAccount, StatefulSet, UnknownSystem,
 };
 use serde::de::MapAccess;
 use serde::ser::SerializeMap;
@@ -296,6 +296,7 @@ impl Default for EntityStore {
         s.register::<AppService>("app_services", |t| CampaignEntityRef::AppService(t));
         s.register::<C2Server>("c2_servers", |t| CampaignEntityRef::C2Server(t));
         s.register::<Listener>("listeners", |t| CampaignEntityRef::Listener(t));
+        s.register::<Redirector>("redirectors", |t| CampaignEntityRef::Redirector(t));
         s.register::<K8sCluster>("clusters", |t| CampaignEntityRef::Cluster(t));
         s.register::<K8sNode>("nodes", |t| CampaignEntityRef::Node(t));
         s.register::<Namespace>("namespaces", |t| CampaignEntityRef::Namespace(t));

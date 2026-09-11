@@ -5,6 +5,7 @@
 	import type { TTP, TTPParam, RBACPermission, AuthIdentity } from '$lib/api/index';
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
 	import { allListeners } from '$lib/listeners';
+	import { redirectorOptions } from '$lib/redirectors';
 	import { getRanAPI } from '$lib/ran_api';
 	import { selectDefaultAuthIdentity } from '$lib/auth_identity';
 	import { untrack } from 'svelte';
@@ -428,6 +429,12 @@
 						argOptions[param.name] = allListeners(campaignState.graph?.nodes).map(
 							(listener) => ({ label: listener.entry, value: listener.id })
 						);
+					} else if (param.type === 'Redirector') {
+						// Same as Listener: redirectors ride on their C2's node payload,
+						// so the options come from there and the value is the entity id.
+						// Labelled by tool and hop (`labctl 9000→4444`); the playground id
+						// only appears where two would otherwise read alike.
+						argOptions[param.name] = redirectorOptions(campaignState.graph?.nodes);
 					} else if (param.type === 'ServiceAccount') {
 						// For TOKEN params, only show ServiceAccounts that have extracted tokens (compromised)
 						if (param.name === 'TOKEN') {
@@ -626,7 +633,7 @@
 							'Pod', 'Namespace', 'ServiceAccount', 'Service', 'Deployment', 'Container',
 							'ConfigMap', 'Secret', 'Role', 'ClusterRole', 'RoleBinding', 'ClusterRoleBinding',
 							'Node', 'ClusterNode', 'Ingress', 'Daemonset', 'CronJob', 'Job', 'Statefulset',
-							'Volume', 'User', 'Group', 'KubeApiServer', 'ControlPlane', 'Listener',
+							'Volume', 'User', 'Group', 'KubeApiServer', 'ControlPlane', 'Listener', 'Redirector',
 							// GCP resources
 							'GCPBucket', 'GCPServiceAccount', 'GCPServiceAccountToken', 'MetadataServer', 'GCPMetadataServer'
 						];

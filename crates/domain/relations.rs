@@ -39,6 +39,10 @@ structural_relation!(HostsService, "hosts-service");
 // A C2 holds a bound listener: C2 "Ran" → hosts-listener → Listener "tcp/4444".
 structural_relation!(HostsListener, "hosts-listener");
 
+// A redirector forwards traffic into a listener, in traffic direction:
+// Redirector "zn1k.../1337" → forwards-to → Listener "tcp/4444".
+structural_relation!(ForwardsTo, "forwards-to");
+
 // ---------------------------------------------------------------------------
 // Contains
 // ---------------------------------------------------------------------------

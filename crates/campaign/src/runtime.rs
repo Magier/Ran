@@ -3,8 +3,8 @@ use std::sync::{Arc, RwLock};
 use armory::Ttp;
 use c2::{C2Event, C2EventBus, SessionConnectedData};
 use ran_domain::{
-    AccessLevel, Entity, EntityId, HostsListener, Listener, SessionChannel, SessionInfo,
-    SessionStatus, UnknownSystem,
+    AccessLevel, Entity, EntityId, ForwardsTo, HostsListener, Listener, Redirector, SessionChannel,
+    SessionInfo, SessionStatus, UnknownSystem,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -27,7 +27,7 @@ pub struct EntitySummary {
     #[serde(default)]
     pub outcome: FactOutcome,
     /// What sort of news this is. Resolved here rather than at the API edge so
-    /// producers that know more than the entity kind — session attachment — can
+    /// producers that know more than the entity kind - session attachment - can
     /// say so, and so no consumer has to re-derive it.
     #[serde(default)]
     pub category: FactCategory,
@@ -439,6 +439,111 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         new_relations: vec![],
                     });
                 }
+                Ok(C2Event::RedirectorStarted {
+                    cmd_id,
+                    via,
+                    play_id,
+                    remote_port,
+                    listener_port,
+                }) => {
+                    let mut guard = match campaign.write() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            error!("campaign lock poisoned on RedirectorStarted");
+                            continue;
+                        }
+                    };
+                    let redirector = Redirector::new(&via, &play_id, remote_port, listener_port);
+                    let redirector_id = redirector.entity_id();
+                    // Point the redirector at the listener it forwards into, in
+                    // traffic direction. Found by port rather than rebuilt from
+                    // one, because the event carries no protocol and a listener
+                    // is not necessarily tcp.
+                    let listener_id = guard
+                        .entities
+                        .values::<Listener>()
+                        .find(|listener| listener.port == listener_port)
+                        .map(|listener| listener.entity_id());
+                    // A rebuilt or re-pointed tunnel keeps the same entity id, so
+                    // it is an update, not a find. `new_entities` is what raises
+                    // `entity-discovered`, and announcing a hop the operator has
+                    // been looking at for an hour as a fresh discovery is a lie.
+                    let already_known = guard.entities.find::<Redirector>(&redirector_id).is_some();
+                    guard.insert_entity(&redirector);
+                    let relation = listener_id
+                        .map(|listener_id| ForwardsTo::new(redirector_id.0.clone(), listener_id.0));
+                    match &relation {
+                        Some(relation) => guard.insert_relation(relation),
+                        // The TTP requires a Listener target, so this only happens
+                        // if the listener was stopped between spawning labctl and
+                        // handling this event. The redirector is still real, so
+                        // record it - just without an edge to a listener that is
+                        // no longer there.
+                        None => warn!(
+                            listener_port,
+                            "redirector started but no listener holds its target port"
+                        ),
+                    }
+                    info!(
+                        %via,
+                        %play_id,
+                        remote_port,
+                        listener_port,
+                        %redirector_id,
+                        "redirector started; redirector entity created"
+                    );
+                    // Attributed to the command that built it, so the timeline
+                    // folds the redirector into that action instead of showing it
+                    // as an unrelated event that happened to arrive next.
+                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                        cmd_id,
+                        new_entities: vec![EntitySummary::from_kind(
+                            redirector_id,
+                            redirector.entity_kind().to_string(),
+                            // The tool and the hop, not the playground id - see
+                            // `Redirector::label`.
+                            redirector.label().to_string(),
+                            // Standing up a tunnel is the action, so a redirector
+                            // is never something the campaign stumbles upon. But a
+                            // rebuilt or re-pointed one keeps its entity id: the
+                            // process is new, the hop is not.
+                            if already_known {
+                                FactOutcome::Updated
+                            } else {
+                                FactOutcome::Created
+                            },
+                        )],
+                        new_relations: relation
+                            .iter()
+                            .map(|relation| ran_domain::RelationSummary::from_relation(relation))
+                            .collect(),
+                    });
+                }
+                Ok(C2Event::RedirectorStopped {
+                    cmd_id,
+                    play_id,
+                    remote_port,
+                }) => {
+                    let mut guard = match campaign.write() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            error!("campaign lock poisoned on RedirectorStopped");
+                            continue;
+                        }
+                    };
+                    let removed = guard.remove_redirector(&play_id, remote_port);
+                    // Sessions that came in through the tunnel are separate
+                    // backends and keep running; only the forwarding is gone.
+                    info!(
+                        %play_id,
+                        remote_port, removed, "redirector stopped; redirector entity removed"
+                    );
+                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                        cmd_id,
+                        new_entities: vec![],
+                        new_relations: vec![],
+                    });
+                }
                 Ok(C2Event::SessionConnected {
                     backend_id,
                     target_entity_id,
@@ -504,7 +609,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                                 },
                                 // A shell landed here. That is news whether or
                                 // not the host was already in the graph, so it
-                                // must not be filed as a discovery — a callback
+                                // must not be filed as a discovery - a callback
                                 // from a known host would then be suppressed as
                                 // a mere field update and vanish entirely.
                                 category: FactCategory::AccessGained,
@@ -707,7 +812,7 @@ fn apply_session_connected(
             kind: e.entity().entity_kind().to_string(),
             name: e.entity().entity_name().to_string(),
             // This path resolves an existing system entity and attaches a
-            // session to it, so nothing here is new knowledge about the entity —
+            // session to it, so nothing here is new knowledge about the entity -
             // but gaining exec access to it is still worth reporting.
             outcome: FactOutcome::Updated,
             category: FactCategory::AccessGained,
