@@ -50,6 +50,21 @@ impl BuiltinC2 {
 
     pub async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
         let routing_target = cmd.exec_entity();
+        if routing_target.starts_with("ns/?/pod/") {
+            let reason = format!(
+                "cannot exec pod target '{}': its Kubernetes namespace is unknown",
+                routing_target
+            );
+            warn!(cmd_id = %cmd.id, target_id = %cmd.target_id, routing_target, "{}", reason);
+            return TtpExecuted {
+                id: cmd.id.clone(),
+                success: false,
+                results: vec![reason.clone()],
+                exit_code: 1,
+                fail_reason: reason,
+                session_connected: None,
+            };
+        }
         if let Some((namespace, pod_name)) = parse_pod_target_id(routing_target) {
             debug!(
                 cmd_id = %cmd.id,
@@ -233,7 +248,12 @@ fn parse_pod_target_id(target_id: &str) -> Option<(&str, &str)> {
         return None;
     }
 
-    if kind_a != "ns" || kind_b != "pod" || namespace.is_empty() || pod_name.is_empty() {
+    if kind_a != "ns"
+        || kind_b != "pod"
+        || namespace.is_empty()
+        || namespace == "?"
+        || pod_name.is_empty()
+    {
         return None;
     }
 
@@ -399,6 +419,23 @@ mod tests {
 
         let calls = fake.calls.lock().expect("lock should not be poisoned");
         assert!(calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn unknown_namespace_pod_target_is_not_sent_to_kubernetes() {
+        let fake = Arc::new(FakePodExecClient::default());
+        let builtin = BuiltinC2::from_pod_exec_client(fake.clone());
+
+        let cmd = exec_cmd("ns/?/pod/netshoot", "id", "");
+        let result = builtin.execute(&cmd).await;
+
+        assert!(!result.success);
+        assert!(result.fail_reason.contains("namespace is unknown"));
+        assert!(fake
+            .calls
+            .lock()
+            .expect("lock should not be poisoned")
+            .is_empty());
     }
 
     fn exec_cmd(target_id: &str, command: &str, exec_system_id: &str) -> ExecTtp {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ran_domain::{
-    Contains, Entity, JwToken, K8sCredential, K8sNode, NameConfidence, Namespace, Pod,
+    Contains, Entity, EntityId, JwToken, K8sCredential, K8sNode, NameConfidence, Namespace, Pod,
     RbacPermission, RbacScopeKind, RbacScopeSource, RunsOn, ServiceAccount, ServiceAccountToken,
     Uses,
 };
@@ -152,7 +152,9 @@ fn parse_raw_service_account_token(
         if let Some((expected_sa_name, expected_ns)) =
             parse_sa_identity_from_target(expected_target)
         {
-            if expected_sa_name != sa_name || expected_ns != namespace {
+            if expected_sa_name != sa_name
+                || (expected_ns != UNKNOWN_NAMESPACE && expected_ns != namespace)
+            {
                 return ParserOutput::KnownFailure(format!(
                     "decoded SA token for {}/{} but target is {}/{}",
                     namespace, sa_name, expected_ns, expected_sa_name
@@ -165,6 +167,7 @@ fn parse_raw_service_account_token(
         {
             if let Some(decoded_pod_name) = pod_name.as_deref() {
                 if !decoded_pod_name.is_empty()
+                    && expected_pod_ns != UNKNOWN_NAMESPACE
                     && !is_ip_placeholder_pod_name(expected_pod_name)
                     && (decoded_pod_name != expected_pod_name || namespace != expected_pod_ns)
                 {
@@ -222,6 +225,20 @@ fn parse_raw_service_account_token(
     let sa_id = sa.entity_id();
     facts.new_entities.push(Box::new(sa));
 
+    // A placeholder namespace means the action was launched before identity
+    // discovery. The token's claims are authoritative for this reconciliation.
+    if let Some(expected_target) = args.get("TARGET_ID") {
+        if let Some((expected_sa_name, expected_ns)) =
+            parse_sa_identity_from_target(expected_target)
+        {
+            if expected_ns == UNKNOWN_NAMESPACE && expected_sa_name == sa_name {
+                facts
+                    .entity_aliases
+                    .insert((EntityId::new(expected_target), sa_id.clone()));
+            }
+        }
+    }
+
     // Contains: namespace → SA.
     facts
         .new_relations
@@ -236,6 +253,18 @@ fn parse_raw_service_account_token(
             pod.service_account_name = Some(sa_name.clone());
             pod.is_running = true;
             let pod_id = pod.entity_id();
+
+            if let Some(expected_target) = args.get("TARGET_ID") {
+                if let Some((_expected_pod_name, expected_pod_ns)) =
+                    parse_pod_identity_from_target(expected_target)
+                {
+                    if expected_pod_ns == UNKNOWN_NAMESPACE {
+                        facts
+                            .entity_aliases
+                            .insert((EntityId::new(expected_target), pod_id.clone()));
+                    }
+                }
+            }
 
             // If bound, attach the node name.
             if let Some(node_name) = &node_name {
@@ -604,6 +633,9 @@ fn parse_pod_identity_from_target(target_id: &str) -> Option<(&str, &str)> {
     }
 }
 
+/// Namespace placeholder for objects discovered before their namespace is known.
+const UNKNOWN_NAMESPACE: &str = "?";
+
 /// Heuristic for placeholder pod IDs derived from network discovery, e.g.
 /// `redis.10-0-0-35`.
 fn is_ip_placeholder_pod_name(name: &str) -> bool {
@@ -814,6 +846,30 @@ mod tests {
         assert!(facts.new_relations.iter().any(|r| r.is::<Contains>()));
         assert!(facts.new_relations.iter().any(|r| r.is::<Uses>()));
         assert!(facts.new_relations.iter().any(|r| r.is::<RunsOn>()));
+    }
+
+    #[test]
+    fn parse_raw_sa_token_resolves_unknown_namespace_pod_target() {
+        let payload = r#"{
+            "kubernetes.io": {
+                "namespace": "dungeon",
+                "pod": {"name": "netshoot-console-858465679b-lhxq4", "uid": "pod-uid-1"},
+                "serviceaccount": {"name": "player", "uid": "sa-uid-1"}
+            },
+            "sub": "system:serviceaccount:dungeon:player"
+        }"#;
+        let jwt = make_jwt(payload);
+        let args = HashMap::from([("TARGET_ID".to_string(), "ns/?/pod/netshoot".to_string())]);
+
+        let result = parse_raw_service_account_token(&jwt, "", &args);
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected SuccessWithFacts");
+        };
+
+        assert!(facts.entity_aliases.contains(&(
+            EntityId::new("ns/?/pod/netshoot"),
+            EntityId::new("ns/dungeon/pod/netshoot-console-858465679b-lhxq4"),
+        )));
     }
 
     #[test]
