@@ -4013,3 +4013,133 @@ fn an_authoritative_pod_reclaims_the_foothold_promoted_from_env_vars() {
         .expect("expected the authoritative pod");
     assert!(placed.system.env_vars.contains_key("HOSTNAME"));
 }
+
+// ---------------------------------------------------------------------------
+// OperatorHost: a system for capability purposes, never a target
+// ---------------------------------------------------------------------------
+//
+// These two properties are independent by design and live in separate code
+// paths. The pair of tests below pins both halves, because the failure mode is
+// silent: wiring the operator host into target-ness makes ~20 host-oriented
+// TTPs applicable to the operator's own machine and nothing errors.
+
+/// A `kind: System` host TTP, the shape of Read Environment Variables or
+/// Install Package.
+fn system_ttp(id: &str) -> Ttp {
+    let mut requires = serde_json::Map::new();
+    requires.insert("kind".to_string(), serde_json::json!("System"));
+    Ttp {
+        status: "enabled".to_string(),
+        requires,
+        procedures: vec![Procedure::new("shell", "env")],
+        ..Ttp::new(id, id, "Discovery")
+    }
+}
+
+#[test]
+fn operator_host_is_a_system_entity_for_capability_lookups() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let host_id = EntityId::new("system/operator-host");
+
+    // The capability half: it is a machine, so it resolves through the same
+    // accessor every other system uses and carries a SystemInfo.
+    assert!(
+        campaign.get_system_entity(&host_id.0).is_some(),
+        "operator host must resolve as a system entity"
+    );
+    assert!(campaign.is_system_entity_id(&host_id));
+
+    // And that SystemInfo is writable through the normal parser path.
+    let written = campaign
+        .apply_system_update(
+            &host_id.0,
+            &crate::external_parser::SystemFieldUpdates {
+                ips: vec!["10.1.2.3".to_string()],
+                ..Default::default()
+            },
+        )
+        .expect("operator host accepts system updates");
+    assert!(written > 0);
+    let host = campaign
+        .entities
+        .find::<OperatorHost>(&host_id)
+        .expect("operator host exists");
+    assert!(host
+        .system
+        .ips
+        .iter()
+        .any(|ip| ip.to_string() == "10.1.2.3"));
+}
+
+#[test]
+fn operator_host_is_not_a_target_of_system_ttps() {
+    // The target half, and the regression this whole design exists to prevent:
+    // `requires.kind: System` is a wildcard over in-play machines, and the
+    // operator's own laptop is not one of them.
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("demo", "default");
+    let pod_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &pod_id);
+
+    let ttp = system_ttp("read-env");
+
+    let host_tc =
+        crate::ttp_applicability::resolve_target_context(&campaign, "system/operator-host")
+            .expect("operator host exists");
+    assert_eq!(host_tc.target_kind, "OperatorHost");
+    assert!(
+        !host_tc.is_system,
+        "the operator host must never be in play as a system target"
+    );
+    assert!(
+        !crate::ttp_applicability::ttp_applicable_for_target(&ttp, &campaign, &host_tc),
+        "a kind: System TTP must not be applicable to the operator's own machine"
+    );
+
+    // Same TTP against a real in-play system still applies - the exclusion is
+    // targeted, not a blanket narrowing of `kind: System`.
+    let pod_tc =
+        crate::ttp_applicability::resolve_target_context(&campaign, &pod_id).expect("pod exists");
+    assert!(pod_tc.is_system);
+    assert!(crate::ttp_applicability::ttp_applicable_for_target(
+        &ttp, &campaign, &pod_tc
+    ));
+}
+
+#[test]
+fn startup_probes_land_on_the_operator_host() {
+    use ran_domain::BinaryPresence;
+
+    let mut binaries = HashMap::new();
+    binaries.insert(
+        "kubectl".to_string(),
+        BinaryPresence::Present("/usr/local/bin/kubectl".to_string()),
+    );
+    binaries.insert("socat".to_string(), BinaryPresence::Absent);
+
+    let campaign = Campaign::bootstrap_with_knowledge(
+        "Ran",
+        crate::InitialKnowledge {
+            operator_host_name: Some("op-laptop".to_string()),
+            operator_host_binaries: binaries,
+            operator_host_ips: vec!["192.168.1.23".parse().unwrap()],
+            ..Default::default()
+        },
+    );
+
+    let host = campaign
+        .entities
+        .find::<OperatorHost>(&EntityId::new("system/operator-host"))
+        .expect("operator host exists");
+    assert_eq!(host.name, "op-laptop");
+    assert_eq!(
+        host.system.has_binary("kubectl"),
+        BinaryPresence::Present("/usr/local/bin/kubectl".to_string())
+    );
+    // A probed-and-missing tool is recorded as Absent, which is distinct from
+    // Unknown ("never looked") for readiness scoring.
+    assert_eq!(host.system.has_binary("socat"), BinaryPresence::Absent);
+    assert_eq!(host.system.has_binary("labctl"), BinaryPresence::Unknown);
+    assert_eq!(host.system.ips.len(), 1);
+}

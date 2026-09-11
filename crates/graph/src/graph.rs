@@ -31,115 +31,6 @@ pub struct KnowledgeGraph {
     pub(crate) index: HashMap<EntityId, NodeIndex>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::edge::edge_data_for;
-
-    #[test]
-    fn contains_replaces_the_previous_parent() {
-        let mut graph = KnowledgeGraph::new();
-        let cluster = EntityId::new("k8s/cluster/dev");
-        let namespace = EntityId::new("ns/prod");
-        let pod = EntityId::new("ns/prod/pod/api");
-
-        graph.insert_edge(&cluster, &pod, edge_data_for("contains", None, None));
-        graph.insert_edge(&namespace, &pod, edge_data_for("contains", None, None));
-
-        let contains: Vec<_> = graph
-            .to_relation_summaries()
-            .into_iter()
-            .filter(|relation| relation.name == "contains" && relation.target_id == pod.0)
-            .collect();
-        assert_eq!(contains.len(), 1);
-        assert_eq!(contains[0].source_id, namespace.0);
-    }
-
-    /// A can-exec edge carrying a session that breaks becomes non-traversable
-    /// but is retained, and a reconnecting session recovers it.
-    #[test]
-    fn broken_session_edge_is_non_traversable_until_recovered() {
-        let mut graph = KnowledgeGraph::new();
-        let attacker = EntityId::new("ns/default/pod/attacker");
-        let victim = EntityId::new("ns/default/pod/victim");
-
-        graph.insert_edge(
-            &attacker,
-            &victim,
-            edge_data_for("k8s.can-exec", None, None),
-        );
-        // Session is live on the edge - the path exists.
-        assert!(graph.activate_session_on_incoming_exec(&victim, "session/victim-1".to_string()));
-        assert!(graph
-            .shortest_exec_path(std::slice::from_ref(&attacker), &victim)
-            .is_some());
-
-        // The shell dies: mark the session's edge broken.
-        assert_eq!(graph.mark_session_broken("session/victim-1"), 1);
-
-        // The edge is no longer traversable, and reachability skips it...
-        assert!(graph
-            .shortest_exec_path(std::slice::from_ref(&attacker), &victim)
-            .is_none());
-        assert!(graph.reachable_via_exec(&[attacker.clone()]).is_empty());
-
-        // ...but it is kept (not removed) and surfaced as broken for the UI.
-        let summary = graph
-            .to_relation_summaries()
-            .into_iter()
-            .find(|r| r.name == "k8s.can-exec")
-            .expect("edge should still exist");
-        assert!(summary.broken);
-        assert_eq!(summary.session_id.as_deref(), Some("session/victim-1"));
-
-        // A reconnecting session on the same edge clears the break.
-        assert!(graph.activate_session_on_incoming_exec(&victim, "session/victim-1".to_string()));
-        assert!(graph
-            .shortest_exec_path(std::slice::from_ref(&attacker), &victim)
-            .is_some());
-        let recovered = graph
-            .to_relation_summaries()
-            .into_iter()
-            .find(|r| r.name == "k8s.can-exec")
-            .expect("edge should still exist");
-        assert!(!recovered.broken);
-    }
-
-    /// A reconnected session's edge replaces the prior broken one for the same
-    /// pair, rather than accumulating as a stale artifact.
-    #[test]
-    fn new_c2_session_edge_replaces_the_prior_broken_one() {
-        let mut graph = KnowledgeGraph::new();
-        let c2 = EntityId::new("c2/ran");
-        let victim = EntityId::new("node/victim");
-
-        // Establish a session, then break it.
-        let mut first = edge_data_for("c2.session", None, None);
-        first.session_id = Some("session/victim-1".to_string());
-        graph.insert_edge(&c2, &victim, first);
-        assert_eq!(graph.mark_session_broken("session/victim-1"), 1);
-
-        // A reconnected session inserts a fresh c2.session edge for the same pair.
-        let mut second = edge_data_for("c2.session", None, None);
-        second.session_id = Some("session/victim-2".to_string());
-        graph.insert_edge(&c2, &victim, second);
-
-        // Exactly one c2.session edge remains, and it is the live (unbroken) one.
-        let sessions: Vec<_> = graph
-            .to_relation_summaries()
-            .into_iter()
-            .filter(|r| r.name == "c2.session")
-            .collect();
-        assert_eq!(
-            sessions.len(),
-            1,
-            "the broken session edge must be replaced"
-        );
-        assert!(!sessions[0].broken);
-        assert_eq!(sessions[0].session_id.as_deref(), Some("session/victim-2"));
-    }
-}
-
 impl Default for KnowledgeGraph {
     fn default() -> Self {
         Self::new()
@@ -598,5 +489,116 @@ impl KnowledgeGraph {
         self.graph
             .edges_connecting(src, tgt)
             .any(|e| e.weight().relation_name == relation_name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::edge::edge_data_for;
+
+    #[test]
+    fn contains_replaces_the_previous_parent() {
+        let mut graph = KnowledgeGraph::new();
+        let cluster = EntityId::new("k8s/cluster/dev");
+        let namespace = EntityId::new("ns/prod");
+        let pod = EntityId::new("ns/prod/pod/api");
+
+        graph.insert_edge(&cluster, &pod, edge_data_for("contains", None, None));
+        graph.insert_edge(&namespace, &pod, edge_data_for("contains", None, None));
+
+        let contains: Vec<_> = graph
+            .to_relation_summaries()
+            .into_iter()
+            .filter(|relation| relation.name == "contains" && relation.target_id == pod.0)
+            .collect();
+        assert_eq!(contains.len(), 1);
+        assert_eq!(contains[0].source_id, namespace.0);
+    }
+
+    /// A can-exec edge carrying a session that breaks becomes non-traversable
+    /// but is retained, and a reconnecting session recovers it.
+    #[test]
+    fn broken_session_edge_is_non_traversable_until_recovered() {
+        let mut graph = KnowledgeGraph::new();
+        let attacker = EntityId::new("ns/default/pod/attacker");
+        let victim = EntityId::new("ns/default/pod/victim");
+
+        graph.insert_edge(
+            &attacker,
+            &victim,
+            edge_data_for("k8s.can-exec", None, None),
+        );
+        // Session is live on the edge - the path exists.
+        assert!(graph.activate_session_on_incoming_exec(&victim, "session/victim-1".to_string()));
+        assert!(graph
+            .shortest_exec_path(std::slice::from_ref(&attacker), &victim)
+            .is_some());
+
+        // The shell dies: mark the session's edge broken.
+        assert_eq!(graph.mark_session_broken("session/victim-1"), 1);
+
+        // The edge is no longer traversable, and reachability skips it...
+        assert!(graph
+            .shortest_exec_path(std::slice::from_ref(&attacker), &victim)
+            .is_none());
+        assert!(graph
+            .reachable_via_exec(std::slice::from_ref(&attacker))
+            .is_empty());
+
+        // ...but it is kept (not removed) and surfaced as broken for the UI.
+        let summary = graph
+            .to_relation_summaries()
+            .into_iter()
+            .find(|r| r.name == "k8s.can-exec")
+            .expect("edge should still exist");
+        assert!(summary.broken);
+        assert_eq!(summary.session_id.as_deref(), Some("session/victim-1"));
+
+        // A reconnecting session on the same edge clears the break.
+        assert!(graph.activate_session_on_incoming_exec(&victim, "session/victim-1".to_string()));
+        assert!(graph
+            .shortest_exec_path(std::slice::from_ref(&attacker), &victim)
+            .is_some());
+        let recovered = graph
+            .to_relation_summaries()
+            .into_iter()
+            .find(|r| r.name == "k8s.can-exec")
+            .expect("edge should still exist");
+        assert!(!recovered.broken);
+    }
+
+    /// A reconnected session's edge replaces the prior broken one for the same
+    /// pair, rather than accumulating as a stale artifact.
+    #[test]
+    fn new_c2_session_edge_replaces_the_prior_broken_one() {
+        let mut graph = KnowledgeGraph::new();
+        let c2 = EntityId::new("c2/ran");
+        let victim = EntityId::new("node/victim");
+
+        // Establish a session, then break it.
+        let mut first = edge_data_for("c2.session", None, None);
+        first.session_id = Some("session/victim-1".to_string());
+        graph.insert_edge(&c2, &victim, first);
+        assert_eq!(graph.mark_session_broken("session/victim-1"), 1);
+
+        // A reconnected session inserts a fresh c2.session edge for the same pair.
+        let mut second = edge_data_for("c2.session", None, None);
+        second.session_id = Some("session/victim-2".to_string());
+        graph.insert_edge(&c2, &victim, second);
+
+        // Exactly one c2.session edge remains, and it is the live (unbroken) one.
+        let sessions: Vec<_> = graph
+            .to_relation_summaries()
+            .into_iter()
+            .filter(|r| r.name == "c2.session")
+            .collect();
+        assert_eq!(
+            sessions.len(),
+            1,
+            "the broken session edge must be replaced"
+        );
+        assert!(!sessions[0].broken);
+        assert_eq!(sessions[0].session_id.as_deref(), Some("session/victim-2"));
     }
 }

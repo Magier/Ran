@@ -73,16 +73,29 @@ fn slugify(input: &str) -> String {
 
 /// The machine running Ran and its local operator-controlled artifacts.
 ///
-/// This is an environment boundary, not an execution target; unlike
-/// [`UnknownSystem`] it deliberately does not implement [`SystemEntity`].
+/// It is a [`SystemEntity`]: a real machine with an OS, binaries and IPs, and
+/// recording those is what lets Ran answer "is `kubectl` installed here?" and
+/// "what address should a payload call back to?".
+///
+/// It is deliberately **not** a target of the engagement. Those two properties
+/// are independent and live in separate code paths - this trait is the
+/// capability half, per type; target-ness is data, per instance, decided by
+/// `is_system` in `resolve_target_context`. The operator host is the one
+/// `SystemEntity` that is not in play, so `requires.kind: System` must not
+/// match it; see the comment at that single definition site.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorHost {
     pub name: String,
+    #[serde(flatten)]
+    pub system: SystemInfo,
 }
 
 impl OperatorHost {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
+        Self {
+            name: name.into(),
+            system: SystemInfo::default(),
+        }
     }
 }
 
@@ -101,6 +114,21 @@ impl Entity for OperatorHost {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    /// The hostname is read from the local machine, not inferred.
+    fn name_confidence(&self) -> NameConfidence {
+        NameConfidence::Authoritative
+    }
+}
+
+impl SystemEntity for OperatorHost {
+    fn system(&self) -> &SystemInfo {
+        &self.system
+    }
+
+    fn system_mut(&mut self) -> &mut SystemInfo {
+        &mut self.system
     }
 }
 
@@ -2131,6 +2159,7 @@ impl Merge for OperatorHost {
         if self.name.is_empty() {
             self.name = incoming.name.clone();
         }
+        self.system.merge_from(&incoming.system);
     }
 }
 
