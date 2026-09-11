@@ -40,6 +40,9 @@ pub enum CampaignSystemEntityRef<'a> {
     Node(&'a K8sNode),
     Pod(&'a Pod),
     Unknown(&'a UnknownSystem),
+    /// The machine running Ran. A system for capability purposes (binaries,
+    /// IPs) but never a target - see `resolve_target_context`.
+    OperatorHost(&'a OperatorHost),
 }
 
 impl<'a> CampaignSystemEntityRef<'a> {
@@ -48,6 +51,7 @@ impl<'a> CampaignSystemEntityRef<'a> {
             CampaignSystemEntityRef::Node(e) => *e,
             CampaignSystemEntityRef::Pod(e) => *e,
             CampaignSystemEntityRef::Unknown(e) => *e,
+            CampaignSystemEntityRef::OperatorHost(e) => *e,
         }
     }
 }
@@ -56,6 +60,7 @@ pub enum CampaignSystemEntityMut<'a> {
     Node(&'a mut K8sNode),
     Pod(&'a mut Pod),
     Unknown(&'a mut UnknownSystem),
+    OperatorHost(&'a mut OperatorHost),
 }
 
 impl<'a> CampaignSystemEntityMut<'a> {
@@ -64,6 +69,7 @@ impl<'a> CampaignSystemEntityMut<'a> {
             CampaignSystemEntityMut::Node(e) => *e,
             CampaignSystemEntityMut::Pod(e) => *e,
             CampaignSystemEntityMut::Unknown(e) => *e,
+            CampaignSystemEntityMut::OperatorHost(e) => *e,
         }
     }
 }
