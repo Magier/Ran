@@ -76,7 +76,20 @@ function mapKindIcons(obj: Record<string, string>) {
 	});
 }
 
-export function getGraphStyle(isDark: boolean = false) {
+/**
+ * One block of the graph stylesheet. Precise about the block shape while
+ * staying loose about property values: cytoscape's own StylesheetJson types
+ * every style property as a literal union, which a plain object-literal table
+ * cannot satisfy without `as const` throughout. The cast to StylesheetJson
+ * happens once, where the stylesheet is handed to cytoscape.
+ */
+export type GraphStylesheetBlock = {
+	selector: string;
+	// undefined appears where a property is set through a conditional spread.
+	style: Record<string, string | number | string[] | number[] | undefined>;
+};
+
+export function getGraphStyle(isDark: boolean = false): GraphStylesheetBlock[] {
 	// Cytoscape does not accept the Mona theme's native oklch() color value.
 	const primary = '#600FED';
 	const textColor = isDark ? 'white' : 'black';
@@ -480,7 +493,7 @@ export function getGraphStyle(isDark: boolean = false) {
 			}
 		}
 	];
-	return [...mapKindIcons(KIND_SVG_MAP), ...graph_style] as any;
+	return [...mapKindIcons(KIND_SVG_MAP), ...graph_style];
 }
 
 const redTintSvg =

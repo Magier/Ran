@@ -47,6 +47,14 @@
 		data: Node & { scenarioProvided: boolean };
 		position?: { x: number; y: number };
 	};
+	type CyEdge = {
+		data: Edge & {
+			source: string;
+			target: string;
+			scenarioProvided: boolean;
+			informational: boolean;
+		};
+	};
 	type Pos = { x: number; y: number };
 	type PosMap = Record<string, Pos>;
 	type ExpansionSnapshot = { right: number; visibleNodeIds: string[] };
@@ -57,8 +65,10 @@
 		selectedObject = $bindable()
 	}: GraphProps = $props();
 
-	let nodes = $state([]);
-	let edges = $state([]);
+	// The expand-collapse plugin API, handed from the mount to the update effect.
+	let expandCollapseApi: cytoscape.ExpandCollapseApi | null = null;
+	let nodes: CyNode[] = $state([]);
+	let edges: CyEdge[] = $state([]);
 	let searchOpen = $state(false);
 
 	const FILTER_NS_KEY = '_hiddenNamespaces';
@@ -118,7 +128,7 @@
 		if (!cy || cy.nodes().length === 0) return;
 		const currentPan = cy.pan();
 		const currentZoom = cy.zoom();
-		const l = cy.elements(':visible').layout(createElkLayout(positions, layoutParams) as any);
+		const l = cy.elements(':visible').layout(createElkLayout(positions, layoutParams));
 		l.one('layoutstop', () => {
 			cy.pan(currentPan);
 			cy.zoom(currentZoom);
@@ -195,7 +205,12 @@
 				nodes: nodes,
 				edges: edges
 			},
-			style: getGraphStyle(theme.isDark),
+			// Our style table declares property values as plain strings, where
+			// cytoscape's StylesheetJson wants literal unions ('text-wrap' must be
+			// 'none' | 'wrap' | 'ellipsis'). Satisfying that needs `as const` across
+			// the whole table, so the widening is asserted away here instead. A
+			// precise type, not any: a bad selector or style key still fails to build.
+			style: getGraphStyle(theme.isDark) as cytoscape.StylesheetJson,
 			layout: { name: 'preset' },
 			zoom: zoom,
 			wheelSensitivity: 0.1
@@ -205,9 +220,9 @@
 		}
 
 		// Initialize expand-collapse extension
-		let api;
+		let api: cytoscape.ExpandCollapseApi | null;
 		try {
-			api = (cy as any).expandCollapse({
+			api = cy.expandCollapse({
 				layoutBy: null,
 				fisheye: false,
 				animate: true,
@@ -228,10 +243,8 @@
 			api = null;
 		}
 
-		// Make API available for the graph update effect (expand/re-collapse on update)
-		if (browser) {
-			(window as any).cyExpandCollapseAPI = api;
-		}
+		// Hand the API to the graph update effect (expand/re-collapse on update)
+		expandCollapseApi = api;
 
 		cy.on('expandcollapse.aftercollapse', (event) => {
 			handleAfterCollapse(event.target);
@@ -340,7 +353,7 @@
 					// would not be in cyNodeIdSet and cy.add() would try to re-add them, causing
 					// "element already exists" or "invalid ID" errors from the plugin's meta-nodes.
 					const collapsedNodes: string[] = [];
-					const ecApi = (window as any).cyExpandCollapseAPI;
+					const ecApi = expandCollapseApi;
 					let addedNodeIds = new Set<string>();
 					const recollapseNodes = () => {
 						if (!ecApi || collapsedNodes.length === 0) return;
@@ -350,7 +363,7 @@
 								// The collapse plugin restores children by applying the parent's
 								// later movement delta. Seed newly added children at their parent
 								// so they follow that delta instead of restoring from (0, 0).
-								node.children().forEach((child: any) => {
+								node.children().forEach((child) => {
 									if (!addedNodeIds.has(child.id())) return;
 									const position = node.position();
 									child.position(position);
@@ -388,7 +401,7 @@
 					if (ecApi) {
 						isRestoringCollapsedState = true;
 						try {
-							cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => {
+							cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n) => {
 								collapsedNodes.push(n.id());
 								try {
 									ecApi.expand(n);
@@ -403,38 +416,38 @@
 
 					// Snapshot element IDs AFTER expansion so restored children are included
 					const cyNodeIdSet = new Set<string>();
-					cy.nodes().forEach((n: any) => {
+					cy.nodes().forEach((n) => {
 						cyNodeIdSet.add(n.id());
 					});
 					const cyEdgeIdSet = new Set<string>();
-					cy.edges().forEach((e: any) => {
+					cy.edges().forEach((e) => {
 						cyEdgeIdSet.add(e.id());
 					});
 
 					// Compute diffs: what to add, what to remove (guard against empty IDs)
 					const newEdgeIds = new Set<string>(
-						edges.filter((e: any) => e.data.id).map((e: any) => e.data.id as string)
+						edges.filter((e) => e.data.id).map((e) => e.data.id as string)
 					);
 					const nodesToAdd = nodes.filter(
-						(n: any) => n.data.id && !cyNodeIdSet.has(n.data.id as string)
+						(n) => n.data.id && !cyNodeIdSet.has(n.data.id as string)
 					);
-					addedNodeIds = new Set(nodesToAdd.map((node: any) => node.data.id as string));
+					addedNodeIds = new Set(nodesToAdd.map((node) => node.data.id as string));
 					const edgesToAdd = edges.filter(
-						(e: any) => e.data.id && !cyEdgeIdSet.has(e.data.id as string)
+						(e) => e.data.id && !cyEdgeIdSet.has(e.data.id as string)
 					);
 
 					// Remove elements no longer in the graph
 					cy.nodes()
-						.filter((n: any) => n.id() && !currentNodeIds.has(n.id()))
+						.filter((n) => n.id() !== '' && !currentNodeIds.has(n.id()))
 						.remove();
 					cy.edges()
-						.filter((e: any) => e.id() && !newEdgeIds.has(e.id()))
+						.filter((e) => e.id() !== '' && !newEdgeIds.has(e.id()))
 						.remove();
 
 					// Update data for existing nodes (e.g. compromised/isRunning status changes)
 					nodes
-						.filter((n: any) => n.data.id && cyNodeIdSet.has(n.data.id as string))
-						.forEach((n: any) => {
+						.filter((n) => n.data.id && cyNodeIdSet.has(n.data.id as string))
+						.forEach((n) => {
 							cy.getElementById(n.data.id).data(n.data);
 						});
 
@@ -443,18 +456,18 @@
 					// target and name stay the same), so without this refresh the
 					// edge[?broken] restyle would not apply until a full remount.
 					edges
-						.filter((e: any) => e.data.id && cyEdgeIdSet.has(e.data.id as string))
-						.forEach((e: any) => {
+						.filter((e) => e.data.id && cyEdgeIdSet.has(e.data.id as string))
+						.forEach((e) => {
 							cy.getElementById(e.data.id).data(e.data);
 						});
 
 					// Pre-position new nodes near their connected existing nodes so they don't spawn randomly
 					if (nodesToAdd.length > 0) {
-						const addingIds = new Set<string>(nodesToAdd.map((n: any) => n.data.id as string));
-						const nodeDefinitions = new Map<string, any>(
-							nodes.map((node: any) => [node.data.id as string, node])
+						const addingIds = new Set<string>(nodesToAdd.map((n) => n.data.id as string));
+						const nodeDefinitions = new Map<string, CyNode>(
+							nodes.map((node) => [node.data.id as string, node])
 						);
-						nodesToAdd.forEach((newNode: any, index: number) => {
+						nodesToAdd.forEach((newNode, index) => {
 							if (newNode.position) return; // already has a saved position
 							const nodeId = newNode.data.id as string;
 
@@ -482,7 +495,7 @@
 							if (newNode.position) return;
 
 							const neighborPositions: { x: number; y: number }[] = [];
-							edges.forEach((edge: any) => {
+							edges.forEach((edge) => {
 								const src = edge.data.source as string;
 								const tgt = edge.data.target as string;
 								const neighborId = src === nodeId ? tgt : tgt === nodeId ? src : null;
@@ -503,9 +516,9 @@
 							}
 						});
 						// Ensure compound/parent nodes are added before their children
-						nodesToAdd.sort((a: any, b: any) => {
-							const aIsParent = nodes.some((n: any) => n.data.parent === a.data.id);
-							const bIsParent = nodes.some((n: any) => n.data.parent === b.data.id);
+						nodesToAdd.sort((a, b) => {
+							const aIsParent = nodes.some((n) => n.data.parent === a.data.id);
+							const bIsParent = nodes.some((n) => n.data.parent === b.data.id);
 							if (aIsParent && !bIsParent) return -1;
 							if (!aIsParent && bIsParent) return 1;
 							return 0;
@@ -514,7 +527,7 @@
 
 						// Sync pre-computed positions into the map and onto the live element so
 						// elk.position hints reflect the pre-positioned location on next layout run.
-						nodesToAdd.forEach((newNode: any) => {
+						nodesToAdd.forEach((newNode) => {
 							if (newNode.position) {
 								const id = newNode.data.id as string;
 								positions[id] = newNode.position;
@@ -561,7 +574,7 @@
 							positions,
 							untrack(() => layoutParams)
 						);
-						const l = cy.elements(':visible').layout(layoutOptions as any);
+						const l = cy.elements(':visible').layout(layoutOptions);
 
 						l.one('layoutstop', () => {
 							if (isInitialLoad) {
@@ -621,7 +634,7 @@
 	function saveCollapsedNodes() {
 		if (!browser || !cy) return;
 		const ids: string[] = [];
-		cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n: any) => {
+		cy.nodes('.cy-expand-collapse-collapsed-node').forEach((n) => {
 			ids.push(n.id());
 		});
 		sessionStorage.setItem(COLLAPSED_KEY, JSON.stringify(ids));
@@ -724,7 +737,7 @@
 	 * Keep the selected element and its immediate graph context prominent.
 	 * Compound ancestors remain visible as quiet orientation boundaries.
 	 */
-	function focusSelection(element: any) {
+	function focusSelection(element: cytoscape.NodeSingular | cytoscape.EdgeSingular) {
 		if (!cy) return;
 		const visible = cy.elements(':visible');
 		let context: cytoscape.CollectionReturnValue;
@@ -763,7 +776,7 @@
 		context.removeClass('context-dimmed');
 	}
 
-	function toCyNode(n: Node, nodePos: Record<string, any>): CyNode {
+	function toCyNode(n: Node, nodePos: PosMap): CyNode {
 		let cyNode: CyNode = {
 			id: n.id,
 			label: n.name,
@@ -788,7 +801,7 @@
 		return cyNode;
 	}
 
-	function toCyEdge(e: Edge) {
+	function toCyEdge(e: Edge): CyEdge {
 		return {
 			data: {
 				source: e.sourceId,
@@ -816,7 +829,7 @@
 		searchOpen = true;
 	}
 
-	function handleAfterCollapse(node: any) {
+	function handleAfterCollapse(node: cytoscape.NodeSingular) {
 		// After the expand-collapse plugin re-points every child edge at the
 		// collapsed compound, merge parallel edges sharing the same directed pair
 		// into one meta-edge so the node shows a single edge per relation to each
@@ -831,20 +844,22 @@
 	 */
 	function applyNamespaceFilters(cy: cytoscape.Core, hidden: Set<string>) {
 		// Step 1: restore elements previously hidden by this filter
-		cy.elements('.namespace-filtered').forEach((el: any) => {
-			el.removeClass('namespace-filtered');
-			if (el.isNode()) {
-				// Don't re-show if it's a child of a collapsed compound node
-				const parent = el.parent();
-				const isCollapsedChild =
-					parent.length > 0 && parent.hasClass('cy-expand-collapse-collapsed-node');
-				if (!isCollapsedChild) {
+		cy.elements('.namespace-filtered').forEach(
+			(el: cytoscape.NodeSingular | cytoscape.EdgeSingular) => {
+				el.removeClass('namespace-filtered');
+				if (el.isNode()) {
+					// Don't re-show if it's a child of a collapsed compound node
+					const parent = el.parent();
+					const isCollapsedChild =
+						parent.length > 0 && parent[0].hasClass('cy-expand-collapse-collapsed-node');
+					if (!isCollapsedChild) {
+						el.show();
+					}
+				} else if (!el.data('isMetaEdge') && !el.hasClass(COLLAPSED_EDGE_CLASS)) {
 					el.show();
 				}
-			} else if (!el.data('isMetaEdge') && !el.hasClass(COLLAPSED_EDGE_CLASS)) {
-				el.show();
 			}
-		});
+		);
 
 		if (hidden.size === 0) {
 			// No filter - re-apply informational edge logic and return
@@ -855,7 +870,7 @@
 		// Step 2: collect node IDs that belong to filtered namespaces
 		const filteredNodeIds = new Set<string>();
 		hidden.forEach((nsName) => {
-			cy.nodes().forEach((n: any) => {
+			cy.nodes().forEach((n) => {
 				// Match both expanded compound nodes (isParent) and collapsed ones
 				// (cy-expand-collapse-collapsed-node class). When collapsed, isParent()
 				// returns false because the plugin has removed children from the graph.
@@ -867,7 +882,9 @@
 					// descendants() is empty for collapsed nodes (children are removed by the
 					// plugin), so this is a no-op for them - which is correct: hiding the
 					// collapsed compound already hides everything inside it.
-					n.descendants().forEach((d: any) => filteredNodeIds.add(d.id()));
+					n.descendants().forEach((d) => {
+						filteredNodeIds.add(d.id());
+					});
 				}
 			});
 		});
@@ -877,12 +894,12 @@
 			const n = cy.getElementById(id);
 			if (n.length > 0) {
 				n.addClass('namespace-filtered');
-				(n as any).hide();
+				n.hide();
 			}
 		});
 
 		// Step 4: hide edges touching filtered nodes
-		cy.edges().forEach((e: any) => {
+		cy.edges().forEach((e) => {
 			if (e.data('isMetaEdge')) return;
 			if (filteredNodeIds.has(e.source().id()) || filteredNodeIds.has(e.target().id())) {
 				e.addClass('namespace-filtered');
@@ -894,7 +911,7 @@
 		hideRedundantInformationalEdges(cy);
 	}
 
-	function handleAfterExpand(node: any) {
+	function handleAfterExpand(node: cytoscape.NodeSingular) {
 		// Remove our custom meta-edges for this node and restore the original
 		// edges we hid on collapse (the plugin restores its own internal state).
 		restoreConsolidatedEdges(cy, node);
@@ -904,15 +921,15 @@
 		applyCompromisedStyle(cy);
 	}
 
-	function captureExpansionSnapshot(node: any) {
+	function captureExpansionSnapshot(node: cytoscape.NodeSingular) {
 		const bounds = node.boundingBox();
 		expansionSnapshots.set(node.id(), {
 			right: bounds.x2,
-			visibleNodeIds: cy.nodes(':visible').map((n: any) => n.id())
+			visibleNodeIds: cy.nodes(':visible').map((n) => n.id())
 		});
 	}
 
-	function shiftNodesForExpansion(node: any) {
+	function shiftNodesForExpansion(node: cytoscape.NodeSingular) {
 		const snapshot = expansionSnapshots.get(node.id());
 		expansionSnapshots.delete(node.id());
 		if (!snapshot) return;
@@ -924,19 +941,24 @@
 		const candidates = snapshot.visibleNodeIds
 			.map((id) => cy.getElementById(id))
 			.filter(
-				(candidate: any) =>
+				(candidate) =>
 					candidate.length > 0 &&
 					candidate.visible() &&
 					candidate.id() !== node.id() &&
 					candidate.boundingBox().x1 >= snapshot.right
 			);
-		const candidateIds = new Set(candidates.map((candidate: any) => candidate.id()));
-		const nodesToShift = candidates.filter((candidate: any) =>
-			candidate.ancestors().every((ancestor: any) => !candidateIds.has(ancestor.id()))
+		const candidateIds = new Set(candidates.map((candidate) => candidate.id()));
+		// Shift only the outermost candidates: an ancestor that is shifting too
+		// already carries its descendants, so moving both would double the offset.
+		// filter() is used rather than every() because cytoscape types every()'s
+		// callback as CollectionArgument, which has no id().
+		const nodesToShift = candidates.filter(
+			(candidate) =>
+				candidate.ancestors().filter((ancestor) => candidateIds.has(ancestor.id())).length === 0
 		);
 
 		cy.batch(() => {
-			nodesToShift.forEach((candidate: any) => {
+			nodesToShift.forEach((candidate) => {
 				const position = candidate.position();
 				candidate.position({ x: position.x + shift, y: position.y });
 			});

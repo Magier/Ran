@@ -52,6 +52,24 @@ export default ts.config(
 		}
 	},
 	{
+		// The cytoscape modules are fully typed (#52 follow-up): the plugins have
+		// hand-written declarations in src/types, so `any` is an error here even
+		// while the rest of the tree still carries it as a warning. Adding a file
+		// to this list means committing to keeping it clean.
+		files: [
+			'src/types/**/*.d.ts',
+			'src/routes/components/graph.svelte',
+			'src/routes/components/graph_edges.ts',
+			'src/routes/components/graph_edges.svelte.test.ts',
+			'src/routes/components/graph_style.ts',
+			'src/routes/components/graph_node_selector.svelte',
+			'src/routes/components/elk_layout.ts'
+		],
+		rules: {
+			'@typescript-eslint/no-explicit-any': 'error'
+		}
+	},
+	{
 		files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
 		ignores: ['eslint.config.js', 'svelte.config.js'],
 

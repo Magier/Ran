@@ -16,18 +16,18 @@ export const COLLAPSED_EDGE_CLASS = 'collapsed-consolidated';
  * into a single meta-edge per directed pair so the collapsed node shows one edge
  * per relation to each external neighbour instead of one edge per hidden child.
  */
-export function consolidateCollapsedEdges(cy: cytoscape.Core, node: any) {
+export function consolidateCollapsedEdges(cy: cytoscape.Core, node: cytoscape.NodeSingular) {
 	// Consider all VISIBLE connected edges. This includes meta-edges produced by
 	// already-collapsed descendants (e.g. collapsed Deployments inside a Namespace),
 	// so their groups merge upward into this node's meta-edge. It is also naturally
 	// idempotent: after consolidation the underlying edges are hidden, so a repeat
 	// call sees only the single visible meta-edge per pair (group size 1 → skipped).
-	const connectedEdges = node.connectedEdges().filter((e: any) => e.visible());
+	const connectedEdges = node.connectedEdges().filter((e) => e.visible());
 
 	// Group by directed source->target pair
-	const edgeGroups = new Map<string, any[]>();
+	const edgeGroups = new Map<string, cytoscape.EdgeSingular[]>();
 
-	connectedEdges.forEach((edge: any) => {
+	connectedEdges.forEach((edge) => {
 		const sourceId = edge.source().id();
 		const targetId = edge.target().id();
 		if (sourceId === targetId) return; // skip self-loops
@@ -55,19 +55,19 @@ export function consolidateCollapsedEdges(cy: cytoscape.Core, node: any) {
 		// Hide all edges in this group. Tag them so later visibility passes
 		// (hideRedundantInformationalEdges) know they were hidden by collapse
 		// and must not re-show them.
-		edges.forEach((e: any) => {
+		edges.forEach((e) => {
 			e.addClass(COLLAPSED_EDGE_CLASS);
 			e.hide();
 		});
 
 		// Build a descriptive label from unique edge names
-		const uniqueNames = [...new Set(edges.map((e: any) => e.data('name')))].filter(Boolean);
+		const uniqueNames = [...new Set(edges.map((e) => e.data('name')))].filter(Boolean);
 		const label = uniqueNames.length === 1 ? uniqueNames[0] : `${edges.length} relations`;
 
 		// Inherit the informational styling (subdued gray/dotted) only when every
 		// consolidated edge was informational. If any underlying edge is actionable,
 		// the group represents a meaningful relation and should look actionable.
-		const informational = edges.every((e: any) => Boolean(e.data('informational')));
+		const informational = edges.every((e) => Boolean(e.data('informational')));
 
 		cy.add({
 			group: 'edges',
@@ -77,7 +77,7 @@ export function consolidateCollapsedEdges(cy: cytoscape.Core, node: any) {
 				target: targetId,
 				name: label,
 				informational,
-				collapsedEdges: edges.map((e: any) => e.id()),
+				collapsedEdges: edges.map((e) => e.id()),
 				isMetaEdge: true
 			}
 		});
@@ -89,8 +89,8 @@ export function consolidateCollapsedEdges(cy: cytoscape.Core, node: any) {
  * remove our custom meta-edges touching this node and restore the original edges
  * we hid, clearing the collapse marker so normal visibility logic applies again.
  */
-export function restoreConsolidatedEdges(cy: cytoscape.Core, node: any) {
-	cy.edges('[?isMetaEdge]').forEach((metaEdge: any) => {
+export function restoreConsolidatedEdges(cy: cytoscape.Core, node: cytoscape.NodeSingular) {
+	cy.edges('[?isMetaEdge]').forEach((metaEdge) => {
 		const source = metaEdge.source().id();
 		const target = metaEdge.target().id();
 
@@ -101,8 +101,8 @@ export function restoreConsolidatedEdges(cy: cytoscape.Core, node: any) {
 			collapsedEdgeIds.forEach((edgeId: string) => {
 				const edge = cy.getElementById(edgeId);
 				if (edge.length > 0) {
-					(edge as any).removeClass(COLLAPSED_EDGE_CLASS);
-					(edge as any).show();
+					edge.removeClass(COLLAPSED_EDGE_CLASS);
+					edge.show();
 				}
 			});
 
@@ -121,7 +121,7 @@ export function restoreConsolidatedEdges(cy: cytoscape.Core, node: any) {
  * per external neighbour. Safe to call repeatedly.
  */
 export function reconcileCollapsedEdges(cy: cytoscape.Core) {
-	cy.nodes('.cy-expand-collapse-collapsed-node').forEach((node: any) => {
+	cy.nodes('.cy-expand-collapse-collapsed-node').forEach((node) => {
 		consolidateCollapsedEdges(cy, node);
 	});
 }
@@ -140,7 +140,7 @@ export function hideRedundantInformationalEdges(cy: cytoscape.Core) {
 	// Collect directed node-pairs that have any non-filtered edge (keyed by pair + edge name)
 	const pairEdgeNames = new Map<string, Set<string>>();
 
-	cy.edges().forEach((e: any) => {
+	cy.edges().forEach((e) => {
 		if (e.hasClass('namespace-filtered') || e.hasClass(COLLAPSED_EDGE_CLASS)) return;
 		const pair = `${e.source().id()}->${e.target().id()}`;
 		if (!e.data('informational')) {
@@ -153,7 +153,7 @@ export function hideRedundantInformationalEdges(cy: cytoscape.Core) {
 
 	// Hide informational edges whose directed pair has an actionable edge.
 	// For "runs-on", hide when ANY other edge exists for the same pair.
-	cy.edges('[?informational]').forEach((e: any) => {
+	cy.edges('[?informational]').forEach((e) => {
 		if (e.hasClass('namespace-filtered')) return; // don't touch namespace-filtered edges
 		// Edges hidden by a compound collapse are represented by a meta-edge; leave
 		// them hidden so collapsing doesn't get undone by this pass.
