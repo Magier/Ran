@@ -18,20 +18,20 @@ const COLLAPSED_NODE_CLASS = 'cy-expand-collapse-collapsed-node';
 // re-pointed at the collapsed compound, and the compound carrying the collapsed
 // class - which is exactly the input our helpers consume.
 
-function mountCy(elements: any[]) {
+function mountCy(elements: cytoscape.ElementDefinition[]) {
 	return cytoscape({ headless: true, styleEnabled: true, elements });
 }
 
 /** Mark a compound as collapsed, mirroring the plugin's class. */
-function markCollapsed(cy: any, id: string) {
+function markCollapsed(cy: cytoscape.Core, id: string) {
 	cy.getElementById(id).addClass(COLLAPSED_NODE_CLASS);
 }
 
-function visibleEdges(cy: any): string[] {
+function visibleEdges(cy: cytoscape.Core): string[] {
 	return cy
 		.edges()
-		.filter((e: any) => e.visible())
-		.map((e: any) => `${e.source().id()}->${e.target().id()} [${e.id()}]`)
+		.filter((e) => e.visible())
+		.map((e: cytoscape.EdgeSingular) => `${e.source().id()}->${e.target().id()} [${e.id()}]`)
 		.sort();
 }
 
