@@ -272,6 +272,13 @@
 	class="{className} border-surface-600 bg-surface-100-900 pointer-events-auto w-full overflow-auto rounded-lg border p-4 text-xs shadow-xl md:text-sm"
 >
 	{#if obj}
+		{#snippet emptyField(label: string)}
+			<div class="mb-1 flex items-center gap-1" class:field-changed={highlightedFields[label]}>
+				<span class="text-surface-400 mr-1 opacity-40">{label}:</span>
+				<span class="text-surface-400 italic opacity-40">none</span>
+				{@render runBtn(label)}
+			</div>
+		{/snippet}
 		{#snippet runBtn(label: string)}
 			{@const ttp = ttpForField(label)}
 			{#if ttp && sendAction}
@@ -483,51 +490,53 @@
 						class:field-changed={highlightedFields[label]}
 						bind:open={canExpanded}
 					>
-						<summary class="flex items-center gap-1">
-							<span class="font-bold">{label}</span>
-							<span class="text-surface-500 text-xs"
-								>({Array.isArray(data) ? data.length : Object.keys(data).length})</span
-							>
-							{#if campaignState.kubetier && canExpanded}
-								<span class="group relative inline-flex items-center">
-									<button
-										type="button"
-										class="text-surface-500 hover:text-surface-700 focus:ring-primary-500 dark:hover:text-surface-200 inline-flex cursor-help items-center rounded-sm focus:ring-1 focus:outline-none"
-										aria-label="About KubeTier criticality assessment"
-										onclick={(event) => event.stopPropagation()}
-									>
-										<Icon icon="mdi:information-outline" width="15" />
-									</button>
-									<span
-										class="invisible absolute top-full left-0 z-30 w-72 pt-1 opacity-0 transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100"
-									>
-										<span
-											role="tooltip"
-											class="border-surface-300 bg-surface-50 text-surface-700 dark:border-surface-600 dark:bg-surface-900 dark:text-surface-200 block rounded-md border p-3 text-left text-xs font-normal shadow-lg"
+						<summary class="cursor-pointer">
+							<span class="inline-flex items-center gap-1">
+								<span class="font-bold">{label}</span>
+								<span class="text-surface-500 text-xs"
+									>({Array.isArray(data) ? data.length : Object.keys(data).length})</span
+								>
+								{#if campaignState.kubetier && canExpanded}
+									<span class="group relative inline-flex items-center">
+										<button
+											type="button"
+											class="text-surface-500 hover:text-surface-700 focus:ring-primary-500 dark:hover:text-surface-200 inline-flex cursor-help items-center rounded-sm focus:ring-1 focus:outline-none"
+											aria-label="About KubeTier criticality assessment"
+											onclick={(event) => event.stopPropagation()}
 										>
-											<span class="mb-1 block font-semibold">Permission criticality</span>
-											<span class="block">
-												<span class="font-semibold text-red-700 dark:text-red-300">Red T0</span>
-												(highest) ·
-												<span class="font-semibold text-orange-700 dark:text-orange-300"
-													>orange T1</span
-												>
-												·
-												<span class="text-green-700 dark:text-green-300">green T2</span> ·
-												<span class="text-surface-500 dark:text-surface-400">gray T3</span>
-												(lowest).
-												<a
-													class="text-primary-700 dark:text-primary-300 ml-1 font-semibold underline"
-													href="https://kubetier.com/"
-													target="_blank"
-													rel="noreferrer"
-													onclick={(event) => event.stopPropagation()}>Informed by KubeTier ↗</a
-												>
+											<Icon icon="mdi:information-outline" width="15" />
+										</button>
+										<span
+											class="invisible absolute top-full left-0 z-30 w-72 pt-1 opacity-0 transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100"
+										>
+											<span
+												role="tooltip"
+												class="border-surface-300 bg-surface-50 text-surface-700 dark:border-surface-600 dark:bg-surface-900 dark:text-surface-200 block rounded-md border p-3 text-left text-xs font-normal shadow-lg"
+											>
+												<span class="mb-1 block font-semibold">Permission criticality</span>
+												<span class="block">
+													<span class="font-semibold text-red-700 dark:text-red-300">Red T0</span>
+													(highest) ·
+													<span class="font-semibold text-orange-700 dark:text-orange-300"
+														>orange T1</span
+													>
+													·
+													<span class="text-green-700 dark:text-green-300">green T2</span> ·
+													<span class="text-surface-500 dark:text-surface-400">gray T3</span>
+													(lowest).
+													<a
+														class="text-primary-700 dark:text-primary-300 ml-1 font-semibold underline"
+														href="https://kubetier.com/"
+														target="_blank"
+														rel="noreferrer"
+														onclick={(event) => event.stopPropagation()}>Informed by KubeTier ↗</a
+													>
+												</span>
 											</span>
 										</span>
 									</span>
-								</span>
-							{/if}
+								{/if}
+							</span>
 						</summary>
 						<EntitlementInfo
 							entitlements={data as RBACPermission[]}
@@ -674,10 +683,12 @@
 					</div>
 				{:else}
 					<details class="mb-1" class:field-changed={highlightedFields[label]}>
-						<summary class="flex items-center gap-1">
-							<span class="font-bold">{label}</span>
-							<span class="text-surface-500 text-xs">({data.length})</span>
-							{@render runBtn(label)}
+						<summary class="cursor-pointer">
+							<span class="inline-flex items-center gap-1">
+								<span class="font-bold">{label}</span>
+								<span class="text-surface-500 text-xs">({data.length})</span>
+								{@render runBtn(label)}
+							</span>
 						</summary>
 						<ul class="list-inside list-none pl-5">
 							{#each data as item}
@@ -686,20 +697,15 @@
 						</ul>
 					</details>
 				{/if}
+			{:else if (label === 'binaries' || label === 'envVars') && typeof data === 'object' && data !== null && Object.keys(data).length === 0}
+				{@render emptyField(label)}
 			{:else if (label === 'binaries' || label === 'envVars') && typeof data === 'object' && data !== null}
-				{@const dictEmpty = Object.keys(data).length === 0}
 				<!-- Special formatting for binaries and envVars dictionary -->
 				<details class="mb-1" class:field-changed={highlightedFields[label]}>
-					<summary>
+					<summary class="cursor-pointer">
 						<span class="inline-flex items-center gap-1">
-							<span
-								class:font-bold={!dictEmpty}
-								class:text-surface-400={dictEmpty}
-								class:opacity-40={dictEmpty}>{label}</span
-							>
-							<span class="text-surface-500 text-xs" class:opacity-40={dictEmpty}
-								>({Object.keys(data).length})</span
-							>
+							<span class="font-bold">{label}</span>
+							<span class="text-surface-500 text-xs">({Object.keys(data).length})</span>
 							{@render runBtn(label)}
 						</span>
 					</summary>
@@ -796,25 +802,20 @@
 						{/if}
 					</button>
 				</div>
+			{:else if typeof data === 'object' && data !== null && (Array.isArray(data) ? data.length === 0 : Object.keys(data).length === 0)}
+				{@render emptyField(label)}
 			{:else if typeof data === 'object' && data !== null}
-				{@const isEmpty = Array.isArray(data) ? data.length === 0 : Object.keys(data).length === 0}
 				<details class="mb-1" class:field-changed={highlightedFields[label]}>
-					<summary class="flex items-center gap-1">
-						<span
-							class:font-bold={!isEmpty}
-							class:text-surface-400={isEmpty}
-							class:opacity-40={isEmpty}>{label}</span
-						>
-						<span class="text-surface-500 text-xs" class:opacity-40={isEmpty}
-							>({Array.isArray(data) ? data.length : Object.keys(data).length})</span
-						>
-						{@render runBtn(label)}
+					<summary class="cursor-pointer">
+						<span class="inline-flex items-center gap-1">
+							<span class="font-bold">{label}</span>
+							<span class="text-surface-500 text-xs"
+								>({Array.isArray(data) ? data.length : Object.keys(data).length})</span
+							>
+							{@render runBtn(label)}
+						</span>
 					</summary>
-					<pre class="max-h-80 overflow-scroll" class:opacity-40={isEmpty}>{JSON.stringify(
-							data,
-							null,
-							2
-						)}</pre>
+					<pre class="max-h-80 overflow-scroll">{JSON.stringify(data, null, 2)}</pre>
 				</details>
 			{:else if data !== undefined}
 				<div class="mb-1 flex items-center gap-1" class:field-changed={highlightedFields[label]}>
