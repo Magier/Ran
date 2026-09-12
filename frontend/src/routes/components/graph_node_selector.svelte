@@ -5,7 +5,7 @@
 	type CyNode = {
 		id: string;
 		label: string;
-		data: any;
+		data: cytoscape.NodeDataDefinition;
 		position?: { x: number; y: number };
 	};
 

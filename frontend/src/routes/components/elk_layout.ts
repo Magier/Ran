@@ -1,5 +1,4 @@
 import type cytoscape from 'cytoscape';
-import { INFORMATIONAL_EDGES } from './edge_categories';
 
 /** Rejects positions with non-finite coordinates or extreme values. */
 export function isValidPosition(pos: unknown): pos is { x: number; y: number } {
@@ -92,8 +91,6 @@ export type LayoutParams = {
 	compoundEdgeLength: number; // stress target edge length within namespace compounds
 	compoundPadding: number; // padding inside namespace compound nodes
 	stressIterations: number; // max iterations of stress algorithm inside compounds
-	// Edge behaviour
-	usesStraightness: number; // 0-10: how hard ELK tries to align "uses" edge endpoints vertically
 	// Animation
 	animationDuration: number; // ms; 0 = instant
 	// Strategies
@@ -109,7 +106,6 @@ export const DEFAULT_LAYOUT_PARAMS: LayoutParams = {
 	compoundEdgeLength: 32,
 	compoundPadding: 8,
 	stressIterations: 300,
-	usesStraightness: 3,
 	animationDuration: 250,
 	layeringStrategy: 'NETWORK_SIMPLEX',
 	nodePlacementStrategy: 'BRANDES_KOEPF'
@@ -130,7 +126,7 @@ function elkPos(x: number, y: number): string {
 export function createElkLayout(
 	positions: Record<string, { x: number; y: number }> = {},
 	params: LayoutParams = DEFAULT_LAYOUT_PARAMS
-): cytoscape.LayoutOptions & Record<string, unknown> {
+): cytoscape.ElkLayoutOptions {
 	const p = params.compoundPadding;
 	const compoundPad = `[top=${p},left=${p},bottom=${p},right=${p}]`;
 
@@ -192,17 +188,6 @@ export function createElkLayout(
 			}
 
 			return opts;
-		},
-
-		edgeLayoutOptions: (edge: cytoscape.EdgeSingular) => {
-			const name: string = edge.data('name');
-			if (name === 'uses') {
-				return { 'elk.layered.priority.straightness': String(params.usesStraightness) };
-			}
-			if (INFORMATIONAL_EDGES.has(name)) {
-				return undefined;
-			}
-			return {};
 		}
 	};
 }

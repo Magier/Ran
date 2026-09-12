@@ -31,8 +31,7 @@
 		{ key: 'layerSpacing', label: 'Layer spacing', min: 0, max: 400, step: 5, unit: 'px' },
 		{ key: 'nodeSpacing', label: 'Node spacing', min: 0, max: 150, step: 5, unit: 'px' },
 		{ key: 'edgeNodeSpacing', label: 'Edge-node spacing', min: 0, max: 150, step: 5, unit: 'px' },
-		{ key: 'aspectRatio', label: 'Aspect ratio', min: 0, max: 5, step: 0.1, unit: '' },
-		{ key: 'usesStraightness', label: '"uses" straightness', min: 0, max: 10, step: 1, unit: '' }
+		{ key: 'aspectRatio', label: 'Aspect ratio', min: 0, max: 5, step: 0.1, unit: '' }
 	];
 
 	const compoundSliders: Slider[] = [
