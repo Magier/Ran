@@ -397,18 +397,25 @@ impl C2Executor {
                 .map(String::as_str)
                 .unwrap_or(&cmd.target_id)
                 .to_string();
-            self.spawn_session_listener(ListenerSpec {
-                cmd_id: cmd.id.clone(),
-                backend_id,
-                target_entity_id,
-                port,
-                protocol,
-            })
-            .await;
+            if let Err(error) = self
+                .spawn_session_listener(ListenerSpec {
+                    cmd_id: cmd.id.clone(),
+                    backend_id,
+                    target_entity_id,
+                    port,
+                    protocol,
+                })
+                .await
+            {
+                return failed_result(
+                    cmd,
+                    &format!("failed to bind listener on port {port}: {error}"),
+                );
+            }
             return TtpExecuted {
                 id: cmd.id.clone(),
                 success: true,
-                results: vec![format!("listener starting on port {}", port)],
+                results: vec![format!("listener started on port {}", port)],
                 exit_code: 0,
                 fail_reason: String::new(),
                 session_connected: None,
@@ -488,20 +495,38 @@ impl C2Executor {
         }
     }
 
-    async fn spawn_session_listener(&self, spec: ListenerSpec) {
+    /// Bind the listener socket and hand it to an accept loop.
+    ///
+    /// The bind happens here, not in the accept loop, so that a port conflict is
+    /// a failed action the operator sees rather than a log line hidden behind a
+    /// successful-looking result. It also means a port already held by a live
+    /// listener keeps its registration: binding second fails before the map is
+    /// touched, so the original stays stoppable via `c2.stop-listener`.
+    async fn spawn_session_listener(&self, spec: ListenerSpec) -> std::io::Result<()> {
+        use std::net::{Ipv4Addr, SocketAddr};
+
+        let port = spec.port;
+        let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, port));
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        tracing::info!(port, backend_id = %spec.backend_id, "session listener ready");
+
+        let _ = self.event_bus.publish(C2Event::ListenerStarted {
+            cmd_id: spec.cmd_id.clone(),
+            port,
+            protocol: spec.protocol.clone(),
+        });
+
         let backends = self.backends.clone();
         let event_bus = self.event_bus.clone();
         let listeners = self.listeners.clone();
-        let port = spec.port;
         let handle = tokio::spawn(async move {
-            accept_session_loop(backends, event_bus, listeners, spec).await;
+            accept_session_loop(backends, event_bus, listeners, listener, spec).await;
         });
-        // Re-binding a port replaces the old handle, mirroring how the campaign
-        // keeps one listener record per port.
         self.listeners
             .write()
             .await
             .insert(port, handle.abort_handle());
+        Ok(())
     }
 
     /// Release the port held by a bound listener.
@@ -1317,36 +1342,17 @@ async fn accept_session_loop(
     backends: Backends,
     event_bus: C2EventBus,
     listeners: Listeners,
+    listener: tokio::net::TcpListener,
     spec: ListenerSpec,
 ) {
     use crate::ShellSession;
-    use std::net::{Ipv4Addr, SocketAddr};
 
     let ListenerSpec {
-        cmd_id,
         backend_id,
         target_entity_id,
         port,
-        protocol,
+        ..
     } = spec;
-
-    let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, port));
-    let listener = match tokio::net::TcpListener::bind(addr).await {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::error!(port, error = %e, "failed to bind session listener");
-            // The port was never held, so drop the registration made at spawn;
-            // otherwise `c2.stop-listener` would report success for nothing.
-            listeners.write().await.remove(&port);
-            return;
-        }
-    };
-    tracing::info!(port, %backend_id, "session listener ready");
-    let _ = event_bus.publish(C2Event::ListenerStarted {
-        cmd_id,
-        port,
-        protocol: protocol.clone(),
-    });
 
     loop {
         match listener.accept().await {
@@ -1724,6 +1730,58 @@ mod tests {
                 _ => continue,
             }
         }
+    }
+
+    #[tokio::test]
+    async fn a_port_conflict_fails_the_listen_action() {
+        let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "builtin".to_string(),
+        });
+        let mut backends: HashMap<String, Arc<dyn C2Backend>> = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), backend.clone());
+        backends.insert("ran".to_string(), backend);
+
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let mut rx = events.subscribe();
+        tokio::spawn(manager.run());
+
+        // Hold the port for the whole test, standing in for the listener that
+        // outlived a campaign reset. Same skip as the release test: a sandbox
+        // that forbids binding cannot exercise this at all.
+        let squatter = match tokio::net::TcpListener::bind("0.0.0.0:0").await {
+            Ok(squatter) => squatter,
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                eprintln!("skipped: this environment does not permit binding sockets");
+                return;
+            }
+            Err(error) => panic!("squatter bind failed: {error}"),
+        };
+        let port = squatter
+            .local_addr()
+            .expect("squatter has an address")
+            .port();
+
+        let mut listen = exec_cmd("ran");
+        listen.id = "cmd-listen".to_string();
+        listen.procedure = Procedure::new("ran", "id");
+        listen.procedure.command = format!("c2.listen({port}, tcp)");
+        handle.send(listen).await.expect("listen should queue");
+
+        let execution = wait_for_execution(&mut rx).await;
+        // The operator has to see this. Reporting success and logging the bind
+        // error is what left the UI showing a listener that never existed.
+        assert!(
+            !execution.success,
+            "a port conflict must fail the action, got: {:?}",
+            execution.results
+        );
+        assert!(
+            execution.fail_reason.contains(&port.to_string()),
+            "fail reason should name the port: {}",
+            execution.fail_reason
+        );
+
+        drop(squatter);
     }
 
     #[tokio::test]
