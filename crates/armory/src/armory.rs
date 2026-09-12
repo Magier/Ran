@@ -591,6 +591,24 @@ mod tests {
     }
 
     #[test]
+    fn create_listener_cleans_up_the_port_it_bound() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+
+        let ttp = armory
+            .get_ttp("create-listener")
+            .expect("create-listener should be in the armory");
+        // Without this the accept loop survives a campaign reset and holds the
+        // port, so the next Create Listener on it cannot bind.
+        let cleanup = ttp
+            .cleanup
+            .as_ref()
+            .expect("create-listener must release its port on cleanup");
+        assert_eq!(cleanup.command, "c2.stop-listener(${PROTOCOL}/${PORT})");
+        assert_eq!(cleanup.is_local_command, Some(true));
+    }
+
+    #[test]
     fn preserves_kubernetes_http_request_procedure_variants() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
         let armory = Armory::load_from_dir(path).expect("repository armory should load");
