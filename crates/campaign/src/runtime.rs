@@ -1320,6 +1320,62 @@ mod tests {
         );
     }
 
+    /// The exec-session path mints a backend id deterministically from the pod
+    /// (`kubectl_exec_backend_id`), so re-running the TTP after the session died
+    /// comes back on the id already recorded. It has to revive that entry: a
+    /// second one pushed beside it leaves the entity panel showing a dead
+    /// session next to the live one, forever.
+    #[test]
+    fn re_opening_an_exec_session_revives_it_instead_of_stacking_a_second() {
+        let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+        campaign.insert_entity(&Pod::new("api", "default"));
+
+        let connected = SessionConnectedData {
+            backend_id: "session/ns-default-pod-api".to_string(),
+            target_entity_id: "ns/default/pod/api".to_string(),
+            hostname: "api".to_string(),
+            user: "root".to_string(),
+            os: "Linux".to_string(),
+        };
+
+        let (_, revived) = apply_session_connected(&mut campaign, &connected);
+        assert!(
+            !revived,
+            "the first connect opens a session, it revives nothing"
+        );
+
+        update_session_status(
+            &mut campaign,
+            "ns/default/pod/api",
+            "session/ns-default-pod-api",
+            SessionStatus::Lost,
+        );
+
+        let (summary, revived) = apply_session_connected(&mut campaign, &connected);
+        assert!(
+            revived,
+            "re-running the TTP on a dead exec session is a revival"
+        );
+        assert_eq!(
+            summary.expect("a session summary").id.0,
+            "ns/default/pod/api"
+        );
+
+        let sessions = campaign
+            .get_system_entity("ns/default/pod/api")
+            .expect("the pod")
+            .entity()
+            .system()
+            .sessions
+            .clone();
+        assert_eq!(
+            sessions.len(),
+            1,
+            "the dead entry must be revived, not left beside a new one: {sessions:?}"
+        );
+        assert_eq!(sessions[0].status, SessionStatus::Active);
+    }
+
     #[test]
     fn a_reconnect_keyed_by_the_pre_merge_id_keeps_the_pod_executable() {
         let mut campaign = promoted_foothold();
