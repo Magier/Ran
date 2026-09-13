@@ -305,7 +305,7 @@
 			{#if obj.kind}
 				<span class="badge shrink-0 bg-indigo-200 text-xs text-indigo-800">{obj.kind}</span>
 			{/if}
-			{#each knowledgeProvenanceBadges(obj.provenance) as badge}
+			{#each knowledgeProvenanceBadges(obj.provenance) as badge, i (i)}
 				<span
 					class="badge shrink-0 text-xs"
 					class:bg-amber-200={badge.origin === 'scenario'}
@@ -334,7 +334,7 @@
 
 		{#each Object.entries(obj || {})
 			.filter(([label, data]) => shouldShowField(label, data))
-			.sort(([a], [b]) => a.localeCompare(b)) as [label, data]}
+			.sort(([a], [b]) => a.localeCompare(b)) as [label, data] (label)}
 			{#if label === 'containers' && Array.isArray(data) && data.length > 0}
 				<!-- Special drill-down view for containers -->
 				<details class="mb-1" class:field-changed={highlightedFields[label]}>
@@ -343,7 +343,7 @@
 						<span class="text-surface-500 text-xs">({data.length})</span>
 					</summary>
 					<div class="space-y-4 pl-4">
-						{#each data as container}
+						{#each data as container (container.name)}
 							<div class="border-surface-500 border-l-2 py-2 pl-3">
 								<!-- Top: name and command -->
 								<span>Name: </span>
@@ -368,7 +368,7 @@
 											Volume Mounts ({container.volume_mounts.length})
 										</summary>
 										<ul class="mt-1 list-inside list-none space-y-0.5 pl-4">
-											{#each container.volume_mounts as vm}
+											{#each container.volume_mounts as vm (vm.mount_point)}
 												<li class="flex flex-wrap items-center gap-1 text-xs">
 													<span class="font-mono">{vm.mount_point}</span>
 													<span class="text-surface-400">({vm.name})</span>
@@ -391,7 +391,7 @@
 											Ports ({container.ports.length})
 										</summary>
 										<ul class="mt-1 list-inside list-disc pl-4 text-sm">
-											{#each container.ports as port}
+											{#each container.ports as port, i (i)}
 												<li>
 													{#if port.name}<span class="font-mono">{port.name}:</span>
 													{/if}
@@ -420,7 +420,7 @@
 											Environment ({container.env.length})
 										</summary>
 										<ul class="mt-1 list-inside list-none pl-4 font-mono text-xs">
-											{#each container.env as env}
+											{#each container.env as env, i (i)}
 												<li>
 													{env.name}={env.value || JSON.stringify(env.valueFrom)}
 												</li>
@@ -465,7 +465,7 @@
 						<span class="text-surface-500 text-xs">({data.length})</span>
 					</summary>
 					<ul class="mt-1 list-inside list-none space-y-1 pl-4">
-						{#each data as m}
+						{#each data as m, i (i)}
 							<li class="flex flex-wrap items-center gap-1">
 								<span class="font-mono text-xs">{m.mount_point ?? m.mountPath}</span>
 								{#if m.name}
@@ -569,7 +569,7 @@
 						<span class="text-surface-500 text-xs">({data.length})</span>
 					</summary>
 					<ul class="list-inside list-none pl-5">
-						{#each data as item}
+						{#each data as item, i (i)}
 							<li>
 								<button
 									class="cursor-pointer text-left hover:underline"
@@ -601,7 +601,7 @@
 			{:else if label === 'owner_references' && Array.isArray(data) && data.length > 0}
 				<div class="mb-1" class:field-changed={highlightedFields[label]}>
 					<span class="mr-1 font-bold">Owner:</span>
-					{#each data as oref}
+					{#each data as oref (`${oref.kind}/${oref.name}`)}
 						<span class="inline-flex items-center gap-1">
 							<span class="badge bg-indigo-100 text-xs text-indigo-800">{oref.kind}</span>
 							<span class="font-mono text-xs">{oref.name}</span>
@@ -615,7 +615,7 @@
 						<span class="text-surface-500 text-xs">({data.length})</span>
 					</summary>
 					<ul class="mt-1 list-inside list-none space-y-1 pl-4">
-						{#each data as session}
+						{#each data as session (session.id)}
 							<li class="flex flex-wrap items-center gap-1 text-xs">
 								<span
 									class="badge text-xs {session.status === 'Active'
@@ -640,7 +640,7 @@
 						<span class="text-surface-500 text-xs">({data.length})</span>
 					</summary>
 					<div class="mt-1 space-y-1 pl-4">
-						{#each data as service}
+						{#each data as service (`${service.port}/${service.transport}`)}
 							<details>
 								<summary class="cursor-pointer">
 									<span class="font-mono font-semibold">{service.port}/{service.transport}</span>
@@ -691,7 +691,7 @@
 							</span>
 						</summary>
 						<ul class="list-inside list-none pl-5">
-							{#each data as item}
+							{#each data as item, i (i)}
 								<li>{prettyPrint(item)}</li>
 							{/each}
 						</ul>
@@ -710,7 +710,7 @@
 						</span>
 					</summary>
 					<ul class="list-inside list-none pl-5">
-						{#each Object.entries(data).sort(([a], [b]) => a.localeCompare(b)) as [key, value]}
+						{#each Object.entries(data).sort( ([a], [b]) => a.localeCompare(b) ) as [key, value] (key)}
 							<li class="font-mono text-sm">
 								<span class="font-semibold">{key}:</span>
 								{#if label === 'binaries' && value === ''}
@@ -757,7 +757,7 @@
 									<span class="text-surface-500 text-xs">({Object.keys(labels).length})</span>
 								</summary>
 								<ul class="mt-1 list-none space-y-0.5 pl-4 font-mono text-xs">
-									{#each Object.entries(labels).sort(([a], [b]) => a.localeCompare(b)) as [k, v]}
+									{#each Object.entries(labels).sort( ([a], [b]) => a.localeCompare(b) ) as [k, v] (k)}
 										<li><span class="text-surface-500">{k}=</span>{v}</li>
 									{/each}
 								</ul>
@@ -770,7 +770,7 @@
 									<span class="text-surface-500 text-xs">({Object.keys(annotations).length})</span>
 								</summary>
 								<ul class="mt-1 list-none space-y-0.5 pl-4 font-mono text-xs">
-									{#each Object.entries(annotations).sort( ([a], [b]) => a.localeCompare(b) ) as [k, v]}
+									{#each Object.entries(annotations).sort( ([a], [b]) => a.localeCompare(b) ) as [k, v] (k)}
 										<li><span class="text-surface-500">{k}=</span>{v}</li>
 									{/each}
 								</ul>
@@ -825,7 +825,7 @@
 			{/if}
 		{/each}
 		<!-- Placeholder rows for discoverable fields not yet present on the entity -->
-		{#each [...fieldTtpIndex.entries()].filter(([field]) => !(field in (obj ?? {}))) as [field]}
+		{#each [...fieldTtpIndex.entries()].filter(([field]) => !(field in (obj ?? {}))) as [field] (field)}
 			{@const ttp = ttpForField(field)}
 			{#if ttp && sendAction}
 				<div class="mb-1 flex items-center gap-1">

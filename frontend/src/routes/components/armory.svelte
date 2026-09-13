@@ -312,7 +312,7 @@
 						collapsible
 						class="bg-surface-200-800 !gap-0 !space-y-0"
 					>
-						{#each Array.from(shownTTPs) as [tactic, ttps]}
+						{#each Array.from(shownTTPs) as [tactic, ttps] (tactic)}
 							<Accordion.Item
 								value={tactic}
 								class="text-surface-contrast-200-800 mb-0 !gap-0 !p-0"
@@ -332,7 +332,7 @@
 									</div>
 								</Accordion.ItemTrigger>
 								<Accordion.ItemContent class="bg-surface-100-900 !m-0 !gap-0 !p-0">
-									{#each byUtility(ttps) as ttp}
+									{#each byUtility(ttps) as ttp (ttp.id)}
 										<div
 											class="border-surface-400-600 bg-surface-200-800 hover:text-primary-800-200 ml-3 border-t-1"
 										>

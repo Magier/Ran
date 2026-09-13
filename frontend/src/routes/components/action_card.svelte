@@ -184,7 +184,7 @@
 						{prerequisitesFulfilled ? 'Prerequisites fulfilled' : 'Prerequisites not fulfilled'}
 					</div>
 					<div class="space-y-1.5">
-						{#each requirementDetails as requirement}
+						{#each requirementDetails as requirement, i (i)}
 							<div class="flex gap-1.5 text-xs">
 								<span class="text-surface-700-300 shrink-0 font-medium">{requirement.label}:</span>
 								<span class="text-surface-500 min-w-0 break-words">{requirement.value}</span>

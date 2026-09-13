@@ -117,7 +117,7 @@
 				<!-- Strategies -->
 				<section>
 					<p class="text-surface-400-600 mb-2 text-[10px] tracking-widest uppercase">Strategies</p>
-					{#each [layeringDropdown, placementDropdown] as d}
+					{#each [layeringDropdown, placementDropdown] as d (d.key)}
 						<div class="mb-2">
 							<label for="layout-{String(d.key)}" class="text-surface-500-400 mb-1 block text-xs"
 								>{d.label}</label
@@ -128,7 +128,7 @@
 								onchange={onChange}
 								class="bg-surface-100-900 border-surface-300-700 text-surface-700-300 w-full cursor-pointer rounded border px-2 py-1 text-xs"
 							>
-								{#each d.options as opt}
+								{#each d.options as opt (opt.value)}
 									<option value={opt.value}>{opt.label}</option>
 								{/each}
 							</select>
@@ -141,7 +141,7 @@
 					<p class="text-surface-400-600 mb-2 text-[10px] tracking-widest uppercase">
 						Global spacing
 					</p>
-					{#each spacingSliders as s}
+					{#each spacingSliders as s (s.key)}
 						<div class="mb-3">
 							<div class="mb-1 flex items-baseline justify-between">
 								<label for="layout-{s.key}" class="text-surface-500-400 text-xs">{s.label}</label>
@@ -169,7 +169,7 @@
 					<p class="text-surface-400-600 mb-2 text-[10px] tracking-widest uppercase">
 						Cluster (stress)
 					</p>
-					{#each compoundSliders as s}
+					{#each compoundSliders as s (s.key)}
 						<div class="mb-3">
 							<div class="mb-1 flex items-baseline justify-between">
 								<label for="layout-{s.key}" class="text-surface-500-400 text-xs">{s.label}</label>
@@ -195,7 +195,7 @@
 				<!-- Animation -->
 				<section>
 					<p class="text-surface-400-600 mb-2 text-[10px] tracking-widest uppercase">Animation</p>
-					{#each animSliders as s}
+					{#each animSliders as s (s.key)}
 						<div class="mb-3">
 							<div class="mb-1 flex items-baseline justify-between">
 								<label for="layout-{s.key}" class="text-surface-500-400 text-xs">{s.label}</label>

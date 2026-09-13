@@ -42,12 +42,10 @@ export default ts.config(
 		// other rule at error while these are worked down; each one goes back
 		// to 'error' as its area is cleaned up.
 		//
-		//   @typescript-eslint/no-explicit-any    cytoscape and its plugins
-		//   svelte/require-each-key               {#each} blocks without a key
+		//   @typescript-eslint/no-explicit-any    API payloads and arg contexts
 		//   svelte/prefer-svelte-reactivity       plain Map/Set in reactive state
 		rules: {
 			'@typescript-eslint/no-explicit-any': 'warn',
-			'svelte/require-each-key': 'warn',
 			'svelte/prefer-svelte-reactivity': 'warn'
 		}
 	},

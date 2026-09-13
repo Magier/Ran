@@ -51,7 +51,7 @@
 
 			{#if availableNamespaces.length > 0}
 				<div class="mb-3 space-y-1.5">
-					{#each availableNamespaces as ns}
+					{#each availableNamespaces as ns, i (i)}
 						<label class="group flex cursor-pointer items-center gap-2">
 							<input
 								type="checkbox"

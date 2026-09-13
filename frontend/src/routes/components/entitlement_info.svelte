@@ -334,7 +334,7 @@
 {/if}
 
 <div class="max-h-80 overflow-auto pl-2">
-	{#each sortedEntitlements() as permission}
+	{#each sortedEntitlements() as permission (permissionIdentity(permission))}
 		{@const tiers = tiersFor(permission)}
 		<div class="flex items-center gap-1">
 			<span class={`font-mono ${permissionTierClass(tiers[0])}`}>
@@ -398,7 +398,7 @@
 			<p class="text-surface-500 mt-2 text-xs">No matching KubeTier assessment.</p>
 		{:else}
 			<div class="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-				{#each assessments as assessment}
+				{#each assessments as assessment (assessment.sourceUrl)}
 					<a
 						class="underline"
 						href={assessmentUrl(assessment)}
@@ -412,7 +412,7 @@
 							: `KubeTier: ${assessmentLabel(assessment, assessments)}`} ↗</a
 					>
 				{/each}
-				{#each documentationLinks as documentationLink}
+				{#each documentationLinks as documentationLink (documentationLink.url)}
 					<a
 						class="underline"
 						href={documentationLink.url}
@@ -428,16 +428,16 @@
 					</a>
 				{/each}
 			</div>
-			{#each descriptions as description}<p class="mt-2">{description}</p>{/each}
+			{#each descriptions as description (description)}<p class="mt-2">{description}</p>{/each}
 			{#if escalationPaths.length > 0}
 				<ul class="mt-2 list-disc pl-4">
-					{#each escalationPaths as path}
+					{#each escalationPaths as path (path.sourceUrl)}
 						<li>
 							<a class="underline" href={path.sourceUrl} target="_blank" rel="noreferrer"
 								>{path.name} ↗</a
 							>
 							{#if path.steps.length > 0}<ol class="list-decimal pl-4">
-									{#each path.steps as step}<li>{step}</li>{/each}
+									{#each path.steps as step, i (i)}<li>{step}</li>{/each}
 								</ol>{/if}
 						</li>
 					{/each}
