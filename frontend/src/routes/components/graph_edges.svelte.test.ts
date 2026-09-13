@@ -5,8 +5,10 @@ import {
 	restoreConsolidatedEdges,
 	reconcileCollapsedEdges,
 	hideRedundantInformationalEdges,
+	toCyEdge,
 	COLLAPSED_EDGE_CLASS
 } from './graph_edges';
+import type { Edge } from '$lib/api/index';
 
 const COLLAPSED_NODE_CLASS = 'cy-expand-collapse-collapsed-node';
 
@@ -208,5 +210,39 @@ describe('reconcileCollapsedEdges', () => {
 
 		expect(cy.getElementById('meta-ns-to-nodeX').length).toBe(1);
 		expect(visibleEdges(cy)).toEqual(['ns->nodeX [meta-ns-to-nodeX]']);
+	});
+});
+
+describe('toCyEdge', () => {
+	const sessionEdge = (broken?: boolean): Edge => ({
+		id: 'c2/ran-[c2.session]->system/victim',
+		sourceId: 'c2/ran',
+		targetId: 'system/victim',
+		name: 'c2.session',
+		...(broken === undefined ? {} : { broken })
+	});
+
+	it('spells out a healthy edge as not broken', () => {
+		// The backend omits `broken` entirely for a healthy edge, but cytoscape's
+		// `data(obj)` merges: an absent key leaves the old value in place.
+		expect(toCyEdge(sessionEdge()).data.broken).toBe(false);
+		expect(toCyEdge(sessionEdge(true)).data.broken).toBe(true);
+	});
+
+	it('clears the broken styling when the session comes back', () => {
+		const cy = mountCy([
+			{ data: { id: 'c2/ran' } },
+			{ data: { id: 'system/victim' } },
+			toCyEdge(sessionEdge(true))
+		]);
+		const edge = cy.getElementById('c2/ran-[c2.session]->system/victim');
+		expect(edge.data('broken')).toBe(true);
+
+		// The refresh path in graph.svelte merges the new payload into the
+		// existing element rather than recreating it.
+		edge.data(toCyEdge(sessionEdge()).data);
+
+		expect(edge.data('broken')).toBe(false);
+		expect(cy.edges('[?broken]').length).toBe(0);
 	});
 });

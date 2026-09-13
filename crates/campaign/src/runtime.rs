@@ -48,6 +48,20 @@ impl EntitySummary {
     }
 }
 
+/// What just happened to a C2 session, as far as the operation log is concerned.
+///
+/// Only the transitions an operator needs told about are modelled: the first
+/// connect is already reported as an `access-gained` fact, so it is not repeated
+/// here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SessionLifecycle {
+    /// The shell backing a live session died.
+    Lost,
+    /// A session that had previously died came back on the same backend id.
+    Reestablished,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CampaignEvent {
     TtpExecuted {
@@ -70,6 +84,16 @@ pub enum CampaignEvent {
     ParseAudited {
         cmd_id: String,
         audits: Vec<ParseAudit>,
+    },
+    /// A live session died or came back. Carried separately from `FactsChanged`
+    /// because it is news about the *session*, not about the entity: the host
+    /// itself is unchanged, and a reconnect to an already-known host would
+    /// otherwise be swallowed as a duplicate fact and never reach the timeline.
+    SessionStateChanged {
+        backend_id: String,
+        entity_id: String,
+        entity_name: String,
+        state: SessionLifecycle,
     },
     Reset,
     PlanStepDispatched {
@@ -166,7 +190,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         "Action result"
                     );
 
-                    let (processing, session_entity_summary) = {
+                    let (processing, session_entity_summary, session_revived) = {
                         let mut campaign_guard = match campaign.write() {
                             Ok(guard) => guard,
                             Err(_) => {
@@ -186,17 +210,34 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         // After effects are applied, activate any synchronous session
                         // that was opened during this TTP execution. The exec-channel
                         // edge (e.g. k8s.can-exec) now exists so activation will find it.
-                        let session_summary = event.session_connected.as_ref().map(|s| {
-                            let summary = apply_session_connected(&mut campaign_guard, s);
+                        let mut session_revived = None;
+                        let session_summary = event.session_connected.as_ref().and_then(|s| {
+                            let (summary, revived) =
+                                apply_session_connected(&mut campaign_guard, s);
                             // Record the hop path that established this session so
                             // later commands tunneling over it can display the same
                             // traversal (the session itself routes opaquely).
                             record_session_path(&mut campaign_guard, &cmd.id, &s.backend_id);
+                            if revived {
+                                session_revived = summary.as_ref().map(|e| {
+                                    (s.backend_id.clone(), e.id.0.clone(), e.name.clone())
+                                });
+                            }
                             summary
                         });
 
-                        (processing, session_summary)
+                        (processing, session_summary, session_revived)
                     };
+
+                    if let Some((backend_id, entity_id, entity_name)) = session_revived {
+                        info!(%backend_id, %entity_id, "session re-established");
+                        let _ = campaign_events.publish(CampaignEvent::SessionStateChanged {
+                            backend_id,
+                            entity_id,
+                            entity_name,
+                            state: SessionLifecycle::Reestablished,
+                        });
+                    }
 
                     if processing.parse_audits.is_empty() {
                         // Only an effect-bearing TTP that emitted no audits is a
@@ -379,7 +420,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     if let Some(entity_summary) = session_entity_summary {
                         let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                             cmd_id: cmd.id,
-                            new_entities: entity_summary.into_iter().collect(),
+                            new_entities: vec![entity_summary],
                             new_relations: vec![],
                         });
                     }
@@ -563,7 +604,10 @@ pub fn spawn_c2_event_processor_with_external_parser(
 
                     let resolved_target_id = guard.canonical_entity_id(&target_entity_id);
                     let host_was_known = guard.get_system_entity(&resolved_target_id).is_some();
-                    let channel_entity_id = attach_connected_session(
+                    let AttachedSession {
+                        entity_id: channel_entity_id,
+                        revived,
+                    } = attach_connected_session(
                         &mut guard,
                         &backend_id,
                         &target_entity_id,
@@ -615,11 +659,30 @@ pub fn spawn_c2_event_processor_with_external_parser(
                                 category: FactCategory::AccessGained,
                             });
 
+                    let entity_name = guard
+                        .get_system_entity(&channel_entity_id)
+                        .map(|e| e.entity().entity_name().to_string())
+                        .unwrap_or_else(|| channel_entity_id.clone());
+
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                         cmd_id: backend_id.clone(),
                         new_entities: entity_summary.into_iter().collect(),
                         new_relations: new_relation_summary.into_iter().collect(),
                     });
+
+                    // A first connect is already told as an `access-gained`
+                    // fact. Only the comeback needs its own line, because the
+                    // fact it would otherwise ride on repeats an entity the
+                    // timeline has already shown and gets deduplicated away.
+                    if revived {
+                        info!(%backend_id, %channel_entity_id, "session re-established");
+                        let _ = campaign_events.publish(CampaignEvent::SessionStateChanged {
+                            backend_id: backend_id.clone(),
+                            entity_id: channel_entity_id,
+                            entity_name,
+                            state: SessionLifecycle::Reestablished,
+                        });
+                    }
                 }
                 Ok(C2Event::SessionLost {
                     backend_id,
@@ -645,10 +708,23 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     // treats it as non-traversable in the meantime.
                     let marked = guard.mark_session_broken(&backend_id);
                     info!(%backend_id, %target_entity_id, marked, "session lost; exec-channel edge(s) marked broken");
+                    let resolved_target_id = guard.canonical_entity_id(&target_entity_id);
+                    let entity_name = guard
+                        .get_system_entity(&resolved_target_id)
+                        .map(|e| e.entity().entity_name().to_string())
+                        .unwrap_or_else(|| resolved_target_id.clone());
+                    drop(guard);
+
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
-                        cmd_id: backend_id,
+                        cmd_id: backend_id.clone(),
                         new_entities: vec![],
                         new_relations: vec![],
+                    });
+                    let _ = campaign_events.publish(CampaignEvent::SessionStateChanged {
+                        backend_id,
+                        entity_id: resolved_target_id,
+                        entity_name,
+                        state: SessionLifecycle::Lost,
                     });
                 }
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
@@ -689,6 +765,15 @@ fn record_session_path(campaign: &mut Campaign, establishing_cmd_id: &str, backe
     }
 }
 
+/// The outcome of attaching a connected session: which entity it landed on, and
+/// whether it brought a previously-lost session back rather than opening a new one.
+#[derive(Debug)]
+struct AttachedSession {
+    entity_id: String,
+    /// True when a session with this backend id was already recorded as `Lost`.
+    revived: bool,
+}
+
 /// Attach a freshly connected C2 session to the system entity it exits into,
 /// returning that entity's id.
 ///
@@ -706,7 +791,7 @@ fn attach_connected_session(
     user: &str,
     os: &str,
     port: Option<u16>,
-) -> String {
+) -> AttachedSession {
     let session_kind = if port.is_some() {
         "tcp"
     } else {
@@ -730,12 +815,14 @@ fn attach_connected_session(
         system.access_level = AccessLevel::Exec;
         // A reconnect comes back on the listener's own backend id: revive that
         // session instead of pushing a duplicate next to the dead one.
+        let mut revived = false;
         match system
             .sessions
             .iter_mut()
             .find(|s| s.id == session_short_id)
         {
             Some(existing) => {
+                revived = existing.status == SessionStatus::Lost;
                 existing.kind = session_kind.to_string();
                 existing.port = port;
                 existing.status = SessionStatus::Active;
@@ -747,7 +834,10 @@ fn attach_connected_session(
                 status: SessionStatus::Active,
             }),
         }
-        return resolved_id;
+        return AttachedSession {
+            entity_id: resolved_id,
+            revived,
+        };
     }
 
     // Nothing answers to that id - a shell from a host we have never seen.
@@ -773,19 +863,23 @@ fn attach_connected_session(
     let entity_id = sys.entity_id();
     campaign.insert_entity(&sys);
     campaign.record_entity_alias(&EntityId::new(target_entity_id), &entity_id);
-    entity_id.0
+    AttachedSession {
+        entity_id: entity_id.0,
+        revived: false,
+    }
 }
 
 fn apply_session_connected(
     campaign: &mut Campaign,
     data: &SessionConnectedData,
-) -> Option<EntitySummary> {
+) -> (Option<EntitySummary>, bool) {
     let session_short_id = data
         .backend_id
         .strip_prefix("session/")
         .unwrap_or(&data.backend_id)
         .to_string();
 
+    let mut revived = false;
     if let Some(mut sys) = campaign.get_system_entity_mut(&data.target_entity_id) {
         let system = sys.entity_mut().system_mut();
         if !data.os.is_empty() {
@@ -795,17 +889,30 @@ fn apply_session_connected(
             system.username = Some(data.user.clone());
         }
         system.access_level = AccessLevel::Exec;
-        system.sessions.push(SessionInfo {
-            id: session_short_id,
-            kind: "kubectl-exec".to_string(),
-            port: None,
-            status: SessionStatus::Active,
-        });
+        // Re-running the TTP that opens an exec session comes back on the same
+        // backend id. Revive that entry instead of stacking a second one beside
+        // the dead one, which would leave the UI showing a Lost session forever.
+        match system
+            .sessions
+            .iter_mut()
+            .find(|s| s.id == session_short_id)
+        {
+            Some(existing) => {
+                revived = existing.status == SessionStatus::Lost;
+                existing.status = SessionStatus::Active;
+            }
+            None => system.sessions.push(SessionInfo {
+                id: session_short_id,
+                kind: "kubectl-exec".to_string(),
+                port: None,
+                status: SessionStatus::Active,
+            }),
+        }
     }
 
     campaign.activate_session_on_exec_channel(&data.target_entity_id, &data.backend_id);
 
-    campaign
+    let summary = campaign
         .get_system_entity(&data.target_entity_id)
         .map(|e| EntitySummary {
             id: e.entity().entity_id(),
@@ -816,7 +923,8 @@ fn apply_session_connected(
             // but gaining exec access to it is still worth reporting.
             outcome: FactOutcome::Updated,
             category: FactCategory::AccessGained,
-        })
+        });
+    (summary, revived)
 }
 
 fn update_session_status(
@@ -877,6 +985,107 @@ mod listener_event_tests {
                 return (cmd_id, new_entities);
             }
         }
+    }
+
+    /// Drain campaign events until a `SessionStateChanged` shows up, or give up.
+    async fn next_session_state(
+        rx: &mut broadcast::Receiver<CampaignEvent>,
+    ) -> (String, String, SessionLifecycle) {
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .expect("a SessionStateChanged should be published")
+                .expect("campaign event bus should stay open");
+            if let CampaignEvent::SessionStateChanged {
+                entity_id,
+                entity_name,
+                state,
+                ..
+            } = event
+            {
+                return (entity_id, entity_name, state);
+            }
+        }
+    }
+
+    /// A session breaking and coming back has to reach the operation timeline in
+    /// its own right. The reconnect rides on an entity the timeline has already
+    /// shown, so an entity fact alone gets deduplicated away and the operator is
+    /// left looking at a graph that still says "broken".
+    #[tokio::test]
+    async fn a_session_breaking_and_returning_is_reported_both_times() {
+        let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
+            "Ran",
+            ran_domain::K8sCluster::new("dev"),
+        )));
+        let c2_events = C2EventBus::new(16);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut rx = campaign_events.subscribe();
+
+        spawn_c2_event_processor(campaign.clone(), c2_events.clone(), campaign_events);
+
+        let backend_id = "session/node-victim-4444";
+        let connected = || C2Event::SessionConnected {
+            backend_id: backend_id.to_string(),
+            target_entity_id: "node/victim".to_string(),
+            hostname: "victim".to_string(),
+            user: "root".to_string(),
+            os: "Linux".to_string(),
+            port: Some(4444),
+        };
+
+        c2_events.publish(connected()).expect("first connect");
+        // The first connect is told as an access-gained fact, not a lifecycle
+        // event, so wait on that before breaking the session.
+        let (_, entities) = next_facts_changed(&mut rx).await;
+        assert_eq!(entities.len(), 1);
+
+        c2_events
+            .publish(C2Event::SessionLost {
+                backend_id: backend_id.to_string(),
+                target_entity_id: "node/victim".to_string(),
+            })
+            .expect("session lost");
+
+        let (entity_id, entity_name, state) = next_session_state(&mut rx).await;
+        assert_eq!(state, SessionLifecycle::Lost);
+        assert_eq!(entity_name, "victim");
+        assert_eq!(
+            entity_id, "system/victim",
+            "the event must name the entity the shell exits into, not the C2's guess"
+        );
+        {
+            let guard = campaign.read().expect("campaign lock");
+            assert!(
+                guard.get_relations().iter().any(|r| r.broken),
+                "the exec-channel edge must be marked broken while the shell is gone"
+            );
+        }
+
+        c2_events.publish(connected()).expect("reconnect");
+
+        let (entity_id, _, state) = next_session_state(&mut rx).await;
+        assert_eq!(state, SessionLifecycle::Reestablished);
+        assert_eq!(entity_id, "system/victim");
+
+        let guard = campaign.read().expect("campaign lock");
+        assert!(
+            !guard.get_relations().iter().any(|r| r.broken),
+            "the returning shell must clear the break, not leave a dead edge behind"
+        );
+        let sessions = guard
+            .get_system_entity("system/victim")
+            .expect("the foothold system")
+            .entity()
+            .system()
+            .sessions
+            .clone();
+        assert_eq!(
+            sessions.len(),
+            1,
+            "the reconnect must revive the session, not stack a second one: {sessions:?}"
+        );
+        assert_eq!(sessions[0].status, SessionStatus::Active);
     }
 
     #[tokio::test]
@@ -1049,6 +1258,7 @@ mod tests {
             "Linux",
             Some(4444),
         );
+        let system_id = system_id.entity_id;
         assert_eq!(system_id, "system/netshoot");
 
         // Reading /proc/1/environ over that shell hands us kubelet's variables.
@@ -1133,8 +1343,12 @@ mod tests {
         );
 
         assert_eq!(
-            channel_id, "ns/?/pod/netshoot",
+            channel_id.entity_id, "ns/?/pod/netshoot",
             "the reconnect must attach to the pod, not to a fresh system"
+        );
+        assert!(
+            channel_id.revived,
+            "a shell returning on a lost session's backend id is a revival"
         );
         assert!(
             campaign.entities.get::<UnknownSystem>().is_empty(),
@@ -1171,7 +1385,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(channel_id, "ns/default/pod/api");
+        assert_eq!(channel_id.entity_id, "ns/default/pod/api");
         assert!(
             campaign.entity_aliases.is_empty(),
             "a target that resolves on its own must not record an alias"

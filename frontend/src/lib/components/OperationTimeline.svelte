@@ -1,6 +1,11 @@
 <script lang="ts">
 	import Icon from '@iconify/svelte';
-	import type { TopEntry, EntityEntry, ActionGroup } from '$lib/stores/timelineStore.svelte';
+	import type {
+		TopEntry,
+		EntityEntry,
+		ActionGroup,
+		SessionEventEntry
+	} from '$lib/stores/timelineStore.svelte';
 
 	interface Props {
 		entries: TopEntry[];
@@ -108,7 +113,10 @@
 			if (entry.entityKind === 'Secret') return 'Found secret';
 			return 'Found credential';
 		}
-		if (entry.kind === 'access-gained') return 'Gained exec access to';
+		// Named for what it is - a live session on the host - so it reads as the
+		// same thing the session-lost/restored rows report on, rather than a
+		// separate flavour of access.
+		if (entry.kind === 'access-gained') return 'Session established to';
 		// The verb has to match what actually happened. Calling the listener an
 		// action just bound "discovered" is the kind of claim that makes the
 		// whole timeline harder to trust.
@@ -139,7 +147,7 @@
 
 	function entityIcon(entry: EntityEntry): string {
 		if (entry.kind === 'credential') return 'mdi:key';
-		if (entry.kind === 'access-gained') return 'mdi:shield-check';
+		if (entry.kind === 'access-gained') return 'mdi:lan-connect';
 		if ((entry.outcome ?? 'observed') === 'created') return 'mdi:plus-circle-outline';
 		return 'mdi:magnify';
 	}
@@ -149,6 +157,10 @@
 		if (entry.kind === 'access-gained') return 'size-4 text-success-400';
 		if ((entry.outcome ?? 'observed') === 'created') return 'size-4 text-tertiary-400';
 		return 'size-4 text-primary-400';
+	}
+
+	function isSessionEvent(entry: TopEntry): entry is SessionEventEntry {
+		return entry.kind === 'session-lost' || entry.kind === 'session-restored';
 	}
 
 	let totalEvents = $derived(
@@ -354,11 +366,7 @@
 								<span class="text-surface-400 text-xs">{counts.credential}</span>
 							{/if}
 							{#if counts.access > 0}
-								<Icon
-									icon="mdi:shield-check"
-									class="text-success-400 size-3.5"
-									aria-hidden="true"
-								/>
+								<Icon icon="mdi:lan-connect" class="text-success-400 size-3.5" aria-hidden="true" />
 								<span class="text-surface-400 text-xs">{counts.access}</span>
 							{/if}
 							{#if entry.score != null}
@@ -395,6 +403,35 @@
 							</div>
 						{/each}
 					{/if}
+				{:else if isSessionEvent(entry)}
+					<!-- Session lifecycle row: the channel to a host died, or came back -->
+					<div
+						class="border-surface-200-800 hover:bg-surface-200-800 flex items-start gap-2 border-b px-3 py-2 text-sm"
+					>
+						<div class="mt-0.5 shrink-0">
+							<Icon
+								icon={entry.kind === 'session-lost' ? 'mdi:lan-disconnect' : 'mdi:lan-connect'}
+								class={entry.kind === 'session-lost'
+									? 'text-error-500 size-4'
+									: 'text-success-400 size-4'}
+								aria-hidden="true"
+							/>
+						</div>
+						<div class="min-w-0 flex-1">
+							<span class="font-medium"
+								>{entry.kind === 'session-lost' ? 'Lost session to' : 'Session restored to'}</span
+							>
+							<button
+								type="button"
+								class="text-primary-500 text-left font-medium hover:underline"
+								onclick={() => onfocusentity(entry.entityId)}>{entry.entityName}</button
+							>
+							<span class="text-surface-500 ml-1 truncate text-xs" title={entry.backendId}
+								>{entry.backendId}</span
+							>
+						</div>
+						{@render timestamp(entry.timestamp)}
+					</div>
 				{:else}
 					<!-- Standalone entity row (no parent action) -->
 					<div

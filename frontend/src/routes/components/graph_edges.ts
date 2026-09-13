@@ -1,4 +1,41 @@
 import type cytoscape from 'cytoscape';
+import type { Edge } from '$lib/api/index';
+import { hasKnowledgeProvenance } from '$lib/knowledgeProvenance';
+import { isInformational } from './edge_categories';
+
+/** A graph edge as cytoscape holds it: the API edge plus the flags our styles key off. */
+export type CyEdge = {
+	data: Edge & {
+		source: string;
+		target: string;
+		broken: boolean;
+		scenarioProvided: boolean;
+		informational: boolean;
+	};
+};
+
+/**
+ * Build the cytoscape element data for one graph edge.
+ *
+ * Every optional flag the stylesheet keys off is spelled out, falsy values
+ * included. Cytoscape's `data(obj)` merges rather than replaces, so a key the
+ * backend omits keeps whatever the element already carried: `broken` is sent
+ * only while true, and without a falsy counterpart an edge that once lost its
+ * session would stay styled as broken forever, including after the session came
+ * back.
+ */
+export function toCyEdge(e: Edge): CyEdge {
+	return {
+		data: {
+			source: e.sourceId,
+			target: e.targetId,
+			...e,
+			broken: e.broken ?? false,
+			scenarioProvided: hasKnowledgeProvenance(e.provenance, 'scenario'),
+			informational: isInformational(e.name)
+		}
+	};
+}
 
 /**
  * Class applied to original edges that we hide when consolidating a collapsed

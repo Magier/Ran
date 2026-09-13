@@ -454,6 +454,50 @@ describe('TimelineStore', () => {
 		expect(store.topEntries[0].kind).toBe('discovery');
 	});
 
+	// session lifecycle
+	it('records a session break and its recovery as separate rows', () => {
+		store.addSessionEvent({
+			lost: true,
+			backendId: 'session/node-victim-4444',
+			entityId: 'system/victim',
+			entityName: 'victim'
+		});
+		store.addSessionEvent({
+			lost: false,
+			backendId: 'session/node-victim-4444',
+			entityId: 'system/victim',
+			entityName: 'victim'
+		});
+
+		expect(store.topEntries.map((e) => e.kind)).toEqual(['session-restored', 'session-lost']);
+		// Distinct keys, or the `#each` would collapse the pair into one row.
+		expect(new Set(store.topEntries.map((e) => (e.kind === 'action-group' ? '' : e.id))).size).toBe(
+			2
+		);
+	});
+
+	it('does not let the entity dedup swallow a reconnect to a known host', () => {
+		// The host is already on screen from the first shell, so the access-gained
+		// fact for the reconnect is deduplicated away - which is exactly why the
+		// session event exists.
+		store.addEntityEvent(
+			makeEntityEntry({ kind: 'access-gained', id: 'system/victim', entityId: 'system/victim' })
+		);
+		store.addEntityEvent(
+			makeEntityEntry({ kind: 'access-gained', id: 'system/victim', entityId: 'system/victim' })
+		);
+		expect(store.topEntries).toHaveLength(1);
+
+		store.addSessionEvent({
+			lost: false,
+			backendId: 'session/node-victim-4444',
+			entityId: 'system/victim',
+			entityName: 'victim'
+		});
+		expect(store.topEntries).toHaveLength(2);
+		expect(store.topEntries[0].kind).toBe('session-restored');
+	});
+
 	// mixed ordering
 	it('mixed entries interleave by insertion order, newest first', () => {
 		store.addTtpAction(makeTtpEntry({ id: 'cmd-1' }));

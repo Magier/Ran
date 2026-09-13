@@ -475,6 +475,20 @@
 			});
 		});
 
+		// A session dying or coming back is not an entity fact - the host does not
+		// change - so it arrives on its own event and gets its own timeline row.
+		// `facts-changed` rides alongside it and refreshes the graph, which is
+		// what restyles the edge.
+		ranAPI.on('session-changed', (data) => {
+			timeline.addSessionEvent({
+				lost: data.state === 'lost',
+				backendId: data.backendId,
+				entityId: data.entityId,
+				entityName: campaignState.getEntityById(data.entityId)?.name ?? data.entityName,
+				timestamp: new Date()
+			});
+		});
+
 		// Show actions as in-progress the moment they're dispatched - by this UI, an
 		// autonomous plan, MCP, or the CLI - rather than only once they complete.
 		// addTtpAction is idempotent: a UI-initiated action already has a pending
