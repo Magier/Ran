@@ -37,6 +37,22 @@ export type EntityEntry = {
 	timestamp?: Date;
 };
 
+/**
+ * A C2 session dying or coming back.
+ *
+ * Its own entry kind rather than an `EntityEntry`, because it is news about the
+ * session, not about the entity: the host is unchanged, so a reconnect filed as
+ * an entity fact would be swallowed by the entity-id dedup and never be shown.
+ */
+export type SessionEventEntry = {
+	kind: 'session-lost' | 'session-restored';
+	id: string;
+	backendId: string;
+	entityId: string;
+	entityName: string;
+	timestamp?: Date;
+};
+
 export type ActionGroup = {
 	kind: 'action-group';
 	action: TtpActionEntry;
@@ -45,7 +61,7 @@ export type ActionGroup = {
 	score?: number;
 };
 
-export type TopEntry = ActionGroup | EntityEntry;
+export type TopEntry = ActionGroup | EntityEntry | SessionEventEntry;
 
 /** A historical execution distilled to what the timeline needs to replay it. */
 export type BackfillRecord = {
@@ -71,6 +87,7 @@ export class TimelineStore {
 
 	private index = new Map<string, ActionGroup>();
 	private seenEntityIds = new Set<string>();
+	private sessionEventSeq = 0;
 
 	pendingCount = $derived(
 		this.topEntries.filter(
@@ -134,6 +151,26 @@ export class TimelineStore {
 		// action never registered, or a host that called back on its own), and
 		// `entityPrefix` labels it by outcome rather than calling it a discovery.
 		this.topEntries = [entry, ...this.topEntries];
+	}
+
+	/**
+	 * Record a session breaking or being re-established.
+	 *
+	 * Deliberately never deduplicated: a session that breaks, comes back and
+	 * breaks again is four events, and collapsing them would hide exactly the
+	 * churn an operator needs to see. The id is minted here so repeated events
+	 * for one backend keep distinct keys.
+	 */
+	addSessionEvent(entry: Omit<SessionEventEntry, 'kind' | 'id'> & { lost: boolean }): void {
+		const { lost, ...rest } = entry;
+		this.topEntries = [
+			{
+				kind: lost ? 'session-lost' : 'session-restored',
+				id: `session-event/${rest.backendId}/${++this.sessionEventSeq}`,
+				...rest
+			},
+			...this.topEntries
+		];
 	}
 
 	/**
@@ -273,6 +310,7 @@ export class TimelineStore {
 		this.topEntries = [];
 		this.index.clear();
 		this.seenEntityIds.clear();
+		this.sessionEventSeq = 0;
 	}
 }
 

@@ -1,7 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import OperationTimeline from './OperationTimeline.svelte';
-import type { ActionGroup, EntityEntry, TopEntry } from '$lib/stores/timelineStore.svelte';
+import type {
+	ActionGroup,
+	EntityEntry,
+	SessionEventEntry,
+	TopEntry
+} from '$lib/stores/timelineStore.svelte';
 
 function compactTimestamp(date: Date): string {
 	return date.toLocaleTimeString([], {
@@ -234,7 +239,7 @@ describe('OperationTimeline entity verbs', () => {
 			})
 		]);
 
-		expect(screen.getByText('Gained exec access to')).toBeInTheDocument();
+		expect(screen.getByText('Session established to')).toBeInTheDocument();
 		expect(screen.queryByText('Updated K8sNode')).not.toBeInTheDocument();
 	});
 
@@ -273,5 +278,39 @@ describe('OperationTimeline entity verbs', () => {
 		renderTimeline([{ ...listenerAction, collapsed: false }]);
 		expect(screen.getByText('Created listener')).toBeInTheDocument();
 		expect(screen.queryByText(/^Discovered/)).not.toBeInTheDocument();
+	});
+});
+
+describe('session lifecycle rows', () => {
+	function sessionEntry(overrides: Partial<SessionEventEntry> = {}): SessionEventEntry {
+		return {
+			kind: 'session-lost',
+			id: 'session-event/session/node-victim-4444/1',
+			backendId: 'session/node-victim-4444',
+			entityId: 'system/victim',
+			entityName: 'victim',
+			timestamp: new Date('2026-05-25T10:05:00Z'),
+			...overrides
+		};
+	}
+
+	it('names the break and the recovery differently', () => {
+		renderTimeline([
+			sessionEntry({ kind: 'session-restored', id: 'session-event/s/2' }),
+			sessionEntry()
+		]);
+
+		expect(screen.getByText('Lost session to')).toBeTruthy();
+		expect(screen.getByText('Session restored to')).toBeTruthy();
+		expect(screen.getAllByText('victim')).toHaveLength(2);
+	});
+
+	it('focuses the host the session belongs to', async () => {
+		const onfocusentity = vi.fn();
+		renderTimeline([sessionEntry()], { onfocusentity });
+
+		await fireEvent.click(screen.getByRole('button', { name: 'victim' }));
+
+		expect(onfocusentity).toHaveBeenCalledWith('system/victim');
 	});
 });

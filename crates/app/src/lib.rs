@@ -2684,6 +2684,26 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     }
                 }
             }
+            Ok(CampaignEvent::SessionStateChanged {
+                backend_id,
+                entity_id,
+                entity_name,
+                state,
+            }) => {
+                api::publish_sse_event(
+                    "session-changed",
+                    serde_json::json!({
+                        "type": "session-changed",
+                        "data": {
+                            "backendId": backend_id,
+                            "entityId": entity_id,
+                            "entityName": entity_name,
+                            "state": state,
+                        },
+                    })
+                    .to_string(),
+                );
+            }
             Ok(CampaignEvent::ParseAudited { audits, .. }) => {
                 api::publish_sse_event(
                     "parse-audited",

@@ -20,12 +20,13 @@
 		restoreConsolidatedEdges,
 		reconcileCollapsedEdges,
 		hideRedundantInformationalEdges,
+		toCyEdge,
 		COLLAPSED_EDGE_CLASS
 	} from './graph_edges';
+	import type { CyEdge } from './graph_edges';
 	import { createElkLayout, isValidPosition, DEFAULT_LAYOUT_PARAMS } from './elk_layout';
 	import type { LayoutParams } from './elk_layout';
 	import GraphLayoutPlayground from './GraphLayoutPlayground.svelte';
-	import { isInformational } from './edge_categories';
 	import type { Node, Edge } from '$lib/api/index';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import GraphNodeSelector from './graph_node_selector.svelte';
@@ -46,14 +47,6 @@
 		label: string;
 		data: Node & { scenarioProvided: boolean };
 		position?: { x: number; y: number };
-	};
-	type CyEdge = {
-		data: Edge & {
-			source: string;
-			target: string;
-			scenarioProvided: boolean;
-			informational: boolean;
-		};
 	};
 	type Pos = { x: number; y: number };
 	type PosMap = Record<string, Pos>;
@@ -799,18 +792,6 @@
 		}
 
 		return cyNode;
-	}
-
-	function toCyEdge(e: Edge): CyEdge {
-		return {
-			data: {
-				source: e.sourceId,
-				target: e.targetId,
-				...e,
-				scenarioProvided: hasKnowledgeProvenance(e.provenance, 'scenario'),
-				informational: isInformational(e.name)
-			}
-		};
 	}
 
 	function handleKeyPress(event: KeyboardEvent) {
