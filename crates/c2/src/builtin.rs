@@ -183,12 +183,23 @@ impl BuiltinC2 {
             };
         }
 
-        debug!(
+        let reason = format!(
+            "cannot execute command for non-pod target '{routing_target}': no local procedure or compatible C2 backend was selected"
+        );
+        warn!(
             cmd_id = %cmd.id,
             target_id = %cmd.target_id,
-            "builtin c2 received non-pod target; returning compatibility success"
+            routing_target,
+            "builtin c2 rejected unroutable command"
         );
-        ok_result(&cmd.id, "ok".to_string())
+        TtpExecuted {
+            id: cmd.id.clone(),
+            success: false,
+            results: vec![reason.clone()],
+            exit_code: 1,
+            fail_reason: reason,
+            session_connected: None,
+        }
     }
 }
 
@@ -258,24 +269,6 @@ fn parse_pod_target_id(target_id: &str) -> Option<(&str, &str)> {
     }
 
     Some((namespace, pod_name))
-}
-
-fn ok_result(cmd_id: &str, output: String) -> TtpExecuted {
-    let trimmed = output.trim().to_string();
-    let payload = if trimmed.is_empty() {
-        "ok".to_string()
-    } else {
-        trimmed
-    };
-
-    TtpExecuted {
-        id: cmd_id.to_string(),
-        success: true,
-        results: vec![payload],
-        exit_code: 0,
-        fail_reason: String::new(),
-        session_connected: None,
-    }
 }
 
 #[cfg(test)]
@@ -431,6 +424,24 @@ mod tests {
 
         assert!(!result.success);
         assert!(result.fail_reason.contains("namespace is unknown"));
+        assert!(fake
+            .calls
+            .lock()
+            .expect("lock should not be poisoned")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn non_pod_target_is_rejected_instead_of_returning_a_fake_success() {
+        let fake = Arc::new(FakePodExecClient::default());
+        let builtin = BuiltinC2::from_pod_exec_client(fake.clone());
+
+        let cmd = exec_cmd("svc/default/redis", "id", "");
+        let result = builtin.execute(&cmd).await;
+
+        assert!(!result.success);
+        assert_eq!(result.exit_code, 1);
+        assert!(result.fail_reason.contains("non-pod target"));
         assert!(fake
             .calls
             .lock()

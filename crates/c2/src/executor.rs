@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use k8s::{Client, PodExecOutput};
@@ -436,6 +437,10 @@ impl C2Executor {
             return self.stop_redirector(cmd, &redirector_id).await;
         }
 
+        if cmd.procedure.is_local_command == Some(true) {
+            return self.run_local_command(cmd).await;
+        }
+
         let mut event = self.select_backend(cmd).await.execute(cmd).await;
         event.session_connected = None;
 
@@ -461,6 +466,105 @@ impl C2Executor {
         }
 
         event
+    }
+
+    /// Execute a procedure explicitly marked `isLocal` on the host running Ran.
+    ///
+    /// This is deliberately handled before C2 backend selection.  Local
+    /// procedures are not pod-exec commands with relaxed routing requirements:
+    /// their process exit status is the action result the operator must see.
+    async fn run_local_command(&self, cmd: &ExecTtp) -> TtpExecuted {
+        let command = cmd.procedure.command.trim();
+        if command.is_empty() {
+            return failed_result(cmd, "local procedure has an empty command");
+        }
+
+        let timeout_seconds = cmd.execution_timeout_seconds.max(1);
+        tracing::info!(
+            cmd_id = %cmd.id,
+            target_id = %cmd.target_id,
+            procedure_id = %cmd.procedure.id,
+            timeout_seconds,
+            command,
+            "executing local procedure on operator host"
+        );
+
+        let mut process = tokio::process::Command::new("sh");
+        process
+            .args(["-c", command])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+
+        let output = match tokio::time::timeout(
+            Duration::from_secs(timeout_seconds),
+            process.output(),
+        )
+        .await
+        {
+            Err(_) => {
+                let reason = format!("local command timed out after {timeout_seconds}s");
+                tracing::warn!(cmd_id = %cmd.id, target_id = %cmd.target_id, %reason);
+                return failed_result(cmd, &reason);
+            }
+            Ok(Err(error)) => {
+                let reason = format!("failed to start local command: {error}");
+                tracing::warn!(cmd_id = %cmd.id, target_id = %cmd.target_id, %reason);
+                return failed_result(cmd, &reason);
+            }
+            Ok(Ok(output)) => output,
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let exit_code = output.status.code().unwrap_or(-1);
+        let mut results = Vec::new();
+        if !stdout.is_empty() {
+            results.push(stdout.clone());
+        }
+        if !stderr.is_empty() {
+            if results.is_empty() {
+                results.push(String::new());
+            }
+            results.push(stderr.clone());
+        }
+
+        if output.status.success() {
+            tracing::info!(cmd_id = %cmd.id, target_id = %cmd.target_id, exit_code, "local procedure completed");
+            TtpExecuted {
+                id: cmd.id.clone(),
+                success: true,
+                results,
+                exit_code,
+                fail_reason: String::new(),
+                session_connected: None,
+            }
+        } else {
+            let reason = stderr
+                .lines()
+                .rev()
+                .find(|line| !line.trim().is_empty())
+                .or_else(|| stdout.lines().rev().find(|line| !line.trim().is_empty()))
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("local command exited with code {exit_code}"));
+            tracing::warn!(
+                cmd_id = %cmd.id,
+                target_id = %cmd.target_id,
+                exit_code,
+                stderr = %stderr,
+                fail_reason = %reason,
+                "local procedure failed"
+            );
+            TtpExecuted {
+                id: cmd.id.clone(),
+                success: false,
+                results,
+                exit_code,
+                fail_reason: reason,
+                session_connected: None,
+            }
+        }
     }
 
     /// Read the kubeconfig from the machine running Ran and return its contents
@@ -1560,6 +1664,45 @@ mod tests {
             .recv()
             .await
             .expect("second result should publish");
+        drop(handle);
+        manager_task
+            .await
+            .expect("manager should shut down cleanly");
+    }
+
+    #[tokio::test]
+    async fn local_procedure_runs_on_the_operator_host_and_reports_its_exit_status() {
+        let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "backend should not run".to_string(),
+        });
+        let mut backends = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), backend.clone());
+        backends.insert("ran".to_string(), backend);
+
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let mut rx = events.subscribe();
+        let manager_task = tokio::spawn(manager.run());
+
+        let mut cmd = exec_cmd("ran");
+        cmd.procedure = Procedure {
+            is_local_command: Some(true),
+            ..Procedure::new(
+                "local-test",
+                "printf local-output; printf local-error >&2; exit 7",
+            )
+        };
+        handle.send(cmd).await.expect("command should queue");
+
+        match rx.recv().await.expect("execution event should publish") {
+            C2Event::TtpExecuted { event, .. } => {
+                assert!(!event.success);
+                assert_eq!(event.exit_code, 7);
+                assert_eq!(event.results, vec!["local-output", "local-error"]);
+                assert_eq!(event.fail_reason, "local-error");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
         drop(handle);
         manager_task
             .await
