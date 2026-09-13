@@ -795,7 +795,7 @@
 							{selectedTTP?.name} is applicable to {eligibleActionPods.length} pods in this workload.
 						</Dialog.Description>
 						<div class="flex max-h-80 flex-col gap-2 overflow-auto">
-							{#each eligibleActionPods as pod}
+							{#each eligibleActionPods as pod (pod.id)}
 								<button
 									class="btn preset-outlined-surface-200-800 justify-start"
 									onclick={() => chooseActionPod(pod.id)}

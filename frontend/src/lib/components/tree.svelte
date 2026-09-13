@@ -78,7 +78,7 @@
 </script>
 
 <div {...tree.root}>
-	{#each tree.items as item}
+	{#each tree.items as item (item.id)}
 		<div {...mergeAttrs(item.root ?? {}, { class: `tree-item ${level > 0 ? 'ml-2' : ''}` })}>
 			{#if item.children && item.children.length > 0}
 				<button {...item.trigger ?? {}} class="flex" onclick={() => tree.toggleExpand(item.id)}>
@@ -96,7 +96,7 @@
 			{/if}
 			{#if item.children && tree.isExpanded(item.id)}
 				<div {...item.content ?? {}}>
-					{#each item.children as child}
+					{#each item.children as child (child.id)}
 						<Self node={child} level={level + 1} {onLeafClick} />
 					{/each}
 				</div>

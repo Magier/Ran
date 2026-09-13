@@ -298,7 +298,7 @@
 						bind:value={profile.combination}
 						onchange={scheduleSave}
 					>
-						{#each combinationModes as m}
+						{#each combinationModes as m (m)}
 							<option value={m}>{m}</option>
 						{/each}
 					</select>
@@ -340,12 +340,12 @@
 										>{help.formula}</code
 									>
 									<ul class="list-disc space-y-0.5 pl-4">
-										{#each help.details as detail}<li>{detail}</li>{/each}
+										{#each help.details as detail, i (i)}<li>{detail}</li>{/each}
 									</ul>
 									{#if help.constants?.length}
 										<p class="text-surface-900-100 font-medium">Current constants</p>
 										<ul class="list-disc space-y-0.5 pl-4">
-											{#each help.constants as constant}<li>{constant}</li>{/each}
+											{#each help.constants as constant, i (i)}<li>{constant}</li>{/each}
 										</ul>
 									{/if}
 								</div>
@@ -386,12 +386,12 @@
 									value={c.curve.type}
 									onchange={(e) => setCurveType(c, e.currentTarget.value as ResponseCurve['type'])}
 								>
-									{#each curveTypes as t}
+									{#each curveTypes as t (t)}
 										<option value={t}>{t}</option>
 									{/each}
 								</select>
 
-								{#each paramKeys(c.curve.type) as key}
+								{#each paramKeys(c.curve.type) as key (key)}
 									<label class="flex items-center gap-1 text-[10px]">
 										<span class="text-surface-500 w-16">{key}</span>
 										<input

@@ -134,7 +134,7 @@
 				<div class="mb-2 pr-2">Traversal</div>
 				<!-- System chain: click a system to inspect the command + envelope at that hop -->
 				<div class="flex flex-wrap items-center gap-y-1">
-					{#each chainNodes as node, i}
+					{#each chainNodes as node, i (i)}
 						{#if i > 0}
 							<Icon icon="material-symbols:chevron-right" width="16" class="opacity-40" />
 						{/if}
@@ -165,7 +165,7 @@
 							<div>
 								<div class="label mb-0.5 text-xs opacity-60">Envelope</div>
 								<code class="block text-xs break-all whitespace-pre-wrap"
-									>{#each selectedHop.envelope.split('${CMD}') as part, pi}{#if pi > 0}<span
+									>{#each selectedHop.envelope.split('${CMD}') as part, pi (pi)}{#if pi > 0}<span
 												class="bg-primary-500/30 text-primary-400 mx-0.5 rounded px-1 font-semibold"
 												>{'${CMD}'}</span
 											>{/if}{redactJwt(part)}{/each}</code
@@ -213,7 +213,7 @@
 		</div>
 		<div class="mt-4 w-full">
 			<span class="label mb-1 flex-none">Result:</span>
-			{#each step.results as result}
+			{#each step.results as result, i (i)}
 				{#if result}
 					<div class="bg-surface-50-950 group relative">
 						<code

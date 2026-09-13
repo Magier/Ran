@@ -184,7 +184,7 @@
 
 			{#if searchResults.length > 0}
 				<div class="mt-4 max-h-64 overflow-y-auto rounded-md border border-gray-700">
-					{#each searchResults as result, index}
+					{#each searchResults as result, index (result.id)}
 						<button
 							type="button"
 							class="bg-surface-300-700 hover:bg-surface-100-900 w-full px-4 py-2 text-left transition-colors {index ===
