@@ -1,0 +1,67 @@
+id: submit-agent-task
+name: Submit Agent Task (spawn worker)
+description: >
+  Enqueue a task on the agent platform's Redis queue (queue:pending). The
+  orchestrator pops it and creates a fresh agent-worker pod that runs the task's
+  command immediately (a heartbeat by default), then stays alive as a foothold.
+  Re-run to spawn another worker (bounded by the orchestrator's MAX_WORKERS).
+  Driven from the operator/Ran host via the kubeconfig - it execs redis-cli
+  inside the Redis pod, so no node IP or NodePort is needed. The task itself is
+  innocuous; in the supply-chain variant the repo is spiked, so processing it is
+  what pops the worker.
+tactic: Execution
+techniques: ["User Execution", "T1204"]
+parameters:
+  REPO:
+    type: string
+    default: "https://github.com/Magier/ikt26"
+    description: the repository the spawned worker is tasked to review
+  TASK_ID:
+    type: string
+    default: "task-${RANDOM}"
+    description: an identifier for the task
+  CMD:
+    type: string
+    default: "while true; do echo heartbeat; sleep 30; done"
+    description: >
+      the command the spawned worker runs the moment it starts. A benign
+      heartbeat by default; this is where a poisoned task would put its payload.
+      Avoid embedded double quotes (it is carried inside a JSON string).
+procedures:
+  - key: kubectl
+    command: |
+      kubectl -n agent-system exec deploy/redis -- \
+        redis-cli LPUSH queue:pending \
+        "{\"id\":\"${TASK_ID}\",\"repo\":\"${REPO}\",\"cmd\":\"${CMD}\"}"
+    isLocal: true
+preconditions:
+  kind: C2
+effects:
+  - taskQueued
+  - spawns k8s.Pod
+defense:
+  id: D3-PM
+  name: Platform Monitoring
+  url: https://d3fend.mitre.org/technique/d3f:PlatformMonitoring/
+  sigma:
+    title: Agent worker pod created by the orchestrator
+    status: experimental
+    description: >
+      The orchestrator creates an agent-worker pod for each queued task. A burst
+      of pod creations by the orchestrator ServiceAccount, or creations that do
+      not correspond to a legitimately submitted task, are worth flagging.
+    logsource:
+      category: application
+      product: kubernetes
+      service: audit
+    detection:
+      selection:
+        verb: 'create'
+        objectRef.resource: 'pods'
+        objectRef.namespace: 'agent-system'
+      condition: selection
+    falsepositives:
+      - Normal task volume on a busy platform
+    level: low
+references:
+  - https://kubernetes.io/docs/concepts/workloads/controllers/job/

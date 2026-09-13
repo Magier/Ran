@@ -37,6 +37,17 @@ pub fn ttp_uses_k8s_auth(ttp: &armory::Ttp) -> bool {
     ttp.procedures.iter().any(procedure_uses_k8s_auth)
 }
 
+/// A local kubectl procedure without an authentication marker uses the Ran
+/// host's configured/default kubeconfig. It therefore does not need an
+/// identity entity to be applicable.
+fn ttp_can_use_default_kubeconfig(ttp: &armory::Ttp) -> bool {
+    ttp.procedures.iter().any(|procedure| {
+        procedure.is_local_command == Some(true)
+            && procedure.command.contains("kubectl ")
+            && !procedure.command.contains("${K8S_AUTH}")
+    })
+}
+
 fn entitlements_satisfy(ttp: &armory::Ttp, entitlements: &[ran_domain::RbacPermission]) -> bool {
     let Some(Value::Array(requirements)) = ttp.requires.get("rbacPermissions") else {
         return true;
@@ -287,7 +298,7 @@ fn ttp_auth_satisfied_for_target(
             .is_some_and(|kind| matches!(kind, "K8sCredential" | "ServiceAccount"));
         let identity_must_match = selected_identity
             && (!ttp.requires.contains_key("kind") || explicitly_targets_identity);
-        return !identities.is_empty()
+        return (!identities.is_empty() || ttp_can_use_default_kubeconfig(ttp))
             && (!identity_must_match
                 || identities
                     .iter()
@@ -692,6 +703,24 @@ mod tests {
         let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
         credential.active = true;
         campaign.entities.insert_typed(credential);
+        assert!(ttp_applicable_for_target(&ttp, &campaign, &context));
+    }
+
+    #[test]
+    fn local_kubectl_procedure_can_use_rans_default_configuration() {
+        let campaign = empty_campaign();
+        let mut requires = serde_json::Map::new();
+        requires.insert("kind".to_string(), json!("C2"));
+        let ttp = Ttp {
+            requires,
+            procedures: vec![armory::Procedure {
+                is_local_command: Some(true),
+                ..armory::Procedure::new("kubectl", "kubectl get namespaces")
+            }],
+            ..Ttp::new("local-kubectl", "Local kubectl", "Execution")
+        };
+
+        let context = resolve_target_context(&campaign, "c2/test").expect("C2 target context");
         assert!(ttp_applicable_for_target(&ttp, &campaign, &context));
     }
 

@@ -3169,6 +3169,33 @@ fn prepare_action_with_ttp_produces_same_result_as_prepare_action() {
     assert_eq!(exec.target_id, target_id);
 }
 
+#[test]
+fn local_kubectl_procedure_uses_default_kubeconfig_without_identity() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let ttp = Ttp {
+        procedures: vec![Procedure {
+            is_local_command: Some(true),
+            ..Procedure::new("kubectl", "kubectl get namespaces")
+        }],
+        ..Ttp::new("local-kubectl", "Local kubectl", "Execution")
+    };
+
+    let exec = campaign
+        .prepare_action_with_ttp(
+            BUILTIN_C2_ID.to_string(),
+            None,
+            None,
+            None,
+            ttp,
+            HashMap::new(),
+            &Armory::from_ttps(vec![]),
+        )
+        .expect("local kubectl should use its default configuration");
+
+    assert_eq!(exec.auth_identity_id, None);
+    assert_eq!(exec.procedure.command, "kubectl get namespaces");
+}
+
 // ---------------------------------------------------------------------------
 // build_cleanup_actions tests
 // ---------------------------------------------------------------------------
