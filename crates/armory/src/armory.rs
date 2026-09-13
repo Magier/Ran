@@ -343,11 +343,12 @@ impl Armory {
                 }
                 if procedure.command.contains("kubectl ")
                     && !procedure.command.contains("${K8S_AUTH}")
+                    && procedure.is_local_command != Some(true)
                 {
                     return Err(ArmoryError::InvalidTtp {
                         ttp_id: ttp.id.clone(),
                         reason: format!(
-                            "kubectl procedure '{}' must include ${{K8S_AUTH}}",
+                            "non-local kubectl procedure '{}' must include ${{K8S_AUTH}}",
                             procedure.id
                         ),
                     });

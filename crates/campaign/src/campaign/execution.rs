@@ -819,8 +819,12 @@ impl Campaign {
         let mut procedure = self.select_procedure(&ttp, procedure_id.as_deref())?;
         let procedure_uses_k8s_auth = crate::ttp_applicability::procedure_uses_k8s_auth(&procedure);
         let resolved_auth = if procedure_uses_k8s_auth {
+            let uses_default_kubeconfig = procedure.is_local_command == Some(true)
+                && procedure.command.contains("kubectl ")
+                && !procedure.command.contains("${K8S_AUTH}");
             if procedure.command.contains("kubectl ")
                 && !procedure.command.contains("${K8S_AUTH}")
+                && !uses_default_kubeconfig
                 && !procedure
                     .command
                     .trim_start()
@@ -888,54 +892,62 @@ impl Campaign {
                 .or_else(|| {
                     (eligible_identities.len() == 1).then(|| eligible_identities[0].id.clone())
                 });
-            let identity_id = requested_identity
-                .or(legacy_identity)
-                .or(implicit_identity)
-                .ok_or_else(|| {
-                    ExecuteActionError::InvalidInput(format!(
+            let identity_id = requested_identity.or(legacy_identity).or(implicit_identity);
+            match identity_id {
+                None if uses_default_kubeconfig => {
+                    // An explicitly local procedure is executed on the Ran
+                    // host, where kubectl can resolve its normal configuration.
+                    // It has no Authenticate As binding to persist or display.
+                    None
+                }
+                None => {
+                    return Err(ExecuteActionError::InvalidInput(format!(
                         "action '{}' requires an Authenticate As identity",
                         ttp.id
-                    ))
-                })?;
-            if !eligible_identities
-                .iter()
-                .any(|identity| identity.id == identity_id)
-            {
-                return Err(ExecuteActionError::InvalidInput(format!(
-                    "authentication identity '{}' is not eligible for action '{}'",
-                    identity_id, ttp.id
-                )));
-            }
+                    )));
+                }
+                Some(identity_id) => {
+                    if !eligible_identities
+                        .iter()
+                        .any(|identity| identity.id == identity_id)
+                    {
+                        return Err(ExecuteActionError::InvalidInput(format!(
+                            "authentication identity '{}' is not eligible for action '{}'",
+                            identity_id, ttp.id
+                        )));
+                    }
 
-            let entity_id = EntityId::new(&identity_id);
-            if let Some(account) = self.entities.find::<ServiceAccount>(&entity_id) {
-                let token = account.raw_token().ok_or_else(|| {
-                    ExecuteActionError::InvalidInput(format!(
-                        "ServiceAccount '{}' has no captured token",
-                        identity_id
-                    ))
-                })?;
-                Some(ResolvedK8sAuth::ServiceAccount {
-                    id: identity_id,
-                    token: token.to_string(),
-                })
-            } else if let Some(context) = self
-                .entities
-                .find::<K8sCredential>(&entity_id)
-                .filter(|credential| {
-                    credential.active || self.is_operator_host_credential(&entity_id)
-                })
-                .map(|credential| credential.context_name.clone())
-            {
-                Some(ResolvedK8sAuth::Kubeconfig {
-                    id: identity_id,
-                    context,
-                })
-            } else {
-                return Err(ExecuteActionError::InvalidInput(format!(
-                    "authentication identity '{}' is neither a captured ServiceAccount nor a usable local K8sCredential",
-                    identity_id
-                )));
+                    let entity_id = EntityId::new(&identity_id);
+                    if let Some(account) = self.entities.find::<ServiceAccount>(&entity_id) {
+                        let token = account.raw_token().ok_or_else(|| {
+                            ExecuteActionError::InvalidInput(format!(
+                                "ServiceAccount '{}' has no captured token",
+                                identity_id
+                            ))
+                        })?;
+                        Some(ResolvedK8sAuth::ServiceAccount {
+                            id: identity_id,
+                            token: token.to_string(),
+                        })
+                    } else if let Some(context) = self
+                        .entities
+                        .find::<K8sCredential>(&entity_id)
+                        .filter(|credential| {
+                            credential.active || self.is_operator_host_credential(&entity_id)
+                        })
+                        .map(|credential| credential.context_name.clone())
+                    {
+                        Some(ResolvedK8sAuth::Kubeconfig {
+                            id: identity_id,
+                            context,
+                        })
+                    } else {
+                        return Err(ExecuteActionError::InvalidInput(format!(
+                            "authentication identity '{}' is neither a captured ServiceAccount nor a usable local K8sCredential",
+                            identity_id
+                        )));
+                    }
+                }
             }
         } else {
             None
