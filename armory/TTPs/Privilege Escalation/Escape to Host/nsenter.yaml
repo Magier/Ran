@@ -10,13 +10,44 @@ preconditions:
 effects:
   - container.escape(sys)
 parameters:
+  TARGET:
+    type: int
+    default: 1
+    description: the PID whose namespaces to enter
+  MOUNT:
+    type: bool
+    default: true
+    description: enter the target process mount namespace
+  UTS:
+    type: bool
+    default: true
+    description: enter the target process UTS namespace
+  IPC:
+    type: bool
+    default: true
+    description: enter the target process IPC namespace
+  NET:
+    type: bool
+    default: true
+    description: enter the target process network namespace
+  PID:
+    type: bool
+    default: true
+    description: enter the target process PID namespace
   CMD:
     type: string
     default: hostname
     description: the command to execute on the host
 procedures:
   - key: nsenter
-    command: nsenter --target 1 --mount --uts --ipc --net --pid ${CMD}
+    command: >-
+      nsenter --target ${TARGET}
+      {% if MOUNT %}--mount{% endif %}
+      {% if UTS %}--uts{% endif %}
+      {% if IPC %}--ipc{% endif %}
+      {% if NET %}--net{% endif %}
+      {% if PID %}--pid{% endif %}
+      ${CMD}
 defend:
   - tactic: detect
     id: D3-SCA
