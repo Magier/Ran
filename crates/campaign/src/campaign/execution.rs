@@ -2489,6 +2489,11 @@ impl Campaign {
             }
             self.apply_relation_provenance(updates, rel.as_ref(), &src, &tgt);
         }
+
+        for removed_id in &updates.removed_entities {
+            let canonical_id = EntityId::new(self.canonical_entity_id(&removed_id.0));
+            self.remove_entity_by_id(&canonical_id);
+        }
     }
 
     fn apply_relation_provenance(

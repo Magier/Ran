@@ -809,6 +809,14 @@ impl Campaign {
         self.entities.remove_typed::<T>(id)
     }
 
+    /// Remove an entity when an effect identifies it by ID rather than by its
+    /// concrete Rust type.
+    pub(crate) fn remove_entity_by_id(&mut self, id: &EntityId) -> bool {
+        self.graph.remove_entity(id);
+        self.knowledge_provenance.remove_entity(id);
+        self.entities.remove_entity(id)
+    }
+
     /// Drop whichever listener holds `port`, returning how many were removed.
     ///
     /// A port can only be bound once, so this is at most one - the protocol is

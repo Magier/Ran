@@ -135,6 +135,15 @@ impl KnowledgeProvenanceStore {
         self.relations.get(key).cloned().unwrap_or_default()
     }
 
+    pub fn remove_entity(&mut self, id: &EntityId) {
+        self.entities.remove(id);
+        self.relations.retain(|key, _| {
+            key.parts()
+                .map(|(_, source, target)| source != id.0 && target != id.0)
+                .unwrap_or(true)
+        });
+    }
+
     pub fn merge_entity(&mut self, stale: &EntityId, preferred: &EntityId) {
         if let Some(origins) = self.entities.remove(stale) {
             self.entities

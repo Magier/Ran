@@ -164,6 +164,42 @@ fn sample_failed_event(fail_reason: &str) -> TtpExecuted {
 }
 
 #[test]
+fn successful_delete_pod_effect_removes_target_from_campaign_graph() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("victim", "default");
+    let pod_id = pod.entity_id();
+    campaign.insert_entity(&pod);
+    push_exec_edge(&mut campaign, BUILTIN_C2_ID, &pod_id.0);
+
+    let cmd = sample_exec_ttp(&pod_id.0, vec!["delete k8s.Pod"]);
+    let processing = campaign
+        .on_ttp_executed(&cmd, &sample_event("pod deleted"))
+        .expect("delete effect should be processed");
+
+    assert!(processing.effective_success);
+    assert!(processing.updates.removed_entities.contains(&pod_id));
+    assert!(campaign.get_system_entity(&pod_id.0).is_none());
+    assert!(!campaign.graph.contains(&pod_id));
+}
+
+#[test]
+fn failed_delete_pod_effect_keeps_target_in_campaign_graph() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let pod = Pod::new("victim", "default");
+    let pod_id = pod.entity_id();
+    campaign.insert_entity(&pod);
+
+    let cmd = sample_exec_ttp(&pod_id.0, vec!["delete k8s.Pod"]);
+    let processing = campaign
+        .on_ttp_executed(&cmd, &sample_failed_event("forbidden"))
+        .expect("failed action should still be recorded");
+
+    assert!(!processing.effective_success);
+    assert!(campaign.get_system_entity(&pod_id.0).is_some());
+    assert!(campaign.graph.contains(&pod_id));
+}
+
+#[test]
 fn bootstrap_without_local_credential_contains_c2_and_cluster_entities() {
     let campaign = Campaign::bootstrap(
         "Ran",
