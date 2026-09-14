@@ -824,12 +824,13 @@ impl RelationSummary {
     /// Wrap `cmd` with the appropriate execution primitive for this channel.
     ///
     /// - If the relation carries an `envelope` (e.g. a grounded `redis-cli … ${CMD}` exploit
-    ///   template), substitutes `${CMD}` with `cmd`.
+    ///   template), substitutes `${CMD}` with `cmd`, escaping it for the shell
+    ///   quote context surrounding the placeholder.
     /// - Otherwise falls back to `kubectl exec -n <ns> <name> -- <cmd>` by parsing the
     ///   target entity ID in the canonical `ns/<ns>/pod/<name>` format.
     pub fn wrap_command(&self, cmd: &str) -> String {
         if let Some(ref envelope) = self.envelope {
-            return envelope.replace("${CMD}", cmd);
+            return substitute_envelope_command(envelope, cmd);
         }
         // Default: kubectl exec into the target pod
         if let Some((ns, name)) = Self::split_pod_entity_id(&self.target_id) {
@@ -855,6 +856,81 @@ impl RelationSummary {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ShellQuoteContext {
+    Unquoted,
+    SingleQuoted,
+    DoubleQuoted,
+}
+
+/// Substitute an execution-channel command without allowing its quotes to
+/// terminate the shell word that contains `${CMD}`.
+///
+/// Unquoted placeholders retain their existing word-splitting behavior. This
+/// is required by envelopes such as `nsenter ... -- ${CMD}`. Placeholders in a
+/// quoted word are escaped only for that quote context.
+fn substitute_envelope_command(envelope: &str, cmd: &str) -> String {
+    const PLACEHOLDER: &str = "${CMD}";
+
+    let mut result = String::with_capacity(envelope.len() + cmd.len());
+    let mut context = ShellQuoteContext::Unquoted;
+    let mut offset = 0;
+
+    while offset < envelope.len() {
+        let remaining = &envelope[offset..];
+        if remaining.starts_with(PLACEHOLDER) {
+            match context {
+                ShellQuoteContext::Unquoted => result.push_str(cmd),
+                ShellQuoteContext::SingleQuoted => {
+                    result.push_str(&cmd.replace('\'', "'\\''"));
+                }
+                ShellQuoteContext::DoubleQuoted => {
+                    for ch in cmd.chars() {
+                        if matches!(ch, '\\' | '"' | '$' | '`') {
+                            result.push('\\');
+                        }
+                        result.push(ch);
+                    }
+                }
+            }
+            offset += PLACEHOLDER.len();
+            continue;
+        }
+
+        let ch = remaining
+            .chars()
+            .next()
+            .expect("remaining input is non-empty");
+        result.push(ch);
+        offset += ch.len_utf8();
+
+        match (context, ch) {
+            (ShellQuoteContext::Unquoted, '\\') | (ShellQuoteContext::DoubleQuoted, '\\') => {
+                if offset < envelope.len() {
+                    let escaped = envelope[offset..]
+                        .chars()
+                        .next()
+                        .expect("remaining escaped input is non-empty");
+                    result.push(escaped);
+                    offset += escaped.len_utf8();
+                }
+            }
+            (ShellQuoteContext::Unquoted, '\'') => {
+                context = ShellQuoteContext::SingleQuoted;
+            }
+            (ShellQuoteContext::Unquoted, '"') => {
+                context = ShellQuoteContext::DoubleQuoted;
+            }
+            (ShellQuoteContext::SingleQuoted, '\'') | (ShellQuoteContext::DoubleQuoted, '"') => {
+                context = ShellQuoteContext::Unquoted;
+            }
+            _ => {}
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod app_service_relation_tests {
     use super::*;
@@ -874,5 +950,36 @@ mod app_service_relation_tests {
                 "hosts-service" | "can-reach"
             ));
         }
+    }
+
+    #[test]
+    fn envelope_escapes_command_inside_double_quoted_argument() {
+        let relation = RelationSummary::from_relation(
+            &RceCanExec::new("system/source", "system/redis")
+                .with_envelope(
+                    r#"redis-cli EVAL "local f=io.popen('sh -c \"' .. ARGV[1]:gsub('\"', '\\\\\"') .. '\" 2>&1')" 0 "${CMD}""#,
+                ),
+        );
+        let command = r#"curl -H "Authorization: Bearer token" --data '{"kind":"SelfSubjectRulesReview"}' 'https://kubernetes.default.svc/review'"#;
+        let wrapped = relation.wrap_command(command);
+
+        assert!(
+            wrapped.ends_with(
+                r#"0 "curl -H \"Authorization: Bearer token\" --data '{\"kind\":\"SelfSubjectRulesReview\"}' 'https://kubernetes.default.svc/review'""#
+            ),
+            "wrapped command did not preserve the Redis argument: {wrapped}"
+        );
+    }
+
+    #[test]
+    fn envelope_preserves_unquoted_command_word_splitting() {
+        let relation = RelationSummary::from_relation(
+            &ContainerEscape::new("system/pod", "system/node").with_envelope("nsenter -- ${CMD}"),
+        );
+
+        assert_eq!(
+            relation.wrap_command("printf '%s' hello"),
+            "nsenter -- printf '%s' hello"
+        );
     }
 }
