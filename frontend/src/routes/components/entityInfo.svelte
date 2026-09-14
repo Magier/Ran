@@ -6,6 +6,7 @@
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { knowledgeProvenanceBadges } from '$lib/knowledgeProvenance';
 	import { WORKLOAD_KINDS } from './workload_compounds';
+	import { quickActionFields, quickActionsForField } from './entity_info_quick_actions';
 
 	type ObjectInfoProps = {
 		objectId: string;
@@ -17,21 +18,6 @@
 
 	const campaignState = getCampaignState();
 	const obj = $derived(campaignState.getObjectById(objectId));
-
-	// Fields where the button should be suppressed for specific entity kinds.
-	const FIELD_KIND_EXCLUDE: Record<string, string[]> = {
-		service_account_name: ['ServiceAccount']
-	};
-
-	const EFFECT_FIELD_MAP: Record<string, string[]> = {
-		'linux.mounts': ['mounts'],
-		'sys.envVar': ['envVars'],
-		'sys.ip': ['ips'],
-		'sys.files': ['files', 'binaries'],
-		'sys.userID': ['user_id'],
-		rawServiceaccountToken: ['service_account_name'],
-		'k8s.SelfSubjectRulesReview': ['can']
-	};
 
 	function isEmpty(data: any): boolean {
 		if (data === undefined || data === null || data === '') return true;
@@ -78,17 +64,7 @@
 			});
 	});
 
-	const fieldTtpIndex = $derived.by(() => {
-		const idx = new Map<string, TTP>();
-		for (const ttp of applicableTtps) {
-			for (const effect of ttp.effects ?? []) {
-				for (const field of EFFECT_FIELD_MAP[effect] ?? []) {
-					if (!idx.has(field)) idx.set(field, ttp);
-				}
-			}
-		}
-		return idx;
-	});
+	const quickActionFieldSet = $derived(quickActionFields(obj?.kind, applicableTtps));
 
 	// Track previous values and highlighted fields
 	let previousObjectId: string | null = null;
@@ -219,7 +195,7 @@
 		// An explicit empty `can` means the permission review completed with no rules.
 		if (label === 'can' && Array.isArray(data)) return true;
 		// Empty field: only show if a TTP can discover it (the button is the point)
-		if (isEmpty(data)) return fieldTtpIndex.has(label);
+		if (isEmpty(data)) return quickActionFieldSet.has(label);
 		return true;
 	}
 
@@ -246,10 +222,8 @@
 		});
 	}
 
-	function ttpForField(label: string): TTP | undefined {
-		const excludedKinds = FIELD_KIND_EXCLUDE[label] ?? [];
-		if (obj?.kind && excludedKinds.includes(obj.kind)) return undefined;
-		return fieldTtpIndex.get(label);
+	function ttpsForField(label: string): TTP[] {
+		return quickActionsForField(label, obj?.kind, applicableTtps);
 	}
 
 	function readFile(path: string) {
@@ -280,15 +254,16 @@
 			</div>
 		{/snippet}
 		{#snippet runBtn(label: string)}
-			{@const ttp = ttpForField(label)}
-			{#if ttp && sendAction}
-				<button
-					class="hover:bg-surface-300 dark:hover:bg-surface-700 shrink-0 cursor-pointer rounded p-0.5 transition-colors"
-					title="Run: {ttp.name}"
-					onclick={() => sendAction!(ttp!, {})}
-				>
-					<Icon icon="mdi:play-circle-outline" width="14" class="text-primary-500" />
-				</button>
+			{#if sendAction}
+				{#each ttpsForField(label) as ttp (ttp.id)}
+					<button
+						class="hover:bg-surface-300 dark:hover:bg-surface-700 shrink-0 cursor-pointer rounded p-0.5 transition-colors"
+						title="Run: {ttp.name}"
+						onclick={() => sendAction!(ttp, {})}
+					>
+						<Icon icon="mdi:play-circle-outline" width="14" class="text-primary-500" />
+					</button>
+				{/each}
 			{/if}
 		{/snippet}
 		<!-- Header: name + kind badge + copy-ID button -->
@@ -825,19 +800,12 @@
 			{/if}
 		{/each}
 		<!-- Placeholder rows for discoverable fields not yet present on the entity -->
-		{#each [...fieldTtpIndex.entries()].filter(([field]) => !(field in (obj ?? {}))) as [field] (field)}
-			{@const ttp = ttpForField(field)}
-			{#if ttp && sendAction}
+		{#each [...quickActionFieldSet].filter((field) => !(field in (obj ?? {}))) as field (field)}
+			{#if sendAction}
 				<div class="mb-1 flex items-center gap-1">
 					<span class="text-surface-400 mr-1 opacity-40">{field}:</span>
 					<span class="text-surface-400 italic opacity-40">-</span>
-					<button
-						class="hover:bg-surface-300 dark:hover:bg-surface-700 shrink-0 cursor-pointer rounded p-0.5 transition-colors"
-						title="Run: {ttp.name}"
-						onclick={() => sendAction!(ttp, {})}
-					>
-						<Icon icon="mdi:play-circle-outline" width="14" class="text-primary-500" />
-					</button>
+					{@render runBtn(field)}
 				</div>
 			{/if}
 		{/each}
