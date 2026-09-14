@@ -3977,6 +3977,46 @@ fn repository_armory() -> Armory {
     Armory::load_from_dir(path).expect("repository armory should load")
 }
 
+#[test]
+fn search_interesting_files_uses_configurable_busybox_compatible_exclusions() {
+    let armory = repository_armory();
+    let ttp = armory
+        .get_ttp("search-interesting-files")
+        .expect("Search interesting Files TTP");
+    let excluded_dirs = ttp
+        .params
+        .iter()
+        .find(|param| param.name == "EXCLUDED_DIRS")
+        .expect("configurable directory exclusion parameter");
+    assert_eq!(excluded_dirs.param_type, "stringList");
+    assert_eq!(excluded_dirs.default, r#"["proc","sys","dev"]"#);
+
+    let mut args: HashMap<_, _> = ttp
+        .params
+        .iter()
+        .map(|param| (param.name.clone(), param.default.clone()))
+        .collect();
+    let command = crate::grounding::resolve_template(&ttp.procedures[0].command, &args);
+
+    assert!(!command.contains("--exclude-dir"));
+    for directory in ["proc", "sys", "dev"] {
+        assert!(
+            command.contains(&format!("-type d -name '{directory}' -prune -o")),
+            "default exclusion should be rendered for {directory}: {command}"
+        );
+    }
+    assert!(command.ends_with("-type f -exec grep -swIl -e '${PATTERN}' {} \\;"));
+
+    args.insert(
+        "EXCLUDED_DIRS".to_string(),
+        r#"["tmp","cache"]"#.to_string(),
+    );
+    let command = crate::grounding::resolve_template(&ttp.procedures[0].command, &args);
+    assert!(command.contains("-type d -name 'tmp' -prune -o"));
+    assert!(command.contains("-type d -name 'cache' -prune -o"));
+    assert!(!command.contains("-name 'proc'"));
+}
+
 fn valid_accounts_campaign() -> (Campaign, String, String) {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("target", "default");
