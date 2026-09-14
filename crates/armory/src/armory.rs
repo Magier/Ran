@@ -624,6 +624,28 @@ mod tests {
     }
 
     #[test]
+    fn chroot_escape_targets_pods_with_an_active_session() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+
+        let ttp = armory
+            .get_ttp("escape-container-via-chroot")
+            .expect("chroot escape TTP should be in the armory");
+
+        assert_eq!(
+            ttp.requires.get("kind").and_then(|value| value.as_str()),
+            Some("Pod")
+        );
+        assert_eq!(
+            ttp.requires
+                .get("activeSession")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(ttp.procedures[0].command, "chroot ${HOST_PATH}");
+    }
+
+    #[test]
     fn preserves_kubernetes_http_request_procedure_variants() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
         let armory = Armory::load_from_dir(path).expect("repository armory should load");
