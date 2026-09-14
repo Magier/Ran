@@ -53,6 +53,7 @@ trait ErasedSlot: std::fmt::Debug + Send + Sync {
     fn len(&self) -> usize;
     fn contains_id(&self, id: &EntityId) -> bool;
     fn insert_entity(&mut self, id: EntityId, entity: &dyn Entity);
+    fn remove_entity(&mut self, id: &EntityId) -> bool;
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn all_refs<'a>(&'a self) -> Vec<CampaignEntityRef<'a>>;
@@ -92,6 +93,10 @@ impl<T: EntityType> ErasedSlot for Slot<T> {
                 .and_modify(|x| x.merge_from(e))
                 .or_insert_with(|| e.clone());
         }
+    }
+
+    fn remove_entity(&mut self, id: &EntityId) -> bool {
+        self.data.remove(id).is_some()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -226,6 +231,11 @@ impl EntityStore {
     /// [`crate::Campaign::remove_entity`]).
     pub fn remove_typed<T: EntityType>(&mut self, id: &EntityId) -> bool {
         self.get_mut::<T>().remove(id).is_some()
+    }
+
+    /// Remove an entity without requiring its concrete type at the call site.
+    pub fn remove_entity(&mut self, id: &EntityId) -> bool {
+        self.slots.values_mut().any(|slot| slot.remove_entity(id))
     }
 
     pub fn find<T: EntityType>(&self, id: &EntityId) -> Option<&T> {

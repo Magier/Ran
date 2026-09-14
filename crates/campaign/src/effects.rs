@@ -27,6 +27,11 @@ pub struct ParsedStructuralEffect {
 pub struct FactsUpdate {
     pub new_entities: Vec<Box<dyn Entity + Send + Sync>>,
     pub new_relations: Vec<Box<dyn Relation + Send + Sync>>,
+    /// Entities that a successful action removed from the modeled world.
+    ///
+    /// Deletions are applied after additions so an imperative delete wins if
+    /// another effect in the same action happens to re-emit the target.
+    pub removed_entities: IndexSet<EntityId>,
     /// Entity-identity merges: `(stale_id, preferred_id)`.
     ///
     /// When applied, all relations referencing `stale_id` are rewritten to
@@ -50,6 +55,7 @@ impl FactsUpdate {
         let FactsUpdate {
             new_entities,
             new_relations,
+            removed_entities,
             entity_aliases,
             entity_provenance,
             relation_provenance,
@@ -64,6 +70,7 @@ impl FactsUpdate {
                 self.new_entities.push(entity);
             }
         }
+        self.removed_entities.extend(removed_entities);
 
         let seen_relations: IndexSet<(String, EntityId, EntityId)> = self
             .new_relations
@@ -221,6 +228,26 @@ pub fn parse_effect_with_status(
     args: &HashMap<String, String>,
 ) -> Result<ParsedStructuralEffect, String> {
     let normalized = effect.trim();
+
+    if let Some(kind) = normalized.strip_prefix("delete ") {
+        if EffectKind::parse(kind).is_none() {
+            return Ok(ParsedStructuralEffect {
+                updates: FactsUpdate::default(),
+                handled: false,
+            });
+        }
+        let target_id = get_arg(args, &["TARGET_ID"])
+            .filter(|id| !id.trim().is_empty())
+            .ok_or_else(|| format!("{normalized} effect requires TARGET_ID argument"))?;
+        let mut updates = FactsUpdate::default();
+        updates
+            .removed_entities
+            .insert(EntityId::new(target_id.to_string()));
+        return Ok(ParsedStructuralEffect {
+            updates,
+            handled: true,
+        });
+    }
 
     if let Some(handler) = resolve_simple_effect_handler(normalized) {
         return Ok(ParsedStructuralEffect {
@@ -1183,6 +1210,27 @@ mod tests {
 
     fn ctx() -> HashMap<String, String> {
         HashMap::new()
+    }
+
+    #[test]
+    fn delete_pod_removes_the_action_target() {
+        let target_id = EntityId::new("ns/default/pod/victim");
+        let args = HashMap::from([("TARGET_ID".to_string(), target_id.0.clone())]);
+
+        let parsed = parse_effect_with_status("delete k8s.Pod", &args).unwrap();
+
+        assert!(parsed.handled);
+        assert_eq!(parsed.updates.removed_entities.len(), 1);
+        assert!(parsed.updates.removed_entities.contains(&target_id));
+    }
+
+    #[test]
+    fn delete_pod_requires_an_action_target() {
+        let error = match parse_effect_with_status("delete k8s.Pod", &ctx()) {
+            Ok(_) => panic!("delete effect without a target should fail"),
+            Err(error) => error,
+        };
+        assert!(error.contains("requires TARGET_ID"));
     }
 
     #[test]
