@@ -139,7 +139,8 @@
 
 	// Track the action context whose defaults are currently displayed. Reusing
 	// the same TTP on another target must re-ground target-derived defaults.
-	let previousActionContext: string | undefined = undefined;
+	let previousTtpId: string | undefined = undefined;
+	let previousTargetId: string | undefined = undefined;
 
 	// Track the last TTP ID we focused for, to only focus once per TTP
 	let lastFocusedTTPId = $state<string | undefined>(undefined);
@@ -378,12 +379,12 @@
 	$effect(() => {
 		const currentTtpId = ttp?.id;
 		const currentTargetId = targetId;
-		const currentActionContext = `${currentTtpId}\u0000${currentTargetId}`;
 
-		if (currentActionContext === previousActionContext) {
+		if (currentTtpId === previousTtpId && currentTargetId === previousTargetId) {
 			return;
 		}
-		previousActionContext = currentActionContext;
+		previousTtpId = currentTtpId;
+		previousTargetId = currentTargetId;
 
 		// Capture all reactive values we need before untrack
 		const ttpParams = ttp.params;
