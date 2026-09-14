@@ -57,8 +57,13 @@
 	let executionTimeoutSeconds = $state(60);
 
 	const compromisedSystems = $derived(campaignState.getCompromisedSystems());
+	const selectedProcedure = $derived(
+		ttp.procedures?.find((candidate) => candidate.id === procedureId) ?? ttp.procedures?.[0]
+	);
+	const runsOutsideTarget = $derived(selectedProcedure?.runOnTarget === false);
 	const execSystemOptions = $derived<ComboboxOption[]>(
 		compromisedSystems
+			.filter((system) => !runsOutsideTarget || system.id !== targetId)
 			.map((e) => ({ label: e.name, value: e.id, group: e.namespace }))
 			.sort((a, b) => a.label.localeCompare(b.label))
 	);
@@ -66,9 +71,7 @@
 		compromisedSystems.find((e) => e.id === selectedExecSystemId)
 	);
 	const hasAdvancedSettings = $derived.by(() => {
-		const procedure =
-			ttp.procedures?.find((candidate) => candidate.id === procedureId) ?? ttp.procedures?.[0];
-		return !!procedure?.command?.trim() && !procedure.isLocalCommand;
+		return !!selectedProcedure?.command?.trim() && !selectedProcedure.isLocalCommand;
 	});
 	$effect(() => {
 		const actionId = ttp?.id;
@@ -529,7 +532,10 @@
 			// executes them on a linked pod, whose binary facts control procedure
 			// availability.
 			const systems = campaignState.getCompromisedSystems();
-			selectedExecSystemId = defaultExecutionSystemId(currentTargetId, systems);
+			selectedExecSystemId =
+				ttpProcedures?.[0]?.runOnTarget === false
+					? ''
+					: defaultExecutionSystemId(currentTargetId, systems);
 
 			console.log(args);
 			console.groupEnd();
@@ -626,6 +632,15 @@
 			if (first) {
 				procedureId = first.id;
 			}
+		}
+	});
+
+	// A source-side procedure may never use the semantic target as its physical
+	// execution system. An empty hint lets the backend choose the best eligible
+	// foothold while preserving the target for parameter grounding.
+	$effect(() => {
+		if (runsOutsideTarget && selectedExecSystemId === targetId) {
+			selectedExecSystemId = '';
 		}
 	});
 
@@ -891,10 +906,23 @@
 			<span class="h6 label text-xs md:text-sm lg:text-base">Description</span>
 			{ttp.description}
 		</div>
-		{#if execSystemOptions.length > 0}
+		{#if execSystemOptions.length > 0 || runsOutsideTarget}
 			<label class="label mt-5">
-				<span class="h6 label-text text-xs md:text-sm lg:text-base">Execute On</span>
-				{#if execSystemOptions.length === 1}
+				<span class="h6 label-text text-xs md:text-sm lg:text-base"
+					>{runsOutsideTarget ? 'Execute From' : 'Execute On'}</span
+				>
+				{#if runsOutsideTarget}
+					<select
+						id="execSystem"
+						class="input mt-2 text-xs md:text-sm lg:text-base"
+						bind:value={selectedExecSystemId}
+					>
+						<option value="">Automatic reachable system</option>
+						{#each execSystemOptions as sys (sys.value)}
+							<option value={sys.value}>{sys.group}/{sys.label}</option>
+						{/each}
+					</select>
+				{:else if execSystemOptions.length === 1}
 					<input
 						id="execSystem"
 						class="input mt-2 text-xs md:text-sm lg:text-base"

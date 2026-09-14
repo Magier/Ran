@@ -610,6 +610,20 @@ mod tests {
     }
 
     #[test]
+    fn redis_token_read_runs_from_outside_its_target() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+
+        let ttp = armory
+            .get_ttp("extract-serviceaccount-token-via-cve-2026-47701")
+            .expect("Redis token-read TTP should be in the armory");
+        let procedure = ttp.procedures.first().expect("one procedure");
+
+        assert_eq!(procedure.run_on_target, Some(false));
+        assert!(procedure.command.contains("redis-cli -h ${TARGET}"));
+    }
+
+    #[test]
     fn preserves_kubernetes_http_request_procedure_variants() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
         let armory = Armory::load_from_dir(path).expect("repository armory should load");

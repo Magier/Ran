@@ -308,6 +308,16 @@ pub fn parse_output_effect(
         file::parse_local_kubeconfig(stdout, &cmd.target_id)
     } else if normalized == "sys.node-name" {
         parse_sys_node_name(campaign, cmd, stdout)
+    } else if normalized == "rawserviceaccounttoken" {
+        // A source-side read can extract a token from a storage target such as
+        // Redis. In that case the JWT claims identify the discovered workload,
+        // while TARGET_ID identifies only the storage system. Do not use it for
+        // provisional identity reconciliation.
+        let mut parser_args = cmd.args.clone();
+        if cmd.procedure.run_on_target == Some(false) {
+            parser_args.remove("TARGET_ID");
+        }
+        iam::parse_raw_service_account_token(stdout, stderr, &parser_args)
     } else {
         let parser = get_registry().get(normalized.trim())?;
         parser(stdout, stderr, &cmd.args)

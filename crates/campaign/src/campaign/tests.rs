@@ -236,6 +236,52 @@ fn on_ttp_executed_parses_sys_envvar_into_target_system_info() {
 }
 
 #[test]
+fn on_ttp_executed_connects_stored_sa_token_claims_to_the_graph() {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let redis = Pod::new("oopservability-redis-67dd89d6f6-qj2ct", "?");
+    let redis_id = redis.entity_id().0;
+    campaign.entities.insert_typed(redis);
+
+    let payload = r#"{
+        "kubernetes.io": {
+            "namespace": "agent-system",
+            "pod": {"name": "agent-orchestrator-5c968b87cc-zrlfb", "uid": "pod-uid"},
+            "serviceaccount": {"name": "agent-orchestrator", "uid": "sa-uid"}
+        },
+        "sub": "system:serviceaccount:agent-system:agent-orchestrator"
+    }"#;
+    let token = format!(
+        "{}.{}.signature",
+        URL_SAFE_NO_PAD.encode(r#"{"alg":"RS256","typ":"JWT"}"#),
+        URL_SAFE_NO_PAD.encode(payload)
+    );
+    let mut cmd = sample_exec_ttp(&redis_id, vec!["rawServiceaccountToken"]);
+    cmd.procedure.run_on_target = Some(false);
+    cmd.args.insert("TARGET_ID".to_string(), redis_id.clone());
+    let event = sample_event(&token);
+
+    let processed = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    assert!(matches!(
+        processed.parse_audits[0].parse_result,
+        ParseResult::Parsed
+    ));
+    assert!(campaign
+        .entities
+        .contains::<ServiceAccount>(&EntityId::new("ns/agent-system/sa/agent-orchestrator")));
+    assert!(campaign.entities.contains::<Pod>(&EntityId::new(
+        "ns/agent-system/pod/agent-orchestrator-5c968b87cc-zrlfb"
+    )));
+    assert!(
+        campaign.entities.contains::<Pod>(&EntityId::new(&redis_id)),
+        "the storage target must not be aliased into the token's workload"
+    );
+}
+
+#[test]
 fn on_ttp_executed_derives_cluster_facts_from_injected_env_vars() {
     // End-to-end: `sys.envvar` writes the variables straight onto the committed
     // entity via `apply_system_update`, so `KubeEnvVarAnalyzer` has to pick them
@@ -2541,6 +2587,186 @@ fn prepare_action_exec_system_same_as_target_still_uses_channel_hops() {
         entry_id,
         "physical exec entity must be the first hop, not target pod directly"
     );
+}
+
+fn source_side_redis_armory() -> Armory {
+    Armory::from_ttps(vec![Ttp {
+        params: vec![
+            TtpParam {
+                name: "TARGET".to_string(),
+                param_type: "string".to_string(),
+                description: "Redis address".to_string(),
+                required: true,
+                default: "${TARGET.IP}".to_string(),
+            },
+            TtpParam {
+                name: "PORT".to_string(),
+                param_type: "int".to_string(),
+                description: "Redis port".to_string(),
+                required: true,
+                default: "6379".to_string(),
+            },
+        ],
+        procedures: vec![Procedure {
+            tool: Some("redis-cli".to_string()),
+            run_on_target: Some(false),
+            ..Procedure::new(
+                "redis-cli",
+                "redis-cli -h ${TARGET} -p ${PORT} --raw GET captured-token",
+            )
+        }],
+        ..Ttp::new(
+            "source-side-redis-read",
+            "Source-side Redis read",
+            "Credential Access",
+        )
+    }])
+}
+
+fn campaign_with_redis_rce() -> (Campaign, String, String) {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut entry = Pod::new("entry-hall", "dungeon");
+    entry.system.set_binary("redis-cli", "/opt/bin/redis-cli");
+    let entry_id = entry.entity_id().0.clone();
+    campaign.entities.insert_typed(entry);
+    push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
+
+    let mut redis = Pod::new("redis", "oopservability");
+    redis.system.ips.push("10.0.0.11".parse().unwrap());
+    let redis_id = redis.entity_id().0.clone();
+    campaign.entities.insert_typed(redis);
+    push_relation(
+        &mut campaign,
+        &RceCanExec::new(&entry_id, &redis_id).with_envelope("redis-rce ${CMD}".to_string()),
+    );
+
+    (campaign, entry_id, redis_id)
+}
+
+#[test]
+fn source_side_procedure_keeps_redis_as_target_but_runs_on_foothold() {
+    let (mut campaign, entry_id, redis_id) = campaign_with_redis_rce();
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "source-side-redis-read".to_string(),
+                target_id: redis_id.clone(),
+                exec_system_id: None,
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &source_side_redis_armory(),
+        )
+        .expect("source-side command should use the non-target foothold");
+
+    assert_eq!(exec.target_id, redis_id);
+    assert_eq!(exec.exec_chain, vec![entry_id]);
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+    assert_eq!(
+        exec.procedure.command,
+        "/opt/bin/redis-cli -h 10.0.0.11 -p 6379 --raw GET captured-token"
+    );
+    assert!(!exec.procedure.command.contains("redis-rce"));
+}
+
+#[test]
+fn source_side_procedure_ignores_explicit_target_execution_hint() {
+    let (mut campaign, entry_id, redis_id) = campaign_with_redis_rce();
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "source-side-redis-read".to_string(),
+                target_id: redis_id.clone(),
+                exec_system_id: Some(redis_id.clone()),
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &source_side_redis_armory(),
+        )
+        .expect("target hint should not override source-side execution");
+
+    assert_eq!(exec.target_id, redis_id);
+    assert_eq!(exec.exec_chain, vec![entry_id]);
+    assert!(!exec.procedure.command.contains("redis-rce"));
+}
+
+#[test]
+fn source_side_procedure_fails_when_only_target_is_reachable() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let mut redis = Pod::new("redis", "oopservability");
+    redis.system.ips.push("10.0.0.11".parse().unwrap());
+    let redis_id = redis.entity_id().0.clone();
+    campaign.entities.insert_typed(redis);
+    push_exec_edge(&mut campaign, "sa/default/ran", &redis_id);
+
+    let error = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "source-side-redis-read".to_string(),
+                target_id: redis_id.clone(),
+                exec_system_id: Some(redis_id),
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &source_side_redis_armory(),
+        )
+        .expect_err("source-side command must not fall back to its target");
+
+    assert!(matches!(
+        error,
+        ExecuteActionError::NoExecChannel(message)
+            if message.contains("other than target")
+    ));
+}
+
+#[test]
+fn source_side_procedure_rejects_a_source_route_through_target() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut redis = Pod::new("redis", "oopservability");
+    redis.system.ips.push("10.0.0.11".parse().unwrap());
+    let redis_id = redis.entity_id().0.clone();
+    campaign.entities.insert_typed(redis);
+    push_exec_edge(&mut campaign, "sa/default/ran", &redis_id);
+
+    let downstream = Pod::new("downstream", "oopservability");
+    let downstream_id = downstream.entity_id().0.clone();
+    campaign.entities.insert_typed(downstream);
+    push_relation(
+        &mut campaign,
+        &RceCanExec::new(&redis_id, &downstream_id)
+            .with_envelope("downstream-rce ${CMD}".to_string()),
+    );
+
+    let error = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "source-side-redis-read".to_string(),
+                target_id: redis_id,
+                exec_system_id: Some(downstream_id),
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &source_side_redis_armory(),
+        )
+        .expect_err("source route must never pass through the semantic target");
+
+    assert!(matches!(
+        error,
+        ExecuteActionError::NoExecChannel(message)
+            if message.contains("cannot traverse selected target")
+    ));
 }
 
 #[test]

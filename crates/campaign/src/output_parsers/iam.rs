@@ -97,7 +97,7 @@ struct SsrrNonResourceRule {
 ///
 /// Handles multi-line stdout: searches for the first line containing `ey`
 /// and `.`, which is the hallmark of a base64url-encoded JWT.
-fn parse_raw_service_account_token(
+pub(super) fn parse_raw_service_account_token(
     stdout: &str,
     _stderr: &str,
     args: &HashMap<String, String>,
@@ -143,41 +143,6 @@ fn parse_raw_service_account_token(
             "JWT payload missing required kubernetes namespace or serviceaccount claims"
                 .to_string(),
         );
-    }
-
-    // Guard against false positives: when the action target is a specific
-    // ServiceAccount entity (ns/<ns>/sa/<name>), the decoded token must match
-    // that identity. Otherwise the command likely ran on the wrong pod.
-    if let Some(expected_target) = args.get("TARGET_ID") {
-        if let Some((expected_sa_name, expected_ns)) =
-            parse_sa_identity_from_target(expected_target)
-        {
-            if expected_sa_name != sa_name
-                || (expected_ns != UNKNOWN_NAMESPACE && expected_ns != namespace)
-            {
-                return ParserOutput::KnownFailure(format!(
-                    "decoded SA token for {}/{} but target is {}/{}",
-                    namespace, sa_name, expected_ns, expected_sa_name
-                ));
-            }
-        }
-
-        if let Some((expected_pod_name, expected_pod_ns)) =
-            parse_pod_identity_from_target(expected_target)
-        {
-            if let Some(decoded_pod_name) = pod_name.as_deref() {
-                if !decoded_pod_name.is_empty()
-                    && expected_pod_ns != UNKNOWN_NAMESPACE
-                    && !is_ip_placeholder_pod_name(expected_pod_name)
-                    && (decoded_pod_name != expected_pod_name || namespace != expected_pod_ns)
-                {
-                    return ParserOutput::KnownFailure(format!(
-                        "decoded SA token for pod {}/{} but target pod is {}/{}",
-                        namespace, decoded_pod_name, expected_pod_ns, expected_pod_name
-                    ));
-                }
-            }
-        }
     }
 
     // Build the audience list for JwToken.
@@ -636,19 +601,6 @@ fn parse_pod_identity_from_target(target_id: &str) -> Option<(&str, &str)> {
 /// Namespace placeholder for objects discovered before their namespace is known.
 const UNKNOWN_NAMESPACE: &str = "?";
 
-/// Heuristic for placeholder pod IDs derived from network discovery, e.g.
-/// `redis.10-0-0-35`.
-fn is_ip_placeholder_pod_name(name: &str) -> bool {
-    let Some((_, suffix)) = name.rsplit_once('.') else {
-        return false;
-    };
-    let octets: Vec<&str> = suffix.split('-').collect();
-    octets.len() == 4
-        && octets
-            .iter()
-            .all(|o| !o.is_empty() && o.chars().all(|c| c.is_ascii_digit()))
-}
-
 /// Returns `true` when `resource` in `api_group` is namespaced.
 ///
 /// Unknown resources default to `true` (namespaced).  Wildcards (`"*"`) span
@@ -965,7 +917,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_raw_sa_token_rejects_mismatch_with_target_serviceaccount() {
+    fn parse_raw_sa_token_uses_claims_when_target_serviceaccount_differs() {
         let payload = r#"{
             "kubernetes.io": {
                 "namespace": "dungeon",
@@ -981,61 +933,49 @@ mod tests {
         );
 
         let result = parse_raw_service_account_token(&jwt, "", &args);
-        assert!(
-            matches!(result, ParserOutput::KnownFailure(_)),
-            "expected KnownFailure on SA identity mismatch, got {:?}",
-            result
-        );
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected token claims to produce facts");
+        };
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|entity| entity.entity_kind() == "ServiceAccount"
+                && entity.entity_name() == "player"));
+        assert!(facts.entity_aliases.is_empty());
     }
 
     #[test]
-    fn parse_raw_sa_token_rejects_mismatch_with_target_pod() {
+    fn parse_raw_sa_token_uses_claims_when_redis_target_differs() {
         let payload = r#"{
             "kubernetes.io": {
-                "namespace": "dungeon",
-                "pod": {"name": "entry-hall-abc"},
-                "serviceaccount": {"name": "player"}
+                "namespace": "agent-system",
+                "pod": {"name": "agent-orchestrator-5c968b87cc-zrlfb"},
+                "serviceaccount": {"name": "agent-orchestrator"}
             },
-            "sub": "system:serviceaccount:dungeon:player"
+            "sub": "system:serviceaccount:agent-system:agent-orchestrator"
         }"#;
         let jwt = make_jwt(payload);
         let mut args = HashMap::new();
         args.insert(
             "TARGET_ID".to_string(),
-            "ns/argocd/pod/argocd-application-controller-0".to_string(),
+            "ns/oopservability/pod/oopservability-redis-67dd89d6f6-qj2ct".to_string(),
         );
 
         let result = parse_raw_service_account_token(&jwt, "", &args);
-        assert!(
-            matches!(result, ParserOutput::KnownFailure(_)),
-            "expected KnownFailure on pod identity mismatch, got {:?}",
-            result
-        );
-    }
-
-    #[test]
-    fn parse_raw_sa_token_allows_ip_placeholder_target_pod_name() {
-        let payload = r#"{
-            "kubernetes.io": {
-                "namespace": "oopservability",
-                "pod": {"name": "redis-665c68c95d-49pfq"},
-                "serviceaccount": {"name": "redis"}
-            },
-            "sub": "system:serviceaccount:oopservability:redis"
-        }"#;
-        let jwt = make_jwt(payload);
-        let mut args = HashMap::new();
-        args.insert(
-            "TARGET_ID".to_string(),
-            "ns/oopservability/pod/redis.10-0-0-35".to_string(),
-        );
-
-        let result = parse_raw_service_account_token(&jwt, "", &args);
-        assert!(
-            matches!(result, ParserOutput::SuccessWithFacts(_, _)),
-            "expected Parsed for placeholder pod target, got {:?}",
-            result
-        );
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected stored token claims to produce facts");
+        };
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|entity| entity.entity_kind() == "ServiceAccount"
+                && entity.entity_name() == "agent-orchestrator"));
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|entity| entity.entity_kind() == "Pod"
+                && entity.entity_name() == "agent-orchestrator-5c968b87cc-zrlfb"));
+        assert!(facts.entity_aliases.is_empty());
     }
 
     /// Authenticate As identifies the SA even when the semantic target is another entity.
