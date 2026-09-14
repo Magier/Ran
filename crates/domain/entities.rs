@@ -2069,6 +2069,9 @@ fn merge_containers(existing: &mut Vec<Container>, incoming: &[Container]) {
         if current.image.is_empty() && !container.image.is_empty() {
             current.image = container.image.clone();
         }
+        if current.args.is_empty() && !container.args.is_empty() {
+            current.args = container.args.clone();
+        }
         for port in &container.ports {
             if let Some(current_port) = current
                 .ports

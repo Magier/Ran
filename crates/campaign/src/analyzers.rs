@@ -1505,6 +1505,32 @@ impl InferenceRule for IpBasedSystemMergeAnalyzer {
 
             let pod_id = pod.entity_id();
 
+            // A reverse shell from a Kubernetes container normally reports the
+            // pod name as its hostname. This covers the race where that shell
+            // reaches Ran before the deploy action has applied its Pod effect.
+            // Require exactly one session-bearing UnknownSystem with that name:
+            // a hostname alone is otherwise not a safe cross-namespace key.
+            let hostname_matches: Vec<_> = unknown_systems
+                .iter()
+                .filter(|unknown| {
+                    !unknown.system.sessions.is_empty()
+                        && unknown
+                            .entity_name()
+                            .eq_ignore_ascii_case(pod.entity_name())
+                })
+                .collect();
+            if hostname_matches.len() == 1 {
+                let unknown_id = hostname_matches[0].entity_id();
+                if !already_aliased(&inferred, &unknown_id) {
+                    tracing::info!(
+                        unknown = %unknown_id.0,
+                        pod = %pod_id.0,
+                        "merging callback system into deployed Pod by hostname"
+                    );
+                    inferred.entity_aliases.insert((unknown_id, pod_id.clone()));
+                }
+            }
+
             // Match new Pods against existing UnknownSystems.
             for unknown in &unknown_systems {
                 let unknown_id = unknown.entity_id();

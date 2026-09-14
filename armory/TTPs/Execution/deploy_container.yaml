@@ -18,10 +18,16 @@ parameters:
     type: string
     default: nginx
     description: the image used by the workload
-  # Command:   # currently this is a string, but the procedure excepts a list
-  #   type: string
-  #   default: sleep infinity
-  #   description: the command executed when starting the container
+  Arguments:
+    type: stringList
+    default: '[]'
+    required: false
+    description: JSON array of arguments passed to the image entrypoint, for example ["TCP-LISTEN:8080,fork,reuseaddr", "TCP-CONNECT:example-service:8080"]. Leave empty to run sleep infinity.
+  Ports:
+    type: string
+    default: '[]'
+    required: false
+    description: JSON array of Kubernetes container ports, for example [{"containerPort":8080}].
   ServiceAccount:
     type: string
     default: ""
@@ -74,8 +80,7 @@ procedures:
           "nodeName": "{{ NodeName }}",
           "containers": [{
               "name": "{{ PodName }}",
-              "image": "{{ Image }}",
-              "command": ["sleep", "infinity"],
+              "image": "{{ Image }}"{% if Arguments %}, "args": {{ Arguments | json_encode }}{% else %}, "command": ["sleep", "infinity"]{% endif %}{% if Ports %}, "ports": {{ Ports | json_encode }}{% endif %},
                 "securityContext": {
                   "privileged": {{ Privileged }}
               }
