@@ -21,7 +21,9 @@ static NONCE: AtomicU64 = AtomicU64::new(1);
 ///
 /// Framing protocol (written to stdin for each command):
 /// ```text
-/// {cmd} 2>&1
+/// {
+/// {cmd}
+/// } 2>&1
 /// __ran_status=$?
 /// printf '\n'
 /// printf '__RAN_{nonce}__:%d\n' "$__ran_status"
@@ -48,10 +50,13 @@ struct ShellInner {
 
 /// Frame a shell command with a sentinel on a line of its own. The explicit
 /// newline matters for files such as Kubernetes ServiceAccount JWTs, which do
-/// not necessarily end with one.
+/// not necessarily end with one. The redirection is attached to a command
+/// group, rather than appended to the command: an appended `2>&1` only affects
+/// the final stage of a pipeline, leaving errors from earlier stages on a
+/// socat process's local stderr instead of returning them through the session.
 fn framed_command(command: &str, marker: &str) -> String {
     format!(
-        "{command} 2>&1\n__ran_status=$?\nprintf '\\n'\nprintf '{marker}:%d\\n' \"$__ran_status\"\n"
+        "{{\n{command}\n}} 2>&1\n__ran_status=$?\nprintf '\\n'\nprintf '{marker}:%d\\n' \"$__ran_status\"\n"
     )
 }
 
@@ -334,9 +339,12 @@ fn exec_error(cmd_id: &str, reason: String) -> TtpExecuted {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::process::Stdio;
+    use std::time::Duration;
 
     use armory::{Procedure, Ttp};
     use tokio::io::AsyncWriteExt;
+    use tokio::process::Command;
 
     use super::ShellSession;
     use crate::executor::C2Backend;
@@ -456,6 +464,40 @@ mod tests {
         assert!(!result.results.is_empty());
     }
 
+    #[tokio::test]
+    async fn execute_captures_earlier_pipeline_stage_stderr() {
+        let mut shell = Command::new("sh")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start POSIX shell");
+        let stdin = shell.stdin.take().expect("shell stdin");
+        let stdout = shell.stdout.take().expect("shell stdout");
+        let session = ShellSession::from_rw(stdout, stdin, "node/test");
+        session.init().await.expect("init");
+
+        // Without grouping the command before `2>&1`, this shell error is
+        // written to the process's stderr because `cat` is the pipeline's last
+        // stage. Socat exposes that stream locally, while Ran used to receive
+        // an empty result and the successful exit status from `cat`.
+        let cmd = make_cmd("definitely-not-a-command | cat", "session/test");
+        let result = session.execute(&cmd).await;
+
+        assert!(result.success, "cat is still the pipeline's final status");
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.results.len(), 1);
+        assert!(result.results[0].contains("definitely-not-a-command"));
+        assert!(result.results[0].contains("not found"));
+
+        drop(session);
+        let status = tokio::time::timeout(Duration::from_secs(1), shell.wait())
+            .await
+            .expect("shell exits after session closes")
+            .expect("wait for shell");
+        assert!(status.success());
+    }
+
     /// A fake shell that answers `init()` but never replies to any command, so
     /// every `execute` call times out.
     fn silent_shell_session(entity_id: &str) -> ShellSession {
@@ -521,7 +563,7 @@ mod tests {
     fn command_framing_separates_a_marker_from_output_without_a_newline() {
         assert_eq!(
             super::framed_command("cat /token", "__RAN_42__"),
-            "cat /token 2>&1\n__ran_status=$?\nprintf '\\n'\nprintf '__RAN_42__:%d\\n' \"$__ran_status\"\n"
+            "{\ncat /token\n} 2>&1\n__ran_status=$?\nprintf '\\n'\nprintf '__RAN_42__:%d\\n' \"$__ran_status\"\n"
         );
     }
 
