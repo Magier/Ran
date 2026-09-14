@@ -1534,21 +1534,26 @@ fn prepare_action_explicit_exec_source_entity_runs_from_that_system() {
 }
 
 #[test]
-fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_entity() {
+fn lateral_action_uses_selected_session_without_a_preexisting_target_path() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
-    let source = Pod::new("entry-hall", "dungeon");
+    // The selected source is only partially identified, but its live session is
+    // sufficient to execute a source-side action.
+    let mut source = Pod::new("source", "?");
     let source_id = source.entity_id().0.clone();
+    source.system.sessions.push(SessionInfo {
+        id: "listener-session".to_string(),
+        kind: "tcp".to_string(),
+        port: Some(4444),
+        status: SessionStatus::Active,
+    });
     campaign.entities.insert_typed(source);
-    push_exec_edge(&mut campaign, "sa/default/ran", &source_id);
 
-    let target = Pod::new("redis.10-244-1-7", "oopservability");
+    // There is deliberately no execution edge from source to target. The
+    // lateral action runs from source in order to create that edge.
+    let target = Pod::new("target", "remote");
     let target_id = target.entity_id().0.clone();
     campaign.entities.insert_typed(target);
-    push_relation(
-        &mut campaign,
-        &RceCanExec::new(&source_id, &target_id).with_envelope("${CMD}".to_string()),
-    );
 
     let armory = Armory::from_ttps(vec![Ttp {
         effects: vec!["rce.can-exec(${src}, ${TARGET_ID})".to_string()],
@@ -1571,6 +1576,8 @@ fn prepare_action_lateral_effect_grounds_lowercase_src_with_explicit_source_enti
         )
         .expect("should prepare lateral action");
 
+    assert_eq!(exec.exec_system_id, "session/listener-session");
+    assert_eq!(exec.exec_entity(), source_id);
     let effect = exec.ttp.effects.first().expect("effect should exist");
     assert!(
         !effect.contains("${src}"),
@@ -2273,6 +2280,45 @@ fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_service
         vec![entry_id.clone()],
         "non-system target with caller-supplied source should execute directly on source"
     );
+}
+
+#[test]
+fn prepare_action_with_unknown_namespace_source_uses_its_active_session() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let mut source = Pod::new("source", "?");
+    let source_id = source.entity_id().0.clone();
+    source.system.sessions.push(SessionInfo {
+        id: "listener-session".to_string(),
+        kind: "tcp".to_string(),
+        port: Some(4444),
+        status: SessionStatus::Active,
+    });
+    campaign.entities.insert_typed(source);
+
+    let target = ServiceAccount::new("target", "?");
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+
+    let armory = armory_with_command("regular-action", "id", None);
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "regular-action".to_string(),
+                target_id: target_id.clone(),
+                exec_system_id: Some(source_id.clone()),
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("the listener session should make the provisional pod executable");
+
+    assert_eq!(exec.target_id, target_id);
+    assert_eq!(exec.exec_entity(), source_id);
+    assert_eq!(exec.exec_system_id, "session/listener-session");
 }
 
 #[test]

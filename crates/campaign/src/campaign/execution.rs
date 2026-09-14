@@ -1183,11 +1183,11 @@ impl Campaign {
             if self.get_system_entity(hint).is_some() {
                 args.insert("SRC".to_string(), hint.to_string());
                 args.insert("src".to_string(), hint.to_string());
-                return Ok(Some(ExecChannel {
-                    backend_id: BUILTIN_C2_ID.to_string(),
-                    exec_target_id: Some(hint.to_string()),
-                    hops: vec![],
-                }));
+                let mut channel = self
+                    .resolve_exec_channel(hint)
+                    .map_err(ExecuteActionError::NoExecChannel)?;
+                channel.exec_target_id = Some(hint.to_string());
+                return Ok(Some(channel));
             }
         }
 
@@ -1213,8 +1213,8 @@ impl Campaign {
     ///   and the raw result must be post-processed before parsers run.
     ///
     /// Decision order (first matching branch wins):
-    /// 1. Caller supplied a non-empty exec hint → [`route_caller_supplied`].
-    /// 2. Lateral Movement tactic → [`route_lateral_movement`] (uses pre-resolved src).
+    /// 1. Lateral Movement tactic → [`route_lateral_movement`] (uses pre-resolved src).
+    /// 2. Caller supplied a non-empty exec hint → [`route_caller_supplied`].
     /// 3. Remote channel needed (tactic / procedure flag) → [`route_remote`].
     /// 4. Everything else → [`route_fallback`] (pod targets get in-cluster source).
     #[allow(clippy::too_many_arguments)]
@@ -1252,12 +1252,12 @@ impl Campaign {
             ));
         }
 
-        if let Some(hint) = exec_hint.filter(|s| !s.trim().is_empty()) {
-            return self.route_caller_supplied(hint, target_id, procedure, args);
-        }
-
         if is_lateral_movement_tactic(tactic) {
             return route_lateral_movement(lateral_src, target_id);
+        }
+
+        if let Some(hint) = exec_hint.filter(|s| !s.trim().is_empty()) {
+            return self.route_caller_supplied(hint, target_id, procedure, args);
         }
 
         if needs_remote_channel(procedure, tactic) {
@@ -1355,15 +1355,19 @@ impl Campaign {
                 });
             }
 
+            let backend_id = self
+                .resolve_exec_channel(hint)
+                .map_err(ExecuteActionError::NoExecChannel)?
+                .backend_id;
             tracing::info!(
                 logical_target = %target_id,
                 selected_source = %hint,
-                backend_id = %BUILTIN_C2_ID,
-                chain = %format_exec_chain(BUILTIN_C2_ID, &[], hint),
+                backend_id = %backend_id,
+                chain = %format_exec_chain(&backend_id, &[], hint),
                 "using caller-supplied exec source entity"
             );
             Ok(ExecRoute::direct(
-                BUILTIN_C2_ID.to_string(),
+                backend_id,
                 target_id.to_string(),
                 vec![hint.to_string()],
                 None,

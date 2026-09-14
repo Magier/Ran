@@ -137,8 +137,9 @@
 		argExternalVersions = { ...argExternalVersions, [name]: (argExternalVersions[name] ?? 0) + 1 };
 	}
 
-	// Track previous TTP ID to detect when TTP changes
-	let previousTtpId: string | undefined = undefined;
+	// Track the action context whose defaults are currently displayed. Reusing
+	// the same TTP on another target must re-ground target-derived defaults.
+	let previousActionContext: string | undefined = undefined;
 
 	// Track the last TTP ID we focused for, to only focus once per TTP
 	let lastFocusedTTPId = $state<string | undefined>(undefined);
@@ -373,26 +374,27 @@
 		});
 	});
 
-	// Initialize args when TTP changes
+	// Initialize args when either the TTP or its semantic target changes.
 	$effect(() => {
 		const currentTtpId = ttp?.id;
+		const currentTargetId = targetId;
+		const currentActionContext = `${currentTtpId}\u0000${currentTargetId}`;
 
-		// Only re-initialize if TTP actually changed
-		if (currentTtpId === previousTtpId) {
+		if (currentActionContext === previousActionContext) {
 			return;
 		}
-		previousTtpId = currentTtpId;
+		previousActionContext = currentActionContext;
 
 		// Capture all reactive values we need before untrack
 		const ttpParams = ttp.params;
 		const ttpProcedures = ttp?.procedures;
-		const currentTargetId = targetId;
+		const currentTarget = target;
 		const currentArgContext = argContext;
 
 		untrack(() => {
 			console.group('ActionParamsModal: Initializing args for TTP', currentTtpId);
 
-			// Reset argOptions, external versions, auto-select tracking, and namespace tracking when TTP changes
+			// Reset derived form state when either the TTP or target changes.
 			argOptions = {};
 			argExternalVersions = {};
 			autoSelectedArgs = new Set();
@@ -415,8 +417,8 @@
 							value = e?.name || '';
 						}
 						console.log('Setting target', param.name, 'to value', value);
-					} else if (value.indexOf('${TARGET.IP}') >= 0 && target?.ips?.[0]) {
-						value = value.replace('${TARGET.IP}', target.ips[0]);
+					} else if (value.indexOf('${TARGET.IP}') >= 0 && currentTarget?.ips?.[0]) {
+						value = value.replace('${TARGET.IP}', currentTarget.ips[0]);
 					}
 
 					if (param.type === 'Namespace') {
