@@ -16,11 +16,11 @@ parameters:
     description: the namespace in which the workload will be deployed
   Image:
     type: string
-    default: nginx
+    default: alpine/socat
     description: the image used by the workload
   Arguments:
     type: stringList
-    default: '[]'
+    default: '["TCP-liSTEN", "echo"]'
     required: false
     description: JSON array of arguments passed to the image entrypoint, for example ["TCP-LISTEN:8080,fork,reuseaddr", "TCP-CONNECT:example-service:8080"]. Leave empty to run sleep infinity.
   Ports:
