@@ -815,7 +815,8 @@
 				<Dialog.Backdrop class="bg-surface-50-950/50 fixed inset-0 z-[100]" />
 				<Dialog.Positioner class="fixed inset-0 z-[100] flex items-center justify-center ">
 					<Dialog.Content
-						class="card min-w-modal bg-surface-100-900 border-surface-600 flex max-h-[90vh] flex-col space-y-2 border p-4 shadow-xl "
+						class="card bg-surface-100-900 border-surface-600 flex min-w-0 flex-col space-y-2 border p-4 shadow-xl"
+						style="width: 36rem; max-width: calc(100vw - 2rem);"
 					>
 						{#if selectedTTP}
 							<ActionParamsModal

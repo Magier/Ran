@@ -845,7 +845,7 @@
 		<h4 class="h4 text-sm md:text-base lg:text-lg">{ttp.name}</h4>
 	</header>
 	<article class="min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
-		<div class="">
+		<div class="min-w-0 whitespace-pre-wrap" style="overflow-wrap: anywhere">
 			<span class="h6 label text-xs md:text-sm lg:text-base">Description</span>
 			{ttp.description}
 		</div>
