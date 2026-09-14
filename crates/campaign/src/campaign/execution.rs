@@ -1185,11 +1185,11 @@ impl Campaign {
             if self.get_system_entity(hint).is_some() {
                 args.insert("SRC".to_string(), hint.to_string());
                 args.insert("src".to_string(), hint.to_string());
-                return Ok(Some(ExecChannel {
-                    backend_id: BUILTIN_C2_ID.to_string(),
-                    exec_target_id: Some(hint.to_string()),
-                    hops: vec![],
-                }));
+                let mut channel = self
+                    .resolve_exec_channel(hint)
+                    .map_err(ExecuteActionError::NoExecChannel)?;
+                channel.exec_target_id = Some(hint.to_string());
+                return Ok(Some(channel));
             }
         }
 
@@ -1398,11 +1398,15 @@ impl Campaign {
                 });
             }
 
+            let backend_id = self
+                .resolve_exec_channel(hint)
+                .map_err(ExecuteActionError::NoExecChannel)?
+                .backend_id;
             tracing::info!(
                 logical_target = %target_id,
                 selected_source = %hint,
-                backend_id = %BUILTIN_C2_ID,
-                chain = %format_exec_chain(BUILTIN_C2_ID, &[], hint),
+                backend_id = %backend_id,
+                chain = %format_exec_chain(&backend_id, &[], hint),
                 "using caller-supplied exec source entity"
             );
             // The selected system is also the physical destination for this
@@ -1412,7 +1416,7 @@ impl Campaign {
                     ground_binaries(&procedure.command, &sys.entity().system().binaries);
             }
             Ok(ExecRoute::direct(
-                BUILTIN_C2_ID.to_string(),
+                backend_id,
                 target_id.to_string(),
                 vec![hint.to_string()],
                 None,
