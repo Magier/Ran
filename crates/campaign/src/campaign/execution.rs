@@ -1215,8 +1215,8 @@ impl Campaign {
     ///   and the raw result must be post-processed before parsers run.
     ///
     /// Decision order (first matching branch wins):
-    /// 1. Caller supplied a non-empty exec hint → [`route_caller_supplied`].
-    /// 2. Lateral Movement tactic → [`route_lateral_movement`] (uses pre-resolved src).
+    /// 1. Lateral Movement tactic → [`route_lateral_movement`] (uses pre-resolved src).
+    /// 2. Caller supplied a non-empty exec hint → [`route_caller_supplied`].
     /// 3. Remote channel needed (tactic / procedure flag) → [`route_remote`].
     /// 4. Everything else → [`route_fallback`] (pod targets get in-cluster source).
     #[allow(clippy::too_many_arguments)]
@@ -1254,12 +1254,12 @@ impl Campaign {
             ));
         }
 
-        if let Some(hint) = exec_hint.filter(|s| !s.trim().is_empty()) {
-            return self.route_caller_supplied(hint, target_id, procedure, args);
-        }
-
         if is_lateral_movement_tactic(tactic) {
             return route_lateral_movement(lateral_src, target_id);
+        }
+
+        if let Some(hint) = exec_hint.filter(|s| !s.trim().is_empty()) {
+            return self.route_caller_supplied(hint, target_id, procedure, args);
         }
 
         if needs_remote_channel(procedure, tactic) {
@@ -1290,11 +1290,8 @@ impl Campaign {
         if hint_is_exec_entity {
             let target_is_pod = self.entities.contains::<Pod>(&EntityId::new(target_id));
 
-            // Legacy-compatible semantics: for non-system targets (e.g.
-            // ServiceAccounts), a caller-supplied exec source pins execution to
-            // that source directly. Actions such as check-token-permissions are
-            // expected to run from the selected foothold and use token args,
-            // rather than being auto-routed to a pod that uses the target SA.
+            // For Pod targets, a caller-supplied system is a source from which
+            // to reach that target.
             if hint != target_id && target_is_pod {
                 let ch = self
                     .resolve_exec_channel_from_source_inner(hint, target_id)
@@ -1357,6 +1354,50 @@ impl Campaign {
                 });
             }
 
+            // For non-system semantic targets such as ServiceAccounts, the
+            // selected system is the physical destination of the command. It
+            // must be reached through its known execution channel, rather than
+            // assuming BuiltinC2 can exec into it directly. This preserves RCE
+            // and other non-kubectl routes into a compromised workload.
+            if !target_is_pod {
+                let ch = self
+                    .resolve_exec_channel(hint)
+                    .map_err(ExecuteActionError::NoExecChannel)?;
+                let exec_target = ch
+                    .exec_target_id
+                    .clone()
+                    .unwrap_or_else(|| hint.to_string());
+
+                if ch.hops.is_empty() {
+                    if let Some(sys) = self.get_system_entity(&exec_target) {
+                        procedure.command =
+                            ground_binaries(&procedure.command, &sys.entity().system().binaries);
+                    }
+                    return Ok(ExecRoute::direct(
+                        ch.backend_id,
+                        target_id.to_string(),
+                        vec![exec_target],
+                        None,
+                    ));
+                }
+
+                let wrap = self.wrap_command_for_hops(procedure, &ch.hops, &exec_target, args);
+                let exec_chain: Vec<String> = ch
+                    .hops
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(exec_target))
+                    .collect();
+                return Ok(ExecRoute {
+                    backend_id: ch.backend_id,
+                    target_id: target_id.to_string(),
+                    exec_chain,
+                    output_transform: wrap.output_transform,
+                    traversal: wrap.traversal,
+                    inner_command: wrap.inner_command,
+                });
+            }
+
             tracing::info!(
                 logical_target = %target_id,
                 selected_source = %hint,
@@ -1364,6 +1405,12 @@ impl Campaign {
                 chain = %format_exec_chain(BUILTIN_C2_ID, &[], hint),
                 "using caller-supplied exec source entity"
             );
+            // The selected system is also the physical destination for this
+            // direct Pod execution, so use its resolved binary paths.
+            if let Some(sys) = self.get_system_entity(hint) {
+                procedure.command =
+                    ground_binaries(&procedure.command, &sys.entity().system().binaries);
+            }
             Ok(ExecRoute::direct(
                 BUILTIN_C2_ID.to_string(),
                 target_id.to_string(),

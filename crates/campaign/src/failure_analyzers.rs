@@ -58,6 +58,7 @@ pub struct ConnectivityFailureAnalyzer;
 pub struct CommandNotFoundFailureAnalyzer;
 pub struct NotWriteableFailureAnalyzer;
 pub struct RedisLuaFailureAnalyzer;
+pub struct KubectlUsageFailureAnalyzer;
 
 impl FailureAnalyzer for InvalidTargetFailureAnalyzer {
     fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
@@ -149,6 +150,22 @@ impl FailureAnalyzer for RedisLuaFailureAnalyzer {
         ) {
             return Some(FailureClassification::known_failure(
                 "Redis Lua script execution failed",
+            ));
+        }
+
+        None
+    }
+}
+
+impl FailureAnalyzer for KubectlUsageFailureAnalyzer {
+    fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
+        let haystack = failure_haystack(event);
+        if contains_any(
+            &haystack,
+            &["error: unexpected args:", "see 'kubectl apply -h'"],
+        ) {
+            return Some(FailureClassification::known_failure(
+                "kubectl rejected the supplied arguments",
             ));
         }
 
@@ -293,6 +310,7 @@ pub fn default_failure_analyzers() -> Vec<Box<dyn FailureAnalyzer>> {
         Box::new(CommandNotFoundFailureAnalyzer),
         Box::new(NotWriteableFailureAnalyzer),
         Box::new(RedisLuaFailureAnalyzer),
+        Box::new(KubectlUsageFailureAnalyzer),
     ]
 }
 

