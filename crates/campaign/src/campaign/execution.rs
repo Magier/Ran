@@ -13,7 +13,9 @@ use serde_json::Value as JsonValue;
 use crate::analyzers::default_rules;
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
-use crate::failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
+use crate::failure_analyzers::{
+    classify_failure, detect_failure_signature, FAILURE_ANALYZER_EFFECT_ID,
+};
 use crate::grounding::{
     detect_ungrounded_vars, ground_args_from_context, ground_entity_ref_vars, resolve_template,
 };
@@ -1947,62 +1949,62 @@ impl Campaign {
             });
         }
 
-        // Even when exit code is 0 some shells (busybox sh) swallow the real
-        // exit status and emit "not found" into stdout/stderr instead.
-        // Detect this before any inference so we don't incorrectly record the
-        // tool as Present and immediately return a failure result.
-        let early_missing = classify_failure(cmd, event);
-        if early_missing.is_binary_missing {
-            let binary = early_missing
-                .extracted_binary
-                .as_deref()
-                .or_else(|| procedure_binary_name(&cmd.procedure));
-            if let Some(binary) = binary {
-                let system_id = cmd
-                    .exec_chain
-                    .iter()
-                    .rev()
-                    .map(String::as_str)
-                    .find(|id| self.get_system_entity(id).is_some())
-                    .or_else(|| {
-                        let target_id_arg =
-                            cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
-                        self.get_system_entity(target_id_arg).map(|_| target_id_arg)
-                    })
-                    .or_else(|| {
-                        self.get_system_entity(&cmd.target_id)
-                            .map(|_| cmd.target_id.as_str())
-                    });
-                if let Some(id) = system_id {
-                    let absent_update = SystemFieldUpdates {
-                        binaries: std::collections::HashMap::from([(
-                            binary.to_string(),
-                            String::new(),
-                        )]),
-                        ..Default::default()
-                    };
-                    let _ = self.apply_system_update(id, &absent_update);
+        // Some transports report success even when the command failed and
+        // emitted a recognizable error on stdout/stderr. Detect that before
+        // inference so a failed exploit cannot create an execution edge.
+        if let Some(early_failure) = detect_failure_signature(cmd, event) {
+            if early_failure.is_binary_missing {
+                let binary = early_failure
+                    .extracted_binary
+                    .as_deref()
+                    .or_else(|| procedure_binary_name(&cmd.procedure));
+                if let Some(binary) = binary {
+                    let system_id = cmd
+                        .exec_chain
+                        .iter()
+                        .rev()
+                        .map(String::as_str)
+                        .find(|id| self.get_system_entity(id).is_some())
+                        .or_else(|| {
+                            let target_id_arg =
+                                cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
+                            self.get_system_entity(target_id_arg).map(|_| target_id_arg)
+                        })
+                        .or_else(|| {
+                            self.get_system_entity(&cmd.target_id)
+                                .map(|_| cmd.target_id.as_str())
+                        });
+                    if let Some(id) = system_id {
+                        let absent_update = SystemFieldUpdates {
+                            binaries: std::collections::HashMap::from([(
+                                binary.to_string(),
+                                String::new(),
+                            )]),
+                            ..Default::default()
+                        };
+                        let _ = self.apply_system_update(id, &absent_update);
+                    }
                 }
             }
             let parse_audits = vec![build_parse_audit(
                 FAILURE_ANALYZER_EFFECT_ID,
                 cmd,
                 event,
-                early_missing.parse_result,
-                &early_missing.detail,
+                early_failure.parse_result,
+                &early_failure.detail,
                 0,
             )];
             self.parse_audits.extend(parse_audits.clone());
             let mut record = ExecutionRecord::from_execution(cmd, event);
             record.success = false;
-            record.fail_reason = early_missing.detail.clone();
+            record.fail_reason = early_failure.detail.clone();
             self.execution_records.push(record);
             self.complete_open_step(&cmd.id);
             return Ok(TtpExecutionProcessing {
                 updates: FactsUpdate::default(),
                 parse_audits,
                 effective_success: false,
-                effective_fail_reason: early_missing.detail,
+                effective_fail_reason: early_failure.detail,
             });
         }
 

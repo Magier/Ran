@@ -1681,6 +1681,55 @@ fn command_not_found_in_output_with_exit_zero_marks_binary_absent_and_fails_step
 }
 
 #[test]
+fn redis_lua_error_in_output_with_exit_zero_fails_lateral_movement() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let pod = Pod::new("redis-pod", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let mut cmd = nmap_exec_ttp(&target_id);
+    cmd.ttp.tactic = "Lateral Movement".to_string();
+    cmd.ttp.effects = vec![format!("rce.can-exec(sys, {})", target_id)];
+    cmd.procedure.tool = Some("redis-cli".to_string());
+    cmd.procedure.command = "redis-cli EVAL ...".to_string();
+
+    let event = TtpExecuted {
+        id: "evt-1".to_string(),
+        success: true,
+        exit_code: 0,
+        results: vec![concat!(
+            "ERR Error running script (call to f_07b9e22467eef613fa9f78e46ef968477b9990c8):\n",
+            "@enable_strict_lua:15: user_script:1: Script attempted to access nonexistent global variable 'io'"
+        )
+        .to_string()],
+        fail_reason: String::new(),
+        session_connected: None,
+    };
+
+    let processing = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    assert!(
+        !processing.effective_success,
+        "Redis Lua error must fail the action"
+    );
+    assert_eq!(
+        processing.effective_fail_reason,
+        "Redis Lua script execution failed"
+    );
+    assert!(
+        campaign
+            .get_execution_records()
+            .last()
+            .is_some_and(|record| !record.success),
+        "execution record must show failure"
+    );
+    assert!(
+        !campaign.entity_has_relation(&target_id, "rce.can-exec"),
+        "a failed exploit must not create an execution edge"
+    );
+}
+
+#[test]
 fn grounded_http_tool_failure_overrides_stale_known_present_binary() {
     use ran_domain::BinaryPresence;
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
