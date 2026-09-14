@@ -7,7 +7,6 @@
 	// @ts-expect-error - cytoscape-expand-collapse ships no type declarations
 	import expandCollapse from 'cytoscape-expand-collapse';
 	import { toaster } from '$lib/components/toaster';
-	import { hasKnowledgeProvenance } from '$lib/knowledgeProvenance';
 
 	import {
 		getGraphStyle,
@@ -24,6 +23,8 @@
 		COLLAPSED_EDGE_CLASS
 	} from './graph_edges';
 	import type { CyEdge } from './graph_edges';
+	import { toCyNode, syncNodeParent } from './graph_nodes';
+	import type { CyNode, Pos, PosMap } from './graph_nodes';
 	import { createElkLayout, isValidPosition, DEFAULT_LAYOUT_PARAMS } from './elk_layout';
 	import type { LayoutParams } from './elk_layout';
 	import GraphLayoutPlayground from './GraphLayoutPlayground.svelte';
@@ -42,14 +43,6 @@
 		selectedObject?: Node | Edge | undefined;
 	};
 
-	type CyNode = {
-		id: string;
-		label: string;
-		data: Node & { scenarioProvided: boolean };
-		position?: { x: number; y: number };
-	};
-	type Pos = { x: number; y: number };
-	type PosMap = Record<string, Pos>;
 	type ExpansionSnapshot = { right: number; visibleNodeIds: string[] };
 
 	let {
@@ -442,6 +435,10 @@
 						.filter((n) => n.data.id && cyNodeIdSet.has(n.data.id as string))
 						.forEach((n) => {
 							cy.getElementById(n.data.id).data(n.data);
+							// Compound membership is structure, not data: cytoscape ignores a
+							// `parent` key handed to data(), so a node that changed or lost its
+							// parent has to be moved explicitly.
+							syncNodeParent(cy, n);
 						});
 
 					// Update data for existing edges too. An edge's id is stable across a
@@ -767,31 +764,6 @@
 
 		visible.addClass('context-dimmed');
 		context.removeClass('context-dimmed');
-	}
-
-	function toCyNode(n: Node, nodePos: PosMap): CyNode {
-		let cyNode: CyNode = {
-			id: n.id,
-			label: n.name,
-			data: { ...n, scenarioProvided: hasKnowledgeProvenance(n.provenance, 'scenario') }
-		};
-
-		// Add parent relationship if exists (required for expand-collapse)
-		if (n.parent) {
-			cyNode.data.parent = n.parent;
-		}
-
-		if (Object.hasOwn(nodePos, n.id)) {
-			cyNode.position = nodePos[n.id];
-		} else {
-			// Set default positions for initial nodes and save them to positions
-			if (n.name === 'Ran' || n.id === 'c2/Ran') {
-				cyNode.position = { x: -100, y: 0 };
-				nodePos[n.id] = cyNode.position;
-			}
-		}
-
-		return cyNode;
 	}
 
 	function handleKeyPress(event: KeyboardEvent) {
