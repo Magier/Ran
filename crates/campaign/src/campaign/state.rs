@@ -659,18 +659,36 @@ impl Campaign {
     }
 
     pub fn resolve_exec_source(&self) -> Result<ExecChannel, String> {
+        self.resolve_exec_source_excluding(None)
+    }
+
+    /// Resolve a directly reachable execution source while optionally
+    /// excluding one semantic target from consideration.
+    ///
+    /// Source-side procedures use this to keep a selected target in their
+    /// grounding and attribution context without executing inside that target.
+    pub(super) fn resolve_exec_source_excluding(
+        &self,
+        excluded_target_id: Option<&str>,
+    ) -> Result<ExecChannel, String> {
+        let excluded_target_id = excluded_target_id.map(|id| self.canonical_entity_id(id));
         let direct_reachable: std::collections::HashSet<String> = self
             .direct_foothold_systems()
             .into_iter()
             .map(|id| id.0)
+            .filter(|id| excluded_target_id.as_deref() != Some(id.as_str()))
             .collect();
 
         if direct_reachable.is_empty() {
-            return Err(
-                "no compromised system available to use as a lateral-movement \
-                 exec source; gain initial access first"
+            return Err(match excluded_target_id {
+                Some(target_id) => format!(
+                    "no compromised execution source other than target '{}' is available",
+                    target_id
+                ),
+                None => "no compromised system available to use as a lateral-movement \
+                     exec source; gain initial access first"
                     .to_string(),
-            );
+            });
         }
 
         if let Some(system_id) = self
@@ -715,11 +733,15 @@ impl Campaign {
             return Ok(ch);
         }
 
-        Err(
-            "no compromised system available to use as a lateral-movement \
-             exec source; gain initial access first"
+        Err(match excluded_target_id {
+            Some(target_id) => format!(
+                "no compromised execution source other than target '{}' is available",
+                target_id
+            ),
+            None => "no compromised system available to use as a lateral-movement \
+                 exec source; gain initial access first"
                 .to_string(),
-        )
+        })
     }
 
     /// Seed a pod into the campaign with a direct kubectl-exec channel from the

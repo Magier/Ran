@@ -20,6 +20,11 @@ pub struct Procedure {
     pub tool: Option<String>,
     #[serde(rename = "isLocalCommand", skip_serializing_if = "Option::is_none")]
     pub is_local_command: Option<bool>,
+    /// Whether the procedure physically executes on its semantic target.
+    /// `None` preserves the default target-side behavior. `Some(false)` keeps
+    /// the target context but routes execution to another reachable system.
+    #[serde(rename = "runOnTarget", skip_serializing_if = "Option::is_none")]
+    pub run_on_target: Option<bool>,
     /// Structured HTTP request spec. When present, the runtime materializes
     /// this into a concrete curl/wget shell command. Takes precedence over
     /// `command` for `http-request` procedures.
@@ -51,6 +56,7 @@ impl Procedure {
             command: command.into(),
             tool: None,
             is_local_command: None,
+            run_on_target: None,
             http_request: None,
             k8s_request: None,
             steps: None,

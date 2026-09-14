@@ -47,6 +47,8 @@ struct RawProcedure {
     tool: Option<String>,
     #[serde(alias = "isLocal", alias = "isLocalCommand")]
     is_local: Option<bool>,
+    #[serde(rename = "runOnTarget")]
+    run_on_target: Option<bool>,
     http_request: Option<JsonValue>,
     k8s_request: Option<JsonValue>,
     steps: Option<JsonValue>,
@@ -88,6 +90,7 @@ impl RawProcedure {
         Some(Procedure {
             tool: self.tool.or(self.key),
             is_local_command: self.is_local,
+            run_on_target: self.run_on_target,
             http_request: self.http_request,
             k8s_request: self.k8s_request,
             steps: self.steps,
@@ -441,6 +444,25 @@ cleanup:
         );
         let cleanup = ttp.cleanup.unwrap();
         assert!(cleanup.k8s_request.is_some());
+    }
+
+    #[test]
+    fn procedure_can_forbid_execution_on_its_target() {
+        let yaml = r#"
+name: Remote client operation
+tactic: Credential Access
+procedures:
+  - key: redis-cli
+    runOnTarget: false
+    command: redis-cli -h ${TARGET.IP} GET token
+"#;
+
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw
+            .into_ttp(Path::new("CredentialAccess/redis.yaml"))
+            .unwrap();
+
+        assert_eq!(ttp.procedures[0].run_on_target, Some(false));
     }
 
     #[test]
