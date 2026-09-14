@@ -240,8 +240,37 @@ fn entry_from_simple(sc: &SimpleCommand) -> Entry {
 pub fn ground_binaries(cmd: &str, binaries: &HashMap<String, BinaryPresence>) -> String {
     match ShellCmd::parse(cmd) {
         Ok(shell) => shell.ground(binaries),
-        Err(_) => cmd.to_string(),
+        // Some valid shell constructs, including heredocs, are not supported by
+        // yash's AST parser. Preserve the command structure but still resolve a
+        // leading bare executable when it is unambiguous.
+        Err(_) => ground_leading_binary(cmd, binaries),
     }
+}
+
+/// Ground the first bare executable in a command whose richer shell syntax
+/// could not be parsed. This deliberately does not attempt to rewrite later
+/// words, quoted content, or embedded commands.
+fn ground_leading_binary(cmd: &str, binaries: &HashMap<String, BinaryPresence>) -> String {
+    let trimmed = cmd.trim_start_matches(char::is_whitespace);
+    let prefix_len = cmd.len() - trimmed.len();
+    let name_len = trimmed
+        .find(|ch: char| {
+            ch.is_whitespace() || matches!(ch, ';' | '|' | '&' | '(' | ')' | '<' | '>')
+        })
+        .unwrap_or(trimmed.len());
+    let name = &trimmed[..name_len];
+
+    if name.is_empty() || name.contains('/') {
+        return cmd.to_string();
+    }
+    let Some(BinaryPresence::Present(path)) = binaries.get(name) else {
+        return cmd.to_string();
+    };
+    if path.is_empty() || path == name {
+        return cmd.to_string();
+    }
+
+    format!("{}{}{}", &cmd[..prefix_len], path, &trimmed[name_len..])
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +357,20 @@ mod tests {
         map.insert("kubectl".to_string(), present("/opt/bin/kubectl"));
         let result = ground_binaries("echo x | kubectl apply -f -", &map);
         assert!(result.contains("/opt/bin/kubectl"));
+    }
+
+    #[test]
+    fn grounds_tool_before_a_heredoc() {
+        let command = "kubectl --token token apply -f - <<'EOF'\nkind: ServiceMonitor\nEOF";
+        let mut map = HashMap::new();
+        map.insert("kubectl".to_string(), present("/tmp/kubectl"));
+
+        let result = ground_binaries(command, &map);
+
+        assert!(
+            result.starts_with("/tmp/kubectl --token token apply"),
+            "expected kubectl path grounding, got: {result}"
+        );
     }
 
     #[test]

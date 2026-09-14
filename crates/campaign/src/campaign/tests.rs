@@ -1591,6 +1591,49 @@ fn lateral_action_uses_selected_session_without_a_preexisting_target_path() {
     );
 }
 
+#[test]
+fn prepare_action_lateral_movement_uses_explicit_source_without_existing_target_edge() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+
+    let source = Pod::new("agent-worker-hhkrp", "agent-system");
+    let source_id = source.entity_id().0.clone();
+    campaign.entities.insert_typed(source);
+    push_exec_edge(&mut campaign, "sa/default/ran", &source_id);
+
+    let target = Pod::new("oopservability-redis.10-0-0-182", "oopservability");
+    let target_id = target.entity_id().0.clone();
+    campaign.entities.insert_typed(target);
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        effects: vec!["rce.can-exec(${SRC}, ${TARGET_ID})".to_string()],
+        procedures: vec![Procedure::new("shell", "id")],
+        ..Ttp::new("lateral-test", "Lateral Test", "Lateral Movement")
+    }]);
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "lateral-test".to_string(),
+                target_id: target_id.clone(),
+                exec_system_id: Some(source_id.clone()),
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("lateral movement must not require an existing target execution edge");
+
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+    assert_eq!(exec.exec_entity(), source_id);
+    assert_eq!(exec.target_id, target_id);
+    assert_eq!(
+        exec.ttp.effects,
+        vec![format!("rce.can-exec({}, {})", source_id, target_id)]
+    );
+}
+
 // ---------------------------------------------------------------------------
 // command-not-found → binary absent tests
 // ---------------------------------------------------------------------------
@@ -1684,6 +1727,76 @@ fn command_not_found_in_output_with_exit_zero_marks_binary_absent_and_fails_step
         sys.entity().system().has_binary("curl"),
         ran_domain::BinaryPresence::Absent,
         "curl must be marked Absent when 'not found' appears in output at exit 0"
+    );
+}
+
+#[test]
+fn redis_lua_error_in_output_with_exit_zero_fails_lateral_movement() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let pod = Pod::new("redis-pod", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let mut cmd = nmap_exec_ttp(&target_id);
+    cmd.ttp.tactic = "Lateral Movement".to_string();
+    cmd.ttp.effects = vec![format!("rce.can-exec(sys, {})", target_id)];
+    cmd.procedure.tool = Some("redis-cli".to_string());
+    cmd.procedure.command = "redis-cli EVAL ...".to_string();
+
+    let event = TtpExecuted {
+        id: "evt-1".to_string(),
+        success: true,
+        exit_code: 0,
+        results: vec![concat!(
+            "ERR Error running script (call to f_07b9e22467eef613fa9f78e46ef968477b9990c8):\n",
+            "@enable_strict_lua:15: user_script:1: Script attempted to access nonexistent global variable 'io'"
+        )
+        .to_string()],
+        fail_reason: String::new(),
+        session_connected: None,
+    };
+
+    let processing = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    assert!(
+        !processing.effective_success,
+        "Redis Lua error must fail the action"
+    );
+    assert_eq!(
+        processing.effective_fail_reason,
+        "Redis Lua script execution failed"
+    );
+    assert!(
+        campaign
+            .get_execution_records()
+            .last()
+            .is_some_and(|record| !record.success),
+        "execution record must show failure"
+    );
+    assert!(
+        !campaign.entity_has_relation(&target_id, "rce.can-exec"),
+        "a failed exploit must not create an execution edge"
+    );
+}
+
+#[test]
+fn kubectl_usage_error_in_output_with_exit_zero_fails_action() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let pod = Pod::new("runner", "default");
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+
+    let cmd = sample_exec_ttp(&target_id, vec!["k8s.serviceaccount"]);
+    let event = sample_event(
+        "error: Unexpected args: [apiVersion: monitoring.coreos.com/v1 kind: ServiceMonitor]\nSee 'kubectl apply -h' for help and examples",
+    );
+
+    let processing = campaign.on_ttp_executed(&cmd, &event).unwrap();
+
+    assert!(!processing.effective_success);
+    assert_eq!(
+        processing.effective_fail_reason,
+        "kubectl rejected the supplied arguments"
     );
 }
 
@@ -2229,16 +2342,25 @@ fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
 }
 
 #[test]
-fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_serviceaccount_target() {
-    // Regression: when target is a ServiceAccount and caller provides an
-    // explicit exec source pod, execution should stay on that source (legacy
-    // behavior), not auto-route to a pod that uses the target SA.
+fn prepare_action_with_caller_selected_execution_system_routes_to_serviceaccount_target() {
+    // A ServiceAccount is the semantic target, while the selected pod is the
+    // physical execution destination and must be reached via its channel.
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
 
-    let entry = Pod::new("entry-hall", "dungeon");
+    let mut entry = Pod::new("exec-source", "source-ns");
+    entry.system.set_binary("kubectl", "/tmp/kubectl");
     let entry_id = entry.entity_id().0.clone();
     campaign.entities.insert_typed(entry);
-    push_exec_edge(&mut campaign, "sa/default/ran", &entry_id);
+
+    let ingress = Pod::new("ingress-source", "source-ns");
+    let ingress_id = ingress.entity_id().0.clone();
+    campaign.entities.insert_typed(ingress);
+    push_exec_edge(&mut campaign, "sa/default/ran", &ingress_id);
+    push_relation(
+        &mut campaign,
+        &RceCanExec::new(&ingress_id, &entry_id)
+            .with_envelope("redis-cli EVAL \"${CMD}\" 0".to_string()),
+    );
 
     let target_pod = Pod::new("argocd-application-controller-0", "argocd");
     let target_pod_id = target_pod.entity_id().0.clone();
@@ -2248,37 +2370,41 @@ fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_service
     let sa_id = sa.entity_id().0.clone();
     campaign.entities.insert_typed(sa);
     push_relation(&mut campaign, &Uses::new(&target_pod_id, &sa_id));
+    let auth_identity_id = insert_test_auth_service_account(&mut campaign);
 
-    let armory = armory_with_command(
-        "read-token",
-        "cat /var/run/secrets/kubernetes.io/serviceaccount/token",
-        None,
-    );
+    let armory = armory_with_command("read-token", "kubectl ${K8S_AUTH} get pods", None);
     let exec = campaign
         .prepare_action(
             ExecuteActionRequest {
                 action_id: "read-token".to_string(),
                 target_id: sa_id.clone(),
                 exec_system_id: Some(entry_id.clone()),
-                auth_identity_id: None,
+                auth_identity_id: Some(auth_identity_id),
                 procedure_id: None,
                 args: HashMap::new(),
                 reasoning: None,
             },
             &armory,
         )
-        .expect("should route from caller-supplied source to SA pod");
+        .expect("should route through the selected pod's RCE channel");
 
     assert_eq!(exec.target_id, sa_id, "semantic target must stay the SA");
     assert_eq!(
         exec.exec_entity(),
-        entry_id,
-        "caller-selected source must stay the execution entity"
+        ingress_id,
+        "C2 must enter the RCE channel through its reachable source"
     );
     assert_eq!(
         exec.exec_chain,
-        vec![entry_id.clone()],
-        "non-system target with caller-supplied source should execute directly on source"
+        vec![ingress_id, entry_id.clone()],
+        "the chain must reach the selected execution pod"
+    );
+    assert!(
+        exec.procedure
+            .command
+            .contains("/tmp/kubectl --token header.payload.signature get pods"),
+        "the RCE payload must use the selected execution system's resolved binary path: {}",
+        exec.procedure.command
     );
 }
 

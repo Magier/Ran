@@ -13,7 +13,9 @@ use serde_json::Value as JsonValue;
 use crate::analyzers::default_rules;
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
-use crate::failure_analyzers::{classify_failure, FAILURE_ANALYZER_EFFECT_ID};
+use crate::failure_analyzers::{
+    classify_failure, detect_failure_signature, FAILURE_ANALYZER_EFFECT_ID,
+};
 use crate::grounding::{
     detect_ungrounded_vars, ground_args_from_context, ground_entity_ref_vars, resolve_template,
 };
@@ -1288,11 +1290,8 @@ impl Campaign {
         if hint_is_exec_entity {
             let target_is_pod = self.entities.contains::<Pod>(&EntityId::new(target_id));
 
-            // Legacy-compatible semantics: for non-system targets (e.g.
-            // ServiceAccounts), a caller-supplied exec source pins execution to
-            // that source directly. Actions such as check-token-permissions are
-            // expected to run from the selected foothold and use token args,
-            // rather than being auto-routed to a pod that uses the target SA.
+            // For Pod targets, a caller-supplied system is a source from which
+            // to reach that target.
             if hint != target_id && target_is_pod {
                 let ch = self
                     .resolve_exec_channel_from_source_inner(hint, target_id)
@@ -1355,6 +1354,50 @@ impl Campaign {
                 });
             }
 
+            // For non-system semantic targets such as ServiceAccounts, the
+            // selected system is the physical destination of the command. It
+            // must be reached through its known execution channel, rather than
+            // assuming BuiltinC2 can exec into it directly. This preserves RCE
+            // and other non-kubectl routes into a compromised workload.
+            if !target_is_pod {
+                let ch = self
+                    .resolve_exec_channel(hint)
+                    .map_err(ExecuteActionError::NoExecChannel)?;
+                let exec_target = ch
+                    .exec_target_id
+                    .clone()
+                    .unwrap_or_else(|| hint.to_string());
+
+                if ch.hops.is_empty() {
+                    if let Some(sys) = self.get_system_entity(&exec_target) {
+                        procedure.command =
+                            ground_binaries(&procedure.command, &sys.entity().system().binaries);
+                    }
+                    return Ok(ExecRoute::direct(
+                        ch.backend_id,
+                        target_id.to_string(),
+                        vec![exec_target],
+                        None,
+                    ));
+                }
+
+                let wrap = self.wrap_command_for_hops(procedure, &ch.hops, &exec_target, args);
+                let exec_chain: Vec<String> = ch
+                    .hops
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(exec_target))
+                    .collect();
+                return Ok(ExecRoute {
+                    backend_id: ch.backend_id,
+                    target_id: target_id.to_string(),
+                    exec_chain,
+                    output_transform: wrap.output_transform,
+                    traversal: wrap.traversal,
+                    inner_command: wrap.inner_command,
+                });
+            }
+
             let backend_id = self
                 .resolve_exec_channel(hint)
                 .map_err(ExecuteActionError::NoExecChannel)?
@@ -1366,6 +1409,12 @@ impl Campaign {
                 chain = %format_exec_chain(&backend_id, &[], hint),
                 "using caller-supplied exec source entity"
             );
+            // The selected system is also the physical destination for this
+            // direct Pod execution, so use its resolved binary paths.
+            if let Some(sys) = self.get_system_entity(hint) {
+                procedure.command =
+                    ground_binaries(&procedure.command, &sys.entity().system().binaries);
+            }
             Ok(ExecRoute::direct(
                 backend_id,
                 target_id.to_string(),
@@ -1951,62 +2000,62 @@ impl Campaign {
             });
         }
 
-        // Even when exit code is 0 some shells (busybox sh) swallow the real
-        // exit status and emit "not found" into stdout/stderr instead.
-        // Detect this before any inference so we don't incorrectly record the
-        // tool as Present and immediately return a failure result.
-        let early_missing = classify_failure(cmd, event);
-        if early_missing.is_binary_missing {
-            let binary = early_missing
-                .extracted_binary
-                .as_deref()
-                .or_else(|| procedure_binary_name(&cmd.procedure));
-            if let Some(binary) = binary {
-                let system_id = cmd
-                    .exec_chain
-                    .iter()
-                    .rev()
-                    .map(String::as_str)
-                    .find(|id| self.get_system_entity(id).is_some())
-                    .or_else(|| {
-                        let target_id_arg =
-                            cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
-                        self.get_system_entity(target_id_arg).map(|_| target_id_arg)
-                    })
-                    .or_else(|| {
-                        self.get_system_entity(&cmd.target_id)
-                            .map(|_| cmd.target_id.as_str())
-                    });
-                if let Some(id) = system_id {
-                    let absent_update = SystemFieldUpdates {
-                        binaries: std::collections::HashMap::from([(
-                            binary.to_string(),
-                            String::new(),
-                        )]),
-                        ..Default::default()
-                    };
-                    let _ = self.apply_system_update(id, &absent_update);
+        // Some transports report success even when the command failed and
+        // emitted a recognizable error on stdout/stderr. Detect that before
+        // inference so a failed exploit cannot create an execution edge.
+        if let Some(early_failure) = detect_failure_signature(cmd, event) {
+            if early_failure.is_binary_missing {
+                let binary = early_failure
+                    .extracted_binary
+                    .as_deref()
+                    .or_else(|| procedure_binary_name(&cmd.procedure));
+                if let Some(binary) = binary {
+                    let system_id = cmd
+                        .exec_chain
+                        .iter()
+                        .rev()
+                        .map(String::as_str)
+                        .find(|id| self.get_system_entity(id).is_some())
+                        .or_else(|| {
+                            let target_id_arg =
+                                cmd.args.get("TARGET_ID").map(String::as_str).unwrap_or("");
+                            self.get_system_entity(target_id_arg).map(|_| target_id_arg)
+                        })
+                        .or_else(|| {
+                            self.get_system_entity(&cmd.target_id)
+                                .map(|_| cmd.target_id.as_str())
+                        });
+                    if let Some(id) = system_id {
+                        let absent_update = SystemFieldUpdates {
+                            binaries: std::collections::HashMap::from([(
+                                binary.to_string(),
+                                String::new(),
+                            )]),
+                            ..Default::default()
+                        };
+                        let _ = self.apply_system_update(id, &absent_update);
+                    }
                 }
             }
             let parse_audits = vec![build_parse_audit(
                 FAILURE_ANALYZER_EFFECT_ID,
                 cmd,
                 event,
-                early_missing.parse_result,
-                &early_missing.detail,
+                early_failure.parse_result,
+                &early_failure.detail,
                 0,
             )];
             self.parse_audits.extend(parse_audits.clone());
             let mut record = ExecutionRecord::from_execution(cmd, event);
             record.success = false;
-            record.fail_reason = early_missing.detail.clone();
+            record.fail_reason = early_failure.detail.clone();
             self.execution_records.push(record);
             self.complete_open_step(&cmd.id);
             return Ok(TtpExecutionProcessing {
                 updates: FactsUpdate::default(),
                 parse_audits,
                 effective_success: false,
-                effective_fail_reason: early_missing.detail,
+                effective_fail_reason: early_failure.detail,
             });
         }
 

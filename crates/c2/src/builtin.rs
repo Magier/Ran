@@ -147,7 +147,10 @@ impl BuiltinC2 {
                         };
                     }
                     Err(err) => {
-                        let reason = err.to_string();
+                        // `anyhow::Error::to_string()` keeps only the outer
+                        // context. Preserve the source chain so Kubernetes API
+                        // status and exec-upgrade failures remain actionable.
+                        let reason = format!("{err:#}");
                         warn!(
                             cmd_id = %cmd.id,
                             target_id = %cmd.target_id,
@@ -350,6 +353,23 @@ mod tests {
         }
     }
 
+    struct FailingPodExecClient;
+
+    #[async_trait::async_trait]
+    impl PodExecClient for FailingPodExecClient {
+        async fn exec_pod_command(
+            &self,
+            _namespace: &str,
+            _pod_name: &str,
+            _command: &str,
+        ) -> anyhow::Result<PodExecOutput> {
+            Err(
+                anyhow::anyhow!("exec upgrade rejected: container not found")
+                    .context("failed to exec command in pod 'default/nginx'"),
+            )
+        }
+    }
+
     #[tokio::test]
     async fn pod_target_executes_command_successfully() {
         let fake = Arc::new(FakePodExecClient {
@@ -396,6 +416,22 @@ mod tests {
         assert_eq!(result.results.len(), 2);
         assert_eq!(result.results[0], "{\"status\":\"ok\"}");
         assert_eq!(result.results[1], "curl: (0) progress output");
+    }
+
+    #[tokio::test]
+    async fn pod_exec_failure_preserves_error_context_chain() {
+        let builtin = BuiltinC2::from_pod_exec_client(Arc::new(FailingPodExecClient));
+
+        let result = builtin
+            .execute(&exec_cmd("ns/default/pod/nginx", "id", ""))
+            .await;
+
+        assert!(!result.success);
+        assert!(result.fail_reason.contains("failed to exec command in pod"));
+        assert!(result
+            .fail_reason
+            .contains("exec upgrade rejected: container not found"));
+        assert_eq!(result.results, vec![result.fail_reason]);
     }
 
     #[tokio::test]

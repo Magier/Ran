@@ -57,6 +57,8 @@ pub struct RbacDeniedFailureAnalyzer;
 pub struct ConnectivityFailureAnalyzer;
 pub struct CommandNotFoundFailureAnalyzer;
 pub struct NotWriteableFailureAnalyzer;
+pub struct RedisLuaFailureAnalyzer;
+pub struct KubectlUsageFailureAnalyzer;
 
 impl FailureAnalyzer for InvalidTargetFailureAnalyzer {
     fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
@@ -128,6 +130,42 @@ impl FailureAnalyzer for NotWriteableFailureAnalyzer {
         if contains_any(&haystack, &["is not writeable", "exit code 23"]) {
             return Some(FailureClassification::known_failure(
                 "destination directory is not writable",
+            ));
+        }
+
+        None
+    }
+}
+
+impl FailureAnalyzer for RedisLuaFailureAnalyzer {
+    fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
+        let haystack = failure_haystack(event);
+        if contains_any(
+            &haystack,
+            &[
+                "err error running script",
+                "err user_script:",
+                "script attempted to access nonexistent global variable",
+            ],
+        ) {
+            return Some(FailureClassification::known_failure(
+                "Redis Lua script execution failed",
+            ));
+        }
+
+        None
+    }
+}
+
+impl FailureAnalyzer for KubectlUsageFailureAnalyzer {
+    fn analyze(&self, _cmd: &ExecTtp, event: &TtpExecuted) -> Option<FailureClassification> {
+        let haystack = failure_haystack(event);
+        if contains_any(
+            &haystack,
+            &["error: unexpected args:", "see 'kubectl apply -h'"],
+        ) {
+            return Some(FailureClassification::known_failure(
+                "kubectl rejected the supplied arguments",
             ));
         }
 
@@ -271,14 +309,28 @@ pub fn default_failure_analyzers() -> Vec<Box<dyn FailureAnalyzer>> {
         Box::new(ConnectivityFailureAnalyzer),
         Box::new(CommandNotFoundFailureAnalyzer),
         Box::new(NotWriteableFailureAnalyzer),
+        Box::new(RedisLuaFailureAnalyzer),
+        Box::new(KubectlUsageFailureAnalyzer),
     ]
 }
 
-pub fn classify_failure(cmd: &ExecTtp, event: &TtpExecuted) -> FailureClassification {
+/// Return a recognized failure signature from command output, including when
+/// the transport incorrectly reported a zero exit status.
+pub fn detect_failure_signature(
+    cmd: &ExecTtp,
+    event: &TtpExecuted,
+) -> Option<FailureClassification> {
     for analyzer in default_failure_analyzers() {
         if let Some(classified) = analyzer.analyze(cmd, event) {
-            return classified;
+            return Some(classified);
         }
+    }
+    None
+}
+
+pub fn classify_failure(cmd: &ExecTtp, event: &TtpExecuted) -> FailureClassification {
+    if let Some(classified) = detect_failure_signature(cmd, event) {
+        return classified;
     }
 
     let detail = if event.fail_reason.trim().is_empty() {
