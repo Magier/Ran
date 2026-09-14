@@ -1488,6 +1488,17 @@ mod tests {
     }
 
     #[test]
+    fn source_side_tool_is_not_gated_by_target_binary_facts() {
+        let tool = "redis-cli";
+        let (campaign, target_id) = campaign_with_pod_binary(tool, Some(BinaryPresence::Absent));
+        let tc = resolve_target_context(&campaign, &target_id).unwrap();
+        let mut ttp = ttp_with_tool(tool);
+        ttp.procedures[0].run_on_target = Some(false);
+
+        assert!(ttp_tool_satisfied(&ttp, &campaign, &tc));
+    }
+
+    #[test]
     fn fallback_procedure_keeps_ttp_runnable_when_primary_tool_is_absent() {
         // Mirrors get-local-ip-address: `ip` primary, `hostname` fallback.
         let ttp = Ttp {

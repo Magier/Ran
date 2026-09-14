@@ -1230,6 +1230,10 @@ impl Campaign {
         exec_hint: Option<&str>,
         lateral_src: Option<ExecChannel>,
     ) -> Result<ExecRoute, ExecuteActionError> {
+        if procedure.run_on_target == Some(false) {
+            return self.route_source_side(target_id, procedure, args, exec_hint);
+        }
+
         if auth_identity_id.is_some_and(|identity| identity.starts_with("k8s/credential/"))
             && crate::ttp_applicability::procedure_uses_k8s_auth(procedure)
         {
@@ -1267,6 +1271,94 @@ impl Campaign {
         }
 
         self.route_fallback(target_id)
+    }
+
+    /// Execute a target-oriented command from a different reachable system.
+    ///
+    /// The semantic target and its grounded `${TARGET.*}` context stay intact,
+    /// but neither the selected execution system nor any hop used to reach it
+    /// may be the target. This prevents client commands from being wrapped in
+    /// an execution edge into the service they are trying to contact.
+    fn route_source_side(
+        &mut self,
+        target_id: &str,
+        procedure: &mut Procedure,
+        args: &HashMap<String, String>,
+        exec_hint: Option<&str>,
+    ) -> Result<ExecRoute, ExecuteActionError> {
+        let canonical_target = self.canonical_entity_id(target_id);
+        let source_hint = exec_hint
+            .map(|hint| self.canonical_entity_id(hint))
+            .filter(|hint| hint != &canonical_target);
+
+        let channel = if let Some(source_id) = source_hint {
+            if self.get_system_entity(&source_id).is_none() {
+                return Err(ExecuteActionError::NoExecChannel(format!(
+                    "source-side procedure requires a reachable system, but '{}' is not a system entity",
+                    source_id
+                )));
+            }
+            let mut channel = self
+                .resolve_exec_channel(&source_id)
+                .map_err(ExecuteActionError::NoExecChannel)?;
+            channel.exec_target_id = Some(source_id);
+            channel
+        } else {
+            self.resolve_exec_source_excluding(Some(&canonical_target))
+                .map_err(ExecuteActionError::NoExecChannel)?
+        };
+
+        let exec_target = channel.exec_target_id.clone().ok_or_else(|| {
+            ExecuteActionError::InvariantViolation(
+                "source-side execution resolved no physical execution system".to_string(),
+            )
+        })?;
+        let route_systems = channel.hops.iter().chain(std::iter::once(&exec_target));
+        if route_systems
+            .map(|id| self.canonical_entity_id(id))
+            .any(|id| id == canonical_target)
+        {
+            return Err(ExecuteActionError::NoExecChannel(format!(
+                "source-side procedure cannot traverse selected target '{}'",
+                target_id
+            )));
+        }
+
+        tracing::info!(
+            target_id = %target_id,
+            exec_target = %exec_target,
+            backend_id = %channel.backend_id,
+            chain = %format_exec_chain(&channel.backend_id, &channel.hops, &exec_target),
+            "selected source-side execution route"
+        );
+
+        if channel.hops.is_empty() {
+            if let Some(source) = self.get_system_entity(&exec_target) {
+                procedure.command =
+                    ground_binaries(&procedure.command, &source.entity().system().binaries);
+            }
+            return Ok(ExecRoute::direct(
+                channel.backend_id,
+                target_id.to_string(),
+                vec![exec_target],
+                None,
+            ));
+        }
+
+        let wrap = self.wrap_command_for_hops(procedure, &channel.hops, &exec_target, args);
+        let exec_chain = channel
+            .hops
+            .into_iter()
+            .chain(std::iter::once(exec_target))
+            .collect();
+        Ok(ExecRoute {
+            backend_id: channel.backend_id,
+            target_id: target_id.to_string(),
+            exec_chain,
+            output_transform: wrap.output_transform,
+            traversal: wrap.traversal,
+            inner_command: wrap.inner_command,
+        })
     }
 
     /// Route to a caller-supplied system entity or C2 backend ID.
@@ -2814,6 +2906,13 @@ const UNKNOWN_TOOL_READINESS: f32 = 0.7;
 /// present, `UNKNOWN_TOOL_READINESS` if the tool's presence is unknown, `0.0` if
 /// the tool is known absent.
 fn procedure_readiness(procedure: &Procedure, tactic: &str, sys: &ran_domain::SystemInfo) -> f32 {
+    if procedure.run_on_target == Some(false) {
+        // The execution source is chosen later by the router. Do not hide the
+        // action based on the target's binary map, because the target is
+        // deliberately excluded from execution and source tool knowledge may
+        // still be incomplete.
+        return UNKNOWN_TOOL_READINESS;
+    }
     if !needs_remote_channel(procedure, tactic) {
         return 1.0; // runs on the C2 side - no target binary required
     }

@@ -631,6 +631,8 @@ export interface components {
 			command: string;
 			tool?: string;
 			isLocalCommand?: boolean;
+			/** @description Whether the command physically executes on the selected target. When false, Ran preserves the target context but executes from a different reachable system and excludes the target from the route. */
+			runOnTarget?: boolean;
 		};
 		TTPParam: {
 			name: string;
