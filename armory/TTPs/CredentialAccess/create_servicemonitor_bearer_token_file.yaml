@@ -2,9 +2,9 @@ id: create-servicemonitor-bearer-token-file
 name: Create ServiceMonitor with Bearer Token File
 description: >-
   Create a namespaced ServiceMonitor that makes Prometheus-compatible
-  discovery read a bearer token from a file in the scraping workload. In the
-  CVE-2026-47701 workshop, run this as the captured Redis service account
-  after Redis code execution and target the Redis metric receiver service.
+  discovery read a bearer token from a file in the scraping workload. For
+  CVE-2026-47701, run this as the captured Redis service account after Redis
+  code execution and target the Redis metric receiver service.
 tactic: Credential Access
 techniques: ["Steal Application Access Token", "T1528"]
 parameters:
