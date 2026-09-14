@@ -71,6 +71,33 @@ fn resolve_ttp_and_defaults(
     Ok((ttp, args))
 }
 
+/// Validate and normalize list-valued action parameters before template
+/// rendering. The execution transport carries strings, so lists are encoded as
+/// JSON precisely once at this boundary rather than interpolated as quoted
+/// JSON into a Kubernetes manifest.
+fn normalize_string_list_params(
+    ttp: &Ttp,
+    args: &mut HashMap<String, String>,
+) -> Result<(), ExecuteActionError> {
+    for param in &ttp.params {
+        if param.param_type != "stringList" {
+            continue;
+        }
+        let Some(value) = args.get(&param.name) else {
+            continue;
+        };
+        let values = serde_json::from_str::<Vec<String>>(value).map_err(|_| {
+            ExecuteActionError::InvalidInput(format!(
+                "parameter '{}' must be a list of strings",
+                param.name
+            ))
+        })?;
+        let encoded = serde_json::to_string(&values).expect("strings always serialize to JSON");
+        args.insert(param.name.clone(), encoded);
+    }
+    Ok(())
+}
+
 /// Normalise the caller-supplied `exec_system_id` hint.
 ///
 /// Treats missing, whitespace-only, or "same as target" values as unspecified
@@ -795,6 +822,7 @@ impl Campaign {
                 args.insert(p.name.clone(), p.default.clone());
             }
         }
+        normalize_string_list_params(&ttp, &mut args)?;
 
         // This action's semantic target is the selected Pod. Never allow
         // legacy Namespace/PodName arguments to redirect execution elsewhere.
@@ -2990,7 +3018,9 @@ fn ground_binary_in_cmd(
 
 #[cfg(test)]
 mod k8s_auth_tests {
-    use super::ResolvedK8sAuth;
+    use super::{normalize_string_list_params, ResolvedK8sAuth};
+    use armory::{Ttp, TtpParam};
+    use std::collections::HashMap;
 
     #[test]
     fn kubeconfig_auth_grounds_context_flag() {
@@ -3011,5 +3041,26 @@ mod k8s_auth_tests {
             context: None,
         };
         assert_eq!(auth.kubectl_arg(), "--kubeconfig \"$KUBECONFIG\"");
+    }
+
+    #[test]
+    fn string_list_parameters_are_normalized_as_json_arrays() {
+        let ttp = Ttp {
+            params: vec![TtpParam {
+                name: "Arguments".to_string(),
+                param_type: "stringList".to_string(),
+                description: String::new(),
+                required: false,
+                default: "[]".to_string(),
+            }],
+            ..Ttp::new("test", "Test", "Execution")
+        };
+        let mut args = HashMap::from([("Arguments".to_string(), r#"["one","two"]"#.to_string())]);
+
+        normalize_string_list_params(&ttp, &mut args).expect("valid list");
+        assert_eq!(args["Arguments"], r#"["one","two"]"#);
+
+        args.insert("Arguments".to_string(), "not a list".to_string());
+        assert!(normalize_string_list_params(&ttp, &mut args).is_err());
     }
 }

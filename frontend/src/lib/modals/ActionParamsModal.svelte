@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from '@iconify/svelte';
 	import { Combobox, useListCollection } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId } from '$lib/model';
@@ -35,6 +36,7 @@
 	interface Arg {
 		Name: string;
 		Value: string;
+		Values?: string[];
 		Description: string;
 		Type: string;
 		IsTrue: boolean;
@@ -265,6 +267,43 @@
 		});
 	}
 
+	function parseStringList(value: string): string[] {
+		try {
+			const parsed = JSON.parse(value);
+			return Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')
+				? parsed
+				: [];
+		} catch {
+			return [];
+		}
+	}
+
+	function updateStringList(name: string, index: number, value: string) {
+		const argIndex = args.findIndex((arg) => arg.Name === name);
+		if (argIndex === -1) return;
+		const values = [...(args[argIndex].Values ?? [])];
+		values[index] = value;
+		args = args.with(argIndex, { ...args[argIndex], Values: values });
+	}
+
+	function addStringListValue(name: string) {
+		const argIndex = args.findIndex((arg) => arg.Name === name);
+		if (argIndex === -1) return;
+		args = args.with(argIndex, {
+			...args[argIndex],
+			Values: [...(args[argIndex].Values ?? []), '']
+		});
+	}
+
+	function removeStringListValue(name: string, index: number) {
+		const argIndex = args.findIndex((arg) => arg.Name === name);
+		if (argIndex === -1) return;
+		args = args.with(argIndex, {
+			...args[argIndex],
+			Values: (args[argIndex].Values ?? []).filter((_, itemIndex) => itemIndex !== index)
+		});
+	}
+
 	$effect(() => {
 		// Only run when namespace actually changes
 		if (selectedNamespace === lastClearedNamespace) {
@@ -464,6 +503,7 @@
 					return {
 						Name: param.name,
 						Value: value,
+						Values: param.type === 'stringList' ? parseStringList(value) : undefined,
 						IsTrue: param.default === 'true',
 						Description: param.description,
 						Type: param.type,
@@ -644,6 +684,8 @@
 						arg.Value = v.toString();
 					}
 					// arg.Value = parseFloat(arg.Value).toString();
+				} else if (arg.Type === 'stringList') {
+					arg.Value = JSON.stringify(arg.Values ?? []);
 				} else if (arg.Type === 'string') {
 					arg.Value = arg.Value.toString();
 				} else {
@@ -969,6 +1011,38 @@
 								<option value={identity.id}>{identity.kind}: {identity.name}</option>
 							{/each}
 						</select>
+					{:else if arg.Type === 'stringList'}
+						<div class="ig-input flex flex-col gap-2 py-2">
+							{#each arg.Values ?? [] as value, index (index)}
+								<div class="flex gap-2">
+									<input
+										class="input min-w-0 flex-1"
+										{value}
+										oninput={(event) =>
+											updateStringList(arg.Name, index, event.currentTarget.value)}
+										placeholder="Argument"
+									/>
+									<button
+										type="button"
+										class="btn variant-soft-error px-2"
+										aria-label="Remove argument"
+										title="Remove argument"
+										onclick={() => removeStringListValue(arg.Name, index)}
+									>
+										<Icon icon="mdi:trash-can-outline" width="16" aria-hidden="true" />
+									</button>
+								</div>
+							{/each}
+							<button
+								type="button"
+								class="btn variant-soft-primary self-start px-2"
+								aria-label="Add argument"
+								title="Add argument"
+								onclick={() => addStringListValue(arg.Name)}
+							>
+								<Icon icon="mdi:plus" width="16" aria-hidden="true" />
+							</button>
+						</div>
 					{:else if getArgOptions(arg.Name).length > 0}
 						{#key argExternalVersions[arg.Name] ?? 0}
 							<Combobox
