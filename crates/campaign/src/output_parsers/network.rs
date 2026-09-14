@@ -245,7 +245,19 @@ fn classify_discovered_host(ip: IpAddr, hostname: Option<&str>) -> Box<dyn Entit
     let ip_kebab = ip_str.replace('.', "-");
 
     if let Some(hostname) = hostname {
-        if let Some((name, ns)) = derive_cluster_pod_identity(hostname, &ip_kebab) {
+        if let Some(identity) = derive_cluster_pod_identity(hostname, &ip_kebab) {
+            let (name, ns) = match identity {
+                // A headless-service record has the form
+                // <pod-hostname>.<service>.<namespace>.svc.cluster.local.
+                // Its first label identifies the pod reached by this address.
+                ClusterPodIdentity::Pod { name, namespace } => (name, namespace),
+                // A service record, or an address-derived record, reveals the
+                // namespace but not the API pod name. Retain an explicit
+                // IP-derived placeholder until Kubernetes supplies that name.
+                ClusterPodIdentity::Namespace { namespace } => {
+                    (format!("pod-{ip_kebab}"), namespace)
+                }
+            };
             let mut pod = Pod::new(name, ns);
             pod.system.ips.push(ip);
             return Box::new(pod);
@@ -276,27 +288,37 @@ fn classify_discovered_host(ip: IpAddr, hostname: Option<&str>) -> Box<dyn Entit
     Box::new(system)
 }
 
-fn derive_cluster_pod_identity(hostname: &str, ip_kebab: &str) -> Option<(String, String)> {
-    if !hostname.ends_with("cluster.local") {
-        return None;
-    }
-    let parts: Vec<&str> = hostname.split('.').collect();
-    let first = parts.first().copied().unwrap_or("");
-    if first != ip_kebab {
+enum ClusterPodIdentity {
+    /// A pod-specific headless-service DNS record supplied its hostname.
+    Pod { name: String, namespace: String },
+    /// The DNS name supplies a namespace but not an API pod name.
+    Namespace { namespace: String },
+}
+
+fn derive_cluster_pod_identity(hostname: &str, ip_kebab: &str) -> Option<ClusterPodIdentity> {
+    let parts: Vec<&str> = hostname.trim_end_matches('.').split('.').collect();
+    if parts.len() < 5 || parts[parts.len() - 3..] != ["svc", "cluster", "local"] {
         return None;
     }
 
-    let (name, ns) = match parts.len() {
-        4 => (parts[0].to_string(), parts[0].to_string()),
-        5 => (parts[0].to_string(), parts[1].to_string()),
-        6 => (format!("{}.{}", parts[1], parts[0]), parts[2].to_string()),
-        n if n > 6 => (parts[0].to_string(), parts[2].to_string()),
-        _ => return None,
-    };
-    if ns.is_empty() || name.is_empty() {
+    let namespace = parts[parts.len() - 4];
+    if namespace.is_empty() {
         return None;
     }
-    Some((name, ns))
+
+    // Only a six-label record can be pod-specific. In that case the first
+    // label is the pod hostname, unless it is merely the address-derived
+    // hostname emitted by cluster DNS.
+    if parts.len() == 6 && parts[0] != ip_kebab && !parts[0].is_empty() {
+        return Some(ClusterPodIdentity::Pod {
+            name: parts[0].to_string(),
+            namespace: namespace.to_string(),
+        });
+    }
+
+    Some(ClusterPodIdentity::Namespace {
+        namespace: namespace.to_string(),
+    })
 }
 
 /// Parse nmap greppable (`-oG`) output.
@@ -724,7 +746,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_nmap_grep_hostname_used_as_pod_name() {
+    fn parse_nmap_grep_service_hostname_keeps_an_ip_placeholder() {
         let stdout = "Host: 10.0.0.6 (redis.default.svc.cluster.local)\tPorts: 6379/open/tcp\n";
         let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "src", None) else {
             panic!("expected SuccessWithFacts");
@@ -733,7 +755,8 @@ mod tests {
             .as_any()
             .downcast_ref::<Pod>()
             .unwrap();
-        assert_eq!(pod.entity_name(), "redis.default.svc.cluster.local");
+        assert_eq!(pod.entity_name(), "pod-10-0-0-6");
+        assert_eq!(pod.namespace(), Some("default"));
         let service = facts
             .new_entities
             .iter()
@@ -898,6 +921,28 @@ mod tests {
             .downcast_ref::<Pod>()
             .unwrap();
         assert_eq!(pod.namespace(), Some("oopservability"));
+        assert_eq!(pod.entity_name(), "pod-10-0-0-13");
+    }
+
+    #[test]
+    fn parse_nmap_headless_service_hostname_uses_the_pod_name_and_namespace() {
+        let stdout = concat!(
+            "Nmap scan report for ",
+            "chk-forensic-keeper-keeper-0-0-0.",
+            "chk-forensic-keeper-keeper-0-0.clickhouse.svc.cluster.local ",
+            "(10.0.0.13)\nHost is up\n"
+        );
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_nmap(stdout, "ns/dungeon/pod/scanner", None)
+        else {
+            panic!("expected SuccessWithFacts");
+        };
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .unwrap();
+        assert_eq!(pod.namespace(), Some("clickhouse"));
+        assert_eq!(pod.entity_name(), "chk-forensic-keeper-keeper-0-0-0");
     }
 
     // --- rdns ---
