@@ -972,6 +972,20 @@ mod tests {
     }
 
     #[test]
+    fn tera_template_encodes_json_array_arguments() {
+        let args = HashMap::from([(
+            "Arguments".to_string(),
+            r#"["TCP-LISTEN:8080,fork,reuseaddr","TCP-CONNECT:example-service:8080"]"#.to_string(),
+        )]);
+        let result = resolve_template(r#"{"args": {{ Arguments | json_encode }}}"#, &args);
+
+        assert_eq!(
+            result,
+            r#"{"args": ["TCP-LISTEN:8080,fork,reuseaddr","TCP-CONNECT:example-service:8080"]}"#
+        );
+    }
+
+    #[test]
     fn tera_multiline_template_collapses_to_single_line() {
         // serde_yaml `>-` with extra-indented continuation lines preserves
         // newlines, so commands arrive as multiline strings.  Tera also leaves

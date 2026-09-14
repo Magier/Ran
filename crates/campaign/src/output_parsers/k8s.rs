@@ -101,6 +101,8 @@ mod k8s_json {
         pub name: String,
         #[serde(default)]
         pub image: String,
+        #[serde(default)]
+        pub args: Vec<String>,
         #[serde(rename = "securityContext", default)]
         pub security_context: Option<ContainerSecCtx>,
         #[serde(rename = "volumeMounts", default)]
@@ -792,6 +794,7 @@ fn parse_k8s_pod_list(
             pod.containers.push(ran_domain::Container {
                 name: c.name.clone(),
                 image: c.image.clone(),
+                args: c.args.clone(),
                 ports: declared_container_ports(&c.ports),
                 volume_mounts,
             });
@@ -1065,6 +1068,7 @@ fn parse_k8s_deployment_list(
             .map(|container| ran_domain::Container {
                 name: container.name.clone(),
                 image: container.image.clone(),
+                args: container.args.clone(),
                 ports: declared_container_ports(&container.ports),
                 volume_mounts: Vec::new(),
             })
@@ -1690,6 +1694,7 @@ mod tests {
                 "metadata": {"name": "redis-0", "namespace": "default"},
                 "spec": {"containers": [{
                     "name": "redis", "image": "redis:7",
+                    "args": ["redis-server", "--appendonly", "yes"],
                     "ports": [{"name": "client", "containerPort": 6379, "protocol": "TCP"}]
                 }]},
                 "status": {"phase": "Running", "podIP": "10.0.0.8"}
@@ -1709,6 +1714,15 @@ mod tests {
         assert_eq!(service.port_name.as_deref(), Some("client"));
         assert_eq!(service.product, None);
         assert_eq!(service.state, EndpointState::Unknown);
+        let pod = facts
+            .new_entities
+            .iter()
+            .find_map(|entity| entity.as_any().downcast_ref::<Pod>())
+            .expect("pod fact");
+        assert_eq!(
+            pod.containers[0].args,
+            ["redis-server", "--appendonly", "yes"]
+        );
         assert!(facts
             .new_relations
             .iter()

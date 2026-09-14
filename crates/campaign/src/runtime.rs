@@ -840,6 +840,22 @@ fn attach_connected_session(
         };
     }
 
+    // Kubernetes gives a container its pod name as hostname by default. When
+    // a just-deployed pod calls Ran back before it has another identifying
+    // signal such as a pod IP, attach the session to the known Pod directly.
+    // Hostnames are not globally unique, so only use this correlation when it
+    // identifies exactly one Pod in the campaign.
+    let mut matching_pods = campaign
+        .entities
+        .values::<ran_domain::Pod>()
+        .filter(|pod| pod.entity_name().eq_ignore_ascii_case(hostname))
+        .map(|pod| pod.entity_id().0)
+        .collect::<Vec<_>>();
+    if matching_pods.len() == 1 {
+        let pod_id = matching_pods.remove(0);
+        return attach_connected_session(campaign, backend_id, &pod_id, hostname, user, os, port);
+    }
+
     // Nothing answers to that id - a shell from a host we have never seen.
     // Create a system for it, named after the hostname it reported.
     let mut sys = UnknownSystem::new(hostname.to_lowercase());
@@ -1284,6 +1300,66 @@ mod tests {
             "fixture expects the foothold to be promoted to a pod"
         );
         campaign
+    }
+
+    #[test]
+    fn callback_from_a_known_pod_attaches_without_a_second_entity() {
+        let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+        let pod = Pod::new("debug-bridge", "default");
+        let pod_id = pod.entity_id().0;
+        campaign.insert_entity(&pod);
+
+        let attached = attach_connected_session(
+            &mut campaign,
+            "session/debug-bridge",
+            "node/debug-bridge",
+            "debug-bridge",
+            "root",
+            "Linux",
+            Some(4444),
+        );
+
+        assert_eq!(attached.entity_id, pod_id);
+        assert!(campaign.entities.get::<UnknownSystem>().is_empty());
+        assert_eq!(
+            campaign.entities.get::<Pod>()[&EntityId::new(&pod_id)]
+                .system
+                .sessions[0]
+                .id,
+            "debug-bridge"
+        );
+    }
+
+    #[test]
+    fn callback_that_precedes_the_deploy_effect_merges_into_the_pod() {
+        let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+        let attached = attach_connected_session(
+            &mut campaign,
+            "session/debug-bridge",
+            "node/debug-bridge",
+            "debug-bridge",
+            "root",
+            "Linux",
+            Some(4444),
+        );
+        assert_eq!(attached.entity_id, "system/debug-bridge");
+
+        let pod = Pod::new("debug-bridge", "default");
+        let pod_id = pod.entity_id();
+        let mut deploy_facts = crate::FactsUpdate::default();
+        deploy_facts.new_entities.push(Box::new(pod));
+        let facts = crate::rules::run_rules_fixpoint(
+            &campaign,
+            &crate::analyzers::default_rules(),
+            deploy_facts,
+        );
+        campaign.apply_facts(&facts);
+
+        assert!(campaign.entities.get::<UnknownSystem>().is_empty());
+        assert_eq!(
+            campaign.entities.get::<Pod>()[&pod_id].system.sessions[0].id,
+            "debug-bridge"
+        );
     }
 
     fn pod_sessions(campaign: &Campaign) -> Vec<SessionInfo> {

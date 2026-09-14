@@ -633,7 +633,23 @@ fn parse_deploy_container_effect(normalized: &str, cmd: &ExecTtp) -> ParserOutpu
 }
 
 fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
-    use ran_domain::{Confidence, Container, Entity, Mount, NameConfidence, Pod, PodPhase};
+    use ran_domain::{
+        Confidence, Container, ContainerPort, Entity, Mount, NameConfidence, Pod, PodPhase,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct RequestedContainerPort {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(rename = "containerPort")]
+        port: u16,
+        #[serde(default = "default_tcp_protocol")]
+        protocol: String,
+    }
+
+    fn default_tcp_protocol() -> String {
+        "TCP".to_string()
+    }
 
     let pod_name = cmd.args.get("PodName").map(String::as_str).unwrap_or("");
     let ns = cmd
@@ -646,6 +662,40 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
         .get("Image")
         .map(String::as_str)
         .unwrap_or("unknown");
+    let args = match cmd.args.get("Arguments") {
+        Some(arguments) if !arguments.trim().is_empty() => {
+            match serde_json::from_str::<Vec<String>>(arguments) {
+                Ok(arguments) => arguments,
+                Err(err) => {
+                    return ParserOutput::KnownFailure(format!(
+                        "deploy-container: Arguments must be a JSON array of strings: {err}"
+                    ));
+                }
+            }
+        }
+        _ => Vec::new(),
+    };
+    let ports = match cmd.args.get("Ports") {
+        Some(ports) if !ports.trim().is_empty() => {
+            match serde_json::from_str::<Vec<RequestedContainerPort>>(ports) {
+                Ok(ports) => ports
+                    .into_iter()
+                    .filter(|port| port.port != 0)
+                    .map(|port| ContainerPort {
+                        name: port.name.filter(|name| !name.trim().is_empty()),
+                        port: port.port,
+                        protocol: port.protocol.to_ascii_uppercase(),
+                    })
+                    .collect(),
+                Err(err) => {
+                    return ParserOutput::KnownFailure(format!(
+                        "deploy-container: Ports must be a JSON array of Kubernetes container ports: {err}"
+                    ));
+                }
+            }
+        }
+        _ => Vec::new(),
+    };
 
     if pod_name.is_empty() {
         return ParserOutput::KnownFailure("deploy-container: PodName arg is empty".to_string());
@@ -689,7 +739,8 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
     pod.containers.push(Container {
         name: pod_name.to_string(),
         image: image.to_string(),
-        ports: Vec::new(),
+        args,
+        ports,
         volume_mounts: host_mount.iter().cloned().collect(),
     });
 
@@ -700,9 +751,16 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
     if let Some(node_name) = cmd.args.get("NodeName").filter(|s| !s.is_empty()) {
         pod.node_name = Some(node_name.clone());
     }
-    if let Some(sa) = cmd.args.get("ServiceAccount").filter(|s| !s.is_empty()) {
-        pod.service_account_name = Some(sa.clone());
-    }
+    // Kubernetes defaults an omitted or empty serviceAccountName to `default`.
+    // Record that effective value immediately so the Pod effect has the same
+    // identity information a later API discovery would provide.
+    pod.service_account_name = Some(
+        cmd.args
+            .get("ServiceAccount")
+            .filter(|sa| !sa.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| "default".to_string()),
+    );
 
     let mut facts = FactsUpdate::default();
     // This TTP deploys the pod; it did not find one lying around.
@@ -894,6 +952,70 @@ mod tests {
             facts.outcome_of(&EntityId::new("ns/default/pod/attacker")),
             FactOutcome::Created
         );
+    }
+
+    #[test]
+    fn deploy_container_records_requested_container_arguments() {
+        let mut cmd = sample_cmd();
+        cmd.args
+            .insert("PodName".to_string(), "debug-bridge".to_string());
+        cmd.args
+            .insert("Namespace".to_string(), "default".to_string());
+        cmd.args
+            .insert("Image".to_string(), "alpine/socat:1.8.1.3".to_string());
+        cmd.args.insert(
+            "Arguments".to_string(),
+            r#"["TCP-LISTEN:8080,fork,reuseaddr","TCP-CONNECT:example-service:8080"]"#.to_string(),
+        );
+        cmd.args.insert(
+            "Ports".to_string(),
+            r#"[{"containerPort":8080}]"#.to_string(),
+        );
+        cmd.args
+            .insert("ServiceAccount".to_string(), "debugger".to_string());
+
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_deploy_container_effect("create k8s.pod", &cmd)
+        else {
+            panic!("deploying a pod should produce facts");
+        };
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .expect("created fact should be a Pod");
+
+        assert_eq!(pod.service_account_name.as_deref(), Some("debugger"));
+        assert_eq!(pod.containers[0].image, "alpine/socat:1.8.1.3");
+        assert_eq!(
+            pod.containers[0].args,
+            [
+                "TCP-LISTEN:8080,fork,reuseaddr",
+                "TCP-CONNECT:example-service:8080"
+            ]
+        );
+        assert_eq!(pod.containers[0].ports[0].port, 8080);
+        assert_eq!(pod.containers[0].ports[0].protocol, "TCP");
+    }
+
+    #[test]
+    fn deploy_container_records_kubernetes_default_service_account() {
+        let mut cmd = sample_cmd();
+        cmd.args
+            .insert("PodName".to_string(), "debug-bridge".to_string());
+        cmd.args
+            .insert("Namespace".to_string(), "default".to_string());
+
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_deploy_container_effect("create k8s.pod", &cmd)
+        else {
+            panic!("deploying a pod should produce facts");
+        };
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .expect("created fact should be a Pod");
+
+        assert_eq!(pod.service_account_name.as_deref(), Some("default"));
     }
 
     #[test]
