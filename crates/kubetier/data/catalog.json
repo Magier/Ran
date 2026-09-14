@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "attribution": "Assessment data by KubeTier (https://kubetier.com/)",
   "sourceUrl": "https://kubetier.com/llms.txt",
-  "fetchedAt": "2026-08-15T21:53:16Z",
-  "sourceEtag": "\"e715fd9e420498df67dffdc177ff9ea0\"",
-  "sourceSha256": "8cda6f78624e6669cb22914018bfb98484be1a7e7d74f952c8489b2b262be610",
+  "fetchedAt": "2026-09-14T12:58:11Z",
+  "sourceEtag": "\"9154e84a370d74bf9a4d48a6f5c15708\"",
+  "sourceSha256": "1eab9a2412457d3ac1d2205d756b4c38225dac2bb15740b013827693571ce2d8",
   "validatedKubernetesVersion": "1.36.1",
   "full": false,
   "permissions": [
@@ -1025,6 +1025,18 @@
       "tier": "T1",
       "escalationCount": 1,
       "sourceUrl": "https://kubetier.com/pods-ephemeralcontainers-create",
+      "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/pods/ephemeral-containers/",
+      "escalationPaths": []
+    },
+    {
+      "id": "pods-ephemeralcontainers-patch",
+      "verb": "patch",
+      "resource": "pods/ephemeralcontainers",
+      "apiGroup": "",
+      "scope": "namespaced",
+      "tier": "T1",
+      "escalationCount": 1,
+      "sourceUrl": "https://kubetier.com/pods-ephemeralcontainers-patch",
       "kubernetesDocUrl": "https://kubernetes.io/docs/concepts/workloads/pods/ephemeral-containers/",
       "escalationPaths": []
     },
