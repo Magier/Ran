@@ -404,6 +404,9 @@ impl<'de> serde::Deserialize<'de> for BinaryPresence {
 pub struct Container {
     pub name: String,
     pub image: String,
+    /// Arguments passed to the container entrypoint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<ContainerPort>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
