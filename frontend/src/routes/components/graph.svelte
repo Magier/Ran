@@ -23,7 +23,12 @@
 		COLLAPSED_EDGE_CLASS
 	} from './graph_edges';
 	import type { CyEdge } from './graph_edges';
-	import { toCyNode, syncNodeParent } from './graph_nodes';
+	import {
+		toCyNode,
+		syncNodeParent,
+		preserveSurvivingDescendants,
+		ancestorsToRevealAfterReparent
+	} from './graph_nodes';
 	import type { CyNode, Pos, PosMap } from './graph_nodes';
 	import { createElkLayout, isValidPosition, DEFAULT_LAYOUT_PARAMS } from './elk_layout';
 	import type { LayoutParams } from './elk_layout';
@@ -339,11 +344,13 @@
 					// would not be in cyNodeIdSet and cy.add() would try to re-add them, causing
 					// "element already exists" or "invalid ID" errors from the plugin's meta-nodes.
 					const collapsedNodes: string[] = [];
+					const nodesToReveal = new Set<string>();
 					const ecApi = expandCollapseApi;
 					let addedNodeIds = new Set<string>();
 					const recollapseNodes = () => {
 						if (!ecApi || collapsedNodes.length === 0) return;
 						new Set(collapsedNodes).forEach((id) => {
+							if (nodesToReveal.has(id)) return;
 							const node = cy.getElementById(id);
 							if (node.length > 0 && node.isParent()) {
 								// The collapse plugin restores children by applying the parent's
@@ -422,6 +429,11 @@
 						(e) => e.data.id && !cyEdgeIdSet.has(e.data.id as string)
 					);
 
+					// Removing a compound also removes its descendants in Cytoscape.
+					// Detach descendants that survive in the backend snapshot first, then
+					// restore their authoritative parents after new compounds are added.
+					preserveSurvivingDescendants(cy, currentNodeIds);
+
 					// Remove elements no longer in the graph
 					cy.nodes()
 						.filter((n) => n.id() !== '' && !currentNodeIds.has(n.id()))
@@ -438,7 +450,10 @@
 							// Compound membership is structure, not data: cytoscape ignores a
 							// `parent` key handed to data(), so a node that changed or lost its
 							// parent has to be moved explicitly.
-							syncNodeParent(cy, n);
+							const wasReparented = syncNodeParent(cy, n);
+							ancestorsToRevealAfterReparent(cy, n, wasReparented).forEach((id) =>
+								nodesToReveal.add(id)
+							);
 						});
 
 					// Update data for existing edges too. An edge's id is stable across a
@@ -527,6 +542,16 @@
 						});
 					}
 
+					// A surviving child may have been detached from an obsolete compound
+					// before its new parent existed. Retry parent reconciliation now that
+					// every new node has been added.
+					nodes.forEach((n) => {
+						const wasReparented = syncNodeParent(cy, n);
+						ancestorsToRevealAfterReparent(cy, n, wasReparented).forEach((id) =>
+							nodesToReveal.add(id)
+						);
+					});
+
 					if (edgesToAdd.length > 0) {
 						cy.add(edgesToAdd);
 					}
@@ -536,6 +561,7 @@
 					applyCompromisedStyle(cy);
 
 					recollapseNodes();
+					if (nodesToReveal.size > 0) saveCollapsedNodes();
 
 					// Safety net: the mount/update collapse dance does not always emit a
 					// clean `aftercollapse` per node (expand-then-recollapse, swallowed

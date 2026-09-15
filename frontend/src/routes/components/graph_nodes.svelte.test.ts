@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import cytoscape from 'cytoscape';
-import { toCyNode, syncNodeParent } from './graph_nodes';
+import {
+	toCyNode,
+	syncNodeParent,
+	preserveSurvivingDescendants,
+	ancestorsToRevealAfterReparent
+} from './graph_nodes';
 import type { PosMap } from './graph_nodes';
 import type { Node } from '$lib/api/index';
 
@@ -196,5 +201,69 @@ describe('syncNodeParent', () => {
 		refresh(cy, [node({ id: 'ns/x', kind: 'Namespace' }), node({ id: 'pod-a', parent: 'ns/x' })]);
 
 		expect(parentOf(cy, 'pod-a')).toBe('ns/x');
+	});
+});
+
+describe('ancestorsToRevealAfterReparent', () => {
+	it('reveals every collapsed ancestor of a reparented compromised pod', () => {
+		const cy = mountCy([
+			node({ id: 'cluster', kind: 'K8sCluster' }),
+			node({ id: 'ns/x', kind: 'Namespace', parent: 'cluster' }),
+			node({ id: 'pod-a' })
+		]);
+		const updated = toCyNode(node({ id: 'pod-a', parent: 'ns/x', compromised: true }), {});
+		const moved = syncNodeParent(cy, updated);
+
+		expect(ancestorsToRevealAfterReparent(cy, updated, moved)).toEqual(['ns/x', 'cluster']);
+	});
+
+	it('does not alter collapse state for an uncompromised or unmoved node', () => {
+		const cy = mountCy([
+			node({ id: 'ns/x', kind: 'Namespace' }),
+			node({ id: 'pod-a', parent: 'ns/x' })
+		]);
+		const uncompromised = toCyNode(node({ id: 'pod-a', parent: 'ns/x' }), {});
+		const compromised = toCyNode(
+			node({ id: 'pod-a', parent: 'ns/x', compromised: true }),
+			{}
+		);
+
+		expect(ancestorsToRevealAfterReparent(cy, uncompromised, true)).toEqual([]);
+		expect(ancestorsToRevealAfterReparent(cy, compromised, false)).toEqual([]);
+	});
+});
+
+describe('preserveSurvivingDescendants', () => {
+	it('keeps a pod alive when its obsolete compound parent is removed', () => {
+		const cy = mountCy([
+			node({ id: 'cluster-old', kind: 'K8sCluster' }),
+			node({ id: 'pod-a', parent: 'cluster-old', compromised: true })
+		]);
+
+		expect(preserveSurvivingDescendants(cy, new Set(['cluster-new', 'pod-a']))).toEqual([
+			'pod-a'
+		]);
+		cy.getElementById('cluster-old').remove();
+
+		expect(cy.getElementById('pod-a').nonempty()).toBe(true);
+		expect(parentOf(cy, 'pod-a')).toBeNull();
+	});
+
+	it('allows the surviving pod to be attached to the replacement cluster', () => {
+		const cy = mountCy([
+			node({ id: 'cluster-old', kind: 'K8sCluster' }),
+			node({ id: 'pod-a', parent: 'cluster-old', compromised: true })
+		]);
+		preserveSurvivingDescendants(cy, new Set(['cluster-new', 'pod-a']));
+		cy.getElementById('cluster-old').remove();
+		cy.add(toCyNode(node({ id: 'cluster-new', kind: 'K8sCluster' }), {}));
+
+		expect(
+			syncNodeParent(
+				cy,
+				toCyNode(node({ id: 'pod-a', parent: 'cluster-new', compromised: true }), {})
+			)
+		).toBe(true);
+		expect(parentOf(cy, 'pod-a')).toBe('cluster-new');
 	});
 });

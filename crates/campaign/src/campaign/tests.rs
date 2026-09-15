@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use armory::{Armory, Procedure, Ttp, TtpParam};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
-    AccessLevel, C2Server, Container, ContainerEscape, Entity, EntityId, JwToken, K8sCluster,
-    K8sCredential, K8sNode, KubeletExecSink, Namespace, OperatorHost, OutputTransformKind, Pod,
-    PodExec, RbacPermission, RceCanExec, RunsOn, ServiceAccount, ServiceAccountToken, SessionInfo,
-    SessionStatus, Uses,
+    AccessLevel, AuthenticatesTo, C2Server, Container, ContainerEscape, Entity, EntityId, JwToken,
+    K8sCluster, K8sCredential, K8sNode, KubeletExecSink, Namespace, OperatorHost,
+    OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn, ServiceAccount,
+    ServiceAccountToken, SessionInfo, SessionStatus, Uses,
 };
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
@@ -985,6 +985,53 @@ fn prepare_action_applies_custom_execution_timeout() {
 
     assert_eq!(exec.execution_timeout_seconds, 300);
     assert!(!exec.args.contains_key("__EXECUTION_TIMEOUT_SECONDS"));
+}
+
+#[test]
+fn read_local_kubeconfig_control_command_never_routes_through_a_session() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    campaign
+        .entities
+        .insert_typed(OperatorHost::new("Operator Host"));
+
+    let mut pod = Pod::new("foothold", "default");
+    pod.system.sessions.push(SessionInfo {
+        id: "live".to_string(),
+        kind: "tcp".to_string(),
+        port: Some(1337),
+        status: SessionStatus::Active,
+    });
+    campaign.entities.insert_typed(pod);
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![Procedure::new(
+            "read-kubeconfig",
+            "c2.read_local_kubeconfig(/tmp/config)",
+        )],
+        ..Ttp::new(
+            "read-local-kubeconfig",
+            "Read Local Kubeconfig",
+            "Credential Access",
+        )
+    }]);
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "read-local-kubeconfig".to_string(),
+                target_id: "system/operator-host".to_string(),
+                exec_system_id: None,
+                auth_identity_id: None,
+                procedure_id: None,
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("local kubeconfig read should prepare without graph routing");
+
+    assert!(exec.exec_system_id.is_empty());
+    assert!(exec.exec_chain.is_empty());
+    assert_eq!(exec.target_id, "system/operator-host");
 }
 
 #[test]
@@ -4015,6 +4062,49 @@ fn search_interesting_files_uses_configurable_busybox_compatible_exclusions() {
     assert!(command.contains("-type d -name 'tmp' -prune -o"));
     assert!(command.contains("-type d -name 'cache' -prune -o"));
     assert!(!command.contains("-name 'proc'"));
+}
+
+#[test]
+fn deploy_container_uses_effective_default_namespace_for_cluster_target() {
+    let cluster = K8sCluster::new("kubernetes").with_server(Some("https://127.0.0.1:6443".into()));
+    let cluster_id = cluster.entity_id().0;
+    let mut campaign = Campaign::bootstrap("Ran", cluster);
+    let mut credential =
+        K8sCredential::new("https://127.0.0.1:6443").with_name("kubernetes-admin@kubernetes");
+    credential.active = true;
+    credential
+        .entitlements
+        .push(RbacPermission::new("create", "pods"));
+    let credential_id = credential.entity_id().0;
+    campaign.entities.insert_typed(credential);
+    push_relation(
+        &mut campaign,
+        &AuthenticatesTo::new(&credential_id, &cluster_id),
+    );
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "deploy-container".to_string(),
+                target_id: cluster_id,
+                exec_system_id: None,
+                auth_identity_id: Some(credential_id),
+                procedure_id: Some("kubectl".to_string()),
+                args: HashMap::from([
+                    ("PodName".to_string(), "debug".to_string()),
+                    ("Namespace".to_string(), String::new()),
+                ]),
+                reasoning: None,
+            },
+            &repository_armory(),
+        )
+        .expect("deploy-container should prepare");
+
+    assert_eq!(
+        exec.args.get("Namespace").map(String::as_str),
+        Some("default")
+    );
+    assert!(exec.procedure.command.contains(r#""namespace": "default""#));
 }
 
 fn valid_accounts_campaign() -> (Campaign, String, String) {

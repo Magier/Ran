@@ -78,30 +78,60 @@ export function syncNodeParent(cy: cytoscape.Core, node: CyNode): boolean {
 	// Moving into a parent cytoscape does not hold yet would dangle the node.
 	// Leave it put; the next refresh retries once the parent has been added.
 	if (next !== null && cy.getElementById(next).length === 0) {
-		tripwire(`blocked, parent not in graph: ${node.data.id} ${current} -> ${next}`);
 		return false;
 	}
 
-	tripwire(`reparent: ${node.data.id} ${current} -> ${next}`);
 	el.move({ parent: next });
 	return true;
 }
 
 /**
- * Temporary tripwire for #84. Nothing in the backend changes a node's parent
- * today, so this helper should never reach a move: any output means the parent
- * cytoscape holds disagrees with the one the backend sent, which is a bug in
- * the comparison above rather than a real reparenting.
- *
- * The blocked case is worth hearing too. It only retries on the next refresh,
- * so a parent that never arrives leaves the node under the wrong compound
- * silently, which looks exactly like the bug this fixes.
- *
- * Remove once something actually reparents nodes and the noise stops being a
- * signal. Muted under test, where the specs drive reparenting on purpose.
+ * Detach backend-surviving descendants before obsolete compound nodes are
+ * removed. Cytoscape removes a compound's entire subtree with the parent, even
+ * when those descendants still exist in the next backend graph snapshot.
+ * Their authoritative parents are restored with syncNodeParent after all new
+ * compound nodes have been added.
  */
-function tripwire(message: string) {
-	if (import.meta.env.DEV && !import.meta.env.TEST) {
-		console.warn(`[#84 tripwire] ${message}`);
+export function preserveSurvivingDescendants(
+	cy: cytoscape.Core,
+	currentNodeIds: ReadonlySet<string>
+): string[] {
+	const preserved = new Set<string>();
+	cy.nodes()
+		.filter((node) => !currentNodeIds.has(node.id()))
+		.forEach((obsolete) => {
+			obsolete.descendants().forEach((descendant) => {
+				if (currentNodeIds.has(descendant.id())) preserved.add(descendant.id());
+			});
+		});
+
+	preserved.forEach((id) => {
+		const node = cy.getElementById(id);
+		if (node.nonempty()) node.move({ parent: null });
+	});
+	return [...preserved];
+}
+
+/**
+ * Return the compound ancestors that must stay expanded after a compromised
+ * node is reparented. A cluster identity merge can move a live foothold into a
+ * previously collapsed cluster; immediately restoring that collapse makes the
+ * connected pod appear to have vanished.
+ */
+export function ancestorsToRevealAfterReparent(
+	cy: cytoscape.Core,
+	node: CyNode,
+	wasReparented: boolean
+): string[] {
+	if (!wasReparented || node.data.compromised !== true) return [];
+
+	const ancestors: string[] = [];
+	const element = cy.getElementById(node.data.id);
+	if (element.empty()) return [];
+	let current = element.first() as cytoscape.NodeSingular;
+	while (current.isChild()) {
+		current = current.parent().first();
+		ancestors.push(current.id());
 	}
+	return ancestors;
 }

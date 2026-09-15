@@ -312,7 +312,9 @@ impl ResolvedK8sAuth {
 /// Local C2-side control commands that should never require an exec channel.
 fn is_local_control_command(cmd: &str) -> bool {
     let trimmed = cmd.trim_start();
-    trimmed.starts_with("c2.kubectl_exec(") || trimmed == "noop"
+    trimmed.starts_with("c2.kubectl_exec(")
+        || trimmed.starts_with("c2.read_local_kubeconfig(")
+        || trimmed == "noop"
 }
 
 /// Ground the procedure command and all TTP effects with the collected args.
@@ -1148,6 +1150,33 @@ impl Campaign {
         // before template substitution so cross-param references like `${NS}` in
         // arg defaults resolve correctly.
         ground_args_from_context(&mut args, &target_id, self);
+        if self
+            .entities
+            .contains::<K8sCluster>(&EntityId::new(&target_id))
+        {
+            let default_namespace = resolved_auth
+                .as_ref()
+                .and_then(|auth| match auth {
+                    ResolvedK8sAuth::Kubeconfig { id, .. } => self
+                        .entities
+                        .find::<K8sCredential>(&EntityId::new(id))
+                        .and_then(|credential| credential.default_namespace.clone()),
+                    ResolvedK8sAuth::ServiceAccount { .. } => None,
+                })
+                .unwrap_or_else(|| "default".to_string());
+            for param in &ttp.params {
+                let is_namespace_param = param.param_type.eq_ignore_ascii_case("Namespace")
+                    || param.name.eq_ignore_ascii_case("Namespace")
+                    || param.name.eq_ignore_ascii_case("NS");
+                if is_namespace_param
+                    && args
+                        .get(&param.name)
+                        .is_none_or(|value| value.trim().is_empty())
+                {
+                    args.insert(param.name.clone(), default_namespace.clone());
+                }
+            }
+        }
         if resolved_auth.is_some() {
             args.remove("TOKEN");
         }
@@ -2576,6 +2605,10 @@ impl Campaign {
                 self.merge_unknown_into_system(&preferred_id.0, &stale_id.0);
             } else if preferred_id.0.starts_with("node/") || stale_id.0.starts_with("node/") {
                 self.merge_node_entities(&preferred_id.0, &stale_id.0);
+            } else if preferred_id.0.starts_with("k8s/cluster/")
+                || stale_id.0.starts_with("k8s/cluster/")
+            {
+                self.merge_cluster_entities(&preferred_id.0, &stale_id.0);
             } else if stale_id.0.contains("/svc/") {
                 // Env-derived Service placed into its real namespace.
                 self.merge_service_entities(&preferred_id.0, &stale_id.0);
@@ -2801,6 +2834,28 @@ impl Campaign {
             .collect();
         for cluster_id in cluster_ids {
             self.graph.remove_edges(&cluster_id, &preferred, "contains");
+        }
+    }
+
+    /// Merge a server-derived cluster placeholder into the named cluster that
+    /// a later kubeconfig resolved for the same API endpoint.
+    fn merge_cluster_entities(&mut self, preferred_id: &str, stale_id: &str) {
+        if preferred_id == stale_id {
+            return;
+        }
+
+        let preferred = EntityId::new(preferred_id);
+        let stale = EntityId::new(stale_id);
+        let Some(stale_cluster) = self.entities.get_mut::<K8sCluster>().remove(&stale) else {
+            return;
+        };
+
+        if let Some(preferred_cluster) = self.entities.find_mut::<K8sCluster>(&preferred) {
+            preferred_cluster.merge_from(&stale_cluster);
+        } else {
+            self.entities
+                .get_mut::<K8sCluster>()
+                .insert(preferred, stale_cluster);
         }
     }
 
