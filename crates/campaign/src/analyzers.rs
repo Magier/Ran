@@ -1879,6 +1879,11 @@ struct EnvTarget {
     needs_cluster_link: bool,
 }
 
+fn known_pod_namespace(pod: &Pod) -> Option<&str> {
+    pod.namespace()
+        .filter(|ns| !ns.is_empty() && *ns != UNKNOWN_NAMESPACE)
+}
+
 /// Reconstruct Kubernetes facts from the environment variables kubelet injects
 /// into containers.
 ///
@@ -1941,16 +1946,29 @@ impl InferenceRule for KubeEnvVarAnalyzer {
         // trigger has to be a scan of every system rather than `new_entities`.
         let mut targets: Vec<EnvTarget> = Vec::new();
         for pod in view.collect::<Pod>() {
+            let pod_id = pod.entity_id();
+            let namespace = known_pod_namespace(&pod).map(str::to_string).or_else(|| {
+                // Pod identity reconciliation and inference happen in the
+                // same pending update. The authoritative pod does not gain
+                // the stale pod's env vars until apply_facts merges them,
+                // so use its newly learned namespace while analyzing the
+                // stale pod's environment now.
+                update.entity_aliases.iter().find_map(|(stale, preferred)| {
+                    if stale != &pod_id {
+                        return None;
+                    }
+                    view.find::<Pod>(preferred).and_then(|preferred_pod| {
+                        known_pod_namespace(&preferred_pod).map(str::to_string)
+                    })
+                })
+            });
             targets.push(EnvTarget {
-                id: pod.entity_id(),
+                id: pod_id,
                 // `"?"` is the placeholder for a pod discovered without its
                 // namespace (see `KubeletMountAnalyzer`). Attributing services
                 // to it would strand them in a namespace that never resolves,
                 // so it counts as unknown here.
-                namespace: pod
-                    .namespace()
-                    .filter(|ns| !ns.is_empty() && *ns != UNKNOWN_NAMESPACE)
-                    .map(str::to_string),
+                namespace,
                 env_vars: pod.system.env_vars.clone(),
                 needs_cluster_link: false,
             });
