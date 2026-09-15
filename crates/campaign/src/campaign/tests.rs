@@ -4215,6 +4215,52 @@ fn valid_accounts_one_shot_targets_selected_pod_authoritatively() {
 }
 
 #[test]
+fn valid_accounts_interactive_defaults_to_first_discovered_container() {
+    let (mut campaign, pod_id, _) = valid_accounts_campaign();
+    let pod = campaign
+        .entities
+        .find_mut::<Pod>(&EntityId::new(&pod_id))
+        .expect("target pod");
+    pod.containers = vec![
+        Container {
+            name: "redis".to_string(),
+            image: "redis:7".to_string(),
+            args: vec![],
+            ports: vec![],
+            volume_mounts: vec![],
+        },
+        Container {
+            name: "metrics".to_string(),
+            image: "exporter:latest".to_string(),
+            args: vec![],
+            ports: vec![],
+            volume_mounts: vec![],
+        },
+    ];
+
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: armory::VALID_ACCOUNTS_KUBECONFIG_ID.to_string(),
+                target_id: pod_id,
+                exec_system_id: None,
+                auth_identity_id: None,
+                procedure_id: Some("kubectl".to_string()),
+                args: HashMap::new(),
+                reasoning: None,
+            },
+            &repository_armory(),
+        )
+        .expect("interactive Valid Accounts action should prepare");
+
+    assert_eq!(exec.procedure.command, "c2.kubectl_exec(redis)");
+    assert_eq!(
+        exec.args.get("Container").map(String::as_str),
+        Some("redis")
+    );
+}
+
+#[test]
 fn valid_accounts_rejects_former_cluster_target_shape() {
     let (mut campaign, _, credential_id) = valid_accounts_campaign();
     let cluster_id = campaign
