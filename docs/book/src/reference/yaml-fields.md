@@ -53,6 +53,7 @@ parameters:
 | `${API_SERVER}` | Kubernetes API server URL                                 |
 | `${TARGET.IP}`  | IP address of the target entity                           |
 | `${TARGET_ID}`  | Ran entity ID of the target (e.g. `ns/default/pod/nginx`) |
+| `${IXIMIUZ_PLAY_ID}` | Iximiuz playground ID from Ran's `IXIMIUZ_PLAY_ID` environment variable |
 
 ---
 

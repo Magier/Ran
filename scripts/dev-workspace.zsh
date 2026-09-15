@@ -6,6 +6,7 @@ set -eu
 #   RAN_ROOT_PATH       primary checkout holding ixi-config.yaml (auto-detected)
 #   RAN_KUBECONFIG      kubeconfig to use (defaults to RAN_ROOT_PATH/ixi-config.yaml)
 #   RAN_DEV_PORT        backend port; Vite uses the following port
+#   IXIMIUZ_PLAY_ID     explicit playground ID; otherwise detected from ixiplay.sh
 script_dir="${0:A:h}"
 workspace_path="${RAN_WORKSPACE_PATH:-${script_dir:h}}"
 
@@ -51,6 +52,22 @@ export RAN_VITE_HOST="127.0.0.1"
 export RAN_VITE_PORT="$vite_port"
 export RAN_VITE_ORIGIN="http://127.0.0.1:$vite_port"
 
+# `ixiplay.sh` owns the configured playground name. Reuse its running-instance
+# lookup so the redirector targets the same playground as this kubeconfig.
+# An explicitly supplied value remains useful when ixiplay.sh was started with
+# a different playground ID.
+if [[ -n "${IXIMIUZ_PLAY_ID:-}" ]]; then
+  export IXIMIUZ_PLAY_ID
+elif [[ -r "$root_path/scripts/ixiplay.sh" ]] && (( $+commands[labctl] )); then
+  playground_name="$(sed -nE 's/^[[:space:]]*PLAYGROUND_NAME="([^"]+)".*/\1/p' "$root_path/scripts/ixiplay.sh" | head -n 1)"
+  if [[ -n "$playground_name" ]]; then
+    IXIMIUZ_PLAY_ID="$(labctl playgrounds list 2>/dev/null | awk -v name="$playground_name" 'NR > 1 && $2 == name && toupper($0) ~ /(^|[[:space:]])RUNNING([[:space:]]|\()/ {print $1; exit}')"
+    if [[ -n "$IXIMIUZ_PLAY_ID" ]]; then
+      export IXIMIUZ_PLAY_ID
+    fi
+  fi
+fi
+
 typeset -a child_pids
 
 terminate_tree() {
@@ -93,6 +110,9 @@ child_pids+=($!)
 
 print "Frontend: http://127.0.0.1:$vite_port"
 print "Ran:      http://127.0.0.1:$backend_port"
+if [[ -n "${IXIMIUZ_PLAY_ID:-}" ]]; then
+  print "Iximiuz:  playground $IXIMIUZ_PLAY_ID"
+fi
 
 while true; do
   for pid in $child_pids; do

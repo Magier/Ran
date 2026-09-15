@@ -44,6 +44,7 @@ use crate::campaign::{Campaign, CampaignEntityRef};
 /// | `NODE.IP` / `NODE.NAME`      | Explicit node endpoint variants for templates that need deterministic host selection. |
 /// | `TOKEN`                      | ServiceAccount reference → raw JWT. Accepts SA entity ID (`ns/<ns>/sa/<name>`), SA name (resolved in target namespace), or empty value (resolved from target pod/SA). Raw JWT values are preserved as-is. |
 /// | `API_SERVER`                 | Empty or template-var → `https://kubernetes.default.svc`. |
+/// | `${IXIMIUZ_PLAY_ID}`         | In any parameter default, resolves from the same process environment variable. |
 /// | *(any)*                      | Any value containing `${RANDOM}` is replaced with a 5-digit pseudo-random number. |
 ///
 /// Call this **before** [`crate::effects::ground_template`] so that
@@ -97,6 +98,7 @@ pub fn ground_args_from_context(
             .or_insert_with(|| ip.clone());
     }
 
+    ground_iximiuz_play_id_defaults(args, std::env::var("IXIMIUZ_PLAY_ID").ok().as_deref());
     for (key, value) in args.iter_mut() {
         match key.to_ascii_uppercase().as_str() {
             "NS" | "NAMESPACE"
@@ -155,6 +157,22 @@ pub fn ground_args_from_context(
     if !args.contains_key("TOKEN") {
         if let Some(raw) = resolve_token_from_target(target.as_ref(), campaign) {
             args.insert("TOKEN".to_string(), raw);
+        }
+    }
+}
+
+/// Resolve the optional playground ID only when the action did not receive an
+/// explicit value. This keeps a value typed in the action modal authoritative.
+fn ground_iximiuz_play_id_defaults(
+    args: &mut HashMap<String, String>,
+    environment_value: Option<&str>,
+) {
+    let Some(play_id) = environment_value else {
+        return;
+    };
+    for value in args.values_mut() {
+        if value == "${IXIMIUZ_PLAY_ID}" {
+            *value = play_id.to_string();
         }
     }
 }
@@ -589,6 +607,26 @@ mod tests {
     // ------------------------------------------------------------------
     // ground_args_from_context
     // ------------------------------------------------------------------
+
+    #[test]
+    fn iximiuz_play_id_expands_in_any_parameter_default() {
+        let mut args = HashMap::from([
+            ("PLAY_ID".to_string(), "${IXIMIUZ_PLAY_ID}".to_string()),
+            ("EXPLICIT".to_string(), "entered-in-modal".to_string()),
+            ("OTHER".to_string(), "${OTHER_VALUE}".to_string()),
+        ]);
+
+        ground_iximiuz_play_id_defaults(&mut args, Some("play-123"));
+
+        assert_eq!(args["PLAY_ID"], "play-123");
+        assert_eq!(args["EXPLICIT"], "entered-in-modal");
+        assert_eq!(args["OTHER"], "${OTHER_VALUE}");
+
+        let mut unconfigured =
+            HashMap::from([("PLAY_ID".to_string(), "${IXIMIUZ_PLAY_ID}".to_string())]);
+        ground_iximiuz_play_id_defaults(&mut unconfigured, None);
+        assert_eq!(unconfigured["PLAY_ID"], "${IXIMIUZ_PLAY_ID}");
+    }
 
     #[test]
     fn ground_args_fills_ns_from_pod() {

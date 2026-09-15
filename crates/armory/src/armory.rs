@@ -713,6 +713,15 @@ mod tests {
             .get_ttp("create-redirector")
             .expect("Create Redirector TTP");
         assert_eq!(create.tactic, "Resource Development");
+        assert_eq!(
+            create
+                .params
+                .iter()
+                .find(|p| p.name == "PLAY_ID")
+                .map(|p| p.default.as_str()),
+            Some("${IXIMIUZ_PLAY_ID}"),
+            "the launcher-provided playground ID should be the redirector default"
+        );
         // Targets the listener it forwards into, so selecting one is what offers
         // the action.
         assert_eq!(

@@ -11,8 +11,9 @@ techniques: ["Acquire Infrastructure"]
 parameters:
   PLAY_ID:
     type: string
+    default: "${IXIMIUZ_PLAY_ID}"
     required: true
-    description: iximiuz playground id, from `labctl playground start`
+    description: iximiuz playground id, defaults to IXIMIUZ_PLAY_ID when Ran was started with it
   RPORT:
     type: string
     default: "1337"
