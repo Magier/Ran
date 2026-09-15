@@ -254,8 +254,8 @@ fn classify_discovered_host(ip: IpAddr, hostname: Option<&str>) -> Box<dyn Entit
                 // A service record, or an address-derived record, reveals the
                 // namespace but not the API pod name. Retain an explicit
                 // IP-derived placeholder until Kubernetes supplies that name.
-                ClusterPodIdentity::Namespace { namespace } => {
-                    (format!("pod-{ip_kebab}"), namespace)
+                ClusterPodIdentity::Namespace { service, namespace } => {
+                    (format!("{service}.{ip_kebab}"), namespace)
                 }
             };
             let mut pod = Pod::new(name, ns);
@@ -291,8 +291,8 @@ fn classify_discovered_host(ip: IpAddr, hostname: Option<&str>) -> Box<dyn Entit
 enum ClusterPodIdentity {
     /// A pod-specific headless-service DNS record supplied its hostname.
     Pod { name: String, namespace: String },
-    /// The DNS name supplies a namespace but not an API pod name.
-    Namespace { namespace: String },
+    /// The DNS name supplies a service and namespace but not an API pod name.
+    Namespace { service: String, namespace: String },
 }
 
 fn derive_cluster_pod_identity(hostname: &str, ip_kebab: &str) -> Option<ClusterPodIdentity> {
@@ -302,7 +302,8 @@ fn derive_cluster_pod_identity(hostname: &str, ip_kebab: &str) -> Option<Cluster
     }
 
     let namespace = parts[parts.len() - 4];
-    if namespace.is_empty() {
+    let service = parts[parts.len() - 5];
+    if namespace.is_empty() || service.is_empty() {
         return None;
     }
 
@@ -317,6 +318,7 @@ fn derive_cluster_pod_identity(hostname: &str, ip_kebab: &str) -> Option<Cluster
     }
 
     Some(ClusterPodIdentity::Namespace {
+        service: service.to_string(),
         namespace: namespace.to_string(),
     })
 }
@@ -746,7 +748,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_nmap_grep_service_hostname_keeps_an_ip_placeholder() {
+    fn parse_nmap_grep_service_hostname_keeps_a_service_ip_placeholder() {
         let stdout = "Host: 10.0.0.6 (redis.default.svc.cluster.local)\tPorts: 6379/open/tcp\n";
         let ParserOutput::SuccessWithFacts(facts, _) = parse_nmap(stdout, "src", None) else {
             panic!("expected SuccessWithFacts");
@@ -755,7 +757,7 @@ mod tests {
             .as_any()
             .downcast_ref::<Pod>()
             .unwrap();
-        assert_eq!(pod.entity_name(), "pod-10-0-0-6");
+        assert_eq!(pod.entity_name(), "redis.10-0-0-6");
         assert_eq!(pod.namespace(), Some("default"));
         let service = facts
             .new_entities
@@ -921,7 +923,30 @@ mod tests {
             .downcast_ref::<Pod>()
             .unwrap();
         assert_eq!(pod.namespace(), Some("oopservability"));
-        assert_eq!(pod.entity_name(), "pod-10-0-0-13");
+        assert_eq!(pod.entity_name(), "oopservability-agent.10-0-0-13");
+    }
+
+    #[test]
+    fn parse_nmap_address_hostname_retains_service_in_placeholder_name() {
+        let stdout = concat!(
+            "Nmap scan report for ",
+            "10-42-1-3.oopservability-redis.oopservability.svc.cluster.local ",
+            "(10.42.1.3)\n",
+            "Host is up (0.00050s latency).\n",
+            "PORT     STATE SERVICE VERSION\n",
+            "8080/tcp open  http    BaseHTTPServer 0.6 (Python 3.12.14)\n"
+        );
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_nmap(stdout, "ns/dungeon/pod/scanner", None)
+        else {
+            panic!("expected SuccessWithFacts");
+        };
+        let pod = facts.new_entities[0]
+            .as_any()
+            .downcast_ref::<Pod>()
+            .unwrap();
+        assert_eq!(pod.namespace(), Some("oopservability"));
+        assert_eq!(pod.entity_name(), "oopservability-redis.10-42-1-3");
     }
 
     #[test]
