@@ -832,7 +832,7 @@ mod tests {
     }
 
     #[test]
-    fn local_ip_discovery_prefers_interfaces_over_hostname() {
+    fn local_ip_discovery_defaults_to_hostname_before_interfaces() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
         let armory = Armory::load_from_dir(path).expect("repository armory should load");
 
@@ -843,26 +843,23 @@ mod tests {
         assert!(ttp.effects.iter().any(|e| e == "sys.ip"));
 
         // Order is the fallback mechanism: the runtime defaults to
-        // `procedures[0]` and a `NextProcedure` retry indexes into the list, so
-        // the interface read must come first and `hostname` second.
+        // `procedures[0]` and a `NextProcedure` retry indexes into the list.
+        // `hostname` is the default and the interface query is its fallback.
         assert_eq!(ttp.procedures.len(), 2);
 
         let primary = &ttp.procedures[0];
-        assert_eq!(primary.id, "ip");
-        assert_eq!(primary.tool.as_deref(), Some("ip"));
-        assert_eq!(
-            primary.command,
-            "ip -o -4 addr show scope global | awk \'{print $4}\' | cut -d/ -f1"
-        );
-        // The primary path must not resolve the hostname - that is what hangs
-        // in a pod with an unreachable DNS resolver.
-        assert!(!primary.command.contains("hostname"));
-        // `$4` is an awk field reference, not a Ran parameter placeholder.
-        assert!(!primary.command.contains("${"));
+        assert_eq!(primary.id, "hostname");
+        assert_eq!(primary.tool.as_deref(), Some("hostname"));
+        assert_eq!(primary.command, "hostname -i");
 
         let fallback = &ttp.procedures[1];
-        assert_eq!(fallback.id, "hostname");
-        assert_eq!(fallback.tool.as_deref(), Some("hostname"));
-        assert_eq!(fallback.command, "hostname -i");
+        assert_eq!(fallback.id, "ip");
+        assert_eq!(fallback.tool.as_deref(), Some("ip"));
+        assert_eq!(
+            fallback.command,
+            "ip -o -4 addr show scope global | awk \'{print $4}\' | cut -d/ -f1"
+        );
+        // `$4` is an awk field reference, not a Ran parameter placeholder.
+        assert!(!fallback.command.contains("${"));
     }
 }

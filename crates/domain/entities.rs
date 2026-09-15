@@ -2258,8 +2258,12 @@ impl Merge for Pod {
 
 impl Merge for ServiceAccount {
     fn merge_from(&mut self, incoming: &Self) {
-        // token: once discovered, never lose it
-        if self.token.is_none() {
+        // Preserve a previously captured token when the incoming observation
+        // does not have one, but replace it when a new token was captured.
+        // Projected ServiceAccount tokens are pod-bound and are reissued when
+        // a pod is recreated, so retaining the first token makes later
+        // actions authenticate with stale credentials.
+        if incoming.token.is_some() {
             self.token = incoming.token.clone();
         }
         // entitlements: additive - union by equality
@@ -2481,8 +2485,7 @@ mod tests {
 
     #[test]
     fn service_account_token_preserved_after_entitlements_merge() {
-        // Reproduces the reported bug: SA with token should retain it when a
-        // second update adds entitlements but carries no token.
+        // An update that only adds entitlements must not clear a token.
         let token = ServiceAccountToken {
             jwt: JwToken {
                 raw: "eyJ...".to_string(),
@@ -2506,6 +2509,39 @@ mod tests {
             "token must be preserved after merge"
         );
         assert_eq!(existing.entitlements.len(), 1, "entitlements must be added");
+    }
+
+    #[test]
+    fn service_account_token_is_refreshed_when_recaptured() {
+        let mut existing = ServiceAccount::new("my-sa", "default");
+        existing.token = Some(ServiceAccountToken {
+            jwt: JwToken {
+                raw: "old-pod-token".to_string(),
+                ..Default::default()
+            },
+            namespace: "default".to_string(),
+            service_account_name: "my-sa".to_string(),
+            pod_name: Some("old-pod".to_string()),
+            ..Default::default()
+        });
+
+        let mut incoming = ServiceAccount::new("my-sa", "default");
+        incoming.token = Some(ServiceAccountToken {
+            jwt: JwToken {
+                raw: "new-pod-token".to_string(),
+                ..Default::default()
+            },
+            namespace: "default".to_string(),
+            service_account_name: "my-sa".to_string(),
+            pod_name: Some("new-pod".to_string()),
+            ..Default::default()
+        });
+
+        existing.merge_from(&incoming);
+
+        let token = existing.token.expect("recaptured token must be retained");
+        assert_eq!(token.raw(), "new-pod-token");
+        assert_eq!(token.pod_name.as_deref(), Some("new-pod"));
     }
 
     #[test]
