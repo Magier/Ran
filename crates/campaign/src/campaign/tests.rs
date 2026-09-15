@@ -4492,6 +4492,71 @@ NETSHOOT_CONSOLE_PORT=tcp://10.103.114.223:80";
         .contains(&&EntityId::new("ns/default/svc/kubernetes")));
 }
 
+/// Reading a mounted ServiceAccount token resolves both the provisional pod
+/// and the namespace-local Services learned from that pod's environment.
+#[test]
+fn sa_token_places_services_learned_from_a_provisional_pods_env() {
+    use ran_domain::{K8sService, UnknownSystem};
+
+    let mut campaign =
+        Campaign::bootstrap_with_knowledge("ran", crate::InitialKnowledge::default());
+    let system = UnknownSystem::new("10.244.0.9");
+    let system_id = system.entity_id();
+    campaign.entities.insert_typed(system);
+
+    let env = "KUBERNETES_SERVICE_HOST=10.96.0.1\n\
+               KUBERNETES_SERVICE_PORT=443\n\
+               NETSHOOT_CONSOLE_SERVICE_HOST=10.103.114.223\n\
+               NETSHOOT_CONSOLE_SERVICE_PORT=80\n\
+               HOSTNAME=netshoot";
+    let env_cmd = sample_exec_ttp(&system_id.0, vec!["sys.envvar"]);
+    campaign
+        .on_ttp_executed(&env_cmd, &sample_event(env))
+        .unwrap();
+
+    let provisional_pod = EntityId::new("ns/?/pod/netshoot");
+    let parked_service = EntityId::new("ns/?/svc/netshoot-console");
+    assert!(campaign.entities.contains::<Pod>(&provisional_pod));
+    assert!(campaign.entities.contains::<K8sService>(&parked_service));
+
+    let jwt = make_test_jwt(
+        r#"{
+        "kubernetes.io": {
+            "namespace": "demo",
+            "pod": {"name": "netshoot", "uid": "pod-uid-1"},
+            "serviceaccount": {"name": "default", "uid": "sa-uid-1"}
+        },
+        "sub": "system:serviceaccount:demo:default"
+    }"#,
+    );
+    let mut token_cmd = sample_exec_ttp(&provisional_pod.0, vec!["rawServiceAccountToken"]);
+    token_cmd
+        .args
+        .insert("TARGET_ID".to_string(), provisional_pod.0.clone());
+    campaign
+        .on_ttp_executed(&token_cmd, &sample_event(&jwt))
+        .unwrap();
+
+    let real_pod = EntityId::new("ns/demo/pod/netshoot");
+    let placed_service = EntityId::new("ns/demo/svc/netshoot-console");
+    assert!(campaign.entities.contains::<Pod>(&real_pod));
+    assert!(!campaign.entities.contains::<Pod>(&provisional_pod));
+    assert!(campaign.entities.contains::<K8sService>(&placed_service));
+    assert!(!campaign.entities.contains::<K8sService>(&parked_service));
+    assert!(campaign
+        .graph
+        .targets_of(&EntityId::new("ns/demo"), "contains")
+        .contains(&&placed_service));
+    assert!(!campaign
+        .graph
+        .targets_of(&EntityId::new("k8s/cluster/cluster-10-96-0-1"), "contains")
+        .contains(&&placed_service));
+    assert!(campaign
+        .graph
+        .targets_of(&real_pod, "can-reach")
+        .contains(&&placed_service));
+}
+
 /// The promotion is a belief, not a fact, so it has to stay correctable: when
 /// the API server later names the real pod at the same IP, the derived one
 /// must fold into it rather than sit beside it as a duplicate.
