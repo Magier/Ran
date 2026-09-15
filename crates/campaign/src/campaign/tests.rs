@@ -318,6 +318,56 @@ fn on_ttp_executed_connects_stored_sa_token_claims_to_the_graph() {
 }
 
 #[test]
+fn on_ttp_executed_moves_an_empty_namespace_pod_session_to_the_jwt_identity() {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev-cluster"));
+    let mut stale_pod = Pod::new("fee", "");
+    stale_pod.system.sessions.push(SessionInfo {
+        id: "c2-ran-1337".to_string(),
+        kind: "tcp".to_string(),
+        port: Some(1337),
+        status: SessionStatus::Active,
+    });
+    let stale_id = stale_pod.entity_id();
+    campaign.entities.insert_typed(stale_pod);
+
+    let payload = r#"{
+        "kubernetes.io": {
+            "namespace": "default",
+            "pod": {"name": "fee", "uid": "pod-uid"},
+            "serviceaccount": {"name": "default", "uid": "sa-uid"}
+        },
+        "sub": "system:serviceaccount:default:default"
+    }"#;
+    let token = format!(
+        "{}.{}.signature",
+        URL_SAFE_NO_PAD.encode(r#"{"alg":"RS256","typ":"JWT"}"#),
+        URL_SAFE_NO_PAD.encode(payload)
+    );
+    let mut cmd = sample_exec_ttp(&stale_id.0, vec!["rawServiceaccountToken"]);
+    cmd.args.insert("TARGET_ID".to_string(), stale_id.0.clone());
+
+    let processed = campaign
+        .on_ttp_executed(&cmd, &sample_event(&token))
+        .unwrap();
+
+    assert!(matches!(
+        processed.parse_audits[0].parse_result,
+        ParseResult::Parsed
+    ));
+    let preferred_id = EntityId::new("ns/default/pod/fee");
+    assert!(!campaign.entities.contains::<Pod>(&stale_id));
+    assert!(campaign.entities.contains::<Pod>(&preferred_id));
+    assert_eq!(campaign.canonical_entity_id(&stale_id.0), preferred_id.0);
+    let channel = campaign
+        .resolve_exec_channel(&stale_id.0)
+        .expect("the merged pod should retain its active session");
+    assert_eq!(channel.backend_id, "session/c2-ran-1337");
+}
+
+#[test]
 fn on_ttp_executed_derives_cluster_facts_from_injected_env_vars() {
     // End-to-end: `sys.envvar` writes the variables straight onto the committed
     // entity via `apply_system_update`, so `KubeEnvVarAnalyzer` has to pick them

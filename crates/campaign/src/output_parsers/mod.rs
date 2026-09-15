@@ -632,6 +632,16 @@ fn parse_deploy_container_effect(normalized: &str, cmd: &ExecTtp) -> ParserOutpu
     }
 }
 
+/// Return the namespace Kubernetes uses when Deploy Container leaves it blank.
+fn effective_deploy_namespace(cmd: &ExecTtp) -> &str {
+    cmd.args
+        .get("Namespace")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|namespace| !namespace.is_empty())
+        .unwrap_or("default")
+}
+
 fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
     use ran_domain::{
         Confidence, Container, ContainerPort, Entity, Mount, NameConfidence, Pod, PodPhase,
@@ -652,11 +662,7 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
     }
 
     let pod_name = cmd.args.get("PodName").map(String::as_str).unwrap_or("");
-    let ns = cmd
-        .args
-        .get("Namespace")
-        .map(String::as_str)
-        .unwrap_or("default");
+    let ns = effective_deploy_namespace(cmd);
     let image = cmd
         .args
         .get("Image")
@@ -775,10 +781,7 @@ fn parse_deploy_pod(cmd: &ExecTtp) -> ParserOutput {
 fn parse_deploy_namespace(cmd: &ExecTtp) -> ParserOutput {
     use ran_domain::{Entity, Namespace};
 
-    let ns = cmd.args.get("Namespace").map(String::as_str).unwrap_or("");
-    if ns.is_empty() {
-        return ParserOutput::KnownFailure("deploy-container: Namespace arg is empty".to_string());
-    }
+    let ns = effective_deploy_namespace(cmd);
 
     let mut facts = FactsUpdate::default();
     let namespace = Namespace::new(ns.to_string());
@@ -793,11 +796,7 @@ fn parse_deploy_contains(cmd: &ExecTtp) -> ParserOutput {
     use ran_domain::Contains;
 
     let pod_name = cmd.args.get("PodName").map(String::as_str).unwrap_or("");
-    let ns = cmd
-        .args
-        .get("Namespace")
-        .map(String::as_str)
-        .unwrap_or("default");
+    let ns = effective_deploy_namespace(cmd);
 
     if pod_name.is_empty() {
         return ParserOutput::KnownFailure("deploy-container: PodName arg is empty".to_string());
@@ -985,6 +984,46 @@ mod tests {
                 && relation.source_id().0 == "ns/default"
                 && relation.target_id().0 == "ns/default/pod/attacker"
         }));
+    }
+
+    #[test]
+    fn deploy_container_uses_default_namespace_when_omitted() {
+        use ran_domain::EntityId;
+
+        let mut cmd = sample_cmd();
+        cmd.args.insert("PodName".to_string(), "fee".to_string());
+        cmd.args.insert("Namespace".to_string(), String::new());
+
+        let ParserOutput::SuccessWithFacts(pod_facts, _) =
+            parse_deploy_container_effect("create k8s.pod", &cmd)
+        else {
+            panic!("deploying a pod should produce facts");
+        };
+        assert_eq!(
+            pod_facts.new_entities[0].entity_id(),
+            EntityId::new("ns/default/pod/fee")
+        );
+
+        let ParserOutput::SuccessWithFacts(namespace_facts, _) =
+            parse_deploy_container_effect("namespace($ns)", &cmd)
+        else {
+            panic!("the default namespace should produce facts");
+        };
+        assert_eq!(
+            namespace_facts.new_entities[0].entity_id(),
+            EntityId::new("ns/default")
+        );
+
+        let ParserOutput::SuccessWithFacts(contains_facts, _) =
+            parse_deploy_container_effect("ns.contains($p2)", &cmd)
+        else {
+            panic!("default namespace containment should produce facts");
+        };
+        assert_eq!(contains_facts.new_relations[0].source_id().0, "ns/default");
+        assert_eq!(
+            contains_facts.new_relations[0].target_id().0,
+            "ns/default/pod/fee"
+        );
     }
 
     #[test]
