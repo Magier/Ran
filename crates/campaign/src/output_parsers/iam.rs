@@ -196,7 +196,7 @@ pub(super) fn parse_raw_service_account_token(
         if let Some((expected_sa_name, expected_ns)) =
             parse_sa_identity_from_target(expected_target)
         {
-            if expected_ns == UNKNOWN_NAMESPACE && expected_sa_name == sa_name {
+            if is_provisional_namespace(&expected_ns) && expected_sa_name == sa_name {
                 facts
                     .entity_aliases
                     .insert((EntityId::new(expected_target), sa_id.clone()));
@@ -223,7 +223,7 @@ pub(super) fn parse_raw_service_account_token(
                 if let Some((_expected_pod_name, expected_pod_ns)) =
                     parse_pod_identity_from_target(expected_target)
                 {
-                    if expected_pod_ns == UNKNOWN_NAMESPACE {
+                    if is_provisional_namespace(expected_pod_ns) {
                         facts
                             .entity_aliases
                             .insert((EntityId::new(expected_target), pod_id.clone()));
@@ -601,6 +601,10 @@ fn parse_pod_identity_from_target(target_id: &str) -> Option<(&str, &str)> {
 /// Namespace placeholder for objects discovered before their namespace is known.
 const UNKNOWN_NAMESPACE: &str = "?";
 
+fn is_provisional_namespace(namespace: &str) -> bool {
+    namespace.is_empty() || namespace == UNKNOWN_NAMESPACE
+}
+
 /// Returns `true` when `resource` in `api_group` is namespaced.
 ///
 /// Unknown resources default to `true` (namespaced).  Wildcards (`"*"`) span
@@ -821,6 +825,30 @@ mod tests {
         assert!(facts.entity_aliases.contains(&(
             EntityId::new("ns/?/pod/netshoot"),
             EntityId::new("ns/dungeon/pod/netshoot-console-858465679b-lhxq4"),
+        )));
+    }
+
+    #[test]
+    fn parse_raw_sa_token_resolves_empty_namespace_pod_target() {
+        let payload = r#"{
+            "kubernetes.io": {
+                "namespace": "default",
+                "pod": {"name": "fee", "uid": "pod-uid-1"},
+                "serviceaccount": {"name": "default", "uid": "sa-uid-1"}
+            },
+            "sub": "system:serviceaccount:default:default"
+        }"#;
+        let jwt = make_jwt(payload);
+        let args = HashMap::from([("TARGET_ID".to_string(), "ns//pod/fee".to_string())]);
+
+        let result = parse_raw_service_account_token(&jwt, "", &args);
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected SuccessWithFacts");
+        };
+
+        assert!(facts.entity_aliases.contains(&(
+            EntityId::new("ns//pod/fee"),
+            EntityId::new("ns/default/pod/fee"),
         )));
     }
 
