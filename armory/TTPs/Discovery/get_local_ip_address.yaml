@@ -12,15 +12,12 @@ preconditions:
   kind: System
   accessLevel: user-exec
 procedures:
-  # Order is load-bearing: the runtime defaults to procedures[0] and a
-  # `NextProcedure` retry walks the list by index, so `ip` runs first and
-  # `hostname` is only reached as a fallback.
-  - key: ip
-    tool: ip
-    command: ip -o -4 addr show scope global | awk '{print $4}' | cut -d/ -f1
   - key: hostname
     tool: hostname
     command: hostname -i
+  - key: ip
+    tool: ip
+    command: ip -o -4 addr show scope global | awk '{print $4}' | cut -d/ -f1
 effects:
   - sys.ip
 # defend: {}
