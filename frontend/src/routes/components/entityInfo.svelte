@@ -71,7 +71,29 @@
 	let previousValues: Record<string, any> = {};
 	let highlightedFields = $state<Record<string, boolean>>({});
 	let canExpanded = $state(false);
+	let quickActionChooserField = $state<string | null>(null);
+	let quickActionChooserPosition = $state({ top: 0, left: 0 });
+	let quickActionChooser: HTMLDivElement | undefined = $state();
+	let quickActionChooserTrigger: HTMLButtonElement | undefined;
 	let timeouts: Map<string, number> = new Map();
+
+	$effect(() => {
+		if (!quickActionChooserField) return;
+
+		function closeOnOutsideClick(event: MouseEvent) {
+			const target = event.target;
+			if (
+				target instanceof Node &&
+				!quickActionChooser?.contains(target) &&
+				!quickActionChooserTrigger?.contains(target)
+			) {
+				quickActionChooserField = null;
+			}
+		}
+
+		document.addEventListener('click', closeOnOutsideClick);
+		return () => document.removeEventListener('click', closeOnOutsideClick);
+	});
 
 	// Track changes in object fields
 	$effect(() => {
@@ -83,6 +105,7 @@
 			previousObjectId = objectId;
 			previousValues = {};
 			canExpanded = false;
+			quickActionChooserField = null;
 			for (const [key, value] of Object.entries(obj)) {
 				previousValues[key] = value;
 			}
@@ -226,6 +249,35 @@
 		return quickActionsForField(label, obj?.kind, applicableTtps);
 	}
 
+	function runQuickAction(label: string, event: MouseEvent) {
+		const ttps = ttpsForField(label);
+		if (ttps.length === 1) {
+			sendAction?.(ttps[0], {});
+			return;
+		}
+
+		if (quickActionChooserField === label) {
+			quickActionChooserField = null;
+			quickActionChooserTrigger = undefined;
+			return;
+		}
+
+		const trigger = event.currentTarget as HTMLButtonElement;
+		const bounds = trigger.getBoundingClientRect();
+		quickActionChooserTrigger = trigger;
+		quickActionChooserPosition = {
+			top: Math.min(bounds.bottom + 4, window.innerHeight - 8),
+			left: Math.max(8, Math.min(bounds.left, window.innerWidth - 192))
+		};
+		quickActionChooserField = label;
+	}
+
+	function chooseQuickAction(ttp: TTP) {
+		quickActionChooserField = null;
+		quickActionChooserTrigger = undefined;
+		sendAction?.(ttp, {});
+	}
+
 	function readFile(path: string) {
 		const ttp = campaignState.getTtpById('read-file');
 		if (ttp) {
@@ -255,15 +307,35 @@
 		{/snippet}
 		{#snippet runBtn(label: string)}
 			{#if sendAction}
-				{#each ttpsForField(label) as ttp (ttp.id)}
-					<button
-						class="hover:bg-surface-300 dark:hover:bg-surface-700 shrink-0 cursor-pointer rounded p-0.5 transition-colors"
-						title="Run: {ttp.name}"
-						onclick={() => sendAction!(ttp, {})}
-					>
-						<Icon icon="mdi:play-circle-outline" width="14" class="text-primary-500" />
-					</button>
-				{/each}
+				{@const ttps = ttpsForField(label)}
+				{#if ttps.length > 0}
+					<span class="inline-flex">
+						<button
+							class="hover:bg-surface-300 dark:hover:bg-surface-700 shrink-0 cursor-pointer rounded p-0.5 transition-colors"
+							title={ttps.length === 1 ? `Run: ${ttps[0].name}` : 'Choose action'}
+							onclick={(event) => runQuickAction(label, event)}
+						>
+							<Icon icon="mdi:play-circle-outline" width="14" class="text-primary-500" />
+						</button>
+						{#if quickActionChooserField === label && ttps.length > 1}
+							<div
+								bind:this={quickActionChooser}
+								class="bg-surface-100-900 border-surface-600 fixed z-60 max-h-64 w-max max-w-[calc(100vw-1rem)] min-w-48 overflow-auto rounded border py-1 shadow-lg"
+								style="top: {quickActionChooserPosition.top}px; left: {quickActionChooserPosition.left}px;"
+							>
+								{#each ttps as ttp (ttp.id)}
+									<button
+										class="hover:bg-surface-300 dark:hover:bg-surface-700 block w-full cursor-pointer px-2 py-1 text-left text-xs break-words transition-colors"
+										title="Run: {ttp.name}"
+										onclick={() => chooseQuickAction(ttp)}
+									>
+										{ttp.name}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</span>
+				{/if}
 			{/if}
 		{/snippet}
 		<!-- Header: name + kind badge + copy-ID button -->
