@@ -687,7 +687,7 @@
 						<span class="text-surface-500 text-xs">({data.length})</span>
 					</summary>
 					<div class="mt-1 space-y-1 pl-4">
-						{#each data as service (`${service.port}/${service.transport}`)}
+						{#each data as service (service.id)}
 							<details>
 								<summary class="cursor-pointer">
 									<span class="font-mono font-semibold">{service.port}/{service.transport}</span>
