@@ -351,6 +351,9 @@ fn hosted_app_services(campaign: &Campaign) -> HashMap<String, Vec<Value>> {
     }
     for services in hosted.values_mut() {
         services.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+        // Repeated observations can create parallel hosts-service edges for the
+        // same host and endpoint. Expose each endpoint once in the host payload.
+        services.dedup_by(|a, b| a["id"] == b["id"]);
     }
     hosted
 }
@@ -848,7 +851,8 @@ mod tests {
         InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
     };
     use ran_domain::{
-        Entity, K8sCluster, K8sCredential, Listener, RbacPermission, Redirector, ServiceAccount,
+        AppService, Entity, EntityId, K8sCluster, K8sCredential, Listener, RbacPermission,
+        Redirector, ServiceAccount, Transport,
     };
     use std::collections::BTreeSet;
 
@@ -880,6 +884,26 @@ mod tests {
         attach_hosted_services(&mut payload, "ns/default/pod/redis", &hosted);
         assert_eq!(payload.get("appServiceCount"), Some(&Value::from(1)));
         assert_eq!(payload.get("appServices"), Some(&Value::Array(services)));
+    }
+
+    #[test]
+    fn hosted_app_services_deduplicate_repeated_relations() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        let service = AppService::new("10.0.0.8", 6379, Transport::Tcp).unwrap();
+        let service_id = service.entity_id();
+        campaign.entities.insert_typed(service);
+
+        let host_id = EntityId::new("ns/default/pod/redis");
+        for _ in 0..2 {
+            campaign.graph.insert_edge(
+                &host_id,
+                &service_id,
+                cortex::edge_data_for("hosts-service", None, None),
+            );
+        }
+
+        let hosted = hosted_app_services(&campaign);
+        assert_eq!(hosted.get(&host_id.0).map(Vec::len), Some(1));
     }
 
     #[test]
