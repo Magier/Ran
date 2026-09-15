@@ -223,10 +223,7 @@ describe('ancestorsToRevealAfterReparent', () => {
 			node({ id: 'pod-a', parent: 'ns/x' })
 		]);
 		const uncompromised = toCyNode(node({ id: 'pod-a', parent: 'ns/x' }), {});
-		const compromised = toCyNode(
-			node({ id: 'pod-a', parent: 'ns/x', compromised: true }),
-			{}
-		);
+		const compromised = toCyNode(node({ id: 'pod-a', parent: 'ns/x', compromised: true }), {});
 
 		expect(ancestorsToRevealAfterReparent(cy, uncompromised, true)).toEqual([]);
 		expect(ancestorsToRevealAfterReparent(cy, compromised, false)).toEqual([]);
@@ -240,9 +237,7 @@ describe('preserveSurvivingDescendants', () => {
 			node({ id: 'pod-a', parent: 'cluster-old', compromised: true })
 		]);
 
-		expect(preserveSurvivingDescendants(cy, new Set(['cluster-new', 'pod-a']))).toEqual([
-			'pod-a'
-		]);
+		expect(preserveSurvivingDescendants(cy, new Set(['cluster-new', 'pod-a']))).toEqual(['pod-a']);
 		cy.getElementById('cluster-old').remove();
 
 		expect(cy.getElementById('pod-a').nonempty()).toBe(true);
