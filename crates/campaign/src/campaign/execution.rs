@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use armory::{Armory, Procedure, Ttp};
 use c2::{ExecTtp, OutputTransform, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
-    BinaryPresence, Entity, EntityId, K8sCluster, K8sCredential, K8sNode, K8sService, Merge,
-    NameConfidence, Pod, ServiceAccount, UnknownSystem,
+    BinaryPresence, Entity, EntityId, K8sCluster, K8sCredential, K8sNode, K8sService, Listener,
+    Merge, NameConfidence, OperatorHost, Pod, ServiceAccount, UnknownSystem,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -96,6 +96,156 @@ fn normalize_string_list_params(
         args.insert(param.name.clone(), encoded);
     }
     Ok(())
+}
+
+/// Ground listener callback defaults from an explicitly selected Listener entity.
+///
+/// `${LISTENER}` means the single observed address of the OperatorHost that
+/// contains the C2 hosting the selected listener. It deliberately never means
+/// the listener entity ID. A listener only records its transport and port, and
+/// selecting one of several host addresses would be a guess about the target's
+/// return path, so ambiguous or missing address knowledge is rejected.
+fn ground_listener_defaults(
+    ttp: &Ttp,
+    args: &mut HashMap<String, String>,
+    campaign: &Campaign,
+) -> Result<(), ExecuteActionError> {
+    let host_placeholder = "${LISTENER}";
+    let port_placeholder = "${LISTENER_PORT}";
+    let host_needed = args.values().any(|value| value.trim() == host_placeholder)
+        || (ttp_references(ttp, host_placeholder)
+            && listener_value_needs_default(args, "LISTENER", host_placeholder));
+    let port_needed = args.values().any(|value| value.trim() == port_placeholder)
+        || (ttp_references(ttp, port_placeholder)
+            && listener_value_needs_default(args, "LISTENER_PORT", port_placeholder));
+
+    if !host_needed && !port_needed {
+        return Ok(());
+    }
+
+    let listener_params: Vec<_> = ttp
+        .params
+        .iter()
+        .filter(|param| param.param_type.eq_ignore_ascii_case("Listener"))
+        .collect();
+    if listener_params.len() != 1 {
+        return Err(ExecuteActionError::InvalidInput(format!(
+            "action '{}' uses ${{LISTENER}} or ${{LISTENER_PORT}} defaults and must declare exactly one Listener parameter",
+            ttp.id
+        )));
+    }
+    let selection_name = &listener_params[0].name;
+    let selected_id = args
+        .get(selection_name)
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.starts_with("${"))
+        .ok_or_else(|| {
+            ExecuteActionError::InvalidInput(format!(
+                "action '{}' needs a Listener selection in parameter '{}' to ground ${{LISTENER}} and ${{LISTENER_PORT}}",
+                ttp.id, selection_name
+            ))
+        })?;
+    let listener_id = EntityId::new(selected_id);
+    let listener = campaign
+        .entities
+        .find::<Listener>(&listener_id)
+        .ok_or_else(|| {
+            ExecuteActionError::InvalidInput(format!(
+                "Listener parameter '{}' must select an active Listener entity, got '{}'",
+                selection_name, selected_id
+            ))
+        })?;
+
+    let c2_ids = campaign.graph.sources_of(&listener_id, "hosts-listener");
+    if c2_ids.len() != 1 {
+        return Err(ExecuteActionError::InvalidInput(format!(
+            "selected Listener '{}' is not hosted by exactly one active C2",
+            selected_id
+        )));
+    }
+    let listener_host = if host_needed {
+        let operator_hosts: Vec<_> = campaign
+            .graph
+            .sources_of(c2_ids[0], "contains")
+            .into_iter()
+            .filter(|id| campaign.entities.find::<OperatorHost>(id).is_some())
+            .collect();
+        if operator_hosts.len() != 1 {
+            return Err(ExecuteActionError::InvalidInput(format!(
+                "cannot determine the operator host for selected Listener '{}'",
+                selected_id
+            )));
+        }
+        let host = campaign
+            .entities
+            .find::<OperatorHost>(operator_hosts[0])
+            .expect("operator host was checked above");
+        let mut addresses: Vec<String> = host.system.ips.iter().map(ToString::to_string).collect();
+        addresses.sort();
+        addresses.dedup();
+        match addresses.as_slice() {
+            [address] => Some(address.clone()),
+            [] => {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "cannot ground ${{LISTENER}} for selected Listener '{}': its C2 host has no reachable address recorded",
+                    selected_id
+                )));
+            }
+            _ => {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "cannot ground ${{LISTENER}} for selected Listener '{}': its C2 host has multiple reachable addresses; provide an explicit LISTENER value",
+                    selected_id
+                )));
+            }
+        }
+    } else {
+        None
+    };
+
+    for (key, value) in args.iter_mut() {
+        if host_needed
+            && (value.trim() == host_placeholder
+                || (key.eq_ignore_ascii_case("LISTENER") && value.trim().is_empty()))
+        {
+            *value = listener_host.clone().expect("host is resolved when needed");
+        } else if port_needed
+            && (value.trim() == port_placeholder
+                || (key.eq_ignore_ascii_case("LISTENER_PORT") && value.trim().is_empty()))
+        {
+            *value = listener.port.to_string();
+        }
+    }
+    if host_needed {
+        args.insert(
+            "LISTENER".to_string(),
+            listener_host.expect("host is resolved when needed"),
+        );
+    }
+    if port_needed {
+        args.entry("LISTENER_PORT".to_string())
+            .or_insert_with(|| listener.port.to_string());
+    }
+    Ok(())
+}
+
+fn listener_value_needs_default(
+    args: &HashMap<String, String>,
+    key: &str,
+    placeholder: &str,
+) -> bool {
+    args.get(key)
+        .is_none_or(|value| value.trim().is_empty() || value.trim() == placeholder)
+}
+
+fn ttp_references(ttp: &Ttp, placeholder: &str) -> bool {
+    ttp.procedures
+        .iter()
+        .any(|procedure| procedure.command.contains(placeholder))
+        || ttp
+            .effects
+            .iter()
+            .any(|effect| effect.contains(placeholder))
 }
 
 /// Normalise the caller-supplied `exec_system_id` hint.
@@ -823,6 +973,7 @@ impl Campaign {
             }
         }
         normalize_string_list_params(&ttp, &mut args)?;
+        ground_listener_defaults(&ttp, &mut args, self)?;
 
         // This action's semantic target is the selected Pod. Never allow
         // legacy Namespace/PodName arguments to redirect execution elsewhere.
@@ -3019,6 +3170,136 @@ fn ground_binary_in_cmd(
     }
 
     cmd.to_string()
+}
+
+#[cfg(test)]
+mod listener_grounding_tests {
+    use std::collections::HashMap;
+
+    use armory::{Procedure, Ttp, TtpParam};
+    use c2::BUILTIN_C2_ID;
+    use ran_domain::{Entity, EntityId, HostsListener, Listener};
+
+    use super::{ground_listener_defaults, Campaign};
+    use crate::campaign::ExecuteActionError;
+    use crate::effects::ground_template;
+    use crate::InitialKnowledge;
+
+    fn listener_ttp() -> Ttp {
+        Ttp {
+            params: vec![TtpParam {
+                name: "LISTENER_REF".to_string(),
+                param_type: "Listener".to_string(),
+                description: String::new(),
+                required: true,
+                default: String::new(),
+            }],
+            procedures: vec![Procedure::new(
+                "shell",
+                "connect ${LISTENER} ${LISTENER_PORT}",
+            )],
+            ..Ttp::new("reverse-shell", "Reverse shell", "Execution")
+        }
+    }
+
+    fn campaign_with_listener(port: u16) -> (Campaign, Listener) {
+        let mut campaign = Campaign::bootstrap_with_knowledge(
+            "Ran",
+            InitialKnowledge {
+                clusters: vec![],
+                operator_host_ips: vec!["192.0.2.44".parse().unwrap()],
+                ..Default::default()
+            },
+        );
+        let listener = Listener::new(port, "tcp");
+        campaign.insert_entity(&listener);
+        campaign.insert_relation(&HostsListener::new(
+            BUILTIN_C2_ID,
+            listener.entity_id().0.clone(),
+        ));
+        (campaign, listener)
+    }
+
+    #[test]
+    fn selected_listener_grounds_reachable_host_and_numeric_port() {
+        let (campaign, listener) = campaign_with_listener(4444);
+        let ttp = listener_ttp();
+        let mut args = HashMap::from([
+            ("LISTENER_REF".to_string(), listener.entity_id().0),
+            ("LISTENER".to_string(), "${LISTENER}".to_string()),
+            ("LISTENER_PORT".to_string(), "${LISTENER_PORT}".to_string()),
+        ]);
+
+        ground_listener_defaults(&ttp, &mut args, &campaign).unwrap();
+
+        assert_eq!(args["LISTENER"], "192.0.2.44");
+        assert_eq!(args["LISTENER_PORT"], "4444");
+        let rendered = ground_template(&ttp.procedures[0].command, &args);
+        assert!(!rendered.contains("${LISTENER}"));
+        assert!(!rendered.contains("${LISTENER_PORT}"));
+    }
+
+    #[test]
+    fn explicit_listener_host_and_port_are_preserved_without_a_selection() {
+        let (campaign, _) = campaign_with_listener(4444);
+        let ttp = listener_ttp();
+        let mut args = HashMap::from([
+            ("LISTENER".to_string(), "callback.example.test".to_string()),
+            ("LISTENER_PORT".to_string(), "8443".to_string()),
+        ]);
+
+        ground_listener_defaults(&ttp, &mut args, &campaign).unwrap();
+
+        assert_eq!(args["LISTENER"], "callback.example.test");
+        assert_eq!(args["LISTENER_PORT"], "8443");
+    }
+
+    #[test]
+    fn missing_listener_selection_fails_even_when_multiple_listeners_are_active() {
+        let (mut campaign, _) = campaign_with_listener(4444);
+        let other = Listener::new(5555, "tcp");
+        campaign.insert_entity(&other);
+        campaign.insert_relation(&HostsListener::new(
+            BUILTIN_C2_ID,
+            other.entity_id().0.clone(),
+        ));
+        let ttp = listener_ttp();
+        let mut args = HashMap::from([
+            ("LISTENER".to_string(), "${LISTENER}".to_string()),
+            ("LISTENER_PORT".to_string(), "${LISTENER_PORT}".to_string()),
+        ]);
+
+        let error = ground_listener_defaults(&ttp, &mut args, &campaign).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ExecuteActionError::InvalidInput(reason) if reason.contains("Listener selection")
+        ));
+        assert_eq!(args["LISTENER"], "${LISTENER}");
+        assert_eq!(args["LISTENER_PORT"], "${LISTENER_PORT}");
+    }
+
+    #[test]
+    fn listener_selection_must_name_an_active_listener_entity() {
+        let (campaign, _) = campaign_with_listener(4444);
+        let ttp = listener_ttp();
+        let mut args = HashMap::from([
+            ("LISTENER_REF".to_string(), "listener/tcp/5555".to_string()),
+            ("LISTENER".to_string(), "${LISTENER}".to_string()),
+        ]);
+
+        let error = ground_listener_defaults(&ttp, &mut args, &campaign).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ExecuteActionError::InvalidInput(reason) if reason.contains("active Listener entity")
+        ));
+        assert_eq!(
+            EntityId::new("listener/tcp/4444").0,
+            "listener/tcp/4444",
+            "canonical IDs remain protocol/port based"
+        );
+    }
 }
 
 #[cfg(test)]

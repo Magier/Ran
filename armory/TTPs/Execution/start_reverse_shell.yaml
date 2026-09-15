@@ -10,6 +10,10 @@ preconditions:
   accessLevel: user-exec
   kind: System
 parameters:
+  LISTENER_REF:
+    type: Listener
+    required: true
+    description: the active listener to use; its C2 host address and port ground the callback defaults
   LISTENER:
     type: string
     default: ${LISTENER}

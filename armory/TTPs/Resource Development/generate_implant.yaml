@@ -4,6 +4,10 @@ tactic: Resource Development
 techniques: ["Stage Capabilities"]
 status: disabled
 parameters:
+  LISTENER_REF:
+    type: Listener
+    required: true
+    description: the active listener to use; its C2 host address and port ground LHOST and LPORT defaults
   PROTOCOL:
     type: string
     description: The protocol the implant should use to connect back to the listener
