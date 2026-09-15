@@ -410,6 +410,10 @@ pub struct K8sCluster {
     pub name: String,
     pub context_name: Option<String>,
     pub server: Option<String>,
+    /// TLS hostname configured for the API server. This can expose the
+    /// in-cluster service VIP even when `server` is a local proxy endpoint.
+    #[serde(default)]
+    pub tls_server_name: Option<String>,
 }
 
 impl K8sCluster {
@@ -419,6 +423,7 @@ impl K8sCluster {
             name: name.into(),
             context_name: None,
             server: None,
+            tls_server_name: None,
         }
     }
 
@@ -434,6 +439,11 @@ impl K8sCluster {
 
     pub fn with_server(mut self, server: Option<String>) -> Self {
         self.server = server;
+        self
+    }
+
+    pub fn with_tls_server_name(mut self, tls_server_name: Option<String>) -> Self {
+        self.tls_server_name = tls_server_name;
         self
     }
 }
@@ -2173,6 +2183,9 @@ impl Merge for K8sCluster {
         }
         if self.server.is_none() {
             self.server = incoming.server.clone();
+        }
+        if self.tls_server_name.is_none() {
+            self.tls_server_name = incoming.tls_server_name.clone();
         }
     }
 }

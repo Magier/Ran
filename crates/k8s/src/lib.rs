@@ -38,6 +38,8 @@ pub struct TargetCluster {
     pub name: String,
     pub context_name: Option<String>,
     pub server: Option<String>,
+    #[serde(default)]
+    pub tls_server_name: Option<String>,
 }
 
 /// Context-aware kubeconfig data shared by runtime client construction and
@@ -56,6 +58,7 @@ pub struct ResolvedKubeconfig {
     pub cluster_name: String,
     pub user_name: Option<String>,
     pub server: Option<String>,
+    pub tls_server_name: Option<String>,
     pub ca_data: Option<String>,
     pub token: Option<String>,
     pub cert_data: Option<String>,
@@ -72,6 +75,7 @@ impl ResolvedKubeconfig {
             name: self.cluster_name.clone(),
             context_name: Some(self.context_name.clone()),
             server: self.server.clone(),
+            tls_server_name: self.tls_server_name.clone(),
         }
     }
 
@@ -174,6 +178,7 @@ pub fn resolve_kubeconfig_data(
     }
     .to_string();
     let server = cluster.server.clone();
+    let tls_server_name = cluster.tls_server_name.clone();
     let ca_data = cluster.certificate_authority_data.clone();
 
     Ok(ResolvedKubeconfig {
@@ -185,6 +190,7 @@ pub fn resolve_kubeconfig_data(
         cluster_name,
         user_name,
         server,
+        tls_server_name,
         ca_data,
         token,
         cert_data,
@@ -774,6 +780,7 @@ clusters:
 - name: cluster-a
   cluster:
     server: https://a.example
+    tls-server-name: 10.96.0.1
 - name: cluster-b
   cluster:
     server: https://b.example
@@ -807,6 +814,7 @@ users:
         assert_eq!(resolved.cluster_name, "cluster-a");
         assert_eq!(resolved.user_name.as_deref(), Some("user-a"));
         assert_eq!(resolved.server.as_deref(), Some("https://a.example"));
+        assert_eq!(resolved.tls_server_name.as_deref(), Some("10.96.0.1"));
         assert!(resolved.has_token);
         assert_eq!(resolved.auth_method, "token");
     }

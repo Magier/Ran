@@ -158,6 +158,105 @@ impl InferenceRule for NamespaceClusterAnalyzer {
     }
 }
 
+/// Reconcile differently named cluster entities that identify the same API
+/// server. Kubelet-injected environment variables can only produce a derived
+/// name such as `cluster-10.96.0.1`, while a kubeconfig later supplies the
+/// cluster's configured name. An exact server endpoint or the kubeconfig's TLS
+/// server name provides the shared identity fact.
+pub struct ClusterIdentityAnalyzer;
+
+impl InferenceRule for ClusterIdentityAnalyzer {
+    fn name(&self) -> &'static str {
+        "cluster.identity"
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let mut inferred = FactsUpdate::default();
+        let existing = campaign.entities.values::<K8sCluster>().collect::<Vec<_>>();
+
+        for entity in &update.new_entities {
+            let Some(incoming) = entity.as_any().downcast_ref::<K8sCluster>() else {
+                continue;
+            };
+            let Some(server) = incoming
+                .server
+                .as_deref()
+                .filter(|server| !server.is_empty())
+            else {
+                continue;
+            };
+
+            for known in &existing {
+                if known.entity_id() == incoming.entity_id()
+                    || !clusters_identify_same_endpoint(known, incoming, server)
+                {
+                    continue;
+                }
+
+                let known_is_derived = cluster_name_is_endpoint_derived(known);
+                let incoming_is_derived = cluster_name_is_endpoint_derived(incoming);
+                let (stale, preferred) = if known_is_derived && !incoming_is_derived {
+                    (known.entity_id(), incoming.entity_id())
+                } else {
+                    (incoming.entity_id(), known.entity_id())
+                };
+                inferred.entity_aliases.insert((stale, preferred));
+                break;
+            }
+        }
+
+        inferred
+    }
+}
+
+fn clusters_identify_same_endpoint(
+    known: &K8sCluster,
+    incoming: &K8sCluster,
+    incoming_server: &str,
+) -> bool {
+    if known.server.as_deref() == Some(incoming_server) {
+        return true;
+    }
+
+    let known_derived_host = derived_cluster_host(known);
+    let incoming_derived_host = derived_cluster_host(incoming);
+    known_derived_host
+        .zip(incoming.tls_server_name.as_deref())
+        .is_some_and(|(host, tls_name)| host == tls_name)
+        || incoming_derived_host
+            .zip(known.tls_server_name.as_deref())
+            .is_some_and(|(host, tls_name)| host == tls_name)
+}
+
+fn cluster_name_is_endpoint_derived(cluster: &K8sCluster) -> bool {
+    if cluster.name == cluster.server.as_deref().unwrap_or_default() {
+        return true;
+    }
+
+    derived_cluster_host(cluster).is_some()
+}
+
+fn derived_cluster_host(cluster: &K8sCluster) -> Option<&str> {
+    let server = cluster.server.as_deref()?;
+    let authority = server
+        .split_once("://")
+        .map(|(_, authority)| authority)
+        .unwrap_or(server)
+        .split('/')
+        .next()
+        .unwrap_or(server);
+    let host = authority
+        .strip_prefix('[')
+        .and_then(|value| value.split_once(']').map(|(host, _)| host))
+        .unwrap_or_else(|| {
+            authority
+                .rsplit_once(':')
+                .map(|(host, _)| host)
+                .unwrap_or(authority)
+        });
+    (cluster.name == format!("cluster-{host}")).then_some(host)
+}
+
 /// For every running `Pod` with a known `node_name`, ensure the node entity
 /// exists and infer a `runs-on` relation (Pod -> Node).
 pub struct PodNodeAnalyzer;
@@ -2312,6 +2411,7 @@ impl InferenceRule for InClusterPodAnalyzer {
 /// Returns the default set of inference rules that run in the fixpoint loop.
 pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
     vec![
+        Box::new(ClusterIdentityAnalyzer),
         Box::new(NamespaceClusterAnalyzer),
         Box::new(NodeClusterAnalyzer),
         Box::new(PodNamespaceAnalyzer),
@@ -2370,6 +2470,39 @@ mod tests {
     /// the operator has nothing but a foothold.
     fn clusterless_campaign() -> Campaign {
         Campaign::bootstrap_with_knowledge("ran", crate::campaign::InitialKnowledge::default())
+    }
+
+    #[test]
+    fn kubeconfig_tls_name_reconciles_env_derived_cluster() {
+        let derived_server = "https://10.96.0.1:443";
+        let kubeconfig_server = "https://127.0.0.1:6443";
+        let derived =
+            K8sCluster::new("cluster-10.96.0.1").with_server(Some(derived_server.to_string()));
+        let derived_id = derived.entity_id();
+        let mut campaign = Campaign::bootstrap("ran", derived);
+
+        let named = K8sCluster::new("kind-security-lab")
+            .with_context_name(Some("kind-security-lab".to_string()))
+            .with_server(Some(kubeconfig_server.to_string()))
+            .with_tls_server_name(Some("10.96.0.1".to_string()));
+        let named_id = named.entity_id();
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(named));
+        update.merge(ClusterIdentityAnalyzer.infer(&campaign, &update));
+
+        assert!(update
+            .entity_aliases
+            .contains(&(derived_id.clone(), named_id.clone())));
+        campaign.apply_facts(&update);
+
+        assert!(!campaign.entities.contains::<K8sCluster>(&derived_id));
+        let cluster = campaign
+            .entities
+            .find::<K8sCluster>(&named_id)
+            .expect("named cluster should survive reconciliation");
+        assert_eq!(cluster.name, "kind-security-lab");
+        assert_eq!(cluster.server.as_deref(), Some(kubeconfig_server));
+        assert_eq!(cluster.tls_server_name.as_deref(), Some("10.96.0.1"));
     }
 
     #[test]

@@ -1438,7 +1438,8 @@ fn build_initial_knowledge(seeds: &[SeedKnowledgeConfig]) -> Result<InitialKnowl
         let resolved = resolve_kubeconfig(&config.path, config.context.as_deref())?;
         let resolved_cluster = K8sCluster::new(&resolved.cluster_name)
             .with_context_name(Some(resolved.context_name.clone()))
-            .with_server(resolved.server.clone());
+            .with_server(resolved.server.clone())
+            .with_tls_server_name(resolved.tls_server_name.clone());
 
         let cluster_idx = if let Some(alias) = config.cluster.as_deref() {
             let idx = *cluster_aliases.get(alias).ok_or_else(|| {

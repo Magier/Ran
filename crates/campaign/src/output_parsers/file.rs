@@ -205,6 +205,7 @@ pub(super) fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOut
 
         let mut cluster = K8sCluster::new(&resolved.cluster_name);
         cluster.context_name = Some(resolved.context_name.clone());
+        cluster.tls_server_name = resolved.tls_server_name.clone();
         if let Some(server) = resolved.server.clone().filter(|s| !s.is_empty()) {
             cluster.server = Some(server);
         }
@@ -295,6 +296,7 @@ kind: Config
 clusters:
 - cluster:
     server: https://10.96.0.1:6443
+    tls-server-name: kubernetes.default.svc
     certificate-authority-data: LS0tLS1CRUdJTi==
   name: test-cluster
 contexts:
@@ -599,6 +601,10 @@ users:
             .find_map(|e| e.as_any().downcast_ref::<K8sCluster>())
             .expect("cluster entity emitted");
         assert_eq!(cluster.server.as_deref(), Some("https://10.96.0.1:6443"));
+        assert_eq!(
+            cluster.tls_server_name.as_deref(),
+            Some("kubernetes.default.svc")
+        );
         let cluster_id = cluster.entity_id().0.clone();
 
         // AuthenticatesTo(credential -> cluster)

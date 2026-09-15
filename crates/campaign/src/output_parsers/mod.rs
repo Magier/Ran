@@ -806,6 +806,12 @@ fn parse_deploy_contains(cmd: &ExecTtp) -> ParserOutput {
     let pod_id = format!("ns/{}/pod/{}", ns, pod_name);
 
     let mut facts = FactsUpdate::default();
+    if cmd.target_id.starts_with("k8s/cluster/") {
+        facts.new_relations.push(Box::new(Contains::new(
+            cmd.target_id.clone(),
+            ns_id.clone(),
+        )));
+    }
     facts
         .new_relations
         .push(Box::new(Contains::new(ns_id, pod_id)));
@@ -951,6 +957,33 @@ mod tests {
             facts.outcome_of(&EntityId::new("ns/default/pod/attacker")),
             FactOutcome::Created
         );
+    }
+
+    #[test]
+    fn deploy_container_attaches_namespace_to_selected_cluster() {
+        let mut cmd = sample_cmd();
+        cmd.target_id = "k8s/cluster/kind-security-lab".to_string();
+        cmd.args
+            .insert("PodName".to_string(), "attacker".to_string());
+        cmd.args
+            .insert("Namespace".to_string(), "default".to_string());
+
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_deploy_container_effect("ns.contains($p2)", &cmd)
+        else {
+            panic!("deploy containment effect should produce facts");
+        };
+
+        assert!(facts.new_relations.iter().any(|relation| {
+            relation.relation_name() == "contains"
+                && relation.source_id().0 == "k8s/cluster/kind-security-lab"
+                && relation.target_id().0 == "ns/default"
+        }));
+        assert!(facts.new_relations.iter().any(|relation| {
+            relation.relation_name() == "contains"
+                && relation.source_id().0 == "ns/default"
+                && relation.target_id().0 == "ns/default/pod/attacker"
+        }));
     }
 
     #[test]
