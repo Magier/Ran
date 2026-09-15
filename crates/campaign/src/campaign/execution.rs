@@ -997,6 +997,25 @@ impl Campaign {
             args.insert("TARGET_ID".to_string(), target_id.clone());
             args.insert("SRC".to_string(), target_id.clone());
             args.remove("PROCEDURE_CMD");
+
+            // The Kubernetes exec API requires an explicit container when a
+            // Pod has more than one. Match kubectl's documented default by
+            // selecting the first discovered container when the caller did
+            // not make a selection. Keep an explicit value unchanged, and
+            // retain the API default when container discovery has no data.
+            if args
+                .get("Container")
+                .is_none_or(|container| container.trim().is_empty())
+            {
+                if let Some(container) = self
+                    .entities
+                    .find::<Pod>(&EntityId::new(&target_id))
+                    .and_then(|pod| pod.containers.first())
+                    .map(|container| container.name.clone())
+                {
+                    args.insert("Container".to_string(), container);
+                }
+            }
         }
 
         let mut procedure = self.select_procedure(&ttp, procedure_id.as_deref())?;
