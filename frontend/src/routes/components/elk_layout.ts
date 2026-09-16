@@ -58,6 +58,7 @@ export const NODE_LAYER: Record<string, number> = {
 	User: 5,
 	Group: 5,
 	ConfigMap: 5,
+	ServiceMonitor: 5,
 	Secret: 5,
 	Volume: 5,
 	// Control plane

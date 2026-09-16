@@ -102,4 +102,14 @@ describe('getK8sCredentialIcon', () => {
 		expect(deploymentIcon?.style['background-image']).toEqual(['/k8s/deploy.svg']);
 		expect(expandedCompound?.style['background-image']).toBe('none');
 	});
+
+	it('lets custom resource icons inherit the shared node sizing', () => {
+		const customResource = getGraphStyle().find(
+			(rule: { selector: string }) => rule.selector === 'node[?customResource]'
+		);
+
+		expect(customResource?.style['background-image']).toBe('/k8s/crd.svg');
+		expect(customResource?.style.width).toBeUndefined();
+		expect(customResource?.style.height).toBeUndefined();
+	});
 });

@@ -486,6 +486,7 @@ pub enum GraphEntity {
     ServiceAccount(ServiceAccount),
     Secret(K8sSecret),
     ConfigMap(ConfigMap),
+    CustomResource(K8sCustomResource),
     Deployment(Deployment),
     ReplicaSet(ReplicaSet),
     StatefulSet(StatefulSet),
@@ -1063,6 +1064,77 @@ impl Entity for ConfigMap {
     fn entity_kind(&self) -> &str {
         "ConfigMap"
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Custom Resource
+// ---------------------------------------------------------------------------
+
+/// A Kubernetes resource whose kind is defined outside Ran's built-in model.
+///
+/// The group and kind form the stable resource type identity. The version is
+/// retained as observed data because Kubernetes can serve the same resource
+/// through multiple API versions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct K8sCustomResource {
+    pub meta: K8sMeta,
+    #[serde(default)]
+    pub api_group: String,
+    #[serde(default)]
+    pub api_version: String,
+    pub kind: String,
+    #[serde(default)]
+    pub spec: serde_json::Value,
+    #[serde(default)]
+    pub status: serde_json::Value,
+}
+
+impl K8sCustomResource {
+    pub fn new(
+        api_group: impl Into<String>,
+        api_version: impl Into<String>,
+        kind: impl Into<String>,
+        name: impl Into<String>,
+        namespace: impl Into<String>,
+    ) -> Self {
+        Self {
+            meta: K8sMeta::namespaced(name, namespace),
+            api_group: api_group.into(),
+            api_version: api_version.into(),
+            kind: kind.into(),
+            spec: serde_json::Value::Null,
+            status: serde_json::Value::Null,
+        }
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.meta.namespace.as_deref()
+    }
+}
+
+impl Entity for K8sCustomResource {
+    fn entity_id(&self) -> EntityId {
+        let ns = self.meta.namespace.as_deref().unwrap_or("");
+        EntityId::new(format!(
+            "ns/{}/custom/{}/{}/{}",
+            ns,
+            self.api_group.to_ascii_lowercase(),
+            self.kind.to_ascii_lowercase(),
+            self.meta.name
+        ))
+    }
+
+    fn entity_name(&self) -> &str {
+        &self.meta.name
+    }
+
+    fn entity_kind(&self) -> &str {
+        &self.kind
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -2323,6 +2395,24 @@ impl Merge for ConfigMap {
     }
 }
 
+impl Merge for K8sCustomResource {
+    fn merge_from(&mut self, incoming: &Self) {
+        merge_k8s_meta(&mut self.meta, &incoming.meta);
+        if self.api_group.is_empty() {
+            self.api_group = incoming.api_group.clone();
+        }
+        if self.api_version.is_empty() || !incoming.api_version.is_empty() {
+            self.api_version = incoming.api_version.clone();
+        }
+        if self.spec.is_null() && !incoming.spec.is_null() {
+            self.spec = incoming.spec.clone();
+        }
+        if !incoming.status.is_null() {
+            self.status = incoming.status.clone();
+        }
+    }
+}
+
 impl Merge for Deployment {
     fn merge_from(&mut self, incoming: &Self) {
         merge_k8s_meta(&mut self.meta, &incoming.meta);
@@ -2466,6 +2556,22 @@ mod tests {
     use super::*;
     use crate::identity::{JwToken, ServiceAccountToken};
     use crate::rbac::RbacPermission;
+
+    #[test]
+    fn custom_resource_identity_uses_group_kind_namespace_and_name() {
+        let resource = K8sCustomResource::new(
+            "monitoring.coreos.com",
+            "v1",
+            "ServiceMonitor",
+            "redis-metrics",
+            "monitoring",
+        );
+        assert_eq!(resource.entity_kind(), "ServiceMonitor");
+        assert_eq!(
+            resource.entity_id().0,
+            "ns/monitoring/custom/monitoring.coreos.com/servicemonitor/redis-metrics"
+        );
+    }
 
     #[test]
     fn app_service_normalizes_endpoint_identity() {

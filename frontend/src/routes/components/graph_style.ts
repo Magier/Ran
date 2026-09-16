@@ -323,6 +323,12 @@ export function getGraphStyle(isDark: boolean = false): GraphStylesheetBlock[] {
 			}
 		},
 		{
+			selector: 'node[?customResource]',
+			style: {
+				'background-image': '/k8s/crd.svg'
+			}
+		},
+		{
 			selector: `node[!kind].abstract`,
 			style: {
 				'background-image': 'component.svg',

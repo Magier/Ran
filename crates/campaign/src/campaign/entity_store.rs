@@ -3,9 +3,10 @@ use std::collections::HashMap;
 
 use ran_domain::{
     AppService, C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
-    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress,
-    K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Listener, Merge, Namespace,
-    OperatorHost, Pod, Redirector, ReplicaSet, ServiceAccount, StatefulSet, UnknownSystem,
+    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sCustomResource, K8sGateway, K8sHTTPRoute,
+    K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Listener, Merge,
+    Namespace, OperatorHost, Pod, Redirector, ReplicaSet, ServiceAccount, StatefulSet,
+    UnknownSystem,
 };
 use serde::de::MapAccess;
 use serde::ser::SerializeMap;
@@ -314,6 +315,9 @@ impl Default for EntityStore {
         s.register::<ServiceAccount>("service_accounts", |t| CampaignEntityRef::ServiceAccount(t));
         s.register::<K8sSecret>("secrets", |t| CampaignEntityRef::Secret(t));
         s.register::<ConfigMap>("config_maps", |t| CampaignEntityRef::ConfigMap(t));
+        s.register::<K8sCustomResource>("custom_resources", |t| {
+            CampaignEntityRef::CustomResource(t)
+        });
         s.register::<Deployment>("deployments", |t| CampaignEntityRef::Deployment(t));
         s.register::<K8sRole>("roles", |t| CampaignEntityRef::Role(t));
         s.register::<K8sRoleBinding>("role_bindings", |t| CampaignEntityRef::RoleBinding(t));
@@ -411,5 +415,23 @@ mod tests {
 
         let old: EntityStore = serde_json::from_str("{}").unwrap();
         assert!(old.get::<AppService>().is_empty());
+    }
+
+    #[test]
+    fn custom_resource_slot_round_trips() {
+        let mut store = EntityStore::default();
+        let resource = K8sCustomResource::new(
+            "monitoring.coreos.com",
+            "v1",
+            "ServiceMonitor",
+            "redis-metrics",
+            "monitoring",
+        );
+        let id = resource.entity_id();
+        store.insert_typed(resource);
+
+        let json = serde_json::to_string(&store).unwrap();
+        let restored: EntityStore = serde_json::from_str(&json).unwrap();
+        assert!(restored.contains::<K8sCustomResource>(&id));
     }
 }

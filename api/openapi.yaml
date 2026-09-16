@@ -661,6 +661,9 @@ components:
           additionalProperties: true
         compromised:
           type: boolean
+        customResource:
+          type: boolean
+          description: Whether this node represents a Kubernetes custom resource
         isRunning:
           type: boolean
         provenance:
@@ -1156,7 +1159,21 @@ components:
         exists:
           type: array
           items:
-            type: string
+            oneOf:
+              - type: string
+              - $ref: '#/components/schemas/EntityRequirement'
+
+    EntityRequirement:
+      type: object
+      required:
+        - kind
+      properties:
+        kind:
+          type: string
+        name:
+          type: string
+        namespace:
+          type: string
 
     RBACPermission:
       type: object

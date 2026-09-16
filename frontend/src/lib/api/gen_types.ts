@@ -518,6 +518,8 @@ export interface components {
 				[key: string]: unknown;
 			};
 			compromised?: boolean;
+			/** @description Whether this node represents a Kubernetes custom resource */
+			customResource?: boolean;
 			isRunning?: boolean;
 			provenance?: ('scenario' | 'operator' | 'action' | 'inference')[];
 		};
@@ -706,7 +708,12 @@ export interface components {
 			rbacPermissions?: components['schemas']['RBACPermission'][];
 			accessLevel?: string;
 			activeSession?: boolean;
-			exists?: string[];
+			exists?: (string | components['schemas']['EntityRequirement'])[];
+		};
+		EntityRequirement: {
+			kind: string;
+			name?: string;
+			namespace?: string;
 		};
 		RBACPermission: {
 			resource: string;

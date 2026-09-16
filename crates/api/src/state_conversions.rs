@@ -300,6 +300,8 @@ pub(crate) fn campaign_to_graph(campaign: &Campaign, kubetier: &kubetier::Catalo
             parent,
             access_level: None,
             compromised,
+            custom_resource: matches!(&entity, CampaignEntityRef::CustomResource(_))
+                .then_some(true),
             is_running: match &entity {
                 CampaignEntityRef::Pod(pod) => Some(
                     pod.is_running
@@ -571,6 +573,7 @@ pub(crate) fn serialize_campaign_entity_map(
         CampaignEntityRef::ServiceAccount(e) => serialize_entity_map(e),
         CampaignEntityRef::Secret(e) => serialize_entity_map(e),
         CampaignEntityRef::ConfigMap(e) => serialize_entity_map(e),
+        CampaignEntityRef::CustomResource(e) => serialize_entity_map(e),
         CampaignEntityRef::Deployment(e) => serialize_entity_map(e),
         CampaignEntityRef::Role(e) => serialize_entity_map(e),
         CampaignEntityRef::RoleBinding(e) => serialize_entity_map(e),
@@ -851,8 +854,8 @@ mod tests {
         InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
     };
     use ran_domain::{
-        AppService, Entity, EntityId, K8sCluster, K8sCredential, Listener, RbacPermission,
-        Redirector, ServiceAccount, Transport,
+        AppService, Entity, EntityId, K8sCluster, K8sCredential, K8sCustomResource, Listener,
+        RbacPermission, Redirector, ServiceAccount, Transport,
     };
     use std::collections::BTreeSet;
 
@@ -953,6 +956,30 @@ mod tests {
         assert_eq!(listeners[0]["id"], Value::from(listener_id.0.as_str()));
         assert_eq!(listeners[0]["entry"], Value::from("tcp/4444"));
         assert_eq!(listeners[0]["port"], Value::from(4444));
+    }
+
+    #[test]
+    fn custom_resource_becomes_a_graph_node_with_its_concrete_kind() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        let resource = K8sCustomResource::new(
+            "monitoring.coreos.com",
+            "v1",
+            "ServiceMonitor",
+            "redis-metrics",
+            "monitoring",
+        );
+        let resource_id = resource.entity_id();
+        campaign.entities.insert_typed(resource);
+
+        let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
+        let node = graph
+            .nodes
+            .iter()
+            .find(|node| node.id == resource_id.0)
+            .expect("custom resource graph node");
+        assert_eq!(node.kind, "ServiceMonitor");
+        assert_eq!(node.name, "redis-metrics");
+        assert_eq!(node.custom_resource, Some(true));
     }
 
     /// Build a campaign with a listener on `tcp/4444` and a redirector forwarding

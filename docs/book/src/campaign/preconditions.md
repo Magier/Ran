@@ -73,15 +73,16 @@ YAML declares: **Initial Access**, **Lateral Movement**, and **Resource Developm
 
 ### `exists`
 
-Requires a specific entity kind to be present in the campaign graph. Currently
-supports:
-
-- `Listener` - at least one C2 listener must be active
+Requires an entity to be present in the campaign graph. Each entry can be a
+kind string, or an object that also matches the entity name and namespace. This
+works for built-in entities and custom Kubernetes resources.
 
 ```yaml
 preconditions:
   exists:
-    - Listener
+    - kind: ServiceMonitor
+      name: redis-metrics
+      namespace: monitoring
 ```
 
 ### `has-token`
