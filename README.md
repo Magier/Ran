@@ -210,6 +210,10 @@ kubetier:
   catalog: ./kubetier.full.json
 ```
 
+Ran also maintains a small reviewed registry for product-specific permission
+assessments, including custom resources. These local assessments take
+precedence over KubeTier and are labelled as a Ran assessment in the UI.
+
 The public snapshot can be refreshed without `--full` using
 `crates/kubetier/data/catalog.json` as the output. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and content

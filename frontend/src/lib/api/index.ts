@@ -41,6 +41,7 @@ export type KubetierCatalog = components['schemas']['KubetierCatalog'];
 export type KubetierPermission = components['schemas']['KubetierPermission'];
 export type KubetierRole = components['schemas']['KubetierRole'];
 export type KubetierTier = components['schemas']['KubetierTier'];
+export type LocalPermissionAssessment = components['schemas']['LocalPermissionAssessment'];
 
 export type PlanSummary = components['schemas']['PlanSummary'];
 export type LoadPlanRequest = components['schemas']['LoadPlanRequest'];

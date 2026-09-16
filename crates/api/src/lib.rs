@@ -3,6 +3,7 @@ include!(concat!(env!("OUT_DIR"), "/openapi_generated.rs"));
 mod api_handlers;
 pub mod mcp;
 mod operations;
+mod permission_assessments;
 mod sse;
 mod state_conversions;
 
