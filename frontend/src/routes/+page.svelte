@@ -813,10 +813,10 @@
 		<Dialog open={showParamModal} onOpenChange={(e) => (showParamModal = e.open)}>
 			<Portal>
 				<Dialog.Backdrop class="bg-surface-50-950/50 fixed inset-0 z-[100]" />
-				<Dialog.Positioner class="fixed inset-0 z-[100] flex items-center justify-center ">
+				<Dialog.Positioner class="fixed inset-0 z-[100] flex items-center justify-center p-4">
 					<Dialog.Content
 						class="card bg-surface-100-900 border-surface-600 flex min-w-0 flex-col space-y-2 border p-4 shadow-xl"
-						style="width: 36rem; max-width: calc(100vw - 2rem);"
+						style="width: 36rem; max-width: calc(100vw - 2rem); max-height: calc(100dvh - 2rem);"
 					>
 						{#if selectedTTP}
 							<ActionParamsModal
