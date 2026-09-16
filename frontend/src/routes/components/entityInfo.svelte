@@ -414,7 +414,7 @@
 			</div>
 		{/if}
 		{#if filesystemTtp || ttpsForField('mounts').length > 0 || obj.files?.length || obj.directories?.length || obj.mounts?.length}
-			<details class="mb-1" open>
+			<details class="mb-1">
 				<summary class="cursor-pointer">
 					<span class="inline-flex items-center gap-1">
 						<span class="font-bold">Filesystem</span>
