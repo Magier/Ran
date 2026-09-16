@@ -547,6 +547,7 @@ export interface components {
 				[key: string]: unknown;
 			}[];
 			bootstrapOperations?: components['schemas']['BootstrapOperation'][];
+			permissionAssessments?: components['schemas']['LocalPermissionAssessment'][];
 		};
 		BootstrapOperation: {
 			id: string;
@@ -734,7 +735,7 @@ export interface components {
 		};
 		KubetierPermissionAssessment: {
 			/** @enum {string} */
-			provider: 'kubetier';
+			provider: 'kubetier' | 'manual';
 			tierMin?: components['schemas']['KubetierTier'];
 			tierMax?: components['schemas']['KubetierTier'];
 			unassessed?: boolean;
@@ -763,6 +764,14 @@ export interface components {
 			kubernetesDocUrl?: string;
 			description?: string;
 			escalationPaths: components['schemas']['KubetierEscalationPath'][];
+		};
+		LocalPermissionAssessment: {
+			verb: string;
+			resource: string;
+			apiGroup: string;
+			tier: components['schemas']['KubetierTier'];
+			scope?: components['schemas']['KubetierScope'];
+			description?: string;
 		};
 		KubetierRoleRule: {
 			apiGroups: string[];

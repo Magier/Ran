@@ -12,17 +12,19 @@
 		KubetierPermission,
 		KubetierRole,
 		KubetierTier,
+		LocalPermissionAssessment,
 		RBACPermission
 	} from '$lib/api';
 
 	type Props = {
 		entitlements: RBACPermission[];
 		catalog?: KubetierCatalog | null;
+		assessments?: LocalPermissionAssessment[];
 		roleName?: string;
 		roleKind?: string;
 	};
 
-	let { entitlements, catalog = null, roleName, roleKind }: Props = $props();
+	let { entitlements, catalog = null, assessments = [], roleName, roleKind }: Props = $props();
 	type TooltipState = {
 		permission: RBACPermission;
 		left: number;
@@ -113,9 +115,32 @@
 	}
 
 	function tiersFor(permission: RBACPermission): KubetierTier[] {
-		return [...new Set(matchingAssessments(permission).map((entry) => entry.tier))].sort(
-			(a, b) => tierRank[a] - tierRank[b]
+		const localTiers = matchingLocalAssessments(permission).map(
+			(entry) => entry.tier as KubetierTier
 		);
+		const tiers =
+			localTiers.length > 0
+				? localTiers
+				: matchingAssessments(permission).map((entry) => entry.tier);
+		return [...new Set(tiers)].sort((a, b) => tierRank[a] - tierRank[b]);
+	}
+
+	function matchingLocalAssessments(permission: RBACPermission): LocalPermissionAssessment[] {
+		const resource = permissionResource(permission);
+		const scopeKind = permission.scopeKind ?? 'unknown';
+		return assessments.filter((assessment) => {
+			const verbMatches = permission.verb === '*' || assessment.verb === permission.verb;
+			const resourceMatches = resource === '*' || assessment.resource === resource;
+			const groupMatches =
+				normalizedGroup(permission) === '*' || assessment.apiGroup === normalizedGroup(permission);
+			const scopeMatches =
+				!assessment.scope ||
+				scopeKind === 'unknown' ||
+				(scopeKind === 'cluster'
+					? assessment.scope === 'cluster'
+					: assessment.scope === 'namespaced');
+			return verbMatches && resourceMatches && groupMatches && scopeMatches;
+		});
 	}
 
 	function scopeLabel(permission: RBACPermission): string {
@@ -358,6 +383,7 @@
 
 {#if activeTooltip}
 	{@const matches = matchingAssessments(activeTooltip.permission)}
+	{@const localMatches = matchingLocalAssessments(activeTooltip.permission)}
 	{@const assessments = uniqueAssessments(matches)}
 	{@const documentationLinks = uniqueDocumentationLinks(matches)}
 	{@const descriptions = uniqueDescriptions(matches)}
@@ -394,8 +420,17 @@
 			<dt class="text-surface-500">API group</dt>
 			<dd><code>{activeTooltip.permission.apiGroup || '(core)'}</code></dd>
 		</dl>
-		{#if matches.length === 0}
-			<p class="text-surface-500 mt-2 text-xs">No matching KubeTier assessment.</p>
+		{#if matches.length === 0 && localMatches.length === 0}
+			<p class="text-surface-500 mt-2 text-xs">No matching risk assessment.</p>
+		{:else if localMatches.length > 0}
+			<p class="mt-2 text-xs">
+				Ran assessment: <span class={permissionTierClass(localMatches[0].tier as KubetierTier)}
+					>{localMatches[0].tier}</span
+				>
+			</p>
+			{#each localMatches as assessment (JSON.stringify(assessment))}
+				{#if assessment.description}<p class="mt-2">{assessment.description}</p>{/if}
+			{/each}
 		{:else}
 			<div class="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
 				{#each assessments as assessment (assessment.sourceUrl)}

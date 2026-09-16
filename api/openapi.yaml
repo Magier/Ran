@@ -728,6 +728,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BootstrapOperation'
+        permissionAssessments:
+          type: array
+          items:
+            $ref: '#/components/schemas/LocalPermissionAssessment'
 
     BootstrapOperation:
       type: object
@@ -1221,7 +1225,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [kubetier]
+          enum: [kubetier, manual]
         tierMin:
           $ref: '#/components/schemas/KubetierTier'
         tierMax:
@@ -1286,6 +1290,25 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/KubetierEscalationPath'
+
+    LocalPermissionAssessment:
+      type: object
+      required: [verb, resource, apiGroup, tier]
+      properties:
+        verb:
+          type: string
+        resource:
+          type: string
+        apiGroup:
+          type: string
+        tier:
+          type: string
+          enum: [T0, T1, T2, T3]
+        scope:
+          type: string
+          enum: [cluster, namespaced]
+        description:
+          type: string
 
     KubetierRoleRule:
       type: object

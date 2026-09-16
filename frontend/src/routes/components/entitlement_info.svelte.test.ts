@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 
-import type { KubetierCatalog, RBACPermission } from '$lib/api';
+import type { KubetierCatalog, LocalPermissionAssessment, RBACPermission } from '$lib/api';
 import EntitlementInfo from './entitlement_info.svelte';
 
 const catalog: KubetierCatalog = {
@@ -170,6 +170,63 @@ describe('KubeTier entitlement presentation', () => {
 
 		expect(screen.getByText('get configmaps')).toHaveClass('text-green-700');
 		expect(screen.getByText('get pods')).toHaveClass('text-surface-500');
+	});
+
+	it('uses a local tier only when KubeTier has no matching assessment', async () => {
+		const localAssessments: LocalPermissionAssessment[] = [
+			{
+				verb: 'create',
+				resource: 'servicemonitors',
+				apiGroup: 'monitoring.coreos.com',
+				tier: 'T2',
+				scope: 'namespaced',
+				description: 'Can create scrape configurations.'
+			}
+		];
+		render(EntitlementInfo, {
+			props: {
+				entitlements: [
+					permission({
+						verb: 'create',
+						resourceType: 'servicemonitors',
+						apiGroup: 'monitoring.coreos.com',
+						scopeKind: 'namespace',
+						scope: 'default'
+					})
+				],
+				catalog,
+				assessments: localAssessments
+			}
+		});
+
+		expect(screen.getByText('create servicemonitors')).toHaveClass('text-green-700');
+		await fireEvent.mouseEnter(screen.getByLabelText('Details for create servicemonitors'));
+		expect(screen.getByText('T2')).toHaveClass('text-green-700');
+		expect(screen.getByText('Can create scrape configurations.')).toBeInTheDocument();
+	});
+
+	it('gives a local assessment precedence over a KubeTier assessment', async () => {
+		render(EntitlementInfo, {
+			props: {
+				entitlements: [permission({ scopeKind: 'cluster' })],
+				catalog,
+				assessments: [
+					{
+						verb: 'list',
+						resource: 'secrets',
+						apiGroup: '',
+						tier: 'T3',
+						scope: 'cluster',
+						description: 'Locally accepted risk.'
+					}
+				]
+			}
+		});
+
+		expect(screen.getByText('list secrets')).toHaveClass('text-surface-500');
+		await fireEvent.mouseEnter(screen.getByLabelText('Details for list secrets'));
+		expect(screen.getByText('Locally accepted risk.')).toBeInTheDocument();
+		expect(screen.queryByRole('link', { name: 'KubeTier assessment' })).not.toBeInTheDocument();
 	});
 
 	it('deduplicates assessment sources inside the capability tooltip', async () => {

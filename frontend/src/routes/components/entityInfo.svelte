@@ -578,6 +578,9 @@
 														rel="noreferrer"
 														onclick={(event) => event.stopPropagation()}>Informed by KubeTier ↗</a
 													>
+													<span class="mt-1 block"
+														>Locally configured assessments fill uncovered permissions.</span
+													>
 												</span>
 											</span>
 										</span>
@@ -588,6 +591,7 @@
 						<EntitlementInfo
 							entitlements={data as RBACPermission[]}
 							catalog={campaignState.kubetier}
+							assessments={campaignState.permissionAssessments}
 						/>
 					</details>
 				{:else}
@@ -605,6 +609,7 @@
 					<EntitlementInfo
 						entitlements={data as RBACPermission[]}
 						catalog={campaignState.kubetier}
+						assessments={campaignState.permissionAssessments}
 						roleName={obj.name}
 						roleKind={obj.kind}
 					/>

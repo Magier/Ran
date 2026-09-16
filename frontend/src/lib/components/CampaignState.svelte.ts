@@ -1,7 +1,7 @@
 import { getContext, setContext } from 'svelte';
 import type { ArmoryType } from '$lib/model';
 import type { AttackFlow, CampaignState as State, Graph, TTP } from '$lib/api/index';
-import type { KubetierCatalog } from '$lib/api/index';
+import type { KubetierCatalog, LocalPermissionAssessment } from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
 import { getRanAPI, RanAPI } from '$lib/ran_api';
 import { timeline } from '$lib/stores/timelineStore.svelte';
@@ -66,6 +66,7 @@ class CampaignState {
 	armory = $state<ArmoryType>(new Map());
 	graph = $state<Graph>({} as Graph);
 	kubetier = $state<KubetierCatalog | null>(null);
+	permissionAssessments = $state<LocalPermissionAssessment[]>([]);
 	/// Bumped whenever the scoring profile changes, so recommendation views refetch.
 	scoringVersion = $state(0);
 	pendingMessages: string[] = [];
@@ -247,6 +248,7 @@ class CampaignState {
 		this.namespaces = namespaces;
 		this.pods = pods;
 		this.serviceAccounts = serviceAccounts;
+		this.permissionAssessments = state.permissionAssessments ?? [];
 
 		// Process relations
 		console.info('Setting campaign state with relations:', state.relations);

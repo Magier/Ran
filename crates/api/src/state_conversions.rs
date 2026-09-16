@@ -79,6 +79,7 @@ pub(crate) fn campaign_to_campaign_state(
             })
             .collect(),
         bootstrap_operations: Some(bootstrap_operations(campaign)),
+        permission_assessments: Some(crate::permission_assessments::all()),
     }
 }
 
@@ -873,6 +874,19 @@ mod tests {
 
         assert_eq!(data.get("can"), Some(&serde_json::json!([])));
         assert!(!data.contains_key("entitlements_reviewed"));
+    }
+
+    #[test]
+    fn campaign_state_exposes_ran_servicemonitor_assessment_separately() {
+        let campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        let state = campaign_to_campaign_state(&campaign, &kubetier::Catalog::embedded());
+        let assessments = state.permission_assessments.unwrap();
+        assert!(assessments.iter().any(|assessment| {
+            assessment.verb == "create"
+                && assessment.resource == "servicemonitors"
+                && assessment.api_group == "monitoring.coreos.com"
+                && assessment.tier == "T2"
+        }));
     }
 
     #[test]
