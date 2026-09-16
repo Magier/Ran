@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use c2::{ExecTtp, TtpExecuted};
+use ran_domain::{Contains, Entity, EntityId, K8sCluster, Namespace};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -340,6 +341,10 @@ pub fn parse_output_effect(
             ),
         }),
         ParserOutput::SuccessWithFacts(facts, detail) => {
+            let mut facts = facts;
+            if normalized.starts_with("k8s.") {
+                attach_discovered_namespaces_to_command_cluster(campaign, cmd, &mut facts);
+            }
             let facts_written = facts.new_entities.len() + facts.new_relations.len();
             Some(ParsedEffect {
                 updates: facts,
@@ -383,6 +388,84 @@ pub fn parse_output_effect(
                 ),
             })
         }
+    }
+}
+
+/// Preserve the Kubernetes API-server attribution of resources discovered by
+/// an authenticated command.  Namespace IDs are global in the graph, so the
+/// parser cannot recover this relationship from a `PodList` alone.  The
+/// selected authentication identity is the authoritative source: its
+/// `authenticates-to` edge names the API server that returned the list.
+///
+/// A cluster selected directly is also sufficient.  The fallback through the
+/// command target retains attribution for commands issued from a Pod before a
+/// kubeconfig identity is modeled.
+fn attach_discovered_namespaces_to_command_cluster(
+    campaign: &Campaign,
+    cmd: &ExecTtp,
+    facts: &mut FactsUpdate,
+) {
+    let Some(cluster_id) = command_cluster_id(campaign, cmd) else {
+        return;
+    };
+
+    let namespace_ids: Vec<String> = facts
+        .new_entities
+        .iter()
+        .filter_map(|entity| entity.as_any().downcast_ref::<Namespace>())
+        .map(|namespace| namespace.entity_id().0)
+        .collect();
+    for namespace_id in namespace_ids {
+        if !facts.new_relations.iter().any(|relation| {
+            relation.relation_name() == "contains"
+                && relation.source_id().0 == cluster_id.0
+                && relation.target_id().0 == namespace_id
+        }) {
+            facts
+                .new_relations
+                .push(Box::new(Contains::new(cluster_id.0.clone(), namespace_id)));
+        }
+    }
+}
+
+fn command_cluster_id(campaign: &Campaign, cmd: &ExecTtp) -> Option<EntityId> {
+    // An Authenticate As identity identifies the API server even when the
+    // command is physically executed through an unrelated connected Pod.
+    if let Some(identity_id) = cmd.auth_identity_id.as_deref() {
+        let clusters = campaign
+            .graph
+            .targets_of(&EntityId::new(identity_id), "authenticates-to");
+        if let [cluster_id] = clusters.as_slice() {
+            if campaign.entities.contains::<K8sCluster>(cluster_id) {
+                return Some((*cluster_id).clone());
+            }
+        }
+    }
+
+    let target_id = EntityId::new(&cmd.target_id);
+    if campaign.entities.contains::<K8sCluster>(&target_id) {
+        return Some(target_id);
+    }
+
+    // A namespace target already has the direct parent we need.  For a Pod,
+    // first find its Namespace parent, then that Namespace's Cluster parent.
+    let namespace_id = if campaign.entities.contains::<Namespace>(&target_id) {
+        Some(target_id)
+    } else {
+        let parents = campaign.graph.sources_of(&target_id, "contains");
+        match parents.as_slice() {
+            [namespace_id] if campaign.entities.contains::<Namespace>(namespace_id) => {
+                Some((*namespace_id).clone())
+            }
+            _ => None,
+        }
+    }?;
+    let clusters = campaign.graph.sources_of(&namespace_id, "contains");
+    match clusters.as_slice() {
+        [cluster_id] if campaign.entities.contains::<K8sCluster>(cluster_id) => {
+            Some((*cluster_id).clone())
+        }
+        _ => None,
     }
 }
 
@@ -826,7 +909,9 @@ mod tests {
     use super::*;
     use armory::{Procedure, Ttp};
     use c2::ExecTtp;
-    use ran_domain::{AccessLevel, Pod};
+    use ran_domain::{
+        AccessLevel, AuthenticatesTo, Contains, K8sCluster, K8sCredential, Pod, Relation,
+    };
     use std::collections::HashMap;
 
     fn sample_cmd() -> ExecTtp {
@@ -874,6 +959,52 @@ mod tests {
             parsed.audit.parse_result,
             ParseResult::UnknownFormat
         ));
+    }
+
+    #[test]
+    fn pod_list_attaches_all_discovered_namespaces_to_authenticated_cluster() {
+        let target_cluster = K8sCluster::new("target");
+        let target_cluster_id = target_cluster.entity_id();
+        let other_cluster = K8sCluster::new("other");
+        let mut campaign = Campaign::bootstrap("Ran", target_cluster);
+        campaign.insert_entity(&other_cluster);
+
+        let credential = K8sCredential::new("https://target.example").with_name("remote-admin");
+        let credential_id = credential.entity_id();
+        campaign.insert_entity(&credential);
+        campaign.insert_relation(&AuthenticatesTo::new(
+            credential_id.0.clone(),
+            target_cluster_id.0.clone(),
+        ));
+
+        let mut cmd = sample_cmd();
+        cmd.auth_identity_id = Some(credential_id.0);
+        let event = sample_event(vec![r#"{
+            "items": [
+                {"metadata": {"name": "api", "namespace": "payments"}, "spec": {}, "status": {}},
+                {"metadata": {"name": "worker", "namespace": "operations"}, "spec": {}, "status": {}}
+            ]
+        }"#.to_string()]);
+
+        let parsed = parse_output_effect(&mut campaign, "k8s.podlist", &cmd, &event)
+            .expect("pod list parser should run");
+        let contains: Vec<_> = parsed
+            .updates
+            .new_relations
+            .iter()
+            .filter_map(|relation| relation.as_any().downcast_ref::<Contains>())
+            .collect();
+
+        for namespace in ["payments", "operations"] {
+            assert!(contains.iter().any(|relation| {
+                relation.source_id().0 == target_cluster_id.0
+                    && relation.target_id().0 == format!("ns/{namespace}")
+            }));
+        }
+        assert!(contains.iter().all(|relation| {
+            relation.source_id().0 != other_cluster.entity_id().0
+                || !["ns/payments", "ns/operations"].contains(&relation.target_id().0.as_str())
+        }));
     }
 
     #[test]
