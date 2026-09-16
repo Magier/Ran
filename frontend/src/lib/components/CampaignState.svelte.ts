@@ -48,6 +48,12 @@ type ParseAuditUI = {
 	inferredFactsWritten: number;
 };
 
+const EXECUTION_FAILURE_EFFECT_ID = 'execution.failure';
+
+export function executionFailureMessage(detail: string): string {
+	return detail.replace(/^unclassified failure:\s*/i, '').trim() || 'Action execution failed';
+}
+
 function normalizeParseAudit(raw: any): ParseAuditUI {
 	return {
 		effectId: raw?.effectId ?? raw?.effect_id ?? 'unknown effect',
@@ -109,11 +115,25 @@ class CampaignState {
 				return;
 			}
 
+			const executionFailures = audits.filter(
+				(a: ParseAuditUI) => a.effectId === EXECUTION_FAILURE_EFFECT_ID
+			);
+			if (executionFailures.length > 0) {
+				const details = executionFailures
+					.map((a: ParseAuditUI) => executionFailureMessage(a.detail))
+					.join('\n');
+				showToast('Action failed', details, 'error');
+			}
+
+			const parserAudits = audits.filter(
+				(a: ParseAuditUI) => a.effectId !== EXECUTION_FAILURE_EFFECT_ID
+			);
+
 			const logOnly = new Set(['NoParser', 'KnownFailure']);
-			const problematic = audits.filter(
+			const problematic = parserAudits.filter(
 				(a: ParseAuditUI) => a.parseResult !== 'Parsed' && !logOnly.has(a.parseResult)
 			);
-			const gaps = audits.filter((a: ParseAuditUI) => logOnly.has(a.parseResult));
+			const gaps = parserAudits.filter((a: ParseAuditUI) => logOnly.has(a.parseResult));
 			if (gaps.length > 0) {
 				console.log(
 					'[parse-audited] parser gaps (log only):',
