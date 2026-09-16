@@ -1999,6 +1999,15 @@ pub struct GCPServiceAccount {
     /// Access token obtained from the metadata server.
     #[serde(default)]
     pub token: Option<GcpAccessToken>,
+    /// Private key material captured from a service-account key JSON file.
+    #[serde(default)]
+    pub private_key: Option<String>,
+    #[serde(default)]
+    pub private_key_id: Option<String>,
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(default)]
+    pub token_uri: Option<String>,
     /// Kubernetes ServiceAccount entity ID that has this GCP SA bound via
     /// Workload Identity annotation.
     #[serde(default)]
@@ -2011,6 +2020,10 @@ impl GCPServiceAccount {
             email: email.into(),
             project: None,
             token: None,
+            private_key: None,
+            private_key_id: None,
+            client_id: None,
+            token_uri: None,
             bound_k8s_sa: None,
         }
     }
@@ -2527,6 +2540,18 @@ impl Merge for GCPServiceAccount {
         }
         if self.token.is_none() {
             self.token = incoming.token.clone();
+        }
+        if self.private_key.is_none() {
+            self.private_key = incoming.private_key.clone();
+        }
+        if self.private_key_id.is_none() {
+            self.private_key_id = incoming.private_key_id.clone();
+        }
+        if self.client_id.is_none() {
+            self.client_id = incoming.client_id.clone();
+        }
+        if self.token_uri.is_none() {
+            self.token_uri = incoming.token_uri.clone();
         }
         if self.bound_k8s_sa.is_none() {
             self.bound_k8s_sa = incoming.bound_k8s_sa.clone();

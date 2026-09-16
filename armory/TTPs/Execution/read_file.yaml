@@ -15,4 +15,4 @@ preconditions:
   kind: System
   accessLevel: "user-exec"
 effects:
-  - file:content
+  - file:content(${PATH})

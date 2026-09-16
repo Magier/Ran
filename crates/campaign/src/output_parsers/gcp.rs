@@ -103,6 +103,59 @@ fn parse_gcp_serviceaccount(
     )
 }
 
+/// Parse a GCP service-account key file. This is deliberately stricter than
+/// the general service-account parser because arbitrary JSON files may contain
+/// an email address without carrying usable credentials.
+pub(super) fn parse_gcp_service_account_key(stdout: &str) -> ParserOutput {
+    #[derive(Deserialize)]
+    struct ServiceAccountKey {
+        #[serde(rename = "type")]
+        credential_type: Option<String>,
+        project_id: Option<String>,
+        private_key_id: Option<String>,
+        private_key: Option<String>,
+        client_email: Option<String>,
+        client_id: Option<String>,
+        token_uri: Option<String>,
+    }
+
+    let parsed: ServiceAccountKey = match serde_json::from_str(stdout) {
+        Ok(value) => value,
+        Err(_) => {
+            return ParserOutput::UnknownFormat(
+                "failed to parse GCP service-account key JSON".to_string(),
+            )
+        }
+    };
+    if parsed.credential_type.as_deref() != Some("service_account") {
+        return ParserOutput::UnknownFormat("JSON is not a GCP service-account key".to_string());
+    }
+    let Some(email) = parsed.client_email.filter(|value| !value.trim().is_empty()) else {
+        return ParserOutput::UnknownFormat(
+            "GCP service-account key is missing client_email".to_string(),
+        );
+    };
+    let Some(private_key) = parsed.private_key.filter(|value| !value.trim().is_empty()) else {
+        return ParserOutput::UnknownFormat(
+            "GCP service-account key is missing private_key".to_string(),
+        );
+    };
+
+    let mut account = GCPServiceAccount::new(&email);
+    account.project = parsed.project_id;
+    account.private_key_id = parsed.private_key_id;
+    account.private_key = Some(private_key);
+    account.client_id = parsed.client_id;
+    account.token_uri = parsed.token_uri;
+
+    let mut facts = FactsUpdate::default();
+    facts.new_entities.push(Box::new(account));
+    ParserOutput::SuccessWithFacts(
+        facts,
+        format!("extracted GCP service-account credential for {email}"),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // gcp.buckets
 // ---------------------------------------------------------------------------

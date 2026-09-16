@@ -1,8 +1,12 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::ParserOutput;
 use crate::FactsUpdate;
-use ran_domain::{AuthenticatesTo, Contains, Entity, K8sCluster, K8sCredential, Namespace, Uses};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use ran_domain::{
+    AuthenticatesTo, Contains, Entity, GCPServiceAccount, K8sCluster, K8sCredential, Namespace,
+    ServiceAccount, Uses,
+};
 
 // ---------------------------------------------------------------------------
 // Path extraction
@@ -40,6 +44,38 @@ pub(super) fn is_kubeconfig_content(content: &str) -> bool {
     content.contains("apiVersion: v1")
         && content.contains("kind: Config")
         && content.contains("clusters:")
+}
+
+fn is_k8s_service_account_token(content: &str) -> bool {
+    content.lines().map(str::trim).any(|line| {
+        let mut parts = line.split('.');
+        let (Some(_header), Some(payload), Some(_signature), None) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            return false;
+        };
+        let Ok(payload) = URL_SAFE_NO_PAD.decode(payload) else {
+            return false;
+        };
+        let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&payload) else {
+            return false;
+        };
+        payload
+            .get("sub")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|subject| subject.starts_with("system:serviceaccount:"))
+            || payload.get("kubernetes.io").is_some()
+    })
+}
+
+fn is_gcp_service_account_key(content: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(content)
+        .ok()
+        .is_some_and(|value| {
+            value.get("type").and_then(serde_json::Value::as_str) == Some("service_account")
+                && value.get("client_email").is_some()
+                && value.get("private_key").is_some()
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -81,27 +117,19 @@ fn non_empty(value: &str) -> Option<&str> {
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
-/// Parse kubeconfig YAML and build a `K8sCredential` for its current context.
-///
-/// Returns `None` when the YAML does not contain a usable cluster entry.
-fn credential_from_kubeconfig(content: &str) -> Option<(K8sCredential, String)> {
-    let resolved = k8s::resolve_kubeconfig_yaml(content, None).ok()?;
-    let cluster_name = resolved.cluster_name.clone();
-    Some((credential_from_resolved(&resolved), cluster_name))
-}
-
 // ---------------------------------------------------------------------------
 // Public parser entry points (called from parse_output_effect with source_id)
 // ---------------------------------------------------------------------------
 
-/// Parse kubeconfig YAML and emit a `K8sCredential` entity plus a `Uses` relation
-/// from `source_id` → credential.
+/// Parse kubeconfig YAML and emit every context as a `K8sCredential`, the
+/// referenced clusters, and the relations between the source, credentials,
+/// clusters, and default namespaces.
 ///
 /// Called for both `file:kubeconfig` (explicit) and the kubeconfig branch of
 /// `file:content(...)`.
 ///
 /// Returns:
-/// - `SuccessWithFacts` - credential entity (and optional Uses relation) emitted
+/// - `SuccessWithFacts` - credential and cluster facts emitted
 /// - `KnownFailure` - empty content
 /// - `UnknownFormat` - non-empty content that fails YAML parsing or has no cluster entry
 pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
@@ -109,37 +137,61 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
         return ParserOutput::KnownFailure("empty stdout for file:kubeconfig".to_string());
     }
 
-    let (cred, cluster_name) = match credential_from_kubeconfig(stdout) {
-        Some(c) => c,
-        None => {
+    let contexts = match k8s::resolve_all_kubeconfig_contexts_yaml(stdout) {
+        Ok(contexts) if !contexts.is_empty() => contexts,
+        _ => {
             return ParserOutput::UnknownFormat(
-                "could not extract cluster/user from kubeconfig YAML".to_string(),
+                "could not resolve any context from kubeconfig YAML".to_string(),
             )
         }
     };
 
-    let detail = format!(
-        "extracted K8sCredential for endpoint '{}' (context={}, cluster={}, default_namespace={}, token={}, cert={})",
-        if cred.endpoint.is_empty() {
-            "unknown"
-        } else {
-            &cred.endpoint
-        },
-        cred.context_name.as_deref().unwrap_or("unknown"),
-        cluster_name,
-        cred.default_namespace.as_deref().unwrap_or("none"),
-        cred.token.is_some(),
-        cred.cert_data.is_some(),
-    );
-
-    let cred_id = cred.entity_id().0.clone();
     let mut facts = FactsUpdate::default();
-    facts.new_entities.push(Box::new(cred));
-    if !source_id.is_empty() {
-        facts
-            .new_relations
-            .push(Box::new(Uses::new(source_id, cred_id)));
+    let mut emitted_clusters = HashSet::new();
+    let mut emitted_namespaces = HashSet::new();
+    let mut labels = Vec::new();
+    for resolved in &contexts {
+        let credential = credential_from_resolved(resolved);
+        let credential_id = credential.entity_id().0;
+        labels.push(credential.entity_name().to_string());
+        facts.new_entities.push(Box::new(credential));
+
+        let mut cluster = K8sCluster::new(&resolved.cluster_name);
+        cluster.context_name = Some(resolved.context_name.clone());
+        cluster.tls_server_name = resolved.tls_server_name.clone();
+        cluster.server = resolved.server.clone().filter(|server| !server.is_empty());
+        let cluster_id = cluster.entity_id().0;
+        if emitted_clusters.insert(cluster_id.clone()) {
+            facts.new_entities.push(Box::new(cluster));
+        }
+        facts.new_relations.push(Box::new(AuthenticatesTo::new(
+            credential_id.clone(),
+            cluster_id.clone(),
+        )));
+
+        if !source_id.is_empty() {
+            facts
+                .new_relations
+                .push(Box::new(Uses::new(source_id, credential_id)));
+        }
+        if let Some(namespace_name) = &resolved.default_namespace {
+            let namespace = Namespace::new(namespace_name);
+            let namespace_id = namespace.entity_id().0;
+            if emitted_namespaces.insert(namespace_id.clone()) {
+                facts.new_entities.push(Box::new(namespace));
+            }
+            facts
+                .new_relations
+                .push(Box::new(Contains::new(cluster_id, namespace_id)));
+        }
     }
+
+    let detail = format!(
+        "extracted {} kubeconfig context(s) across {} cluster(s): {}",
+        contexts.len(),
+        emitted_clusters.len(),
+        labels.join(", ")
+    );
 
     ParserOutput::SuccessWithFacts(facts, detail)
 }
@@ -258,7 +310,12 @@ pub(super) fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOut
 /// - `SuccessWithFacts` - content is a kubeconfig; credential entity emitted
 /// - `Success(SystemFieldUpdates)` - plain file; path recorded in `system.files`
 /// - `KnownFailure` - empty stdout
-pub(super) fn parse_file_content(stdout: &str, path: &str, source_id: &str) -> ParserOutput {
+pub(super) fn parse_file_content(
+    stdout: &str,
+    path: &str,
+    source_id: &str,
+    args: &HashMap<String, String>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout for file:content".to_string());
     }
@@ -268,6 +325,42 @@ pub(super) fn parse_file_content(stdout: &str, path: &str, source_id: &str) -> P
         // The file path is tracked by the caller in parse_output_effect via
         // apply_system_update before calling us.
         parse_file_kubeconfig(stdout, source_id)
+    } else if is_k8s_service_account_token(stdout) {
+        let mut parser_args = args.clone();
+        parser_args.remove("TARGET_ID");
+        let mut parsed = super::iam::parse_raw_service_account_token(stdout, "", &parser_args);
+        if let ParserOutput::SuccessWithFacts(facts, _) = &mut parsed {
+            if !source_id.is_empty() {
+                if let Some(account_id) = facts.new_entities.iter().find_map(|entity| {
+                    entity
+                        .as_any()
+                        .downcast_ref::<ServiceAccount>()
+                        .map(|account| account.entity_id().0)
+                }) {
+                    facts
+                        .new_relations
+                        .push(Box::new(Uses::new(source_id, account_id)));
+                }
+            }
+        }
+        parsed
+    } else if is_gcp_service_account_key(stdout) {
+        let mut parsed = super::gcp::parse_gcp_service_account_key(stdout);
+        if let ParserOutput::SuccessWithFacts(facts, _) = &mut parsed {
+            if !source_id.is_empty() {
+                if let Some(account_id) = facts.new_entities.iter().find_map(|entity| {
+                    entity
+                        .as_any()
+                        .downcast_ref::<GCPServiceAccount>()
+                        .map(|account| account.entity_id().0)
+                }) {
+                    facts
+                        .new_relations
+                        .push(Box::new(Uses::new(source_id, account_id)));
+                }
+            }
+        }
+        parsed
     } else {
         // Plain file: record the path in system.files.
         use crate::external_parser::SystemFieldUpdates;
@@ -384,10 +477,10 @@ users:
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts");
         };
-        assert_eq!(facts.new_entities.len(), 1);
-        let cred = facts.new_entities[0]
-            .as_any()
-            .downcast_ref::<K8sCredential>()
+        let cred = facts
+            .new_entities
+            .iter()
+            .find_map(|entity| entity.as_any().downcast_ref::<K8sCredential>())
             .unwrap();
         assert_eq!(cred.endpoint, "https://10.96.0.1:6443");
         assert_eq!(cred.default_namespace.as_deref(), Some("default"));
@@ -395,12 +488,16 @@ users:
         assert!(cred.cert_data.is_none());
         assert!(cred.ca_data.is_some());
         // Uses relation emitted
-        assert_eq!(facts.new_relations.len(), 1);
-        let uses = facts.new_relations[0]
-            .as_any()
-            .downcast_ref::<Uses>()
+        let uses = facts
+            .new_relations
+            .iter()
+            .find_map(|relation| relation.as_any().downcast_ref::<Uses>())
             .unwrap();
         assert_eq!(uses.subject_id.0, "ns/default/pod/attacker");
+        assert!(facts.new_relations.iter().any(|relation| relation
+            .as_any()
+            .downcast_ref::<AuthenticatesTo>()
+            .is_some()));
     }
 
     #[test]
@@ -409,9 +506,10 @@ users:
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts");
         };
-        let cred = facts.new_entities[0]
-            .as_any()
-            .downcast_ref::<K8sCredential>()
+        let cred = facts
+            .new_entities
+            .iter()
+            .find_map(|entity| entity.as_any().downcast_ref::<K8sCredential>())
             .unwrap();
         assert_eq!(cred.endpoint, "https://172.16.0.1:6443");
         assert!(cred.token.is_none());
@@ -441,11 +539,37 @@ users:
         else {
             panic!("expected SuccessWithFacts");
         };
-        assert_eq!(facts.new_entities.len(), 1);
+        assert!(!facts
+            .new_relations
+            .iter()
+            .any(|relation| relation.as_any().downcast_ref::<Uses>().is_some()));
+    }
+
+    #[test]
+    fn parse_file_kubeconfig_emits_every_context_and_cluster_edges() {
+        let ParserOutput::SuccessWithFacts(facts, _) =
+            parse_file_kubeconfig(KUBECONFIG_MULTI, "ns/default/pod/reader")
+        else {
+            panic!("expected SuccessWithFacts");
+        };
         assert_eq!(
-            facts.new_relations.len(),
-            0,
-            "no Uses relation when source_id is empty"
+            facts
+                .new_entities
+                .iter()
+                .filter(|entity| entity.as_any().downcast_ref::<K8sCredential>().is_some())
+                .count(),
+            2
+        );
+        assert_eq!(
+            facts
+                .new_relations
+                .iter()
+                .filter(|relation| relation
+                    .as_any()
+                    .downcast_ref::<AuthenticatesTo>()
+                    .is_some())
+                .count(),
+            2
         );
     }
 
@@ -455,7 +579,12 @@ users:
 
     #[test]
     fn parse_file_content_plain_text_records_path() {
-        let result = parse_file_content("hello world\nsome data", "/tmp/foo", "ns/default/pod/p");
+        let result = parse_file_content(
+            "hello world\nsome data",
+            "/tmp/foo",
+            "ns/default/pod/p",
+            &HashMap::new(),
+        );
         let ParserOutput::Success(updates, detail) = result else {
             panic!("expected Success, got {:?}", result);
         };
@@ -469,23 +598,93 @@ users:
             KUBECONFIG_TOKEN,
             "/etc/kubernetes/admin.conf",
             "ns/kube-system/pod/p",
+            &HashMap::new(),
         );
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts for kubeconfig content");
         };
-        assert_eq!(facts.new_entities.len(), 1);
-        assert!(facts.new_entities[0]
-            .as_any()
-            .downcast_ref::<K8sCredential>()
-            .is_some());
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|entity| entity.as_any().downcast_ref::<K8sCredential>().is_some()));
+        assert!(facts
+            .new_entities
+            .iter()
+            .any(|entity| entity.as_any().downcast_ref::<K8sCluster>().is_some()));
     }
 
     #[test]
     fn parse_file_content_empty_stdout_returns_known_failure() {
         assert!(matches!(
-            parse_file_content("", "/etc/passwd", "src"),
+            parse_file_content("", "/etc/passwd", "src", &HashMap::new()),
             ParserOutput::KnownFailure(_)
         ));
+    }
+
+    #[test]
+    fn parse_file_content_service_account_token_emits_account() {
+        let payload = URL_SAFE_NO_PAD.encode(
+            br#"{"sub":"system:serviceaccount:payments:reader","kubernetes.io":{"namespace":"payments","serviceaccount":{"name":"reader","uid":"sa-1"}}}"#,
+        );
+        let token = format!("eyJhbGciOiJSUzI1NiJ9.{payload}.signature");
+        let result = parse_file_content(
+            &token,
+            "/var/run/secrets/kubernetes.io/serviceaccount/token",
+            "ns/payments/pod/api",
+            &HashMap::new(),
+        );
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected ServiceAccount facts");
+        };
+        let account = facts
+            .new_entities
+            .iter()
+            .find_map(|entity| entity.as_any().downcast_ref::<ServiceAccount>())
+            .expect("ServiceAccount entity");
+        assert_eq!(account.entity_id().0, "ns/payments/sa/reader");
+        assert!(account.token.is_some());
+        assert!(facts.new_relations.iter().any(|relation| {
+            relation
+                .as_any()
+                .downcast_ref::<Uses>()
+                .is_some_and(|uses| uses.subject_id.0 == "ns/payments/pod/api")
+        }));
+    }
+
+    #[test]
+    fn parse_file_content_gcp_key_emits_service_account() {
+        let key = r#"{
+            "type": "service_account",
+            "project_id": "prod-123",
+            "private_key_id": "key-id",
+            "private_key": "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n",
+            "client_email": "runner@prod-123.iam.gserviceaccount.com",
+            "client_id": "12345",
+            "token_uri": "https://oauth2.googleapis.com/token"
+        }"#;
+        let result = parse_file_content(
+            key,
+            "/var/secrets/google/key.json",
+            "ns/default/pod/runner",
+            &HashMap::new(),
+        );
+        let ParserOutput::SuccessWithFacts(facts, _) = result else {
+            panic!("expected GCP service-account facts");
+        };
+        let account = facts
+            .new_entities
+            .iter()
+            .find_map(|entity| entity.as_any().downcast_ref::<GCPServiceAccount>())
+            .expect("GCPServiceAccount entity");
+        assert_eq!(account.project.as_deref(), Some("prod-123"));
+        assert_eq!(account.private_key_id.as_deref(), Some("key-id"));
+        assert!(account.private_key.is_some());
+        assert!(facts.new_relations.iter().any(|relation| {
+            relation
+                .as_any()
+                .downcast_ref::<Uses>()
+                .is_some_and(|uses| uses.subject_id.0 == "ns/default/pod/runner")
+        }));
     }
 
     #[test]
