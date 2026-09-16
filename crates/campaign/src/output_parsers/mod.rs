@@ -213,6 +213,7 @@ pub fn parse_output_effect(
             } else {
                 // Only return early if there is actually a registered/known parser.
                 let is_known = normalized.starts_with("sys.hasfile(")
+                    || normalized == "file:content"
                     || normalized.starts_with("file:content(")
                     || normalized == "file:kubeconfig"
                     || normalized == "file:local-kubeconfig"
@@ -268,10 +269,12 @@ pub fn parse_output_effect(
             cmd.auth_identity_id.as_deref().unwrap_or(fallback_target),
             namespace_arg,
         )
-    } else if normalized.starts_with("file:content(") {
+    } else if normalized == "file:content" || normalized.starts_with("file:content(") {
         // Parametric effect: path is in the effect ID, not in args.
         // Step 1: record the path in the target's system.files via apply_system_update.
-        let path = file::extract_path(effect_id).unwrap_or(effect_id);
+        let path = file::extract_path(effect_id)
+            .or_else(|| cmd.args.get("PATH").map(String::as_str))
+            .unwrap_or(effect_id);
         let target_id_opt = resolve_target_id(campaign, cmd);
         if let Some(ref tid) = target_id_opt {
             use crate::external_parser::SystemFieldUpdates;
@@ -289,7 +292,7 @@ pub fn parse_output_effect(
         }
         // Step 3: check for kubeconfig content and emit credential entity if found.
         let source_id = target_id_opt.as_deref().unwrap_or("");
-        file::parse_file_content(stdout, path, source_id)
+        file::parse_file_content(stdout, path, source_id, &cmd.args)
     } else if normalized == "file:kubeconfig" {
         let source_id = resolve_target_id(campaign, cmd);
         file::parse_file_kubeconfig(stdout, source_id.as_deref().unwrap_or(""))
@@ -959,6 +962,46 @@ mod tests {
             parsed.audit.parse_result,
             ParseResult::UnknownFormat
         ));
+    }
+
+    #[test]
+    fn bare_file_content_effect_uses_path_argument_and_parses_kubeconfig() {
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let mut cmd = sample_cmd();
+        cmd.args
+            .insert("PATH".to_string(), "/etc/kubernetes/admin.conf".to_string());
+        let kubeconfig = r#"apiVersion: v1
+kind: Config
+clusters:
+- name: dev
+  cluster:
+    server: https://kubernetes.example:6443
+contexts:
+- name: admin@dev
+  context:
+    cluster: dev
+    user: admin
+current-context: admin@dev
+users:
+- name: admin
+  user:
+    token: secret
+"#;
+        let event = sample_event(vec![kubeconfig.to_string()]);
+
+        let parsed = parse_output_effect(&mut campaign, "file:content", &cmd, &event)
+            .expect("bare file effect should be recognized");
+
+        assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
+        assert_eq!(
+            campaign.get_file_content("/etc/kubernetes/admin.conf"),
+            Some(kubeconfig)
+        );
+        assert!(parsed
+            .updates
+            .new_entities
+            .iter()
+            .any(|entity| entity.as_any().downcast_ref::<K8sCredential>().is_some()));
     }
 
     #[test]
