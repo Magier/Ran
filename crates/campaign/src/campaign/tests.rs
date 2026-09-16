@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use armory::{Armory, Procedure, Ttp, TtpParam};
 use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
-    AccessLevel, AuthenticatesTo, C2Server, Container, ContainerEscape, Entity, EntityId, JwToken,
-    K8sCluster, K8sCredential, K8sNode, KubeletExecSink, Namespace, OperatorHost,
+    AccessLevel, AuthenticatesTo, C2Server, Container, ContainerEscape, Contains, Entity, EntityId,
+    JwToken, K8sCluster, K8sCredential, K8sNode, KubeletExecSink, Namespace, OperatorHost,
     OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn, ServiceAccount,
     ServiceAccountToken, SessionInfo, SessionStatus, Uses,
 };
@@ -58,6 +58,60 @@ fn a_merged_away_system_id_resolves_to_the_surviving_pod() {
         .resolve_exec_channel(&stale_id.0)
         .expect("the session that came with the system must still be reachable");
     assert_eq!(channel.backend_id, "session/s1");
+}
+
+#[test]
+fn network_rediscovery_does_not_pull_an_authoritative_pod_out_of_its_namespace() {
+    use ran_domain::NameConfidence;
+
+    let mut campaign = Campaign::bootstrap("ran", K8sCluster::new("test-cluster"));
+    let cluster_id = EntityId::new("k8s/cluster/test-cluster");
+    let namespace = Namespace::new("demo");
+    let namespace_id = namespace.entity_id();
+    campaign.insert_entity(&namespace);
+    push_relation(
+        &mut campaign,
+        &Contains::new(cluster_id.0.clone(), namespace_id.0.clone()),
+    );
+
+    let mut authoritative_pod = Pod::new("console", "demo");
+    authoritative_pod.meta.name_confidence = NameConfidence::Authoritative;
+    authoritative_pod
+        .system
+        .ips
+        .push("10.244.0.9".parse().unwrap());
+    let authoritative_id = authoritative_pod.entity_id();
+    campaign.insert_entity(&authoritative_pod);
+    push_relation(
+        &mut campaign,
+        &Contains::new(namespace_id.0.clone(), authoritative_id.0.clone()),
+    );
+
+    let mut scan_placeholder = Pod::new("pod-10-244-0-9", "");
+    scan_placeholder.meta.namespace = None;
+    scan_placeholder
+        .system
+        .ips
+        .push("10.244.0.9".parse().unwrap());
+    let placeholder_id = scan_placeholder.entity_id();
+    let mut update = crate::FactsUpdate::default();
+    update.new_entities.push(Box::new(scan_placeholder));
+
+    let rules = crate::analyzers::default_rules();
+    let facts = crate::rules::run_rules_fixpoint(&campaign, &rules, update);
+    assert!(facts
+        .entity_aliases
+        .contains(&(placeholder_id, authoritative_id.clone())));
+    campaign.apply_facts(&facts);
+
+    assert!(campaign
+        .graph
+        .targets_of(&namespace_id, "contains")
+        .contains(&&authoritative_id));
+    assert!(!campaign
+        .graph
+        .targets_of(&cluster_id, "contains")
+        .contains(&&authoritative_id));
 }
 
 /// Aliases only ever cover ids that nothing answers to. An id that names a live
