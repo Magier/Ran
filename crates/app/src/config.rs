@@ -9,11 +9,20 @@ use tracing::debug;
 #[serde(default)]
 pub struct Config {
     pub namespaces: NamespaceFilter,
+    pub ttps: TtpConfig,
     pub scoring: ScoringConfig,
     pub plans: PlansConfig,
     pub kubetier: KubetierConfig,
     #[serde(rename = "seedKnowledge")]
     pub seed_knowledge: Vec<SeedKnowledgeConfig>,
+}
+
+/// TTP availability configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TtpConfig {
+    /// TTP IDs to disable, including IDs supplied by the bundled armory.
+    pub disabled: Vec<String>,
 }
 
 /// Offline KubeTier assessment catalog configuration.
@@ -233,6 +242,15 @@ mod tests {
             assert_eq!(cfg.scoring.combination, mode);
             assert_eq!(cfg.scoring.to_profile().combination, mode);
         }
+    }
+
+    #[test]
+    fn disabled_ttps_parse_from_config() {
+        let cfg: Config =
+            serde_yaml::from_str("ttps:\n  disabled:\n    - curl\n    - read-local-kubeconfig\n")
+                .unwrap();
+
+        assert_eq!(cfg.ttps.disabled, ["curl", "read-local-kubeconfig"]);
     }
 
     #[test]

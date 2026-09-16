@@ -1,7 +1,7 @@
 use crate::error::ArmoryError;
 use crate::model::{Procedure, Ttp};
 use crate::raw::RawTtp;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -86,6 +86,19 @@ impl Armory {
 
     pub fn ttps(&self) -> &[Ttp] {
         &self.ttps
+    }
+
+    /// Mark every TTP with a configured ID as disabled.
+    ///
+    /// This runs after all sources have been merged, so it also applies to
+    /// release-bundled TTPs and to identically named user-supplied TTPs.
+    pub fn disable_ttps(&mut self, ids: &[String]) {
+        let ids: HashSet<&str> = ids.iter().map(String::as_str).collect();
+        for ttp in &mut self.ttps {
+            if ids.contains(ttp.id.as_str()) {
+                ttp.status = "disabled".to_string();
+            }
+        }
     }
 
     /// Construct an `Armory` directly from a list of TTPs (useful in tests).
@@ -860,6 +873,35 @@ mod tests {
                 ttp.id
             );
         }
+    }
+
+    #[test]
+    fn configured_ids_disable_matching_ttps() {
+        let mut armory = Armory::from_ttps(vec![
+            Ttp::new("built-in-action", "Built-in Action", "Discovery"),
+            Ttp::new("custom-action", "Custom Action", "Discovery"),
+        ]);
+
+        armory.disable_ttps(&["built-in-action".to_string()]);
+
+        assert_eq!(
+            armory.get_ttp("built-in-action").unwrap().status,
+            "disabled"
+        );
+        assert_ne!(armory.get_ttp("custom-action").unwrap().status, "disabled");
+    }
+
+    #[cfg(feature = "bundled-armory")]
+    #[test]
+    fn configured_ids_disable_bundled_ttps() {
+        let mut armory = Armory::load(None).expect("bundled armory should load");
+
+        armory.disable_ttps(&["read-local-kubeconfig".to_string()]);
+
+        assert_eq!(
+            armory.get_ttp("read-local-kubeconfig").unwrap().status,
+            "disabled"
+        );
     }
 
     #[test]

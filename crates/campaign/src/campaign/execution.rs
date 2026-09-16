@@ -63,6 +63,12 @@ fn resolve_ttp_and_defaults(
     let ttp = armory.get_ttp(action_id).cloned().ok_or_else(|| {
         ExecuteActionError::NotFound(format!("No TTP with ID '{}' found", action_id))
     })?;
+    if ttp.status.eq_ignore_ascii_case("disabled") {
+        return Err(ExecuteActionError::InvalidInput(format!(
+            "TTP with ID '{}' is disabled",
+            action_id
+        )));
+    }
     for p in &ttp.params {
         if !args.contains_key(&p.name) && !p.default.is_empty() {
             args.insert(p.name.clone(), p.default.clone());

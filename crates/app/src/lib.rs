@@ -23,7 +23,7 @@ use campaign::{
     ExternalParseRequest, ExternalParseResponse, ExternalParser, InitialClusterKnowledge,
     InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
 };
-use config::{NamespaceFilter, SeedKnowledgeConfig};
+use config::{NamespaceFilter, SeedKnowledgeConfig, TtpConfig};
 use k8s::{kubeconfig_path_or_err, resolve_kubeconfig, Client, ResolvedKubeconfig};
 use ran_domain::{BinaryPresence, Entity, K8sCluster, K8sCredential, Pod, RelationSummary};
 
@@ -1635,6 +1635,8 @@ pub struct ServerConfig {
     pub port: u16,
     /// Namespace visibility filter loaded from `ran.yaml`.
     pub namespace_filter: NamespaceFilter,
+    /// TTP availability configuration loaded from `ran.yaml`.
+    pub ttps: TtpConfig,
     /// Action-selection scoring configuration loaded from `ran.yaml`.
     pub scoring: config::ScoringConfig,
     /// Path to the config file, used to locate the scoring sidecar
@@ -1815,7 +1817,7 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     let mut initial_knowledge = build_initial_knowledge(&cfg.seed_knowledge)?;
     initial_knowledge.operator_host_name = local_hostname();
     initial_knowledge.operator_host_ips = local_ips();
-    let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
+    let (armory, user_armory_dir) = load_armory(cfg.armory_dir, &cfg.ttps.disabled)?;
     initial_knowledge.operator_host_binaries = local_tool_binaries(&armory);
     let kubetier_catalog = kubetier::Catalog::load(cfg.kubetier_catalog.as_deref())?;
     info!(
@@ -2257,7 +2259,10 @@ async fn run_launch_plan(
 ///
 /// The returned `PathBuf` is the user directory (if any), used to locate the
 /// sibling `parsers/` directory for external script parsers.
-fn load_armory(armory_dir: Option<PathBuf>) -> Result<(Armory, Option<PathBuf>)> {
+fn load_armory(
+    armory_dir: Option<PathBuf>,
+    disabled_ttps: &[String],
+) -> Result<(Armory, Option<PathBuf>)> {
     #[cfg(not(feature = "bundled-armory"))]
     let resolved_dir = Some(armory_dir.unwrap_or_else(|| {
         std::env::current_dir()
@@ -2269,7 +2274,8 @@ fn load_armory(armory_dir: Option<PathBuf>) -> Result<(Armory, Option<PathBuf>)>
     #[cfg(feature = "bundled-armory")]
     let resolved_dir = armory_dir;
 
-    let armory = Armory::load(resolved_dir.as_deref())?;
+    let mut armory = Armory::load(resolved_dir.as_deref())?;
+    armory.disable_ttps(disabled_ttps);
     Ok((armory, resolved_dir))
 }
 
@@ -2285,6 +2291,8 @@ pub struct TriggerConfig {
     pub armory_dir: Option<PathBuf>,
     /// Namespace visibility filter loaded from `ran.yaml`.
     pub namespace_filter: NamespaceFilter,
+    /// TTP availability configuration loaded from `ran.yaml`.
+    pub ttps: TtpConfig,
     pub seed_knowledge: Vec<SeedKnowledgeConfig>,
     /// TTP ID to execute (from the armory).
     pub action_id: String,
@@ -2308,7 +2316,7 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
     let mut initial_knowledge = build_initial_knowledge(&cfg.seed_knowledge)?;
     initial_knowledge.operator_host_name = local_hostname();
     initial_knowledge.operator_host_ips = local_ips();
-    let (armory, user_armory_dir) = load_armory(cfg.armory_dir)?;
+    let (armory, user_armory_dir) = load_armory(cfg.armory_dir, &cfg.ttps.disabled)?;
     initial_knowledge.operator_host_binaries = local_tool_binaries(&armory);
 
     let external_parser: Option<Arc<dyn ExternalParser>> =
