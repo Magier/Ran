@@ -10,7 +10,7 @@ description: >
     See examples/Simple_Env/2_worker.yaml for a canonical victim pod manifest.
 tactic: "Privilege Escalation"
 techniques: ["Escape to Host", "T1611"]
-status: draft # draft does not block execution; operator must ensure the node kernel is vulnerable
+status: disabled # draft does not block execution; operator must ensure the node kernel is vulnerable
 effects:
     - container.escape(sys)
 parameters:

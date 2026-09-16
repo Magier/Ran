@@ -94,4 +94,4 @@ cleanup:
     kubectl ${K8S_AUTH} delete servicemonitor ${SERVICEMONITOR_NAME}
     --namespace=${NAMESPACE} --ignore-not-found
 references:
-  - https://github.com/Magier/Oopserability/blob/main/manifests/cve-2026-47701/README.md
+  - https://github.com/advisories/GHSA-cxh2-4639-vmc5
