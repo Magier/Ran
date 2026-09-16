@@ -34,7 +34,8 @@ import type {
 	ScoringProfileUpdate,
 	CalibrationResult,
 	PlanSummary,
-	KubetierCatalog
+	KubetierCatalog,
+	UiConfig
 } from '$lib/api';
 
 export class RanAPI {
@@ -305,6 +306,12 @@ export class RanAPI {
 		return data;
 	}
 
+	async GetUiConfig(): Promise<UiConfig> {
+		const { data } = await this.restClient.GET('/api/ui-config');
+		if (!data) throw new Error('Failed to load UI configuration');
+		return data;
+	}
+
 	async GetFileContent(path: string): Promise<{ path?: string; content?: string }> {
 		const { data, error } = await this.restClient.GET('/api/files', {
 			params: { query: { path } }
@@ -362,5 +369,6 @@ export const GetFlow = ranAPI.GetFlow.bind(ranAPI);
 export const ExecuteAction = ranAPI.ExecuteAction.bind(ranAPI);
 export const ResetCampaign = ranAPI.ResetCampaign.bind(ranAPI);
 export const GetRunningPods = ranAPI.GetRunningPods.bind(ranAPI);
+export const GetUiConfig = ranAPI.GetUiConfig.bind(ranAPI);
 export const ListPlans = ranAPI.ListPlans.bind(ranAPI);
 export const LoadPlan = ranAPI.LoadPlan.bind(ranAPI);

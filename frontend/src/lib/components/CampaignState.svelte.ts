@@ -1,10 +1,11 @@
 import { getContext, setContext } from 'svelte';
 import type { ArmoryType } from '$lib/model';
 import type { AttackFlow, CampaignState as State, Graph, TTP } from '$lib/api/index';
-import type { KubetierCatalog, LocalPermissionAssessment } from '$lib/api/index';
+import type { KubetierCatalog, LocalPermissionAssessment, UiConfig } from '$lib/api/index';
 import { showToast, type ToastType } from '$lib/components/toaster';
 import { getRanAPI, RanAPI } from '$lib/ran_api';
 import { timeline } from '$lib/stores/timelineStore.svelte';
+import { DEFAULT_NAMESPACE_UI_CONFIG } from '$lib/namespace_filter';
 
 // Great video how to build stores in Svelte 5: https://www.youtube.com/watch?v=kMBDsyozllk
 
@@ -67,6 +68,7 @@ class CampaignState {
 	graph = $state<Graph>({} as Graph);
 	kubetier = $state<KubetierCatalog | null>(null);
 	permissionAssessments = $state<LocalPermissionAssessment[]>([]);
+	uiConfig = $state<UiConfig>({ namespaces: DEFAULT_NAMESPACE_UI_CONFIG });
 	/// Bumped whenever the scoring profile changes, so recommendation views refetch.
 	scoringVersion = $state(0);
 	pendingMessages: string[] = [];
@@ -148,6 +150,12 @@ class CampaignState {
 		});
 		console.log('CampaignState connecting to backend...');
 		return this.api.connect().then(() => {
+			this.api
+				.GetUiConfig()
+				.then((config) => {
+					this.uiConfig = config;
+				})
+				.catch((err) => console.warn('Failed to load UI configuration', err));
 			this.api
 				.GetKubetierCatalog()
 				.then((catalog) => {

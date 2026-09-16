@@ -164,7 +164,7 @@ cp ran.yaml.example ran.yaml
 
 ```yaml
 namespaces:
-  # Blacklist mode: hide noisy system namespaces
+  # Blacklist mode: hide noisy system namespaces from the Pod picker and graph
   excluded:
     - kube-system
     - kube-public

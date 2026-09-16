@@ -8,6 +8,19 @@ servers:
     description: Development server
 
 paths:
+  /api/ui-config:
+    get:
+      summary: Get safe UI configuration
+      description: Returns the namespace visibility policy configured at startup. It intentionally excludes paths, credentials, and other local configuration.
+      operationId: getUiConfig
+      responses:
+        '200':
+          description: UI configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UiConfig'
+
   /api/graph:
     get:
       summary: Get attack graph
@@ -1725,6 +1738,31 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/NamedConsideration'
+
+    UiConfig:
+      type: object
+      description: Safe, startup-time configuration needed by the web UI.
+      required:
+        - namespaces
+      properties:
+        namespaces:
+          $ref: '#/components/schemas/NamespaceUiConfig'
+
+    NamespaceUiConfig:
+      type: object
+      description: Namespace visibility policy from ran.yaml.
+      required:
+        - excluded
+        - included
+      properties:
+        excluded:
+          type: array
+          items:
+            type: string
+        included:
+          type: array
+          items:
+            type: string
 
     ScoringProfileUpdate:
       type: object

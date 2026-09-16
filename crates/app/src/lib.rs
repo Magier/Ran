@@ -16,7 +16,7 @@ use reqwest::Url;
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
-use api::{ApiError, ApiService, GetRunningPodsParams, K8sResource};
+use api::{ApiError, ApiService, GetRunningPodsParams, K8sResource, NamespaceUiConfig, UiConfig};
 use campaign::{
     spawn_c2_event_processor_with_external_parser, Campaign, CampaignEvent, CampaignEventBus,
     EntitySummary, ExecuteActionError, ExecuteActionRequest, ExecuteActionResult,
@@ -26,6 +26,13 @@ use campaign::{
 use config::{NamespaceFilter, SeedKnowledgeConfig, TtpConfig};
 use k8s::{kubeconfig_path_or_err, resolve_kubeconfig, Client, ResolvedKubeconfig};
 use ran_domain::{BinaryPresence, Entity, K8sCluster, K8sCredential, Pod, RelationSummary};
+
+fn namespace_ui_config(filter: &NamespaceFilter) -> NamespaceUiConfig {
+    NamespaceUiConfig {
+        excluded: filter.excluded.clone(),
+        included: filter.included.clone(),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // AppState - the ApiService implementation
@@ -267,6 +274,12 @@ pub struct PlanSummary {
 
 #[async_trait::async_trait]
 impl ApiService for AppState {
+    fn ui_config(&self) -> UiConfig {
+        UiConfig {
+            namespaces: namespace_ui_config(&self.namespace_filter),
+        }
+    }
+
     async fn get_running_pods(
         &self,
         params: GetRunningPodsParams,

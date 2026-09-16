@@ -76,6 +76,8 @@ fn main() -> Result<()> {
         "Graph",
         "Node",
         "Edge",
+        "UiConfig",
+        "NamespaceUiConfig",
     ] {
         generated.push_str(&generate_object_schema_struct(schemas, schema_name)?);
         generated.push('\n');
@@ -142,6 +144,9 @@ pub trait ApiService: Clone + Send + Sync + 'static {
     ) -> Result<campaign::ExecuteActionResult, ApiError>;
 
     async fn get_campaign(&self) -> Result<campaign::Campaign, ApiError>;
+
+    /// Safe startup-time configuration used by the web UI.
+    fn ui_config(&self) -> UiConfig;
 
     /// The live scoring profile (combination mode + per-consideration config)
     /// for action selection.

@@ -8,7 +8,7 @@ use campaign::ttp_applicability::eligible_auth_identities;
 use crate::operations::{applicable_ttps, ApplicableTtpsError};
 use crate::sse::events_handler;
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
-use crate::{ApiError, ApiService, CampaignState, ErrorResponse, GetArmoryParams, Graph};
+use crate::{ApiError, ApiService, CampaignState, ErrorResponse, GetArmoryParams, Graph, UiConfig};
 
 #[cfg(debug_assertions)]
 use axum::{
@@ -159,6 +159,15 @@ pub(crate) async fn graph_handler<S: ApiService>(
     let campaign = service.get_campaign().await?;
     let graph = campaign_to_graph(&campaign, &service.kubetier_catalog());
     Ok(axum::Json(graph))
+}
+
+/// Return the small, safe subset of startup configuration needed to render the
+/// graph. Do not expose the full ran.yaml because it can contain local paths
+/// and scenario credential metadata.
+pub(crate) async fn ui_config_handler<S: ApiService>(
+    State(service): State<S>,
+) -> axum::Json<UiConfig> {
+    axum::Json(service.ui_config())
 }
 
 pub(crate) async fn armory_handler<S: ApiService>(
