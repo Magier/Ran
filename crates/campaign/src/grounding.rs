@@ -951,6 +951,23 @@ mod tests {
     }
 
     #[test]
+    fn tera_template_renders_selected_nmap_modes_and_optional_fast_scan() {
+        let template = "nmap {% for scan_type in SCAN_TYPES %}-{{ scan_type }} {% endfor %}{% if FAST_SCAN %}-F {% endif %}${CIDR}";
+        let mut args = HashMap::from([
+            ("SCAN_TYPES".to_string(), r#"["sT","sV"]"#.to_string()),
+            ("FAST_SCAN".to_string(), "true".to_string()),
+            ("CIDR".to_string(), "10.0.0.0/24".to_string()),
+        ]);
+
+        let result = crate::effects::ground_template(&resolve_template(template, &args), &args);
+        assert_eq!(result, "nmap -sT -sV -F 10.0.0.0/24");
+
+        args.insert("FAST_SCAN".to_string(), "false".to_string());
+        let result = crate::effects::ground_template(&resolve_template(template, &args), &args);
+        assert_eq!(result, "nmap -sT -sV 10.0.0.0/24");
+    }
+
+    #[test]
     fn tera_template_else_branch_taken_when_false() {
         let args = HashMap::from([("ALL_NS".to_string(), "false".to_string())]);
         let result = resolve_template("{% if ALL_NS %}all{% else %}single{% endif %}", &args);

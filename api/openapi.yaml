@@ -1026,6 +1026,10 @@ components:
           type: boolean
         default:
           type: string
+        options:
+          type: array
+          items:
+            type: string
     
     TTPDefense:
       type: object

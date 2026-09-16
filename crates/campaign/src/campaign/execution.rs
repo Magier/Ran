@@ -104,6 +104,40 @@ fn normalize_string_list_params(
     Ok(())
 }
 
+fn validate_option_params(
+    ttp: &Ttp,
+    args: &HashMap<String, String>,
+) -> Result<(), ExecuteActionError> {
+    for param in &ttp.params {
+        if param.options.is_empty() {
+            continue;
+        }
+        let Some(value) = args.get(&param.name) else {
+            continue;
+        };
+        let invalid_value = if param.param_type == "stringList" {
+            match serde_json::from_str::<Vec<String>>(value) {
+                Ok(values) => values
+                    .into_iter()
+                    .find(|item| !param.options.contains(item)),
+                Err(_) => Some(value.clone()),
+            }
+        } else if param.options.contains(value) {
+            None
+        } else {
+            Some(value.clone())
+        };
+        if invalid_value.is_some() {
+            return Err(ExecuteActionError::InvalidInput(format!(
+                "parameter '{}' must be one of: {}",
+                param.name,
+                param.options.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Ground listener callback defaults from an explicitly selected Listener entity.
 ///
 /// `${LISTENER}` means the single observed address of the OperatorHost that
@@ -1059,6 +1093,7 @@ impl Campaign {
         }
         ground_listener_defaults(&ttp, &mut args, self)?;
         normalize_string_list_params(&ttp, &mut args)?;
+        validate_option_params(&ttp, &args)?;
 
         // This action's semantic target is the selected Pod. Never allow
         // legacy Namespace/PodName arguments to redirect execution elsewhere.
@@ -3383,6 +3418,7 @@ mod listener_grounding_tests {
                 description: String::new(),
                 required: true,
                 default: String::new(),
+                options: vec![],
             }],
             procedures: vec![Procedure::new(
                 "shell",
@@ -3502,6 +3538,7 @@ mod listener_grounding_tests {
                 description: String::new(),
                 required: false,
                 default: "${LISTENER}".to_string(),
+                options: vec![],
             },
             TtpParam {
                 name: "LISTENER_PORT".to_string(),
@@ -3509,6 +3546,7 @@ mod listener_grounding_tests {
                 description: String::new(),
                 required: false,
                 default: "${LISTENER_PORT}".to_string(),
+                options: vec![],
             },
             TtpParam {
                 name: "Arguments".to_string(),
@@ -3516,6 +3554,7 @@ mod listener_grounding_tests {
                 description: String::new(),
                 required: false,
                 default: "[\"TCP:${LISTENER}:${LISTENER_PORT}\", \"EXEC:sh\"]".to_string(),
+                options: vec![],
             },
         ]);
         ttp.procedures[0].command = "socat {{ Arguments | json_encode }}".to_string();
@@ -3541,7 +3580,9 @@ mod listener_grounding_tests {
 
 #[cfg(test)]
 mod k8s_auth_tests {
-    use super::{normalize_string_list_params, ResolvedK8sAuth};
+    use super::{
+        normalize_string_list_params, validate_option_params, ExecuteActionError, ResolvedK8sAuth,
+    };
     use armory::{Ttp, TtpParam};
     use std::collections::HashMap;
 
@@ -3575,6 +3616,7 @@ mod k8s_auth_tests {
                 description: String::new(),
                 required: false,
                 default: "[]".to_string(),
+                options: vec![],
             }],
             ..Ttp::new("test", "Test", "Execution")
         };
@@ -3585,5 +3627,49 @@ mod k8s_auth_tests {
 
         args.insert("Arguments".to_string(), "not a list".to_string());
         assert!(normalize_string_list_params(&ttp, &mut args).is_err());
+    }
+
+    #[test]
+    fn option_parameters_reject_values_outside_the_declared_choices() {
+        let ttp = Ttp {
+            params: vec![TtpParam {
+                name: "SCAN_TYPE".to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: "sT".to_string(),
+                options: vec!["sT".to_string(), "sV".to_string()],
+            }],
+            ..Ttp::new("test", "Test", "Discovery")
+        };
+        let valid = HashMap::from([("SCAN_TYPE".to_string(), "sV".to_string())]);
+        let invalid = HashMap::from([("SCAN_TYPE".to_string(), "--script exploit".to_string())]);
+
+        validate_option_params(&ttp, &valid).expect("declared option is valid");
+        let error = validate_option_params(&ttp, &invalid).unwrap_err();
+        assert!(matches!(
+            error,
+            ExecuteActionError::InvalidInput(reason) if reason.contains("must be one of: sT, sV")
+        ));
+    }
+
+    #[test]
+    fn option_list_parameters_validate_each_selected_choice() {
+        let ttp = Ttp {
+            params: vec![TtpParam {
+                name: "SCAN_TYPES".to_string(),
+                param_type: "stringList".to_string(),
+                description: String::new(),
+                required: true,
+                default: r#"["sT"]"#.to_string(),
+                options: vec!["sT".to_string(), "sV".to_string()],
+            }],
+            ..Ttp::new("test", "Test", "Discovery")
+        };
+        let valid = HashMap::from([("SCAN_TYPES".to_string(), r#"["sT","sV"]"#.to_string())]);
+        let invalid = HashMap::from([("SCAN_TYPES".to_string(), r#"["sT","sS"]"#.to_string())]);
+
+        validate_option_params(&ttp, &valid).expect("declared options are valid");
+        assert!(validate_option_params(&ttp, &invalid).is_err());
     }
 }

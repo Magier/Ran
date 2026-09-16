@@ -41,6 +41,7 @@
 		Type: string;
 		IsTrue: boolean;
 		Required?: boolean;
+		Options: string[];
 	}
 
 	const campaignState = getCampaignState();
@@ -499,6 +500,12 @@
 						}
 						argOptions[param.name] = availableEntities.map(entityToComboboxOption);
 					}
+					if (param.options?.length) {
+						argOptions[param.name] = param.options.map((option) => ({
+							label: option,
+							value: option
+						}));
+					}
 
 					return {
 						Name: param.name,
@@ -507,7 +514,8 @@
 						IsTrue: param.default === 'true',
 						Description: param.description,
 						Type: param.type,
-						Required: param.required
+						Required: param.required,
+						Options: param.options ?? []
 					};
 				}) || [];
 
@@ -857,6 +865,12 @@
 		// }
 	}
 
+	function onMultiArgChange(arg: Arg, e: any) {
+		const i = args.findIndex((candidate) => candidate.Name === arg.Name);
+		if (i === -1) return;
+		args = args.with(i, { ...args[i], Values: e.value });
+	}
+
 	function onAuthIdentityChange(value: string) {
 		selectedAuthIdentityId = value;
 		authAutoSelectSource = 'manual';
@@ -886,7 +900,7 @@
 		if (matchingOption) {
 			// Use the full value (ID) from the matching option
 			args = args.with(i, { ...currentArg, Value: matchingOption.value });
-		} else if (inputValue !== currentArg.Value) {
+		} else if (currentArg.Options.length === 0 && inputValue !== currentArg.Value) {
 			// Custom value typed, not from dropdown
 			args = args.with(i, { ...currentArg, Value: inputValue });
 		}
@@ -1011,6 +1025,56 @@
 								<option value={identity.id}>{identity.kind}: {identity.name}</option>
 							{/each}
 						</select>
+					{:else if arg.Type === 'stringList' && arg.Options.length > 0}
+						<div class="ig-input flex min-w-0 flex-col gap-2 py-2">
+							<Combobox
+								collection={toComboBoxCollection(getArgOptions(arg.Name))}
+								onValueChange={(e) => onMultiArgChange(arg, e)}
+								multiple={true}
+								value={arg.Values ?? []}
+								allowCustomValue={false}
+								openOnChange={true}
+								placeholder={arg.Name + '...'}
+							>
+								<Combobox.Control class="flex min-h-8 flex-wrap items-center gap-1">
+									{#each arg.Values ?? [] as value (value)}
+										<span
+											class="badge bg-primary-100 text-primary-900 dark:bg-primary-800 dark:text-primary-50 flex items-center gap-1 text-xs"
+										>
+											{value}
+											<button
+												type="button"
+												class="rounded opacity-70 hover:opacity-100"
+												aria-label="Remove {value}"
+												onclick={(event) => {
+													event.stopPropagation();
+													removeStringListValue(arg.Name, (arg.Values ?? []).indexOf(value));
+												}}
+											>
+												<Icon icon="mdi:close" width="12" aria-hidden="true" />
+											</button>
+										</span>
+									{/each}
+									<Combobox.Input class="min-w-24 flex-1 bg-transparent outline-none" />
+									<Combobox.Trigger class="ml-auto shrink-0" />
+								</Combobox.Control>
+								<Combobox.Positioner>
+									<Combobox.Content
+										class="bg-surface-50 text-surface-950 border-surface-200 dark:bg-surface-900 dark:text-surface-50 dark:border-surface-700 z-50 max-h-64 overflow-y-auto rounded border text-xs shadow-xl md:text-sm lg:text-base"
+									>
+										{#each getArgOptions(arg.Name) as item (item.value)}
+											<Combobox.Item
+												{item}
+												class="text-surface-950 data-[highlighted]:bg-surface-200 data-[state=checked]:bg-primary-100 data-[state=checked]:text-primary-900 dark:text-surface-50 dark:data-[highlighted]:bg-surface-700 dark:data-[state=checked]:bg-primary-800 dark:data-[state=checked]:text-primary-50 cursor-pointer px-3 py-2"
+											>
+												<Combobox.ItemText>{item.label}</Combobox.ItemText>
+												<Combobox.ItemIndicator />
+											</Combobox.Item>
+										{/each}
+									</Combobox.Content>
+								</Combobox.Positioner>
+							</Combobox>
+						</div>
 					{:else if arg.Type === 'stringList'}
 						<div class="ig-input flex flex-col gap-2 py-2">
 							{#each arg.Values ?? [] as value, index (index)}
@@ -1049,7 +1113,7 @@
 								collection={toComboBoxCollection(getArgOptions(arg.Name))}
 								onValueChange={(e) => onArgChange(arg, e)}
 								inputBehavior="autocomplete"
-								allowCustomValue={true}
+								allowCustomValue={arg.Options.length === 0}
 								openOnChange={true}
 								defaultValue={[arg.Value]}
 								placeholder={arg.Name + '...'}
@@ -1060,12 +1124,12 @@
 								</Combobox.Control>
 								<Combobox.Positioner>
 									<Combobox.Content
-										class="bg-surface-100-900 z-50 max-h-64 overflow-y-auto text-xs md:text-sm lg:text-base"
+										class="bg-surface-50 text-surface-950 border-surface-200 dark:bg-surface-900 dark:text-surface-50 dark:border-surface-700 z-50 max-h-64 overflow-y-auto rounded border text-xs shadow-xl md:text-sm lg:text-base"
 									>
 										{#each getArgOptions(arg.Name) as item (item)}
 											<Combobox.Item
 												{item}
-												class="text-surface-contrast-100-900 data-[highlighted]:preset-tonal-surface data-[selected]:preset-tonal {item.disabled
+												class="text-surface-950 data-[highlighted]:bg-surface-200 data-[state=checked]:bg-primary-100 data-[state=checked]:text-primary-900 dark:text-surface-50 dark:data-[highlighted]:bg-surface-700 dark:data-[state=checked]:bg-primary-800 dark:data-[state=checked]:text-primary-50 cursor-pointer px-3 py-2 {item.disabled
 													? 'line-through opacity-40'
 													: ''}"
 											>
