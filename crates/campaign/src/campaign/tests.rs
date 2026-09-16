@@ -4210,6 +4210,10 @@ fn deploy_container_uses_effective_default_namespace_for_cluster_target() {
                 args: HashMap::from([
                     ("PodName".to_string(), "debug".to_string()),
                     ("Namespace".to_string(), String::new()),
+                    (
+                        "Arguments".to_string(),
+                        "[\"TCP-LISTEN:8080,fork,reuseaddr\",\"EXEC:sh\"]".to_string(),
+                    ),
                 ]),
                 reasoning: None,
             },
