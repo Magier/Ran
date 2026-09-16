@@ -25,6 +25,8 @@ export type AuthIdentity = components['schemas']['AuthIdentity'];
 export type ExecutionRecordEntry = components['schemas']['ExecutionRecordEntry'];
 export type K8sResource = components['schemas']['K8sResource'];
 export type ApiError = components['schemas']['Error'];
+export type UiConfig = components['schemas']['UiConfig'];
+export type NamespaceUiConfig = components['schemas']['NamespaceUiConfig'];
 
 export type ScoredCandidate = components['schemas']['ScoredCandidate'];
 export type ConsiderationScore = components['schemas']['ConsiderationScore'];

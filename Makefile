@@ -13,6 +13,7 @@ dev-workspace:
 .PHONY: generate-api
 generate-api:
 	cd frontend && pnpm exec openapi-typescript ../api/openapi.yaml -o src/lib/api/gen_types.ts
+	cd frontend && pnpm exec prettier --write src/lib/api/gen_types.ts
 
 .PHONY: generate
 generate: generate-api

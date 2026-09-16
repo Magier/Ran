@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+	'/api/ui-config': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get safe UI configuration
+		 * @description Returns the namespace visibility policy configured at startup. It intentionally excludes paths, credentials, and other local configuration.
+		 */
+		get: operations['getUiConfig'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/graph': {
 		parameters: {
 			query?: never;
@@ -769,8 +789,10 @@ export interface components {
 			verb: string;
 			resource: string;
 			apiGroup: string;
-			tier: components['schemas']['KubetierTier'];
-			scope?: components['schemas']['KubetierScope'];
+			/** @enum {string} */
+			tier: 'T0' | 'T1' | 'T2' | 'T3';
+			/** @enum {string} */
+			scope?: 'cluster' | 'namespaced';
 			description?: string;
 		};
 		KubetierRoleRule: {
@@ -986,6 +1008,15 @@ export interface components {
 			tuningEnabled: boolean;
 			considerations: components['schemas']['NamedConsideration'][];
 		};
+		/** @description Safe, startup-time configuration needed by the web UI. */
+		UiConfig: {
+			namespaces: components['schemas']['NamespaceUiConfig'];
+		};
+		/** @description Namespace visibility policy from ran.yaml. */
+		NamespaceUiConfig: {
+			excluded: string[];
+			included: string[];
+		};
 		/** @description A scoring-profile update (runtime tuning). */
 		ScoringProfileUpdate: {
 			combination: components['schemas']['CombinationMode'];
@@ -1052,6 +1083,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+	getUiConfig: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description UI configuration */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['UiConfig'];
+				};
+			};
+		};
+	};
 	getGraph: {
 		parameters: {
 			query?: never;

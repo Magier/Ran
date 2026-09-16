@@ -2,7 +2,8 @@
 # Place this file as ran.yaml in your current working directory
 # Or specify a custom location with: ran emulate --config /path/to/config.yaml
 
-# Namespace filtering configuration
+# Namespace filtering configuration. This controls both the running-Pod picker
+# and the initial visibility of namespaces in the graph UI.
 namespaces:
   # Excluded namespaces (blacklist mode - hide these namespaces)
   # If 'included' is empty, all namespaces except these will be shown

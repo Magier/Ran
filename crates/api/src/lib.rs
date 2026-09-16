@@ -22,6 +22,10 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
             axum::routing::get(api_handlers::graph_handler::<S>),
         )
         .route(
+            "/api/ui-config",
+            axum::routing::get(api_handlers::ui_config_handler::<S>),
+        )
+        .route(
             "/api/armory",
             axum::routing::get(api_handlers::armory_handler::<S>),
         )

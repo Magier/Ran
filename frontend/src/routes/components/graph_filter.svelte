@@ -4,23 +4,24 @@
 	type GraphFilterProps = {
 		availableNamespaces: string[];
 		hiddenNamespaces: Set<string>;
+		hasOverrides: boolean;
+		onToggleNamespace: (namespace: string) => void;
+		onClearAll: () => void;
+		onRestoreConfigured: () => void;
 	};
 
-	let { availableNamespaces, hiddenNamespaces = $bindable() }: GraphFilterProps = $props();
+	let {
+		availableNamespaces,
+		hiddenNamespaces,
+		hasOverrides,
+		onToggleNamespace,
+		onClearAll,
+		onRestoreConfigured
+	}: GraphFilterProps = $props();
 
 	let panelOpen = $state(false);
 
 	const activeFilterCount = $derived(hiddenNamespaces.size);
-
-	function toggleNamespace(ns: string) {
-		const next = new Set(hiddenNamespaces);
-		if (next.has(ns)) {
-			next.delete(ns);
-		} else {
-			next.add(ns);
-		}
-		hiddenNamespaces = next;
-	}
 </script>
 
 <!-- Backdrop to close panel -->
@@ -56,7 +57,7 @@
 							<input
 								type="checkbox"
 								checked={hiddenNamespaces.has(ns)}
-								onchange={() => toggleNamespace(ns)}
+								onchange={() => onToggleNamespace(ns)}
 								class="checkbox h-3.5 w-3.5 cursor-pointer rounded"
 							/>
 							<span
@@ -129,12 +130,18 @@
 
 			{#if activeFilterCount > 0}
 				<button
-					onclick={() => {
-						hiddenNamespaces = new Set();
-					}}
+					onclick={onClearAll}
 					class="text-surface-400-600 mt-3 w-full cursor-pointer text-left text-xs transition-colors hover:text-red-400"
 				>
 					Clear all filters
+				</button>
+			{/if}
+			{#if hasOverrides}
+				<button
+					onclick={onRestoreConfigured}
+					class="text-surface-400-600 mt-3 w-full cursor-pointer text-left text-xs transition-colors hover:text-red-400"
+				>
+					Restore configured defaults
 				</button>
 			{/if}
 		</div>

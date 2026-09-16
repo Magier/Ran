@@ -39,6 +39,14 @@
 	import GraphFilter from './graph_filter.svelte';
 	import C2Badges from './c2_badges.svelte';
 	import { workloadCompoundIds } from './workload_compounds';
+	import {
+		clearAllNamespaceFilters,
+		hiddenNamespaces as resolveHiddenNamespaces,
+		parseNamespaceFilterOverrides,
+		restoreConfiguredNamespaceFilters,
+		toggleNamespaceOverride,
+		type NamespaceFilterOverrides
+	} from '$lib/namespace_filter';
 	// import { hierarchyLayout } from './hierachical_layout';
 	// import 	{ K8sAttackGraphLayout } from './layout_claude';
 
@@ -62,20 +70,14 @@
 	let edges: CyEdge[] = $state([]);
 	let searchOpen = $state(false);
 
-	const FILTER_NS_KEY = '_hiddenNamespaces';
-	const DEFAULT_HIDDEN_NAMESPACES = ['kube-system', 'local-path-storage'];
+	const FILTER_NS_KEY = '_namespaceFilterOverridesV2';
 
-	function loadHiddenNamespaces(): Set<string> {
-		if (!browser) return new Set(DEFAULT_HIDDEN_NAMESPACES);
-		try {
-			const stored = sessionStorage.getItem(FILTER_NS_KEY);
-			return stored ? new Set(JSON.parse(stored)) : new Set(DEFAULT_HIDDEN_NAMESPACES);
-		} catch {
-			return new Set(DEFAULT_HIDDEN_NAMESPACES);
-		}
+	function loadNamespaceFilterOverrides(): NamespaceFilterOverrides {
+		if (!browser) return restoreConfiguredNamespaceFilters();
+		return parseNamespaceFilterOverrides(sessionStorage.getItem(FILTER_NS_KEY));
 	}
 
-	let hiddenNamespaces: Set<string> = $state(loadHiddenNamespaces());
+	let namespaceFilterOverrides: NamespaceFilterOverrides = $state(loadNamespaceFilterOverrides());
 
 	cytoscape.use(elk);
 	if (typeof expandCollapse === 'function') {
@@ -101,8 +103,18 @@
 		const graph = campaignState.graph;
 		if (!graph?.nodes) return [];
 		const parentIds = new Set(graph.nodes.filter((n) => n.parent).map((n) => n.parent!));
-		return graph.nodes.filter((n) => parentIds.has(n.id)).map((n) => n.name);
+		return [...new Set(graph.nodes.filter((n) => parentIds.has(n.id)).map((n) => n.name))];
 	});
+	const hiddenNamespaces = $derived(
+		resolveHiddenNamespaces(
+			availableNamespaces,
+			campaignState.uiConfig.namespaces,
+			namespaceFilterOverrides
+		)
+	);
+	const hasNamespaceFilterOverrides = $derived(
+		namespaceFilterOverrides.showAll || Object.keys(namespaceFilterOverrides.namespaces).length > 0
+	);
 	const PAN_KEY = '_pan';
 	const ZOOM_KEY = '_zoom';
 	// Versioned because workload compounds now default to collapsed even with one pod.
@@ -291,19 +303,19 @@
 			positions = {};
 			previousNodeIds.clear();
 			previousWorkloadCompoundIds.clear();
-			// Don't reset hiddenNamespaces - user preferences should persist
+			// Don't reset namespaceFilterOverrides - user preferences should persist
 		}
 		previousCampaignId = currentCampaignId;
 	});
 
-	// Persist namespace filter state and re-apply it when it changes.
+	// Persist only explicit user overrides. The configured policy remains the
+	// default for namespaces discovered after the graph first loads.
 	$effect(() => {
-		const ns = hiddenNamespaces;
 		if (browser) {
-			sessionStorage.setItem(FILTER_NS_KEY, JSON.stringify([...ns]));
+			sessionStorage.setItem(FILTER_NS_KEY, JSON.stringify(namespaceFilterOverrides));
 		}
 		if (cy) {
-			applyNamespaceFilters(cy, ns);
+			applyNamespaceFilters(cy, hiddenNamespaces);
 		}
 	});
 
@@ -974,7 +986,20 @@
 			selectedObjectId = entityId;
 		}}
 	/>
-	<GraphFilter {availableNamespaces} bind:hiddenNamespaces />
+	<GraphFilter
+		{availableNamespaces}
+		{hiddenNamespaces}
+		hasOverrides={hasNamespaceFilterOverrides}
+		onToggleNamespace={(namespace) => {
+			namespaceFilterOverrides = toggleNamespaceOverride(
+				namespace,
+				campaignState.uiConfig.namespaces,
+				namespaceFilterOverrides
+			);
+		}}
+		onClearAll={() => (namespaceFilterOverrides = clearAllNamespaceFilters())}
+		onRestoreConfigured={() => (namespaceFilterOverrides = restoreConfiguredNamespaceFilters())}
+	/>
 	<GraphLayoutPlayground bind:params={layoutParams} onRelayout={runElkLayout} />
 </div>
 

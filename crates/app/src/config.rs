@@ -231,6 +231,29 @@ mod tests {
     }
 
     #[test]
+    fn namespace_filter_loads_the_graph_visibility_policy() {
+        let cfg: Config = serde_yaml::from_str(
+            "namespaces:\n  excluded:\n    - kube-system\n    - oopservability\n",
+        )
+        .unwrap();
+
+        assert_eq!(cfg.namespaces.excluded, ["kube-system", "oopservability"]);
+        assert!(cfg.namespaces.included.is_empty());
+    }
+
+    #[test]
+    fn namespace_ui_config_preserves_the_configured_policy() {
+        let filter = NamespaceFilter {
+            excluded: vec!["kube-system".into()],
+            included: vec!["production".into()],
+        };
+
+        let ui_config = crate::namespace_ui_config(&filter);
+        assert_eq!(ui_config.excluded, ["kube-system"]);
+        assert_eq!(ui_config.included, ["production"]);
+    }
+
+    #[test]
     fn scoring_combination_parses_each_mode() {
         for (yaml, mode) in [
             ("weighted_arithmetic", CombinationMode::WeightedArithmetic),
