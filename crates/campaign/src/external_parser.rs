@@ -84,6 +84,12 @@ pub struct SystemFieldUpdates {
     pub files: Vec<String>,
 
     #[serde(default)]
+    pub directories: Vec<String>,
+
+    #[serde(default)]
+    pub listed_directories: Vec<String>,
+
+    #[serde(default)]
     pub os: Option<String>,
 
     #[serde(default)]
@@ -149,6 +155,20 @@ pub fn apply_system_field_updates(
     for f in &updates.files {
         if !sys.files.contains(f) {
             sys.files.push(f.clone());
+            count += 1;
+        }
+    }
+
+    for directory in &updates.directories {
+        if !sys.directories.contains(directory) {
+            sys.directories.push(directory.clone());
+            count += 1;
+        }
+    }
+
+    for directory in &updates.listed_directories {
+        if !sys.listed_directories.contains(directory) {
+            sys.listed_directories.push(directory.clone());
             count += 1;
         }
     }

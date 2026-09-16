@@ -77,13 +77,15 @@ fn parse_sys_files(stdout: &str, _stderr: &str, args: &HashMap<String, String>) 
     }
 
     let mut files = Vec::new();
+    let mut directories = Vec::new();
     let mut binaries: HashMap<String, String> = HashMap::new();
     let ls_long = is_ls_long_format(stdout);
-    let dir = args
-        .get("DIR")
-        .map(String::as_str)
-        .unwrap_or("")
-        .trim_end_matches('/');
+    let listed_directory = args.get("DIR").map(String::as_str).unwrap_or("");
+    let dir = if listed_directory == "/" {
+        "/"
+    } else {
+        listed_directory.trim_end_matches('/')
+    };
 
     for line in stdout.lines() {
         let line = line.trim();
@@ -91,13 +93,13 @@ fn parse_sys_files(stdout: &str, _stderr: &str, args: &HashMap<String, String>) 
             continue;
         }
 
-        let raw = if ls_long {
+        let (raw, is_directory) = if ls_long {
             match extract_ls_long_name(line) {
-                Some(n) => n,
+                Some(n) => (n, line.starts_with('d')),
                 None => continue,
             }
         } else {
-            line
+            (line, line.ends_with('/'))
         };
 
         // Skip . and .. directory entries produced by ls -a
@@ -121,21 +123,44 @@ fn parse_sys_files(stdout: &str, _stderr: &str, args: &HashMap<String, String>) 
         // or if no directory context is available; otherwise prepend DIR.
         let path = if name.starts_with('/') || dir.is_empty() {
             name.to_string()
+        } else if dir == "/" {
+            format!("/{}", name)
         } else {
             format!("{}/{}", dir, name)
         };
 
-        files.push(path.clone());
-        if is_exec {
-            let bin_name = path.rsplit('/').next().unwrap_or(&path).to_string();
-            binaries.entry(bin_name).or_insert_with(|| path.clone());
+        if is_directory {
+            directories.push(path);
+        } else {
+            if is_exec {
+                let bin_name = path.rsplit('/').next().unwrap_or(&path).to_string();
+                binaries.entry(bin_name).or_insert_with(|| path.clone());
+            }
+            files.push(path);
         }
     }
 
-    let detail = format!("recorded {} file(s)", files.len());
+    let listed_directories = if dir.is_empty() {
+        Vec::new()
+    } else {
+        vec![dir.to_string()]
+    };
+    let directory_label = if directories.len() == 1 {
+        "directory"
+    } else {
+        "directories"
+    };
+    let detail = format!(
+        "recorded {} file(s) and {} {}",
+        files.len(),
+        directories.len(),
+        directory_label
+    );
     ParserOutput::Success(
         SystemFieldUpdates {
             files,
+            directories,
+            listed_directories,
             binaries,
             ..Default::default()
         },
@@ -170,18 +195,29 @@ fn is_ls_long_format(stdout: &str) -> bool {
 /// The filename is field index 8 (0-based). For symlinks (`name -> target`) only
 /// the source name is returned.
 fn extract_ls_long_name(line: &str) -> Option<&str> {
-    let fields: Vec<&str> = line.split_whitespace().collect();
-    if fields.len() < 9 {
+    let permissions = line.split_whitespace().next()?;
+    if permissions.len() != 10 {
         return None;
     }
-    // Validate that field 0 looks like a permission string (length 10).
-    if fields[0].len() != 10 {
+
+    let bytes = line.as_bytes();
+    let mut offset = 0;
+    for _ in 0..8 {
+        while offset < bytes.len() && bytes[offset].is_ascii_whitespace() {
+            offset += 1;
+        }
+        while offset < bytes.len() && !bytes[offset].is_ascii_whitespace() {
+            offset += 1;
+        }
+    }
+    while offset < bytes.len() && bytes[offset].is_ascii_whitespace() {
+        offset += 1;
+    }
+    let name = line.get(offset..)?.trim_end();
+    if name.is_empty() {
         return None;
     }
-    let name = fields[8];
-    // Strip symlink " -> target" suffix by returning only up to the first space
-    // (fields[8] from split_whitespace already excludes spaces, so name is clean).
-    Some(name)
+    Some(name.split_once(" -> ").map_or(name, |(source, _)| source))
 }
 
 /// Parametric effect: `sys.hasfile(PATH)`.
@@ -984,6 +1020,42 @@ drwxr-xr-x 3 root root 60 Apr 25 07:00 ../\n\
             panic!("expected Success");
         };
         assert_eq!(updates.files, vec!["empty.txt".to_string()]);
+    }
+
+    #[test]
+    fn parse_sys_files_records_directories_and_completed_listing() {
+        let stdout = "\
+total 4\n\
+drwxr-xr-x 1 root root 4096 Apr 25 07:00 ./\n\
+drwxr-xr-x 1 root root 4096 Apr 25 06:00 ../\n\
+drwxr-xr-x 2 root root 4096 Apr 25 07:00 a folder/\n\
+-rw-r--r-- 1 root root    0 Apr 25 07:00 a file.txt\n";
+        let args = HashMap::from([("DIR".to_string(), "/".to_string())]);
+        let result = parse_sys_files(stdout, "", &args);
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success");
+        };
+
+        assert_eq!(updates.directories, vec!["/a folder".to_string()]);
+        assert_eq!(updates.files, vec!["/a file.txt".to_string()]);
+        assert_eq!(updates.listed_directories, vec!["/".to_string()]);
+    }
+
+    #[test]
+    fn parse_sys_files_records_an_empty_directory_as_listed() {
+        let stdout = "\
+total 0\n\
+drwxr-xr-x 2 root root 40 Apr 25 07:00 ./\n\
+drwxr-xr-x 3 root root 60 Apr 25 06:00 ../\n";
+        let args = HashMap::from([("DIR".to_string(), "/empty".to_string())]);
+        let result = parse_sys_files(stdout, "", &args);
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success");
+        };
+
+        assert!(updates.files.is_empty());
+        assert!(updates.directories.is_empty());
+        assert_eq!(updates.listed_directories, vec!["/empty".to_string()]);
     }
 
     // --- sys.hasfile ---

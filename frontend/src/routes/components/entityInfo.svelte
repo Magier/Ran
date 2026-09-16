@@ -1,12 +1,13 @@
 <script lang="ts">
 	import EntitlementInfo from './entitlement_info.svelte';
+	import FilesystemTree from './filesystem_tree.svelte';
 	import Icon from '@iconify/svelte';
 	import type { RBACPermission, TTP } from '$lib/api/index';
-	import { showToast } from '$lib/components/toaster';
 	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import { knowledgeProvenanceBadges } from '$lib/knowledgeProvenance';
 	import { WORKLOAD_KINDS } from './workload_compounds';
 	import { quickActionFields, quickActionsForField } from './entity_info_quick_actions';
+	import type { FilesystemVolumeMount } from './filesystem_tree';
 
 	type ObjectInfoProps = {
 		objectId: string;
@@ -65,6 +66,43 @@
 	});
 
 	const quickActionFieldSet = $derived(quickActionFields(obj?.kind, applicableTtps));
+	const filesystemTtp = $derived(applicableTtps.find((ttp) => ttp.id === 'list-files'));
+	const configuredVolumeMounts = $derived.by(() => {
+		const mounts: FilesystemVolumeMount[] = [];
+		if (!Array.isArray(obj?.containers)) return mounts;
+		for (const container of obj.containers) {
+			if (!Array.isArray(container.volume_mounts)) continue;
+			for (const mount of container.volume_mounts) {
+				mounts.push({
+					mountPoint: mount.mount_point,
+					name: mount.name,
+					container: container.name,
+					readOnly: mount.read_only,
+					isHostPath: mount.is_host_path,
+					hostPath: mount.mount_root || undefined,
+					mountType: mount.mount_type || undefined,
+					origin: 'configured'
+				});
+			}
+		}
+		return mounts;
+	});
+	const filesystemMounts = $derived.by(() => {
+		const mounts = [...configuredVolumeMounts];
+		if (!Array.isArray(obj?.mounts)) return mounts;
+		for (const mount of obj.mounts) {
+			mounts.push({
+				mountPoint: mount.mount_point,
+				name: mount.name,
+				readOnly: mount.read_only,
+				isHostPath: mount.is_host_path,
+				hostPath: mount.is_host_path ? mount.mount_root || undefined : undefined,
+				mountType: mount.mount_type || undefined,
+				origin: 'runtime'
+			});
+		}
+		return mounts;
+	});
 
 	// Track previous values and highlighted fields
 	let previousObjectId: string | null = null;
@@ -205,9 +243,18 @@
 		'provenance',
 		'appServiceCount'
 	]);
+	const FILESYSTEM_FIELDS = new Set(['files', 'directories', 'listedDirectories']);
 
 	function shouldShowField(label: string, data: any): boolean {
 		if (HEADER_FIELDS.has(label)) return false;
+		if (FILESYSTEM_FIELDS.has(label)) return false;
+		// Pod-level volume_mounts is an aggregate of the per-container mounts
+		// already rendered in the Containers section.
+		if (obj?.kind === 'Pod' && (label === 'volume_mounts' || label === 'volumeMounts'))
+			return false;
+		// Runtime mount-table facts remain available to analyzers, but the
+		// filesystem explorer is the single filesystem representation in this UI.
+		if (label === 'mounts') return false;
 		if (data === undefined) return false;
 		// Hide running state when positive - it's the default and duplicates phase
 		if ((label === 'isRunning' || label === 'is_running') && data !== false) return false;
@@ -250,6 +297,7 @@
 	}
 
 	function runQuickAction(label: string, event: MouseEvent) {
+		event.stopPropagation();
 		const ttps = ttpsForField(label);
 		if (ttps.length === 1) {
 			sendAction?.(ttps[0], {});
@@ -276,19 +324,6 @@
 		quickActionChooserField = null;
 		quickActionChooserTrigger = undefined;
 		sendAction?.(ttp, {});
-	}
-
-	function readFile(path: string) {
-		const ttp = campaignState.getTtpById('read-file');
-		if (ttp) {
-			if (sendAction) {
-				sendAction(ttp, { PATH: path });
-			} else {
-				showToast('No sendAction function provided', '', 'error');
-			}
-		} else {
-			showToast("TTP 'read-file' not found", '', 'error');
-		}
 	}
 </script>
 
@@ -377,6 +412,24 @@
 			<div class="mb-1" class:field-changed={highlightedFields['namespace']}>
 				<span class="mr-1 font-semibold">Namespace:</span>{obj.namespace}
 			</div>
+		{/if}
+		{#if filesystemTtp || ttpsForField('mounts').length > 0 || obj.files?.length || obj.directories?.length || obj.mounts?.length}
+			<details class="mb-1" open>
+				<summary class="cursor-pointer">
+					<span class="inline-flex items-center gap-1">
+						<span class="font-bold">Filesystem</span>
+						{@render runBtn('mounts')}
+					</span>
+				</summary>
+				<FilesystemTree
+					{objectId}
+					files={obj.files ?? []}
+					directories={obj.directories ?? []}
+					listedDirectories={obj.listedDirectories ?? []}
+					volumeMounts={filesystemMounts}
+					canList={Boolean(filesystemTtp)}
+				/>
+			</details>
 		{/if}
 
 		{#each Object.entries(obj || {})
@@ -505,7 +558,7 @@
 						{/each}
 					</div>
 				</details>
-			{:else if (label === 'volume_mounts' || label === 'volumeMounts' || label === 'mounts') && Array.isArray(data) && data.length > 0}
+			{:else if (label === 'volume_mounts' || label === 'volumeMounts') && Array.isArray(data) && data.length > 0}
 				<details class="mb-1" class:field-changed={highlightedFields[label]}>
 					<summary>
 						<span class="font-bold">Volume Mounts</span>
@@ -613,25 +666,6 @@
 						roleName={obj.name}
 						roleKind={obj.kind}
 					/>
-				</details>
-			{:else if label === 'files' && Array.isArray(data) && data.length > 0}
-				<details class="mb-1" class:field-changed={highlightedFields[label]}>
-					<summary>
-						<span class="font-bold">{label}</span>
-						<span class="text-surface-500 text-xs">({data.length})</span>
-					</summary>
-					<ul class="list-inside list-none pl-5">
-						{#each data as item, i (i)}
-							<li>
-								<button
-									class="cursor-pointer text-left hover:underline"
-									onclick={() => readFile(item)}
-								>
-									{prettyPrint(item)}
-								</button>
-							</li>
-						{/each}
-					</ul>
 				</details>
 			{:else if label === 'host_ipc' || label === 'host_network' || label === 'host_pid'}
 				{#if data === 'Yes' || data === true}
@@ -877,7 +911,7 @@
 			{/if}
 		{/each}
 		<!-- Placeholder rows for discoverable fields not yet present on the entity -->
-		{#each [...quickActionFieldSet].filter((field) => !(field in (obj ?? {}))) as field (field)}
+		{#each [...quickActionFieldSet].filter((field) => field !== 'mounts' && !FILESYSTEM_FIELDS.has(field) && !(field in (obj ?? {}))) as field (field)}
 			{#if sendAction}
 				<div class="mb-1 flex items-center gap-1">
 					<span class="text-surface-400 mr-1 opacity-40">{field}:</span>

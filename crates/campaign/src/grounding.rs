@@ -438,6 +438,15 @@ fn resolve_mount_path(pod: &Pod) -> Option<String> {
 /// in [`crate::effects::ground_template`].
 pub fn resolve_template(template: &str, args: &HashMap<String, String>) -> String {
     let mut tera = tera::Tera::default();
+    tera.register_filter(
+        "shell_quote",
+        |value: &JsonValue, _args: &HashMap<String, JsonValue>| -> tera::Result<JsonValue> {
+            let value = value
+                .as_str()
+                .ok_or_else(|| tera::Error::msg("shell_quote requires a string-valued argument"))?;
+            Ok(JsonValue::String(shell_words::quote(value).into_owned()))
+        },
+    );
 
     if let Err(e) = tera.add_raw_template("__ttp__", template) {
         tracing::warn!(error = %e, "Tera template parse failed; returning raw template");
@@ -996,6 +1005,13 @@ mod tests {
         let args = HashMap::from([("PodName".to_string(), "my-pod".to_string())]);
         let result = resolve_template("name={{ PodName }}", &args);
         assert_eq!(result, "name=my-pod");
+    }
+
+    #[test]
+    fn tera_template_shell_quotes_untrusted_paths() {
+        let args = HashMap::from([("Path".to_string(), "/tmp/a folder/it's-here".to_string())]);
+        let result = resolve_template("cat -- {{ Path | shell_quote }}", &args);
+        assert_eq!(result, "cat -- '/tmp/a folder/it'\\''s-here'");
     }
 
     #[test]

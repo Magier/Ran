@@ -10,7 +10,7 @@ parameters:
     required: true
 procedures:
   - key: cat
-    command: cat ${PATH}
+    command: cat -- {{ PATH | shell_quote }}
 preconditions:
   kind: System
   accessLevel: "user-exec"
