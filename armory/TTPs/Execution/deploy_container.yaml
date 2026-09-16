@@ -9,7 +9,7 @@ parameters:
   PodName:
     type: string
     description: the name of the resulting workload. The name must be RFC 1123 compliant.
-    default: ${POD_NAME}-${RANDOM}
+    default: ran-${RANDOM}
   Namespace:
     type: string
     default: ${NS}
