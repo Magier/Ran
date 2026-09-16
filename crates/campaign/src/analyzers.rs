@@ -2,10 +2,11 @@ use std::collections::HashMap;
 
 use ran_domain::{
     AuthenticatesTo, BindsTo, CanReach, Confidence, Contains, DaemonSet, Deployment, Entity,
-    EntityId, GCPServiceAccount, Grants, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute,
-    K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sService, KubeletExecSink, KubeletExecSource,
-    NameConfidence, Namespace, Owns, Pod, PodExec, RbacPermission, RbacScopeKind, RbacScopeSource,
-    RunsOn, ServiceAccount, StatefulSet, UnknownSystem, Uses,
+    EntityId, GCPServiceAccount, Grants, Job, K8sCluster, K8sCredential, K8sCustomResource,
+    K8sGateway, K8sHTTPRoute, K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sService,
+    KubeletExecSink, KubeletExecSource, NameConfidence, Namespace, Owns, Pod, PodExec,
+    RbacPermission, RbacScopeKind, RbacScopeSource, RunsOn, ServiceAccount, StatefulSet,
+    UnknownSystem, Uses,
 };
 
 use crate::kube_env::EnvService;
@@ -1305,6 +1306,11 @@ macro_rules! ns_contains_analyzer {
 }
 
 ns_contains_analyzer!(ServiceNamespaceAnalyzer, K8sService, "service.namespace");
+ns_contains_analyzer!(
+    CustomResourceNamespaceAnalyzer,
+    K8sCustomResource,
+    "customresource.namespace"
+);
 ns_contains_analyzer!(IngressNamespaceAnalyzer, K8sIngress, "ingress.namespace");
 ns_contains_analyzer!(GatewayNamespaceAnalyzer, K8sGateway, "gateway.namespace");
 ns_contains_analyzer!(
@@ -2435,6 +2441,7 @@ pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
         Box::new(RoleBindingGraphAnalyzer),
         Box::new(GCPServiceAccountAnalyzer),
         Box::new(ServiceNamespaceAnalyzer),
+        Box::new(CustomResourceNamespaceAnalyzer),
         Box::new(IngressNamespaceAnalyzer),
         Box::new(GatewayNamespaceAnalyzer),
         Box::new(HTTPRouteNamespaceAnalyzer),
@@ -2453,9 +2460,10 @@ pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        AccessLevel, Confidence, Contains, EntityId, K8sCluster, K8sNode, K8sRole, K8sRoleBinding,
-        KubeletExecSink, KubeletExecSource, Namespace, OutputTransformKind, Pod, PodExec,
-        RbacPermission, RbacSubject, RceCanExec, RunsOn, ServiceAccount, Uses,
+        AccessLevel, Confidence, Contains, EntityId, K8sCluster, K8sCustomResource, K8sNode,
+        K8sRole, K8sRoleBinding, KubeletExecSink, KubeletExecSource, Namespace,
+        OutputTransformKind, Pod, PodExec, RbacPermission, RbacSubject, RceCanExec, RunsOn,
+        ServiceAccount, Uses,
     };
 
     use super::*;
@@ -2555,6 +2563,28 @@ mod tests {
                 .all(|e| e.entity_kind() != "Namespace"),
             "should not emit namespace when it is already in campaign"
         );
+    }
+
+    #[test]
+    fn custom_resource_is_contained_by_its_namespace() {
+        let campaign = test_campaign();
+        let resource = K8sCustomResource::new(
+            "monitoring.coreos.com",
+            "v1",
+            "ServiceMonitor",
+            "redis-metrics",
+            "monitoring",
+        );
+        let resource_id = resource.entity_id();
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(resource));
+
+        let update = run_rules_fixpoint(&campaign, &default_rules(), update);
+        assert!(update.new_relations.iter().any(|relation| {
+            relation.is::<Contains>()
+                && relation.source_id().0 == "ns/monitoring"
+                && relation.target_id() == &resource_id
+        }));
     }
 
     #[test]

@@ -229,6 +229,31 @@ pub fn parse_effect_with_status(
 ) -> Result<ParsedStructuralEffect, String> {
     let normalized = effect.trim();
 
+    const CREATE_K8S_PREFIX: &str = "create k8s.";
+    let custom_resource_kind = normalized
+        .get(..CREATE_K8S_PREFIX.len())
+        .filter(|prefix| prefix.eq_ignore_ascii_case(CREATE_K8S_PREFIX))
+        .map(|_| &normalized[CREATE_K8S_PREFIX.len()..]);
+    if let Some(kind) = custom_resource_kind {
+        if !matches!(
+            kind.to_ascii_lowercase().as_str(),
+            "pod" | "role" | "rolebinding"
+        ) {
+            let mut updates = parse_k8s_custom_resource(kind, args)?;
+            let created_id = updates
+                .new_entities
+                .first()
+                .map(|entity| entity.entity_id());
+            if let Some(id) = created_id {
+                updates.mark_created(id);
+            }
+            return Ok(ParsedStructuralEffect {
+                updates,
+                handled: true,
+            });
+        }
+    }
+
     if let Some(kind) = normalized.strip_prefix("delete ") {
         if EffectKind::parse(kind).is_none() {
             return Ok(ParsedStructuralEffect {
@@ -338,6 +363,45 @@ fn parse_k8s_serviceaccount(args: &HashMap<String, String>) -> Result<FactsUpdat
         new_entities: vec![Box::new(sa)],
         new_relations: Vec::new(),
         entity_aliases: IndexSet::new(),
+        ..Default::default()
+    })
+}
+
+fn parse_k8s_custom_resource(
+    kind: &str,
+    args: &HashMap<String, String>,
+) -> Result<FactsUpdate, String> {
+    use ran_domain::K8sCustomResource;
+
+    let namespace = get_arg(args, &["Namespace", "NAMESPACE"])
+        .ok_or_else(|| format!("create k8s.{kind} effect requires Namespace argument"))?;
+    let compact_kind = kind
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_uppercase();
+    let name_key = format!("{compact_kind}_NAME");
+    let resource_name =
+        get_arg(args, &["ResourceName", "RESOURCE_NAME", &name_key]).ok_or_else(|| {
+            format!("create k8s.{kind} effect requires {name_key} or ResourceName argument")
+        })?;
+
+    let group_key = format!("{compact_kind}_API_GROUP");
+    let version_key = format!("{compact_kind}_API_VERSION");
+    let api_group = get_arg(args, &["ApiGroup", "API_GROUP", &group_key])
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            format!("create k8s.{kind} effect requires {group_key} or ApiGroup argument")
+        })?;
+    let api_version = get_arg(args, &["ApiVersion", "API_VERSION", &version_key])
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            format!("create k8s.{kind} effect requires {version_key} or ApiVersion argument")
+        })?;
+    let resource = K8sCustomResource::new(api_group, api_version, kind, resource_name, namespace);
+
+    Ok(FactsUpdate {
+        new_entities: vec![Box::new(resource)],
         ..Default::default()
     })
 }
@@ -504,6 +568,7 @@ pub enum EffectKind {
     K8sRole,
     K8sRoleBinding,
     K8sCronJob,
+    K8sCustomResource,
     // Resource enumeration / discovery (parser-driven; no structural handler,
     // but still part of the vocabulary so the scorer can value them).
     PodList,
@@ -615,6 +680,7 @@ impl EffectKind {
             "container.escape" => Self::ContainerEscape,
             "create k8s.role" => Self::CreateRole,
             "create k8s.rolebinding" => Self::CreateRoleBinding,
+            other if other.starts_with("create k8s.") => Self::K8sCustomResource,
             _ => return None,
         };
         Some(kind)
@@ -652,6 +718,7 @@ impl EffectKind {
             | Self::K8sRole
             | Self::K8sRoleBinding
             | Self::K8sCronJob
+            | Self::K8sCustomResource
             | Self::ServiceAccountList
             | Self::SecretList
             | Self::RoleList
@@ -717,6 +784,7 @@ impl EffectKind {
             | Self::K8sRole
             | Self::K8sRoleBinding
             | Self::K8sCronJob
+            | Self::K8sCustomResource
             | Self::SysFiles
             | Self::SysProcesses => GENERALITY_STANDARD,
             // Specialized: narrow, single-purpose facts.
@@ -776,6 +844,7 @@ impl EffectKind {
             | Self::K8sRole
             | Self::K8sRoleBinding
             | Self::K8sCronJob
+            | Self::K8sCustomResource
             | Self::RawServiceAccountToken
             | Self::PodName
             | Self::ServiceAccountName
@@ -1357,6 +1426,31 @@ mod tests {
     // --- k8s.serviceaccount ---
 
     #[test]
+    fn create_custom_resource_effect_records_the_concrete_kind() {
+        let mut args = ctx();
+        args.insert("NAMESPACE".into(), "monitoring".into());
+        args.insert("SERVICEMONITOR_NAME".into(), "redis-metrics".into());
+        args.insert(
+            "SERVICEMONITOR_API_GROUP".into(),
+            "monitoring.coreos.com".into(),
+        );
+        args.insert("SERVICEMONITOR_API_VERSION".into(), "v1".into());
+
+        let parsed = parse_effect_with_status("create k8s.ServiceMonitor", &args).unwrap();
+        assert!(parsed.handled);
+        let resource = parsed.updates.new_entities[0]
+            .as_any()
+            .downcast_ref::<ran_domain::K8sCustomResource>()
+            .unwrap();
+        assert_eq!(resource.entity_kind(), "ServiceMonitor");
+        assert_eq!(resource.entity_name(), "redis-metrics");
+        assert_eq!(
+            parsed.updates.outcome_of(&resource.entity_id()),
+            FactOutcome::Created
+        );
+    }
+
+    #[test]
     fn k8s_serviceaccount_creates_sa_entity() {
         let mut args = ctx();
         args.insert("Namespace".into(), "default".into());
@@ -1721,6 +1815,7 @@ mod tests {
             "c2.session",
             "rce.can-exec",
             "container.escape",
+            "create k8s.ServiceMonitor",
         ] {
             let kind =
                 EffectKind::parse(name).unwrap_or_else(|| panic!("no EffectKind for {name}"));

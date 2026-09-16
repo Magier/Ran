@@ -293,9 +293,10 @@ fn effect_detection_risk(kind: EffectKind) -> f32 {
         | EffectKind::KubeletExecSource
         | EffectKind::C2Session
         | EffectKind::RceCanExec => 0.80,
-        EffectKind::ContainerEscape | EffectKind::CreateRole | EffectKind::CreateRoleBinding => {
-            0.90
-        }
+        EffectKind::ContainerEscape
+        | EffectKind::CreateRole
+        | EffectKind::CreateRoleBinding
+        | EffectKind::K8sCustomResource => 0.90,
         EffectKind::K8sPod
         | EffectKind::K8sServiceAccount
         | EffectKind::K8sRole

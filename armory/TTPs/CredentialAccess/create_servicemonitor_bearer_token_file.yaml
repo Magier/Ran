@@ -19,6 +19,14 @@ parameters:
     type: string
     default: redis-metrics
     description: the name of the ServiceMonitor to create
+  SERVICEMONITOR_API_GROUP:
+    type: string
+    default: monitoring.coreos.com
+    description: the API group that defines the ServiceMonitor
+  SERVICEMONITOR_API_VERSION:
+    type: string
+    default: v1
+    description: the API version used for the ServiceMonitor
   SERVICEMONITOR_LABEL_KEY:
     type: string
     default: app.kubernetes.io/component
@@ -55,7 +63,7 @@ procedures:
   - key: kubectl
     command: |
       printf '%s\n' \
-        'apiVersion: monitoring.coreos.com/v1' \
+        'apiVersion: ${SERVICEMONITOR_API_GROUP}/${SERVICEMONITOR_API_VERSION}' \
         'kind: ServiceMonitor' \
         'metadata:' \
         '  name: ${SERVICEMONITOR_NAME}' \
@@ -78,6 +86,8 @@ preconditions:
   rbac:
     - verb: create
       resource: servicemonitors
+effects:
+  - create k8s.ServiceMonitor
 cleanup:
   key: kubectl
   command: >-

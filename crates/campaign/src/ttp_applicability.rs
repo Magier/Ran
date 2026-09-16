@@ -369,9 +369,10 @@ fn kind_matches_target_kind(
 /// Returns `true` when the TTP's `exists` pre-conditions are met by the
 /// current campaign state.
 ///
-/// - No `exists` in `requires` → satisfied.
-/// - `"Listener"` → at least one C2Server must have a non-empty `listeners` list.
-/// - Any other item → `false` (unknown entity kind; fail safe).
+/// - No `exists` in `requires` means satisfied.
+/// - Each item may be a kind string or an object with `kind` plus optional
+///   exact `name` and `namespace` constraints.
+/// - Unknown kinds fail safe because no graph entity can match them.
 pub fn ttp_exists_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
     let Some(Value::Array(items)) = ttp.requires.get("exists") else {
         return true;
@@ -381,12 +382,27 @@ pub fn ttp_exists_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> bool {
         return true;
     }
 
+    let entities = campaign.get_entities();
     items.iter().all(|item| {
-        let kind = item.as_str().unwrap_or("").trim().to_ascii_lowercase();
-        match kind.as_str() {
-            "listener" => campaign.entities.values::<Listener>().next().is_some(),
-            _ => false, // unknown entity kind - fail safe
-        }
+        let (kind, name, namespace) = match item {
+            Value::String(kind) => (kind.as_str(), None, None),
+            Value::Object(requirement) => (
+                requirement
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                requirement.get("name").and_then(Value::as_str),
+                requirement.get("namespace").and_then(Value::as_str),
+            ),
+            _ => return false,
+        };
+        let kind = kind.trim();
+        !kind.is_empty()
+            && entities.iter().any(|entity| {
+                entity.entity_kind().eq_ignore_ascii_case(kind)
+                    && name.is_none_or(|required| entity.entity_name() == required)
+                    && namespace.is_none_or(|required| entity.namespace() == Some(required))
+            })
     })
 }
 
@@ -824,6 +840,34 @@ mod tests {
         let mut c = empty_campaign();
         c.entities.insert_typed(Listener::new(1337, "tcp"));
         assert!(ttp_exists_satisfied(&ttp_with_exists("Listener"), &c));
+    }
+
+    #[test]
+    fn exists_matches_a_named_custom_resource() {
+        let mut c = empty_campaign();
+        c.entities.insert_typed(ran_domain::K8sCustomResource::new(
+            "monitoring.coreos.com",
+            "v1",
+            "ServiceMonitor",
+            "redis-metrics",
+            "monitoring",
+        ));
+        let mut ttp = ttp_no_rbac();
+        ttp.requires.insert(
+            "exists".to_string(),
+            json!([{
+                "kind": "ServiceMonitor",
+                "name": "redis-metrics",
+                "namespace": "monitoring"
+            }]),
+        );
+
+        assert!(ttp_exists_satisfied(&ttp, &c));
+        ttp.requires.insert(
+            "exists".to_string(),
+            json!([{"kind": "ServiceMonitor", "name": "other"}]),
+        );
+        assert!(!ttp_exists_satisfied(&ttp, &c));
     }
 
     #[test]

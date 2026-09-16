@@ -11,9 +11,9 @@ pub use entities::{
     format_listener, format_redirector, format_redirector_label, listener_port, split_redirector,
     AppService, C2Server, ConfigMap, CronJob, DaemonSet, Deployment, EndpointState, Entity,
     GCPBucket, GCPServiceAccount, GcpAccessToken, GraphEntity, Job, K8sCluster, K8sCredential,
-    K8sGateway, K8sGatewayListener, K8sHTTPBackend, K8sHTTPRoute, K8sIngress, K8sIngressPath,
-    K8sIngressRule, K8sIngressTLS, K8sNode, K8sParentRef, K8sRole, K8sRoleBinding, K8sSecret,
-    K8sService, K8sServicePort, Listener, Merge, Namespace, OperatorHost, Pod, PodPhase,
+    K8sCustomResource, K8sGateway, K8sGatewayListener, K8sHTTPBackend, K8sHTTPRoute, K8sIngress,
+    K8sIngressPath, K8sIngressRule, K8sIngressTLS, K8sNode, K8sParentRef, K8sRole, K8sRoleBinding,
+    K8sSecret, K8sService, K8sServicePort, Listener, Merge, Namespace, OperatorHost, Pod, PodPhase,
     PodSecurityAdmission, PssLevel, RbacSubject, Redirector, ReplicaSet, ServiceAccount,
     StatefulSet, SystemEntity, Transport, UnknownSystem,
 };

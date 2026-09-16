@@ -1,8 +1,9 @@
 use ran_domain::{
     AppService, C2Server, ConfigMap, CronJob, DaemonSet, Deployment, Entity, EntityId, GCPBucket,
-    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sGateway, K8sHTTPRoute, K8sIngress,
-    K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Listener, Namespace, OperatorHost,
-    Pod, Redirector, ReplicaSet, ServiceAccount, StatefulSet, SystemEntity, UnknownSystem,
+    GCPServiceAccount, Job, K8sCluster, K8sCredential, K8sCustomResource, K8sGateway, K8sHTTPRoute,
+    K8sIngress, K8sNode, K8sRole, K8sRoleBinding, K8sSecret, K8sService, Listener, Namespace,
+    OperatorHost, Pod, Redirector, ReplicaSet, ServiceAccount, StatefulSet, SystemEntity,
+    UnknownSystem,
 };
 
 pub enum CampaignEntityRef<'a> {
@@ -18,6 +19,7 @@ pub enum CampaignEntityRef<'a> {
     ServiceAccount(&'a ServiceAccount),
     Secret(&'a K8sSecret),
     ConfigMap(&'a ConfigMap),
+    CustomResource(&'a K8sCustomResource),
     Deployment(&'a Deployment),
     Role(&'a K8sRole),
     RoleBinding(&'a K8sRoleBinding),
@@ -107,6 +109,7 @@ impl<'a> CampaignEntityRef<'a> {
         ServiceAccount,
         Secret,
         ConfigMap,
+        CustomResource,
         Deployment,
         Role,
         RoleBinding,
@@ -135,6 +138,7 @@ impl<'a> CampaignEntityRef<'a> {
             CampaignEntityRef::ServiceAccount(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::Secret(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::ConfigMap(e) => e.meta.namespace.as_deref(),
+            CampaignEntityRef::CustomResource(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::Deployment(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::Role(e) => e.meta.namespace.as_deref(),
             CampaignEntityRef::RoleBinding(e) => e.meta.namespace.as_deref(),
