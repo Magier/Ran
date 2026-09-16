@@ -1,11 +1,11 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time::Instant;
 use tracing::warn;
 
 use crate::executor::C2Backend;
@@ -31,21 +31,60 @@ static NONCE: AtomicU64 = AtomicU64::new(1);
 /// Lines are read until the sentinel `__RAN_{nonce}__:{exit_code}` appears.
 /// Everything before it is stdout (stderr merged via `2>&1`).
 pub struct ShellSession {
-    inner: Arc<Mutex<ShellInner>>,
+    requests: mpsc::Sender<ShellRequest>,
+    health: watch::Receiver<SessionHealth>,
     /// Entity ID this session currently exits into (for logging/debugging).
     pub entity_id: String,
-    /// Consecutive command timeouts with no response in between. A single
-    /// timeout is treated as a slow command; once this reaches
-    /// [`crate::types::SESSION_TIMEOUT_BREAK_THRESHOLD`] the session is reported
-    /// as dead so its exec-channel edge is broken. Reset to zero whenever a
-    /// command completes (even with a non-zero exit - that still proves the
-    /// session is responsive).
-    consecutive_timeouts: AtomicU64,
 }
 
 struct ShellInner {
     tx: Box<dyn AsyncWrite + Unpin + Send>,
     rx: BufReader<Box<dyn AsyncRead + Unpin + Send>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SessionHealth {
+    Responsive,
+    Busy,
+    Suspect,
+    Lost,
+}
+
+#[derive(Clone, Copy)]
+struct SessionTiming {
+    heartbeat_interval: Duration,
+    heartbeat_timeout: Duration,
+}
+
+impl Default for SessionTiming {
+    fn default() -> Self {
+        Self {
+            heartbeat_interval: Duration::from_secs(30),
+            heartbeat_timeout: Duration::from_secs(5),
+        }
+    }
+}
+
+enum ShellRequest {
+    Raw {
+        command: String,
+        deadline: Instant,
+        reply: oneshot::Sender<Result<String, String>>,
+    },
+    Execute {
+        command: Box<ExecTtp>,
+        deadline: Instant,
+        reply: oneshot::Sender<TtpExecuted>,
+    },
+}
+
+enum PendingReply {
+    Raw(Option<oneshot::Sender<Result<String, String>>>),
+    Execute {
+        cmd_id: String,
+        reply: Option<oneshot::Sender<TtpExecuted>>,
+    },
+    Heartbeat,
 }
 
 /// Frame a shell command with a sentinel on a line of its own. The explicit
@@ -87,6 +126,7 @@ impl ShellSession {
     }
 
     fn from_tcp(stream: TcpStream, entity_id: impl Into<String>) -> Self {
+        configure_tcp_keepalive(&stream);
         let (rx, tx) = tokio::io::split(stream);
         Self::from_rw(rx, tx, entity_id)
     }
@@ -96,14 +136,42 @@ impl ShellSession {
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
+        Self::from_rw_with_timing(reader, writer, entity_id, SessionTiming::default())
+    }
+
+    fn from_rw_with_timing<R, W>(
+        reader: R,
+        writer: W,
+        entity_id: impl Into<String>,
+        timing: SessionTiming,
+    ) -> Self
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
+        let entity_id = entity_id.into();
+        let (request_tx, request_rx) = mpsc::channel(32);
+        let (health_tx, health_rx) = watch::channel(SessionHealth::Responsive);
+        let inner = ShellInner {
+            tx: Box::new(writer),
+            rx: BufReader::new(Box::new(reader)),
+        };
+        tokio::spawn(run_session_actor(
+            inner,
+            request_rx,
+            health_tx,
+            timing,
+            entity_id.clone(),
+        ));
         Self {
-            inner: Arc::new(Mutex::new(ShellInner {
-                tx: Box::new(writer),
-                rx: BufReader::new(Box::new(reader)),
-            })),
-            entity_id: entity_id.into(),
-            consecutive_timeouts: AtomicU64::new(0),
+            requests: request_tx,
+            health: health_rx,
+            entity_id,
         }
+    }
+
+    pub(crate) fn subscribe_health(&self) -> watch::Receiver<SessionHealth> {
+        self.health.clone()
     }
 
     /// Drain any shell banner and configure a clean execution environment.
@@ -118,46 +186,10 @@ impl ShellSession {
             "stty -echo 2>/dev/null; unset PROMPT_COMMAND PS1 PS2 HISTFILE 2>/dev/null\nprintf '{init_marker}\\n'\n"
         );
 
-        let mut guard = self.inner.lock().await;
-        guard
-            .tx
-            .write_all(init_cmd.as_bytes())
-            .await
-            .map_err(|e| format!("shell init write failed: {e}"))?;
-        guard
-            .tx
-            .flush()
-            .await
-            .map_err(|e| format!("shell init flush failed: {e}"))?;
-
-        let drain = async {
-            let mut buf = String::new();
-            let mut lines = 0usize;
-            loop {
-                buf.clear();
-                guard
-                    .rx
-                    .read_line(&mut buf)
-                    .await
-                    .map_err(|e| format!("shell init drain failed: {e}"))?;
-                if buf.trim_end_matches(['\r', '\n']).contains(init_marker) {
-                    break;
-                }
-                lines += 1;
-                if lines > 200 {
-                    return Err("shell init timed out draining banner (>200 lines)".to_string());
-                }
-            }
-            Ok::<_, String>(())
-        };
-
-        match tokio::time::timeout(Duration::from_secs(5), drain).await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                warn!(entity_id = %self.entity_id, error = %e, "shell init drain failed; proceeding");
-            }
-            Err(_) => {
-                warn!(entity_id = %self.entity_id, "shell init timed out waiting for marker; proceeding without clean init");
+        match self.run_raw(&init_cmd).await {
+            Ok(_) => {}
+            Err(error) => {
+                warn!(entity_id = %self.entity_id, %error, "shell init failed; proceeding without clean init");
             }
         }
         Ok(())
@@ -167,52 +199,22 @@ impl ShellSession {
     /// (hostname, whoami, uname) before the session is fully registered.
     /// Times out after 5 s - returns an error if the shell doesn't respond.
     pub async fn run_raw(&self, cmd: &str) -> Result<String, String> {
-        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
-        let marker = format!("__RAN_{nonce}__");
-        let payload = framed_command(cmd, &marker);
-
-        let mut guard = self.inner.lock().await;
-        guard
-            .tx
-            .write_all(payload.as_bytes())
-            .await
-            .map_err(|e| format!("run_raw write failed: {e}"))?;
-        guard
-            .tx
-            .flush()
-            .await
-            .map_err(|e| format!("run_raw flush failed: {e}"))?;
-
-        let read_fut = async {
-            let mut output = String::new();
-            let mut line = String::new();
-            loop {
-                line.clear();
-                match guard.rx.read_line(&mut line).await {
-                    Ok(0) => return Err("shell closed unexpectedly".to_string()),
-                    Err(e) => return Err(format!("run_raw read failed: {e}")),
-                    Ok(_) => {}
-                }
-                let trimmed = line.trim_end_matches(['\r', '\n']);
-                if trimmed.starts_with(&format!("{marker}:")) {
-                    break;
-                }
-                output.push_str(&line);
-            }
-            // Take the last non-empty line so that echoed commands or shell
-            // prompts before the actual output don't contaminate the result.
-            let last = output
-                .lines()
-                .rev()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            Ok::<_, String>(last)
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let timeout = Duration::from_secs(5);
+        let deadline = Instant::now() + timeout;
+        let request = ShellRequest::Raw {
+            command: cmd.to_string(),
+            deadline,
+            reply: reply_tx,
         };
-
-        match tokio::time::timeout(Duration::from_secs(5), read_fut).await {
-            Ok(result) => result,
+        match tokio::time::timeout_at(deadline, self.requests.send(request)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => return Err(crate::types::SESSION_CLOSED_UNEXPECTEDLY.to_string()),
+            Err(_) => return Err(format!("run_raw timed out waiting for response to '{cmd}'")),
+        }
+        match tokio::time::timeout_at(deadline, reply_rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(crate::types::SESSION_CLOSED_UNEXPECTEDLY.to_string()),
             Err(_) => Err(format!("run_raw timed out waiting for response to '{cmd}'")),
         }
     }
@@ -221,107 +223,307 @@ impl ShellSession {
 #[async_trait]
 impl C2Backend for ShellSession {
     async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
-        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
-        let marker = format!("__RAN_{nonce}__");
-
-        // Two-line payload: run the command with merged stderr, then print
-        // the sentinel on its own line so it's never mixed with command output.
-        let command = &cmd.procedure.command;
-        let payload = framed_command(command, &marker);
-
-        let mut guard = self.inner.lock().await;
-
-        if let Err(e) = guard.tx.write_all(payload.as_bytes()).await {
-            return exec_error(&cmd.id, format!("shell write failed: {e}"));
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let timeout = Duration::from_secs(cmd.execution_timeout_seconds.max(1));
+        let deadline = Instant::now() + timeout;
+        let request = ShellRequest::Execute {
+            command: Box::new(cmd.clone()),
+            deadline,
+            reply: reply_tx,
+        };
+        match tokio::time::timeout_at(deadline, self.requests.send(request)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => {
+                return exec_error(
+                    &cmd.id,
+                    crate::types::SESSION_CLOSED_UNEXPECTEDLY.to_string(),
+                );
+            }
+            Err(_) => return timeout_error(&cmd.id, timeout),
         }
-        if let Err(e) = guard.tx.flush().await {
-            return exec_error(&cmd.id, format!("shell flush failed: {e}"));
+        match tokio::time::timeout_at(deadline, reply_rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => exec_error(
+                &cmd.id,
+                crate::types::SESSION_CLOSED_UNEXPECTEDLY.to_string(),
+            ),
+            Err(_) => timeout_error(&cmd.id, timeout),
         }
+    }
+}
 
-        let mut output = String::new();
-        let exit_code;
-        let mut line = String::new();
+fn configure_tcp_keepalive(stream: &TcpStream) {
+    let keepalive = socket2::TcpKeepalive::new()
+        .with_time(Duration::from_secs(30))
+        .with_interval(Duration::from_secs(10));
+    if let Err(error) = socket2::SockRef::from(stream).set_tcp_keepalive(&keepalive) {
+        warn!(%error, "failed to configure TCP keepalive for shell session");
+    }
+}
 
-        let read_fut = async {
-            loop {
-                line.clear();
-                match guard.rx.read_line(&mut line).await {
+async fn run_session_actor(
+    mut inner: ShellInner,
+    mut requests: mpsc::Receiver<ShellRequest>,
+    health: watch::Sender<SessionHealth>,
+    timing: SessionTiming,
+    entity_id: String,
+) {
+    let mut idle_bytes = Vec::new();
+    loop {
+        let heartbeat_wait = tokio::time::sleep(timing.heartbeat_interval);
+        tokio::pin!(heartbeat_wait);
+        tokio::select! {
+            request = requests.recv() => {
+                let Some(request) = request else { return };
+                if !run_request(&mut inner, request, &health, &entity_id).await {
+                    return;
+                }
+            }
+            read = inner.rx.read_until(b'\n', &mut idle_bytes) => {
+                match read {
                     Ok(0) => {
-                        warn!(entity_id = %self.entity_id, "shell session EOF");
-                        return Err(crate::types::SESSION_CLOSED_UNEXPECTEDLY.to_string());
+                        warn!(%entity_id, "shell session EOF while idle");
+                        health.send_replace(SessionHealth::Lost);
+                        return;
                     }
-                    Err(e) => return Err(format!("shell read failed: {e}")),
+                    Ok(_) => {
+                        warn!(%entity_id, "discarding unexpected shell output while idle");
+                        idle_bytes.clear();
+                    }
+                    Err(error) => {
+                        warn!(%entity_id, %error, "shell session read failed while idle");
+                        health.send_replace(SessionHealth::Lost);
+                        return;
+                    }
+                }
+            }
+            _ = &mut heartbeat_wait => {
+                if !run_heartbeat(&mut inner, &health, timing.heartbeat_timeout, &entity_id).await {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+async fn run_request(
+    inner: &mut ShellInner,
+    request: ShellRequest,
+    health: &watch::Sender<SessionHealth>,
+    entity_id: &str,
+) -> bool {
+    let (command, timeout, deadline, mut reply) = match request {
+        ShellRequest::Raw {
+            command,
+            deadline,
+            reply,
+        } => (
+            command,
+            Duration::from_secs(5),
+            deadline,
+            PendingReply::Raw(Some(reply)),
+        ),
+        ShellRequest::Execute {
+            command,
+            deadline,
+            reply,
+        } => {
+            let timeout = Duration::from_secs(command.execution_timeout_seconds.max(1));
+            let cmd_id = command.id.clone();
+            (
+                command.procedure.command.clone(),
+                timeout,
+                deadline,
+                PendingReply::Execute {
+                    cmd_id,
+                    reply: Some(reply),
+                },
+            )
+        }
+    };
+    if deadline <= Instant::now() {
+        finish_with_timeout(&mut reply, timeout, &command);
+        return true;
+    }
+    run_frame(inner, &command, timeout, deadline, reply, health, entity_id).await
+}
+
+async fn run_heartbeat(
+    inner: &mut ShellInner,
+    health: &watch::Sender<SessionHealth>,
+    timeout: Duration,
+    entity_id: &str,
+) -> bool {
+    run_frame(
+        inner,
+        ":",
+        timeout,
+        Instant::now() + timeout,
+        PendingReply::Heartbeat,
+        health,
+        entity_id,
+    )
+    .await
+}
+
+async fn run_frame(
+    inner: &mut ShellInner,
+    command: &str,
+    timeout: Duration,
+    deadline_at: Instant,
+    mut reply: PendingReply,
+    health: &watch::Sender<SessionHealth>,
+    entity_id: &str,
+) -> bool {
+    let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+    let marker = format!("__RAN_{nonce}__");
+    let payload = framed_command(command, &marker);
+
+    if let Err(error) = inner.tx.write_all(payload.as_bytes()).await {
+        finish_with_error(&mut reply, format!("shell write failed: {error}"));
+        health.send_replace(SessionHealth::Lost);
+        return false;
+    }
+    if let Err(error) = inner.tx.flush().await {
+        finish_with_error(&mut reply, format!("shell flush failed: {error}"));
+        health.send_replace(SessionHealth::Lost);
+        return false;
+    }
+
+    health.send_replace(SessionHealth::Busy);
+    let deadline = tokio::time::sleep_until(deadline_at);
+    tokio::pin!(deadline);
+    let mut timed_out = false;
+    let mut output = String::new();
+    let mut line = Vec::new();
+
+    loop {
+        tokio::select! {
+            read = inner.rx.read_until(b'\n', &mut line) => {
+                match read {
+                    Ok(0) => {
+                        warn!(%entity_id, "shell session EOF");
+                        finish_with_error(
+                            &mut reply,
+                            crate::types::SESSION_CLOSED_UNEXPECTEDLY.to_string(),
+                        );
+                        health.send_replace(SessionHealth::Lost);
+                        return false;
+                    }
+                    Err(error) => {
+                        finish_with_error(&mut reply, format!("shell read failed: {error}"));
+                        health.send_replace(SessionHealth::Lost);
+                        return false;
+                    }
                     Ok(_) => {}
                 }
 
-                let trimmed = line.trim_end_matches(['\r', '\n']);
-                if let Some(code_str) = trimmed.strip_prefix(&format!("{marker}:")) {
-                    return Ok((code_str.parse().unwrap_or(1i32), output.clone()));
+                let text = String::from_utf8_lossy(&line);
+                let trimmed = text.trim_end_matches(['\r', '\n']);
+                if let Some(code) = trimmed.strip_prefix(&format!("{marker}:")) {
+                    if !timed_out {
+                        finish_with_success(&mut reply, code.parse().unwrap_or(1), output);
+                    }
+                    health.send_replace(SessionHealth::Responsive);
+                    return true;
                 }
-                output.push_str(&line);
-            }
-        };
-
-        let timeout_seconds = cmd.execution_timeout_seconds.max(1);
-        match tokio::time::timeout(Duration::from_secs(timeout_seconds), read_fut).await {
-            Ok(Ok((code, out))) => {
-                // The session responded (any exit code), so it is alive: clear
-                // the consecutive-timeout streak.
-                self.consecutive_timeouts.store(0, Ordering::Relaxed);
-                exit_code = code;
-                output = out;
-            }
-            Ok(Err(e)) => return exec_error(&cmd.id, e),
-            Err(_) => {
-                // A single timeout is treated as a slow command - the session may
-                // still be healthy. Only sustained unresponsiveness escalates to a
-                // session death that breaks the exec-channel edge, so the streak is
-                // tracked across commands and reset by any response above.
-                let streak = self.consecutive_timeouts.fetch_add(1, Ordering::Relaxed) + 1;
-                if streak >= crate::types::SESSION_TIMEOUT_BREAK_THRESHOLD {
-                    warn!(
-                        entity_id = %self.entity_id,
-                        streak,
-                        "shell session unresponsive after consecutive timeouts"
-                    );
-                    return exec_error(
-                        &cmd.id,
-                        format!(
-                            "{} after {streak} consecutive timeouts \
-                             (last command timed out after {timeout_seconds}s)",
-                            crate::types::SESSION_UNRESPONSIVE_PREFIX
-                        ),
-                    );
+                if !timed_out {
+                    output.push_str(&text);
                 }
-                return exec_error(
-                    &cmd.id,
-                    format!("shell command timed out after {timeout_seconds}s"),
-                );
+                line.clear();
+            }
+            _ = &mut deadline, if !timed_out => {
+                finish_with_timeout(&mut reply, timeout, command);
+                timed_out = true;
+                output.clear();
+                health.send_replace(SessionHealth::Suspect);
+                warn!(%entity_id, "shell command or heartbeat timed out; continuing to drain its response");
             }
         }
+    }
+}
 
-        let stdout = output.trim_end().to_string();
-        let success = exit_code == 0;
-        let fail_reason = if success {
-            String::new()
-        } else if stdout.is_empty() {
-            format!("exit code {exit_code}")
-        } else {
-            stdout.lines().last().unwrap_or("").to_string()
-        };
-
-        TtpExecuted {
-            id: cmd.id.clone(),
-            success,
-            results: if stdout.is_empty() {
-                vec![]
+fn finish_with_success(reply: &mut PendingReply, exit_code: i32, output: String) {
+    match reply {
+        PendingReply::Raw(sender) => {
+            let value = output
+                .lines()
+                .rev()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if let Some(sender) = sender.take() {
+                let _ = sender.send(Ok(value));
+            }
+        }
+        PendingReply::Execute { cmd_id, reply } => {
+            let stdout = output.trim_end().to_string();
+            let success = exit_code == 0;
+            let fail_reason = if success {
+                String::new()
+            } else if stdout.is_empty() {
+                format!("exit code {exit_code}")
             } else {
-                vec![stdout]
-            },
-            exit_code,
-            fail_reason,
-            session_connected: None,
+                stdout.lines().last().unwrap_or("").to_string()
+            };
+            if let Some(reply) = reply.take() {
+                let _ = reply.send(TtpExecuted {
+                    id: cmd_id.clone(),
+                    success,
+                    results: if stdout.is_empty() {
+                        vec![]
+                    } else {
+                        vec![stdout]
+                    },
+                    exit_code,
+                    fail_reason,
+                    session_connected: None,
+                });
+            }
         }
+        PendingReply::Heartbeat => {}
+    }
+}
+
+fn finish_with_timeout(reply: &mut PendingReply, timeout: Duration, command: &str) {
+    match reply {
+        PendingReply::Raw(sender) => {
+            if let Some(sender) = sender.take() {
+                let _ = sender.send(Err(format!(
+                    "run_raw timed out waiting for response to '{command}'"
+                )));
+            }
+        }
+        PendingReply::Execute { cmd_id, reply } => {
+            if let Some(reply) = reply.take() {
+                let _ = reply.send(timeout_error(cmd_id, timeout));
+            }
+        }
+        PendingReply::Heartbeat => {}
+    }
+}
+
+fn timeout_error(cmd_id: &str, timeout: Duration) -> TtpExecuted {
+    exec_error(
+        cmd_id,
+        format!("shell command timed out after {}s", timeout.as_secs()),
+    )
+}
+
+fn finish_with_error(reply: &mut PendingReply, reason: String) {
+    match reply {
+        PendingReply::Raw(sender) => {
+            if let Some(sender) = sender.take() {
+                let _ = sender.send(Err(reason));
+            }
+        }
+        PendingReply::Execute { cmd_id, reply } => {
+            if let Some(reply) = reply.take() {
+                let _ = reply.send(exec_error(cmd_id, reason));
+            }
+        }
+        PendingReply::Heartbeat => {}
     }
 }
 
@@ -340,13 +542,15 @@ fn exec_error(cmd_id: &str, reason: String) -> TtpExecuted {
 mod tests {
     use std::collections::HashMap;
     use std::process::Stdio;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use armory::{Procedure, Ttp};
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     use tokio::process::Command;
 
-    use super::ShellSession;
+    use super::{SessionHealth, SessionTiming, ShellSession};
     use crate::executor::C2Backend;
     use crate::types::ExecTtp;
 
@@ -498,9 +702,8 @@ mod tests {
         assert!(status.success());
     }
 
-    /// A fake shell that answers `init()` but never replies to any command, so
-    /// every `execute` call times out.
-    fn silent_shell_session(entity_id: &str) -> ShellSession {
+    #[tokio::test]
+    async fn a_timed_out_command_is_drained_before_the_next_command_runs() {
         let (client, server) = tokio::io::duplex(4096);
         let (server_rx, mut server_tx) = tokio::io::split(server);
         let (client_rx, client_tx) = tokio::io::split(client);
@@ -509,54 +712,159 @@ mod tests {
             use tokio::io::AsyncBufReadExt;
             let mut reader = tokio::io::BufReader::new(server_rx);
             let mut line = String::new();
+            let mut command_count = 0;
             loop {
                 line.clear();
                 match reader.read_line(&mut line).await {
                     Ok(0) | Err(_) => break,
                     Ok(_) => {}
                 }
-                // Only unblock init(); real commands get no sentinel, so they hang.
                 if let Some(rest) = line.trim_end().strip_prefix("printf '") {
                     let marker = rest.split('%').next().unwrap_or("").trim_end_matches(':');
                     if !marker.starts_with("__RAN_") {
                         continue;
                     }
-                    if marker.contains("INIT0") {
-                        let _ = server_tx.write_all(format!("{marker}\n").as_bytes()).await;
-                        let _ = server_tx.flush().await;
+                    command_count += 1;
+                    if command_count == 1 {
+                        tokio::time::sleep(Duration::from_millis(1200)).await;
                     }
+                    let output = if command_count == 1 {
+                        "late output"
+                    } else {
+                        "fresh output"
+                    };
+                    let _ = server_tx
+                        .write_all(format!("{output}\n{marker}:0\n").as_bytes())
+                        .await;
+                    let _ = server_tx.flush().await;
                 }
             }
         });
 
-        ShellSession::from_rw(client_rx, client_tx, entity_id)
+        let session = ShellSession::from_rw(client_rx, client_tx, "node/test");
+        let mut first_cmd = make_cmd("slow command", "session/test");
+        first_cmd.execution_timeout_seconds = 1;
+
+        let first = session.execute(&first_cmd).await;
+        assert!(!first.success);
+        assert_eq!(first.fail_reason, "shell command timed out after 1s");
+        assert_ne!(*session.health.borrow(), SessionHealth::Lost);
+
+        let mut second_cmd = make_cmd("next command", "session/test");
+        second_cmd.execution_timeout_seconds = 2;
+        let second = session.execute(&second_cmd).await;
+
+        assert!(second.success, "{}", second.fail_reason);
+        assert_eq!(second.results, vec!["fresh output"]);
+        assert_eq!(*session.health.borrow(), SessionHealth::Responsive);
     }
 
     #[tokio::test]
-    async fn timeouts_escalate_to_session_death_only_after_the_threshold() {
-        let session = silent_shell_session("node/test");
-        session.init().await.expect("init");
+    async fn queued_actions_time_out_from_submission_and_are_not_sent_late() {
+        let (client, server) = tokio::io::duplex(4096);
+        let (server_rx, mut server_tx) = tokio::io::split(server);
+        let (client_rx, client_tx) = tokio::io::split(client);
+        let command_count = Arc::new(AtomicUsize::new(0));
+        let server_count = command_count.clone();
 
-        let mut cmd = make_cmd("sleep 999", "session/test");
-        cmd.execution_timeout_seconds = 1;
+        tokio::spawn(async move {
+            let mut reader = tokio::io::BufReader::new(server_rx);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    break;
+                }
+                let Some(rest) = line.trim_end().strip_prefix("printf '") else {
+                    continue;
+                };
+                let marker = rest.split('%').next().unwrap_or("").trim_end_matches(':');
+                if !marker.starts_with("__RAN_") {
+                    continue;
+                }
+                if server_count.fetch_add(1, Ordering::SeqCst) == 0 {
+                    // The first remote command outlives both 1-second action
+                    // deadlines. The second command must never be sent once
+                    // its caller has already timed out in the actor queue.
+                    tokio::time::sleep(Duration::from_millis(2200)).await;
+                    let _ = server_tx
+                        .write_all(format!("first done\n{marker}:0\n").as_bytes())
+                        .await;
+                    let _ = server_tx.flush().await;
+                }
+            }
+        });
 
-        // First timeout: treated as a slow command - the session is not yet dead.
-        let first = session.execute(&cmd).await;
-        assert!(!first.success);
-        assert!(
-            !crate::types::is_session_death_reason(&first.fail_reason),
-            "a single timeout must not break the session: {}",
-            first.fail_reason
+        let session = ShellSession::from_rw(client_rx, client_tx, "node/test");
+        let mut first_cmd = make_cmd("first", "session/test");
+        first_cmd.execution_timeout_seconds = 1;
+        let first = session.execute(&first_cmd).await;
+        assert_eq!(first.fail_reason, "shell command timed out after 1s");
+
+        let mut second_cmd = make_cmd("second", "session/test");
+        second_cmd.execution_timeout_seconds = 1;
+        let second = session.execute(&second_cmd).await;
+        assert_eq!(second.fail_reason, "shell command timed out after 1s");
+
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(command_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn an_idle_eof_marks_the_session_lost_without_an_action() {
+        let (client, server) = tokio::io::duplex(4096);
+        let (client_rx, client_tx) = tokio::io::split(client);
+        let session = ShellSession::from_rw(client_rx, client_tx, "node/test");
+        let mut health = session.subscribe_health();
+
+        drop(server);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while *health.borrow_and_update() != SessionHealth::Lost {
+                health
+                    .changed()
+                    .await
+                    .expect("session actor should stay alive");
+            }
+        })
+        .await
+        .expect("idle EOF should be detected promptly");
+    }
+
+    #[tokio::test]
+    async fn a_missed_idle_heartbeat_is_suspect_not_lost() {
+        let (client, server) = tokio::io::duplex(4096);
+        let (server_rx, _server_tx) = tokio::io::split(server);
+        let (client_rx, client_tx) = tokio::io::split(client);
+        tokio::spawn(async move {
+            let mut reader = tokio::io::BufReader::new(server_rx);
+            let mut line = String::new();
+            while reader.read_line(&mut line).await.unwrap_or(0) != 0 {
+                line.clear();
+            }
+        });
+
+        let session = ShellSession::from_rw_with_timing(
+            client_rx,
+            client_tx,
+            "node/test",
+            SessionTiming {
+                heartbeat_interval: Duration::from_millis(20),
+                heartbeat_timeout: Duration::from_millis(30),
+            },
         );
+        let mut health = session.subscribe_health();
 
-        // Second consecutive timeout crosses the threshold → session death.
-        let second = session.execute(&cmd).await;
-        assert!(!second.success);
-        assert!(
-            crate::types::is_session_death_reason(&second.fail_reason),
-            "consecutive timeouts should escalate to session death: {}",
-            second.fail_reason
-        );
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while *health.borrow_and_update() != SessionHealth::Suspect {
+                health
+                    .changed()
+                    .await
+                    .expect("session actor should stay alive");
+            }
+        })
+        .await
+        .expect("missed heartbeat should update health");
+        assert_ne!(*health.borrow(), SessionHealth::Lost);
     }
 
     #[test]

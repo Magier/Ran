@@ -322,10 +322,12 @@ impl C2Executor {
             };
             return match open_kubectl_exec_session(
                 self.backends.clone(),
+                self.event_bus.clone(),
                 k8s,
                 backend_id,
                 target_entity_id,
                 container,
+                cmd.id.clone(),
             )
             .await
             {
@@ -443,28 +445,6 @@ impl C2Executor {
 
         let mut event = self.select_backend(cmd).await.execute(cmd).await;
         event.session_connected = None;
-
-        // A live session that died surfaces as a session-death fail_reason -
-        // either an unexpected close mid-command or sustained unresponsiveness
-        // (repeated timeouts). Both are distinct from an ordinary non-zero exit
-        // or a single slow-command timeout, which leave the session healthy.
-        // Signal it as a SessionLost so the campaign marks the backing
-        // exec-channel edge broken. The backend that ran the command -
-        // `exec_system_id` - is the session id carried on that edge, so it
-        // matches the edge back without extra bookkeeping.
-        if !event.success && crate::types::is_session_death_reason(&event.fail_reason) {
-            warn!(
-                backend_id = %cmd.exec_system_id,
-                target_id = %cmd.target_id,
-                reason = %event.fail_reason,
-                "session died; publishing SessionLost"
-            );
-            let _ = self.event_bus.publish(C2Event::SessionLost {
-                backend_id: cmd.exec_system_id.clone(),
-                target_entity_id: cmd.target_id.clone(),
-            });
-        }
-
         event
     }
 
@@ -1036,10 +1016,12 @@ fn command_output_result(cmd: &ExecTtp, output: k8s::PodExecOutput) -> TtpExecut
 /// campaign can process it after TTP effects rather than as a separate event.
 async fn open_kubectl_exec_session(
     backends: Backends,
+    event_bus: C2EventBus,
     k8s: Client,
     backend_id: String,
     target_entity_id: String,
     container: Option<String>,
+    opened_by_cmd_id: String,
 ) -> Result<crate::types::SessionConnectedData, String> {
     let (ns, pod) = split_pod_entity_id(&target_entity_id).ok_or_else(|| {
         format!(
@@ -1079,10 +1061,24 @@ async fn open_kubectl_exec_session(
 
     tracing::info!(%backend_id, %hostname, %user, %os, "kubectl exec session ready");
 
+    let session = Arc::new(session);
+    let health = session.subscribe_health();
+    let backend: Arc<dyn C2Backend> = session;
     backends
         .write()
         .await
-        .insert(backend_id.clone(), Arc::new(session));
+        .insert(backend_id.clone(), backend.clone());
+    let events = event_bus.subscribe();
+    tokio::spawn(monitor_session_health_after_execution(
+        backends.clone(),
+        event_bus,
+        events,
+        opened_by_cmd_id,
+        backend,
+        health,
+        backend_id.clone(),
+        target_entity_id.clone(),
+    ));
 
     Ok(crate::types::SessionConnectedData {
         backend_id,
@@ -1489,19 +1485,30 @@ async fn accept_session_loop(
 
                 let target_entity_id = format!("node/{}", hostname.to_lowercase());
 
+                let session = Arc::new(session);
+                let health = session.subscribe_health();
+                let backend: Arc<dyn C2Backend> = session;
                 backends
                     .write()
                     .await
-                    .insert(backend_id.clone(), Arc::new(session));
+                    .insert(backend_id.clone(), backend.clone());
                 let publish_result = event_bus.publish(C2Event::SessionConnected {
                     backend_id: backend_id.clone(),
-                    target_entity_id,
+                    target_entity_id: target_entity_id.clone(),
                     hostname,
                     user,
                     os,
                     port: Some(port),
                 });
                 tracing::info!(%backend_id, receivers = ?publish_result, "SessionConnected published");
+                tokio::spawn(monitor_session_health(
+                    backends.clone(),
+                    event_bus.clone(),
+                    backend,
+                    health,
+                    backend_id.clone(),
+                    target_entity_id,
+                ));
             }
             Err(e) => {
                 tracing::error!(port, error = %e, "accept error on session listener");
@@ -1516,6 +1523,72 @@ async fn accept_session_loop(
     }
 }
 
+async fn monitor_session_health(
+    backends: Backends,
+    event_bus: C2EventBus,
+    backend: Arc<dyn C2Backend>,
+    mut health: tokio::sync::watch::Receiver<crate::shell_session::SessionHealth>,
+    backend_id: String,
+    target_entity_id: String,
+) {
+    loop {
+        let state = *health.borrow_and_update();
+        tracing::debug!(%backend_id, ?state, "shell session health changed");
+        if state == crate::shell_session::SessionHealth::Lost {
+            let is_current = backends
+                .read()
+                .await
+                .get(&backend_id)
+                .is_some_and(|current| Arc::ptr_eq(current, &backend));
+            if is_current {
+                let _ = event_bus.publish(C2Event::SessionLost {
+                    backend_id,
+                    target_entity_id,
+                });
+            } else {
+                tracing::debug!(%backend_id, "ignoring loss from a superseded shell session");
+            }
+            return;
+        }
+        if health.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+/// A kubectl-exec session is returned inside the TTP result that created it.
+/// Wait until that result is on the event bus before publishing health changes,
+/// so the campaign always attaches the session before it can process its loss.
+#[allow(clippy::too_many_arguments)]
+async fn monitor_session_health_after_execution(
+    backends: Backends,
+    event_bus: C2EventBus,
+    mut events: broadcast::Receiver<C2Event>,
+    opened_by_cmd_id: String,
+    backend: Arc<dyn C2Backend>,
+    health: tokio::sync::watch::Receiver<crate::shell_session::SessionHealth>,
+    backend_id: String,
+    target_entity_id: String,
+) {
+    loop {
+        match events.recv().await {
+            Ok(C2Event::TtpExecuted { cmd, .. }) if cmd.id == opened_by_cmd_id => break,
+            Ok(_) => {}
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => return,
+        }
+    }
+    monitor_session_health(
+        backends,
+        event_bus,
+        backend,
+        health,
+        backend_id,
+        target_entity_id,
+    )
+    .await;
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -1523,15 +1596,15 @@ mod tests {
     use std::time::Duration;
 
     use armory::{Procedure, Ttp};
-    use tokio::sync::{broadcast, mpsc, Semaphore};
+    use tokio::sync::{broadcast, mpsc, watch, RwLock, Semaphore};
 
     use super::{
-        await_tunnel_ready, drain_child_output, looks_like_an_error,
+        await_tunnel_ready, drain_child_output, looks_like_an_error, monitor_session_health,
         parse_kubeconfig_permission_command, parse_kubectl_exec_command,
         parse_port_forward_command, parse_read_local_kubeconfig_command,
         parse_stop_listener_command, parse_stop_port_forward_command, quote_transcript,
-        redirector_forward_spec, tunnel_failure_hint, C2Executor, RedirectorProcess, Redirectors,
-        TunnelStartup,
+        redirector_forward_spec, tunnel_failure_hint, Backends, C2EventBus, C2Executor,
+        RedirectorProcess, Redirectors, TunnelStartup,
     };
     use super::{C2Backend, C2Event, C2Manager, ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 
@@ -1542,6 +1615,86 @@ mod tests {
     struct BlockingBackend {
         started: mpsc::UnboundedSender<String>,
         release: Arc<Semaphore>,
+    }
+
+    #[tokio::test]
+    async fn current_session_transport_loss_is_published_independently_of_actions() {
+        let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "session".to_string(),
+        });
+        let backend_id = "session/node-victim-4444".to_string();
+        let backends: Backends = Arc::new(RwLock::new(HashMap::from([(
+            backend_id.clone(),
+            backend.clone(),
+        )])));
+        let event_bus = C2EventBus::new(4);
+        let mut events = event_bus.subscribe();
+        let (health_tx, health_rx) =
+            watch::channel(crate::shell_session::SessionHealth::Responsive);
+
+        tokio::spawn(monitor_session_health(
+            backends,
+            event_bus,
+            backend,
+            health_rx,
+            backend_id.clone(),
+            "node/victim".to_string(),
+        ));
+        health_tx
+            .send(crate::shell_session::SessionHealth::Lost)
+            .expect("monitor is subscribed");
+
+        match tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .expect("session loss should publish")
+            .expect("event bus should remain open")
+        {
+            C2Event::SessionLost {
+                backend_id: actual_backend_id,
+                target_entity_id,
+            } => {
+                assert_eq!(actual_backend_id, backend_id);
+                assert_eq!(target_entity_id, "node/victim");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn superseded_session_loss_does_not_break_the_reconnected_session() {
+        let old_backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "old".to_string(),
+        });
+        let new_backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "new".to_string(),
+        });
+        let backend_id = "session/node-victim-4444".to_string();
+        let backends: Backends = Arc::new(RwLock::new(HashMap::from([(
+            backend_id.clone(),
+            new_backend,
+        )])));
+        let event_bus = C2EventBus::new(4);
+        let mut events = event_bus.subscribe();
+        let (health_tx, health_rx) =
+            watch::channel(crate::shell_session::SessionHealth::Responsive);
+
+        tokio::spawn(monitor_session_health(
+            backends,
+            event_bus,
+            old_backend,
+            health_rx,
+            backend_id,
+            "node/victim".to_string(),
+        ));
+        health_tx
+            .send(crate::shell_session::SessionHealth::Lost)
+            .expect("monitor is subscribed");
+
+        match tokio::time::timeout(Duration::from_millis(100), events.recv()).await {
+            Err(_) | Ok(Err(broadcast::error::RecvError::Closed)) => {}
+            Ok(Ok(event)) => panic!("superseded session unexpectedly published: {event:?}"),
+            Ok(Err(error)) => panic!("event bus unexpectedly lagged: {error}"),
+        }
     }
 
     #[test]

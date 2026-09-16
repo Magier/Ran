@@ -329,6 +329,7 @@ dependencies = [
  "k8s",
  "ran-domain",
  "serde",
+ "socket2",
  "tokio",
  "tracing",
 ]
