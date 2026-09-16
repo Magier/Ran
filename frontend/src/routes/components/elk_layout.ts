@@ -123,10 +123,12 @@ function elkPos(x: number, y: number): string {
  * @param positions - Saved positions from sessionStorage; used as hints for
  *                    elk.interactiveLayout so existing nodes don't move.
  * @param params - Tunable spacing parameters (defaults to DEFAULT_LAYOUT_PARAMS).
+ * @param fixedPositions - Explicit user positions that ELK must not replace.
  */
 export function createElkLayout(
 	positions: Record<string, { x: number; y: number }> = {},
-	params: LayoutParams = DEFAULT_LAYOUT_PARAMS
+	params: LayoutParams = DEFAULT_LAYOUT_PARAMS,
+	fixedPositions: Record<string, { x: number; y: number }> = {}
 ): cytoscape.ElkLayoutOptions {
 	const p = params.compoundPadding;
 	const compoundPad = `[top=${p},left=${p},bottom=${p},right=${p}]`;
@@ -138,6 +140,10 @@ export function createElkLayout(
 		padding: 60,
 		animate: params.animationDuration > 0,
 		animationDuration: params.animationDuration,
+		// ELK position options are hints, not constraints. Cytoscape applies this
+		// transform to the final position of each leaf node, making user drags hard
+		// constraints while new and untouched nodes remain layout-managed.
+		transform: (node, position) => fixedPositions[node.id()] ?? position,
 
 		elk: {
 			'elk.algorithm': 'layered',

@@ -30,6 +30,11 @@
 		ancestorsToRevealAfterReparent
 	} from './graph_nodes';
 	import type { CyNode, Pos, PosMap } from './graph_nodes';
+	import {
+		captureManualPosition,
+		fixedPositionsForLayout,
+		restoreManualPositions
+	} from './graph_positions';
 	import { createElkLayout, isValidPosition, DEFAULT_LAYOUT_PARAMS } from './elk_layout';
 	import type { LayoutParams } from './elk_layout';
 	import GraphLayoutPlayground from './GraphLayoutPlayground.svelte';
@@ -92,11 +97,13 @@
 	let cy: cytoscape.Core = $state() as cytoscape.Core;
 	let graphContainer: HTMLElement;
 	let positions: PosMap = {};
+	let manualPositions: PosMap = {};
 	let zoom: number = 1;
 	let pan: Pos = { x: 0, y: 0 };
 	const campaignState = getCampaignState();
 	// let positions: PosMap = $state({});
 	const POS_KEY = 'nodePositions';
+	const MANUAL_POS_KEY = '_manualNodePositionsV2';
 
 	// Derive available namespaces (compound nodes that have children) from graph data
 	const availableNamespaces = $derived.by(() => {
@@ -200,6 +207,7 @@
 			window.addEventListener('keydown', handleKeyPress);
 		}
 		positions = loadPositions();
+		manualPositions = loadPositions(MANUAL_POS_KEY);
 		zoom = getZoomLevelOrDefault(2);
 		const prevPan = getPanPositionOrDefault(undefined);
 		cy = cytoscape({
@@ -270,7 +278,7 @@
 		cy.on('mouseover', 'edge', (event) => event.target.addClass('hovered'));
 		cy.on('mouseout', 'edge', (event) => event.target.removeClass('hovered'));
 
-		cy.on('dragfree', 'node', savePositions);
+		cy.on('dragfreeon', 'node', handleManualPositionChange);
 		cy.on('pan', (e) => {
 			pan = e.target.pan();
 			sessionStorage.setItem(PAN_KEY, JSON.stringify(pan));
@@ -297,10 +305,12 @@
 			);
 			// Clear only graph-specific keys, not all sessionStorage
 			sessionStorage.removeItem(POS_KEY);
+			sessionStorage.removeItem(MANUAL_POS_KEY);
 			sessionStorage.removeItem(PAN_KEY);
 			sessionStorage.removeItem(ZOOM_KEY);
 			sessionStorage.removeItem(COLLAPSED_KEY); // Don't clear FILTER_NS_KEY - preserve namespace filter across campaigns
 			positions = {};
+			manualPositions = {};
 			previousNodeIds.clear();
 			previousWorkloadCompoundIds.clear();
 			// Don't reset namespaceFilterOverrides - user preferences should persist
@@ -338,10 +348,17 @@
 							positionsChanged = true;
 						}
 					});
+					Object.keys(manualPositions).forEach((id) => {
+						if (!currentNodeIds.has(id)) {
+							delete manualPositions[id];
+							positionsChanged = true;
+						}
+					});
 
 					// Persist cleaned positions immediately to avoid re-loading stale data
 					if (positionsChanged && browser) {
 						sessionStorage.setItem(POS_KEY, JSON.stringify(positions));
+						sessionStorage.setItem(MANUAL_POS_KEY, JSON.stringify(manualPositions));
 					}
 
 					let nodes = graph.nodes.map((n) => toCyNode(n, positions));
@@ -600,11 +617,13 @@
 
 						const layoutOptions = createElkLayout(
 							positions,
-							untrack(() => layoutParams)
+							untrack(() => layoutParams),
+							fixedPositionsForLayout(cy, manualPositions)
 						);
 						const l = cy.elements(':visible').layout(layoutOptions);
 
 						l.one('layoutstop', () => {
+							restoreManualPositions(cy, manualPositions);
 							if (isInitialLoad) {
 								cy.fit(undefined, 50);
 								if (cy.zoom() > 2) cy.zoom(2);
@@ -680,6 +699,20 @@
 		positions = map;
 		sessionStorage.setItem(POS_KEY, JSON.stringify(positions));
 	}
+
+	/**
+	 * Remember only the node the user explicitly grabbed. Cytoscape emits
+	 * `dragfreeon` once for that node even when a compound carried descendants.
+	 */
+	function handleManualPositionChange(event: cytoscape.EventObject) {
+		const node = event.target as cytoscape.NodeSingular;
+		captureManualPosition(node, manualPositions);
+		if (browser) {
+			sessionStorage.setItem(MANUAL_POS_KEY, JSON.stringify(manualPositions));
+		}
+		savePositions();
+	}
+
 	function saveZoom() {
 		if (browser) {
 			sessionStorage.setItem(ZOOM_KEY, JSON.stringify(cy.zoom()));
@@ -699,10 +732,10 @@
 		}
 	}
 
-	function loadPositions(): PosMap {
+	function loadPositions(key = POS_KEY): PosMap {
 		if (!browser) return {};
 		try {
-			const stored = JSON.parse(sessionStorage.getItem(POS_KEY) ?? '{}');
+			const stored = JSON.parse(sessionStorage.getItem(key) ?? '{}');
 			const validated: PosMap = {};
 			for (const [id, pos] of Object.entries(stored)) {
 				if (isValidPosition(pos)) {
