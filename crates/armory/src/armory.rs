@@ -795,6 +795,28 @@ mod tests {
             canonical.requires.get("kind").and_then(|v| v.as_str()),
             Some("Pod")
         );
+        assert_eq!(
+            canonical
+                .requires
+                .get("rbacPermissions")
+                .and_then(|v| v.as_array())
+                .and_then(|permissions| permissions.first())
+                .and_then(|permission| permission.as_object())
+                .and_then(|permission| permission.get("verb"))
+                .and_then(|verb| verb.as_str()),
+            Some("create")
+        );
+        assert_eq!(
+            canonical
+                .requires
+                .get("rbacPermissions")
+                .and_then(|v| v.as_array())
+                .and_then(|permissions| permissions.first())
+                .and_then(|permission| permission.as_object())
+                .and_then(|permission| permission.get("resourceType"))
+                .and_then(|resource| resource.as_str()),
+            Some("pods/exec")
+        );
         assert!(!canonical.requires.contains_key("activeKubeconfig"));
 
         assert_eq!(
