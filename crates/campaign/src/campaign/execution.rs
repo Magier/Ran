@@ -10,7 +10,7 @@ use ran_domain::{
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
-use crate::analyzers::default_rules;
+use crate::analyzers::{default_rules, UNKNOWN_NAMESPACE};
 use crate::effects::{ground_template, parse_effect_with_status};
 use crate::external_parser::SystemFieldUpdates;
 use crate::failure_analyzers::{
@@ -2762,6 +2762,21 @@ impl Campaign {
         tgt: &EntityId,
         rel: &dyn ran_domain::Relation,
     ) {
+        // An unqualified scan placeholder temporarily hangs directly off the
+        // cluster. If that placeholder is merged into an authoritative Pod,
+        // alias resolution can otherwise retarget the temporary relation to
+        // the real Pod and replace its more specific namespace parent.
+        if rel.relation_name() == "contains"
+            && self.entities.find::<K8sCluster>(src).is_some()
+            && self
+                .entities
+                .find::<Pod>(tgt)
+                .and_then(Pod::namespace)
+                .is_some_and(|namespace| !namespace.is_empty() && namespace != UNKNOWN_NAMESPACE)
+        {
+            return;
+        }
+
         use cortex::edge_data_for;
         let summary = ran_domain::RelationSummary::from_relation(rel);
         let mut data = edge_data_for(
@@ -2905,7 +2920,25 @@ impl Campaign {
         } else {
             // Preferred entity not yet in the campaign (shouldn't happen in the
             // normal flow, but handle gracefully by keeping the stale data).
-            self.entities.get_mut::<Pod>().insert(preferred, stale_pod);
+            self.entities
+                .get_mut::<Pod>()
+                .insert(preferred.clone(), stale_pod);
+        }
+
+        let has_real_namespace = self
+            .entities
+            .find::<Pod>(&preferred)
+            .and_then(Pod::namespace)
+            .is_some_and(|namespace| !namespace.is_empty() && namespace != UNKNOWN_NAMESPACE);
+        if has_real_namespace {
+            let cluster_ids: Vec<EntityId> = self
+                .entities
+                .values::<K8sCluster>()
+                .map(Entity::entity_id)
+                .collect();
+            for cluster_id in cluster_ids {
+                self.graph.remove_edges(&cluster_id, &preferred, "contains");
+            }
         }
     }
 
