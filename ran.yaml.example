@@ -21,6 +21,12 @@ namespaces:
 # Note: If 'included' has items, it takes precedence over 'excluded'
 # (only included namespaces will be shown, excluded list is ignored)
 
+# Disable individual TTPs by ID. This also disables built-in actions in
+# release builds.
+# ttps:
+#   disabled:
+#     - read-local-kubeconfig
+
 # Optional scenario-provided knowledge. Relative paths are resolved from this file.
 # seedKnowledge:
 #   - type: credential

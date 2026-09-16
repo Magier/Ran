@@ -1101,6 +1101,19 @@ fn prepare_action_rejects_out_of_range_execution_timeout() {
     ));
 }
 
+#[test]
+fn prepare_action_rejects_disabled_ttp() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let mut ttp = Ttp::new("test-ttp", "Test TTP", "Discovery");
+    ttp.status = "disabled".to_string();
+    let armory = Armory::from_ttps(vec![ttp]);
+
+    assert!(matches!(
+        campaign.prepare_action(action_request("k8s/cluster/dev", None), &armory),
+        Err(ExecuteActionError::InvalidInput(message)) if message.contains("is disabled")
+    ));
+}
+
 fn insert_test_auth_service_account(campaign: &mut Campaign) -> String {
     let mut account = ServiceAccount::new("operator", "default");
     account.token = Some(ServiceAccountToken {

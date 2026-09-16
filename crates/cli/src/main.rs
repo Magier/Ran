@@ -66,6 +66,10 @@ struct ArmoryArgs {
     /// Path to the armory TTPs directory (default: ./armory/TTPs).
     #[arg(long = "armory")]
     armory: Option<PathBuf>,
+
+    /// Path to ran.yaml config file (default: ./ran.yaml).
+    #[arg(long = "config")]
+    config: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -133,6 +137,7 @@ async fn run_emulate(args: EmulateArgs) -> Result<()> {
         host: args.host,
         port: args.port,
         namespace_filter: cfg.namespaces,
+        ttps: cfg.ttps,
         scoring: cfg.scoring,
         config_path,
         plan: args.plan,
@@ -159,6 +164,7 @@ async fn run_trigger(args: TriggerArgs) -> Result<()> {
         kubeconfig: args.kubeconfig,
         armory_dir: args.armory,
         namespace_filter: cfg.namespaces,
+        ttps: cfg.ttps,
         seed_knowledge: cfg.seed_knowledge,
         action_id: args.action_id,
         target_id: args.target_id,
@@ -170,8 +176,10 @@ async fn run_trigger(args: TriggerArgs) -> Result<()> {
 }
 
 fn run_show_armory(args: ArmoryArgs) -> Result<()> {
+    let cfg = app::config::load(args.config)?;
     let armory_dir = resolve_armory_dir(args.armory)?;
-    let armory = Armory::load_from_dir(&armory_dir)?;
+    let mut armory = Armory::load_from_dir(&armory_dir)?;
+    armory.disable_ttps(&cfg.ttps.disabled);
     let ttps = armory.ttps();
 
     // Column widths
