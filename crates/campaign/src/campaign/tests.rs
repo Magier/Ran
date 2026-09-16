@@ -1405,6 +1405,7 @@ fn prepare_action_expands_object_headers_into_multiple_flags() {
                 required: true,
                 default: "https://metadata.google.internal/computeMetadata/v1/project/project-id"
                     .to_string(),
+                options: vec![],
             },
             TtpParam {
                 name: "HEADERS".to_string(),
@@ -1413,6 +1414,7 @@ fn prepare_action_expands_object_headers_into_multiple_flags() {
                 required: true,
                 default: "{\"Metadata-Flavor\":\"Google\",\"Authorization\":\"Bearer abc\"}"
                     .to_string(),
+                options: vec![],
             },
         ],
         procedures: vec![Procedure {
@@ -2798,6 +2800,7 @@ fn source_side_redis_armory() -> Armory {
                 description: "Redis address".to_string(),
                 required: true,
                 default: "${TARGET.IP}".to_string(),
+                options: vec![],
             },
             TtpParam {
                 name: "PORT".to_string(),
@@ -2805,6 +2808,7 @@ fn source_side_redis_armory() -> Armory {
                 description: "Redis port".to_string(),
                 required: true,
                 default: "6379".to_string(),
+                options: vec![],
             },
         ],
         procedures: vec![Procedure {
@@ -3709,6 +3713,7 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
             description: "host mount path".to_string(),
             required: false,
             default: "${SRC.MOUNT_PATH}/etc/kubernetes".to_string(),
+            options: vec![],
         }],
         procedures: vec![Procedure::new("grep", "grep -r ${MOUNT_PATH}")],
         ..Ttp::new("scan-node", "Search interesting Files", "Discovery")
@@ -3809,6 +3814,7 @@ fn cleanup_armory() -> Armory {
                 description: String::new(),
                 required: false,
                 default: "curl".to_string(),
+                options: vec![],
             }],
             procedures: vec![Procedure {
                 tool: Some("apt".to_string()),
@@ -4086,6 +4092,7 @@ fn active_kubeconfig_request_uses_namespace_target_and_records_request_line() {
                 description: String::new(),
                 required: true,
                 default: "${NS}".to_string(),
+                options: vec![],
             },
             TtpParam {
                 name: "ALL_NS".to_string(),
@@ -4093,6 +4100,7 @@ fn active_kubeconfig_request_uses_namespace_target_and_records_request_line() {
                 description: String::new(),
                 required: true,
                 default: "false".to_string(),
+                options: vec![],
             },
         ],
         procedures: vec![Procedure {

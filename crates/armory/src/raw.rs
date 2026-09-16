@@ -36,6 +36,7 @@ struct RawParam {
     default: JsonValue,
     description: String,
     required: Option<bool>,
+    options: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -66,6 +67,7 @@ impl RawParam {
             description: self.description,
             required: self.required.unwrap_or(true),
             default: json_to_string(self.default),
+            options: self.options,
         }
     }
 }
@@ -229,6 +231,7 @@ parameters:
     type: string
     default: kube-system
     description: ns
+    options: [default, kube-system]
 preconditions:
   kind: Deployment
 procedures:
@@ -244,6 +247,7 @@ procedures:
         assert_eq!(ttp.params.len(), 1);
         assert_eq!(ttp.params[0].name, "Namespace");
         assert_eq!(ttp.params[0].param_type, "string");
+        assert_eq!(ttp.params[0].options, ["default", "kube-system"]);
         assert_eq!(
             ttp.requires.get("kind").and_then(|v| v.as_str()),
             Some("Deployment")

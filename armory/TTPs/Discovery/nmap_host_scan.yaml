@@ -1,5 +1,5 @@
 name: NMap Host Scan
-description: Perform a host scan with namp on a specified CIDR range to identify reachable systems
+description: Perform an Nmap host scan on a specified CIDR range to identify reachable systems
 tactic: Discovery
 techniques: ["Network Service Discovery", T1046]
 preconditions:
@@ -11,10 +11,15 @@ parameters:
     type: string
     description: the CIDR range to scan
     default: "${TARGET.IP}/24"
-  # PingScan:
-  #   type: bool
-  #   description: whether to perform just a ping scan
-  #   default: false
+  SCAN_TYPES:
+    type: stringList
+    description: Nmap scan modes; sT performs TCP connect scanning and sV enables service/version fingerprinting
+    default: [sT]
+    options: [sT, sV]
+  FAST_SCAN:
+    type: bool
+    description: use Nmap fast mode (-F) to scan fewer ports
+    default: false
   THREADS:
     type: int
     description: the number of concurrent threads to use
@@ -22,8 +27,11 @@ parameters:
 procedures:
   - key: nmap
     tool: nmap
-    command: nmap -sT -sV -F ${CIDR}
-    # command: nmap {{if .PingScan}} -sn {{ else }} -sT -sV -F {{end}} ${CIDR}
+    command: >-
+      nmap
+      {% for scan_type in SCAN_TYPES %}-{{ scan_type }} {% endfor %}
+      {% if FAST_SCAN %}-F {% endif %}
+      ${CIDR}
 effects:
   - network.discovery
 references:

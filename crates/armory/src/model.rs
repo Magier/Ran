@@ -9,6 +9,8 @@ pub struct TtpParam {
     pub description: String,
     pub required: bool,
     pub default: String,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub options: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

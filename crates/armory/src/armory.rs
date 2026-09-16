@@ -492,6 +492,7 @@ mod tests {
                     description: String::new(),
                     required: true,
                     default: String::new(),
+                    options: vec![],
                 },
                 crate::TtpParam {
                     name: "TOKEN".to_string(),
@@ -499,6 +500,7 @@ mod tests {
                     description: String::new(),
                     required: false,
                     default: String::new(),
+                    options: vec![],
                 },
             ],
             procedures: vec![Procedure::new(
@@ -523,6 +525,7 @@ mod tests {
                 description: String::new(),
                 required: true,
                 default: String::new(),
+                options: vec![],
             }],
             procedures: vec![Procedure::new(
                 "ran-ws",
@@ -543,6 +546,7 @@ mod tests {
                 description: String::new(),
                 required: true,
                 default: String::new(),
+                options: vec![],
             }],
             procedures: vec![Procedure {
                 k8s_request: Some(serde_json::json!({

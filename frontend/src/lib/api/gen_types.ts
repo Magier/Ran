@@ -663,6 +663,7 @@ export interface components {
 			description: string;
 			required: boolean;
 			default: string;
+			options?: string[];
 		};
 		TTPDefense: {
 			id: string;
