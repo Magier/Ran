@@ -1,8 +1,8 @@
 use crate::model::{Procedure, Ttp, TtpParam};
 use crate::util::{json_to_string, slugify};
+use indexmap::IndexMap;
 use serde::Deserialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
-use std::collections::BTreeMap;
 use std::path::Path;
 
 #[derive(Debug, Deserialize, Default)]
@@ -14,7 +14,7 @@ pub(crate) struct RawTtp {
     tactic: Option<String>,
     techniques: Vec<String>,
     status: Option<String>,
-    parameters: BTreeMap<String, RawParam>,
+    parameters: IndexMap<String, RawParam>,
     procedures: Vec<RawProcedure>,
     cleanup: Option<RawProcedure>,
     preconditions: Option<JsonValue>,
@@ -249,6 +249,29 @@ procedures:
             Some("Deployment")
         );
         assert_eq!(ttp.procedures[0].id, "kubectl");
+    }
+
+    #[test]
+    fn preserves_parameter_definition_order() {
+        let yaml = r#"
+name: Ordered parameters
+tactic: Execution
+parameters:
+  PodName:
+    type: string
+  Namespace:
+    type: string
+  Image:
+    type: string
+procedures:
+  - command: echo test
+"#;
+
+        let raw: RawTtp = serde_yaml::from_str(yaml).unwrap();
+        let ttp = raw.into_ttp(Path::new("Execution/ordered.yaml")).unwrap();
+        let names: Vec<_> = ttp.params.iter().map(|param| param.name.as_str()).collect();
+
+        assert_eq!(names, ["PodName", "Namespace", "Image"]);
     }
 
     #[test]
