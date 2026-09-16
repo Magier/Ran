@@ -170,14 +170,14 @@ fn parse_sys_files(stdout: &str, _stderr: &str, args: &HashMap<String, String>) 
 
 /// Detect whether stdout looks like `ls -l` long-listing format.
 ///
-/// Heuristic: at least one of the first ten non-empty lines starts with "total "
-/// or has a 10-character permission field (e.g. `-rwxr-xr-x`).
+/// Heuristic: at least one non-empty line starts with "total " or has a
+/// 10-character permission field (e.g. `-rwxr-xr-x`). Diagnostics for dangling
+/// symlinks can precede the listing, so inspect the complete output.
 fn is_ls_long_format(stdout: &str) -> bool {
     stdout
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty())
-        .take(10)
         .any(|l| {
             l.starts_with("total ")
                 || (l.len() >= 10
@@ -1056,6 +1056,34 @@ drwxr-xr-x 3 root root 60 Apr 25 06:00 ../\n";
         assert!(updates.files.is_empty());
         assert!(updates.directories.is_empty());
         assert_eq!(updates.listed_directories, vec!["/empty".to_string()]);
+    }
+
+    #[test]
+    fn parse_sys_files_ignores_diagnostics_before_long_listing() {
+        let diagnostics = (0..12)
+            .map(|index| format!("ls: /host/etc/missing-{index}: No such file or directory"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let stdout = format!(
+            "{diagnostics}\n\
+             total 4\n\
+             drwxr-xr-x 2 root root 4096 Sep 16 19:20 ./\n\
+             drwxr-xr-x 3 root root 4096 Sep 16 19:20 ../\n\
+             drwxr-xr-x 2 root root 4096 Aug  8 12:47 alternatives/\n\
+             -rw-r--r-- 1 root root 3444 Jul  5  2023 adduser.conf\n"
+        );
+        let args = HashMap::from([("DIR".to_string(), "/host/etc".to_string())]);
+        let result = parse_sys_files(&stdout, "", &args);
+        let ParserOutput::Success(updates, _) = result else {
+            panic!("expected Success");
+        };
+
+        assert_eq!(
+            updates.directories,
+            vec!["/host/etc/alternatives".to_string()]
+        );
+        assert_eq!(updates.files, vec!["/host/etc/adduser.conf".to_string()]);
+        assert_eq!(updates.listed_directories, vec!["/host/etc".to_string()]);
     }
 
     // --- sys.hasfile ---

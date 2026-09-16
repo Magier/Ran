@@ -14,8 +14,9 @@ preconditions:
 procedures:
   - key: ls
     tool: ls
-    # Follow entry symlinks so directory links such as /var/run are expandable.
-    command: ls -laFL -- {{ DIR | shell_quote }}
+    # The trailing slash follows DIR when it is a symlink. Child symlinks are
+    # not dereferenced, so a broken child does not make the listing fail.
+    command: ls -laF -- {{ DIR | shell_quote }}/
 effects:
   - sys.files
 # defend: {}
