@@ -1,5 +1,6 @@
+id: list-files
 name: List Files
-description: Get a list of processes running in the container
+description: List the immediate children of a directory on the target system
 tactic: Discovery
 techniques: ["Software Discovery", T1518]
 parameters:
@@ -13,7 +14,8 @@ preconditions:
 procedures:
   - key: ls
     tool: ls
-    command: ls -laF ${DIR}
+    # Follow entry symlinks so directory links such as /var/run are expandable.
+    command: ls -laFL -- {{ DIR | shell_quote }}
 effects:
   - sys.files
 # defend: {}

@@ -17,6 +17,37 @@ export type Entity = {
 	accessLevel?: { User: number; Level: number } | string;
 	binaries?: Record<string, string>;
 	envVars?: Record<string, string>;
+	files?: string[];
+	directories?: string[];
+	listedDirectories?: string[];
+	volume_mounts?: Array<{
+		name: string;
+		mount_root: string;
+		mount_point: string;
+		mount_type?: string;
+		is_host_path: boolean;
+		read_only: boolean;
+	}>;
+	mounts?: Array<{
+		name: string;
+		mount_root: string;
+		mount_point: string;
+		mount_type?: string;
+		is_host_path: boolean;
+		read_only: boolean;
+	}>;
+	containers?: Array<{
+		name: string;
+		volume_mounts?: Array<{
+			name: string;
+			mount_root: string;
+			mount_point: string;
+			mount_type?: string;
+			is_host_path: boolean;
+			read_only: boolean;
+		}>;
+		[key: string]: any;
+	}>;
 	phase?: string;
 	ready?: boolean;
 	stateReason?: string;
@@ -233,8 +264,7 @@ class CampaignState {
 		// (backend restart, autonomous loop, CLI) doesn't carry previous
 		// iterations' logs into the new campaign. The app-menu Reset clears it
 		// directly; this covers every reset signalled via the SSE event. Sharing
-		// the single reset-campaign handler is required - ran_api's `on()` keeps
-		// one handler per event type, so a second listener would clobber this one.
+		// this reset-campaign handler keeps the state and timeline refresh together.
 		timeline.clear();
 		await this.api.GetGraph().then((g: Graph) => {
 			this.graph = g;

@@ -227,6 +227,12 @@ pub struct SystemInfo {
     /// Maps binary name → presence on this system.
     pub binaries: HashMap<String, BinaryPresence>,
     pub files: Vec<String>,
+    /// Directories discovered on this system.
+    #[serde(default)]
+    pub directories: Vec<String>,
+    /// Directories whose immediate children have been enumerated.
+    #[serde(default, rename = "listedDirectories")]
+    pub listed_directories: Vec<String>,
     pub processes: Vec<Process>,
     pub mounts: Vec<Mount>,
     #[serde(rename = "accessLevel")]
@@ -293,6 +299,16 @@ impl SystemInfo {
         for f in &incoming.files {
             if !self.files.contains(f) {
                 self.files.push(f.clone());
+            }
+        }
+        for directory in &incoming.directories {
+            if !self.directories.contains(directory) {
+                self.directories.push(directory.clone());
+            }
+        }
+        for directory in &incoming.listed_directories {
+            if !self.listed_directories.contains(directory) {
+                self.listed_directories.push(directory.clone());
             }
         }
         for proc in &incoming.processes {

@@ -50,4 +50,9 @@ describe('quickActionsForField', () => {
 			quickActionsForField('service_account_name', 'ServiceAccount', [tokenAction('read')])
 		).toEqual([]);
 	});
+
+	it('keeps runtime mount discovery available to the filesystem control', () => {
+		const action = { ...tokenAction('get-volume-mounts'), effects: ['linux.mounts'] };
+		expect(quickActionsForField('mounts', 'UnknownSystem', [action])).toEqual([action]);
+	});
 });

@@ -40,7 +40,7 @@ import type {
 
 export class RanAPI {
 	eventSource?: EventSource;
-	private messageHandlers = new Map<string, (data: any) => void>();
+	private messageHandlers = new Map<string, Set<(data: any) => void>>();
 	private sseEventListeners = new Set<string>(); // Track registered SSE event types
 	private pendingSSEEventTypes = new Set<string>(); // Event types waiting for SSE connection
 	private restClient = createClient<paths>({ baseUrl: '' }); // Use relative URLs
@@ -105,12 +105,14 @@ export class RanAPI {
 		}
 
 		// Call registered handler for events
-		const handler = this.messageHandlers.get(msgType);
-		if (handler) {
-			try {
-				handler(data);
-			} catch (err) {
-				console.error('Error in SSE message handler for type:', msgType, err);
+		const handlers = this.messageHandlers.get(msgType);
+		if (handlers && handlers.size > 0) {
+			for (const handler of handlers) {
+				try {
+					handler(data);
+				} catch (err) {
+					console.error('Error in SSE message handler for type:', msgType, err);
+				}
 			}
 		} else {
 			console.debug('Unhandled SSE event type:', msgType);
@@ -119,7 +121,9 @@ export class RanAPI {
 
 	// Subscribe to push events (events not triggered by a request)
 	on(type: string, handler: (data: any) => void) {
-		this.messageHandlers.set(type, handler);
+		const handlers = this.messageHandlers.get(type) ?? new Set();
+		handlers.add(handler);
+		this.messageHandlers.set(type, handlers);
 		console.log(`Registered handler for event type: ${type}`);
 
 		if (
@@ -141,8 +145,14 @@ export class RanAPI {
 		}
 	}
 
-	off(type: string) {
-		this.messageHandlers.delete(type);
+	off(type: string, handler?: (data: any) => void) {
+		if (!handler) {
+			this.messageHandlers.delete(type);
+			return;
+		}
+		const handlers = this.messageHandlers.get(type);
+		handlers?.delete(handler);
+		if (handlers?.size === 0) this.messageHandlers.delete(type);
 
 		// Note: EventSource doesn't provide a way to remove specific event listeners
 		// The handler just won't be called anymore since we removed it from messageHandlers
