@@ -1112,7 +1112,7 @@
 						bind:value={executionTimeoutSeconds}
 					/>
 					<span class="text-xs opacity-70"
-						>Maximum time allowed for the complete command. Default: 60 seconds.</span
+						>Maximum time allowed for the complete command. Default: 150 seconds.</span
 					>
 				</label>
 			</details>
