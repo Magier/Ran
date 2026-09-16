@@ -4164,6 +4164,9 @@ fn valid_accounts_campaign() -> (Campaign, String, String) {
     campaign.entities.insert_typed(pod);
     let mut credential = K8sCredential::new("https://cluster.example").with_name("operator");
     credential.active = true;
+    credential
+        .entitlements
+        .push(RbacPermission::new("create", "pods/exec"));
     let credential_id = credential.entity_id().0;
     campaign.entities.insert_typed(credential);
     (campaign, pod_id, credential_id)
