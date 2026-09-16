@@ -10,6 +10,7 @@
 	import type { TTP, Node, ScoredCandidate } from '$lib/api/index';
 	import { getCampaignState, parseArmory } from '$lib/components/CampaignState.svelte';
 	import { WORKLOAD_KINDS } from './workload_compounds';
+	import { sortTtpsByName } from './armory_sort';
 
 	const campaign = getCampaignState();
 
@@ -85,14 +86,6 @@
 				scoredByTtp = new Map();
 			});
 	});
-
-	// Order TTPs within a tactic by utility (desc); unscored actions sink to the bottom.
-	function byUtility(ttps: TTP[]): TTP[] {
-		if (!scoringEnabled) return ttps;
-		return [...ttps].sort(
-			(a, b) => (scoredByTtp.get(b.id)?.utility ?? -1) - (scoredByTtp.get(a.id)?.utility ?? -1)
-		);
-	}
 
 	let shownTTPs: Array<[string, TTP[]]> = $derived.by(() => {
 		const source = showAllTTPs ? armory : applicableTTPs;
@@ -332,7 +325,7 @@
 									</div>
 								</Accordion.ItemTrigger>
 								<Accordion.ItemContent class="bg-surface-100-900 !m-0 !gap-0 !p-0">
-									{#each byUtility(ttps) as ttp (ttp.id)}
+									{#each sortTtpsByName(ttps) as ttp (ttp.id)}
 										<div
 											class="border-surface-400-600 bg-surface-200-800 hover:text-primary-800-200 ml-3 border-t-1"
 										>
