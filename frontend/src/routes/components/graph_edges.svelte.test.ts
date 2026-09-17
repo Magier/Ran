@@ -5,8 +5,11 @@ import {
 	restoreConsolidatedEdges,
 	reconcileCollapsedEdges,
 	hideRedundantInformationalEdges,
+	applyEdgeTypeFilters,
+	elementsForGraphLayout,
 	toCyEdge,
-	COLLAPSED_EDGE_CLASS
+	COLLAPSED_EDGE_CLASS,
+	EDGE_FILTERED_CLASS
 } from './graph_edges';
 import type { Edge } from '$lib/api/index';
 
@@ -244,5 +247,97 @@ describe('toCyEdge', () => {
 
 		expect(edge.data('broken')).toBe(false);
 		expect(cy.edges('[?broken]').length).toBe(0);
+	});
+});
+
+describe('applyEdgeTypeFilters', () => {
+	it('hides only the selected relation types', () => {
+		const cy = mountCy([
+			{ data: { id: 'a' } },
+			{ data: { id: 'b' } },
+			{ data: { id: 'reach', source: 'a', target: 'b', name: 'can-reach' } },
+			{ data: { id: 'session', source: 'a', target: 'b', name: 'c2.session' } }
+		]);
+
+		applyEdgeTypeFilters(cy, new Set(['can-reach']));
+
+		expect(cy.getElementById('reach').visible()).toBe(false);
+		expect(cy.getElementById('reach').hasClass(EDGE_FILTERED_CLASS)).toBe(true);
+		expect(cy.getElementById('session').visible()).toBe(true);
+	});
+
+	it('does not reveal an edge still hidden by another filter', () => {
+		const cy = mountCy([
+			{ data: { id: 'a' } },
+			{ data: { id: 'b' } },
+			{ data: { id: 'reach', source: 'a', target: 'b', name: 'can-reach' } }
+		]);
+		const edge = cy.getElementById('reach');
+		edge.addClass('namespace-filtered');
+		edge.hide();
+
+		applyEdgeTypeFilters(cy, new Set(['can-reach']));
+		applyEdgeTypeFilters(cy, new Set());
+
+		expect(edge.visible()).toBe(false);
+		expect(edge.hasClass('namespace-filtered')).toBe(true);
+	});
+
+	it('updates a collapsed meta-edge to represent its remaining visible relations', () => {
+		const cy = mountCy([
+			{ data: { id: 'ns' } },
+			{ data: { id: 'target' } },
+			{
+				data: {
+					id: 'reach',
+					source: 'ns',
+					target: 'target',
+					name: 'can-reach',
+					informational: true
+				}
+			},
+			{ data: { id: 'session', source: 'ns', target: 'target', name: 'c2.session' } }
+		]);
+		markCollapsed(cy, 'ns');
+		consolidateCollapsedEdges(cy, cy.getElementById('ns'));
+
+		applyEdgeTypeFilters(cy, new Set(['can-reach']));
+
+		const meta = cy.getElementById('meta-ns-to-target');
+		expect(meta.visible()).toBe(true);
+		expect(meta.data('name')).toBe('c2.session');
+		expect(meta.data('informational')).toBe(false);
+	});
+});
+
+describe('elementsForGraphLayout', () => {
+	it('retains filtered relations between visible nodes for layout connectivity', () => {
+		const cy = mountCy([
+			{ data: { id: 'a' } },
+			{ data: { id: 'b' } },
+			{ data: { id: 'reach', source: 'a', target: 'b', name: 'can-reach' } }
+		]);
+		applyEdgeTypeFilters(cy, new Set(['can-reach']));
+
+		expect(elementsForGraphLayout(cy).getElementById('reach').length).toBe(1);
+	});
+
+	it('excludes namespace-hidden nodes and their edges from layout', () => {
+		const cy = mountCy([
+			{ data: { id: 'visible' } },
+			{ data: { id: 'hidden' } },
+			{ data: { id: 'reach', source: 'visible', target: 'hidden', name: 'can-reach' } }
+		]);
+		const hiddenNode = cy.getElementById('hidden');
+		const edge = cy.getElementById('reach');
+		hiddenNode.addClass('namespace-filtered');
+		hiddenNode.hide();
+		edge.addClass('namespace-filtered');
+		edge.hide();
+
+		const layoutElements = elementsForGraphLayout(cy);
+		expect(layoutElements.getElementById('visible').length).toBe(1);
+		expect(layoutElements.getElementById('hidden').length).toBe(0);
+		expect(layoutElements.getElementById('reach').length).toBe(0);
 	});
 });

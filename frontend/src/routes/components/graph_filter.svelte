@@ -4,8 +4,11 @@
 	type GraphFilterProps = {
 		availableNamespaces: string[];
 		hiddenNamespaces: Set<string>;
+		availableEdgeTypes: string[];
+		hiddenEdgeTypes: Set<string>;
 		hasOverrides: boolean;
 		onToggleNamespace: (namespace: string) => void;
+		onToggleEdgeType: (edgeType: string) => void;
 		onClearAll: () => void;
 		onRestoreConfigured: () => void;
 	};
@@ -13,15 +16,18 @@
 	let {
 		availableNamespaces,
 		hiddenNamespaces,
+		availableEdgeTypes,
+		hiddenEdgeTypes,
 		hasOverrides,
 		onToggleNamespace,
+		onToggleEdgeType,
 		onClearAll,
 		onRestoreConfigured
 	}: GraphFilterProps = $props();
 
 	let panelOpen = $state(false);
 
-	const activeFilterCount = $derived(hiddenNamespaces.size);
+	const activeFilterCount = $derived(hiddenNamespaces.size + hiddenEdgeTypes.size);
 </script>
 
 <!-- Backdrop to close panel -->
@@ -29,26 +35,29 @@
 	<div class="fixed inset-0 z-40" role="presentation" onclick={() => (panelOpen = false)}></div>
 {/if}
 
-<div class="text-surface-700-300 absolute right-3 bottom-1 z-50">
+<div class="text-surface-700-300 relative">
 	<!-- Filter toggle button -->
 	<button
 		class="chip preset-outlined-surface-100-900 border-surface-400-600"
 		onclick={() => (panelOpen = !panelOpen)}
-		title="Filter graph nodes"
-		aria-label="Toggle namespace filter"
+		title="Filter graph"
+		aria-label="Toggle graph filters"
 	>
 		<!-- Funnel icon -->
 		<Icon icon="mdi:funnel" class="text-surface-400-600 inline-block" />
+		{#if activeFilterCount > 0}
+			<span class="text-xs tabular-nums">{activeFilterCount}</span>
+		{/if}
 	</button>
 
 	<!-- Filter panel -->
 	{#if panelOpen}
 		<div
-			class="bg-surface-50-950 absolute right-0 bottom-full z-50 mb-1 w-64 rounded-lg border border-gray-200 p-4 shadow-xl"
+			class="bg-surface-50-950 absolute right-0 bottom-full z-50 mb-1 max-h-[min(32rem,calc(100vh-4rem))] w-64 overflow-y-auto rounded-lg border border-gray-200 p-4 shadow-xl"
 			role="dialog"
-			aria-label="Namespace filter options"
+			aria-label="Graph filter options"
 		>
-			<h3 class="text-surface-700-300 mb-3 text-sm font-semibold">Hide Namespaces</h3>
+			<h3 class="text-surface-700-300 mb-3 text-sm font-semibold">Hide namespaces</h3>
 
 			{#if availableNamespaces.length > 0}
 				<div class="mb-3 space-y-1.5">
@@ -73,6 +82,33 @@
 			{:else}
 				<p class="text-surface-400-600 mb-3 text-xs">No namespaces detected in graph.</p>
 			{/if}
+
+			<div class="border-surface-200-800 mt-4 border-t pt-3">
+				<h3 class="text-surface-700-300 mb-3 text-sm font-semibold">Hide relations</h3>
+				{#if availableEdgeTypes.length > 0}
+					<div class="space-y-1.5">
+						{#each availableEdgeTypes as edgeType (edgeType)}
+							<label class="group flex cursor-pointer items-center gap-2">
+								<input
+									type="checkbox"
+									checked={hiddenEdgeTypes.has(edgeType)}
+									onchange={() => onToggleEdgeType(edgeType)}
+									class="checkbox h-3.5 w-3.5 cursor-pointer rounded"
+								/>
+								<span
+									class="text-sm {hiddenEdgeTypes.has(edgeType)
+										? 'text-surface-400-600 line-through'
+										: 'text-surface-700-300'} group-hover:text-surface-200-800 transition-colors"
+								>
+									{edgeType}
+								</span>
+							</label>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-surface-400-600 text-xs">No relations detected in graph.</p>
+				{/if}
+			</div>
 
 			<!-- Custom filters -->
 			<!-- {#if customFilters.length > 0}

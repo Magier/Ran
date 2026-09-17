@@ -19,8 +19,11 @@
 		restoreConsolidatedEdges,
 		reconcileCollapsedEdges,
 		hideRedundantInformationalEdges,
+		applyEdgeTypeFilters,
+		elementsForGraphLayout,
 		toCyEdge,
-		COLLAPSED_EDGE_CLASS
+		COLLAPSED_EDGE_CLASS,
+		EDGE_FILTERED_CLASS
 	} from './graph_edges';
 	import type { CyEdge } from './graph_edges';
 	import {
@@ -52,6 +55,7 @@
 		toggleNamespaceOverride,
 		type NamespaceFilterOverrides
 	} from '$lib/namespace_filter';
+	import { parseHiddenEdgeTypes, toggleHiddenEdgeType } from '$lib/edge_filter';
 	// import { hierarchyLayout } from './hierachical_layout';
 	// import 	{ K8sAttackGraphLayout } from './layout_claude';
 
@@ -76,6 +80,7 @@
 	let searchOpen = $state(false);
 
 	const FILTER_NS_KEY = '_namespaceFilterOverridesV2';
+	const FILTER_EDGE_KEY = '_hiddenEdgeTypesV1';
 
 	function loadNamespaceFilterOverrides(): NamespaceFilterOverrides {
 		if (!browser) return restoreConfiguredNamespaceFilters();
@@ -83,6 +88,9 @@
 	}
 
 	let namespaceFilterOverrides: NamespaceFilterOverrides = $state(loadNamespaceFilterOverrides());
+	let hiddenEdgeTypes: Set<string> = $state(
+		browser ? parseHiddenEdgeTypes(sessionStorage.getItem(FILTER_EDGE_KEY)) : new Set()
+	);
 
 	cytoscape.use(elk);
 	if (typeof expandCollapse === 'function') {
@@ -112,6 +120,11 @@
 		const parentIds = new Set(graph.nodes.filter((n) => n.parent).map((n) => n.parent!));
 		return [...new Set(graph.nodes.filter((n) => parentIds.has(n.id)).map((n) => n.name))];
 	});
+	const availableEdgeTypes = $derived.by(() => {
+		const graph = campaignState.graph;
+		if (!graph?.edges) return [];
+		return [...new Set(graph.edges.map((edge) => edge.name))].sort();
+	});
 	const hiddenNamespaces = $derived(
 		resolveHiddenNamespaces(
 			availableNamespaces,
@@ -138,7 +151,7 @@
 		if (!cy || cy.nodes().length === 0) return;
 		const currentPan = cy.pan();
 		const currentZoom = cy.zoom();
-		const l = cy.elements(':visible').layout(createElkLayout(positions, layoutParams));
+		const l = elementsForGraphLayout(cy).layout(createElkLayout(positions, layoutParams));
 		l.one('layoutstop', () => {
 			cy.pan(currentPan);
 			cy.zoom(currentZoom);
@@ -172,6 +185,15 @@
 				'line-color': textColor,
 				'target-arrow-color': textColor
 			});
+		}
+	});
+
+	$effect(() => {
+		if (browser) {
+			sessionStorage.setItem(FILTER_EDGE_KEY, JSON.stringify([...hiddenEdgeTypes].sort()));
+		}
+		if (cy) {
+			applyEdgeTypeFilters(cy, hiddenEdgeTypes);
 		}
 	});
 
@@ -598,6 +620,13 @@
 					// Reconcile every collapsed node explicitly; this is idempotent.
 					reconcileCollapsedEdges(cy);
 
+					// Apply visibility after reconciling new elements. The filter-state
+					// effects do not rerun when only graph data changes, so without this pass
+					// a newly discovered relation could ignore an existing relation filter.
+					// elementsForGraphLayout retains filtered relations for connectivity.
+					applyNamespaceFilters(cy, hiddenNamespaces);
+					applyEdgeTypeFilters(cy, hiddenEdgeTypes);
+
 					// Only re-layout if there are new nodes or nodes were removed
 					if (hasNewNodes || hasFewerNodes || previousNodeIds.size === 0) {
 						console.log(
@@ -620,7 +649,7 @@
 							untrack(() => layoutParams),
 							fixedPositionsForLayout(cy, manualPositions)
 						);
-						const l = cy.elements(':visible').layout(layoutOptions);
+						const l = elementsForGraphLayout(cy).layout(layoutOptions);
 
 						l.one('layoutstop', () => {
 							restoreManualPositions(cy, manualPositions);
@@ -859,6 +888,7 @@
 		// into one meta-edge so the node shows a single edge per relation to each
 		// external neighbour instead of one per hidden child.
 		consolidateCollapsedEdges(cy, node);
+		applyEdgeTypeFilters(cy, hiddenEdgeTypes);
 	}
 
 	/**
@@ -879,7 +909,11 @@
 					if (!isCollapsedChild) {
 						el.show();
 					}
-				} else if (!el.data('isMetaEdge') && !el.hasClass(COLLAPSED_EDGE_CLASS)) {
+				} else if (
+					!el.data('isMetaEdge') &&
+					!el.hasClass(COLLAPSED_EDGE_CLASS) &&
+					!el.hasClass(EDGE_FILTERED_CLASS)
+				) {
 					el.show();
 				}
 			}
@@ -941,7 +975,7 @@
 		restoreConsolidatedEdges(cy, node);
 
 		// Re-apply informational edge filtering after expanding
-		hideRedundantInformationalEdges(cy);
+		applyEdgeTypeFilters(cy, hiddenEdgeTypes);
 		applyCompromisedStyle(cy);
 	}
 
@@ -1019,21 +1053,34 @@
 			selectedObjectId = entityId;
 		}}
 	/>
-	<GraphFilter
-		{availableNamespaces}
-		{hiddenNamespaces}
-		hasOverrides={hasNamespaceFilterOverrides}
-		onToggleNamespace={(namespace) => {
-			namespaceFilterOverrides = toggleNamespaceOverride(
-				namespace,
-				campaignState.uiConfig.namespaces,
-				namespaceFilterOverrides
-			);
-		}}
-		onClearAll={() => (namespaceFilterOverrides = clearAllNamespaceFilters())}
-		onRestoreConfigured={() => (namespaceFilterOverrides = restoreConfiguredNamespaceFilters())}
-	/>
-	<GraphLayoutPlayground bind:params={layoutParams} onRelayout={runElkLayout} />
+	<div class="absolute right-3 bottom-1 z-50 flex items-end gap-1">
+		<GraphLayoutPlayground bind:params={layoutParams} onRelayout={runElkLayout} />
+		<GraphFilter
+			{availableNamespaces}
+			{hiddenNamespaces}
+			{availableEdgeTypes}
+			{hiddenEdgeTypes}
+			hasOverrides={hasNamespaceFilterOverrides}
+			onToggleNamespace={(namespace) => {
+				namespaceFilterOverrides = toggleNamespaceOverride(
+					namespace,
+					campaignState.uiConfig.namespaces,
+					namespaceFilterOverrides
+				);
+			}}
+			onToggleEdgeType={(edgeType) => {
+				hiddenEdgeTypes = toggleHiddenEdgeType(hiddenEdgeTypes, edgeType);
+			}}
+			onClearAll={() => {
+				namespaceFilterOverrides = clearAllNamespaceFilters();
+				hiddenEdgeTypes = new Set();
+			}}
+			onRestoreConfigured={() => {
+				namespaceFilterOverrides = restoreConfiguredNamespaceFilters();
+				hiddenEdgeTypes = new Set();
+			}}
+		/>
+	</div>
 </div>
 
 <GraphNodeSelector {cy} bind:isOpen={searchOpen} />

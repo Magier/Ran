@@ -81,7 +81,7 @@
 	<div class="fixed inset-0 z-40" role="presentation" onclick={() => (panelOpen = false)}></div>
 {/if}
 
-<div class="text-surface-700-300 absolute right-12 bottom-1 z-50">
+<div class="text-surface-700-300 relative">
 	<button
 		class="chip preset-outlined-surface-100-900 border-surface-400-600"
 		onclick={() => (panelOpen = !panelOpen)}
