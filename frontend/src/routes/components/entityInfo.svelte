@@ -52,7 +52,8 @@
 			})
 			.catch((error) => {
 				if (current) {
-					rawKubeconfigError = error instanceof Error ? error.message : 'Raw kubeconfig unavailable';
+					rawKubeconfigError =
+						error instanceof Error ? error.message : 'Raw kubeconfig unavailable';
 				}
 			})
 			.finally(() => {
@@ -459,7 +460,8 @@
 				{:else if rawKubeconfigError}
 					<div class="text-error-600 dark:text-error-400 mt-1 text-xs">{rawKubeconfigError}</div>
 				{:else if rawKubeconfig !== null}
-					<pre class="bg-surface-200-800 mt-1 max-h-80 overflow-auto rounded p-2 text-xs whitespace-pre-wrap">{rawKubeconfig}</pre>
+					<pre
+						class="bg-surface-200-800 mt-1 max-h-80 overflow-auto rounded p-2 text-xs whitespace-pre-wrap">{rawKubeconfig}</pre>
 				{/if}
 			</details>
 		{/if}
