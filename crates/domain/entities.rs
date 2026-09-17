@@ -1866,6 +1866,9 @@ pub struct K8sCredential {
     pub credential_type: String,
     #[serde(default)]
     pub context_name: Option<String>,
+    /// Path of the kubeconfig file this credential was extracted from.
+    #[serde(default)]
+    pub source_path: Option<String>,
     /// Explicit default namespace configured on the selected kubeconfig context.
     #[serde(default)]
     pub default_namespace: Option<String>,
@@ -1891,6 +1894,9 @@ pub struct K8sCredential {
     pub entitlements_reviewed: bool,
     /// API server URL (e.g. `https://10.96.0.1:6443`).
     pub endpoint: String,
+    /// TLS server name configured for the API server, when present.
+    #[serde(default)]
+    pub tls_server_name: Option<String>,
     /// Base64-encoded CA certificate from the kubeconfig cluster entry.
     #[serde(default)]
     pub ca_data: Option<String>,
@@ -1913,6 +1919,7 @@ impl K8sCredential {
             name: endpoint.clone(),
             credential_type: default_kubeconfig_credential_type(),
             context_name: None,
+            source_path: None,
             default_namespace: None,
             user_name: None,
             auth_method: String::new(),
@@ -1923,6 +1930,7 @@ impl K8sCredential {
             entitlements: Vec::new(),
             entitlements_reviewed: false,
             endpoint,
+            tls_server_name: None,
             ca_data: None,
             token: None,
             cert_data: None,
@@ -2499,6 +2507,9 @@ impl Merge for K8sCredential {
         if self.context_name.is_none() {
             self.context_name = incoming.context_name.clone();
         }
+        if self.source_path.is_none() {
+            self.source_path = incoming.source_path.clone();
+        }
         if self.default_namespace.is_none() {
             self.default_namespace = incoming.default_namespace.clone();
         }
@@ -2520,6 +2531,9 @@ impl Merge for K8sCredential {
         }
         if self.ca_data.is_none() {
             self.ca_data = incoming.ca_data.clone();
+        }
+        if self.tls_server_name.is_none() {
+            self.tls_server_name = incoming.tls_server_name.clone();
         }
         if self.token.is_none() {
             self.token = incoming.token.clone();

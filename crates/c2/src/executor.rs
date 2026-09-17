@@ -14,6 +14,7 @@ use crate::types::{C2Event, ExecTtp, TtpExecuted};
 use crate::types::BUILTIN_C2_ID;
 
 type Backends = Arc<RwLock<HashMap<String, Arc<dyn C2Backend>>>>;
+type K8sClients = Arc<RwLock<HashMap<String, Client>>>;
 /// Abort handles for the accept loops of currently bound listeners, keyed by
 /// port. This is what makes a listener stoppable: the `TcpListener` lives
 /// inside its task, so releasing the port means dropping that task.
@@ -42,11 +43,20 @@ struct RedirectorProcess {
 pub struct C2Handle {
     cmd_tx: mpsc::Sender<ExecTtp>,
     backends: Backends,
+    k8s_clients: K8sClients,
 }
 
 impl C2Handle {
     pub async fn register_backend(&self, id: impl Into<String>, backend: Arc<dyn C2Backend>) {
         self.backends.write().await.insert(id.into(), backend);
+    }
+
+    pub async fn register_k8s_client(&self, identity_id: String, client: Client) {
+        self.k8s_clients.write().await.insert(identity_id, client);
+    }
+
+    pub async fn has_k8s_client(&self, identity_id: &str) -> bool {
+        self.k8s_clients.read().await.contains_key(identity_id)
     }
 }
 
@@ -97,7 +107,7 @@ struct C2Executor {
     /// (`k8s/credential/<slug>`). Populated from every context in the local
     /// kubeconfig so that "Authenticate As" a non-current context actually
     /// authenticates as that identity instead of silently using the default.
-    k8s_clients: Arc<HashMap<String, Client>>,
+    k8s_clients: K8sClients,
     /// Accept loops of the listeners bound by `c2.listen`, so `c2.stop-listener`
     /// can release their ports.
     listeners: Listeners,
@@ -107,13 +117,13 @@ struct C2Executor {
 }
 
 impl C2Executor {
-    /// Select the Kubernetes client for an action's authentication identity,
-    /// falling back to the default (current-context) client when the identity
-    /// has no dedicated client (e.g. a discovered credential).
-    fn client_for(&self, auth_identity_id: Option<&str>) -> Option<&Client> {
-        auth_identity_id
-            .and_then(|id| self.k8s_clients.get(id))
-            .or(self.k8s.as_ref())
+    /// Select the exact Kubernetes client requested by an action. An unknown
+    /// identity must not silently fall back to Ran's default credentials.
+    async fn client_for(&self, auth_identity_id: Option<&str>) -> Option<Client> {
+        match auth_identity_id {
+            Some(id) => self.k8s_clients.read().await.get(id).cloned(),
+            None => self.k8s.clone(),
+        }
     }
 }
 
@@ -153,6 +163,7 @@ impl C2Manager {
     ) -> (C2Handle, C2EventBus, Self) {
         let (cmd_tx, cmd_rx) = mpsc::channel(buffer_size);
         let event_bus = C2EventBus::new(buffer_size);
+        let k8s_clients = Arc::new(RwLock::new(k8s_clients));
 
         // The builtin C2 backend routes commands through pod-exec, which needs
         // a live Kubernetes client. Without one (e.g. startup could not
@@ -174,6 +185,7 @@ impl C2Manager {
             C2Handle {
                 cmd_tx,
                 backends: backends.clone(),
+                k8s_clients: k8s_clients.clone(),
             },
             event_bus.clone(),
             Self {
@@ -182,7 +194,7 @@ impl C2Manager {
                     event_bus,
                     backends,
                     k8s,
-                    k8s_clients: Arc::new(k8s_clients),
+                    k8s_clients,
                     listeners: Listeners::default(),
                     redirectors: Redirectors::default(),
                 },
@@ -198,11 +210,13 @@ impl C2Manager {
         let (cmd_tx, cmd_rx) = mpsc::channel(buffer_size);
         let event_bus = C2EventBus::new(buffer_size);
         let backends: Backends = Arc::new(RwLock::new(backends));
+        let k8s_clients = Arc::new(RwLock::new(HashMap::new()));
 
         (
             C2Handle {
                 cmd_tx,
                 backends: backends.clone(),
+                k8s_clients: k8s_clients.clone(),
             },
             event_bus.clone(),
             Self {
@@ -211,7 +225,7 @@ impl C2Manager {
                     event_bus,
                     backends,
                     k8s: None,
-                    k8s_clients: Arc::new(HashMap::new()),
+                    k8s_clients,
                     listeners: Listeners::default(),
                     redirectors: Redirectors::default(),
                 },
@@ -272,7 +286,7 @@ impl C2Executor {
         }
 
         if let Some(namespace) = parse_kubeconfig_permission_command(trimmed) {
-            let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()) else {
+            let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()).await else {
                 let reason = "no K8s client configured".to_string();
                 return TtpExecuted {
                     id: cmd.id.clone(),
@@ -347,8 +361,9 @@ impl C2Executor {
             .auth_identity_id
             .as_deref()
             .is_some_and(|identity| identity.starts_with("k8s/credential/"))
+            && !cmd.procedure.source_kubeconfig
         {
-            let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()) else {
+            let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()).await else {
                 return failed_result(cmd, "no active Kubernetes client configured");
             };
             let result = if let Some(request) = cmd.procedure.k8s_request.as_ref() {

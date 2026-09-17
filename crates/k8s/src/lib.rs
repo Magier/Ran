@@ -86,6 +86,20 @@ impl ResolvedKubeconfig {
             user: None,
         }
     }
+
+    pub fn source_path(&self) -> Option<&std::path::Path> {
+        self.source_path.as_deref()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StaticKubeconfigCredential {
+    pub endpoint: String,
+    pub tls_server_name: Option<String>,
+    pub ca_data: Option<String>,
+    pub token: Option<String>,
+    pub cert_data: Option<String>,
+    pub key_data: Option<String>,
 }
 
 /// Resolve one context from a kubeconfig file without constructing a client.
@@ -377,6 +391,63 @@ impl Client {
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string()),
         })
+    }
+
+    /// Build a client from static authentication material captured in a
+    /// kubeconfig. Exec plugins, auth providers, and file references cannot be
+    /// replayed because their external dependencies were not captured.
+    pub async fn from_static_credential(credential: StaticKubeconfigCredential) -> Result<Self> {
+        if credential.endpoint.trim().is_empty() {
+            return Err(anyhow!(
+                "captured kubeconfig credential has no API server endpoint"
+            ));
+        }
+        let has_token = credential
+            .token
+            .as_deref()
+            .is_some_and(|value| !value.is_empty());
+        let has_cert_pair = credential
+            .cert_data
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+            && credential
+                .key_data
+                .as_deref()
+                .is_some_and(|value| !value.is_empty());
+        if !has_token && !has_cert_pair {
+            return Err(anyhow!(
+                "captured kubeconfig credential has no replayable token or client certificate and key"
+            ));
+        }
+
+        let kubeconfig: Kubeconfig =
+            serde_yaml::from_value(serde_yaml::to_value(serde_json::json!({
+                "apiVersion": "v1",
+                "kind": "Config",
+                "current-context": "captured",
+                "clusters": [{
+                    "name": "captured",
+                    "cluster": {
+                        "server": credential.endpoint,
+                        "tls-server-name": credential.tls_server_name,
+                        "certificate-authority-data": credential.ca_data,
+                    }
+                }],
+                "contexts": [{
+                    "name": "captured",
+                    "context": { "cluster": "captured", "user": "captured" }
+                }],
+                "users": [{
+                    "name": "captured",
+                    "user": {
+                        "token": credential.token,
+                        "client-certificate-data": credential.cert_data,
+                        "client-key-data": credential.key_data,
+                    }
+                }]
+            }))?)?;
+        let resolved = resolve_kubeconfig_data(kubeconfig, None)?;
+        Self::from_resolved_kubeconfig(&resolved).await
     }
 
     /// The kubeconfig context this client authenticates as, when known.
@@ -817,6 +888,24 @@ users:
         assert_eq!(resolved.tls_server_name.as_deref(), Some("10.96.0.1"));
         assert!(resolved.has_token);
         assert_eq!(resolved.auth_method, "token");
+    }
+
+    #[tokio::test]
+    async fn static_token_credential_builds_an_identity_specific_client() {
+        let client = Client::from_static_credential(StaticKubeconfigCredential {
+            endpoint: "https://127.0.0.1:6443".to_string(),
+            tls_server_name: Some("kubernetes.default.svc".to_string()),
+            ca_data: None,
+            token: Some("captured-token".to_string()),
+            cert_data: None,
+            key_data: None,
+        })
+        .await
+        .expect("static credential client");
+
+        assert_eq!(client.context_name(), Some("captured"));
+        assert!(client.kubeconfig_path().is_none());
+        assert_eq!(client.api_server, "https://127.0.0.1:6443");
     }
 
     #[test]

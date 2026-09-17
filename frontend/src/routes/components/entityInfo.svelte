@@ -28,6 +28,42 @@
 	}
 
 	let applicableTtps = $state<TTP[]>([]);
+	let rawKubeconfig = $state<string | null>(null);
+	let rawKubeconfigLoading = $state(false);
+	let rawKubeconfigError = $state<string | null>(null);
+	let rawKubeconfigPath = $derived.by(() => {
+		if (obj?.kind !== 'K8sCredential') return null;
+		const path = (obj as unknown as Record<string, unknown>).source_path;
+		return typeof path === 'string' && path.length > 0 ? path : null;
+	});
+
+	$effect(() => {
+		const path = rawKubeconfigPath;
+		rawKubeconfig = null;
+		rawKubeconfigError = null;
+		if (!path) return;
+
+		let current = true;
+		rawKubeconfigLoading = true;
+		campaignState.api
+			.GetFileContent(path)
+			.then((file) => {
+				if (current) rawKubeconfig = file.content ?? '';
+			})
+			.catch((error) => {
+				if (current) {
+					rawKubeconfigError =
+						error instanceof Error ? error.message : 'Raw kubeconfig unavailable';
+				}
+			})
+			.finally(() => {
+				if (current) rawKubeconfigLoading = false;
+			});
+
+		return () => {
+			current = false;
+		};
+	});
 
 	$effect(() => {
 		const id = objectId;
@@ -412,6 +448,22 @@
 			<div class="mb-1" class:field-changed={highlightedFields['namespace']}>
 				<span class="mr-1 font-semibold">Namespace:</span>{obj.namespace}
 			</div>
+		{/if}
+		{#if rawKubeconfigPath}
+			<details class="mb-1">
+				<summary class="cursor-pointer">
+					<span class="font-bold">Raw kubeconfig</span>
+					<span class="text-surface-500 ml-1 font-mono text-xs">{rawKubeconfigPath}</span>
+				</summary>
+				{#if rawKubeconfigLoading}
+					<div class="text-surface-500 mt-1 text-xs">Loading...</div>
+				{:else if rawKubeconfigError}
+					<div class="text-error-600 dark:text-error-400 mt-1 text-xs">{rawKubeconfigError}</div>
+				{:else if rawKubeconfig !== null}
+					<pre
+						class="bg-surface-200-800 mt-1 max-h-80 overflow-auto rounded p-2 text-xs whitespace-pre-wrap">{rawKubeconfig}</pre>
+				{/if}
+			</details>
 		{/if}
 		{#if filesystemTtp || ttpsForField('mounts').length > 0 || obj.files?.length || obj.directories?.length || obj.mounts?.length}
 			<details class="mb-1">

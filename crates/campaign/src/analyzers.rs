@@ -210,6 +210,80 @@ impl InferenceRule for ClusterIdentityAnalyzer {
     }
 }
 
+/// Reconcile the cluster parsed from a captured kubeconfig with the cluster
+/// that contains the system which read that file. This uses an explicit
+/// `source uses credential authenticates-to cluster` provenance chain and
+/// only acts when both the source and its cluster ancestry are unique.
+pub struct KubeconfigSourceClusterAnalyzer;
+
+impl InferenceRule for KubeconfigSourceClusterAnalyzer {
+    fn name(&self) -> &'static str {
+        "kubeconfig.source-cluster"
+    }
+
+    fn infer(&self, campaign: &Campaign, update: &FactsUpdate) -> FactsUpdate {
+        let view = PendingView::new(campaign, update);
+        let relations = view.relations();
+        let mut inferred = FactsUpdate::default();
+
+        for entity in &update.new_entities {
+            let Some(credential) = entity.as_any().downcast_ref::<K8sCredential>() else {
+                continue;
+            };
+            let credential_id = credential.entity_id();
+            let sources = relations
+                .iter()
+                .filter(|relation| relation.name == "uses" && relation.target_id == credential_id.0)
+                .map(|relation| EntityId::new(&relation.source_id))
+                .collect::<Vec<_>>();
+            let destinations = relations
+                .iter()
+                .filter(|relation| {
+                    relation.name == "authenticates-to" && relation.source_id == credential_id.0
+                })
+                .map(|relation| EntityId::new(&relation.target_id))
+                .collect::<Vec<_>>();
+            let ([source_id], [parsed_cluster_id]) = (sources.as_slice(), destinations.as_slice())
+            else {
+                continue;
+            };
+
+            let mut clusters = Vec::new();
+            let mut queue = std::collections::VecDeque::from([source_id.clone()]);
+            let mut visited = std::collections::HashSet::new();
+            while let Some(child_id) = queue.pop_front() {
+                if !visited.insert(child_id.clone()) {
+                    continue;
+                }
+                for relation in relations.iter().filter(|relation| {
+                    matches!(relation.name.as_str(), "contains" | "owns")
+                        && relation.target_id == child_id.0
+                }) {
+                    let parent_id = EntityId::new(&relation.source_id);
+                    if view.find::<K8sCluster>(&parent_id).is_some() {
+                        if !clusters.contains(&parent_id) {
+                            clusters.push(parent_id);
+                        }
+                    } else {
+                        queue.push_back(parent_id);
+                    }
+                }
+            }
+
+            let [source_cluster_id] = clusters.as_slice() else {
+                continue;
+            };
+            if source_cluster_id != parsed_cluster_id {
+                inferred
+                    .entity_aliases
+                    .insert((parsed_cluster_id.clone(), source_cluster_id.clone()));
+            }
+        }
+
+        inferred
+    }
+}
+
 fn clusters_identify_same_endpoint(
     known: &K8sCluster,
     incoming: &K8sCluster,
@@ -2418,6 +2492,7 @@ impl InferenceRule for InClusterPodAnalyzer {
 pub fn default_rules() -> Vec<Box<dyn InferenceRule>> {
     vec![
         Box::new(ClusterIdentityAnalyzer),
+        Box::new(KubeconfigSourceClusterAnalyzer),
         Box::new(NamespaceClusterAnalyzer),
         Box::new(NodeClusterAnalyzer),
         Box::new(PodNamespaceAnalyzer),
@@ -2511,6 +2586,91 @@ mod tests {
         assert_eq!(cluster.name, "kind-security-lab");
         assert_eq!(cluster.server.as_deref(), Some(kubeconfig_server));
         assert_eq!(cluster.tls_server_name.as_deref(), Some("10.96.0.1"));
+    }
+
+    #[test]
+    fn kubeconfig_read_by_pod_reuses_that_pods_cluster() {
+        let campaign = test_campaign();
+        let source_cluster_id = campaign
+            .entities
+            .values::<K8sCluster>()
+            .next()
+            .unwrap()
+            .entity_id();
+        let source = Pod::new("reader", "default");
+        let source_id = source.entity_id();
+        let credential = K8sCredential::new("https://172.16.0.2:6443")
+            .with_name("kubelet.conf (default-context)");
+        let credential_id = credential.entity_id();
+        let parsed_cluster = K8sCluster::new("default-cluster");
+        let parsed_cluster_id = parsed_cluster.entity_id();
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(source));
+        update.new_entities.push(Box::new(credential));
+        update.new_entities.push(Box::new(parsed_cluster));
+        update.new_relations.push(Box::new(Contains::new(
+            source_cluster_id.0.clone(),
+            source_id.0.clone(),
+        )));
+        update
+            .new_relations
+            .push(Box::new(Uses::new(source_id.0, credential_id.0.clone())));
+        update.new_relations.push(Box::new(AuthenticatesTo::new(
+            credential_id.0,
+            parsed_cluster_id.0.clone(),
+        )));
+
+        let inferred = KubeconfigSourceClusterAnalyzer.infer(&campaign, &update);
+
+        assert!(inferred
+            .entity_aliases
+            .contains(&(parsed_cluster_id, source_cluster_id)));
+    }
+
+    #[test]
+    fn kubeconfig_source_cluster_reconciliation_rejects_ambiguous_ancestry() {
+        let campaign = test_campaign();
+        let source = Pod::new("reader", "default");
+        let source_id = source.entity_id();
+        let credential = K8sCredential::new("https://172.16.0.2:6443")
+            .with_name("kubelet.conf (default-context)");
+        let credential_id = credential.entity_id();
+        let parsed_cluster = K8sCluster::new("default-cluster");
+        let parsed_cluster_id = parsed_cluster.entity_id();
+        let other_cluster = K8sCluster::new("other-cluster");
+        let other_cluster_id = other_cluster.entity_id();
+        let source_cluster_id = campaign
+            .entities
+            .values::<K8sCluster>()
+            .next()
+            .unwrap()
+            .entity_id();
+
+        let mut update = FactsUpdate::default();
+        update.new_entities.push(Box::new(source));
+        update.new_entities.push(Box::new(credential));
+        update.new_entities.push(Box::new(parsed_cluster));
+        update.new_entities.push(Box::new(other_cluster));
+        update.new_relations.push(Box::new(Contains::new(
+            source_cluster_id.0,
+            source_id.0.clone(),
+        )));
+        update.new_relations.push(Box::new(Contains::new(
+            other_cluster_id.0,
+            source_id.0.clone(),
+        )));
+        update
+            .new_relations
+            .push(Box::new(Uses::new(source_id.0, credential_id.0.clone())));
+        update.new_relations.push(Box::new(AuthenticatesTo::new(
+            credential_id.0,
+            parsed_cluster_id.0,
+        )));
+
+        let inferred = KubeconfigSourceClusterAnalyzer.infer(&campaign, &update);
+
+        assert!(inferred.entity_aliases.is_empty());
     }
 
     #[test]

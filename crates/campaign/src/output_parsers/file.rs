@@ -87,12 +87,18 @@ fn is_gcp_service_account_key(content: &str) -> bool {
 /// This is the single, canonical mapping from a resolved context to a
 /// credential entity, shared by the output parser and by the app-side
 /// per-context client registry so that both derive the **same** entity id for
-/// the same context. The credential is named by its context (a raw server URL
-/// is an unfriendly display name / id), falling back to the user name, then the
+/// the same context. When known, the source filename is combined with the
+/// context so common names such as `default` do not collide across different
+/// files. Without a path, the context falls back to the user name and then
 /// endpoint. `active` is left `false` for the caller to set.
-pub fn credential_from_resolved(resolved: &k8s::ResolvedKubeconfig) -> K8sCredential {
+pub fn credential_from_resolved(
+    resolved: &k8s::ResolvedKubeconfig,
+    source_path: Option<&str>,
+) -> K8sCredential {
+    let source_path = source_path.map(str::trim).filter(|path| !path.is_empty());
     let mut cred = K8sCredential::new(resolved.server.clone().unwrap_or_default());
     cred.context_name = Some(resolved.context_name.clone());
+    cred.source_path = source_path.map(str::to_string);
     cred.default_namespace = resolved.default_namespace.clone();
     cred.user_name = resolved.user_name.clone();
     cred.auth_method = resolved.auth_method.clone();
@@ -103,13 +109,24 @@ pub fn credential_from_resolved(resolved: &k8s::ResolvedKubeconfig) -> K8sCreden
     cred.token = resolved.token.clone();
     cred.cert_data = resolved.cert_data.clone();
     cred.key_data = resolved.key_data.clone();
+    cred.tls_server_name = resolved.tls_server_name.clone();
 
-    if let Some(label) = non_empty(&resolved.context_name)
+    let identity = non_empty(&resolved.context_name)
         .or_else(|| resolved.user_name.as_deref().and_then(non_empty))
-    {
-        cred.name = label.to_string();
+        .unwrap_or(&cred.endpoint);
+    if let Some(file_name) = source_path.and_then(kubeconfig_file_name) {
+        cred.name = format!("{file_name} ({identity})");
+    } else if !identity.is_empty() {
+        cred.name = identity.to_string();
     }
     cred
+}
+
+fn kubeconfig_file_name(path: &str) -> Option<&str> {
+    std::path::Path::new(path.trim())
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(non_empty)
 }
 
 fn non_empty(value: &str) -> Option<&str> {
@@ -132,7 +149,16 @@ fn non_empty(value: &str) -> Option<&str> {
 /// - `SuccessWithFacts` - credential and cluster facts emitted
 /// - `KnownFailure` - empty content
 /// - `UnknownFormat` - non-empty content that fails YAML parsing or has no cluster entry
+#[cfg(test)]
 pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
+    parse_file_kubeconfig_from_path(stdout, source_id, None)
+}
+
+pub(super) fn parse_file_kubeconfig_from_path(
+    stdout: &str,
+    source_id: &str,
+    source_path: Option<&str>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout for file:kubeconfig".to_string());
     }
@@ -151,7 +177,7 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
     let mut emitted_namespaces = HashSet::new();
     let mut labels = Vec::new();
     for resolved in &contexts {
-        let credential = credential_from_resolved(resolved);
+        let credential = credential_from_resolved(resolved, source_path);
         let credential_id = credential.entity_id().0;
         labels.push(credential.entity_name().to_string());
         facts.new_entities.push(Box::new(credential));
@@ -226,7 +252,16 @@ pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutp
 /// - `SuccessWithFacts` - one credential per context, clusters, and relations
 /// - `KnownFailure` - empty content
 /// - `UnknownFormat` - non-empty content with no resolvable context
+#[cfg(test)]
 pub(super) fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
+    parse_local_kubeconfig_from_path(stdout, source_id, None)
+}
+
+pub(super) fn parse_local_kubeconfig_from_path(
+    stdout: &str,
+    source_id: &str,
+    source_path: Option<&str>,
+) -> ParserOutput {
     if stdout.trim().is_empty() {
         return ParserOutput::KnownFailure("empty stdout for file:local-kubeconfig".to_string());
     }
@@ -246,7 +281,7 @@ pub(super) fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOut
     let mut credential_labels: Vec<String> = Vec::new();
 
     for resolved in &contexts {
-        let mut cred = credential_from_resolved(resolved);
+        let mut cred = credential_from_resolved(resolved, source_path);
         cred.active = resolved.is_current_context;
         let cred_id = cred.entity_id().0.clone();
         credential_labels.push(format!(
@@ -324,7 +359,7 @@ pub(super) fn parse_file_content(
         // Delegate to the kubeconfig parser - it emits the credential entity.
         // The file path is tracked by the caller in parse_output_effect via
         // apply_system_update before calling us.
-        parse_file_kubeconfig(stdout, source_id)
+        parse_file_kubeconfig_from_path(stdout, source_id, Some(path))
     } else if is_k8s_service_account_token(stdout) {
         let mut parser_args = args.clone();
         parser_args.remove("TARGET_ID");
@@ -603,10 +638,20 @@ users:
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts for kubeconfig content");
         };
-        assert!(facts
+        let credential = facts
             .new_entities
             .iter()
-            .any(|entity| entity.as_any().downcast_ref::<K8sCredential>().is_some()));
+            .find_map(|entity| entity.as_any().downcast_ref::<K8sCredential>())
+            .expect("credential entity");
+        assert_eq!(credential.entity_name(), "admin.conf (test-context)");
+        assert_eq!(
+            credential.entity_id().0,
+            "k8s/credential/admin-conf-test-context"
+        );
+        assert_eq!(
+            credential.source_path.as_deref(),
+            Some("/etc/kubernetes/admin.conf")
+        );
         assert!(facts
             .new_entities
             .iter()

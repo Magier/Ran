@@ -263,16 +263,99 @@ impl Campaign {
 
     /// Whether `credential_id` is a local kubeconfig identity - i.e. contained
     /// by the operator host. Every context read from Ran's own kubeconfig is
-    /// contained by the operator host and has a backing per-context client, so
-    /// these identities can be selected via Authenticate As even when they are
-    /// not the current (active) context. Credentials discovered elsewhere (e.g.
-    /// on a node) are linked by `Uses`, not `Contains`, and are excluded.
+    /// contained by the operator host. Credentials discovered elsewhere (for
+    /// example on a node) are linked by `Uses`, not `Contains`. Static captured
+    /// credentials may still be executable from their embedded token or
+    /// certificate material.
     pub fn is_operator_host_credential(&self, credential_id: &EntityId) -> bool {
         let host = EntityId::new("system/operator-host");
         self.graph
             .targets_of(&host, "contains")
             .iter()
             .any(|id| id.0 == credential_id.0)
+    }
+
+    /// Resolve a kubeconfig captured from another system back to the unique
+    /// source that read it. The returned paths are the filesystem root to
+    /// enter and the kubeconfig path as seen inside that root.
+    pub(crate) fn source_kubeconfig_exec_context(
+        &self,
+        credential_id: &EntityId,
+    ) -> Result<(String, String), String> {
+        let credential = self
+            .entities
+            .find::<K8sCredential>(credential_id)
+            .ok_or_else(|| format!("K8sCredential '{}' was not found", credential_id.0))?;
+        let source_path = credential
+            .source_path
+            .as_deref()
+            .filter(|path| path.starts_with('/'))
+            .ok_or_else(|| {
+                format!(
+                    "K8sCredential '{}' has no absolute source path",
+                    credential_id.0
+                )
+            })?;
+
+        let sources = self
+            .graph
+            .incoming(credential_id)
+            .into_iter()
+            .filter(|(_, relation)| relation.relation_name == "uses")
+            .map(|(source, _)| source.clone())
+            .collect::<Vec<_>>();
+        let [source_id] = sources.as_slice() else {
+            return Err(format!(
+                "K8sCredential '{}' must have exactly one source system",
+                credential_id.0
+            ));
+        };
+        self.resolve_exec_channel_inner(&source_id.0)?;
+
+        let source = self
+            .entities
+            .find::<Pod>(source_id)
+            .ok_or_else(|| format!("kubeconfig source '{}' is not a Pod", source_id.0))?;
+        let mut roots = source
+            .host_path_mount_points()
+            .into_iter()
+            .filter(|root| {
+                source_path == *root
+                    || source_path
+                        .strip_prefix(*root)
+                        .is_some_and(|suffix| suffix.starts_with('/'))
+            })
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+
+        if let Some(first_component) = source_path
+            .strip_prefix('/')
+            .and_then(|path| path.split('/').next())
+            .filter(|component| !component.is_empty())
+        {
+            let candidate = format!("/{first_component}");
+            let marker = format!("{candidate}/.rootfs-release");
+            if source.system.files.iter().any(|path| path == &marker) {
+                roots.push(candidate);
+            }
+        }
+        roots.sort_by_key(|root| std::cmp::Reverse(root.len()));
+        roots.dedup();
+        let root = roots.first().cloned().unwrap_or_else(|| "/".to_string());
+        let inside_path = if root == "/" {
+            source_path.to_string()
+        } else {
+            source_path
+                .strip_prefix(&root)
+                .filter(|path| path.starts_with('/'))
+                .ok_or_else(|| format!("source path '{source_path}' is outside root '{root}'"))?
+                .to_string()
+        };
+        Ok((root, inside_path))
+    }
+
+    pub(crate) fn has_source_kubeconfig_exec_context(&self, credential_id: &EntityId) -> bool {
+        self.source_kubeconfig_exec_context(credential_id).is_ok()
     }
 
     pub fn relation_provenance(

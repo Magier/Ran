@@ -37,6 +37,21 @@ pub fn ttp_uses_k8s_auth(ttp: &armory::Ttp) -> bool {
     ttp.procedures.iter().any(procedure_uses_k8s_auth)
 }
 
+pub fn credential_has_replayable_auth(credential: &K8sCredential) -> bool {
+    credential
+        .token
+        .as_deref()
+        .is_some_and(|token| !token.trim().is_empty())
+        || (credential
+            .cert_data
+            .as_deref()
+            .is_some_and(|cert| !cert.trim().is_empty())
+            && credential
+                .key_data
+                .as_deref()
+                .is_some_and(|key| !key.trim().is_empty()))
+}
+
 /// A local kubectl procedure without an authentication marker uses the Ran
 /// host's configured/default kubeconfig. It therefore does not need an
 /// identity entity to be applicable.
@@ -110,7 +125,10 @@ pub fn eligible_auth_identities(
             .entities
             .values::<K8sCredential>()
             .filter(|credential| {
-                credential.active || campaign.is_operator_host_credential(&credential.entity_id())
+                credential.active
+                    || campaign.is_operator_host_credential(&credential.entity_id())
+                    || credential_has_replayable_auth(credential)
+                    || campaign.has_source_kubeconfig_exec_context(&credential.entity_id())
             })
             .filter(|credential| {
                 identity_target != Some("K8sCredential") || credential.entity_id().0 == target_id
@@ -633,17 +651,17 @@ pub fn ttp_related_satisfied(
 mod tests {
     use armory::Ttp;
     use ran_domain::{
-        C2Server, K8sCluster, K8sCredential, K8sNode, Listener, RbacPermission, Redirector,
-        ServiceAccount, SessionInfo, SessionStatus,
+        C2Server, Entity, K8sCluster, K8sCredential, K8sNode, Listener, Pod, RbacPermission,
+        Redirector, ServiceAccount, SessionInfo, SessionStatus, Uses,
     };
     use serde_json::json;
 
     use ran_domain::AccessLevel;
 
     use super::{
-        resolve_target_context, ttp_access_level_satisfied, ttp_applicable_for_target,
-        ttp_exists_satisfied, ttp_has_listener_satisfied, ttp_operator_tool_satisfied,
-        ttp_rbac_satisfied,
+        eligible_auth_identities, resolve_target_context, ttp_access_level_satisfied,
+        ttp_applicable_for_target, ttp_exists_satisfied, ttp_has_listener_satisfied,
+        ttp_operator_tool_satisfied, ttp_rbac_satisfied,
     };
 
     fn ttp_with_rbac(verb: &str, resource_type: &str) -> Ttp {
@@ -1015,7 +1033,7 @@ mod tests {
         assert!(!kind_matches_target_kind("Pod", "Node", true));
     }
 
-    use ran_domain::{Entity as _, JwToken, Pod, ServiceAccountToken};
+    use ran_domain::{JwToken, ServiceAccountToken};
 
     #[test]
     fn target_context_none_for_unknown_entity() {
@@ -1155,12 +1173,53 @@ mod tests {
         let tc = resolve_target_context(&c, &id).expect("credential should resolve");
         assert!(!ttp_applicable_for_target(&ttp, &c, &tc));
 
-        credential.active = true;
+        credential.token = Some("captured-token".to_string());
+        credential.has_token = true;
         c.entities
             .get_mut::<K8sCredential>()
             .insert(ran_domain::EntityId::new(&id), credential);
         let tc = resolve_target_context(&c, &id).expect("credential should resolve");
         assert!(ttp_applicable_for_target(&ttp, &c, &tc));
+    }
+
+    #[test]
+    fn captured_kubeconfig_offers_the_repository_permission_review_action() {
+        let mut campaign = empty_campaign();
+        let mut source = Pod::new("reader", "default");
+        source.system.sessions.push(SessionInfo {
+            id: "reader-shell".to_string(),
+            kind: "exec".to_string(),
+            port: None,
+            status: SessionStatus::Active,
+        });
+        let source_id = source.entity_id();
+        campaign.entities.insert_typed(source);
+
+        let mut credential =
+            K8sCredential::new("https://cluster.example").with_name("super-admin.conf (default)");
+        credential.source_path = Some("/host/etc/kubernetes/super-admin.conf".to_string());
+        let credential_id = credential.entity_id().0;
+        campaign.entities.insert_typed(credential);
+        campaign.insert_relation(&Uses::new(source_id.0, credential_id.clone()));
+
+        let armory_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory =
+            armory::Armory::load_from_dir(armory_path).expect("repository armory should load");
+        let ttp = armory
+            .get_ttp("check-kubeconfig-permissions")
+            .expect("permission review action");
+        let target =
+            resolve_target_context(&campaign, &credential_id).expect("credential target context");
+
+        assert!(ttp_applicable_for_target(ttp, &campaign, &target));
+        assert_eq!(
+            eligible_auth_identities(ttp, &campaign, &credential_id)
+                .into_iter()
+                .map(|identity| identity.id)
+                .collect::<Vec<_>>(),
+            vec![credential_id]
+        );
     }
 
     #[test]

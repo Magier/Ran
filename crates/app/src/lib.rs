@@ -24,7 +24,10 @@ use campaign::{
     InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
 };
 use config::{NamespaceFilter, SeedKnowledgeConfig, TtpConfig};
-use k8s::{kubeconfig_path_or_err, resolve_kubeconfig, Client, ResolvedKubeconfig};
+use k8s::{
+    kubeconfig_path_or_err, resolve_kubeconfig, Client, ResolvedKubeconfig,
+    StaticKubeconfigCredential,
+};
 use ran_domain::{BinaryPresence, Entity, K8sCluster, K8sCredential, Pod, RelationSummary};
 
 fn namespace_ui_config(filter: &NamespaceFilter) -> NamespaceUiConfig {
@@ -254,6 +257,68 @@ impl AppState {
 
         Ok(())
     }
+
+    async fn register_captured_k8s_client(
+        &self,
+        cmd: &ExecuteActionRequest,
+    ) -> Result<(), ExecuteActionError> {
+        let Some(ttp) = self.armory.get_ttp(&cmd.action_id) else {
+            return Ok(());
+        };
+        if !campaign::ttp_applicability::ttp_uses_k8s_auth(ttp) {
+            return Ok(());
+        }
+
+        let identity_id = cmd
+            .auth_identity_id
+            .as_deref()
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or(&cmd.target_id);
+        if self.c2.has_k8s_client(identity_id).await {
+            return Ok(());
+        }
+        let credential = {
+            let campaign = self.campaign.read().map_err(|_| {
+                ExecuteActionError::InvariantViolation("campaign lock poisoned".to_string())
+            })?;
+            campaign
+                .get_entities()
+                .into_iter()
+                .find_map(|entity| match entity {
+                    campaign::CampaignEntityRef::K8sCredential(credential)
+                        if credential.entity_id().0 == identity_id
+                            && campaign::ttp_applicability::credential_has_replayable_auth(
+                                credential,
+                            ) =>
+                    {
+                        Some(credential.clone())
+                    }
+                    _ => None,
+                })
+        };
+        let Some(credential) = credential else {
+            return Ok(());
+        };
+
+        let client = Client::from_static_credential(StaticKubeconfigCredential {
+            endpoint: credential.endpoint,
+            tls_server_name: credential.tls_server_name,
+            ca_data: credential.ca_data,
+            token: credential.token,
+            cert_data: credential.cert_data,
+            key_data: credential.key_data,
+        })
+        .await
+        .map_err(|error| {
+            ExecuteActionError::InvalidInput(format!(
+                "cannot use captured kubeconfig credential '{identity_id}': {error:#}"
+            ))
+        })?;
+        self.c2
+            .register_k8s_client(identity_id.to_string(), client)
+            .await;
+        Ok(())
+    }
 }
 
 /// Lightweight summary of a plan file on disk, listed by the web UI so the
@@ -431,6 +496,10 @@ impl ApiService for AppState {
         cmd: ExecuteActionRequest,
     ) -> Result<ExecuteActionResult, ApiError> {
         if let Err(error) = self.stage_live_initial_access_target(&cmd).await {
+            return Err(self.record_preparation_error(&cmd, error));
+        }
+
+        if let Err(error) = self.register_captured_k8s_client(&cmd).await {
             return Err(self.record_preparation_error(&cmd, error));
         }
 
@@ -1149,6 +1218,9 @@ fn credential_from_resolved(
     let mut credential =
         K8sCredential::new(resolved.server.clone().unwrap_or_default()).with_name(name);
     credential.context_name = Some(resolved.context_name.clone());
+    credential.source_path = resolved
+        .source_path()
+        .map(|path| path.display().to_string());
     credential.default_namespace = resolved.default_namespace.clone();
     credential.user_name = resolved.user_name.clone();
     credential.auth_method = resolved.auth_method.clone();
@@ -1159,6 +1231,7 @@ fn credential_from_resolved(
     credential.token = resolved.token.clone();
     credential.cert_data = resolved.cert_data.clone();
     credential.key_data = resolved.key_data.clone();
+    credential.tls_server_name = resolved.tls_server_name.clone();
     credential
 }
 
@@ -1383,8 +1456,15 @@ async fn build_k8s_client_registry(
     for resolved in &contexts {
         match Client::from_resolved_kubeconfig(resolved).await {
             Ok(client) => {
-                let id = campaign::credential_from_resolved(resolved).entity_id().0;
-                registry.insert(id, client);
+                let context_id = campaign::credential_from_resolved(resolved, None)
+                    .entity_id()
+                    .0;
+                let file_id =
+                    campaign::credential_from_resolved(resolved, kubeconfig_path.to_str())
+                        .entity_id()
+                        .0;
+                registry.insert(context_id, client.clone());
+                registry.insert(file_id, client);
             }
             Err(error) => {
                 warn!(
