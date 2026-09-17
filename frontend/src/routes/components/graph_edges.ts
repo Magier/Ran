@@ -45,6 +45,7 @@ export function toCyEdge(e: Edge): CyEdge {
  * 'namespace-filtered' class plays for the namespace filter.
  */
 export const COLLAPSED_EDGE_CLASS = 'collapsed-consolidated';
+export const EDGE_FILTERED_CLASS = 'edge-type-filtered';
 
 /**
  * After a compound node is collapsed, the expand-collapse plugin re-points every
@@ -97,8 +98,21 @@ export function consolidateCollapsedEdges(cy: cytoscape.Core, node: cytoscape.No
 			e.hide();
 		});
 
+		const edgeTypes = edges.flatMap((edge) => {
+			const nestedTypes = edge.data('edgeTypes');
+			return Array.isArray(nestedTypes) ? nestedTypes : [edge.data('name')];
+		});
+		const edgeTypeInformational = Object.assign(
+			{},
+			...edges.map((edge) => {
+				const nestedInfo = edge.data('edgeTypeInformational');
+				if (nestedInfo && typeof nestedInfo === 'object') return nestedInfo;
+				return { [edge.data('name')]: Boolean(edge.data('informational')) };
+			})
+		);
+
 		// Build a descriptive label from unique edge names
-		const uniqueNames = [...new Set(edges.map((e) => e.data('name')))].filter(Boolean);
+		const uniqueNames = [...new Set(edgeTypes)].filter(Boolean);
 		const label = uniqueNames.length === 1 ? uniqueNames[0] : `${edges.length} relations`;
 
 		// Inherit the informational styling (subdued gray/dotted) only when every
@@ -114,6 +128,8 @@ export function consolidateCollapsedEdges(cy: cytoscape.Core, node: cytoscape.No
 				target: targetId,
 				name: label,
 				informational,
+				edgeTypes,
+				edgeTypeInformational,
 				collapsedEdges: edges.map((e) => e.id()),
 				isMetaEdge: true
 			}
@@ -178,7 +194,12 @@ export function hideRedundantInformationalEdges(cy: cytoscape.Core) {
 	const pairEdgeNames = new Map<string, Set<string>>();
 
 	cy.edges().forEach((e) => {
-		if (e.hasClass('namespace-filtered') || e.hasClass(COLLAPSED_EDGE_CLASS)) return;
+		if (
+			e.hasClass('namespace-filtered') ||
+			e.hasClass(EDGE_FILTERED_CLASS) ||
+			e.hasClass(COLLAPSED_EDGE_CLASS)
+		)
+			return;
 		const pair = `${e.source().id()}->${e.target().id()}`;
 		if (!e.data('informational')) {
 			hasActionableEdge.add(pair);
@@ -191,7 +212,7 @@ export function hideRedundantInformationalEdges(cy: cytoscape.Core) {
 	// Hide informational edges whose directed pair has an actionable edge.
 	// For "runs-on", hide when ANY other edge exists for the same pair.
 	cy.edges('[?informational]').forEach((e) => {
-		if (e.hasClass('namespace-filtered')) return; // don't touch namespace-filtered edges
+		if (e.hasClass('namespace-filtered') || e.hasClass(EDGE_FILTERED_CLASS)) return;
 		// Edges hidden by a compound collapse are represented by a meta-edge; leave
 		// them hidden so collapsing doesn't get undone by this pass.
 		if (e.hasClass(COLLAPSED_EDGE_CLASS)) return;
@@ -212,4 +233,68 @@ export function hideRedundantInformationalEdges(cy: cytoscape.Core) {
 			e.show();
 		}
 	});
+}
+
+/** Apply relation-type visibility without disturbing namespace or collapse hiding. */
+export function applyEdgeTypeFilters(cy: cytoscape.Core, hiddenEdgeTypes: ReadonlySet<string>) {
+	cy.edges(`.${EDGE_FILTERED_CLASS}`).forEach((edge) => {
+		edge.removeClass(EDGE_FILTERED_CLASS);
+		if (!edge.hasClass('namespace-filtered') && !edge.hasClass(COLLAPSED_EDGE_CLASS)) {
+			edge.show();
+		}
+	});
+
+	cy.edges('[!isMetaEdge]').forEach((edge) => {
+		if (hiddenEdgeTypes.has(edge.data('name'))) {
+			edge.addClass(EDGE_FILTERED_CLASS);
+			edge.hide();
+		}
+	});
+
+	cy.edges('[?isMetaEdge]').forEach((edge) => {
+		const edgeTypes: string[] = Array.isArray(edge.data('edgeTypes'))
+			? edge.data('edgeTypes')
+			: [edge.data('name')];
+		const visibleTypes = edgeTypes.filter((edgeType) => !hiddenEdgeTypes.has(edgeType));
+
+		if (visibleTypes.length === 0) {
+			edge.addClass(EDGE_FILTERED_CLASS);
+			edge.hide();
+			return;
+		}
+
+		const uniqueVisibleTypes = [...new Set(visibleTypes)];
+		edge.data(
+			'name',
+			uniqueVisibleTypes.length === 1 ? uniqueVisibleTypes[0] : `${visibleTypes.length} relations`
+		);
+		const typeInfo: Record<string, boolean> = edge.data('edgeTypeInformational') ?? {};
+		edge.data(
+			'informational',
+			uniqueVisibleTypes.every((edgeType) => Boolean(typeInfo[edgeType]))
+		);
+	});
+
+	hideRedundantInformationalEdges(cy);
+}
+
+/**
+ * Build the layout collection from visible nodes while retaining filtered
+ * relations between them. Relation toggles are visual preferences and should
+ * not disconnect the layout graph or change node placement.
+ */
+export function elementsForGraphLayout(cy: cytoscape.Core): cytoscape.CollectionReturnValue {
+	const visibleElements = cy.elements(':visible');
+	const visibleNodeIds = new Set(cy.nodes(':visible').map((node) => node.id()));
+	const filteredEdgesBetweenVisibleNodes = cy
+		.edges(`.${EDGE_FILTERED_CLASS}`)
+		.filter(
+			(edge) =>
+				!edge.hasClass('namespace-filtered') &&
+				!edge.hasClass(COLLAPSED_EDGE_CLASS) &&
+				visibleNodeIds.has(edge.source().id()) &&
+				visibleNodeIds.has(edge.target().id())
+		);
+
+	return visibleElements.union(filteredEdgesBetweenVisibleNodes);
 }
