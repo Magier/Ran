@@ -2,6 +2,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { RanAPI } from './ran_api';
 
 describe('RanAPI event subscriptions', () => {
+	it('notifies listeners when the backend connection changes state', () => {
+		const api = new RanAPI();
+		const statefulApi = api as unknown as {
+			setConnectionState(state: 'connecting' | 'connected' | 'disconnected'): void;
+		};
+		const listener = vi.fn();
+		const unsubscribe = api.onConnectionStateChange(listener);
+
+		expect(listener).toHaveBeenLastCalledWith('connecting');
+
+		statefulApi.setConnectionState('disconnected');
+		statefulApi.setConnectionState('connected');
+
+		expect(listener.mock.calls).toEqual([['connecting'], ['disconnected'], ['connected']]);
+
+		unsubscribe();
+		statefulApi.setConnectionState('disconnected');
+		expect(listener).toHaveBeenCalledTimes(3);
+	});
+
 	it('keeps independent handlers for the same event type', () => {
 		const api = new RanAPI();
 		const first = vi.fn();

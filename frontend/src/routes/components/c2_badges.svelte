@@ -24,9 +24,9 @@
 
 	type PlacedGroup = C2BadgeGroup & { x: number; y: number; scale: number };
 
-	// Gap between the node's right edge and the chip stack, in graph units. Like
-	// every other chip dimension it is authored at zoom 1 and scaled from there.
-	const NODE_GAP = 4;
+	// Keep the chip stack flush with the C2 node so it reads as an attached
+	// listener control, not a nearby graph entity.
+	const NODE_GAP = 0;
 
 	let { cy, nodes, mode = 'port', onselect }: C2BadgesProps = $props();
 

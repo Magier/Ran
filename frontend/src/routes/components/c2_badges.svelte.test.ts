@@ -79,7 +79,7 @@ describe('C2Badges', () => {
 		});
 
 		const chips = container.querySelector<HTMLElement>('.c2-badges');
-		expect(chips?.style.left).toBe('119px');
+		expect(chips?.style.left).toBe('115px');
 		expect(chips?.style.top).toBe('45px');
 		expect(chips?.style.scale).toBe('1');
 	});
@@ -92,8 +92,8 @@ describe('C2Badges', () => {
 
 		const chips = container.querySelector<HTMLElement>('.c2-badges');
 		expect(chips?.style.scale).toBe('2');
-		// Node edge (100 + 60/2) plus the gap, itself scaled.
-		expect(chips?.style.left).toBe('138px');
+		// The chip stack starts exactly at the rendered node edge.
+		expect(chips?.style.left).toBe('130px');
 		expect(chips?.style.top).toBe('30px');
 	});
 
