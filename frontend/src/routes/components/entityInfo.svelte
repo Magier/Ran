@@ -12,10 +12,11 @@
 	type ObjectInfoProps = {
 		objectId: string;
 		sendAction?: (ttp: TTP, args: any) => void;
+		onclose?: () => void;
 		class: string | undefined;
 	};
 
-	let { objectId, sendAction, class: className }: ObjectInfoProps = $props();
+	let { objectId, sendAction, onclose, class: className }: ObjectInfoProps = $props();
 
 	const campaignState = getCampaignState();
 	const obj = $derived(campaignState.getObjectById(objectId));
@@ -366,9 +367,18 @@
 <!-- specify data-popup attr. for consistent styling via skeleton-ui -->
 <!-- class="card variant-filled-secondary details-popup bg-surface-50-950 z-100 flex w-96 flex-col overflow-auto p-4 {selectedNode  -->
 <div
-	class="{className} border-surface-600 bg-surface-100-900 pointer-events-auto w-full overflow-auto rounded-lg border p-4 text-xs shadow-xl md:text-sm"
+	class="{className} border-surface-600 bg-surface-100-900 pointer-events-auto relative w-full overflow-auto rounded-lg border p-4 text-xs shadow-xl md:text-sm"
 >
 	{#if obj}
+		<button
+			type="button"
+			class="text-surface-500 hover:bg-surface-300 dark:hover:bg-surface-700 dark:hover:text-surface-200 absolute top-2 right-2 cursor-pointer rounded p-1 transition-colors"
+			title="Close entity info"
+			aria-label="Close entity info"
+			onclick={onclose}
+		>
+			<Icon icon="mdi:close" width="16" />
+		</button>
 		{#snippet emptyField(label: string)}
 			<div class="mb-1 flex items-center gap-1" class:field-changed={highlightedFields[label]}>
 				<span class="text-surface-400 mr-1 opacity-40">{label}:</span>
@@ -410,7 +420,7 @@
 			{/if}
 		{/snippet}
 		<!-- Header: name + kind badge + copy-ID button -->
-		<div class="mb-1 flex items-center gap-2">
+		<div class="mb-1 flex items-center gap-2 pr-6">
 			<span
 				class="truncate text-sm font-bold md:text-base"
 				class:field-changed={highlightedFields['name']}

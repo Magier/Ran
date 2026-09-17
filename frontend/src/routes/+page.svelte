@@ -759,6 +759,7 @@
 								class={hasManuallyResizedEntityInfo ? 'flex-1 overflow-auto' : 'overflow-auto'}
 								objectId={selectedObjectId}
 								{sendAction}
+								onclose={() => (selectedObjectId = '')}
 							/>
 							<!-- Resize handle at bottom-left corner -->
 							<button
