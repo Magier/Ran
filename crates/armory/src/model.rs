@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtpParam {
     pub name: String,
@@ -27,6 +31,11 @@ pub struct Procedure {
     /// the target context but routes execution to another reachable system.
     #[serde(rename = "runOnTarget", skip_serializing_if = "Option::is_none")]
     pub run_on_target: Option<bool>,
+    /// Execute this Kubernetes procedure through the system that yielded the
+    /// selected kubeconfig, using the file and its referenced credentials in
+    /// that source filesystem instead of Ran's local Kubernetes client.
+    #[serde(rename = "sourceKubeconfig", default, skip_serializing_if = "is_false")]
+    pub source_kubeconfig: bool,
     /// Structured HTTP request spec. When present, the runtime materializes
     /// this into a concrete curl/wget shell command. Takes precedence over
     /// `command` for `http-request` procedures.
@@ -59,6 +68,7 @@ impl Procedure {
             tool: None,
             is_local_command: None,
             run_on_target: None,
+            source_kubeconfig: false,
             http_request: None,
             k8s_request: None,
             steps: None,

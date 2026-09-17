@@ -50,6 +50,8 @@ struct RawProcedure {
     is_local: Option<bool>,
     #[serde(rename = "runOnTarget")]
     run_on_target: Option<bool>,
+    #[serde(rename = "sourceKubeconfig")]
+    source_kubeconfig: bool,
     http_request: Option<JsonValue>,
     k8s_request: Option<JsonValue>,
     steps: Option<JsonValue>,
@@ -93,6 +95,7 @@ impl RawProcedure {
             tool: self.tool.or(self.key),
             is_local_command: self.is_local,
             run_on_target: self.run_on_target,
+            source_kubeconfig: self.source_kubeconfig,
             http_request: self.http_request,
             k8s_request: self.k8s_request,
             steps: self.steps,

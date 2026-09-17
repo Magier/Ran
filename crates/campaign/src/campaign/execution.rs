@@ -389,6 +389,10 @@ enum ResolvedK8sAuth {
         /// `--context` so kubectl targets the chosen identity rather than the
         /// file's current-context.
         context: Option<String>,
+        /// Kubeconfig path in the source filesystem. `None` means the
+        /// credential is available to Ran's local Kubernetes client.
+        source_path: Option<String>,
+        source_root: Option<String>,
     },
 }
 
@@ -404,8 +408,15 @@ impl ResolvedK8sAuth {
             Self::ServiceAccount { token, .. } => {
                 format!("--token {}", shell_words::quote(token))
             }
-            Self::Kubeconfig { context, .. } => {
-                let mut arg = "--kubeconfig \"$KUBECONFIG\"".to_string();
+            Self::Kubeconfig {
+                context,
+                source_path,
+                ..
+            } => {
+                let mut arg = source_path
+                    .as_deref()
+                    .map(|path| format!("--kubeconfig {}", shell_words::quote(path)))
+                    .unwrap_or_else(|| "--kubeconfig \"$KUBECONFIG\"".to_string());
                 if let Some(context) = context.as_deref().filter(|c| !c.trim().is_empty()) {
                     arg.push_str(&format!(" --context {}", shell_words::quote(context)));
                 }
@@ -1249,17 +1260,36 @@ impl Campaign {
                             id: identity_id,
                             token: token.to_string(),
                         })
-                    } else if let Some(context) = self
-                        .entities
-                        .find::<K8sCredential>(&entity_id)
-                        .filter(|credential| {
-                            credential.active || self.is_operator_host_credential(&entity_id)
-                        })
-                        .map(|credential| credential.context_name.clone())
+                    } else if let Some(credential) = self.entities.find::<K8sCredential>(&entity_id)
                     {
+                        let local_usable = credential.active
+                            || self.is_operator_host_credential(&entity_id)
+                            || crate::ttp_applicability::credential_has_replayable_auth(credential);
+                        let source_context = procedure
+                            .source_kubeconfig
+                            .then(|| self.source_kubeconfig_exec_context(&entity_id))
+                            .transpose()
+                            .map_err(ExecuteActionError::InvalidInput)?;
+                        if procedure.source_kubeconfig && source_context.is_none() {
+                            return Err(ExecuteActionError::InvalidInput(format!(
+                                "K8sCredential '{}' has no usable source kubeconfig",
+                                identity_id
+                            )));
+                        }
+                        if !procedure.source_kubeconfig && !local_usable {
+                            return Err(ExecuteActionError::InvalidInput(format!(
+                                "K8sCredential '{}' is only usable through its source system; select the source-kubeconfig procedure",
+                                identity_id
+                            )));
+                        }
+                        let (source_root, source_path) = source_context
+                            .map(|(root, path)| (Some(root), Some(path)))
+                            .unwrap_or((None, None));
                         Some(ResolvedK8sAuth::Kubeconfig {
                             id: identity_id,
-                            context,
+                            context: credential.context_name.clone(),
+                            source_path,
+                            source_root,
                         })
                     } else {
                         return Err(ExecuteActionError::InvalidInput(format!(
@@ -1316,6 +1346,16 @@ impl Campaign {
         }
         if resolved_auth.is_some() {
             args.remove("TOKEN");
+        }
+        if let Some(ResolvedK8sAuth::Kubeconfig {
+            source_root: Some(root),
+            ..
+        }) = &resolved_auth
+        {
+            args.insert(
+                "KUBECONFIG_ROOT".to_string(),
+                shell_words::quote(root).into_owned(),
+            );
         }
 
         // Stage 4: resolve lateral-movement source and inject SRC - single,
@@ -1581,6 +1621,7 @@ impl Campaign {
 
         if auth_identity_id.is_some_and(|identity| identity.starts_with("k8s/credential/"))
             && crate::ttp_applicability::procedure_uses_k8s_auth(procedure)
+            && !procedure.source_kubeconfig
         {
             return Ok(ExecRoute::direct(
                 BUILTIN_C2_ID.to_string(),
@@ -3591,6 +3632,8 @@ mod k8s_auth_tests {
         let auth = ResolvedK8sAuth::Kubeconfig {
             id: "k8s/credential/staging".to_string(),
             context: Some("staging".to_string()),
+            source_path: None,
+            source_root: None,
         };
         assert_eq!(
             auth.kubectl_arg(),
@@ -3603,6 +3646,8 @@ mod k8s_auth_tests {
         let auth = ResolvedK8sAuth::Kubeconfig {
             id: "k8s/credential/prod".to_string(),
             context: None,
+            source_path: None,
+            source_root: None,
         };
         assert_eq!(auth.kubectl_arg(), "--kubeconfig \"$KUBECONFIG\"");
     }

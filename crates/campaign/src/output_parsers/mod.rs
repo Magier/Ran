@@ -295,7 +295,17 @@ pub fn parse_output_effect(
         file::parse_file_content(stdout, path, source_id, &cmd.args)
     } else if normalized == "file:kubeconfig" {
         let source_id = resolve_target_id(campaign, cmd);
-        file::parse_file_kubeconfig(stdout, source_id.as_deref().unwrap_or(""))
+        let source_path = cmd.args.get("PATH").map(String::as_str);
+        if let Some(path) = source_path.filter(|path| !path.trim().is_empty()) {
+            if !stdout.trim().is_empty() {
+                campaign.store_file_content(path, stdout);
+            }
+        }
+        file::parse_file_kubeconfig_from_path(
+            stdout,
+            source_id.as_deref().unwrap_or(""),
+            source_path,
+        )
     } else if normalized == "file:local-kubeconfig" {
         // Ran's own kubeconfig, read from the operator host. The target is the
         // OperatorHost entity, which is not a SystemEntity, so pass its id
@@ -309,7 +319,13 @@ pub fn parse_output_effect(
         // distinction should be established via provenance (target/source is the
         // operator host), not a separate effect + parser. Collapse into one
         // parser driven by provenance and drop `parse_local_kubeconfig`.
-        file::parse_local_kubeconfig(stdout, &cmd.target_id)
+        let source_path = cmd.args.get("PATH").map(String::as_str);
+        if let Some(path) = source_path.filter(|path| !path.trim().is_empty()) {
+            if !stdout.trim().is_empty() {
+                campaign.store_file_content(path, stdout);
+            }
+        }
+        file::parse_local_kubeconfig_from_path(stdout, &cmd.target_id, source_path)
     } else if normalized == "sys.node-name" {
         parse_sys_node_name(campaign, cmd, stdout)
     } else if normalized == "rawserviceaccounttoken" {
@@ -1002,6 +1018,54 @@ users:
             .new_entities
             .iter()
             .any(|entity| entity.as_any().downcast_ref::<K8sCredential>().is_some()));
+    }
+
+    #[test]
+    fn explicit_kubeconfig_effect_retains_raw_file_content() {
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let mut cmd = sample_cmd();
+        cmd.args.insert(
+            "PATH".to_string(),
+            "/etc/kubernetes/super-admin.conf".to_string(),
+        );
+        let kubeconfig = r#"apiVersion: v1
+kind: Config
+clusters:
+- name: dev
+  cluster:
+    server: https://kubernetes.example:6443
+contexts:
+- name: default
+  context:
+    cluster: dev
+    user: admin
+current-context: default
+users:
+- name: admin
+  user:
+    token: secret
+"#;
+        let event = sample_event(vec![kubeconfig.to_string()]);
+
+        let parsed = parse_output_effect(&mut campaign, "file:kubeconfig", &cmd, &event)
+            .expect("kubeconfig effect should be recognized");
+
+        assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
+        assert_eq!(
+            campaign.get_file_content("/etc/kubernetes/super-admin.conf"),
+            Some(kubeconfig)
+        );
+        let credential = parsed
+            .updates
+            .new_entities
+            .iter()
+            .find_map(|entity| entity.as_any().downcast_ref::<K8sCredential>())
+            .expect("credential entity");
+        assert_eq!(credential.entity_name(), "super-admin.conf (default)");
+        assert_eq!(
+            credential.source_path.as_deref(),
+            Some("/etc/kubernetes/super-admin.conf")
+        );
     }
 
     #[test]
