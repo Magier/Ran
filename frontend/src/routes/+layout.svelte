@@ -14,6 +14,7 @@
 	import '../app.css';
 	import { setCampaignState } from '$lib/components/CampaignState.svelte';
 	import AppMenu from '$lib/components/app_menu.svelte';
+	import BackendConnectionStatus from '$lib/components/BackendConnectionStatus.svelte';
 	import { timeline } from '$lib/stores/timelineStore.svelte';
 	let { children } = $props();
 
@@ -160,6 +161,8 @@
 <main class="">
 	{@render children()}
 </main>
+
+<BackendConnectionStatus />
 
 <style>
 	.btn.selected {

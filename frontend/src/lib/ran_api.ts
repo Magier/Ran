@@ -38,12 +38,16 @@ import type {
 	UiConfig
 } from '$lib/api';
 
+export type BackendConnectionState = 'connecting' | 'connected' | 'disconnected';
+
 export class RanAPI {
 	eventSource?: EventSource;
 	private messageHandlers = new Map<string, Set<(data: any) => void>>();
 	private sseEventListeners = new Set<string>(); // Track registered SSE event types
 	private pendingSSEEventTypes = new Set<string>(); // Event types waiting for SSE connection
 	private restClient = createClient<paths>({ baseUrl: '' }); // Use relative URLs
+	private connectionState: BackendConnectionState = 'connecting';
+	private connectionStateListeners = new Set<(state: BackendConnectionState) => void>();
 
 	connect(url?: string): Promise<void> {
 		return this.connectSSE(url);
@@ -55,11 +59,13 @@ export class RanAPI {
 			url = `/events`;
 		}
 		console.info('Connecting to SSE at', url);
+		this.setConnectionState('connecting');
 		return new Promise((resolve, reject) => {
 			this.eventSource = new EventSource(url);
 
 			this.eventSource.onopen = () => {
 				console.log('SSE connection established');
+				this.setConnectionState('connected');
 
 				// Register any event listeners that were added before connection was ready
 				this.pendingSSEEventTypes.forEach((type) => {
@@ -82,6 +88,7 @@ export class RanAPI {
 
 			this.eventSource.onerror = (err) => {
 				console.error('SSE error:', err);
+				this.setConnectionState('disconnected');
 				// SSE automatically reconnects, so only reject if not yet connected
 				if (this.eventSource?.readyState === EventSource.CONNECTING) {
 					reject(err);
@@ -92,6 +99,22 @@ export class RanAPI {
 			// use named events (event: <type>), which only trigger addEventListener
 			// Event listeners are registered dynamically in the on() method
 		});
+	}
+
+	getConnectionState(): BackendConnectionState {
+		return this.connectionState;
+	}
+
+	onConnectionStateChange(listener: (state: BackendConnectionState) => void): () => void {
+		this.connectionStateListeners.add(listener);
+		listener(this.connectionState);
+		return () => this.connectionStateListeners.delete(listener);
+	}
+
+	private setConnectionState(state: BackendConnectionState) {
+		if (this.connectionState === state) return;
+		this.connectionState = state;
+		for (const listener of this.connectionStateListeners) listener(state);
 	}
 
 	private handleSSEMessage(event: MessageEvent) {
@@ -163,6 +186,7 @@ export class RanAPI {
 			this.eventSource.close();
 			this.eventSource = undefined;
 		}
+		this.setConnectionState('disconnected');
 		this.messageHandlers.clear();
 		this.sseEventListeners.clear();
 		this.pendingSSEEventTypes.clear();
