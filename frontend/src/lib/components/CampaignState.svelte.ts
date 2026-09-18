@@ -112,6 +112,9 @@ class CampaignState {
 	api: RanAPI = $state(getRanAPI());
 	private factsChangedCounter = 0;
 	private getCampaignStateCounter = 0;
+	private liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+	private liveRefreshInFlight = false;
+	private liveRefreshQueued = false;
 
 	init(): Promise<void> {
 		// The API URL is constructed from window.location.
@@ -119,22 +122,7 @@ class CampaignState {
 		this.api.on('armory-loaded', (data) => {
 			this.armory = parseArmory(data);
 		});
-		this.api.on('facts-changed', () => {
-			const eventId = ++this.factsChangedCounter;
-			this.api.GetGraph().then((g: Graph) => {
-				this.graph = g;
-			});
-
-			const stateCallId = ++this.getCampaignStateCounter;
-			this.api
-				.GetCampaignState()
-				.then((s: State) => {
-					this.#setState(s);
-				})
-				.catch((err) => {
-					console.error(`❌ [Event ${eventId}->Call ${stateCallId}] GetCampaignState failed:`, err);
-				});
-		});
+		this.api.on('facts-changed', () => this.#queueLiveRefresh());
 		this.api.on('parse-audited', (data: any) => {
 			const audits = (data?.audits ?? []).map(normalizeParseAudit);
 			if (audits.length === 0) {
@@ -272,6 +260,56 @@ class CampaignState {
 		await this.api.GetCampaignState().then((s: State) => {
 			this.#setState(s);
 		});
+	}
+
+	/**
+	 * Coalesce bursts of SSE notifications into one graph/state refresh. A bulk
+	 * Kubernetes discovery is persisted atomically but used to start independent
+	 * full-graph requests for every notification, allowing stale responses and
+	 * repeated ELK layouts to monopolise the browser.
+	 */
+	#queueLiveRefresh(): void {
+		this.liveRefreshQueued = true;
+		if (this.liveRefreshTimer !== undefined || this.liveRefreshInFlight) return;
+
+		this.liveRefreshTimer = setTimeout(() => {
+			this.liveRefreshTimer = undefined;
+			void this.#refreshLiveState();
+		}, 50);
+	}
+
+	async #refreshLiveState(): Promise<void> {
+		if (this.liveRefreshInFlight) return;
+		this.liveRefreshInFlight = true;
+
+		try {
+			while (this.liveRefreshQueued) {
+				this.liveRefreshQueued = false;
+				const eventId = ++this.factsChangedCounter;
+				const stateCallId = ++this.getCampaignStateCounter;
+				try {
+					const [graph, state] = await Promise.all([
+						this.api.GetGraph(),
+						this.api.GetCampaignState()
+					]);
+					this.graph = graph;
+					this.#setState(state);
+				} catch (err) {
+					console.error(
+						`Live campaign refresh failed [Event ${eventId}->Call ${stateCallId}]:`,
+						err
+					);
+					showToast(
+						'Live update failed',
+						'The latest campaign changes could not be loaded. Retrying on the next update.',
+						'error'
+					);
+				}
+			}
+		} finally {
+			this.liveRefreshInFlight = false;
+			if (this.liveRefreshQueued) this.#queueLiveRefresh();
+		}
 	}
 
 	#setState(state: State): void {

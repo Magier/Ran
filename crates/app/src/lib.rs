@@ -2746,45 +2746,13 @@ async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<Camp
                     serde_json::json!({
                         "type": "facts-changed",
                         "data": {
+                            "cmdId": cmd_id,
                             "newEntities": new_entities,
                             "newRelations": new_relations,
                         },
                     })
                     .to_string(),
                 );
-
-                for entity in &new_entities {
-                    // The category is decided by the producer, not re-derived
-                    // here: this edge cannot tell a session attaching to a known
-                    // host from a routine field update, and guessing from the
-                    // entity kind is what made `access-gained` unreachable.
-                    let payload = serde_json::json!({
-                        "entityId": entity.id.0,
-                        "entityName": entity.name,
-                        "entityKind": entity.kind,
-                        "category": entity.category,
-                        "outcome": entity.outcome,
-                        "cmdId": cmd_id,
-                    });
-                    api::publish_sse_event(
-                        "entity-fact",
-                        serde_json::json!({ "type": "entity-fact", "data": payload }).to_string(),
-                    );
-
-                    // Deprecated alias for consumers written before facts carried
-                    // an outcome. It keeps the promise its name makes, so a fact
-                    // the action created or merely refined is not published on it.
-                    if entity.outcome == campaign::FactOutcome::Observed {
-                        api::publish_sse_event(
-                            "entity-discovered",
-                            serde_json::json!({
-                                "type": "entity-discovered",
-                                "data": payload,
-                            })
-                            .to_string(),
-                        );
-                    }
-                }
             }
             Ok(CampaignEvent::SessionStateChanged {
                 backend_id,
