@@ -458,21 +458,22 @@
 			}
 		});
 
-		// `entity-fact` supersedes `entity-discovered`: it carries an `outcome`, so
-		// the timeline can tell a discovery from something the action created or
-		// merely refined. Subscribing to both would be redundant — the backend
-		// publishes the deprecated alias only for facts this one marks observed.
-		ranAPI.on('entity-fact', (data) => {
-			timeline.addEntityEvent({
-				kind: data.category ?? 'discovery',
-				outcome: data.outcome ?? 'observed',
-				id: data.entityId,
-				entityId: data.entityId,
-				entityName: data.entityName,
-				entityKind: data.entityKind,
-				cmdId: data.cmdId,
-				timestamp: new Date()
-			});
+		// Facts arrive as one batch. This deliberately shares the `facts-changed`
+		// event with the graph refresh: a large PodList must not enqueue an SSE
+		// message and handler invocation for every discovered entity.
+		ranAPI.on('facts-changed', (data) => {
+			for (const entity of data?.newEntities ?? []) {
+				timeline.addEntityEvent({
+					kind: entity.category ?? 'discovery',
+					outcome: entity.outcome ?? 'observed',
+					id: entity.id,
+					entityId: entity.id,
+					entityName: entity.name,
+					entityKind: entity.kind,
+					cmdId: data.cmdId,
+					timestamp: new Date()
+				});
+			}
 		});
 
 		// A session dying or coming back is not an entity fact - the host does not
