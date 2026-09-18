@@ -1548,7 +1548,16 @@ async fn monitor_session_health(
 ) {
     loop {
         let state = *health.borrow_and_update();
-        tracing::debug!(%backend_id, ?state, "shell session health changed");
+        // A successful idle heartbeat briefly occupies the single shell stream,
+        // transitioning through Busy and back to Responsive. Those are normal
+        // operation, not useful health diagnostics.
+        if matches!(
+            state,
+            crate::shell_session::SessionHealth::Suspect
+                | crate::shell_session::SessionHealth::Lost
+        ) {
+            tracing::debug!(%backend_id, ?state, "shell session health changed");
+        }
         if state == crate::shell_session::SessionHealth::Lost {
             let is_current = backends
                 .read()
