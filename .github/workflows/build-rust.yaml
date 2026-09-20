@@ -140,28 +140,43 @@ jobs:
             os: ubuntu-24.04
             artifact_name: ran
             asset_name: ran-linux-amd64
+            use_zigbuild: true
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04
             artifact_name: ran
             asset_name: ran-linux-arm64
+            use_zigbuild: true
           - target: x86_64-apple-darwin
             os: macos-latest
             artifact_name: ran
             asset_name: ran-darwin-amd64
+            use_zigbuild: false
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact_name: ran
             asset_name: ran-darwin-arm64
+            use_zigbuild: false
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             artifact_name: ran.exe
             asset_name: ran-windows-amd64
+            use_zigbuild: false
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Install Rust target
         run: rustup target add ${{ matrix.target }}
+
+      - name: Install Zig
+        if: matrix.use_zigbuild
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.14.1
+
+      - name: Install cargo-zigbuild
+        if: matrix.use_zigbuild
+        run: cargo install --locked --version 0.23.4 cargo-zigbuild
 
       - name: Cache Rust build artifacts
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -173,12 +188,6 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
 
-      - name: Install cross-compilation tools (Linux arm64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
       - name: Download frontend build
         uses: actions/download-artifact@v4
         with:
@@ -186,9 +195,33 @@ jobs:
           path: frontend/build/
 
       - name: Build binary
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: cargo build --locked --release --package cli --features cli/bundled-armory --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.use_zigbuild }}" == "true" ]]; then
+            cargo zigbuild --locked --release --package cli --features cli/bundled-armory --target ${{ matrix.target }}.2.28
+          else
+            cargo build --locked --release --package cli --features cli/bundled-armory --target ${{ matrix.target }}
+          fi
+
+      - name: Verify Linux GLIBC requirement
+        if: matrix.use_zigbuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
+          required_glibc="$(
+            readelf -W --version-info --dyn-syms "$binary" |
+              sed -n 's/.*Name: GLIBC_\([0-9.]*\).*/\1/p' |
+              sort -V |
+              tail -n 1
+          )"
+          test -n "$required_glibc"
+          if [[ "$(printf '%s\n%s\n' "$required_glibc" '2.28' | sort -V | tail -n 1)" != '2.28' ]]; then
+            echo "::error::${binary} requires GLIBC_${required_glibc}, which exceeds GLIBC_2.28"
+            exit 1
+          fi
+          echo "${binary} requires GLIBC_${required_glibc} or older"
 
       - name: Package binary
         shell: bash
