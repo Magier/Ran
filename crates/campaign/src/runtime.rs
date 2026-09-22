@@ -179,28 +179,58 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     stdout_bytes,
                     stderr_bytes,
                 }) => {
-                    let accepted = match campaign.write() {
-                        Ok(mut guard) => guard.record_in_flight_output(
-                            &cmd_id,
-                            sequence,
-                            &stdout,
-                            &stderr,
-                            stdout_bytes,
-                            stderr_bytes,
-                        ),
+                    let (accepted, incremental_updates) = match campaign.write() {
+                        Ok(mut guard) => {
+                            let accepted = guard.record_in_flight_output(
+                                &cmd_id,
+                                sequence,
+                                &stdout,
+                                &stderr,
+                                stdout_bytes,
+                                stderr_bytes,
+                            );
+                            let updates = if accepted {
+                                guard.apply_incremental_output(&cmd_id)
+                            } else {
+                                None
+                            };
+                            (accepted, updates)
+                        }
                         Err(_) => {
                             error!("campaign lock poisoned while recording command output");
-                            false
+                            (false, None)
                         }
                     };
                     if accepted {
                         let _ = campaign_events.publish(CampaignEvent::TtpOutput {
-                            cmd_id,
+                            cmd_id: cmd_id.clone(),
                             sequence,
                             stdout,
                             stderr,
                             stdout_bytes,
                             stderr_bytes,
+                        });
+                    }
+                    if let Some(updates) = incremental_updates {
+                        let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                            cmd_id,
+                            new_entities: updates
+                                .new_entities
+                                .iter()
+                                .map(|entity| {
+                                    EntitySummary::from_kind(
+                                        entity.entity_id(),
+                                        entity.entity_kind().to_string(),
+                                        entity.entity_name().to_string(),
+                                        updates.outcome_of(&entity.entity_id()),
+                                    )
+                                })
+                                .collect(),
+                            new_relations: updates
+                                .new_relations
+                                .iter()
+                                .map(|relation| RelationSummary::from_relation(relation.as_ref()))
+                                .collect(),
                         });
                     }
                 }
@@ -1021,7 +1051,9 @@ fn update_session_status(
 #[cfg(test)]
 mod listener_event_tests {
     use super::*;
+    use armory::{Procedure, Ttp};
     use c2::C2EventBus;
+    use std::collections::HashMap;
     use std::time::Duration;
 
     /// Drain campaign events until a `FactsChanged` shows up, or give up.
@@ -1274,6 +1306,93 @@ mod listener_event_tests {
         );
         assert_eq!(FactCategory::from_kind("Pod"), FactCategory::Discovery);
         assert_eq!(FactCategory::from_kind("Listener"), FactCategory::Discovery);
+    }
+
+    #[tokio::test]
+    async fn nmap_hosts_reach_the_campaign_before_the_action_completes() {
+        let mut state = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let scanner = ran_domain::Pod::new("scanner", "default");
+        let scanner_id = scanner.entity_id().0;
+        state.insert_entity(&scanner);
+        state.add_open_step(c2::ExecTtp {
+            id: "cmd-nmap".to_string(),
+            ttp: Ttp {
+                effects: vec!["network.discovery".to_string()],
+                procedures: vec![Procedure::new("nmap", "nmap 10.0.0.0/24")],
+                ..Ttp::new("nmap-host-scan", "Nmap Host Scan", "Discovery")
+            },
+            procedure: Procedure::new("nmap", "nmap 10.0.0.0/24"),
+            args: HashMap::from([
+                ("TARGET_ID".to_string(), scanner_id.clone()),
+                ("CIDR".to_string(), "10.0.0.0/24".to_string()),
+            ]),
+            target_id: scanner_id.clone(),
+            exec_chain: vec![scanner_id],
+            exec_system_id: c2::BUILTIN_C2_ID.to_string(),
+            auth_identity_id: None,
+            started_at_ms: 0,
+            execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+            output_transform: None,
+            is_cleanup: false,
+            reasoning: String::new(),
+        });
+        let campaign = Arc::new(RwLock::new(state));
+        let c2_events = C2EventBus::new(16);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut rx = campaign_events.subscribe();
+        spawn_c2_event_processor(campaign.clone(), c2_events.clone(), campaign_events);
+
+        let stdout = "Starting Nmap 7.95\nNmap scan report for 10.0.0.44\nHost is up\n";
+        c2_events
+            .publish(C2Event::TtpOutput {
+                cmd_id: "cmd-nmap".to_string(),
+                sequence: 1,
+                stdout: stdout.to_string(),
+                stderr: String::new(),
+                stdout_bytes: stdout.len() as u64,
+                stderr_bytes: 0,
+            })
+            .expect("publish partial Nmap output");
+
+        let (cmd_id, entities) = next_facts_changed(&mut rx).await;
+        assert_eq!(cmd_id, "cmd-nmap");
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].outcome, FactOutcome::Observed);
+        assert!(campaign
+            .read()
+            .expect("campaign lock")
+            .entities
+            .get::<ran_domain::Pod>()
+            .values()
+            .any(|pod| pod
+                .system
+                .ips
+                .iter()
+                .any(|ip| ip.to_string() == "10.0.0.44")));
+
+        c2_events
+            .publish(C2Event::TtpOutput {
+                cmd_id: "cmd-nmap".to_string(),
+                sequence: 2,
+                stdout: "Stats: 50.00% done\n".to_string(),
+                stderr: String::new(),
+                stdout_bytes: (stdout.len() + 20) as u64,
+                stderr_bytes: 0,
+            })
+            .expect("publish another partial batch");
+
+        let duplicate = tokio::time::timeout(Duration::from_millis(100), async {
+            loop {
+                if matches!(rx.recv().await, Ok(CampaignEvent::FactsChanged { .. })) {
+                    break;
+                }
+            }
+        })
+        .await;
+        assert!(
+            duplicate.is_err(),
+            "the same host must not be announced twice"
+        );
     }
 }
 

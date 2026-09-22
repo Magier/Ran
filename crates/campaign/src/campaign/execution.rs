@@ -19,7 +19,9 @@ use crate::failure_analyzers::{
 use crate::grounding::{
     detect_ungrounded_vars, ground_args_from_context, ground_entity_ref_vars, resolve_template,
 };
-use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
+use crate::output_parsers::{
+    build_no_parser_audit, build_parse_audit, parse_incremental_output_effect, parse_output_effect,
+};
 use crate::rules::run_rules_fixpoint;
 use crate::shell_cmd::ground_binaries;
 use crate::{FactsUpdate, ParseResult};
@@ -2380,6 +2382,55 @@ impl Campaign {
         } else {
             Some(bare.to_string())
         }
+    }
+
+    /// Commit facts that an effect explicitly declares safe to parse before
+    /// command completion. Final result parsing remains authoritative and will
+    /// enrich or reconcile these observations when the action finishes.
+    pub(crate) fn apply_incremental_output(&mut self, cmd_id: &str) -> Option<FactsUpdate> {
+        let cmd = self
+            .open_steps
+            .iter()
+            .find(|step| step.id == cmd_id)?
+            .clone();
+        let stdout = self.in_flight_outputs.get(cmd_id)?.stdout.clone();
+
+        let mut updates = FactsUpdate::default();
+        for effect in &cmd.ttp.effects {
+            if let Some(parsed) = parse_incremental_output_effect(effect, &cmd, &stdout) {
+                updates.merge(parsed);
+            }
+        }
+
+        // Incremental parsers emit monotonic observations. Suppress facts that
+        // this or an earlier output batch already committed so the timeline and
+        // graph do not churn on every 250 ms transport batch.
+        updates.new_entities.retain(|entity| {
+            let canonical = EntityId::new(self.canonical_entity_id(&entity.entity_id().0));
+            !self.entities.contains_id(&canonical)
+        });
+        updates.new_relations.retain(|relation| {
+            let source = EntityId::new(self.canonical_entity_id(&relation.source_id().0));
+            let target = EntityId::new(self.canonical_entity_id(&relation.target_id().0));
+            !self
+                .graph
+                .targets_of(&source, relation.relation_name())
+                .iter()
+                .any(|existing| **existing == target)
+        });
+
+        if updates.new_entities.is_empty()
+            && updates.new_relations.is_empty()
+            && updates.entity_aliases.is_empty()
+            && updates.removed_entities.is_empty()
+        {
+            return None;
+        }
+
+        updates.attribute_unattributed(crate::KnowledgeProvenance::Action);
+        updates.resolve_outcomes(|id| self.entities.contains_id(id));
+        self.apply_facts(&updates);
+        Some(updates)
     }
 
     pub fn on_ttp_executed(

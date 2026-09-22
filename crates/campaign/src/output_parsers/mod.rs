@@ -78,6 +78,40 @@ fn get_registry() -> &'static HashMap<&'static str, ParserFn> {
     })
 }
 
+/// Parse facts that are safe to commit before an action completes.
+///
+/// Incremental parsing is deliberately opt-in. Most effect parsers need a
+/// complete document or use absence as meaningful evidence, so running them on
+/// partial output could create false facts. Each incremental parser must emit
+/// monotonic, idempotent observations which the campaign can safely merge
+/// again when the authoritative final result arrives.
+pub(crate) fn parse_incremental_output_effect(
+    effect_id: &str,
+    cmd: &ExecTtp,
+    stdout: &str,
+) -> Option<FactsUpdate> {
+    let normalized = effect_id.trim().to_ascii_lowercase();
+    if normalized != "nmap" && normalized != "network.discovery" {
+        return None;
+    }
+
+    let looks_like_nmap = stdout.starts_with("Starting Nmap")
+        || stdout.contains("Nmap scan report for")
+        || stdout.contains("<nmaprun")
+        || stdout.contains("Host:");
+    if !looks_like_nmap {
+        return None;
+    }
+
+    let source_id = cmd
+        .args
+        .get("TARGET_ID")
+        .map(String::as_str)
+        .unwrap_or(&cmd.target_id);
+    let cidr = cmd.args.get("CIDR").map(String::as_str);
+    network::parse_nmap_incremental(stdout, source_id, cidr)
+}
+
 pub fn parse_output_effect(
     campaign: &mut Campaign,
     effect_id: &str,
