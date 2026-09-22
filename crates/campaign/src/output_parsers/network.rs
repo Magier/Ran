@@ -153,6 +153,51 @@ pub(super) fn parse_nmap(stdout: &str, source_id: &str, cidr: Option<&str>) -> P
     )
 }
 
+/// Extract only monotonic host and reachability facts from partial Nmap output.
+///
+/// Ports and service metadata are intentionally deferred until completion.
+/// Their records can still be in progress when a host header first arrives,
+/// while the host address itself is already a safe observation.
+pub(super) fn parse_nmap_incremental(
+    stdout: &str,
+    source_id: &str,
+    cidr: Option<&str>,
+) -> Option<FactsUpdate> {
+    let hosts = if stdout.contains("<nmaprun") || stdout.trim_start().starts_with("<?xml") {
+        parse_nmap_xml(stdout)
+    } else if stdout.contains("Host:") {
+        parse_nmap_grep(stdout)
+    } else if stdout.contains("Nmap scan report for") {
+        parse_nmap_normal(stdout)
+    } else {
+        return None;
+    };
+
+    let mut facts = FactsUpdate::default();
+    for host in hosts {
+        if !is_ip_in_scope(host.address, cidr) {
+            continue;
+        }
+        let discovered = classify_discovered_host(host.address, host.hostname.as_deref());
+        let entity_id = discovered.entity_id();
+        if facts
+            .new_entities
+            .iter()
+            .any(|existing| existing.entity_id() == entity_id)
+        {
+            continue;
+        }
+        facts.new_entities.push(discovered);
+        if !source_id.is_empty() {
+            facts
+                .new_relations
+                .push(Box::new(CanReach::new(source_id, entity_id.0)));
+        }
+    }
+
+    (!facts.new_entities.is_empty()).then_some(facts)
+}
+
 #[derive(Debug)]
 struct NmapHostObservation {
     address: IpAddr,
@@ -866,6 +911,22 @@ mod tests {
             panic!("expected SuccessWithFacts");
         };
         assert_eq!(facts.new_entities.len(), 2);
+    }
+
+    #[test]
+    fn incremental_nmap_output_emits_hosts_without_partial_services() {
+        let stdout = "Starting Nmap 7.95\nNmap scan report for 10.0.0.44\nHost is up\nPORT STATE SERVICE\n80/tcp open http\n";
+        let facts = parse_nmap_incremental(stdout, "ns/default/pod/scanner", None)
+            .expect("the host report is already a safe observation");
+
+        assert_eq!(facts.new_entities.len(), 1);
+        assert!(facts.new_entities[0].as_any().is::<Pod>());
+        assert!(facts
+            .new_entities
+            .iter()
+            .all(|entity| !entity.as_any().is::<AppService>()));
+        assert_eq!(facts.new_relations.len(), 1);
+        assert_eq!(facts.new_relations[0].relation_name(), "can-reach");
     }
 
     #[test]
