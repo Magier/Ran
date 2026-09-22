@@ -26,16 +26,15 @@ function renderTimeline(
 		onfocusentity?: (targetId: string) => void;
 		ontogglegroup?: (cmdId: string) => void;
 		onviewaction?: (cmdId: string) => void;
-	} = {}
+	} = {},
+	output: Record<string, unknown> | undefined = undefined
 ) {
 	const onfocusentity = handlers.onfocusentity ?? vi.fn();
 	const ontogglegroup = handlers.ontogglegroup ?? vi.fn();
 	const onviewaction = handlers.onviewaction ?? vi.fn();
 	const result = render(OperationTimeline, {
-		entries,
-		onfocusentity,
-		ontogglegroup,
-		onviewaction
+		props: { entries, onfocusentity, ontogglegroup, onviewaction },
+		context: new Map([['$_campaignState', { getExecutionOutput: () => output }]])
 	});
 	return { ...result, onfocusentity, ontogglegroup, onviewaction };
 }
@@ -59,6 +58,14 @@ function actionEntry(overrides: Partial<ActionGroup> = {}): ActionGroup {
 }
 
 describe('OperationTimeline action interactions', () => {
+	it('shows the latest output line for a pending action', () => {
+		const pending = actionEntry();
+		pending.action.status = 'pending';
+		renderTimeline([pending], {}, { stdout: 'first host\nsecond host', stderr: '' });
+
+		expect(screen.getByText('second host')).toBeInTheDocument();
+	});
+
 	it('opens details from the TTP name without toggling the group', async () => {
 		const { onviewaction, ontogglegroup } = renderTimeline([actionEntry()]);
 

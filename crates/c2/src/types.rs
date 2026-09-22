@@ -100,6 +100,17 @@ pub struct TtpExecuted {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum C2Event {
+    /// A bounded-time batch of output produced while a command is still
+    /// running. `sequence` is monotonic per command. The final
+    /// [`TtpExecuted`] remains the authoritative completion result.
+    TtpOutput {
+        cmd_id: String,
+        sequence: u64,
+        stdout: String,
+        stderr: String,
+        stdout_bytes: u64,
+        stderr_bytes: u64,
+    },
     TtpExecuted {
         cmd: Box<ExecTtp>,
         event: TtpExecuted,

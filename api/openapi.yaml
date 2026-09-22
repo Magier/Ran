@@ -828,6 +828,12 @@ components:
         - status
         - success
         - results
+        - stdout
+        - stderr
+        - outputTruncated
+        - outputSequence
+        - stdoutBytes
+        - stderrBytes
         - startedAt
         - completedAt
       properties:
@@ -870,6 +876,27 @@ components:
           type: array
           items:
             type: string
+        stdout:
+          type: string
+          description: Captured stdout, including bounded live output while ongoing
+        stderr:
+          type: string
+          description: Captured stderr, including bounded live output while ongoing
+        outputTruncated:
+          type: boolean
+          description: Whether older live output was omitted from the bounded reconnect snapshot
+        outputSequence:
+          type: integer
+          format: uint64
+          description: Last live-output sequence included in this snapshot
+        stdoutBytes:
+          type: integer
+          format: uint64
+          description: Total stdout bytes observed for this execution
+        stderrBytes:
+          type: integer
+          format: uint64
+          description: Total stderr bytes observed for this execution
         startedAt:
           type: string
           format: date-time

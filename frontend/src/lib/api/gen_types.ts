@@ -608,6 +608,27 @@ export interface components {
 			procedureId: string;
 			TTP: components['schemas']['AttackStepTTP'];
 			results: string[];
+			/** @description Captured stdout, including bounded live output while ongoing */
+			stdout: string;
+			/** @description Captured stderr, including bounded live output while ongoing */
+			stderr: string;
+			/** @description Whether older live output was omitted from the bounded reconnect snapshot */
+			outputTruncated: boolean;
+			/**
+			 * Format: uint64
+			 * @description Last live-output sequence included in this snapshot
+			 */
+			outputSequence: number;
+			/**
+			 * Format: uint64
+			 * @description Total stdout bytes observed for this execution
+			 */
+			stdoutBytes: number;
+			/**
+			 * Format: uint64
+			 * @description Total stderr bytes observed for this execution
+			 */
+			stderrBytes: number;
 			/** Format: date-time */
 			startedAt: string;
 			/** @description Completion timestamp in RFC 3339 format, or an empty string while ongoing */

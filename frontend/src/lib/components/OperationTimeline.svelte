@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from '@iconify/svelte';
+	import { getCampaignState } from '$lib/components/CampaignState.svelte';
 	import type {
 		TopEntry,
 		EntityEntry,
@@ -15,6 +16,19 @@
 	}
 
 	let { entries, onfocusentity, ontogglegroup, onviewaction }: Props = $props();
+	const campaignState = getCampaignState();
+
+	function latestOutputLine(cmdId: string): string {
+		const output = campaignState.getExecutionOutput(cmdId);
+		const text = output?.stderr || output?.stdout || '';
+		return (
+			text
+				.split('\n')
+				.map((line) => line.trim())
+				.filter(Boolean)
+				.at(-1) ?? ''
+		);
+	}
 
 	const MIN_HEIGHT = 120;
 	const MAX_HEIGHT = 800;
@@ -343,6 +357,11 @@
 							{#if entry.action.status === 'failed' && entry.action.failReason}
 								<div class="text-error-500 mt-0.5 truncate text-xs" title={entry.action.failReason}>
 									{entry.action.failReason}
+								</div>
+							{:else if entry.action.status === 'pending'}
+								{@const preview = latestOutputLine(entry.action.id)}
+								<div class="text-surface-500 mt-0.5 truncate text-xs" title={preview}>
+									{preview || 'Waiting for output…'}
 								</div>
 							{/if}
 						</div>

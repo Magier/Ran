@@ -85,6 +85,20 @@ export function executionFailureMessage(detail: string): string {
 	return detail.replace(/^unclassified failure:\s*/i, '').trim() || 'Action execution failed';
 }
 
+export type LiveExecutionOutput = {
+	sequence: number;
+	stdout: string;
+	stderr: string;
+	stdoutBytes: number;
+	stderrBytes: number;
+	truncated: boolean;
+	completed: boolean;
+	success?: boolean;
+	failReason?: string;
+};
+
+const LIVE_OUTPUT_LIMIT = 1024 * 1024;
+
 function normalizeParseAudit(raw: any): ParseAuditUI {
 	return {
 		effectId: raw?.effectId ?? raw?.effect_id ?? 'unknown effect',
@@ -106,6 +120,7 @@ class CampaignState {
 	kubetier = $state<KubetierCatalog | null>(null);
 	permissionAssessments = $state<LocalPermissionAssessment[]>([]);
 	uiConfig = $state<UiConfig>({ namespaces: DEFAULT_NAMESPACE_UI_CONFIG });
+	executionOutputs = $state<Map<string, LiveExecutionOutput>>(new Map());
 	/// Bumped whenever the scoring profile changes, so recommendation views refetch.
 	scoringVersion = $state(0);
 	pendingMessages: string[] = [];
@@ -115,8 +130,15 @@ class CampaignState {
 	private liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 	private liveRefreshInFlight = false;
 	private liveRefreshQueued = false;
+	private initPromise: Promise<void> | null = null;
 
 	init(): Promise<void> {
+		if (this.initPromise) return this.initPromise;
+		this.initPromise = this.initialize();
+		return this.initPromise;
+	}
+
+	private initialize(): Promise<void> {
 		// The API URL is constructed from window.location.
 
 		this.api.on('armory-loaded', (data) => {
@@ -167,6 +189,11 @@ class CampaignState {
 				return;
 			}
 		});
+		this.api.on('ttp-output', (data: any) => this.recordExecutionOutput(data));
+		this.api.on('ttp-executed', (data: any) => this.completeExecutionOutput(data));
+		this.api.onConnectionStateChange((state) => {
+			if (state === 'connected') void this.restoreLiveExecutionOutput();
+		});
 		this.api.on('reset-campaign', () => this.onReset());
 		this.api.on('error-msg', (rawMsg: string) => {
 			const msg: ErrorMsg = JSON.parse(rawMsg);
@@ -213,6 +240,92 @@ class CampaignState {
 		});
 	}
 
+	private async restoreLiveExecutionOutput(): Promise<void> {
+		try {
+			const flow = await this.api.GetFlow();
+			for (const step of flow.steps.filter((candidate) => candidate.status === 'Ongoing')) {
+				const stdout = step.stdout ?? step.results?.[0] ?? '';
+				const stderr = step.stderr ?? step.results?.[1] ?? '';
+				this.setExecutionOutput(step.id, {
+					sequence: Number(step.outputSequence ?? 0),
+					stdout,
+					stderr,
+					stdoutBytes: Number(step.stdoutBytes ?? new TextEncoder().encode(stdout).length),
+					stderrBytes: Number(step.stderrBytes ?? new TextEncoder().encode(stderr).length),
+					truncated: step.outputTruncated ?? false,
+					completed: false
+				});
+			}
+		} catch (err) {
+			console.warn('Failed to restore live execution output', err);
+		}
+	}
+
+	private recordExecutionOutput(data: any): void {
+		const cmdId = data?.CmdId ?? '';
+		const sequence = Number(data?.Sequence ?? 0);
+		if (!cmdId) return;
+		const current = this.executionOutputs.get(cmdId) ?? {
+			sequence: 0,
+			stdout: '',
+			stderr: '',
+			stdoutBytes: 0,
+			stderrBytes: 0,
+			truncated: false,
+			completed: false
+		};
+		if (sequence <= current.sequence) return;
+		if (sequence > current.sequence + 1) {
+			void this.restoreLiveExecutionOutput();
+			return;
+		}
+		const stdout = current.stdout + (data?.Stdout ?? '');
+		const stderr = current.stderr + (data?.Stderr ?? '');
+		this.setExecutionOutput(cmdId, {
+			sequence,
+			stdout: stdout.slice(-LIVE_OUTPUT_LIMIT),
+			stderr: stderr.slice(-LIVE_OUTPUT_LIMIT),
+			stdoutBytes: Number(data?.StdoutBytes ?? current.stdoutBytes),
+			stderrBytes: Number(data?.StderrBytes ?? current.stderrBytes),
+			truncated:
+				current.truncated || stdout.length > LIVE_OUTPUT_LIMIT || stderr.length > LIVE_OUTPUT_LIMIT,
+			completed: false
+		});
+	}
+
+	private completeExecutionOutput(data: any): void {
+		const cmdId = data?.CmdId ?? data?.ID ?? '';
+		if (!cmdId) return;
+		const current = this.executionOutputs.get(cmdId) ?? {
+			sequence: 0,
+			stdout: '',
+			stderr: '',
+			stdoutBytes: 0,
+			stderrBytes: 0,
+			truncated: false,
+			completed: false
+		};
+		const results: string[] = data?.Results ?? [];
+		this.setExecutionOutput(cmdId, {
+			...current,
+			stdout: results[0] ?? current.stdout,
+			stderr: results[1] ?? current.stderr,
+			completed: true,
+			success: Boolean(data?.Success),
+			failReason: data?.FailReason || undefined
+		});
+	}
+
+	private setExecutionOutput(id: string, output: LiveExecutionOutput): void {
+		const next = new Map(this.executionOutputs);
+		next.set(id, output);
+		this.executionOutputs = next;
+	}
+
+	getExecutionOutput(id: string): LiveExecutionOutput | undefined {
+		return this.executionOutputs.get(id);
+	}
+
 	isReady(): boolean {
 		return this.graph && this.entities.length > 0;
 	}
@@ -254,6 +367,7 @@ class CampaignState {
 		// directly; this covers every reset signalled via the SSE event. Sharing
 		// this reset-campaign handler keeps the state and timeline refresh together.
 		timeline.clear();
+		this.executionOutputs = new Map();
 		await this.api.GetGraph().then((g: Graph) => {
 			this.graph = g;
 		});

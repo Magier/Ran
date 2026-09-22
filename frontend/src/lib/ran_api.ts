@@ -166,6 +166,7 @@ export class RanAPI {
 				console.log(`SSE event listener queued for type: ${type} (will register on connection)`);
 			}
 		}
+		return () => this.off(type, handler);
 	}
 
 	off(type: string, handler?: (data: any) => void) {

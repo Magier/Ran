@@ -681,6 +681,18 @@ pub(crate) struct AttackStep {
     #[serde(rename = "TTP")]
     pub ttp: AttackStepTTP,
     pub results: Vec<String>,
+    /// Explicit streams for live and completed output. `results` remains for
+    /// compatibility with existing API consumers.
+    pub stdout: String,
+    pub stderr: String,
+    #[serde(rename = "outputTruncated")]
+    pub output_truncated: bool,
+    #[serde(rename = "outputSequence")]
+    pub output_sequence: u64,
+    #[serde(rename = "stdoutBytes")]
+    pub stdout_bytes: u64,
+    #[serde(rename = "stderrBytes")]
+    pub stderr_bytes: u64,
     pub success: bool,
     pub status: &'static str,
     #[serde(rename = "startedAt")]
@@ -722,6 +734,12 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
                 }
                 results
             },
+            stdout: r.results.first().cloned().unwrap_or_default(),
+            stderr: r.results.get(1).cloned().unwrap_or_default(),
+            output_truncated: false,
+            output_sequence: 0,
+            stdout_bytes: r.results.first().map_or(0, |value| value.len() as u64),
+            stderr_bytes: r.results.get(1).map_or(0, |value| value.len() as u64),
             success: r.success,
             status: if r.success { "Success" } else { "Failed" },
             started_at: ms_to_iso8601(r.started_at_ms),
@@ -751,6 +769,12 @@ impl From<&campaign::ExecTtp> for AttackStep {
                 description: String::new(),
             },
             results: Vec::new(),
+            stdout: String::new(),
+            stderr: String::new(),
+            output_truncated: false,
+            output_sequence: 0,
+            stdout_bytes: 0,
+            stderr_bytes: 0,
             success: false,
             status: "Ongoing",
             started_at: ms_to_iso8601(exec.started_at_ms),
@@ -790,6 +814,12 @@ mod flow_contract_tests {
                     description: "Identify the current user".to_string(),
                 },
                 results: vec!["uid=1000".to_string()],
+                stdout: "uid=1000".to_string(),
+                stderr: String::new(),
+                output_truncated: false,
+                output_sequence: 0,
+                stdout_bytes: 8,
+                stderr_bytes: 0,
                 success: true,
                 status: "Success",
                 started_at: "2026-08-15T09:10:11Z".to_string(),
@@ -825,6 +855,21 @@ pub(crate) async fn flow_handler<S: ApiService>(
     // Join the multi-hop traversal breakdown (campaign side map, keyed by
     // command id) onto each step - kept off the execution record itself.
     for step in &mut steps {
+        if step.status == "Ongoing" {
+            if let Some(output) = campaign.get_in_flight_output(&step.id) {
+                step.stdout.clone_from(&output.stdout);
+                step.stderr.clone_from(&output.stderr);
+                step.output_truncated = output.stdout_truncated || output.stderr_truncated;
+                step.output_sequence = output.last_sequence;
+                step.stdout_bytes = output.stdout_bytes;
+                step.stderr_bytes = output.stderr_bytes;
+                step.results = if output.stderr.is_empty() {
+                    vec![output.stdout.clone()]
+                } else {
+                    vec![output.stdout.clone(), output.stderr.clone()]
+                };
+            }
+        }
         if let Some(ct) = campaign.command_traversal(&step.id) {
             step.traversal = ct.hops.iter().map(AttackStepHop::from).collect();
             step.inner_command = ct.inner_command.clone();

@@ -4,11 +4,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use k8s::{Client, PodExecOutput};
+use k8s::{Client, ExecOutputObserver, ExecOutputStream, PodExecOutput};
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{debug, warn};
 
 use crate::builtin::BuiltinC2;
+use crate::output::{IncrementalTextDecoder, OutputFragment, OutputSink, OutputStream};
 use crate::types::{C2Event, ExecTtp, TtpExecuted};
 
 use crate::types::BUILTIN_C2_ID;
@@ -28,6 +30,105 @@ type Listeners = Arc<RwLock<HashMap<u16, tokio::task::AbortHandle>>>;
 /// Holding the `Child` is what makes a redirector stoppable - and, via
 /// `kill_on_drop`, what stops the tunnels from outliving Ran.
 type Redirectors = Arc<RwLock<HashMap<String, RedirectorProcess>>>;
+
+const OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(250);
+const OUTPUT_FLUSH_BYTES: usize = 16 * 1024;
+const OUTPUT_CAPTURE_LIMIT: usize = 1024 * 1024;
+
+fn append_bounded_bytes(buffer: &mut Vec<u8>, bytes: &[u8]) {
+    buffer.extend_from_slice(bytes);
+    if buffer.len() > OUTPUT_CAPTURE_LIMIT {
+        let remove = buffer.len() - OUTPUT_CAPTURE_LIMIT;
+        buffer.drain(..remove);
+    }
+}
+
+#[derive(Default)]
+struct OutputCollector {
+    stdout_decoder: IncrementalTextDecoder,
+    stderr_decoder: IncrementalTextDecoder,
+    pending_stdout: String,
+    pending_stderr: String,
+    captured_stdout: Vec<u8>,
+    captured_stderr: Vec<u8>,
+    stdout_bytes: u64,
+    stderr_bytes: u64,
+    pending_bytes: usize,
+    sequence: u64,
+}
+
+impl OutputCollector {
+    fn push(&mut self, fragment: OutputFragment) {
+        self.pending_bytes += fragment.bytes.len();
+        match fragment.stream {
+            OutputStream::Stdout => {
+                self.stdout_bytes += fragment.bytes.len() as u64;
+                append_bounded_bytes(&mut self.captured_stdout, &fragment.bytes);
+                self.pending_stdout
+                    .push_str(&self.stdout_decoder.push(&fragment.bytes));
+            }
+            OutputStream::Stderr => {
+                self.stderr_bytes += fragment.bytes.len() as u64;
+                append_bounded_bytes(&mut self.captured_stderr, &fragment.bytes);
+                self.pending_stderr
+                    .push_str(&self.stderr_decoder.push(&fragment.bytes));
+            }
+        }
+    }
+
+    fn should_flush(&self) -> bool {
+        self.pending_bytes >= OUTPUT_FLUSH_BYTES
+    }
+
+    fn finish_decoding(&mut self) {
+        self.pending_stdout.push_str(&self.stdout_decoder.finish());
+        self.pending_stderr.push_str(&self.stderr_decoder.finish());
+    }
+
+    fn take_batch(&mut self, cmd_id: &str) -> Option<C2Event> {
+        if self.pending_stdout.is_empty() && self.pending_stderr.is_empty() {
+            self.pending_bytes = 0;
+            return None;
+        }
+        self.sequence += 1;
+        self.pending_bytes = 0;
+        Some(C2Event::TtpOutput {
+            cmd_id: cmd_id.to_string(),
+            sequence: self.sequence,
+            stdout: std::mem::take(&mut self.pending_stdout),
+            stderr: std::mem::take(&mut self.pending_stderr),
+            stdout_bytes: self.stdout_bytes,
+            stderr_bytes: self.stderr_bytes,
+        })
+    }
+
+    fn preserve_partial_failure_output(&self, event: &mut TtpExecuted) {
+        if event.success || (self.captured_stdout.is_empty() && self.captured_stderr.is_empty()) {
+            return;
+        }
+        let only_failure_reason = event.results.is_empty()
+            || (event.results.len() == 1 && event.results[0] == event.fail_reason);
+        if !only_failure_reason {
+            return;
+        }
+        let stdout = String::from_utf8_lossy(&self.captured_stdout)
+            .trim_end()
+            .to_string();
+        let stderr = String::from_utf8_lossy(&self.captured_stderr)
+            .trim_end()
+            .to_string();
+        event.results.clear();
+        if !stdout.is_empty() {
+            event.results.push(stdout);
+        }
+        if !stderr.is_empty() {
+            if event.results.is_empty() {
+                event.results.push(String::new());
+            }
+            event.results.push(stderr);
+        }
+    }
+}
 
 /// A running `labctl port-forward` and the listener it was pointed at.
 struct RedirectorProcess {
@@ -130,12 +231,21 @@ impl C2Executor {
 #[async_trait]
 pub trait C2Backend: Send + Sync {
     async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted;
+
+    async fn execute_streaming(&self, cmd: &ExecTtp, output: OutputSink) -> TtpExecuted {
+        let _ = output;
+        self.execute(cmd).await
+    }
 }
 
 #[async_trait]
 impl C2Backend for BuiltinC2 {
     async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
         self.execute(cmd).await
+    }
+
+    async fn execute_streaming(&self, cmd: &ExecTtp, output: OutputSink) -> TtpExecuted {
+        self.execute_streaming(cmd, output).await
     }
 }
 
@@ -265,7 +375,37 @@ impl C2Manager {
 
 impl C2Executor {
     async fn execute_and_publish(&self, cmd: ExecTtp) {
-        let event = self.execute_command(&cmd).await;
+        let (output, mut output_rx) = OutputSink::channel();
+        let mut execution = Box::pin(self.execute_command(&cmd, output.clone()));
+        let mut collector = OutputCollector::default();
+        let mut ticker = tokio::time::interval_at(
+            tokio::time::Instant::now() + OUTPUT_FLUSH_INTERVAL,
+            OUTPUT_FLUSH_INTERVAL,
+        );
+
+        let mut event = loop {
+            tokio::select! {
+                result = &mut execution => break result,
+                Some(fragment) = output_rx.recv() => {
+                    collector.push(fragment);
+                    if collector.should_flush() {
+                        self.publish_output_batch(collector.take_batch(&cmd.id));
+                    }
+                }
+                _ = ticker.tick() => {
+                    self.publish_output_batch(collector.take_batch(&cmd.id));
+                }
+            }
+        };
+        drop(execution);
+
+        while let Ok(fragment) = output_rx.try_recv() {
+            collector.push(fragment);
+        }
+        collector.finish_decoding();
+        self.publish_output_batch(collector.take_batch(&cmd.id));
+        collector.preserve_partial_failure_output(&mut event);
+
         if self
             .event_bus
             .publish(C2Event::TtpExecuted {
@@ -278,7 +418,15 @@ impl C2Executor {
         }
     }
 
-    async fn execute_command(&self, cmd: &ExecTtp) -> TtpExecuted {
+    fn publish_output_batch(&self, event: Option<C2Event>) {
+        if let Some(event) = event {
+            if self.event_bus.publish(event).is_err() {
+                debug!("no c2 event subscribers currently registered");
+            }
+        }
+    }
+
+    async fn execute_command(&self, cmd: &ExecTtp, output: OutputSink) -> TtpExecuted {
         let trimmed = cmd.procedure.command.trim_start();
 
         if let Some(explicit_path) = parse_read_local_kubeconfig_command(trimmed) {
@@ -383,7 +531,27 @@ impl C2Executor {
                         exit_code: 0,
                     })
             } else if trimmed.contains("kubectl ") || trimmed.starts_with("kubectl") {
-                k8s.execute_kubectl_command(trimmed).await
+                let observer: ExecOutputObserver = Arc::new(move |stream, bytes| match stream {
+                    ExecOutputStream::Stdout => output.stdout(bytes.to_vec()),
+                    ExecOutputStream::Stderr => output.stderr(bytes.to_vec()),
+                });
+                match tokio::time::timeout(
+                    Duration::from_secs(cmd.execution_timeout_seconds.max(1)),
+                    k8s.execute_kubectl_command_streaming(trimmed, Some(observer)),
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_) => {
+                        return failed_result(
+                            cmd,
+                            &format!(
+                                "kubectl command timed out after {}s",
+                                cmd.execution_timeout_seconds.max(1)
+                            ),
+                        )
+                    }
+                }
             } else {
                 return failed_result(
                     cmd,
@@ -455,10 +623,14 @@ impl C2Executor {
         }
 
         if cmd.procedure.is_local_command == Some(true) {
-            return self.run_local_command(cmd).await;
+            return self.run_local_command(cmd, output).await;
         }
 
-        let mut event = self.select_backend(cmd).await.execute(cmd).await;
+        let mut event = self
+            .select_backend(cmd)
+            .await
+            .execute_streaming(cmd, output)
+            .await;
         event.session_connected = None;
         event
     }
@@ -468,7 +640,7 @@ impl C2Executor {
     /// This is deliberately handled before C2 backend selection.  Local
     /// procedures are not pod-exec commands with relaxed routing requirements:
     /// their process exit status is the action result the operator must see.
-    async fn run_local_command(&self, cmd: &ExecTtp) -> TtpExecuted {
+    async fn run_local_command(&self, cmd: &ExecTtp, output: OutputSink) -> TtpExecuted {
         let command = cmd.procedure.command.trim();
         if command.is_empty() {
             return failed_result(cmd, "local procedure has an empty command");
@@ -492,28 +664,19 @@ impl C2Executor {
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
 
-        let output = match tokio::time::timeout(
-            Duration::from_secs(timeout_seconds),
-            process.output(),
-        )
-        .await
-        {
-            Err(_) => {
-                let reason = format!("local command timed out after {timeout_seconds}s");
-                tracing::warn!(cmd_id = %cmd.id, target_id = %cmd.target_id, %reason);
-                return failed_result(cmd, &reason);
-            }
-            Ok(Err(error)) => {
-                let reason = format!("failed to start local command: {error}");
-                tracing::warn!(cmd_id = %cmd.id, target_id = %cmd.target_id, %reason);
-                return failed_result(cmd, &reason);
-            }
-            Ok(Ok(output)) => output,
-        };
+        let output =
+            match run_streamed_child(process, Duration::from_secs(timeout_seconds), output).await {
+                Err(error) => {
+                    let reason = format!("failed to start local command: {error}");
+                    tracing::warn!(cmd_id = %cmd.id, target_id = %cmd.target_id, %reason);
+                    return failed_result(cmd, &reason);
+                }
+                Ok(output) => output,
+            };
 
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let exit_code = output.status.code().unwrap_or(-1);
+        let exit_code = output.exit_code;
         let mut results = Vec::new();
         if !stdout.is_empty() {
             results.push(stdout.clone());
@@ -525,7 +688,20 @@ impl C2Executor {
             results.push(stderr.clone());
         }
 
-        if output.status.success() {
+        if output.timed_out {
+            let reason = format!("local command timed out after {timeout_seconds}s");
+            tracing::warn!(cmd_id = %cmd.id, target_id = %cmd.target_id, %reason);
+            return TtpExecuted {
+                id: cmd.id.clone(),
+                success: false,
+                results,
+                exit_code,
+                fail_reason: reason,
+                session_connected: None,
+            };
+        }
+
+        if output.success {
             tracing::info!(cmd_id = %cmd.id, target_id = %cmd.target_id, exit_code, "local procedure completed");
             TtpExecuted {
                 id: cmd.id.clone(),
@@ -983,6 +1159,90 @@ fn parse_kubeconfig_permission_command(command: &str) -> Option<&str> {
         .strip_suffix(')')
         .map(str::trim)
         .filter(|namespace| !namespace.is_empty())
+}
+
+struct StreamedChildOutput {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    exit_code: i32,
+    success: bool,
+    timed_out: bool,
+}
+
+async fn drain_child_stream<R>(
+    mut reader: R,
+    stream: OutputStream,
+    output: OutputSink,
+) -> std::io::Result<Vec<u8>>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    let mut captured = Vec::new();
+    let mut buffer = vec![0u8; 8 * 1024];
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        let fragment = buffer[..read].to_vec();
+        match stream {
+            OutputStream::Stdout => output.stdout(fragment.clone()),
+            OutputStream::Stderr => output.stderr(fragment.clone()),
+        }
+        captured.extend_from_slice(&fragment);
+    }
+    Ok(captured)
+}
+
+async fn run_streamed_child(
+    mut command: tokio::process::Command,
+    timeout: Duration,
+    output: OutputSink,
+) -> Result<StreamedChildOutput, String> {
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "child stdout was not piped".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "child stderr was not piped".to_string())?;
+    let stdout_task = tokio::spawn(drain_child_stream(
+        stdout,
+        OutputStream::Stdout,
+        output.clone(),
+    ));
+    let stderr_task = tokio::spawn(drain_child_stream(stderr, OutputStream::Stderr, output));
+
+    let (status, timed_out) = match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(Ok(status)) => (status, false),
+        Ok(Err(error)) => return Err(format!("failed waiting for child process: {error}")),
+        Err(_) => {
+            let _ = child.kill().await;
+            let status = child
+                .wait()
+                .await
+                .map_err(|error| format!("failed reaping timed-out child process: {error}"))?;
+            (status, true)
+        }
+    };
+    let stdout = stdout_task
+        .await
+        .map_err(|error| format!("stdout reader task failed: {error}"))?
+        .map_err(|error| format!("failed reading child stdout: {error}"))?;
+    let stderr = stderr_task
+        .await
+        .map_err(|error| format!("stderr reader task failed: {error}"))?
+        .map_err(|error| format!("failed reading child stderr: {error}"))?;
+
+    Ok(StreamedChildOutput {
+        stdout,
+        stderr,
+        exit_code: status.code().unwrap_or(-1),
+        success: status.success(),
+        timed_out,
+    })
 }
 
 fn failed_result(cmd: &ExecTtp, reason: &str) -> TtpExecuted {
@@ -1870,14 +2130,68 @@ mod tests {
         };
         handle.send(cmd).await.expect("command should queue");
 
-        match rx.recv().await.expect("execution event should publish") {
-            C2Event::TtpExecuted { event, .. } => {
-                assert!(!event.success);
-                assert_eq!(event.exit_code, 7);
-                assert_eq!(event.results, vec!["local-output", "local-error"]);
-                assert_eq!(event.fail_reason, "local-error");
+        let mut saw_output = false;
+        loop {
+            match rx.recv().await.expect("execution event should publish") {
+                C2Event::TtpOutput { stdout, stderr, .. } => {
+                    saw_output = true;
+                    assert_eq!(stdout, "local-output");
+                    assert_eq!(stderr, "local-error");
+                }
+                C2Event::TtpExecuted { event, .. } => {
+                    assert!(!event.success);
+                    assert_eq!(event.exit_code, 7);
+                    assert_eq!(event.results, vec!["local-output", "local-error"]);
+                    assert_eq!(event.fail_reason, "local-error");
+                    break;
+                }
+                other => panic!("unexpected event: {other:?}"),
             }
-            other => panic!("unexpected event: {other:?}"),
+        }
+        assert!(saw_output, "local output should publish before completion");
+
+        drop(handle);
+        manager_task
+            .await
+            .expect("manager should shut down cleanly");
+    }
+
+    #[tokio::test]
+    async fn local_procedure_publishes_output_while_command_is_still_running() {
+        let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "backend should not run".to_string(),
+        });
+        let mut backends = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), backend.clone());
+        backends.insert("ran".to_string(), backend);
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let mut rx = events.subscribe();
+        let manager_task = tokio::spawn(manager.run());
+
+        let mut cmd = exec_cmd("ran");
+        cmd.procedure = Procedure {
+            is_local_command: Some(true),
+            ..Procedure::new("local-stream", "printf first; sleep 1; printf second")
+        };
+        handle.send(cmd).await.expect("command should queue");
+
+        let first = tokio::time::timeout(Duration::from_millis(800), rx.recv())
+            .await
+            .expect("output should arrive before the command exits")
+            .expect("event bus should remain open");
+        match first {
+            C2Event::TtpOutput { stdout, .. } => assert_eq!(stdout, "first"),
+            other => panic!("expected live output, got {other:?}"),
+        }
+
+        loop {
+            if let C2Event::TtpExecuted { event, .. } =
+                rx.recv().await.expect("completion should publish")
+            {
+                assert!(event.success);
+                assert_eq!(event.results, vec!["firstsecond"]);
+                break;
+            }
         }
 
         drop(handle);

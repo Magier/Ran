@@ -9,6 +9,7 @@ use tokio::time::Instant;
 use tracing::warn;
 
 use crate::executor::C2Backend;
+use crate::output::OutputSink;
 use crate::types::{ExecTtp, TtpExecuted};
 
 static NONCE: AtomicU64 = AtomicU64::new(1);
@@ -74,6 +75,7 @@ enum ShellRequest {
     Execute {
         command: Box<ExecTtp>,
         deadline: Instant,
+        output_sink: OutputSink,
         reply: oneshot::Sender<TtpExecuted>,
     },
 }
@@ -82,6 +84,7 @@ enum PendingReply {
     Raw(Option<oneshot::Sender<Result<String, String>>>),
     Execute {
         cmd_id: String,
+        output_sink: OutputSink,
         reply: Option<oneshot::Sender<TtpExecuted>>,
     },
     Heartbeat,
@@ -223,12 +226,17 @@ impl ShellSession {
 #[async_trait]
 impl C2Backend for ShellSession {
     async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
+        self.execute_streaming(cmd, OutputSink::discard()).await
+    }
+
+    async fn execute_streaming(&self, cmd: &ExecTtp, output_sink: OutputSink) -> TtpExecuted {
         let (reply_tx, reply_rx) = oneshot::channel();
         let timeout = Duration::from_secs(cmd.execution_timeout_seconds.max(1));
         let deadline = Instant::now() + timeout;
         let request = ShellRequest::Execute {
             command: Box::new(cmd.clone()),
             deadline,
+            output_sink,
             reply: reply_tx,
         };
         match tokio::time::timeout_at(deadline, self.requests.send(request)).await {
@@ -326,6 +334,7 @@ async fn run_request(
         ShellRequest::Execute {
             command,
             deadline,
+            output_sink,
             reply,
         } => {
             let timeout = Duration::from_secs(command.execution_timeout_seconds.max(1));
@@ -336,6 +345,7 @@ async fn run_request(
                 deadline,
                 PendingReply::Execute {
                     cmd_id,
+                    output_sink,
                     reply: Some(reply),
                 },
             )
@@ -428,6 +438,9 @@ async fn run_frame(
                     return true;
                 }
                 if !timed_out {
+                    if let PendingReply::Execute { output_sink, .. } = &reply {
+                        output_sink.stdout(line.clone());
+                    }
                     output.push_str(&text);
                 }
                 line.clear();
@@ -457,7 +470,7 @@ fn finish_with_success(reply: &mut PendingReply, exit_code: i32, output: String)
                 let _ = sender.send(Ok(value));
             }
         }
-        PendingReply::Execute { cmd_id, reply } => {
+        PendingReply::Execute { cmd_id, reply, .. } => {
             let stdout = output.trim_end().to_string();
             let success = exit_code == 0;
             let fail_reason = if success {
@@ -495,7 +508,7 @@ fn finish_with_timeout(reply: &mut PendingReply, timeout: Duration, command: &st
                 )));
             }
         }
-        PendingReply::Execute { cmd_id, reply } => {
+        PendingReply::Execute { cmd_id, reply, .. } => {
             if let Some(reply) = reply.take() {
                 let _ = reply.send(timeout_error(cmd_id, timeout));
             }
@@ -518,7 +531,7 @@ fn finish_with_error(reply: &mut PendingReply, reason: String) {
                 let _ = sender.send(Err(reason));
             }
         }
-        PendingReply::Execute { cmd_id, reply } => {
+        PendingReply::Execute { cmd_id, reply, .. } => {
             if let Some(reply) = reply.take() {
                 let _ = reply.send(exec_error(cmd_id, reason));
             }
@@ -619,6 +632,22 @@ mod tests {
         );
         assert_eq!(result.exit_code, 0);
         assert_eq!(result.results, vec!["hello world"]);
+    }
+
+    #[tokio::test]
+    async fn execute_streams_output_without_completion_marker() {
+        let session = fake_shell_session("node/test");
+        session.init().await.expect("init");
+        let cmd = make_cmd("echo hello", "session/test");
+        let (output, mut rx) = crate::OutputSink::channel();
+
+        let result = session.execute_streaming(&cmd, output).await;
+        assert!(result.success);
+        let fragment = rx.try_recv().expect("output fragment");
+        assert_eq!(fragment.stream, crate::OutputStream::Stdout);
+        let text = String::from_utf8(fragment.bytes).expect("utf8 output");
+        assert_eq!(text, "hello world\n");
+        assert!(!text.contains("__RAN_"));
     }
 
     #[tokio::test]

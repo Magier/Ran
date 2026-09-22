@@ -38,6 +38,7 @@
 	let fileViewerContent: string = $state('');
 	let selectedAttackStep: AttackStep | null = $state(null);
 	let actionDetailsRequestId = 0;
+	const pageEventUnsubscribers: Array<() => void> = [];
 
 	// Armory resize and collapse state
 	const ARMORY_WIDTH_KEY = '_armoryWidth';
@@ -420,99 +421,109 @@
 		}
 
 		// TODO: check if this alert handle is still useful
-		campaignState.api.on('alert', (alert) => {
-			console.log('Store Alert ', alert);
-		});
+		pageEventUnsubscribers.push(
+			campaignState.api.on('alert', (alert) => {
+				console.log('Store Alert ', alert);
+			})
+		);
 
-		ranAPI.on('ttp-executed', (data) => {
-			const cmdId = data.CmdId ?? data.ID ?? '';
-			const targetId = data.TargetID ?? '';
-			const execSystemId = data.ExecSystemID ?? '';
-			const differsFromTarget = execSystemId && execSystemId !== targetId;
-			// Resolves the pending entry for UI-initiated actions, or creates the
-			// entry outright for actions driven via MCP / autonomous plans.
-			timeline.recordExecutedTtp({
-				id: cmdId,
-				ttpId: data.TTP?.id ?? '',
-				ttpName: data.TTP?.name ?? data.TTP?.id ?? cmdId,
-				targetId,
-				targetName: campaignState.getEntityById(targetId)?.name ?? targetId,
-				execSystemId: differsFromTarget ? execSystemId : undefined,
-				execSystemName: differsFromTarget
-					? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
-					: undefined,
-				status: data.Success ? 'success' : 'failed',
-				failReason: data.Success ? undefined : data.FailReason,
-				timestamp: new Date()
-			});
+		pageEventUnsubscribers.push(
+			ranAPI.on('ttp-executed', (data) => {
+				const cmdId = data.CmdId ?? data.ID ?? '';
+				const targetId = data.TargetID ?? '';
+				const execSystemId = data.ExecSystemID ?? '';
+				const differsFromTarget = execSystemId && execSystemId !== targetId;
+				// Resolves the pending entry for UI-initiated actions, or creates the
+				// entry outright for actions driven via MCP / autonomous plans.
+				timeline.recordExecutedTtp({
+					id: cmdId,
+					ttpId: data.TTP?.id ?? '',
+					ttpName: data.TTP?.name ?? data.TTP?.id ?? cmdId,
+					targetId,
+					targetName: campaignState.getEntityById(targetId)?.name ?? targetId,
+					execSystemId: differsFromTarget ? execSystemId : undefined,
+					execSystemName: differsFromTarget
+						? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
+						: undefined,
+					status: data.Success ? 'success' : 'failed',
+					failReason: data.Success ? undefined : data.FailReason,
+					timestamp: new Date()
+				});
 
-			if (data.Success && data.TTP?.id === 'read-file' && data.Args?.PATH) {
-				ranAPI
-					.GetFileContent(data.Args.PATH)
-					.then((file) => {
-						fileViewerPath = file.path ?? data.Args.PATH;
-						fileViewerContent = file.content ?? '';
-						showFileViewer = true;
-					})
-					.catch(() => {});
-			}
-		});
+				if (data.Success && data.TTP?.id === 'read-file' && data.Args?.PATH) {
+					ranAPI
+						.GetFileContent(data.Args.PATH)
+						.then((file) => {
+							fileViewerPath = file.path ?? data.Args.PATH;
+							fileViewerContent = file.content ?? '';
+							showFileViewer = true;
+						})
+						.catch(() => {});
+				}
+			})
+		);
 
 		// Facts arrive as one batch. This deliberately shares the `facts-changed`
 		// event with the graph refresh: a large PodList must not enqueue an SSE
 		// message and handler invocation for every discovered entity.
-		ranAPI.on('facts-changed', (data) => {
-			for (const entity of data?.newEntities ?? []) {
-				timeline.addEntityEvent({
-					kind: entity.category ?? 'discovery',
-					outcome: entity.outcome ?? 'observed',
-					id: entity.id,
-					entityId: entity.id,
-					entityName: entity.name,
-					entityKind: entity.kind,
-					cmdId: data.cmdId,
-					timestamp: new Date()
-				});
-			}
-		});
+		pageEventUnsubscribers.push(
+			ranAPI.on('facts-changed', (data) => {
+				for (const entity of data?.newEntities ?? []) {
+					timeline.addEntityEvent({
+						kind: entity.category ?? 'discovery',
+						outcome: entity.outcome ?? 'observed',
+						id: entity.id,
+						entityId: entity.id,
+						entityName: entity.name,
+						entityKind: entity.kind,
+						cmdId: data.cmdId,
+						timestamp: new Date()
+					});
+				}
+			})
+		);
 
 		// A session dying or coming back is not an entity fact - the host does not
 		// change - so it arrives on its own event and gets its own timeline row.
 		// `facts-changed` rides alongside it and refreshes the graph, which is
 		// what restyles the edge.
-		ranAPI.on('session-changed', (data) => {
-			timeline.addSessionEvent({
-				lost: data.state === 'lost',
-				backendId: data.backendId,
-				entityId: data.entityId,
-				entityName: campaignState.getEntityById(data.entityId)?.name ?? data.entityName,
-				timestamp: new Date()
-			});
-		});
+		pageEventUnsubscribers.push(
+			ranAPI.on('session-changed', (data) => {
+				timeline.addSessionEvent({
+					lost: data.state === 'lost',
+					backendId: data.backendId,
+					entityId: data.entityId,
+					entityName: campaignState.getEntityById(data.entityId)?.name ?? data.entityName,
+					timestamp: new Date()
+				});
+			})
+		);
 
 		// Show actions as in-progress the moment they're dispatched - by this UI, an
 		// autonomous plan, MCP, or the CLI - rather than only once they complete.
 		// addTtpAction is idempotent: a UI-initiated action already has a pending
 		// entry, so this enriches it; an externally-driven one creates a fresh one.
-		ranAPI.on('ttp-dispatched', (data) => {
-			const cmdId = data.CmdId ?? data.ID ?? '';
-			const targetId = data.TargetID ?? '';
-			const execSystemId = data.ExecSystemID ?? '';
-			const differsFromTarget = execSystemId && execSystemId !== targetId;
-			timeline.addTtpAction({
-				id: cmdId,
-				ttpId: data.TTP?.id ?? '',
-				ttpName: data.TTP?.name ?? data.TTP?.id ?? cmdId,
-				targetId,
-				targetName: campaignState.getEntityById(targetId)?.name ?? targetId,
-				execSystemId: differsFromTarget ? execSystemId : undefined,
-				execSystemName: differsFromTarget
-					? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
-					: undefined,
-				status: 'pending',
-				timestamp: new Date()
-			});
-		});
+		pageEventUnsubscribers.push(
+			ranAPI.on('ttp-dispatched', (data) => {
+				const cmdId = data.CmdId ?? data.ID ?? '';
+				const targetId = data.TargetID ?? '';
+				const execSystemId = data.ExecSystemID ?? '';
+				const differsFromTarget = execSystemId && execSystemId !== targetId;
+				timeline.addTtpAction({
+					id: cmdId,
+					ttpId: data.TTP?.id ?? '',
+					ttpName: data.TTP?.name ?? data.TTP?.id ?? cmdId,
+					targetId,
+					targetName: campaignState.getEntityById(targetId)?.name ?? targetId,
+					execSystemId: differsFromTarget ? execSystemId : undefined,
+					execSystemName: differsFromTarget
+						? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
+						: undefined,
+					status: 'pending',
+					timestamp: new Date()
+				});
+			})
+		);
 
 		// Seed the timeline from the campaign's existing state so a session attached
 		// to an already-running campaign isn't blank: completed actions from the
@@ -582,6 +593,8 @@
 	});
 
 	onDestroy(() => {
+		for (const unsubscribe of pageEventUnsubscribers) unsubscribe();
+		pageEventUnsubscribers.length = 0;
 		if (browser) {
 			window.removeEventListener('keydown', handleKeyPress);
 			window.removeEventListener('mousemove', handleMouseMove);

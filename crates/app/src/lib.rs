@@ -2702,6 +2702,30 @@ fn publish_ttp_dispatched(exec: &c2::ExecTtp) {
 async fn bridge_campaign_events_to_sse(mut campaign_rx: broadcast::Receiver<CampaignEvent>) {
     loop {
         match campaign_rx.recv().await {
+            Ok(CampaignEvent::TtpOutput {
+                cmd_id,
+                sequence,
+                stdout,
+                stderr,
+                stdout_bytes,
+                stderr_bytes,
+            }) => {
+                api::publish_sse_event(
+                    "ttp-output",
+                    serde_json::json!({
+                        "type": "ttp-output",
+                        "data": {
+                            "CmdId": cmd_id,
+                            "Sequence": sequence,
+                            "Stdout": stdout,
+                            "Stderr": stderr,
+                            "StdoutBytes": stdout_bytes,
+                            "StderrBytes": stderr_bytes,
+                        },
+                    })
+                    .to_string(),
+                );
+            }
             Ok(CampaignEvent::TtpExecuted {
                 cmd_id,
                 target_id,

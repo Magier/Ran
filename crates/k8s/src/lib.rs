@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, path::PathBuf};
+use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Context, Result};
 use http::{Method, Request};
@@ -11,7 +11,15 @@ use kube::{
 };
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecOutputStream {
+    Stdout,
+    Stderr,
+}
+
+pub type ExecOutputObserver = Arc<dyn Fn(ExecOutputStream, &[u8]) + Send + Sync>;
 
 /// Output from a pod exec command, including both streams and the exit code.
 /// Only infrastructure failures (can't connect, stream errors) produce an `Err`.
@@ -21,6 +29,36 @@ pub struct PodExecOutput {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i32,
+}
+
+async fn drain_exec_stream<R>(
+    reader: Option<R>,
+    stream: ExecOutputStream,
+    observer: Option<ExecOutputObserver>,
+) -> Result<String>
+where
+    R: AsyncRead + Unpin,
+{
+    let Some(mut reader) = reader else {
+        return Ok(String::new());
+    };
+    let mut bytes = Vec::new();
+    let mut buffer = vec![0u8; 8 * 1024];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .await
+            .context("failed reading pod exec output")?;
+        if read == 0 {
+            break;
+        }
+        let fragment = &buffer[..read];
+        if let Some(observer) = &observer {
+            observer(stream, fragment);
+        }
+        bytes.extend_from_slice(fragment);
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -586,21 +624,46 @@ impl Client {
     /// an explicit `--kubeconfig "$KUBECONFIG"` flag while the actual path is
     /// supplied only through this process environment.
     pub async fn execute_kubectl_command(&self, command: &str) -> Result<PodExecOutput> {
+        self.execute_kubectl_command_streaming(command, None).await
+    }
+
+    pub async fn execute_kubectl_command_streaming(
+        &self,
+        command: &str,
+        observer: Option<ExecOutputObserver>,
+    ) -> Result<PodExecOutput> {
         let kubeconfig = self
             .kubeconfig_path
             .as_ref()
             .ok_or_else(|| anyhow!("active Kubernetes client has no file-backed kubeconfig"))?;
-        let output = tokio::process::Command::new("/bin/sh")
+        let mut process = tokio::process::Command::new("/bin/sh");
+        process
             .arg("-lc")
             .arg(command)
             .env("KUBECONFIG", kubeconfig)
-            .output()
-            .await
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = process
+            .spawn()
             .context("failed to execute kubectl procedure")?;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let (stdout, stderr, status) = tokio::try_join!(
+            drain_exec_stream(stdout, ExecOutputStream::Stdout, observer.clone()),
+            drain_exec_stream(stderr, ExecOutputStream::Stderr, observer),
+            async {
+                child
+                    .wait()
+                    .await
+                    .context("failed waiting for kubectl procedure")
+            }
+        )?;
         Ok(PodExecOutput {
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-            exit_code: output.status.code().unwrap_or(1),
+            stdout,
+            stderr,
+            exit_code: status.code().unwrap_or(1),
         })
     }
 
@@ -609,6 +672,17 @@ impl Client {
         namespace: &str,
         pod_name: &str,
         command: &str,
+    ) -> Result<PodExecOutput> {
+        self.exec_pod_command_streaming(namespace, pod_name, command, None)
+            .await
+    }
+
+    pub async fn exec_pod_command_streaming(
+        &self,
+        namespace: &str,
+        pod_name: &str,
+        command: &str,
+        observer: Option<ExecOutputObserver>,
     ) -> Result<PodExecOutput> {
         let command = command.trim();
         if command.is_empty() {
@@ -630,27 +704,19 @@ impl Client {
                 format!("failed to exec command in pod '{}/{}'", namespace, pod_name)
             })?;
 
-        let mut stdout = String::new();
-        if let Some(mut reader) = attached.stdout() {
-            reader
-                .read_to_string(&mut stdout)
-                .await
-                .context("failed reading pod exec stdout")?;
-        }
-
-        let mut stderr = String::new();
-        if let Some(mut reader) = attached.stderr() {
-            reader
-                .read_to_string(&mut stderr)
-                .await
-                .context("failed reading pod exec stderr")?;
-        }
-
+        let stdout = attached.stdout();
+        let stderr = attached.stderr();
         let status = attached
             .take_status()
-            .ok_or_else(|| anyhow!("missing pod exec status stream"))?
-            .await
-            .context("failed to receive pod exec status")?;
+            .ok_or_else(|| anyhow!("missing pod exec status stream"))?;
+
+        let stdout_observer = observer.clone();
+        let stderr_observer = observer;
+        let (stdout, stderr, status) = tokio::try_join!(
+            drain_exec_stream(stdout, ExecOutputStream::Stdout, stdout_observer),
+            drain_exec_stream(stderr, ExecOutputStream::Stderr, stderr_observer),
+            async { status.await.context("failed to receive pod exec status") }
+        )?;
 
         let exit_code = if status.status == Some("Success".to_string()) {
             0
@@ -802,6 +868,32 @@ pub fn target_cluster_from_kubeconfig(path: Option<PathBuf>) -> Result<TargetClu
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use std::sync::Mutex;
+
+    #[tokio::test]
+    async fn exec_stream_forwards_fragments_while_preserving_complete_output() {
+        let (mut writer, reader) = tokio::io::duplex(64);
+        let observed = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let observed_clone = observed.clone();
+        let observer: ExecOutputObserver = Arc::new(move |stream, bytes| {
+            assert_eq!(stream, ExecOutputStream::Stdout);
+            observed_clone.lock().expect("observer lock").extend(bytes);
+        });
+        tokio::spawn(async move {
+            writer.write_all(b"host one\nhost two\n").await.unwrap();
+            writer.shutdown().await.unwrap();
+        });
+
+        let output = drain_exec_stream(Some(reader), ExecOutputStream::Stdout, Some(observer))
+            .await
+            .expect("stream should drain");
+
+        assert_eq!(output, "host one\nhost two\n");
+        assert_eq!(
+            *observed.lock().expect("observer lock"),
+            b"host one\nhost two\n"
+        );
+    }
 
     #[test]
     fn default_kubeconfig_prefers_first_existing_kubeconfig_entry() {
