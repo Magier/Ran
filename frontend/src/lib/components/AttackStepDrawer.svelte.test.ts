@@ -19,6 +19,12 @@ const step: AttackStep = {
 		techniques: ['T1033']
 	},
 	results: ['uid=1000'],
+	stdout: 'uid=1000',
+	stderr: '',
+	outputTruncated: false,
+	outputSequence: 0,
+	stdoutBytes: 8,
+	stderrBytes: 0,
 	startedAt: '2026-08-15T09:10:11Z',
 	completedAt: '2026-08-15T09:10:12Z',
 	executedOn: 'target-1',
@@ -26,11 +32,20 @@ const step: AttackStep = {
 	success: true
 };
 
-function renderDrawer(onclose = vi.fn()) {
+function renderDrawer(
+	onclose = vi.fn(),
+	selectedStep: AttackStep = step,
+	output: Record<string, unknown> | undefined = undefined
+) {
 	return {
 		...render(AttackStepDrawer, {
-			props: { step, onclose },
-			context: new Map([['$_campaignState', { getEntityById: () => ({ name: 'target-pod' }) }]])
+			props: { step: selectedStep, onclose },
+			context: new Map([
+				[
+					'$_campaignState',
+					{ getEntityById: () => ({ name: 'target-pod' }), getExecutionOutput: () => output }
+				]
+			])
 		}),
 		onclose
 	};
@@ -43,6 +58,47 @@ describe('AttackStepDrawer', () => {
 		expect(screen.getByRole('dialog')).toBeInTheDocument();
 		expect(screen.getByRole('heading', { name: 'Who am I' })).toBeInTheDocument();
 		expect(screen.getByText('uid=1000')).toBeInTheDocument();
+	});
+
+	it('shows output received while an action is still running', () => {
+		const ongoing: AttackStep = { ...step, status: 'Ongoing', success: false, completedAt: '' };
+		renderDrawer(vi.fn(), ongoing, {
+			sequence: 2,
+			stdout: 'Nmap scan report for 10.0.0.5\nHost is up',
+			stderr: '',
+			stdoutBytes: 45,
+			stderrBytes: 0,
+			truncated: false,
+			completed: false
+		});
+
+		expect(screen.getByText('Live · 45 bytes')).toBeInTheDocument();
+		expect(screen.getByText(/Nmap scan report for 10\.0\.0\.5/)).toBeInTheDocument();
+	});
+
+	it('shows completion for an action that produced no output', () => {
+		const ongoing: AttackStep = {
+			...step,
+			results: [],
+			stdout: '',
+			status: 'Ongoing',
+			success: false,
+			completedAt: ''
+		};
+		renderDrawer(vi.fn(), ongoing, {
+			sequence: 0,
+			stdout: '',
+			stderr: '',
+			stdoutBytes: 0,
+			stderrBytes: 0,
+			truncated: false,
+			completed: true,
+			success: true
+		});
+
+		expect(screen.getByText('Success')).toBeInTheDocument();
+		expect(screen.getByText('Completed without output.')).toBeInTheDocument();
+		expect(screen.queryByText(/Waiting for output/)).not.toBeInTheDocument();
 	});
 
 	it('closes when its selected step is cleared', async () => {

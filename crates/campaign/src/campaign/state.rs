@@ -20,6 +20,32 @@ use crate::{
 
 use super::{CampaignSystemEntityMut, CampaignSystemEntityRef, EntityStore, ExecChannel};
 
+const IN_FLIGHT_OUTPUT_LIMIT: usize = 1024 * 1024;
+
+fn append_bounded(buffer: &mut String, delta: &str) -> bool {
+    buffer.push_str(delta);
+    if buffer.len() <= IN_FLIGHT_OUTPUT_LIMIT {
+        return false;
+    }
+    let mut remove = buffer.len() - IN_FLIGHT_OUTPUT_LIMIT;
+    while !buffer.is_char_boundary(remove) {
+        remove += 1;
+    }
+    buffer.drain(..remove);
+    true
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct InFlightOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub last_sequence: u64,
+    pub stdout_bytes: u64,
+    pub stderr_bytes: u64,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Campaign {
     pub entities: EntityStore,
@@ -30,6 +56,10 @@ pub struct Campaign {
     pub execution_records: Vec<ExecutionRecord>,
     /// Steps that have been dispatched to C2 but not yet completed.
     pub open_steps: Vec<ExecTtp>,
+    /// Bounded output snapshots for currently running commands. SSE carries
+    /// deltas; this map lets a reconnecting frontend recover the latest output.
+    #[serde(default)]
+    pub in_flight_outputs: HashMap<String, InFlightOutput>,
     /// Raw file contents captured by `file:content(path)` effects, keyed by path.
     #[serde(default)]
     pub file_contents: HashMap<String, String>,
@@ -221,6 +251,7 @@ impl Campaign {
             parse_audits: Vec::new(),
             execution_records: Vec::new(),
             open_steps: Vec::new(),
+            in_flight_outputs: HashMap::new(),
             file_contents: HashMap::new(),
             command_traversals: HashMap::new(),
             session_traversals: HashMap::new(),
@@ -380,6 +411,34 @@ impl Campaign {
         &self.open_steps
     }
 
+    pub fn get_in_flight_output(&self, id: &str) -> Option<&InFlightOutput> {
+        self.in_flight_outputs.get(id)
+    }
+
+    pub fn record_in_flight_output(
+        &mut self,
+        id: &str,
+        sequence: u64,
+        stdout: &str,
+        stderr: &str,
+        stdout_bytes: u64,
+        stderr_bytes: u64,
+    ) -> bool {
+        if !self.open_steps.iter().any(|step| step.id == id) {
+            return false;
+        }
+        let output = self.in_flight_outputs.entry(id.to_string()).or_default();
+        if sequence <= output.last_sequence {
+            return false;
+        }
+        output.last_sequence = sequence;
+        output.stdout_bytes = stdout_bytes;
+        output.stderr_bytes = stderr_bytes;
+        output.stdout_truncated |= append_bounded(&mut output.stdout, stdout);
+        output.stderr_truncated |= append_bounded(&mut output.stderr, stderr);
+        true
+    }
+
     pub fn store_file_content(&mut self, path: impl Into<String>, content: impl Into<String>) {
         self.file_contents.insert(path.into(), content.into());
     }
@@ -394,6 +453,7 @@ impl Campaign {
 
     pub fn complete_open_step(&mut self, id: &str) {
         self.open_steps.retain(|s| s.id != id);
+        self.in_flight_outputs.remove(id);
     }
 
     /// Returns `true` when `id` identifies a machine - anything implementing
@@ -983,6 +1043,24 @@ impl Campaign {
 mod planner_helper_tests {
     use super::*;
 
+    fn open_step(id: &str) -> ExecTtp {
+        ExecTtp {
+            id: id.to_string(),
+            ttp: armory::Ttp::new("test", "Test", "Execution"),
+            procedure: armory::Procedure::new("shell", "echo test"),
+            args: HashMap::new(),
+            target_id: "node/test".to_string(),
+            exec_chain: vec!["node/test".to_string()],
+            exec_system_id: "node/test".to_string(),
+            auth_identity_id: None,
+            started_at_ms: 0,
+            execution_timeout_seconds: 60,
+            output_transform: None,
+            is_cleanup: false,
+            reasoning: String::new(),
+        }
+    }
+
     fn minimal_campaign() -> Campaign {
         Campaign {
             entities: EntityStore::default(),
@@ -990,6 +1068,7 @@ mod planner_helper_tests {
             parse_audits: Vec::new(),
             execution_records: Vec::new(),
             open_steps: Vec::new(),
+            in_flight_outputs: std::collections::HashMap::new(),
             file_contents: std::collections::HashMap::new(),
             command_traversals: std::collections::HashMap::new(),
             session_traversals: std::collections::HashMap::new(),
@@ -1004,6 +1083,24 @@ mod planner_helper_tests {
         let ids = c.all_entity_ids();
         // A new campaign has no entities - the method must not panic.
         assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn in_flight_output_is_ordered_bounded_and_removed_on_completion() {
+        let mut campaign = minimal_campaign();
+        campaign.add_open_step(open_step("cmd-1"));
+
+        assert!(campaign.record_in_flight_output("cmd-1", 1, "first", "", 5, 0));
+        assert!(!campaign.record_in_flight_output("cmd-1", 1, "duplicate", "", 14, 0));
+        assert!(campaign.record_in_flight_output("cmd-1", 2, " second", "warn", 12, 4));
+
+        let output = campaign.get_in_flight_output("cmd-1").expect("output");
+        assert_eq!(output.stdout, "first second");
+        assert_eq!(output.stderr, "warn");
+        assert_eq!(output.last_sequence, 2);
+
+        campaign.complete_open_step("cmd-1");
+        assert!(campaign.get_in_flight_output("cmd-1").is_none());
     }
 
     #[test]

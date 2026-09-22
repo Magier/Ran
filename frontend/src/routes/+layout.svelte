@@ -18,7 +18,7 @@
 	import { timeline } from '$lib/stores/timelineStore.svelte';
 	let { children } = $props();
 
-	setCampaignState();
+	const campaignState = setCampaignState();
 
 	let isDark: boolean = $state(false);
 
@@ -47,6 +47,7 @@
 	let mediaQuery: MediaQueryList | null = $state(null);
 	let mediaQueryHandler: ((event: MediaQueryListEvent) => void) | null = null;
 	onMount(() => {
+		void campaignState.init();
 		if (browser) {
 			// Priority: localStorage > system preference
 			const stored = localStorage.getItem('theme');

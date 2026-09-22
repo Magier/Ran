@@ -64,6 +64,14 @@ pub enum SessionLifecycle {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CampaignEvent {
+    TtpOutput {
+        cmd_id: String,
+        sequence: u64,
+        stdout: String,
+        stderr: String,
+        stdout_bytes: u64,
+        stderr_bytes: u64,
+    },
     TtpExecuted {
         cmd_id: String,
         action_id: String,
@@ -163,6 +171,39 @@ pub fn spawn_c2_event_processor_with_external_parser(
     tokio::spawn(async move {
         loop {
             match c2_rx.recv().await {
+                Ok(C2Event::TtpOutput {
+                    cmd_id,
+                    sequence,
+                    stdout,
+                    stderr,
+                    stdout_bytes,
+                    stderr_bytes,
+                }) => {
+                    let accepted = match campaign.write() {
+                        Ok(mut guard) => guard.record_in_flight_output(
+                            &cmd_id,
+                            sequence,
+                            &stdout,
+                            &stderr,
+                            stdout_bytes,
+                            stderr_bytes,
+                        ),
+                        Err(_) => {
+                            error!("campaign lock poisoned while recording command output");
+                            false
+                        }
+                    };
+                    if accepted {
+                        let _ = campaign_events.publish(CampaignEvent::TtpOutput {
+                            cmd_id,
+                            sequence,
+                            stdout,
+                            stderr,
+                            stdout_bytes,
+                            stderr_bytes,
+                        });
+                    }
+                }
                 Ok(C2Event::TtpExecuted { cmd, event }) => {
                     let action_id = cmd.ttp.id.clone();
                     let target_id = cmd.target_id.clone();

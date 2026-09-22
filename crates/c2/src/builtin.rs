@@ -2,9 +2,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use k8s::{Client, PodExecOutput};
+use k8s::{Client, ExecOutputObserver, ExecOutputStream, PodExecOutput};
 use tracing::{debug, warn};
 
+use crate::output::OutputSink;
 use crate::types::{ExecTtp, TtpExecuted};
 
 #[async_trait]
@@ -15,6 +16,17 @@ pub(crate) trait PodExecClient: Send + Sync {
         pod_name: &str,
         command: &str,
     ) -> anyhow::Result<PodExecOutput>;
+
+    async fn exec_pod_command_streaming(
+        &self,
+        namespace: &str,
+        pod_name: &str,
+        command: &str,
+        output: OutputSink,
+    ) -> anyhow::Result<PodExecOutput> {
+        let _ = output;
+        self.exec_pod_command(namespace, pod_name, command).await
+    }
 }
 
 #[async_trait]
@@ -26,6 +38,21 @@ impl PodExecClient for Client {
         command: &str,
     ) -> anyhow::Result<PodExecOutput> {
         self.exec_pod_command(namespace, pod_name, command).await
+    }
+
+    async fn exec_pod_command_streaming(
+        &self,
+        namespace: &str,
+        pod_name: &str,
+        command: &str,
+        output: OutputSink,
+    ) -> anyhow::Result<PodExecOutput> {
+        let observer: ExecOutputObserver = Arc::new(move |stream, bytes| match stream {
+            ExecOutputStream::Stdout => output.stdout(bytes.to_vec()),
+            ExecOutputStream::Stderr => output.stderr(bytes.to_vec()),
+        });
+        self.exec_pod_command_streaming(namespace, pod_name, command, Some(observer))
+            .await
     }
 }
 
@@ -49,6 +76,10 @@ impl BuiltinC2 {
     }
 
     pub async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
+        self.execute_streaming(cmd, OutputSink::discard()).await
+    }
+
+    pub async fn execute_streaming(&self, cmd: &ExecTtp, output: OutputSink) -> TtpExecuted {
         let routing_target = cmd.exec_entity();
         if routing_target.starts_with("ns/?/pod/") {
             let reason = format!(
@@ -76,9 +107,12 @@ impl BuiltinC2 {
             );
 
             let timeout_seconds = cmd.execution_timeout_seconds.max(1);
-            let execution =
-                self.pod_exec_client
-                    .exec_pod_command(namespace, pod_name, &cmd.procedure.command);
+            let execution = self.pod_exec_client.exec_pod_command_streaming(
+                namespace,
+                pod_name,
+                &cmd.procedure.command,
+                output,
+            );
             match tokio::time::timeout(Duration::from_secs(timeout_seconds), execution).await {
                 Err(_) => {
                     let reason = format!("pod exec command timed out after {timeout_seconds}s");
@@ -285,6 +319,7 @@ mod tests {
 
     use super::{derive_fail_reason, BuiltinC2, PodExecClient};
     use crate::types::ExecTtp;
+    use crate::OutputSink;
 
     #[test]
     fn fail_reason_skips_benign_apt_noise() {
@@ -351,6 +386,19 @@ mod tests {
                 .expect("lock should not be poisoned")
                 .clone())
         }
+
+        async fn exec_pod_command_streaming(
+            &self,
+            namespace: &str,
+            pod_name: &str,
+            command: &str,
+            output: OutputSink,
+        ) -> anyhow::Result<PodExecOutput> {
+            let result = self.exec_pod_command(namespace, pod_name, command).await?;
+            output.stdout(result.stdout.as_bytes().to_vec());
+            output.stderr(result.stderr.as_bytes().to_vec());
+            Ok(result)
+        }
     }
 
     struct FailingPodExecClient;
@@ -394,6 +442,24 @@ mod tests {
         assert_eq!(calls[0].0, "default");
         assert_eq!(calls[0].1, "nginx");
         assert_eq!(calls[0].2, "id");
+    }
+
+    #[tokio::test]
+    async fn pod_target_forwards_output_before_returning_final_result() {
+        let fake = Arc::new(FakePodExecClient::default());
+        let builtin = BuiltinC2::from_pod_exec_client(fake);
+        let cmd = exec_cmd("ns/default/pod/nginx", "id", "");
+        let (output, mut rx) = OutputSink::channel();
+
+        let result = builtin.execute_streaming(&cmd, output).await;
+
+        assert!(result.success);
+        let fragment = rx.try_recv().expect("stdout fragment");
+        assert_eq!(fragment.stream, crate::OutputStream::Stdout);
+        assert_eq!(
+            String::from_utf8(fragment.bytes).expect("utf8"),
+            "uid=0(root) gid=0(root)"
+        );
     }
 
     #[tokio::test]

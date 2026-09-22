@@ -2,14 +2,24 @@
 	import type { AttackStep } from '$lib/api';
 	import { getCampaignState } from './CampaignState.svelte';
 	import Icon from '@iconify/svelte';
+	import { tick } from 'svelte';
 
 	interface ActionDetailProps {
 		step: AttackStep;
 	}
 
 	let { step }: ActionDetailProps = $props();
+	const campaignState = getCampaignState();
+	const liveOutput = $derived(campaignState.getExecutionOutput(step?.id ?? ''));
+	let status = $derived(
+		liveOutput?.completed
+			? liveOutput.success
+				? 'Success'
+				: 'Failed'
+			: (step?.status ?? 'Unknown')
+	);
 	const badgeStyle = $derived.by(() => {
-		switch (step?.status) {
+		switch (status) {
 			case 'Success':
 				return 'preset-filled-success-500';
 			case 'Failed':
@@ -20,10 +30,22 @@
 				return 'preset-filled-default-500';
 		}
 	});
-	let status = $derived(step?.status ?? 'Unknown');
-
-	const campaignState = getCampaignState();
 	const target = $derived(step?.targetId ? campaignState.getEntityById(step.targetId) : undefined);
+	const stdout = $derived(liveOutput?.stdout ?? step?.stdout ?? step?.results?.[0] ?? '');
+	const stderr = $derived(liveOutput?.stderr ?? step?.stderr ?? step?.results?.[1] ?? '');
+	const outputTruncated = $derived(liveOutput?.truncated ?? step?.outputTruncated ?? false);
+	const outputBytes = $derived((liveOutput?.stdoutBytes ?? 0) + (liveOutput?.stderrBytes ?? 0));
+	let followOutput = $state(true);
+	let outputContainer: HTMLDivElement | undefined = $state();
+	$effect(() => {
+		void stdout;
+		void stderr;
+		if (followOutput && outputContainer) {
+			void tick().then(() => {
+				if (outputContainer) outputContainer.scrollTop = outputContainer.scrollHeight;
+			});
+		}
+	});
 
 	// JWTs always start with eyJ (base64url of '{"'). Replace with a short
 	// placeholder so commands stay readable; the full token is kept in data-source.
@@ -211,25 +233,71 @@
 				</div>
 			{/if}
 		</div>
-		<div class="mt-4 w-full">
-			<span class="label mb-1 flex-none">Result:</span>
-			{#each step.results as result, i (i)}
-				{#if result}
-					<div class="bg-surface-50-950 group relative">
-						<code
-							class="w-full overflow-x-hidden overflow-y-auto text-sm break-all whitespace-pre-wrap"
-							data-source
-						>
-							{result}
-						</code>
+		<div class="mt-4 w-full space-y-3">
+			<div class="flex items-center justify-between">
+				<span class="label flex-none">Output</span>
+				<div class="flex items-center gap-2">
+					{#if status === 'Ongoing'}
+						<span class="text-warning-500 flex items-center gap-1 text-xs">
+							<Icon icon="svg-spinners:90-ring-with-bg" class="size-3" />
+							Live{outputBytes > 0 ? ` · ${outputBytes} bytes` : ''}
+						</span>
 						<button
-							class="btn bg-surface-200-800/40 hover:bg-surface-200-800/70 absolute top-1 right-1 px-1 py-0.5 opacity-0 transition-opacity group-hover:opacity-90"
-							data-trigger
-							onclick={handleCopy}><Icon icon="material-symbols:content-copy" width="16" /></button
+							type="button"
+							class="btn btn-sm preset-tonal h-6 px-2 text-xs"
+							aria-pressed={followOutput}
+							onclick={() => (followOutput = !followOutput)}
 						>
+							{followOutput ? 'Following' : 'Follow output'}
+						</button>
+					{/if}
+				</div>
+			</div>
+			{#if outputTruncated}
+				<p class="text-warning-500 text-xs">Earlier live output was omitted from this view.</p>
+			{/if}
+			{#if !stdout && !stderr && status === 'Ongoing'}
+				<p class="text-surface-500 text-sm">Waiting for output…</p>
+			{:else if !stdout && !stderr}
+				<p class="text-surface-500 text-sm">Completed without output.</p>
+			{/if}
+			<div bind:this={outputContainer} class="max-h-[32rem] space-y-3 overflow-y-auto">
+				{#if stdout}
+					<div>
+						<div class="text-surface-500 mb-1 text-xs">stdout</div>
+						<div class="bg-surface-50-950 group relative">
+							<code
+								class="w-full overflow-x-hidden overflow-y-auto text-sm break-all whitespace-pre-wrap"
+								data-source={stdout}
+							>
+								{stdout}
+							</code>
+							<button
+								class="btn bg-surface-200-800/40 hover:bg-surface-200-800/70 absolute top-1 right-1 px-1 py-0.5 opacity-0 transition-opacity group-hover:opacity-90"
+								data-trigger
+								onclick={handleCopy}
+								><Icon icon="material-symbols:content-copy" width="16" /></button
+							>
+						</div>
 					</div>
 				{/if}
-			{/each}
+				{#if stderr}
+					<div>
+						<div class="text-warning-500 mb-1 text-xs">stderr</div>
+						<div class="bg-surface-50-950 group relative">
+							<code class="block text-sm break-all whitespace-pre-wrap" data-source={stderr}
+								>{stderr}</code
+							>
+							<button
+								class="btn bg-surface-200-800/40 hover:bg-surface-200-800/70 absolute top-1 right-1 px-1 py-0.5 opacity-0 transition-opacity group-hover:opacity-90"
+								data-trigger
+								onclick={handleCopy}
+								><Icon icon="material-symbols:content-copy" width="16" /></button
+							>
+						</div>
+					</div>
+				{/if}
+			</div>
 		</div>
 	</article>
 	<footer class="flex-none"></footer>
