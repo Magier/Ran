@@ -1,13 +1,14 @@
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use armory::Ttp;
-use c2::{C2Event, C2EventBus, SessionConnectedData};
+use c2::{C2Event, C2EventBus, C2EventRecvError, SessionConnectedData};
 use ran_domain::{
     AccessLevel, Entity, EntityId, ForwardsTo, HostsListener, Listener, Redirector, SessionChannel,
     SessionInfo, SessionStatus, UnknownSystem,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Semaphore};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
@@ -15,6 +16,9 @@ use crate::external_parser::{ExternalParseRequest, ExternalParser};
 use crate::output_parsers::build_parse_audit;
 use crate::{Campaign, FactCategory, FactOutcome, ParseAudit, ParseResult};
 use ran_domain::RelationSummary;
+
+const MAX_CONCURRENT_EXTERNAL_PARSERS: usize = 4;
+const EXTERNAL_PARSER_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Lightweight, serialisable snapshot of a domain entity for use in events.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,7 +171,8 @@ pub fn spawn_c2_event_processor_with_external_parser(
     campaign_events: CampaignEventBus,
     external_parser: Option<Arc<dyn ExternalParser>>,
 ) -> JoinHandle<()> {
-    let mut c2_rx = c2_events.subscribe();
+    let mut c2_rx = c2_events.subscribe_campaign();
+    let external_parser_slots = Arc::new(Semaphore::new(MAX_CONCURRENT_EXTERNAL_PARSERS));
 
     tokio::spawn(async move {
         loop {
@@ -327,120 +332,28 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         }
                     }
 
-                    // --- External parser fallback for NoParser gaps -----------
-                    let mut final_audits = processing.parse_audits.clone();
-                    let mut external_facts_changed = false;
-
-                    if let Some(ref parser) = external_parser {
-                        let no_parser_indices: Vec<usize> = final_audits
+                    let final_audits = processing.parse_audits.clone();
+                    let defer_external_audits = external_parser.is_some()
+                        && final_audits
                             .iter()
-                            .enumerate()
-                            .filter(|(_, a)| matches!(a.parse_result, ParseResult::NoParser))
-                            .map(|(i, _)| i)
-                            .collect();
-
-                        for idx in no_parser_indices {
-                            let audit = &final_audits[idx];
-                            let request = ExternalParseRequest {
-                                effect_id: audit.effect_id.clone(),
-                                ttp_id: audit.ttp_id.clone(),
-                                target_id: cmd.target_id.clone(),
-                                exec_system_id: cmd.exec_target().to_string(),
-                                args: cmd.args.clone(),
-                                results: event.results.clone(),
-                                exit_code: event.exit_code,
-                                success: event.success,
-                            };
-
-                            if let Some(response) = parser.try_parse(request).await {
-                                let facts_written = {
-                                    let mut guard = match campaign.write() {
-                                        Ok(g) => g,
-                                        Err(_) => {
-                                            error!("campaign lock poisoned in external parser");
-                                            continue;
-                                        }
-                                    };
-                                    match guard
-                                        .apply_system_update(&cmd.target_id, &response.system)
-                                    {
-                                        Ok(n) => n,
-                                        Err(e) => {
-                                            warn!(
-                                                effect_id = %audit.effect_id,
-                                                error = %e,
-                                                "External parser produced result but \
-                                                 target update failed"
-                                            );
-                                            0
-                                        }
-                                    }
-                                };
-
-                                if facts_written > 0 {
-                                    external_facts_changed = true;
-                                }
-
-                                let detail = if response.detail.is_empty() {
-                                    format!(
-                                        "parsed by external script ({} facts written)",
-                                        facts_written
-                                    )
-                                } else {
-                                    response.detail.clone()
-                                };
-
-                                // Replace the NoParser audit with a successful one
-                                final_audits[idx] = build_parse_audit(
-                                    &audit.effect_id,
-                                    &cmd,
-                                    &event,
-                                    ParseResult::Parsed,
-                                    &detail,
-                                    facts_written,
-                                );
-
-                                info!(
-                                    cmd_id = %cmd.id,
-                                    effect_id = %final_audits[idx].effect_id,
-                                    facts_written,
-                                    "External parser handled effect"
-                                );
-                            }
-                        }
-                    }
+                            .any(|audit| matches!(audit.parse_result, ParseResult::NoParser));
 
                     let _ = campaign_events.publish(CampaignEvent::TtpExecuted {
                         cmd_id: cmd.id.clone(),
-                        action_id,
-                        target_id,
+                        action_id: action_id.clone(),
+                        target_id: target_id.clone(),
                         exec_system_id: cmd.exec_entity().to_string(),
-                        ttp: Box::new(cmd.ttp),
-                        args: cmd.args,
+                        ttp: Box::new(cmd.ttp.clone()),
+                        args: cmd.args.clone(),
                         // Use the effective success/fail_reason derived by the parser,
                         // which may override the raw transport-level success when a
                         // semantic error (e.g. k8s 403 Forbidden) was detected.
                         success: processing.effective_success,
                         partial: processing.effective_partial,
                         fail_reason: processing.effective_fail_reason.clone(),
-                        results: event.results,
+                        results: event.results.clone(),
                         exit_code: event.exit_code,
                     });
-
-                    let _ = campaign_events.publish(CampaignEvent::ParseAudited {
-                        cmd_id: cmd.id.clone(),
-                        audits: final_audits,
-                    });
-
-                    if external_facts_changed {
-                        // Notify frontend that entity data changed due to
-                        // external parser.
-                        let _ = campaign_events.publish(CampaignEvent::FactsChanged {
-                            cmd_id: cmd.id.clone(),
-                            new_entities: Vec::new(),
-                            new_relations: Vec::new(),
-                        });
-                    }
 
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                         cmd_id: cmd.id.clone(),
@@ -465,13 +378,56 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             .collect(),
                     });
 
+                    if !defer_external_audits {
+                        let _ = campaign_events.publish(CampaignEvent::ParseAudited {
+                            cmd_id: cmd.id.clone(),
+                            audits: final_audits.clone(),
+                        });
+                    }
+
                     // Notify frontend of session activation on the exec-channel edge.
                     if let Some(entity_summary) = session_entity_summary {
                         let _ = campaign_events.publish(CampaignEvent::FactsChanged {
-                            cmd_id: cmd.id,
+                            cmd_id: cmd.id.clone(),
                             new_entities: vec![entity_summary],
                             new_relations: vec![],
                         });
+                    }
+
+                    if defer_external_audits {
+                        let parser = external_parser
+                            .as_ref()
+                            .expect("external parser checked above")
+                            .clone();
+                        match external_parser_slots.clone().try_acquire_owned() {
+                            Ok(permit) => {
+                                let campaign = campaign.clone();
+                                let campaign_events = campaign_events.clone();
+                                tokio::spawn(async move {
+                                    let _permit = permit;
+                                    run_external_parsers(
+                                        campaign,
+                                        campaign_events,
+                                        parser,
+                                        *cmd,
+                                        event,
+                                        final_audits,
+                                    )
+                                    .await;
+                                });
+                            }
+                            Err(_) => {
+                                warn!(
+                                    cmd_id = %cmd.id,
+                                    limit = MAX_CONCURRENT_EXTERNAL_PARSERS,
+                                    "external parser capacity exhausted; keeping NoParser audits"
+                                );
+                                let _ = campaign_events.publish(CampaignEvent::ParseAudited {
+                                    cmd_id: cmd.id.clone(),
+                                    audits: final_audits,
+                                });
+                            }
+                        }
                     }
                 }
                 Ok(C2Event::ListenerStarted {
@@ -776,19 +732,120 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         state: SessionLifecycle::Lost,
                     });
                 }
-                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                Err(C2EventRecvError::ProgressLagged(skipped)) => {
                     warn!(
                         skipped,
-                        "campaign c2 event processor lagged behind c2 event bus"
+                        "campaign c2 event processor dropped best-effort progress events"
                     );
                 }
-                Err(broadcast::error::RecvError::Closed) => {
+                Err(C2EventRecvError::Closed) => {
                     info!("c2 event bus closed; stopping campaign c2 event processor");
                     break;
                 }
             }
         }
     })
+}
+
+async fn run_external_parsers(
+    campaign: Arc<RwLock<Campaign>>,
+    campaign_events: CampaignEventBus,
+    parser: Arc<dyn ExternalParser>,
+    cmd: c2::ExecTtp,
+    event: c2::TtpExecuted,
+    mut final_audits: Vec<ParseAudit>,
+) {
+    let no_parser_indices: Vec<usize> = final_audits
+        .iter()
+        .enumerate()
+        .filter(|(_, audit)| matches!(audit.parse_result, ParseResult::NoParser))
+        .map(|(index, _)| index)
+        .collect();
+    let mut external_facts_changed = false;
+
+    for index in no_parser_indices {
+        let audit = &final_audits[index];
+        let request = ExternalParseRequest {
+            effect_id: audit.effect_id.clone(),
+            ttp_id: audit.ttp_id.clone(),
+            target_id: cmd.target_id.clone(),
+            exec_system_id: cmd.exec_target().to_string(),
+            args: cmd.args.clone(),
+            results: event.results.clone(),
+            exit_code: event.exit_code,
+            success: event.success,
+        };
+
+        let response =
+            match tokio::time::timeout(EXTERNAL_PARSER_TIMEOUT, parser.try_parse(request)).await {
+                Ok(response) => response,
+                Err(_) => {
+                    warn!(
+                        cmd_id = %cmd.id,
+                        effect_id = %audit.effect_id,
+                        timeout = ?EXTERNAL_PARSER_TIMEOUT,
+                        "external parser timed out"
+                    );
+                    None
+                }
+            };
+
+        if let Some(response) = response {
+            let facts_written = {
+                let mut guard = match campaign.write() {
+                    Ok(guard) => guard,
+                    Err(_) => {
+                        error!("campaign lock poisoned in external parser");
+                        continue;
+                    }
+                };
+                match guard.apply_system_update(&cmd.target_id, &response.system) {
+                    Ok(written) => written,
+                    Err(error) => {
+                        warn!(
+                            effect_id = %audit.effect_id,
+                            %error,
+                            "external parser produced result but target update failed"
+                        );
+                        0
+                    }
+                }
+            };
+            external_facts_changed |= facts_written > 0;
+
+            let detail = if response.detail.is_empty() {
+                format!("parsed by external script ({facts_written} facts written)")
+            } else {
+                response.detail
+            };
+            final_audits[index] = build_parse_audit(
+                &audit.effect_id,
+                &cmd,
+                &event,
+                ParseResult::Parsed,
+                &detail,
+                facts_written,
+            );
+            info!(
+                cmd_id = %cmd.id,
+                effect_id = %final_audits[index].effect_id,
+                facts_written,
+                "external parser handled effect"
+            );
+        }
+    }
+
+    let _ = campaign_events.publish(CampaignEvent::ParseAudited {
+        cmd_id: cmd.id.clone(),
+        audits: final_audits,
+    });
+    if external_facts_changed {
+        let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+            cmd_id: cmd.id,
+            new_entities: Vec::new(),
+            new_relations: Vec::new(),
+        });
+    }
 }
 
 /// Apply a synchronous session connection to the campaign graph after TTP effects
@@ -1029,8 +1086,31 @@ fn update_session_status(
 #[cfg(test)]
 mod listener_event_tests {
     use super::*;
-    use c2::C2EventBus;
+    use armory::{Procedure, Ttp};
+    use c2::{C2EventBus, ExecutionOperation};
+    use std::collections::HashMap;
     use std::time::Duration;
+    use tokio::sync::{mpsc, Semaphore};
+
+    struct SlowExternalParser {
+        started: mpsc::UnboundedSender<String>,
+        release: Arc<Semaphore>,
+    }
+
+    #[async_trait::async_trait]
+    impl ExternalParser for SlowExternalParser {
+        async fn try_parse(
+            &self,
+            request: ExternalParseRequest,
+        ) -> Option<crate::ExternalParseResponse> {
+            self.started
+                .send(request.ttp_id)
+                .expect("test receiver should remain open");
+            let permit = self.release.acquire().await.expect("semaphore is open");
+            permit.forget();
+            None
+        }
+    }
 
     /// Drain campaign events until a `FactsChanged` shows up, or give up.
     async fn next_facts_changed(
@@ -1073,6 +1153,108 @@ mod listener_event_tests {
         }
     }
 
+    fn external_parser_command(id: &str, target_id: &str) -> c2::ExecTtp {
+        c2::ExecTtp {
+            id: id.to_string(),
+            ttp: Ttp {
+                effects: vec!["test.external-parser".to_string()],
+                procedures: vec![Procedure::new("noop", "true")],
+                ..Ttp::new("external-parser-test", "External Parser Test", "Discovery")
+            },
+            procedure: Procedure::new("noop", "true"),
+            operation: ExecutionOperation::Noop,
+            args: HashMap::new(),
+            target_id: target_id.to_string(),
+            exec_chain: vec![target_id.to_string()],
+            exec_system_id: c2::BUILTIN_C2_ID.to_string(),
+            auth_identity_id: None,
+            started_at_ms: 0,
+            execution_timeout_seconds: c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+            output_transform: None,
+            is_cleanup: false,
+            reasoning: String::new(),
+        }
+    }
+
+    fn successful_execution(id: &str) -> c2::TtpExecuted {
+        c2::TtpExecuted {
+            id: id.to_string(),
+            success: true,
+            results: vec!["unparsed output".to_string()],
+            exit_code: 0,
+            fail_reason: String::new(),
+            session_connected: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn slow_external_parser_does_not_block_later_completions() {
+        let mut state = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let target = ran_domain::Pod::new("target", "default");
+        let target_id = target.entity_id().0;
+        state.insert_entity(&target);
+        let first = external_parser_command("cmd-first", &target_id);
+        let second = external_parser_command("cmd-second", &target_id);
+        state.add_open_step(first.clone());
+        state.add_open_step(second.clone());
+
+        let campaign = Arc::new(RwLock::new(state));
+        let c2_events = C2EventBus::new(2);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut event_rx = campaign_events.subscribe();
+        let (started_tx, mut started_rx) = mpsc::unbounded_channel();
+        let release = Arc::new(Semaphore::new(0));
+        let parser: Arc<dyn ExternalParser> = Arc::new(SlowExternalParser {
+            started: started_tx,
+            release: release.clone(),
+        });
+        spawn_c2_event_processor_with_external_parser(
+            campaign,
+            c2_events.clone(),
+            campaign_events,
+            Some(parser),
+        );
+
+        c2_events
+            .publish(C2Event::TtpExecuted {
+                cmd: Box::new(first),
+                event: successful_execution("cmd-first"),
+                partial: false,
+            })
+            .await
+            .expect("first completion should queue");
+        tokio::time::timeout(Duration::from_secs(1), started_rx.recv())
+            .await
+            .expect("first parser should start")
+            .expect("parser start channel should remain open");
+
+        c2_events
+            .publish(C2Event::TtpExecuted {
+                cmd: Box::new(second),
+                event: successful_execution("cmd-second"),
+                partial: false,
+            })
+            .await
+            .expect("second completion should queue");
+
+        let second_completed = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Ok(CampaignEvent::TtpExecuted { cmd_id, .. }) = event_rx.recv().await {
+                    if cmd_id == "cmd-second" {
+                        break;
+                    }
+                }
+            }
+        })
+        .await;
+        assert!(
+            second_completed.is_ok(),
+            "the second completion must not wait for the first external parser"
+        );
+
+        release.add_permits(2);
+    }
+
     /// A session breaking and coming back has to reach the operation timeline in
     /// its own right. The reconnect rides on an entity the timeline has already
     /// shown, so an entity fact alone gets deduplicated away and the operator is
@@ -1099,7 +1281,7 @@ mod listener_event_tests {
             port: Some(4444),
         };
 
-        c2_events.publish(connected()).expect("first connect");
+        c2_events.publish(connected()).await.expect("first connect");
         // The first connect is told as an access-gained fact, not a lifecycle
         // event, so wait on that before breaking the session.
         let (_, entities) = next_facts_changed(&mut rx).await;
@@ -1110,6 +1292,7 @@ mod listener_event_tests {
                 backend_id: backend_id.to_string(),
                 target_entity_id: "node/victim".to_string(),
             })
+            .await
             .expect("session lost");
 
         let (entity_id, entity_name, state) = next_session_state(&mut rx).await;
@@ -1127,7 +1310,7 @@ mod listener_event_tests {
             );
         }
 
-        c2_events.publish(connected()).expect("reconnect");
+        c2_events.publish(connected()).await.expect("reconnect");
 
         let (entity_id, _, state) = next_session_state(&mut rx).await;
         assert_eq!(state, SessionLifecycle::Reestablished);
@@ -1171,6 +1354,7 @@ mod listener_event_tests {
                 port: 1337,
                 protocol: "tcp".to_string(),
             })
+            .await
             .expect("c2 event bus should accept the event");
 
         let (cmd_id, entities) = next_facts_changed(&mut rx).await;
@@ -1202,6 +1386,7 @@ mod listener_event_tests {
                 cmd_id: "cmd-stop".to_string(),
                 port: 1337,
             })
+            .await
             .expect("c2 event bus should accept the event");
 
         let (cmd_id, entities) = next_facts_changed(&mut rx).await;
@@ -1230,6 +1415,7 @@ mod listener_event_tests {
                 os: "linux".to_string(),
                 port: Some(4444),
             })
+            .await
             .expect("c2 event bus should accept the event");
 
         let (_, entities) = next_facts_changed(&mut rx).await;
@@ -1265,6 +1451,7 @@ mod listener_event_tests {
                 os: "linux".to_string(),
                 port: Some(4444),
             })
+            .await
             .expect("c2 event bus should accept the event");
 
         let (_, entities) = next_facts_changed(&mut rx).await;
