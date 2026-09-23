@@ -7,7 +7,8 @@ mod tests;
 mod types;
 
 pub use entity_refs::{CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef};
-pub use entity_store::{EntityStore, EntityType};
+pub(crate) use entity_store::EntityStore;
+pub use entity_store::EntityType;
 pub use execution::best_tool_readiness;
 pub use state::{Campaign, InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge};
 pub use types::{

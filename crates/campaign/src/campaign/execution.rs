@@ -1221,7 +1221,7 @@ impl Campaign {
             reason,
         );
 
-        self.execution_records.push(record.clone());
+        self.append_execution_record(record.clone());
         (record, ttp)
     }
 
@@ -2630,8 +2630,7 @@ impl Campaign {
             }
 
             self.parse_audits.extend(parse_audits.clone());
-            self.execution_records
-                .push(ExecutionRecord::from_execution(cmd, event));
+            self.append_execution_record(ExecutionRecord::from_execution(cmd, event));
             self.complete_open_step(&cmd.id);
             return Ok(TtpExecutionProcessing {
                 updates,
@@ -2692,7 +2691,7 @@ impl Campaign {
             record.success = false;
             record.partial = false;
             record.fail_reason = early_failure.detail.clone();
-            self.execution_records.push(record);
+            self.append_execution_record(record);
             self.complete_open_step(&cmd.id);
             return Ok(TtpExecutionProcessing {
                 updates: FactsUpdate::default(),
@@ -2888,7 +2887,7 @@ impl Campaign {
                 record.partial = partial;
                 (event.success, event.fail_reason.clone(), partial)
             };
-        self.execution_records.push(record);
+        self.append_execution_record(record);
         self.complete_open_step(&cmd.id);
 
         Ok(TtpExecutionProcessing {
@@ -2927,42 +2926,19 @@ impl Campaign {
     /// without staging a whole TTP execution.
     pub(crate) fn apply_facts(&mut self, updates: &FactsUpdate) {
         for entity in &updates.new_entities {
-            self.insert_entity(entity.as_ref());
-            if let Some(origins) = updates.entity_provenance.get(&entity.entity_id()) {
-                for origin in origins {
-                    self.knowledge_provenance
-                        .add_entity(entity.entity_id(), *origin);
-                }
-            }
+            let origins = updates
+                .entity_provenance
+                .get(&entity.entity_id())
+                .into_iter()
+                .flatten()
+                .copied();
+            self.insert_entity_with_provenance(entity.as_ref(), origins);
         }
 
         // Merge entity aliases: transplant graph edges and entity data.
         // Runs after insert_entity so the preferred node already exists.
         for (stale_id, preferred_id) in &updates.entity_aliases {
-            // Graph: retarget all edges from stale → preferred.
-            self.graph.merge_entities(preferred_id, stale_id);
-            self.knowledge_provenance
-                .merge_entity(stale_id, preferred_id);
-            // Remember the rename: callers holding the old id (C2 session
-            // bookkeeping above all) must still reach the surviving entity.
-            self.record_entity_alias(stale_id, preferred_id);
-            // Entity maps: merge runtime data (IPs, access level, binaries, etc.).
-            // Dispatch to the correct merge function based on entity kind.
-            if stale_id.0.starts_with("system/") {
-                // UnknownSystem → Pod or Node cross-type merge.
-                self.merge_unknown_into_system(&preferred_id.0, &stale_id.0);
-            } else if preferred_id.0.starts_with("node/") || stale_id.0.starts_with("node/") {
-                self.merge_node_entities(&preferred_id.0, &stale_id.0);
-            } else if preferred_id.0.starts_with("k8s/cluster/")
-                || stale_id.0.starts_with("k8s/cluster/")
-            {
-                self.merge_cluster_entities(&preferred_id.0, &stale_id.0);
-            } else if stale_id.0.contains("/svc/") {
-                // Env-derived Service placed into its real namespace.
-                self.merge_service_entities(&preferred_id.0, &stale_id.0);
-            } else {
-                self.merge_pod_entities(&preferred_id.0, &stale_id.0);
-            }
+            self.merge_entity_state(preferred_id, stale_id);
         }
 
         for rel in &updates.new_relations {
@@ -3020,18 +2996,10 @@ impl Campaign {
                         } else {
                             old_node
                         };
-                        self.graph.merge_entities(&preferred_node, &stale_node);
-                        self.merge_node_entities(&preferred_node.0, &stale_node.0);
-                        self.record_entity_alias(&stale_node, &preferred_node);
+                        self.merge_entity_state(&preferred_node, &stale_node);
                         // Insert edge to preferred node (graph PodSingleNode
                         // invariant removes the old runs-on automatically).
-                        self.insert_relation_with_ids(&src, &preferred_node, rel.as_ref());
-                        self.apply_relation_provenance(
-                            updates,
-                            rel.as_ref(),
-                            &src,
-                            &preferred_node,
-                        );
+                        self.apply_relation_update(updates, rel.as_ref(), &src, &preferred_node);
                         continue;
                     }
                     // Same node - nothing to do (PodSingleNode invariant will
@@ -3040,19 +3008,41 @@ impl Campaign {
                 }
             }
 
-            // Common path: no alias resolution changed the IDs - use the
-            // public `insert_relation` so it gets a live production call site.
-            if src == *rel.source_id() && tgt == *rel.target_id() {
-                self.insert_relation(rel.as_ref());
-            } else {
-                self.insert_relation_with_ids(&src, &tgt, rel.as_ref());
-            }
-            self.apply_relation_provenance(updates, rel.as_ref(), &src, &tgt);
+            self.apply_relation_update(updates, rel.as_ref(), &src, &tgt);
         }
 
         for removed_id in &updates.removed_entities {
             let canonical_id = EntityId::new(self.canonical_entity_id(&removed_id.0));
             self.remove_entity_by_id(&canonical_id);
+        }
+    }
+
+    /// Merge every representation of one entity identity into another.
+    ///
+    /// Keeping graph edges, typed entity data, provenance, and aliases in one
+    /// operation prevents callers from updating only part of campaign state.
+    fn merge_entity_state(&mut self, preferred_id: &EntityId, stale_id: &EntityId) {
+        if preferred_id == stale_id {
+            return;
+        }
+
+        self.graph.merge_entities(preferred_id, stale_id);
+        self.knowledge_provenance
+            .merge_entity(stale_id, preferred_id);
+        self.record_entity_alias(stale_id, preferred_id);
+
+        if stale_id.0.starts_with("system/") {
+            self.merge_unknown_into_system(&preferred_id.0, &stale_id.0);
+        } else if preferred_id.0.starts_with("node/") || stale_id.0.starts_with("node/") {
+            self.merge_node_entities(&preferred_id.0, &stale_id.0);
+        } else if preferred_id.0.starts_with("k8s/cluster/")
+            || stale_id.0.starts_with("k8s/cluster/")
+        {
+            self.merge_cluster_entities(&preferred_id.0, &stale_id.0);
+        } else if stale_id.0.contains("/svc/") {
+            self.merge_service_entities(&preferred_id.0, &stale_id.0);
+        } else {
+            self.merge_pod_entities(&preferred_id.0, &stale_id.0);
         }
     }
 
@@ -3077,6 +3067,38 @@ impl Campaign {
         }
     }
 
+    fn apply_relation_update(
+        &mut self,
+        updates: &FactsUpdate,
+        relation: &dyn ran_domain::Relation,
+        source_id: &EntityId,
+        target_id: &EntityId,
+    ) {
+        let inserted = if source_id == relation.source_id() && target_id == relation.target_id() {
+            self.insert_relation(relation)
+        } else {
+            self.insert_relation_with_ids(source_id, target_id, relation)
+        };
+        if inserted {
+            self.apply_relation_provenance(updates, relation, source_id, target_id);
+        }
+    }
+
+    fn remove_relation_with_provenance(
+        &mut self,
+        source_id: &EntityId,
+        target_id: &EntityId,
+        relation_name: &str,
+    ) {
+        self.graph.remove_edges(source_id, target_id, relation_name);
+        self.knowledge_provenance
+            .remove_relation(&crate::RelationProvenanceKey::new(
+                relation_name,
+                source_id.0.clone(),
+                target_id.0.clone(),
+            ));
+    }
+
     /// Insert a relation into the graph using explicit (possibly alias-resolved)
     /// source and target IDs rather than the relation's own stored IDs.
     pub(super) fn insert_relation_with_ids(
@@ -3084,7 +3106,7 @@ impl Campaign {
         src: &EntityId,
         tgt: &EntityId,
         rel: &dyn ran_domain::Relation,
-    ) {
+    ) -> bool {
         // An unqualified scan placeholder temporarily hangs directly off the
         // cluster. If that placeholder is merged into an authoritative Pod,
         // alias resolution can otherwise retarget the temporary relation to
@@ -3097,7 +3119,7 @@ impl Campaign {
                 .and_then(Pod::namespace)
                 .is_some_and(|namespace| !namespace.is_empty() && namespace != UNKNOWN_NAMESPACE)
         {
-            return;
+            return false;
         }
 
         use cortex::edge_data_for;
@@ -3135,6 +3157,7 @@ impl Campaign {
                 }
             }
         }
+        true
     }
 
     fn merge_node_entities(&mut self, preferred_id: &str, stale_id: &str) {
@@ -3196,7 +3219,7 @@ impl Campaign {
             .map(Entity::entity_id)
             .collect();
         for cluster_id in cluster_ids {
-            self.graph.remove_edges(&cluster_id, &preferred, "contains");
+            self.remove_relation_with_provenance(&cluster_id, &preferred, "contains");
         }
     }
 
@@ -3260,7 +3283,7 @@ impl Campaign {
                 .map(Entity::entity_id)
                 .collect();
             for cluster_id in cluster_ids {
-                self.graph.remove_edges(&cluster_id, &preferred, "contains");
+                self.remove_relation_with_provenance(&cluster_id, &preferred, "contains");
             }
         }
     }

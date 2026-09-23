@@ -14,7 +14,7 @@ use tracing::{error, info, warn};
 
 use crate::external_parser::{ExternalParseRequest, ExternalParser};
 use crate::output_parsers::build_parse_audit;
-use crate::{Campaign, FactCategory, FactOutcome, ParseAudit, ParseResult};
+use crate::{Campaign, FactCategory, FactOutcome, KnowledgeProvenance, ParseAudit, ParseResult};
 use ran_domain::RelationSummary;
 
 const MAX_CONCURRENT_EXTERNAL_PARSERS: usize = 4;
@@ -446,8 +446,8 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     let listener = Listener::new(port, &protocol);
                     let listener_id = listener.entity_id();
                     let relation = HostsListener::new(c2_id.0.clone(), listener_id.0.clone());
-                    guard.insert_entity(&listener);
-                    guard.insert_relation(&relation);
+                    guard.upsert_entity(listener.clone(), KnowledgeProvenance::Action);
+                    guard.upsert_relation(&relation, KnowledgeProvenance::Action);
                     info!(port, %protocol, %listener_id, "listener started; listener entity created");
                     // Attributed to the command that bound it, so the timeline
                     // folds the listener into that action instead of showing it
@@ -506,20 +506,21 @@ pub fn spawn_c2_event_processor_with_external_parser(
                     // one, because the event carries no protocol and a listener
                     // is not necessarily tcp.
                     let listener_id = guard
-                        .entities
-                        .values::<Listener>()
+                        .entities_of::<Listener>()
                         .find(|listener| listener.port == listener_port)
                         .map(|listener| listener.entity_id());
                     // A rebuilt or re-pointed tunnel keeps the same entity id, so
                     // it is an update, not a find. `new_entities` is what raises
                     // `entity-discovered`, and announcing a hop the operator has
                     // been looking at for an hour as a fresh discovery is a lie.
-                    let already_known = guard.entities.find::<Redirector>(&redirector_id).is_some();
-                    guard.insert_entity(&redirector);
+                    let already_known = guard.find_entity::<Redirector>(&redirector_id).is_some();
+                    guard.upsert_entity(redirector.clone(), KnowledgeProvenance::Action);
                     let relation = listener_id
                         .map(|listener_id| ForwardsTo::new(redirector_id.0.clone(), listener_id.0));
                     match &relation {
-                        Some(relation) => guard.insert_relation(relation),
+                        Some(relation) => {
+                            guard.upsert_relation(relation, KnowledgeProvenance::Action)
+                        }
                         // The TTP requires a Listener target, so this only happens
                         // if the listener was stopped between spawning labctl and
                         // handling this event. The redirector is still real, so
@@ -983,7 +984,7 @@ fn attach_connected_session(
         status: SessionStatus::Active,
     });
     let entity_id = sys.entity_id();
-    campaign.insert_entity(&sys);
+    campaign.upsert_entity(sys, KnowledgeProvenance::Action);
     campaign.record_entity_alias(&EntityId::new(target_entity_id), &entity_id);
     AttachedSession {
         entity_id: entity_id.0,

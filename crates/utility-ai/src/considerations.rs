@@ -708,7 +708,7 @@ mod tests {
             BinaryPresence::Present("/usr/bin/nmap".to_string()),
         );
         let id = pod.entity_id().0;
-        c.entities.insert_typed(pod);
+        c.upsert_entity(pod, campaign::KnowledgeProvenance::Scenario);
         let target = resolve_target_context(&c, &id).unwrap();
 
         let present = tool_ttp("nmap"); // confirmed present on the pod
@@ -774,11 +774,9 @@ mod tests {
             effects: vec!["sys.ip".to_string()],
             ..Ttp::new("get-ip", "Get IP", "Discovery")
         };
-        c.execution_records
-            .push(record("get-ip", &tc.target_id, true));
+        c.append_execution_record(record("get-ip", &tc.target_id, true));
         // Even after other actions happen, an idempotent fact stays at 0.
-        c.execution_records
-            .push(record("other", &tc.target_id, true));
+        c.append_execution_record(record("other", &tc.target_id, true));
         assert_eq!(epistemic_freshness(&ttp, &tc.target_id, &c), 0.0);
     }
 
@@ -790,8 +788,7 @@ mod tests {
             effects: vec!["sys.ip".to_string()],
             ..Ttp::new("get-ip", "Get IP", "Discovery")
         };
-        c.execution_records
-            .push(record("get-ip", &tc.target_id, false)); // failed
+        c.append_execution_record(record("get-ip", &tc.target_id, false)); // failed
         assert_eq!(epistemic_freshness(&ttp, &tc.target_id, &c), 1.0);
     }
 
@@ -804,13 +801,12 @@ mod tests {
             effects: vec!["k8s.podList".to_string()],
             ..Ttp::new("list-pods", "List Pods", "Discovery")
         };
-        c.execution_records
-            .push(record("list-pods", &tc.target_id, true));
+        c.append_execution_record(record("list-pods", &tc.target_id, true));
         // Immediately after, nothing has changed → 0.
         assert_eq!(epistemic_freshness(&ttp, &tc.target_id, &c), 0.0);
         // After two state-changing actions, freshness recovers above 0.
-        c.execution_records.push(record("a", &tc.target_id, true));
-        c.execution_records.push(record("b", &tc.target_id, true));
+        c.append_execution_record(record("a", &tc.target_id, true));
+        c.append_execution_record(record("b", &tc.target_id, true));
         let recovered = epistemic_freshness(&ttp, &tc.target_id, &c);
         assert!(
             recovered > 0.0,
@@ -834,8 +830,7 @@ mod tests {
         // Equals magnitude × freshness(=1.0) before any run.
         assert!((before - discovery_magnitude(&ttp)).abs() < 1e-6);
 
-        c.execution_records
-            .push(record("get-ip", &tc.target_id, true));
+        c.append_execution_record(record("get-ip", &tc.target_id, true));
         let after = EpistemicValue.measure(&ctx_for(&c, &ttp, &tc));
         assert_eq!(after, 0.0, "known idempotent fact has no epistemic value");
     }
@@ -852,8 +847,7 @@ mod tests {
         let before = PrivilegeGain.measure(&ctx_for(&c, &escape, &tc));
         assert!(before > 0.0);
         // After a successful escape, re-escaping the same target is worthless.
-        c.execution_records
-            .push(record("escape", &tc.target_id, true));
+        c.append_execution_record(record("escape", &tc.target_id, true));
         assert_eq!(PrivilegeGain.measure(&ctx_for(&c, &escape, &tc)), 0.0);
     }
 
@@ -866,8 +860,7 @@ mod tests {
             ..Ttp::new("sess", "Open Session", "Lateral Movement")
         };
         assert!(Reachability.measure(&ctx_for(&c, &session, &tc)) > 0.0);
-        c.execution_records
-            .push(record("sess", &tc.target_id, true));
+        c.append_execution_record(record("sess", &tc.target_id, true));
         assert_eq!(Reachability.measure(&ctx_for(&c, &session, &tc)), 0.0);
     }
 
@@ -880,8 +873,7 @@ mod tests {
             ..Ttp::new("escape", "Escape to Host", "Privilege Escalation")
         };
         // A failed attempt does not count as "held" → still worth retrying.
-        c.execution_records
-            .push(record("escape", &tc.target_id, false));
+        c.append_execution_record(record("escape", &tc.target_id, false));
         assert!(PrivilegeGain.measure(&ctx_for(&c, &escape, &tc)) > 0.0);
     }
 }
