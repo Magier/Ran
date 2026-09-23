@@ -1309,13 +1309,27 @@ async fn open_kubectl_exec_session(
     })?;
     let (ns, pod) = (ns.to_string(), pod.to_string());
 
-    let stream = k8s
-        .open_exec_session(&ns, &pod, container.as_deref())
-        .await
-        // Preserve anyhow's complete source chain. Kubernetes API status,
-        // transport, TLS, container-selection, and upgrade errors otherwise
-        // collapse into the generic open_exec_session context.
-        .map_err(|e| format!("kubectl exec open failed for {target_entity_id}: {e:#}"))?;
+    let stream = match k8s.open_exec_session(&ns, &pod, container.as_deref()).await {
+        Ok(stream) => stream,
+        Err(error) => {
+            // Kubernetes can return an opaque WebSocket-upgrade 400 when an
+            // exec request omitted a container for a multi-container Pod.
+            // Check the current Pod before offering that guidance, but retain
+            // the original error because the upgrade response alone does not
+            // prove why it was rejected.
+            let containers = if container.is_none() {
+                k8s.pod_container_names(&ns, &pod).await.ok()
+            } else {
+                None
+            };
+            return Err(kubectl_exec_open_failure(
+                &target_entity_id,
+                container.as_deref(),
+                containers.as_deref(),
+                &format!("{error:#}"),
+            ));
+        }
+    };
 
     let (rx, tx) = tokio::io::split(stream);
     let session = crate::ShellSession::from_rw(rx, tx, &backend_id);
@@ -1368,6 +1382,26 @@ async fn open_kubectl_exec_session(
         user,
         os,
     })
+}
+
+fn kubectl_exec_open_failure(
+    target_entity_id: &str,
+    selected_container: Option<&str>,
+    pod_containers: Option<&[String]>,
+    error: &str,
+) -> String {
+    let Some(containers) = pod_containers.filter(|containers| containers.len() > 1) else {
+        return format!("kubectl exec open failed for {target_entity_id}: {error}");
+    };
+
+    if selected_container.is_some() {
+        return format!("kubectl exec open failed for {target_entity_id}: {error}");
+    }
+
+    format!(
+        "kubectl exec could not open a session for {target_entity_id}. The request did not select a container, and Kubernetes currently reports multiple containers in this Pod: {}. Select a container and try again. Kubernetes reported: {error}",
+        containers.join(", ")
+    )
 }
 
 /// Derive a deterministic session backend ID for a kubectl exec session.
@@ -1835,6 +1869,38 @@ mod tests {
     struct BlockingBackend {
         started: mpsc::UnboundedSender<String>,
         release: Arc<Semaphore>,
+    }
+
+    #[test]
+    fn exec_open_failure_explains_unselected_multicontainer_pod_without_claiming_cause() {
+        let containers = vec!["redis".to_string(), "metric-receiver".to_string()];
+        let message = super::kubectl_exec_open_failure(
+            "ns/oopservability/pod/redis",
+            None,
+            Some(&containers),
+            "failed to switch protocol: 400 Bad Request",
+        );
+
+        assert!(message.contains("did not select a container"));
+        assert!(message.contains("redis, metric-receiver"));
+        assert!(message.contains("Kubernetes reported: failed to switch protocol"));
+        assert!(!message.contains("because Kubernetes requires"));
+    }
+
+    #[test]
+    fn exec_open_failure_keeps_original_error_when_a_container_was_selected() {
+        let containers = vec!["redis".to_string(), "metric-receiver".to_string()];
+        let message = super::kubectl_exec_open_failure(
+            "ns/oopservability/pod/redis",
+            Some("redis"),
+            Some(&containers),
+            "failed to switch protocol: 400 Bad Request",
+        );
+
+        assert_eq!(
+            message,
+            "kubectl exec open failed for ns/oopservability/pod/redis: failed to switch protocol: 400 Bad Request"
+        );
     }
 
     #[tokio::test]

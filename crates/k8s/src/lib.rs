@@ -518,6 +518,24 @@ impl Client {
         Ok(pods.iter().filter_map(pod_to_running_pod).collect())
     }
 
+    /// Return the names of the regular containers currently declared by a Pod.
+    /// This is deliberately a separate read from exec: callers can use it to
+    /// explain an exec rejection without guessing from an opaque upgrade error.
+    pub async fn pod_container_names(&self, namespace: &str, pod: &str) -> Result<Vec<String>> {
+        let api: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
+        let pod = api
+            .get(pod)
+            .await
+            .with_context(|| format!("failed to get pod '{}/{}'", namespace, pod))?;
+
+        Ok(pod
+            .spec
+            .into_iter()
+            .flat_map(|spec| spec.containers)
+            .map(|container| container.name)
+            .collect())
+    }
+
     /// Ask Kubernetes which RBAC rules apply to the identity represented by
     /// this client's kubeconfig. The native response shape is retained so the
     /// campaign can reuse its existing SelfSubjectRulesReview parser.
