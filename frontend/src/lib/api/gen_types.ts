@@ -635,7 +635,7 @@ export interface components {
 			completedAt: string;
 			executedOn: string;
 			/** @enum {string} */
-			status: 'Unknown' | 'Failed' | 'Success' | 'Ongoing';
+			status: 'Unknown' | 'Failed' | 'Partial' | 'Success' | 'Ongoing';
 			success: boolean;
 		};
 		AttackStepTTP: {
@@ -870,6 +870,8 @@ export interface components {
 				[key: string]: string;
 			};
 			success: boolean;
+			/** @description The action succeeded but has a meaningful operational limitation. */
+			partial: boolean;
 			exit_code: number;
 			/** @description Raw output lines - first element is stdout, second (if present) is stderr */
 			results: string[];

@@ -745,6 +745,7 @@ mod tests {
             command: "x".to_string(),
             args: std::collections::HashMap::new(),
             success,
+            partial: false,
             exit_code: 0,
             results: vec![],
             fail_reason: String::new(),

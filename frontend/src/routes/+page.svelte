@@ -445,7 +445,7 @@
 					execSystemName: differsFromTarget
 						? (campaignState.getEntityById(execSystemId)?.name ?? execSystemId)
 						: undefined,
-					status: data.Success ? 'success' : 'failed',
+					status: data.Partial ? 'partial' : data.Success ? 'success' : 'failed',
 					failReason: data.Success ? undefined : data.FailReason,
 					timestamp: new Date()
 				});
@@ -546,6 +546,7 @@
 								? (campaignState.getEntityById(r.exec_system_id)?.name ?? r.exec_system_id)
 								: undefined,
 							success: r.success,
+							partial: r.partial,
 							failReason: r.fail_reason,
 							timestampMs: r.completed_at_ms || r.started_at_ms,
 							effects: r.discovered_entities.map((entity) => ({

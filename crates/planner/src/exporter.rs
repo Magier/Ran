@@ -384,6 +384,7 @@ mod tests {
             command: "echo test".to_string(),
             args: HashMap::new(),
             success,
+            partial: false,
             exit_code: if success { 0 } else { 1 },
             results: vec![],
             fail_reason: String::new(),

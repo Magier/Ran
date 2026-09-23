@@ -114,6 +114,10 @@ pub enum C2Event {
     TtpExecuted {
         cmd: Box<ExecTtp>,
         event: TtpExecuted,
+        /// The action accomplished its primary effect, but a meaningful
+        /// limitation remains. This is distinct from both a failed execution
+        /// and an ordinary success.
+        partial: bool,
     },
     /// A TCP listener was successfully bound on the given port.
     ///

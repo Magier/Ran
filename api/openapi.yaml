@@ -910,6 +910,7 @@ components:
           enum:
             - Unknown
             - Failed
+            - Partial
             - Success
             - Ongoing
         success:
@@ -1448,6 +1449,7 @@ components:
         - command
         - args
         - success
+        - partial
         - exit_code
         - results
         - fail_reason
@@ -1485,6 +1487,9 @@ components:
           description: Resolved arguments after default-filling and template substitution
         success:
           type: boolean
+        partial:
+          type: boolean
+          description: The action succeeded but has a meaningful operational limitation.
         exit_code:
           type: integer
         results:

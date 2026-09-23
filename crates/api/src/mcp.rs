@@ -220,6 +220,7 @@ impl<S: ApiService> RanMcpHandler<S> {
                     "tactic": r.tactic,
                     "target_id": r.target_id,
                     "success": r.success,
+                    "partial": r.partial,
                     "exit_code": r.exit_code,
                     "fail_reason": r.fail_reason,
                 })
@@ -376,6 +377,7 @@ impl<S: ApiService> RanMcpHandler<S> {
                     "ttp_id": record.ttp_id,
                     "target_id": record.target_id,
                     "success": record.success,
+                    "partial": record.partial,
                     "exit_code": record.exit_code,
                     "stdout": record.results.first().cloned().unwrap_or_default(),
                     "stderr": record.results.get(1).cloned().unwrap_or_default(),

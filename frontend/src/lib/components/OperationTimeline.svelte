@@ -122,7 +122,10 @@
 		return SPELLED_OUT_KINDS[entry.entityKind] ?? entry.entityKind;
 	}
 
-	function entityPrefix(entry: EntityEntry): string {
+	function entityPrefix(entry: EntityEntry, reusedRedirector = false): string {
+		if (reusedRedirector && entry.entityKind === 'Redirector') {
+			return 'Reusing existing Redirector';
+		}
 		if (entry.kind === 'credential') {
 			if (entry.entityKind === 'Secret') return 'Found secret';
 			return 'Found credential';
@@ -306,6 +309,8 @@
 								<Icon icon="svg-spinners:90-ring-with-bg" class="size-4" aria-hidden="true" />
 							{:else if entry.action.status === 'success'}
 								<Icon icon="mdi:check-circle" class="text-success-500 size-4" aria-hidden="true" />
+							{:else if entry.action.status === 'partial'}
+								<Icon icon="mdi:alert-circle" class="text-warning-500 size-4" aria-hidden="true" />
 							{:else}
 								<Icon icon="mdi:close-circle" class="text-error-500 size-4" aria-hidden="true" />
 							{/if}
@@ -411,7 +416,9 @@
 									/>
 								</div>
 								<div class="min-w-0 flex-1">
-									<span class="font-medium">{entityPrefix(effect)}</span>
+									<span class="font-medium"
+										>{entityPrefix(effect, entry.action.status === 'partial')}</span
+									>
 									<button
 										type="button"
 										class="text-primary-500 text-left font-medium hover:underline"

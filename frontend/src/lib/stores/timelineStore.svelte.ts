@@ -9,7 +9,7 @@ export type TtpActionEntry = {
 	targetName: string;
 	execSystemId?: string;
 	execSystemName?: string;
-	status: 'pending' | 'success' | 'failed';
+	status: 'pending' | 'success' | 'partial' | 'failed';
 	failReason?: string;
 	timestamp?: Date;
 	startup?: boolean;
@@ -73,6 +73,7 @@ export type BackfillRecord = {
 	execSystemId?: string;
 	execSystemName?: string;
 	success: boolean;
+	partial?: boolean;
 	failReason?: string;
 	timestampMs: number;
 	effects?: Array<Omit<EntityEntry, 'cmdId' | 'timestamp'>>;
@@ -214,7 +215,7 @@ export class TimelineStore {
 				targetName: r.targetName,
 				execSystemId: r.execSystemId,
 				execSystemName: r.execSystemName,
-				status: r.success ? 'success' : 'failed',
+				status: r.partial ? 'partial' : r.success ? 'success' : 'failed',
 				failReason: r.success ? undefined : r.failReason,
 				timestamp: new Date(r.timestampMs)
 			});

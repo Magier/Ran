@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,6 +30,10 @@ type Listeners = Arc<RwLock<HashMap<u16, tokio::task::AbortHandle>>>;
 /// Holding the `Child` is what makes a redirector stoppable - and, via
 /// `kill_on_drop`, what stops the tunnels from outliving Ran.
 type Redirectors = Arc<RwLock<HashMap<String, RedirectorProcess>>>;
+/// Command ids whose redirector exists but is owned by an external labctl
+/// process. The marker is consumed when the matching execution event is
+/// published, so it cannot leak into a later action with the same id.
+type PartialExecutions = Arc<RwLock<HashSet<String>>>;
 
 const OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(250);
 const OUTPUT_FLUSH_BYTES: usize = 16 * 1024;
@@ -215,6 +219,7 @@ struct C2Executor {
     /// `labctl` children spawned by `c2.port-forward`, so `c2.stop-port-forward`
     /// can tear their tunnels down.
     redirectors: Redirectors,
+    partial_executions: PartialExecutions,
 }
 
 impl C2Executor {
@@ -307,6 +312,7 @@ impl C2Manager {
                     k8s_clients,
                     listeners: Listeners::default(),
                     redirectors: Redirectors::default(),
+                    partial_executions: PartialExecutions::default(),
                 },
             },
         )
@@ -338,6 +344,7 @@ impl C2Manager {
                     k8s_clients,
                     listeners: Listeners::default(),
                     redirectors: Redirectors::default(),
+                    partial_executions: PartialExecutions::default(),
                 },
             },
         )
@@ -405,12 +412,13 @@ impl C2Executor {
         collector.finish_decoding();
         self.publish_output_batch(collector.take_batch(&cmd.id));
         collector.preserve_partial_failure_output(&mut event);
-
+        let partial = self.partial_executions.write().await.remove(&cmd.id);
         if self
             .event_bus
             .publish(C2Event::TtpExecuted {
                 cmd: Box::new(cmd),
                 event,
+                partial,
             })
             .is_err()
         {
@@ -932,6 +940,36 @@ impl C2Executor {
                     " (labctl has not confirmed the tunnel within {TUNNEL_READY_TIMEOUT:?}; \
                      it is still running - check the redirector before relying on it)"
                 ))
+            }
+            Ok(TunnelStartup::AlreadyAttached) => {
+                // `labctl` exited because the playground already owns this
+                // reverse-control channel. There is no child for Ran to retain
+                // or stop, but the redirector itself is present and must reach
+                // the campaign so the UI reflects the actual playground state.
+                warn!(
+                    %entry,
+                    "labctl found an already-attached redirector outside Ran's control"
+                );
+                self.partial_executions.write().await.insert(cmd.id.clone());
+                let _ = self.event_bus.publish(C2Event::RedirectorStarted {
+                    cmd_id: cmd.id.clone(),
+                    via: REDIRECTOR_TOOL.to_string(),
+                    play_id: play_id.to_string(),
+                    remote_port,
+                    listener_port,
+                });
+                return TtpExecuted {
+                    id: cmd.id.clone(),
+                    success: true,
+                    results: vec![format!(
+                        "redirector {entry} is already attached on playground {play_id}; \
+                         Ran registered it as forwarding to 127.0.0.1:{listener_port}, but \
+                         does not control or stop the existing tunnel"
+                    )],
+                    exit_code: 0,
+                    fail_reason: String::new(),
+                    session_connected: None,
+                };
             }
             Err(reason) => {
                 // Ran knows something labctl does not: which tunnels it is
@@ -1461,7 +1499,7 @@ const TUNNEL_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// How much of a failed tool's output to quote back to the operator.
 const TRANSCRIPT_LINES: usize = 10;
 
-/// What [`await_tunnel_ready`] concluded about a tunnel that is still running.
+/// What [`await_tunnel_ready`] concluded about a redirector startup attempt.
 #[derive(Debug)]
 enum TunnelStartup {
     /// The tool said the tunnel is up.
@@ -1470,6 +1508,10 @@ enum TunnelStartup {
     /// the process would have exited had it rejected its arguments - but worth
     /// repeating to the operator rather than reporting a bare success.
     StillSilent,
+    /// A `labctl`-specific reverse-control conflict. The playground already
+    /// owns the redirector, but it was not started by this Ran process and
+    /// cannot be controlled through Ran.
+    AlreadyAttached,
 }
 
 /// Continuously read a child's stdout and stderr, logging every line and
@@ -1521,10 +1563,10 @@ fn drain_child_output(
 
 /// Wait for a freshly spawned tunnel to report itself up.
 ///
-/// `Err` means the tunnel definitely did not come up - the process exited, which
-/// is what a rejected playground id does within milliseconds. The error carries
-/// the tool's own last words so a bad `PLAY_ID` is diagnosable rather than a
-/// silent no-op.
+/// `Err` means the tunnel definitely did not come up. The one labctl-specific
+/// exception, an already-attached reverse-control channel, is represented by
+/// [`TunnelStartup::AlreadyAttached`]. Other errors carry the tool's last words
+/// so a bad `PLAY_ID` is diagnosable rather than a silent no-op.
 async fn await_tunnel_ready(
     child: &mut tokio::process::Child,
     lines: &mut mpsc::UnboundedReceiver<String>,
@@ -1559,7 +1601,11 @@ async fn await_tunnel_ready(
                         transcript.push(line);
                     }
                 }
-                return Err(format!("{detail}: {}", quote_transcript(&transcript)));
+                let reason = format!("{detail}: {}", quote_transcript(&transcript));
+                if is_existing_redirector_conflict(&reason) {
+                    return Ok(TunnelStartup::AlreadyAttached);
+                }
+                return Err(reason);
             }
             line = lines.recv(), if draining => match line {
                 Some(line) => {
@@ -1577,14 +1623,22 @@ async fn await_tunnel_ready(
     }
 }
 
-/// Translate a labctl startup failure into something an operator can act on.
+/// Whether labctl's exit means a reverse-control channel is already attached.
 ///
-/// Only the conflict case is worth translating, and it is worth it because
-/// `error dialing reverse control WS (status 409)` says nothing about what to do
-/// next. Two things make it self-inflicted often enough to call out: the
-/// playground accepts one reverse control channel at a time, and labctl *saves*
-/// every `-R` into the playground's config ("port forwards are automatically
-/// saved ... for later restoration"), so abandoned attempts linger there.
+/// This deliberately recognizes the full labctl diagnostic rather than treating
+/// every HTTP conflict as success. Only that exact conflict means the playground
+/// has already accepted a redirector which Ran can show but cannot manage.
+fn is_existing_redirector_conflict(reason: &str) -> bool {
+    let lowered = reason.to_ascii_lowercase();
+    lowered.contains("error dialing reverse control ws")
+        && (lowered.contains("status 409") || lowered.contains("409 conflict"))
+}
+
+/// Translate another labctl startup failure into something an operator can act on.
+///
+/// The already-attached reverse-control conflict is handled above as a success.
+/// Other conflicts retain the existing diagnostic because they cannot safely be
+/// assumed to describe an externally managed redirector.
 fn tunnel_failure_hint(reason: &str, play_id: &str, held: &[String]) -> Option<String> {
     let lowered = reason.to_ascii_lowercase();
     if !lowered.contains("409") && !lowered.contains("conflict") {
@@ -1883,12 +1937,13 @@ mod tests {
     use tokio::sync::{broadcast, mpsc, watch, RwLock, Semaphore};
 
     use super::{
-        await_tunnel_ready, drain_child_output, looks_like_an_error, monitor_session_health,
-        parse_kubeconfig_permission_command, parse_kubectl_exec_command,
-        parse_port_forward_command, parse_read_local_kubeconfig_command,
-        parse_stop_listener_command, parse_stop_port_forward_command, quote_transcript,
-        redirector_forward_spec, tunnel_failure_hint, Backends, C2EventBus, C2Executor,
-        RedirectorProcess, Redirectors, TunnelStartup,
+        await_tunnel_ready, drain_child_output, is_existing_redirector_conflict,
+        looks_like_an_error, monitor_session_health, parse_kubeconfig_permission_command,
+        parse_kubectl_exec_command, parse_port_forward_command,
+        parse_read_local_kubeconfig_command, parse_stop_listener_command,
+        parse_stop_port_forward_command, quote_transcript, redirector_forward_spec,
+        tunnel_failure_hint, Backends, C2EventBus, C2Executor, RedirectorProcess, Redirectors,
+        TunnelStartup,
     };
     use super::{C2Backend, C2Event, C2Manager, ExecTtp, TtpExecuted, BUILTIN_C2_ID};
 
@@ -2649,6 +2704,19 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn an_already_attached_redirector_is_not_reported_as_a_failure() {
+        let mut child = fake_tunnel(
+            "echo 'Tunnel error: error dialing reverse control WS (status 409): websocket: bad handshake' >&2; exit 1",
+        );
+        let mut lines = drain_child_output(&mut child, "play1/1337".to_string());
+
+        let startup = await_tunnel_ready(&mut child, &mut lines, Duration::from_secs(5))
+            .await
+            .expect("the existing external redirector is a success case");
+        assert!(matches!(startup, TunnelStartup::AlreadyAttached));
+    }
+
     /// The readiness line is what separates "process running" from "port open" -
     /// labctl has to reach the Labs API and open a WebSocket before either is true.
     #[tokio::test]
@@ -2735,46 +2803,41 @@ mod tests {
         assert!(!spec.contains("localhost"), "{spec}");
     }
 
-    /// `error dialing reverse control WS (status 409)` is a transport fact that
-    /// tells the operator nothing about what to do, so it gets translated.
+    /// Labctl only emits this precise 409 when a playground already owns the
+    /// reverse-control channel. It is an externally managed redirector, not a
+    /// failed attempt to create one.
     #[test]
-    fn a_conflicting_tunnel_is_explained_rather_than_echoed() {
+    fn an_existing_reverse_control_channel_is_accepted() {
         let reason = "exited before the tunnel came up (exit status: 1): \
              Tunnel error: error dialing reverse control WS (status 409): websocket: bad handshake";
 
-        let hint =
-            tunnel_failure_hint(reason, "play1", &[]).expect("a 409 must come with an explanation");
-        assert!(hint.contains("409 Conflict"), "{hint}");
-        // The two things the operator can actually check.
-        assert!(hint.contains("labctl port-forward play1 --list"), "{hint}");
-        assert!(hint.contains("--remove"), "{hint}");
-        // Nothing of Ran's is open, so it must not claim otherwise.
-        assert!(!hint.contains("Ran is already holding"), "{hint}");
+        assert!(is_existing_redirector_conflict(reason));
     }
 
     #[test]
-    fn a_conflict_names_the_tunnels_ran_itself_is_holding() {
-        let reason = "exited before the tunnel came up (exit status: 1): status 409";
+    fn other_conflicts_remain_failures() {
+        assert!(!is_existing_redirector_conflict(
+            "exited before the tunnel came up: status 409"
+        ));
+        assert!(!is_existing_redirector_conflict(
+            "exited before the tunnel came up: playground not found"
+        ));
+    }
 
-        let hint = tunnel_failure_hint(reason, "play1", &["play1/9000".to_string()])
-            .expect("a 409 must come with an explanation");
+    #[test]
+    fn another_conflict_keeps_the_operator_diagnostic() {
+        let hint = tunnel_failure_hint(
+            "exited before the tunnel came up (exit status: 1): status 409",
+            "play1",
+            &["play1/9000".to_string()],
+        )
+        .expect("a non-exceptional 409 must retain its explanation");
+
         assert!(
             hint.contains("Ran is already holding a redirector"),
             "{hint}"
         );
         assert!(hint.contains("play1/9000"), "{hint}");
-    }
-
-    #[test]
-    fn failures_that_are_not_conflicts_are_left_to_speak_for_themselves() {
-        assert_eq!(
-            tunnel_failure_hint(
-                "exited before the tunnel came up: playground not found",
-                "p",
-                &[]
-            ),
-            None
-        );
     }
 
     #[test]

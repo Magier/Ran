@@ -2387,6 +2387,20 @@ impl Campaign {
         cmd: &ExecTtp,
         event: &TtpExecuted,
     ) -> Result<TtpExecutionProcessing, ExecuteActionError> {
+        self.on_ttp_executed_with_outcome(cmd, event, false)
+    }
+
+    /// Process a C2 result and retain whether it completed with an operational
+    /// limitation. The plain [`Campaign::on_ttp_executed`] entry point keeps
+    /// existing callers as ordinary full-success processing.
+    pub fn on_ttp_executed_with_outcome(
+        &mut self,
+        cmd: &ExecTtp,
+        event: &TtpExecuted,
+        partial: bool,
+    ) -> Result<TtpExecutionProcessing, ExecuteActionError> {
+        // Partial is a qualified success, never a second kind of failure.
+        let partial = partial && event.success;
         let mut updates = FactsUpdate::default();
         let mut parse_audits = Vec::new();
 
@@ -2475,6 +2489,7 @@ impl Campaign {
                 parse_audits,
                 effective_success: false,
                 effective_fail_reason: event.fail_reason.clone(),
+                effective_partial: false,
             });
         }
 
@@ -2526,6 +2541,7 @@ impl Campaign {
             self.parse_audits.extend(parse_audits.clone());
             let mut record = ExecutionRecord::from_execution(cmd, event);
             record.success = false;
+            record.partial = false;
             record.fail_reason = early_failure.detail.clone();
             self.execution_records.push(record);
             self.complete_open_step(&cmd.id);
@@ -2534,6 +2550,7 @@ impl Campaign {
                 parse_audits,
                 effective_success: false,
                 effective_fail_reason: early_failure.detail,
+                effective_partial: false,
             });
         }
 
@@ -2712,13 +2729,16 @@ impl Campaign {
                 category: crate::FactCategory::from_kind(entity.entity_kind()),
             })
             .collect();
-        let (effective_success, effective_fail_reason) = if let Some(err_audit) = api_error {
-            record.success = false;
-            record.fail_reason = err_audit.detail.clone();
-            (false, err_audit.detail.clone())
-        } else {
-            (event.success, event.fail_reason.clone())
-        };
+        let (effective_success, effective_fail_reason, effective_partial) =
+            if let Some(err_audit) = api_error {
+                record.success = false;
+                record.partial = false;
+                record.fail_reason = err_audit.detail.clone();
+                (false, err_audit.detail.clone(), false)
+            } else {
+                record.partial = partial;
+                (event.success, event.fail_reason.clone(), partial)
+            };
         self.execution_records.push(record);
         self.complete_open_step(&cmd.id);
 
@@ -2727,6 +2747,7 @@ impl Campaign {
             parse_audits,
             effective_success,
             effective_fail_reason,
+            effective_partial,
         })
     }
 
