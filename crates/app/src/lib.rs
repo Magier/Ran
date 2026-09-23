@@ -11,7 +11,7 @@ use std::{
 use anyhow::Result;
 use armory::Armory;
 use axum::Router;
-use c2::{C2Handle, C2Manager};
+use c2::{C2Handle, C2Manager, C2RuntimeLimits, DEFAULT_MAX_CONCURRENT_EXECUTIONS};
 use reqwest::Url;
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
@@ -29,6 +29,12 @@ use k8s::{
     StaticKubeconfigCredential,
 };
 use ran_domain::{BinaryPresence, Entity, K8sCluster, K8sCredential, Pod, RelationSummary};
+
+const C2_RUNTIME_LIMITS: C2RuntimeLimits = C2RuntimeLimits {
+    command_queue_capacity: 256,
+    event_buffer_capacity: 256,
+    max_concurrent_executions: DEFAULT_MAX_CONCURRENT_EXECUTIONS,
+};
 
 fn namespace_ui_config(filter: &NamespaceFilter) -> NamespaceUiConfig {
     NamespaceUiConfig {
@@ -1941,7 +1947,8 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     )));
 
     let k8s_client_registry = build_k8s_client_registry(&kubeconfig_path).await;
-    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, k8s.clone(), k8s_client_registry);
+    let (c2_handle, c2_events, c2_manager) =
+        C2Manager::new_with_limits(C2_RUNTIME_LIMITS, k8s.clone(), k8s_client_registry);
     let campaign_events = CampaignEventBus::new(256);
 
     tokio::spawn(c2_manager.run());
@@ -2427,7 +2434,8 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
     )));
 
     let k8s_client_registry = build_k8s_client_registry(&kubeconfig_path).await;
-    let (c2_handle, c2_events, c2_manager) = C2Manager::new(256, Some(k8s), k8s_client_registry);
+    let (c2_handle, c2_events, c2_manager) =
+        C2Manager::new_with_limits(C2_RUNTIME_LIMITS, Some(k8s), k8s_client_registry);
     let campaign_events = CampaignEventBus::new(256);
 
     // Subscribe before spawning the processor so no events are dropped.

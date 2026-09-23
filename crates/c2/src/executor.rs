@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -38,6 +38,45 @@ type PartialExecutions = Arc<RwLock<HashSet<String>>>;
 const OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(250);
 const OUTPUT_FLUSH_BYTES: usize = 16 * 1024;
 const OUTPUT_CAPTURE_LIMIT: usize = 1024 * 1024;
+pub const DEFAULT_MAX_CONCURRENT_EXECUTIONS: usize = 32;
+
+/// Explicit queue and concurrency limits for the C2 runtime.
+#[derive(Debug, Clone, Copy)]
+pub struct C2RuntimeLimits {
+    /// Commands waiting for an execution slot. Sending applies backpressure
+    /// when this queue is full.
+    pub command_queue_capacity: usize,
+    /// Capacity of the durable lifecycle queue and each best-effort event
+    /// stream. Progress may be dropped after this many unread batches.
+    pub event_buffer_capacity: usize,
+    /// Commands allowed to execute at the same time.
+    pub max_concurrent_executions: usize,
+}
+
+impl C2RuntimeLimits {
+    pub fn with_buffer_capacity(buffer_capacity: usize) -> Self {
+        Self {
+            command_queue_capacity: buffer_capacity,
+            event_buffer_capacity: buffer_capacity,
+            max_concurrent_executions: DEFAULT_MAX_CONCURRENT_EXECUTIONS,
+        }
+    }
+
+    fn validate(self) {
+        assert!(
+            self.command_queue_capacity > 0,
+            "c2 command queue must be non-zero"
+        );
+        assert!(
+            self.event_buffer_capacity > 0,
+            "c2 event buffer must be non-zero"
+        );
+        assert!(
+            self.max_concurrent_executions > 0,
+            "c2 execution concurrency must be non-zero"
+        );
+    }
+}
 
 fn append_bounded_bytes(buffer: &mut Vec<u8>, bytes: &[u8]) {
     buffer.extend_from_slice(bytes);
@@ -167,24 +206,109 @@ impl C2Handle {
 
 #[derive(Clone)]
 pub struct C2EventBus {
-    tx: broadcast::Sender<C2Event>,
+    lifecycle_tx: mpsc::Sender<C2Event>,
+    lifecycle_rx: Arc<StdMutex<Option<mpsc::Receiver<C2Event>>>>,
+    progress_tx: broadcast::Sender<C2Event>,
+    observer_tx: broadcast::Sender<C2Event>,
+}
+
+pub struct C2EventReceiver {
+    lifecycle_rx: mpsc::Receiver<C2Event>,
+    progress_rx: broadcast::Receiver<C2Event>,
+    lifecycle_closed: bool,
+    progress_closed: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum C2EventRecvError {
+    ProgressLagged(u64),
+    Closed,
+}
+
+impl C2EventReceiver {
+    pub async fn recv(&mut self) -> Result<C2Event, C2EventRecvError> {
+        loop {
+            if self.lifecycle_closed && self.progress_closed {
+                return Err(C2EventRecvError::Closed);
+            }
+
+            tokio::select! {
+                biased;
+                event = self.lifecycle_rx.recv(), if !self.lifecycle_closed => {
+                    match event {
+                        Some(event) => return Ok(event),
+                        None => self.lifecycle_closed = true,
+                    }
+                }
+                event = self.progress_rx.recv(), if !self.progress_closed => {
+                    match event {
+                        Ok(event) => return Ok(event),
+                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                            return Err(C2EventRecvError::ProgressLagged(skipped));
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            self.progress_closed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl C2EventBus {
     pub fn new(buffer_size: usize) -> Self {
-        let (tx, _rx) = broadcast::channel(buffer_size);
-        Self { tx }
+        let (lifecycle_tx, lifecycle_rx) = mpsc::channel(buffer_size);
+        let (progress_tx, _progress_rx) = broadcast::channel(buffer_size);
+        let (observer_tx, _observer_rx) = broadcast::channel(buffer_size);
+        Self {
+            lifecycle_tx,
+            lifecycle_rx: Arc::new(StdMutex::new(Some(lifecycle_rx))),
+            progress_tx,
+            observer_tx,
+        }
     }
 
+    /// Subscribe to the best-effort observer stream used by health monitors
+    /// and diagnostics. Slow observers may lag and must recover themselves.
     pub fn subscribe(&self) -> broadcast::Receiver<C2Event> {
-        self.tx.subscribe()
+        self.observer_tx.subscribe()
     }
 
-    pub fn publish(
-        &self,
-        event: C2Event,
-    ) -> Result<usize, Box<broadcast::error::SendError<C2Event>>> {
-        self.tx.send(event).map_err(Box::new)
+    /// Take the single durable lifecycle receiver used by the campaign.
+    /// Progress remains best effort and may report lag independently.
+    pub fn subscribe_campaign(&self) -> C2EventReceiver {
+        let lifecycle_rx = self
+            .lifecycle_rx
+            .lock()
+            .expect("c2 lifecycle receiver lock poisoned")
+            .take()
+            .expect("c2 campaign lifecycle receiver already subscribed");
+        C2EventReceiver {
+            lifecycle_rx,
+            progress_rx: self.progress_tx.subscribe(),
+            lifecycle_closed: false,
+            progress_closed: false,
+        }
+    }
+
+    pub async fn publish(&self, event: C2Event) -> Result<usize, String> {
+        if matches!(event, C2Event::TtpOutput { .. }) {
+            let progress_receivers = self.progress_tx.send(event.clone()).unwrap_or(0);
+            let observer_receivers = self.observer_tx.send(event).unwrap_or(0);
+            if progress_receivers + observer_receivers == 0 {
+                Err("no c2 event subscribers currently registered".to_string())
+            } else {
+                Ok(progress_receivers + observer_receivers)
+            }
+        } else {
+            self.lifecycle_tx
+                .send(event.clone())
+                .await
+                .map_err(|_| "c2 lifecycle receiver closed".to_string())?;
+            let observer_receivers = self.observer_tx.send(event).unwrap_or(0);
+            Ok(observer_receivers + 1)
+        }
     }
 }
 
@@ -200,6 +324,7 @@ impl C2Handle {
 pub struct C2Manager {
     cmd_rx: mpsc::Receiver<ExecTtp>,
     executor: C2Executor,
+    max_concurrent_executions: usize,
 }
 
 #[derive(Clone)]
@@ -271,13 +396,28 @@ impl C2Backend for NoClientBackend {
 }
 
 impl C2Manager {
+    /// Build a runtime with equal command and event capacities and the
+    /// documented default execution concurrency limit.
     pub fn new(
         buffer_size: usize,
         k8s: Option<Client>,
         k8s_clients: HashMap<String, Client>,
     ) -> (C2Handle, C2EventBus, Self) {
-        let (cmd_tx, cmd_rx) = mpsc::channel(buffer_size);
-        let event_bus = C2EventBus::new(buffer_size);
+        Self::new_with_limits(
+            C2RuntimeLimits::with_buffer_capacity(buffer_size),
+            k8s,
+            k8s_clients,
+        )
+    }
+
+    pub fn new_with_limits(
+        limits: C2RuntimeLimits,
+        k8s: Option<Client>,
+        k8s_clients: HashMap<String, Client>,
+    ) -> (C2Handle, C2EventBus, Self) {
+        limits.validate();
+        let (cmd_tx, cmd_rx) = mpsc::channel(limits.command_queue_capacity);
+        let event_bus = C2EventBus::new(limits.event_buffer_capacity);
         let k8s_clients = Arc::new(RwLock::new(k8s_clients));
 
         // The builtin C2 backend routes commands through pod-exec, which needs
@@ -305,6 +445,7 @@ impl C2Manager {
             event_bus.clone(),
             Self {
                 cmd_rx,
+                max_concurrent_executions: limits.max_concurrent_executions,
                 executor: C2Executor {
                     event_bus,
                     backends,
@@ -323,6 +464,16 @@ impl C2Manager {
         buffer_size: usize,
         backends: HashMap<String, Arc<dyn C2Backend>>,
     ) -> (C2Handle, C2EventBus, Self) {
+        Self::new_with_backends_and_limit(buffer_size, DEFAULT_MAX_CONCURRENT_EXECUTIONS, backends)
+    }
+
+    #[cfg(test)]
+    fn new_with_backends_and_limit(
+        buffer_size: usize,
+        max_concurrent_executions: usize,
+        backends: HashMap<String, Arc<dyn C2Backend>>,
+    ) -> (C2Handle, C2EventBus, Self) {
+        assert!(max_concurrent_executions > 0);
         let (cmd_tx, cmd_rx) = mpsc::channel(buffer_size);
         let event_bus = C2EventBus::new(buffer_size);
         let backends: Backends = Arc::new(RwLock::new(backends));
@@ -337,6 +488,7 @@ impl C2Manager {
             event_bus.clone(),
             Self {
                 cmd_rx,
+                max_concurrent_executions,
                 executor: C2Executor {
                     event_bus,
                     backends,
@@ -353,6 +505,12 @@ impl C2Manager {
     pub async fn run(mut self) {
         let mut executions = tokio::task::JoinSet::new();
         loop {
+            if executions.len() >= self.max_concurrent_executions {
+                if let Some(Err(error)) = executions.join_next().await {
+                    warn!(%error, "c2 command task failed");
+                }
+                continue;
+            }
             tokio::select! {
                 cmd = self.cmd_rx.recv() => match cmd {
                     Some(cmd) => {
@@ -396,11 +554,11 @@ impl C2Executor {
                 Some(fragment) = output_rx.recv() => {
                     collector.push(fragment);
                     if collector.should_flush() {
-                        self.publish_output_batch(collector.take_batch(&cmd.id));
+                        self.publish_output_batch(collector.take_batch(&cmd.id)).await;
                     }
                 }
                 _ = ticker.tick() => {
-                    self.publish_output_batch(collector.take_batch(&cmd.id));
+                    self.publish_output_batch(collector.take_batch(&cmd.id)).await;
                 }
             }
         };
@@ -410,7 +568,8 @@ impl C2Executor {
             collector.push(fragment);
         }
         collector.finish_decoding();
-        self.publish_output_batch(collector.take_batch(&cmd.id));
+        self.publish_output_batch(collector.take_batch(&cmd.id))
+            .await;
         collector.preserve_partial_failure_output(&mut event);
         let partial = self.partial_executions.write().await.remove(&cmd.id);
         if self
@@ -420,15 +579,16 @@ impl C2Executor {
                 event,
                 partial,
             })
+            .await
             .is_err()
         {
             debug!("no c2 event subscribers currently registered");
         }
     }
 
-    fn publish_output_batch(&self, event: Option<C2Event>) {
+    async fn publish_output_batch(&self, event: Option<C2Event>) {
         if let Some(event) = event {
-            if self.event_bus.publish(event).is_err() {
+            if self.event_bus.publish(event).await.is_err() {
                 debug!("no c2 event subscribers currently registered");
             }
         }
@@ -768,11 +928,14 @@ impl C2Executor {
         let listener = tokio::net::TcpListener::bind(addr).await?;
         tracing::info!(port, backend_id = %spec.backend_id, "session listener ready");
 
-        let _ = self.event_bus.publish(C2Event::ListenerStarted {
-            cmd_id: spec.cmd_id.clone(),
-            port,
-            protocol: spec.protocol.clone(),
-        });
+        let _ = self
+            .event_bus
+            .publish(C2Event::ListenerStarted {
+                cmd_id: spec.cmd_id.clone(),
+                port,
+                protocol: spec.protocol.clone(),
+            })
+            .await;
 
         let backends = self.backends.clone();
         let event_bus = self.event_bus.clone();
@@ -807,10 +970,13 @@ impl C2Executor {
         handle.abort();
         tracing::info!(port, "listener stopped; port released");
 
-        let _ = self.event_bus.publish(C2Event::ListenerStopped {
-            cmd_id: cmd.id.clone(),
-            port,
-        });
+        let _ = self
+            .event_bus
+            .publish(C2Event::ListenerStopped {
+                cmd_id: cmd.id.clone(),
+                port,
+            })
+            .await;
         TtpExecuted {
             id: cmd.id.clone(),
             success: true,
@@ -926,13 +1092,16 @@ impl C2Executor {
                     "labctl found an already-attached redirector outside Ran's control"
                 );
                 self.partial_executions.write().await.insert(cmd.id.clone());
-                let _ = self.event_bus.publish(C2Event::RedirectorStarted {
-                    cmd_id: cmd.id.clone(),
-                    via: REDIRECTOR_TOOL.to_string(),
-                    play_id: play_id.to_string(),
-                    remote_port,
-                    listener_port,
-                });
+                let _ = self
+                    .event_bus
+                    .publish(C2Event::RedirectorStarted {
+                        cmd_id: cmd.id.clone(),
+                        via: REDIRECTOR_TOOL.to_string(),
+                        play_id: play_id.to_string(),
+                        remote_port,
+                        listener_port,
+                    })
+                    .await;
                 return TtpExecuted {
                     id: cmd.id.clone(),
                     success: true,
@@ -982,13 +1151,16 @@ impl C2Executor {
             listener_port,
             "redirector started; labctl port-forward running"
         );
-        let _ = self.event_bus.publish(C2Event::RedirectorStarted {
-            cmd_id: cmd.id.clone(),
-            via: REDIRECTOR_TOOL.to_string(),
-            play_id: play_id.to_string(),
-            remote_port,
-            listener_port,
-        });
+        let _ = self
+            .event_bus
+            .publish(C2Event::RedirectorStarted {
+                cmd_id: cmd.id.clone(),
+                via: REDIRECTOR_TOOL.to_string(),
+                play_id: play_id.to_string(),
+                remote_port,
+                listener_port,
+            })
+            .await;
         TtpExecuted {
             id: cmd.id.clone(),
             success: true,
@@ -1081,11 +1253,14 @@ impl C2Executor {
         }
         tracing::info!(%entry, "redirector stopped; tunnel closed");
 
-        let _ = self.event_bus.publish(C2Event::RedirectorStopped {
-            cmd_id: cmd.id.clone(),
-            play_id,
-            remote_port,
-        });
+        let _ = self
+            .event_bus
+            .publish(C2Event::RedirectorStopped {
+                cmd_id: cmd.id.clone(),
+                play_id,
+                remote_port,
+            })
+            .await;
         TtpExecuted {
             id: cmd.id.clone(),
             success: true,
@@ -1702,14 +1877,16 @@ async fn accept_session_loop(
                     .write()
                     .await
                     .insert(backend_id.clone(), backend.clone());
-                let publish_result = event_bus.publish(C2Event::SessionConnected {
-                    backend_id: backend_id.clone(),
-                    target_entity_id: target_entity_id.clone(),
-                    hostname,
-                    user,
-                    os,
-                    port: Some(port),
-                });
+                let publish_result = event_bus
+                    .publish(C2Event::SessionConnected {
+                        backend_id: backend_id.clone(),
+                        target_entity_id: target_entity_id.clone(),
+                        hostname,
+                        user,
+                        os,
+                        port: Some(port),
+                    })
+                    .await;
                 tracing::info!(%backend_id, receivers = ?publish_result, "SessionConnected published");
                 tokio::spawn(monitor_session_health(
                     backends.clone(),
@@ -1723,10 +1900,12 @@ async fn accept_session_loop(
             Err(e) => {
                 tracing::error!(port, error = %e, "accept error on session listener");
                 listeners.write().await.remove(&port);
-                let _ = event_bus.publish(C2Event::SessionLost {
-                    backend_id: backend_id.clone(),
-                    target_entity_id: target_entity_id.clone(),
-                });
+                let _ = event_bus
+                    .publish(C2Event::SessionLost {
+                        backend_id: backend_id.clone(),
+                        target_entity_id: target_entity_id.clone(),
+                    })
+                    .await;
                 return;
             }
         }
@@ -1760,10 +1939,12 @@ async fn monitor_session_health(
                 .get(&backend_id)
                 .is_some_and(|current| Arc::ptr_eq(current, &backend));
             if is_current {
-                let _ = event_bus.publish(C2Event::SessionLost {
-                    backend_id,
-                    target_entity_id,
-                });
+                let _ = event_bus
+                    .publish(C2Event::SessionLost {
+                        backend_id,
+                        target_entity_id,
+                    })
+                    .await;
             } else {
                 tracing::debug!(%backend_id, "ignoring loss from a superseded shell session");
             }
@@ -1991,6 +2172,101 @@ mod tests {
             .recv()
             .await
             .expect("second result should publish");
+        drop(handle);
+        manager_task
+            .await
+            .expect("manager should shut down cleanly");
+    }
+
+    #[tokio::test]
+    async fn progress_lag_cannot_displace_a_lifecycle_event() {
+        let events = C2EventBus::new(1);
+        let mut campaign_rx = events.subscribe_campaign();
+
+        for sequence in 1..=8 {
+            events
+                .publish(C2Event::TtpOutput {
+                    cmd_id: "cmd-stream".to_string(),
+                    sequence,
+                    stdout: format!("batch-{sequence}"),
+                    stderr: String::new(),
+                    stdout_bytes: sequence,
+                    stderr_bytes: 0,
+                })
+                .await
+                .expect("campaign progress receiver is subscribed");
+        }
+        let cmd = exec_cmd("ran");
+        events
+            .publish(C2Event::TtpExecuted {
+                event: TtpExecuted {
+                    id: cmd.id.clone(),
+                    success: true,
+                    results: Vec::new(),
+                    exit_code: 0,
+                    fail_reason: String::new(),
+                    session_connected: None,
+                },
+                cmd: Box::new(cmd),
+                partial: false,
+            })
+            .await
+            .expect("durable lifecycle receiver is subscribed");
+
+        assert!(matches!(
+            campaign_rx.recv().await,
+            Ok(C2Event::TtpExecuted { .. })
+        ));
+        assert!(matches!(
+            campaign_rx.recv().await,
+            Err(super::C2EventRecvError::ProgressLagged(7))
+        ));
+    }
+
+    #[tokio::test]
+    async fn execution_concurrency_limit_backpressures_the_command_queue() {
+        let (started_tx, mut started_rx) = mpsc::unbounded_channel();
+        let release = Arc::new(Semaphore::new(0));
+        let backend: Arc<dyn C2Backend> = Arc::new(BlockingBackend {
+            started: started_tx,
+            release: release.clone(),
+        });
+        let mut backends = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), backend.clone());
+        backends.insert("ran".to_string(), backend);
+
+        let (handle, events, manager) = C2Manager::new_with_backends_and_limit(8, 2, backends);
+        let mut observer = events.subscribe();
+        let manager_task = tokio::spawn(manager.run());
+        for index in 0..5 {
+            let mut cmd = exec_cmd("ran");
+            cmd.id = format!("cmd-{index}");
+            handle.send(cmd).await.expect("command should queue");
+        }
+
+        started_rx.recv().await.expect("first command should start");
+        started_rx
+            .recv()
+            .await
+            .expect("second command should start");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), started_rx.recv())
+                .await
+                .is_err(),
+            "a third execution must wait for capacity"
+        );
+
+        release.add_permits(1);
+        observer.recv().await.expect("completion should publish");
+        tokio::time::timeout(Duration::from_secs(1), started_rx.recv())
+            .await
+            .expect("queued command should start after capacity is released")
+            .expect("started channel should remain open");
+
+        release.add_permits(4);
+        for _ in 0..4 {
+            observer.recv().await.expect("completion should publish");
+        }
         drop(handle);
         manager_task
             .await
