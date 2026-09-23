@@ -16,7 +16,8 @@ raw OpenAPI spec at `/api/openapi.yaml`.
 | ------ | ----------------------------- | ------------------------------------------------------------------------------- |
 | `GET`  | `/api/graph`                  | Full knowledge graph: all discovered entities and relations                     |
 | `GET`  | `/api/campaign-state`         | Campaign state: entities with all their discovered facts                        |
-| `GET`  | `/api/armory`                 | All TTPs in the armory; optional `?tactic=Discovery` filter                     |
+| `GET`  | `/api/armory`                 | All TTPs; `?targetId=<entity_id>` adds target-aware readiness                   |
+| `GET`  | `/api/armory/{id}/resolution` | Argument values, choices, blockers, and provenance for one action and target    |
 | `GET`  | `/api/applicable-ttps`        | TTPs filtered by target entity; use `?targetId=<entity_id>`                     |
 | `POST` | `/api/action/execute`         | Invoke a TTP against a target entity                                            |
 | `GET`  | `/api/flow`                   | Ran campaign-flow JSON with steps and causal edges                              |
@@ -26,6 +27,20 @@ raw OpenAPI spec at `/api/openapi.yaml`.
 | `GET`  | `/api/files`                  | Read a file captured in campaign state; use `?path=<path>`                      |
 | `GET`  | `/api/pods/running`           | Live running pods from Kubernetes; use `?namespace=<ns>` for a single namespace |
 | `GET`  | `/events`                     | Server-sent events stream for real-time campaign updates                        |
+
+### Choosing and grounding an action
+
+Call `GET /api/armory?targetId=<entity_id>` to receive the full action space.
+Each action includes an `actionState` with one of `ready`, `needs_choice`,
+`needs_input`, `blocked`, or `inapplicable`. The existing
+`GET /api/applicable-ttps` endpoint remains available for clients that only need
+the older applicability filter.
+
+After choosing an action, call
+`GET /api/armory/{actionId}/resolution?targetId=<entity_id>`. Its `arguments`
+array contains concrete values, candidates, blockers, and a `source` describing
+where each resolved value came from. This is a read-only operation. Submit the
+chosen values through `args` in the existing execution request.
 
 ### Invoking a TTP via API
 

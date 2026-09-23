@@ -182,7 +182,10 @@ async fn app_state_get_and_reset_campaign_without_cli() {
 
     // get_armory - empty armory, no TTPs.
     let ttps = state
-        .get_armory(api::GetArmoryParams { tactic: None })
+        .get_armory(api::GetArmoryParams {
+            tactic: None,
+            target_id: None,
+        })
         .await
         .expect("get_armory failed");
     assert!(ttps.is_empty(), "empty armory should return no TTPs");

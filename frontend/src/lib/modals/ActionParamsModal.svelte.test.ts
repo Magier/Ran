@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { TTP } from '$lib/api';
+import type { ActionResolution, TTP } from '$lib/api';
+import { getRanAPI } from '$lib/ran_api';
 import ActionParamsModal from './ActionParamsModal.svelte';
 
 const ttp = {
@@ -110,5 +111,77 @@ describe('ActionParamsModal target-derived defaults', () => {
 		expect(screen.getByRole('option', { name: 'Automatic reachable system' })).toBeInTheDocument();
 		expect(screen.getByRole('option', { name: 'default/foothold' })).toBeInTheDocument();
 		expect(screen.queryByRole('option', { name: 'oopservability/redis' })).not.toBeInTheDocument();
+	});
+
+	it('uses resolution candidates instead of silently choosing the first target IP', async () => {
+		const target = {
+			id: 'pod/first',
+			name: 'first',
+			ips: ['10.0.0.6', '192.0.2.7']
+		};
+		const campaignState = {
+			relations: new Map(),
+			graph: { nodes: [] },
+			getObjectById: () => target,
+			getCompromisedSystems: () => [],
+			getPods: () => [],
+			getServiceAccounts: () => [],
+			getServiceAccountsWithTokens: () => []
+		};
+		const resolution: ActionResolution = {
+			actionId: ttp.id,
+			targetId: target.id,
+			status: 'needs_choice',
+			reasons: ['TARGET has multiple values derived from TARGET.IP'],
+			arguments: [
+				{
+					name: 'TARGET',
+					type: 'string',
+					required: true,
+					status: 'needs_choice',
+					reason: 'TARGET has multiple values derived from TARGET.IP',
+					candidates: target.ips.map((ip) => ({
+						value: ip,
+						label: ip,
+						source: {
+							kind: 'target_fact',
+							entityId: target.id,
+							field: 'system.ips',
+							expression: '${TARGET.IP}'
+						}
+					}))
+				}
+			]
+		};
+		const targetAwareTtp = {
+			...ttp,
+			actionState: {
+				status: 'needs_choice',
+				reasons: resolution.reasons,
+				arguments: { total: 1, resolved: 0, needsInput: 0, needsChoice: 1, blocked: 0 }
+			}
+		} as TTP;
+		const resolutionSpy = vi
+			.spyOn(getRanAPI(), 'GetActionResolution')
+			.mockResolvedValue(resolution);
+
+		render(ActionParamsModal, {
+			props: {
+				targetId: target.id,
+				ttp: targetAwareTtp,
+				argContext: {},
+				onExecute: vi.fn(),
+				onCancel: vi.fn()
+			},
+			context: new Map([['$_campaignState', campaignState]])
+		});
+
+		await waitFor(() => expect(targetInput()).toHaveValue(''));
+		expect(resolutionSpy).toHaveBeenCalledWith(ttp.id, target.id);
+		expect(screen.getByLabelText(/Resolution for TARGET/)).toHaveAttribute(
+			'title',
+			expect.stringContaining('system.ips')
+		);
+		resolutionSpy.mockRestore();
 	});
 });

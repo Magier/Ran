@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use chrono::{DateTime, Utc};
 
-use campaign::ttp_applicability::eligible_auth_identities;
+use campaign::ttp_applicability::{eligible_auth_identities, resolve_target_context};
 
+use crate::action_resolution::{resolve_action, summarize, ActionResolution, ArmoryAction};
 use crate::operations::{applicable_ttps, ApplicableTtpsError};
 use crate::sse::events_handler;
 use crate::state_conversions::{campaign_to_campaign_state, campaign_to_graph};
@@ -104,6 +105,12 @@ pub(crate) struct GetEligibleAuthIdentitiesParams {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct GetActionResolutionParams {
+    #[serde(rename = "targetId")]
+    pub(crate) target_id: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
 pub(crate) struct GetRecommendationsParams {
     /// Optional: restrict recommendations to a single target entity.
     #[serde(rename = "targetId")]
@@ -147,7 +154,10 @@ pub(crate) async fn events_sse_handler<S: ApiService>(
     State(service): State<S>,
 ) -> impl axum::response::IntoResponse {
     let armory = service
-        .get_armory(GetArmoryParams { tactic: None })
+        .get_armory(GetArmoryParams {
+            tactic: None,
+            target_id: None,
+        })
         .await
         .unwrap_or_default();
     events_handler(armory).await
@@ -173,9 +183,60 @@ pub(crate) async fn ui_config_handler<S: ApiService>(
 pub(crate) async fn armory_handler<S: ApiService>(
     State(service): State<S>,
     Query(params): Query<GetArmoryParams>,
-) -> Result<axum::Json<Vec<armory::Ttp>>, ApiError> {
-    let ttps = service.get_armory(params).await?;
-    Ok(axum::Json(ttps))
+) -> Result<axum::Json<Vec<ArmoryAction>>, ApiError> {
+    let target_id = params
+        .target_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|target_id| !target_id.is_empty())
+        .map(str::to_string);
+    let ttps = service
+        .get_armory(GetArmoryParams {
+            tactic: params.tactic,
+            target_id: None,
+        })
+        .await?;
+    let Some(target_id) = target_id else {
+        return Ok(axum::Json(
+            ttps.into_iter().map(ArmoryAction::static_action).collect(),
+        ));
+    };
+    let campaign = service.get_campaign().await?;
+    if resolve_target_context(&campaign, &target_id).is_none() {
+        return Err(ApiError::not_found(format!(
+            "failed to get target entity: {target_id}"
+        )));
+    }
+    Ok(axum::Json(
+        ttps.into_iter()
+            .map(|ttp| {
+                let action_state = resolve_action(&ttp, &campaign, &target_id)
+                    .map(|resolution| summarize(&resolution));
+                ArmoryAction { ttp, action_state }
+            })
+            .collect(),
+    ))
+}
+
+pub(crate) async fn action_resolution_handler<S: ApiService>(
+    State(service): State<S>,
+    Path(action_id): Path<String>,
+    Query(params): Query<GetActionResolutionParams>,
+) -> Result<axum::Json<ActionResolution>, ApiError> {
+    let ttp = service
+        .get_armory(GetArmoryParams {
+            tactic: None,
+            target_id: None,
+        })
+        .await?
+        .into_iter()
+        .find(|ttp| ttp.id == action_id)
+        .ok_or_else(|| ApiError::not_found(format!("unknown action '{action_id}'")))?;
+    let campaign = service.get_campaign().await?;
+    let resolution = resolve_action(&ttp, &campaign, &params.target_id).ok_or_else(|| {
+        ApiError::not_found(format!("failed to get target entity: {}", params.target_id))
+    })?;
+    Ok(axum::Json(resolution))
 }
 
 pub(crate) async fn applicable_ttps_handler<S: ApiService>(
@@ -198,7 +259,10 @@ pub(crate) async fn eligible_auth_identities_handler<S: ApiService>(
     Query(params): Query<GetEligibleAuthIdentitiesParams>,
 ) -> Result<axum::Json<Vec<campaign::AuthIdentitySummary>>, ApiError> {
     let ttp = service
-        .get_armory(GetArmoryParams { tactic: None })
+        .get_armory(GetArmoryParams {
+            tactic: None,
+            target_id: None,
+        })
         .await?
         .into_iter()
         .find(|ttp| ttp.id == params.action_id)
@@ -238,7 +302,12 @@ pub(crate) async fn recommendations_handler<S: ApiService>(
             },
         });
     }
-    let all_ttps = service.get_armory(GetArmoryParams { tactic: None }).await?;
+    let all_ttps = service
+        .get_armory(GetArmoryParams {
+            tactic: None,
+            target_id: None,
+        })
+        .await?;
     let campaign = service.get_campaign().await?;
 
     let scorer = utility_ai::Scorer::with_defaults(service.scoring_profile());
