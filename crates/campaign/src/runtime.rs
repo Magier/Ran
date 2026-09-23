@@ -80,6 +80,7 @@ pub enum CampaignEvent {
         ttp: Box<Ttp>,
         args: std::collections::HashMap<String, String>,
         success: bool,
+        partial: bool,
         fail_reason: String,
         results: Vec<String>,
         exit_code: i32,
@@ -204,7 +205,11 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         });
                     }
                 }
-                Ok(C2Event::TtpExecuted { cmd, event }) => {
+                Ok(C2Event::TtpExecuted {
+                    cmd,
+                    event,
+                    partial,
+                }) => {
                     let action_id = cmd.ttp.id.clone();
                     let target_id = cmd.target_id.clone();
                     let result_preview = event
@@ -240,7 +245,9 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             }
                         };
 
-                        let processing = match campaign_guard.on_ttp_executed(&cmd, &event) {
+                        let processing = match campaign_guard
+                            .on_ttp_executed_with_outcome(&cmd, &event, partial)
+                        {
                             Ok(processing) => processing,
                             Err(err) => {
                                 error!("failed to process c2 ttp result: {:?}", err);
@@ -414,6 +421,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         // which may override the raw transport-level success when a
                         // semantic error (e.g. k8s 403 Forbidden) was detected.
                         success: processing.effective_success,
+                        partial: processing.effective_partial,
                         fail_reason: processing.effective_fail_reason.clone(),
                         results: event.results,
                         exit_code: event.exit_code,

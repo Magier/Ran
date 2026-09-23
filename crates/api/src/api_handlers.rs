@@ -741,7 +741,13 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
             stdout_bytes: r.results.first().map_or(0, |value| value.len() as u64),
             stderr_bytes: r.results.get(1).map_or(0, |value| value.len() as u64),
             success: r.success,
-            status: if r.success { "Success" } else { "Failed" },
+            status: if !r.success {
+                "Failed"
+            } else if r.partial {
+                "Partial"
+            } else {
+                "Success"
+            },
             started_at: ms_to_iso8601(r.started_at_ms),
             completed_at: ms_to_iso8601(r.completed_at_ms),
             executed_on: r.exec_system_id.clone(),
@@ -889,7 +895,7 @@ pub(crate) async fn flow_handler<S: ApiService>(
             });
         }
 
-        if step.status == "Success" {
+        if matches!(step.status, "Success" | "Partial") {
             last_success_id = Some(step.id.clone());
         }
     }

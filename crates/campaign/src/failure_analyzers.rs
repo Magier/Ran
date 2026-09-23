@@ -539,6 +539,26 @@ mod tests {
     }
 
     #[test]
+    fn external_redirector_control_notice_is_not_an_rbac_failure() {
+        let cmd = sample_cmd();
+        let event = TtpExecuted {
+            id: "evt-1".to_string(),
+            success: true,
+            results: vec![
+                "redirector play1/1337 is already attached on playground play1; \
+                 Ran registered it as forwarding to 127.0.0.1:1337, but does not control or \
+                 stop the existing tunnel"
+                    .to_string(),
+            ],
+            exit_code: 0,
+            fail_reason: String::new(),
+            session_connected: None,
+        };
+
+        assert!(detect_failure_signature(&cmd, &event).is_none());
+    }
+
+    #[test]
     fn classify_failure_detects_exit_code_127_as_command_not_found() {
         let cmd = sample_cmd();
         let mut event = failed_event_fail_reason(

@@ -31,6 +31,11 @@
 
 	const statusMap = {
 		Success: { statusBorder: 'border-green-500', icon: 'lucide:check', color: 'text-success-500' },
+		Partial: {
+			statusBorder: 'border-yellow-500',
+			icon: 'lucide:alert-circle',
+			color: 'text-warning-500'
+		},
 		Failed: { statusBorder: 'border-red-500', icon: 'lucide:x', color: 'text-error-500' },
 		Ongoing: {
 			statusBorder: 'border-yellow-500',

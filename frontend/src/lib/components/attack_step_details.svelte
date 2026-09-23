@@ -23,6 +23,8 @@
 		switch (status) {
 			case 'Success':
 				return 'preset-filled-success-500';
+			case 'Partial':
+				return 'preset-filled-warning-500';
 			case 'Failed':
 				return 'preset-filled-error-500';
 			case 'Ongoing':

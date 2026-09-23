@@ -51,6 +51,10 @@ pub struct ExecutionRecord {
     pub args: HashMap<String, String>,
     /// Whether the command exited successfully (exit code 0).
     pub success: bool,
+    /// Whether the action succeeded with a meaningful limitation. Old campaign
+    /// snapshots predate this field and deserialize as a full success.
+    #[serde(default)]
+    pub partial: bool,
     /// Raw exit code returned by the process.
     pub exit_code: i32,
     /// Raw output lines from the C2 backend (stdout first, then stderr).
@@ -102,6 +106,7 @@ impl ExecutionRecord {
             command: String::new(),
             args: request.args.clone(),
             success: false,
+            partial: false,
             exit_code: -1,
             results: vec![reason.clone()],
             fail_reason: reason,
@@ -131,6 +136,7 @@ impl ExecutionRecord {
             command: cmd.procedure.command.clone(),
             args: cmd.args.clone(),
             success: event.success,
+            partial: false,
             exit_code: event.exit_code,
             results: event.results.clone(),
             fail_reason: event.fail_reason.clone(),

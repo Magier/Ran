@@ -116,6 +116,36 @@ describe('OperationTimeline action interactions', () => {
 		expect(screen.getByText('Read kubeconfig')).not.toBeInstanceOf(HTMLButtonElement);
 		expect(screen.queryByRole('button', { name: 'Read kubeconfig' })).not.toBeInTheDocument();
 	});
+
+	it('describes a partial redirector action as reusing the existing redirector', () => {
+		renderTimeline([
+			actionEntry({
+				action: {
+					kind: 'ttp-action',
+					id: 'redirector',
+					ttpId: 'create-redirector',
+					ttpName: 'Create Redirector',
+					targetId: 'listener/tcp/1337',
+					targetName: 'TCP 1337',
+					status: 'partial'
+				},
+				effects: [
+					{
+						kind: 'discovery',
+						id: 'redirector/labctl/play1/1337',
+						entityId: 'redirector/labctl/play1/1337',
+						entityName: 'labctl 1337',
+						entityKind: 'Redirector',
+						outcome: 'created'
+					}
+				],
+				collapsed: false
+			})
+		]);
+
+		expect(screen.getByText('Reusing existing Redirector')).toBeInTheDocument();
+		expect(screen.queryByText('Partial')).not.toBeInTheDocument();
+	});
 });
 
 describe('OperationTimeline timestamps', () => {

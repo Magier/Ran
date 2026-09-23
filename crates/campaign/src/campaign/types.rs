@@ -105,4 +105,7 @@ pub struct TtpExecutionProcessing {
     pub effective_success: bool,
     /// Human-readable reason for the overridden failure, if any.
     pub effective_fail_reason: String,
+    /// The action succeeded, but its result has a meaningful operational
+    /// limitation that the UI should surface as Partial rather than Success.
+    pub effective_partial: bool,
 }

@@ -218,6 +218,26 @@ fn sample_failed_event(fail_reason: &str) -> TtpExecuted {
 }
 
 #[test]
+fn partial_execution_is_successful_and_persisted_as_partial() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let cmd = sample_exec_ttp(BUILTIN_C2_ID, vec![]);
+    let event = sample_event("redirector is usable but externally managed");
+
+    let processing = campaign
+        .on_ttp_executed_with_outcome(&cmd, &event, true)
+        .expect("partial execution should be recorded");
+
+    assert!(processing.effective_success);
+    assert!(processing.effective_partial);
+    let record = campaign
+        .get_execution_records()
+        .last()
+        .expect("the execution record is retained");
+    assert!(record.success);
+    assert!(record.partial);
+}
+
+#[test]
 fn successful_delete_pod_effect_removes_target_from_campaign_graph() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let pod = Pod::new("victim", "default");
@@ -777,6 +797,7 @@ fn resolve_exec_channel_prefers_last_foothold_chain_for_follow_up() {
         command: "id".to_string(),
         args: HashMap::new(),
         success: true,
+        partial: false,
         exit_code: 0,
         results: vec![],
         fail_reason: String::new(),
@@ -906,6 +927,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         command: "id".to_string(),
         args: HashMap::new(),
         success: true,
+        partial: false,
         exit_code: 0,
         results: vec![],
         fail_reason: String::new(),
@@ -927,6 +949,7 @@ fn resolve_exec_source_prefers_most_recently_used_pod() {
         command: "hostname".to_string(),
         args: HashMap::new(),
         success: true,
+        partial: false,
         exit_code: 0,
         results: vec![],
         fail_reason: String::new(),
@@ -3909,6 +3932,7 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         command: "apt-get install -y curl".to_string(),
         args: std::collections::HashMap::from([("PKG".to_string(), "curl".to_string())]),
         success: true,
+        partial: false,
         exit_code: 0,
         results: vec![],
         fail_reason: String::new(),
@@ -3930,6 +3954,7 @@ fn build_cleanup_actions_returns_one_action_for_ttp_with_cleanup() {
         command: "id".to_string(),
         args: std::collections::HashMap::new(),
         success: true,
+        partial: false,
         exit_code: 0,
         results: vec![],
         fail_reason: String::new(),
@@ -3977,6 +4002,7 @@ fn build_cleanup_actions_preserves_original_args_in_cleanup_command() {
         command: "apt-get install -y wget".to_string(),
         args: std::collections::HashMap::from([("PKG".to_string(), "wget".to_string())]),
         success: true,
+        partial: false,
         exit_code: 0,
         results: vec![],
         fail_reason: String::new(),
@@ -4037,6 +4063,7 @@ fn build_cleanup_actions_preserves_kubernetes_auth_identity() {
         command: "kubectl --kubeconfig \"$KUBECONFIG\" create namespace demo".to_string(),
         args: HashMap::new(),
         success: true,
+        partial: false,
         exit_code: 0,
         results: vec![],
         fail_reason: String::new(),

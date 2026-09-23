@@ -247,6 +247,7 @@ mod tests {
             command: "id".to_string(),
             args: HashMap::new(),
             success: true,
+            partial: false,
             exit_code: 0,
             results: vec![],
             fail_reason: String::new(),
