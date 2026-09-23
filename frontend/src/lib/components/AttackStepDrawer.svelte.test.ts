@@ -72,8 +72,31 @@ describe('AttackStepDrawer', () => {
 			completed: false
 		});
 
-		expect(screen.getByText('Live · 45 bytes')).toBeInTheDocument();
+		expect(screen.getByLabelText('Follow output')).toBeChecked();
 		expect(screen.getByText(/Nmap scan report for 10\.0\.0\.5/)).toBeInTheDocument();
+	});
+
+	it('waits for output without showing the follow control', () => {
+		const ongoing: AttackStep = {
+			...step,
+			results: [],
+			stdout: '',
+			status: 'Ongoing',
+			success: false,
+			completedAt: ''
+		};
+		renderDrawer(vi.fn(), ongoing, {
+			sequence: 0,
+			stdout: '',
+			stderr: '',
+			stdoutBytes: 0,
+			stderrBytes: 0,
+			truncated: false,
+			completed: false
+		});
+
+		expect(screen.getByText('Waiting for output…')).toBeInTheDocument();
+		expect(screen.queryByLabelText('Follow output')).not.toBeInTheDocument();
 	});
 
 	it('shows completion for an action that produced no output', () => {
