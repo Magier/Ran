@@ -21,7 +21,12 @@ pub(crate) async fn applicable_ttps<S: ApiService>(
     service: &S,
     target_id: Option<&str>,
 ) -> Result<Vec<armory::Ttp>, ApplicableTtpsError> {
-    let all_ttps = service.get_armory(GetArmoryParams { tactic: None }).await?;
+    let all_ttps = service
+        .get_armory(GetArmoryParams {
+            tactic: None,
+            target_id: None,
+        })
+        .await?;
     let target_id = target_id.map(str::trim).unwrap_or_default();
 
     if target_id.is_empty() {

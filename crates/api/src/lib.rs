@@ -1,5 +1,6 @@
 include!(concat!(env!("OUT_DIR"), "/openapi_generated.rs"));
 
+mod action_resolution;
 mod api_handlers;
 pub mod mcp;
 mod operations;
@@ -28,6 +29,10 @@ pub fn router_with_sse<S: ApiService>(service: S) -> axum::Router {
         .route(
             "/api/armory",
             axum::routing::get(api_handlers::armory_handler::<S>),
+        )
+        .route(
+            "/api/armory/{action_id}/resolution",
+            axum::routing::get(api_handlers::action_resolution_handler::<S>),
         )
         .route(
             "/api/applicable-ttps",

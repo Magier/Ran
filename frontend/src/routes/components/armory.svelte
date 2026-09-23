@@ -40,6 +40,7 @@
 	// $: selectedConditions = { ...globalConditions, ...(selectedNode ?? {}) };
 	const armory: ArmoryType = $derived(campaign.armory);
 	let showAllTTPs: boolean = $state(false);
+	let targetArmory: ArmoryType = $state(new Map());
 	let applicableTTPs: ArmoryType = $state(new Map());
 	let searchTerm: string = $state('');
 	let openTactic = $state(['Initial Access']);
@@ -88,7 +89,7 @@
 	});
 
 	let shownTTPs: Array<[string, TTP[]]> = $derived.by(() => {
-		const source = showAllTTPs ? armory : applicableTTPs;
+		const source = showAllTTPs ? (targetArmory.size > 0 ? targetArmory : armory) : applicableTTPs;
 		const normalizedSearch = searchTerm.trim().toLowerCase();
 		if (!normalizedSearch) return Array.from(source.entries());
 
@@ -103,7 +104,26 @@
 			.filter(([, ttps]) => ttps.length > 0);
 	});
 
-	// Fetch applicable TTPs whenever the target node changes or its state updates
+	const readinessRank: Record<string, number> = {
+		ready: 4,
+		needs_choice: 3,
+		needs_input: 2,
+		blocked: 1,
+		inapplicable: 0
+	};
+
+	function mergeTargetArmories(results: TTP[][]): TTP[] {
+		const byId: Record<string, TTP> = {};
+		for (const ttp of results.flat()) {
+			const current = byId[ttp.id];
+			const nextRank = readinessRank[ttp.actionState?.status ?? 'inapplicable'] ?? 0;
+			const currentRank = readinessRank[current?.actionState?.status ?? 'inapplicable'] ?? 0;
+			if (!current || nextRank > currentRank) byId[ttp.id] = ttp;
+		}
+		return Object.values(byId);
+	}
+
+	// Fetch target-aware action state whenever the target node or its facts change.
 	$effect(() => {
 		// Session connect/loss events replace the campaign graph, so track it in
 		// addition to the selected node's directly exposed applicability fields.
@@ -113,6 +133,7 @@
 		void target?.entity;
 
 		if (!targetId) {
+			targetArmory = new Map();
 			applicableTTPs = new Map();
 			return;
 		}
@@ -120,6 +141,7 @@
 		// Clear the previous target immediately. The captured id also prevents a
 		// slower response for an earlier selection from replacing current results.
 		const requestedTargetId = targetId;
+		targetArmory = new Map();
 		applicableTTPs = new Map();
 		const targetKind = campaign.graph.nodes.find((node) => node.id === requestedTargetId)?.kind;
 		const podIds =
@@ -128,21 +150,20 @@
 						.filter((node) => node.kind === 'Pod' && node.parent === requestedTargetId)
 						.map((node) => node.id)
 				: [];
-		const applicableRequest =
+		const armoryRequest =
 			podIds.length > 0
-				? Promise.all(podIds.map((podId) => campaign.api.GetApplicableTTPs(podId))).then(
-						(results) => {
-							const byId = new Map<string, TTP>();
-							results.flat().forEach((ttp) => byId.set(ttp.id, ttp));
-							return [...byId.values()];
-						}
+				? Promise.all(podIds.map((podId) => campaign.api.GetArmory(podId))).then(
+						mergeTargetArmories
 					)
-				: campaign.api.GetApplicableTTPs(requestedTargetId);
+				: campaign.api.GetArmory(requestedTargetId);
 
-		applicableRequest
+		armoryRequest
 			.then((result: TTP[]) => {
 				if (targetId !== requestedTargetId) return;
-				applicableTTPs = parseArmory(result);
+				targetArmory = parseArmory(result);
+				applicableTTPs = parseArmory(
+					result.filter((ttp) => ttp.actionState?.status !== 'inapplicable')
+				);
 
 				// if there is only tactic, open it by default
 				if (applicableTTPs.size === 1) {
@@ -151,7 +172,8 @@
 			})
 			.catch((err) => {
 				if (targetId !== requestedTargetId) return;
-				console.error('Error fetching applicable TTPs:', err);
+				console.error('Error fetching target-aware armory:', err);
+				targetArmory = new Map();
 				applicableTTPs = new Map();
 			});
 	});
@@ -194,7 +216,7 @@
 	function isTTPApplicable(ttp: TTP): boolean {
 		let procedures = applicableTTPs.get(ttp.tactic) || [];
 		for (let proc of procedures) {
-			if (proc.name === ttp.name) {
+			if (proc.id === ttp.id) {
 				return true;
 			}
 		}

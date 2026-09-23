@@ -3,7 +3,14 @@
 	import { Combobox, useListCollection } from '@skeletonlabs/skeleton-svelte';
 
 	import { parseEntityId } from '$lib/model';
-	import type { TTP, TTPParam, RBACPermission, AuthIdentity } from '$lib/api/index';
+	import type {
+		TTP,
+		TTPParam,
+		RBACPermission,
+		AuthIdentity,
+		ActionResolution,
+		ArgumentResolution
+	} from '$lib/api/index';
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
 	import { allListeners } from '$lib/listeners';
 	import { redirectorOptions } from '$lib/redirectors';
@@ -56,6 +63,8 @@
 	let selectedAuthIdentityId = $state('');
 	let formElement: HTMLFormElement | undefined = $state();
 	let executionTimeoutSeconds = $state(60);
+	let actionResolution = $state<ActionResolution | null>(null);
+	let resolutionRequestId = 0;
 
 	const compromisedSystems = $derived(campaignState.getCompromisedSystems());
 	const selectedProcedure = $derived(
@@ -141,6 +150,73 @@
 
 	function bumpArgVersion(name: string) {
 		argExternalVersions = { ...argExternalVersions, [name]: (argExternalVersions[name] ?? 0) + 1 };
+	}
+
+	$effect(() => {
+		const actionId = ttp?.id;
+		const selectedTargetId = targetId;
+		void campaignState.graph;
+		const requestId = ++resolutionRequestId;
+		actionResolution = null;
+		if (!actionId || !selectedTargetId || !ttp.actionState) return;
+
+		ranAPI
+			.GetActionResolution(actionId, selectedTargetId)
+			.then((resolution) => {
+				if (requestId !== resolutionRequestId) return;
+				actionResolution = resolution;
+
+				const nextOptions = { ...argOptions };
+				let nextArgs = args;
+				for (const argument of resolution.arguments) {
+					if (argument.candidates.length > 0 && argument.type !== 'K8sAuth') {
+						nextOptions[argument.name] = argument.candidates.map((candidate) => ({
+							label: candidate.label,
+							value: candidate.value
+						}));
+					}
+
+					if (argument.name in argContext) continue;
+					const index = nextArgs.findIndex((arg) => arg.Name === argument.name);
+					if (index === -1) continue;
+					const current = nextArgs[index];
+					if (argument.status === 'needs_choice') {
+						nextArgs = nextArgs.with(index, {
+							...current,
+							Value: '',
+							Values: current.Type === 'stringList' ? [] : current.Values
+						});
+						bumpArgVersion(argument.name);
+					} else if (
+						argument.value !== undefined &&
+						['resolved', 'defaulted'].includes(argument.status)
+					) {
+						nextArgs = nextArgs.with(index, {
+							...current,
+							Value: argument.value,
+							Values:
+								current.Type === 'stringList' ? parseStringList(argument.value) : current.Values,
+							IsTrue: current.Type === 'bool' ? argument.value === 'true' : current.IsTrue
+						});
+						bumpArgVersion(argument.name);
+					}
+				}
+				argOptions = nextOptions;
+				args = nextArgs;
+			})
+			.catch(() => {
+				if (requestId === resolutionRequestId) actionResolution = null;
+			});
+	});
+
+	function resolutionFor(name: string): ArgumentResolution | undefined {
+		return actionResolution?.arguments.find((argument) => argument.name === name);
+	}
+
+	function resolutionLabel(argument: ArgumentResolution): string {
+		const source = argument.source ?? argument.candidates[0]?.source;
+		const origin = [source?.kind, source?.field, source?.entityId].filter(Boolean).join(' · ');
+		return [argument.reason, origin].filter(Boolean).join(': ');
 	}
 
 	// Track the action context whose defaults are currently displayed. Reusing
@@ -993,6 +1069,7 @@
 		{#if args.length > 0}
 			<span class="h5 text-xs md:text-sm lg:text-base">Params</span>
 			{#each args as arg (arg.Name)}
+				{@const resolvedArgument = resolutionFor(arg.Name)}
 				<div
 					class="input-group mt-2 grid-cols-[auto_1fr_auto] text-xs md:text-sm lg:text-base"
 					class:opacity-50={arg.Type === 'Namespace' && isAllNamespaces}
@@ -1148,6 +1225,22 @@
 							type="text"
 							placeholder={arg.Description}
 						/>
+					{/if}
+					{#if resolvedArgument}
+						<span
+							class="ig-cell text-surface-500 flex items-center px-2"
+							title={resolutionLabel(resolvedArgument)}
+							aria-label={`Resolution for ${arg.Name}: ${resolutionLabel(resolvedArgument)}`}
+						>
+							<Icon
+								icon={resolvedArgument.status === 'needs_choice'
+									? 'mdi:form-select'
+									: resolvedArgument.status === 'blocked'
+										? 'mdi:alert-circle-outline'
+										: 'mdi:source-branch'}
+								width="14"
+							/>
+						</span>
 					{/if}
 					<!-- <input
 			class="ig-input"

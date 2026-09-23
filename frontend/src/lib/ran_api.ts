@@ -35,7 +35,8 @@ import type {
 	CalibrationResult,
 	PlanSummary,
 	KubetierCatalog,
-	UiConfig
+	UiConfig,
+	ActionResolution
 } from '$lib/api';
 
 export type BackendConnectionState = 'connecting' | 'connected' | 'disconnected';
@@ -212,9 +213,19 @@ export class RanAPI {
 		return data;
 	}
 
-	async GetArmory(): Promise<Array<TTP>> {
-		const { data, error } = await this.restClient.GET('/api/armory');
+	async GetArmory(targetId?: string): Promise<Array<TTP>> {
+		const { data, error } = await this.restClient.GET('/api/armory', {
+			params: { query: { targetId } }
+		});
 		if (error) throw new Error('Failed to get armory');
+		return data;
+	}
+
+	async GetActionResolution(actionId: string, targetId: string): Promise<ActionResolution> {
+		const { data, error } = await this.restClient.GET('/api/armory/{actionId}/resolution', {
+			params: { path: { actionId }, query: { targetId } }
+		});
+		if (error) throw new Error(error.error || 'Failed to resolve action');
 		return data;
 	}
 
@@ -398,6 +409,7 @@ export const GetGraph = ranAPI.GetGraph.bind(ranAPI);
 export const GetCampaignState = ranAPI.GetCampaignState.bind(ranAPI);
 export const GetKubetierCatalog = ranAPI.GetKubetierCatalog.bind(ranAPI);
 export const GetArmory = ranAPI.GetArmory.bind(ranAPI);
+export const GetActionResolution = ranAPI.GetActionResolution.bind(ranAPI);
 export const GetApplicableTTPs = ranAPI.GetApplicableTTPs.bind(ranAPI);
 export const GetRecommendations = ranAPI.GetRecommendations.bind(ranAPI);
 export const GetFlow = ranAPI.GetFlow.bind(ranAPI);

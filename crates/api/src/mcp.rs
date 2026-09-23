@@ -235,7 +235,10 @@ impl<S: ApiService> RanMcpHandler<S> {
         let tactic = opt_str(args, "tactic").map(str::to_owned);
         let ttps = self
             .api
-            .get_armory(GetArmoryParams { tactic })
+            .get_armory(GetArmoryParams {
+                tactic,
+                target_id: None,
+            })
             .await
             .map_err(api_err)?;
         json_result(ttps)
@@ -258,7 +261,10 @@ impl<S: ApiService> RanMcpHandler<S> {
         let ttp_id = req_str(args, "ttp_id")?;
         let ttps = self
             .api
-            .get_armory(GetArmoryParams { tactic: None })
+            .get_armory(GetArmoryParams {
+                tactic: None,
+                target_id: None,
+            })
             .await
             .map_err(api_err)?;
         let ttp = ttps

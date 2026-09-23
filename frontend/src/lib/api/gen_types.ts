@@ -93,9 +93,29 @@ export interface paths {
 		};
 		/**
 		 * Get armory
-		 * @description Returns all available TTPs (Tactics, Techniques, and Procedures). Optionally filter by tactic.
+		 * @description Returns all available TTPs. When targetId is supplied, each TTP includes its current target-aware actionState.
 		 */
 		get: operations['getArmory'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/armory/{actionId}/resolution': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Resolve an action for a target
+		 * @description Returns the current argument values, choices, blockers, and provenance for one action without executing it.
+		 */
+		get: operations['getActionResolution'];
 		put?: never;
 		post?: never;
 		delete?: never;
@@ -113,7 +133,7 @@ export interface paths {
 		};
 		/**
 		 * Get applicable TTPs for a target
-		 * @description Returns TTPs that can be applied to the specified target. If targetId is omitted or empty, returns TTPs for all targets.
+		 * @description Returns TTPs that can be applied to the specified target. If targetId is omitted or empty, returns all enabled TTPs.
 		 */
 		get: operations['getApplicableTTPs'];
 		put?: never;
@@ -669,6 +689,57 @@ export interface components {
 			requires: components['schemas']['Requirements'];
 			effects?: string[];
 			procedures: components['schemas']['Procedure'][];
+			actionState?: components['schemas']['ActionState'];
+		};
+		ActionState: {
+			status: components['schemas']['ActionReadinessStatus'];
+			reasons: string[];
+			arguments: components['schemas']['ArgumentSummary'];
+		};
+		/** @enum {string} */
+		ActionReadinessStatus: 'inapplicable' | 'blocked' | 'needs_input' | 'needs_choice' | 'ready';
+		ArgumentSummary: {
+			total: number;
+			resolved: number;
+			needsInput: number;
+			needsChoice: number;
+			blocked: number;
+		};
+		ActionResolution: {
+			actionId: string;
+			targetId: string;
+			status: components['schemas']['ActionReadinessStatus'];
+			reasons: string[];
+			arguments: components['schemas']['ArgumentResolution'][];
+		};
+		ArgumentResolution: {
+			name: string;
+			type: string;
+			required: boolean;
+			/** @enum {string} */
+			status:
+				| 'resolved'
+				| 'defaulted'
+				| 'generated_at_execution'
+				| 'needs_input'
+				| 'needs_choice'
+				| 'blocked'
+				| 'omitted';
+			value?: string;
+			candidates: components['schemas']['ArgumentCandidate'][];
+			source?: components['schemas']['BindingSource'];
+			reason?: string;
+		};
+		ArgumentCandidate: {
+			value: string;
+			label: string;
+			source: components['schemas']['BindingSource'];
+		};
+		BindingSource: {
+			kind: string;
+			entityId?: string;
+			field?: string;
+			expression?: string;
 		};
 		Procedure: {
 			id: string;
@@ -1192,6 +1263,8 @@ export interface operations {
 			query?: {
 				/** @description Optional tactic to filter by (e.g., "Execution", "CredentialAccess") */
 				tactic?: string;
+				/** @description Optional target entity used to evaluate applicability and argument readiness */
+				targetId?: string;
 			};
 			header?: never;
 			path?: never;
@@ -1206,6 +1279,48 @@ export interface operations {
 				};
 				content: {
 					'application/json': components['schemas']['TTP'][];
+				};
+			};
+			/** @description Target not found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
+				};
+			};
+		};
+	};
+	getActionResolution: {
+		parameters: {
+			query: {
+				targetId: string;
+			};
+			header?: never;
+			path: {
+				actionId: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Action resolution for the selected target */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ActionResolution'];
+				};
+			};
+			/** @description Action or target not found */
+			404: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['Error'];
 				};
 			};
 		};
