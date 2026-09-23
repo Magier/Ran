@@ -1070,165 +1070,167 @@
 			<span class="h5 text-xs md:text-sm lg:text-base">Params</span>
 			{#each args as arg (arg.Name)}
 				{@const resolvedArgument = resolutionFor(arg.Name)}
-				<div
-					class="input-group mt-2 grid-cols-[auto_1fr_auto] text-xs md:text-sm lg:text-base"
-					class:opacity-50={arg.Type === 'Namespace' && isAllNamespaces}
-					class:pointer-events-none={arg.Type === 'Namespace' && isAllNamespaces}
-				>
-					<div class="ig-cell preset-tonal">{arg.Name}</div>
-					{#if arg.Type === 'bool'}
-						<input
-							class="checkbox ml-8"
-							bind:checked={arg.IsTrue}
-							type="checkbox"
-							placeholder={arg.Description}
-						/>
-					{:else if arg.Type === 'K8sAuth'}
-						<select
-							id="authIdentity"
-							class="ig-input"
-							value={arg.Value}
-							onchange={(event) => onAuthIdentityChange(event.currentTarget.value)}
-							required={arg.Required}
-						>
-							{#if eligibleAuthIdentities.length !== 1}
-								<option value="" disabled>
-									{eligibleAuthIdentities.length === 0
-										? 'No eligible identities'
-										: 'Select an identity…'}
-								</option>
-							{/if}
-							{#each eligibleAuthIdentities as identity (identity.id)}
-								<option value={identity.id}>{identity.kind}: {identity.name}</option>
-							{/each}
-						</select>
-					{:else if arg.Type === 'stringList' && arg.Options.length > 0}
-						<div class="ig-input flex min-w-0 flex-col gap-2 py-2">
-							<Combobox
-								collection={toComboBoxCollection(getArgOptions(arg.Name))}
-								onValueChange={(e) => onMultiArgChange(arg, e)}
-								multiple={true}
-								value={arg.Values ?? []}
-								allowCustomValue={false}
-								openOnChange={true}
-								placeholder={arg.Name + '...'}
+				<div class="mt-2 flex items-stretch gap-1 text-xs md:text-sm lg:text-base">
+					<div
+						class="input-group min-w-0 flex-1 grid-cols-[auto_1fr]"
+						class:opacity-50={arg.Type === 'Namespace' && isAllNamespaces}
+						class:pointer-events-none={arg.Type === 'Namespace' && isAllNamespaces}
+					>
+						<div class="ig-cell preset-tonal">{arg.Name}</div>
+						{#if arg.Type === 'bool'}
+							<input
+								class="checkbox ml-8"
+								bind:checked={arg.IsTrue}
+								type="checkbox"
+								placeholder={arg.Description}
+							/>
+						{:else if arg.Type === 'K8sAuth'}
+							<select
+								id="authIdentity"
+								class="ig-input"
+								value={arg.Value}
+								onchange={(event) => onAuthIdentityChange(event.currentTarget.value)}
+								required={arg.Required}
 							>
-								<Combobox.Control class="flex min-h-8 flex-wrap items-center gap-1">
-									{#each arg.Values ?? [] as value (value)}
-										<span
-											class="badge bg-primary-100 text-primary-900 dark:bg-primary-800 dark:text-primary-50 flex items-center gap-1 text-xs"
+								{#if eligibleAuthIdentities.length !== 1}
+									<option value="" disabled>
+										{eligibleAuthIdentities.length === 0
+											? 'No eligible identities'
+											: 'Select an identity…'}
+									</option>
+								{/if}
+								{#each eligibleAuthIdentities as identity (identity.id)}
+									<option value={identity.id}>{identity.kind}: {identity.name}</option>
+								{/each}
+							</select>
+						{:else if arg.Type === 'stringList' && arg.Options.length > 0}
+							<div class="ig-input flex min-w-0 flex-col gap-2 py-2">
+								<Combobox
+									collection={toComboBoxCollection(getArgOptions(arg.Name))}
+									onValueChange={(e) => onMultiArgChange(arg, e)}
+									multiple={true}
+									value={arg.Values ?? []}
+									allowCustomValue={false}
+									openOnChange={true}
+									placeholder={arg.Name + '...'}
+								>
+									<Combobox.Control class="flex min-h-8 flex-wrap items-center gap-1">
+										{#each arg.Values ?? [] as value (value)}
+											<span
+												class="badge bg-primary-100 text-primary-900 dark:bg-primary-800 dark:text-primary-50 flex items-center gap-1 text-xs"
+											>
+												{value}
+												<button
+													type="button"
+													class="rounded opacity-70 hover:opacity-100"
+													aria-label="Remove {value}"
+													onclick={(event) => {
+														event.stopPropagation();
+														removeStringListValue(arg.Name, (arg.Values ?? []).indexOf(value));
+													}}
+												>
+													<Icon icon="mdi:close" width="12" aria-hidden="true" />
+												</button>
+											</span>
+										{/each}
+										<Combobox.Input class="min-w-24 flex-1 bg-transparent outline-none" />
+										<Combobox.Trigger class="ml-auto shrink-0" />
+									</Combobox.Control>
+									<Combobox.Positioner>
+										<Combobox.Content
+											class="bg-surface-50 text-surface-950 border-surface-200 dark:bg-surface-900 dark:text-surface-50 dark:border-surface-700 z-50 max-h-64 overflow-y-auto rounded border text-xs shadow-xl md:text-sm lg:text-base"
 										>
+											{#each getArgOptions(arg.Name) as item (item.value)}
+												<Combobox.Item
+													{item}
+													class="text-surface-950 data-[highlighted]:bg-surface-200 data-[state=checked]:bg-primary-100 data-[state=checked]:text-primary-900 dark:text-surface-50 dark:data-[highlighted]:bg-surface-700 dark:data-[state=checked]:bg-primary-800 dark:data-[state=checked]:text-primary-50 cursor-pointer px-3 py-2"
+												>
+													<Combobox.ItemText>{item.label}</Combobox.ItemText>
+													<Combobox.ItemIndicator />
+												</Combobox.Item>
+											{/each}
+										</Combobox.Content>
+									</Combobox.Positioner>
+								</Combobox>
+							</div>
+						{:else if arg.Type === 'stringList'}
+							<div class="ig-input flex flex-col gap-2 py-2">
+								{#each arg.Values ?? [] as value, index (index)}
+									<div class="flex gap-2">
+										<input
+											class="input min-w-0 flex-1"
 											{value}
-											<button
-												type="button"
-												class="rounded opacity-70 hover:opacity-100"
-												aria-label="Remove {value}"
-												onclick={(event) => {
-													event.stopPropagation();
-													removeStringListValue(arg.Name, (arg.Values ?? []).indexOf(value));
-												}}
-											>
-												<Icon icon="mdi:close" width="12" aria-hidden="true" />
-											</button>
-										</span>
-									{/each}
-									<Combobox.Input class="min-w-24 flex-1 bg-transparent outline-none" />
-									<Combobox.Trigger class="ml-auto shrink-0" />
-								</Combobox.Control>
-								<Combobox.Positioner>
-									<Combobox.Content
-										class="bg-surface-50 text-surface-950 border-surface-200 dark:bg-surface-900 dark:text-surface-50 dark:border-surface-700 z-50 max-h-64 overflow-y-auto rounded border text-xs shadow-xl md:text-sm lg:text-base"
-									>
-										{#each getArgOptions(arg.Name) as item (item.value)}
-											<Combobox.Item
-												{item}
-												class="text-surface-950 data-[highlighted]:bg-surface-200 data-[state=checked]:bg-primary-100 data-[state=checked]:text-primary-900 dark:text-surface-50 dark:data-[highlighted]:bg-surface-700 dark:data-[state=checked]:bg-primary-800 dark:data-[state=checked]:text-primary-50 cursor-pointer px-3 py-2"
-											>
-												<Combobox.ItemText>{item.label}</Combobox.ItemText>
-												<Combobox.ItemIndicator />
-											</Combobox.Item>
-										{/each}
-									</Combobox.Content>
-								</Combobox.Positioner>
-							</Combobox>
-						</div>
-					{:else if arg.Type === 'stringList'}
-						<div class="ig-input flex flex-col gap-2 py-2">
-							{#each arg.Values ?? [] as value, index (index)}
-								<div class="flex gap-2">
-									<input
-										class="input min-w-0 flex-1"
-										{value}
-										oninput={(event) =>
-											updateStringList(arg.Name, index, event.currentTarget.value)}
-										placeholder="Argument"
-									/>
-									<button
-										type="button"
-										class="btn variant-soft-error px-2"
-										aria-label="Remove argument"
-										title="Remove argument"
-										onclick={() => removeStringListValue(arg.Name, index)}
-									>
-										<Icon icon="mdi:trash-can-outline" width="16" aria-hidden="true" />
-									</button>
-								</div>
-							{/each}
-							<button
-								type="button"
-								class="btn variant-soft-primary self-start px-2"
-								aria-label="Add argument"
-								title="Add argument"
-								onclick={() => addStringListValue(arg.Name)}
-							>
-								<Icon icon="mdi:plus" width="16" aria-hidden="true" />
-							</button>
-						</div>
-					{:else if getArgOptions(arg.Name).length > 0}
-						{#key argExternalVersions[arg.Name] ?? 0}
-							<Combobox
-								collection={toComboBoxCollection(getArgOptions(arg.Name))}
-								onValueChange={(e) => onArgChange(arg, e)}
-								inputBehavior="autocomplete"
-								allowCustomValue={arg.Options.length === 0}
-								openOnChange={true}
-								defaultValue={[arg.Value]}
-								placeholder={arg.Name + '...'}
-							>
-								<Combobox.Control>
-									<Combobox.Input onblur={(e) => handleInputBlur(arg, e.currentTarget.value)} />
-									<Combobox.Trigger />
-								</Combobox.Control>
-								<Combobox.Positioner>
-									<Combobox.Content
-										class="bg-surface-50 text-surface-950 border-surface-200 dark:bg-surface-900 dark:text-surface-50 dark:border-surface-700 z-50 max-h-64 overflow-y-auto rounded border text-xs shadow-xl md:text-sm lg:text-base"
-									>
-										{#each getArgOptions(arg.Name) as item (item)}
-											<Combobox.Item
-												{item}
-												class="text-surface-950 data-[highlighted]:bg-surface-200 data-[state=checked]:bg-primary-100 data-[state=checked]:text-primary-900 dark:text-surface-50 dark:data-[highlighted]:bg-surface-700 dark:data-[state=checked]:bg-primary-800 dark:data-[state=checked]:text-primary-50 cursor-pointer px-3 py-2 {item.disabled
-													? 'line-through opacity-40'
-													: ''}"
-											>
-												<Combobox.ItemText>{item.label}</Combobox.ItemText>
-												<Combobox.ItemIndicator />
-											</Combobox.Item>
-										{/each}
-									</Combobox.Content>
-								</Combobox.Positioner>
-							</Combobox>
-						{/key}
-					{:else}
-						<input
-							class="ig-input"
-							bind:value={arg.Value}
-							type="text"
-							placeholder={arg.Description}
-						/>
-					{/if}
+											oninput={(event) =>
+												updateStringList(arg.Name, index, event.currentTarget.value)}
+											placeholder="Argument"
+										/>
+										<button
+											type="button"
+											class="btn variant-soft-error px-2"
+											aria-label="Remove argument"
+											title="Remove argument"
+											onclick={() => removeStringListValue(arg.Name, index)}
+										>
+											<Icon icon="mdi:trash-can-outline" width="16" aria-hidden="true" />
+										</button>
+									</div>
+								{/each}
+								<button
+									type="button"
+									class="btn variant-soft-primary self-start px-2"
+									aria-label="Add argument"
+									title="Add argument"
+									onclick={() => addStringListValue(arg.Name)}
+								>
+									<Icon icon="mdi:plus" width="16" aria-hidden="true" />
+								</button>
+							</div>
+						{:else if getArgOptions(arg.Name).length > 0}
+							{#key argExternalVersions[arg.Name] ?? 0}
+								<Combobox
+									collection={toComboBoxCollection(getArgOptions(arg.Name))}
+									onValueChange={(e) => onArgChange(arg, e)}
+									inputBehavior="autocomplete"
+									allowCustomValue={arg.Options.length === 0}
+									openOnChange={true}
+									defaultValue={[arg.Value]}
+									placeholder={arg.Name + '...'}
+								>
+									<Combobox.Control>
+										<Combobox.Input onblur={(e) => handleInputBlur(arg, e.currentTarget.value)} />
+										<Combobox.Trigger />
+									</Combobox.Control>
+									<Combobox.Positioner>
+										<Combobox.Content
+											class="bg-surface-50 text-surface-950 border-surface-200 dark:bg-surface-900 dark:text-surface-50 dark:border-surface-700 z-50 max-h-64 overflow-y-auto rounded border text-xs shadow-xl md:text-sm lg:text-base"
+										>
+											{#each getArgOptions(arg.Name) as item (item)}
+												<Combobox.Item
+													{item}
+													class="text-surface-950 data-[highlighted]:bg-surface-200 data-[state=checked]:bg-primary-100 data-[state=checked]:text-primary-900 dark:text-surface-50 dark:data-[highlighted]:bg-surface-700 dark:data-[state=checked]:bg-primary-800 dark:data-[state=checked]:text-primary-50 cursor-pointer px-3 py-2 {item.disabled
+														? 'line-through opacity-40'
+														: ''}"
+												>
+													<Combobox.ItemText>{item.label}</Combobox.ItemText>
+													<Combobox.ItemIndicator />
+												</Combobox.Item>
+											{/each}
+										</Combobox.Content>
+									</Combobox.Positioner>
+								</Combobox>
+							{/key}
+						{:else}
+							<input
+								class="ig-input"
+								bind:value={arg.Value}
+								type="text"
+								placeholder={arg.Description}
+							/>
+						{/if}
+					</div>
 					{#if resolvedArgument}
 						<span
-							class="ig-cell text-surface-500 flex items-center px-2"
+							class="text-surface-500 flex items-center px-1"
 							title={resolutionLabel(resolvedArgument)}
 							aria-label={`Resolution for ${arg.Name}: ${resolutionLabel(resolvedArgument)}`}
 						>
@@ -1237,7 +1239,7 @@
 									? 'mdi:form-select'
 									: resolvedArgument.status === 'blocked'
 										? 'mdi:alert-circle-outline'
-										: 'mdi:source-branch'}
+										: 'mdi:information-outline'}
 								width="14"
 							/>
 						</span>

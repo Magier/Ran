@@ -178,10 +178,10 @@ describe('ActionParamsModal target-derived defaults', () => {
 
 		await waitFor(() => expect(targetInput()).toHaveValue(''));
 		expect(resolutionSpy).toHaveBeenCalledWith(ttp.id, target.id);
-		expect(screen.getByLabelText(/Resolution for TARGET/)).toHaveAttribute(
-			'title',
-			expect.stringContaining('system.ips')
-		);
+		const resolutionInfo = screen.getByLabelText(/Resolution for TARGET/);
+		expect(resolutionInfo).toHaveAttribute('title', expect.stringContaining('system.ips'));
+		expect(resolutionInfo).not.toHaveClass('ig-cell');
+		expect(resolutionInfo.closest('.input-group')).toBeNull();
 		resolutionSpy.mockRestore();
 	});
 });
