@@ -228,4 +228,29 @@
 
 <div class="mt-1 pl-1">
 	{@render directory('/', '/', 0)}
+	{#if volumeMounts.length > 0}
+		<!--
+			The tree is useful for navigation, but it intentionally leaves the root
+			unbadged. Keep a direct mount-table view too, so a system whose only
+			visible mount is / still exposes the observation.
+		-->
+		<details class="text-surface-700 dark:text-surface-300 mt-2 text-xs">
+			<summary class="cursor-pointer font-semibold">
+				Mounts ({volumeMounts.length})
+			</summary>
+			<ul class="mt-1 max-h-40 overflow-auto font-mono" aria-label="Known mounts">
+				{#each volumeMounts as mount (mount.origin + ':' + mount.container + ':' + mount.mountPoint + ':' + mount.name)}
+					<li class="py-0.5" title={mountTitle(mount.mountPoint, [mount])}>
+						<span>{mount.mountPoint}</span>
+						<span class="text-surface-500 ml-1 font-sans">
+							{mount.name || mount.mountType || 'runtime mount'}
+						</span>
+						{#if mount.readOnly}
+							<span class="text-surface-500 ml-1 font-sans">read-only</span>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		</details>
+	{/if}
 </div>

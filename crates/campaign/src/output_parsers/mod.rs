@@ -930,6 +930,7 @@ mod tests {
     use c2::ExecTtp;
     use ran_domain::{
         AccessLevel, AuthenticatesTo, Contains, K8sCluster, K8sCredential, Pod, Relation,
+        UnknownSystem,
     };
     use std::collections::HashMap;
 
@@ -1475,6 +1476,30 @@ users:
             .entity()
             .system();
         assert_eq!(sys.mounts.len(), 2);
+    }
+
+    #[test]
+    fn parse_output_effect_linux_mounts_writes_mounts_to_unknown_system() {
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        let system = UnknownSystem::new("remote-host");
+        campaign.entities.insert_typed(system);
+
+        let mut cmd = sample_cmd();
+        cmd.target_id = "system/remote-host".to_string();
+        cmd.exec_chain = vec![cmd.target_id.clone()];
+        cmd.ttp.effects = vec!["linux.mounts".to_string()];
+        let event = sample_event(vec!["/dev/sda1 on / type ext4 (rw)".to_string()]);
+
+        let parsed = parse_output_effect(&mut campaign, "linux.mounts", &cmd, &event).unwrap();
+        assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
+
+        let sys = campaign
+            .get_system_entity("system/remote-host")
+            .expect("unknown system should exist")
+            .entity()
+            .system();
+        assert_eq!(sys.mounts.len(), 1);
+        assert_eq!(sys.mounts[0].mount_point, "/");
     }
 
     #[test]
