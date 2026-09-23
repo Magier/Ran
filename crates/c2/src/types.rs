@@ -20,11 +20,71 @@ fn default_execution_timeout_seconds() -> u64 {
 /// Alias to the domain-owned output-transform enum.
 pub type OutputTransform = OutputTransformKind;
 
+/// Concrete runtime operation selected by Campaign after Armory templates have
+/// been grounded. C2 dispatches on this enum and never infers control behavior
+/// by parsing a shell command string.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ExecutionOperation {
+    Shell {
+        command: String,
+    },
+    LocalShell {
+        command: String,
+    },
+    ReadLocalKubeconfig {
+        path: Option<String>,
+    },
+    SelfSubjectRulesReview {
+        namespace: String,
+    },
+    KubernetesExecSession {
+        container: Option<String>,
+    },
+    KubernetesRequest {
+        request: serde_json::Value,
+    },
+    AuthenticatedHttpRequest {
+        request: serde_json::Value,
+    },
+    KubernetesCommand {
+        command: String,
+    },
+    StartListener {
+        port: u16,
+        protocol: String,
+    },
+    StopListener {
+        listener: String,
+    },
+    StartRedirector {
+        play_id: String,
+        remote_port: u16,
+        listener: String,
+    },
+    StopRedirector {
+        redirector: String,
+    },
+    Noop,
+}
+
+impl ExecutionOperation {
+    pub fn command(&self) -> Option<&str> {
+        match self {
+            Self::Shell { command }
+            | Self::LocalShell { command }
+            | Self::KubernetesCommand { command } => Some(command),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecTtp {
     pub id: String,
     pub ttp: Ttp,
     pub procedure: Procedure,
+    pub operation: ExecutionOperation,
     pub args: HashMap<String, String>,
     /// The semantic target entity - the entity whose knowledge graph entry,
     /// system info, and execution records are updated by this command.

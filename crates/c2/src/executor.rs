@@ -11,7 +11,7 @@ use tracing::{debug, warn};
 
 use crate::builtin::BuiltinC2;
 use crate::output::{IncrementalTextDecoder, OutputFragment, OutputSink, OutputStream};
-use crate::types::{C2Event, ExecTtp, TtpExecuted};
+use crate::types::{C2Event, ExecTtp, ExecutionOperation, TtpExecuted};
 
 use crate::types::BUILTIN_C2_ID;
 
@@ -435,212 +435,182 @@ impl C2Executor {
     }
 
     async fn execute_command(&self, cmd: &ExecTtp, output: OutputSink) -> TtpExecuted {
-        let trimmed = cmd.procedure.command.trim_start();
-
-        if let Some(explicit_path) = parse_read_local_kubeconfig_command(trimmed) {
-            return self.read_local_kubeconfig(cmd, explicit_path);
-        }
-
-        if let Some(namespace) = parse_kubeconfig_permission_command(trimmed) {
-            let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()).await else {
-                let reason = "no K8s client configured".to_string();
-                return TtpExecuted {
-                    id: cmd.id.clone(),
-                    success: false,
-                    results: vec![reason.clone()],
-                    exit_code: 1,
-                    fail_reason: reason,
-                    session_connected: None,
+        match &cmd.operation {
+            ExecutionOperation::ReadLocalKubeconfig { path } => {
+                self.read_local_kubeconfig(cmd, path.clone())
+            }
+            ExecutionOperation::SelfSubjectRulesReview { namespace } => {
+                let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()).await else {
+                    return failed_result(cmd, "no active Kubernetes client configured");
                 };
-            };
-            return match k8s.self_subject_rules_review(namespace).await {
-                Ok(response) => TtpExecuted {
-                    id: cmd.id.clone(),
-                    success: true,
-                    results: vec![response],
-                    exit_code: 0,
-                    fail_reason: String::new(),
-                    session_connected: None,
-                },
-                Err(error) => {
-                    // Alternate formatting retains anyhow's source chain. In particular,
-                    // connection, TLS, and API errors would otherwise be hidden behind
-                    // the high-level SelfSubjectRulesReview context.
-                    let reason = format!("{error:#}");
-                    TtpExecuted {
+                match k8s.self_subject_rules_review(namespace).await {
+                    Ok(response) => TtpExecuted {
                         id: cmd.id.clone(),
-                        success: false,
-                        results: vec![reason.clone()],
-                        exit_code: 1,
-                        fail_reason: reason,
+                        success: true,
+                        results: vec![response],
+                        exit_code: 0,
+                        fail_reason: String::new(),
                         session_connected: None,
-                    }
+                    },
+                    Err(error) => failed_result(cmd, &format!("{error:#}")),
                 }
-            };
-        }
-
-        if let Some(container) = parse_kubectl_exec_command(trimmed) {
-            let target_entity_id = cmd
-                .args
-                .get("TARGET_ID")
-                .map(String::as_str)
-                .unwrap_or(&cmd.target_id)
-                .to_string();
-            let backend_id = kubectl_exec_backend_id(&target_entity_id, container.as_deref());
-            let Some(k8s) = self.k8s.clone() else {
-                return failed_result(cmd, "no active Kubernetes client configured");
-            };
-            return match open_kubectl_exec_session(
-                self.backends.clone(),
-                self.event_bus.clone(),
-                k8s,
-                backend_id,
-                target_entity_id,
-                container,
-                cmd.id.clone(),
-            )
-            .await
-            {
-                Ok(session_data) => TtpExecuted {
-                    id: cmd.id.clone(),
-                    success: true,
-                    results: vec!["kubectl exec session ready".to_string()],
-                    exit_code: 0,
-                    fail_reason: String::new(),
-                    session_connected: Some(session_data),
-                },
-                Err(error) => failed_result(cmd, &error),
-            };
-        }
-
-        if cmd
-            .auth_identity_id
-            .as_deref()
-            .is_some_and(|identity| identity.starts_with("k8s/credential/"))
-            && !cmd.procedure.source_kubeconfig
-        {
-            let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()).await else {
-                return failed_result(cmd, "no active Kubernetes client configured");
-            };
-            let result = if let Some(request) = cmd.procedure.k8s_request.as_ref() {
-                k8s.execute_request(request)
-                    .await
-                    .map(|stdout| PodExecOutput {
-                        stdout,
-                        stderr: String::new(),
-                        exit_code: 0,
-                    })
-            } else if let Some(request) = cmd.procedure.http_request.as_ref() {
-                k8s.execute_authenticated_http_request(request)
-                    .await
-                    .map(|stdout| PodExecOutput {
-                        stdout,
-                        stderr: String::new(),
-                        exit_code: 0,
-                    })
-            } else if trimmed.contains("kubectl ") || trimmed.starts_with("kubectl") {
-                let observer: ExecOutputObserver = Arc::new(move |stream, bytes| match stream {
-                    ExecOutputStream::Stdout => output.stdout(bytes.to_vec()),
-                    ExecOutputStream::Stderr => output.stderr(bytes.to_vec()),
-                });
-                match tokio::time::timeout(
-                    Duration::from_secs(cmd.execution_timeout_seconds.max(1)),
-                    k8s.execute_kubectl_command_streaming(trimmed, Some(observer)),
+            }
+            ExecutionOperation::KubernetesExecSession { container } => {
+                let target_entity_id = cmd
+                    .args
+                    .get("TARGET_ID")
+                    .map(String::as_str)
+                    .unwrap_or(&cmd.target_id)
+                    .to_string();
+                let backend_id = kubectl_exec_backend_id(&target_entity_id, container.as_deref());
+                let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()).await else {
+                    return failed_result(cmd, "no active Kubernetes client configured");
+                };
+                match open_kubectl_exec_session(
+                    self.backends.clone(),
+                    self.event_bus.clone(),
+                    k8s,
+                    backend_id,
+                    target_entity_id,
+                    container.clone(),
+                    cmd.id.clone(),
                 )
                 .await
                 {
-                    Ok(result) => result,
-                    Err(_) => {
-                        return failed_result(
-                            cmd,
-                            &format!(
-                                "kubectl command timed out after {}s",
-                                cmd.execution_timeout_seconds.max(1)
-                            ),
-                        )
-                    }
+                    Ok(session_data) => TtpExecuted {
+                        id: cmd.id.clone(),
+                        success: true,
+                        results: vec!["kubectl exec session ready".to_string()],
+                        exit_code: 0,
+                        fail_reason: String::new(),
+                        session_connected: Some(session_data),
+                    },
+                    Err(error) => failed_result(cmd, &error),
                 }
-            } else {
-                return failed_result(
-                    cmd,
-                    "selected procedure does not support kubeconfig authentication",
-                );
-            };
-            return match result {
-                Ok(output) => command_output_result(cmd, output),
-                Err(error) => failed_result(cmd, &error.to_string()),
-            };
-        }
-
-        if trimmed == "noop" {
-            return TtpExecuted {
+            }
+            ExecutionOperation::KubernetesRequest { request } => {
+                let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()).await else {
+                    return failed_result(cmd, "no active Kubernetes client configured");
+                };
+                match k8s.execute_request(request).await {
+                    Ok(stdout) => command_output_result(
+                        cmd,
+                        PodExecOutput {
+                            stdout,
+                            stderr: String::new(),
+                            exit_code: 0,
+                        },
+                    ),
+                    Err(error) => failed_result(cmd, &error.to_string()),
+                }
+            }
+            ExecutionOperation::AuthenticatedHttpRequest { request } => {
+                let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()).await else {
+                    return failed_result(cmd, "no active Kubernetes client configured");
+                };
+                match k8s.execute_authenticated_http_request(request).await {
+                    Ok(stdout) => command_output_result(
+                        cmd,
+                        PodExecOutput {
+                            stdout,
+                            stderr: String::new(),
+                            exit_code: 0,
+                        },
+                    ),
+                    Err(error) => failed_result(cmd, &error.to_string()),
+                }
+            }
+            ExecutionOperation::KubernetesCommand { command } => {
+                let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()).await else {
+                    return failed_result(cmd, "no active Kubernetes client configured");
+                };
+                let sink = output.clone();
+                let observer: ExecOutputObserver = Arc::new(move |stream, bytes| match stream {
+                    ExecOutputStream::Stdout => sink.stdout(bytes.to_vec()),
+                    ExecOutputStream::Stderr => sink.stderr(bytes.to_vec()),
+                });
+                let timeout_seconds = cmd.execution_timeout_seconds.max(1);
+                match tokio::time::timeout(
+                    Duration::from_secs(timeout_seconds),
+                    k8s.execute_kubectl_command_streaming(command, Some(observer)),
+                )
+                .await
+                {
+                    Ok(Ok(result)) => command_output_result(cmd, result),
+                    Ok(Err(error)) => failed_result(cmd, &error.to_string()),
+                    Err(_) => failed_result(
+                        cmd,
+                        &format!("kubectl command timed out after {timeout_seconds}s"),
+                    ),
+                }
+            }
+            ExecutionOperation::Noop => TtpExecuted {
                 id: cmd.id.clone(),
                 success: true,
                 results: vec!["ok".to_string()],
                 exit_code: 0,
                 fail_reason: String::new(),
                 session_connected: None,
-            };
-        }
-
-        if let Some((port, protocol)) = parse_session_listen_command(trimmed) {
-            let backend_id = session_backend_id_from_cmd(cmd);
-            let target_entity_id = cmd
-                .args
-                .get("TARGET_ID")
-                .map(String::as_str)
-                .unwrap_or(&cmd.target_id)
-                .to_string();
-            if let Err(error) = self
-                .spawn_session_listener(ListenerSpec {
-                    cmd_id: cmd.id.clone(),
-                    backend_id,
-                    target_entity_id,
-                    port,
-                    protocol,
-                })
-                .await
-            {
-                return failed_result(
-                    cmd,
-                    &format!("failed to bind listener on port {port}: {error}"),
-                );
+            },
+            ExecutionOperation::StartListener { port, protocol } => {
+                let backend_id = session_backend_id_from_cmd(cmd);
+                let target_entity_id = cmd
+                    .args
+                    .get("TARGET_ID")
+                    .map(String::as_str)
+                    .unwrap_or(&cmd.target_id)
+                    .to_string();
+                if let Err(error) = self
+                    .spawn_session_listener(ListenerSpec {
+                        cmd_id: cmd.id.clone(),
+                        backend_id,
+                        target_entity_id,
+                        port: *port,
+                        protocol: protocol.clone(),
+                    })
+                    .await
+                {
+                    return failed_result(
+                        cmd,
+                        &format!("failed to bind listener on port {port}: {error}"),
+                    );
+                }
+                TtpExecuted {
+                    id: cmd.id.clone(),
+                    success: true,
+                    results: vec![format!("listener started on port {port}")],
+                    exit_code: 0,
+                    fail_reason: String::new(),
+                    session_connected: None,
+                }
             }
-            return TtpExecuted {
-                id: cmd.id.clone(),
-                success: true,
-                results: vec![format!("listener started on port {}", port)],
-                exit_code: 0,
-                fail_reason: String::new(),
-                session_connected: None,
-            };
+            ExecutionOperation::StopListener { listener } => {
+                self.stop_listener(cmd, listener).await
+            }
+            ExecutionOperation::StartRedirector {
+                play_id,
+                remote_port,
+                listener,
+            } => {
+                self.start_redirector(cmd, play_id, *remote_port, listener)
+                    .await
+            }
+            ExecutionOperation::StopRedirector { redirector } => {
+                self.stop_redirector(cmd, redirector).await
+            }
+            ExecutionOperation::LocalShell { command } => {
+                self.run_local_command(cmd, command, output).await
+            }
+            ExecutionOperation::Shell { .. } => {
+                let backend = match self.select_backend(cmd).await {
+                    Ok(backend) => backend,
+                    Err(reason) => return failed_result(cmd, &reason),
+                };
+                let mut event = backend.execute_streaming(cmd, output).await;
+                event.session_connected = None;
+                event
+            }
         }
-
-        if let Some(listener_id) = parse_stop_listener_command(trimmed) {
-            return self.stop_listener(cmd, &listener_id).await;
-        }
-
-        if let Some((play_id, remote_port, listener_ref)) = parse_port_forward_command(trimmed) {
-            return self
-                .start_redirector(cmd, &play_id, remote_port, &listener_ref)
-                .await;
-        }
-
-        if let Some(redirector_id) = parse_stop_port_forward_command(trimmed) {
-            return self.stop_redirector(cmd, &redirector_id).await;
-        }
-
-        if cmd.procedure.is_local_command == Some(true) {
-            return self.run_local_command(cmd, output).await;
-        }
-
-        let mut event = self
-            .select_backend(cmd)
-            .await
-            .execute_streaming(cmd, output)
-            .await;
-        event.session_connected = None;
-        event
     }
 
     /// Execute a procedure explicitly marked `isLocal` on the host running Ran.
@@ -648,8 +618,13 @@ impl C2Executor {
     /// This is deliberately handled before C2 backend selection.  Local
     /// procedures are not pod-exec commands with relaxed routing requirements:
     /// their process exit status is the action result the operator must see.
-    async fn run_local_command(&self, cmd: &ExecTtp, output: OutputSink) -> TtpExecuted {
-        let command = cmd.procedure.command.trim();
+    async fn run_local_command(
+        &self,
+        cmd: &ExecTtp,
+        command: &str,
+        output: OutputSink,
+    ) -> TtpExecuted {
+        let command = command.trim();
         if command.is_empty() {
             return failed_result(cmd, "local procedure has an empty command");
         }
@@ -1121,7 +1096,7 @@ impl C2Executor {
         }
     }
 
-    async fn select_backend(&self, cmd: &ExecTtp) -> Arc<dyn C2Backend> {
+    async fn select_backend(&self, cmd: &ExecTtp) -> Result<Arc<dyn C2Backend>, String> {
         let key = cmd.exec_system_id.trim().to_ascii_lowercase();
         let backends = self.backends.read().await;
 
@@ -1134,8 +1109,8 @@ impl C2Executor {
             );
             return backends
                 .get(BUILTIN_C2_ID)
-                .expect("builtin c2 backend must always be registered")
-                .clone();
+                .cloned()
+                .ok_or_else(|| "builtin c2 backend is not registered".to_string());
         }
 
         if let Some(backend) = backends.get(&key) {
@@ -1146,7 +1121,7 @@ impl C2Executor {
                 exec_chain = ?cmd.exec_chain,
                 "select_backend: exact match"
             );
-            return backend.clone();
+            return Ok(backend.clone());
         }
 
         // Accept `c2/<name>` and `<name>` as aliases when looking up backends.
@@ -1159,7 +1134,7 @@ impl C2Executor {
                     exec_chain = ?cmd.exec_chain,
                     "select_backend: matched via c2/ strip"
                 );
-                return backend.clone();
+                return Ok(backend.clone());
             }
         } else {
             let prefixed = format!("c2/{key}");
@@ -1171,7 +1146,7 @@ impl C2Executor {
                     exec_chain = ?cmd.exec_chain,
                     "select_backend: matched via c2/ prefix"
                 );
-                return backend.clone();
+                return Ok(backend.clone());
             }
         }
 
@@ -1180,23 +1155,13 @@ impl C2Executor {
             target_id = %cmd.target_id,
             exec_system_id = %cmd.exec_system_id,
             exec_chain = ?cmd.exec_chain,
-            "select_backend: backend not found; falling back to builtin c2"
+            "select_backend: backend not found"
         );
-
-        backends
-            .get(BUILTIN_C2_ID)
-            .expect("builtin c2 backend must always be registered")
-            .clone()
+        Err(format!(
+            "execution backend '{}' is not registered",
+            cmd.exec_system_id
+        ))
     }
-}
-
-fn parse_kubeconfig_permission_command(command: &str) -> Option<&str> {
-    command
-        .trim()
-        .strip_prefix("k8sSelfSubjectRulesReview(")?
-        .strip_suffix(')')
-        .map(str::trim)
-        .filter(|namespace| !namespace.is_empty())
 }
 
 struct StreamedChildOutput {
@@ -1355,9 +1320,12 @@ async fn open_kubectl_exec_session(
     let (rx, tx) = tokio::io::split(stream);
     let session = crate::ShellSession::from_rw(rx, tx, &backend_id);
 
-    if let Err(e) = session.init().await {
-        tracing::warn!(%backend_id, error = %e, "kubectl exec session init warning; proceeding");
-    }
+    session.init().await.map_err(|error| {
+        format!(
+            "kubectl exec shell initialization failed for {target_entity_id}: {error}; \
+             the selected container may not provide /bin/sh"
+        )
+    })?;
 
     let hostname = session.run_raw("hostname").await.unwrap_or_else(|e| {
         tracing::warn!(%backend_id, error = %e, "hostname probe failed");
@@ -1402,36 +1370,6 @@ async fn open_kubectl_exec_session(
     })
 }
 
-/// Parse `c2.kubectl_exec()` or `c2.kubectl_exec(container)` from a procedure
-/// command string.  Returns `Some(None)` for no-container form, `Some(Some(name))`
-/// when a container name is given, `None` when the command doesn't match.
-fn parse_kubectl_exec_command(cmd: &str) -> Option<Option<String>> {
-    let inner = cmd.strip_prefix("c2.kubectl_exec(")?.strip_suffix(')')?;
-    let container = if inner.trim().is_empty() {
-        None
-    } else {
-        Some(inner.trim().to_string())
-    };
-    Some(container)
-}
-
-/// Parse `c2.read_local_kubeconfig()` or `c2.read_local_kubeconfig(path)` from a
-/// procedure command string. Returns `Some(None)` for the no-path form (use the
-/// configured/default kubeconfig), `Some(Some(path))` when an explicit path is
-/// given, and `None` when the command doesn't match.
-fn parse_read_local_kubeconfig_command(cmd: &str) -> Option<Option<String>> {
-    let inner = cmd
-        .trim()
-        .strip_prefix("c2.read_local_kubeconfig(")?
-        .strip_suffix(')')?;
-    let path = if inner.trim().is_empty() {
-        None
-    } else {
-        Some(inner.trim().to_string())
-    };
-    Some(path)
-}
-
 /// Derive a deterministic session backend ID for a kubectl exec session.
 fn kubectl_exec_backend_id(target_id: &str, container: Option<&str>) -> String {
     let slug = target_id.replace('/', "-");
@@ -1456,19 +1394,6 @@ fn split_pod_entity_id(entity_id: &str) -> Option<(&str, &str)> {
         return None;
     }
     Some((namespace, pod_name))
-}
-
-/// Parse `c2.listen(port, protocol)` or `c2.listen(port)` from a procedure
-/// command string.  Returns `(port, protocol)` on match.
-fn parse_session_listen_command(cmd: &str) -> Option<(u16, String)> {
-    let inner = cmd.strip_prefix("c2.listen(")?.strip_suffix(')')?;
-    let mut parts = inner.splitn(2, ',');
-    let port: u16 = parts.next()?.trim().parse().ok()?;
-    let protocol = parts
-        .next()
-        .map(|p| p.trim().to_string())
-        .unwrap_or_else(|| "tcp".to_string());
-    Some((port, protocol))
 }
 
 /// The tool `c2.port-forward` shells out to, recorded on the redirector it
@@ -1695,50 +1620,6 @@ fn quote_transcript(transcript: &[String]) -> String {
     }
 }
 
-/// Parse `c2.port-forward(<play id>, <remote port>, <listener id>)` from a
-/// procedure command string. The listener id is whatever the TTP parameter
-/// carried - canonically `protocol/port`, resolved to a port downstream.
-fn parse_port_forward_command(cmd: &str) -> Option<(String, u16, String)> {
-    let inner = cmd
-        .trim()
-        .strip_prefix("c2.port-forward(")?
-        .strip_suffix(')')?;
-    let mut parts = inner.splitn(3, ',');
-    let play_id = parts.next()?.trim().to_string();
-    let remote_port: u16 = parts.next()?.trim().parse().ok()?;
-    let listener_ref = parts.next()?.trim().to_string();
-    if play_id.is_empty() || remote_port == 0 || listener_ref.is_empty() {
-        return None;
-    }
-    Some((play_id, remote_port, listener_ref))
-}
-
-/// Parse `c2.stop-port-forward(<redirector id>)` from a procedure command
-/// string. The redirector id is canonically `<play id>/<remote port>`.
-fn parse_stop_port_forward_command(cmd: &str) -> Option<String> {
-    let inner = cmd
-        .trim()
-        .strip_prefix("c2.stop-port-forward(")?
-        .strip_suffix(')')?;
-    let inner = inner.trim();
-    if inner.is_empty() {
-        return None;
-    }
-    Some(inner.to_string())
-}
-
-/// Parse `c2.stop-listener(<listener id>)` from a procedure command string.
-/// The listener id is whatever the TTP parameter carried - canonically
-/// `protocol/port`, though a bare port is accepted downstream.
-fn parse_stop_listener_command(cmd: &str) -> Option<String> {
-    let inner = cmd.strip_prefix("c2.stop-listener(")?.strip_suffix(')')?;
-    let inner = inner.trim();
-    if inner.is_empty() {
-        return None;
-    }
-    Some(inner.to_string())
-}
-
 /// Derive the session backend ID for a `session.listen` command from the
 /// execution context - uses the same deterministic scheme as the effect handler.
 fn session_backend_id_from_cmd(cmd: &ExecTtp) -> String {
@@ -1934,18 +1815,18 @@ mod tests {
     use std::time::Duration;
 
     use armory::{Procedure, Ttp};
-    use tokio::sync::{broadcast, mpsc, watch, RwLock, Semaphore};
+    use tokio::sync::{broadcast, mpsc, watch, Mutex, RwLock, Semaphore};
 
     use super::{
         await_tunnel_ready, drain_child_output, is_existing_redirector_conflict,
-        looks_like_an_error, monitor_session_health, parse_kubeconfig_permission_command,
-        parse_kubectl_exec_command, parse_port_forward_command,
-        parse_read_local_kubeconfig_command, parse_stop_listener_command,
-        parse_stop_port_forward_command, quote_transcript, redirector_forward_spec,
+        looks_like_an_error, monitor_session_health, quote_transcript, redirector_forward_spec,
         tunnel_failure_hint, Backends, C2EventBus, C2Executor, RedirectorProcess, Redirectors,
         TunnelStartup,
     };
     use super::{C2Backend, C2Event, C2Manager, ExecTtp, TtpExecuted, BUILTIN_C2_ID};
+    use crate::ExecutionOperation;
+
+    static LISTENER_TEST_LOCK: Mutex<()> = Mutex::const_new(());
 
     struct MockBackend {
         marker: String,
@@ -2034,52 +1915,6 @@ mod tests {
             Ok(Ok(event)) => panic!("superseded session unexpectedly published: {event:?}"),
             Ok(Err(error)) => panic!("event bus unexpectedly lagged: {error}"),
         }
-    }
-
-    #[test]
-    fn parses_kubeconfig_permission_control_command() {
-        assert_eq!(
-            parse_kubeconfig_permission_command("k8sSelfSubjectRulesReview(dungeon)"),
-            Some("dungeon")
-        );
-        assert_eq!(
-            parse_kubeconfig_permission_command("k8sSelfSubjectRulesReview()"),
-            None
-        );
-        assert_eq!(
-            parse_kubeconfig_permission_command("kubectl get pods"),
-            None
-        );
-    }
-
-    #[test]
-    fn parses_synchronous_kubectl_exec_control_command() {
-        assert_eq!(parse_kubectl_exec_command("c2.kubectl_exec()"), Some(None));
-        assert_eq!(
-            parse_kubectl_exec_command("c2.kubectl_exec(debug)"),
-            Some(Some("debug".to_string()))
-        );
-        assert_eq!(parse_kubectl_exec_command("kubectl exec pod -- true"), None);
-    }
-
-    #[test]
-    fn parses_read_local_kubeconfig_control_command() {
-        assert_eq!(
-            parse_read_local_kubeconfig_command("c2.read_local_kubeconfig()"),
-            Some(None)
-        );
-        assert_eq!(
-            parse_read_local_kubeconfig_command("c2.read_local_kubeconfig(/home/op/.kube/config)"),
-            Some(Some("/home/op/.kube/config".to_string()))
-        );
-        assert_eq!(
-            parse_read_local_kubeconfig_command("  c2.read_local_kubeconfig()  "),
-            Some(None)
-        );
-        assert_eq!(
-            parse_read_local_kubeconfig_command("cat ~/.kube/config"),
-            None
-        );
     }
 
     #[async_trait::async_trait]
@@ -2183,6 +2018,9 @@ mod tests {
                 "printf local-output; printf local-error >&2; exit 7",
             )
         };
+        cmd.operation = ExecutionOperation::LocalShell {
+            command: cmd.procedure.command.clone(),
+        };
         handle.send(cmd).await.expect("command should queue");
 
         let mut saw_output = false;
@@ -2228,6 +2066,9 @@ mod tests {
             is_local_command: Some(true),
             ..Procedure::new("local-stream", "printf first; sleep 1; printf second")
         };
+        cmd.operation = ExecutionOperation::LocalShell {
+            command: cmd.procedure.command.clone(),
+        };
         handle.send(cmd).await.expect("command should queue");
 
         let first = tokio::time::timeout(Duration::from_millis(800), rx.recv())
@@ -2256,7 +2097,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unknown_exec_system_id_falls_back_to_builtin_backend() {
+    async fn unknown_exec_system_id_fails_closed() {
         let builtin_backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
             marker: "builtin".to_string(),
         });
@@ -2281,10 +2122,44 @@ mod tests {
 
         match rx.recv().await.expect("event should be published") {
             C2Event::TtpExecuted { event, .. } => {
-                assert_eq!(event.results, vec!["builtin"]);
-                assert!(event.success);
+                assert!(!event.success);
+                assert!(event.fail_reason.contains("not registered"));
             }
             other => panic!("unexpected event: {:?}", other),
+        }
+
+        drop(handle);
+        manager_task
+            .await
+            .expect("manager should shut down cleanly");
+    }
+
+    #[tokio::test]
+    async fn control_looking_shell_text_does_not_select_a_control_operation() {
+        let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "shell backend".to_string(),
+        });
+        let mut backends: HashMap<String, Arc<dyn C2Backend>> = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), backend.clone());
+        backends.insert("ran".to_string(), backend);
+
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let mut rx = events.subscribe();
+        let manager_task = tokio::spawn(manager.run());
+
+        let mut cmd = exec_cmd("ran");
+        cmd.procedure.command = "c2.stop-listener(tcp/9)".to_string();
+        cmd.operation = ExecutionOperation::Shell {
+            command: cmd.procedure.command.clone(),
+        };
+        handle.send(cmd).await.expect("command should queue");
+
+        match rx.recv().await.expect("event should be published") {
+            C2Event::TtpExecuted { event, .. } => {
+                assert!(event.success);
+                assert_eq!(event.results, ["shell backend"]);
+            }
+            other => panic!("unexpected event: {other:?}"),
         }
 
         drop(handle);
@@ -2373,23 +2248,10 @@ mod tests {
             .expect("manager should shut down cleanly");
     }
 
-    #[test]
-    fn parses_stop_listener_control_command() {
-        assert_eq!(
-            parse_stop_listener_command("c2.stop-listener(tcp/4444)"),
-            Some("tcp/4444".to_string())
-        );
-        assert_eq!(
-            parse_stop_listener_command("c2.stop-listener( 1337 )"),
-            Some("1337".to_string())
-        );
-        assert_eq!(parse_stop_listener_command("c2.stop-listener()"), None);
-        assert_eq!(parse_stop_listener_command("c2.listen(4444, tcp)"), None);
-    }
-
-    /// Build a control command whose procedure is `command`, run it through the
-    /// manager, and return the resulting `TtpExecuted`.
-    async fn run_control_command(command: &str) -> (TtpExecuted, broadcast::Receiver<C2Event>) {
+    /// Run one typed control operation through the manager and return its result.
+    async fn run_control_operation(
+        operation: ExecutionOperation,
+    ) -> (TtpExecuted, broadcast::Receiver<C2Event>) {
         let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
             marker: "builtin".to_string(),
         });
@@ -2403,14 +2265,14 @@ mod tests {
 
         let mut cmd = exec_cmd("ran");
         cmd.procedure = Procedure::new("ran", "id");
-        cmd.procedure.command = command.to_string();
+        cmd.operation = operation;
         handle.send(cmd).await.expect("command should queue");
         (wait_for_execution(&mut { rx }).await, events.subscribe())
     }
 
     async fn wait_for_execution(rx: &mut broadcast::Receiver<C2Event>) -> TtpExecuted {
         loop {
-            match tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            match tokio::time::timeout(Duration::from_secs(5), rx.recv())
                 .await
                 .expect("an execution event should arrive")
                 .expect("event bus should stay open")
@@ -2423,6 +2285,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_port_conflict_fails_the_listen_action() {
+        let _listener_test_guard = LISTENER_TEST_LOCK.lock().await;
         let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
             marker: "builtin".to_string(),
         });
@@ -2453,7 +2316,10 @@ mod tests {
         let mut listen = exec_cmd("ran");
         listen.id = "cmd-listen".to_string();
         listen.procedure = Procedure::new("ran", "id");
-        listen.procedure.command = format!("c2.listen({port}, tcp)");
+        listen.operation = ExecutionOperation::StartListener {
+            port,
+            protocol: "tcp".to_string(),
+        };
         handle.send(listen).await.expect("listen should queue");
 
         let execution = wait_for_execution(&mut rx).await;
@@ -2475,6 +2341,7 @@ mod tests {
 
     #[tokio::test]
     async fn stopping_a_listener_releases_its_port() {
+        let _listener_test_guard = LISTENER_TEST_LOCK.lock().await;
         let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
             marker: "builtin".to_string(),
         });
@@ -2486,47 +2353,61 @@ mod tests {
         let mut rx = events.subscribe();
         tokio::spawn(manager.run());
 
-        // Let the OS pick a free port, then release it so the listener can take it.
-        // A sandbox that forbids binding cannot exercise port release at all;
-        // skip loudly there rather than reporting a failure it did not test.
-        let probe = match tokio::net::TcpListener::bind("0.0.0.0:0").await {
-            Ok(probe) => probe,
-            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-                eprintln!("skipped: this environment does not permit binding sockets");
-                return;
-            }
-            Err(error) => panic!("probe bind failed: {error}"),
-        };
-        let port = probe.local_addr().expect("probe has an address").port();
-        drop(probe);
-
-        let mut listen = exec_cmd("ran");
-        listen.id = "cmd-listen".to_string();
-        listen.procedure = Procedure::new("ran", "id");
-        listen.procedure.command = format!("c2.listen({port}, tcp)");
-        handle.send(listen).await.expect("listen should queue");
-
-        // ListenerStarted only fires once the bind succeeded.
-        loop {
-            match tokio::time::timeout(Duration::from_secs(2), rx.recv())
-                .await
-                .expect("listener should bind")
-                .expect("event bus should stay open")
-            {
-                C2Event::ListenerStarted {
-                    cmd_id,
-                    port: bound,
-                    ..
-                } => {
-                    assert_eq!(bound, port);
-                    // Carried from the command so the campaign can attribute the
-                    // listener entity to the action that bound it.
-                    assert_eq!(cmd_id, "cmd-listen");
-                    break;
+        // Releasing a port-0 probe creates an unavoidable race with other
+        // processes on the host. Retry a few kernel-selected ports so that race
+        // does not masquerade as a listener lifecycle failure.
+        let mut bound_port = None;
+        for _ in 0..10 {
+            let probe = match tokio::net::TcpListener::bind("0.0.0.0:0").await {
+                Ok(probe) => probe,
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    eprintln!("skipped: this environment does not permit binding sockets");
+                    return;
                 }
-                _ => continue,
+                Err(error) => panic!("probe bind failed: {error}"),
+            };
+            let port = probe.local_addr().expect("probe has an address").port();
+            drop(probe);
+
+            let mut listen = exec_cmd("ran");
+            listen.id = "cmd-listen".to_string();
+            listen.procedure = Procedure::new("ran", "id");
+            listen.operation = ExecutionOperation::StartListener {
+                port,
+                protocol: "tcp".to_string(),
+            };
+            handle.send(listen).await.expect("listen should queue");
+
+            loop {
+                match tokio::time::timeout(Duration::from_secs(5), rx.recv())
+                    .await
+                    .expect("listener should bind")
+                    .expect("event bus should stay open")
+                {
+                    C2Event::ListenerStarted {
+                        cmd_id,
+                        port: bound,
+                        ..
+                    } => {
+                        assert_eq!(bound, port);
+                        assert_eq!(cmd_id, "cmd-listen");
+                        bound_port = Some(port);
+                        break;
+                    }
+                    C2Event::TtpExecuted { event, .. } if event.id == "cmd-listen" => {
+                        if event.fail_reason.contains("Address already in use") {
+                            break;
+                        }
+                        panic!("listener action failed before bind: {}", event.fail_reason);
+                    }
+                    _ => continue,
+                }
+            }
+            if bound_port.is_some() {
+                break;
             }
         }
+        let port = bound_port.expect("listener should bind one of the probed ports");
         // Probe with the same wildcard address the accept loop binds. Tokio sets
         // SO_REUSEADDR, and on BSD-derived stacks that lets a specific address
         // coexist with a wildcard bind - so probing 127.0.0.1 here would succeed
@@ -2541,13 +2422,15 @@ mod tests {
         let mut stop = exec_cmd("ran");
         stop.id = "cmd-stop".to_string();
         stop.procedure = Procedure::new("ran", "id");
-        stop.procedure.command = format!("c2.stop-listener(tcp/{port})");
+        stop.operation = ExecutionOperation::StopListener {
+            listener: format!("tcp/{port}"),
+        };
         handle.send(stop).await.expect("stop should queue");
 
         let mut saw_stopped = false;
         let mut execution: Option<TtpExecuted> = None;
         while execution.is_none() || !saw_stopped {
-            match tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            match tokio::time::timeout(Duration::from_secs(5), rx.recv())
                 .await
                 .expect("stop should report back")
                 .expect("event bus should stay open")
@@ -2590,7 +2473,10 @@ mod tests {
 
     #[tokio::test]
     async fn stopping_an_unbound_port_fails_with_a_clear_reason() {
-        let (event, _events) = run_control_command("c2.stop-listener(tcp/9)").await;
+        let (event, _events) = run_control_operation(ExecutionOperation::StopListener {
+            listener: "tcp/9".to_string(),
+        })
+        .await;
 
         assert!(!event.success);
         assert!(
@@ -2602,69 +2488,16 @@ mod tests {
 
     #[tokio::test]
     async fn stopping_a_malformed_listener_id_fails_without_touching_ports() {
-        let (event, _events) = run_control_command("c2.stop-listener(not-a-listener)").await;
+        let (event, _events) = run_control_operation(ExecutionOperation::StopListener {
+            listener: "not-a-listener".to_string(),
+        })
+        .await;
 
         assert!(!event.success);
         assert!(
             event.fail_reason.contains("is not a listener id"),
             "unexpected reason: {}",
             event.fail_reason
-        );
-    }
-
-    #[test]
-    fn parses_port_forward_control_command() {
-        assert_eq!(
-            parse_port_forward_command("c2.port-forward(zn1kqxk3ykpvxp5x, 1337, tcp/4444)"),
-            Some(("zn1kqxk3ykpvxp5x".to_string(), 1337, "tcp/4444".to_string()))
-        );
-        // The listener parameter may arrive as a full entity id, which is what
-        // `${TARGET}` resolves to for a Listener-typed parameter.
-        assert_eq!(
-            parse_port_forward_command("c2.port-forward( play1 , 1337 , listener/tcp/4444 )"),
-            Some(("play1".to_string(), 1337, "listener/tcp/4444".to_string()))
-        );
-        // Every field is required, and port 0 is not a port an operator can mean.
-        assert_eq!(
-            parse_port_forward_command("c2.port-forward(play1, 1337)"),
-            None
-        );
-        assert_eq!(
-            parse_port_forward_command("c2.port-forward(, 1337, tcp/4444)"),
-            None
-        );
-        assert_eq!(
-            parse_port_forward_command("c2.port-forward(play1, 0, tcp/4444)"),
-            None
-        );
-        assert_eq!(
-            parse_port_forward_command("c2.port-forward(play1, http, tcp/4444)"),
-            None
-        );
-        assert_eq!(
-            parse_port_forward_command("c2.stop-port-forward(play1/1337)"),
-            None
-        );
-    }
-
-    #[test]
-    fn parses_stop_port_forward_control_command() {
-        assert_eq!(
-            parse_stop_port_forward_command("c2.stop-port-forward(play1/1337)"),
-            Some("play1/1337".to_string())
-        );
-        // A full entity id is what `${TARGET}` resolves to for a Redirector param.
-        assert_eq!(
-            parse_stop_port_forward_command("c2.stop-port-forward( redirector/play1/1337 )"),
-            Some("redirector/play1/1337".to_string())
-        );
-        assert_eq!(
-            parse_stop_port_forward_command("c2.stop-port-forward()"),
-            None
-        );
-        assert_eq!(
-            parse_stop_port_forward_command("c2.port-forward(play1, 1337, tcp/4444)"),
-            None
         );
     }
 
@@ -2900,7 +2733,9 @@ mod tests {
         let mut stop = exec_cmd("ran");
         stop.id = "cmd-stop-redirector".to_string();
         stop.procedure = Procedure::new("ran", "id");
-        stop.procedure.command = "c2.stop-port-forward(redirector/play1/1337)".to_string();
+        stop.operation = ExecutionOperation::StopRedirector {
+            redirector: "redirector/play1/1337".to_string(),
+        };
         handle.send(stop).await.expect("stop should queue");
 
         let mut saw_stopped = false;
@@ -2947,12 +2782,12 @@ mod tests {
     }
 
     /// Build a manager whose redirector map already holds `entry`, backed by a
-    /// real long-running child, and run `command` through it.
+    /// real long-running child, and run `operation` through it.
     async fn with_held_redirector(
         entry: &str,
         listener_port: u16,
         script: &str,
-        command: &str,
+        operation: ExecutionOperation,
     ) -> (TtpExecuted, Redirectors, Option<u32>) {
         let backend: Arc<dyn C2Backend> = Arc::new(MockBackend {
             marker: "builtin".to_string(),
@@ -2979,7 +2814,7 @@ mod tests {
         let mut exec = exec_cmd("ran");
         exec.id = "cmd-recreate".to_string();
         exec.procedure = Procedure::new("ran", "id");
-        exec.procedure.command = command.to_string();
+        exec.operation = operation;
         handle.send(exec).await.expect("command should queue");
 
         let event = wait_for_execution(&mut rx).await;
@@ -2996,7 +2831,11 @@ mod tests {
             "play1/1337",
             4444,
             "sleep 60",
-            "c2.port-forward(play1, 1337, tcp/4444)",
+            ExecutionOperation::StartRedirector {
+                play_id: "play1".to_string(),
+                remote_port: 1337,
+                listener: "tcp/4444".to_string(),
+            },
         )
         .await;
 
@@ -3076,7 +2915,10 @@ mod tests {
 
     #[tokio::test]
     async fn stopping_an_unforwarded_remote_port_fails_with_a_clear_reason() {
-        let (event, _events) = run_control_command("c2.stop-port-forward(play1/9999)").await;
+        let (event, _events) = run_control_operation(ExecutionOperation::StopRedirector {
+            redirector: "play1/9999".to_string(),
+        })
+        .await;
 
         assert!(!event.success);
         assert!(
@@ -3120,7 +2962,9 @@ mod tests {
         let mut stop = exec_cmd("ran");
         stop.id = "cmd-stop-other".to_string();
         stop.procedure = Procedure::new("ran", "id");
-        stop.procedure.command = "c2.stop-port-forward(play2/1337)".to_string();
+        stop.operation = ExecutionOperation::StopRedirector {
+            redirector: "play2/1337".to_string(),
+        };
         handle.send(stop).await.expect("stop should queue");
 
         let event = wait_for_execution(&mut rx).await;
@@ -3142,7 +2986,10 @@ mod tests {
 
     #[tokio::test]
     async fn stopping_a_malformed_redirector_id_fails_without_touching_tunnels() {
-        let (event, _events) = run_control_command("c2.stop-port-forward(not-a-redirector)").await;
+        let (event, _events) = run_control_operation(ExecutionOperation::StopRedirector {
+            redirector: "not-a-redirector".to_string(),
+        })
+        .await;
 
         assert!(!event.success);
         assert!(
@@ -3154,8 +3001,12 @@ mod tests {
 
     #[tokio::test]
     async fn port_forwarding_to_a_malformed_listener_fails_before_spawning() {
-        let (event, _events) =
-            run_control_command("c2.port-forward(play1, 1337, not-a-listener)").await;
+        let (event, _events) = run_control_operation(ExecutionOperation::StartRedirector {
+            play_id: "play1".to_string(),
+            remote_port: 1337,
+            listener: "not-a-listener".to_string(),
+        })
+        .await;
 
         assert!(!event.success);
         assert!(
@@ -3175,6 +3026,9 @@ mod tests {
                 ..Ttp::new("T0001", "Test TTP", "Execution")
             },
             procedure: Procedure::new("proc-1", "id"),
+            operation: crate::ExecutionOperation::Shell {
+                command: "id".to_string(),
+            },
             args: HashMap::new(),
             target_id: "ns/default/pod/nginx".to_string(),
             exec_chain: vec!["ns/default/pod/nginx".to_string()],

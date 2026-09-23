@@ -40,6 +40,11 @@ procedures:
   - id: labctl
     command: "c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})"
     isLocal: true
+    operation:
+      type: start-redirector
+      play_id: ${PLAY_ID}
+      remote_port: ${RPORT}
+      listener: ${LISTENER}
 effects:
   - "c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})"
 references:

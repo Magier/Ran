@@ -22,6 +22,9 @@ procedures:
   - id: ran
     command: "c2.stop-port-forward(${RedirectorID})"
     isLocal: true
+    operation:
+      type: stop-redirector
+      redirector: ${RedirectorID}
 effects:
   - "c2.stop-port-forward(${RedirectorID})"
 references:

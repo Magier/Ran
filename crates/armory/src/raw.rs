@@ -1,4 +1,4 @@
-use crate::model::{Procedure, Ttp, TtpParam};
+use crate::model::{Procedure, ProcedureOperation, Ttp, TtpParam};
 use crate::util::{json_to_string, slugify};
 use indexmap::IndexMap;
 use serde::Deserialize;
@@ -55,6 +55,7 @@ struct RawProcedure {
     http_request: Option<JsonValue>,
     k8s_request: Option<JsonValue>,
     steps: Option<JsonValue>,
+    operation: ProcedureOperation,
 }
 
 impl RawParam {
@@ -80,6 +81,7 @@ impl RawProcedure {
             && self.http_request.is_none()
             && self.k8s_request.is_none()
             && self.steps.is_none()
+            && self.operation.is_shell()
     }
 
     fn into_procedure(self, fallback_id: impl FnOnce() -> String) -> Option<Procedure> {
@@ -99,6 +101,7 @@ impl RawProcedure {
             http_request: self.http_request,
             k8s_request: self.k8s_request,
             steps: self.steps,
+            operation: self.operation,
             ..Procedure::new(id, self.command)
         })
     }

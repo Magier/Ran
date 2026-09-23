@@ -25,11 +25,18 @@ procedures:
   - id: ran
     command: "c2.listen(${PORT}, ${PROTOCOL})"
     isLocal: true
+    operation:
+      type: start-listener
+      port: ${PORT}
+      protocol: ${PROTOCOL}
 effects:
   - "c2.listen(${PORT}, ${PROTOCOL})"
 cleanup:
   command: "c2.stop-listener(${PROTOCOL}/${PORT})"
   isLocal: true
+  operation:
+    type: stop-listener
+    listener: ${PROTOCOL}/${PORT}
   description: >
     Free the port on campaign reset. Without this the accept loop outlives the
     reset and the next Create Listener on the same port fails to bind.

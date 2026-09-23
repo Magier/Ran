@@ -298,7 +298,7 @@ impl<S: ApiService> RanMcpHandler<S> {
             )));
         }
 
-        let mut extra_args: std::collections::HashMap<String, String> = args
+        let extra_args: std::collections::HashMap<String, String> = args
             .get("args")
             .and_then(Value::as_object)
             .map(|m| {
@@ -307,13 +307,6 @@ impl<S: ApiService> RanMcpHandler<S> {
                     .collect()
             })
             .unwrap_or_default();
-        if let Some(seconds) = execution_timeout_seconds {
-            extra_args.insert(
-                "__EXECUTION_TIMEOUT_SECONDS".to_string(),
-                seconds.to_string(),
-            );
-        }
-
         let reasoning = opt_str(args, "reasoning")
             .map(str::to_owned)
             .filter(|s| !s.trim().is_empty());
@@ -331,6 +324,7 @@ impl<S: ApiService> RanMcpHandler<S> {
                 auth_identity_id,
                 procedure_id,
                 args: extra_args,
+                execution_timeout_seconds,
                 reasoning,
             })
             .await

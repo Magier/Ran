@@ -179,10 +179,10 @@ impl ShellSession {
 
     /// Drain any shell banner and configure a clean execution environment.
     ///
-    /// Best-effort: if the shell doesn't echo the init marker within 5 s
-    /// (e.g. no PTY, wrong shell, slow start) we log a warning and proceed.
-    /// The sentinel-based framing in `run_raw` / `execute` is robust to any
-    /// extra prefix output (prompts, echoed commands) that may remain.
+    /// If a live shell does not echo the init marker within 5 s, log a warning
+    /// and proceed because sentinel framing tolerates leftover prompt output.
+    /// A transport that reaches EOF is rejected because it cannot become an
+    /// executable session.
     pub async fn init(&self) -> Result<(), String> {
         let init_marker = "__RAN_INIT0__";
         let init_cmd = format!(
@@ -191,6 +191,9 @@ impl ShellSession {
 
         match self.run_raw(&init_cmd).await {
             Ok(_) => {}
+            Err(error) if *self.health.borrow() == SessionHealth::Lost => {
+                return Err(error);
+            }
             Err(error) => {
                 warn!(entity_id = %self.entity_id, %error, "shell init failed; proceeding without clean init");
             }
@@ -339,8 +342,15 @@ async fn run_request(
         } => {
             let timeout = Duration::from_secs(command.execution_timeout_seconds.max(1));
             let cmd_id = command.id.clone();
+            let Some(shell_command) = command.operation.command().map(str::to_string) else {
+                let _ = reply.send(exec_error(
+                    &cmd_id,
+                    "shell session received a non-shell execution operation".to_string(),
+                ));
+                return true;
+            };
             (
-                command.procedure.command.clone(),
+                shell_command,
                 timeout,
                 deadline,
                 PendingReply::Execute {
@@ -615,6 +625,19 @@ mod tests {
         // init() should complete without error - the fake server echoes the
         // init sentinel back so the drain loop terminates.
         session.init().await.expect("init should succeed");
+    }
+
+    #[tokio::test]
+    async fn init_rejects_a_transport_that_reaches_eof() {
+        let session = ShellSession::from_rw(tokio::io::empty(), tokio::io::sink(), "closed");
+
+        let error = session
+            .init()
+            .await
+            .expect_err("an already-closed shell cannot become a session");
+
+        assert_eq!(error, crate::types::SESSION_CLOSED_UNEXPECTEDLY);
+        assert_eq!(*session.health.borrow(), SessionHealth::Lost);
     }
 
     #[tokio::test]
@@ -911,6 +934,9 @@ mod tests {
             execution_timeout_seconds: crate::DEFAULT_EXECUTION_TIMEOUT_SECONDS,
             ttp: Ttp::new("T0001", "Test", "Execution"),
             procedure: Procedure::new("proc-1", command),
+            operation: crate::ExecutionOperation::Shell {
+                command: command.to_string(),
+            },
             args: HashMap::new(),
             target_id: "node/test-node".to_string(),
             exec_chain: vec!["node/test-node".to_string()],
