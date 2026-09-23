@@ -46,35 +46,48 @@ pub struct InFlightOutput {
     pub stderr_truncated: bool,
 }
 
+/// Aggregate root for campaign knowledge and execution history.
+///
+/// Storage is intentionally inaccessible to other crates. Callers can query
+/// state and use aggregate mutations, but cannot update the entity store
+/// without its graph and provenance.
+///
+/// ```compile_fail
+/// use campaign::Campaign;
+/// use ran_domain::K8sCluster;
+///
+/// let campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+/// let _ = &campaign.entities;
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Campaign {
-    pub entities: EntityStore,
+    pub(crate) entities: EntityStore,
     /// Topology and relation metadata, backed by a petgraph `StableGraph`.
     #[serde(skip)]
-    pub graph: KnowledgeGraph,
-    pub parse_audits: Vec<ParseAudit>,
-    pub execution_records: Vec<ExecutionRecord>,
+    pub(crate) graph: KnowledgeGraph,
+    pub(crate) parse_audits: Vec<ParseAudit>,
+    pub(crate) execution_records: Vec<ExecutionRecord>,
     /// Steps that have been dispatched to C2 but not yet completed.
-    pub open_steps: Vec<ExecTtp>,
+    pub(crate) open_steps: Vec<ExecTtp>,
     /// Bounded output snapshots for currently running commands. SSE carries
     /// deltas; this map lets a reconnecting frontend recover the latest output.
     #[serde(default)]
-    pub in_flight_outputs: HashMap<String, InFlightOutput>,
+    pub(crate) in_flight_outputs: HashMap<String, InFlightOutput>,
     /// Raw file contents captured by `file:content(path)` effects, keyed by path.
     #[serde(default)]
-    pub file_contents: HashMap<String, String>,
+    pub(crate) file_contents: HashMap<String, String>,
     /// Per-command multi-hop traversal breakdown, keyed by command id.
     /// Presentation/audit side data (see [`crate::traversal`]) kept off
     /// `ExecTtp`/`ExecutionRecord`; surfaced by the flow API by joining on id.
     #[serde(default)]
-    pub command_traversals: HashMap<String, crate::traversal::CommandTraversal>,
+    pub(crate) command_traversals: HashMap<String, crate::traversal::CommandTraversal>,
     /// Hop path each active session tunnels through, keyed by session backend
     /// id, captured when the session was established. Replayed for every command
     /// that later routes over that session.
     #[serde(default)]
-    pub session_traversals: HashMap<String, Vec<crate::traversal::TraversalHop>>,
+    pub(crate) session_traversals: HashMap<String, Vec<crate::traversal::TraversalHop>>,
     #[serde(default)]
-    pub knowledge_provenance: KnowledgeProvenanceStore,
+    pub(crate) knowledge_provenance: KnowledgeProvenanceStore,
     /// Stale entity id → the id it was merged into. Recorded whenever two
     /// entities turn out to be the same thing: an `UnknownSystem` promoted into
     /// the Pod it always was, an IP-placeholder pod folded into its real
@@ -86,7 +99,7 @@ pub struct Campaign {
     /// therefore resolves through this table
     /// (see [`Self::canonical_entity_id`]).
     #[serde(default)]
-    pub entity_aliases: HashMap<EntityId, EntityId>,
+    pub(crate) entity_aliases: HashMap<EntityId, EntityId>,
 }
 
 #[derive(Debug, Clone)]
@@ -280,12 +293,70 @@ impl Campaign {
         self.entities.entity_count()
     }
 
+    /// Iterate over all entities of a registered concrete type without
+    /// exposing the mutable entity store.
+    pub fn entities_of<T: super::EntityType>(
+        &self,
+    ) -> std::collections::hash_map::Values<'_, EntityId, T> {
+        self.entities.values::<T>()
+    }
+
+    /// Find one entity by its concrete type and stable ID.
+    pub fn find_entity<T: super::EntityType>(&self, id: &EntityId) -> Option<&T> {
+        self.entities.find::<T>(id)
+    }
+
+    /// Test whether an entity of a concrete type exists at `id`.
+    pub fn contains_entity<T: super::EntityType>(&self, id: &EntityId) -> bool {
+        self.entities.contains::<T>(id)
+    }
+
     pub fn get_entities(&self) -> Vec<super::CampaignEntityRef<'_>> {
         self.entities.all_entities()
     }
 
     pub fn get_relations(&self) -> Vec<RelationSummary> {
         self.graph.to_relation_summaries()
+    }
+
+    /// Return IDs reached by outgoing relations with `relation_name`.
+    pub fn relation_targets(&self, source: &EntityId, relation_name: &str) -> Vec<EntityId> {
+        self.graph
+            .targets_of(source, relation_name)
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Return IDs reaching `target` through relations with `relation_name`.
+    pub fn relation_sources(&self, target: &EntityId, relation_name: &str) -> Vec<EntityId> {
+        self.graph
+            .sources_of(target, relation_name)
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Insert or merge an observed entity while keeping its graph node and
+    /// provenance synchronized with the entity store.
+    pub fn upsert_entity<T: super::EntityType>(
+        &mut self,
+        entity: T,
+        provenance: KnowledgeProvenance,
+    ) {
+        let id = entity.entity_id();
+        self.graph.ensure_node(id.clone());
+        self.entities.insert_typed(entity);
+        self.knowledge_provenance.add_entity(id, provenance);
+    }
+
+    /// Insert an observed relation and record its provenance as one aggregate
+    /// mutation.
+    pub fn upsert_relation<R: Relation>(&mut self, relation: &R, provenance: KnowledgeProvenance) {
+        if self.insert_relation(relation) {
+            self.knowledge_provenance
+                .add_relation(RelationProvenanceKey::from_relation(relation), provenance);
+        }
     }
 
     pub fn entity_provenance(&self, id: &EntityId) -> BTreeSet<KnowledgeProvenance> {
@@ -405,6 +476,11 @@ impl Campaign {
 
     pub fn get_execution_records(&self) -> &[ExecutionRecord] {
         &self.execution_records
+    }
+
+    /// Append one entry to the campaign's execution audit trail.
+    pub fn append_execution_record(&mut self, record: ExecutionRecord) {
+        self.execution_records.push(record);
     }
 
     pub fn get_open_steps(&self) -> &[ExecTtp] {
@@ -894,8 +970,11 @@ impl Campaign {
         let mut pod = Pod::new(name, namespace);
         pod.is_running = true;
         let pod_id = pod.entity_id();
-        self.insert_entity(&pod);
-        self.insert_relation(&PodExec::new(BUILTIN_C2_ID, pod_id.0.clone()));
+        self.upsert_entity(pod, KnowledgeProvenance::Operator);
+        self.upsert_relation(
+            &PodExec::new(BUILTIN_C2_ID, pod_id.0.clone()),
+            KnowledgeProvenance::Operator,
+        );
         pod_id
     }
 
@@ -906,9 +985,7 @@ impl Campaign {
         let mut pod = Pod::new(name, namespace);
         pod.is_running = true;
         let pod_id = pod.entity_id();
-        self.insert_entity(&pod);
-        self.knowledge_provenance
-            .add_entity(pod_id.clone(), KnowledgeProvenance::Operator);
+        self.upsert_entity(pod, KnowledgeProvenance::Operator);
         pod_id
     }
 
@@ -942,21 +1019,47 @@ impl Campaign {
         self.entities.insert_entity(entity);
     }
 
+    /// Insert an entity and all currently known origins as one aggregate
+    /// update. This is the type-erased counterpart to [`Self::upsert_entity`]
+    /// used by parsed fact batches.
+    pub(super) fn insert_entity_with_provenance(
+        &mut self,
+        entity: &dyn Entity,
+        origins: impl IntoIterator<Item = KnowledgeProvenance>,
+    ) {
+        let id = entity.entity_id();
+        self.insert_entity(entity);
+        for origin in origins {
+            self.knowledge_provenance.add_entity(id.clone(), origin);
+        }
+    }
+
     /// Remove an entity from the store and drop its graph node, which takes
     /// every relation touching it with it.
     pub(crate) fn remove_entity<T: crate::campaign::entity_store::EntityType>(
         &mut self,
         id: &EntityId,
     ) -> bool {
+        if !self.entities.contains::<T>(id) {
+            return false;
+        }
         self.graph.remove_entity(id);
+        self.knowledge_provenance.remove_entity(id);
+        self.entity_aliases
+            .retain(|stale, preferred| stale != id && preferred != id);
         self.entities.remove_typed::<T>(id)
     }
 
     /// Remove an entity when an effect identifies it by ID rather than by its
     /// concrete Rust type.
     pub(crate) fn remove_entity_by_id(&mut self, id: &EntityId) -> bool {
+        if !self.entities.contains_id(id) {
+            return false;
+        }
         self.graph.remove_entity(id);
         self.knowledge_provenance.remove_entity(id);
+        self.entity_aliases
+            .retain(|stale, preferred| stale != id && preferred != id);
         self.entities.remove_entity(id)
     }
 
@@ -989,10 +1092,10 @@ impl Campaign {
     }
 
     /// Insert a relation into the graph using the IDs stored on the relation itself.
-    pub(crate) fn insert_relation(&mut self, rel: &dyn ran_domain::Relation) {
+    pub(crate) fn insert_relation(&mut self, rel: &dyn ran_domain::Relation) -> bool {
         let src = rel.source_id().clone();
         let tgt = rel.target_id().clone();
-        self.insert_relation_with_ids(&src, &tgt, rel);
+        self.insert_relation_with_ids(&src, &tgt, rel)
     }
 
     /// Resolve which C2 backend should execute commands on `system_id`.
@@ -1110,6 +1213,45 @@ mod planner_helper_tests {
     fn entity_has_relation_false_when_no_relation() {
         let c = minimal_campaign();
         assert!(!c.entity_has_relation("ns/default/pod/nginx-abc", "rce.can-exec"));
+    }
+
+    #[test]
+    fn aggregate_mutations_keep_entity_graph_provenance_and_aliases_aligned() {
+        let mut campaign = minimal_campaign();
+        let pod = Pod::new("api", "default");
+        let pod_id = pod.entity_id();
+        let stale_id = EntityId::new("system/api");
+
+        campaign.upsert_entity(pod, KnowledgeProvenance::Scenario);
+        assert!(campaign.contains_entity::<Pod>(&pod_id));
+        assert!(campaign.graph.contains(&pod_id));
+        assert_eq!(
+            campaign.entity_provenance(&pod_id),
+            BTreeSet::from([KnowledgeProvenance::Scenario])
+        );
+
+        let relation = PodExec::new(BUILTIN_C2_ID, pod_id.0.clone());
+        campaign.upsert_relation(&relation, KnowledgeProvenance::Scenario);
+        assert_eq!(
+            campaign.relation_targets(&EntityId::new(BUILTIN_C2_ID), "k8s.can-exec"),
+            vec![pod_id.clone()]
+        );
+        assert_eq!(
+            campaign.relation_provenance("k8s.can-exec", BUILTIN_C2_ID, &pod_id.0),
+            BTreeSet::from([KnowledgeProvenance::Scenario])
+        );
+
+        campaign.record_entity_alias(&stale_id, &pod_id);
+        assert_eq!(campaign.canonical_entity_id(&stale_id.0), pod_id.0);
+
+        assert!(campaign.remove_entity::<Pod>(&pod_id));
+        assert!(!campaign.contains_entity::<Pod>(&pod_id));
+        assert!(!campaign.graph.contains(&pod_id));
+        assert!(campaign.entity_provenance(&pod_id).is_empty());
+        assert!(campaign
+            .relation_provenance("k8s.can-exec", BUILTIN_C2_ID, &pod_id.0)
+            .is_empty());
+        assert_eq!(campaign.canonical_entity_id(&stale_id.0), stale_id.0);
     }
 
     /// A standalone `c2.session` edge (reverse shell to an otherwise-unknown

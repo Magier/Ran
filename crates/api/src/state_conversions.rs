@@ -85,8 +85,7 @@ pub(crate) fn campaign_to_campaign_state(
 
 fn bootstrap_operations(campaign: &Campaign) -> Vec<BootstrapOperation> {
     let mut operations = campaign
-        .entities
-        .values::<K8sCredential>()
+        .entities_of::<K8sCredential>()
         .filter_map(|credential| {
             let credential_id = credential.entity_id();
             let provenance = campaign.entity_provenance(&credential_id);
@@ -97,10 +96,8 @@ fn bootstrap_operations(campaign: &Campaign) -> Vec<BootstrapOperation> {
             }
 
             let cluster_id = campaign
-                .graph
-                .targets_of(&credential_id, "authenticates-to")
+                .relation_targets(&credential_id, "authenticates-to")
                 .first()
-                .cloned()
                 .cloned()?;
             let cluster = campaign
                 .get_entities()
@@ -120,9 +117,8 @@ fn bootstrap_operations(campaign: &Campaign) -> Vec<BootstrapOperation> {
             if let Some(namespace) = credential.default_namespace.as_deref() {
                 let namespace_id = EntityId::new(format!("ns/{namespace}"));
                 let is_contained = campaign
-                    .graph
-                    .targets_of(&cluster_id, "contains")
-                    .contains(&&namespace_id);
+                    .relation_targets(&cluster_id, "contains")
+                    .contains(&namespace_id);
                 if is_contained {
                     if let Some(namespace_entity) = campaign
                         .get_entities()
@@ -855,8 +851,9 @@ mod tests {
         InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge, KnowledgeProvenance,
     };
     use ran_domain::{
-        AppService, Entity, EntityId, K8sCluster, K8sCredential, K8sCustomResource, Listener,
-        RbacPermission, Redirector, ServiceAccount, Transport,
+        AppService, Entity, EntityId, ForwardsTo, HostsListener, HostsService, K8sCluster,
+        K8sCredential, K8sCustomResource, Listener, RbacPermission, Redirector, ServiceAccount,
+        Transport,
     };
     use std::collections::BTreeSet;
 
@@ -908,14 +905,13 @@ mod tests {
         let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
         let service = AppService::new("10.0.0.8", 6379, Transport::Tcp).unwrap();
         let service_id = service.entity_id();
-        campaign.entities.insert_typed(service);
+        campaign.upsert_entity(service, KnowledgeProvenance::Scenario);
 
         let host_id = EntityId::new("ns/default/pod/redis");
         for _ in 0..2 {
-            campaign.graph.insert_edge(
-                &host_id,
-                &service_id,
-                cortex::edge_data_for("hosts-service", None, None),
+            campaign.upsert_relation(
+                &HostsService::new(host_id.0.clone(), service_id.0.clone()),
+                KnowledgeProvenance::Scenario,
             );
         }
 
@@ -934,11 +930,10 @@ mod tests {
             .expect("bootstrap creates a C2");
         let listener = Listener::new(4444, "tcp");
         let listener_id = listener.entity_id();
-        campaign.entities.insert_typed(listener);
-        campaign.graph.insert_edge(
-            &c2_id,
-            &listener_id,
-            cortex::edge_data_for("hosts-listener", None, None),
+        campaign.upsert_entity(listener, KnowledgeProvenance::Scenario);
+        campaign.upsert_relation(
+            &HostsListener::new(c2_id.0.clone(), listener_id.0.clone()),
+            KnowledgeProvenance::Scenario,
         );
 
         let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
@@ -983,7 +978,7 @@ mod tests {
             "monitoring",
         );
         let resource_id = resource.entity_id();
-        campaign.entities.insert_typed(resource);
+        campaign.upsert_entity(resource, KnowledgeProvenance::Scenario);
 
         let graph = campaign_to_graph(&campaign, &kubetier::Catalog::embedded());
         let node = graph
@@ -1010,21 +1005,19 @@ mod tests {
             .expect("bootstrap creates a C2");
         let listener = Listener::new(4444, "tcp");
         let listener_id = listener.entity_id();
-        campaign.entities.insert_typed(listener);
-        campaign.graph.insert_edge(
-            &c2_id,
-            &listener_id,
-            cortex::edge_data_for("hosts-listener", None, None),
+        campaign.upsert_entity(listener, KnowledgeProvenance::Scenario);
+        campaign.upsert_relation(
+            &HostsListener::new(c2_id.0.clone(), listener_id.0.clone()),
+            KnowledgeProvenance::Scenario,
         );
 
         let redirector = Redirector::new("labctl", "zn1kqxk3ykpvxp5x", remote_port, 4444);
         let redirector_id = redirector.entity_id();
-        campaign.entities.insert_typed(redirector);
+        campaign.upsert_entity(redirector, KnowledgeProvenance::Scenario);
         if link_listener {
-            campaign.graph.insert_edge(
-                &redirector_id,
-                &listener_id,
-                cortex::edge_data_for("forwards-to", None, None),
+            campaign.upsert_relation(
+                &ForwardsTo::new(redirector_id.0.clone(), listener_id.0),
+                KnowledgeProvenance::Scenario,
             );
         }
         (campaign, c2_id)

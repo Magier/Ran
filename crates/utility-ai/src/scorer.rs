@@ -284,9 +284,7 @@ mod tests {
     fn unrun_action_outranks_already_run_action() {
         let (mut campaign, pod_id) = campaign_with_reachable_pod();
         // ttp-b has already been run successfully against the pod once.
-        campaign
-            .execution_records
-            .push(success_record("ttp-b", &pod_id));
+        campaign.append_execution_record(success_record("ttp-b", &pod_id));
 
         let armory = vec![system_ttp("ttp-a"), system_ttp("ttp-b")];
         let scorer = Scorer::with_defaults(Profile::default());

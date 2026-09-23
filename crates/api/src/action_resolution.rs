@@ -581,7 +581,7 @@ mod tests {
         target.system.access_level = AccessLevel::Exec;
         target.system.ips.push("10.23.4.5".parse().unwrap());
         let target_id = target.entity_id().0;
-        campaign.entities.insert_typed(target);
+        campaign.upsert_entity(target, campaign::KnowledgeProvenance::Scenario);
 
         let mut ttp = armory::Ttp::new("scan", "Scan", "Discovery");
         ttp.params.push(armory::TtpParam {
@@ -616,7 +616,7 @@ mod tests {
         target.system.ips.push("10.23.4.5".parse().unwrap());
         target.system.ips.push("192.0.2.2".parse().unwrap());
         let target_id = target.entity_id().0;
-        campaign.entities.insert_typed(target);
+        campaign.upsert_entity(target, campaign::KnowledgeProvenance::Scenario);
 
         let mut ttp = armory::Ttp::new("scan", "Scan", "Discovery");
         ttp.params.push(armory::TtpParam {

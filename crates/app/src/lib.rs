@@ -241,7 +241,7 @@ impl AppState {
                     .read()
                     .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
                 guard
-                    .execution_records
+                    .get_execution_records()
                     .iter()
                     .filter(|r| r.is_cleanup)
                     .map(|r| r.id.clone())
@@ -693,7 +693,7 @@ impl ApiService for AppState {
                                         .campaign
                                         .read()
                                         .map(|c| {
-                                            c.parse_audits
+                                            c.get_parse_audits()
                                                 .iter()
                                                 .filter(|a| a.cmd_id == cmd_id)
                                                 .filter(|a| {
@@ -848,7 +848,7 @@ impl ApiService for AppState {
             .read()
             .map_err(|_| ApiError::internal("campaign lock poisoned"))?;
         let opts = planner::ExportOptions { include_failed };
-        let mut plan = planner::export_plan(&campaign.execution_records, &opts, &self.armory);
+        let mut plan = planner::export_plan(campaign.get_execution_records(), &opts, &self.armory);
         if let Some(name) = name
             .map(|name| name.trim().to_string())
             .filter(|name| !name.is_empty())
@@ -1821,8 +1821,7 @@ impl AppState {
             .map_err(|_| {
                 ExecuteActionError::InvariantViolation("campaign lock poisoned".to_string())
             })?
-            .entities
-            .contains::<Pod>(&pod_id);
+            .contains_entity::<Pod>(&pod_id);
         if already_staged {
             return Ok(());
         }
@@ -1841,7 +1840,7 @@ impl AppState {
         let mut campaign = self.campaign.write().map_err(|_| {
             ExecuteActionError::InvariantViolation("campaign lock poisoned".to_string())
         })?;
-        if !campaign.entities.contains::<Pod>(&pod_id) {
+        if !campaign.contains_entity::<Pod>(&pod_id) {
             campaign.stage_initial_access_pod(&pod_name, &namespace);
             info!(target_id = %request.target_id, "staged live initial-access Pod");
         }

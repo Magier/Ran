@@ -425,8 +425,7 @@ impl<S: ApiService> RanMcpHandler<S> {
         // entity itself. Look for a SA with this id.
         let campaign = self.api.get_campaign().await.map_err(api_err)?;
         let sa = campaign
-            .entities
-            .values::<ServiceAccount>()
+            .entities_of::<ServiceAccount>()
             .find(|sa| sa.entity_id().0 == entity_id);
         let entitlements = sa.map(|sa| &sa.entitlements[..]).unwrap_or(&[]);
 

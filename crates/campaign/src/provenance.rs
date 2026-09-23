@@ -113,9 +113,9 @@ impl RelationProvenanceKey {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct KnowledgeProvenanceStore {
     #[serde(default)]
-    pub entities: HashMap<EntityId, BTreeSet<KnowledgeProvenance>>,
+    entities: HashMap<EntityId, BTreeSet<KnowledgeProvenance>>,
     #[serde(default)]
-    pub relations: HashMap<RelationProvenanceKey, BTreeSet<KnowledgeProvenance>>,
+    relations: HashMap<RelationProvenanceKey, BTreeSet<KnowledgeProvenance>>,
 }
 
 impl KnowledgeProvenanceStore {
@@ -133,6 +133,10 @@ impl KnowledgeProvenanceStore {
 
     pub fn relation(&self, key: &RelationProvenanceKey) -> BTreeSet<KnowledgeProvenance> {
         self.relations.get(key).cloned().unwrap_or_default()
+    }
+
+    pub fn remove_relation(&mut self, key: &RelationProvenanceKey) {
+        self.relations.remove(key);
     }
 
     pub fn remove_entity(&mut self, id: &EntityId) {
