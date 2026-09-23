@@ -28,7 +28,7 @@
 		/>
 		<Dialog.Positioner class="fixed inset-0 z-50 flex justify-end">
 			<Dialog.Content
-				class="bg-surface-100-900 h-screen w-xl space-y-4 overflow-auto p-4 shadow-xl {animDrawer}"
+				class="bg-surface-100-900 h-screen w-full max-w-xl min-w-0 space-y-4 overflow-x-hidden overflow-y-auto p-4 shadow-xl {animDrawer}"
 			>
 				{#if step}
 					<AttackStepDetails {step} />

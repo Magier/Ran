@@ -2,6 +2,7 @@
 	import type { AttackStep } from '$lib/api';
 	import { getCampaignState } from './CampaignState.svelte';
 	import Icon from '@iconify/svelte';
+	import { Switch } from '@skeletonlabs/skeleton-svelte';
 	import { tick } from 'svelte';
 
 	interface ActionDetailProps {
@@ -34,7 +35,6 @@
 	const stdout = $derived(liveOutput?.stdout ?? step?.stdout ?? step?.results?.[0] ?? '');
 	const stderr = $derived(liveOutput?.stderr ?? step?.stderr ?? step?.results?.[1] ?? '');
 	const outputTruncated = $derived(liveOutput?.truncated ?? step?.outputTruncated ?? false);
-	const outputBytes = $derived((liveOutput?.stdoutBytes ?? 0) + (liveOutput?.stderrBytes ?? 0));
 	let followOutput = $state(true);
 	let outputContainer: HTMLDivElement | undefined = $state();
 	$effect(() => {
@@ -234,22 +234,19 @@
 			{/if}
 		</div>
 		<div class="mt-4 w-full space-y-3">
-			<div class="flex items-center justify-between">
+			<div class="flex flex-wrap items-center gap-2">
 				<span class="label flex-none">Output</span>
-				<div class="flex items-center gap-2">
-					{#if status === 'Ongoing'}
-						<span class="text-warning-500 flex items-center gap-1 text-xs">
-							<Icon icon="svg-spinners:90-ring-with-bg" class="size-3" />
-							Live{outputBytes > 0 ? ` · ${outputBytes} bytes` : ''}
-						</span>
-						<button
-							type="button"
-							class="btn btn-sm preset-tonal h-6 px-2 text-xs"
-							aria-pressed={followOutput}
-							onclick={() => (followOutput = !followOutput)}
+				<div class="flex flex-wrap items-center gap-2">
+					{#if status === 'Ongoing' && (stdout || stderr)}
+						<Switch
+							checked={followOutput}
+							onCheckedChange={(details) => (followOutput = details.checked)}
+							class="flex items-center gap-1 text-xs"
 						>
-							{followOutput ? 'Following' : 'Follow output'}
-						</button>
+							<Switch.Control><Switch.Thumb /></Switch.Control>
+							<Switch.Label>Follow output</Switch.Label>
+							<Switch.HiddenInput />
+						</Switch>
 					{/if}
 				</div>
 			</div>
@@ -257,7 +254,10 @@
 				<p class="text-warning-500 text-xs">Earlier live output was omitted from this view.</p>
 			{/if}
 			{#if !stdout && !stderr && status === 'Ongoing'}
-				<p class="text-surface-500 text-sm">Waiting for output…</p>
+				<p class="text-surface-500 flex items-center gap-1 text-sm">
+					<Icon icon="svg-spinners:90-ring-with-bg" class="size-3" />
+					Waiting for output…
+				</p>
 			{:else if !stdout && !stderr}
 				<p class="text-surface-500 text-sm">Completed without output.</p>
 			{/if}
