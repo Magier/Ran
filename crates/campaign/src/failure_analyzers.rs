@@ -483,6 +483,9 @@ mod tests {
                 ..Ttp::new("ttp-test", "Test TTP", "Discovery")
             },
             procedure: Procedure::new("shell", "env"),
+            operation: c2::ExecutionOperation::Shell {
+                command: "env".to_string(),
+            },
             args: HashMap::new(),
             target_id: "ns/default/pod/demo".to_string(),
             exec_chain: vec!["ns/default/pod/demo".to_string()],

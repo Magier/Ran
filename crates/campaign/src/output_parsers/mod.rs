@@ -943,6 +943,9 @@ mod tests {
                 ..Ttp::new("dummy-read-env", "Read Env", "Discovery")
             },
             procedure: Procedure::new("shell", "env"),
+            operation: c2::ExecutionOperation::Shell {
+                command: "env".to_string(),
+            },
             args: HashMap::new(),
             target_id: "ns/default/pod/demo".to_string(),
             exec_chain: vec!["ns/default/pod/demo".to_string()],

@@ -129,6 +129,7 @@ impl PlanExecutor {
                         target_id,
                         procedure_id: procedure.clone(),
                         args: step.args.clone(),
+                        execution_timeout_seconds: None,
                         reasoning: step
                             .note
                             .clone()

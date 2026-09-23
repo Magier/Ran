@@ -462,13 +462,6 @@ pub(crate) async fn execute_action_handler<S: ApiService>(
     State(service): State<S>,
     axum::Json(cmd): axum::Json<ExecuteActionCmdPayload>,
 ) -> Result<axum::Json<ExecuteActionAck>, ApiError> {
-    let mut args = cmd.args.unwrap_or_default();
-    if let Some(seconds) = cmd.execution_timeout_seconds {
-        args.insert(
-            "__EXECUTION_TIMEOUT_SECONDS".to_string(),
-            seconds.to_string(),
-        );
-    }
     let execution = service
         .execute_action(campaign::ExecuteActionRequest {
             action_id: cmd.action_id,
@@ -476,7 +469,8 @@ pub(crate) async fn execute_action_handler<S: ApiService>(
             auth_identity_id: cmd.auth_identity_id,
             target_id: cmd.target_id,
             procedure_id: cmd.procedure_id,
-            args,
+            args: cmd.args.unwrap_or_default(),
+            execution_timeout_seconds: cmd.execution_timeout_seconds,
             reasoning: cmd.reasoning,
         })
         .await?;

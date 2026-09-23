@@ -14,6 +14,8 @@ pub struct ExecuteActionRequest {
     pub target_id: String,
     pub procedure_id: Option<String>,
     pub args: HashMap<String, String>,
+    #[serde(default)]
+    pub execution_timeout_seconds: Option<u64>,
     /// Free-text rationale for choosing this action at this point in the
     /// assessment - why this TTP against this target now. Captured for the
     /// audit trail; carried through to the [`ExecutionRecord`]. Optional, but

@@ -1,3 +1,4 @@
+use armory::ProcedureOperation;
 use ran_domain::{
     AccessLevel, Entity as _, K8sCredential, Listener, Pod, ServiceAccount, SessionStatus,
 };
@@ -23,14 +24,11 @@ pub fn procedure_uses_k8s_auth(procedure: &armory::Procedure) -> bool {
             .and_then(|request| request.get("authentication"))
             .is_some()
         || procedure.command.contains("kubectl ")
-        || procedure
-            .command
-            .trim_start()
-            .starts_with("c2.kubectl_exec(")
-        || procedure
-            .command
-            .trim_start()
-            .starts_with("k8sSelfSubjectRulesReview(")
+        || matches!(
+            procedure.operation,
+            ProcedureOperation::KubernetesExecSession { .. }
+                | ProcedureOperation::SelfSubjectRulesReview { .. }
+        )
 }
 
 pub fn ttp_uses_k8s_auth(ttp: &armory::Ttp) -> bool {
@@ -1165,10 +1163,12 @@ mod tests {
         ttp.status = "enabled".to_string();
         ttp.requires
             .insert("kind".to_string(), json!("K8sCredential"));
-        ttp.procedures = vec![armory::Procedure::new(
-            "inspect",
-            "k8sSelfSubjectRulesReview(default)",
-        )];
+        ttp.procedures = vec![armory::Procedure {
+            operation: armory::ProcedureOperation::SelfSubjectRulesReview {
+                namespace: "default".to_string(),
+            },
+            ..armory::Procedure::new("inspect", "k8sSelfSubjectRulesReview(default)")
+        }];
 
         let tc = resolve_target_context(&c, &id).expect("credential should resolve");
         assert!(!ttp_applicable_for_target(&ttp, &c, &tc));

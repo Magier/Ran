@@ -199,6 +199,9 @@ fn reconstruct_cmd(rec: &ExecutionRecord, armory: &[Ttp]) -> Option<ExecTtp> {
         id: rec.id.clone(),
         ttp,
         procedure,
+        operation: c2::ExecutionOperation::Shell {
+            command: rec.command.clone(),
+        },
         args: rec.args.clone(),
         target_id: rec.target_id.clone(),
         // Not persisted on the record; effects keyed on exec-channel hops won't

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use armory::{Armory, Procedure, Ttp, TtpParam};
-use c2::{ExecTtp, TtpExecuted, BUILTIN_C2_ID};
+use armory::{Armory, Procedure, ProcedureOperation, Ttp, TtpParam};
+use c2::{ExecTtp, ExecutionOperation, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
     AccessLevel, AuthenticatesTo, C2Server, Container, ContainerEscape, Contains, Entity, EntityId,
     JwToken, K8sCluster, K8sCredential, K8sNode, KubeletExecSink, Mount, Namespace, OperatorHost,
@@ -182,6 +182,9 @@ fn sample_exec_ttp(target_id: &str, effects: Vec<&str>) -> ExecTtp {
             ..Ttp::new("ttp-test", "Test TTP", "Discovery")
         },
         procedure: Procedure::new("shell", "env"),
+        operation: c2::ExecutionOperation::Shell {
+            command: "env".to_string(),
+        },
         args: HashMap::new(),
         target_id: target_id.to_string(),
         exec_chain: vec![target_id.to_string()],
@@ -1092,6 +1095,7 @@ fn action_request(target_id: &str, exec_system_id: Option<&str>) -> ExecuteActio
         auth_identity_id: None,
         procedure_id: None,
         args: HashMap::new(),
+        execution_timeout_seconds: None,
         reasoning: None,
     }
 }
@@ -1100,18 +1104,18 @@ fn action_request(target_id: &str, exec_system_id: Option<&str>) -> ExecuteActio
 fn prepare_action_applies_custom_execution_timeout() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let armory = Armory::from_ttps(vec![Ttp {
-        procedures: vec![Procedure::new("local", "noop")],
+        procedures: vec![Procedure {
+            operation: ProcedureOperation::Noop,
+            ..Procedure::new("local", "noop")
+        }],
         ..Ttp::new("test-ttp", "Test TTP", "Execution")
     }]);
     let mut request = action_request("k8s/cluster/dev", None);
-    request
-        .args
-        .insert("__EXECUTION_TIMEOUT_SECONDS".to_string(), "300".to_string());
+    request.execution_timeout_seconds = Some(300);
 
     let exec = campaign.prepare_action(request, &armory).unwrap();
 
     assert_eq!(exec.execution_timeout_seconds, 300);
-    assert!(!exec.args.contains_key("__EXECUTION_TIMEOUT_SECONDS"));
 }
 
 #[test]
@@ -1156,6 +1160,7 @@ fn captured_host_kubeconfig_permission_review_runs_through_its_source_pod() {
         auth_identity_id: Some(credential_id.0),
         procedure_id: Some("source-kubeconfig".to_string()),
         args: HashMap::from([("NS".to_string(), "default".to_string())]),
+        execution_timeout_seconds: None,
         reasoning: None,
     };
 
@@ -1186,10 +1191,12 @@ fn read_local_kubeconfig_control_command_never_routes_through_a_session() {
     campaign.entities.insert_typed(pod);
 
     let armory = Armory::from_ttps(vec![Ttp {
-        procedures: vec![Procedure::new(
-            "read-kubeconfig",
-            "c2.read_local_kubeconfig(/tmp/config)",
-        )],
+        procedures: vec![Procedure {
+            operation: ProcedureOperation::ReadLocalKubeconfig {
+                path: "/tmp/config".to_string(),
+            },
+            ..Procedure::new("read-kubeconfig", "c2.read_local_kubeconfig(/tmp/config)")
+        }],
         ..Ttp::new(
             "read-local-kubeconfig",
             "Read Local Kubeconfig",
@@ -1205,6 +1212,7 @@ fn read_local_kubeconfig_control_command_never_routes_through_a_session() {
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -1214,6 +1222,11 @@ fn read_local_kubeconfig_control_command_never_routes_through_a_session() {
     assert!(exec.exec_system_id.is_empty());
     assert!(exec.exec_chain.is_empty());
     assert_eq!(exec.target_id, "system/operator-host");
+    assert!(matches!(
+        exec.operation,
+        ExecutionOperation::ReadLocalKubeconfig { ref path }
+            if path.as_deref() == Some("/tmp/config")
+    ));
 }
 
 #[test]
@@ -1221,10 +1234,7 @@ fn prepare_action_rejects_out_of_range_execution_timeout() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     let armory = minimal_armory("test-ttp");
     let mut request = action_request("k8s/cluster/dev", None);
-    request.args.insert(
-        "__EXECUTION_TIMEOUT_SECONDS".to_string(),
-        "3601".to_string(),
-    );
+    request.execution_timeout_seconds = Some(3601);
 
     assert!(matches!(
         campaign.prepare_action(request, &armory),
@@ -1277,6 +1287,7 @@ fn record_preparation_failure_preserves_known_ttp_and_request_context() {
         auth_identity_id: Some("operator-kubeconfig".to_string()),
         procedure_id: Some("shell".to_string()),
         args: HashMap::from([("Namespace".to_string(), "default".to_string())]),
+        execution_timeout_seconds: None,
         reasoning: Some("verify unavailable channel".to_string()),
     };
     let error = ExecuteActionError::NoExecChannel("no route to target".to_string());
@@ -1321,6 +1332,7 @@ fn record_preparation_failure_normalizes_declared_k8s_auth_parameter() {
         auth_identity_id: None,
         procedure_id: None,
         args: HashMap::from([("K8S_AUTH".to_string(), "ns/default/sa/operator".to_string())]),
+        execution_timeout_seconds: None,
         reasoning: None,
     };
 
@@ -1348,6 +1360,7 @@ fn record_preparation_failure_synthesizes_ttp_for_every_error_variant() {
         auth_identity_id: None,
         procedure_id: None,
         args: HashMap::new(),
+        execution_timeout_seconds: None,
         reasoning: None,
     };
     let errors = [
@@ -1514,6 +1527,7 @@ fn prepare_action_expands_object_headers_into_multiple_flags() {
                 auth_identity_id: None,
                 procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -1572,6 +1586,7 @@ fn prepare_action_materializes_abstract_http_request_procedure() {
                 auth_identity_id: None,
                 procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -1628,6 +1643,7 @@ fn prepare_action_injects_authenticate_as_token_into_explicit_http_request() {
                 auth_identity_id: Some(auth_identity_id.clone()),
                 procedure_id: Some("http-request".to_string()),
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -1701,6 +1717,7 @@ fn prepare_action_keeps_explicit_http_request_native_for_active_kubeconfig() {
         auth_identity_id: Some(credential_id.clone()),
         procedure_id: Some("http-request".to_string()),
         args: HashMap::new(),
+        execution_timeout_seconds: None,
         reasoning: None,
     };
 
@@ -1762,6 +1779,7 @@ fn prepare_action_materializes_steps_fetch_with_headers_and_chmod() {
                 auth_identity_id: None,
                 procedure_id: Some("curl".to_string()),
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -1896,6 +1914,7 @@ fn lateral_action_uses_selected_session_without_a_preexisting_target_path() {
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -1945,6 +1964,7 @@ fn prepare_action_lateral_movement_uses_explicit_source_without_existing_target_
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -1972,6 +1992,9 @@ fn nmap_exec_ttp(target_id: &str) -> ExecTtp {
             ..Ttp::new("network-scan", "Network Scan", "Discovery")
         },
         procedure: Procedure::new("nmap", "nmap -sT -sV -F 10.244.0.0/24"),
+        operation: c2::ExecutionOperation::Shell {
+            command: "nmap -sT -sV -F 10.244.0.0/24".to_string(),
+        },
         args: HashMap::new(),
         target_id: target_id.to_string(),
         exec_chain: vec![target_id.to_string()],
@@ -2379,7 +2402,16 @@ fn active_client_control_command_rejects_service_account_identity() {
     let target_id = target.entity_id().0;
     campaign.entities.insert_typed(target);
     let auth_identity_id = insert_test_auth_service_account(&mut campaign);
-    let armory = armory_with_command("test-ttp", "c2.kubectl_exec()", None);
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![Procedure {
+            operation: ProcedureOperation::KubernetesExecSession {
+                interactive: "true".to_string(),
+                container: String::new(),
+            },
+            ..Procedure::new("shell", "c2.kubectl_exec()")
+        }],
+        ..Ttp::new("test-ttp", "Test TTP", "Discovery")
+    }]);
 
     let mut request = action_request(&target_id, None);
     request.auth_identity_id = Some(auth_identity_id);
@@ -2552,6 +2584,7 @@ fn prepare_action_wraps_kubelet_sink_with_ran_ws_envelope() {
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -2625,6 +2658,7 @@ fn prepare_action_builds_kubelet_sink_command_when_outer_envelope_missing() {
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -2710,6 +2744,7 @@ fn prepare_action_with_caller_selected_execution_system_routes_to_serviceaccount
                 auth_identity_id: Some(auth_identity_id),
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -2764,6 +2799,7 @@ fn prepare_action_with_unknown_namespace_source_uses_its_active_session() {
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -2810,6 +2846,7 @@ fn prepare_action_with_caller_supplied_source_keeps_direct_execution_for_node_ta
                 auth_identity_id: Some(auth_identity_id),
                 procedure_id: None,
                 args,
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -2939,6 +2976,7 @@ fn source_side_procedure_keeps_redis_as_target_but_runs_on_foothold() {
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &source_side_redis_armory(),
@@ -2968,6 +3006,7 @@ fn source_side_procedure_ignores_explicit_target_execution_hint() {
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &source_side_redis_armory(),
@@ -2997,6 +3036,7 @@ fn source_side_procedure_fails_when_only_target_is_reachable() {
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &source_side_redis_armory(),
@@ -3038,6 +3078,7 @@ fn source_side_procedure_rejects_a_source_route_through_target() {
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &source_side_redis_armory(),
@@ -3087,6 +3128,7 @@ fn prepare_action_local_command_fallback_uses_in_cluster_source_for_pod_target()
                 target_id: redis_id,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -3806,6 +3848,7 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
                 auth_identity_id: None,
                 procedure_id: None,
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -4132,6 +4175,7 @@ fn active_kubeconfig_keeps_structured_request_for_native_execution() {
                 target_id,
                 procedure_id: Some("k8s-request".to_string()),
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -4210,6 +4254,7 @@ fn active_kubeconfig_request_uses_namespace_target_and_records_request_line() {
                 target_id,
                 procedure_id: Some("k8s-request".to_string()),
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -4305,6 +4350,7 @@ fn deploy_container_uses_effective_default_namespace_for_cluster_target() {
                         "[\"TCP-LISTEN:8080,fork,reuseaddr\",\"EXEC:sh\"]".to_string(),
                     ),
                 ]),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &repository_armory(),
@@ -4351,6 +4397,7 @@ fn valid_accounts_one_shot_targets_selected_pod_authoritatively() {
                     ("NAMESPACE".to_string(), "other".to_string()),
                     ("PODNAME".to_string(), "wrong".to_string()),
                 ]),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &armory,
@@ -4411,6 +4458,7 @@ fn valid_accounts_interactive_defaults_to_first_discovered_container() {
                 auth_identity_id: None,
                 procedure_id: Some("kubectl".to_string()),
                 args: HashMap::new(),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &repository_armory(),
@@ -4418,6 +4466,11 @@ fn valid_accounts_interactive_defaults_to_first_discovered_container() {
         .expect("interactive Valid Accounts action should prepare");
 
     assert_eq!(exec.procedure.command, "c2.kubectl_exec(redis)");
+    assert!(matches!(
+        exec.operation,
+        ExecutionOperation::KubernetesExecSession { ref container }
+            if container.as_deref() == Some("redis")
+    ));
     assert_eq!(
         exec.args.get("Container").map(String::as_str),
         Some("redis")
@@ -4446,6 +4499,7 @@ fn valid_accounts_rejects_former_cluster_target_shape() {
                     ("Namespace".to_string(), "default".to_string()),
                     ("PodName".to_string(), "target".to_string()),
                 ]),
+                execution_timeout_seconds: None,
                 reasoning: None,
             },
             &repository_armory(),
@@ -4472,6 +4526,7 @@ fn valid_accounts_grants_exec_edge_only_after_success() {
                     auth_identity_id: None,
                     procedure_id: None,
                     args: HashMap::from([("Interactive".to_string(), "false".to_string())]),
+                    execution_timeout_seconds: None,
                     reasoning: None,
                 },
                 &repository_armory(),

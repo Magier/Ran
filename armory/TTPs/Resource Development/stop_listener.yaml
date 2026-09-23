@@ -22,6 +22,9 @@ procedures:
   - id: ran
     command: "c2.stop-listener(${ListenerID})"
     isLocal: true
+    operation:
+      type: stop-listener
+      listener: ${ListenerID}
 effects:
   - "c2.stop-listener(${ListenerID})"
 references:

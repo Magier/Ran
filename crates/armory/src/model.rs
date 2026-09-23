@@ -5,6 +5,48 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ProcedureOperation {
+    /// Execute `Procedure::command` as an ordinary shell command.
+    #[default]
+    Shell,
+    ReadLocalKubeconfig {
+        #[serde(default)]
+        path: String,
+    },
+    SelfSubjectRulesReview {
+        namespace: String,
+    },
+    KubernetesExecSession {
+        interactive: String,
+        #[serde(default)]
+        container: String,
+    },
+    StartListener {
+        port: String,
+        protocol: String,
+    },
+    StopListener {
+        listener: String,
+    },
+    StartRedirector {
+        play_id: String,
+        remote_port: String,
+        listener: String,
+    },
+    StopRedirector {
+        redirector: String,
+    },
+    Noop,
+}
+
+impl ProcedureOperation {
+    pub fn is_shell(&self) -> bool {
+        matches!(self, Self::Shell)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtpParam {
     pub name: String,
@@ -52,6 +94,11 @@ pub struct Procedure {
     /// `&&`. Takes precedence over `command`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub steps: Option<JsonValue>,
+    /// Typed runtime behavior. Shell remains the default for regular Armory
+    /// procedures, while C2 control operations declare their parameters here
+    /// instead of encoding an RPC in `command`.
+    #[serde(default, skip_serializing_if = "ProcedureOperation::is_shell")]
+    pub operation: ProcedureOperation,
 }
 
 impl Procedure {
@@ -72,6 +119,7 @@ impl Procedure {
             http_request: None,
             k8s_request: None,
             steps: None,
+            operation: ProcedureOperation::Shell,
         }
     }
 }

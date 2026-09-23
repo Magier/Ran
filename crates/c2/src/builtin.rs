@@ -80,6 +80,16 @@ impl BuiltinC2 {
     }
 
     pub async fn execute_streaming(&self, cmd: &ExecTtp, output: OutputSink) -> TtpExecuted {
+        let Some(command) = cmd.operation.command() else {
+            return TtpExecuted {
+                id: cmd.id.clone(),
+                success: false,
+                results: Vec::new(),
+                exit_code: 1,
+                fail_reason: "builtin C2 received a non-shell execution operation".to_string(),
+                session_connected: None,
+            };
+        };
         let routing_target = cmd.exec_entity();
         if routing_target.starts_with("ns/?/pod/") {
             let reason = format!(
@@ -107,12 +117,9 @@ impl BuiltinC2 {
             );
 
             let timeout_seconds = cmd.execution_timeout_seconds.max(1);
-            let execution = self.pod_exec_client.exec_pod_command_streaming(
-                namespace,
-                pod_name,
-                &cmd.procedure.command,
-                output,
-            );
+            let execution = self
+                .pod_exec_client
+                .exec_pod_command_streaming(namespace, pod_name, command, output);
             match tokio::time::timeout(Duration::from_secs(timeout_seconds), execution).await {
                 Err(_) => {
                     let reason = format!("pod exec command timed out after {timeout_seconds}s");
@@ -561,6 +568,9 @@ mod tests {
                 ..Ttp::new("T0001", "Test TTP", "Execution")
             },
             procedure: Procedure::new("proc-1", command),
+            operation: crate::ExecutionOperation::Shell {
+                command: command.to_string(),
+            },
             args: HashMap::new(),
             target_id: target_id.to_string(),
             exec_chain: vec![target_id.to_string()],

@@ -1,5 +1,5 @@
 use crate::error::ArmoryError;
-use crate::model::{Procedure, Ttp};
+use crate::model::{Procedure, ProcedureOperation, Ttp};
 use crate::raw::RawTtp;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -218,14 +218,11 @@ impl Armory {
                         .and_then(|request| request.get("authentication"))
                         .is_some()
                     || procedure.command.contains("kubectl ")
-                    || procedure
-                        .command
-                        .trim_start()
-                        .starts_with("c2.kubectl_exec(")
-                    || procedure
-                        .command
-                        .trim_start()
-                        .starts_with("k8sSelfSubjectRulesReview(")
+                    || matches!(
+                        procedure.operation,
+                        ProcedureOperation::KubernetesExecSession { .. }
+                            | ProcedureOperation::SelfSubjectRulesReview { .. }
+                    )
             });
             if !uses_k8s_auth {
                 continue;
@@ -623,6 +620,12 @@ mod tests {
             .as_ref()
             .expect("create-listener must release its port on cleanup");
         assert_eq!(cleanup.command, "c2.stop-listener(${PROTOCOL}/${PORT})");
+        assert_eq!(
+            cleanup.operation,
+            ProcedureOperation::StopListener {
+                listener: "${PROTOCOL}/${PORT}".to_string(),
+            }
+        );
         assert_eq!(cleanup.is_local_command, Some(true));
     }
 
@@ -716,11 +719,9 @@ mod tests {
         );
     }
 
-    /// The redirector TTPs are only useful if their commands hit the control
-    /// command dispatch in the C2 executor. An earlier draft of
-    /// `create_redirector.yaml` carried `command: "CreateRedirector"`, which
-    /// matched nothing and would have been shelled out verbatim - this pins the
-    /// contract with the executor so that cannot come back silently.
+    /// Redirector TTPs must declare typed control operations. The command text
+    /// remains useful for display and effects, but it does not select runtime
+    /// behavior.
     #[test]
     fn redirector_ttps_dispatch_to_c2_control_commands() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
@@ -757,6 +758,14 @@ mod tests {
             "c2.port-forward(${PLAY_ID}, ${RPORT}, ${LISTENER})"
         );
         assert_eq!(
+            procedure.operation,
+            ProcedureOperation::StartRedirector {
+                play_id: "${PLAY_ID}".to_string(),
+                remote_port: "${RPORT}".to_string(),
+                listener: "${LISTENER}".to_string(),
+            }
+        );
+        assert_eq!(
             procedure.is_local_command,
             Some(true),
             "labctl runs on the operator host"
@@ -786,6 +795,12 @@ mod tests {
         );
         let procedure = stop.procedures.first().expect("one procedure");
         assert_eq!(procedure.command, "c2.stop-port-forward(${RedirectorID})");
+        assert_eq!(
+            procedure.operation,
+            ProcedureOperation::StopRedirector {
+                redirector: "${RedirectorID}".to_string(),
+            }
+        );
         assert_eq!(procedure.is_local_command, Some(true));
         assert_eq!(stop.effects, ["c2.stop-port-forward(${RedirectorID})"]);
         assert_eq!(

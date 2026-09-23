@@ -6,5 +6,5 @@ mod util;
 
 pub use armory::{Armory, VALID_ACCOUNTS_KUBECONFIG_ID};
 pub use error::ArmoryError;
-pub use model::{Procedure, Ttp, TtpParam};
+pub use model::{Procedure, ProcedureOperation, Ttp, TtpParam};
 pub use util::canonical_parser_stem;

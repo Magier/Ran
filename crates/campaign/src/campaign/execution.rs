@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use armory::{Armory, Procedure, Ttp};
-use c2::{ExecTtp, OutputTransform, TtpExecuted, BUILTIN_C2_ID};
+use armory::{Armory, Procedure, ProcedureOperation, Ttp};
+use c2::{ExecTtp, ExecutionOperation, OutputTransform, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
     BinaryPresence, Entity, EntityId, K8sCluster, K8sCredential, K8sNode, K8sService, Listener,
     Merge, NameConfidence, OperatorHost, Pod, ServiceAccount, UnknownSystem,
@@ -42,11 +42,8 @@ fn validate_request(request: &ExecuteActionRequest) -> Result<(), ExecuteActionE
             "actionId and targetId are required".to_string(),
         ));
     }
-    if let Some(value) = request.args.get("__EXECUTION_TIMEOUT_SECONDS") {
-        let valid = value
-            .parse::<u64>()
-            .is_ok_and(|seconds| (1..=3600).contains(&seconds));
-        if !valid {
+    if let Some(seconds) = request.execution_timeout_seconds {
+        if !(1..=3600).contains(&seconds) {
             return Err(ExecuteActionError::InvalidInput(
                 "executionTimeoutSeconds must be between 1 and 3600".to_string(),
             ));
@@ -437,12 +434,52 @@ impl ResolvedK8sAuth {
     }
 }
 
-/// Local C2-side control commands that should never require an exec channel.
-fn is_local_control_command(cmd: &str) -> bool {
-    let trimmed = cmd.trim_start();
-    trimmed.starts_with("c2.kubectl_exec(")
-        || trimmed.starts_with("c2.read_local_kubeconfig(")
-        || trimmed == "noop"
+/// Typed C2-side operations that should never require a graph execution route.
+fn is_local_control_operation(operation: &ProcedureOperation) -> bool {
+    match operation {
+        ProcedureOperation::Shell => false,
+        ProcedureOperation::KubernetesExecSession { interactive, .. } => {
+            interactive.trim().eq_ignore_ascii_case("true")
+        }
+        ProcedureOperation::ReadLocalKubeconfig { .. }
+        | ProcedureOperation::SelfSubjectRulesReview { .. }
+        | ProcedureOperation::StartListener { .. }
+        | ProcedureOperation::StopListener { .. }
+        | ProcedureOperation::StartRedirector { .. }
+        | ProcedureOperation::StopRedirector { .. }
+        | ProcedureOperation::Noop => true,
+    }
+}
+
+fn ground_procedure_operation(operation: &mut ProcedureOperation, args: &HashMap<String, String>) {
+    let ground = |value: &mut String| *value = ground_template(value, args);
+    match operation {
+        ProcedureOperation::Shell | ProcedureOperation::Noop => {}
+        ProcedureOperation::ReadLocalKubeconfig { path } => ground(path),
+        ProcedureOperation::SelfSubjectRulesReview { namespace } => ground(namespace),
+        ProcedureOperation::KubernetesExecSession {
+            interactive,
+            container,
+        } => {
+            ground(interactive);
+            ground(container);
+        }
+        ProcedureOperation::StartListener { port, protocol } => {
+            ground(port);
+            ground(protocol);
+        }
+        ProcedureOperation::StopListener { listener } => ground(listener),
+        ProcedureOperation::StartRedirector {
+            play_id,
+            remote_port,
+            listener,
+        } => {
+            ground(play_id);
+            ground(remote_port);
+            ground(listener);
+        }
+        ProcedureOperation::StopRedirector { redirector } => ground(redirector),
+    }
 }
 
 /// Ground the procedure command and all TTP effects with the collected args.
@@ -478,6 +515,7 @@ fn ground_procedure_and_effects(
     if let Some(steps) = procedure.steps.as_mut() {
         ground_json_value(steps, args);
     }
+    ground_procedure_operation(&mut procedure.operation, args);
     for effect in effects.iter_mut() {
         *effect = ground_template(effect, args);
     }
@@ -492,6 +530,116 @@ fn ground_procedure_and_effects(
             "ungrounded variable in procedure command - \
              check TTP params or target entity context"
         );
+    }
+}
+
+fn parse_operation_port(value: &str, field: &str) -> Result<u16, ExecuteActionError> {
+    value
+        .trim()
+        .parse::<u16>()
+        .ok()
+        .filter(|port| *port > 0)
+        .ok_or_else(|| {
+            ExecuteActionError::InvalidInput(format!(
+                "procedure operation field '{field}' must be a port between 1 and 65535"
+            ))
+        })
+}
+
+fn required_operation_value(value: &str, field: &str) -> Result<String, ExecuteActionError> {
+    let value = value.trim();
+    if value.is_empty() {
+        Err(ExecuteActionError::InvalidInput(format!(
+            "procedure operation field '{field}' must not be empty"
+        )))
+    } else {
+        Ok(value.to_string())
+    }
+}
+
+fn materialize_shell_operation(
+    procedure: &Procedure,
+    use_kubeconfig: bool,
+) -> Result<ExecutionOperation, ExecuteActionError> {
+    if use_kubeconfig && !procedure.source_kubeconfig {
+        if let Some(request) = procedure.k8s_request.clone() {
+            return Ok(ExecutionOperation::KubernetesRequest { request });
+        }
+        if let Some(request) = procedure.http_request.clone() {
+            return Ok(ExecutionOperation::AuthenticatedHttpRequest { request });
+        }
+        if crate::ttp_applicability::procedure_uses_k8s_auth(procedure) {
+            return Ok(ExecutionOperation::KubernetesCommand {
+                command: procedure.command.clone(),
+            });
+        }
+    }
+
+    if procedure.is_local_command == Some(true) {
+        Ok(ExecutionOperation::LocalShell {
+            command: procedure.command.clone(),
+        })
+    } else {
+        Ok(ExecutionOperation::Shell {
+            command: procedure.command.clone(),
+        })
+    }
+}
+
+fn materialize_execution_operation(
+    procedure: &Procedure,
+    use_kubeconfig: bool,
+) -> Result<ExecutionOperation, ExecuteActionError> {
+    match &procedure.operation {
+        ProcedureOperation::Shell => materialize_shell_operation(procedure, use_kubeconfig),
+        ProcedureOperation::ReadLocalKubeconfig { path } => {
+            let path = path.trim();
+            Ok(ExecutionOperation::ReadLocalKubeconfig {
+                path: (!path.is_empty()).then(|| path.to_string()),
+            })
+        }
+        ProcedureOperation::SelfSubjectRulesReview { namespace } => {
+            Ok(ExecutionOperation::SelfSubjectRulesReview {
+                namespace: required_operation_value(namespace, "namespace")?,
+            })
+        }
+        ProcedureOperation::KubernetesExecSession {
+            interactive,
+            container,
+        } => {
+            if interactive.trim().eq_ignore_ascii_case("true") {
+                let container = container.trim();
+                Ok(ExecutionOperation::KubernetesExecSession {
+                    container: (!container.is_empty()).then(|| container.to_string()),
+                })
+            } else {
+                materialize_shell_operation(procedure, use_kubeconfig)
+            }
+        }
+        ProcedureOperation::StartListener { port, protocol } => {
+            Ok(ExecutionOperation::StartListener {
+                port: parse_operation_port(port, "port")?,
+                protocol: required_operation_value(protocol, "protocol")?,
+            })
+        }
+        ProcedureOperation::StopListener { listener } => Ok(ExecutionOperation::StopListener {
+            listener: required_operation_value(listener, "listener")?,
+        }),
+        ProcedureOperation::StartRedirector {
+            play_id,
+            remote_port,
+            listener,
+        } => Ok(ExecutionOperation::StartRedirector {
+            play_id: required_operation_value(play_id, "play_id")?,
+            remote_port: parse_operation_port(remote_port, "remote_port")?,
+            listener: required_operation_value(listener, "listener")?,
+        }),
+        ProcedureOperation::StopRedirector { redirector } => {
+            Ok(ExecutionOperation::StopRedirector {
+                redirector: required_operation_value(redirector, "redirector")?,
+            })
+        }
+        ProcedureOperation::Noop => Ok(ExecutionOperation::Noop),
     }
 }
 
@@ -1010,7 +1158,7 @@ impl Campaign {
     /// conflicting.
     pub fn prepare_action(
         &mut self,
-        mut request: ExecuteActionRequest,
+        request: ExecuteActionRequest,
         armory: &Armory,
     ) -> Result<ExecTtp, ExecuteActionError> {
         // Stage 1: validate inputs and look up static data.
@@ -1018,9 +1166,7 @@ impl Campaign {
         self.assert_target_exists(&request.target_id)?;
         let reasoning = request.reasoning.unwrap_or_default();
         let execution_timeout_seconds = request
-            .args
-            .remove("__EXECUTION_TIMEOUT_SECONDS")
-            .and_then(|value| value.parse().ok())
+            .execution_timeout_seconds
             .unwrap_or(c2::DEFAULT_EXECUTION_TIMEOUT_SECONDS);
         let (ttp, args) = resolve_ttp_and_defaults(&request.action_id, request.args, armory)?;
         let mut exec = self.prepare_action_with_ttp(
@@ -1153,13 +1299,14 @@ impl Campaign {
             let uses_default_kubeconfig = procedure.is_local_command == Some(true)
                 && procedure.command.contains("kubectl ")
                 && !procedure.command.contains("${K8S_AUTH}");
+            let is_kubernetes_exec_session = matches!(
+                procedure.operation,
+                ProcedureOperation::KubernetesExecSession { .. }
+            );
             if procedure.command.contains("kubectl ")
                 && !procedure.command.contains("${K8S_AUTH}")
                 && !uses_default_kubeconfig
-                && !procedure
-                    .command
-                    .trim_start()
-                    .starts_with("c2.kubectl_exec(")
+                && !is_kubernetes_exec_session
             {
                 return Err(ExecuteActionError::InvalidInput(format!(
                     "Kubernetes procedure '{}' must use ${{K8S_AUTH}} instead of TOKEN or ambient authentication",
@@ -1387,7 +1534,7 @@ impl Campaign {
         }
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
         args.remove("K8S_AUTH");
-        if is_local_control_command(&procedure.command)
+        if is_local_control_operation(&procedure.operation)
             && matches!(resolved_auth, Some(ResolvedK8sAuth::ServiceAccount { .. }))
         {
             return Err(ExecuteActionError::InvalidInput(format!(
@@ -1437,6 +1584,7 @@ impl Campaign {
             exec_hint.as_deref(),
             lateral_src,
         )?;
+        let operation = materialize_execution_operation(&procedure, use_kubeconfig)?;
 
         let cmd_id = generate_cmd_id();
 
@@ -1458,6 +1606,7 @@ impl Campaign {
             id: cmd_id,
             ttp,
             procedure,
+            operation,
             args,
             target_id: route.target_id,
             exec_chain: route.exec_chain,
@@ -1630,11 +1779,11 @@ impl Campaign {
                 None,
             ));
         }
-        if is_local_control_command(&procedure.command) {
+        if is_local_control_operation(&procedure.operation) {
             tracing::info!(
                 target_id = %target_id,
-                command = %procedure.command,
-                "routing local control command via builtin c2"
+                operation = ?procedure.operation,
+                "routing local control operation via builtin c2"
             );
             return Ok(ExecRoute::direct(
                 String::new(),

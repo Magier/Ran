@@ -1048,6 +1048,9 @@ mod planner_helper_tests {
             id: id.to_string(),
             ttp: armory::Ttp::new("test", "Test", "Execution"),
             procedure: armory::Procedure::new("shell", "echo test"),
+            operation: c2::ExecutionOperation::Shell {
+                command: "echo test".to_string(),
+            },
             args: HashMap::new(),
             target_id: "node/test".to_string(),
             exec_chain: vec!["node/test".to_string()],

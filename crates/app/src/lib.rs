@@ -2474,6 +2474,7 @@ pub async fn trigger(cfg: TriggerConfig) -> Result<()> {
                     auth_identity_id: None,
                     procedure_id: cfg.procedure_id,
                     args: cfg.args,
+                    execution_timeout_seconds: None,
                     reasoning: Some("cli trigger".to_string()),
                 },
                 &armory,
