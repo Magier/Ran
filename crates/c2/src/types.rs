@@ -102,7 +102,8 @@ pub struct ExecTtp {
     pub auth_identity_id: Option<String>,
     /// Unix timestamp (milliseconds) when the command was dispatched.
     pub started_at_ms: u64,
-    /// Maximum wall-clock time allowed for this command to complete.
+    /// Maximum wall-clock time allowed after this command starts executing.
+    /// Time spent queued behind another command on the same backend is excluded.
     #[serde(default = "default_execution_timeout_seconds")]
     pub execution_timeout_seconds: u64,
     /// Output post-processing required before parsers run.

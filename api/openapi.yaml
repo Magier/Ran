@@ -1332,7 +1332,9 @@ components:
           minimum: 1
           maximum: 3600
           default: 60
-          description: Maximum wall-clock time allowed for the complete command.
+          description: >
+            Maximum wall-clock time after execution begins. Time spent queued
+            behind another command on the same backend is excluded.
         reasoning:
           type: string
           description: >

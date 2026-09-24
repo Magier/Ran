@@ -76,7 +76,6 @@ enum ShellRequest {
     },
     Execute {
         command: Box<ExecTtp>,
-        deadline: Instant,
         output_sink: OutputSink,
         reply: oneshot::Sender<TtpExecuted>,
     },
@@ -273,31 +272,26 @@ impl C2Backend for ShellSession {
 
     async fn execute_streaming(&self, cmd: &ExecTtp, output_sink: OutputSink) -> TtpExecuted {
         let (reply_tx, reply_rx) = oneshot::channel();
-        let timeout = Duration::from_secs(cmd.execution_timeout_seconds.max(1));
-        let deadline = Instant::now() + timeout;
         let request = ShellRequest::Execute {
             command: Box::new(cmd.clone()),
-            deadline,
             output_sink,
             reply: reply_tx,
         };
-        match tokio::time::timeout_at(deadline, self.requests.send(request)).await {
-            Ok(Ok(())) => {}
-            Ok(Err(_)) => {
+        match self.requests.send(request).await {
+            Ok(()) => {}
+            Err(_) => {
                 return exec_error(
                     &cmd.id,
                     crate::types::SESSION_CLOSED_UNEXPECTEDLY.to_string(),
                 );
             }
-            Err(_) => return timeout_error(&cmd.id, timeout),
         }
-        match tokio::time::timeout_at(deadline, reply_rx).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => exec_error(
+        match reply_rx.await {
+            Ok(result) => result,
+            Err(_) => exec_error(
                 &cmd.id,
                 crate::types::SESSION_CLOSED_UNEXPECTEDLY.to_string(),
             ),
-            Err(_) => timeout_error(&cmd.id, timeout),
         }
     }
 
@@ -415,11 +409,16 @@ async fn run_request(
         ),
         ShellRequest::Execute {
             command,
-            deadline,
             output_sink,
             reply,
         } => {
+            if reply.is_closed() {
+                return true;
+            }
             let timeout = Duration::from_secs(command.execution_timeout_seconds.max(1));
+            // A raw shell is a single execution stream. Queueing behind another
+            // command must not consume this command's own execution budget.
+            let deadline = Instant::now() + timeout;
             let cmd_id = command.id.clone();
             let Some(shell_command) = command.operation.command().map(str::to_string) else {
                 let _ = reply.send(exec_error(
@@ -969,16 +968,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn queued_actions_time_out_from_submission_and_are_not_sent_late() {
+    async fn queued_action_gets_its_full_timeout_after_dequeue() {
         let (client, server) = tokio::io::duplex(4096);
         let (server_rx, mut server_tx) = tokio::io::split(server);
         let (client_rx, client_tx) = tokio::io::split(client);
         let command_count = Arc::new(AtomicUsize::new(0));
         let server_count = command_count.clone();
+        let (first_started_tx, first_started_rx) = oneshot::channel();
 
         tokio::spawn(async move {
             let mut reader = tokio::io::BufReader::new(server_rx);
             let mut line = String::new();
+            let mut first_started_tx = Some(first_started_tx);
             loop {
                 line.clear();
                 if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
@@ -992,31 +993,45 @@ mod tests {
                     continue;
                 }
                 if server_count.fetch_add(1, Ordering::SeqCst) == 0 {
-                    // The first remote command outlives both 1-second action
-                    // deadlines. The second command must never be sent once
-                    // its caller has already timed out in the actor queue.
-                    tokio::time::sleep(Duration::from_millis(2200)).await;
+                    if let Some(started) = first_started_tx.take() {
+                        let _ = started.send(());
+                    }
+                    // The first command exceeds its own deadline, then returns
+                    // its marker so the queued command can start safely.
+                    tokio::time::sleep(Duration::from_millis(1200)).await;
                     let _ = server_tx
                         .write_all(format!("first done\n{marker}:0\n").as_bytes())
+                        .await;
+                    let _ = server_tx.flush().await;
+                } else {
+                    let _ = server_tx
+                        .write_all(format!("second done\n{marker}:0\n").as_bytes())
                         .await;
                     let _ = server_tx.flush().await;
                 }
             }
         });
 
-        let session = ShellSession::from_rw(client_rx, client_tx, "node/test");
+        let session = Arc::new(ShellSession::from_rw(client_rx, client_tx, "node/test"));
         let mut first_cmd = make_cmd("first", "session/test");
         first_cmd.execution_timeout_seconds = 1;
-        let first = session.execute(&first_cmd).await;
-        assert_eq!(first.fail_reason, "shell command timed out after 1s");
+        let first_session = Arc::clone(&session);
+        let first = tokio::spawn(async move { first_session.execute(&first_cmd).await });
+
+        tokio::time::timeout(Duration::from_secs(1), first_started_rx)
+            .await
+            .expect("first command should start")
+            .expect("server should report the first command");
 
         let mut second_cmd = make_cmd("second", "session/test");
         second_cmd.execution_timeout_seconds = 1;
         let second = session.execute(&second_cmd).await;
-        assert_eq!(second.fail_reason, "shell command timed out after 1s");
+        let first = first.await.expect("first execution task should complete");
 
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        assert_eq!(command_count.load(Ordering::SeqCst), 1);
+        assert_eq!(first.fail_reason, "shell command timed out after 1s");
+        assert!(second.success, "{}", second.fail_reason);
+        assert_eq!(second.results, vec!["second done"]);
+        assert_eq!(command_count.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
