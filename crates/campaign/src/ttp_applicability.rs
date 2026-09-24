@@ -126,7 +126,6 @@ pub fn eligible_auth_identities(
                 credential.active
                     || campaign.is_operator_host_credential(&credential.entity_id())
                     || credential_has_replayable_auth(credential)
-                    || campaign.has_source_kubeconfig_exec_context(&credential.entity_id())
             })
             .filter(|credential| {
                 identity_target != Some("K8sCredential") || credential.entity_id().0 == target_id
@@ -1275,6 +1274,8 @@ mod tests {
         let mut credential =
             K8sCredential::new("https://cluster.example").with_name("super-admin.conf (default)");
         credential.source_path = Some("/host/etc/kubernetes/super-admin.conf".to_string());
+        credential.token = Some("captured-token".to_string());
+        credential.has_token = true;
         let credential_id = credential.entity_id().0;
         campaign.entities.insert_typed(credential);
         campaign.insert_relation(&Uses::new(source_id.0, credential_id.clone()));

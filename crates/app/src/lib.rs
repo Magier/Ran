@@ -306,6 +306,7 @@ impl AppState {
         };
 
         let client = Client::from_static_credential(StaticKubeconfigCredential {
+            context_name: credential.context_name,
             endpoint: credential.endpoint,
             tls_server_name: credential.tls_server_name,
             ca_data: credential.ca_data,

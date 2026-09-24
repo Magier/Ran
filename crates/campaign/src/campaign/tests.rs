@@ -4,8 +4,8 @@ use armory::{Armory, Procedure, ProcedureOperation, Ttp, TtpParam};
 use c2::{ExecTtp, ExecutionOperation, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
     AccessLevel, AuthenticatesTo, BinaryPresence, C2Server, Container, ContainerEscape, Contains,
-    Entity, EntityId, JwToken, K8sCluster, K8sCredential, K8sNode, KubeletExecSink, Mount,
-    Namespace, OperatorHost, OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn,
+    Entity, EntityId, JwToken, K8sCluster, K8sCredential, K8sNode, KubeletExecSink, Namespace,
+    OperatorHost, OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn,
     ServiceAccount, ServiceAccountToken, SessionInfo, SessionStatus, Uses,
 };
 
@@ -1119,37 +1119,18 @@ fn prepare_action_applies_custom_execution_timeout() {
 }
 
 #[test]
-fn captured_host_kubeconfig_permission_review_runs_through_its_source_pod() {
+fn captured_kubeconfig_permission_review_uses_its_registered_identity() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
-    let mut source = Pod::new("reader", "default");
-    source.system.sessions.push(SessionInfo {
-        id: "reader-shell".to_string(),
-        kind: "exec".to_string(),
-        port: None,
-        status: SessionStatus::Active,
-    });
-    source.volume_mounts.push(Mount {
-        name: "host".to_string(),
-        mount_point: "/host".to_string(),
-        mount_root: "/".to_string(),
-        is_host_path: true,
-        ..Mount::default()
-    });
-    let source_id = source.entity_id();
-    campaign.insert_entity(&source);
-
     let mut credential =
         K8sCredential::new("https://172.16.0.2:6443").with_name("kubelet.conf (default-context)");
     credential.context_name = Some("default-context".to_string());
-    credential.source_path = Some("/host/etc/kubernetes/kubelet.conf".to_string());
+    credential.source_path = Some("/etc/kubernetes/kubelet.conf".to_string());
+    credential.token = Some("captured-token".to_string());
+    credential.has_token = true;
     credential.has_client_certificate = true;
     credential.has_client_key = true;
     let credential_id = credential.entity_id();
     campaign.insert_entity(&credential);
-    push_relation(
-        &mut campaign,
-        &Uses::new(source_id.0.clone(), credential_id.0.clone()),
-    );
 
     let armory_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
     let armory = Armory::load_from_dir(armory_path).expect("repository armory should load");
@@ -1158,7 +1139,7 @@ fn captured_host_kubeconfig_permission_review_runs_through_its_source_pod() {
         target_id: credential_id.0.clone(),
         exec_system_id: None,
         auth_identity_id: Some(credential_id.0),
-        procedure_id: Some("source-kubeconfig".to_string()),
+        procedure_id: Some("k8s-client".to_string()),
         args: HashMap::from([("NS".to_string(), "default".to_string())]),
         execution_timeout_seconds: None,
         reasoning: None,
@@ -1166,12 +1147,51 @@ fn captured_host_kubeconfig_permission_review_runs_through_its_source_pod() {
 
     let exec = campaign.prepare_action(request, &armory).unwrap();
 
-    assert_eq!(exec.exec_system_id, "session/reader-shell");
-    assert_eq!(exec.exec_chain, vec![source_id.0]);
-    assert_eq!(
-        exec.procedure.command,
-        "chroot /host kubectl --kubeconfig /etc/kubernetes/kubelet.conf --context default-context auth can-i --list -n default"
-    );
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+    assert!(exec.exec_chain.is_empty());
+    assert_eq!(exec.procedure.command, "k8sSelfSubjectRulesReview(default)");
+}
+
+#[test]
+fn captured_kubeconfig_permission_review_can_use_local_kubectl() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let mut credential =
+        K8sCredential::new("https://172.16.0.2:6443").with_name("admin.conf (default-context)");
+    credential.context_name = Some("default-context".to_string());
+    credential.token = Some("captured-token".to_string());
+    credential.has_token = true;
+    let credential_id = credential.entity_id();
+    campaign.insert_entity(&credential);
+
+    let armory_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+    let armory = Armory::load_from_dir(armory_path).expect("repository armory should load");
+    let exec = campaign
+        .prepare_action(
+            ExecuteActionRequest {
+                action_id: "check-kubeconfig-permissions".to_string(),
+                target_id: credential_id.0.clone(),
+                exec_system_id: None,
+                auth_identity_id: Some(credential_id.0),
+                procedure_id: Some("kubectl".to_string()),
+                args: HashMap::from([("NS".to_string(), "default".to_string())]),
+                execution_timeout_seconds: None,
+                reasoning: None,
+            },
+            &armory,
+        )
+        .expect("captured kubeconfig should prepare the local kubectl procedure");
+
+    assert_eq!(exec.exec_system_id, BUILTIN_C2_ID);
+    assert!(exec.exec_chain.is_empty());
+    assert!(matches!(
+        exec.operation,
+        ExecutionOperation::KubernetesCommand { .. }
+    ));
+    assert!(exec.procedure.command.contains(
+        "printf '%s\\n' '{\"apiVersion\":\"authorization.k8s.io/v1\",\"kind\":\"SelfSubjectRulesReview\",\"spec\":{\"namespace\":\"default\"}}' | kubectl --kubeconfig \"$KUBECONFIG\" --context default-context create -f - -o json"
+    ));
+    assert!(!exec.procedure.command.contains("EOF"));
+    assert!(!exec.procedure.command.contains("chroot"));
 }
 
 #[test]
