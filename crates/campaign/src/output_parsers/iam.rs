@@ -12,10 +12,6 @@ use serde::Deserialize;
 use super::ParserOutput;
 use crate::FactsUpdate;
 
-pub(super) fn register(m: &mut HashMap<&'static str, super::ParserFn>) {
-    m.insert("rawserviceaccounttoken", parse_raw_service_account_token);
-}
-
 /// Internal structs for deserializing the Kubernetes JWT payload.
 #[derive(Debug, Deserialize)]
 struct JwtPayload {
