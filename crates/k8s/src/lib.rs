@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, env, io::Write, path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Context, Result};
 use http::{Method, Request};
@@ -132,6 +132,7 @@ impl ResolvedKubeconfig {
 
 #[derive(Debug, Clone)]
 pub struct StaticKubeconfigCredential {
+    pub context_name: Option<String>,
     pub endpoint: String,
     pub tls_server_name: Option<String>,
     pub ca_data: Option<String>,
@@ -347,6 +348,10 @@ fn pod_to_running_pod(pod: &Pod) -> Option<RunningPod> {
 pub struct Client {
     client: KubeClient,
     kubeconfig_path: Option<PathBuf>,
+    /// Keeps an ephemeral kubeconfig alive for a credential reconstructed from
+    /// captured authentication material. The file is private to this process
+    /// and is removed once the last client clone is dropped.
+    _temporary_kubeconfig: Option<Arc<tempfile::NamedTempFile>>,
     context_name: Option<String>,
     api_server: String,
 }
@@ -423,6 +428,7 @@ impl Client {
         Ok(Self {
             client,
             kubeconfig_path: resolved.source_path.clone(),
+            _temporary_kubeconfig: None,
             context_name: Some(resolved.context_name.clone()),
             api_server: resolved
                 .server
@@ -458,11 +464,17 @@ impl Client {
             ));
         }
 
+        let context_name = credential
+            .context_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or("captured")
+            .to_string();
         let kubeconfig: Kubeconfig =
             serde_yaml::from_value(serde_yaml::to_value(serde_json::json!({
                 "apiVersion": "v1",
                 "kind": "Config",
-                "current-context": "captured",
+                "current-context": context_name,
                 "clusters": [{
                     "name": "captured",
                     "cluster": {
@@ -472,7 +484,7 @@ impl Client {
                     }
                 }],
                 "contexts": [{
-                    "name": "captured",
+                    "name": context_name,
                     "context": { "cluster": "captured", "user": "captured" }
                 }],
                 "users": [{
@@ -485,7 +497,22 @@ impl Client {
                 }]
             }))?)?;
         let resolved = resolve_kubeconfig_data(kubeconfig, None)?;
-        Self::from_resolved_kubeconfig(&resolved).await
+        let mut temporary = tempfile::NamedTempFile::new()
+            .context("failed to create private kubeconfig for captured credential")?;
+        let rendered = serde_yaml::to_string(&resolved.kubeconfig)
+            .context("failed to serialize captured kubeconfig")?;
+        temporary
+            .write_all(rendered.as_bytes())
+            .context("failed to write private kubeconfig for captured credential")?;
+        temporary
+            .flush()
+            .context("failed to flush private kubeconfig for captured credential")?;
+
+        let temporary = Arc::new(temporary);
+        let mut client = Self::from_resolved_kubeconfig(&resolved).await?;
+        client.kubeconfig_path = Some(temporary.path().to_path_buf());
+        client._temporary_kubeconfig = Some(temporary);
+        Ok(client)
     }
 
     /// The kubeconfig context this client authenticates as, when known.
@@ -1003,6 +1030,7 @@ users:
     #[tokio::test]
     async fn static_token_credential_builds_an_identity_specific_client() {
         let client = Client::from_static_credential(StaticKubeconfigCredential {
+            context_name: Some("captured-context".to_string()),
             endpoint: "https://127.0.0.1:6443".to_string(),
             tls_server_name: Some("kubernetes.default.svc".to_string()),
             ca_data: None,
@@ -1013,8 +1041,8 @@ users:
         .await
         .expect("static credential client");
 
-        assert_eq!(client.context_name(), Some("captured"));
-        assert!(client.kubeconfig_path().is_none());
+        assert_eq!(client.context_name(), Some("captured-context"));
+        assert!(client.kubeconfig_path().is_some_and(|path| path.exists()));
         assert_eq!(client.api_server, "https://127.0.0.1:6443");
     }
 
