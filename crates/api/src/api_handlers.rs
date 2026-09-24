@@ -108,6 +108,8 @@ pub(crate) struct GetEligibleAuthIdentitiesParams {
 pub(crate) struct GetActionResolutionParams {
     #[serde(rename = "targetId")]
     pub(crate) target_id: String,
+    #[serde(rename = "execSystemId")]
+    pub(crate) exec_system_id: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -210,7 +212,7 @@ pub(crate) async fn armory_handler<S: ApiService>(
     Ok(axum::Json(
         ttps.into_iter()
             .map(|ttp| {
-                let action_state = resolve_action(&ttp, &campaign, &target_id)
+                let action_state = resolve_action(&ttp, &campaign, &target_id, None)
                     .map(|resolution| summarize(&resolution));
                 ArmoryAction { ttp, action_state }
             })
@@ -233,7 +235,13 @@ pub(crate) async fn action_resolution_handler<S: ApiService>(
         .find(|ttp| ttp.id == action_id)
         .ok_or_else(|| ApiError::not_found(format!("unknown action '{action_id}'")))?;
     let campaign = service.get_campaign().await?;
-    let resolution = resolve_action(&ttp, &campaign, &params.target_id).ok_or_else(|| {
+    let resolution = resolve_action(
+        &ttp,
+        &campaign,
+        &params.target_id,
+        params.exec_system_id.as_deref(),
+    )
+    .ok_or_else(|| {
         ApiError::not_found(format!("failed to get target entity: {}", params.target_id))
     })?;
     Ok(axum::Json(resolution))

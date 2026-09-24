@@ -137,24 +137,27 @@
 				: ''
 	);
 	let readiness = $derived(ttp.actionState);
-	let readinessLabel = $derived.by(() => {
+	let executionReady = $derived(readiness ? readiness.status === 'ready' : prerequisitesFulfilled);
+	let executionLabel = $derived.by(() => {
+		if (executionReady) return 'Ready to execute';
+
 		switch (readiness?.status) {
 			case 'ready':
-				return 'Ready';
+				return 'Ready to execute';
 			case 'needs_choice':
-				return `Choose ${readiness.arguments.needsChoice}`;
+				return 'Action needs a choice';
 			case 'needs_input':
-				return `Input ${readiness.arguments.needsInput}`;
+				return 'Action needs input';
 			case 'blocked':
-				return 'Blocked';
+				return 'Action is blocked';
 			case 'inapplicable':
-				return 'Unavailable';
+				return 'Prerequisites not fulfilled';
 			default:
-				return '';
+				return 'Prerequisites not fulfilled';
 		}
 	});
-	let readinessClass = $derived(
-		readiness?.status === 'ready'
+	let executionClass = $derived(
+		executionReady
 			? 'bg-success-100-900 text-success-700-300'
 			: readiness?.status === 'blocked' || readiness?.status === 'inapplicable'
 				? 'bg-surface-200-800 text-surface-500'
@@ -182,55 +185,31 @@
 		<span class="truncate">{ttp.name}</span>
 	</button>
 
-	{#if readiness && readinessLabel}
+	{#if readiness || requirementDetails.length > 0}
 		<Tooltip openDelay={120} closeDelay={80} positioning={{ placement: 'left', gutter: 8 }}>
 			<Tooltip.Trigger
-				class="mr-1 inline-flex flex-shrink-0 cursor-help items-center rounded px-1.5 py-0.5 text-[10px] {readinessClass}"
-				aria-label={`Action state: ${readinessLabel}`}
-			>
-				{readinessLabel}
-			</Tooltip.Trigger>
-			<Tooltip.Positioner>
-				<Tooltip.Content
-					class="border-surface-300-700 bg-surface-100-900 z-[90] w-72 rounded border p-2 text-xs shadow-xl"
-				>
-					<div class="font-semibold">{readinessLabel}</div>
-					{#each readiness.reasons as reason, index (index)}
-						<div class="text-surface-500 mt-1">{reason}</div>
-					{/each}
-					<div class="text-surface-500 mt-1">
-						{readiness.arguments.resolved}/{readiness.arguments.total} arguments resolved
-					</div>
-				</Tooltip.Content>
-			</Tooltip.Positioner>
-		</Tooltip>
-	{/if}
-
-	{#if requirementDetails.length > 0}
-		<Tooltip openDelay={120} closeDelay={80} positioning={{ placement: 'left', gutter: 8 }}>
-			<Tooltip.Trigger
-				class="mr-1 inline-flex flex-shrink-0 cursor-help items-center gap-0.5 rounded px-1 py-0.5 text-[10px] {prerequisitesFulfilled
-					? 'bg-success-100-900 text-success-700-300'
-					: 'bg-warning-100-900 text-warning-700-300'}"
-				aria-label={`${prerequisitesFulfilled ? 'Prerequisites fulfilled' : 'Prerequisites not fulfilled'}: ${requirementDetails.length} ${requirementDetails.length === 1 ? 'requirement' : 'requirements'}`}
+				class="mr-1 inline-flex flex-shrink-0 cursor-help items-center rounded px-1 py-0.5 text-[10px] {executionClass}"
+				aria-label={executionLabel}
 			>
 				<Icon
-					icon={prerequisitesFulfilled ? 'mdi:check-circle-outline' : 'mdi:alert-circle-outline'}
+					icon={executionReady ? 'mdi:check-circle-outline' : 'mdi:alert-circle-outline'}
 					width="14"
 				/>
-				<span class="tabular-nums">{requirementDetails.length}</span>
 			</Tooltip.Trigger>
 			<Tooltip.Positioner>
 				<Tooltip.Content
 					class="border-surface-300-700 bg-surface-100-900 z-[90] w-72 rounded border p-2 shadow-xl"
 				>
 					<div class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold">
-						<Icon
-							icon={prerequisitesFulfilled ? 'mdi:check-circle' : 'mdi:alert-circle'}
-							width="14"
-						/>
-						{prerequisitesFulfilled ? 'Prerequisites fulfilled' : 'Prerequisites not fulfilled'}
+						<Icon icon={executionReady ? 'mdi:check-circle' : 'mdi:alert-circle'} width="14" />
+						{executionLabel}
 					</div>
+					{#each readiness?.reasons ?? [] as reason, index (index)}
+						<div class="text-surface-500 mb-1.5 text-xs">{reason}</div>
+					{/each}
+					{#if requirementDetails.length > 0}
+						<div class="text-surface-500 mb-1 text-xs font-medium">Prerequisites</div>
+					{/if}
 					<div class="space-y-1.5">
 						{#each requirementDetails as requirement, i (i)}
 							<div class="flex gap-1.5 text-xs">

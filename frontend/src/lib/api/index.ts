@@ -20,6 +20,7 @@ export type TTP = components['schemas']['TTP'];
 export type TTPParam = components['schemas']['TTPParam'];
 export type ActionState = components['schemas']['ActionState'];
 export type ActionResolution = components['schemas']['ActionResolution'];
+export type ProcedureState = components['schemas']['ProcedureState'];
 export type ArgumentResolution = components['schemas']['ArgumentResolution'];
 export type BindingSource = components['schemas']['BindingSource'];
 export type TTPDefense = components['schemas']['TTPDefense'];

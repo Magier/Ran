@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use armory::{Armory, Procedure, ProcedureOperation, Ttp, TtpParam};
 use c2::{ExecTtp, ExecutionOperation, TtpExecuted, BUILTIN_C2_ID};
 use ran_domain::{
-    AccessLevel, AuthenticatesTo, C2Server, Container, ContainerEscape, Contains, Entity, EntityId,
-    JwToken, K8sCluster, K8sCredential, K8sNode, KubeletExecSink, Mount, Namespace, OperatorHost,
-    OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn, ServiceAccount,
-    ServiceAccountToken, SessionInfo, SessionStatus, Uses,
+    AccessLevel, AuthenticatesTo, BinaryPresence, C2Server, Container, ContainerEscape, Contains,
+    Entity, EntityId, JwToken, K8sCluster, K8sCredential, K8sNode, KubeletExecSink, Mount,
+    Namespace, OperatorHost, OutputTransformKind, Pod, PodExec, RbacPermission, RceCanExec, RunsOn,
+    ServiceAccount, ServiceAccountToken, SessionInfo, SessionStatus, Uses,
 };
 
 use super::{Campaign, ExecChannel, ExecuteActionError, ExecuteActionRequest};
@@ -1427,6 +1427,43 @@ fn prepare_action_treats_blank_procedure_id_as_automatic_selection() {
         .expect("blank procedure ID should select the first procedure");
 
     assert_eq!(exec.procedure.id, "shell");
+}
+
+#[test]
+fn prepare_action_selects_backend_recommended_procedure() {
+    let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+    let mut pod = Pod::new("demo", "default");
+    pod.system.access_level = AccessLevel::Exec;
+    pod.system
+        .binaries
+        .insert("ip".to_string(), BinaryPresence::Absent);
+    pod.system.binaries.insert(
+        "hostname".to_string(),
+        BinaryPresence::Present("/bin/hostname".into()),
+    );
+    let target_id = pod.entity_id().0.clone();
+    campaign.entities.insert_typed(pod);
+    push_exec_edge(&mut campaign, "sa/default/ran", &target_id);
+
+    let armory = Armory::from_ttps(vec![Ttp {
+        procedures: vec![
+            Procedure {
+                tool: Some("ip".to_string()),
+                ..Procedure::new("ip", "ip address")
+            },
+            Procedure {
+                tool: Some("hostname".to_string()),
+                ..Procedure::new("hostname", "hostname -i")
+            },
+        ],
+        ..Ttp::new("test-ttp", "Test TTP", "Discovery")
+    }]);
+
+    let exec = campaign
+        .prepare_action(action_request(&target_id, None), &armory)
+        .expect("known-available fallback should be selected");
+
+    assert_eq!(exec.procedure.id, "hostname");
 }
 
 #[test]

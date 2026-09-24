@@ -97,7 +97,7 @@ paths:
   /api/armory/{actionId}/resolution:
     get:
       summary: Resolve an action for a target
-      description: Returns the current argument values, choices, blockers, and provenance for one action without executing it.
+      description: Returns current argument and procedure readiness, choices, blockers, and provenance for one action without executing it.
       operationId: getActionResolution
       parameters:
         - name: actionId
@@ -110,6 +110,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: execSystemId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional physical execution system used to evaluate procedure tool readiness
       responses:
         '200':
           description: Action resolution for the selected target
@@ -1066,7 +1072,7 @@ components:
 
     ActionState:
       type: object
-      required: [status, reasons, arguments]
+      required: [status, reasons, arguments, procedures]
       properties:
         status:
           $ref: '#/components/schemas/ActionReadinessStatus'
@@ -1076,6 +1082,12 @@ components:
             type: string
         arguments:
           $ref: '#/components/schemas/ArgumentSummary'
+        procedures:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProcedureState'
+        recommendedProcedureId:
+          type: string
 
     ActionReadinessStatus:
       type: string
@@ -1101,9 +1113,26 @@ components:
           type: integer
           minimum: 0
 
+    ProcedureReadinessStatus:
+      type: string
+      enum: [ready, unknown, unavailable]
+
+    ProcedureState:
+      type: object
+      required: [procedureId, status]
+      properties:
+        procedureId:
+          type: string
+        status:
+          $ref: '#/components/schemas/ProcedureReadinessStatus'
+        requiredTool:
+          type: string
+        reason:
+          type: string
+
     ActionResolution:
       type: object
-      required: [actionId, targetId, status, reasons, arguments]
+      required: [actionId, targetId, status, reasons, arguments, procedures]
       properties:
         actionId:
           type: string
@@ -1119,6 +1148,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ArgumentResolution'
+        procedures:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProcedureState'
+        recommendedProcedureId:
+          type: string
 
     ArgumentResolution:
       type: object
