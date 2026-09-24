@@ -1,3 +1,4 @@
+mod declaration;
 mod file;
 mod gcp;
 mod iam;
@@ -17,6 +18,7 @@ use sha2::{Digest, Sha256};
 
 use crate::external_parser::SystemFieldUpdates;
 use crate::{Campaign, FactsUpdate};
+use declaration::OutputEffect;
 
 pub const PARSER_VERSION: &str = "v1";
 const RAW_PREVIEW_MAX_LEN: usize = 1024;
@@ -47,6 +49,21 @@ pub struct ParseAudit {
 pub struct ParsedEffect {
     pub updates: FactsUpdate,
     pub audit: ParseAudit,
+    pub(crate) system_updates: Vec<TargetedSystemUpdate>,
+    pub(crate) captured_files: Vec<CapturedFile>,
+}
+
+#[derive(Debug)]
+pub(crate) struct TargetedSystemUpdate {
+    pub(crate) target_id: String,
+    pub(crate) updates: SystemFieldUpdates,
+    pub(crate) count_in_audit: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct CapturedFile {
+    pub(crate) path: String,
+    pub(crate) content: String,
 }
 
 #[allow(dead_code)]
@@ -69,345 +86,245 @@ fn get_registry() -> &'static HashMap<&'static str, ParserFn> {
         let mut m = HashMap::new();
         sys::register(&mut m);
         k8s::register(&mut m);
-        iam::register(&mut m);
         network::register(&mut m);
         gcp::register(&mut m);
-        // file module has no registry entries - file:content and file:kubeconfig
-        // are dispatched specially in parse_output_effect.
+        // Effects that require parameters or source context are declared in
+        // `declaration`; this registry is only for exact parser functions.
         m
     })
 }
 
+fn parsed_effect(
+    effect_id: &str,
+    cmd: &ExecTtp,
+    event: &TtpExecuted,
+    result: ParseResult,
+    detail: &str,
+    updates: FactsUpdate,
+) -> ParsedEffect {
+    let facts_written = updates.new_entities.len() + updates.new_relations.len();
+    ParsedEffect {
+        updates,
+        audit: build_audit(effect_id, cmd, event, result, detail, facts_written),
+        system_updates: Vec::new(),
+        captured_files: Vec::new(),
+    }
+}
+
 pub fn parse_output_effect(
-    campaign: &mut Campaign,
+    campaign: &Campaign,
     effect_id: &str,
     cmd: &ExecTtp,
     event: &TtpExecuted,
 ) -> Option<ParsedEffect> {
-    // Resolve the parser. Parametrized effects (e.g. `sys.has-binary(...)`) carry
-    // their argument inside the effect-ID string; extract it and call the pure fn
-    // directly, then fall through to the shared merge path below.
+    let declaration = OutputEffect::resolve(effect_id)?;
     let normalized = effect_id.trim().to_ascii_lowercase();
 
-    // Arg-derived / event-sourced effects: facts are constructed from TTP
-    // parameters or from the C2 event bus, not from command output. Handle
-    // before the stdout guard so they succeed even when the command produces no output.
-    if normalized.starts_with("c2.listen(") {
-        // The listener port is recorded by C2Event::ListenerStarted in the
-        // event bus (runtime.rs). No additional facts are needed here.
-        return Some(ParsedEffect {
-            updates: FactsUpdate::default(),
-            audit: build_audit(
-                effect_id,
-                cmd,
-                event,
-                ParseResult::Parsed,
-                "c2 listener registered via event bus",
-                0,
-            ),
-        });
+    if let OutputEffect::Event(event_effect) = declaration {
+        return Some(parsed_effect(
+            effect_id,
+            cmd,
+            event,
+            ParseResult::Parsed,
+            event_effect.audit_detail(),
+            FactsUpdate::default(),
+        ));
     }
 
-    if normalized.starts_with("c2.stop-listener(") {
-        // Symmetric to c2.listen: C2Event::ListenerStopped drops the port from
-        // the C2 entity, so there is nothing to parse out of the command output.
-        return Some(ParsedEffect {
-            updates: FactsUpdate::default(),
-            audit: build_audit(
-                effect_id,
-                cmd,
-                event,
-                ParseResult::Parsed,
-                "c2 listener deregistered via event bus",
-                0,
-            ),
-        });
-    }
-
-    if normalized.starts_with("c2.port-forward(") {
-        // Same shape as c2.listen: C2Event::RedirectorStarted creates the
-        // Redirector entity from the event bus (runtime.rs), so there is nothing
-        // to parse out of labctl's output.
-        return Some(ParsedEffect {
-            updates: FactsUpdate::default(),
-            audit: build_audit(
-                effect_id,
-                cmd,
-                event,
-                ParseResult::Parsed,
-                "c2 redirector registered via event bus",
-                0,
-            ),
-        });
-    }
-
-    if normalized.starts_with("c2.stop-port-forward(") {
-        // Symmetric to c2.port-forward: C2Event::RedirectorStopped drops the
-        // entity, so the command output carries no facts.
-        return Some(ParsedEffect {
-            updates: FactsUpdate::default(),
-            audit: build_audit(
-                effect_id,
-                cmd,
-                event,
-                ParseResult::Parsed,
-                "c2 redirector deregistered via event bus",
-                0,
-            ),
-        });
-    }
-
-    if normalized == "create k8s.pod"
-        || normalized == "namespace($ns)"
-        || normalized == "ns.contains($p2)"
-        || normalized.starts_with("created(")
-    {
+    if let OutputEffect::DeployContainer = declaration {
         let parser_output = parse_deploy_container_effect(&normalized, cmd);
         return match parser_output {
-            ParserOutput::SuccessWithFacts(facts, detail) => {
-                let facts_written = facts.new_entities.len() + facts.new_relations.len();
-                Some(ParsedEffect {
-                    updates: facts,
-                    audit: build_audit(
-                        effect_id,
-                        cmd,
-                        event,
-                        ParseResult::Parsed,
-                        &detail,
-                        facts_written,
-                    ),
-                })
-            }
-            ParserOutput::KnownFailure(detail) => Some(ParsedEffect {
-                updates: FactsUpdate::default(),
-                audit: build_audit(effect_id, cmd, event, ParseResult::KnownFailure, &detail, 0),
-            }),
+            ParserOutput::SuccessWithFacts(facts, detail) => Some(parsed_effect(
+                effect_id,
+                cmd,
+                event,
+                ParseResult::Parsed,
+                &detail,
+                facts,
+            )),
+            ParserOutput::KnownFailure(detail) => Some(parsed_effect(
+                effect_id,
+                cmd,
+                event,
+                ParseResult::KnownFailure,
+                &detail,
+                FactsUpdate::default(),
+            )),
             _ => None,
         };
     }
 
     let stdout = match event.results.first() {
         Some(s) => s.as_str(),
+        None if declaration.stdout_optional(effect_id) => "",
         None => {
-            // sys.has-binary with a literal path encodes everything in the effect ID itself;
-            // no stdout is needed. Let it fall through so the parser can record the binary.
-            if normalized.starts_with("sys.has-binary(") {
-                let inner = sys::extract_effect_args(effect_id).unwrap_or("");
-                let is_output =
-                    inner.eq_ignore_ascii_case("${output}") || inner.eq_ignore_ascii_case("output");
-                if !is_output {
-                    "" // literal path - proceed without stdout
-                } else {
-                    return Some(ParsedEffect {
-                        updates: FactsUpdate::default(),
-                        audit: build_audit(
-                            effect_id,
-                            cmd,
-                            event,
-                            ParseResult::KnownFailure,
-                            "missing stdout payload",
-                            0,
-                        ),
-                    });
-                }
-            } else {
-                // Only return early if there is actually a registered/known parser.
-                let is_known = normalized.starts_with("sys.hasfile(")
-                    || normalized == "file:content"
-                    || normalized.starts_with("file:content(")
-                    || normalized == "file:kubeconfig"
-                    || normalized == "file:local-kubeconfig"
-                    || normalized == "nmap"
-                    || normalized == "k8s.selfsubjectrulesreview"
-                    || normalized == "sys.node-name"
-                    || get_registry().contains_key(normalized.trim());
-                if !is_known {
-                    return None;
-                }
-                return Some(ParsedEffect {
-                    updates: FactsUpdate::default(),
-                    audit: build_audit(
-                        effect_id,
-                        cmd,
-                        event,
-                        ParseResult::KnownFailure,
-                        "missing stdout payload",
-                        0,
-                    ),
-                });
-            }
+            return Some(parsed_effect(
+                effect_id,
+                cmd,
+                event,
+                ParseResult::KnownFailure,
+                "missing stdout payload",
+                FactsUpdate::default(),
+            ))
         }
     };
     let stderr = event.results.get(1).map(String::as_str).unwrap_or("");
 
-    let parser_output: ParserOutput = if normalized.starts_with("sys.has-binary(") {
-        let inner = sys::extract_effect_args(effect_id).unwrap_or("");
-        sys::parse_sys_has_binary(stdout, inner)
-    } else if normalized.starts_with("sys.hasfile(") {
-        let path = sys::extract_effect_args(effect_id).unwrap_or("");
-        sys::parse_sys_hasfile(stdout, path)
-    } else if normalized == "nmap" {
-        let source_id = cmd
-            .args
-            .get("TARGET_ID")
-            .map(String::as_str)
-            .unwrap_or(&cmd.target_id);
-        let cidr = cmd.args.get("CIDR").map(String::as_str);
-        network::parse_nmap(stdout, source_id, cidr)
-    } else if normalized == "k8s.selfsubjectrulesreview" {
-        let namespace_arg = cmd.args.get("NS").map(String::as_str).unwrap_or("");
-        // When an exec system is selected, cmd.target_id is rewritten to the pod ID.
-        // TARGET_ID always holds the original logical target (SA entity) from the request.
-        let fallback_target = cmd
-            .args
-            .get("TARGET_ID")
-            .map(String::as_str)
-            .unwrap_or(&cmd.target_id);
-        iam::parse_self_subject_rules_review(
-            stdout,
-            stderr,
-            cmd.auth_identity_id.as_deref().unwrap_or(fallback_target),
-            namespace_arg,
-        )
-    } else if normalized == "file:content" || normalized.starts_with("file:content(") {
-        // Parametric effect: path is in the effect ID, not in args.
-        // Step 1: record the path in the target's system.files via apply_system_update.
-        let path = file::extract_path(effect_id)
-            .or_else(|| cmd.args.get("PATH").map(String::as_str))
-            .unwrap_or(effect_id);
-        let target_id_opt = resolve_target_id(campaign, cmd);
-        if let Some(ref tid) = target_id_opt {
-            use crate::external_parser::SystemFieldUpdates;
-            let _ = campaign.apply_system_update(
-                tid,
-                &SystemFieldUpdates {
-                    files: vec![path.to_string()],
-                    ..Default::default()
-                },
-            );
+    let mut system_updates = Vec::new();
+    let mut captured_files = Vec::new();
+    let mut file_content_target = None;
+
+    let parser_output = match declaration {
+        OutputEffect::SysHasBinary => {
+            let inner = sys::extract_effect_args(effect_id).unwrap_or("");
+            sys::parse_sys_has_binary(stdout, inner)
         }
-        // Step 2: store the raw content so it can be retrieved via /api/files.
-        if !stdout.trim().is_empty() {
-            campaign.store_file_content(path, stdout);
+        OutputEffect::SysHasFile => {
+            let path = sys::extract_effect_args(effect_id).unwrap_or("");
+            sys::parse_sys_hasfile(stdout, path)
         }
-        // Step 3: check for kubeconfig content and emit credential entity if found.
-        let source_id = target_id_opt.as_deref().unwrap_or("");
-        file::parse_file_content(stdout, path, source_id, &cmd.args)
-    } else if normalized == "file:kubeconfig" {
-        let source_id = resolve_target_id(campaign, cmd);
-        let source_path = cmd.args.get("PATH").map(String::as_str);
-        if let Some(path) = source_path.filter(|path| !path.trim().is_empty()) {
-            if !stdout.trim().is_empty() {
-                campaign.store_file_content(path, stdout);
+        OutputEffect::Nmap => {
+            let source_id = cmd
+                .args
+                .get("TARGET_ID")
+                .map(String::as_str)
+                .unwrap_or(&cmd.target_id);
+            let cidr = cmd.args.get("CIDR").map(String::as_str);
+            network::parse_nmap(stdout, source_id, cidr)
+        }
+        OutputEffect::SelfSubjectRulesReview => {
+            let namespace_arg = cmd.args.get("NS").map(String::as_str).unwrap_or("");
+            let fallback_target = cmd
+                .args
+                .get("TARGET_ID")
+                .map(String::as_str)
+                .unwrap_or(&cmd.target_id);
+            iam::parse_self_subject_rules_review(
+                stdout,
+                stderr,
+                cmd.auth_identity_id.as_deref().unwrap_or(fallback_target),
+                namespace_arg,
+            )
+        }
+        OutputEffect::FileContent => {
+            let path = file::extract_path(effect_id)
+                .or_else(|| cmd.args.get("PATH").map(String::as_str))
+                .unwrap_or(effect_id);
+            file_content_target = resolve_target_id(campaign, cmd);
+            if let Some(target_id) = &file_content_target {
+                system_updates.push(TargetedSystemUpdate {
+                    target_id: target_id.clone(),
+                    updates: SystemFieldUpdates {
+                        files: vec![path.to_string()],
+                        ..Default::default()
+                    },
+                    // The legacy dispatcher applied this bookkeeping update
+                    // before audit construction and did not count it.
+                    count_in_audit: false,
+                });
             }
-        }
-        file::parse_file_kubeconfig_from_path(
-            stdout,
-            source_id.as_deref().unwrap_or(""),
-            source_path,
-        )
-    } else if normalized == "file:local-kubeconfig" {
-        // Ran's own kubeconfig, read from the operator host. The target is the
-        // OperatorHost entity, which is not a SystemEntity, so pass its id
-        // directly rather than via resolve_target_id (which resolves only
-        // system entities).
-        //
-        // TODO(tech-debt): this second kubeconfig effect duplicates
-        // `file:kubeconfig`. Kubeconfig structure is always the same; the only
-        // real difference is that this one came from *outside* the cluster
-        // (Ran's operator host) vs in-cluster discovery. That local-vs-in-cluster
-        // distinction should be established via provenance (target/source is the
-        // operator host), not a separate effect + parser. Collapse into one
-        // parser driven by provenance and drop `parse_local_kubeconfig`.
-        let source_path = cmd.args.get("PATH").map(String::as_str);
-        if let Some(path) = source_path.filter(|path| !path.trim().is_empty()) {
             if !stdout.trim().is_empty() {
-                campaign.store_file_content(path, stdout);
+                captured_files.push(CapturedFile {
+                    path: path.to_string(),
+                    content: stdout.to_string(),
+                });
             }
+            file::parse_file_content(
+                stdout,
+                path,
+                file_content_target.as_deref().unwrap_or(""),
+                &cmd.args,
+            )
         }
-        file::parse_local_kubeconfig_from_path(stdout, &cmd.target_id, source_path)
-    } else if normalized == "sys.node-name" {
-        parse_sys_node_name(campaign, cmd, stdout)
-    } else if normalized == "rawserviceaccounttoken" {
-        // A source-side read can extract a token from a storage target such as
-        // Redis. In that case the JWT claims identify the discovered workload,
-        // while TARGET_ID identifies only the storage system. Do not use it for
-        // provisional identity reconciliation.
-        let mut parser_args = cmd.args.clone();
-        if cmd.procedure.run_on_target == Some(false) {
-            parser_args.remove("TARGET_ID");
+        OutputEffect::Kubeconfig(source) => {
+            let source_id = match source {
+                file::KubeconfigSource::RemoteSystem => resolve_target_id(campaign, cmd),
+                file::KubeconfigSource::OperatorHost => Some(cmd.target_id.clone()),
+            };
+            let source_path = cmd.args.get("PATH").map(String::as_str);
+            if let Some(path) = source_path.filter(|path| !path.trim().is_empty()) {
+                if !stdout.trim().is_empty() {
+                    captured_files.push(CapturedFile {
+                        path: path.to_string(),
+                        content: stdout.to_string(),
+                    });
+                }
+            }
+            file::parse_kubeconfig(
+                stdout,
+                source,
+                source_id.as_deref().unwrap_or(""),
+                source_path,
+            )
         }
-        iam::parse_raw_service_account_token(stdout, stderr, &parser_args)
-    } else {
-        let parser = get_registry().get(normalized.trim())?;
-        parser(stdout, stderr, &cmd.args)
+        OutputEffect::SysNodeName => parse_sys_node_name(campaign, cmd, stdout),
+        OutputEffect::RawServiceAccountToken => {
+            let mut parser_args = cmd.args.clone();
+            if cmd.procedure.run_on_target == Some(false) {
+                parser_args.remove("TARGET_ID");
+            }
+            iam::parse_raw_service_account_token(stdout, stderr, &parser_args)
+        }
+        OutputEffect::Registered(parser) => parser(stdout, stderr, &cmd.args),
+        OutputEffect::Event(_) | OutputEffect::DeployContainer => unreachable!(),
     };
 
-    match parser_output {
-        ParserOutput::KnownFailure(detail) => Some(ParsedEffect {
-            updates: FactsUpdate::default(),
-            audit: build_audit(effect_id, cmd, event, ParseResult::KnownFailure, &detail, 0),
-        }),
-        ParserOutput::UnknownFormat(detail) => Some(ParsedEffect {
-            updates: FactsUpdate::default(),
-            audit: build_audit(
-                effect_id,
-                cmd,
-                event,
-                ParseResult::UnknownFormat,
-                &detail,
-                0,
-            ),
-        }),
+    let mut parsed = match parser_output {
+        ParserOutput::KnownFailure(detail) => parsed_effect(
+            effect_id,
+            cmd,
+            event,
+            ParseResult::KnownFailure,
+            &detail,
+            FactsUpdate::default(),
+        ),
+        ParserOutput::UnknownFormat(detail) => parsed_effect(
+            effect_id,
+            cmd,
+            event,
+            ParseResult::UnknownFormat,
+            &detail,
+            FactsUpdate::default(),
+        ),
         ParserOutput::SuccessWithFacts(facts, detail) => {
             let mut facts = facts;
             if normalized.starts_with("k8s.") {
                 attach_discovered_namespaces_to_command_cluster(campaign, cmd, &mut facts);
             }
-            let facts_written = facts.new_entities.len() + facts.new_relations.len();
-            Some(ParsedEffect {
-                updates: facts,
-                audit: build_audit(
-                    effect_id,
-                    cmd,
-                    event,
-                    ParseResult::Parsed,
-                    &detail,
-                    facts_written,
-                ),
-            })
+            parsed_effect(effect_id, cmd, event, ParseResult::Parsed, &detail, facts)
         }
         ParserOutput::Success(updates, detail) => {
-            let target_id = resolve_target_id(campaign, cmd);
+            let target_id = file_content_target.or_else(|| resolve_target_id(campaign, cmd));
             let Some(target_id) = target_id else {
-                return Some(ParsedEffect {
-                    updates: FactsUpdate::default(),
-                    audit: build_audit(
-                        effect_id,
-                        cmd,
-                        event,
-                        ParseResult::KnownFailure,
-                        "target is not a system entity (checked target_id and exec_system_id)",
-                        0,
-                    ),
-                });
-            };
-            let facts_written = campaign
-                .apply_system_update(&target_id, &updates)
-                .unwrap_or(0);
-            Some(ParsedEffect {
-                updates: FactsUpdate::default(),
-                audit: build_audit(
+                return Some(parsed_effect(
                     effect_id,
                     cmd,
                     event,
-                    ParseResult::Parsed,
-                    &detail,
-                    facts_written,
-                ),
-            })
+                    ParseResult::KnownFailure,
+                    "target is not a system entity (checked target_id and exec_system_id)",
+                    FactsUpdate::default(),
+                ));
+            };
+            if !matches!(declaration, OutputEffect::FileContent) {
+                system_updates.push(TargetedSystemUpdate {
+                    target_id,
+                    updates,
+                    count_in_audit: true,
+                });
+            }
+            parsed_effect(
+                effect_id,
+                cmd,
+                event,
+                ParseResult::Parsed,
+                &detail,
+                FactsUpdate::default(),
+            )
         }
-    }
+    };
+    parsed.system_updates = system_updates;
+    parsed.captured_files = captured_files;
+    Some(parsed)
 }
 
 /// Preserve the Kubernetes API-server attribution of resources discovered by
@@ -970,18 +887,61 @@ mod tests {
         }
     }
 
+    fn parse_and_apply_output_effect(
+        campaign: &mut Campaign,
+        effect_id: &str,
+        cmd: &ExecTtp,
+        event: &TtpExecuted,
+    ) -> Option<ParsedEffect> {
+        let mut parsed = parse_output_effect(campaign, effect_id, cmd, event)?;
+        campaign.apply_parsed_effect(&mut parsed);
+        Some(parsed)
+    }
+
     #[test]
     fn parse_output_effect_returns_unknown_when_fixture_is_malformed() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let cmd = sample_cmd();
         let event = sample_event(vec!["not-an-env-line\njusttext".to_string()]);
 
-        let parsed = parse_output_effect(&mut campaign, "sys.envvar", &cmd, &event).unwrap();
+        let parsed =
+            parse_and_apply_output_effect(&mut campaign, "sys.envvar", &cmd, &event).unwrap();
 
         assert!(matches!(
             parsed.audit.parse_result,
             ParseResult::UnknownFormat
         ));
+    }
+
+    #[test]
+    fn parse_output_effect_is_side_effect_free_until_applied() {
+        let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
+        campaign.entities.insert_typed(Pod::new("demo", "default"));
+        let cmd = sample_cmd();
+        let event = sample_event(vec!["HOME=/root".to_string()]);
+
+        let mut parsed = parse_output_effect(&campaign, "sys.envvar", &cmd, &event).unwrap();
+
+        assert_eq!(parsed.system_updates.len(), 1);
+        assert!(campaign
+            .get_system_entity("ns/default/pod/demo")
+            .unwrap()
+            .entity()
+            .system()
+            .env_vars
+            .is_empty());
+
+        campaign.apply_parsed_effect(&mut parsed);
+        assert_eq!(
+            campaign
+                .get_system_entity("ns/default/pod/demo")
+                .unwrap()
+                .entity()
+                .system()
+                .env_vars
+                .get("HOME"),
+            Some(&"/root".to_string())
+        );
     }
 
     #[test]
@@ -1009,7 +969,7 @@ users:
 "#;
         let event = sample_event(vec![kubeconfig.to_string()]);
 
-        let parsed = parse_output_effect(&mut campaign, "file:content", &cmd, &event)
+        let parsed = parse_and_apply_output_effect(&mut campaign, "file:content", &cmd, &event)
             .expect("bare file effect should be recognized");
 
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
@@ -1051,7 +1011,7 @@ users:
 "#;
         let event = sample_event(vec![kubeconfig.to_string()]);
 
-        let parsed = parse_output_effect(&mut campaign, "file:kubeconfig", &cmd, &event)
+        let parsed = parse_and_apply_output_effect(&mut campaign, "file:kubeconfig", &cmd, &event)
             .expect("kubeconfig effect should be recognized");
 
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
@@ -1097,7 +1057,7 @@ users:
             ]
         }"#.to_string()]);
 
-        let parsed = parse_output_effect(&mut campaign, "k8s.podlist", &cmd, &event)
+        let parsed = parse_and_apply_output_effect(&mut campaign, "k8s.podlist", &cmd, &event)
             .expect("pod list parser should run");
         let contains: Vec<_> = parsed
             .updates
@@ -1127,7 +1087,7 @@ users:
         let cmd = sample_cmd();
         let event = sample_event(vec!["HOME=/root\nPATH=/usr/bin".to_string()]);
 
-        let parsed = parse_output_effect(&mut campaign, "sys.envVar", &cmd, &event)
+        let parsed = parse_and_apply_output_effect(&mut campaign, "sys.envVar", &cmd, &event)
             .expect("mixed-case effect should resolve parser");
 
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
@@ -1145,7 +1105,8 @@ users:
             "warning: something noisy".to_string(),
         ]);
 
-        let parsed = parse_output_effect(&mut campaign, "sys.envvar", &cmd, &event).unwrap();
+        let parsed =
+            parse_and_apply_output_effect(&mut campaign, "sys.envvar", &cmd, &event).unwrap();
 
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
         assert!(parsed.audit.detail.contains("stderr had non-fatal content"));
@@ -1163,7 +1124,8 @@ users:
 
         let event = sample_event(vec!["HOME=/root\nPATH=/usr/bin".to_string()]);
 
-        let parsed = parse_output_effect(&mut campaign, "sys.envvar", &cmd, &event).unwrap();
+        let parsed =
+            parse_and_apply_output_effect(&mut campaign, "sys.envvar", &cmd, &event).unwrap();
 
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
 
@@ -1350,7 +1312,7 @@ users:
         // Empty results simulates the tool being absent (exit non-zero / no stdout).
         let event = sample_event(vec![]);
 
-        let parsed = parse_output_effect(
+        let parsed = parse_and_apply_output_effect(
             &mut campaign,
             "sys.has-binary(/usr/bin/redis-cli)",
             &cmd,
@@ -1390,7 +1352,7 @@ users:
         cmd.ttp.effects = vec!["sys.ip".to_string()];
         let event = sample_event(vec![]);
 
-        let parsed = parse_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
+        let parsed = parse_and_apply_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
 
         assert!(matches!(
             parsed.audit.parse_result,
@@ -1405,7 +1367,7 @@ users:
         cmd.ttp.effects = vec!["sys.ip".to_string()];
         let event = sample_event(vec!["not-an-ip-at-all".to_string()]);
 
-        let parsed = parse_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
+        let parsed = parse_and_apply_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
 
         assert!(matches!(
             parsed.audit.parse_result,
@@ -1423,7 +1385,7 @@ users:
         cmd.ttp.effects = vec!["sys.ip".to_string()];
         let event = sample_event(vec!["10.0.0.1 172.16.0.5".to_string()]);
 
-        let parsed = parse_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
+        let parsed = parse_and_apply_output_effect(&mut campaign, "sys.ip", &cmd, &event).unwrap();
 
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
 
@@ -1446,7 +1408,8 @@ users:
         cmd.ttp.effects = vec!["sys.userID".to_string()];
         let event = sample_event(vec!["uid=0(root) gid=0(root) groups=0(root)".to_string()]);
 
-        let parsed = parse_output_effect(&mut campaign, "sys.userid", &cmd, &event).unwrap();
+        let parsed =
+            parse_and_apply_output_effect(&mut campaign, "sys.userid", &cmd, &event).unwrap();
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
 
         let sys = campaign
@@ -1470,7 +1433,8 @@ users:
         let stdout = "sysfs on /sys type sysfs (rw)\n/dev/sda1 on / type ext4 (rw)\n".to_string();
         let event = sample_event(vec![stdout]);
 
-        let parsed = parse_output_effect(&mut campaign, "linux.mounts", &cmd, &event).unwrap();
+        let parsed =
+            parse_and_apply_output_effect(&mut campaign, "linux.mounts", &cmd, &event).unwrap();
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
 
         let sys = campaign
@@ -1493,7 +1457,8 @@ users:
         cmd.ttp.effects = vec!["linux.mounts".to_string()];
         let event = sample_event(vec!["/dev/sda1 on / type ext4 (rw)".to_string()]);
 
-        let parsed = parse_output_effect(&mut campaign, "linux.mounts", &cmd, &event).unwrap();
+        let parsed =
+            parse_and_apply_output_effect(&mut campaign, "linux.mounts", &cmd, &event).unwrap();
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
 
         let sys = campaign
@@ -1518,7 +1483,8 @@ users:
             .to_string();
         let event = sample_event(vec![stdout]);
 
-        let parsed = parse_output_effect(&mut campaign, "sys.processes", &cmd, &event).unwrap();
+        let parsed =
+            parse_and_apply_output_effect(&mut campaign, "sys.processes", &cmd, &event).unwrap();
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
 
         let sys = campaign
@@ -1542,9 +1508,13 @@ users:
         let event = sample_event(vec![String::new()]);
 
         // effect_id is the (already ground-template-substituted) string
-        let parsed =
-            parse_output_effect(&mut campaign, "sys.has-binary(/usr/bin/curl)", &cmd, &event)
-                .unwrap();
+        let parsed = parse_and_apply_output_effect(
+            &mut campaign,
+            "sys.has-binary(/usr/bin/curl)",
+            &cmd,
+            &event,
+        )
+        .unwrap();
         assert!(matches!(parsed.audit.parse_result, ParseResult::Parsed));
 
         let sys = campaign
@@ -1572,9 +1542,13 @@ users:
         // No stdout at all - empty results vec
         let event = sample_event(vec![]);
 
-        let parsed =
-            parse_output_effect(&mut campaign, "sys.has-binary(/tmp/ran-ws)", &cmd, &event)
-                .unwrap();
+        let parsed = parse_and_apply_output_effect(
+            &mut campaign,
+            "sys.has-binary(/tmp/ran-ws)",
+            &cmd,
+            &event,
+        )
+        .unwrap();
         assert!(
             matches!(parsed.audit.parse_result, ParseResult::Parsed),
             "expected Parsed, got {:?}: {}",

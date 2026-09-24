@@ -19,7 +19,9 @@ use crate::failure_analyzers::{
 use crate::grounding::{
     detect_ungrounded_vars, ground_args_from_context, ground_entity_ref_vars, resolve_template,
 };
-use crate::output_parsers::{build_no_parser_audit, build_parse_audit, parse_output_effect};
+use crate::output_parsers::{
+    build_no_parser_audit, build_parse_audit, parse_output_effect, ParsedEffect,
+};
 use crate::rules::run_rules_fixpoint;
 use crate::shell_cmd::ground_binaries;
 use crate::{FactsUpdate, ParseResult};
@@ -2531,6 +2533,22 @@ impl Campaign {
         }
     }
 
+    /// Apply the non-graph writes described by a parsed effect. Graph facts
+    /// remain in `ParsedEffect::updates` so this pipeline can merge them, run
+    /// the inference fixpoint, and commit them as one batch.
+    pub(crate) fn apply_parsed_effect(&mut self, parsed: &mut ParsedEffect) {
+        for file in parsed.captured_files.drain(..) {
+            self.store_file_content(file.path, file.content);
+        }
+        for update in parsed.system_updates.drain(..) {
+            if let Ok(written) = self.apply_system_update(&update.target_id, &update.updates) {
+                if update.count_in_audit {
+                    parsed.audit.inferred_facts_written += written;
+                }
+            }
+        }
+    }
+
     pub fn on_ttp_executed(
         &mut self,
         cmd: &ExecTtp,
@@ -2745,7 +2763,8 @@ impl Campaign {
         }
 
         for effect in &cmd.ttp.effects {
-            if let Some(parsed_output) = parse_output_effect(self, effect, cmd, event) {
+            if let Some(mut parsed_output) = parse_output_effect(self, effect, cmd, event) {
+                self.apply_parsed_effect(&mut parsed_output);
                 updates.merge(parsed_output.updates);
                 parse_audits.push(parsed_output.audit);
                 continue;

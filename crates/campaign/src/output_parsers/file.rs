@@ -138,67 +138,81 @@ fn non_empty(value: &str) -> Option<&str> {
 // Public parser entry points (called from parse_output_effect with source_id)
 // ---------------------------------------------------------------------------
 
-/// Parse kubeconfig YAML and emit every context as a `K8sCredential`, the
-/// referenced clusters, and the relations between the source, credentials,
-/// clusters, and default namespaces.
-///
-/// Called for both `file:kubeconfig` (explicit) and the kubeconfig branch of
-/// `file:content(...)`.
-///
-/// Returns:
-/// - `SuccessWithFacts` - credential and cluster facts emitted
-/// - `KnownFailure` - empty content
-/// - `UnknownFormat` - non-empty content that fails YAML parsing or has no cluster entry
-#[cfg(test)]
-pub(super) fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
-    parse_file_kubeconfig_from_path(stdout, source_id, None)
+/// Where kubeconfig bytes came from. The YAML format is identical, while the
+/// application policy controls active identity state and the source relation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum KubeconfigSource {
+    RemoteSystem,
+    OperatorHost,
 }
 
-pub(super) fn parse_file_kubeconfig_from_path(
+/// Parse kubeconfig YAML once, then apply the explicit source policy while
+/// constructing graph facts.
+pub(super) fn parse_kubeconfig(
     stdout: &str,
+    source: KubeconfigSource,
     source_id: &str,
     source_path: Option<&str>,
 ) -> ParserOutput {
     if stdout.trim().is_empty() {
-        return ParserOutput::KnownFailure("empty stdout for file:kubeconfig".to_string());
+        let effect = match source {
+            KubeconfigSource::RemoteSystem => "file:kubeconfig",
+            KubeconfigSource::OperatorHost => "file:local-kubeconfig",
+        };
+        return ParserOutput::KnownFailure(format!("empty stdout for {effect}"));
     }
 
     let contexts = match k8s::resolve_all_kubeconfig_contexts_yaml(stdout) {
         Ok(contexts) if !contexts.is_empty() => contexts,
         _ => {
-            return ParserOutput::UnknownFormat(
-                "could not resolve any context from kubeconfig YAML".to_string(),
-            )
+            let qualifier = match source {
+                KubeconfigSource::RemoteSystem => "",
+                KubeconfigSource::OperatorHost => "local ",
+            };
+            return ParserOutput::UnknownFormat(format!(
+                "could not resolve any context from {qualifier}kubeconfig YAML"
+            ));
         }
     };
 
     let mut facts = FactsUpdate::default();
     let mut emitted_clusters = HashSet::new();
     let mut emitted_namespaces = HashSet::new();
-    let mut labels = Vec::new();
+    let mut credential_labels = Vec::new();
+
     for resolved in &contexts {
-        let credential = credential_from_resolved(resolved, source_path);
-        let credential_id = credential.entity_id().0;
-        labels.push(credential.entity_name().to_string());
-        facts.new_entities.push(Box::new(credential));
+        let mut cred = credential_from_resolved(resolved, source_path);
+        cred.active = source == KubeconfigSource::OperatorHost && resolved.is_current_context;
+        let cred_id = cred.entity_id().0;
+        credential_labels.push(format!(
+            "{}{}",
+            cred.entity_name(),
+            if cred.active { " (active)" } else { "" }
+        ));
 
         let mut cluster = K8sCluster::new(&resolved.cluster_name);
         cluster.context_name = Some(resolved.context_name.clone());
         cluster.tls_server_name = resolved.tls_server_name.clone();
         cluster.server = resolved.server.clone().filter(|server| !server.is_empty());
         let cluster_id = cluster.entity_id().0;
+
+        facts.new_entities.push(Box::new(cred));
         if emitted_clusters.insert(cluster_id.clone()) {
             facts.new_entities.push(Box::new(cluster));
         }
         facts.new_relations.push(Box::new(AuthenticatesTo::new(
-            credential_id.clone(),
+            cred_id.clone(),
             cluster_id.clone(),
         )));
-
         if !source_id.is_empty() {
-            facts
-                .new_relations
-                .push(Box::new(Uses::new(source_id, credential_id)));
+            match source {
+                KubeconfigSource::RemoteSystem => facts
+                    .new_relations
+                    .push(Box::new(Uses::new(source_id, cred_id))),
+                KubeconfigSource::OperatorHost => facts
+                    .new_relations
+                    .push(Box::new(Contains::new(source_id, cred_id))),
+            }
         }
         if let Some(namespace_name) = &resolved.default_namespace {
             let namespace = Namespace::new(namespace_name);
@@ -212,126 +226,33 @@ pub(super) fn parse_file_kubeconfig_from_path(
         }
     }
 
-    let detail = format!(
-        "extracted {} kubeconfig context(s) across {} cluster(s): {}",
-        contexts.len(),
-        emitted_clusters.len(),
-        labels.join(", ")
-    );
-
-    ParserOutput::SuccessWithFacts(facts, detail)
-}
-
-/// Parse the kubeconfig read from the machine running Ran and emit **every**
-/// context it defines as a switchable Kubernetes identity.
-///
-/// Unlike [`parse_file_kubeconfig`] (which records a single knowledge-only
-/// credential discovered on some remote system), this reproduces the graph
-/// shape Ran used to seed at bootstrap, for each context:
-/// - a `K8sCredential`, `active = true` only for the kubeconfig's current
-///   context; the others are known-but-inactive identities the operator can
-///   switch to via Authenticate As
-/// - the `K8sCluster` it authenticates to (deduplicated by entity id)
-/// - `AuthenticatesTo(credential → cluster)`
-/// - `Contains(source_id → credential)` where `source_id` is the operator host
-/// - when the context declares a default namespace, the `Namespace` entity and
-///   `Contains(cluster → namespace)`
-///
-/// `source_id` is the operator-host entity (`system/operator-host`). When empty
-/// the containment relation is skipped.
-///
-/// TODO(tech-debt): this duplicates most of [`parse_file_kubeconfig`]. Kubeconfig
-/// parsing is format-invariant - the API server and user identity are inferred
-/// the same way regardless of origin. The only real distinction (local/active
-/// vs in-cluster discovery) is a *provenance* concern and should drive `active`
-/// and cluster-graph emission from a single parser, rather than being encoded as
-/// a separate effect + function. See memory
-/// `project_kubeconfig_effect_provenance_debt`.
-///
-/// Returns:
-/// - `SuccessWithFacts` - one credential per context, clusters, and relations
-/// - `KnownFailure` - empty content
-/// - `UnknownFormat` - non-empty content with no resolvable context
-#[cfg(test)]
-pub(super) fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
-    parse_local_kubeconfig_from_path(stdout, source_id, None)
-}
-
-pub(super) fn parse_local_kubeconfig_from_path(
-    stdout: &str,
-    source_id: &str,
-    source_path: Option<&str>,
-) -> ParserOutput {
-    if stdout.trim().is_empty() {
-        return ParserOutput::KnownFailure("empty stdout for file:local-kubeconfig".to_string());
-    }
-
-    let contexts = match k8s::resolve_all_kubeconfig_contexts_yaml(stdout) {
-        Ok(contexts) if !contexts.is_empty() => contexts,
-        _ => {
-            return ParserOutput::UnknownFormat(
-                "could not resolve any context from local kubeconfig YAML".to_string(),
-            )
-        }
+    let detail = match source {
+        KubeconfigSource::RemoteSystem => format!(
+            "extracted {} kubeconfig context(s) across {} cluster(s): {}",
+            contexts.len(),
+            emitted_clusters.len(),
+            credential_labels.join(", ")
+        ),
+        KubeconfigSource::OperatorHost => format!(
+            "established {} local kubeconfig identit{} across {} cluster(s): {}",
+            contexts.len(),
+            if contexts.len() == 1 { "y" } else { "ies" },
+            emitted_clusters.len(),
+            credential_labels.join(", "),
+        ),
     };
 
-    let mut facts = FactsUpdate::default();
-    let mut emitted_clusters: HashSet<String> = HashSet::new();
-    let mut emitted_namespaces: HashSet<String> = HashSet::new();
-    let mut credential_labels: Vec<String> = Vec::new();
-
-    for resolved in &contexts {
-        let mut cred = credential_from_resolved(resolved, source_path);
-        cred.active = resolved.is_current_context;
-        let cred_id = cred.entity_id().0.clone();
-        credential_labels.push(format!(
-            "{}{}",
-            cred.entity_name(),
-            if cred.active { " (active)" } else { "" }
-        ));
-
-        let mut cluster = K8sCluster::new(&resolved.cluster_name);
-        cluster.context_name = Some(resolved.context_name.clone());
-        cluster.tls_server_name = resolved.tls_server_name.clone();
-        if let Some(server) = resolved.server.clone().filter(|s| !s.is_empty()) {
-            cluster.server = Some(server);
-        }
-        let cluster_id = cluster.entity_id().0.clone();
-
-        facts.new_entities.push(Box::new(cred));
-        if emitted_clusters.insert(cluster_id.clone()) {
-            facts.new_entities.push(Box::new(cluster));
-        }
-        facts.new_relations.push(Box::new(AuthenticatesTo::new(
-            cred_id.clone(),
-            cluster_id.clone(),
-        )));
-        if !source_id.is_empty() {
-            facts
-                .new_relations
-                .push(Box::new(Contains::new(source_id, cred_id)));
-        }
-        if let Some(namespace_name) = resolved.default_namespace.clone() {
-            let namespace = Namespace::new(namespace_name);
-            let namespace_id = namespace.entity_id().0.clone();
-            if emitted_namespaces.insert(namespace_id.clone()) {
-                facts.new_entities.push(Box::new(namespace));
-            }
-            facts
-                .new_relations
-                .push(Box::new(Contains::new(cluster_id, namespace_id)));
-        }
-    }
-
-    let detail = format!(
-        "established {} local kubeconfig identit{} across {} cluster(s): {}",
-        contexts.len(),
-        if contexts.len() == 1 { "y" } else { "ies" },
-        emitted_clusters.len(),
-        credential_labels.join(", "),
-    );
-
     ParserOutput::SuccessWithFacts(facts, detail)
+}
+
+#[cfg(test)]
+fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
+    parse_kubeconfig(stdout, KubeconfigSource::RemoteSystem, source_id, None)
+}
+
+#[cfg(test)]
+fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
+    parse_kubeconfig(stdout, KubeconfigSource::OperatorHost, source_id, None)
 }
 
 /// Parse a `file:content(path)` effect.
@@ -357,9 +278,14 @@ pub(super) fn parse_file_content(
 
     if is_kubeconfig_content(stdout) {
         // Delegate to the kubeconfig parser - it emits the credential entity.
-        // The file path is tracked by the caller in parse_output_effect via
-        // apply_system_update before calling us.
-        parse_file_kubeconfig_from_path(stdout, source_id, Some(path))
+        // The dispatcher records the file path in the application plan before
+        // calling this pure content parser.
+        parse_kubeconfig(
+            stdout,
+            KubeconfigSource::RemoteSystem,
+            source_id,
+            Some(path),
+        )
     } else if is_k8s_service_account_token(stdout) {
         let mut parser_args = args.clone();
         parser_args.remove("TARGET_ID");
