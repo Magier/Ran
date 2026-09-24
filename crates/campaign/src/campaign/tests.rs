@@ -3871,7 +3871,7 @@ fn src_mount_path_grounded_for_non_lateral_ttp() {
             options: vec![],
         }],
         procedures: vec![Procedure::new("grep", "grep -r ${MOUNT_PATH}")],
-        ..Ttp::new("scan-node", "Search interesting Files", "Discovery")
+        ..Ttp::new("scan-node", "Search kubeconfig files", "Discovery")
     }]);
 
     let exec = campaign
@@ -4312,16 +4312,23 @@ fn repository_armory() -> Armory {
 }
 
 #[test]
-fn search_interesting_files_uses_configurable_busybox_compatible_exclusions() {
+fn search_kubeconfig_files_uses_configurable_busybox_compatible_exclusions() {
     let armory = repository_armory();
     let ttp = armory
-        .get_ttp("search-interesting-files")
-        .expect("Search interesting Files TTP");
+        .get_ttp("search-kubeconfig-files")
+        .expect("Search kubeconfig files TTP");
     let excluded_dirs = ttp
         .params
         .iter()
         .find(|param| param.name == "EXCLUDED_DIRS")
         .expect("configurable directory exclusion parameter");
+    let mount_path = ttp
+        .params
+        .iter()
+        .find(|param| param.name == "MOUNT_PATH")
+        .expect("optional search root parameter");
+    assert!(!mount_path.required);
+    assert_eq!(mount_path.default, "/");
     assert_eq!(excluded_dirs.param_type, "stringList");
     assert_eq!(excluded_dirs.default, r#"["proc","sys","dev"]"#);
 
@@ -4332,23 +4339,33 @@ fn search_interesting_files_uses_configurable_busybox_compatible_exclusions() {
         .collect();
     let command = crate::grounding::resolve_template(&ttp.procedures[0].command, &args);
 
+    assert!(command.starts_with(
+        "root=/; [ -n \"$root\" ] || root=/; prefix=$(dirname \"$root/.\"); [ \"$prefix\" = / ] && prefix=\"\"; find \"$root\" "
+    ));
     assert!(!command.contains("--exclude-dir"));
     for directory in ["proc", "sys", "dev"] {
         assert!(
-            command.contains(&format!("-type d -name '{directory}' -prune -o")),
+            command.contains(&format!("-type d -path \"$prefix/{directory}\" -prune -o")),
             "default exclusion should be rendered for {directory}: {command}"
         );
     }
     assert!(command.ends_with("-type f -exec grep -swIl -e '${PATTERN}' {} \\;"));
+
+    args.insert("MOUNT_PATH".to_string(), String::new());
+    let command = crate::grounding::resolve_template(&ttp.procedures[0].command, &args);
+    assert!(
+        command.starts_with("root=''; [ -n \"$root\" ] || root=/;"),
+        "an empty search root must fall back to the local filesystem root: {command}"
+    );
 
     args.insert(
         "EXCLUDED_DIRS".to_string(),
         r#"["tmp","cache"]"#.to_string(),
     );
     let command = crate::grounding::resolve_template(&ttp.procedures[0].command, &args);
-    assert!(command.contains("-type d -name 'tmp' -prune -o"));
-    assert!(command.contains("-type d -name 'cache' -prune -o"));
-    assert!(!command.contains("-name 'proc'"));
+    assert!(command.contains("-type d -path \"$prefix/tmp\" -prune -o"));
+    assert!(command.contains("-type d -path \"$prefix/cache\" -prune -o"));
+    assert!(!command.contains("$prefix/proc"));
 }
 
 #[test]
