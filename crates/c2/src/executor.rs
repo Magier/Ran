@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -423,10 +422,9 @@ impl C2Manager {
         // The builtin C2 backend routes commands through pod-exec, which needs
         // a live Kubernetes client. Without one (e.g. startup could not
         // authenticate to the cluster's current context) we register a stub
-        // that fails every command with a clear reason. Control commands like
-        // c2.read_local_kubeconfig are dispatched by the executor before it
-        // consults the backend, so those still work - which is the whole point
-        // of degrading here rather than aborting startup.
+        // that fails every command with a clear reason. Procedures marked
+        // `isLocal` are dispatched before backend selection, so they remain
+        // available even when cluster authentication is unavailable.
         let builtin: Arc<dyn C2Backend> = match k8s.clone() {
             Some(client) => Arc::new(BuiltinC2::new(client)),
             None => Arc::new(NoClientBackend),
@@ -596,9 +594,6 @@ impl C2Executor {
 
     async fn execute_command(&self, cmd: &ExecTtp, output: OutputSink) -> TtpExecuted {
         match &cmd.operation {
-            ExecutionOperation::ReadLocalKubeconfig { path } => {
-                self.read_local_kubeconfig(cmd, path.clone())
-            }
             ExecutionOperation::SelfSubjectRulesReview { namespace } => {
                 let Some(k8s) = self.client_for(cmd.auth_identity_id.as_deref()).await else {
                     return failed_result(cmd, "no active Kubernetes client configured");
@@ -878,38 +873,6 @@ impl C2Executor {
                 fail_reason: reason,
                 session_connected: None,
             }
-        }
-    }
-
-    /// Read the kubeconfig from the machine running Ran and return its contents
-    /// as stdout. This is a local filesystem read on the operator host - it does
-    /// not touch the cluster. The path is, in order of preference: the explicit
-    /// `PATH` argument, the path the active client was configured with, then the
-    /// default kubeconfig location.
-    fn read_local_kubeconfig(&self, cmd: &ExecTtp, explicit_path: Option<String>) -> TtpExecuted {
-        let path = explicit_path
-            .filter(|value| !value.trim().is_empty())
-            .map(PathBuf::from)
-            .or_else(|| {
-                self.k8s
-                    .as_ref()
-                    .and_then(|k8s| k8s.kubeconfig_path().map(Path::to_path_buf))
-            })
-            .unwrap_or_else(k8s::default_kubeconfig_path);
-
-        match std::fs::read_to_string(&path) {
-            Ok(contents) => TtpExecuted {
-                id: cmd.id.clone(),
-                success: true,
-                results: vec![contents],
-                exit_code: 0,
-                fail_reason: String::new(),
-                session_connected: None,
-            },
-            Err(error) => failed_result(
-                cmd,
-                &format!("failed to read kubeconfig at {}: {error}", path.display()),
-            ),
         }
     }
 

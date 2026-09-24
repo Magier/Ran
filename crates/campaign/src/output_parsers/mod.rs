@@ -236,11 +236,8 @@ pub fn parse_output_effect(
                 &cmd.args,
             )
         }
-        OutputEffect::Kubeconfig(source) => {
-            let source_id = match source {
-                file::KubeconfigSource::RemoteSystem => resolve_target_id(campaign, cmd),
-                file::KubeconfigSource::OperatorHost => Some(cmd.target_id.clone()),
-            };
+        OutputEffect::Kubeconfig => {
+            let source_id = resolve_target_id(campaign, cmd);
             let source_path = cmd.args.get("PATH").map(String::as_str);
             if let Some(path) = source_path.filter(|path| !path.trim().is_empty()) {
                 if !stdout.trim().is_empty() {
@@ -250,12 +247,7 @@ pub fn parse_output_effect(
                     });
                 }
             }
-            file::parse_kubeconfig(
-                stdout,
-                source,
-                source_id.as_deref().unwrap_or(""),
-                source_path,
-            )
+            file::parse_kubeconfig(stdout, source_id.as_deref().unwrap_or(""), source_path)
         }
         OutputEffect::SysNodeName => parse_sys_node_name(campaign, cmd, stdout),
         OutputEffect::RawServiceAccountToken => {
@@ -985,9 +977,11 @@ users:
     }
 
     #[test]
-    fn explicit_kubeconfig_effect_retains_raw_file_content() {
+    fn kubeconfig_effect_uses_operator_host_provenance() {
         let mut campaign = Campaign::bootstrap("Ran", ran_domain::K8sCluster::new("dev"));
         let mut cmd = sample_cmd();
+        cmd.target_id = "system/operator-host".to_string();
+        cmd.exec_chain.clear();
         cmd.args.insert(
             "PATH".to_string(),
             "/etc/kubernetes/super-admin.conf".to_string(),
@@ -1025,11 +1019,21 @@ users:
             .iter()
             .find_map(|entity| entity.as_any().downcast_ref::<K8sCredential>())
             .expect("credential entity");
+        assert!(credential.active);
         assert_eq!(credential.entity_name(), "super-admin.conf (default)");
         assert_eq!(
             credential.source_path.as_deref(),
             Some("/etc/kubernetes/super-admin.conf")
         );
+        assert!(parsed.updates.new_relations.iter().any(|relation| {
+            relation
+                .as_any()
+                .downcast_ref::<Contains>()
+                .is_some_and(|contains| {
+                    contains.source_id().0 == "system/operator-host"
+                        && contains.target_id().0 == credential.entity_id().0
+                })
+        }));
     }
 
     #[test]

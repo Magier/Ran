@@ -15,7 +15,7 @@ pub use entities::{
     K8sIngressPath, K8sIngressRule, K8sIngressTLS, K8sNode, K8sParentRef, K8sRole, K8sRoleBinding,
     K8sSecret, K8sService, K8sServicePort, Listener, Merge, Namespace, OperatorHost, Pod, PodPhase,
     PodSecurityAdmission, PssLevel, RbacSubject, Redirector, ReplicaSet, ServiceAccount,
-    StatefulSet, SystemEntity, Transport, UnknownSystem,
+    StatefulSet, SystemEntity, Transport, UnknownSystem, OPERATOR_HOST_ID,
 };
 pub use identity::{JwToken, ServiceAccountToken};
 pub use rbac::{RbacPermission, RbacScopeKind, RbacScopeSource};

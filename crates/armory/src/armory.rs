@@ -113,6 +113,11 @@ impl Armory {
         self.ttps.iter().find(|ttp| ttp.id == id)
     }
 
+    /// Find a TTP by ID for application-provided defaults or status updates.
+    pub fn get_ttp_mut(&mut self, id: &str) -> Option<&mut Ttp> {
+        self.ttps.iter_mut().find(|ttp| ttp.id == id)
+    }
+
     /// Find a tool TTP by its ID (e.g. `"curl"`, `"wget"`).
     /// Only returns TTPs that declare a `tool_slot`.
     pub fn get_tool_ttp(&self, id: &str) -> Option<&Ttp> {
@@ -908,6 +913,21 @@ mod tests {
             "disabled"
         );
         assert_ne!(armory.get_ttp("custom-action").unwrap().status, "disabled");
+    }
+
+    #[test]
+    fn local_kubeconfig_read_uses_the_generic_local_shell_procedure() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+
+        let ttp = armory
+            .get_ttp("read-local-kubeconfig")
+            .expect("local kubeconfig TTP");
+        assert_eq!(ttp.effects, ["file:kubeconfig"]);
+        let procedure = ttp.procedures.first().expect("local read procedure");
+        assert_eq!(procedure.command, "cat \"${PATH}\"");
+        assert_eq!(procedure.is_local_command, Some(true));
+        assert!(matches!(procedure.operation, ProcedureOperation::Shell));
     }
 
     #[cfg(feature = "bundled-armory")]

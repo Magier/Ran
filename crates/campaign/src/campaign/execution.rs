@@ -443,8 +443,7 @@ fn is_local_control_operation(operation: &ProcedureOperation) -> bool {
         ProcedureOperation::KubernetesExecSession { interactive, .. } => {
             interactive.trim().eq_ignore_ascii_case("true")
         }
-        ProcedureOperation::ReadLocalKubeconfig { .. }
-        | ProcedureOperation::SelfSubjectRulesReview { .. }
+        ProcedureOperation::SelfSubjectRulesReview { .. }
         | ProcedureOperation::StartListener { .. }
         | ProcedureOperation::StopListener { .. }
         | ProcedureOperation::StartRedirector { .. }
@@ -457,7 +456,6 @@ fn ground_procedure_operation(operation: &mut ProcedureOperation, args: &HashMap
     let ground = |value: &mut String| *value = ground_template(value, args);
     match operation {
         ProcedureOperation::Shell | ProcedureOperation::Noop => {}
-        ProcedureOperation::ReadLocalKubeconfig { path } => ground(path),
         ProcedureOperation::SelfSubjectRulesReview { namespace } => ground(namespace),
         ProcedureOperation::KubernetesExecSession {
             interactive,
@@ -594,12 +592,6 @@ fn materialize_execution_operation(
 ) -> Result<ExecutionOperation, ExecuteActionError> {
     match &procedure.operation {
         ProcedureOperation::Shell => materialize_shell_operation(procedure, use_kubeconfig),
-        ProcedureOperation::ReadLocalKubeconfig { path } => {
-            let path = path.trim();
-            Ok(ExecutionOperation::ReadLocalKubeconfig {
-                path: (!path.is_empty()).then(|| path.to_string()),
-            })
-        }
         ProcedureOperation::SelfSubjectRulesReview { namespace } => {
             Ok(ExecutionOperation::SelfSubjectRulesReview {
                 namespace: required_operation_value(namespace, "namespace")?,

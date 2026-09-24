@@ -1175,7 +1175,7 @@ fn captured_host_kubeconfig_permission_review_runs_through_its_source_pod() {
 }
 
 #[test]
-fn read_local_kubeconfig_control_command_never_routes_through_a_session() {
+fn local_kubeconfig_read_uses_local_shell_without_a_session() {
     let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("dev"));
     campaign
         .entities
@@ -1192,10 +1192,8 @@ fn read_local_kubeconfig_control_command_never_routes_through_a_session() {
 
     let armory = Armory::from_ttps(vec![Ttp {
         procedures: vec![Procedure {
-            operation: ProcedureOperation::ReadLocalKubeconfig {
-                path: "/tmp/config".to_string(),
-            },
-            ..Procedure::new("read-kubeconfig", "c2.read_local_kubeconfig(/tmp/config)")
+            is_local_command: Some(true),
+            ..Procedure::new("cat", "cat \"/tmp/config\"")
         }],
         ..Ttp::new(
             "read-local-kubeconfig",
@@ -1224,8 +1222,8 @@ fn read_local_kubeconfig_control_command_never_routes_through_a_session() {
     assert_eq!(exec.target_id, "system/operator-host");
     assert!(matches!(
         exec.operation,
-        ExecutionOperation::ReadLocalKubeconfig { ref path }
-            if path.as_deref() == Some("/tmp/config")
+        ExecutionOperation::LocalShell { ref command }
+            if command == "cat \"/tmp/config\""
     ));
 }
 

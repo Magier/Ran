@@ -5,7 +5,7 @@ use crate::FactsUpdate;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use ran_domain::{
     AuthenticatesTo, Contains, Entity, GCPServiceAccount, K8sCluster, K8sCredential, Namespace,
-    ServiceAccount, Uses,
+    ServiceAccount, Uses, OPERATOR_HOST_ID,
 };
 
 // ---------------------------------------------------------------------------
@@ -138,40 +138,26 @@ fn non_empty(value: &str) -> Option<&str> {
 // Public parser entry points (called from parse_output_effect with source_id)
 // ---------------------------------------------------------------------------
 
-/// Where kubeconfig bytes came from. The YAML format is identical, while the
-/// application policy controls active identity state and the source relation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum KubeconfigSource {
-    RemoteSystem,
-    OperatorHost,
-}
-
-/// Parse kubeconfig YAML once, then apply the explicit source policy while
-/// constructing graph facts.
+/// Parse kubeconfig YAML once, then derive its policy from the source entity.
+/// Kubeconfigs read from the operator host establish the active identity;
+/// captures from any other system remain knowledge-only and retain a `Uses`
+/// relation to their source.
 pub(super) fn parse_kubeconfig(
     stdout: &str,
-    source: KubeconfigSource,
     source_id: &str,
     source_path: Option<&str>,
 ) -> ParserOutput {
+    let is_operator_host = source_id == OPERATOR_HOST_ID;
     if stdout.trim().is_empty() {
-        let effect = match source {
-            KubeconfigSource::RemoteSystem => "file:kubeconfig",
-            KubeconfigSource::OperatorHost => "file:local-kubeconfig",
-        };
-        return ParserOutput::KnownFailure(format!("empty stdout for {effect}"));
+        return ParserOutput::KnownFailure("empty stdout for file:kubeconfig".to_string());
     }
 
     let contexts = match k8s::resolve_all_kubeconfig_contexts_yaml(stdout) {
         Ok(contexts) if !contexts.is_empty() => contexts,
         _ => {
-            let qualifier = match source {
-                KubeconfigSource::RemoteSystem => "",
-                KubeconfigSource::OperatorHost => "local ",
-            };
-            return ParserOutput::UnknownFormat(format!(
-                "could not resolve any context from {qualifier}kubeconfig YAML"
-            ));
+            return ParserOutput::UnknownFormat(
+                "could not resolve any context from kubeconfig YAML".to_string(),
+            )
         }
     };
 
@@ -182,7 +168,7 @@ pub(super) fn parse_kubeconfig(
 
     for resolved in &contexts {
         let mut cred = credential_from_resolved(resolved, source_path);
-        cred.active = source == KubeconfigSource::OperatorHost && resolved.is_current_context;
+        cred.active = is_operator_host && resolved.is_current_context;
         let cred_id = cred.entity_id().0;
         credential_labels.push(format!(
             "{}{}",
@@ -205,13 +191,14 @@ pub(super) fn parse_kubeconfig(
             cluster_id.clone(),
         )));
         if !source_id.is_empty() {
-            match source {
-                KubeconfigSource::RemoteSystem => facts
+            if is_operator_host {
+                facts
                     .new_relations
-                    .push(Box::new(Uses::new(source_id, cred_id))),
-                KubeconfigSource::OperatorHost => facts
+                    .push(Box::new(Contains::new(source_id, cred_id)));
+            } else {
+                facts
                     .new_relations
-                    .push(Box::new(Contains::new(source_id, cred_id))),
+                    .push(Box::new(Uses::new(source_id, cred_id)));
             }
         }
         if let Some(namespace_name) = &resolved.default_namespace {
@@ -226,33 +213,24 @@ pub(super) fn parse_kubeconfig(
         }
     }
 
-    let detail = match source {
-        KubeconfigSource::RemoteSystem => format!(
-            "extracted {} kubeconfig context(s) across {} cluster(s): {}",
-            contexts.len(),
-            emitted_clusters.len(),
-            credential_labels.join(", ")
-        ),
-        KubeconfigSource::OperatorHost => format!(
+    let detail = if is_operator_host {
+        format!(
             "established {} local kubeconfig identit{} across {} cluster(s): {}",
             contexts.len(),
             if contexts.len() == 1 { "y" } else { "ies" },
             emitted_clusters.len(),
             credential_labels.join(", "),
-        ),
+        )
+    } else {
+        format!(
+            "extracted {} kubeconfig context(s) across {} cluster(s): {}",
+            contexts.len(),
+            emitted_clusters.len(),
+            credential_labels.join(", ")
+        )
     };
 
     ParserOutput::SuccessWithFacts(facts, detail)
-}
-
-#[cfg(test)]
-fn parse_file_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
-    parse_kubeconfig(stdout, KubeconfigSource::RemoteSystem, source_id, None)
-}
-
-#[cfg(test)]
-fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
-    parse_kubeconfig(stdout, KubeconfigSource::OperatorHost, source_id, None)
 }
 
 /// Parse a `file:content(path)` effect.
@@ -260,7 +238,7 @@ fn parse_local_kubeconfig(stdout: &str, source_id: &str) -> ParserOutput {
 /// Always records `path` in the caller's system entity `files` list (via the
 /// returned `SystemFieldUpdates` embedded in the `ParserOutput`).  Additionally,
 /// when the content looks like a kubeconfig, delegates to
-/// [`parse_file_kubeconfig`] to create a `K8sCredential` entity.
+/// [`parse_kubeconfig`] to create a `K8sCredential` entity.
 ///
 /// Returns:
 /// - `SuccessWithFacts` - content is a kubeconfig; credential entity emitted
@@ -280,12 +258,7 @@ pub(super) fn parse_file_content(
         // Delegate to the kubeconfig parser - it emits the credential entity.
         // The dispatcher records the file path in the application plan before
         // calling this pure content parser.
-        parse_kubeconfig(
-            stdout,
-            KubeconfigSource::RemoteSystem,
-            source_id,
-            Some(path),
-        )
+        parse_kubeconfig(stdout, source_id, Some(path))
     } else if is_k8s_service_account_token(stdout) {
         let mut parser_args = args.clone();
         parser_args.remove("TARGET_ID");
@@ -429,12 +402,12 @@ users:
     }
 
     // -----------------------------------------------------------------------
-    // parse_file_kubeconfig
+    // parse_kubeconfig from a captured system
     // -----------------------------------------------------------------------
 
     #[test]
-    fn parse_file_kubeconfig_token_auth() {
-        let result = parse_file_kubeconfig(KUBECONFIG_TOKEN, "ns/default/pod/attacker");
+    fn parse_kubeconfig_from_captured_system_uses_source() {
+        let result = parse_kubeconfig(KUBECONFIG_TOKEN, "ns/default/pod/attacker", None);
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts");
         };
@@ -462,8 +435,8 @@ users:
     }
 
     #[test]
-    fn parse_file_kubeconfig_cert_auth() {
-        let result = parse_file_kubeconfig(KUBECONFIG_CERT, "ns/default/pod/pwned");
+    fn parse_kubeconfig_from_captured_system_preserves_certificate_auth() {
+        let result = parse_kubeconfig(KUBECONFIG_CERT, "ns/default/pod/pwned", None);
         let ParserOutput::SuccessWithFacts(facts, _) = result else {
             panic!("expected SuccessWithFacts");
         };
@@ -479,24 +452,24 @@ users:
     }
 
     #[test]
-    fn parse_file_kubeconfig_empty_stdout_returns_known_failure() {
+    fn parse_kubeconfig_empty_stdout_returns_known_failure() {
         assert!(matches!(
-            parse_file_kubeconfig("", "src"),
+            parse_kubeconfig("", "src", None),
             ParserOutput::KnownFailure(_)
         ));
     }
 
     #[test]
-    fn parse_file_kubeconfig_malformed_yaml_returns_unknown_format() {
+    fn parse_kubeconfig_malformed_yaml_returns_unknown_format() {
         assert!(matches!(
-            parse_file_kubeconfig("{not: yaml: at: all:", "src"),
+            parse_kubeconfig("{not: yaml: at: all:", "src", None),
             ParserOutput::UnknownFormat(_)
         ));
     }
 
     #[test]
-    fn parse_file_kubeconfig_no_source_id_skips_uses_relation() {
-        let ParserOutput::SuccessWithFacts(facts, _) = parse_file_kubeconfig(KUBECONFIG_TOKEN, "")
+    fn parse_kubeconfig_without_source_skips_uses_relation() {
+        let ParserOutput::SuccessWithFacts(facts, _) = parse_kubeconfig(KUBECONFIG_TOKEN, "", None)
         else {
             panic!("expected SuccessWithFacts");
         };
@@ -507,9 +480,9 @@ users:
     }
 
     #[test]
-    fn parse_file_kubeconfig_emits_every_context_and_cluster_edges() {
+    fn parse_kubeconfig_from_captured_system_emits_every_context_and_cluster_edges() {
         let ParserOutput::SuccessWithFacts(facts, _) =
-            parse_file_kubeconfig(KUBECONFIG_MULTI, "ns/default/pod/reader")
+            parse_kubeconfig(KUBECONFIG_MULTI, "ns/default/pod/reader", None)
         else {
             panic!("expected SuccessWithFacts");
         };
@@ -666,10 +639,8 @@ users:
     }
 
     // -----------------------------------------------------------------------
-    // parse_local_kubeconfig
+    // parse_kubeconfig from the operator host
     // -----------------------------------------------------------------------
-
-    const OPERATOR_HOST: &str = "system/operator-host";
 
     // Kubeconfig with two contexts against two clusters; prod is current.
     const KUBECONFIG_MULTI: &str = r#"apiVersion: v1
@@ -702,9 +673,9 @@ users:
 "#;
 
     #[test]
-    fn parse_local_kubeconfig_emits_every_context_only_current_active() {
+    fn parse_kubeconfig_from_operator_host_emits_every_context_only_current_active() {
         let ParserOutput::SuccessWithFacts(facts, _) =
-            parse_local_kubeconfig(KUBECONFIG_MULTI, OPERATOR_HOST)
+            parse_kubeconfig(KUBECONFIG_MULTI, OPERATOR_HOST_ID, None)
         else {
             panic!("expected SuccessWithFacts");
         };
@@ -740,15 +711,15 @@ users:
             .new_relations
             .iter()
             .filter_map(|r| r.as_any().downcast_ref::<Contains>())
-            .filter(|c| c.source_id().0 == OPERATOR_HOST)
+            .filter(|c| c.source_id().0 == OPERATOR_HOST_ID)
             .count();
         assert_eq!(contains_from_host, 2);
     }
 
     #[test]
-    fn parse_local_kubeconfig_marks_credential_active_and_emits_cluster() {
+    fn parse_kubeconfig_from_operator_host_marks_credential_active_and_emits_cluster() {
         let ParserOutput::SuccessWithFacts(facts, _) =
-            parse_local_kubeconfig(KUBECONFIG_TOKEN, OPERATOR_HOST)
+            parse_kubeconfig(KUBECONFIG_TOKEN, OPERATOR_HOST_ID, None)
         else {
             panic!("expected SuccessWithFacts");
         };
@@ -788,14 +759,14 @@ users:
         assert!(facts.new_relations.iter().any(|r| {
             r.as_any()
                 .downcast_ref::<Contains>()
-                .is_some_and(|c| c.source_id().0 == OPERATOR_HOST && c.target_id().0 == cred_id)
+                .is_some_and(|c| c.source_id().0 == OPERATOR_HOST_ID && c.target_id().0 == cred_id)
         }));
     }
 
     #[test]
-    fn parse_local_kubeconfig_names_credential_by_context_not_server() {
+    fn parse_kubeconfig_from_operator_host_names_credential_by_context_not_server() {
         let ParserOutput::SuccessWithFacts(facts, _) =
-            parse_local_kubeconfig(KUBECONFIG_TOKEN, OPERATOR_HOST)
+            parse_kubeconfig(KUBECONFIG_TOKEN, OPERATOR_HOST_ID, None)
         else {
             panic!("expected SuccessWithFacts");
         };
@@ -811,9 +782,9 @@ users:
     }
 
     #[test]
-    fn parse_local_kubeconfig_emits_default_namespace_containment() {
+    fn parse_kubeconfig_from_operator_host_emits_default_namespace_containment() {
         let ParserOutput::SuccessWithFacts(facts, _) =
-            parse_local_kubeconfig(KUBECONFIG_TOKEN, OPERATOR_HOST)
+            parse_kubeconfig(KUBECONFIG_TOKEN, OPERATOR_HOST_ID, None)
         else {
             panic!("expected SuccessWithFacts");
         };
@@ -825,17 +796,17 @@ users:
     }
 
     #[test]
-    fn parse_local_kubeconfig_empty_stdout_is_known_failure() {
+    fn parse_kubeconfig_from_operator_host_empty_stdout_is_known_failure() {
         assert!(matches!(
-            parse_local_kubeconfig("", OPERATOR_HOST),
+            parse_kubeconfig("", OPERATOR_HOST_ID, None),
             ParserOutput::KnownFailure(_)
         ));
     }
 
     #[test]
-    fn parse_local_kubeconfig_malformed_is_unknown_format() {
+    fn parse_kubeconfig_from_operator_host_malformed_is_unknown_format() {
         assert!(matches!(
-            parse_local_kubeconfig("{not: yaml: at: all:", OPERATOR_HOST),
+            parse_kubeconfig("{not: yaml: at: all:", OPERATOR_HOST_ID, None),
             ParserOutput::UnknownFormat(_)
         ));
     }

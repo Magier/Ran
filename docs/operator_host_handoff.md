@@ -195,10 +195,9 @@ prerequisite, so it is now unblocked. Notes so they are not rediscovered:
   to `select_backend(cmd).execute(cmd)` (`crates/c2/src/executor.rs:786`), which
   defaults to `BuiltinC2` and then pod-exec when `exec_system_id` is empty. So an
   unspecified backend silently means "into a container".
-- Everything operator-side is therefore a hardcoded control command dispatched
-  by string prefix at the top of `execute_command`
-  (`crates/c2/src/executor.rs:266`): `c2.read_local_kubeconfig`,
-  `k8sSelfSubjectRulesReview`, `c2.kubectl_exec`, `noop`, `c2.listen`,
+- Dedicated operator-side control operations are dispatched by
+  `execute_command`: `k8sSelfSubjectRulesReview`, `c2.kubectl_exec`,
+  `noop`, `c2.listen`,
   `c2.stop-listener`, `c2.port-forward`, `c2.stop-port-forward`.
 - Consequence worth stating plainly: after Step 1 Ran *knows* which local tools
   exist but still cannot invoke them. `labctl` runs only because it is wired as
