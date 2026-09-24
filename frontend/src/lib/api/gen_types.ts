@@ -622,6 +622,8 @@ export interface components {
 			innerCommand: string;
 			/** @description Short, human-readable explanation of why this execution route was chosen (e.g. a live session vs. a multi-hop path), including a note when a broken session edge to the target was skipped. Empty for direct/local commands with no joined traversal. */
 			routeReason?: string;
+			/** @description Free-text rationale supplied by the operator when executing this action. Empty when none was given. */
+			reasoning: string;
 			args: {
 				[key: string]: string;
 			};

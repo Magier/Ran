@@ -9,6 +9,7 @@ const step: AttackStep = {
 	command: 'id',
 	traversal: [],
 	innerCommand: '',
+	reasoning: '',
 	args: {},
 	procedureId: 'shell',
 	TTP: {
@@ -58,6 +59,20 @@ describe('AttackStepDrawer', () => {
 		expect(screen.getByRole('dialog')).toBeInTheDocument();
 		expect(screen.getByRole('heading', { name: 'Who am I' })).toBeInTheDocument();
 		expect(screen.getByText('uid=1000')).toBeInTheDocument();
+	});
+
+	it('shows operator reasoning in a collapsed disclosure', () => {
+		renderDrawer(vi.fn(), {
+			...step,
+			reasoning: 'List pods before selecting a workload to inspect.'
+		});
+
+		const disclosure = screen.getByText('Reasoning').closest('details');
+		expect(disclosure).not.toBeNull();
+		expect(disclosure).not.toHaveAttribute('open');
+		expect(
+			screen.getByText('List pods before selecting a workload to inspect.')
+		).toBeInTheDocument();
 	});
 
 	it('shows output received while an action is still running', () => {

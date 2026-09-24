@@ -738,6 +738,9 @@ pub(crate) struct AttackStep {
     /// skipped). Empty for direct/local commands with no joined traversal.
     #[serde(rename = "routeReason")]
     pub route_reason: String,
+    /// Free-text rationale supplied by the operator when this action was run.
+    /// Empty when none was given.
+    pub reasoning: String,
     pub args: std::collections::HashMap<String, String>,
     #[serde(rename = "procedureId")]
     pub procedure_id: String,
@@ -776,6 +779,7 @@ impl From<&campaign::ExecutionRecord> for AttackStep {
             traversal: Vec::new(),
             inner_command: String::new(),
             route_reason: String::new(),
+            reasoning: r.reasoning.clone(),
             args: r.args.clone(),
             procedure_id: r.procedure_id.clone(),
             ttp: AttackStepTTP {
@@ -828,6 +832,7 @@ impl From<&campaign::ExecTtp> for AttackStep {
             traversal: Vec::new(),
             inner_command: String::new(),
             route_reason: String::new(),
+            reasoning: exec.reasoning.clone(),
             args: exec.args.clone(),
             procedure_id: exec.procedure.id.clone(),
             ttp: AttackStepTTP {
@@ -873,6 +878,7 @@ mod flow_contract_tests {
                 traversal: Vec::new(),
                 inner_command: String::new(),
                 route_reason: String::new(),
+                reasoning: "Confirm the action can identify the current user".to_string(),
                 args: HashMap::new(),
                 procedure_id: "shell".to_string(),
                 ttp: AttackStepTTP {
@@ -904,6 +910,10 @@ mod flow_contract_tests {
 
         let value = serde_json::to_value(flow).expect("campaign flow should serialize");
         assert_eq!(value["steps"][0]["TTP"]["id"], "whoami");
+        assert_eq!(
+            value["steps"][0]["reasoning"],
+            "Confirm the action can identify the current user"
+        );
         assert_eq!(value["edges"][0]["sourceId"], "cmd-0");
         assert!(value.get("rootNodeId").is_none());
         assert!(value["steps"][0].get("observables").is_none());
