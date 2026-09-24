@@ -54,6 +54,9 @@ pub enum ExecutionOperation {
     StopListener {
         listener: String,
     },
+    KillSession {
+        session: String,
+    },
     StartRedirector {
         play_id: String,
         remote_port: u16,
@@ -226,4 +229,7 @@ pub enum C2Event {
         backend_id: String,
         target_entity_id: String,
     },
+    /// A session backend was explicitly closed by the operator. Unlike an
+    /// unexpected loss, this removes its session channel from the campaign.
+    SessionKilled { backend_id: String },
 }

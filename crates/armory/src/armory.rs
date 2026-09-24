@@ -635,6 +635,27 @@ mod tests {
     }
 
     #[test]
+    fn kill_session_uses_the_typed_session_control_operation() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let armory = Armory::load_from_dir(path).expect("repository armory should load");
+        let ttp = armory
+            .get_ttp("kill-session")
+            .expect("kill-session should be in the armory");
+
+        assert_eq!(
+            ttp.requires.get("kind").and_then(|value| value.as_str()),
+            Some("C2")
+        );
+        assert_eq!(ttp.params[0].param_type, "Session");
+        assert_eq!(
+            ttp.procedures[0].operation,
+            ProcedureOperation::KillSession {
+                session: "${SessionID}".to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn redis_token_read_runs_from_outside_its_target() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
         let armory = Armory::load_from_dir(path).expect("repository armory should load");

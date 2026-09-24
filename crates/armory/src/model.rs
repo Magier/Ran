@@ -26,6 +26,9 @@ pub enum ProcedureOperation {
     StopListener {
         listener: String,
     },
+    KillSession {
+        session: String,
+    },
     StartRedirector {
         play_id: String,
         remote_port: String,

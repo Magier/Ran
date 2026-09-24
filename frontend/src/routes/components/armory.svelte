@@ -18,6 +18,8 @@
 		class?: string;
 		targetId: string;
 		target?: Node;
+		/** The one action owned by a selected graph relation rather than an entity. */
+		edgeAction?: TTP;
 		action: (ttp: TTP) => void;
 		/** Execute a recommendation against its own target (selects the target first). */
 		runRecommendation: (rec: ScoredCandidate) => void;
@@ -28,6 +30,7 @@
 		class: className = '',
 		targetId,
 		target,
+		edgeAction = undefined,
 		action: sendAction,
 		runRecommendation,
 		focusSearch = $bindable(() => {})
@@ -72,7 +75,7 @@
 		void campaign.scoringVersion;
 		void scoringEnabled;
 
-		if (!scoringEnabled || !targetId) {
+		if (!scoringEnabled || !targetId || edgeAction) {
 			scoredByTtp = new Map();
 			return;
 		}
@@ -89,7 +92,13 @@
 	});
 
 	let shownTTPs: Array<[string, TTP[]]> = $derived.by(() => {
-		const source = showAllTTPs ? (targetArmory.size > 0 ? targetArmory : armory) : applicableTTPs;
+		const source = edgeAction
+			? new Map([[edgeAction.tactic, [edgeAction]]])
+			: showAllTTPs
+				? targetArmory.size > 0
+					? targetArmory
+					: armory
+				: applicableTTPs;
 		const normalizedSearch = searchTerm.trim().toLowerCase();
 		if (!normalizedSearch) return Array.from(source.entries());
 
@@ -131,6 +140,14 @@
 		void target?.compromised;
 		void target?.accessLevel;
 		void target?.entity;
+		void edgeAction;
+
+		if (edgeAction) {
+			targetArmory = new Map();
+			applicableTTPs = new Map();
+			openTactic = [edgeAction.tactic];
+			return;
+		}
 
 		if (!targetId) {
 			targetArmory = new Map();
@@ -214,6 +231,7 @@
 	});
 
 	function isTTPApplicable(ttp: TTP): boolean {
+		if (edgeAction?.id === ttp.id) return true;
 		let procedures = applicableTTPs.get(ttp.tactic) || [];
 		for (let proc of procedures) {
 			if (proc.id === ttp.id) {
@@ -342,7 +360,9 @@
 										<span
 											class="bg-surface-200-800 text-surface-contrast-200-800 ml-2 rounded px-2 py-0.5 text-xs"
 										>
-											{applicableTTPs.get(tactic)?.length ?? 0}
+											{edgeAction?.tactic === tactic
+												? ttps.length
+												: (applicableTTPs.get(tactic)?.length ?? 0)}
 										</span>
 									</div>
 								</Accordion.ItemTrigger>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Armory from './components/armory.svelte';
-	import type { AttackStep, Node, TTP, ScoredCandidate } from '$lib/api/index';
+	import type { AttackStep, Edge, Node, TTP, ScoredCandidate } from '$lib/api/index';
 	import Icon from '@iconify/svelte';
 	import Graph from './components/graph.svelte';
 	import { Dialog, Portal } from '@skeletonlabs/skeleton-svelte';
@@ -22,7 +22,22 @@
 	const ranAPI = getRanAPI();
 
 	let selectedObjectId: string = $state('');
-	let selectedObject: Node | undefined = $state();
+	let selectedObject: Node | Edge | undefined = $state();
+	const selectedEntity = $derived(
+		selectedObject && 'entity' in selectedObject ? selectedObject : undefined
+	);
+	const selectedSessionEdge = $derived(sessionEdge(selectedObject));
+	const sessionEdgeAction = $derived.by(() => {
+		if (!selectedSessionEdge) return undefined;
+		const killSession = campaignState.getTtpById('kill-session');
+		if (!killSession || !selectedSessionEdge.broken) return killSession;
+		return {
+			...killSession,
+			name: 'Remove Broken Session',
+			description: 'Remove this stale execution channel from the campaign graph.',
+			requires: {}
+		};
+	});
 	let ttpArgContext: Record<string, any> = $state({});
 	let showParamModal: boolean = $state(false);
 	let activeGlobalConditions: object = {};
@@ -32,6 +47,8 @@
 	let eligibleActionPods: Node[] = $state([]);
 	let pendingActionArgs: Record<string, any> = $state({});
 	let focusArmorySearch: () => void = $state(() => {});
+	let sessionKillEdge: Edge | undefined = $state();
+	let sessionKillConfirmationOpen = $state(false);
 
 	let showFileViewer: boolean = $state(false);
 	let fileViewerPath: string = $state('');
@@ -337,6 +354,14 @@
 		beginAction(ttp, args, selectedObjectId);
 	}
 
+	async function sendArmoryAction(ttp: TTP) {
+		if (selectedSessionEdge && ttp.id === 'kill-session') {
+			requestSessionKill(selectedSessionEdge);
+			return;
+		}
+		await sendAction(ttp);
+	}
+
 	async function beginAction(ttp: TTP, args: Record<string, any>, targetId: string) {
 		selectedTTP = ttp;
 		actionTargetId = targetId;
@@ -346,28 +371,78 @@
 		} else if ((ttp.procedures?.length ?? 0) > 1) {
 			showParamModal = true;
 		} else {
-			const targetName = campaignState.getEntityById(actionTargetId)?.name ?? actionTargetId;
-			try {
-				const result = await ExecuteAction({
-					actionId: ttp.id,
-					targetId: actionTargetId,
-					args: {},
-					executionTimeoutSeconds: 60
-				});
-				const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
-				timeline.addTtpAction({
-					id: cmdId,
-					ttpId: ttp.id,
-					ttpName: ttp.name,
-					targetId: actionTargetId,
-					targetName,
-					status: 'pending',
-					timestamp: new Date()
-				});
-			} catch (err) {
-				handleError(err);
-			}
+			await executeActionNow(ttp, actionTargetId, {});
 		}
+	}
+
+	async function executeActionNow(ttp: TTP, targetId: string, args: Record<string, string>) {
+		const targetName = campaignState.getEntityById(targetId)?.name ?? targetId;
+		try {
+			const result = await ExecuteAction({
+				actionId: ttp.id,
+				targetId,
+				args,
+				executionTimeoutSeconds: 60
+			});
+			const cmdId = (result as any)?.cmdId ?? crypto.randomUUID();
+			timeline.addTtpAction({
+				id: cmdId,
+				ttpId: ttp.id,
+				ttpName: ttp.name,
+				targetId,
+				targetName,
+				status: 'pending',
+				timestamp: new Date()
+			});
+		} catch (err) {
+			handleError(err);
+		}
+	}
+
+	function requestSessionKill(edge: Edge) {
+		if (!isSessionEdge(edge)) return;
+		sessionKillEdge = edge;
+		sessionKillConfirmationOpen = true;
+	}
+
+	function sessionEdge(object: Node | Edge | undefined): Edge | undefined {
+		if (
+			object?.name === 'c2.session' &&
+			'sourceId' in object &&
+			typeof object.sessionId === 'string'
+		) {
+			return object;
+		}
+		return undefined;
+	}
+
+	function isSessionEdge(edge: Edge): boolean {
+		return edge.name === 'c2.session' && typeof edge.sessionId === 'string';
+	}
+
+	async function confirmSessionKill() {
+		const edge = sessionKillEdge;
+		sessionKillConfirmationOpen = false;
+		sessionKillEdge = undefined;
+		if (!edge?.sessionId) return;
+
+		const ttp = campaignState.getTtpById('kill-session');
+		if (!ttp) {
+			handleError(new Error('Kill Session action is not available in the armory.'));
+			return;
+		}
+		await executeActionNow(
+			edge.broken
+				? {
+						...ttp,
+						name: 'Remove Broken Session',
+						description: 'Remove this stale execution channel from the campaign graph.',
+						requires: {}
+					}
+				: ttp,
+			edge.sourceId,
+			{ SessionID: edge.sessionId }
+		);
 	}
 
 	function chooseActionPod(podId: string) {
@@ -710,10 +785,11 @@
 		>
 			<Armory
 				class="h-full min-h-0 w-full"
-				action={sendAction}
+				action={sendArmoryAction}
 				{runRecommendation}
 				targetId={selectedObjectId}
-				target={selectedObject}
+				target={selectedEntity}
+				edgeAction={sessionEdgeAction}
 				bind:focusSearch={focusArmorySearch}
 			/>
 		</div>
@@ -757,7 +833,12 @@
 		<!-- Graph area with EntityInfo overlay and Action Log drawer -->
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 			<div class="relative min-h-0 flex-1">
-				<Graph bind:selectedObjectId bind:selectedObject class="h-full" />
+				<Graph
+					bind:selectedObjectId
+					bind:selectedObject
+					class="h-full"
+					onSessionAction={requestSessionKill}
+				/>
 
 				{#if selectedObjectId !== ''}
 					<svelte:boundary onerror={handleError}>
@@ -798,6 +879,47 @@
 				/>
 			{/if}
 		</div>
+
+		<Dialog
+			open={sessionKillConfirmationOpen}
+			onOpenChange={(event) => {
+				sessionKillConfirmationOpen = event.open;
+				if (!event.open) sessionKillEdge = undefined;
+			}}
+		>
+			<Portal>
+				<Dialog.Backdrop class="bg-surface-50-950/50 fixed inset-0 z-[100]" />
+				<Dialog.Positioner class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+					<Dialog.Content
+						class="card bg-surface-100-900 border-surface-600 w-full max-w-md space-y-4 border p-4 shadow-xl"
+					>
+						<Dialog.Title class="font-semibold"
+							>{sessionKillEdge?.broken ? 'Remove broken session?' : 'Kill session?'}</Dialog.Title
+						>
+						<Dialog.Description class="text-surface-500 text-sm">
+							{#if sessionKillEdge?.broken}
+								This removes the stale {sessionKillEdge.sessionId} execution channel. Facts already learned
+								through it stay in the campaign.
+							{:else}
+								This closes {sessionKillEdge?.sessionId} and removes its live execution channel. Facts
+								already learned through it stay in the campaign.
+							{/if}
+						</Dialog.Description>
+						<div class="flex justify-end gap-2">
+							<button
+								class="btn preset-outlined-surface-200-800"
+								onclick={() => (sessionKillConfirmationOpen = false)}
+							>
+								Cancel
+							</button>
+							<button class="btn preset-filled-error-500" onclick={confirmSessionKill}
+								>{sessionKillEdge?.broken ? 'Remove session' : 'Kill session'}</button
+							>
+						</div>
+					</Dialog.Content>
+				</Dialog.Positioner>
+			</Portal>
+		</Dialog>
 
 		<Dialog open={podChooserOpen} onOpenChange={(e) => (podChooserOpen = e.open)}>
 			<Portal>

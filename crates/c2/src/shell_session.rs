@@ -34,6 +34,8 @@ static NONCE: AtomicU64 = AtomicU64::new(1);
 pub struct ShellSession {
     requests: mpsc::Sender<ShellRequest>,
     health: watch::Receiver<SessionHealth>,
+    close_health: watch::Sender<SessionHealth>,
+    actor: tokio::task::AbortHandle,
     /// Entity ID this session currently exits into (for logging/debugging).
     pub entity_id: String,
 }
@@ -78,7 +80,14 @@ enum ShellRequest {
         output_sink: OutputSink,
         reply: oneshot::Sender<TtpExecuted>,
     },
+    Close {
+        reply: oneshot::Sender<Result<(), String>>,
+    },
 }
+
+/// Time to let an interactive shell process a graceful `exit` before local
+/// teardown wins. A stuck frame must never leave the kill action blocked.
+const GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
 enum PendingReply {
     Raw(Option<oneshot::Sender<Result<String, String>>>),
@@ -155,11 +164,12 @@ impl ShellSession {
         let entity_id = entity_id.into();
         let (request_tx, request_rx) = mpsc::channel(32);
         let (health_tx, health_rx) = watch::channel(SessionHealth::Responsive);
+        let close_health = health_tx.clone();
         let inner = ShellInner {
             tx: Box::new(writer),
             rx: BufReader::new(Box::new(reader)),
         };
-        tokio::spawn(run_session_actor(
+        let actor = tokio::spawn(run_session_actor(
             inner,
             request_rx,
             health_tx,
@@ -169,6 +179,8 @@ impl ShellSession {
         Self {
             requests: request_tx,
             health: health_rx,
+            close_health,
+            actor: actor.abort_handle(),
             entity_id,
         }
     }
@@ -224,6 +236,33 @@ impl ShellSession {
             Err(_) => Err(format!("run_raw timed out waiting for response to '{cmd}'")),
         }
     }
+
+    /// Ask an interactive shell to exit, then stop the session actor.
+    ///
+    /// A normal `socat ... EXEC:/bin/sh` peer exits after its shell receives
+    /// this unframed `exit`. The bounded fallback is essential because the
+    /// actor can be draining a timed-out frame and cannot safely accept a new
+    /// command until that stream recovers.
+    pub(crate) async fn close(&self) -> Result<(), String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        if matches!(
+            tokio::time::timeout(
+                GRACEFUL_CLOSE_TIMEOUT,
+                self.requests.send(ShellRequest::Close { reply: reply_tx })
+            )
+            .await,
+            Ok(Ok(()))
+        ) {
+            let _ = tokio::time::timeout(GRACEFUL_CLOSE_TIMEOUT, reply_rx).await;
+        }
+
+        // The actor owns both TCP halves. Aborting it drops those halves even
+        // if an in-flight frame did not return, which closes the local socket
+        // and unblocks callers waiting on a queued shell request.
+        self.close_health.send_replace(SessionHealth::Lost);
+        self.actor.abort();
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -261,6 +300,10 @@ impl C2Backend for ShellSession {
             Err(_) => timeout_error(&cmd.id, timeout),
         }
     }
+
+    async fn close(&self) -> Result<(), String> {
+        ShellSession::close(self).await
+    }
 }
 
 fn configure_tcp_keepalive(stream: &TcpStream) {
@@ -286,6 +329,12 @@ async fn run_session_actor(
         tokio::select! {
             request = requests.recv() => {
                 let Some(request) = request else { return };
+                if let ShellRequest::Close { reply } = request {
+                    let result = gracefully_close_shell(&mut inner).await;
+                    health.send_replace(SessionHealth::Lost);
+                    let _ = reply.send(result);
+                    return;
+                }
                 if !run_request(&mut inner, request, &health, &entity_id).await {
                     return;
                 }
@@ -315,6 +364,36 @@ async fn run_session_actor(
             }
         }
     }
+}
+
+async fn gracefully_close_shell(inner: &mut ShellInner) -> Result<(), String> {
+    inner
+        .tx
+        .write_all(b"exit\n")
+        .await
+        .map_err(|error| format!("shell exit write failed: {error}"))?;
+    inner
+        .tx
+        .flush()
+        .await
+        .map_err(|error| format!("shell exit flush failed: {error}"))?;
+
+    // The session is being discarded, so any output from `exit` is irrelevant.
+    // Wait only for EOF; otherwise force a local TCP shutdown after the grace
+    // window and let dropping the actor release the read half too.
+    let mut output = Vec::new();
+    let _ = tokio::time::timeout(GRACEFUL_CLOSE_TIMEOUT, async {
+        loop {
+            match inner.rx.read_until(b'\n', &mut output).await {
+                Ok(0) => return Ok::<(), String>(()),
+                Ok(_) => output.clear(),
+                Err(error) => return Err(format!("shell exit read failed: {error}")),
+            }
+        }
+    })
+    .await;
+    let _ = inner.tx.shutdown().await;
+    Ok(())
 }
 
 async fn run_request(
@@ -359,6 +438,9 @@ async fn run_request(
                     reply: Some(reply),
                 },
             )
+        }
+        ShellRequest::Close { .. } => {
+            unreachable!("close requests exit the session actor directly")
         }
     };
     if deadline <= Instant::now() {
@@ -572,6 +654,7 @@ mod tests {
     use armory::{Procedure, Ttp};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     use tokio::process::Command;
+    use tokio::sync::oneshot;
 
     use super::{SessionHealth, SessionTiming, ShellSession};
     use crate::executor::C2Backend;
@@ -637,6 +720,80 @@ mod tests {
             .expect_err("an already-closed shell cannot become a session");
 
         assert_eq!(error, crate::types::SESSION_CLOSED_UNEXPECTEDLY);
+        assert_eq!(*session.health.borrow(), SessionHealth::Lost);
+    }
+
+    #[tokio::test]
+    async fn close_sends_an_unframed_exit_before_closing_the_socket() {
+        let (client, server) = tokio::io::duplex(4096);
+        let (server_rx, server_tx) = tokio::io::split(server);
+        let (client_rx, client_tx) = tokio::io::split(client);
+        let (exit_seen_tx, exit_seen_rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            // Keep the peer write half alive until it receives the exit
+            // request, so this proves the EOF is caused by close rather than
+            // an already-closed test transport.
+            let _keep_open = server_tx;
+            let mut reader = tokio::io::BufReader::new(server_rx);
+            let mut line = String::new();
+            while reader.read_line(&mut line).await.unwrap_or(0) != 0 {
+                if line == "exit\n" {
+                    let _ = exit_seen_tx.send(());
+                    return;
+                }
+                line.clear();
+            }
+        });
+
+        let session = ShellSession::from_rw(client_rx, client_tx, "node/test");
+        session.close().await.expect("close should succeed");
+        tokio::time::timeout(Duration::from_secs(1), exit_seen_rx)
+            .await
+            .expect("close should write exit to the peer")
+            .expect("peer should observe exit");
+        assert_eq!(*session.health.borrow(), SessionHealth::Lost);
+    }
+
+    #[tokio::test]
+    async fn close_aborts_a_stuck_frame_after_the_grace_window() {
+        let (client, server) = tokio::io::duplex(4096);
+        let (server_rx, server_tx) = tokio::io::split(server);
+        let (client_rx, client_tx) = tokio::io::split(client);
+        let (frame_started_tx, frame_started_rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            let _keep_open = server_tx;
+            let mut reader = tokio::io::BufReader::new(server_rx);
+            let mut line = String::new();
+            while reader.read_line(&mut line).await.unwrap_or(0) != 0 {
+                if line.trim_end().starts_with("printf '__RAN_") {
+                    let _ = frame_started_tx.send(());
+                    return;
+                }
+                line.clear();
+            }
+        });
+
+        let session = Arc::new(ShellSession::from_rw(client_rx, client_tx, "node/test"));
+        let execution_session = session.clone();
+        let command = make_cmd("blocks forever", "session/test");
+        let execution = tokio::spawn(async move { execution_session.execute(&command).await });
+        frame_started_rx.await.expect("command frame should start");
+
+        tokio::time::timeout(Duration::from_secs(3), session.close())
+            .await
+            .expect("close must not wait for the stuck frame")
+            .expect("close should succeed");
+        let result = tokio::time::timeout(Duration::from_secs(1), execution)
+            .await
+            .expect("aborting the actor should release the execution")
+            .expect("execution task should complete");
+        assert!(!result.success);
+        assert_eq!(
+            result.fail_reason,
+            crate::types::SESSION_CLOSED_UNEXPECTEDLY
+        );
         assert_eq!(*session.health.borrow(), SessionHealth::Lost);
     }
 

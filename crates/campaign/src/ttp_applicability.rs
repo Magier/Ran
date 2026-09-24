@@ -254,6 +254,7 @@ pub fn ttp_applicable_for_target(
         && ttp_execution_source_satisfied(ttp, campaign)
         && ttp_exists_satisfied(ttp, campaign)
         && ttp_has_listener_satisfied(ttp, campaign)
+        && ttp_has_session_satisfied(ttp, campaign, &tc.target_id)
         && (!tc.is_system || ttp_access_level_satisfied(ttp, tc.access_level))
         && ttp_has_token_satisfied(ttp, tc.has_token)
         && ttp_active_session_satisfied(ttp, tc.active_session)
@@ -478,6 +479,26 @@ pub fn ttp_has_listener_satisfied(ttp: &armory::Ttp, campaign: &Campaign) -> boo
     any_listener == required
 }
 
+/// Returns `true` when the selected C2 satisfies its `c2.has-session`
+/// requirement.
+///
+/// A session is an execution-channel relation owned by a specific C2, not a
+/// property that can be borrowed from another C2. Broken channels do not count
+/// as live sessions.
+pub fn ttp_has_session_satisfied(ttp: &armory::Ttp, campaign: &Campaign, target_id: &str) -> bool {
+    let Some(required) = ttp.requires.get("c2.has-session").and_then(Value::as_bool) else {
+        return true;
+    };
+
+    let has_session = campaign.get_relations().iter().any(|relation| {
+        relation.name == "c2.session"
+            && relation.source_id == target_id
+            && relation.session_id.is_some()
+            && !relation.broken
+    });
+    has_session == required
+}
+
 /// Returns `true` when the TTP's operator-side tool requirement is met.
 ///
 /// `requires["c2.has-tool"]` names a tool - or an array of them - that must
@@ -650,7 +671,7 @@ mod tests {
     use armory::Ttp;
     use ran_domain::{
         C2Server, Entity, K8sCluster, K8sCredential, K8sNode, Listener, Pod, RbacPermission,
-        Redirector, ServiceAccount, SessionInfo, SessionStatus, Uses,
+        Redirector, ServiceAccount, SessionChannel, SessionInfo, SessionStatus, Uses,
     };
     use serde_json::json;
 
@@ -659,7 +680,7 @@ mod tests {
     use super::{
         eligible_auth_identities, resolve_target_context, ttp_access_level_satisfied,
         ttp_applicable_for_target, ttp_exists_satisfied, ttp_has_listener_satisfied,
-        ttp_operator_tool_satisfied, ttp_rbac_satisfied,
+        ttp_has_session_satisfied, ttp_operator_tool_satisfied, ttp_rbac_satisfied,
     };
 
     fn ttp_with_rbac(verb: &str, resource_type: &str) -> Ttp {
@@ -760,6 +781,13 @@ mod tests {
         let mut ttp = ttp_no_rbac();
         ttp.requires
             .insert("c2.has-listener".to_string(), json!(required));
+        ttp
+    }
+
+    fn ttp_with_has_session(required: bool) -> Ttp {
+        let mut ttp = ttp_no_rbac();
+        ttp.requires
+            .insert("c2.has-session".to_string(), json!(required));
         ttp
     }
 
@@ -919,6 +947,55 @@ mod tests {
             !ttp_has_listener_satisfied(&ttp_with_has_listener(false), &c),
             "`c2.has-listener: false` must exclude a C2 that already has one"
         );
+    }
+
+    #[test]
+    fn has_session_requires_a_live_channel_from_the_selected_c2() {
+        let mut c = empty_campaign();
+        let target_id = "c2/test";
+        let other_c2 = C2Server::new("other");
+        let other_c2_id = other_c2.entity_id().0;
+        c.entities.insert_typed(other_c2);
+
+        c.insert_relation(&SessionChannel::new(
+            other_c2_id,
+            "node/victim",
+            "session/other",
+        ));
+
+        let ttp = ttp_with_has_session(true);
+        assert!(
+            !ttp_has_session_satisfied(&ttp, &c, target_id),
+            "a session belonging to another C2 must not make this action applicable"
+        );
+
+        c.insert_relation(&SessionChannel::new(
+            target_id,
+            "node/target",
+            "session/target",
+        ));
+        assert!(ttp_has_session_satisfied(&ttp, &c, target_id));
+    }
+
+    #[test]
+    fn c2_action_requiring_a_session_is_inapplicable_without_one() {
+        let mut c = empty_campaign();
+        let target_id = "c2/test";
+        let mut ttp = ttp_with_has_session(true);
+        ttp.requires.insert("kind".to_string(), json!("C2"));
+        let context = resolve_target_context(&c, target_id).expect("C2 target context");
+
+        assert!(
+            !ttp_applicable_for_target(&ttp, &c, &context),
+            "the Armory must hide Kill Session until this C2 owns a live session"
+        );
+
+        c.insert_relation(&SessionChannel::new(
+            target_id,
+            "node/victim",
+            "session/target",
+        ));
+        assert!(ttp_applicable_for_target(&ttp, &c, &context));
     }
 
     #[test]

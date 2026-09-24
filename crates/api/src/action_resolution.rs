@@ -252,6 +252,14 @@ fn resolve_argument(
             source: Some(source("optional", None, None, None)),
             ..base()
         },
+        [] if param.param_type.eq_ignore_ascii_case("Session") => ArgumentResolution {
+            status: ArgumentResolutionStatus::Blocked,
+            reason: Some(format!(
+                "{} requires a live c2.session channel, but none is available",
+                param.name
+            )),
+            ..base()
+        },
         [] if is_entity_param(&param.param_type) => ArgumentResolution {
             status: ArgumentResolutionStatus::Blocked,
             reason: Some(format!(
@@ -506,6 +514,30 @@ fn candidates_for_param(
             })
             .collect();
     }
+    if param.param_type.eq_ignore_ascii_case("Session") {
+        let mut candidates = campaign
+            .get_relations()
+            .into_iter()
+            .filter(|relation| {
+                relation.name == "c2.session" && relation.source_id == target_id && !relation.broken
+            })
+            .filter_map(|relation| {
+                let session_id = relation.session_id?;
+                Some(ArgumentCandidate {
+                    value: session_id.clone(),
+                    label: format!("{} ({session_id})", relation.target_id),
+                    source: source(
+                        "relation",
+                        Some(session_id),
+                        Some("c2.session".to_string()),
+                        None,
+                    ),
+                })
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|a, b| a.label.cmp(&b.label).then(a.value.cmp(&b.value)));
+        return candidates;
+    }
     if !is_entity_param(&param.param_type) {
         return Vec::new();
     }
@@ -570,7 +602,7 @@ fn source(
 
 #[cfg(test)]
 mod tests {
-    use ran_domain::{AccessLevel, Entity, K8sCluster, UnknownSystem};
+    use ran_domain::{AccessLevel, Entity, K8sCluster, SessionChannel, UnknownSystem};
 
     use super::*;
 
@@ -631,5 +663,34 @@ mod tests {
         let resolution = resolve_action(&ttp, &campaign, &target_id).unwrap();
         assert_eq!(resolution.status, ActionReadinessStatus::NeedsChoice);
         assert_eq!(resolution.arguments[0].candidates.len(), 2);
+    }
+
+    #[test]
+    fn session_parameter_resolves_live_edges_of_the_selected_c2() {
+        let mut campaign = campaign::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        campaign.upsert_relation(
+            &SessionChannel::new("c2/ran", "node/victim", "session/victim-4444"),
+            campaign::KnowledgeProvenance::Scenario,
+        );
+        let mut ttp = armory::Ttp::new("kill-session", "Kill Session", "Resource Development");
+        ttp.params.push(armory::TtpParam {
+            name: "SessionID".to_string(),
+            param_type: "Session".to_string(),
+            description: String::new(),
+            required: true,
+            default: String::new(),
+            options: Vec::new(),
+        });
+
+        let resolution = resolve_action(&ttp, &campaign, "c2/ran").expect("C2 is a target");
+        assert_eq!(resolution.status, ActionReadinessStatus::Ready);
+        assert_eq!(
+            resolution.arguments[0].value.as_deref(),
+            Some("session/victim-4444")
+        );
+        assert_eq!(
+            resolution.arguments[0].candidates[0].label,
+            "node/victim (session/victim-4444)"
+        );
     }
 }

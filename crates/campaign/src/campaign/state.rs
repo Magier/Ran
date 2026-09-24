@@ -1012,6 +1012,33 @@ impl Campaign {
         self.graph.mark_session_broken(backend_id)
     }
 
+    /// Remove the deliberate operator-closed session channel and its
+    /// provenance. Facts learned through the session remain in the campaign.
+    pub fn remove_session_channel(&mut self, backend_id: &str) -> usize {
+        let sessions = self
+            .graph
+            .to_relation_summaries()
+            .into_iter()
+            .filter(|relation| {
+                relation.name == "c2.session" && relation.session_id.as_deref() == Some(backend_id)
+            })
+            .collect::<Vec<_>>();
+        let count = sessions.len();
+        for relation in sessions {
+            let source_id = EntityId::new(relation.source_id.clone());
+            let target_id = EntityId::new(relation.target_id.clone());
+            self.graph
+                .remove_edges(&source_id, &target_id, "c2.session");
+            self.knowledge_provenance
+                .remove_relation(&RelationProvenanceKey::new(
+                    "c2.session",
+                    relation.source_id,
+                    relation.target_id,
+                ));
+        }
+        count
+    }
+
     /// Insert an entity into the store and register its node in the graph.
     pub(crate) fn insert_entity(&mut self, entity: &dyn Entity) {
         let id = entity.entity_id();

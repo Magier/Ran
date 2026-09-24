@@ -365,6 +365,13 @@ pub trait C2Backend: Send + Sync {
         let _ = output;
         self.execute(cmd).await
     }
+
+    /// Close a persistent execution backend. Ordinary backends are not
+    /// closable, which prevents a control command from accidentally removing
+    /// the builtin C2 or another non-session backend.
+    async fn close(&self) -> Result<(), String> {
+        Err("backend does not support operator-initiated closure".to_string())
+    }
 }
 
 #[async_trait]
@@ -742,6 +749,7 @@ impl C2Executor {
             ExecutionOperation::StopListener { listener } => {
                 self.stop_listener(cmd, listener).await
             }
+            ExecutionOperation::KillSession { session } => self.kill_session(cmd, session).await,
             ExecutionOperation::StartRedirector {
                 play_id,
                 remote_port,
@@ -944,6 +952,55 @@ impl C2Executor {
             id: cmd.id.clone(),
             success: true,
             results: vec![format!("listener on port {port} stopped")],
+            exit_code: 0,
+            fail_reason: String::new(),
+            session_connected: None,
+        }
+    }
+
+    /// Remove and close a persistent shell backend. Removing it before closing
+    /// ensures no new commands can be routed through a session the operator
+    /// has just asked to terminate. The health monitor then observes a
+    /// superseded backend and does not turn this deliberate removal into a
+    /// SessionLost event. If the backend has already disappeared, publishing
+    /// the lifecycle event still removes its broken graph edge as an explicit
+    /// operator cleanup.
+    async fn kill_session(&self, cmd: &ExecTtp, session_id: &str) -> TtpExecuted {
+        let backend = self.backends.write().await.remove(session_id);
+        let was_live = backend.is_some();
+        if let Some(backend) = backend {
+            if let Err(error) = backend.close().await {
+                self.backends
+                    .write()
+                    .await
+                    .insert(session_id.to_string(), backend);
+                return failed_result(
+                    cmd,
+                    &format!("failed to close session '{session_id}': {error}"),
+                );
+            }
+        }
+
+        let _ = self
+            .event_bus
+            .publish(C2Event::SessionKilled {
+                backend_id: session_id.to_string(),
+            })
+            .await;
+        if was_live {
+            tracing::info!(session_id, "session killed by operator");
+        } else {
+            tracing::info!(session_id, "stale session removed by operator");
+        }
+
+        TtpExecuted {
+            id: cmd.id.clone(),
+            success: true,
+            results: vec![if was_live {
+                format!("session {session_id} closed")
+            } else {
+                format!("stale session {session_id} removed")
+            }],
             exit_code: 0,
             fail_reason: String::new(),
             session_connected: None,
@@ -1989,6 +2046,7 @@ async fn monitor_session_health_after_execution(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -2013,6 +2071,10 @@ mod tests {
     struct BlockingBackend {
         started: mpsc::UnboundedSender<String>,
         release: Arc<Semaphore>,
+    }
+
+    struct CloseableBackend {
+        closed: Arc<AtomicBool>,
     }
 
     #[test]
@@ -2158,6 +2220,109 @@ mod tests {
                 session_connected: None,
             }
         }
+    }
+
+    #[async_trait::async_trait]
+    impl C2Backend for CloseableBackend {
+        async fn execute(&self, cmd: &ExecTtp) -> TtpExecuted {
+            TtpExecuted {
+                id: cmd.id.clone(),
+                success: true,
+                results: vec![],
+                exit_code: 0,
+                fail_reason: String::new(),
+                session_connected: None,
+            }
+        }
+
+        async fn close(&self) -> Result<(), String> {
+            self.closed.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn killing_a_session_closes_its_backend_and_publishes_lifecycle_event() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let builtin: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "builtin".to_string(),
+        });
+        let session: Arc<dyn C2Backend> = Arc::new(CloseableBackend {
+            closed: closed.clone(),
+        });
+        let mut backends = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), builtin);
+        backends.insert("session/victim-1".to_string(), session);
+
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let mut rx = events.subscribe();
+        let manager_task = tokio::spawn(manager.run());
+        let mut kill = exec_cmd(BUILTIN_C2_ID);
+        kill.id = "cmd-kill".to_string();
+        kill.operation = ExecutionOperation::KillSession {
+            session: "session/victim-1".to_string(),
+        };
+        handle.send(kill).await.expect("kill should queue");
+
+        let mut saw_killed = false;
+        let mut execution = None;
+        while !saw_killed || execution.is_none() {
+            match rx.recv().await.expect("event bus should remain open") {
+                C2Event::SessionKilled { backend_id } => {
+                    assert_eq!(backend_id, "session/victim-1");
+                    saw_killed = true;
+                }
+                C2Event::TtpExecuted { event, .. } if event.id == "cmd-kill" => {
+                    execution = Some(event);
+                }
+                _ => {}
+            }
+        }
+        assert!(closed.load(Ordering::SeqCst), "the backend must be closed");
+        assert!(execution.expect("kill execution").success);
+
+        drop(handle);
+        manager_task.await.expect("manager should stop cleanly");
+    }
+
+    #[tokio::test]
+    async fn killing_an_already_lost_session_publishes_cleanup_event() {
+        let builtin: Arc<dyn C2Backend> = Arc::new(MockBackend {
+            marker: "builtin".to_string(),
+        });
+        let mut backends = HashMap::new();
+        backends.insert(BUILTIN_C2_ID.to_string(), builtin);
+
+        let (handle, events, manager) = C2Manager::new_with_backends(8, backends);
+        let mut rx = events.subscribe();
+        let manager_task = tokio::spawn(manager.run());
+        let mut kill = exec_cmd(BUILTIN_C2_ID);
+        kill.id = "cmd-remove-stale".to_string();
+        kill.operation = ExecutionOperation::KillSession {
+            session: "session/lost-1".to_string(),
+        };
+        handle.send(kill).await.expect("cleanup should queue");
+
+        let mut saw_killed = false;
+        let mut execution = None;
+        while !saw_killed || execution.is_none() {
+            match rx.recv().await.expect("event bus should remain open") {
+                C2Event::SessionKilled { backend_id } => {
+                    assert_eq!(backend_id, "session/lost-1");
+                    saw_killed = true;
+                }
+                C2Event::TtpExecuted { event, .. } if event.id == "cmd-remove-stale" => {
+                    execution = Some(event);
+                }
+                _ => {}
+            }
+        }
+        let execution = execution.expect("cleanup execution");
+        assert!(execution.success);
+        assert_eq!(execution.results, ["stale session session/lost-1 removed"]);
+
+        drop(handle);
+        manager_task.await.expect("manager should stop cleanly");
     }
 
     #[tokio::test]

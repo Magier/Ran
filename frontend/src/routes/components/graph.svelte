@@ -63,6 +63,7 @@
 		class?: string;
 		selectedObjectId: string;
 		selectedObject?: Node | Edge | undefined;
+		onSessionAction?: (edge: Edge) => void;
 	};
 
 	type ExpansionSnapshot = { right: number; visibleNodeIds: string[] };
@@ -70,7 +71,8 @@
 	let {
 		class: className = '',
 		selectedObjectId = $bindable(),
-		selectedObject = $bindable()
+		selectedObject = $bindable(),
+		onSessionAction
 	}: GraphProps = $props();
 
 	// The expand-collapse plugin API, handed from the mount to the update effect.
@@ -867,8 +869,18 @@
 	}
 
 	function handleKeyPress(event: KeyboardEvent) {
-		// Only trigger if not typing in an input/textarea and search is not already open
-		if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+		// Keyboard actions must never run while an operator is entering text.
+		const target = event.target;
+		if (
+			target instanceof HTMLElement &&
+			(target.matches('input, textarea, select, [contenteditable="true"]') ||
+				target.closest('input, textarea, select, [contenteditable="true"]'))
+		) {
+			return;
+		}
+		if (!event.repeat && event.key === 'Delete' && isSessionEdge(selectedObject)) {
+			event.preventDefault();
+			onSessionAction?.(selectedObject);
 			return;
 		}
 
@@ -876,6 +888,12 @@
 			event.preventDefault();
 			openSearch();
 		}
+	}
+
+	function isSessionEdge(object: Node | Edge | undefined): object is Edge {
+		return (
+			object?.name === 'c2.session' && 'sourceId' in object && typeof object.sessionId === 'string'
+		);
 	}
 
 	function openSearch() {

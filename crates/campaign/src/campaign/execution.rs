@@ -446,6 +446,7 @@ fn is_local_control_operation(operation: &ProcedureOperation) -> bool {
         ProcedureOperation::SelfSubjectRulesReview { .. }
         | ProcedureOperation::StartListener { .. }
         | ProcedureOperation::StopListener { .. }
+        | ProcedureOperation::KillSession { .. }
         | ProcedureOperation::StartRedirector { .. }
         | ProcedureOperation::StopRedirector { .. }
         | ProcedureOperation::Noop => true,
@@ -469,6 +470,7 @@ fn ground_procedure_operation(operation: &mut ProcedureOperation, args: &HashMap
             ground(protocol);
         }
         ProcedureOperation::StopListener { listener } => ground(listener),
+        ProcedureOperation::KillSession { session } => ground(session),
         ProcedureOperation::StartRedirector {
             play_id,
             remote_port,
@@ -618,6 +620,9 @@ fn materialize_execution_operation(
         }
         ProcedureOperation::StopListener { listener } => Ok(ExecutionOperation::StopListener {
             listener: required_operation_value(listener, "listener")?,
+        }),
+        ProcedureOperation::KillSession { session } => Ok(ExecutionOperation::KillSession {
+            session: required_operation_value(session, "session")?,
         }),
         ProcedureOperation::StartRedirector {
             play_id,

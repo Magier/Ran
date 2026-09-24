@@ -1,0 +1,25 @@
+id: kill-session
+name: Kill Session
+description: >
+  Close a live reverse-shell session and remove its execution channel from the
+  campaign graph. Facts learned through the session remain available.
+tactic: Resource Development
+techniques: ["Indicator Removal"]
+parameters:
+  SessionID:
+    type: Session
+    default: ""
+    description: the live session to close
+    required: true
+preconditions:
+  kind: C2
+  c2.has-session: true
+procedures:
+  - id: ran
+    command: "c2.kill-session(${SessionID})"
+    isLocal: true
+    operation:
+      type: kill-session
+      session: ${SessionID}
+effects: []
+references: []
