@@ -294,6 +294,34 @@ fn resolve_argument(
         return resolve_default(param, ttp, campaign, target, target_id, base());
     }
 
+    if let Some(binding) =
+        campaign::grounding::resolve_runtime_argument(&param.name, "", target_id, campaign)
+    {
+        let source_kind = if binding.source().is_default() {
+            "runtime_default"
+        } else {
+            "target_fact"
+        };
+        let status = if binding.source().is_sensitive() {
+            ArgumentResolutionStatus::GeneratedAtExecution
+        } else if binding.source().is_default() {
+            ArgumentResolutionStatus::Defaulted
+        } else {
+            ArgumentResolutionStatus::Resolved
+        };
+        return ArgumentResolution {
+            status,
+            value: binding.readiness_value().map(str::to_string),
+            source: Some(source(
+                source_kind,
+                (!binding.source().is_default()).then(|| target_id.to_string()),
+                Some(binding.source().field().to_string()),
+                None,
+            )),
+            ..base()
+        };
+    }
+
     let candidates = candidates_for_param(param, ttp, campaign, target_id);
     match candidates.as_slice() {
         [candidate] => ArgumentResolution {
@@ -674,7 +702,8 @@ fn source(
 #[cfg(test)]
 mod tests {
     use ran_domain::{
-        AccessLevel, BinaryPresence, Entity, K8sCluster, SessionChannel, UnknownSystem,
+        AccessLevel, BinaryPresence, Entity, JwToken, K8sCluster, Pod, ServiceAccount,
+        ServiceAccountToken, SessionChannel, UnknownSystem,
     };
 
     use super::*;
@@ -736,6 +765,120 @@ mod tests {
         let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
         assert_eq!(resolution.status, ActionReadinessStatus::NeedsChoice);
         assert_eq!(resolution.arguments[0].candidates.len(), 2);
+    }
+
+    #[test]
+    fn api_server_runtime_default_matches_execution_grounding() {
+        let mut campaign = campaign::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut target = UnknownSystem::new("target");
+        target.system.access_level = AccessLevel::Exec;
+        let target_id = target.entity_id().0;
+        campaign.upsert_entity(target, campaign::KnowledgeProvenance::Scenario);
+
+        let mut ttp = armory::Ttp::new("permissions", "Permissions", "Discovery");
+        ttp.params.push(armory::TtpParam {
+            name: "API_SERVER".to_string(),
+            param_type: "string".to_string(),
+            description: String::new(),
+            required: true,
+            default: String::new(),
+            options: Vec::new(),
+        });
+
+        let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
+        assert_eq!(resolution.status, ActionReadinessStatus::Ready);
+        assert_eq!(
+            resolution.arguments[0].status,
+            ArgumentResolutionStatus::Defaulted
+        );
+        assert_eq!(
+            resolution.arguments[0].value.as_deref(),
+            Some(campaign::grounding::DEFAULT_API_SERVER)
+        );
+        assert_eq!(
+            resolution.arguments[0]
+                .source
+                .as_ref()
+                .map(|source| source.kind.as_str()),
+            Some("runtime_default")
+        );
+
+        let mut args = std::collections::HashMap::new();
+        campaign::grounding::ground_args_from_context(&mut args, &target_id, &campaign);
+        assert_eq!(
+            args.get("API_SERVER").map(String::as_str),
+            resolution.arguments[0].value.as_deref()
+        );
+    }
+
+    #[test]
+    fn target_runtime_bindings_are_ready_without_exposing_tokens() {
+        let mut campaign = campaign::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut pod = Pod::new("runner", "workloads");
+        pod.system.access_level = AccessLevel::Exec;
+        pod.node_name = Some("worker-a".to_string());
+        pod.host_ip = Some("10.0.0.8".parse().unwrap());
+        pod.service_account_name = Some("runner-sa".to_string());
+        let target_id = pod.entity_id().0;
+        campaign.upsert_entity(pod, campaign::KnowledgeProvenance::Scenario);
+
+        let mut service_account = ServiceAccount::new("runner-sa", "workloads");
+        service_account.token = Some(ServiceAccountToken {
+            jwt: JwToken {
+                raw: "ey.runtime.secret".to_string(),
+                ..Default::default()
+            },
+            service_account_name: "runner-sa".to_string(),
+            namespace: "workloads".to_string(),
+            pod_name: None,
+            pod_uid: None,
+            service_account_uid: None,
+            is_bound: false,
+        });
+        campaign.upsert_entity(service_account, campaign::KnowledgeProvenance::Scenario);
+
+        let mut ttp = armory::Ttp::new("context", "Context", "Discovery");
+        for name in ["NS", "POD_NAME", "NODE", "NODE.IP", "NODE.NAME", "TOKEN"] {
+            ttp.params.push(armory::TtpParam {
+                name: name.to_string(),
+                param_type: "string".to_string(),
+                description: String::new(),
+                required: true,
+                default: String::new(),
+                options: Vec::new(),
+            });
+        }
+
+        let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
+        assert_eq!(resolution.status, ActionReadinessStatus::Ready);
+        let value = |name: &str| {
+            resolution
+                .arguments
+                .iter()
+                .find(|argument| argument.name == name)
+                .and_then(|argument| argument.value.as_deref())
+        };
+        assert_eq!(value("NS"), Some("workloads"));
+        assert_eq!(value("POD_NAME"), Some("runner"));
+        assert_eq!(value("NODE"), Some("10.0.0.8"));
+        assert_eq!(value("NODE.IP"), Some("10.0.0.8"));
+        assert_eq!(value("NODE.NAME"), Some("worker-a"));
+
+        let token = resolution
+            .arguments
+            .iter()
+            .find(|argument| argument.name == "TOKEN")
+            .expect("TOKEN resolution");
+        assert_eq!(token.status, ArgumentResolutionStatus::GeneratedAtExecution);
+        assert!(token.value.is_none());
+        assert!(!format!("{resolution:?}").contains("ey.runtime.secret"));
+
+        let mut args = std::collections::HashMap::new();
+        campaign::grounding::ground_args_from_context(&mut args, &target_id, &campaign);
+        assert_eq!(
+            args.get("TOKEN").map(String::as_str),
+            Some("ey.runtime.secret")
+        );
     }
 
     #[test]
