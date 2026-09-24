@@ -11,10 +11,6 @@ pub enum ProcedureOperation {
     /// Execute `Procedure::command` as an ordinary shell command.
     #[default]
     Shell,
-    ReadLocalKubeconfig {
-        #[serde(default)]
-        path: String,
-    },
     SelfSubjectRulesReview {
         namespace: String,
     },

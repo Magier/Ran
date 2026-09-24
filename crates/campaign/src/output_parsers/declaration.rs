@@ -1,4 +1,4 @@
-use super::{file, get_registry, sys, ParserFn};
+use super::{get_registry, sys, ParserFn};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum EventEffect {
@@ -28,7 +28,7 @@ pub(super) enum OutputEffect {
     Nmap,
     SelfSubjectRulesReview,
     FileContent,
-    Kubeconfig(file::KubeconfigSource),
+    Kubeconfig,
     SysNodeName,
     RawServiceAccountToken,
     Registered(ParserFn),
@@ -65,9 +65,7 @@ impl OutputEffect {
         } else if normalized == "file:content" || normalized.starts_with("file:content(") {
             Self::FileContent
         } else if normalized == "file:kubeconfig" {
-            Self::Kubeconfig(file::KubeconfigSource::RemoteSystem)
-        } else if normalized == "file:local-kubeconfig" {
-            Self::Kubeconfig(file::KubeconfigSource::OperatorHost)
+            Self::Kubeconfig
         } else if normalized == "sys.node-name" {
             Self::SysNodeName
         } else if normalized == "rawserviceaccounttoken" {
@@ -109,11 +107,11 @@ mod tests {
             "k8s.SelfSubjectRulesReview",
             "file:content(/etc/passwd)",
             "file:kubeconfig",
-            "file:local-kubeconfig",
             "sys.node-name",
         ] {
             assert!(OutputEffect::resolve(effect).is_some(), "{effect}");
         }
+        assert!(OutputEffect::resolve("file:local-kubeconfig").is_none());
         assert!(OutputEffect::resolve("unsupported.effect").is_none());
     }
 }

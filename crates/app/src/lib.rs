@@ -52,9 +52,8 @@ pub struct AppState {
     /// Live Kubernetes client for the active kubeconfig context. `None` when
     /// startup could not authenticate (e.g. the current context uses an
     /// exec-auth plugin that failed to produce credentials). Cluster-facing
-    /// operations must guard for this; local-only actions like
-    /// `read-local-kubeconfig` remain available so the operator can inspect
-    /// what Ran was configured with.
+    /// operations must guard for this; local-only actions remain available so
+    /// the operator can inspect what Ran was configured with.
     k8s: Option<Client>,
     campaign: Arc<RwLock<Campaign>>,
     c2: C2Handle,
@@ -475,26 +474,7 @@ impl ApiService for AppState {
     }
 
     async fn get_armory(&self, params: api::GetArmoryParams) -> Result<Vec<armory::Ttp>, ApiError> {
-        let mut ttps = self.armory.ttps_for_tactic(params.tactic.as_deref());
-        // Surface the kubeconfig path Ran was configured with (via --kubeconfig
-        // or the standard resolution) as the PATH parameter's default on the
-        // read-local-kubeconfig TTP, so UI/MCP/REST callers see the concrete
-        // file that will be read. Runtime fallback in the executor still
-        // applies for callers that omit PATH entirely.
-        if let Some(kubeconfig) = self.k8s.as_ref().and_then(|k| k.kubeconfig_path()) {
-            let kubeconfig = kubeconfig.display().to_string();
-            for ttp in &mut ttps {
-                if ttp.id != "read-local-kubeconfig" {
-                    continue;
-                }
-                for param in &mut ttp.params {
-                    if param.name == "PATH" && param.default.is_empty() {
-                        param.default = kubeconfig.clone();
-                    }
-                }
-            }
-        }
-        Ok(ttps)
+        Ok(self.armory.ttps_for_tactic(params.tactic.as_deref()))
     }
 
     async fn execute_action(
@@ -1363,6 +1343,21 @@ fn local_tool_binaries(armory: &Armory) -> HashMap<String, BinaryPresence> {
     binaries
 }
 
+/// Bind the local kubeconfig-read action to the exact file selected at startup.
+/// The TTP remains an ordinary local shell procedure; this only supplies its
+/// application-specific default before callers receive or execute the action.
+fn configure_local_kubeconfig_default(armory: &mut Armory, kubeconfig_path: &Path) {
+    let Some(ttp) = armory.get_ttp_mut("read-local-kubeconfig") else {
+        return;
+    };
+    let path = kubeconfig_path.display().to_string();
+    for param in &mut ttp.params {
+        if param.name == "PATH" && param.default.is_empty() {
+            param.default = path.clone();
+        }
+    }
+}
+
 /// Installs the `ring` crypto provider unless one is already installed.
 ///
 /// `reqwest` is built with `rustls-no-provider`, which keeps the `aws-lc-rs`
@@ -1916,7 +1911,8 @@ pub async fn start(cfg: ServerConfig) -> Result<()> {
     let mut initial_knowledge = build_initial_knowledge(&cfg.seed_knowledge)?;
     initial_knowledge.operator_host_name = local_hostname();
     initial_knowledge.operator_host_ips = local_ips();
-    let (armory, user_armory_dir) = load_armory(cfg.armory_dir, &cfg.ttps.disabled)?;
+    let (mut armory, user_armory_dir) = load_armory(cfg.armory_dir, &cfg.ttps.disabled)?;
+    configure_local_kubeconfig_default(&mut armory, &kubeconfig_path);
     initial_knowledge.operator_host_binaries = local_tool_binaries(&armory);
     let kubetier_catalog = kubetier::Catalog::load(cfg.kubetier_catalog.as_deref())?;
     info!(
@@ -2964,6 +2960,20 @@ mod operator_host_probe_tests {
         );
         // The abstract slot name is never probed as a binary.
         assert!(!binaries.contains_key("http-request"));
+    }
+
+    #[test]
+    fn configured_kubeconfig_path_becomes_the_local_read_default() {
+        let armory_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../armory/TTPs");
+        let mut armory = Armory::load_from_dir(armory_dir).expect("repository armory should load");
+
+        configure_local_kubeconfig_default(&mut armory, Path::new("/tmp/ran-config"));
+
+        let path = armory
+            .get_ttp("read-local-kubeconfig")
+            .and_then(|ttp| ttp.params.iter().find(|param| param.name == "PATH"))
+            .expect("local kubeconfig PATH parameter");
+        assert_eq!(path.default, "/tmp/ran-config");
     }
 
     #[test]

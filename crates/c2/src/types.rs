@@ -32,9 +32,6 @@ pub enum ExecutionOperation {
     LocalShell {
         command: String,
     },
-    ReadLocalKubeconfig {
-        path: Option<String>,
-    },
     SelfSubjectRulesReview {
         namespace: String,
     },

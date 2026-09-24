@@ -83,6 +83,8 @@ fn slugify(input: &str) -> String {
 /// `is_system` in `resolve_target_context`. The operator host is the one
 /// `SystemEntity` that is not in play, so `requires.kind: System` must not
 /// match it; see the comment at that single definition site.
+pub const OPERATOR_HOST_ID: &str = "system/operator-host";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorHost {
     pub name: String,
@@ -101,7 +103,7 @@ impl OperatorHost {
 
 impl Entity for OperatorHost {
     fn entity_id(&self) -> EntityId {
-        EntityId::new("system/operator-host")
+        EntityId::new(OPERATOR_HOST_ID)
     }
 
     fn entity_name(&self) -> &str {
