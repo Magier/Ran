@@ -14,6 +14,7 @@
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
 	import { allListeners } from '$lib/listeners';
 	import { redirectorOptions } from '$lib/redirectors';
+	import { sessionOptions } from '$lib/sessions';
 	import { getRanAPI } from '$lib/ran_api';
 	import { selectDefaultAuthIdentity } from '$lib/auth_identity';
 	import { untrack } from 'svelte';
@@ -567,6 +568,8 @@
 						// Labelled by tool and hop (`labctl 9000→4444`); the playground id
 						// only appears where two would otherwise read alike.
 						argOptions[param.name] = redirectorOptions(campaignState.graph?.nodes);
+					} else if (param.type === 'Session') {
+						argOptions[param.name] = sessionOptions(campaignState.graph?.edges, currentTargetId);
 					} else if (param.type === 'ServiceAccount') {
 						// For TOKEN params, only show ServiceAccounts that have extracted tokens (compromised)
 						if (param.name === 'TOKEN') {

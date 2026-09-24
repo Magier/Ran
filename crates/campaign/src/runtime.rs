@@ -733,6 +733,23 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         state: SessionLifecycle::Lost,
                     });
                 }
+                Ok(C2Event::SessionKilled { backend_id }) => {
+                    let mut guard = match campaign.write() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            error!("campaign lock poisoned on SessionKilled");
+                            continue;
+                        }
+                    };
+                    let removed = guard.remove_session_channel(&backend_id);
+                    info!(%backend_id, removed, "session killed; c2.session edge(s) removed");
+                    drop(guard);
+                    let _ = campaign_events.publish(CampaignEvent::FactsChanged {
+                        cmd_id: backend_id,
+                        new_entities: vec![],
+                        new_relations: vec![],
+                    });
+                }
                 Err(C2EventRecvError::ProgressLagged(skipped)) => {
                     warn!(
                         skipped,
@@ -1335,6 +1352,54 @@ mod listener_event_tests {
             "the reconnect must revive the session, not stack a second one: {sessions:?}"
         );
         assert_eq!(sessions[0].status, SessionStatus::Active);
+    }
+
+    #[tokio::test]
+    async fn a_killed_session_removes_only_its_session_channel() {
+        let campaign = Arc::new(RwLock::new(Campaign::bootstrap(
+            "Ran",
+            ran_domain::K8sCluster::new("dev"),
+        )));
+        let c2_events = C2EventBus::new(16);
+        let campaign_events = CampaignEventBus::new(16);
+        let mut rx = campaign_events.subscribe();
+        spawn_c2_event_processor(campaign.clone(), c2_events.clone(), campaign_events);
+
+        let backend_id = "session/node-victim-4444";
+        c2_events
+            .publish(C2Event::SessionConnected {
+                backend_id: backend_id.to_string(),
+                target_entity_id: "node/victim".to_string(),
+                hostname: "victim".to_string(),
+                user: "root".to_string(),
+                os: "Linux".to_string(),
+                port: Some(4444),
+            })
+            .await
+            .expect("session connected");
+        let _ = next_facts_changed(&mut rx).await;
+
+        c2_events
+            .publish(C2Event::SessionKilled {
+                backend_id: backend_id.to_string(),
+            })
+            .await
+            .expect("session killed");
+        let _ = next_facts_changed(&mut rx).await;
+
+        let guard = campaign.read().expect("campaign lock");
+        assert!(
+            !guard
+                .get_relations()
+                .iter()
+                .any(|relation| relation.name == "c2.session"
+                    && relation.session_id.as_deref() == Some(backend_id)),
+            "operator closure must remove the session edge rather than leave it broken"
+        );
+        assert!(
+            guard.get_system_entity("system/victim").is_some(),
+            "facts discovered through the session must remain"
+        );
     }
 
     #[tokio::test]
