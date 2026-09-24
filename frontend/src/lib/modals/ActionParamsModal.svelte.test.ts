@@ -133,6 +133,8 @@ describe('ActionParamsModal target-derived defaults', () => {
 			targetId: target.id,
 			status: 'needs_choice',
 			reasons: ['TARGET has multiple values derived from TARGET.IP'],
+			procedures: [{ procedureId: 'execute', status: 'unknown' }],
+			recommendedProcedureId: 'execute',
 			arguments: [
 				{
 					name: 'TARGET',
@@ -158,7 +160,9 @@ describe('ActionParamsModal target-derived defaults', () => {
 			actionState: {
 				status: 'needs_choice',
 				reasons: resolution.reasons,
-				arguments: { total: 1, resolved: 0, needsInput: 0, needsChoice: 1, blocked: 0 }
+				arguments: { total: 1, resolved: 0, needsInput: 0, needsChoice: 1, blocked: 0 },
+				procedures: resolution.procedures,
+				recommendedProcedureId: resolution.recommendedProcedureId
 			}
 		} as TTP;
 		const resolutionSpy = vi
@@ -177,11 +181,85 @@ describe('ActionParamsModal target-derived defaults', () => {
 		});
 
 		await waitFor(() => expect(targetInput()).toHaveValue(''));
-		expect(resolutionSpy).toHaveBeenCalledWith(ttp.id, target.id);
+		expect(resolutionSpy).toHaveBeenCalledWith(ttp.id, target.id, undefined);
 		const resolutionInfo = screen.getByLabelText(/Resolution for TARGET/);
 		expect(resolutionInfo).toHaveAttribute('title', expect.stringContaining('system.ips'));
 		expect(resolutionInfo).not.toHaveClass('ig-cell');
 		expect(resolutionInfo.closest('.input-group')).toBeNull();
+		resolutionSpy.mockRestore();
+	});
+
+	it('uses backend procedure readiness to select an available fallback', async () => {
+		const target = {
+			id: 'pod/default/demo',
+			name: 'demo',
+			namespace: 'default'
+		};
+		const procedures = [
+			{ id: 'ip', tool: 'ip', command: 'ip address' },
+			{ id: 'hostname', tool: 'hostname', command: 'hostname -i' }
+		];
+		const procedureStates = [
+			{
+				procedureId: 'ip',
+				status: 'unavailable' as const,
+				requiredTool: 'ip',
+				reason: "required tool 'ip' is known to be absent from the execution system"
+			},
+			{
+				procedureId: 'hostname',
+				status: 'ready' as const,
+				requiredTool: 'hostname'
+			}
+		];
+		const targetAwareTtp = {
+			...ttp,
+			procedures,
+			actionState: {
+				status: 'ready',
+				reasons: [],
+				arguments: { total: 0, resolved: 0, needsInput: 0, needsChoice: 0, blocked: 0 },
+				procedures: procedureStates,
+				recommendedProcedureId: 'hostname'
+			}
+		} as TTP;
+		const resolution: ActionResolution = {
+			actionId: targetAwareTtp.id,
+			targetId: target.id,
+			status: 'ready',
+			reasons: [],
+			arguments: [],
+			procedures: procedureStates,
+			recommendedProcedureId: 'hostname'
+		};
+		const campaignState = {
+			relations: new Map(),
+			graph: { nodes: [] },
+			getObjectById: () => target,
+			getCompromisedSystems: () => [target],
+			getPods: () => [],
+			getServiceAccounts: () => [],
+			getServiceAccountsWithTokens: () => []
+		};
+		const resolutionSpy = vi
+			.spyOn(getRanAPI(), 'GetActionResolution')
+			.mockResolvedValue(resolution);
+
+		render(ActionParamsModal, {
+			props: {
+				targetId: target.id,
+				ttp: targetAwareTtp,
+				argContext: {},
+				onExecute: vi.fn(),
+				onCancel: vi.fn()
+			},
+			context: new Map([['$_campaignState', campaignState]])
+		});
+
+		const selector = screen.getByLabelText('Procedure') as HTMLSelectElement;
+		await waitFor(() => expect(selector).toHaveValue('hostname'));
+		expect(screen.getByRole('option', { name: 'ip ❌' })).toBeDisabled();
+		expect(resolutionSpy).toHaveBeenLastCalledWith(targetAwareTtp.id, target.id, target.id);
 		resolutionSpy.mockRestore();
 	});
 });

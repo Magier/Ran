@@ -113,7 +113,7 @@ export interface paths {
 		};
 		/**
 		 * Resolve an action for a target
-		 * @description Returns the current argument values, choices, blockers, and provenance for one action without executing it.
+		 * @description Returns current argument and procedure readiness, choices, blockers, and provenance for one action without executing it.
 		 */
 		get: operations['getActionResolution'];
 		put?: never;
@@ -697,6 +697,8 @@ export interface components {
 			status: components['schemas']['ActionReadinessStatus'];
 			reasons: string[];
 			arguments: components['schemas']['ArgumentSummary'];
+			procedures: components['schemas']['ProcedureState'][];
+			recommendedProcedureId?: string;
 		};
 		/** @enum {string} */
 		ActionReadinessStatus: 'inapplicable' | 'blocked' | 'needs_input' | 'needs_choice' | 'ready';
@@ -707,12 +709,22 @@ export interface components {
 			needsChoice: number;
 			blocked: number;
 		};
+		/** @enum {string} */
+		ProcedureReadinessStatus: 'ready' | 'unknown' | 'unavailable';
+		ProcedureState: {
+			procedureId: string;
+			status: components['schemas']['ProcedureReadinessStatus'];
+			requiredTool?: string;
+			reason?: string;
+		};
 		ActionResolution: {
 			actionId: string;
 			targetId: string;
 			status: components['schemas']['ActionReadinessStatus'];
 			reasons: string[];
 			arguments: components['schemas']['ArgumentResolution'][];
+			procedures: components['schemas']['ProcedureState'][];
+			recommendedProcedureId?: string;
 		};
 		ArgumentResolution: {
 			name: string;
@@ -1298,6 +1310,8 @@ export interface operations {
 		parameters: {
 			query: {
 				targetId: string;
+				/** @description Optional physical execution system used to evaluate procedure tool readiness */
+				execSystemId?: string;
 			};
 			header?: never;
 			path: {

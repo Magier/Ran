@@ -9,7 +9,10 @@ mod types;
 pub use entity_refs::{CampaignEntityRef, CampaignSystemEntityMut, CampaignSystemEntityRef};
 pub(crate) use entity_store::EntityStore;
 pub use entity_store::EntityType;
-pub use execution::best_tool_readiness;
+pub use execution::{
+    best_tool_readiness, procedure_readiness, procedure_required_tool, recommended_procedure,
+    ProcedureReadiness,
+};
 pub use state::{Campaign, InitialClusterKnowledge, InitialKnowledge, InitialKubeconfigKnowledge};
 pub use types::{
     ExecChannel, ExecuteActionError, ExecuteActionRequest, ExecuteActionResult,

@@ -221,9 +221,13 @@ export class RanAPI {
 		return data;
 	}
 
-	async GetActionResolution(actionId: string, targetId: string): Promise<ActionResolution> {
+	async GetActionResolution(
+		actionId: string,
+		targetId: string,
+		execSystemId?: string
+	): Promise<ActionResolution> {
 		const { data, error } = await this.restClient.GET('/api/armory/{actionId}/resolution', {
-			params: { path: { actionId }, query: { targetId } }
+			params: { path: { actionId }, query: { targetId, execSystemId } }
 		});
 		if (error) throw new Error(error.error || 'Failed to resolve action');
 		return data;

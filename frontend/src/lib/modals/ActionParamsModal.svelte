@@ -9,7 +9,8 @@
 		RBACPermission,
 		AuthIdentity,
 		ActionResolution,
-		ArgumentResolution
+		ArgumentResolution,
+		ProcedureState
 	} from '$lib/api/index';
 	import { getCampaignState, type Entity } from '$lib/components/CampaignState.svelte';
 	import { allListeners } from '$lib/listeners';
@@ -77,9 +78,6 @@
 			.filter((system) => !runsOutsideTarget || system.id !== targetId)
 			.map((e) => ({ label: e.name, value: e.id, group: e.namespace }))
 			.sort((a, b) => a.label.localeCompare(b.label))
-	);
-	const selectedExecSystem = $derived(
-		compromisedSystems.find((e) => e.id === selectedExecSystemId)
 	);
 	const hasAdvancedSettings = $derived.by(() => {
 		return !!selectedProcedure?.command?.trim() && !selectedProcedure.isLocalCommand;
@@ -156,13 +154,14 @@
 	$effect(() => {
 		const actionId = ttp?.id;
 		const selectedTargetId = targetId;
+		const executionSystemId = selectedExecSystemId || undefined;
 		void campaignState.graph;
 		const requestId = ++resolutionRequestId;
 		actionResolution = null;
 		if (!actionId || !selectedTargetId || !ttp.actionState) return;
 
 		ranAPI
-			.GetActionResolution(actionId, selectedTargetId)
+			.GetActionResolution(actionId, selectedTargetId, executionSystemId)
 			.then((resolution) => {
 				if (requestId !== resolutionRequestId) return;
 				actionResolution = resolution;
@@ -212,6 +211,13 @@
 
 	function resolutionFor(name: string): ArgumentResolution | undefined {
 		return actionResolution?.arguments.find((argument) => argument.name === name);
+	}
+
+	function procedureStateFor(procedureId: string): ProcedureState | undefined {
+		return (
+			actionResolution?.procedures.find((procedure) => procedure.procedureId === procedureId) ??
+			ttp.actionState?.procedures.find((procedure) => procedure.procedureId === procedureId)
+		);
 	}
 
 	function resolutionLabel(argument: ArgumentResolution): string {
@@ -612,7 +618,7 @@
 			}
 
 			// Also reset procedureId when TTP changes
-			procedureId = ttpProcedures?.[0]?.id || '';
+			procedureId = ttp.actionState?.recommendedProcedureId ?? ttpProcedures?.[0]?.id ?? '';
 
 			// Select the physical execution system as well as the semantic target.
 			// This is especially important for ServiceAccount actions: the backend
@@ -704,21 +710,19 @@
 		}));
 	});
 
-	// When the execution system changes, auto-switch to first available procedure if current is disabled
+	// Follow the backend's recommendation whenever the current procedure is unavailable.
 	$effect(() => {
-		// track selectedExecSystemId to re-evaluate
-		const _sys = selectedExecSystemId;
 		const procedures = ttp?.procedures;
 		if (!procedures || procedures.length <= 1) return;
 
-		const currentOk = executingSystemHasTool(
-			procedureToolName(procedures.find((p) => p.id === procedureId) ?? procedures[0])
-		);
-		if (!currentOk) {
-			const first = procedures.find((p) => executingSystemHasTool(procedureToolName(p)));
-			if (first) {
-				procedureId = first.id;
-			}
+		const currentState = procedureStateFor(procedureId);
+		if (!procedureId || currentState?.status === 'unavailable') {
+			const recommended =
+				actionResolution?.recommendedProcedureId ?? ttp.actionState?.recommendedProcedureId;
+			const fallback =
+				procedures.find((procedure) => procedure.id === recommended) ??
+				procedures.find((procedure) => procedureStateFor(procedure.id)?.status !== 'unavailable');
+			if (fallback) procedureId = fallback.id;
 		}
 	});
 
@@ -860,19 +864,6 @@
 			argsDict,
 			executionTimeoutSeconds
 		);
-	}
-
-	function executingSystemHasTool(tool: string): boolean {
-		if (!selectedExecSystem?.binaries) return true; // no info, assume available
-		const path = selectedExecSystem.binaries[tool];
-		if (path === undefined) return true; // binary not tracked, assume available
-		return path !== '' && path !== '❌';
-	}
-
-	function unavailableToolReason(tool: string): string | undefined {
-		return executingSystemHasTool(tool)
-			? undefined
-			: `Disabled because '${tool}' is known to be absent from the selected execution system`;
 	}
 
 	function procedureToolName(procedure: { id: string; tool?: string }): string {
@@ -1045,13 +1036,12 @@
 				disabled={ttp.procedures.length <= 1}
 			>
 				{#each ttp.procedures as procedure (procedure.id)}
+					{@const procedureState = procedureStateFor(procedure.id)}
 					<option
 						value={procedure.id}
-						disabled={!executingSystemHasTool(procedureToolName(procedure))}
-						title={unavailableToolReason(procedureToolName(procedure))}
-						>{procedureToolName(procedure)}{!executingSystemHasTool(procedureToolName(procedure))
-							? ' ❌'
-							: ''}
+						disabled={procedureState?.status === 'unavailable'}
+						title={procedureState?.reason}
+						>{procedureToolName(procedure)}{procedureState?.status === 'unavailable' ? ' ❌' : ''}
 					</option>
 				{/each}
 			</select>

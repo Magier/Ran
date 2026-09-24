@@ -1292,7 +1292,12 @@ impl Campaign {
             }
         }
 
-        let mut procedure = self.select_procedure(&ttp, procedure_id.as_deref())?;
+        let mut procedure = self.select_procedure(
+            &ttp,
+            procedure_id.as_deref(),
+            &target_id,
+            exec_system_id.as_deref(),
+        )?;
         let procedure_uses_k8s_auth = crate::ttp_applicability::procedure_uses_k8s_auth(&procedure);
         let resolved_auth = if procedure_uses_k8s_auth {
             let uses_default_kubeconfig = procedure.is_local_command == Some(true)
@@ -3423,6 +3428,8 @@ impl Campaign {
         &self,
         ttp: &Ttp,
         procedure_id: Option<&str>,
+        target_id: &str,
+        exec_system_id: Option<&str>,
     ) -> Result<Procedure, ExecuteActionError> {
         if let Some(proc_id) = procedure_id.map(str::trim).filter(|id| !id.is_empty()) {
             return ttp
@@ -3438,9 +3445,19 @@ impl Campaign {
                 });
         }
 
-        ttp.procedures.first().cloned().ok_or_else(|| {
-            ExecuteActionError::InvalidInput(format!("No procedure found for action '{}'", ttp.id))
-        })
+        recommended_procedure(ttp, self, target_id, exec_system_id)
+            .cloned()
+            .ok_or_else(|| {
+                let reason = if ttp.procedures.is_empty() {
+                    format!("No procedure found for action '{}'", ttp.id)
+                } else {
+                    format!(
+                        "no procedure for action '{}' has a required tool available on the execution system",
+                        ttp.id
+                    )
+                };
+                ExecuteActionError::InvalidInput(reason)
+            })
     }
 }
 
@@ -3555,6 +3572,19 @@ fn procedure_binary_name(procedure: &Procedure) -> Option<&str> {
     procedure.command.split_whitespace().next()
 }
 
+/// Return the binary name used to evaluate a procedure's tool readiness.
+pub fn procedure_required_tool(procedure: &Procedure) -> Option<&str> {
+    procedure_binary_name(procedure)
+}
+
+/// Readiness of a procedure's required tool on its physical execution system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcedureReadiness {
+    Ready,
+    Unknown,
+    Unavailable,
+}
+
 /// Readiness of an unseen (`Unknown`) tool - a base-rate prior that a tool we
 /// haven't checked is present. Below 1.0 so the scorer prefers tools we've
 /// *confirmed* present over ones we merely haven't ruled out.
@@ -3564,25 +3594,64 @@ const UNKNOWN_TOOL_READINESS: f32 = 0.7;
 /// `1.0` if it runs operator-side (no target binary) or its tool is confirmed
 /// present, `UNKNOWN_TOOL_READINESS` if the tool's presence is unknown, `0.0` if
 /// the tool is known absent.
-fn procedure_readiness(procedure: &Procedure, tactic: &str, sys: &ran_domain::SystemInfo) -> f32 {
-    if procedure.run_on_target == Some(false) {
-        // The execution source is chosen later by the router. Do not hide the
-        // action based on the target's binary map, because the target is
-        // deliberately excluded from execution and source tool knowledge may
-        // still be incomplete.
-        return UNKNOWN_TOOL_READINESS;
-    }
+fn procedure_readiness_on_system(
+    procedure: &Procedure,
+    tactic: &str,
+    sys: &ran_domain::SystemInfo,
+) -> ProcedureReadiness {
     if !needs_remote_channel(procedure, tactic) {
-        return 1.0; // runs on the C2 side - no target binary required
+        return ProcedureReadiness::Ready;
     }
     match procedure_binary_name(procedure) {
-        None => 1.0, // can't identify a binary - don't penalize
+        None => ProcedureReadiness::Ready,
         Some(tool) => match sys.has_binary(tool) {
-            ran_domain::BinaryPresence::Present(_) => 1.0,
-            ran_domain::BinaryPresence::Unknown => UNKNOWN_TOOL_READINESS,
-            ran_domain::BinaryPresence::Absent => 0.0,
+            ran_domain::BinaryPresence::Present(_) => ProcedureReadiness::Ready,
+            ran_domain::BinaryPresence::Unknown => ProcedureReadiness::Unknown,
+            ran_domain::BinaryPresence::Absent => ProcedureReadiness::Unavailable,
         },
     }
+}
+
+/// Resolve one procedure's tool readiness for a semantic target and optional
+/// physical execution system. Source-side procedures remain unknown until an
+/// execution system is supplied because they deliberately do not run on the
+/// semantic target.
+pub fn procedure_readiness(
+    ttp: &armory::Ttp,
+    procedure: &Procedure,
+    campaign: &Campaign,
+    target_id: &str,
+    exec_system_id: Option<&str>,
+) -> ProcedureReadiness {
+    if !needs_remote_channel(procedure, &ttp.tactic) {
+        return ProcedureReadiness::Ready;
+    }
+    if procedure.run_on_target == Some(false) && exec_system_id.is_none() {
+        return ProcedureReadiness::Unknown;
+    }
+
+    let system_id = exec_system_id.unwrap_or(target_id);
+    let Some(sys_ref) = campaign.get_system_entity(system_id) else {
+        return ProcedureReadiness::Unknown;
+    };
+    procedure_readiness_on_system(procedure, &ttp.tactic, sys_ref.entity().system())
+}
+
+/// Return the best runnable procedure, preferring a confirmed-ready procedure
+/// over one whose tool availability is still unknown. Armory order breaks ties.
+pub fn recommended_procedure<'a>(
+    ttp: &'a armory::Ttp,
+    campaign: &Campaign,
+    target_id: &str,
+    exec_system_id: Option<&str>,
+) -> Option<&'a Procedure> {
+    [ProcedureReadiness::Ready, ProcedureReadiness::Unknown]
+        .into_iter()
+        .find_map(|wanted| {
+            ttp.procedures.iter().find(|procedure| {
+                procedure_readiness(ttp, procedure, campaign, target_id, exec_system_id) == wanted
+            })
+        })
 }
 
 /// Best-case tool readiness for a TTP against `target_id`, i.e. the readiness of
@@ -3603,7 +3672,18 @@ pub fn best_tool_readiness(ttp: &armory::Ttp, campaign: &Campaign, target_id: &s
     let sys = sys_ref.entity().system();
     ttp.procedures
         .iter()
-        .map(|p| procedure_readiness(p, &ttp.tactic, sys))
+        .map(|procedure| {
+            let readiness = if procedure.run_on_target == Some(false) {
+                ProcedureReadiness::Unknown
+            } else {
+                procedure_readiness_on_system(procedure, &ttp.tactic, sys)
+            };
+            match readiness {
+                ProcedureReadiness::Ready => 1.0,
+                ProcedureReadiness::Unknown => UNKNOWN_TOOL_READINESS,
+                ProcedureReadiness::Unavailable => 0.0,
+            }
+        })
         .fold(0.0_f32, f32::max)
 }
 

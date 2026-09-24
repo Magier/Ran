@@ -29,6 +29,9 @@ pub(crate) struct ActionState {
     pub(crate) status: ActionReadinessStatus,
     pub(crate) reasons: Vec<String>,
     pub(crate) arguments: ArgumentSummary,
+    pub(crate) procedures: Vec<ProcedureState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) recommended_procedure_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +42,28 @@ pub(crate) struct ActionResolution {
     pub(crate) status: ActionReadinessStatus,
     pub(crate) reasons: Vec<String>,
     pub(crate) arguments: Vec<ArgumentResolution>,
+    pub(crate) procedures: Vec<ProcedureState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) recommended_procedure_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ProcedureReadinessStatus {
+    Ready,
+    Unknown,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProcedureState {
+    pub(crate) procedure_id: String,
+    pub(crate) status: ProcedureReadinessStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) required_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -111,6 +136,7 @@ pub(crate) fn resolve_action(
     ttp: &armory::Ttp,
     campaign: &campaign::Campaign,
     target_id: &str,
+    exec_system_id: Option<&str>,
 ) -> Option<ActionResolution> {
     let target = campaign
         .get_entities()
@@ -125,6 +151,14 @@ pub(crate) fn resolve_action(
         .iter()
         .map(|param| resolve_argument(param, ttp, campaign, &target, target_id))
         .collect::<Vec<_>>();
+    let procedures = ttp
+        .procedures
+        .iter()
+        .map(|procedure| resolve_procedure(ttp, procedure, campaign, target_id, exec_system_id))
+        .collect::<Vec<_>>();
+    let recommended_procedure_id =
+        campaign::recommended_procedure(ttp, campaign, target_id, exec_system_id)
+            .map(|procedure| procedure.id.clone());
 
     let mut reasons = Vec::new();
     let status = if !applicable {
@@ -167,6 +201,8 @@ pub(crate) fn resolve_action(
         status,
         reasons,
         arguments,
+        procedures,
+        recommended_procedure_id,
     })
 }
 
@@ -187,6 +223,41 @@ pub(crate) fn summarize(resolution: &ActionResolution) -> ActionState {
         status: resolution.status,
         reasons: resolution.reasons.clone(),
         arguments,
+        procedures: resolution.procedures.clone(),
+        recommended_procedure_id: resolution.recommended_procedure_id.clone(),
+    }
+}
+
+fn resolve_procedure(
+    ttp: &armory::Ttp,
+    procedure: &armory::Procedure,
+    campaign: &campaign::Campaign,
+    target_id: &str,
+    exec_system_id: Option<&str>,
+) -> ProcedureState {
+    let required_tool = campaign::procedure_required_tool(procedure).map(str::to_string);
+    let readiness =
+        campaign::procedure_readiness(ttp, procedure, campaign, target_id, exec_system_id);
+    let (status, reason) = match readiness {
+        campaign::ProcedureReadiness::Ready => (ProcedureReadinessStatus::Ready, None),
+        campaign::ProcedureReadiness::Unknown => (
+            ProcedureReadinessStatus::Unknown,
+            required_tool.as_ref().map(|tool| {
+                format!("required tool '{tool}' has not been observed on the execution system")
+            }),
+        ),
+        campaign::ProcedureReadiness::Unavailable => (
+            ProcedureReadinessStatus::Unavailable,
+            required_tool.as_ref().map(|tool| {
+                format!("required tool '{tool}' is known to be absent from the execution system")
+            }),
+        ),
+    };
+    ProcedureState {
+        procedure_id: procedure.id.clone(),
+        status,
+        required_tool,
+        reason,
     }
 }
 
@@ -602,7 +673,9 @@ fn source(
 
 #[cfg(test)]
 mod tests {
-    use ran_domain::{AccessLevel, Entity, K8sCluster, SessionChannel, UnknownSystem};
+    use ran_domain::{
+        AccessLevel, BinaryPresence, Entity, K8sCluster, SessionChannel, UnknownSystem,
+    };
 
     use super::*;
 
@@ -625,7 +698,7 @@ mod tests {
             options: Vec::new(),
         });
 
-        let resolution = resolve_action(&ttp, &campaign, &target_id).unwrap();
+        let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
         assert_eq!(resolution.status, ActionReadinessStatus::Ready);
         assert_eq!(
             resolution.arguments[0].value.as_deref(),
@@ -660,7 +733,7 @@ mod tests {
             options: Vec::new(),
         });
 
-        let resolution = resolve_action(&ttp, &campaign, &target_id).unwrap();
+        let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
         assert_eq!(resolution.status, ActionReadinessStatus::NeedsChoice);
         assert_eq!(resolution.arguments[0].candidates.len(), 2);
     }
@@ -682,7 +755,7 @@ mod tests {
             options: Vec::new(),
         });
 
-        let resolution = resolve_action(&ttp, &campaign, "c2/ran").expect("C2 is a target");
+        let resolution = resolve_action(&ttp, &campaign, "c2/ran", None).expect("C2 is a target");
         assert_eq!(resolution.status, ActionReadinessStatus::Ready);
         assert_eq!(
             resolution.arguments[0].value.as_deref(),
@@ -691,6 +764,53 @@ mod tests {
         assert_eq!(
             resolution.arguments[0].candidates[0].label,
             "node/victim (session/victim-4444)"
+        );
+    }
+
+    #[test]
+    fn procedure_readiness_and_recommendation_are_resolved_by_the_backend() {
+        let mut campaign = campaign::Campaign::bootstrap("Ran", K8sCluster::new("dev"));
+        let mut target = UnknownSystem::new("target");
+        target.system.access_level = AccessLevel::Exec;
+        target
+            .system
+            .binaries
+            .insert("ip".to_string(), BinaryPresence::Absent);
+        target.system.binaries.insert(
+            "hostname".to_string(),
+            BinaryPresence::Present("/bin/hostname".into()),
+        );
+        let target_id = target.entity_id().0;
+        campaign.upsert_entity(target, campaign::KnowledgeProvenance::Scenario);
+
+        let ttp = armory::Ttp {
+            procedures: vec![
+                armory::Procedure {
+                    tool: Some("ip".to_string()),
+                    ..armory::Procedure::new("ip", "ip address")
+                },
+                armory::Procedure {
+                    tool: Some("hostname".to_string()),
+                    ..armory::Procedure::new("hostname", "hostname -i")
+                },
+            ],
+            ..armory::Ttp::new("local-ip", "Local IP", "Discovery")
+        };
+
+        let resolution = resolve_action(&ttp, &campaign, &target_id, None).unwrap();
+
+        assert_eq!(resolution.procedures.len(), 2);
+        assert_eq!(
+            resolution.procedures[0].status,
+            ProcedureReadinessStatus::Unavailable
+        );
+        assert_eq!(
+            resolution.procedures[1].status,
+            ProcedureReadinessStatus::Ready
+        );
+        assert_eq!(
+            resolution.recommended_procedure_id.as_deref(),
+            Some("hostname")
         );
     }
 }
