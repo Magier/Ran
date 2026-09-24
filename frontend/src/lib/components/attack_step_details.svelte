@@ -147,6 +147,12 @@
 		</div>
 	</header>
 	<article class="flex min-h-10 flex-auto flex-col overflow-auto">
+		{#if step.reasoning?.trim()}
+			<details class="mt-4 justify-start">
+				<summary class="cursor-pointer pr-2">Reasoning</summary>
+				<p class="mt-2 text-sm whitespace-pre-wrap opacity-80">{step.reasoning}</p>
+			</details>
+		{/if}
 		{#if step.routeReason}
 			<div class="mt-4 justify-start">
 				<div class="mb-1 pr-2">Route</div>
