@@ -663,7 +663,7 @@ fn tool_defs() -> Vec<Tool> {
                     "exec_system_id": { "type": "string", "description": "ID of the system to run the command from (optional)" },
                     "auth_identity_id": { "type": "string", "description": "Value of the TTP's K8S_AUTH parameter. Required for Kubernetes procedures; select an eligible captured ServiceAccount or active K8sCredential." },
                     "procedure_id": { "type": "string", "description": "Specific procedure variant to use (optional)" },
-                    "execution_timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 150, "description": "Maximum wall-clock time for the command" },
+                    "execution_timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 150, "description": "Maximum wall-clock time after command execution begins; queue wait is excluded" },
                     "args": { "type": "object", "description": "TTP parameter overrides (key-value string pairs)", "additionalProperties": { "type": "string" } },
                     "reasoning": { "type": "string", "description": "STRONGLY ENCOURAGED. Your rationale for running this action at this point in the assessment: what you expect it to reveal or achieve, why this target, and how it follows from prior findings. Recorded on the execution record for audit and replay. Provide it on every call unless truly trivial." }
                 }

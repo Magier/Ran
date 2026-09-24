@@ -807,7 +807,7 @@ export interface components {
 			};
 			/**
 			 * Format: int64
-			 * @description Maximum wall-clock time allowed for the complete command.
+			 * @description Maximum wall-clock time after execution begins. Time spent queued behind another command on the same backend is excluded.
 			 * @default 60
 			 */
 			executionTimeoutSeconds: number;
