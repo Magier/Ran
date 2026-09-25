@@ -33,6 +33,141 @@ use crate::campaign::{Campaign, CampaignEntityRef};
 // Context-aware argument resolution
 // ---------------------------------------------------------------------------
 
+pub const DEFAULT_API_SERVER: &str = "https://kubernetes.default.svc";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeArgumentSource {
+    TargetNamespace,
+    TargetName,
+    TargetNodeName,
+    TargetNodeIp,
+    TargetServiceAccountToken,
+    RuntimeDefault,
+}
+
+impl RuntimeArgumentSource {
+    pub fn field(self) -> &'static str {
+        match self {
+            Self::TargetNamespace => "namespace",
+            Self::TargetName => "name",
+            Self::TargetNodeName => "node_name",
+            Self::TargetNodeIp => "node_ip",
+            Self::TargetServiceAccountToken => "service_account_token",
+            Self::RuntimeDefault => "API_SERVER",
+        }
+    }
+
+    pub fn is_sensitive(self) -> bool {
+        matches!(self, Self::TargetServiceAccountToken)
+    }
+
+    pub fn is_default(self) -> bool {
+        matches!(self, Self::RuntimeDefault)
+    }
+}
+
+pub struct RuntimeArgumentBinding {
+    value: String,
+    source: RuntimeArgumentSource,
+}
+
+impl RuntimeArgumentBinding {
+    fn new(value: String, source: RuntimeArgumentSource) -> Self {
+        Self { value, source }
+    }
+
+    pub fn source(&self) -> RuntimeArgumentSource {
+        self.source
+    }
+
+    /// Return a value that is safe to expose through advisory readiness APIs.
+    pub fn readiness_value(&self) -> Option<&str> {
+        (!self.source.is_sensitive()).then_some(self.value.as_str())
+    }
+
+    fn into_grounded_value(self) -> String {
+        self.value
+    }
+}
+
+/// Resolve a well-known runtime argument exactly as action execution will.
+///
+/// Callers that expose advisory readiness must use [`RuntimeArgumentBinding::readiness_value`]
+/// rather than the grounded value so credential material remains private.
+pub fn resolve_runtime_argument(
+    name: &str,
+    value: &str,
+    target_id: &str,
+    campaign: &Campaign,
+) -> Option<RuntimeArgumentBinding> {
+    let target = campaign
+        .get_entities()
+        .into_iter()
+        .find(|entity| entity.entity_id().0 == target_id);
+    let target_ns = target.as_ref().and_then(entity_namespace);
+    let target_name = target
+        .as_ref()
+        .map(|entity| entity.entity_name().to_string());
+    let target_node_name = target.as_ref().and_then(target_node_name);
+    let target_node_ip = target
+        .as_ref()
+        .and_then(|entity| target_node_ip(entity, campaign));
+
+    match name.to_ascii_uppercase().as_str() {
+        "NS" | "NAMESPACE" if value.is_empty() || value == "${NS}" || value == "${NAMESPACE}" => {
+            target_ns.map(|namespace| {
+                RuntimeArgumentBinding::new(namespace, RuntimeArgumentSource::TargetNamespace)
+            })
+        }
+        "POD_NAME" | "PODNAME"
+            if value.contains("${POD_NAME}")
+                || (value.is_empty()
+                    && matches!(target.as_ref(), Some(CampaignEntityRef::Pod(_)))) =>
+        {
+            let name = target_name.unwrap_or_else(|| "ran".to_string());
+            let resolved = if value.is_empty() {
+                name
+            } else {
+                value.replace("${POD_NAME}", &name)
+            };
+            Some(RuntimeArgumentBinding::new(
+                resolved,
+                RuntimeArgumentSource::TargetName,
+            ))
+        }
+        "NODE" if value.is_empty() || value == "${NODE}" || value == "${NODE_NAME}" => {
+            target_node_ip
+                .map(|ip| RuntimeArgumentBinding::new(ip, RuntimeArgumentSource::TargetNodeIp))
+                .or_else(|| {
+                    target_node_name.map(|name| {
+                        RuntimeArgumentBinding::new(name, RuntimeArgumentSource::TargetNodeName)
+                    })
+                })
+        }
+        "NODENAME" | "NODE_NAME"
+            if value.is_empty() || value == "${NODE_NAME}" || value == "${NODENAME}" =>
+        {
+            target_node_name.map(|name| {
+                RuntimeArgumentBinding::new(name, RuntimeArgumentSource::TargetNodeName)
+            })
+        }
+        "NODE.IP" if value.is_empty() || value == "${NODE.IP}" => target_node_ip
+            .map(|ip| RuntimeArgumentBinding::new(ip, RuntimeArgumentSource::TargetNodeIp)),
+        "NODE.NAME" if value.is_empty() || value == "${NODE.NAME}" => target_node_name
+            .map(|name| RuntimeArgumentBinding::new(name, RuntimeArgumentSource::TargetNodeName)),
+        "TOKEN" => resolve_token_arg(value, target.as_ref(), campaign).map(|token| {
+            RuntimeArgumentBinding::new(token, RuntimeArgumentSource::TargetServiceAccountToken)
+        }),
+        "API_SERVER" if value.is_empty() || value == "${API_SERVER}" => {
+            Some(RuntimeArgumentBinding::new(
+                DEFAULT_API_SERVER.to_string(),
+                RuntimeArgumentSource::RuntimeDefault,
+            ))
+        }
+        _ => None,
+    }
+}
+
 /// Fill in context-derived values for the well-known special parameters.
 ///
 /// | Key (case-insensitive match) | Resolution |
@@ -55,108 +190,34 @@ pub fn ground_args_from_context(
     target_id: &str,
     campaign: &Campaign,
 ) {
-    let target = campaign
-        .get_entities()
-        .into_iter()
-        .find(|e| e.entity_id().0 == target_id);
-
-    let target_ns = target.as_ref().and_then(entity_namespace);
-    let target_name = target.as_ref().map(|e| e.entity_name().to_string());
-    let target_node_name = target.as_ref().and_then(target_node_name);
-    let target_node_ip = target
-        .as_ref()
-        .and_then(|entity| target_node_ip(entity, campaign));
-    let target_node_preferred = target_node_ip.clone().or_else(|| target_node_name.clone());
-
     // Auto-inject context-derived defaults for absent parameters so that plan
     // steps can target a pod directly without repeating Namespace/PodName args.
     // `or_insert_with` preserves any value the caller already supplied.
-    if let Some(ns) = &target_ns {
-        args.entry("NAMESPACE".to_string())
-            .or_insert_with(|| ns.clone());
-        args.entry("NS".to_string()).or_insert_with(|| ns.clone());
-    }
-    // PODNAME/POD_NAME: only inject for pod entities (ns/<ns>/pod/<name>).
-    let target_is_pod = {
-        let p: Vec<&str> = target_id.splitn(4, '/').collect();
-        matches!(p.as_slice(), ["ns", _, "pod", _])
-    };
-    if target_is_pod {
-        if let Some(name) = &target_name {
-            args.entry("PODNAME".to_string())
-                .or_insert_with(|| name.clone());
-            args.entry("POD_NAME".to_string())
-                .or_insert_with(|| name.clone());
+    for key in [
+        "NAMESPACE",
+        "NS",
+        "PODNAME",
+        "POD_NAME",
+        "NODE.NAME",
+        "NODE.IP",
+        "API_SERVER",
+        "TOKEN",
+    ] {
+        if !args.contains_key(key) {
+            if let Some(binding) = resolve_runtime_argument(key, "", target_id, campaign) {
+                args.insert(key.to_string(), binding.into_grounded_value());
+            }
         }
-    }
-    if let Some(name) = &target_node_name {
-        args.entry("NODE.NAME".to_string())
-            .or_insert_with(|| name.clone());
-    }
-    if let Some(ip) = &target_node_ip {
-        args.entry("NODE.IP".to_string())
-            .or_insert_with(|| ip.clone());
     }
 
     ground_iximiuz_play_id_defaults(args, std::env::var("IXIMIUZ_PLAY_ID").ok().as_deref());
     for (key, value) in args.iter_mut() {
-        match key.to_ascii_uppercase().as_str() {
-            "NS" | "NAMESPACE"
-                if value.is_empty() || value == "${NS}" || value == "${NAMESPACE}" =>
-            {
-                *value = target_ns.clone().unwrap_or_default();
-            }
-            "NS" | "NAMESPACE" => {}
-            "POD_NAME" | "PODNAME" if value.contains("${POD_NAME}") => {
-                let name = target_name.as_deref().unwrap_or("ran");
-                *value = value.replace("${POD_NAME}", name);
-            }
-            "POD_NAME" | "PODNAME" => {}
-            "NODE" if value.is_empty() || value == "${NODE}" || value == "${NODE_NAME}" => {
-                *value = target_node_preferred.clone().unwrap_or_default();
-            }
-            "NODE" => {}
-            "NODENAME" | "NODE_NAME"
-                if value.is_empty() || value == "${NODE_NAME}" || value == "${NODENAME}" =>
-            {
-                *value = target_node_name.clone().unwrap_or_default();
-            }
-            "NODENAME" | "NODE_NAME" => {}
-            "NODE.IP" if value.is_empty() || value == "${NODE.IP}" => {
-                *value = target_node_ip.clone().unwrap_or_default();
-            }
-            "NODE.IP" => {}
-            "NODE.NAME" if value.is_empty() || value == "${NODE.NAME}" => {
-                *value = target_node_name.clone().unwrap_or_default();
-            }
-            "NODE.NAME" => {}
-            "TOKEN" => {
-                if let Some(raw) = resolve_token_arg(value, target.as_ref(), campaign) {
-                    *value = raw;
-                }
-            }
-            "API_SERVER" if value.is_empty() || value == "${API_SERVER}" => {
-                *value = "https://kubernetes.default.svc".to_string();
-            }
-            "API_SERVER" => {}
-            _ => {}
+        if let Some(binding) = resolve_runtime_argument(key, value, target_id, campaign) {
+            *value = binding.into_grounded_value();
         }
 
         if value.contains("${RANDOM}") {
             *value = value.replace("${RANDOM}", &random_id());
-        }
-    }
-
-    // Inject well-known defaults for keys that may not be declared as TTP
-    // parameters but are referenced in procedure commands.
-    args.entry("API_SERVER".to_string())
-        .or_insert_with(|| "https://kubernetes.default.svc".to_string());
-
-    // If TOKEN was not a declared parameter at all, try to resolve it from the
-    // target entity so that curl-style procedures get a bearer token.
-    if !args.contains_key("TOKEN") {
-        if let Some(raw) = resolve_token_from_target(target.as_ref(), campaign) {
-            args.insert("TOKEN".to_string(), raw);
         }
     }
 }
