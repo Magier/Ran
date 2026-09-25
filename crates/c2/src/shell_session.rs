@@ -49,7 +49,6 @@ struct ShellInner {
 pub(crate) enum SessionHealth {
     Responsive,
     Busy,
-    Suspect,
     Lost,
 }
 
@@ -494,7 +493,6 @@ async fn run_frame(
     health.send_replace(SessionHealth::Busy);
     let deadline = tokio::time::sleep_until(deadline_at);
     tokio::pin!(deadline);
-    let mut timed_out = false;
     let mut output = String::new();
     let mut line = Vec::new();
 
@@ -522,26 +520,21 @@ async fn run_frame(
                 let text = String::from_utf8_lossy(&line);
                 let trimmed = text.trim_end_matches(['\r', '\n']);
                 if let Some(code) = trimmed.strip_prefix(&format!("{marker}:")) {
-                    if !timed_out {
-                        finish_with_success(&mut reply, code.parse().unwrap_or(1), output);
-                    }
+                    finish_with_success(&mut reply, code.parse().unwrap_or(1), output);
                     health.send_replace(SessionHealth::Responsive);
                     return true;
                 }
-                if !timed_out {
-                    if let PendingReply::Execute { output_sink, .. } = &reply {
-                        output_sink.stdout(line.clone());
-                    }
-                    output.push_str(&text);
+                if let PendingReply::Execute { output_sink, .. } = &reply {
+                    output_sink.stdout(line.clone());
                 }
+                output.push_str(&text);
                 line.clear();
             }
-            _ = &mut deadline, if !timed_out => {
+            _ = &mut deadline => {
                 finish_with_timeout(&mut reply, timeout, command);
-                timed_out = true;
-                output.clear();
-                health.send_replace(SessionHealth::Suspect);
-                warn!(%entity_id, "shell command or heartbeat timed out; continuing to drain its response");
+                health.send_replace(SessionHealth::Lost);
+                warn!(%entity_id, "shell command or heartbeat timed out; invalidating the session because framing cannot be recovered safely");
+                return false;
             }
         }
     }
@@ -911,16 +904,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_timed_out_command_is_drained_before_the_next_command_runs() {
+    async fn a_timed_out_command_invalidates_the_session_and_rejects_the_next_command() {
         let (client, server) = tokio::io::duplex(4096);
         let (server_rx, mut server_tx) = tokio::io::split(server);
         let (client_rx, client_tx) = tokio::io::split(client);
+        let command_count = Arc::new(AtomicUsize::new(0));
+        let server_count = Arc::clone(&command_count);
 
         tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
             let mut reader = tokio::io::BufReader::new(server_rx);
             let mut line = String::new();
-            let mut command_count = 0;
             loop {
                 line.clear();
                 match reader.read_line(&mut line).await {
@@ -932,17 +926,10 @@ mod tests {
                     if !marker.starts_with("__RAN_") {
                         continue;
                     }
-                    command_count += 1;
-                    if command_count == 1 {
-                        tokio::time::sleep(Duration::from_millis(1200)).await;
-                    }
-                    let output = if command_count == 1 {
-                        "late output"
-                    } else {
-                        "fresh output"
-                    };
+                    server_count.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(1200)).await;
                     let _ = server_tx
-                        .write_all(format!("{output}\n{marker}:0\n").as_bytes())
+                        .write_all(format!("late output\n{marker}:0\n").as_bytes())
                         .await;
                     let _ = server_tx.flush().await;
                 }
@@ -956,15 +943,20 @@ mod tests {
         let first = session.execute(&first_cmd).await;
         assert!(!first.success);
         assert_eq!(first.fail_reason, "shell command timed out after 1s");
-        assert_ne!(*session.health.borrow(), SessionHealth::Lost);
+        assert_eq!(*session.health.borrow(), SessionHealth::Lost);
 
         let mut second_cmd = make_cmd("next command", "session/test");
         second_cmd.execution_timeout_seconds = 2;
-        let second = session.execute(&second_cmd).await;
+        let second = tokio::time::timeout(Duration::from_millis(100), session.execute(&second_cmd))
+            .await
+            .expect("the closed session should reject the next command promptly");
 
-        assert!(second.success, "{}", second.fail_reason);
-        assert_eq!(second.results, vec!["fresh output"]);
-        assert_eq!(*session.health.borrow(), SessionHealth::Responsive);
+        assert!(!second.success);
+        assert_eq!(
+            second.fail_reason,
+            crate::types::SESSION_CLOSED_UNEXPECTEDLY
+        );
+        assert_eq!(command_count.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -996,8 +988,8 @@ mod tests {
                     if let Some(started) = first_started_tx.take() {
                         let _ = started.send(());
                     }
-                    // The first command exceeds its own deadline, then returns
-                    // its marker so the queued command can start safely.
+                    // The first command occupies the stream long enough that
+                    // a submission-time deadline would expire the queued one.
                     tokio::time::sleep(Duration::from_millis(1200)).await;
                     let _ = server_tx
                         .write_all(format!("first done\n{marker}:0\n").as_bytes())
@@ -1014,7 +1006,7 @@ mod tests {
 
         let session = Arc::new(ShellSession::from_rw(client_rx, client_tx, "node/test"));
         let mut first_cmd = make_cmd("first", "session/test");
-        first_cmd.execution_timeout_seconds = 1;
+        first_cmd.execution_timeout_seconds = 2;
         let first_session = Arc::clone(&session);
         let first = tokio::spawn(async move { first_session.execute(&first_cmd).await });
 
@@ -1028,7 +1020,8 @@ mod tests {
         let second = session.execute(&second_cmd).await;
         let first = first.await.expect("first execution task should complete");
 
-        assert_eq!(first.fail_reason, "shell command timed out after 1s");
+        assert!(first.success, "{}", first.fail_reason);
+        assert_eq!(first.results, vec!["first done"]);
         assert!(second.success, "{}", second.fail_reason);
         assert_eq!(second.results, vec!["second done"]);
         assert_eq!(command_count.load(Ordering::SeqCst), 2);
@@ -1055,7 +1048,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_missed_idle_heartbeat_is_suspect_not_lost() {
+    async fn a_missed_idle_heartbeat_invalidates_the_session() {
         let (client, server) = tokio::io::duplex(4096);
         let (server_rx, _server_tx) = tokio::io::split(server);
         let (client_rx, client_tx) = tokio::io::split(client);
@@ -1079,7 +1072,7 @@ mod tests {
         let mut health = session.subscribe_health();
 
         tokio::time::timeout(Duration::from_secs(1), async {
-            while *health.borrow_and_update() != SessionHealth::Suspect {
+            while *health.borrow_and_update() != SessionHealth::Lost {
                 health
                     .changed()
                     .await
@@ -1087,8 +1080,7 @@ mod tests {
             }
         })
         .await
-        .expect("missed heartbeat should update health");
-        assert_ne!(*health.borrow(), SessionHealth::Lost);
+        .expect("missed heartbeat should invalidate the session");
     }
 
     #[test]

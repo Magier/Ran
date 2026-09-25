@@ -1979,11 +1979,7 @@ async fn monitor_session_health(
         // A successful idle heartbeat briefly occupies the single shell stream,
         // transitioning through Busy and back to Responsive. Those are normal
         // operation, not useful health diagnostics.
-        if matches!(
-            state,
-            crate::shell_session::SessionHealth::Suspect
-                | crate::shell_session::SessionHealth::Lost
-        ) {
+        if state == crate::shell_session::SessionHealth::Lost {
             tracing::debug!(%backend_id, ?state, "shell session health changed");
         }
         if state == crate::shell_session::SessionHealth::Lost {
