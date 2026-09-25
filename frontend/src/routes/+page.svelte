@@ -26,6 +26,9 @@
 	const selectedEntity = $derived(
 		selectedObject && 'entity' in selectedObject ? selectedObject : undefined
 	);
+	const selectedEdge = $derived(
+		selectedObject && 'sourceId' in selectedObject ? selectedObject : undefined
+	);
 	const selectedSessionEdge = $derived(sessionEdge(selectedObject));
 	const sessionEdgeAction = $derived.by(() => {
 		if (!selectedSessionEdge) return undefined;
@@ -787,7 +790,7 @@
 				class="h-full min-h-0 w-full"
 				action={sendArmoryAction}
 				{runRecommendation}
-				targetId={selectedObjectId}
+				targetId={selectedEdge ? '' : selectedObjectId}
 				target={selectedEntity}
 				edgeAction={sessionEdgeAction}
 				bind:focusSearch={focusArmorySearch}
@@ -840,7 +843,7 @@
 					onSessionAction={requestSessionKill}
 				/>
 
-				{#if selectedObjectId !== ''}
+				{#if selectedObjectId !== '' && !selectedEdge}
 					<svelte:boundary onerror={handleError}>
 						<div
 							bind:this={entityInfoContainer}
