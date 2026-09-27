@@ -17,7 +17,8 @@ use crate::failure_analyzers::{
     classify_failure, detect_failure_signature, FAILURE_ANALYZER_EFFECT_ID,
 };
 use crate::grounding::{
-    detect_ungrounded_vars, ground_args_from_context, ground_entity_ref_vars, resolve_template,
+    detect_ungrounded_vars, ground_args_from_context, ground_entity_parameters,
+    ground_entity_ref_vars, resolve_template,
 };
 use crate::output_parsers::{
     build_no_parser_audit, build_parse_audit, parse_output_effect, ParsedEffect,
@@ -52,6 +53,19 @@ fn validate_request(request: &ExecuteActionRequest) -> Result<(), ExecuteActionE
         }
     }
     Ok(())
+}
+
+fn redact_url_credentials(args: &mut HashMap<String, String>) {
+    for value in args.values_mut() {
+        let Ok(mut url) = url::Url::parse(value) else {
+            continue;
+        };
+        if !url.username().is_empty() || url.password().is_some() {
+            let _ = url.set_username("redacted");
+            let _ = url.set_password(None);
+            *value = url.to_string();
+        }
+    }
 }
 
 fn resolve_ttp_and_defaults(
@@ -131,6 +145,117 @@ fn validate_option_params(
                 "parameter '{}' must be one of: {}",
                 param.name,
                 param.options.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_typed_path_params(
+    ttp: &Ttp,
+    args: &HashMap<String, String>,
+) -> Result<(), ExecuteActionError> {
+    for param in &ttp.params {
+        let value = args
+            .get(&param.name)
+            .map(String::as_str)
+            .unwrap_or("")
+            .trim();
+        if param.param_type.eq_ignore_ascii_case("FileSource") {
+            if value.is_empty() {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "parameter '{}' must not be empty",
+                    param.name
+                )));
+            }
+            if value.chars().any(char::is_control) {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "parameter '{}' must not contain control characters",
+                    param.name
+                )));
+            }
+
+            let lower = value.to_ascii_lowercase();
+            if lower.starts_with("http:") || lower.starts_with("https:") {
+                let url = url::Url::parse(value).map_err(|_| {
+                    ExecuteActionError::InvalidInput(format!(
+                        "parameter '{}' must be a valid HTTP(S) URL or local filesystem path",
+                        param.name
+                    ))
+                })?;
+                if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+                    return Err(ExecuteActionError::InvalidInput(format!(
+                        "parameter '{}' URL must use HTTP or HTTPS and include a host",
+                        param.name
+                    )));
+                }
+                if !url.username().is_empty() || url.password().is_some() {
+                    return Err(ExecuteActionError::InvalidInput(format!(
+                        "parameter '{}' URL must not contain embedded credentials",
+                        param.name
+                    )));
+                }
+            } else if value.contains(':') {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "parameter '{}' must be a local filesystem path or an HTTP(S) URL",
+                    param.name
+                )));
+            }
+        } else if param.param_type.eq_ignore_ascii_case("AbsolutePath") {
+            if value.is_empty() {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "parameter '{}' must not be empty",
+                    param.name
+                )));
+            }
+            if !value.starts_with('/') {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "parameter '{}' must be an absolute path",
+                    param.name
+                )));
+            }
+            if value.contains(':') || value.chars().any(char::is_control) {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "parameter '{}' is not a valid absolute path",
+                    param.name
+                )));
+            }
+            if value
+                .split('/')
+                .any(|component| component == "." || component == "..")
+            {
+                return Err(ExecuteActionError::InvalidInput(format!(
+                    "parameter '{}' must not contain '.' or '..' path segments",
+                    param.name
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_grounded_entity_params(
+    ttp: &Ttp,
+    args: &HashMap<String, String>,
+) -> Result<(), ExecuteActionError> {
+    for param in &ttp.params {
+        if !ttp_references_param(ttp, &param.name) {
+            continue;
+        }
+        let Some(value) = args.get(&param.name).map(|value| value.trim()) else {
+            continue;
+        };
+        let valid = if param.param_type.eq_ignore_ascii_case("Pod") {
+            is_dns_subdomain(value)
+        } else if param.param_type.eq_ignore_ascii_case("Namespace") {
+            is_dns_label(value)
+        } else {
+            continue;
+        };
+        if !valid {
+            return Err(ExecuteActionError::InvalidInput(format!(
+                "parameter '{}' is not a valid Kubernetes {} name",
+                param.name, param.param_type
             )));
         }
     }
@@ -398,8 +523,11 @@ impl ResolvedK8sAuth {
         }
     }
 
-    fn kubectl_arg(&self) -> String {
+    fn kubectl_arg(&self, use_local_client: bool) -> String {
         match self {
+            Self::ServiceAccount { .. } if use_local_client => {
+                "--kubeconfig \"$KUBECONFIG\"".to_string()
+            }
             Self::ServiceAccount { token, .. } => {
                 format!("--token {}", shell_words::quote(token))
             }
@@ -575,6 +703,34 @@ fn materialize_shell_operation(
             command: procedure.command.clone(),
         })
     }
+}
+
+fn is_dns_label(value: &str) -> bool {
+    value.len() <= 63 && is_dns_name(value, false)
+}
+
+fn is_dns_subdomain(value: &str) -> bool {
+    value.len() <= 253 && is_dns_name(value, true)
+}
+
+fn is_dns_name(value: &str, allow_dot: bool) -> bool {
+    !value.is_empty()
+        && value.split('.').all(|label| {
+            !label.is_empty()
+                && (allow_dot || value == label)
+                && label.len() <= 63
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+                && label
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+        })
 }
 
 fn materialize_execution_operation(
@@ -1201,6 +1357,7 @@ impl Campaign {
         if normalized_request.auth_identity_id.is_none() {
             normalized_request.auth_identity_id = parameter_identity;
         }
+        redact_url_credentials(&mut normalized_request.args);
         let record = ExecutionRecord::from_preparation_failure(
             cmd_id,
             &normalized_request,
@@ -1239,6 +1396,7 @@ impl Campaign {
         ground_listener_defaults(&ttp, &mut args, self)?;
         normalize_string_list_params(&ttp, &mut args)?;
         validate_option_params(&ttp, &args)?;
+        validate_typed_path_params(&ttp, &args)?;
 
         // This action's semantic target is the selected Pod. Never allow
         // legacy Namespace/PodName arguments to redirect execution elsewhere.
@@ -1432,7 +1590,7 @@ impl Campaign {
             .or_else(|| requested_auth_identity_id.filter(|identity| !identity.trim().is_empty()));
         let use_kubeconfig = resolved_auth
             .as_ref()
-            .is_some_and(ResolvedK8sAuth::uses_kubeconfig);
+            .is_some_and(|auth| auth.uses_kubeconfig() || procedure.is_local_command == Some(true));
 
         // Stage 2: normalise the caller-supplied routing hint.
         let exec_hint = normalise_exec_hint(exec_system_id.as_deref(), &target_id);
@@ -1441,6 +1599,9 @@ impl Campaign {
         // before template substitution so cross-param references like `${NS}` in
         // arg defaults resolve correctly.
         ground_args_from_context(&mut args, &target_id, self);
+        ground_entity_parameters(&ttp, &mut args, &target_id, self)
+            .map_err(ExecuteActionError::InvalidInput)?;
+        validate_grounded_entity_params(&ttp, &args)?;
         if self
             .entities
             .contains::<K8sCluster>(&EntityId::new(&target_id))
@@ -1496,7 +1657,10 @@ impl Campaign {
         // Stage 5: ground the procedure command and effects. K8S_AUTH is an
         // ephemeral built-in and is removed from persisted execution args.
         if let Some(auth) = &resolved_auth {
-            args.insert("K8S_AUTH".to_string(), auth.kubectl_arg());
+            args.insert(
+                "K8S_AUTH".to_string(),
+                auth.kubectl_arg(procedure.is_local_command == Some(true)),
+            );
         }
         ground_procedure_and_effects(&mut procedure, &mut ttp.effects, &mut args, &ttp.id);
         args.remove("K8S_AUTH");
@@ -1735,6 +1899,17 @@ impl Campaign {
         }
 
         if auth_identity_id.is_some_and(|identity| identity.starts_with("k8s/credential/"))
+            && crate::ttp_applicability::procedure_uses_k8s_auth(procedure)
+        {
+            return Ok(ExecRoute::direct(
+                BUILTIN_C2_ID.to_string(),
+                target_id.to_string(),
+                vec![],
+                None,
+            ));
+        }
+        if auth_identity_id.is_some()
+            && procedure.is_local_command == Some(true)
             && crate::ttp_applicability::procedure_uses_k8s_auth(procedure)
         {
             return Ok(ExecRoute::direct(
@@ -3934,7 +4109,7 @@ mod k8s_auth_tests {
             context: Some("staging".to_string()),
         };
         assert_eq!(
-            auth.kubectl_arg(),
+            auth.kubectl_arg(false),
             "--kubeconfig \"$KUBECONFIG\" --context staging"
         );
     }
@@ -3945,7 +4120,7 @@ mod k8s_auth_tests {
             id: "k8s/credential/prod".to_string(),
             context: None,
         };
-        assert_eq!(auth.kubectl_arg(), "--kubeconfig \"$KUBECONFIG\"");
+        assert_eq!(auth.kubectl_arg(false), "--kubeconfig \"$KUBECONFIG\"");
     }
 
     #[test]

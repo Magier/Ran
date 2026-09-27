@@ -222,6 +222,77 @@ pub fn ground_args_from_context(
     }
 }
 
+/// Resolve entity-valued parameters from graph IDs to the concrete values
+/// expected by command-line tools. The API deliberately transports entity IDs
+/// so selections stay unambiguous; procedure templates generally need the
+/// entity's name or namespace instead.
+pub fn ground_entity_parameters(
+    ttp: &armory::Ttp,
+    args: &mut HashMap<String, String>,
+    target_id: &str,
+    campaign: &Campaign,
+) -> Result<(), String> {
+    let target = campaign
+        .get_entities()
+        .into_iter()
+        .find(|entity| entity.entity_id().0 == target_id);
+
+    for param in &ttp.params {
+        let expected_kind = if param.param_type.eq_ignore_ascii_case("Pod") {
+            "Pod"
+        } else if param.param_type.eq_ignore_ascii_case("Namespace") {
+            "Namespace"
+        } else {
+            continue;
+        };
+        let Some(current) = args.get(&param.name).cloned() else {
+            continue;
+        };
+        let value = current.trim();
+        let targets_selected_entity = value.is_empty()
+            || value == "${TARGET}"
+            || value == "${TARGET_ID}"
+            || value == target_id;
+
+        let grounded = if targets_selected_entity {
+            match expected_kind {
+                "Pod" => target
+                    .as_ref()
+                    .filter(|entity| entity.entity_kind().eq_ignore_ascii_case("Pod"))
+                    .map(|entity| entity.entity_name().to_string()),
+                "Namespace" => target.as_ref().and_then(entity_namespace),
+                _ => None,
+            }
+        } else {
+            let canonical = campaign.canonical_entity_id(value);
+            campaign
+                .get_entities()
+                .into_iter()
+                .find(|entity| entity.entity_id().0 == canonical)
+                .map(|entity| {
+                    if !entity.entity_kind().eq_ignore_ascii_case(expected_kind) {
+                        Err(format!(
+                            "parameter '{}' requires a {} entity, but '{}' identifies a {}",
+                            param.name,
+                            expected_kind,
+                            value,
+                            entity.entity_kind()
+                        ))
+                    } else {
+                        Ok(entity.entity_name().to_string())
+                    }
+                })
+                .transpose()?
+        };
+
+        if let Some(grounded) = grounded {
+            args.insert(param.name.clone(), grounded);
+        }
+    }
+
+    Ok(())
+}
+
 /// Resolve the optional playground ID only when the action did not receive an
 /// explicit value. This keeps a value typed in the action modal authoritative.
 fn ground_iximiuz_play_id_defaults(

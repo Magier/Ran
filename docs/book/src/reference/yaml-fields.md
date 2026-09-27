@@ -40,7 +40,7 @@ parameters:
 
 | Field         | Type   | Default  | Description                                                                                |
 | ------------- | ------ | -------- | ------------------------------------------------------------------------------------------ |
-| `type`        | string | `string` | Parameter type. One of: `string`, `Namespace`, `ServiceAccount`, `K8sAuth`, `bool`, `int`. |
+| `type`        | string | `string` | Parameter type. Common values include `string`, `FileSource`, `AbsolutePath`, `Pod`, `Namespace`, `ServiceAccount`, `K8sAuth`, `bool`, and `int`. |
 | `description` | string | `""`     | Shown in the UI tooltip and CLI help.                                                      |
 | `default`     | any    | `""`     | Default value. Can reference built-in variables like `${NS}`.                              |
 | `required`    | bool   | `true`   | Whether the parameter must be provided. Set to `false` to make it optional.                |
@@ -54,6 +54,13 @@ parameters:
 | `${TARGET.IP}`  | IP address of the target entity                           |
 | `${TARGET_ID}`  | Ran entity ID of the target (e.g. `ns/default/pod/nginx`) |
 | `${IXIMIUZ_PLAY_ID}` | Iximiuz playground ID from Ran's `IXIMIUZ_PLAY_ID` environment variable |
+
+Entity-valued parameters are transported as canonical Ran entity IDs. Before
+procedure rendering, `Pod` parameters are grounded to the selected pod name and
+`Namespace` parameters are grounded independently to the namespace name.
+`FileSource` accepts a local path or an HTTP(S) URL without embedded
+credentials. `AbsolutePath` requires an absolute path without `.` or `..`
+segments. Both path types are validated before execution.
 
 ---
 
