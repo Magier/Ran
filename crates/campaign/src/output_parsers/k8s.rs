@@ -743,6 +743,10 @@ fn parse_k8s_pod_list(
         pod.host_pid = item.spec.host_pid.into();
         pod.host_ipc = item.spec.host_ipc.into();
         pod.host_network = item.spec.host_network.into();
+        // Kubernetes defaults an omitted container privileged flag to false,
+        // so an authoritative Pod spec gives us a known negative unless one
+        // of its regular or init containers explicitly enables it.
+        pod.privileged = false.into();
 
         // Build a volume-name → host path index (only host-path volumes for now).
         let vol_host_paths: std::collections::HashMap<&str, &str> = item
@@ -1723,6 +1727,8 @@ mod tests {
             pod.containers[0].args,
             ["redis-server", "--appendonly", "yes"]
         );
+        assert_eq!(pod.privileged, false.into());
+        assert_eq!(pod.host_pid, false.into());
         assert!(facts
             .new_relations
             .iter()

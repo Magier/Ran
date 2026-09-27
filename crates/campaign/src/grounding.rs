@@ -222,6 +222,77 @@ pub fn ground_args_from_context(
     }
 }
 
+/// Resolve entity-valued parameters from graph IDs to the concrete values
+/// expected by command-line tools. The API deliberately transports entity IDs
+/// so selections stay unambiguous; procedure templates generally need the
+/// entity's name or namespace instead.
+pub fn ground_entity_parameters(
+    ttp: &armory::Ttp,
+    args: &mut HashMap<String, String>,
+    target_id: &str,
+    campaign: &Campaign,
+) -> Result<(), String> {
+    let target = campaign
+        .get_entities()
+        .into_iter()
+        .find(|entity| entity.entity_id().0 == target_id);
+
+    for param in &ttp.params {
+        let expected_kind = if param.param_type.eq_ignore_ascii_case("Pod") {
+            "Pod"
+        } else if param.param_type.eq_ignore_ascii_case("Namespace") {
+            "Namespace"
+        } else {
+            continue;
+        };
+        let Some(current) = args.get(&param.name).cloned() else {
+            continue;
+        };
+        let value = current.trim();
+        let targets_selected_entity = value.is_empty()
+            || value == "${TARGET}"
+            || value == "${TARGET_ID}"
+            || value == target_id;
+
+        let grounded = if targets_selected_entity {
+            match expected_kind {
+                "Pod" => target
+                    .as_ref()
+                    .filter(|entity| entity.entity_kind().eq_ignore_ascii_case("Pod"))
+                    .map(|entity| entity.entity_name().to_string()),
+                "Namespace" => target.as_ref().and_then(entity_namespace),
+                _ => None,
+            }
+        } else {
+            let canonical = campaign.canonical_entity_id(value);
+            campaign
+                .get_entities()
+                .into_iter()
+                .find(|entity| entity.entity_id().0 == canonical)
+                .map(|entity| {
+                    if !entity.entity_kind().eq_ignore_ascii_case(expected_kind) {
+                        Err(format!(
+                            "parameter '{}' requires a {} entity, but '{}' identifies a {}",
+                            param.name,
+                            expected_kind,
+                            value,
+                            entity.entity_kind()
+                        ))
+                    } else {
+                        Ok(entity.entity_name().to_string())
+                    }
+                })
+                .transpose()?
+        };
+
+        if let Some(grounded) = grounded {
+            args.insert(param.name.clone(), grounded);
+        }
+    }
+
+    Ok(())
+}
+
 /// Resolve the optional playground ID only when the action did not receive an
 /// explicit value. This keeps a value typed in the action modal authoritative.
 fn ground_iximiuz_play_id_defaults(
@@ -364,6 +435,7 @@ fn random_id() -> String {
 /// | PROP          | Resolution                               |
 /// |---------------|------------------------------------------|
 /// | `MOUNT_PATH`  | First host-path on a pod (`host_paths`)  |
+/// | `HOST_PATH:<source>` | In-container mount point for an exact hostPath source |
 /// | `IP`          | First IP address on the entity's system  |
 /// | `NAME`        | Entity name                              |
 /// | `NS` / `NAMESPACE` | Entity namespace                    |
@@ -437,6 +509,13 @@ fn expand_entity_props(value: &mut String, ref_name: &str, entity_id: &str, camp
 /// Returns `None` when the property is not applicable to the entity kind or
 /// the value is unavailable.
 fn resolve_entity_prop(entity: &CampaignEntityRef, prop: &str) -> Option<String> {
+    if let Some(host_path) = prop.strip_prefix("HOST_PATH:") {
+        return match entity {
+            CampaignEntityRef::Pod(pod) => resolve_host_path_mount(pod, host_path),
+            _ => None,
+        };
+    }
+
     match prop.to_ascii_uppercase().as_str() {
         "NAME" => Some(entity.entity_name().to_string()),
         "NS" | "NAMESPACE" => entity.namespace().map(str::to_string),
@@ -455,6 +534,31 @@ fn resolve_entity_prop(entity: &CampaignEntityRef, prop: &str) -> Option<String>
         },
         _ => None,
     }
+}
+
+fn resolve_host_path_mount(pod: &Pod, required_root: &str) -> Option<String> {
+    fn normalize(path: &str) -> &str {
+        let trimmed = path.trim();
+        if trimmed == "/" {
+            "/"
+        } else {
+            trimmed.trim_end_matches('/')
+        }
+    }
+    let required_root = normalize(required_root);
+    let mut matches = pod
+        .volume_mounts
+        .iter()
+        .filter(|mount| mount.is_host_path && normalize(&mount.mount_root) == required_root);
+    let first = matches.next()?;
+    if matches.next().is_some() {
+        tracing::warn!(
+            pod = %pod.entity_name(),
+            host_path = required_root,
+            "host path is mounted more than once; using the first mount point"
+        );
+    }
+    Some(first.mount_point.clone())
 }
 
 fn resolve_mount_path(pod: &Pod) -> Option<String> {
@@ -1192,6 +1296,56 @@ mod tests {
         ]);
         ground_entity_ref_vars(&mut args, &campaign);
         assert_eq!(args["MOUNT_PATH"], "/host/root/etc/kubernetes");
+    }
+
+    #[test]
+    fn exact_host_path_resolves_its_in_container_mount_point() {
+        let mut pod = Pod::new("attacker", "default");
+        pod.volume_mounts.push(ran_domain::Mount {
+            name: "host-root".to_string(),
+            mount_root: "/".to_string(),
+            mount_point: "/host/root".to_string(),
+            mount_type: None,
+            is_host_path: true,
+            read_only: false,
+        });
+        pod.volume_mounts.push(ran_domain::Mount {
+            name: "host-proc".to_string(),
+            mount_root: "/proc/".to_string(),
+            mount_point: "/mnt/host-proc".to_string(),
+            mount_type: None,
+            is_host_path: true,
+            read_only: true,
+        });
+        let (campaign, pod_id) = campaign_with_pod(pod);
+        let mut args = HashMap::from([
+            ("SRC".to_string(), pod_id),
+            (
+                "HOST_PROC".to_string(),
+                "${SRC.HOST_PATH:/proc}".to_string(),
+            ),
+        ]);
+
+        ground_entity_ref_vars(&mut args, &campaign);
+
+        assert_eq!(args["HOST_PROC"], "/mnt/host-proc");
+    }
+
+    #[test]
+    fn missing_exact_host_path_leaves_placeholder_unresolved() {
+        let pod = Pod::new("attacker", "default");
+        let (campaign, pod_id) = campaign_with_pod(pod);
+        let mut args = HashMap::from([
+            ("SRC".to_string(), pod_id),
+            (
+                "HOST_PROC".to_string(),
+                "${SRC.HOST_PATH:/proc}".to_string(),
+            ),
+        ]);
+
+        ground_entity_ref_vars(&mut args, &campaign);
+
+        assert_eq!(args["HOST_PROC"], "${SRC.HOST_PATH:/proc}");
     }
 
     #[test]

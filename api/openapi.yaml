@@ -24,7 +24,12 @@ paths:
   /api/graph:
     get:
       summary: Get attack graph
-      description: Returns the current attack graph with nodes and edges
+      description: >-
+        Returns the layout-oriented attack graph projection used for rendering.
+        Some campaign entities, including listeners and redirectors, are folded
+        into their host node instead of appearing as graph nodes. Use
+        /api/campaign-state and enumerate its entities field for the canonical
+        set of entity IDs accepted as targetId values.
       operationId: getGraph
       responses:
         '200':
@@ -37,7 +42,10 @@ paths:
   /api/campaign-state:
     get:
       summary: Get campaign state
-      description: Returns the current campaign state with entities and relations
+      description: >-
+        Returns the current campaign state with entities and relations. The
+        entities field is the canonical enumeration of entity IDs accepted as
+        targetId values by target-aware action endpoints.
       operationId: getCampaignState
       responses:
         '200':
@@ -724,6 +732,10 @@ components:
 
     Node:
       type: object
+      description: >-
+        One node in the layout-oriented graph projection. Graph identity and
+        rendering fields are top-level; the shared public campaign-entity
+        payload is nested under entity.
       required:
         - id
         - name
@@ -744,6 +756,12 @@ components:
           type: string
         entity:
           type: object
+          description: >-
+            Redacted and normalized public entity fields nested separately from
+            graph-node identity. This uses the same projection policy as the
+            fields flattened into campaign-state entities. Graph construction
+            may additionally attach display aggregates such as hosted listeners
+            and redirectors.
           additionalProperties: true
           properties:
             binaries:
@@ -814,10 +832,28 @@ components:
       properties:
         entities:
           type: object
+          description: >-
+            Canonical current campaign entities keyed by entity ID. Every key
+            and matching entity id is accepted as a targetId by target-aware
+            action endpoints, although a target may have no applicable actions.
+            Each value flattens the redacted and normalized public entity fields
+            alongside id, name, kind, namespace, and provenance. The same base
+            entity projection is nested under Node.entity in /api/graph.
           additionalProperties:
             type: object
             additionalProperties: true
+            required:
+              - id
+              - name
+              - kind
             properties:
+              id:
+                type: string
+                description: Canonical entity ID accepted as a targetId.
+              name:
+                type: string
+              kind:
+                type: string
               binaries:
                 type: object
                 description: >-
@@ -1517,6 +1553,25 @@ components:
           type: string
         activeSession:
           type: boolean
+        Pod.securityContext.privileged:
+          type: boolean
+          description: Requires a Pod known or not yet determined to be privileged. A known false value makes the action inapplicable.
+        Pod.securityContext.hostPID:
+          type: boolean
+          description: Requires a Pod known or not yet determined to share the host PID namespace. A known false value makes the action inapplicable.
+        Pod.hostPath:
+          description: Requires one or more exact hostPath source paths. Boolean true accepts any hostPath.
+          oneOf:
+            - type: boolean
+            - type: string
+            - type: array
+              items:
+                type: string
+        linuxNamespaceAccess:
+          type: array
+          description: Linux namespaces required by the action. Unknown access is allowed, while a known denial from the same action makes it inapplicable.
+          items:
+            type: string
         exists:
           type: array
           items:

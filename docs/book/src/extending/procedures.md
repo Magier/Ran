@@ -70,11 +70,18 @@ procedures:
 | `query` | Optional query string appended to the URL |
 | `use_ca` | Whether to validate the server CA certificate |
 
-The selected **Authenticate As** identity supplies authentication. Every
-kubectl invocation must contain `${K8S_AUTH}`; it expands to either a
-ServiceAccount `--token` flag or `--kubeconfig "$KUBECONFIG"`.
+The selected **Authenticate As** identity supplies authentication. Shell-based
+kubectl procedures must contain `${K8S_AUTH}`. Local kubectl procedures apply
+the selected identity through a private kubeconfig supplied by the runtime,
+without placing authentication material in the recorded command.
 Local control procedures that directly use the active Kubernetes client are
 exempt when they do not reference `${K8S_AUTH}`.
+
+Pod file uploads should use a normal local kubectl procedure. Declare the
+source as `FileSource`, the destination as `AbsolutePath`, and the pod and
+namespace as entity parameters. If the command supports HTTP(S), download to a
+temporary operator-host file and install an exit trap before calling
+`kubectl cp`.
 
 Keep these concerns separate when authoring an action:
 

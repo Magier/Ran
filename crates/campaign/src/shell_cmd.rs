@@ -59,6 +59,8 @@ struct Entry {
     cmd: SimpleCmd,
     /// Char-index range of the command name in `source`, for replacement.
     name_range: Option<Range<usize>>,
+    /// Char-index ranges of the arguments in `source`, in `cmd.args` order.
+    arg_ranges: Vec<Range<usize>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +135,21 @@ impl ShellCmd {
                 }
             })
             .collect();
+
+        for entry in &self.entries {
+            let Some(script_index) = shell_c_script_index(&entry.cmd) else {
+                continue;
+            };
+            let Some(range) = entry.arg_ranges.get(script_index).cloned() else {
+                continue;
+            };
+            let raw = source_chars(&self.source, range.clone());
+            let (prefix, script, suffix) = strip_matching_quotes(raw);
+            let grounded = ground_binaries(script, binaries);
+            if grounded != script {
+                replacements.push((range, format!("{prefix}{grounded}{suffix}")));
+            }
+        }
 
         if replacements.is_empty() {
             return self.source.clone();
@@ -217,6 +234,12 @@ fn entry_from_simple(sc: &SimpleCommand) -> Entry {
         .skip(1)
         .map(|(w, _)| w.to_string())
         .collect();
+    let arg_ranges = sc
+        .words
+        .iter()
+        .skip(1)
+        .map(|(word, _)| word.location.range.clone())
+        .collect();
 
     Entry {
         cmd: SimpleCmd {
@@ -225,7 +248,48 @@ fn entry_from_simple(sc: &SimpleCommand) -> Entry {
             args,
         },
         name_range,
+        arg_ranges,
     }
+}
+
+/// Return the argument index containing a script passed to a shell's `-c`
+/// option. Combined option groups such as `-lc` are supported.
+fn shell_c_script_index(cmd: &SimpleCmd) -> Option<usize> {
+    let shell = cmd.name.as_deref()?.rsplit('/').next()?;
+    if !matches!(shell, "sh" | "bash" | "dash" | "ash" | "zsh" | "ksh") {
+        return None;
+    }
+
+    cmd.args.iter().enumerate().find_map(|(index, arg)| {
+        let option = arg.strip_prefix('-')?;
+        if !option.is_empty() && option.contains('c') {
+            Some(index + 1)
+        } else {
+            None
+        }
+    })
+}
+
+fn source_chars(source: &str, range: Range<usize>) -> &str {
+    let char_indices: Vec<usize> = source
+        .char_indices()
+        .map(|(byte, _)| byte)
+        .chain(std::iter::once(source.len()))
+        .collect();
+    let start = char_indices
+        .get(range.start)
+        .copied()
+        .unwrap_or(source.len());
+    let end = char_indices.get(range.end).copied().unwrap_or(source.len());
+    &source[start..end]
+}
+
+fn strip_matching_quotes(raw: &str) -> (&str, &str, &str) {
+    let bytes = raw.as_bytes();
+    if bytes.len() >= 2 && matches!(bytes[0], b'\'' | b'"') && bytes.first() == bytes.last() {
+        return (&raw[..1], &raw[1..raw.len() - 1], &raw[raw.len() - 1..]);
+    }
+    ("", raw, "")
 }
 
 // ---------------------------------------------------------------------------
@@ -387,5 +451,31 @@ mod tests {
         map.insert("kubectl".to_string(), present("/tmp/kubectl"));
         let result = sc.ground(&map);
         assert_eq!(result, "/tmp/kubectl get pods");
+    }
+
+    #[test]
+    fn grounds_tool_inside_bash_c_script() {
+        let mut map = HashMap::new();
+        map.insert("kubectl".to_string(), present("/tmp/kubectl"));
+
+        let result = ground_binaries(
+            r#"bash -c "kubectl -n agent-system get serviceaccounts -o yaml""#,
+            &map,
+        );
+
+        assert_eq!(
+            result,
+            r#"bash -c "/tmp/kubectl -n agent-system get serviceaccounts -o yaml""#
+        );
+    }
+
+    #[test]
+    fn grounds_tool_inside_sh_lc_script() {
+        let mut map = HashMap::new();
+        map.insert("kubectl".to_string(), present("/tmp/kubectl"));
+
+        let result = ground_binaries("/bin/sh -lc 'kubectl get pods'", &map);
+
+        assert_eq!(result, "/bin/sh -lc '/tmp/kubectl get pods'");
     }
 }
