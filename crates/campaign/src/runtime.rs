@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -94,6 +95,11 @@ pub enum CampaignEvent {
         new_entities: Vec<EntitySummary>,
         new_relations: Vec<RelationSummary>,
     },
+    EntityMerged {
+        from: String,
+        into: String,
+        kind: String,
+    },
     ParseAudited {
         cmd_id: String,
         audits: Vec<ParseAudit>,
@@ -132,6 +138,34 @@ pub enum CampaignEvent {
     PlanComplete {
         plan_id: String,
     },
+}
+
+fn publish_entity_merges_since(
+    campaign_events: &CampaignEventBus,
+    campaign: &Campaign,
+    previous_aliases: &HashMap<EntityId, EntityId>,
+) {
+    let mut recorded = campaign
+        .entity_aliases
+        .iter()
+        .filter(|(stale, preferred)| previous_aliases.get(*stale) != Some(*preferred))
+        .collect::<Vec<_>>();
+    recorded.sort_by(|(left, _), (right, _)| left.0.cmp(&right.0));
+
+    for (stale, _) in recorded {
+        let canonical = campaign.canonical_entity_id(&stale.0);
+        let kind = campaign
+            .get_entities()
+            .into_iter()
+            .find(|entity| entity.entity_id().0 == canonical)
+            .map(|entity| entity.entity_kind().to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+        let _ = campaign_events.publish(CampaignEvent::EntityMerged {
+            from: stale.0.clone(),
+            into: canonical,
+            kind,
+        });
+    }
 }
 
 #[derive(Clone)]
@@ -249,6 +283,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                                 continue;
                             }
                         };
+                        let aliases_before = campaign_guard.entity_aliases.clone();
 
                         let processing = match campaign_guard
                             .on_ttp_executed_with_outcome(&cmd, &event, partial)
@@ -278,6 +313,12 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             }
                             summary
                         });
+
+                        publish_entity_merges_since(
+                            &campaign_events,
+                            &campaign_guard,
+                            &aliases_before,
+                        );
 
                         (processing, session_summary, session_revived)
                     };
@@ -607,6 +648,7 @@ pub fn spawn_c2_event_processor_with_external_parser(
                             continue;
                         }
                     };
+                    let aliases_before = guard.entity_aliases.clone();
 
                     let resolved_target_id = guard.canonical_entity_id(&target_entity_id);
                     let host_was_known = guard.get_system_entity(&resolved_target_id).is_some();
@@ -669,6 +711,8 @@ pub fn spawn_c2_event_processor_with_external_parser(
                         .get_system_entity(&channel_entity_id)
                         .map(|e| e.entity().entity_name().to_string())
                         .unwrap_or_else(|| channel_entity_id.clone());
+
+                    publish_entity_merges_since(&campaign_events, &guard, &aliases_before);
 
                     let _ = campaign_events.publish(CampaignEvent::FactsChanged {
                         cmd_id: backend_id.clone(),
@@ -1602,6 +1646,32 @@ mod tests {
             "fixture expects the foothold to be promoted to a pod"
         );
         campaign
+    }
+
+    #[test]
+    fn promotion_publishes_exactly_one_entity_merged_event() {
+        let campaign = promoted_foothold();
+        let previous_aliases = HashMap::from([(
+            EntityId::new("node/netshoot"),
+            EntityId::new("system/netshoot"),
+        )]);
+        let events = CampaignEventBus::new(8);
+        let mut rx = events.subscribe();
+
+        publish_entity_merges_since(&events, &campaign, &previous_aliases);
+
+        match rx.try_recv().expect("promotion event") {
+            CampaignEvent::EntityMerged { from, into, kind } => {
+                assert_eq!(from, "system/netshoot");
+                assert_eq!(into, "ns/?/pod/netshoot");
+                assert_eq!(kind, "Pod");
+            }
+            other => panic!("expected entity merge, got {other:?}"),
+        }
+        assert!(matches!(
+            rx.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
     }
 
     #[test]

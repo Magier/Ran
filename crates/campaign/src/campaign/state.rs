@@ -492,6 +492,19 @@ impl Campaign {
         current.0
     }
 
+    /// Return every stale entity id mapped to its final surviving id.
+    ///
+    /// The stored aliases may form a chain as identities are refined more than
+    /// once. API consumers should not need to reproduce that resolution logic,
+    /// so this snapshot always flattens each entry through
+    /// [`Self::canonical_entity_id`].
+    pub fn entity_aliases(&self) -> HashMap<String, String> {
+        self.entity_aliases
+            .keys()
+            .map(|stale| (stale.0.clone(), self.canonical_entity_id(&stale.0)))
+            .collect()
+    }
+
     /// Record that `stale` was merged into `preferred`, so later lookups keyed
     /// by the old id still land on the surviving entity.
     pub fn record_entity_alias(&mut self, stale: &EntityId, preferred: &EntityId) {

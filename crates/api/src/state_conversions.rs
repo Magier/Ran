@@ -49,6 +49,7 @@ pub(crate) fn campaign_to_campaign_state(
 
     CampaignState {
         entities,
+        entity_aliases: campaign.entity_aliases(),
         relations: campaign
             .get_relations()
             .iter()
@@ -856,6 +857,35 @@ mod tests {
         Transport,
     };
     use std::collections::BTreeSet;
+
+    #[test]
+    fn fresh_campaign_state_exposes_empty_entity_aliases() {
+        let campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        let state = campaign_to_campaign_state(&campaign, &kubetier::Catalog::embedded());
+
+        assert!(state.entity_aliases.is_empty());
+        assert_eq!(
+            serde_json::to_value(state).unwrap()["entityAliases"],
+            serde_json::json!({})
+        );
+    }
+
+    #[test]
+    fn campaign_state_exposes_flattened_entity_aliases() {
+        let mut campaign = Campaign::bootstrap("Ran", K8sCluster::new("demo"));
+        let pod = ran_domain::Pod::new("agent-worker-4vnbf", "agent-system");
+        let pod_id = pod.entity_id();
+        campaign.upsert_entity(pod, KnowledgeProvenance::Inference);
+        campaign.record_entity_alias(
+            &EntityId::new("system/agent-worker-4vnbf"),
+            &EntityId::new("ns/?/pod/agent-worker-4vnbf"),
+        );
+        campaign.record_entity_alias(&EntityId::new("ns/?/pod/agent-worker-4vnbf"), &pod_id);
+
+        let state = campaign_to_campaign_state(&campaign, &kubetier::Catalog::embedded());
+
+        assert_eq!(state.entity_aliases["system/agent-worker-4vnbf"], pod_id.0);
+    }
 
     #[test]
     fn completed_empty_permission_review_exposes_empty_can() {

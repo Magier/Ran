@@ -583,6 +583,10 @@ export interface components {
 			entities: {
 				[key: string]: Record<string, never>;
 			};
+			/** @description Stale entity ID to final canonical entity ID. Alias chains are flattened so every value names the surviving entity directly. */
+			entityAliases: {
+				[key: string]: string;
+			};
 			relations: {
 				[key: string]: unknown;
 			}[];

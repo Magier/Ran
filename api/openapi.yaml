@@ -774,12 +774,20 @@ components:
       type: object
       required:
         - entities
+        - entityAliases
         - relations
       properties:
         entities:
           type: object
           additionalProperties:
             type: object
+        entityAliases:
+          type: object
+          description: >-
+            Stale entity ID to final canonical entity ID. Alias chains are
+            flattened so every value names the surviving entity directly.
+          additionalProperties:
+            type: string
         relations:
           type: array
           items:
